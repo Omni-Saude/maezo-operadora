@@ -1,0 +1,779 @@
+{
+  "schema": "maezo-v21-source-readiness.proposal.v1",
+  "contract_status": "PROPOSED",
+  "baseline_head": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "execution_checkout": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora",
+  "execution_branch": "codex/v21-capability-execution",
+  "observed_on": "2026-10-04",
+  "author_role": "AMH source/compatibility steward",
+  "evidence_classification": "SOURCE_INSPECTED_AND_PIN_BYTES_REPRODUCED",
+  "source_authority_decisions_approved": false,
+  "new_effects_admitted": false,
+  "provider_runtime_qualified": false,
+  "production_data_or_credentials_accessed": false,
+  "external_requests_sent": false,
+  "scope": "W0 review dossier only; not supplier publication, human ratification or journey completion.",
+  "normative_plan_root": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring",
+  "administrative_contracts_document": "administrative-contracts.md",
+  "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+  "runtime_schema_version_selected": null,
+  "new_declared_domain_values_published": false,
+  "pin": {
+    "path": "config/integrations/amh/contracts.lock.json",
+    "sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+    "provenance": {
+      "amh_commit_sha": "09a0a282e69f49aa9c6944b25afb35eee65fcc9c",
+      "amh_manifest_commit_sha": "17972442b26aa31a304d5374b2493b260881c1d3",
+      "amh_repo": "Omni-Saude/amh-data-platform",
+      "canonical_schema_version": "1.0.0",
+      "compatibility_mode": "BACKWARD",
+      "contract_name": "amh-maezo-boundary",
+      "evidence_id": "XRG2-AMH-DEV-GHA-30991849241",
+      "status": "PUBLISHED"
+    },
+    "manifest_pin": {
+      "byte_size": 9441,
+      "git_blob_sha": "76fbc9bd030395e1c1b796fe4821fc60556a2d35",
+      "path": "schemas/contracts/maezo/v1/contract-manifest.yaml",
+      "prepublication_sha256": "78756b5353b8287cb8752ce50a0de6c78990e959f31e4072b2286634ef3fd1cf",
+      "sha256": "946266fb9ab10d27c01768e78fb3b673cba3db71680f652b10ccd0798065b126"
+    },
+    "pinned_object_checkout": {
+      "path": "/Users/familia/code/amh/amh-data-platform",
+      "head": "8644efc9d72ea823639dcc8306823ab6da66240f"
+    },
+    "requested_checkout": {
+      "path": "/Users/familia/code/amh-data-platform",
+      "head": "3441d20d145bba7c7035bb5404fbaa5490b25e8f",
+      "artifact_object_available": false,
+      "manifest_object_available": false
+    },
+    "pinned_artifact_and_fixture_digests_matched": 15,
+    "pinned_artifact_and_fixture_count": 15,
+    "manifest_verification": {
+      "sha256": "946266fb9ab10d27c01768e78fb3b673cba3db71680f652b10ccd0798065b126",
+      "byte_size": 9441,
+      "blob": "76fbc9bd030395e1c1b796fe4821fc60556a2d35",
+      "violations": [],
+      "pass": true
+    },
+    "local_pin_gate": "[amh-contract-pin:lock] PASS\n  . pin: config/integrations/amh/contracts.lock.json\n  . 3 frozen topics + quarantine, 5 artifacts, 10 fixture digests recomputed\n  . 28-field frozen envelope order + closed source_product vocabulary",
+    "live_msk_glue_provider_cib": "UNVERIFIED",
+    "publication_metadata": "Historical provenance; no current cloud/API verification.",
+    "lock_modified": false,
+    "canonical_schemas_copied": false
+  },
+  "current_published_purposes": [
+    "analytics",
+    "research",
+    "sharing_amh_internal",
+    "external_sharing"
+  ],
+  "new_commercial_purpose": null,
+  "clinical_context": {
+    "published_contract_available": true,
+    "adapter_and_executor_source_present": true,
+    "operations": [
+      "get_subject_context",
+      "list_subject_encounters",
+      "list_subject_conditions",
+      "get_subject_coverage"
+    ],
+    "graph_consumers_found_in_src": 0,
+    "root_amh_runtime_injections_found_in_src": 0,
+    "search_scope": "rg clinical_context, amh_runtime=, AmhRuntime( and fixed get/list methods in src/maezo at baseline.",
+    "optional_injection_path": "src/maezo/gateway/tool_registry.py:802-803",
+    "principal_purpose_composition_contract": "src/maezo/gateway/amh.py:56-113",
+    "require_approved_per_call": "src/maezo/gateway/amh.py:245-255",
+    "audit_and_consent_floor_before_dispatch": "src/maezo/gateway/amh.py:267-318",
+    "consent_currentness_before_return": "src/maezo/gateway/amh.py:369-375",
+    "coverage_has_required_generated_at": false,
+    "coverage_is_enrollment_mutation": false,
+    "legacy_fhir_fallback_allowed": false,
+    "runtime_qualified": false
+  },
+  "existing_mechanisms": [
+    {
+      "mechanism": "native/intake/staff cases",
+      "source_present": true,
+      "new_commercial_kind_status_audience_role_published": false,
+      "runtime_qualified": false
+    },
+    {
+      "mechanism": "protected communication publication and storage",
+      "source_present": true,
+      "provider_installed_by_module": false,
+      "current_public_receipt_semantics": "inbox_available",
+      "proves_whatsapp_or_service_delivery": false,
+      "runtime_qualified": false
+    },
+    {
+      "mechanism": "AMH mapping/wire codec/inbox/outcome port",
+      "source_present": true,
+      "amh_adapter_package_consumer_py_present": false,
+      "published_manifest_declares_wire_framing": false,
+      "live_publisher_proven": false,
+      "runtime_qualified": false
+    }
+  ],
+  "family_requests": [
+    {
+      "id": "CR-F1",
+      "family": "F1_context_access",
+      "operation_ids": [
+        "OP01"
+      ],
+      "status": "PARTIAL_IMPLEMENTED_LIVE_UNVERIFIED",
+      "contract_status": "PROPOSED",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "nominal_owner_designation": null,
+      "provider_identity": null,
+      "contract_publication": null,
+      "governance_ratification": null,
+      "actual_endpoint": null,
+      "owner_roles_to_designate": [
+        "registration/enrollment owner",
+        "AMH identity/consent steward when AMH boundary is used",
+        "DPO/legal",
+        "security"
+      ],
+      "current_covered": [
+        "ClinicalContextPort four GET operations",
+        "portable_subject_ref AMH minted authority",
+        "purpose/consent revision guarded clinical executor"
+      ],
+      "required_extension": [
+        "prospect identity lifecycle and linking to enrolled member",
+        "contracted nonclinical commercial purpose/access scope",
+        "freshness/erasure/alias policy"
+      ],
+      "source_request_crosswalk": {
+        "id": "CR-F1",
+        "family": "F1",
+        "source_ids": [
+          "AMH-V2-01",
+          "AMH-V2-04"
+        ],
+        "condition": "Prospect linking/identity and protected purpose/consent/freshness only for the source actually needed; no invented AMH identity or clinical-purpose reinterpretation"
+      },
+      "requested_owner_deliverables": [
+        "Designate administrative prospect/context authority and verified requester scope.",
+        "Publish allowed fields, purpose/base, source decision/revision/freshness.",
+        "If linked to AMH, provider-owned subject linking/aliases and current consent/erasure policy."
+      ],
+      "missing_gates": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ],
+      "conditional_amh_gates": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "blocked_scope": "New source binding/read/effect for this family until affected gates pass; independent deny-only internal mechanics are not blocked by unrelated providers.",
+      "proof_to_close": null
+    },
+    {
+      "id": "CR-F2",
+      "family": "F2_offer_options",
+      "operation_ids": [
+        "OP02"
+      ],
+      "status": "COMMERCIAL_AUTHORITY_ABSENT_FROM_PIN;POPULATION_PORT_PENDING",
+      "contract_status": "PROPOSED",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "nominal_owner_designation": null,
+      "provider_identity": null,
+      "contract_publication": null,
+      "governance_ratification": null,
+      "actual_endpoint": null,
+      "owner_roles_to_designate": [
+        "operator product/commercial/legal owner",
+        "catalogue/availability provider steward",
+        "DPO"
+      ],
+      "current_covered": [
+        "PopulationFeaturePort published aggregate API contract only"
+      ],
+      "required_extension": [
+        "authoritative product catalogue/terms/version/eligibility for prospect",
+        "offers and recommendation purpose rules; no health risk selection",
+        "feature consumer/provider qualification"
+      ],
+      "source_request_crosswalk": {
+        "id": "CR-F2",
+        "family": "F2",
+        "source_ids": [
+          "AMH-V2-02",
+          "AMH-V2-04",
+          "AMH-V2-06"
+        ],
+        "condition": "02 offer/catalogue authority is core;04 applies if its source needs governed context;06 only approved aggregate/product analysis in later scope, never mandatory population port for commercial offer or health-risk selection"
+      },
+      "requested_owner_deliverables": [
+        "Publish authoritative product catalogue, product/terms/offer versions and validity/withdrawal.",
+        "Publish availability observations and nonclinical explanatory criteria; ratified deterministic rules use CIB DMN.",
+        "No clinical/proxy risk selection or population dependency in core offers."
+      ],
+      "missing_gates": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ],
+      "conditional_amh_gates": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "blocked_scope": "New source binding/read/effect for this family until affected gates pass; independent deny-only internal mechanics are not blocked by unrelated providers.",
+      "proof_to_close": null
+    },
+    {
+      "id": "CR-F3",
+      "family": "F3_accept_commit",
+      "operation_ids": [
+        "OP03",
+        "OP04"
+      ],
+      "status": "BUSINESS_WRITES_ABSENT_FROM_PIN;LIVE_OUTCOME_PUBLISHER_UNVERIFIED",
+      "contract_status": "PROPOSED",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "nominal_owner_designation": null,
+      "provider_identity": null,
+      "contract_publication": null,
+      "governance_ratification": null,
+      "actual_endpoint": null,
+      "owner_roles_to_designate": [
+        "customer acceptance/legal owner",
+        "operator administrative enrollment issuer",
+        "registration/identity steward",
+        "AMH contract steward only when outcomes cross AMH"
+      ],
+      "current_covered": [
+        "OutcomePublisherPort audit outcome contract",
+        "pure map_outcome/outcome_to_wire"
+      ],
+      "required_extension": [
+        "acceptance authority/offer version/evidence semantics",
+        "enrollment/base entitlement authoritative mutation and receipt"
+      ],
+      "source_request_crosswalk": {
+        "id": "CR-F3",
+        "family": "F3",
+        "source_ids": [
+          "AMH-V2-01",
+          "AMH-V2-02",
+          "AMH-V2-05"
+        ],
+        "condition": "01 enrollment/right-base authority;02 accepted offer/terms proof;05 only when published outcome crosses AMH boundary. Customer evidence and administrative issuer receipt stay distinct"
+      },
+      "requested_owner_deliverables": [
+        "Publish customer/delegation authentication and evidence over exact offer_ref/version/terms.",
+        "Publish separate administrative issuer command/status/right-base receipt and prospect linking.",
+        "Provide lookup/reconciliation by command/idempotency key for uncertain timeout; no second enrollment."
+      ],
+      "missing_gates": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ],
+      "conditional_amh_gates": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "blocked_scope": "New source binding/read/effect for this family until affected gates pass; independent deny-only internal mechanics are not blocked by unrelated providers.",
+      "proof_to_close": null
+    },
+    {
+      "id": "CR-F4",
+      "family": "F4_delivery_tracking",
+      "operation_ids": [
+        "OP05",
+        "OP06"
+      ],
+      "status": "READ_ONLY_COVERAGE_PRESENT;ENROLLMENT_AGENDA_ABSENT_FROM_PIN",
+      "contract_status": "PROPOSED",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "nominal_owner_designation": null,
+      "provider_identity": null,
+      "contract_publication": null,
+      "governance_ratification": null,
+      "actual_endpoint": null,
+      "owner_roles_to_designate": [
+        "agenda/reservation provider owner",
+        "delivery/network/care source owner",
+        "AMH steward and DPO only for protected AMH context/events"
+      ],
+      "current_covered": [
+        "get_subject_coverage snapshot read"
+      ],
+      "required_extension": [
+        "enrollment activation authoritative state",
+        "provider availability and reservation lifecycle",
+        "point-in-time freshness/hold expiry/cancel/reschedule contract"
+      ],
+      "source_request_crosswalk": {
+        "id": "CR-F4",
+        "family": "F4",
+        "source_ids": [
+          "AMH-V2-03",
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "03 actual reservation/delivery authority;04 for permitted clinical-result context/freshness;05 if source events cross AMH. Read-only coverage remains not activation or reservation"
+      },
+      "requested_owner_deliverables": [
+        "Publish provider hold/confirm/reschedule/cancel authority, atomic revision and hold expiry.",
+        "Publish performed/result_available/no_show/disrupted/pending source facts, revision and factual time.",
+        "Provide uncertain-timeout reconciliation and domain-authorized compensation."
+      ],
+      "missing_gates": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ],
+      "conditional_amh_gates": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "blocked_scope": "New source binding/read/effect for this family until affected gates pass; independent deny-only internal mechanics are not blocked by unrelated providers.",
+      "proof_to_close": null
+    },
+    {
+      "id": "CR-F5",
+      "family": "F5_request_resolve",
+      "operation_ids": [
+        "OP07",
+        "OP08",
+        "OP11"
+      ],
+      "status": "FOUNDATION_PRESENT;BROKER_CONSUMER_ABSENT_FROM_AMH_ADAPTER_PACKAGE",
+      "contract_status": "PROPOSED",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "nominal_owner_designation": null,
+      "provider_identity": null,
+      "contract_publication": null,
+      "governance_ratification": null,
+      "actual_endpoint": null,
+      "owner_roles_to_designate": [
+        "domain case/CX owner",
+        "current requester authority owner",
+        "native/staff case owner",
+        "AMH contract steward/DBA/consumer owner only for AMH work items"
+      ],
+      "current_covered": [
+        "WorkItemSource",
+        "AMH work_item canonical mapping",
+        "AmhInbox durable dedup/revision primitives"
+      ],
+      "required_extension": [
+        "approval and lifecycle contracts for new commercial/enrollment work items",
+        "wire framing declaration and real source/consent/outcome plumbing qualification"
+      ],
+      "source_request_crosswalk": {
+        "id": "CR-F5",
+        "family": "F5",
+        "source_ids": [
+          "AMH-V2-02",
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "Commercial case terms/roles from02;care context under04 only its qualified purpose;05 is provider work-item/framing/outcome plumbing when used, not universal source for all case creation"
+      },
+      "requested_owner_deliverables": [
+        "Publish case kind/status/audience/role and requester authority for each domain.",
+        "Publish same-case revision/protocol/non-resettable clock, lifecycle and receipts.",
+        "S4 confirms only through OP07 after source resolution receipt and current customer manifestation; no OP03.",
+        "Publish disagreement/timeout/closed-without-confirmation mapping without silence-as-resolved."
+      ],
+      "missing_gates": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ],
+      "conditional_amh_gates": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "blocked_scope": "New source binding/read/effect for this family until affected gates pass; independent deny-only internal mechanics are not blocked by unrelated providers.",
+      "proof_to_close": null
+    },
+    {
+      "id": "CR-F6",
+      "family": "F6_communication_progress",
+      "operation_ids": [
+        "OP09",
+        "OP10"
+      ],
+      "status": "ENVELOPE_PRESENT;NEW_DOMAIN_SEMANTICS_UNVERIFIED",
+      "contract_status": "PROPOSED",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "nominal_owner_designation": null,
+      "provider_identity": null,
+      "contract_publication": null,
+      "governance_ratification": null,
+      "actual_endpoint": null,
+      "owner_roles_to_designate": [
+        "communication/channel/recipient-preference owner",
+        "domain fact/milestone source owner",
+        "DPO/security",
+        "AMH publisher/consumer owner only for AMH wire"
+      ],
+      "current_covered": [
+        "correlation/causation/idempotency envelope fields",
+        "OutcomePublisherPort completion/evidence primitives"
+      ],
+      "required_extension": [
+        "authoritative milestone/receipt semantic mapping for new domains",
+        "delivery/preference and erasure contracts with current MAEZO communication owners"
+      ],
+      "source_request_crosswalk": {
+        "id": "CR-F6",
+        "family": "F6",
+        "source_ids": [
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "04 purpose/recipient preference/revocation when using protected source;05 source milestone/outcome wire when crossing AMH. Sender/channel provider contracts remain their named owner, not AMH-V2-06 population"
+      },
+      "requested_owner_deliverables": [
+        "Publish communication class/channel/audience/preferences/revocation and mandatory-notice policy.",
+        "Publish distinct prepared/sent/delivered/unknown receipts and sender/recipient authority.",
+        "Publish authoritative milestone source/revision, fact versus prediction, correction/replay/erasure."
+      ],
+      "missing_gates": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ],
+      "conditional_amh_gates": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "blocked_scope": "New source binding/read/effect for this family until affected gates pass; independent deny-only internal mechanics are not blocked by unrelated providers.",
+      "proof_to_close": null
+    }
+  ],
+  "gate_definitions": {
+    "SRC-OWNER": "Designate actual organization, source provider and accountable functional owners; no inferred AMH ownership.",
+    "SRC-CONTRACT": "Provide owner-published immutable contract/version/digest and legal authority for each fact/command/receipt.",
+    "SRC-IDENTITY": "Prove tenant/legal entity/principal/object scope, opaque references and authority-owned prospect linking/aliases.",
+    "SRC-PURPOSE": "Provide exact allowed purpose/fields/base and applicable ratification, consent/current revision or documented non-applicability.",
+    "SRC-TIME": "Publish business revision, factual/generated/valid times and freshness/skew/invalidation semantics; no local invented TTL.",
+    "SRC-ERASURE": "Publish custody/retention/erasure responsibilities, legal retention decisions and completion proof across projections/refs/outbox.",
+    "SRC-RECEIPT": "Provide authentic effect-specific receipt, expected revision, request digest/idempotency key and reconciliation of pending/uncertain outcomes.",
+    "SRC-WIRE": "Publish actual transport/framing/version migration and reader/writer semantic compatibility; no legacy permissive fallback.",
+    "SRC-COMPOSITION": "Implement real adapter, registry/handler, gateway admission, root injection, explicit graph consumer and authenticated reply/resume.",
+    "SRC-RUNTIME": "Independently qualify real provider/API/DB and CIB when used, including tenant/purpose/revocation/stale/replay/conflict/timeout/concurrency.",
+    "SRC-INDEPENDENT": "Author, verifier, third-party repair, original-review delta, integrator, CI and final verifier remain independent where applicable."
+  },
+  "reader_writer_qualification": [
+    {
+      "reader": "current",
+      "writer": "current",
+      "required": "Existing pin/consumer regression; byte reproduction is not runtime acceptance."
+    },
+    {
+      "reader": "new",
+      "writer": "old",
+      "required": "BACKWARD structural plus old-semantics/null/default/enum/replay provider and consumer tests."
+    },
+    {
+      "reader": "old",
+      "writer": "new",
+      "required": "Explicit accept or safe refuse/quarantine proof; BACKWARD does not establish this direction."
+    },
+    {
+      "reader": "new",
+      "writer": "new",
+      "required": "Published source contract, purpose/authority/framing/outcomes and real interface/reconciliation proof."
+    }
+  ],
+  "avro_semantics": {
+    "payload_workflow_purpose_outcome_fields": "Published Avro payloads use strings; permissive structural type does not publish new domain meaning.",
+    "source_product_enum": [
+      "tasy_hospital",
+      "tasy_healthcare_plan"
+    ]
+  },
+  "xrg": {
+    "lock_hand_edit_allowed": false,
+    "amh_publisher": "AMH contract steward",
+    "non_amh_publisher": "Designated legitimate source owner/provider",
+    "new_amh_publication_required_when": "An AMH-owned schema/manifest/framing/semantic boundary changes.",
+    "new_xrg3_independent_verification_required": true,
+    "silent_downgrade_allowed": false,
+    "breaking_change": "Major/topic/migration/drain/alias and qualified compatibility, preserving ADR-0037 applicable dual-read/publish window."
+  },
+  "population": {
+    "published_minimum_k": 10,
+    "requested_min_cell_size_may_lower_floor": false,
+    "suppressed_cell_metrics": null,
+    "suppression_is_measured_zero": false,
+    "suppression_is_measured_empty_mapping": false,
+    "preserve_grouped_cells_two_k_floors_and_consent_snapshot": true,
+    "individual_dimension_allowed": false,
+    "concrete_population_port_adapter_found": false,
+    "runtime_injected": false,
+    "legacy_andre_default_k": 1,
+    "legacy_flat_aggregate_is_population_port_alias": false,
+    "canonical_privacy_policy_status": "DRAFT",
+    "canonical_privacy_policy_k_min": null,
+    "canonical_privacy_policy_allowed_metrics": null,
+    "source_policy_reference": "spec/policies/privacy/population-egress-v1.yaml",
+    "advanced_analytics_scope": "AW5 separately gated; not prerequisite for Compra/Suporte."
+  },
+  "baseline_measurement": {
+    "status": "UNMEASURED",
+    "financial_ROI": "UNMEASURED",
+    "approved_aggregate_export": null,
+    "owner_roles": [
+      "CX/product owner sets lifecycle and cohort definitions",
+      "ops-observability validates emitter and export lineage",
+      "AMH data owner approves canonical source/aggregate compatibility",
+      "Security/DPO validates purpose, minimization, retention and small-cohort handling"
+    ],
+    "steps": [
+      "inventory existing emitter contract and source lineages without production access",
+      "agree versioned start/end and duplicate/correction/maturity definitions",
+      "request approved aggregate export for one representative fixed window chosen by CX; obtain counts/missingness by cohort, not raw events",
+      "if unavailable record UNMEASURED and specify minimal proposed events for later approved instrumentation",
+      "run counter/receipt reconciliation and control filters; separate synthetic/staging/production",
+      "compare matched baseline and pilot cohorts with identical horizon/endpoints; do not infer causality from raw conversion change"
+    ],
+    "event_fields_proposed_not_created": [
+      "event_id",
+      "event_type closed vocabulary",
+      "occurred_at",
+      "received_at",
+      "schema_version",
+      "producer_version",
+      "purpose_of_use",
+      "company_tenant_ref opaque",
+      "journey_ref opaque with approved retention",
+      "correlation_ref opaque",
+      "domain_operation_ref opaque",
+      "state_version",
+      "receipt_ref opaque",
+      "offer_version where relevant",
+      "outcome/reason bounded vocabulary"
+    ],
+    "forbidden_in_measurement": [
+      "CPF/matricula/MPI raw",
+      "name/phone/email",
+      "clinical detail or diagnosis",
+      "prompt/transcript/payload/message body",
+      "health-risk feature/proxy",
+      "raw partner credentials"
+    ],
+    "cardinality": "Journey/event/receipt IDs belong only in protected authorized event store, never Prometheus labels. Tenant labels only use approved existing opaque bounded mapping; metadata can remain personal data.",
+    "suppression_and_missingness_rule": "Keep suppressed/None and unknown metrics absent; report denominators/missingness/maturity and consent snapshot without fabricated zero.",
+    "approved_retention_window": null,
+    "approved_cohort_window": null,
+    "no_direct_lake_query": true,
+    "positive_quantitative_ROI_claimed": false
+  },
+  "predeploy_checklist": {
+    "git_object": "e7b14522a4f70242504d2b152a57ee5269ee66e2:docs/reports/predeploy-findings.json",
+    "sha256": "7a99ffb007c66aa93115a81fff4089a386ddd6c55ba6c3a0ef5023f91e106751",
+    "entry_count": 127,
+    "root_deliberate_delete_restored": false,
+    "historical_agents_count": 82,
+    "selected_applicable_historical_findings": [
+      {
+        "id": "phone-hash-keyless-brute-forceable-reidentification",
+        "component_lesson": "Opaque identity and protected event/log lineage; do not expose reversible phone hashes."
+      },
+      {
+        "id": "lucas-marina-glosa-a2a-origination-never-wired",
+        "component_lesson": "Source declarations and helper implementation require a real caller/consumer/root, not a docstring."
+      },
+      {
+        "id": "bridges-missing-readinessprobe-kafka-consumer-rollout-gap",
+        "component_lesson": "Consumer readiness follows source connection/subscription/rebalance and is independently proven."
+      }
+    ],
+    "historical_finding_is_current_defect_by_default": false
+  },
+  "source_evidence": [
+    {
+      "path": "config/integrations/amh/contracts.lock.json",
+      "base_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/ports/clinical_context.py",
+      "base_sha256": "1dbf37478bf815d0f1a80fd86625752704765254593ee009a5a36c86253dc708",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/ports/population_features.py",
+      "base_sha256": "9fbd1f2b7422fc73ca36710cbd69b5a3ab1b81019eef15adb118ae4c71e569b0",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/adapters/amh/subject_context.py",
+      "base_sha256": "e00cf24bebaaefc8849c2c71ab5e5cc9bdd87684ba537b1edd6140f0e172e853",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/adapters/amh/mapping.py",
+      "base_sha256": "126b773e547ae6ed99a4949831642a0e0fc9045a6c21d9654407929a84b43258",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/adapters/amh/wire_framing.py",
+      "base_sha256": "5bea6edf6455571fc8e79d34052c01c24e19e252594b1d61ace35aa7745550fa",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/amh.py",
+      "base_sha256": "74625464ca4cdc573eb2d437ef0922a4463fe55bd3b114154c4a63c0bae92eee",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/amh_consent_revision.py",
+      "base_sha256": "88a67f314013d21fac4571c5b8bc809abc4c326c0d77fdefd382ec5d614ef9ae",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/tool_registry.py",
+      "base_sha256": "0526162b70a05d0b3ea5c2e6d3243f3bdcd6474ac12c07835ae5e102cf67b55c",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/seams/population.py",
+      "base_sha256": "174c7db867c876c22bc191d2f1a4dbbee934d02390e9a99eb0ec07d00db0f8f1",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/agents/andre/graph.py",
+      "base_sha256": "87bd72a92b9be24b210c422ad5f8a7604796feff5fc9788d79d7a191a786416b",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/platform/privacy/population_policy.py",
+      "base_sha256": "48db5a70f71999c55c2804c65fdf33829a1e6ef76f32799de5a173ceb9821dfc",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "spec/policies/privacy/population-egress-v1.yaml",
+      "base_sha256": "622597052d2a2b97cd7947207aec771b0abf7425890a2258d516037a67634af2",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/staff_cases/composition.py",
+      "base_sha256": "cd9228ffbd81bec06ce0e635574a12c22ced6c5681c8e782292de299e53fb215",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/communications/admission.py",
+      "base_sha256": "c5ff8559b9b591c244b37a24d79ced5a7bbc8537e035366361a2ecf6d7abc8ae",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/portal/contracts/communications.py",
+      "base_sha256": "3a435f3a13d40211e5523a2cbedafa56941c456a428c06c5e4750122bd87fb81",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/d7_external_owner.py",
+      "base_sha256": "b795018ad1c266866d6aa4bb935259f58bc01914c54b2fa19e96f647dfca31c6",
+      "working_tree_matches_base": true
+    },
+    {
+      "path": "spec/agents/valentina/agent.yaml",
+      "base_sha256": "0fc4b1395e41f009f0206f328753e4a4e6b364885d0e0b26b5bea0daed4a843a",
+      "working_tree_matches_base": true
+    }
+  ],
+  "independent_review": {
+    "status": "PENDING",
+    "verifier": null,
+    "reviewed_digest": null,
+    "proof": null
+  }
+}

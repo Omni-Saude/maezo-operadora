@@ -1,0 +1,57 @@
+{
+  "schema": "maezo.v21.independent-source-delta-review.v1",
+  "event_id": "SOURCE-DELTA-PASS-3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "recorded_by": "/root",
+  "record_source": "Exact facts from original reviewer /root/capability_source_verifier final response",
+  "verdict": "PASS_TECHNICAL_CANDIDATE_DELTA",
+  "reviewer": "/root/capability_source_verifier",
+  "previous_input_sha": "3af46d55fa8e31c0fc444624dcccfab35b682ead",
+  "input_sha": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "delta_reviewed_paths": 3,
+  "unchanged_other_original_technical_paths": 14,
+  "reviewed_live_bytes_equal_frozen_commit": true,
+  "findings": [],
+  "AW-SOURCE-F01": {
+    "status": "CLOSED_REPRODUCED",
+    "vectors": [
+      "planted_output",
+      "invalid_known_field_model_copy"
+    ],
+    "exception": "AdministrativeInputError",
+    "storage_roots": 0,
+    "marker_in_blobs": false,
+    "marker_in_writes": false,
+    "marker_in_warnings": false,
+    "marker_in_traceback": false
+  },
+  "AW-SOURCE-F02": {
+    "status": "CLOSED_REPRODUCED",
+    "original_runnable_metadata_vector": {
+      "final_status": "disabled",
+      "real_saver_nonempty": true,
+      "marker_in_storage": false,
+      "marker_in_blobs": false,
+      "marker_in_writes": false,
+      "marker_in_snapshot_metadata": false
+    },
+    "application_security_context_preserved": true,
+    "parent_context_restored": true,
+    "child_did_not_inherit_parent_callbacks": true,
+    "three_concurrent_tenant_task_roots_isolated": true,
+    "independent_socket_guard_network_attempts": 0
+  },
+  "validation": {
+    "focal_and_billing_regression": "282 passed in 3.39s",
+    "ruff_check": "PASS",
+    "ruff_format": "14 files already formatted",
+    "mypy": "Success: no issues found in 8 source files",
+    "git_diff_check": "PASS",
+    "actual_graph_service_admission_cancellation": "Cancellation propagated; child source stopped; synthetic source effect retained; local leases zero"
+  },
+  "previous_verdict_record_identity_and_facts": "MATCH",
+  "mutations_by_reviewer": "NONE",
+  "authorship_repair_integration_participation": "NONE",
+  "source_runtime_operational_qualification": "NOT_PROVEN",
+  "operational_tracing_sink_qualification": "NOT_PROVEN",
+  "test_namespace_subsequent_gate": "AW-CI-F01 on 389; repaired separately by empty package marker, new event required"
+}

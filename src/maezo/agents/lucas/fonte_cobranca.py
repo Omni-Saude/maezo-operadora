@@ -37,7 +37,16 @@ from typing import Any, Final, Literal, Protocol, runtime_checkable
 from maezo.runtime.competencia import competencia_valida
 
 #: Motivos de `Indisponivel`. Fechado: a fonte real tem de mapear as falhas dela para um destes.
-MotivoIndisponivel = Literal["pseudo_id_ausente", "competencia_invalida", "fonte_indisponivel"]
+MotivoIndisponivel = Literal[
+    "pseudo_id_ausente",
+    "competencia_invalida",
+    "fonte_indisponivel",
+    # Fonte real (`fonte_cobranca_amh.py`): a pessoa nao foi resolvida, nao ha' consentimento, ou a fonte
+    # respondeu mas nao tem o fato (campo ausente). Nenhum vira fato inventado: o Lucas escala.
+    "sujeito_nao_resolvido",
+    "sem_consentimento",
+    "fato_ausente",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +84,9 @@ class FonteCobranca(Protocol):
     falha vira `Indisponivel("fonte_indisponivel")`, para o chamador nao ter dois caminhos de erro.
     """
 
-    async def fatos(self, pseudo_id: str, competencia: str | None) -> FatosCobranca | Indisponivel: ...
+    async def fatos(
+        self, pseudo_id: str, competencia: str | None, *, phone_hash: str | None = None
+    ) -> FatosCobranca | Indisponivel: ...
 
 
 #: Perfis da fonte simulada, na ordem do bucket do hash. Nomes estaveis: o corpus os cita.
@@ -110,7 +121,10 @@ _FATOS_DO_PERFIL: Final[dict[PerfilSimulado, tuple[bool, int]]] = {
 class FonteCobrancaSimulada:
     """`FonteCobranca` deterministica por hash do pseudonimo (ver docstring do modulo)."""
 
-    async def fatos(self, pseudo_id: str, competencia: str | None) -> FatosCobranca | Indisponivel:
+    async def fatos(
+        self, pseudo_id: str, competencia: str | None, *, phone_hash: str | None = None
+    ) -> FatosCobranca | Indisponivel:
+        del phone_hash  # a simulada decide pelo pseudonimo; so' a fonte real precisa do hash do telefone
         if not pseudo_id:
             return Indisponivel("pseudo_id_ausente")
         # `YYYY-MM`: a regra unica de `runtime/competencia.py` (a da coluna `lucas_competencia`).

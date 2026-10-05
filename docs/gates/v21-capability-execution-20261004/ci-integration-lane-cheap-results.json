@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "source_input_manifest": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-input-manifest.json",
+  "phase": "CHEAP_SOURCE_GATES",
+  "overall_status": "PASS",
+  "results": [
+    {
+      "command": [
+        "make",
+        "lint"
+      ],
+      "started_at": "2026-10-04T17:16:31.357843+00:00",
+      "ended_at": "2026-10-04T17:16:31.538386+00:00",
+      "duration_seconds": 0.181,
+      "return_code": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-01-lint.log",
+      "log_sha256": "4602504e0a76346cac21a12996ac38012850f08f6f91bd84929bc3ce4fd4ce37"
+    },
+    {
+      "command": [
+        "make",
+        "type"
+      ],
+      "started_at": "2026-10-04T17:16:31.539182+00:00",
+      "ended_at": "2026-10-04T17:16:32.545586+00:00",
+      "duration_seconds": 1.006,
+      "return_code": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-02-type.log",
+      "log_sha256": "3fe4669edc0cec377ad7d8e92fcd71db039d373bcf7542d460dffeb66c6941e6"
+    },
+    {
+      "command": [
+        "make",
+        "validate-artifacts"
+      ],
+      "started_at": "2026-10-04T17:16:32.545887+00:00",
+      "ended_at": "2026-10-04T17:16:37.349919+00:00",
+      "duration_seconds": 4.804,
+      "return_code": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-03-validate-artifacts.log",
+      "log_sha256": "305091bce07b2151f0f95daa7d2eb462e2a000188827496e38558cacbb7062e4"
+    },
+    {
+      "command": [
+        "make",
+        "check-bpmn-error-allowlist"
+      ],
+      "started_at": "2026-10-04T17:16:37.350303+00:00",
+      "ended_at": "2026-10-04T17:16:37.648330+00:00",
+      "duration_seconds": 0.298,
+      "return_code": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-04-check-bpmn-error-allowlist.log",
+      "log_sha256": "8fcda745fe2d39695464c3c817c921a894906f00a0cb27700a01175ee7c1f284"
+    },
+    {
+      "command": [
+        "make",
+        "check-start-process-fence"
+      ],
+      "started_at": "2026-10-04T17:16:37.648698+00:00",
+      "ended_at": "2026-10-04T17:16:39.076624+00:00",
+      "duration_seconds": 1.428,
+      "return_code": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-05-check-start-process-fence.log",
+      "log_sha256": "6f8b37b2ef242bfffea46d36604077e4a22cf0f95cddae98ba29dbe6cb0c3f0e"
+    },
+    {
+      "command": [
+        "make",
+        "effect-chokepoint-fence"
+      ],
+      "started_at": "2026-10-04T17:16:39.076975+00:00",
+      "ended_at": "2026-10-04T17:16:48.248214+00:00",
+      "duration_seconds": 9.171,
+      "return_code": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-06-effect-chokepoint-fence.log",
+      "log_sha256": "0bf532e4f168c4994a5e5b4cae06bf47bc84f3bbf4fd5818d5b03c2b82133d29"
+    },
+    {
+      "command": [
+        "make",
+        "verify-amh-contract-pin"
+      ],
+      "started_at": "2026-10-04T17:16:48.248589+00:00",
+      "ended_at": "2026-10-04T17:16:48.382020+00:00",
+      "duration_seconds": 0.133,
+      "return_code": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-07-verify-amh-contract-pin.log",
+      "log_sha256": "c1200542cadd3d0995cc33198478584a9fe39a95e2e46cb222fd484d844afe8d"
+    },
+    {
+      "command": [
+        "make",
+        "check-plans-counts"
+      ],
+      "started_at": "2026-10-04T17:16:48.382325+00:00",
+      "ended_at": "2026-10-04T17:16:48.510540+00:00",
+      "duration_seconds": 0.128,
+      "return_code": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-08-check-plans-counts.log",
+      "log_sha256": "d3f5be236746c4a4a38f833e030750ac57cb010c377ee749ba47c41622eadd3b"
+    },
+    {
+      "command": [
+        "make",
+        "check-doc-symbol-citations"
+      ],
+      "started_at": "2026-10-04T17:16:48.510819+00:00",
+      "ended_at": "2026-10-04T17:16:52.226561+00:00",
+      "duration_seconds": 3.716,
+      "return_code": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-09-check-doc-symbol-citations.log",
+      "log_sha256": "5211cc85dbfc0e9599cbddabc873c1488707d9dbe01a378cfc7d12de59eb068b"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema": "maezo.v21.final-gate.v1",
+  "recorded_by": "/root",
+  "recorded_at": "2026-10-04T21:11:38.486346+00:00",
+  "record_source": "Exact independent reviewer final response in this task; transcription by integrator",
+  "input_head": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+  "integration_base": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+  "fingerprint": "5b82a9d6517e822f8f1c9b84f4d24db35887b000b28836b35527937e096ae6d8",
+  "implementation_manifest": "implementation-manifest-r6.json",
+  "manifest_sha256": "6daee1075d987aa493962157aeea9aba32d074d81fbec22cc092d95c18f0ffef",
+  "input_hashes_verified": 53,
+  "tracked_tree_clean_at_review": true,
+  "independence": {
+    "authorship": false,
+    "repair": false,
+    "integration": false,
+    "file_mutations": false,
+    "review_posting": false
+  },
+  "ci_live_readback": {
+    "run_id": 37231985559,
+    "head_matches": true,
+    "status": "completed",
+    "conclusion": "success",
+    "success": 38,
+    "skipped": 1,
+    "failure": 0,
+    "pending": 0,
+    "unit_shards_success": 9,
+    "integration_shards_success": 5,
+    "real_engine_aggregator": "SUCCESS",
+    "scheduled_only_skip": "evals-nightly (full suite)"
+  },
+  "scope": "Disabled technical candidate and W0 proposals for owner review",
+  "human_ratification": false,
+  "provider_qualification": false,
+  "full_W1_or_journey_acceptance": false,
+  "production_or_merge_approval": false,
+  "metadata_delivery_delta": "Separate review required for later documentation/evidence changes",
+  "findings": [],
+  "event_id": "FINAL-ARCHITECTURE-R6-90c1717e",
+  "reviewer": "/root/final_architecture_gate",
+  "verdict": "PASS_BOUNDED_TECHNICAL_CANDIDATE_AND_W0_OWNER_REVIEW",
+  "whole_diff_verified": true,
+  "independent_delta_tests": {
+    "R5": 62,
+    "R6": 16
+  },
+  "prior_finding": "FINAL-ARCH-F01/AW-CI-F01 CLOSED; prior REVISE preserved"
+}

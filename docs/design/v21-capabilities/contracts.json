@@ -1,0 +1,3294 @@
+{
+  "schema": "maezo-v21-administrative-contracts.proposal.v1",
+  "contract_status": "PROPOSED",
+  "baseline_head": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "author_role": "capability_contract_architect",
+  "authoring_checkout": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora",
+  "authoritative_admitted_bundle_root": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring",
+  "new_personas": [],
+  "authority_statement": "Reviewable internal proposals. This document is neither supplier publication nor human ratification, runtime qualification or production authorization.",
+  "source_artifacts": [
+    {
+      "path": "docs/audits/BPMN-CA-2026-10/v2-capabilities/plan.json",
+      "sha256": "ef83361ee40324717d6af3ed94b04d841d1977dfe0d5f8f770e84984866893e6"
+    },
+    {
+      "path": "docs/audits/BPMN-CA-2026-10/v2-capabilities/COMPATIBILITY-AND-CONTRACTS.md",
+      "sha256": "3838cfd88b27a4da8090eabbeba4024e42e11ad751d513737d7e432e1237c1bb"
+    },
+    {
+      "path": "docs/audits/BPMN-CA-2026-10/v2-agent-wiring/agent-wiring.json",
+      "sha256": "8dcd21e9f12a2248eaf2c0688f947cdd75bf6e44730c5ae1d8170ed571540f20"
+    },
+    {
+      "path": "docs/audits/BPMN-CA-2026-10/v2-agent-wiring/INTEGRATION-PLAN-V2.1.md",
+      "sha256": "620432008f25c72cc00e8923f37812e89d802b50ea0fb77b34d5644453ce2a8d"
+    }
+  ],
+  "common_envelope": {
+    "field_names": [
+      "schema_version",
+      "operation_name",
+      "tenant_ref",
+      "legal_entity_ref",
+      "journey_ref",
+      "correlation_ref",
+      "causation_ref",
+      "idempotency_key",
+      "expected_business_revision",
+      "source_authority_ref",
+      "policy_revision",
+      "data_classification"
+    ],
+    "source_exact": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+    "closed": true,
+    "schema_version_value": "v21-capabilities.proposed.v1",
+    "identity_rule": "Opaque authority references only; local prospect journey ref never minting an AMH portable_subject_ref",
+    "candidate_interface_only": true,
+    "published": false
+  },
+  "operations": [
+    {
+      "id": "OP01",
+      "family": "F1",
+      "operation": "access.resolve",
+      "request": "ContextAccessIntent",
+      "response": "ContextAccessResult",
+      "binding": "ClinicalContextPort/AmhSubjectContextAdapter for current allowed clinical purpose; prospect/commercial ingress is a provider gap",
+      "authority_gate": "purpose, source authority, tenant and current consent evidence",
+      "proposed_events": "context.denied/context.available",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "subject_type": "prospect|beneficiary",
+        "subject_or_prospect_ref": "OpaqueRef",
+        "operation_scope_ref": "OpaqueRef",
+        "purpose_policy_ref": "OpaqueRef",
+        "expected_consent_revision_ref": "OpaqueRef?",
+        "source_context_refs": "list<OpaqueRef>"
+      },
+      "response_fields_proposed": {
+        "access_status": "available|denied|unavailable",
+        "context_refs": "list<OpaqueRef>",
+        "source_revision_ref": "OpaqueRef?",
+        "access_decision_ref": "OpaqueRef"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "helena",
+          "lucas",
+          "rafael",
+          "carolina",
+          "valentina"
+        ],
+        "agent_mode": "READ_REQUEST",
+        "node_proposed": "resolve_context",
+        "ingress": "journey.compras.step|journey.suporte.step for admitted administrative Lucas; existing domain-specific ingress for specialist; source/human events authenticated before resume",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "purpose-specific port + qualified source; AMH where AMH owns boundary",
+        "authoritative_fact": "source access decision + purpose/consent/source revision",
+        "source_and_authority_guard": "principal,purpose,consent,currentness and runtime injection",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F1"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false
+    },
+    {
+      "id": "OP02",
+      "family": "F2",
+      "operation": "offer.compose",
+      "request": "OfferOptionsIntent",
+      "response": "VersionedOfferOptions",
+      "binding": "NEW logical offer/catalogue port and module; operator/provider contract required; CibSevenDmnTransport only for ratified deterministic rules",
+      "authority_gate": "catalogue/version/availability, nonclinical commercial feature allowlist, expiry and explanatory evidence",
+      "proposed_events": "offer.presented/offer.unavailable",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "catalogue_ref": "OpaqueRef",
+        "catalogue_version": "VersionRef",
+        "administrative_preferences_ref": "OpaqueRef",
+        "availability_refs": "list<OpaqueRef>",
+        "purpose_policy_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "offer_ref": "OpaqueRef?",
+        "offer_version": "VersionRef?",
+        "valid_until": "Instant?",
+        "option_refs": "list<OpaqueRef>",
+        "explanation_refs": "list<OpaqueRef>",
+        "status": "usable|unavailable|review_required"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "lucas"
+        ],
+        "agent_mode": "REQUEST",
+        "node_proposed": "present_options",
+        "ingress": "journey.compras.step|journey.suporte.step for admitted administrative Lucas; existing domain-specific ingress for specialist; source/human events authenticated before resume",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "operator catalogue + availability provider + CIB DMN for ratified rules",
+        "authoritative_fact": "versioned authoritative offer/options with expiry",
+        "source_and_authority_guard": "ratified nonclinical feature allowlist; no health risk selection or proxies",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F2"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false
+    },
+    {
+      "id": "OP03",
+      "family": "F3",
+      "operation": "acceptance.record",
+      "request": "AcceptanceCommand",
+      "response": "AcceptanceEvidenceReceipt",
+      "binding": "NEW customer acceptance boundary; reuse native command/currentness/receipt mechanisms without rebranding clinical receipt as customer signature",
+      "authority_gate": "offer_ref+version, terms evidence, authenticated customer/delegation, legal authority",
+      "proposed_events": "acceptance.recorded/acceptance.refused",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "offer_ref": "OpaqueRef",
+        "offer_version": "VersionRef",
+        "decision": "accept|decline",
+        "terms_evidence_ref": "OpaqueRef",
+        "customer_authority_proof_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "acceptance_ref": "OpaqueRef",
+        "recorded_decision": "accepted|declined",
+        "recorded_at": "Instant",
+        "receipt_ref": "OpaqueRef",
+        "business_revision": "RevisionRef"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "lucas"
+        ],
+        "agent_mode": "REQUEST",
+        "node_proposed": "collect_acceptance",
+        "ingress": "journey.compras.step for W0-admitted administrative Lucas in JR1 with authoritative offer_ref, offer_version and terms_evidence_ref; source/customer authority authenticated before record",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "customer acceptance adapter, not clinical human command",
+        "authoritative_fact": "customer manifestation + receipt over exact terms/version",
+        "source_and_authority_guard": "valid customer/delegation, exact commercial terms, current authoritative offer/version and receipt authority; no case-resolution confirmation; Support requiring contracting hands off explicitly to admitted JR1",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F3"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false
+    },
+    {
+      "id": "OP04",
+      "family": "F3",
+      "operation": "enrollment.request",
+      "request": "EnrollmentIntent",
+      "response": "EnrollmentAuthorityReceipt",
+      "binding": "NEW published administrative source contract; coverage GET, portal membership and Engine OwnerEnrollmentClient are not enrollment mutation",
+      "authority_gate": "contract authority, prospect-to-subject linking and issuer receipt; source emits actual right-base",
+      "proposed_events": "enrollment.pending/enrollment.issued",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "accepted_commitment_ref": "OpaqueRef",
+        "prospect_linkage_ref": "OpaqueRef",
+        "enrollment_authority_contract_ref": "OpaqueRef",
+        "administrative_evidence_refs": "list<OpaqueRef>"
+      },
+      "response_fields_proposed": {
+        "enrollment_status": "pending|issued|refused|review_required",
+        "enrollment_ref": "OpaqueRef?",
+        "issuer_receipt_ref": "OpaqueRef?",
+        "portable_subject_ref": "AMH_MintedOpaqueRef?",
+        "source_revision_ref": "RevisionRef?"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "lucas"
+        ],
+        "agent_mode": "REQUEST",
+        "node_proposed": "request_enrollment",
+        "ingress": "journey.compras.step|journey.suporte.step for admitted administrative Lucas; existing domain-specific ingress for specialist; source/human events authenticated before resume",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "new published source enrollment port",
+        "authoritative_fact": "administrative enrollment/base-entitlement source receipt",
+        "source_and_authority_guard": "enrollment authority; not AUTH/coverage GET/portal membership/care.enroll",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F3"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false
+    },
+    {
+      "id": "OP05",
+      "family": "F4",
+      "operation": "reservation.command",
+      "request": "ReservationCommand",
+      "response": "ProviderReservationReceipt",
+      "binding": "NEW agenda/reservation provider port, operation union hold/confirm/reschedule/cancel, no Tasy/HAPI direct write",
+      "authority_gate": "provider revision, atomic reservation/hold expiry, accepted offer, legal effect scope",
+      "proposed_events": "booking.confirmed/booking.disrupted",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "provider_ref": "OpaqueRef",
+        "operation": "hold|confirm|reschedule|cancel",
+        "offer_or_booking_ref": "OpaqueRef",
+        "expected_provider_revision": "RevisionRef",
+        "customer_commitment_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "reservation_status": "pending|held|confirmed|cancelled|disrupted",
+        "booking_ref": "OpaqueRef?",
+        "hold_expires_at": "Instant?",
+        "provider_receipt_ref": "OpaqueRef?",
+        "provider_revision": "RevisionRef?"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "lucas"
+        ],
+        "agent_mode": "REQUEST",
+        "node_proposed": "request_reservation",
+        "ingress": "journey.compras.step|journey.suporte.step for admitted administrative Lucas; existing domain-specific ingress for specialist; source/human events authenticated before resume",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "contracted agenda command port",
+        "authoritative_fact": "hold/confirmed/rescheduled/cancelled/unknown source receipt",
+        "source_and_authority_guard": "real provider; revision/idempotency; reconcile unknown",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F4"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false
+    },
+    {
+      "id": "OP06",
+      "family": "F4",
+      "operation": "fulfillment.observe",
+      "request": "FulfillmentObservation",
+      "response": "VerifiedFulfillmentFact",
+      "binding": "NEW contracted service/reservation status; ClinicalContextPort for permitted result context only; ADEQUACAO for qualified network obligation",
+      "authority_gate": "authoritative source/time/revision, fact versus ETA, no financial/clinical authority inferred",
+      "proposed_events": "service.performed/result.available",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "fulfillment_ref": "OpaqueRef",
+        "source_event_or_observation_ref": "OpaqueRef",
+        "source_authority_contract_ref": "OpaqueRef",
+        "expected_revision": "RevisionRef"
+      },
+      "response_fields_proposed": {
+        "fact_kind": "performed|result_available|no_show|disrupted|pending",
+        "factual_at": "Instant?",
+        "source_fact_ref": "OpaqueRef",
+        "source_revision": "RevisionRef",
+        "clinical_result_context_ref": "OpaqueRef?"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "lucas",
+          "carolina",
+          "valentina"
+        ],
+        "agent_mode": "READ_REQUEST",
+        "node_proposed": "track_delivery",
+        "ingress": "journey.compras.step|journey.suporte.step for admitted administrative Lucas; existing domain-specific ingress for specialist; source/human events authenticated before resume",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "qualified fulfillment observation port; clinical result separate purpose",
+        "authoritative_fact": "delivery/service/reservation fact with source revision",
+        "source_and_authority_guard": "source performed fact; network obligation via governed origin, no agent ADEQUACAO start",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F4"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false
+    },
+    {
+      "id": "OP07",
+      "family": "F5",
+      "operation": "case.open_or_update",
+      "request": "ResolutionCaseIntent",
+      "response": "ResolutionCaseStatus",
+      "binding": "Existing intake/staff_cases/native human boundary extended by declared case/role/DTO; current AUTH intake must not masquerade as commercial intake",
+      "authority_gate": "problem identity, requester scope, intake protocol when applicable, source case and non-resettable clock",
+      "proposed_events": "case.opened/case.escalated/case.confirmed",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "problem_ref": "OpaqueRef",
+        "origin_case_or_journey_ref": "OpaqueRef",
+        "case_kind": "DeclaredCaseKind",
+        "requester_authority_ref": "OpaqueRef",
+        "evidence_refs": "list<OpaqueRef>",
+        "formal_regulatory_request_ref": "OpaqueRef?"
+      },
+      "response_fields_proposed": {
+        "case_ref": "OpaqueRef",
+        "protocol_ref": "OpaqueRef?",
+        "case_status": "DeclaredCaseStatus",
+        "authority_receipt_ref": "OpaqueRef",
+        "business_revision": "RevisionRef"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "helena",
+          "lucas",
+          "rafael",
+          "carolina",
+          "valentina",
+          "marina",
+          "fernando",
+          "gustavo",
+          "beatriz"
+        ],
+        "agent_mode": "REQUEST",
+        "node_proposed": "open_case",
+        "ingress": "journey.compras.step|journey.suporte.step for admitted administrative Lucas; existing domain-specific ingress for specialist; source/human events authenticated before resume",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "domain intake/staff_case adapter + native human gateway",
+        "authoritative_fact": "case/protocol/engine identity where applicable + revision",
+        "source_and_authority_guard": "typed case/audience/role; not commercial alias of AUTH; actual allowed domain",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F5"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false,
+      "confirmation_refinement": {
+        "state": "PLANNED_W0_CONTRACT_REQUIRED_NOT_PUBLISHED",
+        "process_id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+        "operation": "OP07",
+        "nodes": [
+          "collect_resolution_confirmation",
+          "record_resolution_confirmation"
+        ],
+        "request_bindings": {
+          "problem_ref": "AUTHORITATIVE_CASE_PROBLEM_REF",
+          "origin_case_or_journey_ref": "AUTHORITATIVE_EXISTING_CASE_REF",
+          "case_kind": "W0_PUBLISHED_DECLARED_CASE_KIND_MEMBER",
+          "requester_authority_ref": "CURRENT_AUTHENTICATED_CUSTOMER_OR_DELEGATE_AUTHORITY_REF",
+          "evidence_refs": [
+            "AUTHORITATIVE_RESOLUTION_RECEIPT_REF",
+            "CURRENT_CUSTOMER_CONFIRMATION_EVIDENCE_REF"
+          ],
+          "formal_regulatory_request_ref": "ABSENT_UNLESS_ACTUAL_FORMAL_REQUEST"
+        },
+        "envelope_bindings": {
+          "expected_business_revision": "AUTHORITATIVE_EXPECTED_CASE_REVISION"
+        },
+        "response_bindings": {
+          "case_ref": "SAME_AUTHORITATIVE_CASE_REF",
+          "protocol_ref": "EXISTING_PROTOCOL_IF_APPLICABLE",
+          "case_status": "W0_PUBLISHED_DECLARED_CASE_STATUS_MEMBER",
+          "authority_receipt_ref": "VERIFIED_DOMAIN_CASE_AUTHORITY_RECEIPT_REF",
+          "business_revision": "AUTHORITATIVE_RESULTING_CASE_REVISION"
+        },
+        "W0_contract_request": "CR-F5",
+        "requires_published_confirmation_intent": true,
+        "requires_declared_case_kind_membership": true,
+        "requires_current_requester_authority": true,
+        "requires_receipt_verification": true,
+        "published_enum_members": [],
+        "planning_outcome_classes": [
+          "customer_confirmed",
+          "customer_disagreed",
+          "confirmation_timeout",
+          "closed_without_confirmation"
+        ],
+        "outcome_classes_are_DTO_enum_members": false,
+        "silence_proves_resolution": false,
+        "return_path": "Verify current requester evidence and source resolution receipt against tenant+same case+expected revision; domain source updates case and returns authority_receipt_ref/business_revision; durable state then qualified same-principal reply. No commercial acceptance receipt substitutes for case resolution.",
+        "required_future_tests": [
+          "no_offer_case_confirmation",
+          "disagreed_not_confirmed",
+          "timeout_not_confirmed",
+          "closed_without_confirmation_distinct",
+          "stale_case_revision_refused",
+          "forged_or_stale_requester_refused",
+          "wrong_case_or_tenant_receipt_refused",
+          "duplicate_confirmation_idempotent",
+          "unknown_DTO_fields_refused",
+          "unpublished_case_kind_refused"
+        ],
+        "source_contract_ref": "../v2-capabilities/COMPATIBILITY-AND-CONTRACTS.md#op07-caseopen_or_update"
+      }
+    },
+    {
+      "id": "OP08",
+      "family": "F5",
+      "operation": "external_wait.settle",
+      "request": "ExternalWaitIntent",
+      "response": "ExternalWaitOutcome",
+      "binding": "Shared logical wait/revision protocol; existing BPMN timer/incident patterns only on governed obligations",
+      "authority_gate": "correlation/version, expected producer, mutually exclusive completed/timeout, domain authority",
+      "proposed_events": "wait.completed/wait.timed_out",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "wait_ref": "OpaqueRef",
+        "expected_producer_ref": "OpaqueRef",
+        "correlation_ref": "OpaqueRef",
+        "authoritative_deadline_ref": "OpaqueRef?",
+        "source_outcome_ref": "OpaqueRef?"
+      },
+      "response_fields_proposed": {
+        "wait_status": "pending|completed|timed_out|incident",
+        "outcome_evidence_ref": "OpaqueRef?",
+        "settlement_revision": "RevisionRef",
+        "owner_case_ref": "OpaqueRef"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "lucas",
+          "rafael",
+          "carolina",
+          "valentina",
+          "marina",
+          "fernando",
+          "gustavo",
+          "beatriz"
+        ],
+        "agent_mode": "OBSERVE_SERVICE_RESULT",
+        "node_proposed": "await_authority/resume_authority",
+        "ingress": "journey.compras.step|journey.suporte.step for admitted administrative Lucas; existing domain-specific ingress for specialist; source/human events authenticated before resume",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "durable wait/reconcile service + domain resume driver",
+        "authoritative_fact": "authoritative external event/human receipt settled by service",
+        "source_and_authority_guard": "correlation/currentness/revocation; agent does not settle based on LLM inference",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F5"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false
+    },
+    {
+      "id": "OP09",
+      "family": "F6",
+      "operation": "notice.prepare_or_send",
+      "request": "NoticeIntent",
+      "response": "DeliveryEvidenceReceipt",
+      "binding": "Existing GatedWhatsAppSender/WhatsAppServer/communication metadata/outbox mechanisms extended; production factory/current sender qualification required",
+      "authority_gate": "mandatory/facultative class, authorized content/recipient, confirmed live channel and receipt semantics",
+      "proposed_events": "notice.attempted/notice.delivered",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "notice_ref": "OpaqueRef",
+        "notice_class": "mandatory|facultative",
+        "authorized_content_ref": "OpaqueRef",
+        "recipient_authority_ref": "OpaqueRef",
+        "confirmed_channel_ref": "OpaqueRef",
+        "delivery_policy_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "delivery_status": "pending|attempted|delivered|failed|unknown",
+        "provider_delivery_receipt_ref": "OpaqueRef?",
+        "attempt_revision": "RevisionRef",
+        "metadata_publication_receipt_ref": "OpaqueRef?"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "helena",
+          "lucas",
+          "rafael",
+          "carolina",
+          "valentina",
+          "marina",
+          "fernando",
+          "gustavo",
+          "beatriz"
+        ],
+        "agent_mode": "REQUEST",
+        "node_proposed": "communicate",
+        "ingress": "journey.compras.step|journey.suporte.step for admitted administrative Lucas; existing domain-specific ingress for specialist; source/human events authenticated before resume",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "qualified communication service + principal-specific sender + recipient vault",
+        "authoritative_fact": "prepared/sent/delivered/suppressed/failed/unknown receipt",
+        "source_and_authority_guard": "factory/template/window/idempotency; no success from preparation",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F6"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false
+    },
+    {
+      "id": "OP10",
+      "family": "F6",
+      "operation": "milestone.publish",
+      "request": "VerifiedMilestoneIntent",
+      "response": "MilestonePublicationReceipt",
+      "binding": "Existing events.py/notification bridge/inbox/outbox patterns with reviewed closed new domain event catalogue",
+      "authority_gate": "source decision/fact, revision, tenant, recipient, fact versus prediction; receipt not Kafka offset",
+      "proposed_events": "milestone.recorded",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "source_fact_ref": "OpaqueRef",
+        "milestone_kind": "DeclaredMilestoneKind",
+        "source_revision": "RevisionRef",
+        "audience_contract_ref": "OpaqueRef",
+        "prediction_ref": "OpaqueRef?"
+      },
+      "response_fields_proposed": {
+        "publication_status": "committed|pending|failed",
+        "outbox_receipt_ref": "OpaqueRef?",
+        "milestone_revision": "RevisionRef"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "helena",
+          "lucas",
+          "rafael",
+          "carolina",
+          "valentina",
+          "marina",
+          "fernando",
+          "gustavo",
+          "beatriz",
+          "andre"
+        ],
+        "agent_mode": "OBSERVE_SERVICE_RESULT",
+        "node_proposed": "observe_milestone",
+        "ingress": "journey.compras.step|journey.suporte.step for admitted administrative Lucas; existing domain-specific ingress for specialist; source/human events authenticated before resume",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "domain service transactional outbox + typed event + inbox/dedup",
+        "authoritative_fact": "business fact after confirmed commit/receipt",
+        "source_and_authority_guard": "publisher authority is service/source; graph consumes, no LLM fact publisher",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F6"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false
+    },
+    {
+      "id": "OP11",
+      "family": "F5",
+      "operation": "feedback.record",
+      "request": "CustomerFeedbackIntent",
+      "response": "FeedbackObservationReceipt",
+      "binding": "NEW bounded feedback contract over existing case metadata, separated from human decision and funds",
+      "authority_gate": "declared instrument/cohort/scale, no silence-as-resolution, no survey blocking money",
+      "proposed_events": "feedback.observed/feedback.contested",
+      "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+      "source_rule": "No business value or external wire schema invented; publish owner contract before binding",
+      "idempotency": "tenant+operation+domain-object-reference+business-revision; exact compositor/safe hashing ratified in W0, no raw PHI or ID, preserve existing AUTH compositor",
+      "refusals": [
+        "UNKNOWN_OPERATION",
+        "CONTRACT_MISMATCH",
+        "SOURCE_UNAVAILABLE",
+        "AUTHORITY_UNPROVEN",
+        "PURPOSE_DENIED",
+        "STALE_REVISION",
+        "AUDIT_UNAVAILABLE"
+      ],
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "future_test": "schema extra fields refused, unknown operation refused, forged/cross-tenant authority refused, stale revision and replay/concurrent duplicate handled; no success from empty/no-op result",
+      "request_fields_proposed": {
+        "case_or_fulfillment_ref": "OpaqueRef",
+        "instrument_version_ref": "OpaqueRef",
+        "respondent_authority_ref": "OpaqueRef",
+        "feedback_evidence_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "feedback_observation_ref": "OpaqueRef",
+        "feedback_kind": "observed|contested|no_response",
+        "recorded_at": "Instant",
+        "does_not_authorize_clinical_or_financial_change": "LiteralTrue"
+      },
+      "closed_schema_rule": "Internal planning DTO: unknown fields rejected; optional means absence not fabricated false/zero; enum members require source/owner contract, no clinical wire-schema copy.",
+      "effective_admission": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards.",
+      "wiring": {
+        "agents_proposed": [
+          "lucas"
+        ],
+        "agent_mode": "REQUEST",
+        "node_proposed": "collect_feedback",
+        "ingress": "journey.compras.step|journey.suporte.step for admitted administrative Lucas; existing domain-specific ingress for specialist; source/human events authenticated before resume",
+        "input_output_partition": "closed input constructor; output-only fields caller-forbidden",
+        "executor": "bounded shared feedback service; aggregate consumer only qualified",
+        "authoritative_fact": "respondent feedback or explicit absent/refused/timeout",
+        "source_and_authority_guard": "async optional; no payment/delivery/resolution blocking",
+        "return_path": "validate domain fact/receipt -> tenant+journey+case+source revision -> durable state -> qualified domain resume -> same principal reply; agent_resume only where its command contract applies",
+        "reply_rule": "prepared/sent/delivered/unknown separated; no promise from missing fact",
+        "required_gates": [
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "AW-REGRESSION",
+          "AW-REUSE",
+          "AW-OPS"
+        ],
+        "W0_contract_requests": [
+          "CR-F5"
+        ]
+      },
+      "contract_status": "PROPOSED",
+      "binding_admitted": false,
+      "provider_qualified": false
+    }
+  ],
+  "family_contract_requests": [
+    {
+      "id": "CR-F1",
+      "family": "F1_context_access",
+      "current_covered": [
+        "ClinicalContextPort four GET operations",
+        "portable_subject_ref AMH minted authority",
+        "purpose/consent revision guarded clinical executor"
+      ],
+      "required_extension": [
+        "prospect identity lifecycle and linking to enrolled member",
+        "contracted nonclinical commercial purpose/access scope",
+        "freshness/erasure/alias policy"
+      ],
+      "status": "PARTIAL_IMPLEMENTED_LIVE_UNVERIFIED",
+      "ownership_rule": "AMH publication only for AMH-owned boundary. Catalogue/agenda may belong to named operator/provider; resolve source ownership inW0, publish its contract and interoperable AMH projection when applicable; never claim AMH owns all commerce by default.",
+      "admission": "Owner contract+source authority+purpose/identity+publication/version compatibility+independent real interface qualification; no lock hand-edit/digest substitution",
+      "runtime": "UNVERIFIED",
+      "source_request_crosswalk": {
+        "id": "CR-F1",
+        "family": "F1",
+        "source_ids": [
+          "AMH-V2-01",
+          "AMH-V2-04"
+        ],
+        "condition": "Prospect linking/identity and protected purpose/consent/freshness only for the source actually needed; no invented AMH identity or clinical-purpose reinterpretation"
+      },
+      "owner_roles_required": [
+        "AMH identity/consent steward for AMH identity/context",
+        "operator or provider owner for administrative/prospect identity",
+        "DPO/legal",
+        "security"
+      ],
+      "named_signatories": [],
+      "gate_status": "PENDING_OWNER_PUBLICATION_AND_RATIFICATION",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "missing_gates": [
+        "prospect identity/linkage contract when needed",
+        "published nonclinical commercial purpose and minimum fields",
+        "current consent/revocation/freshness/erasure authority",
+        "actual consumer plus injected qualified source"
+      ],
+      "source_crosswalk": {
+        "id": "CR-F1",
+        "family": "F1",
+        "source_ids": [
+          "AMH-V2-01",
+          "AMH-V2-04"
+        ],
+        "condition": "Prospect linking/identity and protected purpose/consent/freshness only for the source actually needed; no invented AMH identity or clinical-purpose reinterpretation"
+      },
+      "companion_source_evidence": [
+        "source-contracts.md",
+        "source-readiness.json"
+      ]
+    },
+    {
+      "id": "CR-F2",
+      "family": "F2_offer_options",
+      "current_covered": [
+        "PopulationFeaturePort published aggregate API contract only"
+      ],
+      "required_extension": [
+        "authoritative product catalogue/terms/version/eligibility for prospect",
+        "offers and recommendation purpose rules; no health risk selection",
+        "feature consumer/provider qualification"
+      ],
+      "status": "COMMERCIAL_AUTHORITY_ABSENT_FROM_PIN;POPULATION_PORT_PENDING",
+      "ownership_rule": "AMH publication only for AMH-owned boundary. Catalogue/agenda may belong to named operator/provider; resolve source ownership inW0, publish its contract and interoperable AMH projection when applicable; never claim AMH owns all commerce by default.",
+      "admission": "Owner contract+source authority+purpose/identity+publication/version compatibility+independent real interface qualification; no lock hand-edit/digest substitution",
+      "runtime": "UNVERIFIED",
+      "source_request_crosswalk": {
+        "id": "CR-F2",
+        "family": "F2",
+        "source_ids": [
+          "AMH-V2-02",
+          "AMH-V2-04",
+          "AMH-V2-06"
+        ],
+        "condition": "02 offer/catalogue authority is core;04 applies if its source needs governed context;06 only approved aggregate/product analysis in later scope, never mandatory population port for commercial offer or health-risk selection"
+      },
+      "owner_roles_required": [
+        "operator product/commercial/legal owner",
+        "catalogue/availability provider steward",
+        "DPO"
+      ],
+      "named_signatories": [],
+      "gate_status": "PENDING_OWNER_PUBLICATION_AND_RATIFICATION",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "missing_gates": [
+        "authoritative catalogue/products/terms/version/expiry",
+        "nonclinical commercial feature allowlist",
+        "operator-ratified deterministic rules via CIB DMN when used",
+        "availability source qualification"
+      ],
+      "source_crosswalk": {
+        "id": "CR-F2",
+        "family": "F2",
+        "source_ids": [
+          "AMH-V2-02",
+          "AMH-V2-04",
+          "AMH-V2-06"
+        ],
+        "condition": "02 offer/catalogue authority is core;04 applies if its source needs governed context;06 only approved aggregate/product analysis in later scope, never mandatory population port for commercial offer or health-risk selection"
+      },
+      "companion_source_evidence": [
+        "source-contracts.md",
+        "source-readiness.json"
+      ]
+    },
+    {
+      "id": "CR-F3",
+      "family": "F3_accept_commit",
+      "current_covered": [
+        "OutcomePublisherPort audit outcome contract",
+        "pure map_outcome/outcome_to_wire"
+      ],
+      "required_extension": [
+        "acceptance authority/offer version/evidence semantics",
+        "enrollment/base entitlement authoritative mutation and receipt"
+      ],
+      "status": "BUSINESS_WRITES_ABSENT_FROM_PIN;LIVE_OUTCOME_PUBLISHER_UNVERIFIED",
+      "ownership_rule": "AMH publication only for AMH-owned boundary. Catalogue/agenda may belong to named operator/provider; resolve source ownership inW0, publish its contract and interoperable AMH projection when applicable; never claim AMH owns all commerce by default.",
+      "admission": "Owner contract+source authority+purpose/identity+publication/version compatibility+independent real interface qualification; no lock hand-edit/digest substitution",
+      "runtime": "UNVERIFIED",
+      "source_request_crosswalk": {
+        "id": "CR-F3",
+        "family": "F3",
+        "source_ids": [
+          "AMH-V2-01",
+          "AMH-V2-02",
+          "AMH-V2-05"
+        ],
+        "condition": "01 enrollment/right-base authority;02 accepted offer/terms proof;05 only when published outcome crosses AMH boundary. Customer evidence and administrative issuer receipt stay distinct"
+      },
+      "owner_roles_required": [
+        "customer or current authorized representative for acceptance",
+        "operator registration/enrollment issuer",
+        "legal",
+        "AMH identity steward only for AMH linkage",
+        "DPO"
+      ],
+      "named_signatories": [],
+      "gate_status": "PENDING_OWNER_PUBLICATION_AND_RATIFICATION",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "missing_gates": [
+        "explicit customer acceptance and terms-evidence semantics",
+        "current customer/delegate authority",
+        "administrative enrollment mutation/issuer receipt/linkage contract",
+        "issuer/source runtime qualification"
+      ],
+      "source_crosswalk": {
+        "id": "CR-F3",
+        "family": "F3",
+        "source_ids": [
+          "AMH-V2-01",
+          "AMH-V2-02",
+          "AMH-V2-05"
+        ],
+        "condition": "01 enrollment/right-base authority;02 accepted offer/terms proof;05 only when published outcome crosses AMH boundary. Customer evidence and administrative issuer receipt stay distinct"
+      },
+      "companion_source_evidence": [
+        "source-contracts.md",
+        "source-readiness.json"
+      ]
+    },
+    {
+      "id": "CR-F4",
+      "family": "F4_delivery_tracking",
+      "current_covered": [
+        "get_subject_coverage snapshot read"
+      ],
+      "required_extension": [
+        "enrollment activation authoritative state",
+        "provider availability and reservation lifecycle",
+        "point-in-time freshness/hold expiry/cancel/reschedule contract"
+      ],
+      "status": "READ_ONLY_COVERAGE_PRESENT;ENROLLMENT_AGENDA_ABSENT_FROM_PIN",
+      "ownership_rule": "AMH publication only for AMH-owned boundary. Catalogue/agenda may belong to named operator/provider; resolve source ownership inW0, publish its contract and interoperable AMH projection when applicable; never claim AMH owns all commerce by default.",
+      "admission": "Owner contract+source authority+purpose/identity+publication/version compatibility+independent real interface qualification; no lock hand-edit/digest substitution",
+      "runtime": "UNVERIFIED",
+      "source_request_crosswalk": {
+        "id": "CR-F4",
+        "family": "F4",
+        "source_ids": [
+          "AMH-V2-03",
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "03 actual reservation/delivery authority;04 for permitted clinical-result context/freshness;05 if source events cross AMH. Read-only coverage remains not activation or reservation"
+      },
+      "owner_roles_required": [
+        "agenda/reservation/delivery provider owner",
+        "care/network owner for governed obligation",
+        "AMH steward only for an AMH crossing",
+        "DPO"
+      ],
+      "named_signatories": [],
+      "gate_status": "PENDING_OWNER_PUBLICATION_AND_RATIFICATION",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "missing_gates": [
+        "availability/atomic hold/reservation lifecycle contract",
+        "provider revision and hold expiry/currentness",
+        "reschedule/cancel legal scope",
+        "authoritative reservation/performance/result receipts"
+      ],
+      "source_crosswalk": {
+        "id": "CR-F4",
+        "family": "F4",
+        "source_ids": [
+          "AMH-V2-03",
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "03 actual reservation/delivery authority;04 for permitted clinical-result context/freshness;05 if source events cross AMH. Read-only coverage remains not activation or reservation"
+      },
+      "companion_source_evidence": [
+        "source-contracts.md",
+        "source-readiness.json"
+      ]
+    },
+    {
+      "id": "CR-F5",
+      "family": "F5_request_resolve",
+      "current_covered": [
+        "WorkItemSource",
+        "AMH work_item canonical mapping",
+        "AmhInbox durable dedup/revision primitives"
+      ],
+      "required_extension": [
+        "approval and lifecycle contracts for new commercial/enrollment work items",
+        "wire framing declaration and real source/consent/outcome plumbing qualification"
+      ],
+      "status": "FOUNDATION_PRESENT;BROKER_CONSUMER_ABSENT_FROM_AMH_ADAPTER_PACKAGE",
+      "ownership_rule": "AMH publication only for AMH-owned boundary. Catalogue/agenda may belong to named operator/provider; resolve source ownership inW0, publish its contract and interoperable AMH projection when applicable; never claim AMH owns all commerce by default.",
+      "admission": "Owner contract+source authority+purpose/identity+publication/version compatibility+independent real interface qualification; no lock hand-edit/digest substitution",
+      "runtime": "UNVERIFIED",
+      "source_request_crosswalk": {
+        "id": "CR-F5",
+        "family": "F5",
+        "source_ids": [
+          "AMH-V2-02",
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "Commercial case terms/roles from02;care context under04 only its qualified purpose;05 is provider work-item/framing/outcome plumbing when used, not universal source for all case creation"
+      },
+      "owner_roles_required": [
+        "operator case/intake/staff owner",
+        "appropriate native human authority",
+        "AMH contract steward only for an AMH work-item crossing",
+        "DBA",
+        "security/DPO"
+      ],
+      "named_signatories": [],
+      "gate_status": "PENDING_OWNER_PUBLICATION_AND_RATIFICATION",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "missing_gates": [
+        "DeclaredCaseKind/DeclaredCaseStatus membership and role/audience publication",
+        "case/protocol/clock/source lifecycle contract",
+        "S4 confirmation intent plus published outcome translation",
+        "native source/receipt/return qualification"
+      ],
+      "source_crosswalk": {
+        "id": "CR-F5",
+        "family": "F5",
+        "source_ids": [
+          "AMH-V2-02",
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "Commercial case terms/roles from02;care context under04 only its qualified purpose;05 is provider work-item/framing/outcome plumbing when used, not universal source for all case creation"
+      },
+      "companion_source_evidence": [
+        "source-contracts.md",
+        "source-readiness.json"
+      ]
+    },
+    {
+      "id": "CR-F6",
+      "family": "F6_communication_progress",
+      "current_covered": [
+        "correlation/causation/idempotency envelope fields",
+        "OutcomePublisherPort completion/evidence primitives"
+      ],
+      "required_extension": [
+        "authoritative milestone/receipt semantic mapping for new domains",
+        "delivery/preference and erasure contracts with current MAEZO communication owners"
+      ],
+      "status": "ENVELOPE_PRESENT;NEW_DOMAIN_SEMANTICS_UNVERIFIED",
+      "ownership_rule": "AMH publication only for AMH-owned boundary. Catalogue/agenda may belong to named operator/provider; resolve source ownership inW0, publish its contract and interoperable AMH projection when applicable; never claim AMH owns all commerce by default.",
+      "admission": "Owner contract+source authority+purpose/identity+publication/version compatibility+independent real interface qualification; no lock hand-edit/digest substitution",
+      "runtime": "UNVERIFIED",
+      "source_request_crosswalk": {
+        "id": "CR-F6",
+        "family": "F6",
+        "source_ids": [
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "04 purpose/recipient preference/revocation when using protected source;05 source milestone/outcome wire when crossing AMH. Sender/channel provider contracts remain their named owner, not AMH-V2-06 population"
+      },
+      "owner_roles_required": [
+        "domain fact producer",
+        "communication/channel/sender owner",
+        "recipient preference/custody owner",
+        "AMH contract steward only for an AMH outcome crossing",
+        "DPO/security"
+      ],
+      "named_signatories": [],
+      "gate_status": "PENDING_OWNER_PUBLICATION_AND_RATIFICATION",
+      "published_for_new_scope": false,
+      "runtime_qualified": false,
+      "missing_gates": [
+        "mandatory/facultative notice policy and permitted content",
+        "qualified live sender/channel/factory",
+        "recipient authority/preferences/revocation/erasure",
+        "milestone/receipt semantics plus declared event catalogue"
+      ],
+      "source_crosswalk": {
+        "id": "CR-F6",
+        "family": "F6",
+        "source_ids": [
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "04 purpose/recipient preference/revocation when using protected source;05 source milestone/outcome wire when crossing AMH. Sender/channel provider contracts remain their named owner, not AMH-V2-06 population"
+      },
+      "companion_source_evidence": [
+        "source-contracts.md",
+        "source-readiness.json"
+      ]
+    }
+  ],
+  "administrative_task_contracts": [
+    {
+      "task_type": "journey.compras.step",
+      "agent": "lucas",
+      "journey": "JR1",
+      "status": "PROPOSED_NOT_DECLARED_IN_CURRENT_YAML",
+      "contract_required": "typed intent/domain reference/revision/current message; no raw clinical text",
+      "registry_requirement": "approved agent.yaml tasks/skills/actions/tools, signed card where A2A used, actual handler and root registration, principal-specific seams",
+      "no_generic_http_ingress": true
+    },
+    {
+      "task_type": "journey.suporte.step",
+      "agent": "lucas",
+      "journey": "JR2",
+      "status": "PROPOSED_NOT_DECLARED_IN_CURRENT_YAML",
+      "contract_required": "typed case intent/domain reference/revision/current message; no raw clinical text",
+      "registry_requirement": "same shared capabilities/contracts as JR1, distinct case authority and reply/resume",
+      "no_generic_http_ingress": true
+    }
+  ],
+  "agent_scope_proposals": [
+    {
+      "agent": "helena",
+      "contract_status": "PROPOSED",
+      "current_contract": "spec/agents/helena/agent.yaml",
+      "proposed_role": "ingress minimum and current-message typed handoff only",
+      "channels_proposed": [
+        "existing single-number WhatsApp after conduct gate"
+      ],
+      "task_types_proposed": [],
+      "capability_operations_proposed": [
+        "OP01",
+        "OP07"
+      ],
+      "candidate_existing_tools": [
+        "mcp-dmn.evaluate",
+        "mcp-whatsapp.send_message",
+        "mcp-cibseven.start_process"
+      ],
+      "candidate_existing_actions": [
+        "query_decision_engine",
+        "send_beneficiary_message",
+        "start_compliance_process"
+      ],
+      "new_tool_or_action_ids": [
+        "gateway.capabilities.execute",
+        "administrative_access_resolve",
+        "administrative_case_open_or_update"
+      ],
+      "rules": [
+        "triage every incoming message before administrative dispatch",
+        "health/psychosocial risk and human request interrupt administration",
+        "same-message handoff and minimum typed administrative fields only",
+        "no commercial offer/acceptance/enrollment/reservation authority inferred"
+      ],
+      "binding_admitted": false,
+      "new_operation_action_mapping_status": "PROPOSED_EXPLICIT_MATRIX; not registered or admitted; exact policy and source publication/ratification required per row",
+      "operation_action_matrix_ref": "administrative_operation_binding_matrix",
+      "candidate_existing_tools_scope": "Existing declared mechanisms retain their domain contracts; none is a blanket mapping to the new administrative operations.",
+      "candidate_existing_actions_scope": "Published existing actions are retained only for their current mechanism/domain; new administrative action candidates below require owner policy publication and effective enforcement.",
+      "existing_triage_and_routing": "Current graph behavior, not an autonomy action currently declared in Helena agent.yaml."
+    },
+    {
+      "agent": "lucas",
+      "contract_status": "PROPOSED",
+      "current_contract": "spec/agents/lucas/agent.yaml",
+      "proposed_role": "separate administrative module for Compras/Suporte preserving member-billing",
+      "channels_proposed": [
+        "typed Helena handoff on existing single number after conduct gate",
+        "administrative portal DTO only if admitted by channel contract"
+      ],
+      "task_types_proposed": [
+        "journey.compras.step",
+        "journey.suporte.step"
+      ],
+      "compras_capability_operations_proposed": [
+        "OP01",
+        "OP02",
+        "OP03",
+        "OP04",
+        "OP05",
+        "OP06",
+        "OP07",
+        "OP08",
+        "OP09",
+        "OP10"
+      ],
+      "suporte_capability_operations_proposed": [
+        "OP01",
+        "OP07",
+        "OP08",
+        "OP09",
+        "OP10",
+        "OP11"
+      ],
+      "candidate_existing_tools": [
+        "mcp-dmn.evaluate",
+        "mcp-whatsapp.send_message",
+        "mcp-cibseven.start_process"
+      ],
+      "candidate_existing_actions": [
+        "informational_response",
+        "query_decision_engine",
+        "send_beneficiary_message",
+        "start_compliance_process"
+      ],
+      "new_tool_or_action_ids": [
+        "gateway.capabilities.execute",
+        "administrative_access_resolve",
+        "administrative_offer_compose",
+        "administrative_acceptance_record",
+        "administrative_enrollment_request",
+        "administrative_reservation_command",
+        "administrative_fulfillment_observe",
+        "administrative_case_open_or_update",
+        "administrative_external_wait_observe",
+        "administrative_notice_request",
+        "administrative_milestone_observe",
+        "administrative_feedback_record"
+      ],
+      "new_operation_action_mapping_status": "PROPOSED_EXPLICIT_MATRIX; not registered or admitted; exact policy and source publication/ratification required per row",
+      "rules": [
+        "closed input/output separation, administrative state never sent to billing assess",
+        "no raw clinical text nor super-set specialist tool grant",
+        "billing/human resume preserved within existing contract only",
+        "new task name never grants authority",
+        "no ADEQUACAO start binding"
+      ],
+      "binding_admitted": false,
+      "operation_action_matrix_ref": "administrative_operation_binding_matrix",
+      "candidate_existing_tools_scope": "Existing declared mechanisms retain their domain contracts; none is a blanket mapping to the new administrative operations.",
+      "candidate_existing_actions_scope": "Published existing actions are retained only for their current mechanism/domain; new administrative action candidates below require owner policy publication and effective enforcement."
+    }
+  ],
+  "conduct_decisions": {
+    "product_direction_already_authorized": true,
+    "new_agent_scopes_ratified": false,
+    "conduct_messages_approved": false,
+    "required_act": "Owner conduct/routing contract for Compras/Suporte on the single number; scoped security/DPO/clinical decisions only as affected",
+    "health_human_precedence": "health/psychosocial risk stays Helena; health wins when human request occurs simultaneously because escalation reaches a person with higher priority; human requests otherwise interrupt any administrative agent",
+    "proposed_message_literals": [
+      {
+        "proposal_id": "ADM-PASSAGE-COMPRAS",
+        "speaker": "helena",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Current gated JR1 consumer has acknowledged receipt of this message-bound typed handoff; no health/human override; same authorized channel and recipient.",
+        "literal": "Seu pedido de compra passou ao Lucas, aqui na conversa.",
+        "operations_related": [
+          "OP01"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-PASSAGE-SUPORTE",
+        "speaker": "helena",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Current gated JR2 consumer has acknowledged receipt of this message-bound typed handoff; no health/human override; same authorized channel and recipient.",
+        "literal": "Seu pedido de suporte passou ao Lucas, aqui na conversa.",
+        "operations_related": [
+          "OP01"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-PASSAGE-UNAVAILABLE",
+        "speaker": "helena",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Administrative handoff/module/source unavailable; do not announce a passage or successful effect. Preserve current outside-channel/human/health response when its contract applies.",
+        "literal": "Não foi possível continuar este pedido administrativo nesta conversa. Ainda não há confirmação de resultado.",
+        "operations_related": [
+          "OP01"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-PREPARED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Authorized notice preparation record exists; no provider delivered receipt. Preparing does not execute/send/confirm delivery.",
+        "literal": "O aviso foi preparado. A entrega ainda não foi confirmada.",
+        "operations_related": [
+          "OP09"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-NOTICE-PENDING",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP09 delivery_status=pending; same notice/recipient/current revision.",
+        "literal": "O envio deste aviso está pendente. A entrega ainda não foi confirmada.",
+        "operations_related": [
+          "OP09"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-NOTICE-ATTEMPTED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP09 delivery_status=attempted with attempt evidence; no delivered receipt.",
+        "literal": "Houve uma tentativa de envio deste aviso. A entrega ainda não foi confirmada.",
+        "operations_related": [
+          "OP09"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-UNKNOWN",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Technical timeout/uncertain result or verified OP09 unknown; no source-issued/confirmed/delivered fact may be inferred; reconcile original command identity.",
+        "literal": "Ainda não há confirmação do resultado deste pedido.",
+        "operations_related": [
+          "OP04",
+          "OP05",
+          "OP09"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-ENROLLMENT-PENDING",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP04 enrollment_status=pending for the same object; no issued enrollment fact.",
+        "literal": "O pedido de matrícula está pendente de confirmação pela fonte responsável.",
+        "operations_related": [
+          "OP04"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-ENROLLMENT-ISSUED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP04 enrollment_status=issued, enrollment_ref and current issuer_receipt_ref; no clinical authorization or result inferred.",
+        "literal": "A fonte responsável confirmou a emissão da sua matrícula.",
+        "operations_related": [
+          "OP04"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-RESERVATION-HELD",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP05 reservation_status=held with current provider receipt and unexpired hold evidence; never claim confirmed booking.",
+        "literal": "A fonte responsável confirmou uma reserva temporária. A confirmação definitiva ainda não foi registrada.",
+        "operations_related": [
+          "OP05"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-RESERVATION-PENDING",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP05 reservation_status=pending; no held/confirmed booking fact.",
+        "literal": "O pedido de reserva está pendente de confirmação pela fonte responsável.",
+        "operations_related": [
+          "OP05"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-BOOKED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP05 reservation_status=confirmed with booking_ref and current provider_receipt_ref; availability or hold alone is insufficient.",
+        "literal": "A fonte responsável confirmou sua reserva.",
+        "operations_related": [
+          "OP05"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-NOTICE-DELIVERED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP09 delivery_status=delivered with recipient-specific provider_delivery_receipt_ref/current revision. This confirms this notice, not purchase, enrollment, care or fulfillment delivery.",
+        "literal": "A entrega deste aviso foi confirmada pelo canal.",
+        "operations_related": [
+          "OP09"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-REGISTERED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP07 case_ref/authority_receipt_ref and published state meaning registered; protocol may be cited only if actually returned, verified and authorized.",
+        "literal": "Seu caso foi registrado.",
+        "operations_related": [
+          "OP07"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-RESOLUTION-QUERY",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified same-case source resolution receipt and owner-published translation to resolved; current authenticated customer/delegate is asked. No customer confirmation inferred.",
+        "literal": "A fonte responsável informou que seu caso foi resolvido. Você confirma que o problema foi resolvido?",
+        "operations_related": [
+          "OP07"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-CONFIRMATION-RECORDED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP07 receipt of the current customer/delegate manifestation for the same case/revision; published owner translation to confirmed resolution; never OP03.",
+        "literal": "Sua confirmação de resolução foi registrada.",
+        "operations_related": [
+          "OP07"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-DISAGREEMENT-RECORDED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP07 receipt of the current customer/delegate disagreement for the same case/revision; published owner translation; closure not inferred.",
+        "literal": "Seu relato de que o problema continua foi registrado no mesmo caso.",
+        "operations_related": [
+          "OP07"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-CONFIRMATION-PENDING",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Current authorized same-case source confirms no customer manifestation; any wait/timer depends on its admitted authority. Silence is not resolution.",
+        "literal": "Ainda não há uma confirmação sua de que o problema foi resolvido.",
+        "operations_related": [
+          "OP07",
+          "OP08"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-CONTRACTING-HANDOFF",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "A new explicit JR1 handoff was admitted and acknowledged while preserving JR2 case/protocol. No offer/acceptance authority arises inside JR2.",
+        "literal": "Seu pedido de contratação passou para o fluxo de compra. O caso de suporte mantém seu registro.",
+        "operations_related": [
+          "OP07"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      }
+    ],
+    "task_handoff_field_schema": "See administrative_task_contract_candidate: exact current candidate AdministrativeHandoff of five fields, nested AdministrativeInput of six fields, and separate AdmissionBinding. Envelope and each closed operation request retain original field maps. Server owns handoff/context; no caller authority or raw clinical text.",
+    "message_selection_rule": "These IDs are documentation labels, not business states or new enums. Predicates are proposed truth requirements for owner review, not implemented rules; all source state translations need publication and ratification. No literal executes a side effect, promises an unqualified channel/provider, price, SLA, offer, human contact or retries. Rendering/sending is separately gated by CR-F6.",
+    "existing_health_human_texts_preserved": [
+      {
+        "symbol": "RESPOSTA_ESCALONAMENTO_URGENTE",
+        "source": "src/maezo/agents/helena/graph.py:504",
+        "literal_sha256": "2d085ff25524af5bdff8edae58795b66f29b45c1ed71078e96c60162488b5134",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      },
+      {
+        "symbol": "RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL",
+        "source": "src/maezo/agents/helena/graph.py:509",
+        "literal_sha256": "071a93c22d8cb83ef5a476ad653b14c9e7eef2f773292482276026eefaf1511e",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      },
+      {
+        "symbol": "RESPOSTA_HANDOFF_RECUSADA",
+        "source": "src/maezo/agents/helena/graph.py:433",
+        "literal_sha256": "b75b8992a9590945ed3bdfacff9021127f6672022b16b9dd5a3027a4d446133a",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      },
+      {
+        "symbol": "RESPOSTA_HANDOFF_JA_ABERTO",
+        "source": "src/maezo/agents/helena/graph.py:696",
+        "literal_sha256": "4ce5829c344f1b5ac3bf92ed39d8e0d2fef01ac6c21cd836ef3f684de72c6f6e",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      },
+      {
+        "symbol": "RESPOSTA_FALHA_TECNICA_START",
+        "source": "src/maezo/agents/helena/graph.py:389",
+        "literal_sha256": "b52bff7210f209af5aa46d709d5795e11f23ccd6a01bfcea610df137fce98963",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      },
+      {
+        "symbol": "RESPOSTA_SEM_ENCAMINHAMENTO",
+        "source": "src/maezo/agents/helena/graph.py:706",
+        "literal_sha256": "82bc41c9a97968573d7c8086309c65a12738b440a8912df73bda74fe14f746e2",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      }
+    ],
+    "health_human_message_selection": "Every message is triaged by Helena first. Health/psychosocial risk keeps Helena and the existing clinical text/source gate; simultaneous human request retains higher health priority. Human request otherwise interrupts administrative execution and uses existing admitted escalation/intake and current start-outcome truthful text. Failed/not-attempted/already-active starts preserve existing separate text. No new clinical guidance or human-contact promise is proposed."
+  },
+  "adr0062_reconciliation": {
+    "adr_status_observed": "Proposto",
+    "adr_signature_pending_observed": true,
+    "dl0053_recorded_decision": "Filipe 2026-10-01; PR #596; limited billing routing in dev",
+    "dl0053_git_commit": "bee291fea498becf14c0f2a2ad646dcba612d35e",
+    "sources": [
+      "docs/adr/0062-roteamento-de-conversa-por-agente.md:3",
+      "docs/adr/0062-roteamento-de-conversa-por-agente.md:7",
+      "docs/decisions-log.md:16",
+      "docs/plans/lucas-numero-unico.md:38",
+      "docs/adr/README.md:74"
+    ],
+    "provenance_state": "DISCREPANCY_REQUIRES_OWNER_RECONCILIATION",
+    "new_compras_suporte_scope_approved_by_billing_decision": false,
+    "status_changed": false
+  },
+  "protected_invariants": {
+    "hard_actions_unchanged": [
+      "clinical_decision",
+      "authorization_denial",
+      "nip_manter_negativa",
+      "fraud_accusation",
+      "contract_termination"
+    ],
+    "enrollment_authority_separate_from": [
+      "AUTH/Rafael/médico",
+      "get_subject_coverage",
+      "care.enroll",
+      "portal user membership",
+      "engine owner bootstrap"
+    ],
+    "reservation_observation_is_not_hold": true,
+    "technical_receipt_is_not_business_authority": true,
+    "notice_prepare_send_delivery_distinct": true,
+    "clinical_risk_or_proxy_for_commercial_selection_forbidden": true,
+    "no_direct_lake_cdc_tasy_hapi_write_or_clinical_clone": true,
+    "source_absence_not_product_fixture": true,
+    "NIP_requires_actual_formal_request": true,
+    "RECURSO_is_payer_glosa_only": true,
+    "survey_optional_nonblocking_for_money": true,
+    "new_BPMN_requires_proven_governance_not_journey_stage": true,
+    "domain_rules_use_ratified_CIB_DMN_only": true
+  },
+  "unpublished_symbolic_types": {
+    "DeclaredCaseKind": [],
+    "DeclaredCaseStatus": [],
+    "DeclaredMilestoneKind": []
+  },
+  "unpublished_symbolic_membership_behavior": "Binding must refuse membership until owner publishes exact contract; planning outcome classes are not DTO enums.",
+  "implementation_contract": {
+    "wave1_operations": [
+      "OP01",
+      "OP03",
+      "OP07",
+      "OP08",
+      "OP09",
+      "OP10"
+    ],
+    "safe_candidate_scope": "Validate closed DTOs/envelope and deny unadmitted calls; author reversible mechanisms with no binding/read/effect until affected W0 gate. This scope does not qualify source or journey.",
+    "effective_admission_requirements": [
+      "registered operation and actual callable composition",
+      "declared principal/task/channel and per-operation allowlist",
+      "tenant/legal_entity/purpose/current consent/revision/ceiling",
+      "published current source authority",
+      "effective enforcing policy, never global-shadow PASS",
+      "audit-before-read/effect",
+      "receipt source/object/tenant/revision verification",
+      "durable idempotency/inbox/outbox and reconciliation for pending/uncertain facts"
+    ],
+    "task_output_fields_caller_forbidden": true,
+    "business_state_separate_from_conversa_agente_ativo": true,
+    "checkpoint_namespace_alone_not_proof": true,
+    "idempotency_exact_compositor": "PENDING_W0_RATIFICATION; retain published AUTH compositor unchanged",
+    "missing_provider_outcome": "SOURCE_UNAVAILABLE; no fabricated receipt or success",
+    "gates": [
+      "AW-SPEC",
+      "AW-CALL",
+      "AW-AUTH",
+      "AW-FACT",
+      "AW-RETURN",
+      "AW-REGRESSION",
+      "AW-REUSE",
+      "AW-OPS"
+    ],
+    "two_consumers_required_for_shared_mechanisms": [
+      "JR1",
+      "JR2"
+    ],
+    "support_confirmation_operation": "OP07",
+    "support_commercial_contracting": "explicit W0-admitted JR1 handoff"
+  },
+  "concept_ledger": [
+    {
+      "process_id": "Process_CA_H2_ComunicarCliente",
+      "primary_family": "F6",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "case_owner_or_shared_service"
+      ],
+      "conditional_specialists": [],
+      "operations": [
+        "OP09",
+        "OP10"
+      ],
+      "authority": [
+        "domain source and protected human authority as applicable"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W1",
+      "blocked_by_requests": [
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_H2_SelecionarCanal",
+      "primary_family": "F6",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "case_owner_or_shared_service"
+      ],
+      "conditional_specialists": [],
+      "operations": [
+        "OP09",
+        "OP10"
+      ],
+      "authority": [
+        "domain source and protected human authority as applicable"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W1",
+      "blocked_by_requests": [
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_H1_IdentidadeConsentimento",
+      "primary_family": "F1",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "helena",
+        "authorized_case_owner"
+      ],
+      "conditional_specialists": [],
+      "operations": [
+        "OP01"
+      ],
+      "authority": [
+        "domain source and protected human authority as applicable"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W1",
+      "blocked_by_requests": [
+        "CR-F1"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_H3_ConhecerCliente",
+      "primary_family": "F1",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "authorized_case_owner"
+      ],
+      "conditional_specialists": [
+        "andre"
+      ],
+      "operations": [
+        "OP01",
+        "OP11"
+      ],
+      "authority": [
+        "AMH for canonical enrichment; aggregates only for andre"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W5",
+      "blocked_by_requests": [
+        "CR-F1",
+        "CR-F5"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": true,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_H3_EnriquecerCliente",
+      "primary_family": "F1",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "authorized_case_owner"
+      ],
+      "conditional_specialists": [
+        "andre"
+      ],
+      "operations": [
+        "OP01",
+        "OP11"
+      ],
+      "authority": [
+        "AMH for canonical enrichment; aggregates only for andre"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W5",
+      "blocked_by_requests": [
+        "CR-F1",
+        "CR-F5"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": true,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_H3_ProximaMelhorAcao",
+      "primary_family": "F2",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "valentina"
+      ],
+      "operations": [
+        "OP01",
+        "OP02",
+        "OP11"
+      ],
+      "authority": [
+        "nonclinical option policy; clinical care human; model governance only later"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W5",
+      "blocked_by_requests": [
+        "CR-F1",
+        "CR-F2",
+        "CR-F5"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": true,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_COMPRA",
+      "primary_family": "F3",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "rafael"
+      ],
+      "operations": [
+        "OP01",
+        "OP02",
+        "OP03",
+        "OP04",
+        "OP05",
+        "OP06",
+        "OP07",
+        "OP08",
+        "OP09",
+        "OP10"
+      ],
+      "authority": [
+        "customer/operator/enrollment/agenda source; AUTH distinct clinical authority"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W2",
+      "blocked_by_requests": [
+        "CR-F1",
+        "CR-F2",
+        "CR-F3",
+        "CR-F4",
+        "CR-F5",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C1_EntenderRecomendar",
+      "primary_family": "F2",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "helena",
+        "lucas"
+      ],
+      "conditional_specialists": [],
+      "operations": [
+        "OP01",
+        "OP02",
+        "OP05",
+        "OP09"
+      ],
+      "authority": [
+        "domain source and protected human authority as applicable"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W2",
+      "blocked_by_requests": [
+        "CR-F1",
+        "CR-F2",
+        "CR-F4",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C2_DecidirContratar",
+      "primary_family": "F3",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [],
+      "operations": [
+        "OP02",
+        "OP03",
+        "OP09"
+      ],
+      "authority": [
+        "customer acceptance and operator contract authority"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W2",
+      "blocked_by_requests": [
+        "CR-F2",
+        "CR-F3",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C3_HabilitarDireito",
+      "primary_family": "F3",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "rafael"
+      ],
+      "operations": [
+        "OP01",
+        "OP03",
+        "OP04",
+        "OP07",
+        "OP08",
+        "OP09"
+      ],
+      "authority": [
+        "administrative enrollment source OR distinct clinical AUTH engine/medical auditor"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W2",
+      "blocked_by_requests": [
+        "CR-F1",
+        "CR-F3",
+        "CR-F5",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C4_ManterDireito",
+      "primary_family": "F4",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "carolina",
+        "andre"
+      ],
+      "operations": [
+        "OP05",
+        "OP06",
+        "OP07",
+        "OP08",
+        "OP09"
+      ],
+      "authority": [
+        "agenda provider; governed network origin/human; never agent ADEQUACAO start"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W2",
+      "blocked_by_requests": [
+        "CR-F4",
+        "CR-F5",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_UTILIZACAO",
+      "primary_family": "F4",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "valentina",
+        "carolina",
+        "marina",
+        "andre"
+      ],
+      "operations": [
+        "OP05",
+        "OP06",
+        "OP07",
+        "OP08",
+        "OP09",
+        "OP10",
+        "OP11"
+      ],
+      "authority": [
+        "provider performance/result; clinical and finance sources"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W4",
+      "blocked_by_requests": [
+        "CR-F4",
+        "CR-F5",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_UTILIZACAO_U1_Preparar",
+      "primary_family": "F4",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [],
+      "operations": [
+        "OP05",
+        "OP06",
+        "OP09"
+      ],
+      "authority": [
+        "provider-approved preparation; human clinical instructions"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W4",
+      "blocked_by_requests": [
+        "CR-F4",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_UTILIZACAO_U2_Receber",
+      "primary_family": "F4",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "carolina",
+        "andre"
+      ],
+      "operations": [
+        "OP06",
+        "OP07",
+        "OP08",
+        "OP09"
+      ],
+      "authority": [
+        "provider performance fact; governed network obligation origin/human"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W4",
+      "blocked_by_requests": [
+        "CR-F4",
+        "CR-F5",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_UTILIZACAO_U3_Acompanhar",
+      "primary_family": "F4",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "valentina"
+      ],
+      "operations": [
+        "OP06",
+        "OP09"
+      ],
+      "authority": [
+        "source result availability; human/care program for clinical interpretation"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W4",
+      "blocked_by_requests": [
+        "CR-F4",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_UTILIZACAO_U4_LiquidarAvaliar",
+      "primary_family": "F4",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "marina",
+        "andre"
+      ],
+      "operations": [
+        "OP06",
+        "OP09",
+        "OP10",
+        "OP11"
+      ],
+      "authority": [
+        "finance source/human for payment; respondent for optional feedback"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W4",
+      "blocked_by_requests": [
+        "CR-F4",
+        "CR-F5",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_SUPORTE",
+      "primary_family": "F5",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "rafael",
+        "carolina",
+        "valentina",
+        "marina",
+        "fernando",
+        "gustavo",
+        "beatriz"
+      ],
+      "operations": [
+        "OP01",
+        "OP07",
+        "OP08",
+        "OP09",
+        "OP10",
+        "OP11"
+      ],
+      "authority": [
+        "domain source and protected human authority as applicable"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W3",
+      "blocked_by_requests": [
+        "CR-F1",
+        "CR-F5",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S1_OuvirRegistrar",
+      "primary_family": "F5",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "helena",
+        "lucas"
+      ],
+      "conditional_specialists": [],
+      "operations": [
+        "OP01",
+        "OP07",
+        "OP09"
+      ],
+      "authority": [
+        "domain source and protected human authority as applicable"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W3",
+      "blocked_by_requests": [
+        "CR-F1",
+        "CR-F5",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S2_DiagnosticarRotear",
+      "primary_family": "F5",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "helena",
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "rafael",
+        "carolina",
+        "valentina",
+        "marina",
+        "fernando",
+        "gustavo",
+        "beatriz"
+      ],
+      "operations": [
+        "OP07",
+        "OP08"
+      ],
+      "authority": [
+        "domain owner by authenticated case type; no medical diagnosis from case diagnosis"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W3",
+      "blocked_by_requests": [
+        "CR-F5"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+      "primary_family": "F5",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "rafael",
+        "carolina",
+        "valentina",
+        "marina",
+        "fernando",
+        "gustavo",
+        "beatriz"
+      ],
+      "operations": [
+        "OP07",
+        "OP08",
+        "OP09"
+      ],
+      "authority": [
+        "domain source and protected human authority as applicable"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W3",
+      "blocked_by_requests": [
+        "CR-F5",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+      "primary_family": "F5",
+      "feature_disposition": "ADOPT_TRANSFORMED",
+      "lead_proposed": [
+        "lucas"
+      ],
+      "conditional_specialists": [
+        "andre",
+        "gustavo"
+      ],
+      "operations": [
+        "OP07",
+        "OP09",
+        "OP10",
+        "OP11"
+      ],
+      "authority": [
+        "case source/required customer confirmation; Gustavo only actual formal NIP"
+      ],
+      "state": "PLANNED_SCOPE_AND_WIRING_GATED",
+      "first_consumer_wave_proposed": "W3",
+      "blocked_by_requests": [
+        "CR-F5",
+        "CR-F6"
+      ],
+      "runtime_admitted": false,
+      "clinical_or_advanced_enrichment_optional": false,
+      "dependency_condition": "Each contract request applies only when the implementation crosses that actual source or authority boundary."
+    }
+  ],
+  "waves": [
+    {
+      "id": "W0",
+      "goal": "Fechar autoridade, contratos, compatibilidade e baseline barata",
+      "packages": [
+        "all6families",
+        "11operation contracts",
+        "CR-F1..CR-F6 crosswalk + source AMH-V2-01..06 only required scopes",
+        "RX1..5",
+        "source pin checks",
+        "measurement protocol"
+      ],
+      "dependencies": [],
+      "exit": "Each package names provider/owner/rule/source/role and explicit readiness; contracts for effects ratified/published before build. Measurements absent UNMEASURED, not global product veto. Recover authoritative predeploy findings inventory before implementation components.",
+      "gatekeepers": [
+        "source/data stewards",
+        "security-manager/DPO",
+        "ops-compliance-gate",
+        "domain owners"
+      ],
+      "risk": "Fake contract/purpose/authority or opaque reuse waiver",
+      "rollback": "No runtime changed; revise proposed package/version under independent gate.",
+      "implementation_readiness": "PROPOSED_CONTRACTS_REVIEWABLE",
+      "blocked_scope": [
+        "owner/source publication and ratification remain pending"
+      ],
+      "independent_candidate_work": "contracts, role boundaries, evidence and baseline protocol",
+      "runtime_admitted": false
+    },
+    {
+      "id": "W1",
+      "goal": "Núcleo compartilhado mínimo e interfaces estáveis",
+      "packages": [
+        "AR1",
+        "AR3 receipt mechanism only",
+        "AR5",
+        "AR6",
+        "OP01",
+        "OP03",
+        "OP07",
+        "OP08",
+        "OP09",
+        "OP10"
+      ],
+      "dependencies": [
+        "W0 affected contract gates"
+      ],
+      "exit": "Typed closed contracts, strict effect admission, durable correlation/idempotency/outbox/receipt and honest failure semantics; old clients unchanged. Same module candidates, no copy-per-journey.",
+      "gatekeepers": [
+        "architecture",
+        "security-manager",
+        "contract verifier",
+        "native human/engine verifier"
+      ],
+      "risk": "Broad generic privilege or sender/factory consideredlive withoutproof",
+      "rollback": "New flags/bindings defaultoff, stopnewadmissions, drain uncertain effects; never fall back to unqualified direct completion.",
+      "implementation_readiness": "CANDIDATE_MECHANISMS_ONLY",
+      "blocked_scope": [
+        "affected W0 source/effect contract gates",
+        "fresh independent mechanism/security review",
+        "real registration/composition/CI before binding"
+      ],
+      "independent_candidate_work": "closed DTO validation, deny-only candidate admission, common state/receipt/wait mechanisms with no production binding",
+      "runtime_admitted": false
+    },
+    {
+      "id": "W2",
+      "goal": "Compras como primeiro consumidor completo",
+      "packages": [
+        "JR1",
+        "AR2",
+        "AR3",
+        "AR4",
+        "C3 enrollment and clinical split",
+        "GP1 only admitted governance scope"
+      ],
+      "dependencies": [
+        "W1",
+        "W0 catalogue/acceptance/enrollment/agenda authorities"
+      ],
+      "exit": "Need→usableoptions→customeracceptance→administrative enrollment OR legitimate AUTH clinicalrequest→verifieddelivery/recovery; cases link authoritative receipts, no profile-as-enrollment, no fake reservation. Missingprovider preventsdeclaringjourneycomplete.",
+      "gatekeepers": [
+        "product/CX",
+        "operator contract owner",
+        "AMH/provider steward",
+        "security/DPO",
+        "ops-compliance-gate",
+        "medicalgateforclinicalslice"
+      ],
+      "risk": "Riskselection, doubleenrollment/reservation, customeraccept treatedmedicaldecision",
+      "rollback": "Stopnewcommercial admissions; retain acceptedcontracts/receipts; compensatecommitted effects onlybydomainauthority, preserveexistingAUTH.",
+      "implementation_readiness": "BLOCKED_FOR_COMPLETE_JOURNEY",
+      "blocked_scope": [
+        "W1 qualified mechanism",
+        "Helena/Lucas conduct and task/channel/tool/action approval",
+        "CR-F2 catalogue",
+        "CR-F3 acceptance/enrollment",
+        "CR-F4 agenda/fulfillment",
+        "CR-F1/5/6 only for actual source crossing"
+      ],
+      "independent_candidate_work": "independent candidate graph construction and negative tests without supplier simulation as product",
+      "runtime_admitted": false
+    },
+    {
+      "id": "W3",
+      "goal": "Suporte como segundo consumidor e prova de reuso",
+      "packages": [
+        "JR2",
+        "AR5",
+        "sameOP01/03/07/08/09/10/11 implementation"
+      ],
+      "dependencies": [
+        "W1",
+        "W2 qualifiedsharedcontracts; doesnotdependonunrelated advancedML"
+      ],
+      "exit": "Samecode+samecontractversion forsharedmechanisms, independentcase/sourceauthority, receipt/event tests acrossdomains; no duplicatedjourneykernel. Protocol atfirstaction forapplicabledemands withoutresetclock; NIP onlyformalANS.",
+      "gatekeepers": [
+        "CX",
+        "architecture",
+        "security-manager",
+        "ops-compliance-gate",
+        "independent regression verifier"
+      ],
+      "risk": "Reuse diluted to wrappers/copiedcode orSupportwronglyopensNIP/clinicalRECURSO",
+      "rollback": "Disable newconsumer binding only, preserveactivecases andsharedv1clients; migrate/delegatependingcasesexplicitly.",
+      "implementation_readiness": "BLOCKED_FOR_COMPLETE_JOURNEY",
+      "blocked_scope": [
+        "W1 shared contracts/mechanisms qualified",
+        "AW0 support role/task/ingress ratification",
+        "CR-F5 case membership/S4 confirmation publication",
+        "CR-F6 notice/return qualification"
+      ],
+      "independent_candidate_work": "same-core support candidate and tests; no OP03 confirmation",
+      "runtime_admitted": false,
+      "effective_shared_operations": [
+        "OP01",
+        "OP07",
+        "OP08",
+        "OP09",
+        "OP10",
+        "OP11"
+      ],
+      "supersession_rule": "v2.1 composition_overrides supersedes generic W3 OP03 list; customer support confirmation uses OP07 only"
+    },
+    {
+      "id": "W4",
+      "goal": "Utilização e demais lacunas com entrega e feedback seguros",
+      "packages": [
+        "allCA2concepts",
+        "AR4",
+        "AR5",
+        "OP06",
+        "OP11",
+        "ADEQUACAO governed slices",
+        "financialhandoff existingCONTAS/PAGTO"
+      ],
+      "dependencies": [
+        "qualifiedW1/W3core",
+        "W0 service/result sourcecontracts"
+      ],
+      "exit": "Provider facts ofpreparation/performance/result verified; financialauthority unchanged; surveyasync/nonblocking andsourceU4fork2join2witnessorformal equivalentsoundproof, no silence-as-solved.",
+      "gatekeepers": [
+        "care/network owners",
+        "financeownerforhandoff",
+        "medical/DPO",
+        "ops-compliance-gate",
+        "engine verifier"
+      ],
+      "risk": "Surveyblocksmoney, care provider responsibility fabricated, cancellationwrongdomain",
+      "rollback": "Disable optionalfeedback/consumer, preservepayments/decisions/deadlines andalreadyreceivedfacts; drainreplay.",
+      "implementation_readiness": "BLOCKED_PER_DOMAIN",
+      "blocked_scope": [
+        "qualified W1/W3 core",
+        "CR-F4/5/6 affected delivery/care/financial contracts",
+        "U4 token witness or equivalent sound proof",
+        "existing protected domain authorities"
+      ],
+      "independent_candidate_work": "domain contract preparation and static safety checks",
+      "runtime_admitted": false
+    },
+    {
+      "id": "W5",
+      "goal": "Recomendação avançada e qualificação para expansão",
+      "packages": [
+        "F2 advanced nonclinicalmatching",
+        "sourceH3 boundedlearning",
+        "approvedaggregateanalytics",
+        "newGovernanceGP2 onlyifnecessity"
+      ],
+      "dependencies": [
+        "W2/W3 reuseproof",
+        "providercontractsforallowedpurpose",
+        "evaluatedmodels/privacyrules"
+      ],
+      "exit": "Corecustomerexperiencealreadyworks; no fullprofile360 prerequisite. MLOpspromotion hasseparateowner/evaluation/rollback, no implicitCAretreinoBPMN. Allrequired real engine/provider/E2E checks pass plusobservability.",
+      "gatekeepers": [
+        "production-validatorbeforeanydeploy",
+        "security-manager",
+        "ops-compliance-gate",
+        "data/modelstewards",
+        "humango-no-go"
+      ],
+      "risk": "Over-generalization, proxyhealthriskselection, prematureML,unverifiedconsumerdata",
+      "rollback": "Versionedmodel/provider/flagrollback, stopnewadmission, preserveevidence/inflightbindings; noPHI/receiptdeletion.",
+      "implementation_readiness": "DEFERRED_AFTER_CORE",
+      "blocked_scope": [
+        "W2/W3 measured reuse",
+        "qualified aggregate source/purpose",
+        "benefit/evaluation/privacy controls",
+        "owner promotion approval"
+      ],
+      "independent_candidate_work": "approved aggregate measurement preparation only; baseline remains UNMEASURED",
+      "runtime_admitted": false
+    }
+  ],
+  "reuse_exceptions": [
+    {
+      "id": "RX1",
+      "domain": "assistencial",
+      "scope": "Clinical decision authority/negative coverage",
+      "reason": "Mandatória humana/hard autonomy; não generalizar médico auditor para comercial",
+      "owner": "médico auditor + compliance",
+      "review_gate": "Independent safety/compliance; evidence before package admission",
+      "review_condition": "Revisit only if domain authority/obligation changes; never waive hard authority",
+      "state": "JUSTIFIED_SINGLE_DOMAIN_CONTROL_NOT_REUSE_FAILURE"
+    },
+    {
+      "id": "RX2",
+      "domain": "contratação/adesão",
+      "scope": "Enrollment policy",
+      "reason": "Direito-base/legal contract independent de autorização clínica",
+      "owner": "operadora + jurídico + AMH source owner",
+      "review_gate": "Independent safety/compliance; evidence before package admission",
+      "review_condition": "Revisit only if domain authority/obligation changes; never waive hard authority",
+      "state": "JUSTIFIED_SINGLE_DOMAIN_CONTROL_NOT_REUSE_FAILURE"
+    },
+    {
+      "id": "RX3",
+      "domain": "ANS/NIP",
+      "scope": "NIP regulatory obligation",
+      "reason": "Só evento real ANS abre NIP, não toda ouvidoria",
+      "owner": "ANS/compliance",
+      "review_gate": "Independent safety/compliance; evidence before package admission",
+      "review_condition": "Revisit only if domain authority/obligation changes; never waive hard authority",
+      "state": "JUSTIFIED_SINGLE_DOMAIN_CONTROL_NOT_REUSE_FAILURE"
+    },
+    {
+      "id": "RX4",
+      "domain": "contas/pagamentos",
+      "scope": "Financial authority",
+      "reason": "Não reduzir aprovação financeira a fulfillment/receipt genérico",
+      "owner": "financeiro/contabilidade",
+      "review_gate": "Independent safety/compliance; evidence before package admission",
+      "review_condition": "Revisit only if domain authority/obligation changes; never waive hard authority",
+      "state": "JUSTIFIED_SINGLE_DOMAIN_CONTROL_NOT_REUSE_FAILURE"
+    },
+    {
+      "id": "RX5",
+      "domain": "provider-specific wire",
+      "scope": "Provider/schema/credential adapters",
+      "reason": "Different providers own incompatible schemas and authority; share transport and contract validation utilities, preserve each boundary",
+      "owner": "source steward + security",
+      "review_gate": "AMH/XRG or named provider contract conformance",
+      "review_condition": "Unify only with demonstrated semantic/schema equivalence",
+      "state": "JUSTIFIED_PROVIDER_ADAPTER"
+    }
+  ],
+  "baseline_measurement": {
+    "status": "UNMEASURED",
+    "financial_ROI": "NOT_DEMONSTRATED",
+    "source": "approved aggregate export only, no direct lake query or raw PHI",
+    "missing_measurement_is_global_veto": false
+  },
+  "predeploy_checklist": {
+    "git_object": "e7b14522a4f70242504d2b152a57ee5269ee66e2:docs/reports/predeploy-findings.json",
+    "sha256": "7a99ffb007c66aa93115a81fff4089a386ddd6c55ba6c3a0ef5023f91e106751",
+    "row_count": 127,
+    "working_tree_delete_preserved": true,
+    "applicable_historical_ids": [
+      "lucas-cancel-start-overclaim",
+      "helena-autonomy-actions-incomplete-triage-scheduling",
+      "autonomy-actions-declared-but-never-exercised",
+      "matricula-raw-to-general-zone-notifications-topic",
+      "phone-hash-keyless-brute-forceable-reidentification",
+      "redact-payload-force-key-gap-operator-named-flow-fields",
+      "redact-payload-geo-coordinate-string-bypasses-rounding",
+      "recurso-marina-a2a-decorative",
+      "inad-fernando-a2a-unreachable",
+      "resume-driver-error-dlq-paths-unredacted-phi-echo-inbound-sibling-hardened",
+      "set-pseudonymizer-never-wired-layer2-freetext-log-scrub-inert-all-runtimes"
+    ],
+    "claims_are_current_defects": false,
+    "instruction": "Use historical IDs as no-repeat controls; independently reproduce current affected surfaces before claiming a live defect."
+  },
+  "independent_validation_required": {
+    "author_not_verifier": true,
+    "repair_distinct_from_author": true,
+    "original_reviewer_revalidates_delta": true,
+    "final_reviewers_not_authors_repairers_integrators": true,
+    "supplier_publication_and_human_ratification_remain_external": true
+  },
+  "administrative_task_contract_candidate": {
+    "contract_status": "PROPOSED",
+    "task_types": [
+      "journey.compras.step",
+      "journey.suporte.step"
+    ],
+    "consumer_agent": "lucas",
+    "domain_inputs": "AdministrativeInput.envelope is the unchanged 12-field CapabilityEnvelope; AdministrativeInput.payload is exactly one closed request for that operation. Handoff/context are separate typed technical inputs, not added domain fields; outcomes/business facts are output-only.",
+    "task_choice_source": "Authenticated server-side channel adapter, not caller-supplied agent_id or a task name as authority.",
+    "current_message_evidence": "Server-side admission context binds handoff to current inbound message and tenant; opaque message reference only, never raw message or raw wamid in logs/state.",
+    "compras_operations": [
+      "OP01",
+      "OP02",
+      "OP03",
+      "OP04",
+      "OP05",
+      "OP06",
+      "OP07",
+      "OP08",
+      "OP09",
+      "OP10"
+    ],
+    "suporte_operations": [
+      "OP01",
+      "OP07",
+      "OP08",
+      "OP09",
+      "OP10",
+      "OP11"
+    ],
+    "task_membership_currently_declared": false,
+    "new_task_wire_published": false,
+    "next_gate": "AW0 conduct/agent/channel/task/tool/action owner decision + AW-SPEC/AW-AUTH/AW-CALL; publish exact channel/task wire if A2A used with existing signed envelope; qualified source/currentness/audit/return before binding. Candidate files alone do not establish any of these gates.",
+    "current_candidate_shapes": {
+      "handoff": {
+        "source": "src/maezo/agents/lucas/administrative/handoff.py:AdministrativeHandoff, parse_handoff",
+        "schema_version": "v21-administrative-handoff.proposed.v1",
+        "closed_fields": [
+          "schema_version",
+          "task_type",
+          "tenant_ref",
+          "journey_ref",
+          "message_ref"
+        ],
+        "task_type_values": [
+          "journey.compras.step",
+          "journey.suporte.step"
+        ],
+        "message_ref_shape": "hk1_ followed by 64 lowercase hex characters; opaque keyed current-message reference from trusted ingress, never raw wamid/text/phone.",
+        "ownership": "Authenticated server-side channel adapter constructs this candidate only after current Helena triage and explicit scoped AW0 contract. Parsing/references alone are not signed channel admission."
+      },
+      "administrative_input": {
+        "source": "src/maezo/agents/lucas/administrative/state.py:AdministrativeInput, new_administrative_state",
+        "closed_fields": [
+          "envelope",
+          "payload",
+          "handoff",
+          "current_message_ref",
+          "health_priority",
+          "human_requested"
+        ],
+        "trusted_context_fields": [
+          "handoff",
+          "current_message_ref",
+          "health_priority",
+          "human_requested"
+        ],
+        "context_rule": "health_priority/human_requested are booleans supplied from authenticated current triage, not business enums or model claims. Verify exact current_message_ref and tenant/journey against handoff+envelope on each turn; no reuse from older message.",
+        "outputs_forbidden": [
+          "technical_status",
+          "outcome",
+          "business facts",
+          "source receipts",
+          "consumer authority"
+        ]
+      },
+      "admission_binding": {
+        "source": "src/maezo/gateway/capabilities/admission.py:AdmissionBinding",
+        "closed_fields": [
+          "principal_ref",
+          "task_ref",
+          "tenant_ref",
+          "legal_entity_ref",
+          "purpose_ref",
+          "operation_name",
+          "schema_version",
+          "contract_revision",
+          "source_authority_ref",
+          "policy_revision",
+          "data_classification",
+          "autonomy_action",
+          "security_zone"
+        ],
+        "rule": "Server-owned binding resolved from the separately published source/policy/agent/task/channel contract; use matrix field sources. No actor/channel/currentness check is proven by constructing it. Qualified AuthorityVerifier, registered callable and audit are still required."
+      }
+    },
+    "source_candidates_are_runtime_admitted": false
+  },
+  "administrative_operation_binding_matrix": {
+    "status": "PROPOSED_REVIEWABLE_NOT_ADMITTED",
+    "purpose_values_are_not_published_enums": true,
+    "single_dispatcher": {
+      "candidate_tool_id": "gateway.capabilities.execute",
+      "registration_status": "CANDIDATE_NOT_REGISTERED",
+      "target": "src/maezo/gateway/capabilities/service.py:CapabilityService.execute",
+      "composition": "One internal gateway dispatcher and shared capability ports; server-owned source/admission mappings scoped to the authenticated task and operation. This proposal creates no MCP server, journey daemon or HTTP ingress.",
+      "agent_tool_allowlist_requires_scoped_action_and_operation_allowlist": true
+    },
+    "action_identifiers_are_technical_candidates_not_authority": true,
+    "autonomy_tiers_not_assigned": true,
+    "existing_hard_actions_unchanged": true,
+    "helena_null_task_type": "Existing Helena WhatsApp turn, not a new accepted A2A task. A server-owned task_ref for that authenticated turn still requires explicit publication/admission; null here does not bypass AdmissionBinding.task_ref.",
+    "portal_channel": "Not included in these rows. A portal/A2A channel needs a separately admitted channel contract and the same per-agent/task/operation restrictions; no new endpoint is proposed.",
+    "common_guard": "Authenticated server-side principal/task/channel, signed task/Card when A2A is used, exact envelope/request digest, tenant/legal_entity/journey, published purpose/source/contract/policy revisions, current actor/consent/erasure/freshness evidence, enforcing allow decision, audit-before-source and source receipt/currentness-before-disclosure. Construction of references/DTOs never proves authority.",
+    "rows": [
+      {
+        "agent": "helena",
+        "task_type": null,
+        "operation_id": "OP01",
+        "operation_name": "access.resolve",
+        "agent_mode": "READ_REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_access_resolve",
+        "purpose_requirement": "Owner-published minimum ingress identity/routing purpose for this current message; no commercial composition or clinical access.",
+        "source_gate": "CR-F1",
+        "operation_guard": "Ingress minimum only: resolve current administrative/prospect identity and routing context permitted by CR-F1; no offer, acceptance, enrollment, reservation or clinical retrieval. Published purpose-specific minimum administrative fields; tenant/subject/source scope and current consent or other applicable authority; no clinical context, MPI minting or commercial risk selection.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F1"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "helena",
+        "task_type": null,
+        "operation_id": "OP07",
+        "operation_name": "case.open_or_update",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_case_open_or_update",
+        "purpose_requirement": "Owner-published human-request intake purpose for this current message and appropriate group; health has precedence.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Current explicit human request only through the admitted case/intake contract; preserve existing health/human escalation gates and texts. No general commercial case authority inferred. Published case_kind/status membership, audience/requester authority and same-case revision; real protocol/clock/source receipt; NIP only formal request, RECURSO only payer glosa; S4 current manifestation+resolution receipt remain OP07.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP01",
+        "operation_name": "access.resolve",
+        "agent_mode": "READ_REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_access_resolve",
+        "purpose_requirement": "Owner-published purpose for minimum administrative identity/context access in this journey; analytics is not a commercial purpose.",
+        "source_gate": "CR-F1",
+        "operation_guard": "Published purpose-specific minimum administrative fields; tenant/subject/source scope and current consent or other applicable authority; no clinical context, MPI minting or commercial risk selection.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F1"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP02",
+        "operation_name": "offer.compose",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_offer_compose",
+        "purpose_requirement": "Owner-published nonclinical commercial offer purpose for JR1 and permitted administrative preferences only.",
+        "source_gate": "CR-F2",
+        "operation_guard": "Published operator catalogue/version/terms/expiry and current availability; nonclinical feature allowlist; ratified deterministic rules through CIB when used; no clinical proxies or price invented by agent.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F2"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP03",
+        "operation_name": "acceptance.record",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_acceptance_record",
+        "purpose_requirement": "Owner-published purpose to record this customer decision on the exact JR1 commercial offer and terms.",
+        "source_gate": "CR-F3",
+        "operation_guard": "Authenticated current customer/delegate, authoritative offer_ref+offer_version and exact terms evidence; source records explicit accept/decline and receipt; never case-resolution confirmation.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F3"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP04",
+        "operation_name": "enrollment.request",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_enrollment_request",
+        "purpose_requirement": "Owner-published administrative enrollment/base-entitlement purpose under the issuer contract for JR1.",
+        "source_gate": "CR-F3",
+        "operation_guard": "Qualified enrollment issuer contract, accepted commitment and permitted prospect linkage; issuer alone emits base entitlement and any AMH identity is AMH-minted; no AUTH/coverage/portal/care.enroll substitute.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F3"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP05",
+        "operation_name": "reservation.command",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_reservation_command",
+        "purpose_requirement": "Owner-published provider reservation purpose for this accepted JR1 commitment and permitted command.",
+        "source_gate": "CR-F4",
+        "operation_guard": "Qualified provider, actual accepted commitment, published atomic hold/confirm lifecycle and expected provider revision; hold expiry/source receipt; reschedule/cancel only scoped reservation legal effect, never contract termination; reconcile uncertain result without fresh command.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F4"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP06",
+        "operation_name": "fulfillment.observe",
+        "agent_mode": "READ_REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_fulfillment_observe",
+        "purpose_requirement": "Owner-published administrative fulfillment-observation purpose for this JR1 object; no clinical result disclosure.",
+        "source_gate": "CR-F4",
+        "operation_guard": "Qualified observed fact/revision/time; factual performed/result_available differs from ETA; reject administrative disclosure when clinical_result_context_ref is present; no ADEQUACAO start or financial authority.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F4"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP07",
+        "operation_name": "case.open_or_update",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_case_open_or_update",
+        "purpose_requirement": "Owner-published case intake/update purpose, declared role/audience and requester scope for this journey.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Published case_kind/status membership, audience/requester authority and same-case revision; real protocol/clock/source receipt; NIP only formal request, RECURSO only payer glosa; S4 current manifestation+resolution receipt remain OP07.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP08",
+        "operation_name": "external_wait.settle",
+        "agent_mode": "OBSERVE_SERVICE_RESULT",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_external_wait_observe",
+        "purpose_requirement": "Owner-published case/wait observation and return purpose for this journey and expected producer.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Qualified wait service verifies expected producer/correlation/revision and mutually exclusive completed/timeout; source-owned settlement only; technical timeout is uncertain, not a business timed_out result; no agent inference of human decision.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP09",
+        "operation_name": "notice.prepare_or_send",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_notice_request",
+        "purpose_requirement": "Owner-published mandatory/facultative communication purpose, content and recipient for this journey.",
+        "source_gate": "CR-F6",
+        "operation_guard": "Authorized content and notice class, recipient custody/preference/current authority, qualified sender/channel/factory/template/window and durable dedupe; preparation/attempt do not prove delivery; recipient-specific provider receipt before delivered claim.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F6"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP10",
+        "operation_name": "milestone.publish",
+        "agent_mode": "OBSERVE_SERVICE_RESULT",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_milestone_observe",
+        "purpose_requirement": "Owner-published milestone audience/observation purpose for this journey; publisher authority remains with source/service.",
+        "source_gate": "CR-F6",
+        "operation_guard": "Source-owned publisher/outbox/inbox verifies source_fact/revision/declared milestone/audience; agent observes service publication result only, cannot author facts; receipt is not Kafka offset and prediction is separate.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F6"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP01",
+        "operation_name": "access.resolve",
+        "agent_mode": "READ_REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_access_resolve",
+        "purpose_requirement": "Owner-published purpose for minimum administrative identity/context access in this journey; analytics is not a commercial purpose.",
+        "source_gate": "CR-F1",
+        "operation_guard": "Published purpose-specific minimum administrative fields; tenant/subject/source scope and current consent or other applicable authority; no clinical context, MPI minting or commercial risk selection.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F1"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP07",
+        "operation_name": "case.open_or_update",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_case_open_or_update",
+        "purpose_requirement": "Owner-published case intake/update purpose, declared role/audience and requester scope for this journey.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Published case_kind/status membership, audience/requester authority and same-case revision; real protocol/clock/source receipt; NIP only formal request, RECURSO only payer glosa; S4 current manifestation+resolution receipt remain OP07.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP08",
+        "operation_name": "external_wait.settle",
+        "agent_mode": "OBSERVE_SERVICE_RESULT",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_external_wait_observe",
+        "purpose_requirement": "Owner-published case/wait observation and return purpose for this journey and expected producer.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Qualified wait service verifies expected producer/correlation/revision and mutually exclusive completed/timeout; source-owned settlement only; technical timeout is uncertain, not a business timed_out result; no agent inference of human decision.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP09",
+        "operation_name": "notice.prepare_or_send",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_notice_request",
+        "purpose_requirement": "Owner-published mandatory/facultative communication purpose, content and recipient for this journey.",
+        "source_gate": "CR-F6",
+        "operation_guard": "Authorized content and notice class, recipient custody/preference/current authority, qualified sender/channel/factory/template/window and durable dedupe; preparation/attempt do not prove delivery; recipient-specific provider receipt before delivered claim.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F6"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP10",
+        "operation_name": "milestone.publish",
+        "agent_mode": "OBSERVE_SERVICE_RESULT",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_milestone_observe",
+        "purpose_requirement": "Owner-published milestone audience/observation purpose for this journey; publisher authority remains with source/service.",
+        "source_gate": "CR-F6",
+        "operation_guard": "Source-owned publisher/outbox/inbox verifies source_fact/revision/declared milestone/audience; agent observes service publication result only, cannot author facts; receipt is not Kafka offset and prediction is separate.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F6"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP11",
+        "operation_name": "feedback.record",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_feedback_record",
+        "purpose_requirement": "Owner-published optional customer feedback purpose for the JR2 case, instrument and authorized respondent.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Published instrument/version/cohort/scale and current respondent authority; optional asynchronous feedback observation; no response never implies resolution; never blocks payment or delivery.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      }
+    ],
+    "binding_field_sources": {
+      "principal_ref": "Authenticated server-owned agent principal; not caller agent_id.",
+      "task_ref": "Authenticated server-owned current turn/task binding; Lucas value must match the candidate task type and all CapabilityService admissions for that consumer.",
+      "tenant_ref/legal_entity_ref": "Trusted channel/tenant composition and admitted legal entity, cross-checked against envelope and handoff.",
+      "purpose_ref": "Actual owner-published reference satisfying the row purpose requirement; no new literal purpose enum in this proposal.",
+      "operation_name/schema_version": "Exact closed operation name and proposed envelope version; allowlist checked per agent/task/operation.",
+      "contract_revision/source_authority_ref/policy_revision/data_classification": "Actual published current contract/source/policy/classification evidence from qualified composition; not values inferred from model narrative.",
+      "autonomy_action": "Exact candidate row identifier after policy publication/ratification; absent or unknown action stays denied.",
+      "security_zone": "General candidate for minimum administrative data only; PHI requires its existing separate qualified boundary, not broader permissions here."
+    },
+    "admission_source": "src/maezo/gateway/capabilities/admission.py:AdmissionBinding, VerifiedAuthority, AuthorityVerifier",
+    "channel_evidence_limitation": "AdmissionBinding has no channel field. Qualified AuthorityVerifier must bind the authenticated channel/current message in its checked task/currentness/authorization evidence; the candidate DTO alone does not prove that check or install a verifier."
+  }
+}

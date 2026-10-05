@@ -1,0 +1,1199 @@
+{
+  "schema_version": 1,
+  "verdict": "PUBLISHED_CI_TERMINAL_PASS_BOUNDED",
+  "captured_at_utc": "2026-10-04T22:50:57.271732+00:00",
+  "scope": "Only current CI run37238750715 on proven checkoute786. No R6 promotion, literal local full rerun, future-main qualification, production/new-provider or human-authority acceptance.",
+  "pr": {
+    "number": 633,
+    "url": "https://github.com/Omni-Saude/maezo-operadora/pull/633",
+    "draft": true,
+    "state": "open",
+    "published_head": "75618442d4b7729f0194d5207248cdc6ab9c0267",
+    "observed_pr_base_commit": "4208c08717f577636e5e04a1c1455d8e25d5970b"
+  },
+  "run": {
+    "id": 37238750715,
+    "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715",
+    "attempt": 1,
+    "event": "pull_request",
+    "status": "completed",
+    "conclusion": "success",
+    "started_at": "2026-10-04T22:06:39Z",
+    "completed_updated_at": "2026-10-04T22:39:58Z"
+  },
+  "tested_context": {
+    "actual_checkout_commit": "e7864a46abbde875679e20e81213935f2009e8bd",
+    "actual_checkout_tree": "7c6fccfc6447cbd7284c435b1149c2eff483412b",
+    "base_commit": "ccf00d41dea9d277dd28255b3e187548778ba7ed",
+    "published_parent_commit": "75618442d4b7729f0194d5207248cdc6ab9c0267",
+    "proof_source": "Actual actions/checkout git log -1 --format=%H lines in completed job logs; not current refs/pull merge or ls-remote.",
+    "unit_and_integration_contexts_verified": 14,
+    "context_errors": [],
+    "full_tree_or_full_source_equivalence_to_own_published_head": false,
+    "exact_union_delta": [
+      {
+        "path": "docs/decisions-log.md",
+        "status": "modified",
+        "changes": 1,
+        "blob": "df750aee93137d243822c427a130ae8d73d7af57"
+      },
+      {
+        "path": "src/maezo/adapters/amh/subject_resolution.py",
+        "status": "added",
+        "changes": 335,
+        "blob": "6ff63201186718ba35a653cbaf1b0d9b897c023e"
+      },
+      {
+        "path": "src/maezo/agents/lucas/fonte_cobranca.py",
+        "status": "modified",
+        "changes": 9,
+        "blob": "82e9a21cafc60dbb73a29797be030549ed241e8b"
+      },
+      {
+        "path": "src/maezo/agents/lucas/fonte_cobranca_amh.py",
+        "status": "modified",
+        "changes": 8,
+        "blob": "04fca4213aae0dc6f33c5cfe60adb9c792f3830c"
+      },
+      {
+        "path": "src/maezo/agents/lucas/identidade_amh.py",
+        "status": "added",
+        "changes": 67,
+        "blob": "1273149abffc465a92c649f630813cbc3e8a9b67"
+      },
+      {
+        "path": "src/maezo/platform/webhooks/whatsapp/lucas_turno.py",
+        "status": "modified",
+        "changes": 4,
+        "blob": "929a9f621080de1a3c0761fee70b2c84bdf226eb"
+      },
+      {
+        "path": "src/maezo/portal/engine/read-provider/pom.xml",
+        "status": "modified",
+        "changes": 2,
+        "blob": "1c9f819b46f678038eb82434cc12d9322deef137"
+      },
+      {
+        "path": "src/maezo/ports/subject_resolution.py",
+        "status": "added",
+        "changes": 83,
+        "blob": "dac7f9c7b8b037077b8d54f8a4e4138206a8e938"
+      },
+      {
+        "path": "tests/unit/adapters/amh/test_adapter_purity.py",
+        "status": "modified",
+        "changes": 7,
+        "blob": "e148d3fb40b26cc1e6d3416293de075dceff00e3"
+      },
+      {
+        "path": "tests/unit/adapters/amh/test_subject_resolution.py",
+        "status": "added",
+        "changes": 392,
+        "blob": "2187ebf3ab3b64995382dad674ec2f264e9a715b"
+      },
+      {
+        "path": "tests/unit/agents/test_fonte_cobranca_amh.py",
+        "status": "modified",
+        "changes": 2,
+        "blob": "53ecd046d58ffe8c24e4f1685e962936fbef55f0"
+      },
+      {
+        "path": "tests/unit/agents/test_identidade_amh.py",
+        "status": "added",
+        "changes": 122,
+        "blob": "c27c568c1fd86ff2a73b3e13b39d93cb6b72ce23"
+      },
+      {
+        "path": "tests/unit/platform/webhooks/whatsapp/test_dispatch_cobranca.py",
+        "status": "modified",
+        "changes": 2,
+        "blob": "0a12731d2d3012c75dcd8479b3489ee24fdf7ace"
+      },
+      {
+        "path": "tests/unit/platform/webhooks/whatsapp/test_lucas_turno.py",
+        "status": "modified",
+        "changes": 6,
+        "blob": "ed3dad22bcf68fd814a15efeb95b5af2da4c041d"
+      },
+      {
+        "path": "tests/unit/ports/test_ports_purity.py",
+        "status": "modified",
+        "changes": 9,
+        "blob": "cb2d0fb55f1fc5ee8d5d77fece377d6b274b937e"
+      }
+    ],
+    "union_delta_path_count": 15,
+    "upstream_changes_are_own_implementation": false,
+    "steward_gate": {
+      "path": "docs/gates/v21-capability-execution-20261004/tested-base-ccf00-final-delta.json",
+      "sha256": "c8ae499bc8ae852ad91f54862cfe3b2955bc758a86592b668affa373ad155356",
+      "verdict": "PASS_BOUNDED_EXACT_TESTED_CONTEXT_COMPATIBILITY",
+      "scope": "Exact tested context compatibility, preserving15-path delta and53/53 own source blobs; no new source/provider/human approval."
+    },
+    "newer_main_followed_or_qualified": false
+  },
+  "unit": {
+    "shards": 9,
+    "counts": {
+      "testcases": 26244,
+      "passed": 26107,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 132,
+      "xfailed": 5
+    },
+    "marker": "not integration",
+    "command_template": ".venv/bin/python -m pytest <matrix.alvo> -q -m \"not integration\" -ra <matrix.xdist> --junitxml=unit-junit-<shard>.xml --cov=<workspace>/src/maezo --cov-report=",
+    "selectors": [
+      {
+        "shard": "ledger-consumer",
+        "collection_arguments": "tests/unit/ci/test_ledger_current_consumer.py",
+        "xdist_arguments": "-n 0"
+      },
+      {
+        "shard": "ledger-execution",
+        "collection_arguments": "tests/unit/ci/test_ledger_current_execution.py",
+        "xdist_arguments": "-n 0"
+      },
+      {
+        "shard": "ledger-resto",
+        "collection_arguments": "tests/unit/ci/test_ledger_current_relations.py tests/unit/ci/test_ledger_d7_async_consumer.py tests/unit/ci/test_ledger_execution_admission.py tests/unit/ci/test_ledger_invalid_declaration_boundaries.py tests/unit/ci/test_ledger_invalid_declarations.py tests/unit/ci/test_ledger_operational_history.py",
+        "xdist_arguments": "-n 0"
+      },
+      {
+        "shard": "ci-pesado",
+        "collection_arguments": "tests/unit/ci/test_pytest_collection_privacy.py tests/unit/ci/test_check_doc_symbol_citations.py tests/unit/ci/test_check_chart_env_reconciliation.py tests/unit/ci/test_generate_release_floor.py tests/unit/ci/test_pytest_publication_context.py tests/unit/ci/test_global_integration_ci.py tests/unit/ci/test_check_evidence_ledger_supersession.py",
+        "xdist_arguments": "-n auto --dist loadfile"
+      },
+      {
+        "shard": "ci",
+        "collection_arguments": "tests/unit/ci --ignore-glob=tests/unit/ci/test_ledger_*.py --ignore=tests/unit/ci/test_pytest_collection_privacy.py --ignore=tests/unit/ci/test_check_doc_symbol_citations.py --ignore=tests/unit/ci/test_check_chart_env_reconciliation.py --ignore=tests/unit/ci/test_generate_release_floor.py --ignore=tests/unit/ci/test_pytest_publication_context.py --ignore=tests/unit/ci/test_global_integration_ci.py --ignore=tests/unit/ci/test_check_evidence_ledger_supersession.py",
+        "xdist_arguments": "-n auto --dist loadfile"
+      },
+      {
+        "shard": "gateway-platform",
+        "collection_arguments": "tests/unit/gateway tests/unit/platform",
+        "xdist_arguments": "-n auto --dist loadfile"
+      },
+      {
+        "shard": "dev-runner",
+        "collection_arguments": "tests/unit/dev/test_engine_integration_runner.py",
+        "xdist_arguments": "-n 0"
+      },
+      {
+        "shard": "dev",
+        "collection_arguments": "tests/unit/dev --ignore=tests/unit/dev/test_engine_integration_runner.py tests/unit/portal/test_relay_boundary_diagnostics.py",
+        "xdist_arguments": "-n 0"
+      },
+      {
+        "shard": "restante",
+        "collection_arguments": "tests --ignore=tests/unit/ci --ignore=tests/unit/gateway --ignore=tests/unit/platform --ignore=tests/unit/dev --ignore=tests/unit/portal/test_relay_boundary_diagnostics.py",
+        "xdist_arguments": "-n auto --dist loadfile"
+      }
+    ],
+    "duplicate_identities": 0,
+    "skip_summary": {
+      "terraform_cli_unavailable": 108,
+      "live_anthropic_unexecuted": 20,
+      "native_witness_database_unverified": 2,
+      "agent_without_start_process_node": 2
+    },
+    "xfails": 5
+  },
+  "integration": {
+    "shards": 5,
+    "counts": {
+      "testcases": 795,
+      "passed": 767,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 2,
+      "xfailed": 26
+    },
+    "duplicate_identities": 0,
+    "reporting_checks": "All5 collection/execution/validation/JUnit identity sets reconciled; executed strict xfail and inactive-companion classifications verified; test source hashes compared with gitblobs at actual e786.",
+    "inactive_companion_count": 2,
+    "executed_strict_xfail_count": 26
+  },
+  "records": [
+    {
+      "lane": "integration",
+      "shard": "cancel-contas",
+      "job_id": 111545107933,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107933",
+      "started_at": "2026-10-04T22:18:01Z",
+      "completed_at": "2026-10-04T22:39:45Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 98,
+        "passed": 98,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "integration-junit.xml",
+      "junit_sha256": "3343cc2826027e0e64ec181548b3c5e2a189565b7c62c795c0dfd9c0a1cde256",
+      "artifact_id": 11317875967,
+      "artifact_digest": "sha256:46401cb1200e3a084d7ceae309e81ff3a99d9f84566797f8fd3f46758e969f70",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:39:41Z",
+      "unique_identities": 98,
+      "skip_and_xfail_reasons": [],
+      "reporting": {
+        "collection_count": 98,
+        "execution_count": 98,
+        "validation_count": 98,
+        "junit_count": 98,
+        "consistent": true,
+        "classifications": {
+          "passed": 98
+        },
+        "body_entry": {
+          "entered": 98
+        },
+        "test_source_hashes_match_exact_tested_commit": true,
+        "validation_return_code": 0,
+        "validation_errors": [],
+        "files": [
+          {
+            "path": "integration-collection.json",
+            "sha256": "c18a91fcf1a0ea0b53422d16a848e001ec9da4a340f221c3f2dd3f5a21c4230e"
+          },
+          {
+            "path": "integration-execution.json",
+            "sha256": "c6245727fd760f7f26fe49c4f8633347a1405aead0dbdb3b7411481e4cb4adeb"
+          },
+          {
+            "path": "integration-validation.json",
+            "sha256": "5b67d6b5ea0747438d2f6f6827de49e52fae59304315b33f2cfedaac8ee9c972"
+          }
+        ]
+      }
+    },
+    {
+      "lane": "integration",
+      "shard": "reembolso",
+      "job_id": 111545107964,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107964",
+      "started_at": "2026-10-04T22:18:00Z",
+      "completed_at": "2026-10-04T22:38:41Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 41,
+        "passed": 37,
+        "xfailed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_entry": "integration-junit.xml",
+      "junit_sha256": "83344ac19a3095fc537763fb848ec26902a472686442a63a2c6aac1ba8e14be2",
+      "artifact_id": 11317696705,
+      "artifact_digest": "sha256:04b0fc7defccf57d369c76aa739c820e3869d062bc809012125d83a36391388a",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:38:37Z",
+      "unique_identities": 41,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "D-07 (finding 3, OPEN governance item, GENUINELY blocks here — unlike auth's carve-out, like pagto's non-carve-out): tenant amh's reembolso_auto_approval.max_value_brl is 0 in both spec/policies/autonomy/L0-core.yaml and tenants-amh.yaml. CeilingResolver.within_l2_ceiling (ceilings.py) is fail-closed on a 0 ceiling, and calculate_amount_entry's topic (operadora.reembolso.calculate_amount) IS part of this probe's normal drain-topics list (no carve-out) — every request's dentro_teto_l2 is genuinely recomputed False, so End_ReembolsoAprovadoAutomatico is UNREACHABLE under the current tenant policy config. The donor's own workaround (reembolso_probe_teto_positivo, injecting register_reembolso_workers(..., resolver=CeilingResolver(core_path=core))) cannot be ported: v2's register_reembolso_workers(harness, kafka=None, **seams) explicitly `del`s **seams — no resolver-injection point exists. src/** fix (either a real teto or a resolver seam) is out of scope for this port. SEGUNDA CAUSA desde REEMBOLSO-AUTO-OVERPAY-a (R-058): mesmo com um teto positivo este caminho seguiria bloqueado — a condicao de Flow_GW_AutoAprovar exige reembolso_auto_liberado (worker: REEMBOLSO_AUTO_PAGAMENTO_LIBERADO, hoje False) e o worker de pagamento recusa a origem automatica (ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO). O xfail portanto NAO cai quando o teto D-07 for resolvido: cai quando a atuaria (+ regulatorio verifica) assinar o sign-off e a formula escolhida (A min(solicitado, tabela) vs B) entrar junto com a abertura do interruptor. Ver test_bloqueio_r058_impede_o_caminho_automatico_de_pagar, que prova o bloqueio LIVE."
+        },
+        {
+          "kind": "xfailed",
+          "count": 3,
+          "reason": "Governance gate (human ceiling), NOT a src/** gap. `operadora.lgpd.send_response` (#55 R-F) IS a real, merged worker (`make_send_response_handler`, lgpd.py:538, registered via `register_lgpd_workers`, lgpd.py:738-768, #125) and is live-verified on a real CIB Seven engine ('lgpd_send_response_sent decisao=APROVAR_ENVIO' observed, T2.8). `lgpd_probe` deliberately RE-SHADOWS it with the finding-2 gap stub (`_gap_topic_stub` on `_SEND_TOPIC`) anyway, so these 3 happy-path tests stay strict-xfailed pending DPO sign-off on the full DSR merit flow — a governance decision, not an engineering one (see the T2.8 note above, module lines ~254-266; `PLANS.md:147-148`'s 'Censo de strict-xfail ... DPO x3' counts exactly these 3; and `docs/sme-dispatch/dpo/PACKAGE.md:113-123`, which tracks this as the open DPO question). Un-shadowing R-F would XPASS this family: a known assert-key mismatch is already tracked for that moment (the worker emits `tem_fundamentacao` — lgpd.py:586 — while `test_negativa_fundamentada_e_decisao_humana` asserts `has_fundamentacao`, line 569)."
+        }
+      ],
+      "reporting": {
+        "collection_count": 41,
+        "execution_count": 41,
+        "validation_count": 41,
+        "junit_count": 41,
+        "consistent": true,
+        "classifications": {
+          "passed": 37,
+          "xfailed_executed": 4
+        },
+        "body_entry": {
+          "entered": 41
+        },
+        "test_source_hashes_match_exact_tested_commit": true,
+        "validation_return_code": 0,
+        "validation_errors": [],
+        "files": [
+          {
+            "path": "integration-collection.json",
+            "sha256": "f394e5df434a876aadcd27f9ac365c6e91af66e9855e7f85cf3c999f000b2a89"
+          },
+          {
+            "path": "integration-execution.json",
+            "sha256": "873cf5cce5a78cf57baa2725f009ba1d6b05e45e8516a3453562bd46bb3cd1b9"
+          },
+          {
+            "path": "integration-validation.json",
+            "sha256": "2b2b465ee968ec85a8e766803457b7987692abc39803b8cf58294796c5df9f97"
+          }
+        ]
+      }
+    },
+    {
+      "lane": "integration",
+      "shard": "cred-ans",
+      "job_id": 111545107998,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107998",
+      "started_at": "2026-10-04T22:18:01Z",
+      "completed_at": "2026-10-04T22:38:16Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 96,
+        "passed": 76,
+        "xfailed": 20,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_entry": "integration-junit.xml",
+      "junit_sha256": "f4bed41ce7959e35fe613d5f879cc9dac4c489ffe84e1d42e5dc1010e258e483",
+      "artifact_id": 11317452217,
+      "artifact_digest": "sha256:51e8c14fc21504593ea33db811bf3b220ce3a4ab555b996cb9369a9b229cd420",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:38:12Z",
+      "unique_identities": 96,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 2,
+          "reason": "GUARD-SHAPE finding 4 is RESOLVED in src (t5-workers-f2): register_descredenciamento/register_cred_denial now raise WorkerBpmnError(ERR_DECRED_NOT_HUMAN)/WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN) — the MODELED bpmn errors — instead of a bespoke CredError (which FunctionWorker.execute reclassified to a bare ValueError -> generic failure(retries=0) incident, so BE_DecredNaoHumano/BE_CredDenialNaoHumano could never fire). The boundary is now REACHABLE — gate-proven/consumption-covered by scripts/ci/check_bpmn_error_allowlist.py and proven at the harness layer by tests/unit/tools/workers/test_credenciamento.py::test_decred_guard_reaches_boundary_when_allowlisted (mirrors ERR_CANCEL_MANTER_NOT_HUMAN). This ENGINE test nonetheless stays xfail on the STILL-open finding 1 (_CRED_MISSING_WORKERS_REASON): operadora.cred.prepare_dossier is not in this probe's _CRED_WORKER_TOPICS drain (a local stub worker now exists in the production bootstrap per DL-0033/t5, but wiring it into THIS probe's drain + flipping this engine xfail needs a dedicated live-engine proof, out of scope here), so the instance still stalls at ST_PrepareDossier before ever reaching the UT to submit the incomplete decision. (The credenciamento-direction sibling is additionally blocked by finding 2, the documentos_refs overwrite.) The two adverse guard codes stay T-E-deferred out of PRODUCTION_BPMN_ERROR_ALLOWLIST until T-E, so on a live engine today the guard still fails closed to an audited incident — identical runtime effect, boundary now reachable the moment T-E flips the allowlist."
+        },
+        {
+          "kind": "xfailed",
+          "count": 18,
+          "reason": "T2.6-2 fail-closed schema-pinning regime (CURRENT cause, not FINDING A — see PORT NOTES below for the historical finding): this test runs on the UNPINNED `ans_probe` fixture, so `validate_data` resolves a real `TissSchemaValidator()` with no `MAEZO_TISS_SCHEMA_VERSION` pinned and no vendored TISS XSDs, which computes `schema_valid=False` unconditionally (regardless of report_type or the seeded schema_valid=True in start_ans's default payload). The admissibility DMN's `[-, false, -] -> PENDENTE` row therefore fires for EVERY submission on this probe, routing to UT_CorrigirPendenciaEnvio and pre-empting GW_Admissibilidade's SEGUE_ENVIO/REVISAO_HUMANA branch (-> ST_PrepararDossie -> UT_RevisarEnvio) and the nip_filing branch (-> UT_RevisarEnvioJuridico) alike — so any assertion expecting to reach UT_RevisarEnvio/UT_RevisarEnvioJuridico (directly or via _drive_to_revisar) never gets there; the wait times out/errors before the test's real assertions run. Proven correct-by-contrast by the `ans_probe_tiss_pinned`-based `test_tiss_pinned_*` tests, which inject a pinned TissSchemaValidator and DO reach SEGUE_ENVIO. HISTORICAL — FINDING A (T3.1 phase-2 registration gap, RESOLVED in t5-workers-f1): BPMN topic regulatorio.anssubmit.notify_regulatorio (ST_PrepararDossie / ST_NotificarDeadlineRisk) had NO worker registered in register_ans_submit_workers, so any task landing there stalled the instance on an unregistered-topic incident. This is now FIXED — register_ans_submit_workers registers regulatorio.anssubmit.notify_regulatorio via the raw async handler make_notify_regulatorio_handler (see the unit regression fence test_register_ans_submit_workers_registers_notify_regulatorio) — so FINDING A no longer blocks any test, including this one; it is cited here only as historical context for why this reason constant predates the T2.6-2 finding above. Where a test would ALSO assert a per-worker notification (notifications_of_type('anssubmit.notify_regulatorio'/'anssubmit.submit'/etc.)) even after reaching the relevant User Task under a pinned schema, that assertion would SEPARATELY hit the still-open systemic FINDING C (no ans_submit.py entry function calls kafka.publish; only the generic operadora.events.publish handler does) — noted for completeness, not the reason this particular xfail currently fires."
+        }
+      ],
+      "reporting": {
+        "collection_count": 96,
+        "execution_count": 96,
+        "validation_count": 96,
+        "junit_count": 96,
+        "consistent": true,
+        "classifications": {
+          "passed": 76,
+          "xfailed_executed": 20
+        },
+        "body_entry": {
+          "entered": 96
+        },
+        "test_source_hashes_match_exact_tested_commit": true,
+        "validation_return_code": 0,
+        "validation_errors": [],
+        "files": [
+          {
+            "path": "integration-collection.json",
+            "sha256": "8714fd5d4f4f5d7ab53b9176351638a56f073b687cc3064e6147616ebdf6c1a3"
+          },
+          {
+            "path": "integration-execution.json",
+            "sha256": "0a7fab988650583a5274a7ea6ad7c52ee307d4b9aad5d84987741bc1416adfe2"
+          },
+          {
+            "path": "integration-validation.json",
+            "sha256": "e844fe4e0dc043dc620df504933ad5234ecee811aaaf525cd5744e1a31748a08"
+          }
+        ]
+      }
+    },
+    {
+      "lane": "integration",
+      "shard": "recurso-nip",
+      "job_id": 111545107914,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107914",
+      "started_at": "2026-10-04T22:18:00Z",
+      "completed_at": "2026-10-04T22:38:24Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 125,
+        "passed": 123,
+        "skipped": 2,
+        "failed": 0,
+        "errors": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "integration-junit.xml",
+      "junit_sha256": "087f2cf1abf3660caf41bd6e9af810a9cf307119e8935ad7a718dc704e70daa1",
+      "artifact_id": 11317392284,
+      "artifact_digest": "sha256:fe430cde74d000991c6354de9ae4bf7ecb6150b203a068defdcdbe190c6f22b5",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:38:21Z",
+      "unique_identities": 125,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "skipped",
+          "count": 2,
+          "reason": "only runs when MAEZO_CHAOS_MUTATE=a1_a2 (see module docstring for the explicit run command)"
+        }
+      ],
+      "reporting": {
+        "collection_count": 125,
+        "execution_count": 125,
+        "validation_count": 125,
+        "junit_count": 125,
+        "consistent": true,
+        "classifications": {
+          "passed": 123,
+          "inactive_companion": 2
+        },
+        "body_entry": {
+          "entered": 123,
+          "not_entered": 2
+        },
+        "test_source_hashes_match_exact_tested_commit": true,
+        "validation_return_code": 0,
+        "validation_errors": [],
+        "files": [
+          {
+            "path": "integration-collection.json",
+            "sha256": "0985fdb212fd4e8d4a6499836ea3c495c3c23ad6e673bbc7ddf63011e97c53ea"
+          },
+          {
+            "path": "integration-execution.json",
+            "sha256": "2ac08f4e8598e8b4dbc0f17fee5e10511b24f88fd99d70534d636c51177a9f4e"
+          },
+          {
+            "path": "integration-validation.json",
+            "sha256": "4c3cc0a3458aa6b8c1abb413d985dc03493ecf98cbc1f45284f84ba3c2c4d531"
+          }
+        ]
+      }
+    },
+    {
+      "lane": "integration",
+      "shard": "restante",
+      "job_id": 111545107889,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107889",
+      "started_at": "2026-10-04T22:18:00Z",
+      "completed_at": "2026-10-04T22:39:50Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 435,
+        "passed": 433,
+        "xfailed": 2,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_entry": "integration-junit.xml",
+      "junit_sha256": "5e8185c19db316340bb37eea534d5826cefc35a7b2ad5ff3743dc01a1f51fcaa",
+      "artifact_id": 11317167807,
+      "artifact_digest": "sha256:c1bef626e774dc270a9df38f919cc337927506487dea7408d6a3ce170e528cbe",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:39:47Z",
+      "unique_identities": 435,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "REGULATORIO (RN 259) — inversao de ordem de regra na `adequacao_gap.dmn` DEPLOYADA, NAO um defeito de codigo e NAO fechavel por engenharia. hitPolicy=FIRST: `r_eletivo_leve` (tipo_carater=eletivo, tempo<=60, distancia<=50, prestadores>0, cobertura=true -> GAP_LEVE) PRECEDE `r_conforme`, que nao tem NENHUM teto de tempo/distancia (wildcards) e exige apenas prestadores>0 + cobertura=true. Consequencia verificada e ja pinada em unit (a prova VIVA e `tests/integration/dmn/test_dmn_golden_parity.py::test_adequacao_gap_parity`, params ('eletivo',45,10.0,2,<redacted>,'GAP_LEVE') e ('eletivo',70,10.0,2,<redacted>,'CONFORME') — os testes unitarios homonimos usam FakeDmnTransport com a resposta pre-registrada e passariam mesmo se a tabela fosse corrigida): para atendimento ELETIVO, um acesso MELHOR le GAP_LEVE enquanto um acesso PIOR le CONFORME — e, como `r_conforme` nao tem teto, um tempo/distancia ARBITRARIAMENTE ruim continua lendo CONFORME (as duas regras `*_critico` gateiam so em urgencia_emergencia). Este teste semeia tempo=30/distancia=10.0 (acesso bom) e exige CONFORME: com a tabela deployada isso e inalcancavel. Deslocar o cenario para tempo>60 so para ficar verde PINARIA a inversao como comportamento esperado — recusado deliberadamente. ADR-0028 §7 ja decidiu 'a DMN vence, nao se corrige aqui'; os thresholds sao DRAFT e de dono REGULATORIO (docs/review-queue.md + SP-OP-ADEQUACAO-001.md). FLIP quando o portao regulatorio decidir a ordem/os tetos das regras."
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "VALUE-GATED (D-07, financeiro) — NAO e defeito de engenharia. Desde a mitigacao GAP-AUTH-4 no chokepoint de emissao (item-9 auth Class-A), IssueAuthorizationWorker consulta CeilingResolver.within_l2_ceiling no CANAL AUTOMATICO antes de emitir. A matriz de governanca traz `authorization_approval.max_value_brl: 0` em spec/policies/autonomy/{L0-core,tenants-amh}.yaml — 0 significa 'aprovacao automatica NAO autorizada ate o D-07 ser decidido' — e within_l2_ceiling e fail-closed em teto 0 (<redacted> mesmo para value_cents == 0). Logo a rota automatica RECUSA emitir por decisao de governanca deliberada: o processo atinge End_AprovadaAutomatica e <redacted>a desfecho=aprovada_automatica, mas nao ha numero_autorizacao (status=blocked_by_guard, ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED, motivo_bloqueio_teto=TETO_NAO_AUTORIZA, dentro_teto_l2=<redacted> no historico). O canal HUMANO nao e afetado — decisao_auditor=APROVAR emite normalmente acima do teto automatico (e para isso que a revisao humana existe), pinado por 5 testes unitarios. FLIP quando o D-07 definir um teto real para o tenant: a emissao automatica passa a funcionar, limitada por esse teto. SUPERSEDED / AGORA DUPLAMENTE GATEADO (portao de criterios GAP-AUTH-4): esta instancia nao chega mais sequer a End_AprovadaAutomatica. `ST_ValidateAutoApprovalCriteria` roda ANTES de BRT_AutoApproval e a DMN v0.2.0 nao le mais dut_atendida/dentro_teto_l2/rede_credenciada — os tres seeds desta fixture sao IGNORADOS. Os quatro criterios computados sao false (financeiro: teto 0/D-07; NB: nesta suite o probe NAO injeta o seam `dmn=` e o deploy traz so 3 DMN, entao tecnico/contratual falham por *_TABELA_INDISPONIVEL e regulatorio por REGULATORIO_ENTRADA_AUSENTE — o portao de ratificacao nem chega a ser consultado. Em producao (seam ligado) seriam as fontes DRAFT nao ratificadas em spec/processes/dmn/auth-criteria-ratification.yaml; contratual: SEM_REGRA_RATIFICADA), logo r99 resolve ANALISE_HUMANA e o token vai para ST_PrepararDossie -> UT_AnaliseMedicoAuditor. O processo PARA na User Task humana: `_await_end` esgota as tentativas e o assert de End_AprovadaAutomatica falha. FLIP so quando D-07 definir teto >= R$180 **E** as fontes clinicas/regulatorias/contratuais forem ratificadas — nao mais so o D-07. NAO LIVE-PROVEN pelo autor desta mudanca (sem engine): a razao acima e derivada estruturalmente do modelo."
+        }
+      ],
+      "reporting": {
+        "collection_count": 435,
+        "execution_count": 435,
+        "validation_count": 435,
+        "junit_count": 435,
+        "consistent": true,
+        "classifications": {
+          "passed": 433,
+          "xfailed_executed": 2
+        },
+        "body_entry": {
+          "entered": 435
+        },
+        "test_source_hashes_match_exact_tested_commit": true,
+        "validation_return_code": 0,
+        "validation_errors": [],
+        "files": [
+          {
+            "path": "integration-collection.json",
+            "sha256": "00ba429270d712f31d5c722e988b1459076b50c30f5cd806404e75a8288e9beb"
+          },
+          {
+            "path": "integration-execution.json",
+            "sha256": "ef7233597bf5f1792eb7a1fe29b79efd50998e1ead050d18ec17417730b7ab34"
+          },
+          {
+            "path": "integration-validation.json",
+            "sha256": "7819b68cb0ed024c9e3e73617a0a9cc4dd6c8e6cb6beef623ca4303b33d90804"
+          }
+        ]
+      }
+    },
+    {
+      "lane": "unit",
+      "shard": "ci-pesado",
+      "job_id": 111543002699,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002699",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:16:08Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 333,
+        "passed": 333,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-ci-pesado.xml",
+      "junit_sha256": "23da34032538d51172edc486a520be10b917abde8a4c3e5a50be477574efc27f",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 333,
+      "skip_and_xfail_reasons": []
+    },
+    {
+      "lane": "unit",
+      "shard": "ci",
+      "job_id": 111543002529,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002529",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:13:20Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 1944,
+        "passed": 1942,
+        "skipped": 2,
+        "failed": 0,
+        "errors": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-ci.xml",
+      "junit_sha256": "185b714d2bccc1fc29451aa94360c30a3a530cf39b4d80c60ea07dd2980ee50e",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 1944,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "skipped",
+          "count": 2,
+          "reason": "COULD NOT VERIFY: MAEZO_TEST_DATABASE_URL required for the native witness catalog"
+        }
+      ]
+    },
+    {
+      "lane": "unit",
+      "shard": "dev-runner",
+      "job_id": 111543002676,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002676",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:11:19Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 18,
+        "passed": 18,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-dev-runner.xml",
+      "junit_sha256": "1b77032ecfe940684d93aac5f0fabfa16282a3812d125077240cdc6753ae2d5a",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 18,
+      "skip_and_xfail_reasons": []
+    },
+    {
+      "lane": "unit",
+      "shard": "dev",
+      "job_id": 111543002576,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002576",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:12:42Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 524,
+        "passed": 523,
+        "xfailed": 1,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-dev.xml",
+      "junit_sha256": "79228c6e7daebcbf109516978e31a08ae674986d299bc623911f918b6cf35ea3",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 524,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com excecao de CI em vez de excluir a entrada 'D7unit802'. source_commit=80206e29ab4b... e exclusivo da linhagem do train e nunca sera ancestral de main sob a regra de transplante-apenas-conteudo desta frota — este teste preflighta essa entrada e permanece vermelho por desenho ate' o prazo. expected-fail-until=2027-02-09. RENOVACAO — DECISAO DO DONO 2026-09-20: a obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438 Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15. Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main aterrissa (WP novo, nao correcao deste PR) — ou o dono re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md."
+        }
+      ]
+    },
+    {
+      "lane": "unit",
+      "shard": "gateway-platform",
+      "job_id": 111543002511,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002511",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:14:23Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 7547,
+        "passed": 7547,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-gateway-platform.xml",
+      "junit_sha256": "255d8f57c9c56fac2562c84dd2eff9a1d85c5b23abbbd91a1d32bc85ae73fb88",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 7547,
+      "skip_and_xfail_reasons": []
+    },
+    {
+      "lane": "unit",
+      "shard": "ledger-consumer",
+      "job_id": 111543002569,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002569",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:15:09Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 61,
+        "passed": 61,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-ledger-consumer.xml",
+      "junit_sha256": "3228883f110ffaaab4df4e576ae83469654e5e1900d8e2363e818a7144e2f55e",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 61,
+      "skip_and_xfail_reasons": []
+    },
+    {
+      "lane": "unit",
+      "shard": "ledger-execution",
+      "job_id": 111543002482,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002482",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:12:12Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 60,
+        "passed": 60,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-ledger-execution.xml",
+      "junit_sha256": "4f3b7a2faed1d92700686a943a1dd6f78a41dcd71f0b4a206a0ad3a69862d9dc",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 60,
+      "skip_and_xfail_reasons": []
+    },
+    {
+      "lane": "unit",
+      "shard": "ledger-resto",
+      "job_id": 111543002609,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002609",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:09:30Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 561,
+        "passed": 560,
+        "xfailed": 1,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-ledger-resto.xml",
+      "junit_sha256": "d15d0beb362a66edc666e17ccce308781c85e67111451c6ff60a59f77a3f24d6",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 561,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com excecao de CI. Este teste afirma que o ledger de main comeca com o ledger integralmente qualificado do train (commit 5b70a6e9...) — medido, nao hipotetico: main ja diverge dentro desse prefixo obrigatorio, entao nenhum append futuro pode repara-lo enquanto main permanecer main. expected-fail-until=2027-02-09. RENOVACAO — DECISAO DO DONO 2026-09-20: a obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438 Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15. Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main aterrissa (WP novo) — ou o dono re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md."
+        }
+      ]
+    },
+    {
+      "lane": "unit",
+      "shard": "restante",
+      "job_id": 111543002630,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002630",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:11:58Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 15196,
+        "passed": 15063,
+        "skipped": 130,
+        "xfailed": 3,
+        "failed": 0,
+        "errors": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-restante.xml",
+      "junit_sha256": "6242e51b54dd73444c5b98b5c2eb039ece78d4dbe137f40682a4963561dd094e",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 15196,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "skipped",
+          "count": 108,
+          "reason": "Terraform CLI required for real HCL evaluation (no substitute evaluator)"
+        },
+        {
+          "kind": "skipped",
+          "count": 19,
+          "reason": "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping Tier-B live-LLM eval variant. This is a loud, explicit skip, not a silent pass (mirrors tests/unit/runtime/test_inference_live.py): Tier-A (replay) evals are the PR merge-blocking gate and are unaffected; Tier-B is nightly-only, threshold-scored, non-blocking, and requires a real Anthropic key to ever execute."
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "quantia POR EXTENSO esta fora do alcance de um casador lexico — fechar isso e' eval de saida, nao unit test; strict para que a solucao futura tenha de retirar o marcador"
+        },
+        {
+          "kind": "skipped",
+          "count": 1,
+          "reason": "beatriz nao registra um no `start_process`"
+        },
+        {
+          "kind": "skipped",
+          "count": 1,
+          "reason": "helena nao registra um no `start_process`"
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "LEG3-B: no shared source-of-truth artifact ties the client host-suffix allowlist (BR_REGIONAL_ENDPOINT_HOST_SUFFIXES) to the ADR-0017 NetworkPolicy egress fence, and the two places that DO name PHI endpoint hosts already DIVERGE. The client allowlist pins '.br-sao-paulo.phi.maezo.internal' (deliberately non-routable), while deploy/helm/.../values-{amh,staging}.yaml declare 'llm-phi.internal.amh.com.br' / 'llm-phi.staging.internal.maezo.com.br'. Worse, the NetworkPolicy egress rule is IP/CIDR-based and CANNOT express a hostname allowlist at all (networkpolicy.yaml FIX 1), so the two artifacts are structurally incommensurable — the `host` in values.yaml is only an error-message hint, the rendered rule is a `cidr`. Faking agreement would be dishonest. This xfail(strict) documents the drift risk and turns RED the day someone reconciles them (remove the marker then). Deriving the allowlist from the CIDR-pinning artifact is the open question in runtime/inference/br_regional.py::BR_REGIONAL_ENDPOINT_HOST_SUFFIXES's comment; inventing that artifact is out of leg-3 scope."
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "PENDENTE DO DONO, nao da engenharia. O Lucas declara `reports_to: atendimento@amh`, que e' endereco de TIME — e um time nao acorda as tres da manha. Nomear a pessoa que decide o texto do Lucas e a que atende quando ele erra com um beneficiario e' ato do dono, igual ao `owners.clinico` da Helena. Este teste fica aqui em xfail para que o dia em que alguem preencher o campo o torne verde, em vez de o campo ser esquecido por nao haver nada apontando para ele."
+        },
+        {
+          "kind": "skipped",
+          "count": 1,
+          "reason": "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping live Anthropic API call. This is a loud, explicit skip, not a silent pass: set one of those env vars to exercise the real provider end-to-end."
+        }
+      ]
+    }
+  ],
+  "cross_lane_identity_overlap": 0,
+  "checkout_proof_records": [
+    {
+      "job_id": 111543002482,
+      "name": "unit (ledger-execution)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111543002482.log",
+      "sha256": "78d5e4fe37aa5fe0f9ae2453b9dbc5ad81816f5f34b72f97b5153cfae65b72e9",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:06:50.5033003Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:06:50.5056435Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111543002511,
+      "name": "unit (gateway-platform)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111543002511.log",
+      "sha256": "0cf81b4ca761be70f8757efc5f2f67bf6f01d275bff644e037e9a166b3dfbb74",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:06:50.6305726Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:06:50.6334952Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111543002529,
+      "name": "unit (ci)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111543002529.log",
+      "sha256": "5f3fef8527a86b5d5ed4e871eafb1f32cfdb7aa87c52495d526575f536321c83",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:06:50.8699885Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:06:50.8721956Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111543002569,
+      "name": "unit (ledger-consumer)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111543002569.log",
+      "sha256": "853833b79755018fb9ffb157ec4600ba712bc8ae8a537f336a47d43d0b5117e5",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:06:49.5516971Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:06:49.5537744Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111543002576,
+      "name": "unit (dev)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111543002576.log",
+      "sha256": "36287f0e8b79d097e0d9d1474fd5cc6d8a16286733c98135e208a828f2910b54",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:06:51.3253957Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:06:51.3284691Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111543002609,
+      "name": "unit (ledger-resto)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111543002609.log",
+      "sha256": "7bc32857a45c557393d10ae32984b692a28cd0d17fc04a564982fd54bee29ca7",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:06:48.4664585Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:06:48.4684300Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111543002630,
+      "name": "unit (restante)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111543002630.log",
+      "sha256": "c18a8af0b0b5b3bcbffee65e81bdaa4d12c4e729c35b60988b2410678339f2a9",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:06:49.3732107Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:06:49.3757109Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111543002676,
+      "name": "unit (dev-runner)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111543002676.log",
+      "sha256": "13e74f80e0dfc8f4c3972ae23f4a0ef0574a01344dee688e75e82593703725ba",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:06:48.5371074Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:06:48.5396372Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111543002699,
+      "name": "unit (ci-pesado)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111543002699.log",
+      "sha256": "d6a96f8e29d6208aff09a8f4748dab97dd5a6ab68969f2026889fb9ed2595fff",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:06:48.5106292Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:06:48.5131664Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111544766534,
+      "name": "lint / type / unit",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111544766534.log",
+      "sha256": "a5bfb32093ba1edff2224060501f3463744fc49a36ab99c14310d0ff36c6cd7f",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:16:19.4183128Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:16:19.4206194Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111545107847,
+      "name": "evals (agent-touching paths)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111545107847.log",
+      "sha256": "b71e079be69e7a52fa36990201a4fdb238771e69347bfb7ffa5579839b250f23",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:18:06.3149150Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:18:06.3174389Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111545107889,
+      "name": "integration (restante)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111545107889.log",
+      "sha256": "a2454af2ced08f5597f0524655e675c99d955b4e0ea9e486d868bd5af5d0f951",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:18:07.0235193Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:18:07.0257688Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111545107914,
+      "name": "integration (recurso-nip)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111545107914.log",
+      "sha256": "d11f65deafa77528e5627da403872457a2adfd97f87f21bfdbeb69e401a820fc",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:18:05.9226060Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:18:05.9244945Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111545107933,
+      "name": "integration (cancel-contas)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111545107933.log",
+      "sha256": "c01ff01eeef4d3be7970607b89aad68a26cd6808106382c8cffff5d37dbae517",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:18:08.0147551Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:18:08.0174238Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111545107964,
+      "name": "integration (reembolso)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111545107964.log",
+      "sha256": "bb2ca7fb7d774c35744d2f4fe52528b7774fd01c023d3c8aeb3aa5928dfa9700",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:18:06.9505993Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:18:06.9526184Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111545107998,
+      "name": "integration (cred-ans)",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111545107998.log",
+      "sha256": "cd474af99912e7805dce8721647d6097257d35926544168a111805c8a0efede1",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:18:07.8894731Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:18:07.8916006Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    },
+    {
+      "job_id": 111544766490,
+      "name": "release-capability-floor",
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-111544766490.log",
+      "sha256": "97d8d9e885c0ac98b3de0b5adadf610ba7f42e0fcf35c979ddbf2a6b00592f47",
+      "checkout_proofs": [
+        {
+          "command_line": "2026-10-04T22:16:19.9077263Z [command]/usr/bin/git log -1 --format=%H",
+          "sha_line": "2026-10-04T22:16:19.9101086Z e7864a46abbde875679e20e81213935f2009e8bd",
+          "tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd"
+        }
+      ]
+    }
+  ],
+  "dependent_gate_results": [
+    {
+      "job_id": 111544766534,
+      "name": "lint / type / unit",
+      "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111544766534",
+      "conclusion": "success",
+      "started_at": "2026-10-04T22:16:11Z",
+      "completed_at": "2026-10-04T22:17:57Z"
+    },
+    {
+      "job_id": 111544766490,
+      "name": "release-capability-floor (audit §5)",
+      "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111544766490",
+      "conclusion": "success",
+      "started_at": "2026-10-04T22:16:11Z",
+      "completed_at": "2026-10-04T22:18:12Z"
+    },
+    {
+      "job_id": 111545107847,
+      "name": "evals (agent-touching paths)",
+      "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107847",
+      "conclusion": "success",
+      "started_at": "2026-10-04T22:18:00Z",
+      "completed_at": "2026-10-04T22:18:30Z"
+    }
+  ],
+  "evals": {
+    "job_id": 111545107847,
+    "marker": "eval",
+    "collection_recipe": ".venv/bin/python -m pytest tests/evals --collect-only -q -m eval",
+    "run_target": "make evals",
+    "run_recipe": ".venv/bin/python -m pytest tests/evals -q -m eval",
+    "primary_log_summaries": [
+      "2026-10-04T22:18:27.2776299Z 292 passed, 19 skipped, 3 deselected in 7.51s"
+    ],
+    "counts": {
+      "passed": 292,
+      "skipped": 19,
+      "deselected": 3
+    },
+    "subset_repeated_not_added_to_unit_totals": true,
+    "live_model_acceptance": false
+  },
+  "nightly": {
+    "job_id": 111543003558,
+    "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543003558",
+    "conclusion": "skipped",
+    "condition": "github.event_name == 'schedule'",
+    "actual_event": "pull_request",
+    "qualified_as_test_pass": false
+  },
+  "execution_semantics": {
+    "local_make_test_recipe": ".venv/bin/python -m pytest tests/ -q -m \"not integration\"",
+    "hosted_unit_selection": "Same marker but9 declared collection partitions, mixed xdist/serial runners plus coverage/JUnit; not a literal local make test command. Evals separately repeat eval-marked subset.",
+    "literal_local_full_suite_after_repairs": "NOT_RUN",
+    "old_local_run1": "FAIL preserved",
+    "old_local_run2": "FAIL preserved",
+    "R6": "Historical immutable evidence only; not promoted to this current run."
+  },
+  "artifacts": [
+    {
+      "artifact_id": 11317875967,
+      "name": "integration-test-results-e7864a46abbde875679e20e81213935f2009e8bd-cancel-contas",
+      "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/artifacts/11317875967",
+      "created_at": "2026-10-04T22:39:41Z",
+      "server_digest": "sha256:46401cb1200e3a084d7ceae309e81ff3a99d9f84566797f8fd3f46758e969f70",
+      "verified_zip_digest": "sha256:46401cb1200e3a084d7ceae309e81ff3a99d9f84566797f8fd3f46758e969f70",
+      "digest_match": true
+    },
+    {
+      "artifact_id": 11317696705,
+      "name": "integration-test-results-e7864a46abbde875679e20e81213935f2009e8bd-reembolso",
+      "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/artifacts/11317696705",
+      "created_at": "2026-10-04T22:38:37Z",
+      "server_digest": "sha256:04b0fc7defccf57d369c76aa739c820e3869d062bc809012125d83a36391388a",
+      "verified_zip_digest": "sha256:04b0fc7defccf57d369c76aa739c820e3869d062bc809012125d83a36391388a",
+      "digest_match": true
+    },
+    {
+      "artifact_id": 11317452217,
+      "name": "integration-test-results-e7864a46abbde875679e20e81213935f2009e8bd-cred-ans",
+      "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/artifacts/11317452217",
+      "created_at": "2026-10-04T22:38:12Z",
+      "server_digest": "sha256:51e8c14fc21504593ea33db811bf3b220ce3a4ab555b996cb9369a9b229cd420",
+      "verified_zip_digest": "sha256:51e8c14fc21504593ea33db811bf3b220ce3a4ab555b996cb9369a9b229cd420",
+      "digest_match": true
+    },
+    {
+      "artifact_id": 11317392284,
+      "name": "integration-test-results-e7864a46abbde875679e20e81213935f2009e8bd-recurso-nip",
+      "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/artifacts/11317392284",
+      "created_at": "2026-10-04T22:38:21Z",
+      "server_digest": "sha256:fe430cde74d000991c6354de9ae4bf7ecb6150b203a068defdcdbe190c6f22b5",
+      "verified_zip_digest": "sha256:fe430cde74d000991c6354de9ae4bf7ecb6150b203a068defdcdbe190c6f22b5",
+      "digest_match": true
+    },
+    {
+      "artifact_id": 11317167807,
+      "name": "integration-test-results-e7864a46abbde875679e20e81213935f2009e8bd-restante",
+      "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/artifacts/11317167807",
+      "created_at": "2026-10-04T22:39:47Z",
+      "server_digest": "sha256:c1bef626e774dc270a9df38f919cc337927506487dea7408d6a3ce170e528cbe",
+      "verified_zip_digest": "sha256:c1bef626e774dc270a9df38f919cc337927506487dea7408d6a3ce170e528cbe",
+      "digest_match": true
+    },
+    {
+      "artifact_id": 11317140125,
+      "name": "unit-test-results",
+      "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/artifacts/11317140125",
+      "created_at": "2026-10-04T22:17:54Z",
+      "server_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "verified_zip_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_match": true
+    }
+  ],
+  "primary_fingerprints": [
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-artifacts.json",
+      "sha256": "2cc6f0a6f899c2ead31c8138941c3ed78f8338e359cd2ad8d9654e1676e6af1a"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-job-checkout-proofs.json",
+      "sha256": "e45b998ee101426300278a93041ca68a73896cc85b5085e2b58d94a25e2d5282"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-jobs.json",
+      "sha256": "cd558d99a942cd4ebdbdd2dd6c9b78b087b59154209356e44bb3f699fc8e132a"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-pr.json",
+      "sha256": "9264fb3f96e3ad11d9eb3f4c984853279dd6d2a0c414c1d9c5681f18c40d50a2"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/terminal-run.json",
+      "sha256": "94a4d3413ef325d0ac639e6eb01519015df6c640cd240fb8a4b04d9c37c830f0"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-counts.json",
+      "sha256": "69f548b685e8f61fcd826fde93e6e481d18ba8704a7708ee5351e657ef513804"
+    }
+  ],
+  "counts_report": "docs/gates/v21-capability-execution-20261004/hosted-final-published-counts.json",
+  "private_raw_custody": "docs/gates/v21-capability-execution-20261004/hosted-final-published-private/",
+  "qualification_boundaries": {
+    "technical_current_ci": "PASS on exact testede786 with explicit132unit skips/5xfails and2integration inactive companions/26executed strict xfails.",
+    "new_admin_authoritative_sources_or_provider_DI": "NOT_QUALIFIED by green CI.",
+    "new_compras_suporte_full_journeys": "NOT_QUALIFIED by these existing technical suites.",
+    "human_scope_conduct_permissions_ratification": "NOT_GRANTED.",
+    "production_runtime_deployment_or_merge": "NOT_QUALIFIED.",
+    "future_main_or_unobserved_merge": "NOT_QUALIFIED."
+  },
+  "verifier_actions": "Read-only GitHub polling/log/archive downloads and local parsing/gitshow/hashing; no suites, code/test/PLANS/ledger/bundle changes, commits, GitHub mutations or subdelegation."
+}

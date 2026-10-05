@@ -28,11 +28,11 @@ from maezo.agents.helena import prompts
 #: `(versao, sha256 do texto)` do que o modelo recebe. `SYSTEM_PROMPT` e' parte dos outros tres.
 PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
     "system": ("system-v1", "16660021eca9f853c45a191286a3e7a0f3c96ea985333bc6f008748306f958c1"),
-    "classify": ("classify-v5.2", "2f8eb9ca08166d3266aa59c0c14b9e1e1b6f20715208fcca23552d86f105e144"),
+    "classify": ("classify-v5.3", "34cc3a8888da3550963859a6e99976653a5271bdb991564fa50c266e5780c00e"),
     "response": ("response-v10", "2af3650c30b558f3d68c65af3e9d260ebdd29e17fab3fad7167f7a82bfd5d7f8"),
     "classify_roteador": (
-        "classify-v6.1",
-        "b04a2c79e53e8bb1c102c1a147e8bbae2d5ac30fca8f13751dff17ae7afbcb67",
+        "classify-v6.2",
+        "7be276aeeeda3156065b67d1ed3e2e975bbb25529605d6f7e06d6c7771f726ec",
     ),
     "coleta": ("coleta-v1", "a825d71380d522a6cbfc89720739cd1712fe93ea197fc4bc2c86bddb07c73665"),
 }

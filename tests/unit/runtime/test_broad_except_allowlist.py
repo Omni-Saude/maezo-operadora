@@ -75,7 +75,10 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: 25/09/2026: 31 — `HelenaGraph.resume` (GAP-XHITL-4, retomada pos-humano) envia pelo WhatsApp com
 #: o `try` ESTREITADO (`PROGRAMMING_ERRORS` re-levanta, `EXTERNAL_DEPENDENCY_FAILURES` vira
 #: `RetomadaEnvioFalhouError`, que o consumidor usa para NAO confirmar o offset).
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 31
+#: 04/10/2026: 32 — `HelenaGraph._caso_aberto_e_clinico` (DL-0072) le' o caso aberto da conversa no
+#: motor; a falha dessa LEITURA vira "nao e' clinico" (abre o caso clinico paralelo, o lado seguro),
+#: e erro de programacao sobe.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 32
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:
@@ -104,6 +107,12 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         1,
         "conta maezo_agent_errors_total no seam ainvoke e RE-LEVANTA (ALERTS-WITHOUT-METRICS-a); o try "
         "externo so' absorve EXTERNAL_DEPENDENCY_FAILURES e re-levanta PROGRAMMING_ERRORS",
+    ),
+    "src/maezo/agents/lucas/administrative/graph.py::CompiledAdministrativeConsumer::_invoke": (
+        1,
+        "conta maezo_agent_errors_total uma vez por turno falho no seam administrativo ainvoke, "
+        "com classe de erro limitada, e RE-LEVANTA nua; validacao fora do try e "
+        "CancelledError/BaseException nao capturados (ALERTS-WITHOUT-METRICS-a)",
     ),
     "src/maezo/agents/andre/delegation.py::make_andre_handler::handler": (
         1,

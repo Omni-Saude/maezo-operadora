@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "role": "CI integration lane; no source repair or independent final signoff",
+  "captured_at": "2026-10-04T17:23:01.144847+00:00",
+  "attempt": 1,
+  "overall_status": "REVISE",
+  "source_head": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "input_manifest": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-input-manifest.json",
+  "source_content_fingerprint": "feb24b9fdf1a0675ea5261c6531e4a4559f13315efefb135fa7c6269bb59f67e",
+  "cheap_source_gate_status": "PASS",
+  "cheap_source_gate_pass_count": 9,
+  "cheap_source_gate_fail_count": 0,
+  "cheap_results": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-results.json",
+  "unit_gate_status": "FAIL_DURING_COLLECTION",
+  "unit_return_code": 2,
+  "unit_actual_junit_counts": {
+    "testcases": 2,
+    "passed": 0,
+    "failed": 0,
+    "errors": 2,
+    "skipped": 0,
+    "xfailed": 0
+  },
+  "unit_terminal_summary_lines": [
+    "1994 deselected, 1 warning, 2 errors in 32.43s"
+  ],
+  "unit_results": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-results.json",
+  "unit_test_bodies_executed": 0,
+  "root_fixture_deselection": "Existing conftest transparently declared 1182 private ROOT fixture tests deselected; full terminal total 1994 deselected under exact existing not integration selector",
+  "new_filters_env_overrides_or_skips": false,
+  "source_content_drift_during_execution": false,
+  "finding": {
+    "id": "AW-CI-F01",
+    "priority": "P1",
+    "status": "OPEN_REPAIR_BY_THIRD_SPECIALIST_REQUIRED",
+    "source_introduced": true,
+    "cause": "New capabilities test basenames collide with unchanged pre-existing gateway tests under default pytest imports because new capabilities folder lacks package marker",
+    "diagnosis": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-collision-diagnosis.json",
+    "focused_collection_pairs_return_codes": [
+      2,
+      2
+    ],
+    "unchanged_baseline_control_return_code": 0,
+    "unchanged_baseline_control_collection_summary": [
+      "36 tests collected in 0.94s"
+    ]
+  },
+  "qualification_boundaries": {
+    "local_source_cheap_checks": "PASS",
+    "local_full_unit": "FAIL; no execution qualified",
+    "hosted_required_ci": "NOT_OBSERVED; no GitHub PASS claimed",
+    "PG_CIB_engine_integration": "NOT_EXECUTED; no new engine change requires local engine lane and no engine mock used",
+    "authoritative_new_providers_runtime_bindings": "ABSENT_IN_CANDIDATE; operational integration not qualified",
+    "end_to_end_journeys": "NOT_QUALIFIED",
+    "human_ratification": "NOT_GRANTED",
+    "production": "NOT_QUALIFIED"
+  },
+  "consolidated_raw_log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-consolidated-attempt1.log",
+  "consolidated_raw_log_sha256": "dcac02ebd2406429c707d55ef5988fd494c67cdfd32dda734884b6dc58d736d9",
+  "next_step": "Third-specialist package namespace repair -> original reviewer delta PASS -> new exact input SHA/root freeze -> one fresh full lane; original failed raw evidence preserved"
+}

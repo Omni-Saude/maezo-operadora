@@ -108,8 +108,10 @@ from maezo.platform.integrations.notifications_bridge import (
     NotificationsBridgeSettings,
     build_dlq_shunt,
 )
+from maezo.platform.integrations.partition_key import derive_partition_key
 from maezo.platform.notification_bridge import PROCESS_KEY_ESCALATION
 from maezo.platform.topic_registry import dlq_topic_for
+from maezo.runtime.caso_clinico import chave_e_da_conversa
 from maezo.tools.mcp_cibseven.transport import HistoricVariableReadingTransport
 from maezo.tools.workers.phi_vars import PHI_PROCESS_VARS
 
@@ -234,9 +236,11 @@ def parse_process_completed(value: Any, *, tenant_id: str) -> ProcessCompletedEv
         raise MalformedResumeEventError(
             "event tenant is not this daemon's tenant", {}, code=REASON_RESUME_ANCHOR_MISMATCH
         )
-    if business_key != f"ESC-{evento_tenant}-{conversation_id}":
+    if not chave_e_da_conversa(business_key, evento_tenant, conversation_id):
         raise MalformedResumeEventError(
-            "_business_key is not ESC-{tenant_id}-{conversation_id}", {}, code=REASON_RESUME_ANCHOR_MISMATCH
+            "_business_key is not ESC-{tenant_id}-{conversation_id}[-clin]",
+            {},
+            code=REASON_RESUME_ANCHOR_MISMATCH,
         )
     return ProcessCompletedEvent(
         tenant_id=evento_tenant,
@@ -328,7 +332,12 @@ class TeamAlerter(Protocol):
 
 class KafkaPublisherLike(Protocol):
     async def publish(
-        self, topic: str, value: dict[str, Any], *, best_effort: bool | None = None
+        self,
+        topic: str,
+        value: dict[str, Any],
+        *,
+        key: str | None = None,
+        best_effort: bool | None = None,
     ) -> bool: ...
 
 
@@ -364,6 +373,15 @@ class NotifyTeamAlerter:
     async def _publicar_aviso(self, event: ProcessCompletedEvent) -> None:
         from maezo.tools.workers.escalation import NOTIFY_TEAM_NOTIFICATION_TYPE
 
+        # O PRODUTOR FALHA FECHADO SEM CHAVE DE PARTICAO (GAP-SC-04-a). A chave e' derivada de
+        # `_business_key`, nao de `business_key` (o campo do payload e' o que o inbox le; o do
+        # derivador e' o de quem publica): sem passar a chave aqui, `publish` levanta
+        # `MissingPartitionKeyError`, a excecao sobe por `handle` e derruba o consumidor INTEIRO —
+        # a mensagem nunca e' confirmada e ele cai de novo a cada reinicio (medido em dev, 03/10).
+        chave = derive_partition_key(
+            NOTIFICATIONS_INTERNAL_TOPIC,
+            {"_business_key": event.business_key, "tenant_id": event.tenant_id},
+        )
         await self._publisher.publish(
             NOTIFICATIONS_INTERNAL_TOPIC,
             {
@@ -374,6 +392,7 @@ class NotifyTeamAlerter:
                 "severidade": None,
                 "motivo_categoria": "outro",
             },
+            key=chave,
             best_effort=False,
         )
 

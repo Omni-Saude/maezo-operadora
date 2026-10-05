@@ -151,6 +151,11 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
+from maezo.runtime.caso_clinico import (
+    MOTIVOS_DE_ALERTA_CLINICO,
+    SUFIXO_CASO_CLINICO,
+    chave_do_escalonamento,
+)
 from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
@@ -616,6 +621,10 @@ START_DESFECHO_NOVO: str = "novo"
 #: um humano esta' com o caso. A promessa de atendimento e' verdadeira; a de um encaminhamento
 #: NOVO nao e'.
 START_DESFECHO_JA_ATIVO: str = "ja_ativo"
+
+#: Anotada no `resumo_contexto` do caso clinico PARALELO (DL-0072): quem abre o caso no portal precisa
+#: saber que a conversa tem outro caso aberto, de outra classe, e que este e' o alerta clinico.
+NOTA_CASO_CLINICO_PARALELO: str = "[alerta clinico novo; ha outro caso aberto nesta conversa]"
 #: Uma instancia desta chave ja' RODOU e terminou (`StartOutcome.ALREADY_COMPLETED`): nada foi
 #: aberto e ninguem esta' com o caso agora. Inalcancavel para esta agente hoje —
 #: `SP-OP-ESCALATION-001` e' `NON_STRICT` em `_START_DEDUP_POLICY`, e so' as posturas GATED
@@ -3385,6 +3394,20 @@ class HelenaGraph:
             state, motivo=motivo, severidade=severidade, response_kind="escalate"
         )
 
+    async def _caso_aberto_e_clinico(self, business_key: str) -> bool:
+        """O caso que ocupa a chave da conversa e' um alerta clinico? Na duvida, NAO: abrir um caso
+        clinico a mais custa um atendimento; deixar de abrir um custa o alerta (a idempotencia da
+        chave `-clin` impede que o "a mais" se repita)."""
+        try:
+            status = await self._cibseven.get_process_status(business_key)
+        except PROGRAMMING_ERRORS:
+            raise
+        except CibSevenError:
+            return False
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            return False
+        return str((status.variables or {}).get("motivo_categoria") or "") in MOTIVOS_DE_ALERTA_CLINICO
+
     async def _start_escalation(
         self,
         state: HelenaState,
@@ -3482,6 +3505,32 @@ class HelenaGraph:
                 audit_sink=self._audit_sink,
                 provenance=provenance,
             )
+            if (
+                _start_desfecho_de(instance.start_outcome) == START_DESFECHO_JA_ATIVO
+                and motivo in MOTIVOS_DE_ALERTA_CLINICO
+                and severidade == "grave"
+                and not business_key.endswith(SUFIXO_CASO_CLINICO)
+                and not await self._caso_aberto_e_clinico(business_key)
+            ):
+                # DL-0072 (LU090): alerta clinico GRAVE nunca e' suprimido por um caso de outra
+                # classe. A chave da conversa esta' ocupada por cobranca (ou outro assunto): abre-se um
+                # caso clinico PROPRIO, P1, e o outro segue como esta. Uma falha aqui cai no mesmo
+                # `except CibSevenError` abaixo: a pessoa recebe a resposta honesta de falha, nunca o
+                # "seu atendimento ja esta aberto" que escondia a emergencia.
+                business_key = chave_do_escalonamento(
+                    state.get("tenant_id", ""), state.get("conversation_id", ""), clinico=True
+                )
+                instance = await start_process_idempotent(
+                    self._cibseven,
+                    process_key=PROCESS_KEY,
+                    business_key=business_key,
+                    variables={
+                        **variables,
+                        "resumo_contexto": f"{variables['resumo_contexto']} {NOTA_CASO_CLINICO_PARALELO}",
+                    },
+                    audit_sink=self._audit_sink,
+                    provenance=provenance,
+                )
         except CibSevenError as exc:
             return {
                 "escalation_started": False,

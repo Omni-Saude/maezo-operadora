@@ -64,7 +64,7 @@ _INTENTS: Final[frozenset[str]] = frozenset(
 #: rotulado com ela declara `"prompt": "classify-v6"` — e so' eles —, para a medicao ao vivo usar o
 #: prompt que de fato produz aquela intencao (`test_extracao_live.py::_grafo`).
 _INTENTS_SO_COM_O_ROTEADOR: Final[frozenset[str]] = frozenset({"cobranca"})
-_PROMPT_DO_ROTEADOR: Final[str] = "classify-v6.1"
+_PROMPT_DO_ROTEADOR: Final[str] = "classify-v6.2"
 _POPULACOES: Final[frozenset[str]] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
 _INTENSIDADES: Final[frozenset[str]] = frozenset({"leve", "moderada", "grave", "desconhecida"})
 _REGRAS_DA_REGUA: Final[frozenset[str]] = frozenset({"R1", "R2", "R3", "R4", "R5"})

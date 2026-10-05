@@ -249,6 +249,16 @@ def test_malformacao_levanta_com_codigo_fechado(value: Any, code: str) -> None:
     assert exc.value.code in BRIDGE_DLQ_REASONS
 
 
+def test_a_chave_do_caso_clinico_paralelo_e_ancora_valida() -> None:
+    """DL-0072: `ESC-{tenant}-{conversa}-clin` e a chave do caso clinico aberto ao lado de outro caso da
+    mesma conversa; a retomada dele volta para a mesma conversa. Outro sufixo continua recusado."""
+    evento = parse_process_completed(_evento(_business_key=_BK + "-clin"), tenant_id="amh")
+    assert evento.business_key == _BK + "-clin"
+    with pytest.raises(MalformedResumeEventError) as exc:
+        parse_process_completed(_evento(_business_key=_BK + "-outro"), tenant_id="amh")
+    assert exc.value.code == REASON_RESUME_ANCHOR_MISMATCH
+
+
 async def test_malformada_vai_para_dlq_e_o_laco_continua() -> None:
     handler, _, resumer = _handler()
     publisher = _DlqPublisher()
@@ -397,7 +407,12 @@ async def test_alerta_publica_notify_team_no_formato_que_o_inbox_aceita() -> Non
             self.sent: list[tuple[str, dict[str, Any], Any]] = []
 
         async def publish(
-            self, topic: str, value: dict[str, Any], *, best_effort: bool | None = None
+            self,
+            topic: str,
+            value: dict[str, Any],
+            *,
+            key: str | None = None,
+            best_effort: bool | None = None,
         ) -> bool:
             self.sent.append((topic, value, best_effort))
             return True
@@ -583,7 +598,12 @@ async def test_o_aviso_de_nao_entregue_e_o_mesmo_formato_do_de_janela_e_sem_nota
             self.sent: list[tuple[str, dict[str, Any], Any]] = []
 
         async def publish(
-            self, topic: str, value: dict[str, Any], *, best_effort: bool | None = None
+            self,
+            topic: str,
+            value: dict[str, Any],
+            *,
+            key: str | None = None,
+            best_effort: bool | None = None,
         ) -> bool:
             self.sent.append((topic, value, best_effort))
             return True
@@ -618,3 +638,24 @@ def test_defaults_do_consumidor() -> None:
     settings = AgentResumeSettings()
     assert settings.kafka_topic == PROCESS_COMPLETED_TOPIC == "agents.events.process_completed"
     assert settings.kafka_group_id == DEFAULT_RESUME_CONSUMER_GROUP_ID
+
+
+async def test_o_aviso_passa_pelo_portao_de_chave_de_particao_do_produtor_real() -> None:
+    """Medido em dev (03/10/2026): o aviso foi publicado SEM chave, o produtor real falhou fechado
+    (`MissingPartitionKeyError`), a excecao derrubou o consumidor e ele caiu em loop. Os fakes de cima
+    aceitam qualquer chamada; este usa o produtor de verdade, so' com o broker trocado por um registro."""
+    from maezo.platform.integrations.agent_resume import NotifyTeamAlerter, parse_process_completed
+    from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer, FakeRawKafkaProducer
+
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+    evento = parse_process_completed(_evento(), tenant_id="amh")
+    alerter = NotifyTeamAlerter(producer)
+
+    await alerter.alert_undeliverable(evento)
+    await alerter.alert_outside_window(evento)
+
+    topico = "operadora.notifications.internal"
+    publicados = [(topic, key) for topic, _value, key in raw.sent if topic == topico]
+    assert len(publicados) == 2
+    assert all(key for _topic, key in publicados)

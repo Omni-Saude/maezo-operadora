@@ -1,0 +1,387 @@
+{
+  "schema_version": 1,
+  "source_head": "43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+  "actual_skipped": 52,
+  "actual_xfailed": 5,
+  "actual_deselected": 1994,
+  "groups": [
+    {
+      "type": "pytest.skip",
+      "reason": "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping Tier-B live-LLM eval variant. This is a loud, explicit skip, not a silent pass (mirrors tests/unit/runtime/test_inference_live.py): Tier-A (replay) evals are the PR merge-blocking gate and are unaffected; Tier-B is nightly-only, threshold-scored, non-blocking, and requires a real Anthropic key to ever execute.",
+      "count": 19,
+      "identities": [
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-01]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-02]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-03]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-04]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-08]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-14]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-15]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-16]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-17]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-20]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-22]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_classifier_evals",
+          "name": "test_helena_eval_tier_b_live[EVL-HELENA-25]",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_dossier_admin_evals",
+          "name": "test_carolina_eval_tier_b_live_no_leak",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_dossier_admin_evals",
+          "name": "test_beatriz_eval_tier_b_live_no_leak",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_dossier_admin_evals",
+          "name": "test_gustavo_eval_tier_b_live_no_leak",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_dossier_adverse_evals",
+          "name": "test_evl_rafael_03_eval_tier_b_live",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_dossier_adverse_evals",
+          "name": "test_evl_valentina_05_eval_tier_b_live",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_dossier_adverse_evals",
+          "name": "test_evl_marina_03_eval_tier_b_live",
+          "file": null
+        },
+        {
+          "classname": "tests.evals.test_extracao_live",
+          "name": "test_extracao_ao_vivo_contra_o_corpus_rotulado",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.xfail",
+      "reason": "quantia POR EXTENSO esta fora do alcance de um casador lexico — fechar isso e' eval de saida, nao unit test; strict para que a solucao futura tenha de retirar o marcador",
+      "count": 1,
+      "identities": [
+        {
+          "classname": "tests.unit.agents.test_lucas_cerca_de_saida_evasao",
+          "name": "test_furo_quantia_sem_o_simbolo_colado[por-extenso]",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.xfail",
+      "reason": "PENDENTE DO DONO, nao da engenharia. O Lucas declara `reports_to: atendimento@amh`, que e' endereco de TIME — e um time nao acorda as tres da manha. Nomear a pessoa que decide o texto do Lucas e a que atende quando ele erra com um beneficiario e' ato do dono, igual ao `owners.clinico` da Helena. Este teste fica aqui em xfail para que o dia em que alguem preencher o campo o torne verde, em vez de o campo ser esquecido por nao haver nada apontando para ele.",
+      "count": 1,
+      "identities": [
+        {
+          "classname": "tests.unit.agents.test_lucas_dono_declarado",
+          "name": "test_existe_dono_tecnico_com_nome_de_pessoa",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.skip",
+      "reason": "beatriz nao registra um no `start_process`",
+      "count": 1,
+      "identities": [
+        {
+          "classname": "tests.unit.agents.test_start_failure_routing",
+          "name": "test_every_start_process_node_routes_to_notify_start_failure[beatriz]",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.skip",
+      "reason": "helena nao registra um no `start_process`",
+      "count": 1,
+      "identities": [
+        {
+          "classname": "tests.unit.agents.test_start_failure_routing",
+          "name": "test_every_start_process_node_routes_to_notify_start_failure[helena]",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.xfail",
+      "reason": "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com excecao de CI. Este teste afirma que o ledger de main comeca com o ledger integralmente qualificado do train (commit 5b70a6e9...) — medido, nao hipotetico: main ja diverge dentro desse prefixo obrigatorio, entao nenhum append futuro pode repara-lo enquanto main permanecer main. expected-fail-until=2027-02-09. RENOVACAO — DECISAO DO DONO 2026-09-20: a obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438 Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15. Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main aterrissa (WP novo) — ou o dono re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md.",
+      "count": 1,
+      "identities": [
+        {
+          "classname": "tests.unit.ci.test_ledger_invalid_declarations",
+          "name": "test_exact_test_bodies_and_ledger_history_unchanged",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.skip",
+      "reason": "COULD NOT VERIFY: MAEZO_TEST_DATABASE_URL required for the native witness catalog",
+      "count": 2,
+      "identities": [
+        {
+          "classname": "tests.unit.ci.test_live_suite_defaults_are_served",
+          "name": "test_every_live_pg_suite_defaults_to_the_compose_postgres",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.ci.test_live_suite_defaults_are_served",
+          "name": "test_every_live_pg_suite_honours_the_ci_host_port_pin",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.skip",
+      "reason": "sources the POSIX setenv.sh with /bin/sh",
+      "count": 21,
+      "identities": [
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_accepts_the_allowlisted_datasource_location[override0]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_accepts_the_allowlisted_datasource_location[override1]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_accepts_the_allowlisted_datasource_location[override2]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_accepts_the_allowlisted_datasource_location[override3]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_resolves_datasource_from_environment_and_exits_on_connector_failure",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override0-SKIP_DB_CONFIG must stay 'true']",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override1-SKIP_DB_CONFIG must stay 'true']",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override2-DB_HOST is missing]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override3-DB_PORT is missing]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override4-DB_NAME is missing]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override5-DB_NAME is missing or has characters]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override6-DB_NAME is missing or has characters]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override7-DB_NAME is missing or has characters]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override8-DB_NAME is missing or has characters]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override9-DB_HOST is missing or has characters]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override10-DB_HOST is missing or has characters]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override11-DB_HOST is missing or has characters]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override12-DB_HOST is missing or has characters]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override13-DB_PORT is missing or has characters]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override14-DB_PORT is missing or has characters]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_native_deploy_descriptor",
+          "name": "test_setenv_refuses_to_start_without_the_pinned_datasource[override15-DB_PORT is missing or has characters]",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.skip",
+      "reason": "RUN requires Linux sed -i; image UID remains unverified",
+      "count": 6,
+      "identities": [
+        {
+          "classname": "tests.unit.deploy.test_portal_image_assembly",
+          "name": "test_complete_human_plugin_run_on_owned_fixture[true-false]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_portal_image_assembly",
+          "name": "test_complete_human_plugin_run_on_owned_fixture[false-false]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_portal_image_assembly",
+          "name": "test_complete_human_plugin_run_on_owned_fixture[invalid-false]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_portal_image_assembly",
+          "name": "test_complete_human_plugin_run_on_owned_fixture[false-true]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_portal_image_assembly",
+          "name": "test_complete_human_plugin_run_on_owned_fixture[true-true]",
+          "file": null
+        },
+        {
+          "classname": "tests.unit.deploy.test_portal_image_assembly",
+          "name": "test_complete_human_plugin_run_on_owned_fixture[false-invalid]",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.xfail",
+      "reason": "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com excecao de CI em vez de excluir a entrada 'D7unit802'. source_commit=80206e29ab4b... e exclusivo da linhagem do train e nunca sera ancestral de main sob a regra de transplante-apenas-conteudo desta frota — este teste preflighta essa entrada e permanece vermelho por desenho ate' o prazo. expected-fail-until=2027-02-09. RENOVACAO — DECISAO DO DONO 2026-09-20: a obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438 Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15. Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main aterrissa (WP novo, nao correcao deste PR) — ou o dono re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md.",
+      "count": 1,
+      "identities": [
+        {
+          "classname": "tests.unit.dev.test_historical_async_recipe",
+          "name": "test_explicit_cli_preflight_reads_only_closed_d7_source",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.skip",
+      "reason": "packet synthetic recording absent: /Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-actual-proof-preflight-repair/synthetic/results/synthetic.jfr",
+      "count": 1,
+      "identities": [
+        {
+          "classname": "tests.unit.integration_support.test_d7_startup_observation.Controls",
+          "name": "test38_closed_offline_real_synthetic_jfr",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.skip",
+      "reason": "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping live Anthropic API call. This is a loud, explicit skip, not a silent pass: set one of those env vars to exercise the real provider end-to-end.",
+      "count": 1,
+      "identities": [
+        {
+          "classname": "tests.unit.runtime.test_inference_live",
+          "name": "test_anthropic_provider_live_generate_returns_real_completion",
+          "file": null
+        }
+      ]
+    },
+    {
+      "type": "pytest.xfail",
+      "reason": "LEG3-B: no shared source-of-truth artifact ties the client host-suffix allowlist (BR_REGIONAL_ENDPOINT_HOST_SUFFIXES) to the ADR-0017 NetworkPolicy egress fence, and the two places that DO name PHI endpoint hosts already DIVERGE. The client allowlist pins '.br-sao-paulo.phi.maezo.internal' (deliberately non-routable), while deploy/helm/.../values-{amh,staging}.yaml declare 'llm-phi.internal.amh.com.br' / 'llm-phi.staging.internal.maezo.com.br'. Worse, the NetworkPolicy egress rule is IP/CIDR-based and CANNOT express a hostname allowlist at all (networkpolicy.yaml FIX 1), so the two artifacts are structurally incommensurable — the `host` in values.yaml is only an error-message hint, the rendered rule is a `cidr`. Faking agreement would be dishonest. This xfail(strict) documents the drift risk and turns RED the day someone reconciles them (remove the marker then). Deriving the allowlist from the CIDR-pinning artifact is the open question in runtime/inference/br_regional.py::BR_REGIONAL_ENDPOINT_HOST_SUFFIXES's comment; inventing that artifact is out of leg-3 scope.",
+      "count": 1,
+      "identities": [
+        {
+          "classname": "tests.unit.runtime.test_phi_inference_canary",
+          "name": "test_leg3b_client_allowlist_and_networkpolicy_hosts_agree",
+          "file": null
+        }
+      ]
+    }
+  ],
+  "no_lane_added_markers_or_filters": true,
+  "qualification": "Existing declared skips/xfails are reported; they do not qualify live Anthropic, database witnesses, Linux-only image RUN, synthetic JFR absent, or human/strict-xfail obligations"
+}

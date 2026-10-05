@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "scope": "bounded temporal fixture delta only; not a broad gate",
+  "isolated_checkout": "/Users/familia/.codex/worktrees/v21-xdist-order-repair/maezo-operadora",
+  "head": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+  "expected_input_hashes": {
+    "tests/unit/gateway/human/test_classified_decision.py": "ba8c962ec7c5195f4e282d660fb4fbca0e0e0be077ea9ab7bbb2d06179fe9c23",
+    "src/maezo/gateway/human/gateway.py": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57",
+    "src/maezo/agents/lucas/administrative/graph.py": "50977755697707762b7c4e923bb6d5d1b86761e59aab355f7afa9391d320e5a3",
+    "tests/unit/agents/test_lucas_administrative_graph.py": "e5650354ca15cf65480aba32c97edfa804465045f0557c684319b5a18600ab58"
+  },
+  "actual_input_hashes": {
+    "tests/unit/gateway/human/test_classified_decision.py": "ba8c962ec7c5195f4e282d660fb4fbca0e0e0be077ea9ab7bbb2d06179fe9c23",
+    "src/maezo/gateway/human/gateway.py": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57",
+    "src/maezo/agents/lucas/administrative/graph.py": "50977755697707762b7c4e923bb6d5d1b86761e59aab355f7afa9391d320e5a3",
+    "tests/unit/agents/test_lucas_administrative_graph.py": "e5650354ca15cf65480aba32c97edfa804465045f0557c684319b5a18600ab58"
+  },
+  "command": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "tests/unit/gateway/human/test_classified_decision.py",
+    "-q",
+    "--junitxml=/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-testclock-delta.xml"
+  ],
+  "return_code": 0,
+  "duration_seconds": 4.731,
+  "junit_actual_counts": {
+    "testcases": 61,
+    "passed": 61,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "old_full_run2_parameter_ids": [
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[audit_intent_ref-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[command_id-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[committed_at-value8]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[payload_digest-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[principal_ref-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[request_digest-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[task_id-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[tenant-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[workload_ref-other]"
+  ],
+  "new_parameter_ids": [
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[audit_intent_ref-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[command_id-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[committed_at-value8]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[payload_digest-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[principal_ref-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[request_digest-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[task_id-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[tenant-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[workload_ref-other]"
+  ],
+  "parameter_ids_unchanged": true,
+  "mismatch_cases": 9,
+  "ambient_sensitive_environment_names": [],
+  "log": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-testclock-delta.log",
+  "log_sha256": "cf586e24524012018cfbfbc7a3d3b05df9c9fc0accd9e98ed9f1481fa4aa6c9c",
+  "junit": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-testclock-delta.xml",
+  "junit_sha256": "df18dd0f76bd98fff812eb6f172c8216330562692fb6b2acbc36b9c1a6945f41",
+  "captured_at": "2026-10-04T19:11:13.071396+00:00"
+}

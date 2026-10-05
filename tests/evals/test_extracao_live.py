@@ -178,7 +178,7 @@ async def test_extracao_ao_vivo_contra_o_corpus_rotulado() -> None:
     falhas: list[str] = []
 
     for caso in casos:
-        medidor = grafo_do_roteador if caso.get("prompt") == "classify-v6.1" else grafo
+        medidor = grafo_do_roteador if caso.get("prompt") == "classify-v6.2" else grafo
         extracao, falha = await medidor._classify_llm(_estado(caso["mensagem"]))
         if extracao is None:
             # Extracao INVALIDA conta como zero, nunca como caso pulado: em producao isto vira

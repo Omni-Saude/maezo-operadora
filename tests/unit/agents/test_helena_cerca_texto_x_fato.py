@@ -173,7 +173,10 @@ def _com_instancia_viva() -> FakeCibSevenTransport:
             business_key=BUSINESS_KEY,
             state="ACTIVE",
             already_existed=True,
-        )
+        ),
+        # Um escalonamento CLINICO anterior: o alerta novo nao abre outro (DL-0072). Com um caso de
+        # outra classe a regra e' a do caso clinico paralelo, em `test_helena_caso_clinico_paralelo.py`.
+        variables={"motivo_categoria": "red_flag_clinico"},
     )
     return cibseven
 
