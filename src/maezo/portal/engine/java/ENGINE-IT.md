@@ -10,6 +10,22 @@ Este documento é a receita de fixture que o runner precisa. Ele não afrouxa ne
 classes continuam falhando de forma explícita quando um pré-requisito falta
 (`AtomicEngineIT.java:29-33` `explicit integration setting missing: <NOME>`).
 
+## Compatibilidade de dependências provided
+
+Uma atualização Maven de dependência `provided` não atualiza a imagem implantada.
+O CI primeiro compila e empacota o candidato com as dependências atualizadas. Depois chama
+diretamente `surefire:test -Pdeployed-runtime-compatibility`, sem fases de compilação ou
+empacotamento: os mesmos JARs candidato e REST SPI são testados contra CIB Seven 2.1.0 e
+o pool JDBC Tomcat 10.1.47, versões cujos JARs correspondem aos hashes de
+`secured-startup-vendor.sha256` na imagem pinada de `Dockerfile.human`/`Dockerfile.secured-v2`.
+Essa segunda rodada inclui os testes finitos e os oito `EngineIT` dos grupos A+B com Postgres
+real. Os hashes dos JARs são conferidos antes/depois para garantir que não foram recompilados.
+Os demais componentes Tomcat mantêm as versões de compilação existentes; esse perfil não
+introduz um downgrade do servidor para qualificar uma atualização do pool ou do engine.
+Isso qualifica a compatibilidade do binário; não promove nem atualiza o engine implantado.
+Não use `verify` com esse perfil: isso recompilaria contra as versões antigas e não provaria a
+compatibilidade do candidato construído com as novas dependências.
+
 ## 1. As 15 classes e o que cada grupo exige
 
 | Grupo | Classes | Pré-requisito além do Postgres comum |
