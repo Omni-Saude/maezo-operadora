@@ -108,6 +108,12 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         "conta maezo_agent_errors_total no seam ainvoke e RE-LEVANTA (ALERTS-WITHOUT-METRICS-a); o try "
         "externo so' absorve EXTERNAL_DEPENDENCY_FAILURES e re-levanta PROGRAMMING_ERRORS",
     ),
+    "src/maezo/agents/lucas/administrative/graph.py::CompiledAdministrativeConsumer::_invoke": (
+        1,
+        "conta maezo_agent_errors_total uma vez por turno falho no seam administrativo ainvoke, "
+        "com classe de erro limitada, e RE-LEVANTA nua; validacao fora do try e "
+        "CancelledError/BaseException nao capturados (ALERTS-WITHOUT-METRICS-a)",
+    ),
     "src/maezo/agents/andre/delegation.py::make_andre_handler::handler": (
         1,
         "conta maezo_agent_errors_total no seam ainvoke e RE-LEVANTA (ALERTS-WITHOUT-METRICS-a)",

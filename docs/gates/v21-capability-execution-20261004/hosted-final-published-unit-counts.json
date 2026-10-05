@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "run_id": 37238750715,
+  "source_head": "75618442d4b7729f0194d5207248cdc6ab9c0267",
+  "proven_tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd",
+  "base_commit": "ccf00d41dea9d277dd28255b3e187548778ba7ed",
+  "base_admission": "PENDING_STEWARD",
+  "artifact_id": 11317140125,
+  "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+  "unit_shard_count": 9,
+  "counts": {
+    "testcases": 26244,
+    "passed": 26107,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 132,
+    "xfailed": 5
+  },
+  "duplicate_identities": 0,
+  "records": [
+    {
+      "path": "maezo-operadora/maezo-operadora/unit-junit-ci-pesado.xml",
+      "sha256": "23da34032538d51172edc486a520be10b917abde8a4c3e5a50be477574efc27f",
+      "counts": {
+        "testcases": 333,
+        "passed": 333,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "unique_identities": 333,
+      "skip_reasons": []
+    },
+    {
+      "path": "maezo-operadora/maezo-operadora/unit-junit-ci.xml",
+      "sha256": "185b714d2bccc1fc29451aa94360c30a3a530cf39b4d80c60ea07dd2980ee50e",
+      "counts": {
+        "testcases": 1944,
+        "passed": 1942,
+        "skipped": 2,
+        "failed": 0,
+        "errors": 0,
+        "xfailed": 0
+      },
+      "unique_identities": 1944,
+      "skip_reasons": [
+        {
+          "kind": "skipped",
+          "count": 2,
+          "reason": "COULD NOT VERIFY: MAEZO_TEST_DATABASE_URL required for the native witness catalog"
+        }
+      ]
+    },
+    {
+      "path": "maezo-operadora/maezo-operadora/unit-junit-dev-runner.xml",
+      "sha256": "1b77032ecfe940684d93aac5f0fabfa16282a3812d125077240cdc6753ae2d5a",
+      "counts": {
+        "testcases": 18,
+        "passed": 18,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "unique_identities": 18,
+      "skip_reasons": []
+    },
+    {
+      "path": "maezo-operadora/maezo-operadora/unit-junit-dev.xml",
+      "sha256": "79228c6e7daebcbf109516978e31a08ae674986d299bc623911f918b6cf35ea3",
+      "counts": {
+        "testcases": 524,
+        "passed": 523,
+        "xfailed": 1,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "unique_identities": 524,
+      "skip_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com excecao de CI em vez de excluir a entrada 'D7unit802'. source_commit=80206e29ab4b... e exclusivo da linhagem do train e nunca sera ancestral de main sob a regra de transplante-apenas-conteudo desta frota — este teste preflighta essa entrada e permanece vermelho por desenho ate' o prazo. expected-fail-until=2027-02-09. RENOVACAO — DECISAO DO DONO 2026-09-20: a obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438 Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15. Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main aterrissa (WP novo, nao correcao deste PR) — ou o dono re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md."
+        }
+      ]
+    },
+    {
+      "path": "maezo-operadora/maezo-operadora/unit-junit-gateway-platform.xml",
+      "sha256": "255d8f57c9c56fac2562c84dd2eff9a1d85c5b23abbbd91a1d32bc85ae73fb88",
+      "counts": {
+        "testcases": 7547,
+        "passed": 7547,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "unique_identities": 7547,
+      "skip_reasons": []
+    },
+    {
+      "path": "maezo-operadora/maezo-operadora/unit-junit-ledger-consumer.xml",
+      "sha256": "3228883f110ffaaab4df4e576ae83469654e5e1900d8e2363e818a7144e2f55e",
+      "counts": {
+        "testcases": 61,
+        "passed": 61,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "unique_identities": 61,
+      "skip_reasons": []
+    },
+    {
+      "path": "maezo-operadora/maezo-operadora/unit-junit-ledger-execution.xml",
+      "sha256": "4f3b7a2faed1d92700686a943a1dd6f78a41dcd71f0b4a206a0ad3a69862d9dc",
+      "counts": {
+        "testcases": 60,
+        "passed": 60,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "unique_identities": 60,
+      "skip_reasons": []
+    },
+    {
+      "path": "maezo-operadora/maezo-operadora/unit-junit-ledger-resto.xml",
+      "sha256": "d15d0beb362a66edc666e17ccce308781c85e67111451c6ff60a59f77a3f24d6",
+      "counts": {
+        "testcases": 561,
+        "passed": 560,
+        "xfailed": 1,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "unique_identities": 561,
+      "skip_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com excecao de CI. Este teste afirma que o ledger de main comeca com o ledger integralmente qualificado do train (commit 5b70a6e9...) — medido, nao hipotetico: main ja diverge dentro desse prefixo obrigatorio, entao nenhum append futuro pode repara-lo enquanto main permanecer main. expected-fail-until=2027-02-09. RENOVACAO — DECISAO DO DONO 2026-09-20: a obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438 Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15. Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main aterrissa (WP novo) — ou o dono re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md."
+        }
+      ]
+    },
+    {
+      "path": "maezo-operadora/maezo-operadora/unit-junit-restante.xml",
+      "sha256": "6242e51b54dd73444c5b98b5c2eb039ece78d4dbe137f40682a4963561dd094e",
+      "counts": {
+        "testcases": 15196,
+        "passed": 15063,
+        "skipped": 130,
+        "xfailed": 3,
+        "failed": 0,
+        "errors": 0
+      },
+      "unique_identities": 15196,
+      "skip_reasons": [
+        {
+          "kind": "skipped",
+          "count": 108,
+          "reason": "Terraform CLI required for real HCL evaluation (no substitute evaluator)"
+        },
+        {
+          "kind": "skipped",
+          "count": 19,
+          "reason": "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping Tier-B live-LLM eval variant. This is a loud, explicit skip, not a silent pass (mirrors tests/unit/runtime/test_inference_live.py): Tier-A (replay) evals are the PR merge-blocking gate and are unaffected; Tier-B is nightly-only, threshold-scored, non-blocking, and requires a real Anthropic key to ever execute."
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "quantia POR EXTENSO esta fora do alcance de um casador lexico — fechar isso e' eval de saida, nao unit test; strict para que a solucao futura tenha de retirar o marcador"
+        },
+        {
+          "kind": "skipped",
+          "count": 1,
+          "reason": "beatriz nao registra um no `start_process`"
+        },
+        {
+          "kind": "skipped",
+          "count": 1,
+          "reason": "helena nao registra um no `start_process`"
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "LEG3-B: no shared source-of-truth artifact ties the client host-suffix allowlist (BR_REGIONAL_ENDPOINT_HOST_SUFFIXES) to the ADR-0017 NetworkPolicy egress fence, and the two places that DO name PHI endpoint hosts already DIVERGE. The client allowlist pins '.br-sao-paulo.phi.maezo.internal' (deliberately non-routable), while deploy/helm/.../values-{amh,staging}.yaml declare 'llm-phi.internal.amh.com.br' / 'llm-phi.staging.internal.maezo.com.br'. Worse, the NetworkPolicy egress rule is IP/CIDR-based and CANNOT express a hostname allowlist at all (networkpolicy.yaml FIX 1), so the two artifacts are structurally incommensurable — the `host` in values.yaml is only an error-message hint, the rendered rule is a `cidr`. Faking agreement would be dishonest. This xfail(strict) documents the drift risk and turns RED the day someone reconciles them (remove the marker then). Deriving the allowlist from the CIDR-pinning artifact is the open question in runtime/inference/br_regional.py::BR_REGIONAL_ENDPOINT_HOST_SUFFIXES's comment; inventing that artifact is out of leg-3 scope."
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "PENDENTE DO DONO, nao da engenharia. O Lucas declara `reports_to: atendimento@amh`, que e' endereco de TIME — e um time nao acorda as tres da manha. Nomear a pessoa que decide o texto do Lucas e a que atende quando ele erra com um beneficiario e' ato do dono, igual ao `owners.clinico` da Helena. Este teste fica aqui em xfail para que o dia em que alguem preencher o campo o torne verde, em vez de o campo ser esquecido por nao haver nada apontando para ele."
+        },
+        {
+          "kind": "skipped",
+          "count": 1,
+          "reason": "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping live Anthropic API call. This is a loud, explicit skip, not a silent pass: set one of those env vars to exercise the real provider end-to-end."
+        }
+      ]
+    }
+  ],
+  "scope": "Current hosted unit artifact only; run still in progress and no R6 verdict promoted"
+}

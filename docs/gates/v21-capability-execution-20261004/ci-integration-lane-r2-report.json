@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "role": "CI integration lane; not source author/repair/final signer",
+  "captured_at": "2026-10-04T18:58:13.831674+00:00",
+  "attempt": 2,
+  "overall_status": "FAIL",
+  "source_head": "43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+  "observed_head_at_end": "43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+  "source_file_count": 1990,
+  "source_content_fingerprint": "ff9c45d31395a80f108a6d8efdb2015deaec7a3cbdfc9997da45858949b67c8a",
+  "input_manifest": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-input-r2-manifest.json",
+  "input_manifest_sha256": "d04af61db301da8e68d60ec97dbab0e21cf8d31648313bb9f1824eb4a9107750",
+  "source_content_drift_during_execution": [],
+  "new_tracked_source_paths_during_execution": [],
+  "cheap_source_gate_status": "PASS",
+  "cheap_source_gate_pass_count": 9,
+  "cheap_source_gate_fail_count": 0,
+  "cheap_results": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-r2-results.json",
+  "unit_gate_status": "FAIL",
+  "unit_return_code": 1,
+  "unit_actual_junit_counts": {
+    "testcases": 26237,
+    "passed": 26173,
+    "failed": 3,
+    "errors": 4,
+    "skipped": 52,
+    "xfailed": 5
+  },
+  "unit_deselected": 1994,
+  "unit_subtests_passed": 12,
+  "unit_warnings": 15,
+  "unit_terminal_summary_lines": [
+    "3 failed, 26173 passed, 52 skipped, 1994 deselected, 5 xfailed, 15 warnings, 4 errors, 12 subtests passed in 4495.70s (1:14:55)"
+  ],
+  "unit_duration_seconds": 4501.58,
+  "unit_command": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "tests/",
+    "-q",
+    "-m",
+    "not integration",
+    "--junitxml=docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2.xml"
+  ],
+  "equivalence_to_make_test": "Exact Makefile.test recipe with --junitxml reporting-only addition, no filters or environment overrides",
+  "environment_override_names": [],
+  "new_filters_markers_skips_workarounds_or_fixture_manufacture": false,
+  "unit_results": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2-results.json",
+  "unit_raw_log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2.log",
+  "unit_raw_log_sha256": "047c1de07fd772447c03b6c9016f6540c6ff2d4b003b45231574558b33abc08e",
+  "unit_junit": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2.xml",
+  "unit_junit_sha256": "63546f5c81ba657f3b374a3c94c403dda8b04673022f6662cf079b3f974287ee",
+  "terminal_summary_sha256": "9a1def058e23127cdc3aa0211581cc70f684dd1fe5a5aa1a8d24b27281e251bd",
+  "classified_failure_or_error_records": [
+    {
+      "incident_id": "AW-CI-ENV-01",
+      "category": "EXECUTION_QUALIFICATION_REFUSED_DIRTY_TRACKED_CHECKOUT",
+      "label": "Original runner fail-closed",
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_discovery_covers_every_current_integration_test_and_required_families",
+        "file": null
+      },
+      "status_tags": [
+        "error"
+      ],
+      "complete_details_preserved_in": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2-results.json"
+    },
+    {
+      "incident_id": "AW-CI-ENV-01",
+      "category": "EXECUTION_QUALIFICATION_REFUSED_DIRTY_TRACKED_CHECKOUT",
+      "label": "Original runner fail-closed",
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_discovery_ignores_ambient_pytest_selectors_and_plugins",
+        "file": null
+      },
+      "status_tags": [
+        "error"
+      ],
+      "complete_details_preserved_in": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2-results.json"
+    },
+    {
+      "incident_id": "AW-CI-ENV-01",
+      "category": "EXECUTION_QUALIFICATION_REFUSED_DIRTY_TRACKED_CHECKOUT",
+      "label": "Original runner fail-closed",
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_discovery_rejects_untracked_test_outside_integration_directory",
+        "file": null
+      },
+      "status_tags": [
+        "failure"
+      ],
+      "complete_details_preserved_in": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2-results.json"
+    },
+    {
+      "incident_id": "AW-CI-ENV-01",
+      "category": "EXECUTION_QUALIFICATION_REFUSED_DIRTY_TRACKED_CHECKOUT",
+      "label": "Original runner fail-closed",
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_busy_lock_return_code_matches_durable_run_state",
+        "file": null
+      },
+      "status_tags": [
+        "error"
+      ],
+      "complete_details_preserved_in": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2-results.json"
+    },
+    {
+      "incident_id": "AW-CI-ENV-01",
+      "category": "EXECUTION_QUALIFICATION_REFUSED_DIRTY_TRACKED_CHECKOUT",
+      "label": "Original runner fail-closed",
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_discovery_separates_declared_deselections_from_files_without_nodeids",
+        "file": null
+      },
+      "status_tags": [
+        "error"
+      ],
+      "complete_details_preserved_in": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2-results.json"
+    },
+    {
+      "incident_id": "AW-CI-BASELINE-01",
+      "category": "PRE_EXISTING_TEST_COLLECTION_TIME_EXPIRY",
+      "label": "Future ACK parameter expired before body",
+      "identity": {
+        "classname": "tests.unit.gateway.human.test_classified_decision",
+        "name": "test_mismatched_ack_is_unknown_not_execution_or_rollback[committed_at-value8]",
+        "file": null
+      },
+      "status_tags": [
+        "failure"
+      ],
+      "complete_details_preserved_in": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2-results.json"
+    },
+    {
+      "incident_id": "AW-SOURCE-F03",
+      "category": "SOURCE_REGRESSION",
+      "label": "METRICS-FENCE",
+      "identity": {
+        "classname": "tests.unit.platform.test_alert_metrics_fence",
+        "name": "test_every_graph_invocation_in_src_counts_agent_errors",
+        "file": null
+      },
+      "status_tags": [
+        "failure"
+      ],
+      "complete_details_preserved_in": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2-results.json"
+    }
+  ],
+  "failure_or_error_category_counts": {
+    "source_regression": 1,
+    "dirty_checkout_qualification_refusal": 5,
+    "pre_existing_test_timestamp_expiry": 1
+  },
+  "diagnosis": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-r2-failure-diagnosis.json",
+  "future_ack_gateway_baseline_bytes_equal": true,
+  "future_ack_gateway_baseline_sha256": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57",
+  "future_ack_gateway_frozen_sha256": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57",
+  "focused_reproduction_results": [
+    {
+      "name": "metrics-fence",
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/platform/test_alert_metrics_fence.py::test_every_graph_invocation_in_src_counts_agent_errors",
+        "-q"
+      ],
+      "return_code": 1,
+      "duration_seconds": 17.714,
+      "terminal_summary_lines": [
+        "        (`\"record_agent_error\" not in path.read_text()`) stays GREEN — 2 textual occurrences of the",
+        "E       AssertionError: graph-invocation site(s) whose failures are never counted: ['agents/lucas/administrative/graph.py:143', 'agents/lucas/administrative/graph.py:257']. Each `.ainvoke(` must sit in a `try` whose `except Exception` handler calls `record_agent_error()` and re-raises bare — `MaezoAgentCrashLoop` reads that counter and nothing else does.",
+        "1 failed in 13.82s"
+      ],
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-r2-diagnostic-metrics-fence.log",
+      "log_sha256": "034eb448856d81dda16b45ff9262b56d09c2f81b82e9ad5dae7af0b4ace68d6a"
+    },
+    {
+      "name": "fresh-future-ack",
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/gateway/human/test_classified_decision.py::test_mismatched_ack_is_unknown_not_execution_or_rollback[committed_at-value8]",
+        "-q"
+      ],
+      "return_code": 0,
+      "duration_seconds": 6.702,
+      "terminal_summary_lines": [
+        "1 passed in 1.75s"
+      ],
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-r2-diagnostic-fresh-future-ack.log",
+      "log_sha256": "31f2b12d852981175b117bcecb0662b3991c4d27286072f1b4554ac21ab115c7"
+    }
+  ],
+  "full_unit_status_not_replaced_by_focused_pass": true,
+  "existing_skip_reason_counts": [
+    {
+      "count": 19,
+      "type": "pytest.skip",
+      "reason": "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping Tier-B live-LLM eval variant. This is a loud, explicit skip, not a silent pass (mirrors tests/unit/runtime/test_inference_live.py): Tier-A (replay) evals are the PR merge-blocking gate and are unaffected; Tier-B is nightly-only, threshold-scored, non-blocking, and requires a real Anthropic key to ever execute."
+    },
+    {
+      "count": 1,
+      "type": "pytest.xfail",
+      "reason": "quantia POR EXTENSO esta fora do alcance de um casador lexico — fechar isso e' eval de saida, nao unit test; strict para que a solucao futura tenha de retirar o marcador"
+    },
+    {
+      "count": 1,
+      "type": "pytest.xfail",
+      "reason": "PENDENTE DO DONO, nao da engenharia. O Lucas declara `reports_to: atendimento@amh`, que e' endereco de TIME — e um time nao acorda as tres da manha. Nomear a pessoa que decide o texto do Lucas e a que atende quando ele erra com um beneficiario e' ato do dono, igual ao `owners.clinico` da Helena. Este teste fica aqui em xfail para que o dia em que alguem preencher o campo o torne verde, em vez de o campo ser esquecido por nao haver nada apontando para ele."
+    },
+    {
+      "count": 1,
+      "type": "pytest.skip",
+      "reason": "beatriz nao registra um no `start_process`"
+    },
+    {
+      "count": 1,
+      "type": "pytest.skip",
+      "reason": "helena nao registra um no `start_process`"
+    },
+    {
+      "count": 1,
+      "type": "pytest.xfail",
+      "reason": "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com excecao de CI. Este teste afirma que o ledger de main comeca com o ledger integralmente qualificado do train (commit 5b70a6e9...) — medido, nao hipotetico: main ja diverge dentro desse prefixo obrigatorio, entao nenhum append futuro pode repara-lo enquanto main permanecer main. expected-fail-until=2027-02-09. RENOVACAO — DECISAO DO DONO 2026-09-20: a obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438 Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15. Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main aterrissa (WP novo) — ou o dono re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md."
+    },
+    {
+      "count": 2,
+      "type": "pytest.skip",
+      "reason": "COULD NOT VERIFY: MAEZO_TEST_DATABASE_URL required for the native witness catalog"
+    },
+    {
+      "count": 21,
+      "type": "pytest.skip",
+      "reason": "sources the POSIX setenv.sh with /bin/sh"
+    },
+    {
+      "count": 6,
+      "type": "pytest.skip",
+      "reason": "RUN requires Linux sed -i; image UID remains unverified"
+    },
+    {
+      "count": 1,
+      "type": "pytest.xfail",
+      "reason": "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com excecao de CI em vez de excluir a entrada 'D7unit802'. source_commit=80206e29ab4b... e exclusivo da linhagem do train e nunca sera ancestral de main sob a regra de transplante-apenas-conteudo desta frota — este teste preflighta essa entrada e permanece vermelho por desenho ate' o prazo. expected-fail-until=2027-02-09. RENOVACAO — DECISAO DO DONO 2026-09-20: a obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438 Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15. Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main aterrissa (WP novo, nao correcao deste PR) — ou o dono re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md."
+    },
+    {
+      "count": 1,
+      "type": "pytest.skip",
+      "reason": "packet synthetic recording absent: /Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-actual-proof-preflight-repair/synthetic/results/synthetic.jfr"
+    },
+    {
+      "count": 1,
+      "type": "pytest.skip",
+      "reason": "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping live Anthropic API call. This is a loud, explicit skip, not a silent pass: set one of those env vars to exercise the real provider end-to-end."
+    },
+    {
+      "count": 1,
+      "type": "pytest.xfail",
+      "reason": "LEG3-B: no shared source-of-truth artifact ties the client host-suffix allowlist (BR_REGIONAL_ENDPOINT_HOST_SUFFIXES) to the ADR-0017 NetworkPolicy egress fence, and the two places that DO name PHI endpoint hosts already DIVERGE. The client allowlist pins '.br-sao-paulo.phi.maezo.internal' (deliberately non-routable), while deploy/helm/.../values-{amh,staging}.yaml declare 'llm-phi.internal.amh.com.br' / 'llm-phi.staging.internal.maezo.com.br'. Worse, the NetworkPolicy egress rule is IP/CIDR-based and CANNOT express a hostname allowlist at all (networkpolicy.yaml FIX 1), so the two artifacts are structurally incommensurable — the `host` in values.yaml is only an error-message hint, the rendered rule is a `cidr`. Faking agreement would be dishonest. This xfail(strict) documents the drift risk and turns RED the day someone reconciles them (remove the marker then). Deriving the allowlist from the CIDR-pinning artifact is the open question in runtime/inference/br_regional.py::BR_REGIONAL_ENDPOINT_HOST_SUFFIXES's comment; inventing that artifact is out of leg-3 scope."
+    }
+  ],
+  "all_skips_xfails_node_identities": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-r2-skips.json",
+  "root_fixture_deselection": "Existing conftest declared 1182 private ROOT fixture tests deselected; existing literal selector produced total1994 deselected. No lane-added deselection.",
+  "qualification_boundaries": {
+    "local_source_cheap_checks": "PASS",
+    "local_full_unit": "FAIL",
+    "hosted_required_ci": "NOT_OBSERVED_BY_THIS_LANE; no hosted PASS claimed",
+    "PG_CIB_engine_integration": "NOT_EXECUTED; no engine integration acceptance",
+    "authoritative_new_providers_runtime_bindings": "ABSENT_IN_CANDIDATE; operational integration unqualified",
+    "end_to_end_journeys": "NOT_QUALIFIED",
+    "human_ratification": "NOT_GRANTED",
+    "production": "NOT_QUALIFIED"
+  },
+  "original_namespace_finding": "AW-CI-F01 closed through independently reproduced namespace delta; original failed run1 preserved",
+  "root_id_map_acknowledged": {
+    "AW-CI-F01": "namespace package marker",
+    "AW-CI-F02": "distinct unordered HARD parametrization incident, not the metrics finding",
+    "AW-SOURCE-F03": "METRICS-FENCE new graph ainvoke instrumentation"
+  },
+  "consolidated_raw_log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-consolidated-r2.log",
+  "consolidated_raw_log_sha256": "5ad0f60eeb3fbba0b0dfe3040836d56670b321506558a0ef50d4bc36203239fc",
+  "next_step": "Root owns independent metric repair/delta disposition and clean immutable execution tree before any future full gate; no additional broad run authorized to this lane."
+}

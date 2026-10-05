@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-04 19:43:52 UTC",
+  "role": "third_specialist_exception_inventory_repair",
+  "finding": "AW-SOURCE-F04",
+  "result": "REPAIR_COMPLETE_PENDING_INDEPENDENT_DELTA",
+  "checkout": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora",
+  "input_head": "e9af2a91002384bbe2772cf9b63e2e7534cdb778",
+  "tracked_write_set": [
+    "tests/unit/runtime/test_broad_except_allowlist.py"
+  ],
+  "patch": {
+    "added_lines": 6,
+    "deleted_lines": 0,
+    "added_symbol": "src/maezo/agents/lucas/administrative/graph.py::CompiledAdministrativeConsumer::_invoke",
+    "added_count": 1,
+    "justification": "conta maezo_agent_errors_total uma vez por turno falho no seam administrativo ainvoke, com classe de erro limitada, e RE-LEVANTA nua; validacao fora do try e CancelledError/BaseException nao capturados (ALERTS-WITHOUT-METRICS-a)"
+  },
+  "reproduction": {
+    "command": ".venv/bin/python -m pytest tests/unit/runtime/test_broad_except_allowlist.py::test_inventario_de_except_largo_bate_com_a_allowlist -q",
+    "exit_code": 1,
+    "failed": 1,
+    "observed_new_unlisted_symbols": [
+      "src/maezo/agents/lucas/administrative/graph.py::CompiledAdministrativeConsumer::_invoke"
+    ],
+    "input_allowlist_sha256": "0f5679c6c15abf160db257033d792ba27824797113d51171f8ee1e26f2b908f1"
+  },
+  "validation": {
+    "full_module": {
+      "command": ".venv/bin/python -m pytest tests/unit/runtime/test_broad_except_allowlist.py -q",
+      "exit_code": 0,
+      "passed": 16
+    },
+    "ruff_check": {
+      "command": ".venv/bin/ruff check tests/unit/runtime/test_broad_except_allowlist.py",
+      "exit_code": 0
+    },
+    "ruff_format": {
+      "command": ".venv/bin/ruff format --check tests/unit/runtime/test_broad_except_allowlist.py",
+      "exit_code": 0
+    },
+    "diff_check": {
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    "independent_ast_census": {
+      "expected_symbols": 30,
+      "measured_symbols": 30,
+      "measured_handlers": 49,
+      "exact_match": true,
+      "original_29_entries_counts_and_motives_unchanged": true,
+      "new_symbol_count": 1
+    },
+    "handler_ast": {
+      "except_exception_only": true,
+      "one_record_agent_error_call": true,
+      "final_bare_reraise": true,
+      "cancelled_error_and_base_exception_excluded": true
+    }
+  },
+  "freeze": {
+    "head_unchanged": "e9af2a91002384bbe2772cf9b63e2e7534cdb778",
+    "repaired_test_sha256": "83252426b96153216b1e32a99fa973bb78a774cc5dc305848d7242c4e2b3848a",
+    "handler_sha256_before_and_after": "50977755697707762b7c4e923bb6d5d1b86761e59aab355f7afa9391d320e5a3",
+    "source_file_count": 822,
+    "source_tree_sha256_before_and_after": "95ce2d612a975ac82c22c2e5411f65055084658e2eaf7702d197cefbe09ea1e0",
+    "source_tree_hash_algorithm": "sorted tracked src paths; SHA256 over path UTF-8 + NUL + SHA256(file bytes) raw digest",
+    "tracked_except_test_file_count": 2588,
+    "tracked_except_test_sha256_before_and_after": "6dc8f8087f19d5a34edb04c2e05949aabc4bd85b9e686f495e831b3f3928f817",
+    "other_tracked_files_unchanged": true
+  },
+  "boundaries": {
+    "source_handler_changes": false,
+    "source_helper_sdk_policy_hard_business_rule_changes": false,
+    "broad_suite_or_engine_execution": false,
+    "global_environment_importmode_cache_deselect_changes": false,
+    "commits_or_pushes": false,
+    "wildcard_count_skip_allowlist_class_or_guard_changes": false,
+    "source_flag_human_permission_and_gateway_boundaries_unchanged": true,
+    "operational_human_production_or_whole_ci_qualification_claim": false
+  },
+  "next_gate": "Reviewer original must independently reproduce exact delta after root freeze; fresh final reviewers remain independent."
+}

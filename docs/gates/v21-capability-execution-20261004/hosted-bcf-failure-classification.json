@@ -1,0 +1,54 @@
+{
+  "schema": "maezo.v21.hosted-ci-classification.v1",
+  "event_id": "HOSTED-BCF-DIAG-37224291319",
+  "recorded_by": "/root",
+  "reviewer": "/root/hosted_gateway_ci_diagnosis",
+  "input_head": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+  "actual_hosted_merge_sha": "b77065fe1e9b7e0b8af5337634091912a36f8855",
+  "actual_hosted_first_parent": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+  "new_source_defect": {
+    "id": "AW-SOURCE-F03",
+    "priority": "P2",
+    "path": "src/maezo/agents/lucas/administrative/graph.py",
+    "lines": [
+      143,
+      257
+    ],
+    "problem": "Missing record_agent_error counter for graph failures; ONE failed turn metric contract",
+    "job_id": 111500631794,
+    "tests": 7539,
+    "passed": 7538,
+    "failed": 1,
+    "errors": 0,
+    "skipped": 0,
+    "log_sha256": "40eabbf17cd7c90f5330fd26b1242aced59949154342e8b69921b4ddf16f9869",
+    "JUnit_sha256": "70ed9d4513dbe9361d46fc5c8b8bab360f81a52d159478b20785f5fae644f920"
+  },
+  "base_drift": {
+    "id": "BASE-DRIFT-PHANTOM-BASELINE",
+    "classification": "CONFIRMED_BASE_DRIFT",
+    "path": "tests/unit/docs/test_no_phantom_src_maezo_policies_path.py",
+    "line": 141,
+    "operator_deleted_reports": [
+      "docs/reports/G0-gate-review.md",
+      "docs/reports/review-before-launch-extension.md"
+    ],
+    "base_cleanup_pr": 632,
+    "job_id": 111500631755,
+    "passed": 14911,
+    "failed": 1,
+    "skipped": 130,
+    "xfailed": 3,
+    "log_sha256": "724b3d5af4ad2c6f8a634fe9ab588e47a8af412aafabc9ff8a13c1cd089d43fc",
+    "JUnit_sha256": "6c58ed57073bfac76f6e8c8418fe95b8d6af480319c34036642457184f551200"
+  },
+  "engine": {
+    "job_id": 111502601010,
+    "status": "AGGREGATOR_FAIL_UPSTREAM_SHARDS_SKIPPED",
+    "executed_engine_bodies": 0,
+    "no_JUnit": true,
+    "log_sha256": "decbac5f54ce60111c527ab6581837d70bf04376e1a3c9bac0b25de10473a085"
+  },
+  "source_runtime_or_production_qualification": "NOT_PROVEN",
+  "source_or_test_mutations_by_reviewer": "NONE"
+}

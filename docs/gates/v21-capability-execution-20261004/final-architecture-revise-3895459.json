@@ -1,0 +1,42 @@
+{
+  "schema": "maezo.v21.final-architecture-initial-review.v1",
+  "event_id": "FINAL-ARCH-REVISE-3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "recorded_by": "/root",
+  "record_source": "Exact facts from /root/final_architecture_gate final response",
+  "reviewer": "/root/final_architecture_gate",
+  "verdict": "REVISE",
+  "input_sha": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "baseline_sha": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "input_fingerprint": "175d22d9f87b680b621e35c861bed7233e38a5673e60cb2ac5a05d7a757f280b",
+  "implementation_manifest_sha256": "b50a477f9cf0fb568669976b58a5cf542d2c40c411cb61e665f6f2190f1d00ee",
+  "input_file_hashes": "24/24 independently verified; final readback unchanged",
+  "semantic_assertions": 376,
+  "focused_tests": "61 passed",
+  "diff_check": "PASS",
+  "cheap_ci": "9 checks PASS; logs read",
+  "broad_unit_ci": "FAIL: exit 2, two introduced collection errors",
+  "findings": [
+    {
+      "id": "FINAL-ARCH-F01",
+      "shared_incident_id": "AW-CI-F01",
+      "priority": "P1",
+      "path": "tests/unit/gateway/capabilities/test_admission.py",
+      "line": 1,
+      "problem": "New test basenames collide with existing modules without package namespace",
+      "independent_four_pair_collection": "66 collected,2errors,rc2 in fresh -B/no-cacheprovider process"
+    }
+  ],
+  "independence": {
+    "authorship": false,
+    "repair": false,
+    "integration": false,
+    "file_edits_or_commits": false,
+    "delegation_or_external_contact": false,
+    "broad_suite_or_engine_execution": false
+  },
+  "ci_hashes": {
+    "unit_results": "8f256152666cc6acc1c31edba596da322595389f63a2886b2663f299a9a73dbb",
+    "unit_log": "9bd9a576f56f302e8961ef1f161dcf74b59f1452859cb84408661e1123fd8092",
+    "unit_JUnit": "a616452e73c4c427089c6b4eade5fb1922be84993645a1ec84a5b9135ce24e77"
+  }
+}

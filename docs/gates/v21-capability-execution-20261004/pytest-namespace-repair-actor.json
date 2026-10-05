@@ -1,0 +1,12 @@
+{
+  "schema": "maezo.v21.custody-actor-readback.v1",
+  "event_id": "AW-CI-F01-REPAIR-ACTOR-43dae3d",
+  "repair_agent_identity": "/root/pytest_namespace_repair",
+  "source_commit": "43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+  "only_authored_source_path": "tests/unit/gateway/capabilities/__init__.py",
+  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "author_not_original_verifier": true,
+  "author_not_final_reviewer": true,
+  "root_recorded_from": "Direct collaboration dispatch plus agent final freeze/hash and three independent original reviewer readbacks",
+  "human_or_provider_signoff": false
+}

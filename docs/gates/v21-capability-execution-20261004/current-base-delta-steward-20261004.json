@@ -1,0 +1,1273 @@
+{
+  "schema": "maezo-v21-current-base-delta-independent-review.v1",
+  "observed_at_utc": "2026-10-04T18:56:53.279903+00:00",
+  "reviewer": "current_base_delta_steward",
+  "role": "independent base delta/source compatibility admission reviewer; not author, repairer, integrator or final signer",
+  "verdict": "PASS_BOUNDED_CURRENT_BASE_DELTA_COMPATIBILITY",
+  "source_base_preserved": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "current_main_baseline": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+  "source_candidate_commit": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+  "synthetic_host_ci_merge": "b77065fe1e9b7e0b8af5337634091912a36f8855",
+  "root_working_head": "a472d9405644baa8efd37d8afdb8fe084e5f5f30",
+  "scope": "e7..current-main delta and W0/source compatibility; no customer publication, human ratification, runtime or final CI approval",
+  "manifest": {
+    "path": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/manifest.json",
+    "manifest_sha256": "40900deb674cd885c29dfe8392a56855b608265c87c6f47490ed3fa8d4c042c0",
+    "bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+    "recomputed_bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+    "source_count": 94,
+    "source_rows": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "frozen_sha256": "35acb170af2b74a371a07735a95766aa7f67c2dc928f3064ea8974fd54c63e1b",
+        "base_sha256": "35acb170af2b74a371a07735a95766aa7f67c2dc928f3064ea8974fd54c63e1b",
+        "current_main_sha256": "35acb170af2b74a371a07735a95766aa7f67c2dc928f3064ea8974fd54c63e1b",
+        "working_tree_sha256": "35acb170af2b74a371a07735a95766aa7f67c2dc928f3064ea8974fd54c63e1b"
+      },
+      {
+        "path": "Makefile",
+        "frozen_sha256": "46fcd745ba49792115c0c40fbf93e678c15627e872f51032cf1343ba6987d0ea",
+        "base_sha256": "46fcd745ba49792115c0c40fbf93e678c15627e872f51032cf1343ba6987d0ea",
+        "current_main_sha256": "46fcd745ba49792115c0c40fbf93e678c15627e872f51032cf1343ba6987d0ea",
+        "working_tree_sha256": "46fcd745ba49792115c0c40fbf93e678c15627e872f51032cf1343ba6987d0ea"
+      },
+      {
+        "path": "config/integrations/amh/contracts.lock.json",
+        "frozen_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+        "base_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+        "current_main_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+        "working_tree_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25"
+      },
+      {
+        "path": "deploy/cibseven/Dockerfile",
+        "frozen_sha256": "63e0d1da0ea309a44546291a2f3139a8c8f4a90318b62329a618e597bbd98f52",
+        "base_sha256": "63e0d1da0ea309a44546291a2f3139a8c8f4a90318b62329a618e597bbd98f52",
+        "current_main_sha256": "63e0d1da0ea309a44546291a2f3139a8c8f4a90318b62329a618e597bbd98f52",
+        "working_tree_sha256": "63e0d1da0ea309a44546291a2f3139a8c8f4a90318b62329a618e597bbd98f52"
+      },
+      {
+        "path": "deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml",
+        "frozen_sha256": "65a88e630063a9838a35d58a5f8b4bfd4f51270dbd62c532e4aca456b24384d5",
+        "base_sha256": "65a88e630063a9838a35d58a5f8b4bfd4f51270dbd62c532e4aca456b24384d5",
+        "current_main_sha256": "65a88e630063a9838a35d58a5f8b4bfd4f51270dbd62c532e4aca456b24384d5",
+        "working_tree_sha256": "65a88e630063a9838a35d58a5f8b4bfd4f51270dbd62c532e4aca456b24384d5"
+      },
+      {
+        "path": "deploy/helm/maezo-tenant/values.yaml",
+        "frozen_sha256": "29d1a6fe2c4bb984d69283ecb50e7b767c9f94f540814e9a3968861b5c6c468a",
+        "base_sha256": "29d1a6fe2c4bb984d69283ecb50e7b767c9f94f540814e9a3968861b5c6c468a",
+        "current_main_sha256": "29d1a6fe2c4bb984d69283ecb50e7b767c9f94f540814e9a3968861b5c6c468a",
+        "working_tree_sha256": "29d1a6fe2c4bb984d69283ecb50e7b767c9f94f540814e9a3968861b5c6c468a"
+      },
+      {
+        "path": "docker-compose.yml",
+        "frozen_sha256": "2ccc23aaaa9ff760bad5624e1ed762c3f988013eb4ca2b9096374c9443d49e1c",
+        "base_sha256": "2ccc23aaaa9ff760bad5624e1ed762c3f988013eb4ca2b9096374c9443d49e1c",
+        "current_main_sha256": "2ccc23aaaa9ff760bad5624e1ed762c3f988013eb4ca2b9096374c9443d49e1c",
+        "working_tree_sha256": "2ccc23aaaa9ff760bad5624e1ed762c3f988013eb4ca2b9096374c9443d49e1c"
+      },
+      {
+        "path": "docs/adr/0001-cib-seven-governance-langgraph-runtime.md",
+        "frozen_sha256": "aa99de492cfb1aca7f8dd866692349c5e7646a55e514619d3feb401d99604052",
+        "base_sha256": "aa99de492cfb1aca7f8dd866692349c5e7646a55e514619d3feb401d99604052",
+        "current_main_sha256": "aa99de492cfb1aca7f8dd866692349c5e7646a55e514619d3feb401d99604052",
+        "working_tree_sha256": "aa99de492cfb1aca7f8dd866692349c5e7646a55e514619d3feb401d99604052"
+      },
+      {
+        "path": "docs/adr/0028-dmn-evaluation-engine-side.md",
+        "frozen_sha256": "6a283d0aa87d73e8dec4430165e490423d9878245281000b0df1e3afe576c373",
+        "base_sha256": "6a283d0aa87d73e8dec4430165e490423d9878245281000b0df1e3afe576c373",
+        "current_main_sha256": "6a283d0aa87d73e8dec4430165e490423d9878245281000b0df1e3afe576c373",
+        "working_tree_sha256": "6a283d0aa87d73e8dec4430165e490423d9878245281000b0df1e3afe576c373"
+      },
+      {
+        "path": "docs/adr/0037-amh-compatibility-boundary-canonical-contracts.md",
+        "frozen_sha256": "4a4d8d7b12c23088f9028cb641f83bb26360b6cb2710d641299ed0731e0cc089",
+        "base_sha256": "4a4d8d7b12c23088f9028cb641f83bb26360b6cb2710d641299ed0731e0cc089",
+        "current_main_sha256": "4a4d8d7b12c23088f9028cb641f83bb26360b6cb2710d641299ed0731e0cc089",
+        "working_tree_sha256": "4a4d8d7b12c23088f9028cb641f83bb26360b6cb2710d641299ed0731e0cc089"
+      },
+      {
+        "path": "docs/adr/0059-conduta-da-helena-recusa-por-grupo-e-sintoma-fora-da-tabela.md",
+        "frozen_sha256": "7376cf33a10b6d154164079e18b13b831e1d7b601168ebbbaf94dca6805a047f",
+        "base_sha256": "7376cf33a10b6d154164079e18b13b831e1d7b601168ebbbaf94dca6805a047f",
+        "current_main_sha256": "7376cf33a10b6d154164079e18b13b831e1d7b601168ebbbaf94dca6805a047f",
+        "working_tree_sha256": "7376cf33a10b6d154164079e18b13b831e1d7b601168ebbbaf94dca6805a047f"
+      },
+      {
+        "path": "docs/adr/0062-roteamento-de-conversa-por-agente.md",
+        "frozen_sha256": "73ef4be50b298e6e7668a07e73fcc53766925c8e2752d0ce3d87e8403cc44110",
+        "base_sha256": "73ef4be50b298e6e7668a07e73fcc53766925c8e2752d0ce3d87e8403cc44110",
+        "current_main_sha256": "73ef4be50b298e6e7668a07e73fcc53766925c8e2752d0ce3d87e8403cc44110",
+        "working_tree_sha256": "73ef4be50b298e6e7668a07e73fcc53766925c8e2752d0ce3d87e8403cc44110"
+      },
+      {
+        "path": "docs/decisions-log.md",
+        "frozen_sha256": "ccfc28b76d1f9c526b17fabc38d789f5e1d553bedb33aadd5a1b1f88b8f1eb64",
+        "base_sha256": "ccfc28b76d1f9c526b17fabc38d789f5e1d553bedb33aadd5a1b1f88b8f1eb64",
+        "current_main_sha256": "ccfc28b76d1f9c526b17fabc38d789f5e1d553bedb33aadd5a1b1f88b8f1eb64",
+        "working_tree_sha256": "ccfc28b76d1f9c526b17fabc38d789f5e1d553bedb33aadd5a1b1f88b8f1eb64"
+      },
+      {
+        "path": "docs/processes/New_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v3.bpmn",
+        "frozen_sha256": "1e30b9f8a410f301ce3a913b04db719b534d739cd672bdd120d46c8523834ead",
+        "base_sha256": null,
+        "current_main_sha256": null,
+        "working_tree_sha256": "1e30b9f8a410f301ce3a913b04db719b534d739cd672bdd120d46c8523834ead"
+      },
+      {
+        "path": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+        "frozen_sha256": "abd6acaabb6fd0213344c31a0313a8f95cf38ad4f8092ccce8b5e6e2e38262a4",
+        "base_sha256": null,
+        "current_main_sha256": null,
+        "working_tree_sha256": "abd6acaabb6fd0213344c31a0313a8f95cf38ad4f8092ccce8b5e6e2e38262a4"
+      },
+      {
+        "path": "docs/processes/New_BPMN/CA_2_UTILIZACAO_v3.bpmn",
+        "frozen_sha256": "0d39296d011bbc531f8f87a57e1120d661450fca819033590c79fdb8989e7658",
+        "base_sha256": null,
+        "current_main_sha256": null,
+        "working_tree_sha256": "0d39296d011bbc531f8f87a57e1120d661450fca819033590c79fdb8989e7658"
+      },
+      {
+        "path": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+        "frozen_sha256": "705a568a67a309c41a942e775a0efc88b146fafaedbd85827236139b65198884",
+        "base_sha256": null,
+        "current_main_sha256": null,
+        "working_tree_sha256": "705a568a67a309c41a942e775a0efc88b146fafaedbd85827236139b65198884"
+      },
+      {
+        "path": "spec/agents/_template/agent.yaml",
+        "frozen_sha256": "d71a99de124537394e9a574333fbb3f02f14a51d0124b472d6fef8cc9186c7cc",
+        "base_sha256": "d71a99de124537394e9a574333fbb3f02f14a51d0124b472d6fef8cc9186c7cc",
+        "current_main_sha256": "d71a99de124537394e9a574333fbb3f02f14a51d0124b472d6fef8cc9186c7cc",
+        "working_tree_sha256": "d71a99de124537394e9a574333fbb3f02f14a51d0124b472d6fef8cc9186c7cc"
+      },
+      {
+        "path": "spec/agents/andre/agent.yaml",
+        "frozen_sha256": "976ed0193c7f2680dd125d3569ceb3ccc5203e214134123b157fb33e0c628719",
+        "base_sha256": "976ed0193c7f2680dd125d3569ceb3ccc5203e214134123b157fb33e0c628719",
+        "current_main_sha256": "976ed0193c7f2680dd125d3569ceb3ccc5203e214134123b157fb33e0c628719",
+        "working_tree_sha256": "976ed0193c7f2680dd125d3569ceb3ccc5203e214134123b157fb33e0c628719"
+      },
+      {
+        "path": "spec/agents/beatriz/agent.yaml",
+        "frozen_sha256": "4077c0f214619d9c419422bcece65e1c94f8fb42556b430769fc840e74282db7",
+        "base_sha256": "4077c0f214619d9c419422bcece65e1c94f8fb42556b430769fc840e74282db7",
+        "current_main_sha256": "4077c0f214619d9c419422bcece65e1c94f8fb42556b430769fc840e74282db7",
+        "working_tree_sha256": "4077c0f214619d9c419422bcece65e1c94f8fb42556b430769fc840e74282db7"
+      },
+      {
+        "path": "spec/agents/carolina/agent.yaml",
+        "frozen_sha256": "03e02d071c245d78a1d4f149f6051fdf33ba324c92c3e872ada08b16d8623976",
+        "base_sha256": "03e02d071c245d78a1d4f149f6051fdf33ba324c92c3e872ada08b16d8623976",
+        "current_main_sha256": "03e02d071c245d78a1d4f149f6051fdf33ba324c92c3e872ada08b16d8623976",
+        "working_tree_sha256": "03e02d071c245d78a1d4f149f6051fdf33ba324c92c3e872ada08b16d8623976"
+      },
+      {
+        "path": "spec/agents/fernando/agent.yaml",
+        "frozen_sha256": "9b1ec877576b3b06f9d783d45711ab5e27313ac88db6e9d20a478818bd2d6ab2",
+        "base_sha256": "9b1ec877576b3b06f9d783d45711ab5e27313ac88db6e9d20a478818bd2d6ab2",
+        "current_main_sha256": "9b1ec877576b3b06f9d783d45711ab5e27313ac88db6e9d20a478818bd2d6ab2",
+        "working_tree_sha256": "9b1ec877576b3b06f9d783d45711ab5e27313ac88db6e9d20a478818bd2d6ab2"
+      },
+      {
+        "path": "spec/agents/gustavo/agent.yaml",
+        "frozen_sha256": "f46b953623564dcb2d1a37edec9ad8123a156bb629e1d3305b4c6b555d96d8ea",
+        "base_sha256": "f46b953623564dcb2d1a37edec9ad8123a156bb629e1d3305b4c6b555d96d8ea",
+        "current_main_sha256": "f46b953623564dcb2d1a37edec9ad8123a156bb629e1d3305b4c6b555d96d8ea",
+        "working_tree_sha256": "f46b953623564dcb2d1a37edec9ad8123a156bb629e1d3305b4c6b555d96d8ea"
+      },
+      {
+        "path": "spec/agents/helena/agent.yaml",
+        "frozen_sha256": "faa48e6ab39b28089a55c80657d5eb15ac521517758e6d11cc2dc1002cdd51a8",
+        "base_sha256": "faa48e6ab39b28089a55c80657d5eb15ac521517758e6d11cc2dc1002cdd51a8",
+        "current_main_sha256": "faa48e6ab39b28089a55c80657d5eb15ac521517758e6d11cc2dc1002cdd51a8",
+        "working_tree_sha256": "faa48e6ab39b28089a55c80657d5eb15ac521517758e6d11cc2dc1002cdd51a8"
+      },
+      {
+        "path": "spec/agents/lucas/agent.yaml",
+        "frozen_sha256": "bc42b3a0d4e5aa0e3ad40fef5c392b98a84005afee35d58b4bedc5640abf21a5",
+        "base_sha256": "bc42b3a0d4e5aa0e3ad40fef5c392b98a84005afee35d58b4bedc5640abf21a5",
+        "current_main_sha256": "bc42b3a0d4e5aa0e3ad40fef5c392b98a84005afee35d58b4bedc5640abf21a5",
+        "working_tree_sha256": "bc42b3a0d4e5aa0e3ad40fef5c392b98a84005afee35d58b4bedc5640abf21a5"
+      },
+      {
+        "path": "spec/agents/marina/agent.yaml",
+        "frozen_sha256": "f7669fe8b0d4561af56de22edd0abbf85c0fe2410ad3c8e35625021a04b153f6",
+        "base_sha256": "f7669fe8b0d4561af56de22edd0abbf85c0fe2410ad3c8e35625021a04b153f6",
+        "current_main_sha256": "f7669fe8b0d4561af56de22edd0abbf85c0fe2410ad3c8e35625021a04b153f6",
+        "working_tree_sha256": "f7669fe8b0d4561af56de22edd0abbf85c0fe2410ad3c8e35625021a04b153f6"
+      },
+      {
+        "path": "spec/agents/rafael/agent.yaml",
+        "frozen_sha256": "74904b7f6981baaa135155e2d910af6d4d613bc657fd7bc00e84e666abc6a79d",
+        "base_sha256": "74904b7f6981baaa135155e2d910af6d4d613bc657fd7bc00e84e666abc6a79d",
+        "current_main_sha256": "74904b7f6981baaa135155e2d910af6d4d613bc657fd7bc00e84e666abc6a79d",
+        "working_tree_sha256": "74904b7f6981baaa135155e2d910af6d4d613bc657fd7bc00e84e666abc6a79d"
+      },
+      {
+        "path": "spec/agents/valentina/agent.yaml",
+        "frozen_sha256": "0fc4b1395e41f009f0206f328753e4a4e6b364885d0e0b26b5bea0daed4a843a",
+        "base_sha256": "0fc4b1395e41f009f0206f328753e4a4e6b364885d0e0b26b5bea0daed4a843a",
+        "current_main_sha256": "0fc4b1395e41f009f0206f328753e4a4e6b364885d0e0b26b5bea0daed4a843a",
+        "working_tree_sha256": "0fc4b1395e41f009f0206f328753e4a4e6b364885d0e0b26b5bea0daed4a843a"
+      },
+      {
+        "path": "src/maezo/adapters/amh/subject_context.py",
+        "frozen_sha256": "e00cf24bebaaefc8849c2c71ab5e5cc9bdd87684ba537b1edd6140f0e172e853",
+        "base_sha256": "e00cf24bebaaefc8849c2c71ab5e5cc9bdd87684ba537b1edd6140f0e172e853",
+        "current_main_sha256": "e00cf24bebaaefc8849c2c71ab5e5cc9bdd87684ba537b1edd6140f0e172e853",
+        "working_tree_sha256": "e00cf24bebaaefc8849c2c71ab5e5cc9bdd87684ba537b1edd6140f0e172e853"
+      },
+      {
+        "path": "src/maezo/agents/_template/graph.py",
+        "frozen_sha256": "9e0405eb54f2803128a874730d4cdb847051e34eaa74a0cda3b3160d8133d7f2",
+        "base_sha256": "9e0405eb54f2803128a874730d4cdb847051e34eaa74a0cda3b3160d8133d7f2",
+        "current_main_sha256": "9e0405eb54f2803128a874730d4cdb847051e34eaa74a0cda3b3160d8133d7f2",
+        "working_tree_sha256": "9e0405eb54f2803128a874730d4cdb847051e34eaa74a0cda3b3160d8133d7f2"
+      },
+      {
+        "path": "src/maezo/agents/andre/delegation.py",
+        "frozen_sha256": "6bfad34eb49990d7294d1ff47ff20d5f585de858010d989d7ce802ea7c5f6e86",
+        "base_sha256": "6bfad34eb49990d7294d1ff47ff20d5f585de858010d989d7ce802ea7c5f6e86",
+        "current_main_sha256": "6bfad34eb49990d7294d1ff47ff20d5f585de858010d989d7ce802ea7c5f6e86",
+        "working_tree_sha256": "6bfad34eb49990d7294d1ff47ff20d5f585de858010d989d7ce802ea7c5f6e86"
+      },
+      {
+        "path": "src/maezo/agents/andre/graph.py",
+        "frozen_sha256": "87bd72a92b9be24b210c422ad5f8a7604796feff5fc9788d79d7a191a786416b",
+        "base_sha256": "87bd72a92b9be24b210c422ad5f8a7604796feff5fc9788d79d7a191a786416b",
+        "current_main_sha256": "87bd72a92b9be24b210c422ad5f8a7604796feff5fc9788d79d7a191a786416b",
+        "working_tree_sha256": "87bd72a92b9be24b210c422ad5f8a7604796feff5fc9788d79d7a191a786416b"
+      },
+      {
+        "path": "src/maezo/agents/beatriz/delegation.py",
+        "frozen_sha256": "1d9043e2b34e4976263d21ca27c1f96d71702df1337270be0e3470f7e74e49be",
+        "base_sha256": "1d9043e2b34e4976263d21ca27c1f96d71702df1337270be0e3470f7e74e49be",
+        "current_main_sha256": "1d9043e2b34e4976263d21ca27c1f96d71702df1337270be0e3470f7e74e49be",
+        "working_tree_sha256": "1d9043e2b34e4976263d21ca27c1f96d71702df1337270be0e3470f7e74e49be"
+      },
+      {
+        "path": "src/maezo/agents/beatriz/graph.py",
+        "frozen_sha256": "3513fa4ebc9619861e48e74e31e8fc0312587ddc0830a6c72c6efc222bc56d44",
+        "base_sha256": "3513fa4ebc9619861e48e74e31e8fc0312587ddc0830a6c72c6efc222bc56d44",
+        "current_main_sha256": "3513fa4ebc9619861e48e74e31e8fc0312587ddc0830a6c72c6efc222bc56d44",
+        "working_tree_sha256": "3513fa4ebc9619861e48e74e31e8fc0312587ddc0830a6c72c6efc222bc56d44"
+      },
+      {
+        "path": "src/maezo/agents/carolina/delegation.py",
+        "frozen_sha256": "98f0884e27854204fbdfecc9a1fd7fe173f11c4f5c39aba389a022204a4629a9",
+        "base_sha256": "98f0884e27854204fbdfecc9a1fd7fe173f11c4f5c39aba389a022204a4629a9",
+        "current_main_sha256": "98f0884e27854204fbdfecc9a1fd7fe173f11c4f5c39aba389a022204a4629a9",
+        "working_tree_sha256": "98f0884e27854204fbdfecc9a1fd7fe173f11c4f5c39aba389a022204a4629a9"
+      },
+      {
+        "path": "src/maezo/agents/carolina/graph.py",
+        "frozen_sha256": "2aafdbda01d9c6b2c32b6d7a4765581b2d489bb2b540275773d94fa79b4b01e9",
+        "base_sha256": "2aafdbda01d9c6b2c32b6d7a4765581b2d489bb2b540275773d94fa79b4b01e9",
+        "current_main_sha256": "2aafdbda01d9c6b2c32b6d7a4765581b2d489bb2b540275773d94fa79b4b01e9",
+        "working_tree_sha256": "2aafdbda01d9c6b2c32b6d7a4765581b2d489bb2b540275773d94fa79b4b01e9"
+      },
+      {
+        "path": "src/maezo/agents/fernando/delegation.py",
+        "frozen_sha256": "bf7d21bdfc1f7730f5d1a4ce7220ea5ad11442e62a55996231dc780c8639f23d",
+        "base_sha256": "bf7d21bdfc1f7730f5d1a4ce7220ea5ad11442e62a55996231dc780c8639f23d",
+        "current_main_sha256": "bf7d21bdfc1f7730f5d1a4ce7220ea5ad11442e62a55996231dc780c8639f23d",
+        "working_tree_sha256": "bf7d21bdfc1f7730f5d1a4ce7220ea5ad11442e62a55996231dc780c8639f23d"
+      },
+      {
+        "path": "src/maezo/agents/fernando/graph.py",
+        "frozen_sha256": "fe2282fc2ff199a2a14fc1493671860ea968a449e02f737e49475a9285e970ad",
+        "base_sha256": "fe2282fc2ff199a2a14fc1493671860ea968a449e02f737e49475a9285e970ad",
+        "current_main_sha256": "fe2282fc2ff199a2a14fc1493671860ea968a449e02f737e49475a9285e970ad",
+        "working_tree_sha256": "fe2282fc2ff199a2a14fc1493671860ea968a449e02f737e49475a9285e970ad"
+      },
+      {
+        "path": "src/maezo/agents/gustavo/delegation.py",
+        "frozen_sha256": "ff0e6d169431379a93c96e376db432deb74f83840f699177a27a18e581ba4f1f",
+        "base_sha256": "ff0e6d169431379a93c96e376db432deb74f83840f699177a27a18e581ba4f1f",
+        "current_main_sha256": "ff0e6d169431379a93c96e376db432deb74f83840f699177a27a18e581ba4f1f",
+        "working_tree_sha256": "ff0e6d169431379a93c96e376db432deb74f83840f699177a27a18e581ba4f1f"
+      },
+      {
+        "path": "src/maezo/agents/gustavo/graph.py",
+        "frozen_sha256": "a0fbd342011871dd3fff397f7be0207cde874eefda3a3b3ab1f8d6ff1c590ded",
+        "base_sha256": "a0fbd342011871dd3fff397f7be0207cde874eefda3a3b3ab1f8d6ff1c590ded",
+        "current_main_sha256": "a0fbd342011871dd3fff397f7be0207cde874eefda3a3b3ab1f8d6ff1c590ded",
+        "working_tree_sha256": "a0fbd342011871dd3fff397f7be0207cde874eefda3a3b3ab1f8d6ff1c590ded"
+      },
+      {
+        "path": "src/maezo/agents/helena/adapters.py",
+        "frozen_sha256": "8fc8821254bcb1e86ec6188b0e3eaa1b276f75757300fb73828608f4f1fa1a94",
+        "base_sha256": "8fc8821254bcb1e86ec6188b0e3eaa1b276f75757300fb73828608f4f1fa1a94",
+        "current_main_sha256": "8fc8821254bcb1e86ec6188b0e3eaa1b276f75757300fb73828608f4f1fa1a94",
+        "working_tree_sha256": "8fc8821254bcb1e86ec6188b0e3eaa1b276f75757300fb73828608f4f1fa1a94"
+      },
+      {
+        "path": "src/maezo/agents/helena/delegation.py",
+        "frozen_sha256": "bb150b7ab0ff75dc5515acc6565b75598dd23d660828304c58a5a78311390136",
+        "base_sha256": "bb150b7ab0ff75dc5515acc6565b75598dd23d660828304c58a5a78311390136",
+        "current_main_sha256": "bb150b7ab0ff75dc5515acc6565b75598dd23d660828304c58a5a78311390136",
+        "working_tree_sha256": "bb150b7ab0ff75dc5515acc6565b75598dd23d660828304c58a5a78311390136"
+      },
+      {
+        "path": "src/maezo/agents/helena/graph.py",
+        "frozen_sha256": "7455ff85ac7a5d49ffdd7548b98ecbbcf7e534c544f11f1883b6df1429e2f5dd",
+        "base_sha256": "7455ff85ac7a5d49ffdd7548b98ecbbcf7e534c544f11f1883b6df1429e2f5dd",
+        "current_main_sha256": "7455ff85ac7a5d49ffdd7548b98ecbbcf7e534c544f11f1883b6df1429e2f5dd",
+        "working_tree_sha256": "7455ff85ac7a5d49ffdd7548b98ecbbcf7e534c544f11f1883b6df1429e2f5dd"
+      },
+      {
+        "path": "src/maezo/agents/lucas/adapters.py",
+        "frozen_sha256": "d251f92378d65d3045a122ec5d463781612f6d05f56cf96888e6b683a3381e6d",
+        "base_sha256": "d251f92378d65d3045a122ec5d463781612f6d05f56cf96888e6b683a3381e6d",
+        "current_main_sha256": "d251f92378d65d3045a122ec5d463781612f6d05f56cf96888e6b683a3381e6d",
+        "working_tree_sha256": "d251f92378d65d3045a122ec5d463781612f6d05f56cf96888e6b683a3381e6d"
+      },
+      {
+        "path": "src/maezo/agents/lucas/graph.py",
+        "frozen_sha256": "dd30e69e2aa726099abaed962b24e930a6b1908ece73d16b85a30368b10a5d80",
+        "base_sha256": "dd30e69e2aa726099abaed962b24e930a6b1908ece73d16b85a30368b10a5d80",
+        "current_main_sha256": "dd30e69e2aa726099abaed962b24e930a6b1908ece73d16b85a30368b10a5d80",
+        "working_tree_sha256": "dd30e69e2aa726099abaed962b24e930a6b1908ece73d16b85a30368b10a5d80"
+      },
+      {
+        "path": "src/maezo/agents/marina/adapters.py",
+        "frozen_sha256": "9d7d0af63cd3394a9524674a9c4e3f6148f16db93d5ff7de5d1e1edd0267f425",
+        "base_sha256": "9d7d0af63cd3394a9524674a9c4e3f6148f16db93d5ff7de5d1e1edd0267f425",
+        "current_main_sha256": "9d7d0af63cd3394a9524674a9c4e3f6148f16db93d5ff7de5d1e1edd0267f425",
+        "working_tree_sha256": "9d7d0af63cd3394a9524674a9c4e3f6148f16db93d5ff7de5d1e1edd0267f425"
+      },
+      {
+        "path": "src/maezo/agents/marina/delegation.py",
+        "frozen_sha256": "ff1a8cd0871612a6eea21b6d3af416e1019a8575b6453e0eb4a087c4c37e133e",
+        "base_sha256": "ff1a8cd0871612a6eea21b6d3af416e1019a8575b6453e0eb4a087c4c37e133e",
+        "current_main_sha256": "ff1a8cd0871612a6eea21b6d3af416e1019a8575b6453e0eb4a087c4c37e133e",
+        "working_tree_sha256": "ff1a8cd0871612a6eea21b6d3af416e1019a8575b6453e0eb4a087c4c37e133e"
+      },
+      {
+        "path": "src/maezo/agents/marina/graph.py",
+        "frozen_sha256": "adc4966a6883eef84c1c7de25c929ddde3fc5e20f6f1de147b4e90187fa9a09d",
+        "base_sha256": "adc4966a6883eef84c1c7de25c929ddde3fc5e20f6f1de147b4e90187fa9a09d",
+        "current_main_sha256": "adc4966a6883eef84c1c7de25c929ddde3fc5e20f6f1de147b4e90187fa9a09d",
+        "working_tree_sha256": "adc4966a6883eef84c1c7de25c929ddde3fc5e20f6f1de147b4e90187fa9a09d"
+      },
+      {
+        "path": "src/maezo/agents/rafael/adapters.py",
+        "frozen_sha256": "b4efcf56931e4cd72350f329c399980c5bcbceb39c78eb3521dd22b14e44e002",
+        "base_sha256": "b4efcf56931e4cd72350f329c399980c5bcbceb39c78eb3521dd22b14e44e002",
+        "current_main_sha256": "b4efcf56931e4cd72350f329c399980c5bcbceb39c78eb3521dd22b14e44e002",
+        "working_tree_sha256": "b4efcf56931e4cd72350f329c399980c5bcbceb39c78eb3521dd22b14e44e002"
+      },
+      {
+        "path": "src/maezo/agents/rafael/delegation.py",
+        "frozen_sha256": "40e47d2a86af5ee254fceba61a476c64cc2391a7332a53c237579b1fdc4873d5",
+        "base_sha256": "40e47d2a86af5ee254fceba61a476c64cc2391a7332a53c237579b1fdc4873d5",
+        "current_main_sha256": "40e47d2a86af5ee254fceba61a476c64cc2391a7332a53c237579b1fdc4873d5",
+        "working_tree_sha256": "40e47d2a86af5ee254fceba61a476c64cc2391a7332a53c237579b1fdc4873d5"
+      },
+      {
+        "path": "src/maezo/agents/rafael/graph.py",
+        "frozen_sha256": "9676239505160da669b118856519490fb29a21cf9f34904300c41da23d10b51a",
+        "base_sha256": "9676239505160da669b118856519490fb29a21cf9f34904300c41da23d10b51a",
+        "current_main_sha256": "9676239505160da669b118856519490fb29a21cf9f34904300c41da23d10b51a",
+        "working_tree_sha256": "9676239505160da669b118856519490fb29a21cf9f34904300c41da23d10b51a"
+      },
+      {
+        "path": "src/maezo/agents/valentina/adapters.py",
+        "frozen_sha256": "328961eed96786ab82001b197ad5231c5a902a15e8359af946f068bc5459868c",
+        "base_sha256": "328961eed96786ab82001b197ad5231c5a902a15e8359af946f068bc5459868c",
+        "current_main_sha256": "328961eed96786ab82001b197ad5231c5a902a15e8359af946f068bc5459868c",
+        "working_tree_sha256": "328961eed96786ab82001b197ad5231c5a902a15e8359af946f068bc5459868c"
+      },
+      {
+        "path": "src/maezo/agents/valentina/delegation.py",
+        "frozen_sha256": "27c8bef17dc097b7e9d7cad026b142d85219c585a7eb4424f359e2361abedde1",
+        "base_sha256": "27c8bef17dc097b7e9d7cad026b142d85219c585a7eb4424f359e2361abedde1",
+        "current_main_sha256": "27c8bef17dc097b7e9d7cad026b142d85219c585a7eb4424f359e2361abedde1",
+        "working_tree_sha256": "27c8bef17dc097b7e9d7cad026b142d85219c585a7eb4424f359e2361abedde1"
+      },
+      {
+        "path": "src/maezo/agents/valentina/graph.py",
+        "frozen_sha256": "f13dace489cff177898c01deaf53e34af6288b105ee8caea1a99d7941374f18a",
+        "base_sha256": "f13dace489cff177898c01deaf53e34af6288b105ee8caea1a99d7941374f18a",
+        "current_main_sha256": "f13dace489cff177898c01deaf53e34af6288b105ee8caea1a99d7941374f18a",
+        "working_tree_sha256": "f13dace489cff177898c01deaf53e34af6288b105ee8caea1a99d7941374f18a"
+      },
+      {
+        "path": "src/maezo/gateway/amh.py",
+        "frozen_sha256": "74625464ca4cdc573eb2d437ef0922a4463fe55bd3b114154c4a63c0bae92eee",
+        "base_sha256": "74625464ca4cdc573eb2d437ef0922a4463fe55bd3b114154c4a63c0bae92eee",
+        "current_main_sha256": "74625464ca4cdc573eb2d437ef0922a4463fe55bd3b114154c4a63c0bae92eee",
+        "working_tree_sha256": "74625464ca4cdc573eb2d437ef0922a4463fe55bd3b114154c4a63c0bae92eee"
+      },
+      {
+        "path": "src/maezo/gateway/communications/service.py",
+        "frozen_sha256": "5fd1bcac911a280f4148592cbda43944206b392d5e6a59aab75133ffd8a934a5",
+        "base_sha256": "5fd1bcac911a280f4148592cbda43944206b392d5e6a59aab75133ffd8a934a5",
+        "current_main_sha256": "5fd1bcac911a280f4148592cbda43944206b392d5e6a59aab75133ffd8a934a5",
+        "working_tree_sha256": "5fd1bcac911a280f4148592cbda43944206b392d5e6a59aab75133ffd8a934a5"
+      },
+      {
+        "path": "src/maezo/gateway/documents/service.py",
+        "frozen_sha256": "0dbbc01a1677a500778664a5d30ff50b67bda3ecec3f60728c728418bb2db5d1",
+        "base_sha256": "0dbbc01a1677a500778664a5d30ff50b67bda3ecec3f60728c728418bb2db5d1",
+        "current_main_sha256": "0dbbc01a1677a500778664a5d30ff50b67bda3ecec3f60728c728418bb2db5d1",
+        "working_tree_sha256": "0dbbc01a1677a500778664a5d30ff50b67bda3ecec3f60728c728418bb2db5d1"
+      },
+      {
+        "path": "src/maezo/gateway/human/models.py",
+        "frozen_sha256": "b9c40e66c202b2252010e035b4f5a1d172cc81ff49ba6b1b141c568f36f87567",
+        "base_sha256": "b9c40e66c202b2252010e035b4f5a1d172cc81ff49ba6b1b141c568f36f87567",
+        "current_main_sha256": "b9c40e66c202b2252010e035b4f5a1d172cc81ff49ba6b1b141c568f36f87567",
+        "working_tree_sha256": "b9c40e66c202b2252010e035b4f5a1d172cc81ff49ba6b1b141c568f36f87567"
+      },
+      {
+        "path": "src/maezo/gateway/human/ports.py",
+        "frozen_sha256": "3d991dfd206eca842408285d353c56c53f22069c22e42a483297079860f5e94b",
+        "base_sha256": "3d991dfd206eca842408285d353c56c53f22069c22e42a483297079860f5e94b",
+        "current_main_sha256": "3d991dfd206eca842408285d353c56c53f22069c22e42a483297079860f5e94b",
+        "working_tree_sha256": "3d991dfd206eca842408285d353c56c53f22069c22e42a483297079860f5e94b"
+      },
+      {
+        "path": "src/maezo/gateway/intake/native_dispatch.py",
+        "frozen_sha256": "63f6c47549c3c26c2402d67c88100c9fa094187df84d0b5212a3cd22549f4054",
+        "base_sha256": "63f6c47549c3c26c2402d67c88100c9fa094187df84d0b5212a3cd22549f4054",
+        "current_main_sha256": "63f6c47549c3c26c2402d67c88100c9fa094187df84d0b5212a3cd22549f4054",
+        "working_tree_sha256": "63f6c47549c3c26c2402d67c88100c9fa094187df84d0b5212a3cd22549f4054"
+      },
+      {
+        "path": "src/maezo/gateway/seams/_base.py",
+        "frozen_sha256": "3e5ec9a9534610c0760594316d677f0e1142d7ba01b0eaaf3d5e21b6c790c262",
+        "base_sha256": "3e5ec9a9534610c0760594316d677f0e1142d7ba01b0eaaf3d5e21b6c790c262",
+        "current_main_sha256": "3e5ec9a9534610c0760594316d677f0e1142d7ba01b0eaaf3d5e21b6c790c262",
+        "working_tree_sha256": "3e5ec9a9534610c0760594316d677f0e1142d7ba01b0eaaf3d5e21b6c790c262"
+      },
+      {
+        "path": "src/maezo/gateway/seams/population.py",
+        "frozen_sha256": "174c7db867c876c22bc191d2f1a4dbbee934d02390e9a99eb0ec07d00db0f8f1",
+        "base_sha256": "174c7db867c876c22bc191d2f1a4dbbee934d02390e9a99eb0ec07d00db0f8f1",
+        "current_main_sha256": "174c7db867c876c22bc191d2f1a4dbbee934d02390e9a99eb0ec07d00db0f8f1",
+        "working_tree_sha256": "174c7db867c876c22bc191d2f1a4dbbee934d02390e9a99eb0ec07d00db0f8f1"
+      },
+      {
+        "path": "src/maezo/gateway/staff_cases/service.py",
+        "frozen_sha256": "0db4cddc45e067debc24e55adec8ade1766c7ad08327bab97d29ab3e70716cf4",
+        "base_sha256": "0db4cddc45e067debc24e55adec8ade1766c7ad08327bab97d29ab3e70716cf4",
+        "current_main_sha256": "0db4cddc45e067debc24e55adec8ade1766c7ad08327bab97d29ab3e70716cf4",
+        "working_tree_sha256": "0db4cddc45e067debc24e55adec8ade1766c7ad08327bab97d29ab3e70716cf4"
+      },
+      {
+        "path": "src/maezo/gateway/tool_registry.py",
+        "frozen_sha256": "0526162b70a05d0b3ea5c2e6d3243f3bdcd6474ac12c07835ae5e102cf67b55c",
+        "base_sha256": "0526162b70a05d0b3ea5c2e6d3243f3bdcd6474ac12c07835ae5e102cf67b55c",
+        "current_main_sha256": "0526162b70a05d0b3ea5c2e6d3243f3bdcd6474ac12c07835ae5e102cf67b55c",
+        "working_tree_sha256": "0526162b70a05d0b3ea5c2e6d3243f3bdcd6474ac12c07835ae5e102cf67b55c"
+      },
+      {
+        "path": "src/maezo/platform/integrations/agent_resume.py",
+        "frozen_sha256": "20619524d0473ffa2f079b17900b94d95072b255482f0914cefceb02204d2c58",
+        "base_sha256": "20619524d0473ffa2f079b17900b94d95072b255482f0914cefceb02204d2c58",
+        "current_main_sha256": "29a7f0816541a0ffcc8a978d379cb512fa93adaeacf5e4fd1f031a8d3a9471e7",
+        "working_tree_sha256": "20619524d0473ffa2f079b17900b94d95072b255482f0914cefceb02204d2c58"
+      },
+      {
+        "path": "src/maezo/platform/validation/agent_def.py",
+        "frozen_sha256": "eada135b58b12d1c93f54a9f021b02fada563d52a44f3745d1213d4df9968b76",
+        "base_sha256": "eada135b58b12d1c93f54a9f021b02fada563d52a44f3745d1213d4df9968b76",
+        "current_main_sha256": "eada135b58b12d1c93f54a9f021b02fada563d52a44f3745d1213d4df9968b76",
+        "working_tree_sha256": "eada135b58b12d1c93f54a9f021b02fada563d52a44f3745d1213d4df9968b76"
+      },
+      {
+        "path": "src/maezo/platform/webhooks/service.py",
+        "frozen_sha256": "e4a9917e15f0993a0cb489e179e75e7051df24ed6033e12bacc2964a5d0ef0d1",
+        "base_sha256": "e4a9917e15f0993a0cb489e179e75e7051df24ed6033e12bacc2964a5d0ef0d1",
+        "current_main_sha256": "e4a9917e15f0993a0cb489e179e75e7051df24ed6033e12bacc2964a5d0ef0d1",
+        "working_tree_sha256": "e4a9917e15f0993a0cb489e179e75e7051df24ed6033e12bacc2964a5d0ef0d1"
+      },
+      {
+        "path": "src/maezo/platform/webhooks/whatsapp/lucas_retomada.py",
+        "frozen_sha256": "752640d01e8ac67e3c8c607f3d904602edd9043f0a2ea71004071641ff862275",
+        "base_sha256": "752640d01e8ac67e3c8c607f3d904602edd9043f0a2ea71004071641ff862275",
+        "current_main_sha256": "752640d01e8ac67e3c8c607f3d904602edd9043f0a2ea71004071641ff862275",
+        "working_tree_sha256": "752640d01e8ac67e3c8c607f3d904602edd9043f0a2ea71004071641ff862275"
+      },
+      {
+        "path": "src/maezo/platform/webhooks/whatsapp/lucas_turno.py",
+        "frozen_sha256": "05a0284e3cf18db30f25df3a9fb95f908b2de94636a99ab77444dad196970771",
+        "base_sha256": "05a0284e3cf18db30f25df3a9fb95f908b2de94636a99ab77444dad196970771",
+        "current_main_sha256": "05a0284e3cf18db30f25df3a9fb95f908b2de94636a99ab77444dad196970771",
+        "working_tree_sha256": "05a0284e3cf18db30f25df3a9fb95f908b2de94636a99ab77444dad196970771"
+      },
+      {
+        "path": "src/maezo/platform/webhooks/whatsapp/roteamento.py",
+        "frozen_sha256": "ce5b7d46a2ed6ee4fc198fe28b7ad33f5f549a8118e281e0f23b83f70ce77999",
+        "base_sha256": "ce5b7d46a2ed6ee4fc198fe28b7ad33f5f549a8118e281e0f23b83f70ce77999",
+        "current_main_sha256": "ce5b7d46a2ed6ee4fc198fe28b7ad33f5f549a8118e281e0f23b83f70ce77999",
+        "working_tree_sha256": "ce5b7d46a2ed6ee4fc198fe28b7ad33f5f549a8118e281e0f23b83f70ce77999"
+      },
+      {
+        "path": "src/maezo/platform/webhooks/whatsapp/settings.py",
+        "frozen_sha256": "1d14d8451213c5f92317989e7d98f21d01ee1ab2a4b2e2d7d3083e17316ad3b4",
+        "base_sha256": "1d14d8451213c5f92317989e7d98f21d01ee1ab2a4b2e2d7d3083e17316ad3b4",
+        "current_main_sha256": "1d14d8451213c5f92317989e7d98f21d01ee1ab2a4b2e2d7d3083e17316ad3b4",
+        "working_tree_sha256": "1d14d8451213c5f92317989e7d98f21d01ee1ab2a4b2e2d7d3083e17316ad3b4"
+      },
+      {
+        "path": "src/maezo/portal/api/app.py",
+        "frozen_sha256": "0fc097e1023fb0c616bcc6ccaf7d5c5023f045cf8f3f69a988cebdb39387290f",
+        "base_sha256": "0fc097e1023fb0c616bcc6ccaf7d5c5023f045cf8f3f69a988cebdb39387290f",
+        "current_main_sha256": "0fc097e1023fb0c616bcc6ccaf7d5c5023f045cf8f3f69a988cebdb39387290f",
+        "working_tree_sha256": "0fc097e1023fb0c616bcc6ccaf7d5c5023f045cf8f3f69a988cebdb39387290f"
+      },
+      {
+        "path": "src/maezo/portal/api/production.py",
+        "frozen_sha256": "121cc936c2a48011c918449d7a4de1da88d4ce97af2e966983ea7028118b7bf3",
+        "base_sha256": "121cc936c2a48011c918449d7a4de1da88d4ce97af2e966983ea7028118b7bf3",
+        "current_main_sha256": "121cc936c2a48011c918449d7a4de1da88d4ce97af2e966983ea7028118b7bf3",
+        "working_tree_sha256": "121cc936c2a48011c918449d7a4de1da88d4ce97af2e966983ea7028118b7bf3"
+      },
+      {
+        "path": "src/maezo/portal/contracts/communications.py",
+        "frozen_sha256": "3a435f3a13d40211e5523a2cbedafa56941c456a428c06c5e4750122bd87fb81",
+        "base_sha256": "3a435f3a13d40211e5523a2cbedafa56941c456a428c06c5e4750122bd87fb81",
+        "current_main_sha256": "3a435f3a13d40211e5523a2cbedafa56941c456a428c06c5e4750122bd87fb81",
+        "working_tree_sha256": "3a435f3a13d40211e5523a2cbedafa56941c456a428c06c5e4750122bd87fb81"
+      },
+      {
+        "path": "src/maezo/portal/contracts/documents.py",
+        "frozen_sha256": "a4645d85b6093bc5888ebd5700bf69b780b71bdc94af0be914ba3ca84316a190",
+        "base_sha256": "a4645d85b6093bc5888ebd5700bf69b780b71bdc94af0be914ba3ca84316a190",
+        "current_main_sha256": "a4645d85b6093bc5888ebd5700bf69b780b71bdc94af0be914ba3ca84316a190",
+        "working_tree_sha256": "a4645d85b6093bc5888ebd5700bf69b780b71bdc94af0be914ba3ca84316a190"
+      },
+      {
+        "path": "src/maezo/portal/engine/README.md",
+        "frozen_sha256": "f028a0881b60ad94c1fa0603c322ab484aa129d8f08012db5e91f568da61f7bd",
+        "base_sha256": "f028a0881b60ad94c1fa0603c322ab484aa129d8f08012db5e91f568da61f7bd",
+        "current_main_sha256": "f028a0881b60ad94c1fa0603c322ab484aa129d8f08012db5e91f568da61f7bd",
+        "working_tree_sha256": "f028a0881b60ad94c1fa0603c322ab484aa129d8f08012db5e91f568da61f7bd"
+      },
+      {
+        "path": "src/maezo/portal/engine/profile.py",
+        "frozen_sha256": "32249b9d873a399855bc099dbb113e38a89e69dc714b202725c2a320267efb8d",
+        "base_sha256": "32249b9d873a399855bc099dbb113e38a89e69dc714b202725c2a320267efb8d",
+        "current_main_sha256": "32249b9d873a399855bc099dbb113e38a89e69dc714b202725c2a320267efb8d",
+        "working_tree_sha256": "32249b9d873a399855bc099dbb113e38a89e69dc714b202725c2a320267efb8d"
+      },
+      {
+        "path": "src/maezo/ports/clinical_context.py",
+        "frozen_sha256": "1dbf37478bf815d0f1a80fd86625752704765254593ee009a5a36c86253dc708",
+        "base_sha256": "1dbf37478bf815d0f1a80fd86625752704765254593ee009a5a36c86253dc708",
+        "current_main_sha256": "1dbf37478bf815d0f1a80fd86625752704765254593ee009a5a36c86253dc708",
+        "working_tree_sha256": "1dbf37478bf815d0f1a80fd86625752704765254593ee009a5a36c86253dc708"
+      },
+      {
+        "path": "src/maezo/ports/consent.py",
+        "frozen_sha256": "f7a01940e17a9f923d9c8e4c6227db7a72c4c6f173067eab492599d8cb4cb32f",
+        "base_sha256": "f7a01940e17a9f923d9c8e4c6227db7a72c4c6f173067eab492599d8cb4cb32f",
+        "current_main_sha256": "f7a01940e17a9f923d9c8e4c6227db7a72c4c6f173067eab492599d8cb4cb32f",
+        "working_tree_sha256": "f7a01940e17a9f923d9c8e4c6227db7a72c4c6f173067eab492599d8cb4cb32f"
+      },
+      {
+        "path": "src/maezo/ports/envelope.py",
+        "frozen_sha256": "a0e6f88febb4511d3b96251df6fe3d7e3b61b5dbd197a0e34dc8ffd7b0e6295c",
+        "base_sha256": "a0e6f88febb4511d3b96251df6fe3d7e3b61b5dbd197a0e34dc8ffd7b0e6295c",
+        "current_main_sha256": "a0e6f88febb4511d3b96251df6fe3d7e3b61b5dbd197a0e34dc8ffd7b0e6295c",
+        "working_tree_sha256": "a0e6f88febb4511d3b96251df6fe3d7e3b61b5dbd197a0e34dc8ffd7b0e6295c"
+      },
+      {
+        "path": "src/maezo/ports/population_features.py",
+        "frozen_sha256": "9fbd1f2b7422fc73ca36710cbd69b5a3ab1b81019eef15adb118ae4c71e569b0",
+        "base_sha256": "9fbd1f2b7422fc73ca36710cbd69b5a3ab1b81019eef15adb118ae4c71e569b0",
+        "current_main_sha256": "9fbd1f2b7422fc73ca36710cbd69b5a3ab1b81019eef15adb118ae4c71e569b0",
+        "working_tree_sha256": "9fbd1f2b7422fc73ca36710cbd69b5a3ab1b81019eef15adb118ae4c71e569b0"
+      },
+      {
+        "path": "src/maezo/runtime/agent_runtime/a2a_composition.py",
+        "frozen_sha256": "107bb3c6d0e0a652ccf1777841e3b291fc2f10a499f670768788884259771a38",
+        "base_sha256": "107bb3c6d0e0a652ccf1777841e3b291fc2f10a499f670768788884259771a38",
+        "current_main_sha256": "107bb3c6d0e0a652ccf1777841e3b291fc2f10a499f670768788884259771a38",
+        "working_tree_sha256": "107bb3c6d0e0a652ccf1777841e3b291fc2f10a499f670768788884259771a38"
+      },
+      {
+        "path": "src/maezo/runtime/agent_runtime/ingress.py",
+        "frozen_sha256": "9c6f9ebd3c54daa56518d3c9b88e9f21be78cf764de5d2d7d404b483e1bc7dfc",
+        "base_sha256": "9c6f9ebd3c54daa56518d3c9b88e9f21be78cf764de5d2d7d404b483e1bc7dfc",
+        "current_main_sha256": "9c6f9ebd3c54daa56518d3c9b88e9f21be78cf764de5d2d7d404b483e1bc7dfc",
+        "working_tree_sha256": "9c6f9ebd3c54daa56518d3c9b88e9f21be78cf764de5d2d7d404b483e1bc7dfc"
+      },
+      {
+        "path": "src/maezo/runtime/agent_runtime/service.py",
+        "frozen_sha256": "766843b22f73462625f3a65039415c594950e19291b5002f8c5eec61f11bbd75",
+        "base_sha256": "766843b22f73462625f3a65039415c594950e19291b5002f8c5eec61f11bbd75",
+        "current_main_sha256": "766843b22f73462625f3a65039415c594950e19291b5002f8c5eec61f11bbd75",
+        "working_tree_sha256": "766843b22f73462625f3a65039415c594950e19291b5002f8c5eec61f11bbd75"
+      },
+      {
+        "path": "src/maezo/runtime/agent_runtime/settings.py",
+        "frozen_sha256": "df9500db0d4c9886b0a556ebdc8bf60f7b32edf1104d5d58beed0eb86dc89bec",
+        "base_sha256": "df9500db0d4c9886b0a556ebdc8bf60f7b32edf1104d5d58beed0eb86dc89bec",
+        "current_main_sha256": "df9500db0d4c9886b0a556ebdc8bf60f7b32edf1104d5d58beed0eb86dc89bec",
+        "working_tree_sha256": "df9500db0d4c9886b0a556ebdc8bf60f7b32edf1104d5d58beed0eb86dc89bec"
+      },
+      {
+        "path": "src/maezo/runtime/worker_runtime/settings.py",
+        "frozen_sha256": "c13d319f0fb07f27bf662e43f2849c0e4db6b0a6d1388c08162be02dcb35eb89",
+        "base_sha256": "c13d319f0fb07f27bf662e43f2849c0e4db6b0a6d1388c08162be02dcb35eb89",
+        "current_main_sha256": "c13d319f0fb07f27bf662e43f2849c0e4db6b0a6d1388c08162be02dcb35eb89",
+        "working_tree_sha256": "c13d319f0fb07f27bf662e43f2849c0e4db6b0a6d1388c08162be02dcb35eb89"
+      },
+      {
+        "path": "src/maezo/tools/mcp_cibseven/transport.py",
+        "frozen_sha256": "ff86820d44d4c89c6eaeb46a7986caf6e7f2fb3222bc403581bd4d2da4db9242",
+        "base_sha256": "ff86820d44d4c89c6eaeb46a7986caf6e7f2fb3222bc403581bd4d2da4db9242",
+        "current_main_sha256": "ff86820d44d4c89c6eaeb46a7986caf6e7f2fb3222bc403581bd4d2da4db9242",
+        "working_tree_sha256": "ff86820d44d4c89c6eaeb46a7986caf6e7f2fb3222bc403581bd4d2da4db9242"
+      },
+      {
+        "path": "src/maezo/tools/mcp_whatsapp/server.py",
+        "frozen_sha256": "ae1edccf1dc3d018d8d1ff6362d3185e203cf353f405676c30c3e84c0ba7a37a",
+        "base_sha256": "ae1edccf1dc3d018d8d1ff6362d3185e203cf353f405676c30c3e84c0ba7a37a",
+        "current_main_sha256": "ae1edccf1dc3d018d8d1ff6362d3185e203cf353f405676c30c3e84c0ba7a37a",
+        "working_tree_sha256": "ae1edccf1dc3d018d8d1ff6362d3185e203cf353f405676c30c3e84c0ba7a37a"
+      },
+      {
+        "path": "src/maezo/tools/process_allowlist.py",
+        "frozen_sha256": "923a215b0d85ca309a7a92cc6d5079ee1d9ed293f40e2a3c801397d29def9f93",
+        "base_sha256": "923a215b0d85ca309a7a92cc6d5079ee1d9ed293f40e2a3c801397d29def9f93",
+        "current_main_sha256": "923a215b0d85ca309a7a92cc6d5079ee1d9ed293f40e2a3c801397d29def9f93",
+        "working_tree_sha256": "923a215b0d85ca309a7a92cc6d5079ee1d9ed293f40e2a3c801397d29def9f93"
+      },
+      {
+        "path": "src/maezo/tools/process_business_keys.py",
+        "frozen_sha256": "132e66d015e6ffc21b6293ce7634e24bd101140b194be25f646b7c53b9741709",
+        "base_sha256": "132e66d015e6ffc21b6293ce7634e24bd101140b194be25f646b7c53b9741709",
+        "current_main_sha256": "132e66d015e6ffc21b6293ce7634e24bd101140b194be25f646b7c53b9741709",
+        "working_tree_sha256": "132e66d015e6ffc21b6293ce7634e24bd101140b194be25f646b7c53b9741709"
+      },
+      {
+        "path": "src/maezo/tools/workers/dmn_transport.py",
+        "frozen_sha256": "e5974c291f3e1bda5a8151bc20ba9367986e468cf85616a1217c97f030a7c68e",
+        "base_sha256": "e5974c291f3e1bda5a8151bc20ba9367986e468cf85616a1217c97f030a7c68e",
+        "current_main_sha256": "e5974c291f3e1bda5a8151bc20ba9367986e468cf85616a1217c97f030a7c68e",
+        "working_tree_sha256": "e5974c291f3e1bda5a8151bc20ba9367986e468cf85616a1217c97f030a7c68e"
+      },
+      {
+        "path": "src/maezo/tools/workers/events.py",
+        "frozen_sha256": "c854f189d81723d4fd524c1c9c00de2c6a0581d139f7a15eac313bc64a348769",
+        "base_sha256": "c854f189d81723d4fd524c1c9c00de2c6a0581d139f7a15eac313bc64a348769",
+        "current_main_sha256": "c854f189d81723d4fd524c1c9c00de2c6a0581d139f7a15eac313bc64a348769",
+        "working_tree_sha256": "c854f189d81723d4fd524c1c9c00de2c6a0581d139f7a15eac313bc64a348769"
+      },
+      {
+        "path": "src/maezo/tools/workers/harness.py",
+        "frozen_sha256": "a1cc1062d5a4633e43ef8f5c31d1681f17d283350233378b0ce978987260a1a3",
+        "base_sha256": "a1cc1062d5a4633e43ef8f5c31d1681f17d283350233378b0ce978987260a1a3",
+        "current_main_sha256": "a1cc1062d5a4633e43ef8f5c31d1681f17d283350233378b0ce978987260a1a3",
+        "working_tree_sha256": "a1cc1062d5a4633e43ef8f5c31d1681f17d283350233378b0ce978987260a1a3"
+      },
+      {
+        "path": "src/maezo/tools/workers/programa.py",
+        "frozen_sha256": "e0d48b760e4f271b45bc3a08b5adbf4b0b896063a3d3a1abad1bc6d40a9e98e0",
+        "base_sha256": "e0d48b760e4f271b45bc3a08b5adbf4b0b896063a3d3a1abad1bc6d40a9e98e0",
+        "current_main_sha256": "e0d48b760e4f271b45bc3a08b5adbf4b0b896063a3d3a1abad1bc6d40a9e98e0",
+        "working_tree_sha256": "e0d48b760e4f271b45bc3a08b5adbf4b0b896063a3d3a1abad1bc6d40a9e98e0"
+      }
+    ],
+    "current_main_intersection": [
+      {
+        "path": "src/maezo/platform/integrations/agent_resume.py",
+        "frozen_sha256": "20619524d0473ffa2f079b17900b94d95072b255482f0914cefceb02204d2c58",
+        "base_sha256": "20619524d0473ffa2f079b17900b94d95072b255482f0914cefceb02204d2c58",
+        "current_main_sha256": "29a7f0816541a0ffcc8a978d379cb512fa93adaeacf5e4fd1f031a8d3a9471e7",
+        "working_tree_sha256": "20619524d0473ffa2f079b17900b94d95072b255482f0914cefceb02204d2c58"
+      }
+    ],
+    "local_only_frozen_paths": [
+      "docs/processes/New_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v3.bpmn",
+      "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+      "docs/processes/New_BPMN/CA_2_UTILIZACAO_v3.bpmn",
+      "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn"
+    ],
+    "working_source_hashes_match_frozen": true
+  },
+  "main_delta": {
+    "commit_count": 3,
+    "path_count": 23,
+    "status_counts": {
+      "D": 15,
+      "A": 6,
+      "M": 2
+    },
+    "paths": [
+      {
+        "status": "D",
+        "path": "docs/archive/HANDOFF-wave3.yaml"
+      },
+      {
+        "status": "D",
+        "path": "docs/archive/HANDOFF.yaml"
+      },
+      {
+        "status": "D",
+        "path": "docs/archive/PROMPT-next-coordinator.md"
+      },
+      {
+        "status": "D",
+        "path": "docs/archive/predeploy-ws6-package-STAGED.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/processes/New_BPMN/Adapted_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn"
+      },
+      {
+        "status": "A",
+        "path": "docs/processes/New_BPMN/Adapted_BPMN/CA_1_COMPRA (com suporte)_v4_adaptado.bpmn"
+      },
+      {
+        "status": "A",
+        "path": "docs/processes/New_BPMN/Adapted_BPMN/CA_2_UTILIZACAO_v4_adaptado.bpmn"
+      },
+      {
+        "status": "A",
+        "path": "docs/processes/New_BPMN/Adapted_BPMN/CA_3_SUPORTE_v4_adaptado.bpmn"
+      },
+      {
+        "status": "A",
+        "path": "docs/processes/New_BPMN/Adapted_BPMN/CORRECOES_BPMN_2026-10.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/processes/New_BPMN/Adapted_BPMN/GUIA-EQUIPE-OPERACAO.md"
+      },
+      {
+        "status": "D",
+        "path": "docs/reports/G0-gate-review.md"
+      },
+      {
+        "status": "D",
+        "path": "docs/reports/T0.3-agent-yaml-drift.md"
+      },
+      {
+        "status": "D",
+        "path": "docs/reports/T2.4-a2a-agent-card-signing-gap.md"
+      },
+      {
+        "status": "D",
+        "path": "docs/reports/phase0-report.md"
+      },
+      {
+        "status": "D",
+        "path": "docs/reports/phase2-report.md"
+      },
+      {
+        "status": "D",
+        "path": "docs/reports/phase3-plan.md"
+      },
+      {
+        "status": "D",
+        "path": "docs/reports/platform-completion-plan.md"
+      },
+      {
+        "status": "D",
+        "path": "docs/reports/predeploy-findings.json"
+      },
+      {
+        "status": "D",
+        "path": "docs/reports/predeploy-sweep-escalations.json"
+      },
+      {
+        "status": "D",
+        "path": "docs/reports/review-before-launch-extension.md"
+      },
+      {
+        "status": "D",
+        "path": "docs/temp/Plano_Teste_Maezo_Operadora (1).docx"
+      },
+      {
+        "status": "M",
+        "path": "src/maezo/platform/integrations/agent_resume.py"
+      },
+      {
+        "status": "M",
+        "path": "tests/unit/platform/integrations/test_agent_resume.py"
+      }
+    ],
+    "cleanup_pr632_removed_count": 15
+  },
+  "normative_categories": [
+    {
+      "category": "ADR",
+      "all_identical": true,
+      "rows": [
+        {
+          "ref": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+          "file_count": 64,
+          "tree_listing_sha256": "1f1e7002a33b48dea65382da7d2b11ae6eade21c6bd510c3583c0dd4b6980db4"
+        },
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 64,
+          "tree_listing_sha256": "1f1e7002a33b48dea65382da7d2b11ae6eade21c6bd510c3583c0dd4b6980db4"
+        },
+        {
+          "ref": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+          "file_count": 64,
+          "tree_listing_sha256": "1f1e7002a33b48dea65382da7d2b11ae6eade21c6bd510c3583c0dd4b6980db4"
+        }
+      ]
+    },
+    {
+      "category": "DL",
+      "all_identical": true,
+      "rows": [
+        {
+          "ref": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+          "file_count": 1,
+          "tree_listing_sha256": "58efd7c0d46c67828ca022fc6bda1ec6e13b2280876ab9fb9c9983eab912301d"
+        },
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 1,
+          "tree_listing_sha256": "58efd7c0d46c67828ca022fc6bda1ec6e13b2280876ab9fb9c9983eab912301d"
+        },
+        {
+          "ref": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+          "file_count": 1,
+          "tree_listing_sha256": "58efd7c0d46c67828ca022fc6bda1ec6e13b2280876ab9fb9c9983eab912301d"
+        }
+      ]
+    },
+    {
+      "category": "process_contracts",
+      "all_identical": true,
+      "rows": [
+        {
+          "ref": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+          "file_count": 17,
+          "tree_listing_sha256": "6f1db3c0fa6b1301e9a179efe250bebefd2189ac1ade7421fb6c950c1f5b747e"
+        },
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 17,
+          "tree_listing_sha256": "6f1db3c0fa6b1301e9a179efe250bebefd2189ac1ade7421fb6c950c1f5b747e"
+        },
+        {
+          "ref": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+          "file_count": 17,
+          "tree_listing_sha256": "6f1db3c0fa6b1301e9a179efe250bebefd2189ac1ade7421fb6c950c1f5b747e"
+        }
+      ]
+    },
+    {
+      "category": "policies",
+      "all_identical": true,
+      "rows": [
+        {
+          "ref": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+          "file_count": 15,
+          "tree_listing_sha256": "08dea5be860569dc6219ea580e6cc8a3866e7ccceb877951cd51288e6b2fec56"
+        },
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 15,
+          "tree_listing_sha256": "08dea5be860569dc6219ea580e6cc8a3866e7ccceb877951cd51288e6b2fec56"
+        },
+        {
+          "ref": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+          "file_count": 15,
+          "tree_listing_sha256": "08dea5be860569dc6219ea580e6cc8a3866e7ccceb877951cd51288e6b2fec56"
+        }
+      ]
+    },
+    {
+      "category": "agent_policies",
+      "all_identical": true,
+      "rows": [
+        {
+          "ref": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+          "file_count": 11,
+          "tree_listing_sha256": "c42212ef792316945fa1d78337f765d6e4c991d60ba78a1090c5d2f6ae256567"
+        },
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 11,
+          "tree_listing_sha256": "c42212ef792316945fa1d78337f765d6e4c991d60ba78a1090c5d2f6ae256567"
+        },
+        {
+          "ref": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+          "file_count": 11,
+          "tree_listing_sha256": "c42212ef792316945fa1d78337f765d6e4c991d60ba78a1090c5d2f6ae256567"
+        }
+      ]
+    },
+    {
+      "category": "integration_pins",
+      "all_identical": true,
+      "rows": [
+        {
+          "ref": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+          "file_count": 1,
+          "tree_listing_sha256": "c850a8abc6d84ca1ce1cf13581f1fd47e6b35787dd1f5bd7a0a08e1728627b3d"
+        },
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 1,
+          "tree_listing_sha256": "c850a8abc6d84ca1ce1cf13581f1fd47e6b35787dd1f5bd7a0a08e1728627b3d"
+        },
+        {
+          "ref": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+          "file_count": 1,
+          "tree_listing_sha256": "c850a8abc6d84ca1ce1cf13581f1fd47e6b35787dd1f5bd7a0a08e1728627b3d"
+        }
+      ]
+    },
+    {
+      "category": "CI_pin_gate",
+      "all_identical": true,
+      "rows": [
+        {
+          "ref": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+          "file_count": 1,
+          "tree_listing_sha256": "f2425b8826a9642a4013306b7cb0591b19000444f7b1660c7a8d21259143ba67"
+        },
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 1,
+          "tree_listing_sha256": "f2425b8826a9642a4013306b7cb0591b19000444f7b1660c7a8d21259143ba67"
+        },
+        {
+          "ref": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+          "file_count": 1,
+          "tree_listing_sha256": "f2425b8826a9642a4013306b7cb0591b19000444f7b1660c7a8d21259143ba67"
+        }
+      ]
+    }
+  ],
+  "new_ADR_count": 0,
+  "changed_DL_count": 0,
+  "changed_process_contract_count": 0,
+  "changed_policy_count": 0,
+  "breaking_published_contract_changes_found": false,
+  "source_readiness_evidence": {
+    "row_count": 18,
+    "all_current_main_rows_match_recorded_base": true,
+    "rows": [
+      {
+        "path": "config/integrations/amh/contracts.lock.json",
+        "recorded_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+        "base_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+        "current_main_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25"
+      },
+      {
+        "path": "src/maezo/ports/clinical_context.py",
+        "recorded_sha256": "1dbf37478bf815d0f1a80fd86625752704765254593ee009a5a36c86253dc708",
+        "base_sha256": "1dbf37478bf815d0f1a80fd86625752704765254593ee009a5a36c86253dc708",
+        "current_main_sha256": "1dbf37478bf815d0f1a80fd86625752704765254593ee009a5a36c86253dc708"
+      },
+      {
+        "path": "src/maezo/ports/population_features.py",
+        "recorded_sha256": "9fbd1f2b7422fc73ca36710cbd69b5a3ab1b81019eef15adb118ae4c71e569b0",
+        "base_sha256": "9fbd1f2b7422fc73ca36710cbd69b5a3ab1b81019eef15adb118ae4c71e569b0",
+        "current_main_sha256": "9fbd1f2b7422fc73ca36710cbd69b5a3ab1b81019eef15adb118ae4c71e569b0"
+      },
+      {
+        "path": "src/maezo/adapters/amh/subject_context.py",
+        "recorded_sha256": "e00cf24bebaaefc8849c2c71ab5e5cc9bdd87684ba537b1edd6140f0e172e853",
+        "base_sha256": "e00cf24bebaaefc8849c2c71ab5e5cc9bdd87684ba537b1edd6140f0e172e853",
+        "current_main_sha256": "e00cf24bebaaefc8849c2c71ab5e5cc9bdd87684ba537b1edd6140f0e172e853"
+      },
+      {
+        "path": "src/maezo/adapters/amh/mapping.py",
+        "recorded_sha256": "126b773e547ae6ed99a4949831642a0e0fc9045a6c21d9654407929a84b43258",
+        "base_sha256": "126b773e547ae6ed99a4949831642a0e0fc9045a6c21d9654407929a84b43258",
+        "current_main_sha256": "126b773e547ae6ed99a4949831642a0e0fc9045a6c21d9654407929a84b43258"
+      },
+      {
+        "path": "src/maezo/adapters/amh/wire_framing.py",
+        "recorded_sha256": "5bea6edf6455571fc8e79d34052c01c24e19e252594b1d61ace35aa7745550fa",
+        "base_sha256": "5bea6edf6455571fc8e79d34052c01c24e19e252594b1d61ace35aa7745550fa",
+        "current_main_sha256": "5bea6edf6455571fc8e79d34052c01c24e19e252594b1d61ace35aa7745550fa"
+      },
+      {
+        "path": "src/maezo/gateway/amh.py",
+        "recorded_sha256": "74625464ca4cdc573eb2d437ef0922a4463fe55bd3b114154c4a63c0bae92eee",
+        "base_sha256": "74625464ca4cdc573eb2d437ef0922a4463fe55bd3b114154c4a63c0bae92eee",
+        "current_main_sha256": "74625464ca4cdc573eb2d437ef0922a4463fe55bd3b114154c4a63c0bae92eee"
+      },
+      {
+        "path": "src/maezo/gateway/amh_consent_revision.py",
+        "recorded_sha256": "88a67f314013d21fac4571c5b8bc809abc4c326c0d77fdefd382ec5d614ef9ae",
+        "base_sha256": "88a67f314013d21fac4571c5b8bc809abc4c326c0d77fdefd382ec5d614ef9ae",
+        "current_main_sha256": "88a67f314013d21fac4571c5b8bc809abc4c326c0d77fdefd382ec5d614ef9ae"
+      },
+      {
+        "path": "src/maezo/gateway/tool_registry.py",
+        "recorded_sha256": "0526162b70a05d0b3ea5c2e6d3243f3bdcd6474ac12c07835ae5e102cf67b55c",
+        "base_sha256": "0526162b70a05d0b3ea5c2e6d3243f3bdcd6474ac12c07835ae5e102cf67b55c",
+        "current_main_sha256": "0526162b70a05d0b3ea5c2e6d3243f3bdcd6474ac12c07835ae5e102cf67b55c"
+      },
+      {
+        "path": "src/maezo/gateway/seams/population.py",
+        "recorded_sha256": "174c7db867c876c22bc191d2f1a4dbbee934d02390e9a99eb0ec07d00db0f8f1",
+        "base_sha256": "174c7db867c876c22bc191d2f1a4dbbee934d02390e9a99eb0ec07d00db0f8f1",
+        "current_main_sha256": "174c7db867c876c22bc191d2f1a4dbbee934d02390e9a99eb0ec07d00db0f8f1"
+      },
+      {
+        "path": "src/maezo/agents/andre/graph.py",
+        "recorded_sha256": "87bd72a92b9be24b210c422ad5f8a7604796feff5fc9788d79d7a191a786416b",
+        "base_sha256": "87bd72a92b9be24b210c422ad5f8a7604796feff5fc9788d79d7a191a786416b",
+        "current_main_sha256": "87bd72a92b9be24b210c422ad5f8a7604796feff5fc9788d79d7a191a786416b"
+      },
+      {
+        "path": "src/maezo/platform/privacy/population_policy.py",
+        "recorded_sha256": "48db5a70f71999c55c2804c65fdf33829a1e6ef76f32799de5a173ceb9821dfc",
+        "base_sha256": "48db5a70f71999c55c2804c65fdf33829a1e6ef76f32799de5a173ceb9821dfc",
+        "current_main_sha256": "48db5a70f71999c55c2804c65fdf33829a1e6ef76f32799de5a173ceb9821dfc"
+      },
+      {
+        "path": "spec/policies/privacy/population-egress-v1.yaml",
+        "recorded_sha256": "622597052d2a2b97cd7947207aec771b0abf7425890a2258d516037a67634af2",
+        "base_sha256": "622597052d2a2b97cd7947207aec771b0abf7425890a2258d516037a67634af2",
+        "current_main_sha256": "622597052d2a2b97cd7947207aec771b0abf7425890a2258d516037a67634af2"
+      },
+      {
+        "path": "src/maezo/gateway/staff_cases/composition.py",
+        "recorded_sha256": "cd9228ffbd81bec06ce0e635574a12c22ced6c5681c8e782292de299e53fb215",
+        "base_sha256": "cd9228ffbd81bec06ce0e635574a12c22ced6c5681c8e782292de299e53fb215",
+        "current_main_sha256": "cd9228ffbd81bec06ce0e635574a12c22ced6c5681c8e782292de299e53fb215"
+      },
+      {
+        "path": "src/maezo/gateway/communications/admission.py",
+        "recorded_sha256": "c5ff8559b9b591c244b37a24d79ced5a7bbc8537e035366361a2ecf6d7abc8ae",
+        "base_sha256": "c5ff8559b9b591c244b37a24d79ced5a7bbc8537e035366361a2ecf6d7abc8ae",
+        "current_main_sha256": "c5ff8559b9b591c244b37a24d79ced5a7bbc8537e035366361a2ecf6d7abc8ae"
+      },
+      {
+        "path": "src/maezo/portal/contracts/communications.py",
+        "recorded_sha256": "3a435f3a13d40211e5523a2cbedafa56941c456a428c06c5e4750122bd87fb81",
+        "base_sha256": "3a435f3a13d40211e5523a2cbedafa56941c456a428c06c5e4750122bd87fb81",
+        "current_main_sha256": "3a435f3a13d40211e5523a2cbedafa56941c456a428c06c5e4750122bd87fb81"
+      },
+      {
+        "path": "src/maezo/gateway/d7_external_owner.py",
+        "recorded_sha256": "b795018ad1c266866d6aa4bb935259f58bc01914c54b2fa19e96f647dfca31c6",
+        "base_sha256": "b795018ad1c266866d6aa4bb935259f58bc01914c54b2fa19e96f647dfca31c6",
+        "current_main_sha256": "b795018ad1c266866d6aa4bb935259f58bc01914c54b2fa19e96f647dfca31c6"
+      },
+      {
+        "path": "spec/agents/valentina/agent.yaml",
+        "recorded_sha256": "0fc4b1395e41f009f0206f328753e4a4e6b364885d0e0b26b5bea0daed4a843a",
+        "base_sha256": "0fc4b1395e41f009f0206f328753e4a4e6b364885d0e0b26b5bea0daed4a843a",
+        "current_main_sha256": "0fc4b1395e41f009f0206f328753e4a4e6b364885d0e0b26b5bea0daed4a843a"
+      }
+    ]
+  },
+  "amh_pin_reproduction": {
+    "checker_path": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-capabilities/scripts/check_amh_pinned_objects.py",
+    "checker_sha256": "65edd9b92da3cc8bc6c4e6162d58be7adf5998e991459e52571869d4b49b092c",
+    "own_checker_exit_code": 0,
+    "pin_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+    "artifacts_plus_fixtures_checked": 15,
+    "matches": 15,
+    "published_object_commit": "09a0a282e69f49aa9c6944b25afb35eee65fcc9c",
+    "manifest_publication_commit": "17972442b26aa31a304d5374b2493b260881c1d3",
+    "published_manifest_sha256": "946266fb9ab10d27c01768e78fb3b673cba3db71680f652b10ccd0798065b126",
+    "published_manifest_byte_size": 9441,
+    "published_manifest_blob": "76fbc9bd030395e1c1b796fe4821fc60556a2d35",
+    "manifest_verification_violations": [],
+    "local_pin_gate": "PASS",
+    "live_msk_glue_provider_cib_qualification": "UNVERIFIED",
+    "new_enrollment_offer_agenda_contracts": "BLOCKED_UNTIL_OWNER_AND_PROVIDER_CONTRACT"
+  },
+  "synthetic_composition": {
+    "tree": "cf25321869e16abb6a6ef90468d794dd8cdd9235",
+    "parents": [
+      "33aa7acba59dd5027513834d07d8e9a517649b3e",
+      "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f"
+    ],
+    "api_tree_truncated": false,
+    "remote_blob_count": 2566,
+    "expected_union_blob_count": 2566,
+    "exact_union_main_plus_source_additions": true,
+    "candidate_additions_count": 24,
+    "candidate_addition_categories": {
+      "docs": 9,
+      "src": 8,
+      "tests": 7
+    },
+    "candidate_changes_existing_paths": [],
+    "candidate_removed_existing_paths": [],
+    "main_candidate_write_intersection": [],
+    "cleanup_deletes_preserved": true,
+    "all_W0_design_docs_identical_bcf_and_synthetic": true,
+    "synthetic_phantom_test_blob": "8359f0f925c86b65ddfb8c3eda05fc61f1ed4db3",
+    "synthetic_agent_resume_blob": "5024ade38ca7c41cd67f2846ca9457d8845f319d"
+  },
+  "phantom_baseline_proof": {
+    "method": "AST parse _BASELINE plus Git-object git grep; no pytest run",
+    "observations": [
+      {
+        "ref": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+        "test_blob": "8359f0f925c86b65ddfb8c3eda05fc61f1ed4db3",
+        "test_sha256": "13826252803306a9bba25d95c4de8a9ed196339cba13a0e7725b53b36947654e",
+        "baseline_entries": 12,
+        "hit_count": 16,
+        "hits": [
+          "deploy/helm/README.md",
+          "docs/Tarefas_Pendentes.md",
+          "docs/adr/0008-autonomy-levels.md",
+          "docs/adr/0025-pep-policy-unification.md",
+          "docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md",
+          "docs/adr/README.md",
+          "docs/design/T1.9-ceiling-enforcement.md",
+          "docs/evidence-ledger.md",
+          "docs/processes/ALLOWLIST-PR-READY.md",
+          "docs/reports/G0-gate-review.md",
+          "docs/reports/business-logic-audit-improvement-plan.md",
+          "docs/reports/phase3-report.md",
+          "docs/reports/predeploy-audit-report.md",
+          "docs/reports/review-before-launch-extension.md",
+          "docs/review-queue.md",
+          "docs/reviews/fleet2-owner-decisions-2026-09-05.md"
+        ],
+        "new_non_adr_hits": [],
+        "stale_entries": [],
+        "phantom_tree_paths": []
+      },
+      {
+        "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+        "test_blob": "8359f0f925c86b65ddfb8c3eda05fc61f1ed4db3",
+        "test_sha256": "13826252803306a9bba25d95c4de8a9ed196339cba13a0e7725b53b36947654e",
+        "baseline_entries": 12,
+        "hit_count": 14,
+        "hits": [
+          "deploy/helm/README.md",
+          "docs/Tarefas_Pendentes.md",
+          "docs/adr/0008-autonomy-levels.md",
+          "docs/adr/0025-pep-policy-unification.md",
+          "docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md",
+          "docs/adr/README.md",
+          "docs/design/T1.9-ceiling-enforcement.md",
+          "docs/evidence-ledger.md",
+          "docs/processes/ALLOWLIST-PR-READY.md",
+          "docs/reports/business-logic-audit-improvement-plan.md",
+          "docs/reports/phase3-report.md",
+          "docs/reports/predeploy-audit-report.md",
+          "docs/review-queue.md",
+          "docs/reviews/fleet2-owner-decisions-2026-09-05.md"
+        ],
+        "new_non_adr_hits": [],
+        "stale_entries": [
+          "docs/reports/G0-gate-review.md",
+          "docs/reports/review-before-launch-extension.md"
+        ],
+        "phantom_tree_paths": []
+      },
+      {
+        "ref": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+        "test_blob": "8359f0f925c86b65ddfb8c3eda05fc61f1ed4db3",
+        "test_sha256": "13826252803306a9bba25d95c4de8a9ed196339cba13a0e7725b53b36947654e",
+        "baseline_entries": 12,
+        "hit_count": 16,
+        "hits": [
+          "deploy/helm/README.md",
+          "docs/Tarefas_Pendentes.md",
+          "docs/adr/0008-autonomy-levels.md",
+          "docs/adr/0025-pep-policy-unification.md",
+          "docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md",
+          "docs/adr/README.md",
+          "docs/design/T1.9-ceiling-enforcement.md",
+          "docs/evidence-ledger.md",
+          "docs/processes/ALLOWLIST-PR-READY.md",
+          "docs/reports/G0-gate-review.md",
+          "docs/reports/business-logic-audit-improvement-plan.md",
+          "docs/reports/phase3-report.md",
+          "docs/reports/predeploy-audit-report.md",
+          "docs/reports/review-before-launch-extension.md",
+          "docs/review-queue.md",
+          "docs/reviews/fleet2-owner-decisions-2026-09-05.md"
+        ],
+        "new_non_adr_hits": [],
+        "stale_entries": [],
+        "phantom_tree_paths": []
+      }
+    ],
+    "minimal_repair_proposal": "Remove only docs/reports/G0-gate-review.md and docs/reports/review-before-launch-extension.md entries from _BASELINE; 12 -> 10; preserve tree-derived grep, new-file fence and fixed-path guards",
+    "repair_authored_by_this_reviewer": false,
+    "repair_delta_verified": false
+  },
+  "source_resume_delta_assessment": {
+    "path": "src/maezo/platform/integrations/agent_resume.py",
+    "frozen_sha256": "20619524d0473ffa2f079b17900b94d95072b255482f0914cefceb02204d2c58",
+    "current_sha256": "29a7f0816541a0ffcc8a978d379cb512fa93adaeacf5e4fd1f031a8d3a9471e7",
+    "change": "NotifyTeamAlerter derives partition key from existing event business_key/tenant via existing derive_partition_key and passes optional key keyword to publisher; payload, source authority and return type preserved",
+    "critical_new_source_change_found": false,
+    "scope_not_qualified": "Runtime correctness and full CI remain independent lanes"
+  },
+  "human_and_source_gate_state": {
+    "source_contract_status": "PROPOSED",
+    "source_authority_decisions_approved": false,
+    "new_effects_admitted": false,
+    "provider_runtime_qualified": false,
+    "external_requests_sent": false,
+    "runtime_schema_version_selected": null,
+    "new_declared_domain_values_published": false,
+    "new_commercial_purpose": null,
+    "new_agent_scopes_ratified": false,
+    "conduct_messages_approved": false,
+    "common_envelope_published": false,
+    "new_task_wire_published": false,
+    "source_candidates_are_runtime_admitted": false,
+    "adr0062_reconciliation": {
+      "adr_status_observed": "Proposto",
+      "adr_signature_pending_observed": true,
+      "dl0053_recorded_decision": "Filipe 2026-10-01; PR #596; limited billing routing in dev",
+      "dl0053_git_commit": "bee291fea498becf14c0f2a2ad646dcba612d35e",
+      "sources": [
+        "docs/adr/0062-roteamento-de-conversa-por-agente.md:3",
+        "docs/adr/0062-roteamento-de-conversa-por-agente.md:7",
+        "docs/decisions-log.md:16",
+        "docs/plans/lucas-numero-unico.md:38",
+        "docs/adr/README.md:74"
+      ],
+      "provenance_state": "DISCREPANCY_REQUIRES_OWNER_RECONCILIATION",
+      "new_compras_suporte_scope_approved_by_billing_decision": false,
+      "status_changed": false
+    }
+  },
+  "historical_checklist_custody": {
+    "object": "e7b14522a4f70242504d2b152a57ee5269ee66e2:docs/reports/predeploy-findings.json",
+    "sha256": "7a99ffb007c66aa93115a81fff4089a386ddd6c55ba6c3a0ef5023f91e106751",
+    "entry_count": 127,
+    "still_absent_in_current_main": true,
+    "restored_by_this_reviewer": false
+  },
+  "conditions": [
+    "Root serializes main merge after metrics author freezes; source base e7 and immutable bundle270c retained with this delta evidence",
+    "Third party performs minimal phantom allowlist repair; original delta reviewer reproduces it after base integration",
+    "Final gate and applicable CI independently run on final exact head; this is not their verdict"
+  ],
+  "operations_performed": [
+    "read-only Git object inspection",
+    "read-only GitHub API inspection",
+    "read-only pinned-object checker with PYTHONDONTWRITEBYTECODE=1",
+    "write only own gate evidence JSON"
+  ],
+  "operations_not_performed": [
+    "checkout",
+    "fetch",
+    "reset",
+    "prune",
+    "clean",
+    "source edits",
+    "baseline repair",
+    "broad pytest",
+    "engine commands",
+    "runtime flags",
+    "provider/schema publication",
+    "human role approval"
+  ]
+}

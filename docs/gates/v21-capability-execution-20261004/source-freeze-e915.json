@@ -1,0 +1,52 @@
+{
+  "schema": "maezo.v21.package-source-freeze.v1",
+  "observed_at": "2026-10-04T15:50:03.641758+00:00",
+  "baseline_sha": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "source_commit": "e91590f1888874df1420916b395406baaebfb6f7",
+  "authors": [
+    "/root/wiring_gateway_specialist",
+    "/root/security_data_contract_specialist",
+    "/root/helena_lucas_conduct_specialist"
+  ],
+  "integrator": "/root",
+  "source_verifier": "/root/capability_source_verifier",
+  "candidate_state": "PROPOSED_DISABLED_NO_PRODUCTION_BINDING",
+  "files": {
+    "docs/design/v21-capabilities/administrative-consumers.md": "3917351a85b54989f00ba7f6c295d8da715a38255057e48b74dcd45a90895e73",
+    "docs/design/v21-capabilities/runtime-wiring.md": "bbb0d1c14b68257d3930a2c210275047c7e8cc24e3c5e5a59e779f464fc6edf1",
+    "docs/design/v21-capabilities/security-admission.md": "dbe7bde0153408a17aae6833781ebafdf9fb4f0207fa4a45ee6385060f0c1b22",
+    "src/maezo/agents/lucas/administrative/__init__.py": "2e090dd2a2441c58adfe5aeea1e7a3c41e10067e150690af16c28f3d744ba66c",
+    "src/maezo/agents/lucas/administrative/graph.py": "c93acd39a356556e5bac1d11e9d10cc60a2fe29bbe76aed0458176fdfe8f135f",
+    "src/maezo/agents/lucas/administrative/handoff.py": "a6400d76fca7238e7c71f5cf631afeb31740a106804351c132e46bb3614b830b",
+    "src/maezo/agents/lucas/administrative/state.py": "9c4601e768ab1a950a7a9fe3b40868d8125b005892921cde72615eb785eedc33",
+    "src/maezo/gateway/capabilities/__init__.py": "4d28224c237796b4aeb110400ef195d2e933a44bcbdb83f83129b53c548ca788",
+    "src/maezo/gateway/capabilities/admission.py": "e6ca3294b74f67bc4957a4bffa5c2293877f33cc107d1766dd3a0504a15fe4ea",
+    "src/maezo/gateway/capabilities/models.py": "2dba24193d5409779d15ec91b696edc4c8a043bfbc9a325ac88b0bd35d923d31",
+    "src/maezo/gateway/capabilities/service.py": "a763125e4e2bf46dbe4d344d8f6ff111cb442a2f73f36e29d4f19b6202781dec",
+    "tests/unit/agents/test_lucas_administrative_graph.py": "cae3f38a7b5d903aef293062020a899d3c3d832ef6aa78637020b01291bbc339",
+    "tests/unit/agents/test_lucas_administrative_handoff.py": "86e58dfa1003ab476308a23698644217d31599f02a675feef44f8c11d3d5e4ee",
+    "tests/unit/agents/test_lucas_administrative_state.py": "1e00f28d4c9c7dd072998a12aeeb7c7de7cc644359f44666296709b230b0ef92",
+    "tests/unit/gateway/capabilities/test_admission.py": "a292200d93f4834911fa8ec2a37011a844ba36087655e94c9b3d29be34855821",
+    "tests/unit/gateway/capabilities/test_models.py": "e26384524e65e724b0a70d45fd668521ed33fb34ead4d578d19b95b22555e597",
+    "tests/unit/gateway/capabilities/test_service.py": "a06e1186b9b4b0c7b6bb02d9cee154d8b677965728fc12e5047b195f93fecf77"
+  },
+  "checks": [
+    {
+      "command": "make lint type validate-artifacts check-start-process-fence effect-chokepoint-fence check-plans-counts",
+      "exit_code": 0,
+      "log": "technical-checks-e915.log"
+    },
+    {
+      "command": "gitleaks git --log-opts=e7b14522a4f70242504d2b152a57ee5269ee66e2..e91590f1888874df1420916b395406baaebfb6f7 --redact",
+      "exit_code": 0,
+      "log": "gitleaks-e915.log"
+    }
+  ],
+  "whole_unit_suite": "PENDING_AFTER_CHEAP_SOURCE_REVIEW",
+  "independent_source_verdict": "PENDING",
+  "owner_ratification": false,
+  "source_publication": false,
+  "runtime_qualified": false,
+  "production_deployed": false,
+  "merge_performed": false
+}

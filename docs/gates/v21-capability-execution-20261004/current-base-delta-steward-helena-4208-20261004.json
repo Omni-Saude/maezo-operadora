@@ -1,0 +1,532 @@
+{
+  "schema": "maezo-v21-helena-upstream-delta-independent-review.v1",
+  "event_id": "b023_to_4208_helena_admission",
+  "observed_at_utc": "2026-10-04T21:31:40.513054+00:00",
+  "reviewer": "current_base_delta_steward",
+  "role": "independent upstream admission; no author, repair, integration or final signing",
+  "verdict": "PASS_BOUNDED_HELENA_4208_BASE_ADMISSION",
+  "reviewed_before": "b023b043d0d35358e3310ed8b8da07df5450a887",
+  "reviewed_after": "4208c08717f577636e5e04a1c1455d8e25d5970b",
+  "tree": "28fd649a8132c6348c36d8036e1d403a90cee4c6",
+  "parents": [
+    "b023b043d0d35358e3310ed8b8da07df5450a887"
+  ],
+  "commit_count": 1,
+  "path_count": 9,
+  "paths": [
+    {
+      "status": "M",
+      "path": "docs/decisions-log.md"
+    },
+    {
+      "status": "M",
+      "path": "docs/design/regua-de-extracao.md"
+    },
+    {
+      "status": "M",
+      "path": "spec/agents/helena/agent.yaml"
+    },
+    {
+      "status": "M",
+      "path": "src/maezo/agents/helena/prompts.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/evals/extracao/casos.json"
+    },
+    {
+      "status": "M",
+      "path": "tests/evals/test_extracao_live.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/unit/agents/test_helena_passagem_cobranca.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/unit/agents/test_helena_prompt_versions_pin.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/unit/evals/test_corpus_de_extracao.py"
+    }
+  ],
+  "candidate_source_HEAD": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+  "candidate_HEAD_at_end": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+  "actual_main_ref_at_end": "8dee49162626280708e7906d239a30f5f0152210",
+  "next_upstream_delta_pending": true,
+  "previous_gate_preserved": {
+    "path": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/current-base-delta-steward-late-20261004.json",
+    "sha256": "fb0f0f39521ca6e50d26657b42c19856983c10e5065e7b3410cdc86085e99141",
+    "modified": false
+  },
+  "original_bundle": {
+    "source_base": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+    "bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+    "manifest_sha256": "40900deb674cd885c29dfe8392a56855b608265c87c6f47490ed3fa8d4c042c0",
+    "source_count": 94,
+    "new_source94_delta": [
+      {
+        "path": "docs/decisions-log.md",
+        "original_frozen_sha256": "ccfc28b76d1f9c526b17fabc38d789f5e1d553bedb33aadd5a1b1f88b8f1eb64",
+        "b023_sha256": "f8df26c6526055804858b081ec84932b0fd78f6f3008f1688db12293382b70ae",
+        "4208_sha256": "de9f0de3a977d6593822d76a45064fd57e501dc7ef48c12b3372d8e66a53657f"
+      },
+      {
+        "path": "spec/agents/helena/agent.yaml",
+        "original_frozen_sha256": "faa48e6ab39b28089a55c80657d5eb15ac521517758e6d11cc2dc1002cdd51a8",
+        "b023_sha256": "faa48e6ab39b28089a55c80657d5eb15ac521517758e6d11cc2dc1002cdd51a8",
+        "4208_sha256": "9f6616d66c5c31624018cf6f144ad96c2316967e797a56947810b4b16a6fbb17"
+      }
+    ],
+    "local_only_four_sources": [
+      {
+        "path": "docs/processes/New_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v3.bpmn",
+        "source_is_untracked_local_in_both_Git_refs": true,
+        "frozen_sha256": "1e30b9f8a410f301ce3a913b04db719b534d739cd672bdd120d46c8523834ead",
+        "local_sha256": "1e30b9f8a410f301ce3a913b04db719b534d739cd672bdd120d46c8523834ead",
+        "matches": true
+      },
+      {
+        "path": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+        "source_is_untracked_local_in_both_Git_refs": true,
+        "frozen_sha256": "abd6acaabb6fd0213344c31a0313a8f95cf38ad4f8092ccce8b5e6e2e38262a4",
+        "local_sha256": "abd6acaabb6fd0213344c31a0313a8f95cf38ad4f8092ccce8b5e6e2e38262a4",
+        "matches": true
+      },
+      {
+        "path": "docs/processes/New_BPMN/CA_2_UTILIZACAO_v3.bpmn",
+        "source_is_untracked_local_in_both_Git_refs": true,
+        "frozen_sha256": "0d39296d011bbc531f8f87a57e1120d661450fca819033590c79fdb8989e7658",
+        "local_sha256": "0d39296d011bbc531f8f87a57e1120d661450fca819033590c79fdb8989e7658",
+        "matches": true
+      },
+      {
+        "path": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+        "source_is_untracked_local_in_both_Git_refs": true,
+        "frozen_sha256": "705a568a67a309c41a942e775a0efc88b146fafaedbd85827236139b65198884",
+        "local_sha256": "705a568a67a309c41a942e775a0efc88b146fafaedbd85827236139b65198884",
+        "matches": true
+      }
+    ],
+    "original_manifest_edited": false
+  },
+  "normative_unchanged": [
+    {
+      "category": "ADRs",
+      "unchanged": true,
+      "file_count": 64,
+      "tree_listing_sha256": "1f1e7002a33b48dea65382da7d2b11ae6eade21c6bd510c3583c0dd4b6980db4"
+    },
+    {
+      "category": "process_contracts",
+      "unchanged": true,
+      "file_count": 17,
+      "tree_listing_sha256": "6f1db3c0fa6b1301e9a179efe250bebefd2189ac1ade7421fb6c950c1f5b747e"
+    },
+    {
+      "category": "policies",
+      "unchanged": true,
+      "file_count": 15,
+      "tree_listing_sha256": "08dea5be860569dc6219ea580e6cc8a3866e7ccceb877951cd51288e6b2fec56"
+    },
+    {
+      "category": "pin",
+      "unchanged": true,
+      "file_count": 1,
+      "tree_listing_sha256": "c850a8abc6d84ca1ce1cf13581f1fd47e6b35787dd1f5bd7a0a08e1728627b3d"
+    },
+    {
+      "category": "config_deploy",
+      "unchanged": true,
+      "file_count": 273,
+      "tree_listing_sha256": "b891a9c3b4a3de373b41a179588b734c817e449598e162e7b978e41d9b915f99"
+    },
+    {
+      "category": "execution_roots",
+      "unchanged": true,
+      "file_count": 358,
+      "tree_listing_sha256": "1cebec083b3b02e2559c03e58a43a1ca04db244e52c28c5fbd73f8ac03c85146"
+    },
+    {
+      "category": "Helena_graph_adapters_delegation",
+      "unchanged": true,
+      "file_count": 3,
+      "tree_listing_sha256": "a5024b3ee1c688f532a0194e826bddd3eebc16bf21d862ed693b6b97f32ff31a"
+    }
+  ],
+  "agent_spec": {
+    "only_changes": [
+      "prompt_versions.classify",
+      "prompt_versions.classify_roteador"
+    ],
+    "all_other_YAML_semantics_identical": true,
+    "versions_before": {
+      "system": "system-v1",
+      "classify": "classify-v5.2",
+      "classify_roteador": "classify-v6.1",
+      "response": "response-v10",
+      "coleta": "coleta-v1",
+      "recusa_de_saida": "recusa-v9"
+    },
+    "versions_after": {
+      "system": "system-v1",
+      "classify": "classify-v5.3",
+      "classify_roteador": "classify-v6.2",
+      "response": "response-v10",
+      "coleta": "coleta-v1",
+      "recusa_de_saida": "recusa-v9"
+    },
+    "scope": [
+      "triagem_sintomas",
+      "roteamento_intencao",
+      "escalonamento_humano",
+      "passagem_cobranca"
+    ],
+    "autonomy_level": "L3",
+    "process_keys": [
+      "SP-OP-ESCALATION-001"
+    ],
+    "new_grants_scopes_or_actions": false
+  },
+  "prompt_mechanical_reproduction": {
+    "method": "Pure complete Git-object prompt module rendered in memory; imports only unchanged runtime.prompt_format and stdlib; bytecode writes disabled",
+    "non_text_AST_identical": true,
+    "pins": [
+      {
+        "name": "system",
+        "version": "system-v1",
+        "sha256": "16660021eca9f853c45a191286a3e7a0f3c96ea985333bc6f008748306f958c1",
+        "expected": [
+          "system-v1",
+          "16660021eca9f853c45a191286a3e7a0f3c96ea985333bc6f008748306f958c1"
+        ],
+        "match": true
+      },
+      {
+        "name": "classify",
+        "version": "classify-v5.3",
+        "sha256": "34cc3a8888da3550963859a6e99976653a5271bdb991564fa50c266e5780c00e",
+        "expected": [
+          "classify-v5.3",
+          "34cc3a8888da3550963859a6e99976653a5271bdb991564fa50c266e5780c00e"
+        ],
+        "match": true
+      },
+      {
+        "name": "classify_roteador",
+        "version": "classify-v6.2",
+        "sha256": "7be276aeeeda3156065b67d1ed3e2e975bbb25529605d6f7e06d6c7771f726ec",
+        "expected": [
+          "classify-v6.2",
+          "7be276aeeeda3156065b67d1ed3e2e975bbb25529605d6f7e06d6c7771f726ec"
+        ],
+        "match": true
+      },
+      {
+        "name": "response",
+        "version": "response-v10",
+        "sha256": "2af3650c30b558f3d68c65af3e9d260ebdd29e17fab3fad7167f7a82bfd5d7f8",
+        "expected": [
+          "response-v10",
+          "2af3650c30b558f3d68c65af3e9d260ebdd29e17fab3fad7167f7a82bfd5d7f8"
+        ],
+        "match": true
+      },
+      {
+        "name": "coleta",
+        "version": "coleta-v1",
+        "sha256": "a825d71380d522a6cbfc89720739cd1712fe93ea197fc4bc2c86bddb07c73665",
+        "expected": [
+          "coleta-v1",
+          "a825d71380d522a6cbfc89720739cd1712fe93ea197fc4bc2c86bddb07c73665"
+        ],
+        "match": true
+      }
+    ],
+    "all_5_match": true,
+    "router_false_equals_default": true,
+    "LLM_or_pytest_or_engine_called": false
+  },
+  "precedence_and_handoff": {
+    "Helena_graph_byte_identical": true,
+    "guard_blocks": [
+      "turn error",
+      "disabled router",
+      "non billing intent",
+      "psychosocial risk",
+      "reported symptom",
+      "health lexical signal",
+      "human lexical request",
+      "unknown billing subtype",
+      "invalid competence",
+      "missing current message reference"
+    ],
+    "guard_applied_in": [
+      "classify _rota_de_cobranca",
+      "conditional edge _route_com_roteador"
+    ],
+    "candidate_health_human_precedence": "health/psychosocial risk stays Helena; health wins when human request occurs simultaneously because escalation reaches a person with higher priority; human requests otherwise interrupt any administrative agent",
+    "candidate_priority_order": [
+      "health",
+      "human",
+      "administrative"
+    ],
+    "health_or_human_interrupts_before_administrative_execution": true,
+    "upstream_candidate_write_intersection": [],
+    "W0_contract_bytes_affected": false,
+    "new_prompt_billing_health_rule": "Any health signal wins billing topic; passing out/dizziness/vision change classify symptom; no new severity inferred",
+    "explicit_person_request_remains_human_request": true,
+    "vague_help_keeps_risk_urgency_exception": true,
+    "empty_content_cannot_fabricate_health_fields": true
+  },
+  "corpus": {
+    "before_version": "extracao-v6",
+    "after_version": "extracao-v7",
+    "before_count": 136,
+    "after_count": 144,
+    "added_ids": [
+      "a09-preciso-de-ajuda",
+      "g11-so-numeros",
+      "lu043-reajuste-abusivo",
+      "lu055-mensalidade-atrasada",
+      "lu059-plano-suspenso",
+      "lu075-nota-fiscal-ir",
+      "lu077-cartao-de-credito",
+      "lu081-cobranca-com-mal-estar"
+    ],
+    "removed_ids": [],
+    "existing_expected_drift": [],
+    "only_existing_case_changes": "Router prompt tags of onda-e-boleto-segunda-via and onda-e-cobranca-indevida -> classify-v6.2",
+    "live_eval_selector_updated_to": "classify-v6.2",
+    "live_model_eval_executed": false
+  },
+  "source_readiness": {
+    "row_count": 18,
+    "all_original_hashes_match_target": true,
+    "rows": [
+      {
+        "path": "config/integrations/amh/contracts.lock.json",
+        "recorded_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+        "target_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25"
+      },
+      {
+        "path": "src/maezo/ports/clinical_context.py",
+        "recorded_sha256": "1dbf37478bf815d0f1a80fd86625752704765254593ee009a5a36c86253dc708",
+        "target_sha256": "1dbf37478bf815d0f1a80fd86625752704765254593ee009a5a36c86253dc708"
+      },
+      {
+        "path": "src/maezo/ports/population_features.py",
+        "recorded_sha256": "9fbd1f2b7422fc73ca36710cbd69b5a3ab1b81019eef15adb118ae4c71e569b0",
+        "target_sha256": "9fbd1f2b7422fc73ca36710cbd69b5a3ab1b81019eef15adb118ae4c71e569b0"
+      },
+      {
+        "path": "src/maezo/adapters/amh/subject_context.py",
+        "recorded_sha256": "e00cf24bebaaefc8849c2c71ab5e5cc9bdd87684ba537b1edd6140f0e172e853",
+        "target_sha256": "e00cf24bebaaefc8849c2c71ab5e5cc9bdd87684ba537b1edd6140f0e172e853"
+      },
+      {
+        "path": "src/maezo/adapters/amh/mapping.py",
+        "recorded_sha256": "126b773e547ae6ed99a4949831642a0e0fc9045a6c21d9654407929a84b43258",
+        "target_sha256": "126b773e547ae6ed99a4949831642a0e0fc9045a6c21d9654407929a84b43258"
+      },
+      {
+        "path": "src/maezo/adapters/amh/wire_framing.py",
+        "recorded_sha256": "5bea6edf6455571fc8e79d34052c01c24e19e252594b1d61ace35aa7745550fa",
+        "target_sha256": "5bea6edf6455571fc8e79d34052c01c24e19e252594b1d61ace35aa7745550fa"
+      },
+      {
+        "path": "src/maezo/gateway/amh.py",
+        "recorded_sha256": "74625464ca4cdc573eb2d437ef0922a4463fe55bd3b114154c4a63c0bae92eee",
+        "target_sha256": "74625464ca4cdc573eb2d437ef0922a4463fe55bd3b114154c4a63c0bae92eee"
+      },
+      {
+        "path": "src/maezo/gateway/amh_consent_revision.py",
+        "recorded_sha256": "88a67f314013d21fac4571c5b8bc809abc4c326c0d77fdefd382ec5d614ef9ae",
+        "target_sha256": "88a67f314013d21fac4571c5b8bc809abc4c326c0d77fdefd382ec5d614ef9ae"
+      },
+      {
+        "path": "src/maezo/gateway/tool_registry.py",
+        "recorded_sha256": "0526162b70a05d0b3ea5c2e6d3243f3bdcd6474ac12c07835ae5e102cf67b55c",
+        "target_sha256": "0526162b70a05d0b3ea5c2e6d3243f3bdcd6474ac12c07835ae5e102cf67b55c"
+      },
+      {
+        "path": "src/maezo/gateway/seams/population.py",
+        "recorded_sha256": "174c7db867c876c22bc191d2f1a4dbbee934d02390e9a99eb0ec07d00db0f8f1",
+        "target_sha256": "174c7db867c876c22bc191d2f1a4dbbee934d02390e9a99eb0ec07d00db0f8f1"
+      },
+      {
+        "path": "src/maezo/agents/andre/graph.py",
+        "recorded_sha256": "87bd72a92b9be24b210c422ad5f8a7604796feff5fc9788d79d7a191a786416b",
+        "target_sha256": "87bd72a92b9be24b210c422ad5f8a7604796feff5fc9788d79d7a191a786416b"
+      },
+      {
+        "path": "src/maezo/platform/privacy/population_policy.py",
+        "recorded_sha256": "48db5a70f71999c55c2804c65fdf33829a1e6ef76f32799de5a173ceb9821dfc",
+        "target_sha256": "48db5a70f71999c55c2804c65fdf33829a1e6ef76f32799de5a173ceb9821dfc"
+      },
+      {
+        "path": "spec/policies/privacy/population-egress-v1.yaml",
+        "recorded_sha256": "622597052d2a2b97cd7947207aec771b0abf7425890a2258d516037a67634af2",
+        "target_sha256": "622597052d2a2b97cd7947207aec771b0abf7425890a2258d516037a67634af2"
+      },
+      {
+        "path": "src/maezo/gateway/staff_cases/composition.py",
+        "recorded_sha256": "cd9228ffbd81bec06ce0e635574a12c22ced6c5681c8e782292de299e53fb215",
+        "target_sha256": "cd9228ffbd81bec06ce0e635574a12c22ced6c5681c8e782292de299e53fb215"
+      },
+      {
+        "path": "src/maezo/gateway/communications/admission.py",
+        "recorded_sha256": "c5ff8559b9b591c244b37a24d79ced5a7bbc8537e035366361a2ecf6d7abc8ae",
+        "target_sha256": "c5ff8559b9b591c244b37a24d79ced5a7bbc8537e035366361a2ecf6d7abc8ae"
+      },
+      {
+        "path": "src/maezo/portal/contracts/communications.py",
+        "recorded_sha256": "3a435f3a13d40211e5523a2cbedafa56941c456a428c06c5e4750122bd87fb81",
+        "target_sha256": "3a435f3a13d40211e5523a2cbedafa56941c456a428c06c5e4750122bd87fb81"
+      },
+      {
+        "path": "src/maezo/gateway/d7_external_owner.py",
+        "recorded_sha256": "b795018ad1c266866d6aa4bb935259f58bc01914c54b2fa19e96f647dfca31c6",
+        "target_sha256": "b795018ad1c266866d6aa4bb935259f58bc01914c54b2fa19e96f647dfca31c6"
+      },
+      {
+        "path": "spec/agents/valentina/agent.yaml",
+        "recorded_sha256": "0fc4b1395e41f009f0206f328753e4a4e6b364885d0e0b26b5bea0daed4a843a",
+        "target_sha256": "0fc4b1395e41f009f0206f328753e4a4e6b364885d0e0b26b5bea0daed4a843a"
+      }
+    ],
+    "contract_status": "PROPOSED",
+    "source_authority_decisions_approved": false,
+    "new_effects_admitted": false,
+    "provider_runtime_qualified": false,
+    "new_agent_scopes_ratified": false,
+    "conduct_messages_approved": false
+  },
+  "DL0071": {
+    "technical_prompt_decision_added": true,
+    "clinical_content_declared": "DRAFT",
+    "real_model_eval_declared": "NOT_EXECUTED",
+    "technical_DL_does_not_ratify_clinical_or_administrative_scope": true
+  },
+  "qualification_boundaries": {
+    "new_administrative_bindings_grants": false,
+    "human_provider_signature": false,
+    "clinical_ratification": false,
+    "runtime_live_model_quality": false,
+    "combined_CI_or_final_approval": false
+  },
+  "tests_executed": [],
+  "mutations": [
+    "Own gate JSON and raw evidence prefix only"
+  ],
+  "forbidden_source_bundle_PLANS_ledger_commit_merge_edits": [],
+  "next_gates": [
+    "Root may integrate reviewed4208 with original e7/270c bundle and prior b023 gate preserved; freeze exact combined HEAD/tree",
+    "Run applicable prechecks and new hosted CI; previous CI99fb predates #639/#619/#635",
+    "Clinical live evaluation and W0 source/provider/conduct/permission ratification remain separate; classifier changes grant no administrative permission",
+    "Any subsequent main drift is separately pending until admitted"
+  ],
+  "raw_evidence": [
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/b023-to-4208.patch",
+      "sha256": "771f117777bf31785c1c6e2269ec375403b9af5aca2c7f32823dc63f67fbd014"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-00.txt",
+      "sha256": "de9f0de3a977d6593822d76a45064fd57e501dc7ef48c12b3372d8e66a53657f"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-00.txt.json",
+      "sha256": "d6b377144d70eab9bc4941ea12e71690d8bd915ca99ca31a41f83fb9da51bfa0"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-01.txt",
+      "sha256": "f621c1aabf5b4bb1bc2ab7feb3ae2f73f9a4caafbffd6ba28cd3c5f1d9d6766a"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-01.txt.json",
+      "sha256": "5f431a0a91bc9eab823b91e8b2820139c1b9876b48a9d04eaec05dcaa57b4b11"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-02.txt",
+      "sha256": "9f6616d66c5c31624018cf6f144ad96c2316967e797a56947810b4b16a6fbb17"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-02.txt.json",
+      "sha256": "739348c003638b565234f3dbf03c4b2e27335f6742a763b244a862f452984fa6"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-03.txt",
+      "sha256": "f46f5f5ac60eaebe5cd141802de68d09e4a8cc1f7de025d141c867a47d2d7875"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-03.txt.json",
+      "sha256": "607e1d6e5c79fde1e73cea7cf7275aa020e15a401566e1331ad9f6f1d12337fd"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-04.txt",
+      "sha256": "e254476b3cfbfee183e0d63d47cfef660a6b395ed8b45fc411fe25783ce942ca"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-04.txt.json",
+      "sha256": "b75d95c9d523291008b022e692080d903f672a26e281756151dc13c60715c860"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-05.txt",
+      "sha256": "e41de733d48191fd317e35c278754dbf6900bd776a59d7e1f6a2a45b513904bb"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-05.txt.json",
+      "sha256": "8b6966fe4ef71547e75799b421155228e53e38af40f8e6755dec31b746844395"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-06.txt",
+      "sha256": "083371462f262372dd22409dab7f1bc5a7eeb8702f9b30900c524c6e5fe7de5f"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-06.txt.json",
+      "sha256": "18a39460fbf89562c694a7bbdb61e5324088951edd7e78066a1611e21c8dbdea"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-07.txt",
+      "sha256": "58f94021cbfce247e7ba4dae208d68fef0302c075e8ccdc53aa92bded1ae2cda"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-07.txt.json",
+      "sha256": "c95ae987879ab359165d784553e2870ddf111973ef1094299d28c85366d7b913"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-08.txt",
+      "sha256": "1a840c7e8fb034c396dac6b6d61ffee53973aad1632601701376f98f43dde38e"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/blob-08.txt.json",
+      "sha256": "ba117775ca87a61fe869a298c6233b2d142f3ee48b55fbbe11b1101eeab5903f"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/commit-4208.json",
+      "sha256": "a92a08ca2eb600713a4db864b6fb9eb857be47a7b6792d76ed1d1754f251f331"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/handoff-refusal-unchanged.txt",
+      "sha256": "90ad0660410907ef70cde692043e2a96e58ec2d5d333254531d073d6fe15ea48"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/main-final.json",
+      "sha256": "e00e37bb03bc974818ee7eee3d1005352f33c5f6f6406775eb32e29f617d24af"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/main-lsremote-final.txt",
+      "sha256": "23db829e5a4742d05c7b205ea6c9c3e08981571a4b1b74017d682fc0a245ecac"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/mechanical-prompt-pins.json",
+      "sha256": "151b7d40ddfbb6d08cc251f6f25ea86d59553f4fb8a08cb4b442219f147b3cf7"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-helena-private/tree-4208.json",
+      "sha256": "b9fddbd96b5497098f0f3b8633c41a59f59c95136e4ca8cffecda6f72501ff56"
+    }
+  ]
+}

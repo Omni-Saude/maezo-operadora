@@ -5,9 +5,13 @@ TDD London School — tests written before implementation.
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import json
+import warnings
+from io import StringIO
+from unittest.mock import Mock, patch
 
 import pytest
+import structlog
 
 # ---------------------------------------------------------------------------
 # setup_observability tests
@@ -178,6 +182,85 @@ def test_worker_base_emits_error_count_on_failure() -> None:
         s.value for s in samples if s.name.endswith("_total") and s.labels.get("error_type") == "ValueError"
     )
     assert total >= 1.0
+
+
+@pytest.mark.parametrize(
+    ("error_type", "expected_label"), [("runtime", "runtime"), ("unit-uncatalogued", "outro")]
+)
+def test_record_agent_error_counts_once_with_catalogue_fallback(error_type: str, expected_label: str) -> None:
+    from maezo.platform.observability import record_agent_error
+    from maezo.runtime.metrics import MetricsCollector
+
+    collector = MetricsCollector()
+    with patch("maezo.platform.observability._get_metrics_collector", return_value=collector):
+        record_agent_error(agent="lucas", error_type=error_type)
+    samples = [
+        sample
+        for metric in collector.registry.collect()
+        for sample in metric.samples
+        if sample.name == "maezo_agent_errors_total"
+    ]
+    assert [(sample.labels, sample.value) for sample in samples] == [
+        ({"agent": "lucas", "error_type": expected_label}, 1.0)
+    ]
+
+
+@pytest.mark.parametrize("failure_at", ["collector", "labels", "inc"])
+@pytest.mark.parametrize("chained_collector", [False, True])
+def test_record_agent_error_collector_fault_logs_only_fixed_event(
+    failure_at: str, chained_collector: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Real formatting must not serialize the collector or caller exception chains."""
+    from maezo.platform.observability import record_agent_error
+
+    body = "SYNTHETIC_METRIC_CALLER_CLINICAL_BODY_90210"
+    credential = "SYNTHETIC_METRIC_COLLECTOR_CREDENTIAL_90210"
+    cause = "SYNTHETIC_METRIC_EXCEPTION_CAUSE_90210"
+    original = RuntimeError(body)
+    original_cause = ValueError(cause)
+    collector_fault = RuntimeError(credential)
+    if chained_collector:
+        collector_fault.__cause__ = ValueError(cause)
+    collector = Mock()
+    getter = Mock(return_value=collector)
+    if failure_at == "collector":
+        getter.side_effect = collector_fault
+    elif failure_at == "labels":
+        collector.errors.labels.side_effect = collector_fault
+    else:
+        collector.errors.labels.return_value.inc.side_effect = collector_fault
+    stream = StringIO()
+    logger = structlog.wrap_logger(
+        structlog.PrintLogger(stream),
+        processors=[structlog.processors.format_exc_info, structlog.processors.JSONRenderer()],
+    )
+    with (
+        patch("maezo.platform.observability._get_metrics_collector", getter),
+        patch("maezo.platform.observability.logger", logger),
+        warnings.catch_warnings(record=True) as warnings_seen,
+        pytest.raises(RuntimeError) as caught,
+    ):
+        try:
+            raise original from original_cause
+        except RuntimeError:
+            record_agent_error(agent="lucas", error_type="runtime")
+            raise
+    assert caught.value is original
+    assert original.__cause__ is original_cause
+    getter.assert_called_once_with()
+    if failure_at == "collector":
+        collector.errors.labels.assert_not_called()
+    else:
+        collector.errors.labels.assert_called_once_with(agent="lucas", error_type="runtime")
+    if failure_at == "inc":
+        collector.errors.labels.return_value.inc.assert_called_once_with()
+    else:
+        collector.errors.labels.return_value.inc.assert_not_called()
+    output = stream.getvalue()
+    assert [json.loads(line) for line in output.splitlines()] == [{"event": "agent_error_metric_emit_failed"}]
+    assert all(
+        marker not in output + caplog.text + repr(warnings_seen) for marker in (body, credential, cause)
+    )
 
 
 # ---------------------------------------------------------------------------

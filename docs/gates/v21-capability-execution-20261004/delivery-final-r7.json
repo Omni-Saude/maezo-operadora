@@ -1,0 +1,187 @@
+{
+  "schema": "maezo.v21.integrated-reviewable-delivery.v1",
+  "recorded_at": "2026-10-04T21:35:23.405963+00:00",
+  "goal": "Execute admitted packages from NEXT-CODEX-ORCHESTRATOR-PROMPT.md; preserve unresolved source and human gates",
+  "prompt_absolute": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/NEXT-CODEX-ORCHESTRATOR-PROMPT.md",
+  "checkout": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora",
+  "branch": "codex/v21-capability-execution",
+  "original_baseline": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "integration_base": "4208c08717f577636e5e04a1c1455d8e25d5970b",
+  "technical_head": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+  "technical_fingerprint": "5b82a9d6517e822f8f1c9b84f4d24db35887b000b28836b35527937e096ae6d8",
+  "PR": "https://github.com/Omni-Saude/maezo-operadora/pull/633",
+  "draft": true,
+  "attached_to_task": true,
+  "technical_state": "R6_BOUNDED_PASS; INTEGRATED_BASE_STATIC_ADMITTED; COMBINED_CI_PENDING",
+  "full_goal_complete": false,
+  "delivered": [
+    "Reviewed W0 administrative/source/CIB proposals (195 assertions; no human ratification)",
+    "Closed 12-field envelope and 11 request/result maps",
+    "Per-task/operation enforcing admission, currentness, audit-before-source and result receipts",
+    "Shared disabled Lucas administrative consumers Compras and Suporte; S4 uses OP07",
+    "Input/output checkpoint separation, deep revalidation, task/tenant/journey isolation and parent context preservation",
+    "Canonical single failed-turn metric boundary and collector-failure log privacy",
+    "Scoped namespace/xdist/time-fixture/current-base/exception-inventory repairs independently verified"
+  ],
+  "ci": {
+    "run": 37231985559,
+    "head": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+    "conclusion": "SUCCESS",
+    "checks_success": 38,
+    "scheduled_only_skip": 1,
+    "unit_shards": 9,
+    "integration_shards": 5,
+    "failure": 0,
+    "pending": 0,
+    "evidence": "hosted-final-r6-publication.json"
+  },
+  "final_gates": [
+    "final-architecture-pass-r6.json",
+    "final-security-custody-pass-r6.json"
+  ],
+  "prior_failures_retained": [
+    "ci-integration-lane-attempt1-report.json",
+    "ci-integration-lane-r2-report.json",
+    "hosted-gateway-failure-43dae3d.json",
+    "hosted-bcf-failure-classification.json",
+    "final-architecture-revise-3895459.json"
+  ],
+  "local_full_suite": "R2 FAIL retained; no claim of local full-suite PASS after repairs; hosted qualified current implementation",
+  "unresolved_gates": [
+    {
+      "id": "AW0-CONDUCT-SCOPES",
+      "packages": [
+        "W0",
+        "operational W1",
+        "W2",
+        "W3"
+      ],
+      "owners": [
+        "Product owner",
+        "Helena/Lucas conduct owners",
+        "Security/policy owners"
+      ],
+      "required": "Explicit conduct and administrative scope ratification; published task/channel/tool/action authority, resolving ADR-0062/DL-0053 signature discrepancy with evidence",
+      "reviewable_inputs": [
+        "docs/design/v21-capabilities/administrative-contracts.md",
+        "docs/design/v21-capabilities/contracts.json"
+      ],
+      "state": "PENDING_HUMAN_RATIFICATION; product direction approval is not scope ratification"
+    },
+    {
+      "id": "CR-F1-F6-SOURCE-PUBLICATION",
+      "packages": [
+        "operational W1",
+        "W2",
+        "W3",
+        "dependent W4"
+      ],
+      "owners": [
+        "Operator registration/product/legal",
+        "Catalogue/availability provider",
+        "Enrollment issuer",
+        "Agenda/delivery provider",
+        "Domain case/CX owners",
+        "Communication owner",
+        "AMH steward only for AMH-owned boundary",
+        "DPO/security"
+      ],
+      "required": "Designate real owner/provider, publish operation/source/receipt/membership/freshness/erasure/recovery contracts, independently qualify adapters and admission, pin any new AMH interface through XRG",
+      "reviewable_inputs": [
+        "docs/design/v21-capabilities/source-contracts.md",
+        "docs/design/v21-capabilities/source-readiness.json"
+      ],
+      "state": "UNPUBLISHED_OR_UNQUALIFIED; existing AMH pin does not grant commerce/enrollment/agenda authority"
+    },
+    {
+      "id": "W1-DURABLE-EFFECTS-AND-COMPOSITION",
+      "packages": [
+        "W1",
+        "W2",
+        "W3"
+      ],
+      "owners": [
+        "Business source owner",
+        "Persistence owner",
+        "Runtime composition owner",
+        "Security/DPO"
+      ],
+      "required": "Admitted durable case/command contract; real CAS/idempotency/outbox/inbox/reconciliation, authenticated reply/resume, and gateway authority/DI/registry integration with qualified source; per-operation end-to-end currentness and duplicate/timeout evidence",
+      "reviewable_inputs": [
+        "docs/design/v21-capabilities/runtime-wiring.md",
+        "docs/design/v21-capabilities/administrative-consumers.md",
+        "docs/design/v21-capabilities/security-admission.md"
+      ],
+      "state": "NOT_IMPLEMENTED_OR_NOT_OPERATIONALLY_QUALIFIED; UNIT saver proof and typed dispatch are not durable business acceptance"
+    },
+    {
+      "id": "W4-U4-AUTHORITY-AND-SOUNDNESS",
+      "packages": [
+        "W4"
+      ],
+      "owners": [
+        "Accounts/payment owner",
+        "Network owner",
+        "Regulatory/CIB owner"
+      ],
+      "required": "Payment-independent optional feedback plus sound token witness; governed ADEQUACAO origin/bridge; actual obligation/authority/state proof before GP1/GP2/timers/DMN",
+      "reviewable_inputs": [
+        "docs/design/v21-capabilities/cib-authority.md",
+        "docs/design/v21-capabilities/cib-readiness.json"
+      ],
+      "state": "OPEN; original fork2/join3 unsound and adapted join still dominates payment"
+    },
+    {
+      "id": "W5-BENEFIT-AND-AGGREGATE-CONTROLS",
+      "packages": [
+        "W5"
+      ],
+      "owners": [
+        "Analytics owner",
+        "AMH aggregate steward",
+        "DPO/security",
+        "Finance owner"
+      ],
+      "required": "Authorized aggregate baseline/export and task-specific benefit/control qualification; published k=10 and suppressed/None semantics retained",
+      "reviewable_inputs": [
+        "docs/design/v21-capabilities/source-contracts.md"
+      ],
+      "state": "UNMEASURED; no quantitative ROI or operational analytics acceptance"
+    }
+  ],
+  "not_authorized_or_not_done": [
+    "Human/provider signature",
+    "New production AgentCard/policy/grant/binding/root",
+    "Real source business effects for new administrative capabilities",
+    "Production deployment or live flag enablement",
+    "Merge"
+  ],
+  "custody": {
+    "original_bundles": "Immutable local originals; no rebaseline/copy",
+    "private_CA_XML": "Not authored/copied/published by this package; upstream already committed files excluded from PR diff",
+    "raw_logs_and_JUnit": "Local worktree only; publish structured gate counts and digests",
+    "ROOT": "Concurrent owner work/deletes preserved; never reset/restored",
+    "repair_worktree": "Preserved for evidence; no forced cleanup"
+  },
+  "resume": [
+    "Read PLANS.md current v2.1 block and this record; refresh PR exact head/base/checks before action",
+    "Review pending W0 owner dossier and receive explicit ratification; do not interpret continue as signature",
+    "Receive published provider/source contracts and immutable authority/receipt evidence per CR-F1..6",
+    "Admit affected packages through independent source/security gates; build durable source adapters and actual registry/DI/resume on admitted interfaces",
+    "Run source-to-reply/resume engine/provider tests; obtain new independent final gates",
+    "Merge only after applicable explicit authorization and CONTRIBUTING maintenance"
+  ],
+  "metadata_delta": "PENDING independent review of selected structured evidence and PLANS; no own source/tests/design/policy edits after R6",
+  "integrated_source_head": "4c7a9f31214f71343318e349dd4b076dba97697d",
+  "integrated_source_fingerprint": "da7d29c3d644167f65b026e5526d8579ec27a01579aae7dfdb7bf1b0a3b13235",
+  "prior_delivery_record": "delivery-final-r6.json",
+  "source_composition_record": "integration-r7-source-composition.json",
+  "late_base_gates": [
+    "current-base-delta-steward-late-20261004.json",
+    "current-base-delta-steward-helena-4208-20261004.json"
+  ],
+  "R6_files_unchanged_in_integrated_commit": 53,
+  "CI_scope": "R6 only; new published successor combined CI required. No promotion of R6 result to later base.",
+  "latest_observed_main": "8dee49162626280708e7906d239a30f5f0152210",
+  "latest_main_qualification": "PENDING separate later delta; not inherited by frozen base4208"
+}
