@@ -272,6 +272,7 @@ class Registry:
 
     def __init__(self, db: Database, binding: JourneyBinding) -> None:
         self.db, self.binding = db, binding
+        self.original_binding_pins = pins(binding)
         self.now = datetime.now(UTC)
         self.original_until = self.now + timedelta(minutes=10)
         self.tick = self.now
@@ -329,6 +330,11 @@ class Registry:
 
     def bound(self, b: Any) -> bool:
         return b == self.binding.journal_binding() and self.metadata_allowed
+
+    def proof_scope(self, b: Any) -> bool:
+        # Registered evidence remains authentic after metadata authorization is
+        # revoked. Original full11 scope and exact tuple membership still bind it.
+        return pins(self.binding) == self.original_binding_pins and b == self.binding.journal_binding()
 
     async def snapshots(self) -> list[CommandSnapshot]:
         rows = await self.db.query(
@@ -1133,7 +1139,7 @@ class JournalProofs:
 
     async def verify_wait(self, b: Any, descriptor: Any, observation: Any) -> bool:
         return (
-            self.r.bound(b)
+            self.r.proof_scope(b)
             and any(descriptor == w for c in self.r.commits.values() for w in c.wait_intents)
             and descriptor.handle.binding == b
             and (observation is None or observation.producer_ref == descriptor.intent.expected_producer_ref)
@@ -1143,7 +1149,7 @@ class JournalProofs:
         registered = any(descriptor == o for c in self.r.commits.values() for o in c.outbox_intents)
         ack = self.r.reply_acks.get(descriptor.outbox_ref)
         return (
-            self.r.bound(b)
+            self.r.proof_scope(b)
             and registered
             and descriptor.target_binding_ref == "SYNTHETIC.target"
             and (worker_ref is None or worker_ref == "SYNTHETIC.worker")
@@ -2400,4 +2406,92 @@ async def test_compg18_ingress_and_journal_data_grants_are_independent(
     assert (
         await JournalProofs(r).authorize(r.binding.journal_binding(), "observe_journey") is metadata_allowed
     )
+    assert r.source_calls == r.source_commits == r.transport_calls == 0
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["unknown_wait", "unknown_outbox", "wrong_scope", "wrong_full_scope", "wrong_worker", "unknown_ack"],
+)
+async def test_compg19_registered_evidence_is_separate_from_metadata_authorization(fault: str) -> None:
+    """Pure evidence/data-grant control; no PG/fence/provider qualification is claimed."""
+    db = Database("UNCONNECTED.PROOF.CONTROL", "pgcmp_proof_control", "pgcmp_cp_proof_control")
+    r = Registry(db, binding(db))
+    b = r.binding.journal_binding()
+    action = r.make_action(0, ())
+    digest = request_digest(action.envelope, action.request)
+    descriptor = await Custody(r).prepare_command(
+        b, r.scope(action.envelope.operation_name), action.envelope, action.request, (), None
+    )
+    auth = await OperationOwner(r).authorize(
+        r.scope(action.envelope.operation_name), action.envelope, action.request
+    )
+    result = ContextAccessResult(
+        access_status="available",
+        context_refs=("SYNTHETIC.context",),
+        source_revision_ref="SYNTHETIC.source.rev",
+        access_decision_ref="SYNTHETIC.decision",
+    )
+    source = VerifiedSourceResult(
+        binding=auth.binding,
+        request_sha256=digest,
+        result_sha256=result_digest(result),
+        authorization_ref=auth.authorization_ref,
+        source_receipt_ref="SYNTHETIC.registered.source.receipt",
+        source_revision_ref="SYNTHETIC.source.rev",
+        currentness_ref=auth.currentness_ref,
+        checked_at=r.clock(),
+        valid_until=auth.valid_until,
+    )
+    r.records[digest] = SourceRecord(action, result, source)
+    r.attestations.add(pins(source))
+    handle = CommandHandle(binding=b, command_ref="SYNTHETIC.command", request_sha256=digest)
+    commit = await Preparation(r).prepare(b, descriptor, handle, result, source)
+    wait, outbox = commit.wait_intents[0], commit.outbox_intents[0]
+    owner = JournalProofs(r)
+    assert await owner.authorize(b, "record_verified_result") is True
+    assert await owner.verify_wait(b, wait, None) is True
+    assert await owner.verify_outbox(b, outbox, None, None) is True
+    r.metadata_allowed = False
+    assert await owner.authorize(b, "record_verified_result") is False
+    assert await owner.verify_wait(b, wait, None) is True
+    assert await owner.verify_outbox(b, outbox, None, None) is True
+    if fault == "unknown_wait":
+        unknown = wait.model_copy(
+            update={"intent": wait.intent.model_copy(update={"wait_ref": "SYNTHETIC.unknown.wait"})}
+        )
+        assert await owner.verify_wait(b, unknown, None) is False
+    elif fault == "unknown_outbox":
+        assert (
+            await owner.verify_outbox(
+                b, outbox.model_copy(update={"payload_ref": "SYNTHETIC.unknown.payload"}), None, None
+            )
+            is False
+        )
+    elif fault == "wrong_scope":
+        other = b.model_copy(update={"tenant_ref": "SYNTHETIC.other.tenant"})
+        assert await owner.verify_wait(other, wait, None) is False
+        assert await owner.verify_outbox(other, outbox, None, None) is False
+    elif fault == "wrong_full_scope":
+        r.binding = r.binding.model_copy(
+            update={"source_transition_contract_ref": "SYNTHETIC.other.transition.contract"}
+        )
+        assert r.binding.journal_binding() == b
+        assert await owner.verify_wait(b, wait, None) is False
+        assert await owner.verify_outbox(b, outbox, None, None) is False
+    elif fault == "wrong_worker":
+        assert await owner.verify_outbox(b, outbox, "SYNTHETIC.other.worker", None) is False
+    else:
+        ack = OutboxAckEvidence(
+            outbox_ref=outbox.outbox_ref,
+            delivery_ref="SYNTHETIC.unregistered.delivery",
+            target_binding_ref=outbox.target_binding_ref,
+            payload_sha256=outbox.payload_sha256,
+            acknowledgement_ref="SYNTHETIC.unregistered.ack",
+            acknowledgement_sha256="b" * 64,
+            verifier_binding_ref="SYNTHETIC.unregistered.verifier",
+            observed_at=r.clock(),
+        )
+        assert await owner.verify_outbox(b, outbox, "SYNTHETIC.worker", ack) is False
+    assert await owner.authorize(b, "record_verified_result") is False
     assert r.source_calls == r.source_commits == r.transport_calls == 0
