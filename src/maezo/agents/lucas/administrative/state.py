@@ -15,6 +15,7 @@ from typing import Final, Literal, TypedDict
 from langchain_core.runnables import RunnableConfig
 
 from maezo.gateway.capabilities.models import (
+    CANDIDATE_SCHEMA_VERSION,
     REQUEST_MODELS,
     CandidateDTO,
     CapabilityContractError,
@@ -107,6 +108,14 @@ def new_administrative_state(
         raise AdministrativeInputError("administrative_input_contract_mismatch")
     try:
         envelope = parse_envelope(values["envelope"])
+        # JR1/JR2 retain their closed v21 contract. The shared parser also
+        # accepts provider envelopes; that is not a migration of this consumer.
+        # Close the reparsed boundary before any payload or checkpoint state.
+        if (
+            not isinstance(envelope, CapabilityEnvelope)
+            or envelope.schema_version != CANDIDATE_SCHEMA_VERSION
+        ):
+            raise AdministrativeInputError("administrative_envelope_or_payload_contract_mismatch")
         request = parse_request(envelope.operation_name, values["payload"], memberships=memberships)
     except CapabilityContractError:
         raise AdministrativeInputError("administrative_envelope_or_payload_contract_mismatch") from None

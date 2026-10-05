@@ -13,6 +13,7 @@ import dataclasses
 import functools
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -25,6 +26,8 @@ from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, WorkerBpmnError, _resolve_app_version
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
     from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
 
@@ -1526,6 +1529,159 @@ def handoff_pagamento_entry(
     return handoff_pagamento(variables, engine=engine, audit_sink=audit_sink)
 
 
+# PW1-A: explicit per-topic fetch scopes. Contracts and transitive sources are
+# traced in docs/design/provider/fetch-scopes.md; no implicit family/global scope.
+_RECURSO_FETCH_SCOPES: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "operadora.recurso.validate_recurso": (
+            "beneficiario_pseudo_id",
+            "cid10",
+            "codigo_procedimento_tuss",
+            "data_ciencia_alegada_prestador",
+            "data_recebimento_recurso_iso",
+            "data_vencimento",
+            "dentro_prazo_recurso",
+            "documentacao_recurso_completa",
+            "documentos_recurso_refs",
+            "glosa_existe",
+            "glosa_id",
+            "glosa_reason_code",
+            "glosa_type",
+            "numero_conta",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+            "prestador_id",
+            "tenant_id",
+            "valor_glosado_brl",
+        ),
+        "operadora.recurso.assess_eligibility": (
+            "beneficiario_pseudo_id",
+            "cid10",
+            "codigo_procedimento_tuss",
+            "data_ciencia_alegada_prestador",
+            "data_recebimento_recurso_iso",
+            "data_vencimento",
+            "dentro_prazo_recurso",
+            "documentacao_recurso_completa",
+            "documentos_recurso_refs",
+            "errors",
+            "glosa_existe",
+            "glosa_id",
+            "glosa_reason_code",
+            "glosa_type",
+            "numero_conta",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+            "prestador_id",
+            "tenant_id",
+            "valid",
+            "valor_glosado_brl",
+        ),
+        "operadora.recurso.request_documents": (
+            "glosa_id",
+            "message_type",
+            "prestador_id",
+        ),
+        "operadora.recurso.analyze_request": (
+            "beneficiario_pseudo_id",
+            "cid10",
+            "codigo_procedimento_tuss",
+            "data_ciencia_alegada_prestador",
+            "data_recebimento_recurso_iso",
+            "data_vencimento",
+            "dentro_prazo_recurso",
+            "documentacao_recurso_completa",
+            "documentos_recurso_refs",
+            "glosa_existe",
+            "glosa_id",
+            "glosa_reason_code",
+            "glosa_type",
+            "numero_conta",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+            "prestador_id",
+            "tenant_id",
+            "valor_glosado_brl",
+        ),
+        "operadora.recurso.prepare_dossier": (
+            "analise",
+            "codigo_procedimento_tuss",
+            "data_recebimento_recurso_iso",
+            "dentro_prazo_recurso",
+            "documentacao_recurso_completa",
+            "errors",
+            "glosa_existe",
+            "glosa_id",
+            "glosa_type",
+            "merito_sugerido",
+            "valid",
+            "valor_glosado_brl",
+        ),
+        "operadora.recurso.escalate_to_junta": (
+            "glosa_id",
+            "glosa_type",
+            "motivo",
+        ),
+        "operadora.recurso.registrar_indeferimento": (
+            "analista_id",
+            "auditor_id",
+            "decisao_auditor_recurso",
+            "decisao_recurso",
+            "fundamentacao_indeferimento",
+            "glosa_id",
+            "numero_guia_tiss",
+            "referencia_contratual",
+            "tenant_id",
+            "valor_deferido_brl",
+            "valor_glosa_mantido_brl",
+            "valor_glosado_brl",
+        ),
+        "operadora.recurso.publish_completed": (
+            "desfecho",
+            "event_type",
+            "payload",
+        ),
+        "operadora.recurso.handoff_pagamento": (
+            "analista_id",
+            "auditor_id",
+            "competencia",
+            "conta_origem_ref",
+            "data_vencimento",
+            "fonte_valor",
+            "glosa_id",
+            "instrumento_pagamento",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+            "prestador_id",
+            "tenant_id",
+            "valor_deferido_brl",
+        ),
+        "operadora.recurso.notify_sla_risk": (
+            "glosa_id",
+            "glosa_type",
+            "numero_guia_tiss",
+            "tenant_id",
+        ),
+        "operadora.recurso.escalate_ans_timeout": (
+            "event_topic_breach",
+            "glosa_id",
+            "glosa_type",
+            "numero_guia_tiss",
+            "tenant_id",
+        ),
+        "operadora.recurso.comunicar_resposta": (
+            "glosa_id",
+            "numero_guia_tiss",
+            "prestador_id",
+            "tenant_id",
+            "tipo_comunicacao",
+            "valor_deferido_brl",
+            "valor_glosa_mantido_brl",
+        ),
+    }
+)
+
+
 def register_recurso_workers(
     harness: WorkerHarness,
     kafka: KafkaPublisher | None = None,
@@ -1557,52 +1713,73 @@ def register_recurso_workers(
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.validate_recurso", functools.partial(validate_recurso_entry, kafka=kafka)
-        )
+        ),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.validate_recurso"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.assess_eligibility",
             functools.partial(assess_eligibility_entry, kafka=kafka, dmn=dmn),
-        )
+        ),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.assess_eligibility"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.request_documents", functools.partial(request_documents_entry, kafka=kafka)
-        )
+        ),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.request_documents"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.analyze_request", functools.partial(analyze_request_entry, kafka=kafka)
-        )
+        ),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.analyze_request"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.prepare_dossier", functools.partial(prepare_dossier_entry, kafka=kafka)
-        )
+        ),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.prepare_dossier"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.escalate_to_junta", functools.partial(escalate_to_junta_entry, kafka=kafka)
-        )
+        ),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.escalate_to_junta"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.registrar_indeferimento",
             functools.partial(registrar_indeferimento_entry, kafka=kafka),
-        )
+        ),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.registrar_indeferimento"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.publish_completed", functools.partial(publish_completed_entry, kafka=kafka)
-        )
+        ),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.publish_completed"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.recurso.handoff_pagamento",
             functools.partial(handoff_pagamento_entry, kafka=kafka, engine=engine, audit_sink=audit_sink),
-        )
+        ),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.handoff_pagamento"],
     )
     # Raw handlers — need the async Kafka seam (module-level rationale above their factories).
-    harness.register(_NOTIFY_SLA_RISK_TOPIC, make_notify_sla_risk_handler(kafka))
-    harness.register(_ESCALATE_ANS_TIMEOUT_TOPIC, make_escalate_ans_timeout_handler(kafka))
-    harness.register(_COMUNICAR_RESPOSTA_TOPIC, make_comunicar_resposta_handler(kafka))
+    harness.register(
+        _NOTIFY_SLA_RISK_TOPIC,
+        make_notify_sla_risk_handler(kafka),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.notify_sla_risk"],
+    )
+    harness.register(
+        _ESCALATE_ANS_TIMEOUT_TOPIC,
+        make_escalate_ans_timeout_handler(kafka),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.escalate_ans_timeout"],
+    )
+    harness.register(
+        _COMUNICAR_RESPOSTA_TOPIC,
+        make_comunicar_resposta_handler(kafka),
+        variables=_RECURSO_FETCH_SCOPES["operadora.recurso.comunicar_resposta"],
+    )
