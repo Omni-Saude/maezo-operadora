@@ -1309,15 +1309,53 @@ def test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mappin
     process-scope homonym a `start_process` payload might have seeded.
     """
     spec_root = _REPO_ROOT / "spec"
+    # The token is ASCII; inspect every file verbatim, including officially pinned Latin-1 XSDs.
+    token = _AUTO_SANCTION_FLAT_VAR.encode("ascii")
     hits = sorted(
-        (path.relative_to(_REPO_ROOT).as_posix(), text.count(_AUTO_SANCTION_FLAT_VAR))
-        for path, text in ((p, p.read_text(encoding="utf-8")) for p in spec_root.rglob("*") if p.is_file())
-        if _AUTO_SANCTION_FLAT_VAR in text
+        (path.relative_to(_REPO_ROOT).as_posix(), data.count(token))
+        for path, data in ((p, p.read_bytes()) for p in spec_root.rglob("*") if p.is_file())
+        if token in data
     )
 
     assert hits == [("spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 1)], (
         f"{_AUTO_SANCTION_FLAT_VAR} must occur exactly once in spec/ (the auto input mapping); got {hits}"
     )
+
+
+@pytest.mark.parametrize("extra_count", [0, 1, 2])
+@pytest.mark.parametrize("relative_path", ["schemas/latin1.xsd", "other/untyped-file"])
+def test_spec_sanction_scan_checks_non_utf8_files_without_losing_occurrences(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_count: int, relative_path: str
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(_AUTH_BPMN.read_bytes())
+    extra = tmp_path / "spec" / relative_path
+    extra.parent.mkdir(parents=True)
+    extra.write_bytes(
+        b"assinatura\xe7\xe3o\n" + (_AUTO_SANCTION_FLAT_VAR.encode("ascii") + b"\n") * extra_count
+    )
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+
+    if extra_count == 0:
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+    else:
+        with pytest.raises(AssertionError, match="must occur exactly once") as caught:
+            test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+        assert repr(("spec/" + relative_path, extra_count)) in str(caught.value)
+
+
+@pytest.mark.parametrize("canonical_count", [0, 2])
+def test_spec_sanction_scan_requires_exactly_one_canonical_occurrence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, canonical_count: int
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(_AUTO_SANCTION_FLAT_VAR.encode("ascii") * canonical_count)
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+
+    with pytest.raises(AssertionError, match="must occur exactly once"):
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
 
 
 # ---------------------------------------------------------------------------
