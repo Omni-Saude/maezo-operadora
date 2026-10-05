@@ -12,12 +12,6 @@ from uuid import uuid4
 
 import asyncpg
 import pytest
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-from tests.support.provider_tls_pg import docker as docker
-from tests.support.provider_tls_pg import owned_tls_postgres
-from tests.support.provider_tls_pg import server_certificate as server_certificate
-
 from maezo.gateway.capabilities.authority_postgres import PostgresProviderAuthoritySource
 from maezo.gateway.capabilities.authority_source import (
     TABLES,
@@ -32,6 +26,11 @@ from maezo.gateway.capabilities.contract_authority import (
     ContractSnapshot,
 )
 from maezo.gateway.capabilities.models import CapabilityRefusalReason
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+from tests.support.provider_tls_pg import docker as docker
+from tests.support.provider_tls_pg import owned_tls_postgres
+from tests.support.provider_tls_pg import server_certificate as server_certificate
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 DDL_PATH = (
@@ -544,3 +543,100 @@ async def test_local_session_preserves_origin_guard_semantics(source_db):
         await source.qualify(connection)
         await connection.rollback()
         await connection.invalidate()
+
+
+async def test_declared_fk_catalog_and_orphan_integrity_are_genuine(source_db):
+    db = source_db
+    admin = db["admin"]
+    schema = db["schema"]
+    publisher = db["sources"]["publisher"]
+    await publisher.receive(db["snapshot"], timeout_seconds=5)
+    rows = await admin.fetch(
+        "SELECT oid,conrelid,confrelid FROM pg_constraint WHERE contype='f' AND connamespace=$1",
+        publisher.descriptor.schema_oid,
+    )
+    assert len(rows) == 4
+    ri = await admin.fetch(
+        "SELECT tgtype,tgisinternal,tgconstraint FROM pg_trigger WHERE tgconstraint=ANY($1::oid[])",
+        [x["oid"] for x in rows],
+    )
+    assert len(ri) == 16 and all(x["tgisinternal"] for x in ri)
+    await admin.execute(f'SET ROLE "{db["roles"]["validator"]}"')
+    try:
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await admin.execute(
+                f'INSERT INTO "{schema}".authority_proof VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+                "TestOnly-orphan",
+                "TestOnly-no-binding",
+                db["snapshot"].evidence_ref,
+                db["snapshot"].snapshot_sha256(),
+                db["snapshot"].source_revision_ref,
+                db["snapshot"].currentness_ref,
+                "enabled",
+                datetime.now(UTC),
+                db["snapshot"].valid_until,
+            )
+    finally:
+        await admin.execute("RESET ROLE")
+    await seed_validation(db)
+    await admit(db)
+    assert await admin.fetchval(f'SELECT count(*) FROM "{schema}".publication') == 1
+
+
+@pytest.mark.parametrize("variant", ["missing", "cascade", "deferred", "not_valid", "extra"])
+async def test_altered_declared_fk_topology_never_becomes_blind_internal_admission(source_db, variant):
+    db = source_db
+    admin = db["admin"]
+    schema = db["schema"]
+    await db["sources"]["publisher"].receive(db["snapshot"], timeout_seconds=5)
+    name = await admin.fetchval(
+        "SELECT quote_ident(conname) FROM pg_constraint WHERE contype='f' "
+        "AND conrelid=$1::regclass AND confrelid=$2::regclass",
+        f'"{schema}".authority_proof',
+        f'"{schema}".source_binding',
+    )
+    await admin.execute(f'SET ROLE "{db["roles"]["owner"]}"')
+    try:
+        if variant == "extra":
+            await admin.execute(
+                f'ALTER TABLE "{schema}".authority_proof ADD CONSTRAINT test_only_extra_fk '
+                f'FOREIGN KEY(evidence_ref) REFERENCES "{schema}".source_binding(binding_ref) NOT VALID'
+            )
+        else:
+            await admin.execute(f'ALTER TABLE "{schema}".authority_proof DROP CONSTRAINT {name}')
+            if variant != "missing":
+                suffix = {
+                    "cascade": "ON DELETE CASCADE",
+                    "deferred": "DEFERRABLE INITIALLY DEFERRED",
+                    "not_valid": "NOT VALID",
+                }[variant]
+                await admin.execute(
+                    f'ALTER TABLE "{schema}".authority_proof ADD CONSTRAINT test_only_fk '
+                    f'FOREIGN KEY(binding_ref) REFERENCES "{schema}".source_binding(binding_ref) {suffix}'
+                )
+    finally:
+        await admin.execute("RESET ROLE")
+    for source in db["sources"].values():
+        async with source.engine.connect() as connection:
+            with pytest.raises(AuthoritySourceError):
+                await source.qualify(connection)
+    assert await admin.fetchval(f'SELECT count(*) FROM "{schema}".publication') == 0
+
+
+@pytest.mark.parametrize("state", ["DISABLE", "ENABLE REPLICA"])
+async def test_actual_ri_trigger_disabled_or_replica_closes_source(source_db, state):
+    db = source_db
+    admin = db["admin"]
+    schema = db["schema"]
+    await db["sources"]["publisher"].receive(db["snapshot"], timeout_seconds=5)
+    name = await admin.fetchval(
+        "SELECT quote_ident(tgname) FROM pg_trigger WHERE tgrelid=$1::regclass "
+        "AND tgisinternal AND tgtype=5 LIMIT 1",
+        f'"{schema}".authority_proof',
+    )
+    # Only the own TestOnly superuser can change an RI trigger; no runtime grant is fabricated.
+    await admin.execute(f'ALTER TABLE "{schema}".authority_proof {state} TRIGGER {name}')
+    for source in db["sources"].values():
+        async with source.engine.connect() as connection:
+            with pytest.raises(AuthoritySourceError):
+                await source.qualify(connection)

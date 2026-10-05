@@ -278,12 +278,14 @@ class PostgresProviderAuthoritySource:
             "publication": {"publication_immutable": (d.immutable_function_oid, 58)},
             "instrument_head": {},
         }
+        fk_slots = await self._declared_fk_slots(connection)
         for relation, profile in expected.items():
             triggers = (
                 (
                     await connection.execute(
                         text("""
                 SELECT tgname::text AS tgname,tgfoid,tgtype,tgenabled::text AS tgenabled,
+                tgconstrrelid,tgconstrindid,
                 tgisinternal,tgqual IS NULL AS unconditional,tgnargs,
                 octet_length(tgargs)=0 AS no_args,tgattr::text AS tgattr,
                 tgconstraint,tgdeferrable,tginitdeferred,
@@ -296,9 +298,34 @@ class PostgresProviderAuthoritySource:
                 .mappings()
                 .all()
             )
-            if len(triggers) != len(profile) or {t["tgname"] for t in triggers} != set(profile):
+            user = [t for t in triggers if t["tgisinternal"] is False]
+            internal = [t for t in triggers if t["tgisinternal"] is True]
+            if len(user) + len(internal) != len(triggers):
                 raise AuthoritySourceError("SOURCE_UNAVAILABLE")
-            for trigger in triggers:
+            actual_ri = {
+                (t["tgconstraint"], t["tgfoid"], t["tgtype"], t["tgconstrrelid"], t["tgconstrindid"])
+                for t in internal
+            }
+            if (
+                len(internal) != len(fk_slots[d.relation_pins[relation].oid])
+                or actual_ri != fk_slots[d.relation_pins[relation].oid]
+            ):
+                raise AuthoritySourceError("SOURCE_UNAVAILABLE")
+            for t in internal:
+                if (
+                    t["tgenabled"] not in {"O", "A"}
+                    or t["unconditional"] is not True
+                    or t["tgnargs"] != 0
+                    or t["no_args"] is not True
+                    or t["tgattr"] != ""
+                    or t["tgdeferrable"] is not False
+                    or t["tginitdeferred"] is not False
+                    or t["no_transition"] is not True
+                ):
+                    raise AuthoritySourceError("SOURCE_UNAVAILABLE")
+            if len(user) != len(profile) or {t["tgname"] for t in user} != set(profile):
+                raise AuthoritySourceError("SOURCE_UNAVAILABLE")
+            for trigger in user:
                 if (
                     (trigger["tgfoid"], trigger["tgtype"]) != profile[trigger["tgname"]]
                     or trigger["tgenabled"] not in {"O", "A"}
@@ -313,6 +340,129 @@ class PostgresProviderAuthoritySource:
                     or trigger["no_transition"] is not True
                 ):
                     raise AuthoritySourceError("SOURCE_UNAVAILABLE")
+
+    async def _declared_fk_slots(
+        self, connection: AsyncConnection
+    ) -> dict[int, set[tuple[int, int, int, int, int]]]:
+        """Only four validated v1 FK edges and their native RI quartet are admitted."""
+        d = self.descriptor
+        oids = {name: pin.oid for name, pin in d.relation_pins.items()}
+        key = ("tenant_ref", "legal_entity_ref", "provider_ref", "instrument_ref", "business_revision")
+        topology = {
+            (oids["authority_proof"], ("binding_ref",), oids["source_binding"], ("binding_ref",)),
+            (oids["publication"], ("proof_ref",), oids["authority_proof"], ("proof_ref",)),
+            (oids["publication"], key, oids["evidence"], key),
+            (oids["instrument_head"], ("publication_ref",), oids["publication"], ("publication_ref",)),
+        }
+        params = {"r" + str(i): oid for i, oid in enumerate(oids.values())}
+        refs = ",".join(":" + name for name in params)
+        constraints = (
+            (
+                await connection.execute(
+                    text(
+                        """
+            SELECT c.oid,c.connamespace,c.conrelid,c.confrelid,c.conindid,
+            c.confupdtype::text AS update_action,c.confdeltype::text AS delete_action,
+            c.confmatchtype::text AS match_type,c.condeferrable,c.condeferred,c.convalidated,
+            c.conislocal,c.coninhcount,c.conparentid,
+            ARRAY(SELECT a.attname::text FROM unnest(c.conkey) WITH ORDINALITY k(num,ord)
+                  JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num ORDER BY k.ord) AS columns,
+            ARRAY(SELECT a.attnotnull FROM unnest(c.conkey) WITH ORDINALITY k(num,ord)
+                  JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num ORDER BY k.ord) AS notnull,
+            ARRAY(SELECT a.attname::text FROM unnest(c.confkey) WITH ORDINALITY k(num,ord)
+                  JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=k.num
+                  ORDER BY k.ord) AS ref_columns,
+            i.indrelid,i.indisunique,i.indisvalid,i.indisready,i.indimmediate,
+            (i.indexprs IS NULL AND i.indpred IS NULL) AS plain_index,
+            ARRAY(SELECT a.attname::text FROM unnest(i.indkey) WITH ORDINALITY k(num,ord)
+                  JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.num
+                  WHERE k.ord<=i.indnkeyatts ORDER BY k.ord) AS index_columns
+            FROM pg_constraint c LEFT JOIN pg_index i ON i.indexrelid=c.conindid
+            WHERE c.contype='f' AND (c.conrelid IN ("""
+                        + refs
+                        + ") OR c.confrelid IN ("
+                        + refs
+                        + "))"
+                    ),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        observed = {
+            (c["conrelid"], tuple(c["columns"]), c["confrelid"], tuple(c["ref_columns"])) for c in constraints
+        }
+        if len(constraints) != len(topology) or observed != topology:
+            raise AuthoritySourceError("SOURCE_UNAVAILABLE")
+        for c in constraints:
+            if (
+                c["connamespace"] != d.schema_oid
+                or c["update_action"] != "a"
+                or c["delete_action"] != "a"
+                or c["match_type"] != "s"
+                or c["condeferrable"]
+                or c["condeferred"]
+                or c["convalidated"] is not True
+                or c["conislocal"] is not True
+                or c["coninhcount"] != 0
+                or c["conparentid"] != 0
+                or not c["notnull"]
+                or not all(c["notnull"])
+                or c["indrelid"] != c["confrelid"]
+                or c["conindid"] <= 0
+                or not all(
+                    c[k] is True
+                    for k in ("indisunique", "indisvalid", "indisready", "indimmediate", "plain_index")
+                )
+                or tuple(c["index_columns"]) != tuple(c["ref_columns"])
+            ):
+                raise AuthoritySourceError("SOURCE_UNAVAILABLE")
+        names = ("RI_FKey_check_ins", "RI_FKey_check_upd", "RI_FKey_noaction_del", "RI_FKey_noaction_upd")
+        functions = (
+            (
+                await connection.execute(
+                    text("""
+            SELECT p.oid,p.proname::text AS name,p.prosrc,p.prosecdef,p.pronargs,
+            p.prorettype='pg_catalog.trigger'::regtype AS returns_trigger,l.lanname::text AS language
+            FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+            JOIN pg_language l ON l.oid=p.prolang
+            WHERE n.nspname='pg_catalog' AND p.proname IN
+            ('RI_FKey_check_ins','RI_FKey_check_upd','RI_FKey_noaction_del','RI_FKey_noaction_upd')
+        """)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        if len(functions) != 4 or {f["name"] for f in functions} != set(names):
+            raise AuthoritySourceError("SOURCE_UNAVAILABLE")
+        if any(
+            f["prosrc"] != f["name"]
+            or f["language"] != "internal"
+            or f["prosecdef"]
+            or f["pronargs"] != 0
+            or f["returns_trigger"] is not True
+            for f in functions
+        ):
+            raise AuthoritySourceError("SOURCE_UNAVAILABLE")
+        ri = {f["name"]: f["oid"] for f in functions}
+        slots: dict[int, set[tuple[int, int, int, int, int]]] = {oid: set() for oid in oids.values()}
+        for c in constraints:
+            child, parent, constraint, index = c["conrelid"], c["confrelid"], c["oid"], c["conindid"]
+            slots[child].update(
+                {
+                    (constraint, ri["RI_FKey_check_ins"], 5, parent, index),
+                    (constraint, ri["RI_FKey_check_upd"], 17, parent, index),
+                }
+            )
+            slots[parent].update(
+                {
+                    (constraint, ri["RI_FKey_noaction_del"], 9, child, index),
+                    (constraint, ri["RI_FKey_noaction_upd"], 17, child, index),
+                }
+            )
+        return slots
 
     @asynccontextmanager
     async def _connection(self, seconds: float) -> AsyncIterator[AsyncConnection]:

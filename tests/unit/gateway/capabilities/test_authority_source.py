@@ -5,8 +5,6 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from pydantic import ValidationError
-
 from maezo.gateway.capabilities.authority_postgres import PostgresProviderAuthoritySource
 from maezo.gateway.capabilities.authority_source import (
     TABLES,
@@ -17,6 +15,7 @@ from maezo.gateway.capabilities.authority_source import (
     parse_binding,
 )
 from maezo.gateway.capabilities.models import CapabilityContractError, CapabilityRefusalReason
+from pydantic import ValidationError
 
 
 def descriptor(**changes):
@@ -180,6 +179,10 @@ class TriggerMetadataConnection:
         duplicate_guard=None,
         session_replica=False,
         disable_privilege_role=None,
+        foreign_drift=None,
+        internal_drift=None,
+        missing_fk=False,
+        extra_fk=False,
     ):
         self.d = d
         self.publisher = publisher
@@ -192,9 +195,57 @@ class TriggerMetadataConnection:
         self.duplicate_guard = duplicate_guard
         self.session_replica = session_replica
         self.disable_privilege_role = disable_privilege_role
+        self.foreign_drift, self.internal_drift = foreign_drift, internal_drift
+        self.missing_fk, self.extra_fk = missing_fk, extra_fk
         self.trigger_keys = []
         self.trigger_relations = []
         self.queries = []
+
+    def fk_metadata(self):
+        d = self.d
+        key = ("tenant_ref", "legal_entity_ref", "provider_ref", "instrument_ref", "business_revision")
+        specs = [
+            ("authority_proof", ("binding_ref",), "source_binding", ("binding_ref",)),
+            ("publication", ("proof_ref",), "authority_proof", ("proof_ref",)),
+            ("publication", key, "evidence", key),
+            ("instrument_head", ("publication_ref",), "publication", ("publication_ref",)),
+        ]
+        rows = []
+        for i, (child, cols, parent, refs) in enumerate(specs):
+            row = dict(
+                oid=20000 + i,
+                connamespace=d.schema_oid,
+                conrelid=d.relation_pins[child].oid,
+                confrelid=d.relation_pins[parent].oid,
+                conindid=30000 + i,
+                update_action="a",
+                delete_action="a",
+                match_type="s",
+                condeferrable=False,
+                condeferred=False,
+                convalidated=True,
+                conislocal=True,
+                coninhcount=0,
+                conparentid=0,
+                columns=list(cols),
+                ref_columns=list(refs),
+                notnull=[True] * len(cols),
+                indrelid=d.relation_pins[parent].oid,
+                indisunique=True,
+                indisvalid=True,
+                indisready=True,
+                indimmediate=True,
+                plain_index=True,
+                index_columns=list(refs),
+            )
+            if i == 0 and self.foreign_drift:
+                row.update(self.foreign_drift)
+            rows.append(row)
+        if self.missing_fk:
+            rows.pop()
+        if self.extra_fk:
+            rows.append(dict(rows[0], oid=29999))
+        return rows
 
     async def execute(self, statement, params=None):
         sql = str(statement)
@@ -277,6 +328,24 @@ class TriggerMetadataConnection:
                     public_execute=False,
                 )
             )
+        if "FROM pg_constraint c LEFT JOIN pg_index" in sql:
+            return TriggerMetadataRows(self.fk_metadata())
+        if "p.proname IN" in sql and "RI_FKey_check_ins" in sql:
+            names = ("RI_FKey_check_ins", "RI_FKey_check_upd", "RI_FKey_noaction_del", "RI_FKey_noaction_upd")
+            return TriggerMetadataRows(
+                [
+                    dict(
+                        oid=40000 + i,
+                        name=name,
+                        prosrc=name,
+                        prosecdef=False,
+                        pronargs=0,
+                        returns_trigger=True,
+                        language="internal",
+                    )
+                    for i, name in enumerate(names)
+                ]
+            )
         if "FROM pg_trigger" in sql:
             relation = next(name for name, pin in d.relation_pins.items() if pin.oid == params["relation"])
             self.trigger_relations.append(relation)
@@ -314,6 +383,8 @@ class TriggerMetadataConnection:
                     no_args=True,
                     tgattr="",
                     tgconstraint=0,
+                    tgconstrrelid=0,
+                    tgconstrindid=0,
                     tgdeferrable=False,
                     tginitdeferred=False,
                     no_transition=True,
@@ -345,11 +416,42 @@ class TriggerMetadataConnection:
                         no_args=True,
                         tgattr="",
                         tgconstraint=0,
+                        tgconstrrelid=0,
+                        tgconstrindid=0,
                         tgdeferrable=False,
                         tginitdeferred=False,
                         no_transition=True,
                     )
                 )
+            # Four catalog-linked RI guards per genuine FK: parent actions and child checks.
+            for fk in self.fk_metadata():
+                specs = []
+                if params["relation"] == fk["conrelid"]:
+                    specs.extend([(40000, 5, fk["confrelid"]), (40001, 17, fk["confrelid"])])
+                if params["relation"] == fk["confrelid"]:
+                    specs.extend([(40002, 9, fk["conrelid"]), (40003, 17, fk["conrelid"])])
+                for fn, mask, other in specs:
+                    row = dict(
+                        tgname="RI_ConstraintTrigger_" + str(fn) + "_" + str(fk["oid"]),
+                        tgfoid=fn,
+                        tgtype=mask,
+                        tgenabled="O",
+                        tgisinternal=True,
+                        unconditional=True,
+                        tgnargs=0,
+                        no_args=True,
+                        tgattr="",
+                        tgconstraint=fk["oid"],
+                        tgconstrrelid=other,
+                        tgconstrindid=fk["conindid"],
+                        tgdeferrable=False,
+                        tginitdeferred=False,
+                        no_transition=True,
+                    )
+                    if self.internal_drift and not getattr(self, "internal_drift_applied", False):
+                        row.update(self.internal_drift)
+                        self.internal_drift_applied = True
+                    rows.append(row)
             return TriggerMetadataRows(rows)
         raise AssertionError("Unexpected catalogue query; no permissive UNIT fallback")
 
@@ -483,3 +585,71 @@ async def test_source_roles_cannot_disable_trigger_execution_via_parameter_set(r
     with pytest.raises(AuthoritySourceError):
         await source.qualify(db)
     assert db.trigger_relations == []
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"convalidated": False},
+        {"condeferrable": True},
+        {"condeferred": True},
+        {"delete_action": "c"},
+        {"update_action": "c"},
+        {"match_type": "f"},
+        {"connamespace": 9999},
+        {"conparentid": 1},
+        {"conislocal": False},
+        {"coninhcount": 1},
+        {"columns": ["wrong"]},
+        {"ref_columns": ["wrong"]},
+        {"indisunique": False},
+        {"indisvalid": False},
+        {"indisready": False},
+        {"indimmediate": False},
+        {"plain_index": False},
+        {"index_columns": ["wrong"]},
+        {"notnull": [False]},
+    ],
+)
+async def test_declared_fk_topology_is_not_blind_internal_admission(changes):
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, foreign_drift=changes)
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    with pytest.raises(AuthoritySourceError):
+        await source.qualify(db)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"tgfoid": 9999},
+        {"tgconstraint": 9999},
+        {"tgconstrrelid": 9999},
+        {"tgconstrindid": 9999},
+        {"tgtype": 19},
+        {"tgenabled": "D"},
+        {"tgenabled": "R"},
+        {"unconditional": False},
+        {"tgnargs": 1},
+        {"no_args": False},
+        {"tgattr": "1"},
+        {"tgdeferrable": True},
+        {"tginitdeferred": True},
+        {"no_transition": False},
+    ],
+)
+async def test_ri_trigger_must_match_declared_constraint_and_native_function(changes):
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, internal_drift=changes)
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    with pytest.raises(AuthoritySourceError):
+        await source.qualify(db)
+
+
+@pytest.mark.parametrize("change", ["missing_fk", "extra_fk"])
+async def test_missing_or_extra_fk_graph_refuses(change):
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, **{change: True})
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    with pytest.raises(AuthoritySourceError):
+        await source.qualify(db)
