@@ -822,6 +822,90 @@ def _owned_transport_is_verified(
     tls, ports, urls = set(tls_inputs), set(port_inputs), set()
     bindings = _module_scope_bindings(tree)
     assignments = [node for node in ast.walk(function) if isinstance(node, ast.Assign)]
+    arguments = [*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs]
+    arguments += [arg for arg in (function.args.vararg, function.args.kwarg) if arg is not None]
+    local_bindings = {arg.arg for arg in arguments}
+    for node in ast.walk(function):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            local_bindings.add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node is not function:
+            local_bindings.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            local_bindings |= {alias.asname or alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+            local_bindings.add(node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            local_bindings.add(node.rest)
+    builtin_aliases = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "builtins"
+    }
+
+    def root_name(value: ast.expr) -> str | None:
+        while isinstance(value, (ast.Attribute, ast.Subscript)):
+            value = value.value
+        return value.id if isinstance(value, ast.Name) else None
+
+    def trusted_symbol(name: str, module: str | None = None) -> bool:
+        """Resolve canonical builtin/import bindings, never aliases or caller locals."""
+        if any(
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and node.id in {"globals", "locals", "eval", "exec", "__import__"}
+            for node in ast.walk(tree)
+        ):
+            return False
+        if name in local_bindings or any(
+            isinstance(node, (ast.Global, ast.Nonlocal)) and name in node.names for node in ast.walk(tree)
+        ):
+            return False
+        protected = {name, "__builtins__"} | builtin_aliases
+        if any(
+            isinstance(node, (ast.Attribute, ast.Subscript))
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+            and root_name(node) in protected
+            for node in ast.walk(tree)
+        ):
+            return False
+        if any(
+            isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names)
+            for node in tree.body
+        ):
+            return False
+        declarations = bindings.get(name, [])
+        if module is None:
+            return (
+                not declarations
+                and "__builtins__" not in bindings
+                and not any(
+                    isinstance(node, ast.ImportFrom) and node.module == "builtins" for node in ast.walk(tree)
+                )
+            )
+        return (
+            len(declarations) == 1
+            and isinstance(declarations[0], ast.ImportFrom)
+            and declarations[0].level == 0
+            and declarations[0].module == module
+            and any(alias.name == name and alias.asname is None for alias in declarations[0].names)
+        )
+
+    def trusted_module(name: str) -> bool:
+        declarations = bindings.get(name, [])
+        return (
+            name not in local_bindings
+            and len(declarations) == 1
+            and isinstance(declarations[0], ast.Import)
+            and any(alias.name == name and alias.asname is None for alias in declarations[0].names)
+            and not any(
+                isinstance(node, ast.Attribute)
+                and isinstance(node.ctx, (ast.Store, ast.Del))
+                and root_name(node) == name
+                for node in ast.walk(tree)
+            )
+        )
 
     def attribute(value: ast.expr, name: str) -> bool:
         return (
@@ -842,13 +926,7 @@ def _owned_transport_is_verified(
             return value.id in urls
         if isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute):
             if ast.unparse(value.func) == "URL.create":
-                origin = bindings.get("URL", [])
-                if (
-                    len(origin) != 1
-                    or not isinstance(origin[0], ast.ImportFrom)
-                    or origin[0].module != "sqlalchemy.engine"
-                    or not any(alias.name == "URL" and alias.asname is None for alias in origin[0].names)
-                ):
+                if not trusted_symbol("URL", "sqlalchemy.engine"):
                     return False
                 keywords = {kw.arg: kw.value for kw in value.keywords}
                 host, port = keywords.get("host"), keywords.get("port")
@@ -895,7 +973,12 @@ def _owned_transport_is_verified(
             and len(value.args) == 1
             and not value.keywords
         ):
-            return url_value(value.args[0])
+            trusted = (
+                trusted_symbol("str")
+                if value.func.id == "str"
+                else trusted_symbol("make_url", "sqlalchemy.engine")
+            )
+            return trusted and url_value(value.args[0])
         # String interpolation cannot prove URL authority: @/host markers in
         # userinfo, path, query or fragment need not describe the actual host.
         # Use encoded SQLAlchemy URL constructors over inspected host/port.
@@ -971,6 +1054,8 @@ def _owned_transport_is_verified(
         target = ast.unparse(call.func)
         keywords = {kw.arg: kw.value for kw in call.keywords}
         if target == "asyncpg.connect":
+            if not trusted_module("asyncpg"):
+                return False
             ssl_arg = keywords.get("ssl")
             if ssl_arg is None or not tls_value(ssl_arg):
                 return False
@@ -991,6 +1076,8 @@ def _owned_transport_is_verified(
                 ):
                     return False
         if target == "create_async_engine":
+            if not trusted_symbol("create_async_engine", "sqlalchemy.ext.asyncio"):
+                return False
             connect_args = keywords.get("connect_args")
             if not call.args or not url_value(call.args[0]) or not isinstance(connect_args, ast.Dict):
                 return False
@@ -1004,6 +1091,8 @@ def _owned_transport_is_verified(
         if isinstance(call.func, ast.Name) and len(bindings.get(call.func.id, [])) == 1:
             local = bindings[call.func.id][0]
             if isinstance(local, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if call.func.id in network_factories and call.func.id in local_bindings:
+                    return False
                 parameters = [*local.args.posonlyargs, *local.args.args]
                 pairs = list(zip(parameters, call.args, strict=False))
                 pairs.extend(

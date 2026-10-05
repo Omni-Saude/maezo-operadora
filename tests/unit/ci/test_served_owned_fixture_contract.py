@@ -252,6 +252,144 @@ def test_url_constructor_name_cannot_be_supplied_by_unverified_module(tmp_path: 
     assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, changed))
 
 
+@pytest.mark.parametrize("wrapper", ["str", "make_url"])
+def test_trusted_wrapper_requires_actual_builtin_or_sqlalchemy_binding(tmp_path: Path, wrapper: str) -> None:
+    source = SOURCE.replace(
+        'pg.url_for("unit-role", "unit-password")', f'{wrapper}(pg.url_for("unit-role", "unit-password"))'
+    )
+    if wrapper == "make_url":
+        source = source.replace(
+            "from sqlalchemy.engine import URL", "from sqlalchemy.engine import URL, make_url"
+        )
+    assert fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+@pytest.mark.parametrize("wrapper", ["str", "make_url"])
+@pytest.mark.parametrize(
+    "shadow",
+    [
+        "module_def",
+        "module_lambda",
+        "local_lambda",
+        "context_argument",
+        "local_import",
+        "module_import",
+        "global_assignment",
+    ],
+)
+def test_wrapper_names_cannot_grant_url_provenance_under_shadowing(
+    tmp_path: Path, wrapper: str, shadow: str
+) -> None:
+    source = SOURCE.replace(
+        'pg.url_for("unit-role", "unit-password")', f'{wrapper}(pg.url_for("unit-role", "unit-password"))'
+    )
+    if wrapper == "make_url":
+        source = source.replace(
+            "from sqlalchemy.engine import URL", "from sqlalchemy.engine import URL, make_url"
+        )
+    target = '"postgresql+asyncpg://unit:unit@external.invalid:5432/postgres"'
+    if shadow == "module_def":
+        source += f"\ndef {wrapper}(value):\n    return {target}\n"
+    elif shadow == "module_lambda":
+        source += f"\n{wrapper} = lambda value: {target}\n"
+    elif shadow == "local_lambda":
+        source = source.replace(
+            "        admin =", f"        {wrapper} = lambda value: {target}\n        admin ="
+        )
+    elif shadow == "context_argument":
+        source = source.replace("async def owned_pg(tmp_path):", f"async def owned_pg(tmp_path, {wrapper}):")
+    elif shadow == "local_import":
+        source = source.replace(
+            "        admin =", f"        from tests.support.unverified import {wrapper}\n        admin ="
+        )
+    elif shadow == "module_import":
+        source += f"\nfrom tests.support.unverified import {wrapper}\n"
+    else:
+        source += f"\ndef mutate_namespace():\n    global {wrapper}\n    {wrapper} = lambda value: {target}\n"
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+@pytest.mark.parametrize("alias", ["url_alias", "parse_alias"])
+def test_unverified_name_alias_is_not_a_supported_wrapper(tmp_path: Path, alias: str) -> None:
+    source = SOURCE.replace(
+        'pg.url_for("unit-role", "unit-password")', f'{alias}(pg.url_for("unit-role", "unit-password"))'
+    )
+    source += f'\n{alias} = lambda value: "postgresql+asyncpg://unit:unit@external.invalid:5432/postgres"\n'
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+def test_url_constructor_local_shadow_is_denied_even_with_trusted_module_import(tmp_path: Path) -> None:
+    source = SOURCE.replace(
+        'pg.url_for("unit-role", "unit-password")',
+        'URL.create("postgresql+asyncpg", host="127.0.0.1", port=pg.port, database="postgres")',
+    ).replace("async def owned_pg(tmp_path):", "async def owned_pg(tmp_path, URL):")
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+def test_builtin_module_attribute_rebinding_cannot_hide_converter_shadow(tmp_path: Path) -> None:
+    source = SOURCE.replace(
+        'pg.url_for("unit-role", "unit-password")', 'str(pg.url_for("unit-role", "unit-password"))'
+    )
+    source += '\nimport builtins as builtin_alias\nbuiltin_alias.str = lambda value: "postgresql+asyncpg://unit:unit@external.invalid:5432/postgres"\n'
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+@pytest.mark.parametrize("wrapper", ["str", "make_url"])
+def test_local_builtin_namespace_alias_or_global_mapping_cannot_rebind_converter(
+    tmp_path: Path, wrapper: str
+) -> None:
+    source = SOURCE.replace(
+        'pg.url_for("unit-role", "unit-password")', 'str(pg.url_for("unit-role", "unit-password"))'
+    )
+    local_alias = source.replace(
+        "        admin =",
+        "        import builtins as local_builtin\n"
+        '        local_builtin.str = lambda value: "external.invalid"\n        admin =',
+    )
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, local_alias))
+    if wrapper == "make_url":
+        source = source.replace("str(pg.url_for", "make_url(pg.url_for").replace(
+            "from sqlalchemy.engine import URL", "from sqlalchemy.engine import URL, make_url"
+        )
+    global_map = source + f'\nglobals()["{wrapper}"] = lambda value: "external.invalid"\n'
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, global_map))
+
+
+def test_local_factory_parameter_cannot_shadow_the_module_network_factory(tmp_path: Path) -> None:
+    source = (
+        SOURCE.replace(
+            '        engine = create_async_engine(pg.url_for("unit-role", "unit-password"), '
+            'connect_args={"ssl": context})',
+            "        engine = factory(pg.port, context)",
+        ).replace("async def owned_pg(tmp_path):", "async def owned_pg(tmp_path, factory):")
+        + """
+def factory(port, context):
+    url = URL.create("postgresql+asyncpg", host="127.0.0.1", port=port, database="postgres")
+    return create_async_engine(url, connect_args={"ssl": context})
+"""
+    )
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+@pytest.mark.parametrize("name", ["create_async_engine", "asyncpg"])
+def test_network_client_symbols_require_unshadowed_library_origin(tmp_path: Path, name: str) -> None:
+    if name == "create_async_engine":
+        source = SOURCE + "\ncreate_async_engine = lambda *args, **kwargs: object()\n"
+    else:
+        source = SOURCE.replace(
+            "from sqlalchemy.ext.asyncio import create_async_engine",
+            "import asyncpg\nfrom sqlalchemy.ext.asyncio import create_async_engine",
+        )
+        source = source.replace(
+            'engine = create_async_engine(pg.url_for("unit-role", "unit-password"), '
+            'connect_args={"ssl": context})',
+            'engine = await asyncpg.connect(pg.url_for("unit-role", "unit-password").'
+            'set(drivername="postgresql").render_as_string(hide_password=False), ssl=context)',
+        )
+        source += "\nasyncpg.connect = lambda *args, **kwargs: object()\n"
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
 def test_name_only_cannot_pardon_a_real_owned_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
     target = next(path for path in fence._iter_live_suites() if fence._claims_owned_tls_fixture(path))
     relative = str(target.relative_to(fence._REPO_ROOT))
