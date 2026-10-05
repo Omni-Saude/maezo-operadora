@@ -226,6 +226,8 @@ async def test_pg_all_full_binding_fields_do_not_cross_load(pg_runtime: Any, fie
                     if field == "enabled"
                     else "journey.suporte.step"
                     if field == "task_ref"
+                    else "unit_other_tenant_ref"
+                    if field == "tenant_ref"
                     else f"unit-other-{field}"
                 )
             }

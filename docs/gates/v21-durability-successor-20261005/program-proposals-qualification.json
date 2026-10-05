@@ -1,0 +1,47 @@
+{
+  "schema": "maezo.program-proposals-qualification.v1",
+  "status": "PASS_PROPOSAL_ONLY",
+  "source_inputs": {
+    "docs/design/v21-capabilities/proposals/human-source-decision-packet.proposed-v1.json": "f12a6d006ad9f62e8b5d46fdacc0af367c32abd5a6e7f95b3a059955c8af2e54",
+    "docs/design/v21-capabilities/proposals/remaining-gate-matrix.proposed-v2-financial-only.json": "f9d0027457abf5324375ddf1ffe47c409387f707ffce90e58d92ccd6a6a6c70c",
+    "docs/design/v21-capabilities/proposals/optional-feedback-financial-independence.proposed-v2.md": "f0943110cbcbe5cabcd3a0e2b91ad4f7590e11c48b30818b1e72a3835fe365bf",
+    "docs/design/v21-capabilities/proposals/measurement-protocol.proposed-v2.json": "08ed9bdec583ee6516818dfebfe8c7b96354b3975dcf287a89e9bebfaccd81a0",
+    "docs/design/v21-capabilities/proposals/measurement-export-closed-shapes.proposed-v2.json": "9f7063d5e3a633e22459be25e6c61ce64e07eaff92ccb7259deaf06bc577313c",
+    "docs/design/v21-capabilities/proposals/measurement-export-contract.proposed-v2.md": "290c9f27474f08bf97d3736c1c0b922a6c5a7b6b6530fb1b01ad3ac98614520e"
+  },
+  "coverage": {
+    "canonical_requirements": 29,
+    "concepts": 21,
+    "canonical_metric_definitions": 13,
+    "source_family_decision_sheets": 6,
+    "bindings_not_operationally_admitted": 18
+  },
+  "validation": {
+    "semantic_checks": 263,
+    "public_projection_checks": 51,
+    "locator_replacements_only": 487,
+    "internal_schema_refs": 33
+  },
+  "independent_review_receipts": {
+    "financial_original_delta": "38a2e0020d43ba5c67912f7efda2d61868f1d3a8610079f8eda4a9f83f377af8",
+    "measurement_original_delta": "0c50c8ef4b7e29873bfed069bf96899adc7a143aaf5579b10ef9193fbb33e48f",
+    "distinct_final_publication_delta": "1a0f6cbc7524bb904d3e5ecd0d7bd982890af10e58762f644eca77769c6de419",
+    "copy_allowlist": "c52136d2c0d507ea8f1a0939a87ed6f8cf9bce2c817de70037688b6db808c98d"
+  },
+  "source_readiness_refresh": {
+    "amh_main": "62779aee953358efcebabb63a43ce323bf7b761e",
+    "manifest_sha256": "946266fb9ab10d27c01768e78fb3b673cba3db71680f652b10ccd0798065b126",
+    "pinned_objects": 15,
+    "receipt_sha256": "62c6eb648b03182f1f04e4a32adb1f1de3e8e667b33cb2d6a0c2c471e4b1a5f8",
+    "claim": "Exact published schema/pin observation; operational authority and provider bindings unverified."
+  },
+  "original_REVISE_and_private_proofs_preserved": true,
+  "pending_author_review_wording_in_frozen_outputs": "Historical author stage; exact original deltas and final projection gate supersede documentary review only.",
+  "private_custody_locators": "Opaque references to private receipts; no private bundles or raw payload files published.",
+  "human_ratification": "PENDING",
+  "source_authority_per_binding": "PENDING",
+  "finance_engine_and_actual_receipts": "UNVERIFIED",
+  "metric_values_baselines_targets_ROI": "UNMEASURED",
+  "production_activation": false,
+  "owner": "ROOT successor"
+}
