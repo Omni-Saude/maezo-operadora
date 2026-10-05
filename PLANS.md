@@ -1113,3 +1113,14 @@ terraform validate      # todos os módulos
 | `ops-cloud-provisioning` | M10 |
 | `ops-observability` | M11 |
 | `performance-monitor` | M11, M13 |
+
+
+## 2026-10-04 — Encerramento da revisão de feedback BPMN CA
+
+Os quatro BPMNs adaptados e os dois documentos acompanhantes foram refinados e verificados como devolutiva à equipe autora. Esta entrega não implementa processos, agentes, workers ou integrações MAEZO. Os originais de terceiro continuam locais e intocados; a evidência detalhada permanece deliberadamente fora do Git em `docs/audits/BPMN-CA-2026-10/feedback/revisions/20261004T153751Z-codex-refinement/`.
+
+O bundle inicial `e73cbc80fe82a8eec4f7be51e1c26054c80a1f8f022c1cf221827e2be4f8fefa` tem dois gates frescos independentes. A edição posterior do Modeler em Compras foi preservada, reparada pontualmente e revalidada (366 verificações semânticas e 16 visuais); source final de Compras `067cf607ddb0c6647598d1b52d1237f2e1eafbbfc944aedcfbdddf91bcf12cb9`. Engine e contratos externos não foram executados; sugestões mantêm essa qualificação.
+
+O flywheel registrou seis lições e um checker read-only com controles sobre o snapshot real rejeitado, incluindo quatro aliases businessKey→journeyId. A checagem anterior case-sensitive não reconhecia processBusinessKey; o novo controle identifica o caso sem reescrever a evidência congelada. Artefatos de retomada: `session-close/FLYWHEEL-LESSONS.md` e `HANDOFF.yaml` no diretório de evidência acima.
+
+Pacote de publicação: branch `codex/feedback-bpmn-refinement-closeout`. Estado Git/PR/CI e disposição de integração são registrados no recibo de encerramento desta sessão; não inferir aprovação de main, produção ou outras PRs desta nota. O programa de implementação MAEZO mantém seus próprios gates e responsáveis. Não retomá-lo automaticamente após esta devolutiva.

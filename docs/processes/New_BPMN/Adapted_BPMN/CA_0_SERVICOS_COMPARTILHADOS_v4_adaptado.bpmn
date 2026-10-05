@@ -20,7 +20,7 @@
   </bpmn:collaboration>
   <bpmn:process id="Process_CA_H2_ComunicarCliente" name="H2 — Comunicar o cliente" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
     <bpmn:documentation>Serviço compartilhado: informar antes de o cliente perguntar. Acionado pelos marcos de COMPRA, UTILIZAÇÃO e SUPORTE e por recomendações de H3, sempre com o Journey ID (corrige FR-02). Mensagem: situação na 1ª frase, próxima ação na 2ª.</bpmn:documentation>
-    <bpmn:documentation>Barreiras de contato: opt-in/base legal por categoria, frequency capping e horário silencioso, limiar de confiança com revisão humana e respeito à decisão de envio (enviar, adiar ou suprimir). Toda nova comunicação deve passar por essas barreiras.</bpmn:documentation>
+    <bpmn:documentation>Barreiras de contato conforme categoria e finalidade: permissão/base aplicável, frequência/janela e confiança com revisão humana. O fluxo atual consulta permissão antes de urgência; o ramo crítico evita capping/janela, sem dispensar a classificação de permissão. Proposta de contrato: distinguir marketing, contato transacional/assistencial e aviso obrigatório; para este último, fonte competente deve declarar obrigação, destinatário, prazo e base aplicáveis. Não suprimir obrigação comprovada por preferência comercial nem tratar todo aviso como obrigatório; urgência, sozinha, não prova dever legal. Classificação e políticas externas não executadas nesta devolutiva.</bpmn:documentation>
     <bpmn:laneSet id="LaneSet_Process_CA_H2_ComunicarCliente">
       <bpmn:lane id="LN_CA0_H2_CrmEComunicacao" name="CRM e comunicação">
         <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.1 · Ref: H2_CA_Canal</bpmn:documentation>
@@ -94,6 +94,7 @@
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="H2_T_EscalarRevisao" name="Escalar revisão clínica pendente">
+      <bpmn:documentation>Proposta de executor compartilhado de escalada, parametrizado por Journey ID quando disponível, identificador de caso/tarefa, motivo, destinatário, chave da operação e recibo. Revisão, decisão humana e prazo permanecem específicos; o timer não aprova nem completa a tarefa humana. Binding de implementação não fornecido no corpus; esta documentação não implementa automação nem qualifica implantação/execução.</bpmn:documentation>
       <bpmn:incoming>F_CA_H2_ComunicarCliente_22</bpmn:incoming>
       <bpmn:outgoing>F_CA_H2_ComunicarCliente_23</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -109,14 +110,18 @@
     </bpmn:exclusiveGateway>
     <bpmn:callActivity id="H2_CA_Canal" name="Selecionar canal e momento" camunda:asyncBefore="true" calledElement="Process_CA_H2_SelecionarCanal">
       <bpmn:documentation>Origem: M3_CA_SelecionarCanal</bpmn:documentation>
-      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:documentation>Contrato explícito: clienteId e categoriaMensagem vêm do ingresso H2 e da classificação; urgencia já é transferida. SC_T_Preferencias, SC_T_Canal e SC_T_Capping declaram os produtores de preferência, canal e janela. A saída decisaoEnvio vem dos listeners de SC_End_Enviar/Adiar/Suprimir/OptOut; canalSelecionado orienta H2_T_Enviar e proximaJanela alimenta H2_EV_Janela. businessKey conserva a correlação, sem substituir essas entradas. Implementações externas e sua atualização por tentativa não executadas nesta devolutiva; entradas herdadas de preferência/janela não substituem os resultados do seletor.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="clienteId" target="clienteId"/>
+        <camunda:in source="categoriaMensagem" target="categoriaMensagem"/>
         <camunda:in source="categoriaPermitida" target="categoriaPermitida"/>
         <camunda:in source="urgencia" target="urgencia"/>
         <camunda:in source="envioPermitidoAgora" target="envioPermitidoAgora"/>
         <camunda:in source="proximaJanela" target="proximaJanela"/>
         <camunda:out source="decisaoEnvio" target="decisaoEnvio"/>
+        <camunda:out source="canalSelecionado" target="canalSelecionado"/>
+        <camunda:out source="proximaJanela" target="proximaJanela"/>
       </bpmn:extensionElements>
       <bpmn:incoming>F_CA_H2_ComunicarCliente_10</bpmn:incoming>
       <bpmn:outgoing>F_CA_H2_ComunicarCliente_11</bpmn:outgoing>
@@ -135,6 +140,7 @@
       <bpmn:outgoing>F_CA_H2_ComunicarCliente_14</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:intermediateCatchEvent id="H2_EV_Janela" name="Aguardar próxima janela permitida">
+      <bpmn:documentation>Proposta de contrato de espera compartilhada: proximaJanela deve representar data válida e futura para esta tentativa. Ao despertar, o retorno ao seletor reavalia preferência, finalidade e política aplicável; o executor deve evitar repetir imediatamente uma janela já vencida. Não foi definido prazo máximo nem teto de tentativas nesta revisão; cálculo externo da janela e progressão não executados.</bpmn:documentation>
       <bpmn:documentation>Horário silencioso / batching. | Origem: M3_EV_AguardarJanela</bpmn:documentation>
       <bpmn:incoming>F_CA_H2_ComunicarCliente_13</bpmn:incoming>
       <bpmn:outgoing>F_CA_H2_ComunicarCliente_15</bpmn:outgoing>
@@ -147,6 +153,7 @@
       <bpmn:incoming>F_CA_H2_ComunicarCliente_14</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:serviceTask id="H2_T_Enviar" name="Enviar no canal selecionado" camunda:asyncBefore="true" camunda:delegateExpression="${omniChannelDispatcher}">
+      <bpmn:documentation>Proposta de contrato do executor compartilhado: distinguir pedido aceito pelo canal de entrega confirmada; entregue requer evidência do canal, não apenas do envio. Repetições do mesmo pedido devem preservar o efeito e registrar recibo, inclusive sob concorrência. O fallback é tentativa distinta correlacionada ao aviso original, com regra própria para evitar duplicidade; ausência de recibo não prova falha definitiva. Inspiração: Stripe fulfillment/idempotência, sem copiar sua janela de retenção nem integrar Stripe. Delegate externo não executado nesta devolutiva; o fluxo atual permanece uma proposta de contrato, sem garantia de entrega.</bpmn:documentation>
       <bpmn:documentation>Produz entregue. | Origem: M3_T_Enviar</bpmn:documentation>
       <bpmn:incoming>F_CA_H2_ComunicarCliente_12</bpmn:incoming>
       <bpmn:outgoing>F_CA_H2_ComunicarCliente_16</bpmn:outgoing>
@@ -163,6 +170,7 @@
       <bpmn:incoming>F_CA_H2_ComunicarCliente_17</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:serviceTask id="H2_T_Fallback" name="Enviar por canal de contingência (SMS)" camunda:asyncBefore="true" camunda:delegateExpression="${fallbackChannelDispatcher}">
+      <bpmn:documentation>Proposta: aplicar o contrato de pedido/recibo de H2_T_Enviar. Contingência é tentativa distinta correlacionada, com controle próprio de duplicidade e qualificação da falha do canal anterior; concluir esta tarefa não comprova entrega ao cliente. fallbackChannelDispatcher externo não executado nesta devolutiva.</bpmn:documentation>
       <bpmn:documentation>Evita o anti-padrão "push sem app instalado". | Origem: M3_T_Fallback</bpmn:documentation>
       <bpmn:incoming>F_CA_H2_ComunicarCliente_18</bpmn:incoming>
       <bpmn:outgoing>F_CA_H2_ComunicarCliente_19</bpmn:outgoing>
@@ -229,7 +237,7 @@
     </bpmn:dataStoreReference>
   </bpmn:process>
   <bpmn:process id="Process_CA_H2_SelecionarCanal" name="H2.1 — Selecionar canal e momento" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
-    <bpmn:documentation>Entrada: clienteId, urgencia, categoriaMensagem. Saída: decisaoEnvio ∈ {ENVIAR, ADIAR, SUPRIMIR}, canalSelecionado, proximaJanela. Crítico = push + SMS sempre; acionável = in-app + follow-up; informativo = digest/e-mail; nunca push para marketing.</bpmn:documentation>
+    <bpmn:documentation>Entrada: clienteId, urgencia, categoriaMensagem. Saída: decisaoEnvio ∈ {ENVIAR, ADIAR, SUPRIMIR}, canalSelecionado, proximaJanela. Roteamento proposto: crítico usa canal imediato (push/SMS conforme disponibilidade e permissão aplicável); acionável = in-app + follow-up; informativo = digest/e-mail; nunca push para marketing. A seleção não garante disponibilidade nem entrega. O ramo crítico evita capping/janela após a verificação de categoria; fonte de obrigação, prazo e política específica permanece externa.</bpmn:documentation>
     <bpmn:laneSet id="LaneSet_Process_CA_H2_SelecionarCanal">
       <bpmn:lane id="LN_CA0_H21_CrmEComunicacao" name="CRM e comunicação">
         <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.1 (Staff) · Ref: H2_CA_Canal</bpmn:documentation>
@@ -269,12 +277,13 @@
     </bpmn:serviceTask>
     <bpmn:exclusiveGateway id="SC_GW_OptIn" name="Categoria permitida (opt-in / base legal)?" default="F_CA_H2_SelecionarCanal_04">
       <bpmn:documentation>Origem: SC_GW_OptIn</bpmn:documentation>
-      <bpmn:documentation>Regra: só comunicar com opt-in/base legal da categoria; sem opt-in, suprimir — dono: Disponibilização de insumos</bpmn:documentation>
+      <bpmn:documentation>Contrato: categoriaPermitida indica permissão da finalidade/categoria segundo fonte competente; ausência de opt-in não equivale, por si, à ausência de toda base aplicável. Marketing e aviso obrigatório exigem classificação própria, sem bypass universal. O fluxo suprime quando categoriaPermitida não é true; cálculo externo não executado — dono: Disponibilização de insumos</bpmn:documentation>
       <bpmn:incoming>F_CA_H2_SelecionarCanal_02</bpmn:incoming>
       <bpmn:outgoing>F_CA_H2_SelecionarCanal_03</bpmn:outgoing>
       <bpmn:outgoing>F_CA_H2_SelecionarCanal_04</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:endEvent id="SC_End_OptOut" name="Suprimido — sem opt-in">
+      <bpmn:documentation>Qualificação do rótulo preservado: este terminal representa categoriaPermitida não confirmada no gateway, não afirma que todo contato sem opt-in de marketing é vedado. Permissão/base e eventual obrigação pertencem ao contrato específico da categoria; não comprovadas pela urgência.</bpmn:documentation>
       <bpmn:documentation>Origem: SC_End_OptOut</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:executionListener expression="${execution.setVariable('decisaoEnvio', 'SUPRIMIR')}" event="start"/>
@@ -357,6 +366,7 @@
     </bpmn:dataStoreReference>
   </bpmn:process>
   <bpmn:process id="Process_CA_H1_IdentidadeConsentimento" name="H1 — Identidade e consentimento" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Direção de reuso: manter H1 compartilhado por C1, S1 e enriquecimento, com contrato por finalidade. A interface comum não amplia acesso nem substitui a autoridade da fonte; regras e exceções de cada uso continuam específicas. Inspiração: composição de capacidades do BIAN Portal e Service Landscape 14.0; não se propõe adotar o catálogo bancário. Referência verificada em 2026-10-04, com limites registrados na devolutiva.</bpmn:documentation>
     <bpmn:documentation>Serviço compartilhado (ARQ-01 §7). Entrada: clienteId, finalidade. Saída: consentimentoValido, identidadeUnificada. Negado → erro LGPD_CONSENT_NEGADO, capturado no chamador. Chamado por C1, S1 e H3-Enriquecer.</bpmn:documentation>
     <bpmn:laneSet id="LaneSet_Process_CA_H1_IdentidadeConsentimento">
       <bpmn:lane id="LN_CA0_H1_VerificadorDeIdentidade" name="Verificador de identidade">
@@ -494,9 +504,10 @@
     </bpmn:serviceTask>
     <bpmn:callActivity id="H3_CA_Lote" name="Enriquecer clientes do lote" camunda:asyncBefore="true" calledElement="Process_CA_H3_EnriquecerCliente">
       <bpmn:documentation>Origem: M1_CA_EnriquecerLote</bpmn:documentation>
-      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:documentation>Contrato explícito: cada execução multi-instância recebe clienteId, produzido por camunda:elementVariable no lote clientesLote, e o transfere ao enriquecimento. O consumidor EC_CA_H1 encaminha esse clienteId a H1. businessKey é correlação do processo, não payload. Origem do lote e executores externos não executados nesta devolutiva; nenhuma saída de negócio foi inventada.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="clienteId" target="clienteId"/>
       </bpmn:extensionElements>
       <bpmn:incoming>F_CA_H3_ConhecerCliente_02</bpmn:incoming>
       <bpmn:outgoing>F_CA_H3_ConhecerCliente_03</bpmn:outgoing>
@@ -642,9 +653,10 @@
     </bpmn:startEvent>
     <bpmn:callActivity id="EC_CA_H1" name="Verificar identidade e consentimento" camunda:asyncBefore="true" calledElement="Process_CA_H1_IdentidadeConsentimento">
       <bpmn:documentation>Base legal por fonte mapeada no registro de tratamento (LGPD art. 37). | Origem: M1_CA_Consentimento</bpmn:documentation>
-      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:documentation>Contrato explícito: clienteId do ingresso/enriquecimento é transferido a H1; finalidade="enriquecimento" continua literal. H1 declara clienteId/finalidade como entradas e consentimentoValido/identidadeUnificada como saídas de seus serviços. businessKey não transfere clienteId por si. Produtores externos declarados, sem execução comprovada nesta devolutiva.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="clienteId" target="clienteId"/>
         <camunda:in sourceExpression="enriquecimento" target="finalidade"/>
         <camunda:out source="consentimentoValido" target="consentimentoValido"/>
         <camunda:out source="identidadeUnificada" target="identidadeUnificada"/>
@@ -890,6 +902,7 @@
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="NBA_T_EscalarRevisao" name="Escalar revisão de recomendação pendente">
+      <bpmn:documentation>Proposta de executor compartilhado de escalada, parametrizado por Journey ID quando disponível, identificador de caso/tarefa, motivo, destinatário, chave da operação e recibo. Revisão, decisão humana e prazo permanecem específicos; o timer não aprova nem completa a tarefa humana. Binding de implementação não fornecido no corpus; esta documentação não implementa automação nem qualifica implantação/execução.</bpmn:documentation>
       <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_14</bpmn:incoming>
       <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_15</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -1103,10 +1116,12 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_09_di" bpmnElement="F_CA_H2_ComunicarCliente_09">
         <di:waypoint x="1058" y="780"/>
-        <di:waypoint x="1158" y="780"/>
+        <di:waypoint x="1080" y="780"/>
+        <di:waypoint x="1080" y="720"/>
+        <di:waypoint x="1158" y="720"/>
         <di:waypoint x="1158" y="287"/>
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1082" y="763" width="52" height="14"/>
+          <dc:Bounds x="1082" y="703" width="52" height="14"/>
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_10_di" bpmnElement="F_CA_H2_ComunicarCliente_10">
@@ -1803,10 +1818,12 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_12_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_12">
         <di:waypoint x="1508" y="4980"/>
-        <di:waypoint x="1608" y="4980"/>
+        <di:waypoint x="1530" y="4980"/>
+        <di:waypoint x="1530" y="4920"/>
+        <di:waypoint x="1608" y="4920"/>
         <di:waypoint x="1608" y="4698"/>
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1532" y="4963" width="52" height="14"/>
+          <dc:Bounds x="1532" y="4903" width="52" height="14"/>
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_13_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_13">
