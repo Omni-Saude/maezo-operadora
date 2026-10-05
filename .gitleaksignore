@@ -183,3 +183,9 @@ a71a14e15fde4515567d65564a019ce9a7c0f021:deploy/cibseven/secured/prepare_fixture
 c562f270c4cd59c78558c077d410c5d5cdbac143:tools/staff_materials/native_secret.py:generic-api-key:180
 b9f7175791c887fd21b3e25cc544dfaff6e03631:.gitleaksignore:generic-api-key:176
 b9f7175791c887fd21b3e25cc544dfaff6e03631:.gitleaksignore:generic-api-key:177
+
+# PR #646: independently classified historical artifact digests.
+# Exact immutable occurrences only; future findings remain scanned.
+59bc95d383f25c8a4bd644bdc15c100bd3a97760:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:23
+39f8ed28ddd901701899c9be325773450ace1e98:docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json:generic-api-key:11
+39f8ed28ddd901701899c9be325773450ace1e98:docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json:generic-api-key:12
