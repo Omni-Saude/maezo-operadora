@@ -17,6 +17,7 @@ from tests.unit.ci import test_live_suite_defaults_are_served as fence
 SOURCE = """
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.engine import URL
 from tests.support.provider_tls_pg import owned_tls_postgres
 pytestmark = pytest.mark.integration
 
@@ -176,7 +177,8 @@ def test_indirect_local_factory_tls_drift_is_not_hidden_by_context_usage(tmp_pat
         )
         + """
 def factory(port, context):
-    url = f"postgresql+asyncpg://unit:unit@127.0.0.1:{port}/postgres"
+    url = URL.create("postgresql+asyncpg", username="unit", password="unit",
+                     host="127.0.0.1", port=port, database="postgres")
     return create_async_engine(url, connect_args={"ssl": context})
 """
     )
@@ -184,6 +186,70 @@ def factory(port, context):
     assert not fence._suite_uses_owned_tls_fixture(
         candidate(tmp_path, source.replace('connect_args={"ssl": context}', 'connect_args={"ssl": False}'))
     )
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        'f"postgresql+asyncpg://unit:unit@external.invalid:5432/postgres@127.0.0.1:{pg.port}"',
+        'f"postgresql+asyncpg://unit@127.0.0.1:{pg.port}@external.invalid:5432/postgres"',
+        'f"postgresql+asyncpg://unit:unit@external.invalid:5432/postgres?next=@127.0.0.1:{pg.port}"',
+        'f"postgresql+asyncpg://unit:unit@external.invalid:5432/postgres#@127.0.0.1:{pg.port}"',
+        'f"rubbish-postgresql+asyncpg://unit:unit@127.0.0.1:{pg.port}/postgres"',
+        'f"postgresql+asyncpg://unit:unit@127.0.0.1:5432/postgres@127.0.0.1:{pg.port}"',
+        'f"postgresql+asyncpg://unit:unit@127.0.0.1:{pg.port}/postgres"',
+    ],
+)
+def test_interpolated_uri_markers_never_prove_host_or_published_port(tmp_path: Path, uri: str) -> None:
+    source = SOURCE.replace('pg.url_for("unit-role", "unit-password")', uri)
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        'pg.url_for("unit-role", "unit-password").set(None, None, None, "external.invalid", 5432)',
+        'pg.url_for("unit-role", "unit-password").set(drivername="sqlite")',
+        'pg.url_for("unit-role", "unit-password").set(query={"sslmode": "disable"})',
+        'pg.url_for("unit-role", "unit-password").set(query={"sslrootcert": "/foreign"})',
+        'pg.url_for("unit-role", "unit-password").set(**overrides)',
+        'pg.url_for("unit-role", "unit-password", host="external.invalid")',
+        'URL.create("mysql", host="127.0.0.1", port=pg.port, database="postgres")',
+        'URL.create("postgresql+asyncpg", host="127.0.0.1", port=5432, database="postgres")',
+        'URL.create("postgresql+asyncpg", host="external.invalid", port=pg.port, database="postgres")',
+    ],
+)
+def test_url_constructor_or_transform_cannot_switch_endpoint_or_tls_profile(
+    tmp_path: Path, expression: str
+) -> None:
+    source = SOURCE.replace('pg.url_for("unit-role", "unit-password")', expression)
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+def test_keyword_forwarding_cannot_hide_unsafe_local_network_factory(tmp_path: Path) -> None:
+    source = (
+        SOURCE.replace(
+            '        engine = create_async_engine(pg.url_for("unit-role", "unit-password"), '
+            'connect_args={"ssl": context})',
+            "        engine = factory(port=pg.port, context=context)",
+        )
+        + """
+def factory(*, port, context):
+    url = f"postgresql+asyncpg://unit:unit@external.invalid:5432/postgres@127.0.0.1:{port}"
+    return create_async_engine(url, connect_args={"ssl": context})
+"""
+    )
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+def test_url_constructor_name_cannot_be_supplied_by_unverified_module(tmp_path: Path) -> None:
+    source = SOURCE.replace(
+        'pg.url_for("unit-role", "unit-password")',
+        'URL.create("postgresql+asyncpg", host="127.0.0.1", port=pg.port, database="postgres")',
+    )
+    assert fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+    changed = source.replace("from sqlalchemy.engine import URL", "from tests.support.unverified import URL")
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, changed))
 
 
 def test_name_only_cannot_pardon_a_real_owned_fixture(monkeypatch: pytest.MonkeyPatch) -> None:

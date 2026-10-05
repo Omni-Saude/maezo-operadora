@@ -820,6 +820,7 @@ def _owned_transport_is_verified(
     if function.name in visited:
         return False
     tls, ports, urls = set(tls_inputs), set(port_inputs), set()
+    bindings = _module_scope_bindings(tree)
     assignments = [node for node in ast.walk(function) if isinstance(node, ast.Assign)]
 
     def attribute(value: ast.expr, name: str) -> bool:
@@ -841,10 +842,22 @@ def _owned_transport_is_verified(
             return value.id in urls
         if isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute):
             if ast.unparse(value.func) == "URL.create":
+                origin = bindings.get("URL", [])
+                if (
+                    len(origin) != 1
+                    or not isinstance(origin[0], ast.ImportFrom)
+                    or origin[0].module != "sqlalchemy.engine"
+                    or not any(alias.name == "URL" and alias.asname is None for alias in origin[0].names)
+                ):
+                    return False
                 keywords = {kw.arg: kw.value for kw in value.keywords}
                 host, port = keywords.get("host"), keywords.get("port")
                 return (
-                    host is not None
+                    len(value.args) == 1
+                    and isinstance(value.args[0], ast.Constant)
+                    and value.args[0].value in {"postgresql", "postgresql+asyncpg"}
+                    and set(keywords) <= {"username", "password", "host", "port", "database"}
+                    and host is not None
                     and port is not None
                     and port_value(port)
                     and (
@@ -858,23 +871,34 @@ def _owned_transport_is_verified(
                 and value.func.value.id == owned_object
                 and value.func.attr == "url_for"
             ):
-                return True
+                return len(value.args) == 2 and not value.keywords
             if value.func.attr in {"set", "render_as_string"} and url_value(value.func.value):
-                return not any(kw.arg in {"host", "port"} for kw in value.keywords)
+                if value.args:
+                    return False
+                keywords = {kw.arg: kw.value for kw in value.keywords}
+                if value.func.attr == "render_as_string":
+                    return set(keywords) <= {"hide_password"} and all(
+                        isinstance(arg, ast.Constant) and type(arg.value) is bool for arg in keywords.values()
+                    )
+                if not set(keywords) <= {"drivername", "username", "password", "database", "query"}:
+                    return False
+                driver, query = keywords.get("drivername"), keywords.get("query")
+                return (
+                    driver is None
+                    or isinstance(driver, ast.Constant)
+                    and driver.value in {"postgresql", "postgresql+asyncpg"}
+                ) and (query is None or isinstance(query, ast.Dict) and not query.keys)
         if (
             isinstance(value, ast.Call)
             and isinstance(value.func, ast.Name)
             and value.func.id in {"str", "make_url"}
             and len(value.args) == 1
+            and not value.keywords
         ):
             return url_value(value.args[0])
-        if isinstance(value, ast.JoinedStr):
-            text = "".join(
-                v.value for v in value.values if isinstance(v, ast.Constant) and isinstance(v.value, str)
-            )
-            return "@127.0.0.1:" in text and any(
-                isinstance(v, ast.FormattedValue) and port_value(v.value) for v in value.values
-            )
+        # String interpolation cannot prove URL authority: @/host markers in
+        # userinfo, path, query or fragment need not describe the actual host.
+        # Use encoded SQLAlchemy URL constructors over inspected host/port.
         return False
 
     for _ in range(len(assignments) + 1):
@@ -916,7 +940,33 @@ def _owned_transport_is_verified(
         ]
         if len(stores) > 1:
             return False
-    bindings = _module_scope_bindings(tree)
+    network_factories = {
+        name
+        for name, declarations in bindings.items()
+        if len(declarations) == 1
+        and isinstance(declarations[0], (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any(
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func) in {"asyncpg.connect", "create_async_engine"}
+            for node in ast.walk(declarations[0])
+        )
+    }
+    for _ in range(len(bindings)):
+        previous = set(network_factories)
+        network_factories |= {
+            name
+            for name, declarations in bindings.items()
+            if len(declarations) == 1
+            and isinstance(declarations[0], (ast.FunctionDef, ast.AsyncFunctionDef))
+            and any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in network_factories
+                for node in ast.walk(declarations[0])
+            )
+        }
+        if network_factories == previous:
+            break
     for call in (node for node in ast.walk(function) if isinstance(node, ast.Call)):
         target = ast.unparse(call.func)
         keywords = {kw.arg: kw.value for kw in call.keywords}
@@ -956,9 +1006,17 @@ def _owned_transport_is_verified(
             if isinstance(local, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 parameters = [*local.args.posonlyargs, *local.args.args]
                 pairs = list(zip(parameters, call.args, strict=False))
+                pairs.extend(
+                    (parameter, keyword.value)
+                    for keyword in call.keywords
+                    for parameter in [*parameters, *local.args.kwonlyargs]
+                    if keyword.arg == parameter.arg
+                )
                 local_tls = frozenset(parameter.arg for parameter, value in pairs if tls_value(value))
                 local_ports = frozenset(parameter.arg for parameter, value in pairs if port_value(value))
-                if (local_tls or local_ports) and not _owned_transport_is_verified(
+                if (
+                    local_tls or local_ports or call.func.id in network_factories
+                ) and not _owned_transport_is_verified(
                     tree,
                     local,
                     tls_inputs=local_tls,
