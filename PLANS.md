@@ -1149,7 +1149,6 @@ Admission custódia PASS parcial; original checkers SOURCE_DRIFT em cinco arquiv
 Pacote `DUR1-JOURNAL-COMPONENT`: journal PostgreSQL default-disabled, migration0018 e inventário estrutural34relações com todas decisõesDPOpendentes. Gates independentes PG28+12, UNIT40 e lifecycle135 PASS; nine existing wamid PASS e um outboxhumano SKIP local dependem do engine hosted. Public projection docs/gates/v21-durability-successor-20261005/journal-qualification.json; draft/source custody/CI separados, sem merge futuro autorizado. DUR2/3 source e runtime seguem WIP separado no checkout, não incluídos automaticamente neste pacote. ROOT preserva inputs e pins até publicação/CI/gates frescos.
 
 
-<<<<<<< HEAD
 ### DUR2/DUR3 autor e runtime — contrato admitido, implementação em curso
 
 Novo branch `codex/v21-journey-effect-boundary-20261005`, baseado no incremento journal `a6059c39f58b1601c99947ad76bf88bbe96b4646` (dependência técnica explícita, ainda não em main). Quatro contratos R5 admitidos pelo verifieroriginal próprio em876de480; hashes818a4663/526e76a4/62ac7e3b/5bc851ad compostos. Source authorjourney_gateway_author e childnative_domain_boundary_author em write sets exclusivos; ROOTadmission/service serial. RuntimeR2 contract gate34b6052f admitido, runtime_composition_specialist tem somente runtime.py+doistestes; registry/ingress/resume ficam ROOTserial, sem ativar novos memberships/canais.
@@ -1160,7 +1159,6 @@ Journal21paths source/component+schema+pendingprivacy commitados separadamente; 
 ### Source e runtime qualificados para composição técnica
 
 DUR2/DUR3 fonte UNIT277 e delta68af0733; Runtime ROOT+bindings/currentness589UNIT e delta1ddf7f8c, originaisREVISE/copypoisons preservados. Defaults off; canais/memberships/owners/receipts operacionais não admitidos. Source congelado será checkpointado e composto com journal PR644 C5 (`c5d9cb79`): CI37269454216 source/testPASS26.190UNIT+807integrações/40PG, CODEOWNERheadapproval pending. Composição ROOT, exact dependency refresh e PG22/runtime ainda pendentes; nenhum merge emmain autorizado. Evidência privada v21-dur-successor-20261005; todoWIP/pins retido até publicação/CI/gates finais.
-=======
 ### DUR1 SEC-DUR1-F01 — rejeição preservada e reparo qualificado
 
 a6059c39 não publicado: gate segurança4f578c88 REVISE por autorização de dados antes de await posterior ao commit. Terceiro postgres_race_author reparou somentepostgres.py+unitboundary: source4a94e672/test71211b18, freeze3abf829d. Deltaoriginal segurança d9d9ff06 PASS_CODE_ONLY; PGverifier369ba56e novo45UNIT+40PG e cinco controles reais PASS, zero skips. Metadados negados após revogação sem apagar commit/fence; limites de fonte rechecados sincronamente depois do últimoawait. SQL AST/schema/migration unchanged demonstra reuse limitado do gate mínimo de roles, source gate antigo não promovido.
@@ -1171,4 +1169,3 @@ Worktree próprio gerenciado dur1-journal-security-repair, branchjournal, owner 
 ### PR644 primeiro CI e reparo estrutural
 
 PR644 draft/anexado em8176317d, CI37266143835 terminalFAIL:26188PASS/132SKIP/5XFAIL/2FAIL,0error/duplicate,24ZIPdigests verificados e625files rehashados. Integrações não executadas; sourcePGlocal não promovido aCI. Failures: DPO ScopeB omitiasix newrelations ePortalchain esperava0017. Terceiros independentes repararam docf870/test622fc/portal8a08; gate segurançaaf51+chain6596, DPO21+portal1+erasure19/chain64 PASS. Não houve alteração de journal/sourceSQL/schema ou humanretention/signatures. Rootatualiza projeção/ledger semduplicar evento; novoCI automático exigido no próximoHEAD. Flipgate exige CODEOWNERqualifiedapproval noheadexato (autor não selfapprove); nenhuma solicitação a terceiros, aprovação ou merge inventados.
->>>>>>> codex/v21-durability-successor-20261005
