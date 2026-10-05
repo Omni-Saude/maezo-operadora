@@ -27,6 +27,13 @@ satisfied by a comment. It also pins the `MAEZO_PG_HOST_PORT` override every sui
 the one CI's `integration` and `chaos` jobs pin to 5432 — so a future CI job that adds the Postgres
 service does not have to special-case any file.
 
+Self-provisioned TLS suites have a separate infrastructure-bearing contract: an
+actual repository helper creates its own uniquely labelled container, derives the
+loopback port from Docker inspect, verifies temporary-certificate TLS and tears
+down only that owned identity. Recognition checks helper provenance and behavior,
+fixture/context lifetime and transport dataflow; it is not a NAME_ONLY exception
+or a dummy compose resolver. Static UNIT checks do not prove a live PG execution.
+
 Note what this fence deliberately does NOT assert: that the suites are COLLECTED by a CI lane. On
 `main` @ 2e46145 the seven `tests/unit/**/*_live_pg.py` suites are collected only by the `quality`
 job (`uv run pytest tests/ -q --cov...`, no marker filter — so they are collected and skipped, 649
@@ -63,6 +70,10 @@ _COMPOSE: Final[Path] = _REPO_ROOT / "docker-compose.yml"
 #: explicitly_excluded` instead of quietly escaping the fence.
 _PG_RESOLVER_NAMES: Final[tuple[str, ...]] = ("_default_test_dsn", "_pg_dsn", "_audit_dsn", "_dsn")
 _KAFKA_RESOLVER_NAME: Final[str] = "_kafka_bootstrap_servers"
+
+_OWNED_TLS_HELPER: Final[str] = "tests.support.provider_tls_pg"
+_OWNED_TLS_CONTEXT: Final[str] = "owned_tls_postgres"
+_OWNED_TLS_VERSION: Final[str] = "provider-self-provisioned-tls-postgres.v1"
 
 
 @dataclass(frozen=True)
@@ -548,6 +559,611 @@ def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract)
 # ---------------------------------------------------------------------------
 
 
+def _module_path(module: str) -> Path | None:
+    """Only repository test modules can provide a fixture dependency."""
+    if not module.startswith("tests.") or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", module):
+        return None
+    path = _REPO_ROOT.joinpath(*module.split(".")).with_suffix(".py")
+    return path if path.is_file() and path.resolve().is_relative_to(_TESTS_ROOT.resolve()) else None
+
+
+def _claims_owned_tls_fixture(path: Path, visited: frozenset[Path] = frozenset()) -> bool:
+    if path in visited:
+        return False
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom) or node.level:
+            continue
+        if node.module == _OWNED_TLS_HELPER:
+            return True
+        if node.module and node.module.startswith(("tests.integration.", "tests.support.")):
+            target = _module_path(node.module)
+            if target is not None and _claims_owned_tls_fixture(target, visited | {path}):
+                return True
+    return False
+
+
+def _calls(tree: ast.AST, name: str) -> list[ast.Call]:
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
+    ]
+
+
+def _owned_helper_contract_is_verified() -> bool:
+    """Check real helper provenance and bootstrap/inspect/TLS/cleanup wiring.
+
+    This reads AST and invokes ONLY the pure inspect validators. It never starts
+    Docker/PG, and cannot establish that a live run actually served PostgreSQL.
+    """
+    path = _module_path(_OWNED_TLS_HELPER)
+    if path is None:
+        return False
+    module = importlib.import_module(_OWNED_TLS_HELPER)
+    if (
+        Path(module.__file__).resolve() != path.resolve()
+        or getattr(module, "SELF_PROVISIONED_TLS_PG_CONTRACT_VERSION", None) != _OWNED_TLS_VERSION
+    ):
+        return False
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    bindings = _module_scope_bindings(tree)
+    names = (
+        _OWNED_TLS_CONTEXT,
+        "_inspect",
+        "server_certificate",
+        "validate_inspected_container",
+        "validate_container_identity",
+        "OwnedTlsPostgres",
+        "PublishedPostgres",
+    )
+    if any(len(bindings.get(name, [])) != 1 for name in names):
+        return False
+    if any(getattr(getattr(module, name, None), "__module__", None) != _OWNED_TLS_HELPER for name in names):
+        return False
+    fixture = bindings[_OWNED_TLS_CONTEXT][0]
+    if (
+        not isinstance(fixture, ast.AsyncFunctionDef)
+        or len(fixture.decorator_list) != 1
+        or not isinstance(fixture.decorator_list[0], ast.Name)
+        or fixture.decorator_list[0].id != "asynccontextmanager"
+    ):
+        return False
+    direct = [
+        call for call in _calls(fixture, "docker") if call.args and isinstance(call.args[0], ast.Constant)
+    ]
+    actions = [call.args[0].value for call in direct]
+    if actions != ["create", "cp", "cp", "start", "rm"]:
+        return False
+    create = direct[0]
+    literals = {arg.value for arg in create.args if isinstance(arg, ast.Constant)}
+    if not {
+        "--name",
+        "--label",
+        "--env-file",
+        "--publish",
+        "127.0.0.1::5432",
+    } <= literals or literals.intersection({"--volume", "--env", "-e", "-v"}):
+        return False
+    validate = _calls(fixture, "validate_inspected_container")
+    ownership = _calls(fixture, "validate_container_identity")
+    if len(validate) != 1 or len(ownership) != 1:
+        return False
+    for call in [*validate, *ownership]:
+        if (
+            len(call.args) != 1
+            or ast.unparse(call.args[0]) != "_inspect(name)"
+            or {kw.arg: ast.unparse(kw.value) for kw in call.keywords}
+            != {"expected_name": "name", "expected_owner": "owner", "expected_token": "token"}
+        ):
+            return False
+    inspect = bindings["_inspect"][0]
+    if not isinstance(inspect, ast.FunctionDef) or not any(
+        ast.unparse(call) == "docker('inspect', name)" for call in _calls(inspect, "docker")
+    ):
+        return False
+    lifecycle = next((node for node in fixture.body if isinstance(node, ast.Try)), None)
+    if (
+        lifecycle is None
+        or not lifecycle.finalbody
+        or ownership[0] not in [node for statement in lifecycle.finalbody for node in ast.walk(statement)]
+    ):
+        return False
+    removals = direct[-1]
+    if [ast.unparse(arg) for arg in removals.args] != ["'rm'", "'--force'", "own_id"]:
+        return False
+    if not any(
+        isinstance(node, ast.Assign)
+        and [ast.unparse(t) for t in node.targets] == ["own_id"]
+        and node.value is ownership[0]
+        for node in ast.walk(fixture)
+    ):
+        return False
+    if any(
+        len(
+            [
+                node
+                for node in ast.walk(fixture)
+                if isinstance(node, ast.Name)
+                and isinstance(node.ctx, (ast.Store, ast.Del))
+                and node.id == name
+            ]
+        )
+        != 1
+        for name in ("own_id", "published", "name", "token", "context")
+    ):
+        return False
+    connection = [
+        node
+        for node in ast.walk(fixture)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == "asyncpg.connect"
+    ]
+    if len(connection) != 1:
+        return False
+    keywords = {kw.arg: ast.unparse(kw.value) for kw in connection[0].keywords}
+    if any(
+        keywords.get(key) != value
+        for key, value in {"host": "published.host", "port": "published.port", "ssl": "context"}.items()
+    ):
+        return False
+    certificate = bindings["server_certificate"][0]
+    if not isinstance(certificate, ast.FunctionDef) or not any(
+        isinstance(node, ast.Call)
+        and ast.unparse(node) == "ssl.create_default_context(cafile=str(certificate_path))"
+        for node in ast.walk(certificate)
+    ):
+        return False
+    if not any(
+        isinstance(node, ast.Assign)
+        and ast.unparse(node.value) == "server_certificate(files)"
+        and [ast.unparse(t) for t in node.targets] == ["context"]
+        for node in ast.walk(fixture)
+    ):
+        return False
+    if not any(
+        isinstance(node, ast.Yield)
+        and isinstance(node.value, ast.Call)
+        and ast.unparse(node.value)
+        == "OwnedTlsPostgres(published, files / 'server.crt', context, password, admin)"
+        for node in ast.walk(lifecycle)
+    ):
+        return False
+    # Missing source TLS flags cannot be justified by a matching inspect label.
+    if module._START_COMMAND != (
+        "chown postgres:postgres /tmp/server.key /tmp/server.crt; chmod 600 /tmp/server.key; "
+        "exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/server.crt "
+        "-c ssl_key_file=/tmp/server.key"
+    ):
+        return False
+    return _pure_owned_inspect_contract(module)
+
+
+def _pure_owned_inspect_contract(module: ModuleType) -> bool:
+    """Finite descriptor counterexamples; synthetic UNIT JSON, never Docker evidence."""
+    token, owner = "a" * 32, "unit-owned-fixture"
+    name = module.CONTAINER_NAME_PREFIX + token
+    inspected = {
+        "Id": "b" * 64,
+        "Name": "/" + name,
+        "State": {"Running": True},
+        "Config": {
+            "Image": "postgres:16",
+            "Cmd": ["bash", "-ceu", module._START_COMMAND],
+            "Labels": {
+                module.OWNER_LABEL: owner,
+                module.TOKEN_LABEL: token,
+                module.CONTRACT_LABEL: _OWNED_TLS_VERSION,
+                "maezo.test-only": owner,
+            },
+        },
+        "NetworkSettings": {"Ports": {"5432/tcp": [{"HostIp": "127.0.0.1", "HostPort": "55441"}]}},
+    }
+    expected = {"expected_name": name, "expected_owner": owner, "expected_token": token}
+    try:
+        published = module.validate_inspected_container(inspected, **expected)
+        if type(published) is not module.PublishedPostgres or (
+            published.host,
+            published.port,
+            published.container_id,
+            published.owner,
+            published.token,
+            published.name,
+            published.image,
+        ) != ("127.0.0.1", 55441, "b" * 64, owner, token, name, "postgres:16"):
+            return False
+        mutations = (
+            ("Id", "wrong"),
+            ("Name", "/foreign"),
+            ("State.Running", False),
+            ("Config.Image", "postgres:15"),
+            ("Config.Cmd", ["postgres", "-c", "ssl=off"]),
+            (f"Config.Labels.{module.OWNER_LABEL}", "foreign"),
+            (f"Config.Labels.{module.TOKEN_LABEL}", "foreign"),
+            (f"Config.Labels.{module.CONTRACT_LABEL}", "wrong"),
+            ("NetworkSettings.Ports", {}),
+            ("NetworkSettings.Ports", {"5432/tcp": [{"HostIp": "0.0.0.0", "HostPort": "55441"}]}),
+            ("NetworkSettings.Ports", {"5432/tcp": [{"HostIp": "127.0.0.1", "HostPort": "0"}]}),
+            ("NetworkSettings.Ports", {"5432/tcp": [{"HostIp": "127.0.0.1", "HostPort": "55441"}] * 2}),
+        )
+        for key, value in mutations:
+            altered = json.loads(json.dumps(inspected))
+            if key.startswith("Config.Labels."):
+                altered["Config"]["Labels"][key[len("Config.Labels.") :]] = value
+            else:
+                parts = key.split(".")
+                target = altered
+                for part in parts[:-1]:
+                    target = target[part]
+                target[parts[-1]] = value
+            try:
+                module.validate_inspected_container(altered, **expected)
+            except module.FixtureProvenanceError:
+                continue
+            return False
+        stopped = json.loads(json.dumps(inspected))
+        stopped["State"]["Running"] = False
+        return module.validate_container_identity(stopped, **expected) == "b" * 64
+    except (AttributeError, TypeError, KeyError, ValueError, module.FixtureProvenanceError):
+        return False
+
+
+def _owned_transport_is_verified(
+    tree: ast.Module,
+    function: ast.AsyncFunctionDef | ast.FunctionDef,
+    *,
+    owned_object: str | None = None,
+    tls_inputs: frozenset[str] = frozenset(),
+    port_inputs: frozenset[str] = frozenset(),
+    visited: frozenset[str] = frozenset(),
+) -> bool:
+    """Finite dataflow for visible asyncpg/SQLAlchemy clients and local factories."""
+    if function.name in visited:
+        return False
+    tls, ports, urls = set(tls_inputs), set(port_inputs), set()
+    assignments = [node for node in ast.walk(function) if isinstance(node, ast.Assign)]
+
+    def attribute(value: ast.expr, name: str) -> bool:
+        return (
+            isinstance(value, ast.Attribute)
+            and isinstance(value.value, ast.Name)
+            and value.value.id == owned_object
+            and value.attr == name
+        )
+
+    def tls_value(value: ast.expr) -> bool:
+        return attribute(value, "tls_context") or isinstance(value, ast.Name) and value.id in tls
+
+    def port_value(value: ast.expr) -> bool:
+        return attribute(value, "port") or isinstance(value, ast.Name) and value.id in ports
+
+    def url_value(value: ast.expr) -> bool:
+        if isinstance(value, ast.Name):
+            return value.id in urls
+        if isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute):
+            if ast.unparse(value.func) == "URL.create":
+                keywords = {kw.arg: kw.value for kw in value.keywords}
+                host, port = keywords.get("host"), keywords.get("port")
+                return (
+                    host is not None
+                    and port is not None
+                    and port_value(port)
+                    and (
+                        attribute(host, "host")
+                        or isinstance(host, ast.Constant)
+                        and host.value == "127.0.0.1"
+                    )
+                )
+            if (
+                isinstance(value.func.value, ast.Name)
+                and value.func.value.id == owned_object
+                and value.func.attr == "url_for"
+            ):
+                return True
+            if value.func.attr in {"set", "render_as_string"} and url_value(value.func.value):
+                return not any(kw.arg in {"host", "port"} for kw in value.keywords)
+        if (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id in {"str", "make_url"}
+            and len(value.args) == 1
+        ):
+            return url_value(value.args[0])
+        if isinstance(value, ast.JoinedStr):
+            text = "".join(
+                v.value for v in value.values if isinstance(v, ast.Constant) and isinstance(v.value, str)
+            )
+            return "@127.0.0.1:" in text and any(
+                isinstance(v, ast.FormattedValue) and port_value(v.value) for v in value.values
+            )
+        return False
+
+    for _ in range(len(assignments) + 1):
+        changed = False
+        for assignment in assignments:
+            pairs: list[tuple[ast.expr, ast.expr]] = []
+            for target in assignment.targets:
+                if (
+                    isinstance(target, (ast.Tuple, ast.List))
+                    and isinstance(assignment.value, (ast.Tuple, ast.List))
+                    and len(target.elts) == len(assignment.value.elts)
+                ):
+                    pairs.extend(zip(target.elts, assignment.value.elts, strict=True))
+                else:
+                    pairs.append((target, assignment.value))
+            for target, value in pairs:
+                if not isinstance(target, ast.Name):
+                    continue
+                for names, predicate in ((tls, tls_value), (ports, port_value), (urls, url_value)):
+                    if target.id not in names and predicate(value):
+                        names.add(target.id)
+                        changed = True
+        if not changed:
+            break
+    protected = tls | ports | urls | ({owned_object} if owned_object else set())
+    if any(
+        isinstance(node, ast.Attribute)
+        and isinstance(node.ctx, (ast.Store, ast.Del))
+        and isinstance(node.value, ast.Name)
+        and node.value.id in tls | ({owned_object} if owned_object else set())
+        for node in ast.walk(function)
+    ):
+        return False
+    for name in protected:
+        stores = [
+            n
+            for n in ast.walk(function)
+            if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)) and n.id == name
+        ]
+        if len(stores) > 1:
+            return False
+    bindings = _module_scope_bindings(tree)
+    for call in (node for node in ast.walk(function) if isinstance(node, ast.Call)):
+        target = ast.unparse(call.func)
+        keywords = {kw.arg: kw.value for kw in call.keywords}
+        if target == "asyncpg.connect":
+            ssl_arg = keywords.get("ssl")
+            if ssl_arg is None or not tls_value(ssl_arg):
+                return False
+            if call.args:
+                if not url_value(call.args[0]):
+                    return False
+            else:
+                host, port = keywords.get("host"), keywords.get("port")
+                if (
+                    host is None
+                    or port is None
+                    or not port_value(port)
+                    or not (
+                        attribute(host, "host")
+                        or isinstance(host, ast.Constant)
+                        and host.value == "127.0.0.1"
+                    )
+                ):
+                    return False
+        if target == "create_async_engine":
+            connect_args = keywords.get("connect_args")
+            if not call.args or not url_value(call.args[0]) or not isinstance(connect_args, ast.Dict):
+                return False
+            ssl_values = [
+                value
+                for key, value in zip(connect_args.keys, connect_args.values, strict=True)
+                if isinstance(key, ast.Constant) and key.value == "ssl"
+            ]
+            if len(ssl_values) != 1 or not tls_value(ssl_values[0]):
+                return False
+        if isinstance(call.func, ast.Name) and len(bindings.get(call.func.id, [])) == 1:
+            local = bindings[call.func.id][0]
+            if isinstance(local, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                parameters = [*local.args.posonlyargs, *local.args.args]
+                pairs = list(zip(parameters, call.args, strict=False))
+                local_tls = frozenset(parameter.arg for parameter, value in pairs if tls_value(value))
+                local_ports = frozenset(parameter.arg for parameter, value in pairs if port_value(value))
+                if (local_tls or local_ports) and not _owned_transport_is_verified(
+                    tree,
+                    local,
+                    tls_inputs=local_tls,
+                    port_inputs=local_ports,
+                    visited=visited | {function.name},
+                ):
+                    return False
+    return True
+
+
+def _fixture_uses_owned_tls(path: Path, name: str, seen: frozenset[tuple[Path, str]] = frozenset()) -> bool:
+    if (path, name) in seen:
+        return False
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    bindings = _module_scope_bindings(tree)
+    declarations = bindings.get(name, [])
+    if len(declarations) != 1:
+        return False
+    node = declarations[0]
+    if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+        if not any(alias.name == name and alias.asname is None for alias in node.names):
+            return False
+        target = _module_path(node.module)
+        return target is not None and _fixture_uses_owned_tls(target, name, seen | {(path, name)})
+    if not isinstance(node, ast.AsyncFunctionDef) or _fixture_registration_name(node) != name:
+        return False
+    imports = [
+        item
+        for item in tree.body
+        if isinstance(item, ast.ImportFrom)
+        and item.level == 0
+        and item.module == _OWNED_TLS_HELPER
+        and any(alias.name == _OWNED_TLS_CONTEXT and alias.asname is None for alias in item.names)
+    ]
+    contexts = [
+        item
+        for item in ast.walk(node)
+        if isinstance(item, ast.AsyncWith)
+        and len(item.items) == 1
+        and isinstance(item.items[0].context_expr, ast.Call)
+        and isinstance(item.items[0].context_expr.func, ast.Name)
+        and item.items[0].context_expr.func.id == _OWNED_TLS_CONTEXT
+    ]
+    if contexts:
+        if len(imports) != 1 or bindings.get(_OWNED_TLS_CONTEXT) != imports or len(contexts) != 1:
+            return False
+        context = contexts[0]
+        statements = [
+            statement
+            for statement in node.body
+            if not (
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Constant)
+                and isinstance(statement.value.value, str)
+            )
+        ]
+        if statements != [context] or any(
+            isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and item is not node
+            for item in ast.walk(node)
+        ):
+            return False
+        call, variable = context.items[0].context_expr, context.items[0].optional_vars
+        if (
+            len(call.args) != 1
+            or ast.unparse(call.args[0]) != "tmp_path"
+            or len(call.keywords) != 1
+            or call.keywords[0].arg != "owner"
+            or not isinstance(call.keywords[0].value, ast.Constant)
+            or not isinstance(call.keywords[0].value.value, str)
+            or re.fullmatch(r"[a-z][a-z0-9-]{1,60}", call.keywords[0].value.value) is None
+            or not isinstance(variable, ast.Name)
+        ):
+            return False
+        all_yields = [item for item in ast.walk(node) if isinstance(item, ast.Yield)]
+        with_yields = [
+            item for statement in context.body for item in ast.walk(statement) if isinstance(item, ast.Yield)
+        ]
+        if not all_yields or all_yields != with_yields:
+            return False
+        attributes = {
+            item.attr
+            for item in ast.walk(context)
+            if isinstance(item, ast.Attribute)
+            and isinstance(item.value, ast.Name)
+            and item.value.id == variable.id
+        }
+        if not {"admin", "tls_context"} <= attributes or not attributes.intersection({"port", "url_for"}):
+            return False
+        if any(
+            isinstance(item, ast.Name)
+            and isinstance(item.ctx, (ast.Store, ast.Del))
+            and item.id in {_OWNED_TLS_CONTEXT, "pytest"}
+            for item in ast.walk(node)
+        ):
+            return False
+        # A context helper cannot coexist with an environment DSN or another Docker bootstrap.
+        if any(
+            isinstance(item, ast.Call)
+            and (ast.unparse(item.func) in {"os.getenv", "os.environ.get", "docker", "subprocess.run"})
+            for item in ast.walk(node)
+        ):
+            return False
+        return _owned_transport_is_verified(tree, node, owned_object=variable.id)
+    # Imported/local pytest fixture dependencies must really be requested AND used.
+    for argument in [*node.args.posonlyargs, *node.args.args]:
+        if (
+            argument.arg != "tmp_path"
+            and any(
+                isinstance(item, ast.Name) and isinstance(item.ctx, ast.Load) and item.id == argument.arg
+                for statement in node.body
+                for item in ast.walk(statement)
+            )
+            and _fixture_uses_owned_tls(path, argument.arg, seen | {(path, name)})
+            and not any(
+                isinstance(item, ast.Name)
+                and isinstance(item.ctx, (ast.Store, ast.Del))
+                and item.id == argument.arg
+                for statement in node.body
+                for item in ast.walk(statement)
+            )
+        ):
+            return True
+    return False
+
+
+def _owned_fixture_dependencies(
+    path: Path, name: str, seen: frozenset[tuple[Path, str]] = frozenset()
+) -> set[str]:
+    """Names pytest can override, including a fixture's transitive dependencies."""
+    if (path, name) in seen:
+        return set()
+    declarations = _module_scope_bindings(ast.parse(path.read_text(encoding="utf-8"))).get(name, [])
+    if len(declarations) != 1:
+        return set()
+    node = declarations[0]
+    if isinstance(node, ast.ImportFrom) and node.module:
+        target = _module_path(node.module)
+        return {name} | (
+            _owned_fixture_dependencies(target, name, seen | {(path, name)}) if target else set()
+        )
+    if isinstance(node, ast.AsyncFunctionDef):
+        result = {name}
+        for argument in [*node.args.posonlyargs, *node.args.args]:
+            if argument.arg == "tmp_path":
+                result.add("tmp_path")
+            elif _fixture_uses_owned_tls(path, argument.arg):
+                result |= _owned_fixture_dependencies(path, argument.arg, seen | {(path, name)})
+        return result
+    return set()
+
+
+def _suite_uses_owned_tls_fixture(path: Path) -> bool:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    pytest_bindings = _module_scope_bindings(tree).get("pytest", [])
+    if (
+        len(pytest_bindings) != 1
+        or not isinstance(pytest_bindings[0], ast.Import)
+        or not any(alias.name == "pytest" and alias.asname is None for alias in pytest_bindings[0].names)
+    ):
+        return False
+    if any(name in _module_scope_bindings(tree) for name in _PG_RESOLVER_NAMES):
+        return False
+    marks = [
+        node.value
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets)
+    ]
+    mark_items = [
+        item for mark in marks for item in (mark.elts if isinstance(mark, (ast.List, ast.Tuple)) else [mark])
+    ]
+    if len(marks) != 1 or not any(_is_pytest_mark(item, "integration") for item in mark_items):
+        return False
+    tests = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
+    ]
+    if not tests:
+        return False
+    for test in tests:
+        fixtures = [
+            arg.arg
+            for arg in [*test.args.posonlyargs, *test.args.args]
+            if _fixture_uses_owned_tls(path, arg.arg)
+        ]
+        protected = set().union(*(_owned_fixture_dependencies(path, fixture) for fixture in fixtures))
+        if (
+            not fixtures
+            or not all(
+                _supported_test_decorator(decorator, fixture)
+                for fixture in protected
+                for decorator in test.decorator_list
+            )
+            or not all(_supported_module_mark(mark, fixture) for fixture in protected for mark in mark_items)
+        ):
+            return False
+        if any(
+            isinstance(item, ast.Name) and isinstance(item.ctx, (ast.Store, ast.Del)) and item.id in fixtures
+            for item in ast.walk(test)
+        ):
+            return False
+    return _owned_helper_contract_is_verified()
+
+
 def _compose() -> dict[str, Any]:
     data: dict[str, Any] = yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))
     return data
@@ -607,8 +1223,8 @@ def _expected_default_dsn() -> str:
 
 def test_every_live_suite_exposes_a_resolver_or_is_explicitly_excluded() -> None:
     """No live suite may be outside this fence by accident. A module either resolves a Postgres
-    DSN, resolves a Kafka bootstrap, loads a verified explicit fixture, or appears in `_NAME_ONLY`
-    with a written reason. Explicit fixtures are infrastructure-bearing, not exclusions."""
+    DSN, resolves a Kafka bootstrap, loads a verified explicit/owned fixture, or appears in
+    `_NAME_ONLY` with a written reason. Owned fixtures require their real bootstrap graph."""
     unclassified: list[str] = []
     for path in _iter_live_suites():
         rel = str(path.relative_to(_REPO_ROOT))
@@ -616,6 +1232,16 @@ def test_every_live_suite_exposes_a_resolver_or_is_explicitly_excluded() -> None
         has_pg = _resolver(module, _PG_RESOLVER_NAMES) is not None
         has_kafka = _resolver(module, (_KAFKA_RESOLVER_NAME,)) is not None
         explicit = _EXPLICIT_FIXTURES.get(rel)
+        owned = _claims_owned_tls_fixture(path)
+        if owned:
+            assert not explicit and rel not in _NAME_ONLY and not has_pg and not has_kafka, (
+                f"{rel} claims owned TLS infrastructure; no name-only, private-fixture "
+                "or dummy resolver bypass"
+            )
+            assert _suite_uses_owned_tls_fixture(path), (
+                f"{rel} does not prove real repository-owned TLS fixture usage/transport/provenance"
+            )
+            continue
         assert not (explicit and rel in _NAME_ONLY), (
             f"{rel} cannot be both an infrastructure-bearing explicit fixture and NAME_ONLY"
         )
