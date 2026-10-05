@@ -1097,3 +1097,10 @@ terraform validate      # todos os módulos
 | `ops-cloud-provisioning` | M10 |
 | `ops-observability` | M11 |
 | `performance-monitor` | M11, M13 |
+
+
+## 2026-10-04 — Implementação prestador (Codex, em execução)
+
+Autorizada execução de `maezo-provider-implementation-pickup-prompt-v2.md` com análise/decisão delegada, especialistas e revisão independente. Bundle prestador cc7f4248 teve admissão independente PASS; V2 histórico íntegro mas admissão atual FAIL_SOURCE_DRIFT (Helena/DL-0071). A revisão de execução fora dos bundles congelados aguarda dois gates independentes. Não há fonte/ativação fictícia nem pacote funcional encerrado.
+
+Evidência privada própria sob custódia em ROOT `docs/audits/PROVIDER-IMPL-2026-10/20261005T024404Z/`; fontes assinadas somente leitura. ROOT preserva WIP anterior; implementação nesta branch isolada `codex/provider-implementation`, baseline cbf630bc. Núcleo PR #633 /9680e5db é dependência técnica candidata desabilitada sob verificação, não PW5 concluído. Protocolos PW0, desenhos PW1/PW2 e mapeamentos PW3/PW4 em andamento; engine/full-unit serial por ROOT.
