@@ -49,3 +49,11 @@ Função source-owner recusa NULL/empty em todos argumentos críticos antes de p
 Engine echo/hide_parameters é verificado antes de conexão e novamente no record/qualifier. Transação finita usa boundary existente external_cases.postgres.transaction: commit/rollback/invalidation aguardados, parâmetro privado não logado e resultado só retorna após commit reconhecido. Nenhum driver payload/cause vira texto público.
 
 Fixture live mudou para PostgreSQL16 TestOnly próprio TLS verificado, loopback random port/roles isolados, teardown somente container próprio; reusa helpers TestOnly de D1, nunca serviço/credencial/fonte real. Zero skip/xfail/fallback. Autoria executa apenas unit/lint/type/collection; ROOT executa lane real. Grants/atos sintéticos da fixture não provam mandato/profissional/produção. Freeze/red-green/hashes em evidence/pw1-b-third-repair; pareceres e relatório originais permanecem preservados.
+
+## Addendum de reparo terceiro rev2 — delta original-author R01/R02
+
+A qualificação passa a consultar `rolcanlogin`: owner deve ser NOLOGIN, conforme o contrato original, e writer deve ser LOGIN inclusive nas sessões já abertas. Não se inventa veto de publisher LOGIN: esse modo depende da composição/source contract explicitamente qualificada e este delta não o admite nem o rejeita por suposição.
+
+ACL de schema agora recusa `is_grantable` para qualquer grantee não owner; writer/publisher mantêm USAGE sem GRANT OPTION. Owner conserva os direitos inerentes à instalação. A regra de zero membership já recusa também vínculos com ADMIN OPTION; nenhum privilégio de delegação é ampliado. Matriz de relação/função/coluna da revisão anterior permanece intacta.
+
+RED unit de metadata consultada pelo qualifier original83 foi preservado; controles PG próprios acrescentam ALTER ROLE owner LOGIN, writer NOLOGIN em sessão existente, USAGE WITH GRANT OPTION e role ADMIN OPTION. Metadata unit não é DB/fonte/mandato de produção. Execução real continua na lane ROOT; fontes/pareceres/freeze/report83 permanecem preservados em evidência anterior e esta rev2 possui custody própria.

@@ -122,6 +122,8 @@ class PostgresProviderMembershipAdministration:
             EXISTS(SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a
                 WHERE a.grantee=0 OR (a.grantee<>n.nspowner AND a.grantee NOT IN
                 (SELECT oid FROM pg_roles WHERE rolname IN (:writer,:publisher)))) AS extra_acl,
+            EXISTS(SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a
+                WHERE a.grantee<>n.nspowner AND a.is_grantable) AS grant_options,
             has_schema_privilege(:writer,n.oid,'CREATE') AS writer_create,
             has_schema_privilege(:publisher,n.oid,'CREATE') AS publisher_create,
             has_schema_privilege(:writer,n.oid,'USAGE') AS writer_usage,
@@ -139,6 +141,7 @@ class PostgresProviderMembershipAdministration:
         require(
             (schema["oid"], schema["owner"]) == (d.schema_oid, d.owner_role)
             and not schema["extra_acl"]
+            and not schema["grant_options"]
             and not schema["writer_create"]
             and not schema["publisher_create"]
             and schema["writer_usage"]
@@ -150,7 +153,7 @@ class PostgresProviderMembershipAdministration:
                 (
                     await db.execute(
                         text("""
-                SELECT rolsuper,rolcreaterole,rolcreatedb,rolbypassrls,rolreplication,rolinherit,
+                SELECT rolsuper,rolcreaterole,rolcreatedb,rolbypassrls,rolreplication,rolinherit,rolcanlogin,
                 EXISTS(SELECT 1 FROM pg_auth_members WHERE member=r.oid) AS membership,
                 has_database_privilege(r.oid,current_database(),'TEMP') AS temp
                 FROM pg_roles r WHERE rolname=:role
@@ -176,6 +179,8 @@ class PostgresProviderMembershipAdministration:
                         "membership",
                     )
                 )
+                and (role != d.owner_role or flags["rolcanlogin"] is False)
+                and (role != d.writer_role or flags["rolcanlogin"] is True)
                 and (role == d.owner_role or not flags["temp"]),
                 AdministrationReason.SOURCE_UNAVAILABLE,
             )

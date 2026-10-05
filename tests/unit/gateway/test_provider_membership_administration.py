@@ -282,3 +282,176 @@ async def test_logging_configuration_drift_denied_before_record_io(change):
     with pytest.raises(ProviderAdministrationError) as failure:
         await store.record(command(), binding())
     assert failure.value.reason == AdministrationReason.SOURCE_UNAVAILABLE
+
+
+class UnitMetadataResult:
+    """SQL metadata DTOs only; not a PostgreSQL qualification or source proof."""
+
+    def __init__(self, values):
+        self.values = values
+
+    def mappings(self):
+        return self
+
+    def one(self):
+        return self.values
+
+    def one_or_none(self):
+        return self.values
+
+    def all(self):
+        return self.values
+
+
+class UnitMetadataConnection:
+    def __init__(self, desc, *, owner_login=False, writer_login=True, schema_grantable=False):
+        self.desc = desc
+        self.owner_login = owner_login
+        self.writer_login = writer_login
+        self.schema_grantable = schema_grantable
+        self.queries = []
+        self.body = "unit-only-source-function-definition"
+
+    async def execute(self, statement, params=None):
+        sql = str(statement)
+        self.queries.append(sql)
+        d = self.desc
+        params = params or {}
+        if "current_database() AS db" in sql:
+            row = dict(
+                db=d.database_name,
+                db_oid=d.database_oid,
+                login=d.writer_role,
+                actor=d.writer_role,
+                now=datetime.now(UTC),
+                temp_oid=0,
+                tls=True,
+            )
+        elif "FROM pg_namespace n WHERE" in sql:
+            row = dict(
+                oid=d.schema_oid,
+                owner=d.owner_role,
+                extra_acl=False,
+                writer_create=False,
+                publisher_create=False,
+                writer_usage=True,
+                publisher_usage=True,
+            )
+            if "AS grant_options" in sql:
+                row["grant_options"] = self.schema_grantable
+        elif "FROM pg_roles r WHERE" in sql:
+            role = params["role"]
+            row = {
+                k: False
+                for k in (
+                    "rolsuper",
+                    "rolcreaterole",
+                    "rolcreatedb",
+                    "rolbypassrls",
+                    "rolreplication",
+                    "rolinherit",
+                    "membership",
+                    "temp",
+                )
+            }
+            if "rolcanlogin" in sql:
+                row["rolcanlogin"] = (
+                    self.owner_login
+                    if role == d.owner_role
+                    else (self.writer_login if role == d.writer_role else False)
+                )
+        elif "FROM pg_class c JOIN pg_namespace" in sql:
+            pin = next(x for x in d.relations if x.name == params["name"])
+            row = dict(
+                oid=pin.oid,
+                owner=pin.owner,
+                kind="r",
+                access=False,
+                column_access=False,
+                column_acl=False,
+                relrowsecurity=False,
+                relforcerowsecurity=False,
+            )
+        elif "FROM pg_class c,LATERAL aclexplode" in sql:
+            pin = next(x for x in d.relations if x.oid == params["oid"])
+            row = (
+                [
+                    dict(
+                        grantee=123,
+                        grantee_name=d.authority_publisher_role,
+                        privilege_type=x,
+                        is_grantable=False,
+                    )
+                    for x in ("SELECT", "INSERT", "UPDATE")
+                ]
+                if pin.name in {"administrator_authority", "provider_relationship"}
+                else []
+            )
+        elif "FROM pg_proc p WHERE" in sql:
+            row = dict(
+                oid=d.function_oid,
+                owner=d.owner_role,
+                prosecdef=True,
+                can_execute=True,
+                proconfig=["search_path=pg_catalog"],
+                body=self.body,
+            )
+        elif "FROM pg_proc p,LATERAL aclexplode" in sql:
+            row = [
+                dict(grantee=124, grantee_name=d.writer_role, privilege_type="EXECUTE", is_grantable=False)
+            ]
+        else:
+            raise AssertionError("Unexpected metadata query; no permissive mock fallback")
+        return UnitMetadataResult(row)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift", ["owner_login", "writer_nologin", "schema_grantable"])
+async def test_actual_qualifier_queries_refuse_owner_login_and_schema_delegation(drift):
+    import hashlib
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from maezo.gateway.human.provider_membership_administration_postgres import (
+        PostgresProviderMembershipAdministration,
+    )
+
+    d = descriptor(
+        function_definition_digest=hashlib.sha256(b"unit-only-source-function-definition").hexdigest()
+    )
+    engine = create_async_engine(
+        "postgresql+asyncpg://test-only:test-only@127.0.0.1:1/test_only", echo=False, hide_parameters=True
+    )
+    store = PostgresProviderMembershipAdministration(engine, d)
+    kwargs = (
+        {"owner_login": True}
+        if drift == "owner_login"
+        else ({"writer_login": False} if drift == "writer_nologin" else {"schema_grantable": True})
+    )
+    db = UnitMetadataConnection(d, **kwargs)
+    with pytest.raises(ProviderAdministrationError) as failure:
+        await store._qualify(db, binding())
+    assert failure.value.reason == AdministrationReason.SOURCE_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+async def test_unit_metadata_control_reaches_complete_qualifier_without_permissive_fallback():
+    import hashlib
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from maezo.gateway.human.provider_membership_administration_postgres import (
+        PostgresProviderMembershipAdministration,
+    )
+
+    d = descriptor(
+        function_definition_digest=hashlib.sha256(b"unit-only-source-function-definition").hexdigest()
+    )
+    engine = create_async_engine(
+        "postgresql+asyncpg://test-only:test-only@127.0.0.1:1/test_only", echo=False, hide_parameters=True
+    )
+    db = UnitMetadataConnection(d)
+    await PostgresProviderMembershipAdministration(engine, d)._qualify(db, binding())
+    assert any("rolcanlogin" in query for query in db.queries)
+    assert any("AS grant_options" in query for query in db.queries)
+    assert any("FROM pg_proc p,LATERAL aclexplode" in query for query in db.queries)

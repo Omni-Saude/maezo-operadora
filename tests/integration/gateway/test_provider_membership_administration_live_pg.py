@@ -520,3 +520,43 @@ async def test_unsafe_role_temp_replication_or_inheritance_refused(pg_source):
         with pytest.raises(ProviderAdministrationError):
             await p.store.record(c, p.binding)
         await p.control.execute(revoke)
+
+
+async def test_owner_login_drift_and_writer_nologin_existing_session_are_refused(pg_source):
+    p = pg_source
+    c = reviewed_command()
+    await p.approve(c)
+    await p.control.execute(f"ALTER ROLE {p.owner} LOGIN")
+    with pytest.raises(ProviderAdministrationError):
+        await p.store.record(c, p.binding)
+    assert await p.control.fetchval(f"SELECT count(*) FROM {p.schema}.administrative_act") == 0
+    await p.control.execute(f"ALTER ROLE {p.owner} NOLOGIN")
+    await p.store.record(c, p.binding)
+    # Existing pooled sessions survive ALTER ROLE; qualifier must still enforce LOGIN.
+    await p.control.execute(f"ALTER ROLE {p.writer} NOLOGIN")
+    with pytest.raises(ProviderAdministrationError):
+        await p.store.record(c, p.binding)
+    assert await p.control.fetchval(f"SELECT count(*) FROM {p.schema}.administrative_act") == 1
+    await p.control.execute(f"ALTER ROLE {p.writer} LOGIN")
+
+
+async def test_schema_usage_grant_option_and_role_admin_option_are_refused(pg_source):
+    p = pg_source
+    c = reviewed_command()
+    await p.approve(c)
+    for role in (p.writer, p.publisher):
+        await p.control.execute(f"GRANT USAGE ON SCHEMA {p.schema} TO {role} WITH GRANT OPTION")
+        with pytest.raises(ProviderAdministrationError):
+            await p.store.record(c, p.binding)
+        assert await p.control.fetchval(f"SELECT count(*) FROM {p.schema}.administrative_act") == 0
+        await p.control.execute(f"REVOKE GRANT OPTION FOR USAGE ON SCHEMA {p.schema} FROM {role}")
+    group = "pmam_" + uuid.uuid4().hex[:12]
+    await p.control.execute(f"CREATE ROLE {group} NOLOGIN NOINHERIT")
+    try:
+        await p.control.execute(f"GRANT {group} TO {p.writer} WITH ADMIN OPTION")
+        with pytest.raises(ProviderAdministrationError):
+            await p.store.record(c, p.binding)
+        assert await p.control.fetchval(f"SELECT count(*) FROM {p.schema}.administrative_act") == 0
+    finally:
+        await p.control.execute(f"REVOKE {group} FROM {p.writer}")
+        await p.control.execute(f"DROP ROLE {group}")
