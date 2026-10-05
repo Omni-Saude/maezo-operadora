@@ -2,7 +2,7 @@
   "schema": "maezo.durable-administrative-runtime-qualification.v1",
   "event_id": "DUR-JOURNEY-RUNTIME",
   "baseline": "feba801cf5eea6383f2db88bb02d52d9911049f3",
-  "source_composition_commit": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
+  "source_composition_commit": "155132c5e861ddaf9831c237bdbab17796fd0191",
   "journal_dependency": {
     "draft_pr": 644,
     "head": "c5d9cb79f0191ff9b0e696e4cb0117dde6a88075",
@@ -17,7 +17,7 @@
     "maintenance": "SEVEN_STEPS_COMPLETE_SCOPED_OWN_RESOURCES",
     "draft": false
   },
-  "status": "PREPUBLICATION_SOURCE_REAL_POSTGRES_PASS__EXACT_HOSTED_CI_FINAL_PENDING",
+  "status": "PREPUBLICATION_SOURCE_INSTALLED_ARTIFACT_PASS__APP_DOCKER_NEW_CI_FINAL_PENDING",
   "scope": "Default-disabled shared durable gateway, Compras/Suporte driver/return, full Lucas LangGraph over real PostgreSQL saver, explicit trusted ingress/resume, closed currentness and exception custody, and pure aggregate-export validator. Technical mechanism qualification only; operational providers and human policy remain gated.",
   "source_inputs": {
     "docs/design/v21-capabilities/aggregate-validator-technical-api.proposed-r1.json": "546d8c5ea0a5de90b40ec2c0fec83781fe32ba3bacfdf794af1c8b2586cd4ec2",
@@ -31,7 +31,7 @@
     "docs/design/v21-capabilities/proposals/measurement-protocol.proposed-v2.json": "08ed9bdec583ee6516818dfebfe8c7b96354b3975dcf287a89e9bebfaccd81a0",
     "docs/design/v21-capabilities/proposals/optional-feedback-financial-independence.proposed-v2.md": "f0943110cbcbe5cabcd3a0e2b91ad4f7590e11c48b30818b1e72a3835fe365bf",
     "docs/design/v21-capabilities/proposals/remaining-gate-matrix.proposed-v2-financial-only.json": "f9d0027457abf5324375ddf1ffe47c409387f707ffce90e58d92ccd6a6a6c70c",
-    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "c0cfc8a29fa373d4c62739c981b64b151a8aff06d26374e04184b2a0805d3a40",
+    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "1066d8ba6d16e8733262bfcc30853faf63841625bc2d4e71782117038905e4bc",
     "spec/policies/retention/erasure-plan.template.yaml": "42f7767f26ff798e74687b239e51743dcac616a921d7b225fa92741f767ddafc",
     "src/maezo/agents/lucas/administrative/journey.py": "3469cb27912fa528287461645b4475f4f508195917957a8ac3ad6ab2882bd783",
     "src/maezo/agents/lucas/administrative/runtime.py": "e59027436df49f9177b3d91651beeeb5f9895d1628ada3083342f3511bfe0254",
@@ -107,7 +107,23 @@
     "docs/design/provider/contract-read-admission.md": "0a5df92145b2d7a503c7f7efdaca3d435ca1aa31305a02b1e685b7997d20710c",
     "spec/policies/autonomy/L0-core.yaml": "a268ab3870610c52fe6f4531c66515802dbe6a758fb8b64e96aa4075a4eae1d8",
     "tests/unit/gateway/test_provider_contract_read_policy.py": "b6ff8a45286141cae18f12f14bf10ac2ed621d40d19727d5d600ed2680c7d796",
-    "src/maezo/portal/engine/java/pom.xml": "a3d2074d1695504706b4e43673b8505c046691fe722296d26ad4126bdf341655"
+    "src/maezo/portal/engine/java/pom.xml": "a3d2074d1695504706b4e43673b8505c046691fe722296d26ad4126bdf341655",
+    "deploy/Dockerfile": "5ea9f0ecc5a54aa231891c66cfc441f551416f44ebe32c92a25c561e6b678682",
+    "docs/design/provider/tiss-provider-schema.md": "b966e1eee95d4702856e85ac42d9bd1b5b8aa1fcb0d7e043abe660d83498869d",
+    "pyproject.toml": "6bc6f253d9b013937dabeb1af43d38376d740304e56b3330dbd29c66f5d7e143",
+    "spec/schemas/tiss/04.03.00/provider-source-pin.json": "d071d5ec3f3ed4d0b93526262e32539e046c7b21d51a3173bf2b3c42f14e6a97",
+    "spec/schemas/tiss/04.03.00/tissAssinaturaDigital_v1.01.xsd": "8567690a0eb05b9681fdc575ca7c867f75bf5cb33573175b8d333617ef035221",
+    "spec/schemas/tiss/04.03.00/tissComplexTypesV4_03_00.xsd": "83a24d606620cd3907c5cd574a71bf9c4411a2ec9e0510979f44293fe7c5956a",
+    "spec/schemas/tiss/04.03.00/tissGuiasV4_03_00.xsd": "587f0b6bac24175c50635ede52356cab00ff1ae28b550adc42e3a7f03cf605c7",
+    "spec/schemas/tiss/04.03.00/tissSimpleTypesV4_03_00.xsd": "d854debf58ac2d96194f72db95315ef2d102de57aeaf0388512f242824fdc794",
+    "spec/schemas/tiss/04.03.00/tissV4_03_00.xsd": "d4c421c7e3cf936551b70d6bd794a419867b6daea554d557b4d928363c54044c",
+    "spec/schemas/tiss/04.03.00/tissWebServicesV4_03_00.xsd": "3044f18d2e984910c7670e3357724c2f5798d64cc4ab5919094389a3f01bce02",
+    "spec/schemas/tiss/04.03.00/xmldsig-core-schema.xsd": "b6388292d746c6cc8f932ce3b6bf7c7fc0bf6cba58ec385b38988887bcf5fdbb",
+    "src/maezo/gateway/tiss/__init__.py": "d7e0bbf88debcb637c580448fea7c3b1ec015b0fa8545fda58753b7690109856",
+    "src/maezo/gateway/tiss/provider_schema.py": "0b8c90b06a09fcee6371c074943832d1686c6038213999606d1f207f37362c68",
+    "tests/unit/ci/test_spec_packaging_fence.py": "f15f9bc7afdacafe5cd4a0c6424ce86f2a6b00a7bca3b5502b07af704bd4d810",
+    "tests/unit/gateway/tiss/test_provider_schema.py": "6403aa0c0e336b3c34a98ac8233f4d3c97607959a3afe84579593bf493fc10b5",
+    "tests/unit/tools/workers/test_auth_denial_guard.py": "7ea9996f39c2a4812eb37137c4cd32fb1ff056887401c93a412153e979f7f1cf"
   },
   "independent_private_receipt_digests": {
     "authority_contract_r5": "876de480e73c289705ae017a70014fa87fb38cc3ae487f21ae546fd7df78e8fb",
@@ -130,7 +146,12 @@
     "provider_main_source_verifier": "f4b4d51a9bc152b2d6b24366f56ffe32710ef0f2ae05fd0910480d187f8643e6",
     "provider_main_composed_actual_pg127": "9211cc7ae50242e8896196a181b612133e50a2a6ebabdeda23efd1ed841d68a5",
     "historical_pre_provider_pg127": "8269436a1dae2bc0fb885e7477a35eaaa9355065480355f2877e72c1c4924616",
-    "published_read_policy_interface": "9c50e98e3a449ffd30cd9ac6a50af69137cadc6335ef57a11ffb49a4dc863b44"
+    "published_read_policy_interface": "9c50e98e3a449ffd30cd9ac6a50af69137cadc6335ef57a11ffb49a4dc863b44",
+    "published_TISS_interface_intake": "75f286e5d1664a4e9e3d6c823753e72f2077bb28cee119ac1db0941b1b84dacd",
+    "published_TISS_packaging_intake": "abc56e467a319c603b498cc2eef5c1db6afccee0e6227010ddfe82c80595ed32",
+    "current_installed_wheel_artifact": "4dccbaec1a24e53b3a12f9c6b59b69aa8923f35283c78fd0f30c133c6ce9b600",
+    "current_focal_cheap_gates": "d7527049aadf873750f3ae8737989cfb0828ec7e9fbc7af43c00e64fad9469c0",
+    "W0_private_source_reuse_gap_original_document_delta": "d65c2a62e2121f85b8a868e43d7198c4072715466c3d89915bcaffe94371441f"
   },
   "validated_scopes": {
     "historical_only": {
@@ -223,7 +244,7 @@
   "source_inputs_are_digest_inventory_not_combined_approval": true,
   "candidate_head": "PENDING_NEXT_PUBLISHED_HEAD",
   "candidate_tree": "PENDING_NEXT_PUBLISHED_TREE",
-  "merge_base": "298c89ebfb119178263fc9bcf25f1e70782127e9",
+  "merge_base": "76e0094d055b8a60a470a5db6a96dcea8883d4f0",
   "main_readbacks": {
     "pr644_integration": {
       "head": "d6fa26f506a1524451bda2e3fc0db8d756722697",
@@ -278,6 +299,35 @@
       "current_wheel856_exact_bytes_and_smoke_passed": true,
       "policy_real_loader_PEP_R5_unit_passed": 233,
       "policy_UNIT_artifact_receipt_sha256": "2ea6737ea1b2fc723744b5f240f31b902fda339848bfb707f10757f4f7e7b66c"
+    },
+    "published_TISS_integration": {
+      "head": "76e0094d055b8a60a470a5db6a96dcea8883d4f0",
+      "composition_commit": "155132c5e861ddaf9831c237bdbab17796fd0191",
+      "composition_tree": "58b772fd28b1ce9b4a67f7e61c306ff5d6f29b9b",
+      "delta_paths": [
+        "deploy/Dockerfile",
+        "docs/design/provider/tiss-provider-schema.md",
+        "pyproject.toml",
+        "spec/schemas/tiss/04.03.00/provider-source-pin.json",
+        "spec/schemas/tiss/04.03.00/tissAssinaturaDigital_v1.01.xsd",
+        "spec/schemas/tiss/04.03.00/tissComplexTypesV4_03_00.xsd",
+        "spec/schemas/tiss/04.03.00/tissGuiasV4_03_00.xsd",
+        "spec/schemas/tiss/04.03.00/tissSimpleTypesV4_03_00.xsd",
+        "spec/schemas/tiss/04.03.00/tissV4_03_00.xsd",
+        "spec/schemas/tiss/04.03.00/tissWebServicesV4_03_00.xsd",
+        "spec/schemas/tiss/04.03.00/xmldsig-core-schema.xsd",
+        "src/maezo/gateway/tiss/__init__.py",
+        "src/maezo/gateway/tiss/provider_schema.py",
+        "tests/unit/ci/test_spec_packaging_fence.py",
+        "tests/unit/gateway/tiss/test_provider_schema.py",
+        "tests/unit/tools/workers/test_auth_denial_guard.py"
+      ],
+      "R5_four_contracts_and_source_inputs_unchanged": true,
+      "installed_wheel_source_asset_members": 978,
+      "focal_passed": 460,
+      "source_or_operational_TISS_authority_admitted": false,
+      "application_Docker_proof": "PENDING_AUTH_FETCH_DIAGNOSIS",
+      "new_full_CI_and_final_gates": "PENDING"
     }
   },
   "component_original_deltas": {
@@ -538,6 +588,19 @@
       "verdict_sha256": "9ba55b9bd2440eff211a83f83a4c67276220bec55082ff8b2755df3dbc4336c3",
       "custody_sha256": "d9880962ede8277e81af96a389eefd7c6a170011f7d04fd7e94e04f396a09097",
       "qualifies_current_provider_main_composition": false
+    },
+    "pr646_aadf_exact_old_base_CI": {
+      "head": "aadf1ac93e1e8ace342ba2285b9642dcf2d402ce",
+      "base": "298c89ebfb119178263fc9bcf25f1e70782127e9",
+      "run": 37349288758,
+      "CI_Security": "SUCCESS_EXACT_OLD_BASE_ONLY",
+      "terminal_sha256": "8fd960b12b49b49cee846e9f567a1880723e35a45e4d6c8e46f54cd634dba4a8",
+      "custody_sha256": "42e02b2ce95b2b7a4c6d43988f83794d207437d06853c3af434dcbaec569f893",
+      "unit_passed": 27994,
+      "integration_passed": 958,
+      "current_TISS_composition_approval": false,
+      "final_security_old_base_sha256": "096dc3db903c5adede275757e8da1326747a9358dcd7cd47c09f0ecb8565c30a",
+      "final_architecture_signature_withheld_due_main_drift": true
     }
   },
   "pending_fixture_inputs": {
@@ -568,9 +631,11 @@
     "bdef_checkpoint": "bdefe40e0bd806610ebc9f51db57c850b9ea0a74",
     "latest_tested_checkpoint": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
     "latest_tested_tree": "749e6261ba6034dba872834396a894cb5bebcb06",
-    "next_published_candidate_head": "PENDING"
+    "next_published_candidate_head": "PENDING",
+    "latest_focal_tested_checkpoint": "155132c5e861ddaf9831c237bdbab17796fd0191",
+    "latest_focal_tested_tree": "58b772fd28b1ce9b4a67f7e61c306ff5d6f29b9b"
   },
   "snapshot_date": "2026-10-05",
-  "snapshot_scope": "Prepublication source evidence at executed1b0b/main d2b311 and later four-path policy/build composition007da/main298c. R5 Python inputs remain identical; the packaged Maven pom changed and the new wheel independently inventories all856 current bytes with an actual isolated aggregate smoke. Real PG receipt remains limited to its actual executed checkpoint, not current policy/build or hosted CI approval. New policy preserves all prior actions/hard-set; candidate hosted CI and fresh final gates remain pending. Previous587 CI on df8796 is historical only.",
+  "snapshot_scope": "Prepublication source155132/main76e composition after qualified TISS intake. Focal460 and installed978 source/assets pass; application Docker proof, new full hosted CI and fresh final gates remain pending. Historical aadf CI is scoped to base298c only. Local PG1b0b and earlier scoped receipts are not promoted to current changed build/source approval.",
   "local_executed_source_checkpoint": "1b0b6fa503de75d00dab94377cf6e56789636ce6"
 }
