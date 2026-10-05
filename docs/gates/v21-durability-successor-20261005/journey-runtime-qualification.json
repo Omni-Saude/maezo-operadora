@@ -31,7 +31,7 @@
     "docs/design/v21-capabilities/proposals/measurement-protocol.proposed-v2.json": "08ed9bdec583ee6516818dfebfe8c7b96354b3975dcf287a89e9bebfaccd81a0",
     "docs/design/v21-capabilities/proposals/optional-feedback-financial-independence.proposed-v2.md": "f0943110cbcbe5cabcd3a0e2b91ad4f7590e11c48b30818b1e72a3835fe365bf",
     "docs/design/v21-capabilities/proposals/remaining-gate-matrix.proposed-v2-financial-only.json": "f9d0027457abf5324375ddf1ffe47c409387f707ffce90e58d92ccd6a6a6c70c",
-    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "c3336f7eb492a0456b7df4aefe77740d6dc52e4c1b4f9e321477430ffc2a79ad",
+    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "c0cfc8a29fa373d4c62739c981b64b151a8aff06d26374e04184b2a0805d3a40",
     "spec/policies/retention/erasure-plan.template.yaml": "42f7767f26ff798e74687b239e51743dcac616a921d7b225fa92741f767ddafc",
     "src/maezo/agents/lucas/administrative/journey.py": "3469cb27912fa528287461645b4475f4f508195917957a8ac3ad6ab2882bd783",
     "src/maezo/agents/lucas/administrative/runtime.py": "e59027436df49f9177b3d91651beeeb5f9895d1628ada3083342f3511bfe0254",
@@ -103,7 +103,11 @@
     "src/maezo/gateway/capabilities/__init__.py": "8379b5d33fbe323ef66216d26a7f3bf4aa1c4281e7d0a57eaa51dca16d66b4f9",
     "src/maezo/agents/lucas/administrative/state.py": "94ed001b6bf9c550e67ec6f8581c1bb064543f327e0aa8e28aa993d646cd53e1",
     "tests/unit/gateway/capabilities/test_r5_provider_schema_boundary.py": "588e7fb04658bb19ae8e011f404a30d64fd1ee27629149c78568a658662c783c",
-    ".gitleaksignore": "4f43c1fedd5bf309ab42fcc357929131ff11e100e70744da4b2ad5a6b5297d75"
+    ".gitleaksignore": "4f43c1fedd5bf309ab42fcc357929131ff11e100e70744da4b2ad5a6b5297d75",
+    "docs/design/provider/contract-read-admission.md": "0a5df92145b2d7a503c7f7efdaca3d435ca1aa31305a02b1e685b7997d20710c",
+    "spec/policies/autonomy/L0-core.yaml": "a268ab3870610c52fe6f4531c66515802dbe6a758fb8b64e96aa4075a4eae1d8",
+    "tests/unit/gateway/test_provider_contract_read_policy.py": "b6ff8a45286141cae18f12f14bf10ac2ed621d40d19727d5d600ed2680c7d796",
+    "src/maezo/portal/engine/java/pom.xml": "a3d2074d1695504706b4e43673b8505c046691fe722296d26ad4126bdf341655"
   },
   "independent_private_receipt_digests": {
     "authority_contract_r5": "876de480e73c289705ae017a70014fa87fb38cc3ae487f21ae546fd7df78e8fb",
@@ -125,7 +129,8 @@
     "provider_main_interface_admission": "d0dedfec6629347ddc583c656f6a96056ee3943b8796245216049338ac4e629c",
     "provider_main_source_verifier": "f4b4d51a9bc152b2d6b24366f56ffe32710ef0f2ae05fd0910480d187f8643e6",
     "provider_main_composed_actual_pg127": "9211cc7ae50242e8896196a181b612133e50a2a6ebabdeda23efd1ed841d68a5",
-    "historical_pre_provider_pg127": "8269436a1dae2bc0fb885e7477a35eaaa9355065480355f2877e72c1c4924616"
+    "historical_pre_provider_pg127": "8269436a1dae2bc0fb885e7477a35eaaa9355065480355f2877e72c1c4924616",
+    "published_read_policy_interface": "9c50e98e3a449ffd30cd9ac6a50af69137cadc6335ef57a11ffb49a4dc863b44"
   },
   "validated_scopes": {
     "historical_only": {
@@ -218,7 +223,7 @@
   "source_inputs_are_digest_inventory_not_combined_approval": true,
   "candidate_head": "PENDING_NEXT_PUBLISHED_HEAD",
   "candidate_tree": "PENDING_NEXT_PUBLISHED_TREE",
-  "merge_base": "d2b311312227c82b6f28d8a9e429a17e1878892d",
+  "merge_base": "298c89ebfb119178263fc9bcf25f1e70782127e9",
   "main_readbacks": {
     "pr644_integration": {
       "head": "d6fa26f506a1524451bda2e3fc0db8d756722697",
@@ -250,6 +255,29 @@
       "composition_commit": "c53a64ba278caf8242307fb3260b1357878ed938",
       "shared_boundary_guard_source_commit": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
       "whole_CI_and_operational_approval": false
+    },
+    "published_policy_and_build_integration": {
+      "head": "298c89ebfb119178263fc9bcf25f1e70782127e9",
+      "composition_commit": "007da1aab628ab07b58a9db609bd6b38001dca9a",
+      "delta_from_prior_248f": [
+        "docs/design/provider/contract-read-admission.md",
+        "spec/policies/autonomy/L0-core.yaml",
+        "tests/unit/gateway/test_provider_contract_read_policy.py",
+        "src/maezo/portal/engine/java/pom.xml"
+      ],
+      "policy_interface_gate_sha256": "9c50e98e3a449ffd30cd9ac6a50af69137cadc6335ef57a11ffb49a4dc863b44",
+      "Maven_build_new_hosted_CI": "PENDING",
+      "source_or_human_operational_ratification": false,
+      "R5_python_inputs_identical_to_executed_1b0b": true,
+      "packaged_resource_delta_from_previous_wheel": {
+        "path": "src/maezo/portal/engine/java/pom.xml",
+        "previous_wheel_04bc_is_historical": true,
+        "new_wheel": "da08d222b6c5cb4f3ff8839f05bd8d721ffe28a0772a1fc27741f9689cb913fd"
+      },
+      "current_wheel_custody_sha256": "6b755ee0c185e872be4e29569f48b316b11770f376a3b16ea5d2c19c34455c0d",
+      "current_wheel856_exact_bytes_and_smoke_passed": true,
+      "policy_real_loader_PEP_R5_unit_passed": 233,
+      "policy_UNIT_artifact_receipt_sha256": "2ea6737ea1b2fc723744b5f240f31b902fda339848bfb707f10757f4f7e7b66c"
     }
   },
   "component_original_deltas": {
@@ -543,6 +571,6 @@
     "next_published_candidate_head": "PENDING"
   },
   "snapshot_date": "2026-10-05",
-  "snapshot_scope": "Prepublication technical evidence at composed source1b0b6fa5/main d2b311. Source strict v21 coexists with generic provider contracts; previous587 CI on df8796 is retained only as history. New exact hosted CI, final verdicts and merge remain separate events.",
+  "snapshot_scope": "Prepublication source evidence at executed1b0b/main d2b311 and later four-path policy/build composition007da/main298c. R5 Python inputs remain identical; the packaged Maven pom changed and the new wheel independently inventories all856 current bytes with an actual isolated aggregate smoke. Real PG receipt remains limited to its actual executed checkpoint, not current policy/build or hosted CI approval. New policy preserves all prior actions/hard-set; candidate hosted CI and fresh final gates remain pending. Previous587 CI on df8796 is historical only.",
   "local_executed_source_checkpoint": "1b0b6fa503de75d00dab94377cf6e56789636ce6"
 }

@@ -34,6 +34,14 @@
       "whole_app_provider_or_production_runtime_qualification": false
     },
     "current_candidate_wheel": {
+      "source_composition": "007da1aab628ab07b58a9db609bd6b38001dca9a",
+      "wheel_sha256": "da08d222b6c5cb4f3ff8839f05bd8d721ffe28a0772a1fc27741f9689cb913fd",
+      "custody_sha256": "6b755ee0c185e872be4e29569f48b316b11770f376a3b16ea5d2c19c34455c0d",
+      "packaged_source_resource_files_matched": 856,
+      "aggregate_module_asset_smoke_passed": 1,
+      "whole_app_provider_or_production_runtime_qualification": false
+    },
+    "historical_current_candidate_wheel_1b0b": {
       "source_composition": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
       "wheel_sha256": "04bc267474b2486ba65802a82ccb0767987552cc0c09b29f495d245eacfbe512",
       "custody_sha256": "1b1d6419b9dc065a4edf3518e2a343393bcac13158ec265d2e8308921027538c",
@@ -54,5 +62,5 @@
   "installed_asset": "Consumed exact wheel projection of canonical schema; no second schema authority/fallback.",
   "owner": "ROOT successor",
   "CI": "PENDING_EXACT_CANDIDATE",
-  "snapshot": "Prepublication qualified source composition1b0b6fa5 including published provider-main d2b311; exact hosted CI/final gates remain separate PR646 events."
+  "snapshot": "Prepublication qualified composition007da including published main298c: new wheel includes updated Maven pom and856 exactsource/resource bytes; exact hosted CI/Mavenbuild/final gates remain separate PR646 events."
 }
