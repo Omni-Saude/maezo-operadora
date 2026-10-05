@@ -8,6 +8,7 @@ Guards: ERR_DECRED_NOT_HUMAN, ERR_CRED_DENIAL_NOT_HUMAN (ADR-0018).
 from __future__ import annotations
 
 import functools
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -777,6 +778,88 @@ class CredError(Exception):
 # ---------------------------------------------------------------
 
 
+# PW1-A: explicit per-topic fetch scopes. Contracts and transitive sources are
+# traced in docs/design/provider/fetch-scopes.md; no implicit family/global scope.
+_CRED_FETCH_SCOPES: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "operadora.cred.verify_credentials": (
+            "direcao",
+            "documentacao_completa",
+            "documentos_refs",
+            "licenca_valida",
+            "prestador_id",
+            "tenant_id",
+        ),
+        "operadora.cred.check_network_criteria": (
+            "dentro_criterios_rede",
+            "direcao",
+            "documentacao_completa",
+            "indicio_irregularidade_sinalizado",
+            "licenca_valida",
+            "origem_solicitacao",
+            "prestador_id",
+            "tipo_prestador",
+        ),
+        "operadora.cred.check_prior_notice": (
+            "prestador_id",
+            "tenant_id",
+        ),
+        "operadora.cred.notify_doc_pendente": (
+            "direcao",
+            "prestador_id",
+            "tenant_id",
+        ),
+        "operadora.cred.register_descredenciamento": (
+            "comprovacao_notificacao_previa",
+            "data_efeito_iso",
+            "decisao_cred",
+            "fundamentacao",
+            "plano_substituicao",
+            "prestador_id",
+            "referencia_regulatoria",
+            "responsavel_id",
+            "tem_beneficiarios_vinculados",
+        ),
+        "operadora.cred.register_cred_denial": (
+            "decisao_cred",
+            "fundamentacao",
+            "prestador_id",
+            "referencia_regulatoria",
+            "responsavel_id",
+        ),
+        "operadora.cred.register_credenciamento": (
+            "data_efeito_iso",
+            "decisao_cred",
+            "prestador_id",
+            "tenant_id",
+        ),
+        "operadora.cred.notify_sla_risk": (
+            "direcao",
+            "prestador_id",
+            "tenant_id",
+        ),
+        "operadora.cred.prepare_dossier": (
+            "data_solicitacao_iso",
+            "dentro_criterios_rede",
+            "direcao",
+            "documentacao_completa",
+            "especialidade",
+            "indicio_irregularidade_sinalizado",
+            "licenca_valida",
+            "notificacao_previa_feita",
+            "origem_solicitacao",
+            "prestador_id",
+            "protocolo_cred",
+            "regiao_saude",
+            "substituto_equivalente_identificado",
+            "tem_beneficiarios_vinculados",
+            "tenant_id",
+            "tipo_prestador",
+        ),
+    }
+)
+
+
 def register_credenciamento_workers(
     harness: WorkerHarness,
     kafka: KafkaPublisher | None = None,
@@ -797,19 +880,43 @@ def register_credenciamento_workers(
     del kafka  # unused — no credenciamento.py worker declares a Kafka dependency
     dmn = seams.get("dmn")
     dossier_dispatcher: DelegationDispatcher | None = seams.get("dossier_dispatcher")
-    harness.register_worker(FunctionWorker("operadora.cred.verify_credentials", validate_cred))
+    harness.register_worker(
+        FunctionWorker("operadora.cred.verify_credentials", validate_cred),
+        variables=_CRED_FETCH_SCOPES["operadora.cred.verify_credentials"],
+    )
     harness.register_worker(
         FunctionWorker(
             "operadora.cred.check_network_criteria", functools.partial(assess_admissibility, dmn=dmn)
-        )
+        ),
+        variables=_CRED_FETCH_SCOPES["operadora.cred.check_network_criteria"],
     )
-    harness.register_worker(FunctionWorker("operadora.cred.check_prior_notice", dispatch_prior_notice))
-    harness.register_worker(FunctionWorker("operadora.cred.notify_doc_pendente", notify_doc_pendente))
     harness.register_worker(
-        FunctionWorker("operadora.cred.register_descredenciamento", register_descredenciamento)
+        FunctionWorker("operadora.cred.check_prior_notice", dispatch_prior_notice),
+        variables=_CRED_FETCH_SCOPES["operadora.cred.check_prior_notice"],
     )
-    harness.register_worker(FunctionWorker("operadora.cred.register_cred_denial", register_cred_denial))
-    harness.register_worker(FunctionWorker("operadora.cred.register_credenciamento", register_credenciamento))
-    harness.register_worker(FunctionWorker("operadora.cred.notify_sla_risk", notify_sla_risk))
+    harness.register_worker(
+        FunctionWorker("operadora.cred.notify_doc_pendente", notify_doc_pendente),
+        variables=_CRED_FETCH_SCOPES["operadora.cred.notify_doc_pendente"],
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.cred.register_descredenciamento", register_descredenciamento),
+        variables=_CRED_FETCH_SCOPES["operadora.cred.register_descredenciamento"],
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.cred.register_cred_denial", register_cred_denial),
+        variables=_CRED_FETCH_SCOPES["operadora.cred.register_cred_denial"],
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.cred.register_credenciamento", register_credenciamento),
+        variables=_CRED_FETCH_SCOPES["operadora.cred.register_credenciamento"],
+    )
+    harness.register_worker(
+        FunctionWorker("operadora.cred.notify_sla_risk", notify_sla_risk),
+        variables=_CRED_FETCH_SCOPES["operadora.cred.notify_sla_risk"],
+    )
     # RAW handler (NOT register_worker) — needs the async dispatcher seam (module topic-map note).
-    harness.register("operadora.cred.prepare_dossier", make_prepare_dossier_handler(dossier_dispatcher))
+    harness.register(
+        "operadora.cred.prepare_dossier",
+        make_prepare_dossier_handler(dossier_dispatcher),
+        variables=_CRED_FETCH_SCOPES["operadora.cred.prepare_dossier"],
+    )

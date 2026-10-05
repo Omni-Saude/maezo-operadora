@@ -1,9 +1,11 @@
 """Protected communications v1; no free text in General-zone wire projections."""
 
-from typing import Literal
+from typing import Literal, Self
+
+from pydantic import model_validator
 
 from maezo.portal.contracts.intake import Closed, DecimalRevision, ResourceRef
-from maezo.portal.contracts.models import OpaqueRef
+from maezo.portal.contracts.models import OpaqueRef, Sha256Digest
 
 
 class CommunicationSubmission(Closed):
@@ -55,3 +57,36 @@ class HistoryPage(Closed):
     next_cursor: ResourceRef | None
     observed_at: str
     valid_until: str
+
+
+class ProviderNoticeAcknowledgement(Closed):
+    """Explicit acknowledgement; actor and membership never come from this DTO."""
+
+    schema_version: Literal["provider-notice-ack.v1"] = "provider-notice-ack.v1"
+    command_id: ResourceRef
+    notice_revision: OpaqueRef
+    content_digest: Sha256Digest
+
+
+class ProviderNoticeReceipt(Closed):
+    schema_version: Literal["provider-notice-receipt.v1"] = "provider-notice-receipt.v1"
+    notice_ref: ResourceRef
+    notice_revision: OpaqueRef
+    delivery_status: Literal["pending", "delivered"]
+    metadata_publication_receipt_ref: ResourceRef
+    provider_delivery_receipt_ref: ResourceRef | None = None
+
+    @model_validator(mode="after")
+    def factual_delivery(self) -> Self:
+        if (self.delivery_status == "delivered") != (self.provider_delivery_receipt_ref is not None):
+            raise ValueError("delivery acknowledgement receipt required")
+        return self
+
+
+class ProviderNoticeSummary(Closed):
+    schema_version: Literal["provider-notice-summary.v1"] = "provider-notice-summary.v1"
+    notice_ref: ResourceRef
+    notice_revision: OpaqueRef
+    body_ref: ResourceRef
+    content_digest: Sha256Digest
+    receipt: ProviderNoticeReceipt

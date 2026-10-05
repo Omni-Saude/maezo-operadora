@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response
 from starlette.routing import Match
 
+from maezo.gateway.communications.provider_notice import ProviderNoticeRecipientService
 from maezo.gateway.communications.service import CommunicationService
 from maezo.gateway.external_cases.models import ExternalCaseError
 from maezo.gateway.intake.models import IntakeError
@@ -18,9 +19,13 @@ from maezo.portal.contracts.communications import (
     CommunicationReceipt,
     CommunicationSubmission,
     HistoryPage,
+    ProviderNoticeAcknowledgement,
+    ProviderNoticeReceipt,
+    ProviderNoticeSummary,
 )
 
 CommunicationServiceFactory = Callable[[HumanSessionResolver], CommunicationService]
+ProviderNoticeServiceFactory = Callable[[HumanSessionResolver], ProviderNoticeRecipientService]
 communication_router = APIRouter(route_class=ProductRoute)
 
 
@@ -113,6 +118,52 @@ async def list_communications(request: Request, case_ref: str) -> Response:
 @communication_router.get(PREFIX + "/cases/{case_ref}/history", response_model=HistoryPage, responses=ERRORS)
 async def case_history(request: Request, case_ref: str) -> Response:
     return await _page(request, case_ref, history=True)
+
+
+def _notice_service(request: Request) -> ProviderNoticeRecipientService:
+    factory: ProviderNoticeServiceFactory | None = getattr(
+        request.app.state, "provider_notice_service_factory", None
+    )
+    if factory is None:
+        raise IntakeError()
+    resolver = request.app.state.human_session_resolver
+    service = factory(resolver)
+    if not isinstance(service, ProviderNoticeRecipientService) or service.resolver is not resolver:
+        raise IntakeError()
+    return service
+
+
+@communication_router.get(
+    PREFIX + "/provider-notices/{notice_ref}", response_model=ProviderNoticeSummary, responses=ERRORS
+)
+async def inspect_provider_notice(request: Request, notice_ref: str) -> Response:
+    try:
+        return await _notice_service(request).operation(
+            secret(request), notice_ref=reference(notice_ref), body=None, freeze=_render
+        )
+    except ExternalCaseError as error:
+        return communication_error(error)
+
+
+@communication_router.post(
+    PREFIX + "/provider-notices/{notice_ref}/acknowledgements",
+    response_model=ProviderNoticeReceipt,
+    responses=ERRORS,
+)
+async def acknowledge_provider_notice(
+    request: Request, notice_ref: str, body: ProviderNoticeAcknowledgement
+) -> Response:
+    try:
+        return await _notice_service(request).operation(
+            secret(request),
+            notice_ref=reference(notice_ref),
+            body=body,
+            csrf=request.headers["x-csrf-token"],
+            origin=request.headers["origin"],
+            freeze=_render,
+        )
+    except ExternalCaseError as error:
+        return communication_error(error)
 
 
 def is_communication_request(request: Request) -> bool:
