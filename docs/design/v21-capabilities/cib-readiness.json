@@ -1,0 +1,338 @@
+{
+  "schema": "maezo.v21-cib-readiness-dossier.v1",
+  "document_kind": "engineering proposal and source inspection; not an effect or owner receipt",
+  "authored_on": "2026-10-04",
+  "source_baseline_commit": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "implementation_checkout": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora",
+  "branch": "codex/v21-capability-execution",
+  "scope": [
+    "W0 authority/contract selection",
+    "W4 U4 static witness and effect gates"
+  ],
+  "write_set": [
+    "docs/design/v21-capabilities/cib-authority.md",
+    "docs/design/v21-capabilities/cib-readiness.json"
+  ],
+  "effect_changes": [],
+  "ratifications_recorded": [],
+  "runtime_activations": [],
+  "contract_anchors": [
+    {
+      "path": "docs/processes/contracts/SP-OP-AUTH-001.md",
+      "sha256": "fe36bde2bb2fcd56c84fbf33a7176dc2884d6e251ed3713c844a8509fd77e833",
+      "git_commit": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+      "new_scope_ratification": null
+    },
+    {
+      "path": "docs/processes/contracts/SP-OP-ADEQUACAO-001.md",
+      "sha256": "deab4eaf9383c33e575e224be6637b0f62aa60e2d7d1b6eeadab2532145a9f6c",
+      "git_commit": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+      "new_scope_ratification": null
+    },
+    {
+      "path": "docs/processes/contracts/SP-OP-ESCALATION-001.md",
+      "sha256": "860621114c1755e0fac18dc9415591e9d9c3bf859fed5725961ee869e482d6f0",
+      "git_commit": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+      "new_scope_ratification": null
+    },
+    {
+      "path": "docs/processes/contracts/SP-OP-NIP-001.md",
+      "sha256": "294e90eff1e588a9470a0145de428fd89273395ddbd9607aab6b5ea34137996f",
+      "git_commit": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+      "new_scope_ratification": null
+    },
+    {
+      "path": "docs/processes/contracts/SP-OP-CONTAS-001.md",
+      "sha256": "af2e2dbfa1cf66d9d653300f9ba2d8ca152255f4c3420077e4a6b33040ec32a0",
+      "git_commit": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+      "new_scope_ratification": null
+    },
+    {
+      "path": "docs/processes/contracts/SP-OP-PAGTO-001.md",
+      "sha256": "bba04cdc67c73287b2308407cccf8f5dadac8465dc0d366cab01194ae96d6a92",
+      "git_commit": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+      "new_scope_ratification": null
+    }
+  ],
+  "plan_sources": [
+    {
+      "private_absolute_path": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-capabilities/plan.json",
+      "sha256": "ef83361ee40324717d6af3ed94b04d841d1977dfe0d5f8f770e84984866893e6"
+    },
+    {
+      "private_absolute_path": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/INTEGRATION-PLAN-V2.1.md",
+      "sha256": "620432008f25c72cc00e8923f37812e89d802b50ea0fb77b34d5644453ce2a8d"
+    },
+    {
+      "private_absolute_path": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/agent-wiring.json",
+      "sha256": "8dcd21e9f12a2248eaf2c0688f947cdd75bf6e44730c5ae1d8170ed571540f20"
+    }
+  ],
+  "findings_inventory": {
+    "source_commit": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+    "path": "docs/reports/predeploy-findings.json",
+    "git_blob": "76cd8be173c93df50aa87101395b0e837d03e269",
+    "sha256": "7a99ffb007c66aa93115a81fff4089a386ddd6c55ba6c3a0ef5023f91e106751",
+    "entries": 127,
+    "working_tree_delete_restored": false,
+    "historical_labels_are_current_diagnosis": false,
+    "applicable_pattern_ids": [
+      "auth-denial-not-human-undeclared-error",
+      "cancel-brtcancelsla-dangling-outgoing-idref",
+      "cred-business-key-missing-collision-fallback",
+      "publish-missing-topic-guard-unreachable-in-current-deployment",
+      "no-denial-boundary-escape-reachability-blindspot",
+      "dangling-not-human-guard-errors-no-boundary-catch",
+      "fraude-scoring-dmn-ungoverned-by-signoff-gate"
+    ]
+  },
+  "packages": [
+    {
+      "id": "CIB-D3-1",
+      "artifact": "SP-OP-AUTH-001",
+      "slice": "Autorização assistencial somente",
+      "plan_readiness": "CONTRACT_SPEC_AND_INDEPENDENT_ENGINE_QUALIFICATION_REQUIRED",
+      "mechanism_reuse_allowed": true,
+      "new_effect_admitted": false,
+      "runtime": "UNVERIFIED",
+      "requires": [
+        "accepted affected domain/source contract",
+        "typed cause and correlation",
+        "independent contract/security/compliance review",
+        "qualified real engine lane"
+      ],
+      "human_gate_owner": "medical auditor + operator authorization owner"
+    },
+    {
+      "id": "CIB-D3-2",
+      "artifact": "SP-OP-ADEQUACAO-001",
+      "slice": "Falta de capacidade/slot que configura obrigação de rede",
+      "plan_readiness": "CONTRACT_SPEC_AND_INDEPENDENT_ENGINE_QUALIFICATION_REQUIRED",
+      "mechanism_reuse_allowed": true,
+      "new_effect_admitted": false,
+      "runtime": "UNVERIFIED",
+      "requires": [
+        "accepted affected domain/source contract",
+        "typed cause and correlation",
+        "independent contract/security/compliance review",
+        "qualified real engine lane"
+      ],
+      "human_gate_owner": "network owner + PO + regulatory + finance for fallback"
+    },
+    {
+      "id": "CIB-D3-3",
+      "artifact": "SP-OP-ADEQUACAO-001",
+      "slice": "Falha de entrega com obrigação de rede",
+      "plan_readiness": "CONTRACT_SPEC_AND_INDEPENDENT_ENGINE_QUALIFICATION_REQUIRED",
+      "mechanism_reuse_allowed": true,
+      "new_effect_admitted": false,
+      "runtime": "UNVERIFIED",
+      "requires": [
+        "accepted affected domain/source contract",
+        "typed cause and correlation",
+        "independent contract/security/compliance review",
+        "qualified real engine lane"
+      ],
+      "human_gate_owner": "network owner + PO + regulatory + finance for fallback"
+    },
+    {
+      "id": "CIB-D3-4",
+      "artifact": "SP-OP-ESCALATION-001",
+      "slice": "Solicitação humana mandatória/risco/prazo",
+      "plan_readiness": "CONTRACT_SPEC_AND_INDEPENDENT_ENGINE_QUALIFICATION_REQUIRED",
+      "mechanism_reuse_allowed": true,
+      "new_effect_admitted": false,
+      "runtime": "UNVERIFIED",
+      "requires": [
+        "accepted affected domain/source contract",
+        "typed cause and correlation",
+        "independent contract/security/compliance review",
+        "qualified real engine lane"
+      ],
+      "human_gate_owner": "CX/operator task owner + security"
+    },
+    {
+      "id": "CIB-D3-5",
+      "artifact": "SP-OP-NIP-001",
+      "slice": "NIP efetivamente recebida, e somente ela",
+      "plan_readiness": "CONTRACT_SPEC_AND_INDEPENDENT_ENGINE_QUALIFICATION_REQUIRED",
+      "mechanism_reuse_allowed": true,
+      "new_effect_admitted": false,
+      "runtime": "UNVERIFIED",
+      "requires": [
+        "accepted affected domain/source contract",
+        "typed cause and correlation",
+        "independent contract/security/compliance review",
+        "qualified real engine lane"
+      ],
+      "human_gate_owner": "ANS/compliance owner"
+    },
+    {
+      "id": "GP1",
+      "artifact": null,
+      "plan_readiness": "D2_GATED_CANDIDATE",
+      "mechanism_reuse_allowed": false,
+      "new_effect_admitted": false,
+      "runtime": "UNVERIFIED",
+      "candidate_only": true,
+      "requires": [
+        "Accepted domain contract names the accountable authority and obligation: regulatory deadline, mandatory human act, nonrepudiation audit or multi-actor legal transaction.",
+        "Reuse of an existing SP-OP/helper was assessed and cannot cover the obligation without mixing authority/business identity; source stages do not justify new process count.",
+        "State transitions, external facts, typed events, business key, all variable producers, timers, exceptions and compensation are authoritative and versioned.",
+        "Mandatory decision remains human; no generic commit flag permits clinical/financial/commercial authority. Domain-specific userTask forms/candidate groups are preserved.",
+        "Architecture/compliance/security independent reviewers sign exact contract+plan bytes; accepted ADR is preserved or genuinely conflicting change receives new ADR decision.",
+        "Then and only then choose D2 and name the new SP-OP; generation/real-engine qualification remain future implementation work."
+      ],
+      "human_gate_owner": "domain owner + repository owner for ADR-0037/0038 + architecture/compliance/security"
+    },
+    {
+      "id": "GP2",
+      "artifact": null,
+      "plan_readiness": "D2_GATED_CANDIDATE",
+      "mechanism_reuse_allowed": false,
+      "new_effect_admitted": false,
+      "runtime": "UNVERIFIED",
+      "candidate_only": true,
+      "requires": [
+        "Accepted domain contract names the accountable authority and obligation: regulatory deadline, mandatory human act, nonrepudiation audit or multi-actor legal transaction.",
+        "Reuse of an existing SP-OP/helper was assessed and cannot cover the obligation without mixing authority/business identity; source stages do not justify new process count.",
+        "State transitions, external facts, typed events, business key, all variable producers, timers, exceptions and compensation are authoritative and versioned.",
+        "Mandatory decision remains human; no generic commit flag permits clinical/financial/commercial authority. Domain-specific userTask forms/candidate groups are preserved.",
+        "Architecture/compliance/security independent reviewers sign exact contract+plan bytes; accepted ADR is preserved or genuinely conflicting change receives new ADR decision.",
+        "Then and only then choose D2 and name the new SP-OP; generation/real-engine qualification remain future implementation work."
+      ],
+      "human_gate_owner": "domain owner + repository owner for ADR-0037/0038 + architecture/compliance/security"
+    },
+    {
+      "id": "AR2-DMN",
+      "artifact": "CibSevenDmnTransport",
+      "mechanism_reuse_allowed": true,
+      "new_effect_admitted": false,
+      "runtime": "UNVERIFIED",
+      "requires": [
+        "owner-published administrative rule contract",
+        "ratified DMN bytes and strict input/output types",
+        "gated consumer composition",
+        "engine definition and tenant provenance",
+        "stable deployment during current daemon lifetime or independently admitted version-pinning delta"
+      ],
+      "human_gate_owner": "product/catalogue policy owner + compliance/security"
+    },
+    {
+      "id": "U4",
+      "artifact": null,
+      "mechanism_reuse_allowed": true,
+      "new_effect_admitted": false,
+      "runtime": "UNVERIFIED",
+      "requires": [
+        "authoritative performance/outcome contract",
+        "optional nonblocking feedback",
+        "preserved CONTAS/PAGTO financial authority",
+        "independent token witness for transformed implementation",
+        "qualified real engine lane for any affected governed flow"
+      ],
+      "human_gate_owner": "care/network + finance + instrument/privacy owners"
+    }
+  ],
+  "R049": {
+    "agent_start_permitted": false,
+    "existing_contract_path": "docs/processes/contracts/SP-OP-ADEQUACAO-001.md",
+    "existing_test_path": "tests/unit/gateway/test_adequacao_sem_binding_de_agente.py",
+    "source_bridge_module_present": false,
+    "new_bridge_admitted": false,
+    "source_owner_gate": "AF-01/PERSP-NETBRIDGE; operator network owner and PO; ratify affected obligations/source before build"
+  },
+  "U4_private_witness": {
+    "method": "read-only xml.etree.ElementTree independent of historical lxml reader; reconcile actual/declared fork+join incidence and mutually exclusive interruptive host paths; settlement after survey barrier",
+    "scope": "selected fragment static token witness and settlement dependency; not full process soundness or engine execution",
+    "private_locator_scripts": [
+      "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/evidence/p1-token-witness.py",
+      "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/feedback/token-witness-postfix-ca2.py"
+    ],
+    "legacy_scripts_may_mutate_signed_evidence": true,
+    "sources": [
+      {
+        "private_source_path": "/Users/familia/code/maezo-operadora/docs/processes/New_BPMN/CA_2_UTILIZACAO_v3.bpmn",
+        "sha256": "0d39296d011bbc531f8f87a57e1120d661450fca819033590c79fdb8989e7658",
+        "static_token_witness": "FAIL",
+        "independent_payment_requirement": "FAIL",
+        "engine_runtime": "UNVERIFIED",
+        "publish_source_bytes": false
+      },
+      {
+        "private_source_path": "/Users/familia/code/maezo-operadora/docs/processes/New_BPMN/Adapted_BPMN/CA_2_UTILIZACAO_v4_adaptado.bpmn",
+        "sha256": "dae17b4872432d751c102c8318112f7cfc650763048ddd2aa1282310a1045023",
+        "static_token_witness": "PASS_FRAGMENT_ONLY",
+        "independent_payment_requirement": "FAIL",
+        "engine_runtime": "UNVERIFIED",
+        "publish_source_bytes": false
+      }
+    ],
+    "w4_exit_gate_closed": false,
+    "future_acceptance": [
+      "payment path progresses with survey omitted/pending/failed/timed out",
+      "feedback cannot mint performance/settlement authority",
+      "two alternative wait traces do not duplicate a token",
+      "redelivery cannot duplicate financial effect",
+      "independent full implementation proof plus qualified engine and source integration"
+    ]
+  },
+  "author_checks": [
+    {
+      "id": "existing-unit-authority-mechanisms",
+      "command": ".venv/bin/python -m pytest -q tests/unit/gateway/test_adequacao_sem_binding_de_agente.py tests/unit/tools/workers/test_dmn_transport.py tests/unit/gateway/human/test_durable_projection.py tests/unit/gateway/human/test_receipt_access.py tests/unit/gateway/human/test_decision_ports_composition.py",
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 119,
+      "engine_exercised": false
+    },
+    {
+      "id": "start-process-fence",
+      "command": ".venv/bin/python scripts/ci/check_start_process_fence.py",
+      "status": "PASS",
+      "exit_code": 0,
+      "files_scanned": 472,
+      "fence_consumers": 17
+    },
+    {
+      "id": "effect-chokepoint-fence",
+      "command": ".venv/bin/python scripts/ci/check_effect_chokepoint_fence.py",
+      "status": "PASS",
+      "exit_code": 0,
+      "files_scanned": 472,
+      "completeness_passed": true,
+      "undocumented_unchoked_surfaces": 0
+    },
+    {
+      "id": "direct-completion-fence",
+      "command": ".venv/bin/python scripts/ci/check_portal_direct_completion.py",
+      "status": "PASS",
+      "exit_code": 0
+    }
+  ],
+  "independent_verifier": {
+    "status": "PENDING",
+    "verdict": null,
+    "reviewed_commit": null
+  },
+  "engine_lane": {
+    "needed_for_documentation_delta": false,
+    "executed": false,
+    "current_runtime": "UNVERIFIED",
+    "required_before": [
+      "BPMN/DMN delta admission",
+      "new governed starter/timer",
+      "new human binding",
+      "financial handoff qualification"
+    ],
+    "coordination": "one designated real CIB lane; no mocked engine or manufactured fixture/skip"
+  },
+  "remaining_owner_gates": [
+    "new commercial/customer acceptance and administrative enrollment authority",
+    "catalogue/reservation/delivery source contracts",
+    "regulated network obligation and governed starter",
+    "GP1/GP2 necessity and ADR-0037/0038 reconciliation",
+    "new policy/deadline ratification",
+    "independent exact-bytes verification and applicable CI"
+  ]
+}

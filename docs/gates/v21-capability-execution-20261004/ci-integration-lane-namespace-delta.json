@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "finding_id": "AW-CI-F01",
+  "role": "original CI verifier; independent of namespace repair author",
+  "verdict": "CI_NAMESPACE_DELTA_PASS",
+  "source_head": "43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+  "parent_source_head": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "committed_delta": "A\ttests/unit/gateway/capabilities/__init__.py",
+  "repair": {
+    "path": "tests/unit/gateway/capabilities/__init__.py",
+    "byte_count": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "original_input_file_count": 1989,
+  "original_source_and_test_files_changed": [],
+  "original_source_bytes_changed_during_delta_verification": [],
+  "new_source_paths": [
+    "tests/unit/gateway/capabilities/__init__.py"
+  ],
+  "third_repair_json": "docs/gates/v21-capability-execution-20261004/pytest-namespace-repair.json",
+  "third_repair_json_sha256": "fc4355cbd537af4a0aa7c271b7f098e46a8c61900fcc14a81ed5c444305dc1b6",
+  "third_repair_log_sha256": "ac7d1457adee3c663a75b83ea50250212d8223bde47176ea7cc1c8da85a568bb",
+  "third_repair_collection_summaries_read": [
+    "{\"argv\": [\".venv/bin/python\", \"-m\", \"pytest\", \"tests/unit/gateway/capabilities/test_admission.py\", \"tests/unit/gateway/communications/test_admission.py\", \"--collect-only\", \"-q\", \"-m\", \"not integration\"], \"duration_seconds\": 1.185, \"import_file_mismatch\": true, \"name\": \"before-admission-pair\", \"output_sha256\": \"6b422004540076b18abd6518aa05defb7b3a823b71010589910f5e3225f96ec1\", \"return_code\": 2, \"summary\": \"50 tests collected, 1 error in 0.22s\"}",
+    "50 tests collected, 1 error in 0.22s",
+    "{\"argv\": [\".venv/bin/python\", \"-m\", \"pytest\", \"tests/unit/gateway/capabilities/test_models.py\", \"tests/unit/gateway/external_cases/test_models.py\", \"--collect-only\", \"-q\", \"-m\", \"not integration\"], \"duration_seconds\": 0.93, \"import_file_mismatch\": true, \"name\": \"before-models-pair\", \"output_sha256\": \"9f81c810e0fe33939a4fabe7baae7cf4ab06d5458fe93806a2148920fc907f24\", \"return_code\": 2, \"summary\": \"16 tests collected, 1 error in 0.19s\"}",
+    "16 tests collected, 1 error in 0.19s",
+    "{\"argv\": [\".venv/bin/python\", \"-m\", \"pytest\", \"tests/unit/gateway/communications/test_admission.py\", \"tests/unit/gateway/external_cases/test_models.py\", \"--collect-only\", \"-q\", \"-m\", \"not integration\"], \"duration_seconds\": 1.719, \"import_file_mismatch\": false, \"name\": \"before-unchanged-control\", \"output_sha256\": \"f2225d51b59588e6c38ca5c47853854721d2142257fb8c419c747022b6a6846c\", \"return_code\": 0, \"summary\": \"36 tests collected in 0.94s\"}",
+    "36 tests collected in 0.94s",
+    "{\"argv\": [\".venv/bin/python\", \"-m\", \"pytest\", \"tests/unit/gateway/capabilities/test_admission.py\", \"tests/unit/gateway/communications/test_admission.py\", \"--collect-only\", \"-q\", \"-m\", \"not integration\"], \"duration_seconds\": 2.382, \"import_file_mismatch\": false, \"name\": \"after-admission-pair\", \"output_sha256\": \"ba7cff612a69a90bca88b0b63ae186a1ff9a47bfa4810eed3a33bb2e4e211336\", \"return_code\": 0, \"summary\": \"69 tests collected in 1.27s\"}",
+    "69 tests collected in 1.27s",
+    "{\"argv\": [\".venv/bin/python\", \"-m\", \"pytest\", \"tests/unit/gateway/capabilities/test_models.py\", \"tests/unit/gateway/external_cases/test_models.py\", \"--collect-only\", \"-q\", \"-m\", \"not integration\"], \"duration_seconds\": 1.435, \"import_file_mismatch\": false, \"name\": \"after-models-pair\", \"output_sha256\": \"58a01242b24748aa6f1868ec924918b496d2d869cd80c2cb951f72ac92a72520\", \"return_code\": 0, \"summary\": \"33 tests collected in 0.55s\"}",
+    "33 tests collected in 0.55s",
+    "{\"argv\": [\".venv/bin/python\", \"-m\", \"pytest\", \"tests/\", \"--collect-only\", \"-q\", \"-m\", \"not integration\"], \"duration_seconds\": 11.327, \"import_file_mismatch\": false, \"name\": \"after-full-make-test-collection\", \"output_sha256\": \"13b53b8c64befcf19c89fcf17d91c72bb7a794c01909977e420966042470ba5f\", \"return_code\": 0, \"summary\": \"26237/28231 tests collected (1994 deselected) in 9.23s\"}",
+    "26237/28231 tests collected (1994 deselected) in 9.23s"
+  ],
+  "independent_reproductions": [
+    {
+      "name": "admission-pair",
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/gateway/capabilities/test_admission.py",
+        "tests/unit/gateway/communications/test_admission.py",
+        "--collect-only",
+        "-q",
+        "-m",
+        "not integration"
+      ],
+      "return_code": 0,
+      "duration_seconds": 1.748,
+      "summary_lines": [
+        "69 tests collected in 0.94s"
+      ],
+      "import_file_mismatch": false,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-namespace-delta-admission-pair.log",
+      "log_sha256": "399a8ac4a386c21d92da10aa1bf54b7ab892af94500e763532e5cb08a3d994b7"
+    },
+    {
+      "name": "models-pair",
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/gateway/capabilities/test_models.py",
+        "tests/unit/gateway/external_cases/test_models.py",
+        "--collect-only",
+        "-q",
+        "-m",
+        "not integration"
+      ],
+      "return_code": 0,
+      "duration_seconds": 1.108,
+      "summary_lines": [
+        "33 tests collected in 0.36s"
+      ],
+      "import_file_mismatch": false,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-namespace-delta-models-pair.log",
+      "log_sha256": "a3bf6b75bccc3a30bcf9956005603c5124ec95030d644a323ec4b65ea6754193"
+    },
+    {
+      "name": "full-selector",
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/",
+        "--collect-only",
+        "-q",
+        "-m",
+        "not integration"
+      ],
+      "return_code": 0,
+      "duration_seconds": 11.159,
+      "summary_lines": [
+        "26237/28231 tests collected (1994 deselected) in 9.00s"
+      ],
+      "import_file_mismatch": false,
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-namespace-delta-full-selector.log",
+      "log_sha256": "49bb68809c784d463b9a5b546430f38d181550ff8d3c48cb43c2f3bb3cf0e512"
+    }
+  ],
+  "independent_full_collection_counts": {
+    "selected": 26237,
+    "collected": 28231,
+    "deselected": 1994,
+    "errors": 0,
+    "test_bodies_executed": 0
+  },
+  "ambient_sensitive_environment_names": [],
+  "global_import_mode_flags_filters_marker_changes_or_workarounds": false,
+  "completed_at": "2026-10-04T17:30:59.352772+00:00",
+  "qualification_limit": "Collection-only validates namespace repair; full unit execution remains unqualified pending root explicit authorization and fresh full run. Attempt1 FAIL log/XML preserved."
+}

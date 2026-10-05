@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "finding_id": "AW-CI-F01",
+  "role": "independent-third-specialist-pytest-namespace-repair",
+  "source_head": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "baseline_head": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "cwd": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora",
+  "created_at_utc": "2026-10-04T17:23:16.241368+00:00",
+  "test_files_before": {
+    "tests/unit/gateway/capabilities/test_admission.py": "a292200d93f4834911fa8ec2a37011a844ba36087655e94c9b3d29be34855821",
+    "tests/unit/gateway/capabilities/test_models.py": "e26384524e65e724b0a70d45fd668521ed33fb34ead4d578d19b95b22555e597",
+    "tests/unit/gateway/communications/test_admission.py": "82407b02480080d4e1c39c2ee2c701a99c94f1bc3f6cb30719805897ed5df20f",
+    "tests/unit/gateway/external_cases/test_models.py": "d2f98475124767d78c13e87e1469fefe221318850baa7f7238d795fddcd00c99"
+  },
+  "runs": [
+    {
+      "name": "before-admission-pair",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/gateway/capabilities/test_admission.py",
+        "tests/unit/gateway/communications/test_admission.py",
+        "--collect-only",
+        "-q",
+        "-m",
+        "not integration"
+      ],
+      "return_code": 2,
+      "duration_seconds": 1.185,
+      "summary": "50 tests collected, 1 error in 0.22s",
+      "output_sha256": "6b422004540076b18abd6518aa05defb7b3a823b71010589910f5e3225f96ec1",
+      "import_file_mismatch": true
+    },
+    {
+      "name": "before-models-pair",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/gateway/capabilities/test_models.py",
+        "tests/unit/gateway/external_cases/test_models.py",
+        "--collect-only",
+        "-q",
+        "-m",
+        "not integration"
+      ],
+      "return_code": 2,
+      "duration_seconds": 0.93,
+      "summary": "16 tests collected, 1 error in 0.19s",
+      "output_sha256": "9f81c810e0fe33939a4fabe7baae7cf4ab06d5458fe93806a2148920fc907f24",
+      "import_file_mismatch": true
+    },
+    {
+      "name": "before-unchanged-control",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/gateway/communications/test_admission.py",
+        "tests/unit/gateway/external_cases/test_models.py",
+        "--collect-only",
+        "-q",
+        "-m",
+        "not integration"
+      ],
+      "return_code": 0,
+      "duration_seconds": 1.719,
+      "summary": "36 tests collected in 0.94s",
+      "output_sha256": "f2225d51b59588e6c38ca5c47853854721d2142257fb8c419c747022b6a6846c",
+      "import_file_mismatch": false
+    },
+    {
+      "name": "after-admission-pair",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/gateway/capabilities/test_admission.py",
+        "tests/unit/gateway/communications/test_admission.py",
+        "--collect-only",
+        "-q",
+        "-m",
+        "not integration"
+      ],
+      "return_code": 0,
+      "duration_seconds": 2.382,
+      "summary": "69 tests collected in 1.27s",
+      "output_sha256": "ba7cff612a69a90bca88b0b63ae186a1ff9a47bfa4810eed3a33bb2e4e211336",
+      "import_file_mismatch": false
+    },
+    {
+      "name": "after-models-pair",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/gateway/capabilities/test_models.py",
+        "tests/unit/gateway/external_cases/test_models.py",
+        "--collect-only",
+        "-q",
+        "-m",
+        "not integration"
+      ],
+      "return_code": 0,
+      "duration_seconds": 1.435,
+      "summary": "33 tests collected in 0.55s",
+      "output_sha256": "58a01242b24748aa6f1868ec924918b496d2d869cd80c2cb951f72ac92a72520",
+      "import_file_mismatch": false
+    },
+    {
+      "name": "after-full-make-test-collection",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/",
+        "--collect-only",
+        "-q",
+        "-m",
+        "not integration"
+      ],
+      "return_code": 0,
+      "duration_seconds": 11.327,
+      "summary": "26237/28231 tests collected (1994 deselected) in 9.23s",
+      "output_sha256": "13b53b8c64befcf19c89fcf17d91c72bb7a794c01909977e420966042470ba5f",
+      "import_file_mismatch": false
+    }
+  ],
+  "phase": "REPAIR_COMPLETE_COLLECTION_ONLY_PASS_PENDING_INDEPENDENT_DELTA",
+  "repair": {
+    "path": "tests/unit/gateway/capabilities/__init__.py",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "rationale": "Package namespace for new capabilities tests, following existing empty gateway and seams test package markers; removes default pytest basename collision without import-mode changes.",
+    "existing_patterns": [
+      "tests/unit/gateway/__init__.py",
+      "tests/unit/gateway/seams/__init__.py"
+    ],
+    "ast_statement_count": 0
+  },
+  "test_files_after": {
+    "tests/unit/gateway/capabilities/test_admission.py": "a292200d93f4834911fa8ec2a37011a844ba36087655e94c9b3d29be34855821",
+    "tests/unit/gateway/capabilities/test_models.py": "e26384524e65e724b0a70d45fd668521ed33fb34ead4d578d19b95b22555e597",
+    "tests/unit/gateway/communications/test_admission.py": "82407b02480080d4e1c39c2ee2c701a99c94f1bc3f6cb30719805897ed5df20f",
+    "tests/unit/gateway/external_cases/test_models.py": "d2f98475124767d78c13e87e1469fefe221318850baa7f7238d795fddcd00c99"
+  },
+  "baseline_controls": [
+    {
+      "path": "tests/unit/gateway/communications/test_admission.py",
+      "baseline_sha256": "82407b02480080d4e1c39c2ee2c701a99c94f1bc3f6cb30719805897ed5df20f",
+      "candidate_sha256": "82407b02480080d4e1c39c2ee2c701a99c94f1bc3f6cb30719805897ed5df20f",
+      "bytes_equal": true
+    },
+    {
+      "path": "tests/unit/gateway/external_cases/test_models.py",
+      "baseline_sha256": "d2f98475124767d78c13e87e1469fefe221318850baa7f7238d795fddcd00c99",
+      "candidate_sha256": "d2f98475124767d78c13e87e1469fefe221318850baa7f7238d795fddcd00c99",
+      "bytes_equal": true
+    }
+  ],
+  "completed_at_utc": "2026-10-04T17:24:27.694403+00:00",
+  "source_head_after": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "write_set": [
+    "tests/unit/gateway/capabilities/__init__.py",
+    "docs/gates/v21-capability-execution-20261004/pytest-namespace-repair.json",
+    "docs/gates/v21-capability-execution-20261004/pytest-namespace-repair.log"
+  ],
+  "log_sha256": "ac7d1457adee3c663a75b83ea50250212d8223bde47176ea7cc1c8da85a568bb",
+  "limitations": [
+    "Collect-only executes no test bodies and cannot attest make test PASS.",
+    "No broad test body run, dependency/env/import-mode/marker/skip/deselect/cache deletion/Makefile/CI change, or commit performed.",
+    "Original CI verifier and original source reviewer must independently review delta before root freeze and broad rerun."
+  ],
+  "collection_after": {
+    "admission_pair_collected": 69,
+    "models_pair_collected": 33,
+    "full_collected": 28231,
+    "full_selected": 26237,
+    "full_deselected_by_original_selector": 1994,
+    "errors": 0,
+    "test_bodies_executed": 0
+  },
+  "cheap_lint_checks": [
+    {
+      "argv": [
+        ".venv/bin/ruff",
+        "check",
+        "tests/unit/gateway/capabilities/__init__.py"
+      ],
+      "return_code": 0,
+      "output": "All checks passed!\n"
+    },
+    {
+      "argv": [
+        ".venv/bin/ruff",
+        "format",
+        "--check",
+        "tests/unit/gateway/capabilities/__init__.py"
+      ],
+      "return_code": 0,
+      "output": "1 file already formatted\n"
+    }
+  ]
+}

@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "verdict": "CI_RUNNER_QUALIFICATION_PASS_BOUNDED",
+  "scope": "single whole runner module on actual clean immutable fb9 checkout plus source-equivalence readback and nine cheap delivery checks e9; no broad unit or real engine execution",
+  "role": "original runner dirty-refusal CI reviewer; independent of source and fixture repair authors",
+  "created_at": "2026-10-04T19:37:23.279676+00:00",
+  "qualified_runner_checkout": "/Users/familia/.codex/worktrees/v21-xdist-order-repair/maezo-operadora",
+  "qualified_runner_input_sha": "fb9ce5068ea4c8f2d02f89d496d0ea34e62a8f11",
+  "delivery_successor_sha": "e9af2a91002384bbe2772cf9b63e2e7534cdb778",
+  "actual_runner_counts": {
+    "testcases": 18,
+    "passed": 18,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "runner_duration_seconds": 334.294,
+  "runner_command": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "tests/unit/dev/test_engine_integration_runner.py",
+    "-q",
+    "--junitxml=/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-runner-clean-fb9.xml"
+  ],
+  "runner_junit_sha256": "17d3bc2aee0096e0d7e88c15f0218bfcf6226dc09f42f4fc2bc55b7e1b7a2b50",
+  "runner_raw_log_sha256": "cd4a8fb394b5a2f93af2eb406aafd4d3cd210f4f3a32ecf4d0b5b19bf5b8ac17",
+  "runner_raw_log": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-runner-clean-fb9.log",
+  "runner_junit": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-runner-clean-fb9.xml",
+  "runner_input_manifest": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-runner-clean-fb9-input.json",
+  "runner_results": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-runner-clean-fb9-results.json",
+  "runner_source_fingerprint": "d2e4df0dae60d78e1684619a758a9aa7988d3f56daef083c3cb65db5f29ac808",
+  "tracked_status_start": "",
+  "tracked_status_end": "",
+  "source_bytes_changed_during_module": [],
+  "same_runner_test_gateway_lock_and_project_hashes_as_old_red_run": {
+    "scripts/dev/run_engine_integration.py": {
+      "old_run2": "5b27e471bdf85443457564634f79cafb7fc28f9294214687e9bd909b44c88281",
+      "clean_runner": "5b27e471bdf85443457564634f79cafb7fc28f9294214687e9bd909b44c88281",
+      "bytes_equal": true
+    },
+    "tests/unit/dev/test_engine_integration_runner.py": {
+      "old_run2": "dcec1a521698f6d09900d25bff20e7fd55515c203892da6a910a3d1e3aab987d",
+      "clean_runner": "dcec1a521698f6d09900d25bff20e7fd55515c203892da6a910a3d1e3aab987d",
+      "bytes_equal": true
+    },
+    "src/maezo/gateway/human/gateway.py": {
+      "old_run2": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57",
+      "clean_runner": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57",
+      "bytes_equal": true
+    },
+    "pyproject.toml": {
+      "old_run2": "788931152651ce6e996d0333ca9bf2615a89fc9c64a1fbb22a24d0e0e4e0de39",
+      "clean_runner": "788931152651ce6e996d0333ca9bf2615a89fc9c64a1fbb22a24d0e0e4e0de39",
+      "bytes_equal": true
+    },
+    "uv.lock": {
+      "old_run2": "32585889cd2ba4645044cd9c85041b884dbd42621b8322a5d75fe96cae86e4e5",
+      "clean_runner": "32585889cd2ba4645044cd9c85041b884dbd42621b8322a5d75fe96cae86e4e5",
+      "bytes_equal": true
+    }
+  },
+  "strict_dirty_guard_preserved": {
+    "mechanism": "validate_checkout rejects both unstaged git diff and cached git diff before any discovery or untracked execution checks",
+    "runner_source_sha256": "5b27e471bdf85443457564634f79cafb7fc28f9294214687e9bd909b44c88281",
+    "proof": "Exact source hash is identical to baselinee7 and actual dirty-checkout run2 source; clean positive module now passes. Old dirty refusals remain exact negative evidence. No new dirty source fixture manufactured.",
+    "old_actual_negative_run2_source_sha": "43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+    "old_actual_negative_case_records": [
+      {
+        "identity": {
+          "classname": "tests.unit.dev.test_engine_integration_runner",
+          "name": "test_discovery_covers_every_current_integration_test_and_required_families",
+          "file": null
+        },
+        "status_tags": [
+          "error"
+        ]
+      },
+      {
+        "identity": {
+          "classname": "tests.unit.dev.test_engine_integration_runner",
+          "name": "test_discovery_ignores_ambient_pytest_selectors_and_plugins",
+          "file": null
+        },
+        "status_tags": [
+          "error"
+        ]
+      },
+      {
+        "identity": {
+          "classname": "tests.unit.dev.test_engine_integration_runner",
+          "name": "test_discovery_rejects_untracked_test_outside_integration_directory",
+          "file": null
+        },
+        "status_tags": [
+          "failure"
+        ]
+      },
+      {
+        "identity": {
+          "classname": "tests.unit.dev.test_engine_integration_runner",
+          "name": "test_busy_lock_return_code_matches_durable_run_state",
+          "file": null
+        },
+        "status_tags": [
+          "error"
+        ]
+      },
+      {
+        "identity": {
+          "classname": "tests.unit.dev.test_engine_integration_runner",
+          "name": "test_discovery_separates_declared_deselections_from_files_without_nodeids",
+          "file": null
+        },
+        "status_tags": [
+          "error"
+        ]
+      }
+    ],
+    "old_run2_raw_evidence": {
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2.log",
+      "log_sha256": "047c1de07fd772447c03b6c9016f6540c6ff2d4b003b45231574558b33abc08e",
+      "junit": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-r2.xml",
+      "junit_sha256": "63546f5c81ba657f3b374a3c94c403dda8b04673022f6662cf079b3f974287ee"
+    }
+  },
+  "new_actual_negative_controls_passed": [
+    {
+      "classname": "tests.unit.dev.test_engine_integration_runner",
+      "name": "test_lock_contention_never_grants_cleanup_and_owner_releases_on_interrupt"
+    },
+    {
+      "classname": "tests.unit.dev.test_engine_integration_runner",
+      "name": "test_child_timeout_preserves_partial_log_reaps_process_and_releases_lock"
+    },
+    {
+      "classname": "tests.unit.dev.test_engine_integration_runner",
+      "name": "test_discovery_rejects_untracked_test_outside_integration_directory"
+    },
+    {
+      "classname": "tests.unit.dev.test_engine_integration_runner",
+      "name": "test_discovery_rejects_a_checkout_at_the_wrong_sha"
+    }
+  ],
+  "untracked_gate_json_contract": "Owned untracked docs/gates JSON is outside CHECKOUT_INPUTS; no ignore pattern or policy was modified. Output path was external to the executing checkout.",
+  "body_or_execution_contract_paths_compared_to_delivery": [
+    "src",
+    "tests",
+    "spec",
+    "scripts",
+    "config",
+    ".github",
+    "Makefile",
+    "pyproject.toml",
+    "uv.lock",
+    "docker-compose.yml",
+    "conftest.py",
+    "pytest.ini",
+    "setup.cfg",
+    "tox.ini",
+    "uv.toml",
+    ".python-version",
+    "docs/adr",
+    "docs/design"
+  ],
+  "body_or_execution_contract_delta_files": [],
+  "delivery_metadata_delta_count": 24,
+  "delivery_metadata_delta_paths": [
+    "PLANS.md",
+    "docs/gates/v21-capability-execution-20261004/admission-verifier.json",
+    "docs/gates/v21-capability-execution-20261004/ci-integration-lane-attempt1-report.json",
+    "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-r2-results.json",
+    "docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-results.json",
+    "docs/gates/v21-capability-execution-20261004/ci-integration-lane-namespace-delta.json",
+    "docs/gates/v21-capability-execution-20261004/ci-integration-lane-preparation.json",
+    "docs/gates/v21-capability-execution-20261004/ci-integration-lane-reporting-plan.json",
+    "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit-results.json",
+    "docs/gates/v21-capability-execution-20261004/delivery-index.json",
+    "docs/gates/v21-capability-execution-20261004/entry.json",
+    "docs/gates/v21-capability-execution-20261004/final-architecture-revise-3895459.json",
+    "docs/gates/v21-capability-execution-20261004/implementation-manifest-r2-before-roster-readback.json",
+    "docs/gates/v21-capability-execution-20261004/implementation-manifest-r2.json",
+    "docs/gates/v21-capability-execution-20261004/implementation-manifest.json",
+    "docs/gates/v21-capability-execution-20261004/ledger.jsonl",
+    "docs/gates/v21-capability-execution-20261004/pytest-namespace-repair-actor.json",
+    "docs/gates/v21-capability-execution-20261004/pytest-namespace-repair.json",
+    "docs/gates/v21-capability-execution-20261004/reproduce-e915-checkpoint-f01.py",
+    "docs/gates/v21-capability-execution-20261004/source-delta-pass-3895459.json",
+    "docs/gates/v21-capability-execution-20261004/source-delta-review-3af46d.json",
+    "docs/gates/v21-capability-execution-20261004/source-freeze-e915.json",
+    "docs/gates/v21-capability-execution-20261004/source-namespace-delta-43dae3d.json",
+    "docs/gates/v21-capability-execution-20261004/source-review-e915.json"
+  ],
+  "delivery_cheap_checks_status": "PASS",
+  "delivery_cheap_checks_count": 9,
+  "delivery_cheap_results": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-cheap-e9-results.json",
+  "no_guard_waiver_env_override_cache_cleanup_runner_edit_fixture_manufacture_or_extra_filter": true,
+  "old_full_run1_status": "FAIL preserved",
+  "old_full_run2_status": "FAIL preserved; not replaced by this bounded PASS",
+  "fresh_full_unit": "NOT_RUN; root explicit release and fresh exact head required",
+  "hosted_required_ci": "NOT_OBSERVED_BY_THIS_FOCAL_LANE",
+  "real_engine_PG_CIB_integration": "NOT_RUN; unit subprocess/discovery tests establish no engine runtime acceptance",
+  "operational_new_sources_human_ratification_and_production": "NOT_QUALIFIED"
+}

@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "phase": "BROAD_UNIT_COMPLETE",
+  "overall_status": "FAIL",
+  "source_head": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "source_content_fingerprint": "feb24b9fdf1a0675ea5261c6531e4a4559f13315efefb135fa7c6269bb59f67e",
+  "observed_head_at_end": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "tracked_source_files_changed_during_execution": [],
+  "new_tracked_source_files_during_execution": [],
+  "command": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "tests/",
+    "-q",
+    "-m",
+    "not integration",
+    "--junitxml=docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit.xml"
+  ],
+  "equivalence_to_make_test": "Exact Makefile.test recipe with --junitxml reporting-only addition, no filters or environment overrides",
+  "broad_execution_number": 1,
+  "started_at": "2026-10-04T17:18:28.102819+00:00",
+  "ended_at": "2026-10-04T17:19:03.449247+00:00",
+  "duration_seconds": 35.346,
+  "return_code": 2,
+  "ambient_sensitive_environment_names": [],
+  "terminal_summary_lines": [
+    "1994 deselected, 1 warning, 2 errors in 32.43s"
+  ],
+  "junit_declared_suites": [
+    {
+      "name": "pytest",
+      "errors": "2",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "2",
+      "time": "32.380",
+      "timestamp": "2026-10-04T14:18:28.853705-03:00",
+      "hostname": "MacBook-Air-de-Rodrigo-5.local"
+    }
+  ],
+  "junit_counts": {
+    "testcases": 2,
+    "passed": 0,
+    "failed": 0,
+    "errors": 2,
+    "skipped": 0,
+    "xfailed": 0
+  },
+  "junit_parse_error": null,
+  "failures_and_errors": [
+    {
+      "identity": {
+        "classname": "",
+        "name": "tests.unit.gateway.communications.test_admission",
+        "file": null
+      },
+      "time_seconds": "0.000",
+      "statuses": [
+        {
+          "tag": "error",
+          "attributes": {
+            "message": "collection failure"
+          },
+          "text": "import file mismatch:\nimported module 'test_admission' has this __file__ attribute:\n  /Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/tests/unit/gateway/capabilities/test_admission.py\nwhich is not the same as the test file we want to collect:\n  /Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/tests/unit/gateway/communications/test_admission.py\nHINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules"
+        }
+      ]
+    },
+    {
+      "identity": {
+        "classname": "",
+        "name": "tests.unit.gateway.external_cases.test_models",
+        "file": null
+      },
+      "time_seconds": "0.000",
+      "statuses": [
+        {
+          "tag": "error",
+          "attributes": {
+            "message": "collection failure"
+          },
+          "text": "import file mismatch:\nimported module 'test_models' has this __file__ attribute:\n  /Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/tests/unit/gateway/capabilities/test_models.py\nwhich is not the same as the test file we want to collect:\n  /Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/tests/unit/gateway/external_cases/test_models.py\nHINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules"
+        }
+      ]
+    }
+  ],
+  "skips_and_xfails": [],
+  "evidence": {
+    "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit.log",
+    "log_sha256": "9bd9a576f56f302e8961ef1f161dcf74b59f1452859cb84408661e1123fd8092",
+    "junit": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit.xml",
+    "junit_sha256": "a616452e73c4c427089c6b4eade5fb1922be84993645a1ec84a5b9135ce24e77"
+  },
+  "qualification_limits": {
+    "engine_integration": "not executed by this lane; selector excludes integration",
+    "operational_integration": "not qualified: new authoritative providers and runtime bindings absent",
+    "human_ratification": "not granted by this lane",
+    "hosted_ci": "not observed by this run"
+  }
+}

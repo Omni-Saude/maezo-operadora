@@ -1,0 +1,1074 @@
+{
+  "schema_version": 1,
+  "verdict": "HOSTED_R6_CUSTODY_PASS_BOUNDED",
+  "scope": "Immutable R6 CI run reporting and artifact custody only; this is not a final human approval, new-provider journey acceptance, merge/deployment verdict, or a claim about future main changes.",
+  "captured_at_utc": "2026-10-04T21:33:26.739551+00:00",
+  "pr": {
+    "number": 633,
+    "url": "https://github.com/Omni-Saude/maezo-operadora/pull/633",
+    "draft": true,
+    "state": "open",
+    "source_head": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+    "declared_reviewed_base": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+    "observed_pr_base_commit": "33aa7acba59dd5027513834d07d8e9a517649b3e"
+  },
+  "run": {
+    "id": 37231985559,
+    "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559",
+    "event": "pull_request",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success",
+    "head_sha": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+    "started_at": "2026-10-04T20:24:43Z",
+    "created_at": "2026-10-04T20:24:43Z",
+    "updated_at": "2026-10-04T20:59:37Z"
+  },
+  "tested_merge_context": {
+    "effective_github_sha": "99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e",
+    "parents": [
+      "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+      "90c1717ee028eae0471ed9a1d0c163e052370f71"
+    ],
+    "merge_tree_sha": "5f305302325c97ef50a8008cad248bc6f42fb414",
+    "reviewed_head_tree_sha": "0953bf80ada904ec5723117b826ff2ccef8edf2e",
+    "local_reviewed_head_tree_sha": "0953bf80ada904ec5723117b826ff2ccef8edf2e",
+    "full_tree_equivalence": false,
+    "top_level_tree_differences": [
+      "docs"
+    ],
+    "exact_head_to_tested_merge_delta": [
+      {
+        "path": "docs/status/dados-do-lago-pendentes.md",
+        "status": "added",
+        "changes": 48,
+        "blob_sha": "e58b52c7e5c26afd0883111850169be9986711be"
+      }
+    ],
+    "all_non_docs_root_trees_and_blobs_equal": true,
+    "non_docs_tree_and_blob_proofs": [
+      {
+        "path": ".dockerignore",
+        "head_tree_or_blob_sha": "af02b4870b2014b97f37f5d10573fa67f0694ee8",
+        "merge_tree_or_blob_sha": "af02b4870b2014b97f37f5d10573fa67f0694ee8",
+        "equal": true
+      },
+      {
+        "path": ".env.example",
+        "head_tree_or_blob_sha": "2f6b0690a71e968b217ef8df8c3f699e4bd5a1e7",
+        "merge_tree_or_blob_sha": "2f6b0690a71e968b217ef8df8c3f699e4bd5a1e7",
+        "equal": true
+      },
+      {
+        "path": ".github",
+        "head_tree_or_blob_sha": "beb3fc5b2835296bddda8230ba134f79969de3c0",
+        "merge_tree_or_blob_sha": "beb3fc5b2835296bddda8230ba134f79969de3c0",
+        "equal": true
+      },
+      {
+        "path": ".gitignore",
+        "head_tree_or_blob_sha": "bec4d776ca47dace7cdfaafa6bfff60820b0bf2f",
+        "merge_tree_or_blob_sha": "bec4d776ca47dace7cdfaafa6bfff60820b0bf2f",
+        "equal": true
+      },
+      {
+        "path": ".gitleaks.toml",
+        "head_tree_or_blob_sha": "04f6d73e53fd69fd675e807675abe4ba0f88eb36",
+        "merge_tree_or_blob_sha": "04f6d73e53fd69fd675e807675abe4ba0f88eb36",
+        "equal": true
+      },
+      {
+        "path": ".gitleaksignore",
+        "head_tree_or_blob_sha": "46e36f3c61c417c7258523f83e52a72df857005d",
+        "merge_tree_or_blob_sha": "46e36f3c61c417c7258523f83e52a72df857005d",
+        "equal": true
+      },
+      {
+        "path": ".python-version",
+        "head_tree_or_blob_sha": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
+        "merge_tree_or_blob_sha": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
+        "equal": true
+      },
+      {
+        "path": ".trivyignore.yaml",
+        "head_tree_or_blob_sha": "cebdeafbc12c792742e855d03068f5b79d282112",
+        "merge_tree_or_blob_sha": "cebdeafbc12c792742e855d03068f5b79d282112",
+        "equal": true
+      },
+      {
+        "path": "AGENTS.md",
+        "head_tree_or_blob_sha": "94c48c5ff10a2e9ce27f0c3aae6b7dacb1fdea12",
+        "merge_tree_or_blob_sha": "94c48c5ff10a2e9ce27f0c3aae6b7dacb1fdea12",
+        "equal": true
+      },
+      {
+        "path": "CONTRIBUTING.md",
+        "head_tree_or_blob_sha": "a2ce4d931dd6f5a322dc82b5a22ff255dcfb32fa",
+        "merge_tree_or_blob_sha": "a2ce4d931dd6f5a322dc82b5a22ff255dcfb32fa",
+        "equal": true
+      },
+      {
+        "path": "Makefile",
+        "head_tree_or_blob_sha": "0330c2f047cf04fc900640a7945b9f77d4fe6763",
+        "merge_tree_or_blob_sha": "0330c2f047cf04fc900640a7945b9f77d4fe6763",
+        "equal": true
+      },
+      {
+        "path": "PLANS.md",
+        "head_tree_or_blob_sha": "ef55f9002096b2cdee137ffac517481512fba91b",
+        "merge_tree_or_blob_sha": "ef55f9002096b2cdee137ffac517481512fba91b",
+        "equal": true
+      },
+      {
+        "path": "PROJECT.md",
+        "head_tree_or_blob_sha": "b09f49cb3cb336a87e64ca8bfce59012f3303158",
+        "merge_tree_or_blob_sha": "b09f49cb3cb336a87e64ca8bfce59012f3303158",
+        "equal": true
+      },
+      {
+        "path": "README.md",
+        "head_tree_or_blob_sha": "2a644900714619144d58759be70084bf551cb782",
+        "merge_tree_or_blob_sha": "2a644900714619144d58759be70084bf551cb782",
+        "equal": true
+      },
+      {
+        "path": "RELEASE.md",
+        "head_tree_or_blob_sha": "eed7607f3e800109a713c34eab31f8ae1332e97d",
+        "merge_tree_or_blob_sha": "eed7607f3e800109a713c34eab31f8ae1332e97d",
+        "equal": true
+      },
+      {
+        "path": "SECURITY.md",
+        "head_tree_or_blob_sha": "7ef39b0022b104d9db17a81c8e150a5d0682982d",
+        "merge_tree_or_blob_sha": "7ef39b0022b104d9db17a81c8e150a5d0682982d",
+        "equal": true
+      },
+      {
+        "path": "alembic.ini",
+        "head_tree_or_blob_sha": "04db015790410935ac05e2e46323146eb849b74d",
+        "merge_tree_or_blob_sha": "04db015790410935ac05e2e46323146eb849b74d",
+        "equal": true
+      },
+      {
+        "path": "config",
+        "head_tree_or_blob_sha": "debfb1b820415784c799da5e64c78e04ede5757b",
+        "merge_tree_or_blob_sha": "debfb1b820415784c799da5e64c78e04ede5757b",
+        "equal": true
+      },
+      {
+        "path": "deploy",
+        "head_tree_or_blob_sha": "9e2b963a14f987da13b0a5e7c60294b35ebbb99e",
+        "merge_tree_or_blob_sha": "9e2b963a14f987da13b0a5e7c60294b35ebbb99e",
+        "equal": true
+      },
+      {
+        "path": "docker-compose.yml",
+        "head_tree_or_blob_sha": "b04aef54cda2fc8dc2b6b7241fa1d405550a706a",
+        "merge_tree_or_blob_sha": "b04aef54cda2fc8dc2b6b7241fa1d405550a706a",
+        "equal": true
+      },
+      {
+        "path": "pyproject.toml",
+        "head_tree_or_blob_sha": "1710534373a06aae01ee570465ebf7460e6de6a8",
+        "merge_tree_or_blob_sha": "1710534373a06aae01ee570465ebf7460e6de6a8",
+        "equal": true
+      },
+      {
+        "path": "scripts",
+        "head_tree_or_blob_sha": "94f1add7402b281d93075393ccf2669885fc86c5",
+        "merge_tree_or_blob_sha": "94f1add7402b281d93075393ccf2669885fc86c5",
+        "equal": true
+      },
+      {
+        "path": "spec",
+        "head_tree_or_blob_sha": "4ba3746af63ffe653565737a25bbed074ca5e19a",
+        "merge_tree_or_blob_sha": "4ba3746af63ffe653565737a25bbed074ca5e19a",
+        "equal": true
+      },
+      {
+        "path": "src",
+        "head_tree_or_blob_sha": "8ec5da5dda5abf6b01ff5d179c14f8586b2f3ce0",
+        "merge_tree_or_blob_sha": "8ec5da5dda5abf6b01ff5d179c14f8586b2f3ce0",
+        "equal": true
+      },
+      {
+        "path": "tests",
+        "head_tree_or_blob_sha": "8d75a63420b371ee8729bf660948cf07b4fbf17e",
+        "merge_tree_or_blob_sha": "8d75a63420b371ee8729bf660948cf07b4fbf17e",
+        "equal": true
+      },
+      {
+        "path": "tools",
+        "head_tree_or_blob_sha": "d3d8bf4d45e4811640eb3b242b715a24f27ed4ce",
+        "merge_tree_or_blob_sha": "d3d8bf4d45e4811640eb3b242b715a24f27ed4ce",
+        "equal": true
+      },
+      {
+        "path": "uv.lock",
+        "head_tree_or_blob_sha": "5bb595aac1da7f922502b962ba5c662b37065503",
+        "merge_tree_or_blob_sha": "5bb595aac1da7f922502b962ba5c662b37065503",
+        "equal": true
+      }
+    ],
+    "source_tests_spec_scripts_config_deploy_workflow_dependency_equivalence": true,
+    "scope_of_difference": "Additional upstream document disclosed; no whole-tree equality asserted and no new independent document approval implied.",
+    "future_main_scope": "Later main b023b043d0d35358e3310ed8b8da07df5450a887 and its CIB2.2 read-provider pom change are outside this R6 proof; this summary stays bound to the captured R6 context."
+  },
+  "unit": {
+    "shard_count": 9,
+    "counts": {
+      "testcases": 26127,
+      "passed": 25990,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 132,
+      "xfailed": 5
+    },
+    "duplicates": 0,
+    "marker": "not integration",
+    "command_template": ".venv/bin/python -m pytest <matrix.alvo> -q -m \"not integration\" -ra <matrix.xdist> --junitxml=unit-junit-<shard>.xml --cov=<workspace>/src/maezo --cov-report=",
+    "selectors": [
+      {
+        "shard": "ledger-consumer",
+        "collection_arguments": "tests/unit/ci/test_ledger_current_consumer.py",
+        "xdist_arguments": "-n 0"
+      },
+      {
+        "shard": "ledger-execution",
+        "collection_arguments": "tests/unit/ci/test_ledger_current_execution.py",
+        "xdist_arguments": "-n 0"
+      },
+      {
+        "shard": "ledger-resto",
+        "collection_arguments": "tests/unit/ci/test_ledger_current_relations.py tests/unit/ci/test_ledger_d7_async_consumer.py tests/unit/ci/test_ledger_execution_admission.py tests/unit/ci/test_ledger_invalid_declaration_boundaries.py tests/unit/ci/test_ledger_invalid_declarations.py tests/unit/ci/test_ledger_operational_history.py",
+        "xdist_arguments": "-n 0"
+      },
+      {
+        "shard": "ci-pesado",
+        "collection_arguments": "tests/unit/ci/test_pytest_collection_privacy.py tests/unit/ci/test_check_doc_symbol_citations.py tests/unit/ci/test_check_chart_env_reconciliation.py tests/unit/ci/test_generate_release_floor.py tests/unit/ci/test_pytest_publication_context.py tests/unit/ci/test_global_integration_ci.py tests/unit/ci/test_check_evidence_ledger_supersession.py",
+        "xdist_arguments": "-n auto --dist loadfile"
+      },
+      {
+        "shard": "ci",
+        "collection_arguments": "tests/unit/ci --ignore-glob=tests/unit/ci/test_ledger_*.py --ignore=tests/unit/ci/test_pytest_collection_privacy.py --ignore=tests/unit/ci/test_check_doc_symbol_citations.py --ignore=tests/unit/ci/test_check_chart_env_reconciliation.py --ignore=tests/unit/ci/test_generate_release_floor.py --ignore=tests/unit/ci/test_pytest_publication_context.py --ignore=tests/unit/ci/test_global_integration_ci.py --ignore=tests/unit/ci/test_check_evidence_ledger_supersession.py",
+        "xdist_arguments": "-n auto --dist loadfile"
+      },
+      {
+        "shard": "gateway-platform",
+        "collection_arguments": "tests/unit/gateway tests/unit/platform",
+        "xdist_arguments": "-n auto --dist loadfile"
+      },
+      {
+        "shard": "dev-runner",
+        "collection_arguments": "tests/unit/dev/test_engine_integration_runner.py",
+        "xdist_arguments": "-n 0"
+      },
+      {
+        "shard": "dev",
+        "collection_arguments": "tests/unit/dev --ignore=tests/unit/dev/test_engine_integration_runner.py tests/unit/portal/test_relay_boundary_diagnostics.py",
+        "xdist_arguments": "-n 0"
+      },
+      {
+        "shard": "restante",
+        "collection_arguments": "tests --ignore=tests/unit/ci --ignore=tests/unit/gateway --ignore=tests/unit/platform --ignore=tests/unit/dev --ignore=tests/unit/portal/test_relay_boundary_diagnostics.py",
+        "xdist_arguments": "-n auto --dist loadfile"
+      }
+    ],
+    "jobs_and_junit": [
+      {
+        "shard": "ci-pesado",
+        "job_id": 111523567603,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111523567603",
+        "job_started_at": "2026-10-04T20:25:10Z",
+        "job_completed_at": "2026-10-04T20:34:21Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/unit-test-results/maezo-operadora/maezo-operadora/unit-junit-ci-pesado.xml",
+        "junit_sha256": "69441395995769ab9fe38933467a84660b913b022392bc27e535d8fb81d611d6",
+        "junit_actual_counts": {
+          "testcases": 333,
+          "passed": 333,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "xfailed": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 333,
+        "identity_set_sha256": "849f26813c8dd970dcc66eecbc8148a2a0c49d813f9783993f95438e1d08e3be",
+        "artifact_id": 11313999187,
+        "artifact_server_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11313999187"
+      },
+      {
+        "shard": "ci",
+        "job_id": 111523567592,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111523567592",
+        "job_started_at": "2026-10-04T20:25:11Z",
+        "job_completed_at": "2026-10-04T20:32:15Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/unit-test-results/maezo-operadora/maezo-operadora/unit-junit-ci.xml",
+        "junit_sha256": "d7a6625769b9b6deba3b2a24fdf5f6b4123e30c0720fd9768775281fc4787963",
+        "junit_actual_counts": {
+          "testcases": 1944,
+          "passed": 1942,
+          "skipped": 2,
+          "failed": 0,
+          "errors": 0,
+          "xfailed": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 1944,
+        "identity_set_sha256": "d0fd0629b0c3148460a853b59fea8a6174fa3c190337aded0b5899c4b26a83fb",
+        "artifact_id": 11313999187,
+        "artifact_server_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11313999187"
+      },
+      {
+        "shard": "dev-runner",
+        "job_id": 111523567632,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111523567632",
+        "job_started_at": "2026-10-04T20:25:11Z",
+        "job_completed_at": "2026-10-04T20:30:25Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/unit-test-results/maezo-operadora/maezo-operadora/unit-junit-dev-runner.xml",
+        "junit_sha256": "a25652338e8dfa1aab4b95360f9d7ce652c8439082bf315f02b3f1331a368c14",
+        "junit_actual_counts": {
+          "testcases": 18,
+          "passed": 18,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "xfailed": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 18,
+        "identity_set_sha256": "727bd8809ab5b8ce1de201dabd33ff39a66b946952d3a6b574b80854a5e91d6d",
+        "artifact_id": 11313999187,
+        "artifact_server_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11313999187"
+      },
+      {
+        "shard": "dev",
+        "job_id": 111523567576,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111523567576",
+        "job_started_at": "2026-10-04T20:25:11Z",
+        "job_completed_at": "2026-10-04T20:30:42Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/unit-test-results/maezo-operadora/maezo-operadora/unit-junit-dev.xml",
+        "junit_sha256": "03aef28e99990148ebfc29c3f6a189aa5a8d608c5824a99180dca698eff5ebaa",
+        "junit_actual_counts": {
+          "testcases": 524,
+          "passed": 523,
+          "xfailed": 1,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 524,
+        "identity_set_sha256": "60bf57eedf5c3cedae316824ad07241dfa8235b88ef5f4ca48ab8d0fd7af365b",
+        "artifact_id": 11313999187,
+        "artifact_server_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11313999187"
+      },
+      {
+        "shard": "gateway-platform",
+        "job_id": 111523567623,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111523567623",
+        "job_started_at": "2026-10-04T20:25:11Z",
+        "job_completed_at": "2026-10-04T20:31:53Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/unit-test-results/maezo-operadora/maezo-operadora/unit-junit-gateway-platform.xml",
+        "junit_sha256": "0602822d3051b274e7409f472b603f87b77291077c588287dd21328a07ac4790",
+        "junit_actual_counts": {
+          "testcases": 7547,
+          "passed": 7547,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "xfailed": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 7547,
+        "identity_set_sha256": "75853fb87b0b5dde9c657a8f4213b3ccea4cb00b58cfa26a5dedd1924012ed5b",
+        "artifact_id": 11313999187,
+        "artifact_server_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11313999187"
+      },
+      {
+        "shard": "ledger-consumer",
+        "job_id": 111523567666,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111523567666",
+        "job_started_at": "2026-10-04T20:25:11Z",
+        "job_completed_at": "2026-10-04T20:35:29Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/unit-test-results/maezo-operadora/maezo-operadora/unit-junit-ledger-consumer.xml",
+        "junit_sha256": "b3a6ebba9d2fca1a623ff24777f23fb9dd011ca652b8e505c2e2df0d465b6a12",
+        "junit_actual_counts": {
+          "testcases": 61,
+          "passed": 61,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "xfailed": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 61,
+        "identity_set_sha256": "906261887d35f837bb246b091da2d7c4a1df0c3e6a61a2823ccceca5cfd7e31a",
+        "artifact_id": 11313999187,
+        "artifact_server_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11313999187"
+      },
+      {
+        "shard": "ledger-execution",
+        "job_id": 111523567575,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111523567575",
+        "job_started_at": "2026-10-04T20:27:20Z",
+        "job_completed_at": "2026-10-04T20:33:13Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/unit-test-results/maezo-operadora/maezo-operadora/unit-junit-ledger-execution.xml",
+        "junit_sha256": "a786a91736dfc5934509afc831a75b67c0ccd9ceb9af4d3bdc091629e91bff25",
+        "junit_actual_counts": {
+          "testcases": 60,
+          "passed": 60,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "xfailed": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 60,
+        "identity_set_sha256": "12e76bdf6aa5cce5084e827b4484ddedda93bd1ba6e5ef904cd65bcfa89ef487",
+        "artifact_id": 11313999187,
+        "artifact_server_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11313999187"
+      },
+      {
+        "shard": "ledger-resto",
+        "job_id": 111523567725,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111523567725",
+        "job_started_at": "2026-10-04T20:25:10Z",
+        "job_completed_at": "2026-10-04T20:28:42Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/unit-test-results/maezo-operadora/maezo-operadora/unit-junit-ledger-resto.xml",
+        "junit_sha256": "d71e116ff47559076640525066b1006163f9acc4a5e93529183b5eabe0018b83",
+        "junit_actual_counts": {
+          "testcases": 561,
+          "passed": 560,
+          "xfailed": 1,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 561,
+        "identity_set_sha256": "fe6b4ddb8eee90316ab6beaafa3a54185c42e14a9b72b3a341c1eadfde55e761",
+        "artifact_id": 11313999187,
+        "artifact_server_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11313999187"
+      },
+      {
+        "shard": "restante",
+        "job_id": 111523567714,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111523567714",
+        "job_started_at": "2026-10-04T20:25:10Z",
+        "job_completed_at": "2026-10-04T20:30:34Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/unit-test-results/maezo-operadora/maezo-operadora/unit-junit-restante.xml",
+        "junit_sha256": "1859da8e7e3c0c964626f8203a5d034899f8355c611e65cc05ec7b967ea9348f",
+        "junit_actual_counts": {
+          "testcases": 15079,
+          "passed": 14946,
+          "skipped": 130,
+          "xfailed": 3,
+          "failed": 0,
+          "errors": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 15079,
+        "identity_set_sha256": "6ed80331a15b137fbea09342db3baf2cf6c19b84d6c7f25f09baa06e15d72045",
+        "artifact_id": 11313999187,
+        "artifact_server_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11313999187"
+      }
+    ],
+    "skip_summary": [
+      {
+        "count": 108,
+        "reason": "Terraform CLI absent for real HCL evaluation in unit shard; these unit checks are unverified despite separate terraform validate job."
+      },
+      {
+        "count": 20,
+        "reason": "Live Anthropic key absent:19 Tier-B eval variants plus1 real-provider unit call unexecuted."
+      },
+      {
+        "count": 2,
+        "reason": "MAEZO_TEST_DATABASE_URL absent for native witness catalog."
+      },
+      {
+        "count": 2,
+        "reason": "Beatriz and Helena do not register a start_process node."
+      }
+    ],
+    "xfail_summary": [
+      {
+        "count": 2,
+        "reason": "Declared D7 catalogue governance exceptions until2027-02-09."
+      },
+      {
+        "count": 1,
+        "reason": "Named human owner for Lucas remains pending."
+      },
+      {
+        "count": 1,
+        "reason": "Quantia por extenso belongs to output eval rather than lexical unit matcher."
+      },
+      {
+        "count": 1,
+        "reason": "LEG3-B endpoint allowlist versus egress NetworkPolicy source-of-truth remains open."
+      }
+    ]
+  },
+  "integration": {
+    "shard_count": 5,
+    "counts": {
+      "testcases": 795,
+      "passed": 767,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 2,
+      "xfailed": 26
+    },
+    "body_classification": {
+      "passed": 767,
+      "xfailed_executed": 26,
+      "inactive_companion": 2
+    },
+    "duplicates": 0,
+    "jobs_junit_and_reporters": [
+      {
+        "shard": "cancel-contas",
+        "job_id": 111525904239,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111525904239",
+        "job_started_at": "2026-10-04T20:37:33Z",
+        "job_completed_at": "2026-10-04T20:59:12Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/integration-test-results-99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e-cancel-contas/integration-junit.xml",
+        "junit_sha256": "c37ff7b5a36801885932e08d2e5a0fea2643eed1dc619fb9808baa604b1b94cb",
+        "junit_actual_counts": {
+          "testcases": 98,
+          "passed": 98,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "xfailed": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 98,
+        "identity_set_sha256": "4cda362817487c3dcc3f83c467d1868bd005b022f7afef9be2290995e241fc77",
+        "artifact_id": 11315076556,
+        "artifact_server_digest": "sha256:62eb55ac9b9904caf824e6fa94d6136f8bd1e916157fedc164257df93ef14989",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11315076556",
+        "reporting": {
+          "collection_count": 98,
+          "execution_collection_count": 98,
+          "validation_case_count": 98,
+          "all_identity_sets_match_junit": true,
+          "collection_finished": true,
+          "collection_exitstatus": 0,
+          "execution_finished": true,
+          "execution_exitstatus": 0,
+          "validation_case_counts": {
+            "passed": 98
+          },
+          "validation_return_code": 0,
+          "validation_errors": [],
+          "status_and_body_entered_proof_consistent": true,
+          "body_entry_counts": {
+            "entered": 98
+          },
+          "source_hashes_match_current_frozen_head": true,
+          "source_file_count": 4,
+          "report_count": 294,
+          "collection_sha256": "86cd5810e8612c9f763c30264ef95588c1fa1c2f5feeda332920edd403c614fa",
+          "execution_sha256": "c6245727fd760f7f26fe49c4f8633347a1405aead0dbdb3b7411481e4cb4adeb",
+          "validation_sha256": "5b67d6b5ea0747438d2f6f6827de49e52fae59304315b33f2cfedaac8ee9c972",
+          "independently_classified_case_counts": {
+            "passed": 98
+          },
+          "classification_semantics": "validation.cases uses passed/skipped JUnit category; aggregate case_counts distinguishes executed strict xfails and declared inactive companions.",
+          "reporter_reconciliation_issues": []
+        }
+      },
+      {
+        "shard": "cred-ans",
+        "job_id": 111525904285,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111525904285",
+        "job_started_at": "2026-10-04T20:37:34Z",
+        "job_completed_at": "2026-10-04T20:58:14Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/integration-test-results-99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e-cred-ans/integration-junit.xml",
+        "junit_sha256": "c3aaf1f103cd9456037eb4ca7c0d5984b355a195d6d56b02e3cd6f7a32abf199",
+        "junit_actual_counts": {
+          "testcases": 96,
+          "passed": 76,
+          "xfailed": 20,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 96,
+        "identity_set_sha256": "f57cd43bf52c5a7fa273cd13e8ae26290b5e976c8b7cfcc33e0bf4f5fb2bf7ef",
+        "artifact_id": 11315240930,
+        "artifact_server_digest": "sha256:2e32487962263187a2a78b619a2e99c42208555190a19a8293ea2f750a560e9b",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11315240930",
+        "reporting": {
+          "collection_count": 96,
+          "execution_collection_count": 96,
+          "validation_case_count": 96,
+          "all_identity_sets_match_junit": true,
+          "collection_finished": true,
+          "collection_exitstatus": 0,
+          "execution_finished": true,
+          "execution_exitstatus": 0,
+          "validation_case_counts": {
+            "passed": 76,
+            "xfailed_executed": 20
+          },
+          "validation_return_code": 0,
+          "validation_errors": [],
+          "status_and_body_entered_proof_consistent": true,
+          "body_entry_counts": {
+            "entered": 96
+          },
+          "source_hashes_match_current_frozen_head": true,
+          "source_file_count": 4,
+          "report_count": 288,
+          "collection_sha256": "a3c3bdbb93057131050c6f5e045f67787730aae9282b38fdf145ebb501ec5182",
+          "execution_sha256": "0a7fab988650583a5274a7ea6ad7c52ee307d4b9aad5d84987741bc1416adfe2",
+          "validation_sha256": "e844fe4e0dc043dc620df504933ad5234ecee811aaaf525cd5744e1a31748a08",
+          "independently_classified_case_counts": {
+            "passed": 76,
+            "xfailed_executed": 20
+          },
+          "classification_semantics": "validation.cases uses passed/skipped JUnit category; aggregate case_counts distinguishes executed strict xfails and declared inactive companions.",
+          "reporter_reconciliation_issues": []
+        }
+      },
+      {
+        "shard": "recurso-nip",
+        "job_id": 111525904258,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111525904258",
+        "job_started_at": "2026-10-04T20:37:33Z",
+        "job_completed_at": "2026-10-04T20:57:37Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/integration-test-results-99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e-recurso-nip/integration-junit.xml",
+        "junit_sha256": "48f32a7fc5ea93451b2c9faa551d3a756f6c0afc1a4d91ee412a8cd7bb5249e3",
+        "junit_actual_counts": {
+          "testcases": 125,
+          "passed": 123,
+          "skipped": 2,
+          "failed": 0,
+          "errors": 0,
+          "xfailed": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 125,
+        "identity_set_sha256": "c4997fe11e869cf967933831449474aded607ef3cdb63f65e0b2ab9f36a7ff43",
+        "artifact_id": 11315141202,
+        "artifact_server_digest": "sha256:685bdfe7622d8595921d18b2cbe5d001af6ef7b8dacc4debfcc387a7917a92f2",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11315141202",
+        "reporting": {
+          "collection_count": 125,
+          "execution_collection_count": 125,
+          "validation_case_count": 125,
+          "all_identity_sets_match_junit": true,
+          "collection_finished": true,
+          "collection_exitstatus": 0,
+          "execution_finished": true,
+          "execution_exitstatus": 0,
+          "validation_case_counts": {
+            "inactive_companion": 2,
+            "passed": 123
+          },
+          "validation_return_code": 0,
+          "validation_errors": [],
+          "status_and_body_entered_proof_consistent": true,
+          "body_entry_counts": {
+            "entered": 123,
+            "not_entered": 2
+          },
+          "source_hashes_match_current_frozen_head": true,
+          "source_file_count": 6,
+          "report_count": 373,
+          "collection_sha256": "f0bb5ea78733ae9dfb00e6cb33441efd9e7cf7f9a781c4f58a6afcd59985a531",
+          "execution_sha256": "2ac08f4e8598e8b4dbc0f17fee5e10511b24f88fd99d70534d636c51177a9f4e",
+          "validation_sha256": "4c3cc0a3458aa6b8c1abb413d985dc03493ecf98cbc1f45284f84ba3c2c4d531",
+          "independently_classified_case_counts": {
+            "passed": 123,
+            "inactive_companion": 2
+          },
+          "classification_semantics": "validation.cases uses passed/skipped JUnit category; aggregate case_counts distinguishes executed strict xfails and declared inactive companions.",
+          "reporter_reconciliation_issues": []
+        }
+      },
+      {
+        "shard": "reembolso",
+        "job_id": 111525904225,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111525904225",
+        "job_started_at": "2026-10-04T20:37:34Z",
+        "job_completed_at": "2026-10-04T20:58:31Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/integration-test-results-99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e-reembolso/integration-junit.xml",
+        "junit_sha256": "bffbbcb30904a3ea986069c7e6e2a36d6bf73a46a7fa7f6085a7a21edb88be93",
+        "junit_actual_counts": {
+          "testcases": 41,
+          "passed": 37,
+          "xfailed": 4,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 41,
+        "identity_set_sha256": "d9fdeb90bb78392ff366fcb2116b8016b8e1b8d8707820f05534997d3007eb82",
+        "artifact_id": 11314778121,
+        "artifact_server_digest": "sha256:bf7ba852167698c90cca2178b947f0d96fdac38556f50a2f355a9fadcdc3fb76",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11314778121",
+        "reporting": {
+          "collection_count": 41,
+          "execution_collection_count": 41,
+          "validation_case_count": 41,
+          "all_identity_sets_match_junit": true,
+          "collection_finished": true,
+          "collection_exitstatus": 0,
+          "execution_finished": true,
+          "execution_exitstatus": 0,
+          "validation_case_counts": {
+            "passed": 37,
+            "xfailed_executed": 4
+          },
+          "validation_return_code": 0,
+          "validation_errors": [],
+          "status_and_body_entered_proof_consistent": true,
+          "body_entry_counts": {
+            "entered": 41
+          },
+          "source_hashes_match_current_frozen_head": true,
+          "source_file_count": 2,
+          "report_count": 123,
+          "collection_sha256": "5ada54166d2c360e1c7083a187f37713569da15bf06794512648945df6c5d434",
+          "execution_sha256": "873cf5cce5a78cf57baa2725f009ba1d6b05e45e8516a3453562bd46bb3cd1b9",
+          "validation_sha256": "2b2b465ee968ec85a8e766803457b7987692abc39803b8cf58294796c5df9f97",
+          "independently_classified_case_counts": {
+            "passed": 37,
+            "xfailed_executed": 4
+          },
+          "classification_semantics": "validation.cases uses passed/skipped JUnit category; aggregate case_counts distinguishes executed strict xfails and declared inactive companions.",
+          "reporter_reconciliation_issues": []
+        }
+      },
+      {
+        "shard": "restante",
+        "job_id": 111525904315,
+        "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111525904315",
+        "job_started_at": "2026-10-04T20:37:34Z",
+        "job_completed_at": "2026-10-04T20:59:29Z",
+        "job_conclusion": "success",
+        "junit": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/integration-test-results-99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e-restante/integration-junit.xml",
+        "junit_sha256": "146ca4bfe2203cae58123c09f33cbf029de1f76ecd33258cf4e0703541bd9fba",
+        "junit_actual_counts": {
+          "testcases": 435,
+          "passed": 433,
+          "xfailed": 2,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "declared_suite_counts_equal_actual": true,
+        "junit_suite_timestamps_within_job": true,
+        "unique_junit_identities": 435,
+        "identity_set_sha256": "de0b07f0f695938d14ce099b4ea2ac5a64d0e23430afbb28cdc29543ef25bee9",
+        "artifact_id": 11315455319,
+        "artifact_server_digest": "sha256:d7910b618752f84d22ff59041776562d5ecb60bac62241f79990613157e50f78",
+        "artifact_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11315455319",
+        "reporting": {
+          "collection_count": 435,
+          "execution_collection_count": 435,
+          "validation_case_count": 435,
+          "all_identity_sets_match_junit": true,
+          "collection_finished": true,
+          "collection_exitstatus": 0,
+          "execution_finished": true,
+          "execution_exitstatus": 0,
+          "validation_case_counts": {
+            "passed": 433,
+            "xfailed_executed": 2
+          },
+          "validation_return_code": 0,
+          "validation_errors": [],
+          "status_and_body_entered_proof_consistent": true,
+          "body_entry_counts": {
+            "entered": 435
+          },
+          "source_hashes_match_current_frozen_head": true,
+          "source_file_count": 48,
+          "report_count": 1305,
+          "collection_sha256": "b1a23bb112f87f408cc6a016d42917abb39f1e558ba175768d2b914bd04af634",
+          "execution_sha256": "ef7233597bf5f1792eb7a1fe29b79efd50998e1ead050d18ec17417730b7ab34",
+          "validation_sha256": "7819b68cb0ed024c9e3e73617a0a9cc4dd6c8e6cb6beef623ca4303b33d90804",
+          "independently_classified_case_counts": {
+            "passed": 433,
+            "xfailed_executed": 2
+          },
+          "classification_semantics": "validation.cases uses passed/skipped JUnit category; aggregate case_counts distinguishes executed strict xfails and declared inactive companions.",
+          "reporter_reconciliation_issues": []
+        }
+      }
+    ],
+    "all_collection_execution_validation_and_junit_identity_sets_match": true,
+    "all_source_file_hashes_match_reviewed_head": true,
+    "xfail_summary": [
+      {
+        "count": 2,
+        "reason": "Credenciamento probe drain remains blocked before human guard proof."
+      },
+      {
+        "count": 18,
+        "reason": "Unpinned ANS schema fail-closed regime."
+      },
+      {
+        "count": 1,
+        "reason": "D-07 reimbursement financial ceiling."
+      },
+      {
+        "count": 3,
+        "reason": "LGPD response governance human ceiling."
+      },
+      {
+        "count": 1,
+        "reason": "Regulatory adequacao DMN rule ordering."
+      },
+      {
+        "count": 1,
+        "reason": "Authorization Class-A financial ceiling."
+      }
+    ],
+    "inactive_companions": [
+      {
+        "count": 2,
+        "reason": "Declared MAEZO_CHAOS_MUTATE=a1_a2 opt-in RED companions; body not entered in this baseline run."
+      }
+    ],
+    "canonical_deployment_reporting": "All five core stack start/wait/test steps succeeded; canonical-artifact deploy step is explicitly configured only for restante and was skipped in other four shards. No skipped deployment step is reported as executed."
+  },
+  "cross_lane_testcase_identity_overlap": 0,
+  "evals_agent_touching": {
+    "job_id": 111525904122,
+    "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111525904122",
+    "conclusion": "success",
+    "started_at": "2026-10-04T20:37:34Z",
+    "completed_at": "2026-10-04T20:38:09Z",
+    "path_filter": [
+      "src/maezo/agents/**",
+      "src/maezo/runtime/**",
+      "src/maezo/gateway/**",
+      "tests/evals/**"
+    ],
+    "collection_command": ".venv/bin/python -m pytest tests/evals --collect-only -q -m eval",
+    "actual_target": "make evals",
+    "actual_recipe": ".venv/bin/python -m pytest tests/evals -q -m eval",
+    "run_step_actually_executed": true,
+    "primary_log_summary_lines": [
+      "evals (agent-touching paths)\tRun eval gate\t2026-10-04T20:38:05.9056434Z 292 passed, 19 skipped, 3 deselected in 7.94s"
+    ],
+    "reported_counts": {
+      "passed": 292,
+      "skipped": 19,
+      "deselected": 3
+    },
+    "counts_not_added_to_unit_totals": true,
+    "live_model_provider_acceptance": false
+  },
+  "nightly_scheduled_skip": {
+    "job_id": 111523568417,
+    "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/job/111523568417",
+    "conclusion": "skipped",
+    "started_at": "2026-10-04T20:25:08Z",
+    "completed_at": "2026-10-04T20:25:08Z",
+    "workflow_condition": "github.event_name == 'schedule'",
+    "actual_event": "pull_request",
+    "reason": "Schedule-only full nightly eval job skipped on pull_request; this is not a test pass."
+  },
+  "make_test_semantics": {
+    "literal_local_recipe": ".venv/bin/python -m pytest tests/ -q -m \"not integration\"",
+    "hosted_vs_local": "Same not integration marker; hosted partitions tests across 9 targets and applies shard-specific xdist/coverage/JUnit. Hosted partitioned execution is not a literal local make test rerun. Evals are included where they satisfy not integration; the dedicated eval job separately repeats eval-marked tests and is not added to unit counts.",
+    "literal_local_make_test_after_repairs": "NOT_RUN",
+    "local_full_run1": "FAIL preserved",
+    "local_full_run2": "FAIL preserved, including real dirty-checkout refusals and source/baseline findings; bounded repairs and this hosted run do not rewrite that history.",
+    "selection_and_deselection_limit": "Unit totals are actual9-shard not integration execution; dedicated eval lane is separately eval-marked and repeats a subset. Integration totals are the five declared shard collections; private ROOT fixture cases and opted-in mutation obligations not represented by these executed cases remain unqualified."
+  },
+  "artifacts": [
+    {
+      "artifact_id": 11315455319,
+      "name": "integration-test-results-99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e-restante",
+      "server_digest": "sha256:d7910b618752f84d22ff59041776562d5ecb60bac62241f79990613157e50f78",
+      "verified_archive_digest": "sha256:d7910b618752f84d22ff59041776562d5ecb60bac62241f79990613157e50f78",
+      "digest_matches_server": true,
+      "extracted_junit_and_reporting_bytes_equal": true,
+      "artifact_created_at": "2026-10-04T20:59:24Z",
+      "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11315455319"
+    },
+    {
+      "artifact_id": 11315240930,
+      "name": "integration-test-results-99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e-cred-ans",
+      "server_digest": "sha256:2e32487962263187a2a78b619a2e99c42208555190a19a8293ea2f750a560e9b",
+      "verified_archive_digest": "sha256:2e32487962263187a2a78b619a2e99c42208555190a19a8293ea2f750a560e9b",
+      "digest_matches_server": true,
+      "extracted_junit_and_reporting_bytes_equal": true,
+      "artifact_created_at": "2026-10-04T20:58:09Z",
+      "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11315240930"
+    },
+    {
+      "artifact_id": 11315141202,
+      "name": "integration-test-results-99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e-recurso-nip",
+      "server_digest": "sha256:685bdfe7622d8595921d18b2cbe5d001af6ef7b8dacc4debfcc387a7917a92f2",
+      "verified_archive_digest": "sha256:685bdfe7622d8595921d18b2cbe5d001af6ef7b8dacc4debfcc387a7917a92f2",
+      "digest_matches_server": true,
+      "extracted_junit_and_reporting_bytes_equal": true,
+      "artifact_created_at": "2026-10-04T20:57:33Z",
+      "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11315141202"
+    },
+    {
+      "artifact_id": 11315076556,
+      "name": "integration-test-results-99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e-cancel-contas",
+      "server_digest": "sha256:62eb55ac9b9904caf824e6fa94d6136f8bd1e916157fedc164257df93ef14989",
+      "verified_archive_digest": "sha256:62eb55ac9b9904caf824e6fa94d6136f8bd1e916157fedc164257df93ef14989",
+      "digest_matches_server": true,
+      "extracted_junit_and_reporting_bytes_equal": true,
+      "artifact_created_at": "2026-10-04T20:59:09Z",
+      "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11315076556"
+    },
+    {
+      "artifact_id": 11314778121,
+      "name": "integration-test-results-99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e-reembolso",
+      "server_digest": "sha256:bf7ba852167698c90cca2178b947f0d96fdac38556f50a2f355a9fadcdc3fb76",
+      "verified_archive_digest": "sha256:bf7ba852167698c90cca2178b947f0d96fdac38556f50a2f355a9fadcdc3fb76",
+      "digest_matches_server": true,
+      "extracted_junit_and_reporting_bytes_equal": true,
+      "artifact_created_at": "2026-10-04T20:58:27Z",
+      "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11314778121"
+    },
+    {
+      "artifact_id": 11313999187,
+      "name": "unit-test-results",
+      "server_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+      "verified_archive_digest": "sha256:eb8a1d187c34b695cd49b85be2c34a6afba080ef67c2ad9875b094e6e1308a52",
+      "digest_matches_server": true,
+      "extracted_junit_and_reporting_bytes_equal": true,
+      "artifact_created_at": "2026-10-04T20:37:28Z",
+      "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37231985559/artifacts/11313999187"
+    }
+  ],
+  "raw_custody": {
+    "directory": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-private/",
+    "counts_report": "docs/gates/v21-capability-execution-20261004/hosted-final-r6-counts.json",
+    "counts_report_sha256": "adf0fa991a75950144a3172729d3ed89f6067477b582b29f12ee1f914ce7192d",
+    "six_archives_verified_against_github_digests": true,
+    "fourteen_junit_reports_and_integration_json_bytes_verified": true,
+    "raw_archives_logs_case_payloads_remain_private": true,
+    "primary_raw_files": [
+      {
+        "path": "run-api.json",
+        "sha256": "be2e7d48c477b63de909a525de9d670b59f7f3eefc4eeae879020ebac8f0b2d7"
+      },
+      {
+        "path": "run-snapshot.json",
+        "sha256": "6fe73ad43f53a8981435c2c00aa7da7b695a01e27a383f7f9e9711511675975a"
+      },
+      {
+        "path": "pr-snapshot.json",
+        "sha256": "b52b8f62650c942b6c2d5ef69096dad7f71f0be7ffdd57b3c8c2101769adb511"
+      },
+      {
+        "path": "jobs.json",
+        "sha256": "af1d4a70bdeb6d3ee3219f090ddc6a8478afbf47629555278f2cb0fdfa7f03c9"
+      },
+      {
+        "path": "artifacts.json",
+        "sha256": "b5813a50a5c2d17f25f5871edd76eaed56e6c9417f8ad28aaae32776048a90c4"
+      },
+      {
+        "path": "custody-live-run.json",
+        "sha256": "bccabc40294cb0232a94a0a27a3311760094ab7dc2ddcf762132d83be16d5387"
+      },
+      {
+        "path": "custody-live-pr.json",
+        "sha256": "c6d4b9715c38a87a5a324d933f973a88318b75d2e370db9fe379b59a7e36bbbe"
+      },
+      {
+        "path": "custody-merge-commit.json",
+        "sha256": "b77492d4e278cfa28338c8a93f5a7edf26ee64c453376309fb7cc229bb99110e"
+      },
+      {
+        "path": "custody-head-commit.json",
+        "sha256": "62863472bdd52e3226e40cfcd2648d842e20fb14a5b125c4b4eb5e01fd548cad"
+      },
+      {
+        "path": "custody-head-to-merge-compare.json",
+        "sha256": "e89cc687e66d42b2cc7d1e960f81a276fa62f5c06501f4035faf0f41f0c6383f"
+      },
+      {
+        "path": "custody-head-root-tree.json",
+        "sha256": "12df712ed15944d7e5fb3f854d8f8133b51e497a22a1b089305bf091f9f79973"
+      },
+      {
+        "path": "custody-merge-root-tree.json",
+        "sha256": "5ed170576f91ba524b3484dbd8320c4c28351461bb5ed2869967e68e3820a883"
+      },
+      {
+        "path": "custody-archive-digest-verification.json",
+        "sha256": "f61285632a5181fd97fc50706d209aee47eb48bb950497407fa9634bbb3c9a78"
+      },
+      {
+        "path": "custody-selector-semantics.json",
+        "sha256": "8546bd24672faf2b8b8f13d5bb1610b26c46cc9c2928c3a314e1ed34b8fbadb5"
+      }
+    ]
+  },
+  "qualification_boundaries": {
+    "technical_test_reporting": "PASS for these exact captured R6 artifacts/selectors/merge context with skips/strict xfails explicitly retained.",
+    "new_administrative_authoritative_sources_and_providers": "NOT_QUALIFIED; CI tests do not publish/steward commercial/enrollment/agenda schemas or inject absent production providers.",
+    "new_compras_suporte_full_journeys": "NOT_QUALIFIED from these baseline integration artifacts.",
+    "human_owners_scope_conduct_signoffs_and_protected_decisions": "NOT_GRANTED by this CI/custody report.",
+    "production_runtime_or_deployment": "NOT_QUALIFIED.",
+    "new_or_future_main_base": "NOT_QUALIFIED by immutable R6 summary."
+  },
+  "verifier_actions": "Read-only GitHub metadata/artifact/log downloads and local parsing/hashing only; no source/test/PLANS/ledger/bundle edits, commits, GitHub mutations, suites or subdelegation.",
+  "publication_projection": {
+    "by": "/root",
+    "original_record": "hosted-final-r6-summary.json",
+    "original_record_sha256": "9a38a9ce938519ab260de5d42c867aa0a95d461baec70b7ec6d49bb8b1e2be4f",
+    "original_record_preserved": true,
+    "changes": [
+      "PR metadata key uses explicit base commit name",
+      "Raw file fingerprint map represented as path/sha256 records"
+    ],
+    "data_or_gate_value_changes": false,
+    "reason": "Public commit and file digests matched generic-api-key on ambiguous API-adjacent field names; no scanner configuration, suppression or source changes"
+  }
+}

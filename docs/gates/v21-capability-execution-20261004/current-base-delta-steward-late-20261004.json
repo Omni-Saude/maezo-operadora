@@ -1,0 +1,684 @@
+{
+  "schema": "maezo-v21-late-upstream-base-delta-review.v1",
+  "event_id": "33aa_to_b023_late_base_admission",
+  "observed_at_utc": "2026-10-04T21:21:39.837742+00:00",
+  "reviewer": "current_base_delta_steward",
+  "role": "independent upstream base admission reviewer; no authorship, repair, integration or final signing",
+  "verdict": "PASS_BOUNDED_LATE_CURRENT_BASE_ADMISSION",
+  "admitted_original_base": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+  "ci_previous_base": "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+  "reviewed_upstream": "b023b043d0d35358e3310ed8b8da07df5450a887",
+  "candidate_source_HEAD": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+  "candidate_worktree_HEAD_at_end": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+  "actual_main_ref_at_end": "4208c08717f577636e5e04a1c1455d8e25d5970b",
+  "actual_main_lsremote_at_end": "4208c08717f577636e5e04a1c1455d8e25d5970b",
+  "subsequent_main_delta_pending": true,
+  "signed_bundle_custody": {
+    "original_source_base": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+    "bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+    "manifest_sha256": "40900deb674cd885c29dfe8392a56855b608265c87c6f47490ed3fa8d4c042c0",
+    "source_file_count": 94,
+    "new_source94_delta_disclosed": [
+      {
+        "path": "docs/decisions-log.md",
+        "original_frozen_sha256": "ccfc28b76d1f9c526b17fabc38d789f5e1d553bedb33aadd5a1b1f88b8f1eb64",
+        "admitted_base_sha256": "ccfc28b76d1f9c526b17fabc38d789f5e1d553bedb33aadd5a1b1f88b8f1eb64",
+        "late_upstream_sha256": "f8df26c6526055804858b081ec84932b0fd78f6f3008f1688db12293382b70ae"
+      }
+    ],
+    "bundle_or_manifest_edited": false
+  },
+  "commit_map": [
+    {
+      "sha": "0ae4904a426a4c61fdc1d9c4456a30fd1ccf4865",
+      "parents": [
+        "33aa7acba59dd5027513834d07d8e9a517649b3e"
+      ],
+      "subject": "fix(ci): tira do baseline os dois relatorios removidos pelo #632 (#640)",
+      "paths": [
+        {
+          "status": "M",
+          "path": "tests/unit/docs/test_no_phantom_src_maezo_policies_path.py"
+        }
+      ]
+    },
+    {
+      "sha": "b8bafe8e511a0d20e1cf7a806bff6d4ae8f98c0c",
+      "parents": [
+        "0ae4904a426a4c61fdc1d9c4456a30fd1ccf4865"
+      ],
+      "subject": "test(docs): remove do baseline os 2 arquivos que a limpeza #632 deletou (#637)",
+      "paths": []
+    },
+    {
+      "sha": "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+      "parents": [
+        "b8bafe8e511a0d20e1cf7a806bff6d4ae8f98c0c"
+      ],
+      "subject": "docs: registro dos dados do lago que Helena e Lucas precisam (#638)",
+      "paths": [
+        {
+          "status": "A",
+          "path": "docs/status/dados-do-lago-pendentes.md"
+        }
+      ]
+    },
+    {
+      "sha": "368c0d833b05f0a867433eaf6e0a849aa9aa1d79",
+      "parents": [
+        "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4"
+      ],
+      "subject": "feat(lucas): FonteCobrancaAmh e adaptador billing-status (desligados, aguardam contrato publicado) (#639)",
+      "paths": [
+        {
+          "status": "M",
+          "path": "docs/decisions-log.md"
+        },
+        {
+          "status": "A",
+          "path": "src/maezo/adapters/amh/billing_status.py"
+        },
+        {
+          "status": "M",
+          "path": "src/maezo/agents/lucas/fonte_cobranca.py"
+        },
+        {
+          "status": "A",
+          "path": "src/maezo/agents/lucas/fonte_cobranca_amh.py"
+        },
+        {
+          "status": "A",
+          "path": "src/maezo/ports/billing_status.py"
+        },
+        {
+          "status": "M",
+          "path": "tests/unit/adapters/amh/test_adapter_purity.py"
+        },
+        {
+          "status": "A",
+          "path": "tests/unit/adapters/amh/test_billing_status.py"
+        },
+        {
+          "status": "A",
+          "path": "tests/unit/agents/test_fonte_cobranca_amh.py"
+        },
+        {
+          "status": "M",
+          "path": "tests/unit/ports/test_ports_purity.py"
+        }
+      ]
+    },
+    {
+      "sha": "b023b043d0d35358e3310ed8b8da07df5450a887",
+      "parents": [
+        "368c0d833b05f0a867433eaf6e0a849aa9aa1d79"
+      ],
+      "subject": "chore(deps): bump org.cibseven.bpm:cibseven-engine (#619)",
+      "paths": [
+        {
+          "status": "M",
+          "path": "src/maezo/portal/engine/read-provider/pom.xml"
+        }
+      ]
+    }
+  ],
+  "delta_counts": {
+    "33aa_to_b023": {
+      "commits": 5,
+      "paths": 12,
+      "status_counts": {
+        "M": 6,
+        "A": 6
+      }
+    },
+    "33aa_to_1a5ffe": {
+      "commits": 3,
+      "paths": 2
+    },
+    "1a5ffe_to_b023": {
+      "commits": 2,
+      "paths": 10
+    }
+  },
+  "upstream_paths": [
+    {
+      "status": "M",
+      "path": "docs/decisions-log.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/status/dados-do-lago-pendentes.md"
+    },
+    {
+      "status": "A",
+      "path": "src/maezo/adapters/amh/billing_status.py"
+    },
+    {
+      "status": "M",
+      "path": "src/maezo/agents/lucas/fonte_cobranca.py"
+    },
+    {
+      "status": "A",
+      "path": "src/maezo/agents/lucas/fonte_cobranca_amh.py"
+    },
+    {
+      "status": "M",
+      "path": "src/maezo/portal/engine/read-provider/pom.xml"
+    },
+    {
+      "status": "A",
+      "path": "src/maezo/ports/billing_status.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/unit/adapters/amh/test_adapter_purity.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/unit/adapters/amh/test_billing_status.py"
+    },
+    {
+      "status": "A",
+      "path": "tests/unit/agents/test_fonte_cobranca_amh.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/unit/docs/test_no_phantom_src_maezo_policies_path.py"
+    },
+    {
+      "status": "M",
+      "path": "tests/unit/ports/test_ports_purity.py"
+    }
+  ],
+  "normative_compatibility": [
+    {
+      "category": "ADRs",
+      "all_unchanged": true,
+      "rows": [
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 64,
+          "tree_listing_sha256": "1f1e7002a33b48dea65382da7d2b11ae6eade21c6bd510c3583c0dd4b6980db4"
+        },
+        {
+          "ref": "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+          "file_count": 64,
+          "tree_listing_sha256": "1f1e7002a33b48dea65382da7d2b11ae6eade21c6bd510c3583c0dd4b6980db4"
+        },
+        {
+          "ref": "b023b043d0d35358e3310ed8b8da07df5450a887",
+          "file_count": 64,
+          "tree_listing_sha256": "1f1e7002a33b48dea65382da7d2b11ae6eade21c6bd510c3583c0dd4b6980db4"
+        }
+      ]
+    },
+    {
+      "category": "process_contracts",
+      "all_unchanged": true,
+      "rows": [
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 17,
+          "tree_listing_sha256": "6f1db3c0fa6b1301e9a179efe250bebefd2189ac1ade7421fb6c950c1f5b747e"
+        },
+        {
+          "ref": "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+          "file_count": 17,
+          "tree_listing_sha256": "6f1db3c0fa6b1301e9a179efe250bebefd2189ac1ade7421fb6c950c1f5b747e"
+        },
+        {
+          "ref": "b023b043d0d35358e3310ed8b8da07df5450a887",
+          "file_count": 17,
+          "tree_listing_sha256": "6f1db3c0fa6b1301e9a179efe250bebefd2189ac1ade7421fb6c950c1f5b747e"
+        }
+      ]
+    },
+    {
+      "category": "policies",
+      "all_unchanged": true,
+      "rows": [
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 15,
+          "tree_listing_sha256": "08dea5be860569dc6219ea580e6cc8a3866e7ccceb877951cd51288e6b2fec56"
+        },
+        {
+          "ref": "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+          "file_count": 15,
+          "tree_listing_sha256": "08dea5be860569dc6219ea580e6cc8a3866e7ccceb877951cd51288e6b2fec56"
+        },
+        {
+          "ref": "b023b043d0d35358e3310ed8b8da07df5450a887",
+          "file_count": 15,
+          "tree_listing_sha256": "08dea5be860569dc6219ea580e6cc8a3866e7ccceb877951cd51288e6b2fec56"
+        }
+      ]
+    },
+    {
+      "category": "agent_policies",
+      "all_unchanged": true,
+      "rows": [
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 11,
+          "tree_listing_sha256": "c42212ef792316945fa1d78337f765d6e4c991d60ba78a1090c5d2f6ae256567"
+        },
+        {
+          "ref": "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+          "file_count": 11,
+          "tree_listing_sha256": "c42212ef792316945fa1d78337f765d6e4c991d60ba78a1090c5d2f6ae256567"
+        },
+        {
+          "ref": "b023b043d0d35358e3310ed8b8da07df5450a887",
+          "file_count": 11,
+          "tree_listing_sha256": "c42212ef792316945fa1d78337f765d6e4c991d60ba78a1090c5d2f6ae256567"
+        }
+      ]
+    },
+    {
+      "category": "AMH_pin",
+      "all_unchanged": true,
+      "rows": [
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 1,
+          "tree_listing_sha256": "c850a8abc6d84ca1ce1cf13581f1fd47e6b35787dd1f5bd7a0a08e1728627b3d"
+        },
+        {
+          "ref": "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+          "file_count": 1,
+          "tree_listing_sha256": "c850a8abc6d84ca1ce1cf13581f1fd47e6b35787dd1f5bd7a0a08e1728627b3d"
+        },
+        {
+          "ref": "b023b043d0d35358e3310ed8b8da07df5450a887",
+          "file_count": 1,
+          "tree_listing_sha256": "c850a8abc6d84ca1ce1cf13581f1fd47e6b35787dd1f5bd7a0a08e1728627b3d"
+        }
+      ]
+    },
+    {
+      "category": "CI_workflow",
+      "all_unchanged": true,
+      "rows": [
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 1,
+          "tree_listing_sha256": "b80499d8827652f78af38575bf430bf8fe67062f26460f041c341c07d52aeeb3"
+        },
+        {
+          "ref": "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+          "file_count": 1,
+          "tree_listing_sha256": "b80499d8827652f78af38575bf430bf8fe67062f26460f041c341c07d52aeeb3"
+        },
+        {
+          "ref": "b023b043d0d35358e3310ed8b8da07df5450a887",
+          "file_count": 1,
+          "tree_listing_sha256": "b80499d8827652f78af38575bf430bf8fe67062f26460f041c341c07d52aeeb3"
+        }
+      ]
+    },
+    {
+      "category": "runtime_config",
+      "all_unchanged": true,
+      "rows": [
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 273,
+          "tree_listing_sha256": "b891a9c3b4a3de373b41a179588b734c817e449598e162e7b978e41d9b915f99"
+        },
+        {
+          "ref": "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+          "file_count": 273,
+          "tree_listing_sha256": "b891a9c3b4a3de373b41a179588b734c817e449598e162e7b978e41d9b915f99"
+        },
+        {
+          "ref": "b023b043d0d35358e3310ed8b8da07df5450a887",
+          "file_count": 273,
+          "tree_listing_sha256": "b891a9c3b4a3de373b41a179588b734c817e449598e162e7b978e41d9b915f99"
+        }
+      ]
+    },
+    {
+      "category": "execution_roots",
+      "all_unchanged": true,
+      "rows": [
+        {
+          "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+          "file_count": 263,
+          "tree_listing_sha256": "f712e812711571e552e605a12b74634fa03981fcdd9c2a771e5338066bb4cc14"
+        },
+        {
+          "ref": "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+          "file_count": 263,
+          "tree_listing_sha256": "f712e812711571e552e605a12b74634fa03981fcdd9c2a771e5338066bb4cc14"
+        },
+        {
+          "ref": "b023b043d0d35358e3310ed8b8da07df5450a887",
+          "file_count": 263,
+          "tree_listing_sha256": "f712e812711571e552e605a12b74634fa03981fcdd9c2a771e5338066bb4cc14"
+        }
+      ]
+    }
+  ],
+  "DL_change": {
+    "new_entry": "DL-0073",
+    "shape": "One appended row describing dormant FonteCobrancaAmh and billing adapter; no active source/publication permission",
+    "technical_owner_statement_is_not_provider_or_clinical_ratification": true
+  },
+  "candidate_overlap": {
+    "candidate_path_count": 53,
+    "overlap_paths": [
+      "tests/unit/docs/test_no_phantom_src_maezo_policies_path.py"
+    ],
+    "phantom_file_sha256_source": "bc6ee180844f4d58825fb001a2399f85432a082336093a78be37c1c2931c7b31",
+    "phantom_file_sha256_upstream": "bc6ee180844f4d58825fb001a2399f85432a082336093a78be37c1c2931c7b31",
+    "identical": true,
+    "owner_cleanup_deletes_preserved_count": 15
+  },
+  "billing_scope": {
+    "code_added": [
+      "src/maezo/ports/billing_status.py",
+      "src/maezo/adapters/amh/billing_status.py",
+      "src/maezo/agents/lucas/fonte_cobranca_amh.py"
+    ],
+    "legacy_source_AST_same_except_unavailable_reason_literal": true,
+    "unavailable_reason_literal_added": [
+      "sujeito_nao_resolvido",
+      "sem_consentimento",
+      "fato_ausente"
+    ],
+    "production_composition_references": [],
+    "settings_gateway_or_service_changes": false,
+    "pin_sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+    "billing_artifact_present_in_current_pin": false,
+    "constructor_gate_assessment": "Static: load immutable pin -> lookup ARTIFACT absent -> caught constructor failure BillingStatusContractError; no default executor or HTTP client",
+    "provider_contract_status": "UNPUBLISHED; no new source binding admitted by this gate",
+    "business_DMN_or_timers_changed": false,
+    "new_commercial_W0_authority_admitted": false
+  },
+  "engine_delta": {
+    "only_changed_path": "src/maezo/portal/engine/read-provider/pom.xml",
+    "cibseven_engine_from": "2.1.0",
+    "cibseven_engine_to": "2.2.0",
+    "maven_scope": "test",
+    "POM_XML_observations": [
+      {
+        "path": "src/maezo/portal/engine/read-provider/pom.xml",
+        "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+        "dependencies": [
+          {
+            "group": "br.com.maezo",
+            "artifact": "human-command-engine",
+            "version": "1.0.0",
+            "scope": "provided"
+          },
+          {
+            "group": "org.cibseven.bpm",
+            "artifact": "cibseven-engine",
+            "version": "2.1.0",
+            "scope": "test"
+          },
+          {
+            "group": "org.junit.jupiter",
+            "artifact": "junit-jupiter",
+            "version": "5.11.4",
+            "scope": "test"
+          },
+          {
+            "group": "org.postgresql",
+            "artifact": "postgresql",
+            "version": "42.7.13",
+            "scope": "test"
+          }
+        ]
+      },
+      {
+        "path": "src/maezo/portal/engine/read-provider/pom.xml",
+        "ref": "b023b043d0d35358e3310ed8b8da07df5450a887",
+        "dependencies": [
+          {
+            "group": "br.com.maezo",
+            "artifact": "human-command-engine",
+            "version": "1.0.0",
+            "scope": "provided"
+          },
+          {
+            "group": "org.cibseven.bpm",
+            "artifact": "cibseven-engine",
+            "version": "2.2.0",
+            "scope": "test"
+          },
+          {
+            "group": "org.junit.jupiter",
+            "artifact": "junit-jupiter",
+            "version": "5.11.4",
+            "scope": "test"
+          },
+          {
+            "group": "org.postgresql",
+            "artifact": "postgresql",
+            "version": "42.7.13",
+            "scope": "test"
+          }
+        ]
+      },
+      {
+        "path": "src/maezo/portal/engine/java/pom.xml",
+        "ref": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+        "dependencies": [
+          {
+            "group": "org.apache.tomcat",
+            "artifact": "tomcat-jdbc",
+            "version": "10.1.59",
+            "scope": "provided"
+          },
+          {
+            "group": "org.apache.tomcat",
+            "artifact": "tomcat-catalina",
+            "version": "10.1.59",
+            "scope": "provided"
+          },
+          {
+            "group": "org.cibseven.bpm",
+            "artifact": "cibseven-engine",
+            "version": "2.1.0",
+            "scope": "provided"
+          },
+          {
+            "group": "jakarta.servlet",
+            "artifact": "jakarta.servlet-api",
+            "version": "6.0.0",
+            "scope": "provided"
+          },
+          {
+            "group": "org.cibseven.bpm",
+            "artifact": "cibseven-engine-rest-core-jakarta",
+            "version": "2.1.0",
+            "scope": "provided"
+          },
+          {
+            "group": "com.fasterxml.jackson.core",
+            "artifact": "jackson-core",
+            "version": "2.18.11",
+            "scope": null
+          },
+          {
+            "group": "org.junit.jupiter",
+            "artifact": "junit-jupiter",
+            "version": "5.11.4",
+            "scope": "test"
+          },
+          {
+            "group": "org.postgresql",
+            "artifact": "postgresql",
+            "version": "42.7.12",
+            "scope": "test"
+          }
+        ]
+      },
+      {
+        "path": "src/maezo/portal/engine/java/pom.xml",
+        "ref": "b023b043d0d35358e3310ed8b8da07df5450a887",
+        "dependencies": [
+          {
+            "group": "org.apache.tomcat",
+            "artifact": "tomcat-jdbc",
+            "version": "10.1.59",
+            "scope": "provided"
+          },
+          {
+            "group": "org.apache.tomcat",
+            "artifact": "tomcat-catalina",
+            "version": "10.1.59",
+            "scope": "provided"
+          },
+          {
+            "group": "org.cibseven.bpm",
+            "artifact": "cibseven-engine",
+            "version": "2.1.0",
+            "scope": "provided"
+          },
+          {
+            "group": "jakarta.servlet",
+            "artifact": "jakarta.servlet-api",
+            "version": "6.0.0",
+            "scope": "provided"
+          },
+          {
+            "group": "org.cibseven.bpm",
+            "artifact": "cibseven-engine-rest-core-jakarta",
+            "version": "2.1.0",
+            "scope": "provided"
+          },
+          {
+            "group": "com.fasterxml.jackson.core",
+            "artifact": "jackson-core",
+            "version": "2.18.11",
+            "scope": null
+          },
+          {
+            "group": "org.junit.jupiter",
+            "artifact": "junit-jupiter",
+            "version": "5.11.4",
+            "scope": "test"
+          },
+          {
+            "group": "org.postgresql",
+            "artifact": "postgresql",
+            "version": "42.7.12",
+            "scope": "test"
+          }
+        ]
+      }
+    ],
+    "read_provider_main_source_changed": false,
+    "read_provider_main_direct_cib_imports": [],
+    "human_engine_provided_CIB_version": "2.1.0",
+    "runtime_image_CIB_version": "2.1.0",
+    "runtime_image_digest": "20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169",
+    "compose_CIB_version": "2.1.0",
+    "artifact_packaging_or_runtime_pin_changed": false,
+    "assessment": "Static source/build compatibility admitted. Q2 test classpath becomes 2.2; does not deploy 2.2 or prove Tomcat/CIB2.1 operational qualification",
+    "new_runtime_engine_version_provisioned_by_this_gate": false
+  },
+  "previous_CI_scope": {
+    "run_id": 37231985559,
+    "run_status": "completed",
+    "run_conclusion": "success",
+    "run_head_sha": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+    "execution_synthetic_commit": "99fb8052fecd1efd2faa36c4bf0c3fb88a926b8e",
+    "execution_tree_sha": "5f305302325c97ef50a8008cad248bc6f42fb414",
+    "execution_parents": [
+      "1a5ffe18030b0ffe7d8c9ab3f2c835cc875a3ed4",
+      "90c1717ee028eae0471ed9a1d0c163e052370f71"
+    ],
+    "synthetic_fulltree_equals_source90c": false,
+    "synthetic_vs_source_paths": [
+      {
+        "path": "docs/status/dados-do-lago-pendentes.md",
+        "source_blob": null,
+        "synthetic_blob": "e58b52c7e5c26afd0883111850169be9986711be"
+      }
+    ],
+    "late_changes_NOT_covered": [
+      "#639 billing source/adapter and DL-0073",
+      "#619 read-provider test dependency CIB2.2"
+    ],
+    "test_counts": "Independently owned by CI custodian reentry; not re-signed here",
+    "combined_candidate_new_CI_required": true
+  },
+  "read_only_methods": [
+    "Immutable Git object diff/tree/hash inspection",
+    "XML dependency scope parse",
+    "AST identity comparison for legacy fonte",
+    "Git source reachability scan",
+    "Live read-only GitHub commit/tree/run/main API",
+    "Read-only ls-remote"
+  ],
+  "tests_executed_by_this_reviewer": [],
+  "source_policy_config_ledger_PLANS_commit_or_merge_mutations": [],
+  "exclusive_evidence_write_set": [
+    "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/current-base-delta-steward-late-20261004.json",
+    "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/current-base-late-private"
+  ],
+  "boundaries": {
+    "provider_source_acceptance": false,
+    "new_agent_bindings_or_permissions": false,
+    "human_ratification": false,
+    "engine_runtime_qualification": false,
+    "production_or_infrastructure_provisioning": false,
+    "final_combined_CI_or_final_signing": false
+  },
+  "required_next_actions": [
+    "Root serially integrates reviewed upstream b023 into candidate while preserving owner deletes and identical baseline repair",
+    "Freeze exact composed HEAD/tree/context and rerun applicable prechecks plus hosted CI; include Java read-provider test scope now 2.2",
+    "If actual main advances past b023, record the next delta as pending until independently admitted",
+    "Preserve original e7/270c bundle and keep source94 DL delta explicit; do not substitute billing status proposal for published supplier authority"
+  ],
+  "raw_evidence": [
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/admitted-to-late.patch",
+      "sha256": "be17d22f857fcff801e4dd9a916fd426229cf0b4f07af90f872afe82c0fb2625"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/billing-reachability.txt",
+      "sha256": "c2422230dede6df22f7b63ba9a99a1bdaa95731f8f6404415296e2a74b6f4c81"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/ci-base-to-late.patch",
+      "sha256": "a1548300bf7f308f17cf182a48b1fe1ede52057a667c10f592902f5395cca5f9"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/ci-run-37231985559.json",
+      "sha256": "c2aa10e26048c46174ddfa0cfea45d5ac9830a1d3e4aba3742c65e2a218dc28d"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/ci-synthetic-99fb-commit.json",
+      "sha256": "70ab777e37b20d0bc653ae42f4db17afd6ab766811769d59f16bb73238953237"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/ci-synthetic-99fb-tree.json",
+      "sha256": "0ce4f054fc389e4103ee1c8df1ddabb00693caf490f24e204d03c0605e2c72e7"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/commit-map.json",
+      "sha256": "81c144a0c0b26d9aab59cedda83aa6126955fbc62df1ef35d3304589f8caa9c0"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/late-b023-commit.json",
+      "sha256": "d41d7ab98935a5334959d53cfb0ed916ab2144d0d9608a435710c2ea35fb39b0"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/ls-remote-main-final.txt",
+      "sha256": "606cf8576f5dc8008f82a5302dca1e6c636e3c7b6edefa04d1a55fce9b927c53"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/main-ref-final.json",
+      "sha256": "23e120c69019af74334dd6ade9ea0e46a10196fe22589abb763187d71433b0ad"
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/current-base-late-private/read-provider-cib-test-imports.txt",
+      "sha256": "71b03644f498ab55b8a7c8ad0670d3b86ba416c12880989b1e223a2feb87e3d1"
+    }
+  ]
+}

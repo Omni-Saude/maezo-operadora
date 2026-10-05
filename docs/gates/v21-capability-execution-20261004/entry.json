@@ -1,0 +1,82 @@
+{
+  "schema": "maezo.v21.execution-entry.v1",
+  "observed_at": "2026-10-04T15:28:41.381850+00:00",
+  "baseline_sha": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "target_checkout": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora",
+  "target_branch": "codex/v21-capability-execution",
+  "root_status_preserved": [
+    "D docs/archive/HANDOFF-predeploy.yaml",
+    " D docs/archive/HANDOFF-wave3.yaml",
+    " D docs/archive/HANDOFF.yaml",
+    " D docs/archive/PROMPT-next-coordinator.md",
+    " D docs/archive/predeploy-dl-rows-STAGED.md",
+    " D docs/archive/predeploy-ws6-package-STAGED.md",
+    " D docs/reports/G0-gate-review.md",
+    " D docs/reports/T0.3-agent-yaml-drift.md",
+    " D docs/reports/T2.4-a2a-agent-card-signing-gap.md",
+    " D docs/reports/phase0-report.md",
+    " D docs/reports/phase2-plan.md",
+    " D docs/reports/phase2-report.md",
+    " D docs/reports/phase3-plan.md",
+    " D docs/reports/platform-completion-plan.md",
+    " D docs/reports/predeploy-findings.json",
+    " D docs/reports/predeploy-sweep-escalations.json",
+    " D docs/reports/review-before-launch-extension.md",
+    " D \"docs/temp/Plano_Teste_Maezo_Operadora (1).docx\"",
+    "?? docs/processes/New_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v3.bpmn",
+    "?? \"docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn\"",
+    "?? docs/processes/New_BPMN/CA_2_UTILIZACAO_v3.bpmn",
+    "?? docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+    "?? verification_evidence.db"
+  ],
+  "worktree_count": 258,
+  "plan_bundle_absolute": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring",
+  "plan_bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+  "bundle_consumption": "read-only; original fingerprints remain unchanged",
+  "authoritative_findings_git_object": "e7b14522a4f70242504d2b152a57ee5269ee66e2:docs/reports/predeploy-findings.json",
+  "authoritative_findings_sha256": "7a99ffb007c66aa93115a81fff4089a386ddd6c55ba6c3a0ef5023f91e106751",
+  "runtime_qualified": false,
+  "new_bindings_authorized": false,
+  "human_ratification_performed": false,
+  "production_deployed": false,
+  "merge_authorized": false,
+  "dag": {
+    "AW0": [
+      "contracts",
+      "provider-readiness",
+      "conduct",
+      "authority",
+      "security"
+    ],
+    "AW1": [
+      "affected AW0 ratification/publication before any effect binding"
+    ],
+    "AW2": [
+      "AW1",
+      "qualified catalogue/acceptance/enrollment/agenda"
+    ],
+    "AW3": [
+      "same qualified AW1 modules and versions",
+      "CR-F5 case authority"
+    ],
+    "AW4": [
+      "source/domain gates",
+      "U4 soundness witness"
+    ],
+    "AW5": [
+      "core benefit evidence",
+      "qualified allowed aggregates and purpose"
+    ]
+  },
+  "lanes": "authors write disjoint sets; root serializes shared edits/commits/CI; heavy/engine execution reserved for one coordinated lane",
+  "root_observed_sha_at_inventory": "f5dfb3f40af642bc48c5026e5c9c47c5a5ce22a6",
+  "concurrent_root_drift_observed": true,
+  "root_preservation_check": "status recorded after external changes; no claim ROOT quiescent",
+  "admission_delta_evidence": "admission-verifier.json",
+  "root_external_snapshots": [
+    "f5dfb3f40af642bc48c5026e5c9c47c5a5ce22a6",
+    "1222295060a1cff4ecd3e7ffa862231c9b94fbd4"
+  ],
+  "root_head_check_failures": "ROOT 12222950: HEAD_DRIFT_REVIEW_DELTA_REQUIRED; historical admission checker FAIL preserved",
+  "isolated_target_admission": "Independent delta gate PASS: immutable e7 target sources, 90 local plus 4 private external v3, no hash drift"
+}

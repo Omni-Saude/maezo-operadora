@@ -1,0 +1,637 @@
+{
+  "schema_version": 1,
+  "verdict": "CURRENT_HOSTED_REPORTING_PASS_BOUNDED",
+  "run_id": 37238750715,
+  "published_head": "75618442d4b7729f0194d5207248cdc6ab9c0267",
+  "actual_tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd",
+  "base_commit": "ccf00d41dea9d277dd28255b3e187548778ba7ed",
+  "unit_shards": 9,
+  "integration_shards": 5,
+  "unit_counts": {
+    "testcases": 26244,
+    "passed": 26107,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 132,
+    "xfailed": 5
+  },
+  "integration_counts": {
+    "testcases": 795,
+    "passed": 767,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 2,
+    "xfailed": 26
+  },
+  "duplicate_identities": {
+    "unit": 0,
+    "integration": 0
+  },
+  "cross_lane_overlap": 0,
+  "issues": [],
+  "records": [
+    {
+      "lane": "integration",
+      "shard": "cancel-contas",
+      "job_id": 111545107933,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107933",
+      "started_at": "2026-10-04T22:18:01Z",
+      "completed_at": "2026-10-04T22:39:45Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 98,
+        "passed": 98,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "integration-junit.xml",
+      "junit_sha256": "3343cc2826027e0e64ec181548b3c5e2a189565b7c62c795c0dfd9c0a1cde256",
+      "artifact_id": 11317875967,
+      "artifact_digest": "sha256:46401cb1200e3a084d7ceae309e81ff3a99d9f84566797f8fd3f46758e969f70",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:39:41Z",
+      "unique_identities": 98,
+      "skip_and_xfail_reasons": [],
+      "reporting": {
+        "collection_count": 98,
+        "execution_count": 98,
+        "validation_count": 98,
+        "junit_count": 98,
+        "consistent": true,
+        "classifications": {
+          "passed": 98
+        },
+        "body_entry": {
+          "entered": 98
+        },
+        "test_source_hashes_match_exact_tested_commit": true,
+        "validation_return_code": 0,
+        "validation_errors": [],
+        "files": [
+          {
+            "path": "integration-collection.json",
+            "sha256": "c18a91fcf1a0ea0b53422d16a848e001ec9da4a340f221c3f2dd3f5a21c4230e"
+          },
+          {
+            "path": "integration-execution.json",
+            "sha256": "c6245727fd760f7f26fe49c4f8633347a1405aead0dbdb3b7411481e4cb4adeb"
+          },
+          {
+            "path": "integration-validation.json",
+            "sha256": "5b67d6b5ea0747438d2f6f6827de49e52fae59304315b33f2cfedaac8ee9c972"
+          }
+        ]
+      }
+    },
+    {
+      "lane": "integration",
+      "shard": "reembolso",
+      "job_id": 111545107964,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107964",
+      "started_at": "2026-10-04T22:18:00Z",
+      "completed_at": "2026-10-04T22:38:41Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 41,
+        "passed": 37,
+        "xfailed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_entry": "integration-junit.xml",
+      "junit_sha256": "83344ac19a3095fc537763fb848ec26902a472686442a63a2c6aac1ba8e14be2",
+      "artifact_id": 11317696705,
+      "artifact_digest": "sha256:04b0fc7defccf57d369c76aa739c820e3869d062bc809012125d83a36391388a",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:38:37Z",
+      "unique_identities": 41,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "D-07 (finding 3, OPEN governance item, GENUINELY blocks here — unlike auth's carve-out, like pagto's non-carve-out): tenant amh's reembolso_auto_approval.max_value_brl is 0 in both spec/policies/autonomy/L0-core.yaml and tenants-amh.yaml. CeilingResolver.within_l2_ceiling (ceilings.py) is fail-closed on a 0 ceiling, and calculate_amount_entry's topic (operadora.reembolso.calculate_amount) IS part of this probe's normal drain-topics list (no carve-out) — every request's dentro_teto_l2 is genuinely recomputed False, so End_ReembolsoAprovadoAutomatico is UNREACHABLE under the current tenant policy config. The donor's own workaround (reembolso_probe_teto_positivo, injecting register_reembolso_workers(..., resolver=CeilingResolver(core_path=core))) cannot be ported: v2's register_reembolso_workers(harness, kafka=None, **seams) explicitly `del`s **seams — no resolver-injection point exists. src/** fix (either a real teto or a resolver seam) is out of scope for this port. SEGUNDA CAUSA desde REEMBOLSO-AUTO-OVERPAY-a (R-058): mesmo com um teto positivo este caminho seguiria bloqueado — a condicao de Flow_GW_AutoAprovar exige reembolso_auto_liberado (worker: REEMBOLSO_AUTO_PAGAMENTO_LIBERADO, hoje False) e o worker de pagamento recusa a origem automatica (ERR_REEMBOLSO_AUTO_PAGAMENTO_BLOQUEADO). O xfail portanto NAO cai quando o teto D-07 for resolvido: cai quando a atuaria (+ regulatorio verifica) assinar o sign-off e a formula escolhida (A min(solicitado, tabela) vs B) entrar junto com a abertura do interruptor. Ver test_bloqueio_r058_impede_o_caminho_automatico_de_pagar, que prova o bloqueio LIVE."
+        },
+        {
+          "kind": "xfailed",
+          "count": 3,
+          "reason": "Governance gate (human ceiling), NOT a src/** gap. `operadora.lgpd.send_response` (#55 R-F) IS a real, merged worker (`make_send_response_handler`, lgpd.py:538, registered via `register_lgpd_workers`, lgpd.py:738-768, #125) and is live-verified on a real CIB Seven engine ('lgpd_send_response_sent decisao=APROVAR_ENVIO' observed, T2.8). `lgpd_probe` deliberately RE-SHADOWS it with the finding-2 gap stub (`_gap_topic_stub` on `_SEND_TOPIC`) anyway, so these 3 happy-path tests stay strict-xfailed pending DPO sign-off on the full DSR merit flow — a governance decision, not an engineering one (see the T2.8 note above, module lines ~254-266; `PLANS.md:147-148`'s 'Censo de strict-xfail ... DPO x3' counts exactly these 3; and `docs/sme-dispatch/dpo/PACKAGE.md:113-123`, which tracks this as the open DPO question). Un-shadowing R-F would XPASS this family: a known assert-key mismatch is already tracked for that moment (the worker emits `tem_fundamentacao` — lgpd.py:586 — while `test_negativa_fundamentada_e_decisao_humana` asserts `has_fundamentacao`, line 569)."
+        }
+      ],
+      "reporting": {
+        "collection_count": 41,
+        "execution_count": 41,
+        "validation_count": 41,
+        "junit_count": 41,
+        "consistent": true,
+        "classifications": {
+          "passed": 37,
+          "xfailed_executed": 4
+        },
+        "body_entry": {
+          "entered": 41
+        },
+        "test_source_hashes_match_exact_tested_commit": true,
+        "validation_return_code": 0,
+        "validation_errors": [],
+        "files": [
+          {
+            "path": "integration-collection.json",
+            "sha256": "f394e5df434a876aadcd27f9ac365c6e91af66e9855e7f85cf3c999f000b2a89"
+          },
+          {
+            "path": "integration-execution.json",
+            "sha256": "873cf5cce5a78cf57baa2725f009ba1d6b05e45e8516a3453562bd46bb3cd1b9"
+          },
+          {
+            "path": "integration-validation.json",
+            "sha256": "2b2b465ee968ec85a8e766803457b7987692abc39803b8cf58294796c5df9f97"
+          }
+        ]
+      }
+    },
+    {
+      "lane": "integration",
+      "shard": "cred-ans",
+      "job_id": 111545107998,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107998",
+      "started_at": "2026-10-04T22:18:01Z",
+      "completed_at": "2026-10-04T22:38:16Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 96,
+        "passed": 76,
+        "xfailed": 20,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_entry": "integration-junit.xml",
+      "junit_sha256": "f4bed41ce7959e35fe613d5f879cc9dac4c489ffe84e1d42e5dc1010e258e483",
+      "artifact_id": 11317452217,
+      "artifact_digest": "sha256:51e8c14fc21504593ea33db811bf3b220ce3a4ab555b996cb9369a9b229cd420",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:38:12Z",
+      "unique_identities": 96,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 2,
+          "reason": "GUARD-SHAPE finding 4 is RESOLVED in src (t5-workers-f2): register_descredenciamento/register_cred_denial now raise WorkerBpmnError(ERR_DECRED_NOT_HUMAN)/WorkerBpmnError(ERR_CRED_DENIAL_NOT_HUMAN) — the MODELED bpmn errors — instead of a bespoke CredError (which FunctionWorker.execute reclassified to a bare ValueError -> generic failure(retries=0) incident, so BE_DecredNaoHumano/BE_CredDenialNaoHumano could never fire). The boundary is now REACHABLE — gate-proven/consumption-covered by scripts/ci/check_bpmn_error_allowlist.py and proven at the harness layer by tests/unit/tools/workers/test_credenciamento.py::test_decred_guard_reaches_boundary_when_allowlisted (mirrors ERR_CANCEL_MANTER_NOT_HUMAN). This ENGINE test nonetheless stays xfail on the STILL-open finding 1 (_CRED_MISSING_WORKERS_REASON): operadora.cred.prepare_dossier is not in this probe's _CRED_WORKER_TOPICS drain (a local stub worker now exists in the production bootstrap per DL-0033/t5, but wiring it into THIS probe's drain + flipping this engine xfail needs a dedicated live-engine proof, out of scope here), so the instance still stalls at ST_PrepareDossier before ever reaching the UT to submit the incomplete decision. (The credenciamento-direction sibling is additionally blocked by finding 2, the documentos_refs overwrite.) The two adverse guard codes stay T-E-deferred out of PRODUCTION_BPMN_ERROR_ALLOWLIST until T-E, so on a live engine today the guard still fails closed to an audited incident — identical runtime effect, boundary now reachable the moment T-E flips the allowlist."
+        },
+        {
+          "kind": "xfailed",
+          "count": 18,
+          "reason": "T2.6-2 fail-closed schema-pinning regime (CURRENT cause, not FINDING A — see PORT NOTES below for the historical finding): this test runs on the UNPINNED `ans_probe` fixture, so `validate_data` resolves a real `TissSchemaValidator()` with no `MAEZO_TISS_SCHEMA_VERSION` pinned and no vendored TISS XSDs, which computes `schema_valid=False` unconditionally (regardless of report_type or the seeded schema_valid=True in start_ans's default payload). The admissibility DMN's `[-, false, -] -> PENDENTE` row therefore fires for EVERY submission on this probe, routing to UT_CorrigirPendenciaEnvio and pre-empting GW_Admissibilidade's SEGUE_ENVIO/REVISAO_HUMANA branch (-> ST_PrepararDossie -> UT_RevisarEnvio) and the nip_filing branch (-> UT_RevisarEnvioJuridico) alike — so any assertion expecting to reach UT_RevisarEnvio/UT_RevisarEnvioJuridico (directly or via _drive_to_revisar) never gets there; the wait times out/errors before the test's real assertions run. Proven correct-by-contrast by the `ans_probe_tiss_pinned`-based `test_tiss_pinned_*` tests, which inject a pinned TissSchemaValidator and DO reach SEGUE_ENVIO. HISTORICAL — FINDING A (T3.1 phase-2 registration gap, RESOLVED in t5-workers-f1): BPMN topic regulatorio.anssubmit.notify_regulatorio (ST_PrepararDossie / ST_NotificarDeadlineRisk) had NO worker registered in register_ans_submit_workers, so any task landing there stalled the instance on an unregistered-topic incident. This is now FIXED — register_ans_submit_workers registers regulatorio.anssubmit.notify_regulatorio via the raw async handler make_notify_regulatorio_handler (see the unit regression fence test_register_ans_submit_workers_registers_notify_regulatorio) — so FINDING A no longer blocks any test, including this one; it is cited here only as historical context for why this reason constant predates the T2.6-2 finding above. Where a test would ALSO assert a per-worker notification (notifications_of_type('anssubmit.notify_regulatorio'/'anssubmit.submit'/etc.)) even after reaching the relevant User Task under a pinned schema, that assertion would SEPARATELY hit the still-open systemic FINDING C (no ans_submit.py entry function calls kafka.publish; only the generic operadora.events.publish handler does) — noted for completeness, not the reason this particular xfail currently fires."
+        }
+      ],
+      "reporting": {
+        "collection_count": 96,
+        "execution_count": 96,
+        "validation_count": 96,
+        "junit_count": 96,
+        "consistent": true,
+        "classifications": {
+          "passed": 76,
+          "xfailed_executed": 20
+        },
+        "body_entry": {
+          "entered": 96
+        },
+        "test_source_hashes_match_exact_tested_commit": true,
+        "validation_return_code": 0,
+        "validation_errors": [],
+        "files": [
+          {
+            "path": "integration-collection.json",
+            "sha256": "8714fd5d4f4f5d7ab53b9176351638a56f073b687cc3064e6147616ebdf6c1a3"
+          },
+          {
+            "path": "integration-execution.json",
+            "sha256": "0a7fab988650583a5274a7ea6ad7c52ee307d4b9aad5d84987741bc1416adfe2"
+          },
+          {
+            "path": "integration-validation.json",
+            "sha256": "e844fe4e0dc043dc620df504933ad5234ecee811aaaf525cd5744e1a31748a08"
+          }
+        ]
+      }
+    },
+    {
+      "lane": "integration",
+      "shard": "recurso-nip",
+      "job_id": 111545107914,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107914",
+      "started_at": "2026-10-04T22:18:00Z",
+      "completed_at": "2026-10-04T22:38:24Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 125,
+        "passed": 123,
+        "skipped": 2,
+        "failed": 0,
+        "errors": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "integration-junit.xml",
+      "junit_sha256": "087f2cf1abf3660caf41bd6e9af810a9cf307119e8935ad7a718dc704e70daa1",
+      "artifact_id": 11317392284,
+      "artifact_digest": "sha256:fe430cde74d000991c6354de9ae4bf7ecb6150b203a068defdcdbe190c6f22b5",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:38:21Z",
+      "unique_identities": 125,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "skipped",
+          "count": 2,
+          "reason": "only runs when MAEZO_CHAOS_MUTATE=a1_a2 (see module docstring for the explicit run command)"
+        }
+      ],
+      "reporting": {
+        "collection_count": 125,
+        "execution_count": 125,
+        "validation_count": 125,
+        "junit_count": 125,
+        "consistent": true,
+        "classifications": {
+          "passed": 123,
+          "inactive_companion": 2
+        },
+        "body_entry": {
+          "entered": 123,
+          "not_entered": 2
+        },
+        "test_source_hashes_match_exact_tested_commit": true,
+        "validation_return_code": 0,
+        "validation_errors": [],
+        "files": [
+          {
+            "path": "integration-collection.json",
+            "sha256": "0985fdb212fd4e8d4a6499836ea3c495c3c23ad6e673bbc7ddf63011e97c53ea"
+          },
+          {
+            "path": "integration-execution.json",
+            "sha256": "2ac08f4e8598e8b4dbc0f17fee5e10511b24f88fd99d70534d636c51177a9f4e"
+          },
+          {
+            "path": "integration-validation.json",
+            "sha256": "4c3cc0a3458aa6b8c1abb413d985dc03493ecf98cbc1f45284f84ba3c2c4d531"
+          }
+        ]
+      }
+    },
+    {
+      "lane": "integration",
+      "shard": "restante",
+      "job_id": 111545107889,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111545107889",
+      "started_at": "2026-10-04T22:18:00Z",
+      "completed_at": "2026-10-04T22:39:50Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 435,
+        "passed": 433,
+        "xfailed": 2,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_entry": "integration-junit.xml",
+      "junit_sha256": "5e8185c19db316340bb37eea534d5826cefc35a7b2ad5ff3743dc01a1f51fcaa",
+      "artifact_id": 11317167807,
+      "artifact_digest": "sha256:c1bef626e774dc270a9df38f919cc337927506487dea7408d6a3ce170e528cbe",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:39:47Z",
+      "unique_identities": 435,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "REGULATORIO (RN 259) — inversao de ordem de regra na `adequacao_gap.dmn` DEPLOYADA, NAO um defeito de codigo e NAO fechavel por engenharia. hitPolicy=FIRST: `r_eletivo_leve` (tipo_carater=eletivo, tempo<=60, distancia<=50, prestadores>0, cobertura=true -> GAP_LEVE) PRECEDE `r_conforme`, que nao tem NENHUM teto de tempo/distancia (wildcards) e exige apenas prestadores>0 + cobertura=true. Consequencia verificada e ja pinada em unit (a prova VIVA e `tests/integration/dmn/test_dmn_golden_parity.py::test_adequacao_gap_parity`, params ('eletivo',45,10.0,2,<redacted>,'GAP_LEVE') e ('eletivo',70,10.0,2,<redacted>,'CONFORME') — os testes unitarios homonimos usam FakeDmnTransport com a resposta pre-registrada e passariam mesmo se a tabela fosse corrigida): para atendimento ELETIVO, um acesso MELHOR le GAP_LEVE enquanto um acesso PIOR le CONFORME — e, como `r_conforme` nao tem teto, um tempo/distancia ARBITRARIAMENTE ruim continua lendo CONFORME (as duas regras `*_critico` gateiam so em urgencia_emergencia). Este teste semeia tempo=30/distancia=10.0 (acesso bom) e exige CONFORME: com a tabela deployada isso e inalcancavel. Deslocar o cenario para tempo>60 so para ficar verde PINARIA a inversao como comportamento esperado — recusado deliberadamente. ADR-0028 §7 ja decidiu 'a DMN vence, nao se corrige aqui'; os thresholds sao DRAFT e de dono REGULATORIO (docs/review-queue.md + SP-OP-ADEQUACAO-001.md). FLIP quando o portao regulatorio decidir a ordem/os tetos das regras."
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "VALUE-GATED (D-07, financeiro) — NAO e defeito de engenharia. Desde a mitigacao GAP-AUTH-4 no chokepoint de emissao (item-9 auth Class-A), IssueAuthorizationWorker consulta CeilingResolver.within_l2_ceiling no CANAL AUTOMATICO antes de emitir. A matriz de governanca traz `authorization_approval.max_value_brl: 0` em spec/policies/autonomy/{L0-core,tenants-amh}.yaml — 0 significa 'aprovacao automatica NAO autorizada ate o D-07 ser decidido' — e within_l2_ceiling e fail-closed em teto 0 (<redacted> mesmo para value_cents == 0). Logo a rota automatica RECUSA emitir por decisao de governanca deliberada: o processo atinge End_AprovadaAutomatica e <redacted>a desfecho=aprovada_automatica, mas nao ha numero_autorizacao (status=blocked_by_guard, ERR_AUTH_AUTO_CEILING_NOT_AUTHORIZED, motivo_bloqueio_teto=TETO_NAO_AUTORIZA, dentro_teto_l2=<redacted> no historico). O canal HUMANO nao e afetado — decisao_auditor=APROVAR emite normalmente acima do teto automatico (e para isso que a revisao humana existe), pinado por 5 testes unitarios. FLIP quando o D-07 definir um teto real para o tenant: a emissao automatica passa a funcionar, limitada por esse teto. SUPERSEDED / AGORA DUPLAMENTE GATEADO (portao de criterios GAP-AUTH-4): esta instancia nao chega mais sequer a End_AprovadaAutomatica. `ST_ValidateAutoApprovalCriteria` roda ANTES de BRT_AutoApproval e a DMN v0.2.0 nao le mais dut_atendida/dentro_teto_l2/rede_credenciada — os tres seeds desta fixture sao IGNORADOS. Os quatro criterios computados sao false (financeiro: teto 0/D-07; NB: nesta suite o probe NAO injeta o seam `dmn=` e o deploy traz so 3 DMN, entao tecnico/contratual falham por *_TABELA_INDISPONIVEL e regulatorio por REGULATORIO_ENTRADA_AUSENTE — o portao de ratificacao nem chega a ser consultado. Em producao (seam ligado) seriam as fontes DRAFT nao ratificadas em spec/processes/dmn/auth-criteria-ratification.yaml; contratual: SEM_REGRA_RATIFICADA), logo r99 resolve ANALISE_HUMANA e o token vai para ST_PrepararDossie -> UT_AnaliseMedicoAuditor. O processo PARA na User Task humana: `_await_end` esgota as tentativas e o assert de End_AprovadaAutomatica falha. FLIP so quando D-07 definir teto >= R$180 **E** as fontes clinicas/regulatorias/contratuais forem ratificadas — nao mais so o D-07. NAO LIVE-PROVEN pelo autor desta mudanca (sem engine): a razao acima e derivada estruturalmente do modelo."
+        }
+      ],
+      "reporting": {
+        "collection_count": 435,
+        "execution_count": 435,
+        "validation_count": 435,
+        "junit_count": 435,
+        "consistent": true,
+        "classifications": {
+          "passed": 433,
+          "xfailed_executed": 2
+        },
+        "body_entry": {
+          "entered": 435
+        },
+        "test_source_hashes_match_exact_tested_commit": true,
+        "validation_return_code": 0,
+        "validation_errors": [],
+        "files": [
+          {
+            "path": "integration-collection.json",
+            "sha256": "00ba429270d712f31d5c722e988b1459076b50c30f5cd806404e75a8288e9beb"
+          },
+          {
+            "path": "integration-execution.json",
+            "sha256": "ef7233597bf5f1792eb7a1fe29b79efd50998e1ead050d18ec17417730b7ab34"
+          },
+          {
+            "path": "integration-validation.json",
+            "sha256": "7819b68cb0ed024c9e3e73617a0a9cc4dd6c8e6cb6beef623ca4303b33d90804"
+          }
+        ]
+      }
+    },
+    {
+      "lane": "unit",
+      "shard": "ci-pesado",
+      "job_id": 111543002699,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002699",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:16:08Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 333,
+        "passed": 333,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-ci-pesado.xml",
+      "junit_sha256": "23da34032538d51172edc486a520be10b917abde8a4c3e5a50be477574efc27f",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 333,
+      "skip_and_xfail_reasons": []
+    },
+    {
+      "lane": "unit",
+      "shard": "ci",
+      "job_id": 111543002529,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002529",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:13:20Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 1944,
+        "passed": 1942,
+        "skipped": 2,
+        "failed": 0,
+        "errors": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-ci.xml",
+      "junit_sha256": "185b714d2bccc1fc29451aa94360c30a3a530cf39b4d80c60ea07dd2980ee50e",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 1944,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "skipped",
+          "count": 2,
+          "reason": "COULD NOT VERIFY: MAEZO_TEST_DATABASE_URL required for the native witness catalog"
+        }
+      ]
+    },
+    {
+      "lane": "unit",
+      "shard": "dev-runner",
+      "job_id": 111543002676,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002676",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:11:19Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 18,
+        "passed": 18,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-dev-runner.xml",
+      "junit_sha256": "1b77032ecfe940684d93aac5f0fabfa16282a3812d125077240cdc6753ae2d5a",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 18,
+      "skip_and_xfail_reasons": []
+    },
+    {
+      "lane": "unit",
+      "shard": "dev",
+      "job_id": 111543002576,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002576",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:12:42Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 524,
+        "passed": 523,
+        "xfailed": 1,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-dev.xml",
+      "junit_sha256": "79228c6e7daebcbf109516978e31a08ae674986d299bc623911f918b6cf35ea3",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 524,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com excecao de CI em vez de excluir a entrada 'D7unit802'. source_commit=80206e29ab4b... e exclusivo da linhagem do train e nunca sera ancestral de main sob a regra de transplante-apenas-conteudo desta frota — este teste preflighta essa entrada e permanece vermelho por desenho ate' o prazo. expected-fail-until=2027-02-09. RENOVACAO — DECISAO DO DONO 2026-09-20: a obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438 Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15. Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main aterrissa (WP novo, nao correcao deste PR) — ou o dono re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md."
+        }
+      ]
+    },
+    {
+      "lane": "unit",
+      "shard": "gateway-platform",
+      "job_id": 111543002511,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002511",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:14:23Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 7547,
+        "passed": 7547,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-gateway-platform.xml",
+      "junit_sha256": "255d8f57c9c56fac2562c84dd2eff9a1d85c5b23abbbd91a1d32bc85ae73fb88",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 7547,
+      "skip_and_xfail_reasons": []
+    },
+    {
+      "lane": "unit",
+      "shard": "ledger-consumer",
+      "job_id": 111543002569,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002569",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:15:09Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 61,
+        "passed": 61,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-ledger-consumer.xml",
+      "junit_sha256": "3228883f110ffaaab4df4e576ae83469654e5e1900d8e2363e818a7144e2f55e",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 61,
+      "skip_and_xfail_reasons": []
+    },
+    {
+      "lane": "unit",
+      "shard": "ledger-execution",
+      "job_id": 111543002482,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002482",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:12:12Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 60,
+        "passed": 60,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-ledger-execution.xml",
+      "junit_sha256": "4f3b7a2faed1d92700686a943a1dd6f78a41dcd71f0b4a206a0ad3a69862d9dc",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 60,
+      "skip_and_xfail_reasons": []
+    },
+    {
+      "lane": "unit",
+      "shard": "ledger-resto",
+      "job_id": 111543002609,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002609",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:09:30Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 561,
+        "passed": 560,
+        "xfailed": 1,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-ledger-resto.xml",
+      "junit_sha256": "d15d0beb362a66edc666e17ccce308781c85e67111451c6ff60a59f77a3f24d6",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 561,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com excecao de CI. Este teste afirma que o ledger de main comeca com o ledger integralmente qualificado do train (commit 5b70a6e9...) — medido, nao hipotetico: main ja diverge dentro desse prefixo obrigatorio, entao nenhum append futuro pode repara-lo enquanto main permanecer main. expected-fail-until=2027-02-09. RENOVACAO — DECISAO DO DONO 2026-09-20: a obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438 Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15. Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main aterrissa (WP novo) — ou o dono re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md."
+        }
+      ]
+    },
+    {
+      "lane": "unit",
+      "shard": "restante",
+      "job_id": 111543002630,
+      "job_url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37238750715/job/111543002630",
+      "started_at": "2026-10-04T22:06:43Z",
+      "completed_at": "2026-10-04T22:11:58Z",
+      "conclusion": "success",
+      "counts": {
+        "testcases": 15196,
+        "passed": 15063,
+        "skipped": 130,
+        "xfailed": 3,
+        "failed": 0,
+        "errors": 0
+      },
+      "junit_entry": "maezo-operadora/maezo-operadora/unit-junit-restante.xml",
+      "junit_sha256": "6242e51b54dd73444c5b98b5c2eb039ece78d4dbe137f40682a4963561dd094e",
+      "artifact_id": 11317140125,
+      "artifact_digest": "sha256:841e0b9a322c41c62932a49ddaa298bd67470d2ef76ac30449fcdad0af6ec9d3",
+      "digest_verified": true,
+      "artifact_created_at": "2026-10-04T22:17:54Z",
+      "unique_identities": 15196,
+      "skip_and_xfail_reasons": [
+        {
+          "kind": "skipped",
+          "count": 108,
+          "reason": "Terraform CLI required for real HCL evaluation (no substitute evaluator)"
+        },
+        {
+          "kind": "skipped",
+          "count": 19,
+          "reason": "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping Tier-B live-LLM eval variant. This is a loud, explicit skip, not a silent pass (mirrors tests/unit/runtime/test_inference_live.py): Tier-A (replay) evals are the PR merge-blocking gate and are unaffected; Tier-B is nightly-only, threshold-scored, non-blocking, and requires a real Anthropic key to ever execute."
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "quantia POR EXTENSO esta fora do alcance de um casador lexico — fechar isso e' eval de saida, nao unit test; strict para que a solucao futura tenha de retirar o marcador"
+        },
+        {
+          "kind": "skipped",
+          "count": 1,
+          "reason": "beatriz nao registra um no `start_process`"
+        },
+        {
+          "kind": "skipped",
+          "count": 1,
+          "reason": "helena nao registra um no `start_process`"
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "LEG3-B: no shared source-of-truth artifact ties the client host-suffix allowlist (BR_REGIONAL_ENDPOINT_HOST_SUFFIXES) to the ADR-0017 NetworkPolicy egress fence, and the two places that DO name PHI endpoint hosts already DIVERGE. The client allowlist pins '.br-sao-paulo.phi.maezo.internal' (deliberately non-routable), while deploy/helm/.../values-{amh,staging}.yaml declare 'llm-phi.internal.amh.com.br' / 'llm-phi.staging.internal.maezo.com.br'. Worse, the NetworkPolicy egress rule is IP/CIDR-based and CANNOT express a hostname allowlist at all (networkpolicy.yaml FIX 1), so the two artifacts are structurally incommensurable — the `host` in values.yaml is only an error-message hint, the rendered rule is a `cidr`. Faking agreement would be dishonest. This xfail(strict) documents the drift risk and turns RED the day someone reconciles them (remove the marker then). Deriving the allowlist from the CIDR-pinning artifact is the open question in runtime/inference/br_regional.py::BR_REGIONAL_ENDPOINT_HOST_SUFFIXES's comment; inventing that artifact is out of leg-3 scope."
+        },
+        {
+          "kind": "xfailed",
+          "count": 1,
+          "reason": "PENDENTE DO DONO, nao da engenharia. O Lucas declara `reports_to: atendimento@amh`, que e' endereco de TIME — e um time nao acorda as tres da manha. Nomear a pessoa que decide o texto do Lucas e a que atende quando ele erra com um beneficiario e' ato do dono, igual ao `owners.clinico` da Helena. Este teste fica aqui em xfail para que o dia em que alguem preencher o campo o torne verde, em vez de o campo ser esquecido por nao haver nada apontando para ele."
+        },
+        {
+          "kind": "skipped",
+          "count": 1,
+          "reason": "No MAEZO_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY in environment — skipping live Anthropic API call. This is a loud, explicit skip, not a silent pass: set one of those env vars to exercise the real provider end-to-end."
+        }
+      ]
+    }
+  ]
+}

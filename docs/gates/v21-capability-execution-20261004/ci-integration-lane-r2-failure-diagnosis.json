@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "source_head": "43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+  "baseline_head": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "created_at": "2026-10-04T18:54:40.969969+00:00",
+  "baseline_file_controls": [
+    {
+      "path": "tests/unit/gateway/human/test_classified_decision.py",
+      "baseline_sha256": "ab9e1929978f8006c266424d04bc759c6055fe940f5c4125187e6382b600a9c4",
+      "frozen_sha256": "ab9e1929978f8006c266424d04bc759c6055fe940f5c4125187e6382b600a9c4",
+      "current_sha256": "ab9e1929978f8006c266424d04bc759c6055fe940f5c4125187e6382b600a9c4",
+      "baseline_equal_frozen": true,
+      "current_equal_frozen": true
+    },
+    {
+      "path": "tests/unit/dev/test_engine_integration_runner.py",
+      "baseline_sha256": "dcec1a521698f6d09900d25bff20e7fd55515c203892da6a910a3d1e3aab987d",
+      "frozen_sha256": "dcec1a521698f6d09900d25bff20e7fd55515c203892da6a910a3d1e3aab987d",
+      "current_sha256": "dcec1a521698f6d09900d25bff20e7fd55515c203892da6a910a3d1e3aab987d",
+      "baseline_equal_frozen": true,
+      "current_equal_frozen": true
+    },
+    {
+      "path": "scripts/dev/run_engine_integration.py",
+      "baseline_sha256": "5b27e471bdf85443457564634f79cafb7fc28f9294214687e9bd909b44c88281",
+      "frozen_sha256": "5b27e471bdf85443457564634f79cafb7fc28f9294214687e9bd909b44c88281",
+      "current_sha256": "5b27e471bdf85443457564634f79cafb7fc28f9294214687e9bd909b44c88281",
+      "baseline_equal_frozen": true,
+      "current_equal_frozen": true
+    },
+    {
+      "path": "tests/unit/platform/test_alert_metrics_fence.py",
+      "baseline_sha256": "235e67ec6ebb7ddf9ff8d622c0f18fb3c1d326ac1229296081f8c8727cc0f919",
+      "frozen_sha256": "235e67ec6ebb7ddf9ff8d622c0f18fb3c1d326ac1229296081f8c8727cc0f919",
+      "current_sha256": "235e67ec6ebb7ddf9ff8d622c0f18fb3c1d326ac1229296081f8c8727cc0f919",
+      "baseline_equal_frozen": true,
+      "current_equal_frozen": true
+    }
+  ],
+  "focused_reproductions": [
+    {
+      "name": "metrics-fence",
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/platform/test_alert_metrics_fence.py::test_every_graph_invocation_in_src_counts_agent_errors",
+        "-q"
+      ],
+      "return_code": 1,
+      "duration_seconds": 17.714,
+      "terminal_summary_lines": [
+        "        (`\"record_agent_error\" not in path.read_text()`) stays GREEN — 2 textual occurrences of the",
+        "E       AssertionError: graph-invocation site(s) whose failures are never counted: ['agents/lucas/administrative/graph.py:143', 'agents/lucas/administrative/graph.py:257']. Each `.ainvoke(` must sit in a `try` whose `except Exception` handler calls `record_agent_error()` and re-raises bare — `MaezoAgentCrashLoop` reads that counter and nothing else does.",
+        "1 failed in 13.82s"
+      ],
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-r2-diagnostic-metrics-fence.log",
+      "log_sha256": "034eb448856d81dda16b45ff9262b56d09c2f81b82e9ad5dae7af0b4ace68d6a"
+    },
+    {
+      "name": "fresh-future-ack",
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/unit/gateway/human/test_classified_decision.py::test_mismatched_ack_is_unknown_not_execution_or_rollback[committed_at-value8]",
+        "-q"
+      ],
+      "return_code": 0,
+      "duration_seconds": 6.702,
+      "terminal_summary_lines": [
+        "1 passed in 1.75s"
+      ],
+      "log": "docs/gates/v21-capability-execution-20261004/ci-integration-lane-r2-diagnostic-fresh-future-ack.log",
+      "log_sha256": "31f2b12d852981175b117bcecb0662b3991c4d27286072f1b4554ac21ab115c7"
+    }
+  ],
+  "findings": [
+    {
+      "id": "AW-SOURCE-F03",
+      "category": "source regression",
+      "priority": "P1",
+      "cause": "New administrative graph ainvoke sites omit existing mandatory record_agent_error exception instrumentation",
+      "frozen_source_locations": [
+        "src/maezo/agents/lucas/administrative/graph.py:143",
+        "src/maezo/agents/lucas/administrative/graph.py:257"
+      ],
+      "required_gate": "Third-specialist repair, original verifier delta PASS, fresh freeze and conclusive CI",
+      "provisional_id_at_initial_lane_reporting": "AW-CI-F02",
+      "label": "METRICS-FENCE",
+      "id_normalization": "Root reserves AW-CI-F02 for distinct unordered HARD test parametrization incident; normalized to unique incident ID without changing raw failed run evidence."
+    },
+    {
+      "id": "AW-CI-ENV-01",
+      "category": "execution qualification",
+      "cause": "Existing runner requires no staged or unstaged tracked changes; allowed tracking/evidence edits were staged/dirty while run2 executed",
+      "affected_cases": 5,
+      "test_file_unchanged_from_baseline": true,
+      "runner_file_unchanged_from_baseline": true,
+      "full_run_status_remains": "FAIL",
+      "required_qualification": "Clean immutable checkout, completed tracking commit and no simultaneous tracked evidence mutations; preserve original raw red run"
+    },
+    {
+      "id": "AW-CI-BASELINE-01",
+      "category": "pre-existing test timing defect",
+      "cause": "Parametrization computes datetime.now(UTC)+1h at module collection; full serial run exceeded one hour before its body, so the intended future ack timestamp became past",
+      "parameter_from_full_failure": "2026-10-04T18:35:52.307893+00:00",
+      "test_file_unchanged_from_baseline": true,
+      "fresh_collect_control": "Focused same-case fresh process result recorded; it is a diagnostic control and does not replace full unit gate"
+    }
+  ],
+  "skips_or_xfails_added_by_lane": false,
+  "source_or_environment_repairs_used": false,
+  "broad_repeated_after_run2": false
+}

@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "role": "independent-ci-integration-lane",
+  "state": "PREPARED_AWAITING_ORIGINAL_REVIEWER_PASS_AND_ROOT_FREEZE",
+  "captured_at": "2026-10-04T17:09:43.321560+00:00",
+  "checkout": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora",
+  "git_head": {
+    "command": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "rc": 0,
+    "output": "3895459de9fd8e30b57e095b47e45179cec0b99a"
+  },
+  "git_status": {
+    "command": [
+      "git",
+      "status",
+      "--short",
+      "--branch"
+    ],
+    "rc": 0,
+    "output": "## codex/v21-capability-execution\n M PLANS.md\n?? docs/gates/v21-capability-execution-20261004/"
+  },
+  "write_set": [
+    "docs/gates/v21-capability-execution-20261004/ci-integration-lane*.json",
+    "docs/gates/v21-capability-execution-20261004/ci-integration-lane*.log",
+    "docs/gates/v21-capability-execution-20261004/ci-integration-lane*.xml"
+  ],
+  "authorization_constraints": [
+    "No broad test until explicit root authorization after original reviewer PASS",
+    "No source/spec/lock/policy/global/bundle edits",
+    "Root exclusively serializes commits/push/PR/shared edits",
+    "No engine mocked or enabled by this lane",
+    "No PYTHON/PYTEST_/UV_ environment override"
+  ],
+  "runtime": {
+    "python": "3.12.13 (main, May 10 2026, 19:20:41) [Clang 22.1.3 ]",
+    "packages": {
+      "pytest": "9.1.1",
+      "pytest-cov": "6.3.0",
+      "pytest-xdist": "3.8.0",
+      "ruff": "0.15.20",
+      "mypy": "1.20.2",
+      "langgraph": "1.2.9",
+      "langchain-core": "1.4.8"
+    },
+    "uv": {
+      "command": [
+        "uv",
+        "--version"
+      ],
+      "rc": 0,
+      "output": "uv 0.11.26 (396ef7ce4 2026-06-30 aarch64-apple-darwin)"
+    },
+    "ambient_sensitive_environment_names": []
+  },
+  "immutable_dependency_inputs": {
+    "uv.lock": "32585889cd2ba4645044cd9c85041b884dbd42621b8322a5d75fe96cae86e4e5",
+    "pyproject.toml": "788931152651ce6e996d0333ca9bf2615a89fc9c64a1fbb22a24d0e0e4e0de39"
+  },
+  "resource_inventory": {
+    "task_tool_processes": {
+      "command": [
+        "ps",
+        "-axo",
+        "pid,ppid,etime,%cpu,%mem,comm"
+      ],
+      "rc": 0,
+      "output": "  638     1 04-20:03:10   0.0  0.0 /System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/UVCAssistant.systemextension/Contents/MacOS/UVCAssistant"
+    },
+    "disk": {
+      "command": [
+        "df",
+        "-h",
+        "."
+      ],
+      "rc": 0,
+      "output": "Filesystem      Size    Used   Avail Capacity iused ifree %iused  Mounted on\n/dev/disk3s5   460Gi   348Gi    81Gi    82%     12M  851M    1%   /System/Volumes/Data"
+    },
+    "task_engine_lock_files_found": [],
+    "lock_adopted": false
+  },
+  "planned_source_gates": [
+    [
+      "make",
+      "lint"
+    ],
+    [
+      "make",
+      "type"
+    ],
+    [
+      "make",
+      "validate-artifacts"
+    ],
+    [
+      "make",
+      "check-bpmn-error-allowlist"
+    ],
+    [
+      "make",
+      "check-start-process-fence"
+    ],
+    [
+      "make",
+      "effect-chokepoint-fence"
+    ],
+    [
+      "make",
+      "verify-amh-contract-pin"
+    ],
+    [
+      "make",
+      "check-plans-counts"
+    ],
+    [
+      "make",
+      "check-doc-symbol-citations"
+    ]
+  ],
+  "planned_broad_test": {
+    "make_target": [
+      "make",
+      "test"
+    ],
+    "exact_make_recipe": [
+      ".venv/bin/python",
+      "-m",
+      "pytest",
+      "tests/",
+      "-q",
+      "-m",
+      "not integration"
+    ],
+    "junit_reporting_only_addition_pending_root_authorization": "--junitxml=docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit.xml",
+    "selection": "all tests/ with not integration; no narrowed source filters",
+    "broad_repetitions": 0
+  },
+  "qualification_boundaries": {
+    "source": true,
+    "local_unit": true,
+    "hosted_required_ci": "not yet observed",
+    "engine_integration": "not executed; pending qualified CI where applicable",
+    "operational_source_or_journey": "not qualified",
+    "human_ratification": "not granted",
+    "production": "not qualified"
+  },
+  "checks_executed_by_this_lane": []
+}

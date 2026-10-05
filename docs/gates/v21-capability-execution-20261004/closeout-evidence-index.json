@@ -1,0 +1,59 @@
+{
+  "schema": "maezo.v21.closeout-index.v1",
+  "created_at": "2026-10-04T23:00:22.983059+00:00",
+  "qualified_source_head": "75618442d4b7729f0194d5207248cdc6ab9c0267",
+  "actual_tested_commit": "e7864a46abbde875679e20e81213935f2009e8bd",
+  "records": [
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/final-published-architecture-756.json",
+      "sha256": "8ea827dafd4679d56979a0e5ae44bf0b79c699e64619f4d35da5ae121aa43be6",
+      "bytes": 2105
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/final-published-security-756.json",
+      "sha256": "9f4844c01215e09519dc21011897f5bba406237d0dd2fcea4b57bbcfd6fc9146",
+      "bytes": 2586
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/delivery-closeout.json",
+      "sha256": "ba694ac87e66a0ac6f341860be9ae8920f1d1077f86524e44d541be90b52da84",
+      "bytes": 8179
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-summary.json",
+      "sha256": "fd484202778ff6933becccf978261667270848c6bb57be9fd9d8375348e07716",
+      "bytes": 62262
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-counts.json",
+      "sha256": "69f548b685e8f61fcd826fde93e6e481d18ba8704a7708ee5351e657ef513804",
+      "bytes": 35912
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/hosted-final-published-unit-counts.json",
+      "sha256": "36fbd7c3dd232cfc7458cbf6a11d888a1df175772699391e9bba002f24526f10",
+      "bytes": 10120
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/tested-base-ccf00-final-delta.json",
+      "sha256": "c8ae499bc8ae852ad91f54862cfe3b2955bc758a86592b668affa373ad155356",
+      "bytes": 19774
+    },
+    {
+      "path": "docs/gates/v21-capability-execution-20261004/closeout-ledger.jsonl",
+      "sha256": "fd7bd7acf8561f042e5dc529be4b5acbb8abd4e30c560a4b17be9dc38555b7dc",
+      "bytes": 1696
+    },
+    {
+      "path": "PLANS.md",
+      "sha256": "9856735283d1e62e8e245010a7f299ca270e38ad04f84b57a91b306c18ca3699",
+      "bytes": 99139
+    }
+  ],
+  "ledger_events": 4,
+  "events_unique_and_disjoint": true,
+  "original_records_unchanged": true,
+  "raw_logs_ZIPs_JUnit_selected": false,
+  "metadata_publication_gate": "PENDING original reviewer readback and scanner; no source or test changes",
+  "index_self_hash": "Excluded; exact output bytes verified separately"
+}

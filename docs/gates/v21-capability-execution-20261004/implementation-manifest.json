@@ -1,0 +1,80 @@
+{
+  "schema": "maezo.v21.implementation-candidate-manifest.v1",
+  "frozen_at": "2026-10-04T17:16:21.306607+00:00",
+  "fingerprint_payload": {
+    "baseline_sha": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+    "source_commit": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+    "implementation_files": {
+      "PLANS.md": "92a73e3a55a7371617f6ce91bafd435272910141e1dde71548858a4fdabe1b0e",
+      "docs/design/v21-capabilities/administrative-consumers.md": "58d237965f04957c30056a5c9a78ddb0de713ad8072c6b37e6d054114680de60",
+      "docs/design/v21-capabilities/administrative-contracts.md": "fca53c3ba6f170729ac1ae127483a4dae4d7f36b75e72a22ad2b0fe474745f50",
+      "docs/design/v21-capabilities/cib-authority.md": "83c6fabb8e7f851b3e82e6447f1ac23bf05a796429a6fdb00e2134240e047aab",
+      "docs/design/v21-capabilities/cib-readiness.json": "72762c30a8fe7e43537f0a28121e664e992328c366f9c214751d3bdb7b9fe201",
+      "docs/design/v21-capabilities/contracts.json": "81d7848127e2d71a4b21b4bc1ed8df992bc9534531798ad329680fd5f28decec",
+      "docs/design/v21-capabilities/runtime-wiring.md": "bbb0d1c14b68257d3930a2c210275047c7e8cc24e3c5e5a59e779f464fc6edf1",
+      "docs/design/v21-capabilities/security-admission.md": "dbe7bde0153408a17aae6833781ebafdf9fb4f0207fa4a45ee6385060f0c1b22",
+      "docs/design/v21-capabilities/source-contracts.md": "78c4093e68e74ed8abff332086bf8b93c715a20ade362975b55c8deef42e305f",
+      "docs/design/v21-capabilities/source-readiness.json": "8fcf13390136ee27cf81439567b217b976de9782a6994a47453f186c081f30a9",
+      "src/maezo/agents/lucas/administrative/__init__.py": "5675ed80234ade71d271b39a6d2a8c0c0ed88add6f0741a32811f1e9e953ee29",
+      "src/maezo/agents/lucas/administrative/graph.py": "72f01bc90280851dc403a2c052504c60cde654d818469ae6b525a4db8307d6e5",
+      "src/maezo/agents/lucas/administrative/handoff.py": "efd3e0cb98a90134372f9f18e6386a163d65ecb77ec35776c06b824bccac3f70",
+      "src/maezo/agents/lucas/administrative/state.py": "6fae933bac8cd15bc6b32d01cb199c53140130f799f60e347a0bc28d7248d627",
+      "src/maezo/gateway/capabilities/__init__.py": "4d28224c237796b4aeb110400ef195d2e933a44bcbdb83f83129b53c548ca788",
+      "src/maezo/gateway/capabilities/admission.py": "e6ca3294b74f67bc4957a4bffa5c2293877f33cc107d1766dd3a0504a15fe4ea",
+      "src/maezo/gateway/capabilities/models.py": "2dba24193d5409779d15ec91b696edc4c8a043bfbc9a325ac88b0bd35d923d31",
+      "src/maezo/gateway/capabilities/service.py": "a763125e4e2bf46dbe4d344d8f6ff111cb442a2f73f36e29d4f19b6202781dec",
+      "tests/unit/agents/test_lucas_administrative_graph.py": "bc13bac0ce58c50dbd8f15a276206974b9d5c5b55f58ad6b613b57c6c0f207df",
+      "tests/unit/agents/test_lucas_administrative_handoff.py": "76959644bac2de409f0145d0c63403b68bc46417a204af9ca4dca76c20078f83",
+      "tests/unit/agents/test_lucas_administrative_state.py": "9a4838f038babcf0b866645b590a998a67d5816dd7ade958603eebfaf772a262",
+      "tests/unit/gateway/capabilities/test_admission.py": "a292200d93f4834911fa8ec2a37011a844ba36087655e94c9b3d29be34855821",
+      "tests/unit/gateway/capabilities/test_models.py": "e26384524e65e724b0a70d45fd668521ed33fb34ead4d578d19b95b22555e597",
+      "tests/unit/gateway/capabilities/test_service.py": "a06e1186b9b4b0c7b6bb02d9cee154d8b677965728fc12e5047b195f93fecf77"
+    }
+  },
+  "bundle_sha256": "175d22d9f87b680b621e35c861bed7233e38a5673e60cb2ac5a05d7a757f280b",
+  "digest_rule": "SHA256 UTF8 JSON fingerprint_payload sort_keys=True separators=(comma,colon)",
+  "authors_and_repairers": [
+    "/root/capability_contract_architect",
+    "/root/amh_source_steward",
+    "/root/cib_dmn_authority_specialist",
+    "/root/wiring_gateway_specialist",
+    "/root/security_data_contract_specialist",
+    "/root/helena_lucas_conduct_specialist",
+    "/root/w0_conduct_actions_repair",
+    "/root/checkpoint_input_boundary_repair",
+    "/root/runnable_context_custody_repair"
+  ],
+  "integrator": "/root",
+  "original_independent_reviewers": [
+    "/root/admission_verifier",
+    "/root/capability_source_verifier"
+  ],
+  "fresh_final_reviewers": [
+    "/root/final_architecture_gate",
+    "/root/final_security_custody_gate"
+  ],
+  "candidate_scope": "W0 reviewable proposals plus disabled technical common kernel and administrative step consumers; no new production binding",
+  "authorizations_not_inferred": [
+    "human product ratification",
+    "DPO/security source-scope signoff",
+    "source publication",
+    "production activation",
+    "merge"
+  ],
+  "state_at_freeze": {
+    "W0_docs_review": "PASS_FOR_OWNER_REVIEW",
+    "technical_source_delta_review": "PASS_TECHNICAL_CANDIDATE_DELTA",
+    "whole_unit_ci": "RUNNING_OR_PENDING_CI_LANE",
+    "fresh_final_gates": "PENDING",
+    "runtime_source_qualification": "NOT_PROVEN",
+    "new_journey_operational_acceptance": "NOT_PROVEN",
+    "financial_ROI": "UNMEASURED"
+  },
+  "original_plan_bundle_untouched": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+  "local_only_state_files": [
+    "RUNBOOK.md",
+    "CHECKPOINT.md",
+    "SESSION.log"
+  ],
+  "evidence_append_rule": "Phase events unique; historical REVISE is retained. Future HEAD/evidence-only commits must be declared with byte digest checks, never rebaseline signed plan."
+}

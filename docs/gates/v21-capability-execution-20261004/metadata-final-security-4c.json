@@ -1,0 +1,40 @@
+{
+  "schema": "maezo.v21.metadata-final-gate.v1",
+  "recorded_by": "/root",
+  "recorded_at": "2026-10-04T22:02:14.041063+00:00",
+  "record_source": "Exact independent final response, transcribed by integrator",
+  "reviewed_head": "4c7a9f31214f71343318e349dd4b076dba97697d",
+  "admitted_base": "4208c08717f577636e5e04a1c1455d8e25d5970b",
+  "source_composition_fingerprint": "da7d29c3d644167f65b026e5526d8579ec27a01579aae7dfdb7bf1b0a3b13235",
+  "input_index_sha256": "7d4186b5614207016161ef92da232ef7544050168757ec6ed9648d748c78c245",
+  "R6_blobs_verified_identical": 53,
+  "staged_metadata_paths_reviewed": 36,
+  "whitelist_paths": 58,
+  "public_records_verified": 57,
+  "private_custody_records_verified_unselected": 684,
+  "ledger_unique_events": 24,
+  "findings": [],
+  "combined_successor_CI": "PENDING",
+  "human_provider_durable_journey_runtime_approval": false,
+  "production_or_merge_approval": false,
+  "reviewer_authorship_repair_integration_edits_commits_posts": false,
+  "output_transcription_scope": "New gate-result records and separate output ledger/index only; no edits to the 36 reviewed input files",
+  "event_id": "FINAL-SECURITY-METADATA-BASE-4c7a9f31",
+  "reviewer": "/root/final_security_custody_gate",
+  "verdict": "PASS_BOUNDED_METADATA_PUBLICATION_AND_BASE_ADMISSION",
+  "path_sha256_map_fingerprint": "ea5d1a014a71e62a511252097c8eaf1aeb7c6e8dfc325ee745edc6da69c5978a",
+  "gitleaks_independent_stdin": "PASS without configuration or suppression arguments",
+  "projection": {
+    "original_preserved_sha256": "9a38a9ce938519ab260de5d42c867aa0a95d461baec70b7ec6d49bb8b1e2be4f",
+    "publication_sha256": "4363cbde1e6b46ae62463c57bd9c126021c65d70825587decc8c40f1feb6be77",
+    "full_JSON_roundtrip_equal": true,
+    "restored_JSON_fingerprint": "770fd77c2dfa6ed13274b162e1e4ec965f8b842f6ff7260ddec74070d459ded7",
+    "unchanged_digest_values": 14,
+    "original_CI_reviewer_verdict": "EVIDENCE_PUBLICATION_PROJECTION_PASS_BOUNDED"
+  },
+  "ROOT_PR_attachment_readback": {
+    "confirmed": true,
+    "artifact_id": "01a1080c-da4e-76e3-be50-07db60079a61",
+    "PR": 633
+  }
+}

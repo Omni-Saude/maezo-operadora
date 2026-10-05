@@ -1,0 +1,16 @@
+{
+  "event_id": "AW-SOURCE-F04-DELTA-1a58a0ad",
+  "verdict": "PASS_BOUND_DELTA",
+  "reviewer": "/root/hosted_gateway_ci_diagnosis",
+  "input_head": "e9af2a91002384bbe2772cf9b63e2e7534cdb778",
+  "repaired_commit": "1a58a0ad9f8aeb185359192a81ce7b3e3ba4f88a",
+  "allowlist_sha256": "83252426b96153216b1e32a99fa973bb78a774cc5dc305848d7242c4e2b3848a",
+  "preserved_handler_sha256": "50977755697707762b7c4e923bb6d5d1b86761e59aab355f7afa9391d320e5a3",
+  "patch_sha256": "18cdafa73f4f50f849dff6646b7dcf5e9a0c30da94715d7e22549f0e03e74b41",
+  "independent_stdout_sha256": "7eac11458d1f856fbaf49c0c9295662e0fd125b4c029f3799f7c1fd0d3e279db",
+  "passed": 16,
+  "exit_code": 0,
+  "input_hashes_preserved_after_execution": true,
+  "recorded_by": "/root",
+  "record_source": "Original reviewer final exact facts; no human/provider approval"
+}

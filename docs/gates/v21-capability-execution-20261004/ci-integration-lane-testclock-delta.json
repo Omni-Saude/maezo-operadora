@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "verdict": "CI_TIME_FIXTURE_DELTA_PASS_BOUNDED",
+  "role": "original CI verifier; independent of clock fixture repair author",
+  "captured_at": "2026-10-04T19:15:05.398868+00:00",
+  "isolated_checkout": "/Users/familia/.codex/worktrees/v21-xdist-order-repair/maezo-operadora",
+  "source_head": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+  "time_fixture_path": "tests/unit/gateway/human/test_classified_decision.py",
+  "time_fixture_original_sha256": "ab9e1929978f8006c266424d04bc759c6055fe940f5c4125187e6382b600a9c4",
+  "time_fixture_repaired_sha256": "ba8c962ec7c5195f4e282d660fb4fbca0e0e0be077ea9ab7bbb2d06179fe9c23",
+  "time_fixture_delta": "diff --git a/tests/unit/gateway/human/test_classified_decision.py b/tests/unit/gateway/human/test_classified_decision.py\nindex 6734ed7a..651bb81a 100644\n--- a/tests/unit/gateway/human/test_classified_decision.py\n+++ b/tests/unit/gateway/human/test_classified_decision.py\n@@ -343,11 +343,14 @@ async def test_changed_raw_basis_same_command_is_conflict_not_silent_retry():\n         (\"principal_ref\", \"other\"),\n         (\"tenant\", \"other\"),\n         (\"workload_ref\", \"other\"),\n-        (\"committed_at\", datetime.now(UTC) + timedelta(hours=1)),\n+        (\"committed_at\", timedelta(hours=1)),\n     ],\n )\n async def test_mismatched_ack_is_unknown_not_execution_or_rollback(field, value):\n     g, d, _, _, admission, *_ = await configured()\n+    if field == \"committed_at\":\n+        # Collection can precede execution by hours; the ACK must still be in the future.\n+        value = datetime.now(UTC) + value\n     admission.changes[field] = value\n     with pytest.raises(GatewayRefusalError, match=\"admission_unavailable\"):\n         await submit(g, d)\n",
+  "test_parameter_ids_unchanged": true,
+  "nine_mismatch_case_ids": [
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[audit_intent_ref-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[command_id-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[committed_at-value8]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[payload_digest-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[principal_ref-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[request_digest-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[task_id-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[tenant-other]",
+    "test_mismatched_ack_is_unknown_not_execution_or_rollback[workload_ref-other]"
+  ],
+  "whole_module_actual_counts": {
+    "testcases": 61,
+    "passed": 61,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "whole_module_log": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-testclock-delta.log",
+  "whole_module_log_sha256": "cf586e24524012018cfbfbc7a3d3b05df9c9fc0accd9e98ed9f1481fa4aa6c9c",
+  "whole_module_junit": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-testclock-delta.xml",
+  "whole_module_junit_sha256": "df18dd0f76bd98fff812eb6f172c8216330562692fb6b2acbc36b9c1a6945f41",
+  "independent_old_aged_parameter_new_body_resolution_and_positive_controls": [
+    {
+      "name": "old_parameter_after_equivalent_75_minute_collection_delay",
+      "status": "REPRODUCED_OLD_ASSERTION_FAILURE",
+      "collection_time_model": "2026-10-04T17:57:17.394743+00:00",
+      "parameter_from_old_expression": "2026-10-04T18:57:17.394743+00:00",
+      "real_invocation_observation": "2026-10-04T19:12:17.394743+00:00",
+      "failure": "DID NOT RAISE GatewayRefusalError",
+      "method": "Derive the aged old parameter value, invoke unchanged old test function; no system/module clock override or sleep"
+    },
+    {
+      "name": "new_duration_parameter_resolved_during_invocation",
+      "status": "PASS",
+      "method": "Invoke actual repaired function with its actual timedelta parameter; real clock unchanged"
+    },
+    {
+      "name": "future_ack_20_seconds_within_current_deadline",
+      "status": "PASS_REFUSED_ADMISSION_UNAVAILABLE",
+      "future_ack": "2026-10-04T19:12:37.404960+00:00",
+      "committed_rows": 1,
+      "admission_calls": 1,
+      "deadline_validation": "Existing Admit fixture asserts real now < valid_until; +20s future is below normal +1minute authority bound",
+      "gateway_clock_validation_unchanged": true
+    },
+    {
+      "name": "valid_current_ack_positive_control",
+      "status": "PASS_ACCEPTED_PENDING",
+      "receipt_status": "pending",
+      "committed_rows": 1,
+      "admission_calls": 1
+    }
+  ],
+  "control_evidence": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-testclock-controls.json",
+  "actual_future_before_deadline_control": {
+    "schema_version": 1,
+    "status": "PASS",
+    "scope": "future ACK rejection independently distinguished from deadline rejection",
+    "isolated_checkout": "/Users/familia/.codex/worktrees/v21-xdist-order-repair/maezo-operadora",
+    "future_ack": "2026-10-04T19:14:31.927716+00:00",
+    "actual_gateway_deadline_passed_to_admission": "2026-10-04T19:15:11.932144+00:00",
+    "future_ack_precedes_actual_deadline": true,
+    "seconds_before_actual_deadline": 40.004428,
+    "refusal": "admission_unavailable",
+    "committed_rows": 1,
+    "admission_calls": 1,
+    "unit_observation_method": "Wrap only this synthetic test admission instance method to read the actual valid_until argument, then delegate unchanged to its original method. No gateway, datetime module/system clock or environment mutation.",
+    "gateway_sha256": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57"
+  },
+  "actual_deadline_evidence": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-testclock-actual-deadline.json",
+  "all_other_frozen_metrics_files_and_gateway_hashes_unchanged": true,
+  "input_expected_hashes": {
+    "tests/unit/gateway/human/test_classified_decision.py": "ba8c962ec7c5195f4e282d660fb4fbca0e0e0be077ea9ab7bbb2d06179fe9c23",
+    "src/maezo/gateway/human/gateway.py": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57",
+    "src/maezo/agents/lucas/administrative/graph.py": "50977755697707762b7c4e923bb6d5d1b86761e59aab355f7afa9391d320e5a3",
+    "tests/unit/agents/test_lucas_administrative_graph.py": "e5650354ca15cf65480aba32c97edfa804465045f0557c684319b5a18600ab58"
+  },
+  "after_hashes": {
+    "tests/unit/gateway/human/test_classified_decision.py": "ba8c962ec7c5195f4e282d660fb4fbca0e0e0be077ea9ab7bbb2d06179fe9c23",
+    "src/maezo/gateway/human/gateway.py": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57",
+    "src/maezo/agents/lucas/administrative/graph.py": "50977755697707762b7c4e923bb6d5d1b86761e59aab355f7afa9391d320e5a3",
+    "tests/unit/agents/test_lucas_administrative_graph.py": "e5650354ca15cf65480aba32c97edfa804465045f0557c684319b5a18600ab58"
+  },
+  "observed_source_delta_paths": [
+    "src/maezo/agents/lucas/administrative/graph.py",
+    "tests/unit/agents/test_lucas_administrative_graph.py",
+    "tests/unit/gateway/human/test_classified_decision.py"
+  ],
+  "expected_source_delta_paths": [
+    "src/maezo/agents/lucas/administrative/graph.py",
+    "tests/unit/agents/test_lucas_administrative_graph.py",
+    "tests/unit/gateway/human/test_classified_decision.py"
+  ],
+  "other_two_dirty_source_paths_are_separate_frozen_metric_repair_not_changed_by_this_lane": true,
+  "gateway_or_clock_validation_production_change": false,
+  "global_clock_freezer_env_override_or_source_edits_by_verifier": false,
+  "new_filters_skips_or_exclusions": false,
+  "full_run2_status": "FAIL preserved; bounded PASS does not replace its actual 3 failures/4errors",
+  "runner_qualification": "NOT_RUN on original dirty43 checkout; wait root committed clean immutable execution tree",
+  "broad_run": "NOT_RUN; no broad authorized before root clean freeze and gate disposition",
+  "qualification_limit": "Only the pre-existing collection-time fixture defect is closed for these exact test bytes. Source/operational/hosted/full-unit qualification remains separate."
+}

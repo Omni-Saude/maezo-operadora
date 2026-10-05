@@ -1,0 +1,82 @@
+{
+  "schema": "maezo.v21.cheap-integrated-checks.v1",
+  "source_head": "4c7a9f31214f71343318e349dd4b076dba97697d",
+  "integration_base": "4208c08717f577636e5e04a1c1455d8e25d5970b",
+  "created_at": "2026-10-04T21:33:45.133003+00:00",
+  "verdict": "PASS",
+  "results": [
+    {
+      "command": [
+        "make",
+        "lint"
+      ],
+      "rc": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/final-base-4208-cheap-01.log",
+      "sha256": "7bd9e1a7fc4067ccbefd5420c616e0d7f62dec0c87796a925489cb8e2ab6cb9b"
+    },
+    {
+      "command": [
+        "make",
+        "type"
+      ],
+      "rc": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/final-base-4208-cheap-02.log",
+      "sha256": "5f6fad37e27d388adfcb486928dbdfd7b7d4cf69f5390a8e11b99868c441c7bf"
+    },
+    {
+      "command": [
+        "make",
+        "validate-artifacts"
+      ],
+      "rc": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/final-base-4208-cheap-03.log",
+      "sha256": "b369aea64306b95ed32b11272702da78b23be57989bd5c6b23243e604589f9b5"
+    },
+    {
+      "command": [
+        "make",
+        "check-plans-counts"
+      ],
+      "rc": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/final-base-4208-cheap-04.log",
+      "sha256": "d3f5be236746c4a4a38f833e030750ac57cb010c377ee749ba47c41622eadd3b"
+    },
+    {
+      "command": [
+        "make",
+        "check-doc-symbol-citations"
+      ],
+      "rc": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/final-base-4208-cheap-05.log",
+      "sha256": "5211cc85dbfc0e9599cbddabc873c1488707d9dbe01a378cfc7d12de59eb068b"
+    },
+    {
+      "command": [
+        "make",
+        "check-start-process-fence"
+      ],
+      "rc": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/final-base-4208-cheap-06.log",
+      "sha256": "b909e3d8c48dbe327373637836cd1d2df8955f932004a71f3578658ced133e91"
+    },
+    {
+      "command": [
+        "make",
+        "effect-chokepoint-fence"
+      ],
+      "rc": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/final-base-4208-cheap-07.log",
+      "sha256": "b275319163c43feb318fb91fdd061bfe4d3254777782da7645d06099c7b3afac"
+    },
+    {
+      "command": [
+        "make",
+        "verify-amh-contract-pin"
+      ],
+      "rc": 0,
+      "log": "docs/gates/v21-capability-execution-20261004/final-base-4208-cheap-08.log",
+      "sha256": "c1200542cadd3d0995cc33198478584a9fe39a95e2e46cb222fd484d844afe8d"
+    }
+  ],
+  "scope": "Cheap static/fence checks only; no broad suite or engine execution"
+}

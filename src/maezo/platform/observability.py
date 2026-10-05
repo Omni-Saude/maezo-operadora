@@ -606,7 +606,9 @@ def record_agent_error(*, agent: str, error_type: str) -> None:
             )
         _get_metrics_collector().errors.labels(agent=agent, error_type=resolved_error_type).inc()
     except Exception:  # never mask the turn failure this is counting.
-        logger.debug("agent_error_metric_emit_failed", exc_info=True)
+        # Called while the original turn exception is active: formatting this fault's
+        # traceback would also disclose its context/cause chain, including turn input.
+        logger.debug("agent_error_metric_emit_failed")
 
 
 def record_a2a_handler_error(*, target: str, error_type: str) -> None:
