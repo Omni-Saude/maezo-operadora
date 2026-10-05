@@ -161,6 +161,11 @@ portal = {
     "177.71.135.231/32",
     "54.207.182.198/32",
     "56.126.35.144/32",
+    // [05/10/2026] enderecos atuais medidos DE DENTRO DA VPC (task bateria, 25 resolucoes, TLS ok em
+    // cada um; login quebrava de novo: JWKS inalcancavel a partir do SG — 3a rotacao em 2 semanas).
+    "18.228.84.13/32",
+    "18.229.11.128/32",
+    "18.230.128.143/32",
     // amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com — POST /oauth2/token (via NAT).
     "52.67.250.153/32",
     "52.67.98.193/32",
