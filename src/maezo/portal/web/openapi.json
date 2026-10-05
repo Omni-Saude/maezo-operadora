@@ -4973,6 +4973,143 @@
         "title": "ProgramaDecisionInputs",
         "type": "object"
       },
+      "ProviderNoticeAcknowledgement": {
+        "additionalProperties": false,
+        "description": "Explicit acknowledgement; actor and membership never come from this DTO.",
+        "properties": {
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "content_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Digest",
+            "type": "string"
+          },
+          "notice_revision": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Notice Revision",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "provider-notice-ack.v1",
+            "default": "provider-notice-ack.v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "notice_revision",
+          "content_digest"
+        ],
+        "title": "ProviderNoticeAcknowledgement",
+        "type": "object"
+      },
+      "ProviderNoticeReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "delivery_status": {
+            "enum": [
+              "pending",
+              "delivered"
+            ],
+            "title": "Delivery Status",
+            "type": "string"
+          },
+          "metadata_publication_receipt_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Metadata Publication Receipt Ref",
+            "type": "string"
+          },
+          "notice_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Notice Ref",
+            "type": "string"
+          },
+          "notice_revision": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Notice Revision",
+            "type": "string"
+          },
+          "provider_delivery_receipt_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Delivery Receipt Ref"
+          },
+          "schema_version": {
+            "const": "provider-notice-receipt.v1",
+            "default": "provider-notice-receipt.v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "notice_ref",
+          "notice_revision",
+          "delivery_status",
+          "metadata_publication_receipt_ref"
+        ],
+        "title": "ProviderNoticeReceipt",
+        "type": "object"
+      },
+      "ProviderNoticeSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "body_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Body Ref",
+            "type": "string"
+          },
+          "content_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Digest",
+            "type": "string"
+          },
+          "notice_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Notice Ref",
+            "type": "string"
+          },
+          "notice_revision": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Notice Revision",
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/ProviderNoticeReceipt"
+          },
+          "schema_version": {
+            "const": "provider-notice-summary.v1",
+            "default": "provider-notice-summary.v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "notice_ref",
+          "notice_revision",
+          "body_ref",
+          "content_digest",
+          "receipt"
+        ],
+        "title": "ProviderNoticeSummary",
+        "type": "object"
+      },
       "PublicAssignmentReceipt": {
         "additionalProperties": false,
         "description": "C9 closed governed status: command pins always present, effect proof only on commit.",
@@ -9092,6 +9229,214 @@
           }
         },
         "summary": "Intake Upload"
+      }
+    },
+    "/api/v1/portal/provider-notices/{notice_ref}": {
+      "get": {
+        "operationId": "inspect_provider_notice_api_v1_portal_provider_notices__notice_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notice_ref",
+            "required": true,
+            "schema": {
+              "title": "Notice Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderNoticeSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Inspect Provider Notice"
+      }
+    },
+    "/api/v1/portal/provider-notices/{notice_ref}/acknowledgements": {
+      "post": {
+        "operationId": "acknowledge_provider_notice_api_v1_portal_provider_notices__notice_ref__acknowledgements_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notice_ref",
+            "required": true,
+            "schema": {
+              "title": "Notice Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderNoticeAcknowledgement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderNoticeReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Acknowledge Provider Notice"
       }
     },
     "/api/v1/portal/session": {
