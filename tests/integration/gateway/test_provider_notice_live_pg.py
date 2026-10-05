@@ -536,3 +536,56 @@ async def test_validator_exact_privilege_and_schema_function_delegation_matrix(
         f"FROM {d.recipient_role}"
     )
     assert await p.control.fetchval("SELECT count(*) FROM portal_provider_notice.notice") == 0
+
+
+async def test_producer_catalog_qualification_needs_no_identity_schema_usage_or_helper_execute(pg_notices):
+    descriptor = pg_notices.producer.installation
+    privileges = await pg_notices.control.fetchrow(
+        "SELECT has_schema_privilege($1,n.oid,'USAGE') AS usage,"
+        "has_function_privilege($1,$2::oid,'EXECUTE') AS execute "
+        "FROM pg_catalog.pg_namespace n WHERE n.nspname='portal_communication'",
+        descriptor.producer_role,
+        descriptor.session_lock_oid,
+    )
+    assert privileges is not None
+    assert privileges["usage"] is False and privileges["execute"] is False
+    async with pg_notices.producer.engine.connect() as db:
+        await pg_notices.producer.qualify(db)
+    assert await pg_notices.control.fetchval("SELECT count(*) FROM portal_provider_notice.notice") == 0
+
+
+@pytest.mark.parametrize(
+    "object_change", ["lock_name", "lock_namespace", "content_name", "content_namespace"]
+)
+async def test_cross_owner_pinned_oid_does_not_accept_renamed_or_moved_object(pg_notices, object_change):
+    # Own disposable DB only. No source privilege, authority or helper is added.
+    original = pg_notices.producer.installation
+    descriptor = original
+    if object_change == "lock_name":
+        await pg_notices.control.execute(
+            "ALTER FUNCTION portal_communication.lock_session(text) RENAME TO synthetic_wrong_lock"
+        )
+    elif object_change == "lock_namespace":
+        await pg_notices.control.execute(
+            "ALTER FUNCTION portal_communication.lock_session(text) SET SCHEMA public"
+        )
+    elif object_change == "content_name":
+        await pg_notices.control.execute(
+            "ALTER TABLE portal_communication.content RENAME TO synthetic_wrong_content"
+        )
+    else:
+        await pg_notices.control.execute("ALTER TABLE portal_communication.content SET SCHEMA public")
+    if object_change.startswith("lock_"):
+        body = await pg_notices.control.fetchval(
+            "SELECT pg_catalog.pg_get_functiondef($1::oid)", original.session_lock_oid
+        )
+        # Match the changed TestOnly object's body so rejection proves name/schema,
+        # independently of the hash guard or immutable descriptor object check.
+        descriptor = original.model_copy(
+            update={"session_lock_sha256": hashlib.sha256(body.encode()).hexdigest()}
+        )
+    store = PostgresProviderNoticeStore(pg_notices.producer.engine, descriptor, role="producer")
+    with pytest.raises(ExternalCaseError):
+        async with store.engine.connect() as db:
+            await store.qualify(db)
+    assert await pg_notices.control.fetchval("SELECT count(*) FROM portal_provider_notice.notice") == 0

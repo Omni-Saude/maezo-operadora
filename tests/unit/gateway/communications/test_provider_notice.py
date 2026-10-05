@@ -480,9 +480,16 @@ class UnitNoticeMetadata:
                     )
                 ]
             )
-        elif "portal_communication.lock_session" in sql:
+        elif "WHERE p.oid=:lock_oid" in sql:
+            assert params["lock_oid"] == d.session_lock_oid
             value = dict(
                 oid=d.session_lock_oid,
+                schema_name="portal_communication",
+                function_name="lock_session",
+                function_kind="f",
+                argument_count=1,
+                argument_type_schema="pg_catalog",
+                argument_type_name="text",
                 owner=d.session_lock_owner_role,
                 prosecdef=True,
                 owner_execute=True,
@@ -500,9 +507,13 @@ class UnitNoticeMetadata:
                 execute=name == "prepare_notice",
                 extra_acl=False,
             )
-        elif "to_regclass('portal_communication.content')" in sql:
+        elif "WHERE c.oid=:content_oid" in sql:
+            assert params["content_oid"] == d.content_relation_oid
             value = dict(
                 oid=d.content_relation_oid,
+                schema_name="portal_communication",
+                relation_name="content",
+                relkind="r",
                 owner=d.content_owner_role,
                 ciphertext=False,
                 nonce=False,
@@ -556,6 +567,61 @@ async def test_metadata_control_reaches_complete_notice_qualifier_without_fallba
     assert any("expected_truncate_triggers" in sql for sql in db.queries)
     assert any("FROM pg_class c,LATERAL aclexplode" in sql for sql in db.queries)
     assert any("FROM pg_proc p,LATERAL aclexplode" in sql for sql in db.queries)
+
+
+@pytest.mark.asyncio
+async def test_cross_owner_metadata_uses_pinned_catalog_oids_without_actor_schema_usage():
+    class RestrictedMetadata(UnitNoticeMetadata):
+        async def execute(self, statement, params=None):
+            sql = str(statement)
+            if "to_regprocedure('portal_communication." in sql or "to_regclass('portal_communication." in sql:
+                raise PermissionError("Synthetic producer lacks USAGE on identity/content namespace")
+            return await super().execute(statement, params)
+
+    store = metadata_store()
+    db = RestrictedMetadata(store.installation)
+    await store.qualify(db)
+    lock = [sql for sql in db.queries if "WHERE p.oid=:lock_oid" in sql]
+    content = [sql for sql in db.queries if "WHERE c.oid=:content_oid" in sql]
+    assert len(lock) == len(content) == 1
+    assert "pg_catalog.pg_proc" in lock[0] and "pg_catalog.pg_class" in content[0]
+    assert "to_regprocedure" not in lock[0] and "to_regclass" not in content[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("object_name", "field", "invalid"),
+    [
+        ("lock", "oid", 999999),
+        ("lock", "schema_name", "foreign_schema"),
+        ("lock", "function_name", "foreign_function"),
+        ("lock", "function_kind", "p"),
+        ("lock", "argument_count", 2),
+        ("lock", "argument_type_schema", "foreign_types"),
+        ("lock", "argument_type_name", "integer"),
+        ("lock", "owner_execute", False),
+        ("lock", "body", "changed body"),
+        ("content", "oid", 999999),
+        ("content", "schema_name", "foreign_schema"),
+        ("content", "relation_name", "foreign_content"),
+        ("content", "relkind", "v"),
+        ("content", "actor_ciphertext", True),
+    ],
+)
+async def test_pinned_cross_owner_metadata_still_checks_identity_signature_body_and_privacy(
+    object_name, field, invalid
+):
+    class ChangedMetadata(UnitNoticeMetadata):
+        async def execute(self, statement, params=None):
+            result = await super().execute(statement, params)
+            marker = "WHERE p.oid=:lock_oid" if object_name == "lock" else "WHERE c.oid=:content_oid"
+            if marker in str(statement):
+                result.values[field] = invalid
+            return result
+
+    store = metadata_store()
+    with pytest.raises(ExternalCaseError):
+        await store.qualify(ChangedMetadata(store.installation))
 
 
 def test_metadata_digest_does_not_weaken_number_free_human_wire():

@@ -439,15 +439,26 @@ class PostgresProviderNoticeStore:
             ):
                 raise ExternalCaseError("unavailable")
         # Cross-owner permissions must have been explicitly installed by source administrators.
+        # The producer does not use the identity schema directly. Inspect pinned
+        # catalog OIDs without name resolution requiring actor USAGE there, then
+        # verify the namespace, object identity and exact input signature too.
         lock = (
             (
                 await db.execute(
                     text("""
-            SELECT p.oid,pg_get_userbyid(p.proowner) AS owner,p.prosecdef,pg_get_functiondef(p.oid) AS body,
-             has_function_privilege(:owner,p.oid,'EXECUTE') AS owner_execute
-            FROM pg_proc p WHERE p.oid=to_regprocedure('portal_communication.lock_session(text)')
+            SELECT p.oid,n.nspname AS schema_name,p.proname AS function_name,
+             p.prokind::text AS function_kind,p.pronargs AS argument_count,
+             tn.nspname AS argument_type_schema,t.typname AS argument_type_name,
+             pg_catalog.pg_get_userbyid(p.proowner) AS owner,p.prosecdef,
+             pg_catalog.pg_get_functiondef(p.oid) AS body,
+             pg_catalog.has_function_privilege(:owner,p.oid,'EXECUTE') AS owner_execute
+            FROM pg_catalog.pg_proc p
+            JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+            LEFT JOIN pg_catalog.pg_type t ON t.oid=p.proargtypes[0]
+            LEFT JOIN pg_catalog.pg_namespace tn ON tn.oid=t.typnamespace
+            WHERE p.oid=:lock_oid
         """),
-                    {"owner": d.owner_role},
+                    {"owner": d.owner_role, "lock_oid": d.session_lock_oid},
                 )
             )
             .mappings()
@@ -455,9 +466,29 @@ class PostgresProviderNoticeStore:
         )
         if (
             lock is None
-            or (lock["oid"], lock["owner"], lock["prosecdef"], lock["owner_execute"])
+            or tuple(
+                lock[k]
+                for k in (
+                    "oid",
+                    "schema_name",
+                    "function_name",
+                    "function_kind",
+                    "argument_count",
+                    "argument_type_schema",
+                    "argument_type_name",
+                    "owner",
+                    "prosecdef",
+                    "owner_execute",
+                )
+            )
             != (
                 d.session_lock_oid,
+                "portal_communication",
+                "lock_session",
+                "f",
+                1,
+                "pg_catalog",
+                "text",
                 d.session_lock_owner_role,
                 True,
                 True,
@@ -469,16 +500,19 @@ class PostgresProviderNoticeStore:
             (
                 await db.execute(
                     text("""
-            SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,
-             has_column_privilege(:owner,c.oid,'ciphertext','SELECT') AS ciphertext,
-             has_column_privilege(:owner,c.oid,'nonce','SELECT') AS nonce,
-             has_column_privilege(:owner,c.oid,'key_id','SELECT') AS key_id,
-             has_column_privilege(session_user,c.oid,'ciphertext','SELECT') AS actor_ciphertext,
-             has_column_privilege(session_user,c.oid,'nonce','SELECT') AS actor_nonce,
-             has_column_privilege(session_user,c.oid,'key_id','SELECT') AS actor_key_id
-            FROM pg_class c WHERE c.oid=to_regclass('portal_communication.content')
+            SELECT c.oid,n.nspname AS schema_name,c.relname AS relation_name,c.relkind::text AS relkind,
+             pg_catalog.pg_get_userbyid(c.relowner) AS owner,
+             pg_catalog.has_column_privilege(:owner,c.oid,'ciphertext','SELECT') AS ciphertext,
+             pg_catalog.has_column_privilege(:owner,c.oid,'nonce','SELECT') AS nonce,
+             pg_catalog.has_column_privilege(:owner,c.oid,'key_id','SELECT') AS key_id,
+             pg_catalog.has_column_privilege(session_user,c.oid,'ciphertext','SELECT') AS actor_ciphertext,
+             pg_catalog.has_column_privilege(session_user,c.oid,'nonce','SELECT') AS actor_nonce,
+             pg_catalog.has_column_privilege(session_user,c.oid,'key_id','SELECT') AS actor_key_id
+            FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+            WHERE c.oid=:content_oid
         """),
-                    {"owner": d.owner_role},
+                    {"owner": d.owner_role, "content_oid": d.content_relation_oid},
                 )
             )
             .mappings()
@@ -488,6 +522,9 @@ class PostgresProviderNoticeStore:
             content[k]
             for k in (
                 "oid",
+                "schema_name",
+                "relation_name",
+                "relkind",
                 "owner",
                 "ciphertext",
                 "nonce",
@@ -498,6 +535,9 @@ class PostgresProviderNoticeStore:
             )
         ) != (
             d.content_relation_oid,
+            "portal_communication",
+            "content",
+            "r",
             d.content_owner_role,
             False,
             False,
