@@ -300,7 +300,9 @@ class LucasTurno:
             )
 
     async def _fatos(self, conversa: ConversaDoTurno, handoff: HandoffValidado) -> FatosCobranca | None:
-        resultado = await self.fonte.fatos(conversa.beneficiario_pseudo_id, handoff.competencia)
+        resultado = await self.fonte.fatos(
+            conversa.beneficiario_pseudo_id, handoff.competencia, phone_hash=conversa.to_hash
+        )
         if isinstance(resultado, FatosCobranca):
             return resultado
         logger.warning(

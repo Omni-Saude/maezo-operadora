@@ -249,6 +249,16 @@ def test_malformacao_levanta_com_codigo_fechado(value: Any, code: str) -> None:
     assert exc.value.code in BRIDGE_DLQ_REASONS
 
 
+def test_a_chave_do_caso_clinico_paralelo_e_ancora_valida() -> None:
+    """DL-0072: `ESC-{tenant}-{conversa}-clin` e a chave do caso clinico aberto ao lado de outro caso da
+    mesma conversa; a retomada dele volta para a mesma conversa. Outro sufixo continua recusado."""
+    evento = parse_process_completed(_evento(_business_key=_BK + "-clin"), tenant_id="amh")
+    assert evento.business_key == _BK + "-clin"
+    with pytest.raises(MalformedResumeEventError) as exc:
+        parse_process_completed(_evento(_business_key=_BK + "-outro"), tenant_id="amh")
+    assert exc.value.code == REASON_RESUME_ANCHOR_MISMATCH
+
+
 async def test_malformada_vai_para_dlq_e_o_laco_continua() -> None:
     handler, _, resumer = _handler()
     publisher = _DlqPublisher()

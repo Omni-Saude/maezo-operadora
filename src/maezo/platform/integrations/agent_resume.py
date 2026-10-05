@@ -111,6 +111,7 @@ from maezo.platform.integrations.notifications_bridge import (
 from maezo.platform.integrations.partition_key import derive_partition_key
 from maezo.platform.notification_bridge import PROCESS_KEY_ESCALATION
 from maezo.platform.topic_registry import dlq_topic_for
+from maezo.runtime.caso_clinico import chave_e_da_conversa
 from maezo.tools.mcp_cibseven.transport import HistoricVariableReadingTransport
 from maezo.tools.workers.phi_vars import PHI_PROCESS_VARS
 
@@ -235,9 +236,11 @@ def parse_process_completed(value: Any, *, tenant_id: str) -> ProcessCompletedEv
         raise MalformedResumeEventError(
             "event tenant is not this daemon's tenant", {}, code=REASON_RESUME_ANCHOR_MISMATCH
         )
-    if business_key != f"ESC-{evento_tenant}-{conversation_id}":
+    if not chave_e_da_conversa(business_key, evento_tenant, conversation_id):
         raise MalformedResumeEventError(
-            "_business_key is not ESC-{tenant_id}-{conversation_id}", {}, code=REASON_RESUME_ANCHOR_MISMATCH
+            "_business_key is not ESC-{tenant_id}-{conversation_id}[-clin]",
+            {},
+            code=REASON_RESUME_ANCHOR_MISMATCH,
         )
     return ProcessCompletedEvent(
         tenant_id=evento_tenant,
