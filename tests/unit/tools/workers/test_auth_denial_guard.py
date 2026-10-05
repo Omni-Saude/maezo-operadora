@@ -8,9 +8,12 @@ CRITICAL: Workers must NEVER make adverse decisions (negativa, acusacao).
 
 from __future__ import annotations
 
+import codecs
+import re
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
+from xml.parsers import expat
 
 import pytest
 
@@ -1299,6 +1302,144 @@ def test_spec_auditor_issuance_task_carries_no_auto_sanction_mapping() -> None:
     assert _service_task_input_parameters(_ST_EMITIR_AUDITOR) == {}
 
 
+def _spec_sanction_occurrence_count(path: Path) -> int:
+    """Count lexical/logical mentions under explicit text and real XML parser profiles."""
+    data = path.read_bytes()
+    profiles = {
+        "utf-8": "utf-8",
+        "utf8": "utf-8",
+        "ascii": "ascii",
+        "us-ascii": "ascii",
+        "iso-8859-1": "iso-8859-1",
+        "latin1": "iso-8859-1",
+        "latin-1": "iso-8859-1",
+        "utf-16": "utf-16",
+        "utf-16le": "utf-16-le",
+        "utf-16be": "utf-16-be",
+        "utf-32": "utf-32",
+        "utf-32le": "utf-32-le",
+        "utf-32be": "utf-32-be",
+    }
+    signatures = [
+        (codecs.BOM_UTF32_LE, "utf-32-le", True),
+        (codecs.BOM_UTF32_BE, "utf-32-be", True),
+        (codecs.BOM_UTF8, "utf-8", True),
+        (codecs.BOM_UTF16_LE, "utf-16-le", True),
+        (codecs.BOM_UTF16_BE, "utf-16-be", True),
+        (b"<\x00\x00\x00", "utf-32-le", False),
+        (b"\x00\x00\x00<", "utf-32-be", False),
+        (b"<\x00", "utf-16-le", False),
+        (b"\x00<", "utf-16-be", False),
+    ]
+    codec: str | None = None
+    body = data
+    for signature, candidate, is_bom in signatures:
+        if data.startswith(signature):
+            codec = candidate
+            body = data[len(signature) :] if is_bom else data
+            break
+    raw_decl = re.match(rb"\s*<\?xml\s[^?]*\bencoding\s*=\s*(['\"])([^'\"]+)\1", data)
+    if codec is None and raw_decl:
+        declared = raw_decl.group(2).decode("ascii").lower()
+        codec = profiles.get(declared)
+        assert codec in {"utf-8", "ascii", "iso-8859-1"}, f"encoding not admitted: {path}"
+    if codec is None:
+        assert b"\x00" not in data, f"unmarked encoding not admitted: {path}"
+        try:
+            data.decode("utf-8")
+            codec = "utf-8"
+        except UnicodeDecodeError:
+            assert not data.lstrip().startswith(b"<"), f"undeclared XML encoding not admitted: {path}"
+            codec = "iso-8859-1"
+    try:
+        text = body.decode(codec)
+    except UnicodeDecodeError as exc:
+        raise AssertionError(f"encoding not admitted: {path}") from exc
+    declaration = re.match(r"\s*<\?xml\s[^?]*\bencoding\s*=\s*(['\"])([^'\"]+)\1", text)
+    if declaration:
+        declared_codec = profiles.get(declaration.group(2).lower())
+        compatible = {codec}
+        if codec.startswith("utf-16-"):
+            compatible.add("utf-16")
+        if codec.startswith("utf-32-"):
+            compatible.add("utf-32")
+        assert declared_codec in compatible, f"divergent/unknown encoding not admitted: {path}"
+    lexical_count = text.count(_AUTO_SANCTION_FLAT_VAR)
+    if not text.lstrip().startswith("<"):
+        return lexical_count
+    values: list[str] = []
+    character_data: list[str] = []
+
+    def mention(*items: str | None) -> None:
+        values.extend(item for item in items if item is not None)
+
+    def flush_text() -> None:
+        if character_data:
+            mention("".join(character_data))
+            character_data.clear()
+
+    def start_element(name: str, attributes: dict[str, str]) -> None:
+        flush_text()
+        mention(name)
+        # Namespace processing is intentionally off in Expat: declaration prefixes,
+        # including unused xmlns prefixes, are real source fields, not discarded aliases.
+        for key, value in attributes.items():
+            mention(key, value)
+
+    def end_element(_name: str) -> None:
+        flush_text()
+
+    def element_model(model: tuple) -> None:
+        mention(model[2])
+        for child in model[3]:
+            element_model(child)
+
+    def element_declaration(name: str, model: tuple) -> None:
+        mention(name)
+        element_model(model)
+
+    def attribute_declaration(
+        element: str, attribute: str, kind: str, default: str | None, _required: int
+    ) -> None:
+        # Expat repeats the declaration element for each attribute, and injects
+        # DTD defaults into element events. Those origins cannot be silently
+        # treated as independently sourced occurrences of this authority token.
+        assert _AUTO_SANCTION_FLAT_VAR not in element and (
+            default is None or _AUTO_SANCTION_FLAT_VAR not in default
+        ), f"DTD mention provenance not admitted: {path}"
+        mention(attribute, kind)
+
+    try:
+        # Admit only the same raw-byte XML interpretation accepted by the real repo parser.
+        ET.fromstring(data)
+        census = expat.ParserCreate()
+        census.StartElementHandler = start_element
+        census.EndElementHandler = end_element
+        census.CharacterDataHandler = character_data.append
+        # Comments/PIs do not interrupt a text node in the default repository parser.
+        census.CommentHandler = mention
+        census.ProcessingInstructionHandler = mention
+        census.EntityDeclHandler = lambda name, _parameter, value, _base, system, public, notation: mention(
+            name, value, system, public, notation
+        )
+        census.StartDoctypeDeclHandler = lambda name, system, public, _internal: mention(name, system, public)
+        census.ElementDeclHandler = element_declaration
+        census.AttlistDeclHandler = attribute_declaration
+        census.NotationDeclHandler = lambda name, _base, system, public: mention(name, system, public)
+        census.SkippedEntityHandler = lambda name, _parameter: mention(name)
+        census.DefaultHandlerExpand = mention
+        census.ExternalEntityRefHandler = lambda *_args: 0
+        census.Parse(data, True)
+        flush_text()
+    except (ET.ParseError, expat.ExpatError, ValueError, LookupError) as exc:
+        raise AssertionError(f"XML interpretation not admitted: {path}") from exc
+    logical_count = sum(value.count(_AUTO_SANCTION_FLAT_VAR) for value in values)
+    # Lexical mentions are a coverage fence, not a second representation to merge
+    # or add. Unexplained source mentions refuse admission instead of disappearing.
+    assert lexical_count <= logical_count, f"XML mention provenance not admitted: {path}"
+    return logical_count
+
+
 def test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping() -> None:
     """NON-SPOOFABILITY: nothing else in the spec tree writes or asks for the sanction name.
 
@@ -1310,14 +1451,290 @@ def test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mappin
     """
     spec_root = _REPO_ROOT / "spec"
     hits = sorted(
-        (path.relative_to(_REPO_ROOT).as_posix(), text.count(_AUTO_SANCTION_FLAT_VAR))
-        for path, text in ((p, p.read_text(encoding="utf-8")) for p in spec_root.rglob("*") if p.is_file())
-        if _AUTO_SANCTION_FLAT_VAR in text
+        (path.relative_to(_REPO_ROOT).as_posix(), count)
+        for path, count in (
+            (p, _spec_sanction_occurrence_count(p)) for p in spec_root.rglob("*") if p.is_file()
+        )
+        if count
     )
 
     assert hits == [("spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 1)], (
         f"{_AUTO_SANCTION_FLAT_VAR} must occur exactly once in spec/ (the auto input mapping); got {hits}"
     )
+
+
+@pytest.mark.parametrize("extra_count", [0, 1, 2])
+@pytest.mark.parametrize("relative_path", ["schemas/latin1.xsd", "other/untyped-file"])
+def test_spec_sanction_scan_checks_non_utf8_files_without_losing_occurrences(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra_count: int, relative_path: str
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(_AUTH_BPMN.read_bytes())
+    extra = tmp_path / "spec" / relative_path
+    extra.parent.mkdir(parents=True)
+    extra.write_bytes(
+        b"assinatura\xe7\xe3o\n" + (_AUTO_SANCTION_FLAT_VAR.encode("ascii") + b"\n") * extra_count
+    )
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+
+    if extra_count == 0:
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+    else:
+        with pytest.raises(AssertionError, match="must occur exactly once") as caught:
+            test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+        assert repr(("spec/" + relative_path, extra_count)) in str(caught.value)
+
+
+@pytest.mark.parametrize("canonical_count", [0, 2])
+def test_spec_sanction_scan_requires_exactly_one_canonical_occurrence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, canonical_count: int
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(_AUTO_SANCTION_FLAT_VAR.encode("ascii") * canonical_count)
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+
+    with pytest.raises(AssertionError, match="must occur exactly once"):
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+
+
+@pytest.mark.parametrize(
+    ("codec", "declaration", "bom"),
+    [
+        ("utf-8", "UTF-8", b""),
+        ("utf-8", "UTF-8", codecs.BOM_UTF8),
+        ("ascii", "US-ASCII", b""),
+        ("iso-8859-1", "ISO-8859-1", b""),
+        ("utf-16-le", "UTF-16", codecs.BOM_UTF16_LE),
+        ("utf-16-be", "UTF-16", codecs.BOM_UTF16_BE),
+        ("utf-16-le", "UTF-16LE", b""),
+        ("utf-16-be", "UTF-16BE", b""),
+    ],
+)
+@pytest.mark.parametrize("extra_count", [0, 1, 2])
+def test_spec_sanction_scan_counts_real_xml_values_in_admitted_encodings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    codec: str,
+    declaration: str,
+    bom: bytes,
+    extra_count: int,
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(_AUTH_BPMN.read_bytes())
+    xml = f'<?xml version="1.0" encoding="{declaration}"?><root>'
+    xml += f'<formField id="{_AUTO_SANCTION_FLAT_VAR}"/>' * extra_count + "</root>"
+    extra = tmp_path / "spec/without-extension"
+    extra.write_bytes(bom + xml.encode(codec))
+    assert (
+        sum(element.get("id") == _AUTO_SANCTION_FLAT_VAR for element in ET.parse(extra).iter()) == extra_count
+    )
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    if extra_count:
+        with pytest.raises(AssertionError, match="must occur exactly once") as caught:
+            test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+        assert repr(("spec/without-extension", extra_count)) in str(caught.value)
+    else:
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+
+
+@pytest.mark.parametrize("codec", ["utf-16", "utf-32", "utf-8-sig"])
+@pytest.mark.parametrize("count", [0, 1, 2])
+def test_spec_sanction_scan_checks_unicode_text_bom_without_xml_or_extension(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codec: str, count: int
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(_AUTH_BPMN.read_bytes())
+    (tmp_path / "spec/plain").write_bytes(
+        ("record\n" + (_AUTO_SANCTION_FLAT_VAR + "\n") * count).encode(codec)
+    )
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    if count:
+        with pytest.raises(AssertionError, match="must occur exactly once"):
+            test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+    else:
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        '<root id="auto_&#97;provacao_recomendacao"/>',
+        "<root>auto_&#x61;provacao_recomendacao</root>",
+        '<!DOCTYPE root [<!ENTITY item "auto_&#97;provacao_recomendacao">]><root id="&item;"/>',
+        '<root xmlns:unused="auto_&#97;provacao_recomendacao"/>',
+    ],
+)
+def test_spec_sanction_scan_resolves_xml_character_references_and_internal_entities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, xml: str
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(_AUTH_BPMN.read_bytes())
+    extra = tmp_path / "spec/extra.bpmn"
+    extra.write_bytes(xml.encode("utf-8"))
+    assert _AUTO_SANCTION_FLAT_VAR.encode("ascii") not in extra.read_bytes()
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    with pytest.raises(AssertionError, match="must occur exactly once"):
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+def test_spec_sanction_scan_canonical_utf16_hit_is_counted_once_and_duplicates_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: int
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    xml = '<?xml version="1.0" encoding="UTF-16"?><root>'
+    xml += '<inputParameter name="auto_&#97;provacao_recomendacao"/>' * count + "</root>"
+    canonical.write_bytes(xml.encode("utf-16"))
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    if count == 1:
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+    else:
+        with pytest.raises(AssertionError, match="must occur exactly once"):
+            test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        '<!DOCTYPE root [<!ENTITY unused "auto_aprovacao_recomendacao">]>'
+        '<root id="auto_&#97;provacao_recomendacao"/>',
+        '<!DOCTYPE root [<!ENTITY unused "auto_&#97;provacao_recomendacao">]>'
+        '<root id="auto_aprovacao_recomendacao"/>',
+        '<!DOCTYPE root [<!ENTITY value "auto_aprovacao_recomendacao">]><root id="&value;"/>',
+    ],
+)
+def test_spec_sanction_scan_canonical_declaration_cannot_hide_a_second_logical_mention(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, xml: str
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(xml.encode("utf-16"))
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    with pytest.raises(AssertionError, match="must occur exactly once") as caught:
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+    assert repr(("spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 2)) in str(caught.value)
+
+
+@pytest.mark.parametrize("count", [0, 1])
+@pytest.mark.parametrize("codec", ["utf-32-le", "utf-32-be"])
+@pytest.mark.parametrize("with_bom", [False, True])
+def test_spec_sanction_scan_rejects_xml_encoding_not_admitted_by_real_parser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codec: str, count: int, with_bom: bool
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(_AUTH_BPMN.read_bytes())
+    xml = '<?xml version="1.0" encoding="UTF-32"?><root>' + _AUTO_SANCTION_FLAT_VAR * count + "</root>"
+    bom = codecs.BOM_UTF32_LE if codec.endswith("le") else codecs.BOM_UTF32_BE
+    (tmp_path / "spec/extra.bpmn").write_bytes((bom if with_bom else b"") + xml.encode(codec))
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    with pytest.raises(AssertionError, match="not admitted"):
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+
+
+@pytest.mark.parametrize("codec", ["utf-8", "utf-16", "iso-8859-1"])
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        "<!--auto_aprovacao_recomendacao-->",
+        '<!DOCTYPE root [<!ENTITY auto_aprovacao_recomendacao "unused">]>',
+        "<?auto_aprovacao_recomendacao unused?>",
+        '<!DOCTYPE root [<!NOTATION auto_aprovacao_recomendacao SYSTEM "unused">]>',
+    ],
+)
+def test_spec_sanction_scan_disjoint_metadata_and_escaped_value_are_two_mentions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codec: str, metadata: str
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    declared = {"utf-8": "UTF-8", "utf-16": "UTF-16", "iso-8859-1": "ISO-8859-1"}[codec]
+    xml = f'<?xml version="1.0" encoding="{declared}"?>{metadata}<root id="auto_&#97;provacao_recomendacao"/>'
+    canonical.write_bytes(xml.encode(codec))
+    assert ET.parse(canonical).getroot().get("id") == _AUTO_SANCTION_FLAT_VAR
+    assert _spec_sanction_occurrence_count(canonical) == 2
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    with pytest.raises(AssertionError, match="must occur exactly once"):
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        '<root xmlns:auto_aprovacao_recomendacao="urn:unused" id="auto_&#97;provacao_recomendacao"/>',
+        '<root id="auto_&#97;provacao_recomendacao"/><!--auto_aprovacao_recomendacao-->',
+        '<root id="auto_&#97;provacao_recomendacao"/><?unused auto_aprovacao_recomendacao?>',
+        '<root id="auto_&#97;provacao_recomendacao">auto_aprovacao_recomendacao</root>',
+    ],
+)
+def test_spec_sanction_scan_keeps_namespace_prefix_and_trailing_or_text_mentions(
+    tmp_path: Path, xml: str
+) -> None:
+    path = tmp_path / "untyped"
+    path.write_bytes(xml.encode("utf-16"))
+    assert _spec_sanction_occurrence_count(path) == 2
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        '<root id="auto_aprovacao_recomendacao"/>',
+        '<root id="auto_&#97;provacao_recomendacao"/>',
+        "<!--auto_aprovacao_recomendacao--><root/>",
+        '<root xmlns:auto_aprovacao_recomendacao="urn:unused"/>',
+        '<!DOCTYPE root [<!ENTITY auto_aprovacao_recomendacao "unused">]><root/>',
+        "<root>auto_<!--ignored-->aprovacao_recomendacao</root>",
+        "<root>auto_&#97;provacao_recomendacao</root>",
+    ],
+)
+def test_spec_sanction_census_does_not_duplicate_one_literal_or_parsed_event(
+    tmp_path: Path, xml: str
+) -> None:
+    path = tmp_path / "untyped"
+    path.write_bytes(xml.encode("utf-8"))
+    assert _spec_sanction_occurrence_count(path) == 1
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        "<!DOCTYPE root [<!ATTLIST auto_aprovacao_recomendacao a CDATA #IMPLIED b CDATA #IMPLIED>]><root/>",
+        '<!DOCTYPE root [<!ATTLIST root id CDATA "auto_&#97;provacao_recomendacao">]><root/>',
+        "<auto_aprovacao_recomendacao></auto_aprovacao_recomendacao>",
+    ],
+)
+def test_spec_sanction_census_refuses_unproved_duplicate_source_origins(tmp_path: Path, xml: str) -> None:
+    path = tmp_path / "untyped"
+    path.write_bytes(xml.encode("utf-8"))
+    with pytest.raises(AssertionError, match="provenance not admitted"):
+        _spec_sanction_occurrence_count(path)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        codecs.BOM_UTF16_LE + b'<?xml version="1.0" encoding="UTF-8"?><root/>'.decode().encode("utf-16-le"),
+        b'<?xml version="1.0" encoding="UTF-7"?><root/>',
+        b'<root id="auto_&#97;provacao_recomendacao">',
+        b'<!DOCTYPE root [<!ENTITY ext SYSTEM "file:///unavailable">]><root>&ext;</root>',
+        "unmarked record".encode("utf-16-le"),
+    ],
+)
+def test_spec_sanction_scan_refuses_unproved_encoding_or_xml_interpretation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, data: bytes
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(_AUTH_BPMN.read_bytes())
+    (tmp_path / "spec/untyped").write_bytes(data)
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    with pytest.raises(AssertionError, match="not admitted"):
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
 
 
 # ---------------------------------------------------------------------------
