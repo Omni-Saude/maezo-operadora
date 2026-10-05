@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import secrets
 import uuid
 from collections.abc import AsyncIterator
@@ -513,3 +514,40 @@ async def test_schema_usage_grant_option_and_role_admin_option_are_refused(pg_so
     finally:
         await p.control.execute(f"REVOKE {group} FROM {p.writer}")
         await p.control.execute(f"DROP ROLE {group}")
+
+
+async def test_raw_sql_closed_field_maps_and_node_types_reject_before_source_write(pg_source):
+    """Real source function; structural tampering cannot degrade to a permissive proof."""
+    p = pg_source
+    original = reviewed_command()
+    await p.approve(original)
+    raw = json.loads(command_bytes(original))
+    variants = []
+    extra = json.loads(json.dumps(raw))
+    extra["record"]["source_verified"] = True
+    variants.append(extra)
+    missing = json.loads(json.dumps(raw))
+    del missing["record"]["revoked"]
+    variants.append(missing)
+    replaced = json.loads(json.dumps(raw))
+    replaced["record"]["unexpected_revision"] = replaced["record"].pop("revision")
+    variants.append(replaced)
+    for location, field, value in (
+        ("record", "revoked", "false"),
+        ("record", "revoked", None),
+        ("record", "revision", True),
+        ("record", "memberships", {}),
+        ("record", "subject_bindings", {}),
+        ("command", "expected_revision", "0"),
+        ("command", "expected_revision", False),
+    ):
+        node = json.loads(json.dumps(raw))
+        (node if location == "command" else node["record"])[field] = value
+        variants.append(node)
+    for changed in variants:
+        result = await raw_function(
+            p, original, raw=json.dumps(changed, sort_keys=True, separators=(",", ":"))
+        )
+        assert result == "CONTRACT_MISMATCH"
+    for table in ("administrative_head", "administrative_act", "administrative_audit"):
+        assert await p.control.fetchval(f"SELECT count(*) FROM {p.schema}.{table}") == 0

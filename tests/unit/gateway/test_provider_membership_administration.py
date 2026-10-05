@@ -455,3 +455,68 @@ async def test_unit_metadata_control_reaches_complete_qualifier_without_permissi
     assert any("rolcanlogin" in query for query in db.queries)
     assert any("AS grant_options" in query for query in db.queries)
     assert any("FROM pg_proc p,LATERAL aclexplode" in query for query in db.queries)
+
+
+def _source_sql_expected_keys(expression: str) -> list[str]:
+    """Read declared SQL field map; execute no SQL or parallel source implementation."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    sql = (root / "src/maezo/gateway/human/provider-membership-administration-schema.sql").read_text()
+    match = re.search(
+        r"jsonb_object_keys\(" + re.escape(expression) + r"\) k\)\s*IS DISTINCT FROM ARRAY\[([^\]]+)\]", sql
+    )
+    assert match is not None, expression
+    return re.findall(r"'([^']+)'", match.group(1))
+
+
+@pytest.mark.parametrize(
+    "expression,location",
+    [("c", "command"), ("m", "record"), ("m->'subject_bindings'->0", "subject"), ("member", "membership")],
+)
+def test_sql_closed_field_maps_match_canonical_source_codec_sorted_key_order(expression, location):
+    import json
+
+    from maezo.gateway.human.provider_membership_administration import command_bytes
+
+    actual = json.loads(command_bytes(command()))
+    node = {
+        "command": actual,
+        "record": actual["record"],
+        "subject": actual["record"]["subject_bindings"][0],
+        "membership": actual["record"]["memberships"][0],
+    }[location]
+    declared = _source_sql_expected_keys(expression)
+    assert declared == sorted(node), f"Valid canonical {location} always rejected by SQL closed-map ordering"
+    assert len(declared) == len(set(declared))
+
+
+def test_source_codec_exact_node_types_and_extra_or_missing_record_fields_remain_closed():
+    import json
+
+    from maezo.gateway.human.provider_membership_administration import command_bytes
+
+    actual = json.loads(command_bytes(command()))
+    assert type(actual["expected_revision"]) is int
+    assert type(actual["record"]["revision"]) is int
+    assert type(actual["record"]["revoked"]) is bool
+    assert type(actual["record"]["memberships"]) is list
+    assert type(actual["record"]["subject_bindings"]) is list
+    for field in ["tenant", "issuer", "subject", "principal_ref", "audience", "reviewed_until"]:
+        assert type(actual["record"][field]) is str
+    for alteration in ["extra", "tamper"]:
+        changed = json.loads(json.dumps(actual))
+        if alteration == "extra":
+            changed["record"]["source_verified"] = True
+        else:
+            changed["record"]["revision"] = "1"
+        with pytest.raises((ValidationError, ProviderAdministrationError)):
+            ProviderMembershipCommand.model_validate_json(json.dumps(changed))
+    # MembershipRecord's existing local default is not the raw SQL wire profile:
+    # command_bytes always materializes it; a direct missing field stays rejected.
+    missing = json.loads(json.dumps(actual))
+    del missing["record"]["revoked"]
+    assert sorted(missing["record"]) != _source_sql_expected_keys("m")
+    normalized = ProviderMembershipCommand.model_validate_json(json.dumps(missing))
+    assert "revoked" in json.loads(command_bytes(normalized))["record"]

@@ -57,3 +57,12 @@ A qualificação passa a consultar `rolcanlogin`: owner deve ser NOLOGIN, confor
 ACL de schema agora recusa `is_grantable` para qualquer grantee não owner; writer/publisher mantêm USAGE sem GRANT OPTION. Owner conserva os direitos inerentes à instalação. A regra de zero membership já recusa também vínculos com ADMIN OPTION; nenhum privilégio de delegação é ampliado. Matriz de relação/função/coluna da revisão anterior permanece intacta.
 
 RED unit de metadata consultada pelo qualifier original83 foi preservado; controles PG próprios acrescentam ALTER ROLE owner LOGIN, writer NOLOGIN em sessão existente, USAGE WITH GRANT OPTION e role ADMIN OPTION. Metadata unit não é DB/fonte/mandato de produção. Execução real continua na lane ROOT; fontes/pareceres/freeze/report83 permanecem preservados em evidência anterior e esta rev2 possui custody própria.
+
+
+## Addendum de reparo terceiro — codec/field map SQL (2026-10-05)
+
+Reparador `pw2_contract_resolver_specialist`, distinto do autor administrativo PW0. Execução real ROOT no SHA 132159b produziu 7/11 PASS e quatro falhas CONTRACT_MISMATCH; evidência original permanece preservada. O closed-map de `record` comparava `array_agg(k ORDER BY k)` com lista que continha revoked antes de revision. Na ordem canônica de chaves do codec, revision precede revoked; todo registro válido falhava antes do exame da fonte humana.
+
+A correção muda somente essa ordem na ARRAY esperada. Mantém o mesmo conjunto fechado de dez nomes, guards de tipos JSON/string/boolean/integer/array, desconhecidos/extra/ausentes/null, source authority/relationship, política/roles/ACL, finite TTL, CAS e receipt/audit atomicidade. Nenhuma permissão, fonte, assinatura ou campo é fabricado. Testes UNIT conferem os quatro mapas fechados contra o payload real de command_bytes e recusam tipos/fields inválidos. Novo negativo SQL real testa extra/ausente/substituído e scalar-node tampering sem writes; sua execução e a repetição dos onze originais pertencem ao ROOT.
+
+O corpo instalado da função terá um novo digest; o qualifier deve medir pg_get_functiondef/OID no PostgreSQL real após instalação revisada, como faz a fixture/fonte. Não substituir um pin antigo por hash inventado nem bypassar o guard. Fonte produtiva, provisionamento provider e ativação continuam dependentes dos gates próprios.

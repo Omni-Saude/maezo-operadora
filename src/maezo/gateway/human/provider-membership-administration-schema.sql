@@ -71,7 +71,7 @@ BEGIN
  OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(c) k)
     IS DISTINCT FROM ARRAY['command_id','expected_revision','operation','provider_ref','record','schema_version']
  OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(m) k)
-    IS DISTINCT FROM ARRAY['audience','issuer','memberships','principal_ref','reviewed_until','revoked','revision','subject','subject_bindings','tenant']
+    IS DISTINCT FROM ARRAY['audience','issuer','memberships','principal_ref','reviewed_until','revision','revoked','subject','subject_bindings','tenant']
  OR m->>'tenant' IS DISTINCT FROM p_tenant OR m->>'audience' IS DISTINCT FROM 'provider'
  OR c->>'operation' NOT IN ('grant','revoke') OR jsonb_typeof(m->'revoked') IS DISTINCT FROM 'boolean'
  OR jsonb_typeof(c->'expected_revision') IS DISTINCT FROM 'number' OR jsonb_typeof(m->'revision') IS DISTINCT FROM 'number'
