@@ -167,8 +167,15 @@ class JourneyDriver:
         if self.currentness is None:
             return CapabilityRefusalReason.AUTHORITY_UNPROVEN
         control = await self.currentness.verify(self.binding, current)
-        if isinstance(control, CapabilityRefusalReason):
-            return control
+        if type(control) is CapabilityRefusalReason:
+            for member in CapabilityRefusalReason:
+                if control is member:
+                    return member
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+        if type(control) is not str:
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+        if control not in ("administrative", "health", "human", "topic_switch"):
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
         if control != "administrative":
             # Health, human and topic switch preserve journal/claims and stop new actions.
             return CapabilityRefusalReason.AUTHORITY_UNPROVEN
