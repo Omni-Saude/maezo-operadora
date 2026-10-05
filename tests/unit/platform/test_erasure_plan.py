@@ -443,6 +443,11 @@ def test_a_pseudonym_reference_can_count_nothing_anywhere() -> None:
         "beneficiario_contato_retomada",
         # ADR-0062: the active agent of the conversation, keyed by conversation_id.
         "conversa_agente_ativo",
+        # DUR0: invocation principal refs do not qualify a per-titular erasure bridge.
+        "v21_journey_journal",
+        "v21_capability_command",
+        "v21_external_wait",
+        "v21_journal_outbox",
     ]
     assert report.counted_rows == 0
     assert len(report.uncounted_layers) == len(ep.PERSISTENCE_LAYERS)
@@ -648,6 +653,91 @@ def test_a_ratified_fixture_cannot_omit_any_portal_relation(tmp_path: Path, tabl
     assert table in str(excinfo.value)
 
 
+_DURABILITY_MIGRATION = "0018_capability_durability_journal.py"
+_DURABILITY_TABLES = {
+    "v21_journey_journal": "principal_ref",
+    "v21_capability_command": "principal_ref",
+    "v21_journal_observation": None,
+    "v21_journal_inbox": None,
+    "v21_external_wait": "principal_ref",
+    "v21_journal_outbox": "principal_ref",
+}
+
+
+@pytest.mark.parametrize("table,principal_column", _DURABILITY_TABLES.items())
+def test_journal_inventory_has_real_schema_provenance_and_pending_dispositions(
+    table: str,
+    principal_column: str | None,
+) -> None:
+    code = {layer.tabela: layer for layer in ep.PERSISTENCE_LAYERS}
+    artifact = {entry["tabela"]: entry for entry in _shipped_raw()["camadas"]}
+    # Extract THIS table's definition, rather than finding a name mentioned by a foreign key.
+    migration = (_MIGRATIONS / _DURABILITY_MIGRATION).read_text(encoding="utf-8")
+    definition = re.search(rf"CREATE TABLE {table} \((.*?)\);", migration, re.DOTALL)
+    assert definition is not None, table
+    assert "environment_ref text NOT NULL" in definition[1]
+    assert "tenant_ref text NOT NULL" in definition[1]
+    assert "legal_entity_ref text NOT NULL" in definition[1]
+    assert ("principal_ref text NOT NULL" in definition[1]) == (principal_column is not None)
+    assert _DURABILITY_MIGRATION in code[table].migracao
+    assert _DURABILITY_MIGRATION in artifact[table]["migracao"]
+    assert code[table].subject_column == principal_column
+    assert code[table].count_statement is None
+    expected = (
+        ep.IdentityResolution.PONTE_AUSENTE
+        if principal_column is not None
+        else ep.IdentityResolution.SEM_COLUNA_DE_TITULAR
+    )
+    assert code[table].resolucao is expected
+    assert artifact[table]["resolucao_identidade"] == expected.value
+    assert artifact[table]["decisao_dpo"] == "PENDENTE"
+    assert artifact[table]["base_legal"].startswith("PENDENTE")
+    assert artifact[table]["retencao"].startswith("PENDENTE")
+
+
+@pytest.mark.parametrize("table", _DURABILITY_TABLES)
+@pytest.mark.parametrize("reference_kind", list(ep.SubjectRefKind))
+def test_journal_refs_cannot_fabricate_a_subject_lookup_or_empty_count(
+    table: str,
+    reference_kind: ep.SubjectRefKind,
+) -> None:
+    layer = next(layer for layer in ep.PERSISTENCE_LAYERS if layer.tabela == table)
+    calls: list[str] = []
+
+    def counter(statement: str, params: Mapping[str, str]) -> int:
+        calls.append(statement)
+        pytest.fail("unqualified journal-to-titular mapping reached the database counter")
+
+    report = ep.dry_run(
+        subject_ref=_SENTINEL_REF,
+        subject_ref_kind=reference_kind,
+        tenant_id="t1",
+        counter=counter,
+        _layers=(layer,),
+    )
+    assert calls == []
+    finding = report.findings[0]
+    assert finding.row_count is None  # Unknown is never a synthetic zero.
+    assert finding.decisao_dpo == ep.DECISION_PENDING
+    assert finding.status is (
+        ep.LayerFindingStatus.NOT_COUNTED_IDENTITY_BRIDGE_ABSENT
+        if _DURABILITY_TABLES[table] is not None
+        else ep.LayerFindingStatus.NOT_COUNTED_NO_SUBJECT_COLUMN
+    )
+    assert report.uncounted_layers == (table,)
+    assert _SENTINEL_REF not in repr(report)
+
+
+@pytest.mark.parametrize("table", _DURABILITY_TABLES)
+def test_ratified_fixture_cannot_hide_a_journal_relation(tmp_path: Path, table: str) -> None:
+    data = _ratified_yaml()
+    data["camadas"] = [entry for entry in data["camadas"] if entry["tabela"] != table]
+    with pytest.raises(ep.ErasurePlanUnavailableError) as excinfo:
+        ep.load_erasure_plan(_write_plan(tmp_path, data))
+    assert excinfo.value.reason == ep.REASON_LAYER_SET_MISMATCH
+    assert table in str(excinfo.value)
+
+
 def test_artifact_and_code_enumerate_the_same_relations() -> None:
     """The two halves of the design cannot drift: one set, asserted in both directions."""
     from_artifact = {layer["tabela"] for layer in _shipped_raw()["camadas"]}
@@ -709,7 +799,8 @@ def test_a_retired_relation_keeps_the_dpo_decision_pending() -> None:
 def test_the_dpo_review_scope_did_not_shrink() -> None:
     """Preserve the 16 historical relations, the nine ADR-0049/E03 pending dispositions
     (0012: 4, 0013: 2, 0014: 3), WP-J1-09's `escalation_team_notice` (0015: 1), and GAP-XHITL-4's
-    `beneficiario_contato_retomada` (0016: 1), and ADR-0062's `conversa_agente_ativo` (0017: 1).
+    `beneficiario_contato_retomada` (0016: 1), ADR-0062's `conversa_agente_ativo` (0017: 1),
+    and DUR0's six technical journal relations (0018: 6).
 
     The scope may GROW — a new table is a new structural fact a DPO must see — and must never
     SHRINK. Note what growing does NOT mean: the new row's `decisao_dpo`/`base_legal`/`retencao`
@@ -717,9 +808,9 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     schema fact and deciding the disposition is a human act no agent performs here (the
     artifact's own header says so)."""
     camadas = _shipped_raw()["camadas"]
-    assert len(camadas) == 28, [entry["tabela"] for entry in camadas]
+    assert len(camadas) == 34, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 28, pendentes
+    assert len(pendentes) == 34, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

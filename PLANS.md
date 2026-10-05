@@ -1139,3 +1139,38 @@ PROVIDER-EXEC-V1-ARCHITECTURE e PROVIDER-EXEC-V1-SECURITY PASS no mesmo digest `
 ### 2026-10-05 — Reconciliação da base integrada
 
 PR #633 integrado por squash `54fa791298bc59a92a1c673246b1568fe93e27e2`; `main` consultada em `feba801cf5eea6383f2db88bb02d52d9911049f3`, incluindo análise CA do PR #634. Merge explícito preserva os reparos provider; seis conflitos de add/add têm bytes incoming iguais à dependência pinada `9680e5db`. Evidência própria em `evidence/current-main-base-delta/`, sujeita à revisão independente do delta. PW1-A tem três testes CIB reais PASS sem skip. Rodada direta D1 exit0 teve oito skips e não qualifica PG; nova rodada hermética CIB+PG está em execução. PW1-B passou revisão delimitada de código; PW1-C tem REVISE por ACL/TRUNCATE com reparador terceiro. Nenhuma fonte produtiva, ato externo, ativação ou pacote funcional integral declarado.
+
+
+## 2026-10-05 — Sucessor DUR em execução
+
+Owner ROOT; checkout `/Users/familia/.codex/worktrees/913e/maezo-operadora`, branch `codex/v21-durability-successor-20261005`, baseline `feba801cf5eea6383f2db88bb02d52d9911049f3`. PR633/634 merged confirmadas; CI main37258786442 SUCCESS. Freeze DUR rejeitado preservado no TaskWT e tar0242ae1a; 31 paths source/tests/design rehashados para reparo no candidato, sem promoção dos gates antigos.
+
+Fila: DUR1 reparo test-only (postgres_race_author); DUR2↔DUR3 contrato de autoridade (authority_contract_architect), aguardando revisão independente authority_independent_verifier antes do source. Admission/custódia e source/runtime readiness em leitura independente. ROOT mantém migração, composição, Git e lanes pesadas serializados. Write sets disjuntos; limite quatro implementações/dois aprovados/um candidato amplo. Evidência privada `/Users/familia/.codex/private-evidence/v21-dur-successor-20261005/`.
+
+Liberação: sucessor publicado e qualificado com transferência de pins/evidências; TaskWT e ROOT originais permanecem preservados. Ratificação humana, source/provider, operacionalidade e produção continuam gates próprios; sem merge futuro autorizado.
+
+
+### Gates DUR — reprodução independente e reparos focais
+
+DUR1 source/component gate `c113af8243f1d1a3c4ff726dbc423607974e33a1c97132a1f6440d7b32e0730f`: 40 UNIT + 28 PG reais PASS, sem skips/failures; teste race SHA730ae2b. Migração ROOT0018 original1b6708 REVISE PG-MIG-F01: SQL comment split; terceiro postgres_race_author reparou somente comentário, freeze7f988429, delta original PG reviewer pendente. Container próprio observado idcdc3dfd/imagef4c66, novo mapeamento127.0.0.1:32769; só lane PG própria autorizada, sem flags reais.
+
+DUR2/DUR3 R3 contract REVISE `862f2c247175bd69d3736b93a6f4a2249c55d5f9d0c0aaf78034250e46a0128b`: teto acumulado/autorização original não chegam ao efeito interno do source; references MD privadas ausentes no pacote. Third contract repair source_runtime_readiness_steward em R4; implementação source aguarda delta independente. Residual F01 original reproduzido com efeito após expiry; original REVISE preservado.
+
+Admission custódia PASS parcial; original checkers SOURCE_DRIFT em cinco arquivos integradosfeba, gate semântico fresco separado. AMH quinze pin digests PASS, remote62779aee com APIs manifest byte-identical; sem nova autoridade comercial inferida. Runtime composition specialist prepara contrato completo, roots compartilhados ROOT serial. Evidência privada nesta sessão; nenhum merge/PR novo/produção declarados.
+
+
+### DUR1 publicação técnica independente
+
+Pacote `DUR1-JOURNAL-COMPONENT`: journal PostgreSQL default-disabled, migration0018 e inventário estrutural34relações com todas decisõesDPOpendentes. Gates independentes PG28+12, UNIT40 e lifecycle135 PASS; nine existing wamid PASS e um outboxhumano SKIP local dependem do engine hosted. Public projection docs/gates/v21-durability-successor-20261005/journal-qualification.json; draft/source custody/CI separados, sem merge futuro autorizado. DUR2/3 source e runtime seguem WIP separado no checkout, não incluídos automaticamente neste pacote. ROOT preserva inputs e pins até publicação/CI/gates frescos.
+
+
+### DUR1 SEC-DUR1-F01 — rejeição preservada e reparo qualificado
+
+a6059c39 não publicado: gate segurança4f578c88 REVISE por autorização de dados antes de await posterior ao commit. Terceiro postgres_race_author reparou somentepostgres.py+unitboundary: source4a94e672/test71211b18, freeze3abf829d. Deltaoriginal segurança d9d9ff06 PASS_CODE_ONLY; PGverifier369ba56e novo45UNIT+40PG e cinco controles reais PASS, zero skips. Metadados negados após revogação sem apagar commit/fence; limites de fonte rechecados sincronamente depois do últimoawait. SQL AST/schema/migration unchanged demonstra reuse limitado do gate mínimo de roles, source gate antigo não promovido.
+
+Worktree próprio gerenciado dur1-journal-security-repair, branchjournal, owner ROOT; candidato atual913e fica comDUR2/runtime em reparos separados. Projeção/ledger atualizados sem duplicar evento; gate do novo commit e hostedCI permanecem pendentes. Nenhum push/PR/merge/flag/deploy nesta etapa. TaskWT antigo observado ausente, não removido por esta tarefa; tar0242ae1a/manifest10f61ce5 rehashados intactos emcustódia privada. Liberação doWT novo só após CI/gates frescos e pins/evidência transferidos.
+
+
+### PR644 primeiro CI e reparo estrutural
+
+PR644 draft/anexado em8176317d, CI37266143835 terminalFAIL:26188PASS/132SKIP/5XFAIL/2FAIL,0error/duplicate,24ZIPdigests verificados e625files rehashados. Integrações não executadas; sourcePGlocal não promovido aCI. Failures: DPO ScopeB omitiasix newrelations ePortalchain esperava0017. Terceiros independentes repararam docf870/test622fc/portal8a08; gate segurançaaf51+chain6596, DPO21+portal1+erasure19/chain64 PASS. Não houve alteração de journal/sourceSQL/schema ou humanretention/signatures. Rootatualiza projeção/ledger semduplicar evento; novoCI automático exigido no próximoHEAD. Flipgate exige CODEOWNERqualifiedapproval noheadexato (autor não selfapprove); nenhuma solicitação a terceiros, aprovação ou merge inventados.
