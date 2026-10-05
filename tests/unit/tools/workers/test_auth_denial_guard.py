@@ -9,7 +9,6 @@ CRITICAL: Workers must NEVER make adverse decisions (negativa, acusacao).
 from __future__ import annotations
 
 import codecs
-import io
 import re
 from pathlib import Path
 from typing import Any
@@ -1368,34 +1367,77 @@ def _spec_sanction_occurrence_count(path: Path) -> int:
     lexical_count = text.count(_AUTO_SANCTION_FLAT_VAR)
     if not text.lstrip().startswith("<"):
         return lexical_count
+    values: list[str] = []
+    character_data: list[str] = []
+
+    def mention(*items: str | None) -> None:
+        values.extend(item for item in items if item is not None)
+
+    def flush_text() -> None:
+        if character_data:
+            mention("".join(character_data))
+            character_data.clear()
+
+    def start_element(name: str, attributes: dict[str, str]) -> None:
+        flush_text()
+        mention(name)
+        # Namespace processing is intentionally off in Expat: declaration prefixes,
+        # including unused xmlns prefixes, are real source fields, not discarded aliases.
+        for key, value in attributes.items():
+            mention(key, value)
+
+    def end_element(_name: str) -> None:
+        flush_text()
+
+    def element_model(model: tuple) -> None:
+        mention(model[2])
+        for child in model[3]:
+            element_model(child)
+
+    def element_declaration(name: str, model: tuple) -> None:
+        mention(name)
+        element_model(model)
+
+    def attribute_declaration(
+        element: str, attribute: str, kind: str, default: str | None, _required: int
+    ) -> None:
+        # Expat repeats the declaration element for each attribute, and injects
+        # DTD defaults into element events. Those origins cannot be silently
+        # treated as independently sourced occurrences of this authority token.
+        assert _AUTO_SANCTION_FLAT_VAR not in element and (
+            default is None or _AUTO_SANCTION_FLAT_VAR not in default
+        ), f"DTD mention provenance not admitted: {path}"
+        mention(attribute, kind)
+
     try:
-        parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True, insert_pis=True))
-        document = ET.iterparse(io.BytesIO(data), events=("start-ns",), parser=parser)
-        values = [uri for _, (_, uri) in document]
-        for element in document.root.iter():
-            if isinstance(element.tag, str):
-                values.append(element.tag)
-            values.extend(element.attrib.keys())
-            values.extend(element.attrib.values())
-            values.extend(value for value in (element.text, element.tail) if value is not None)
-        # ElementTree expands values but omits the declarations themselves. Keep
-        # their logical mentions too, using the real parser rather than unescaping XML text.
-        declarations: list[str] = []
-        declaration_parser = expat.ParserCreate()
-        declaration_parser.EntityDeclHandler = (
-            lambda _name, _parameter, value, _base, system, public, _notation: declarations.extend(
-                item for item in (value, system, public) if item is not None
-            )
+        # Admit only the same raw-byte XML interpretation accepted by the real repo parser.
+        ET.fromstring(data)
+        census = expat.ParserCreate()
+        census.StartElementHandler = start_element
+        census.EndElementHandler = end_element
+        census.CharacterDataHandler = character_data.append
+        # Comments/PIs do not interrupt a text node in the default repository parser.
+        census.CommentHandler = mention
+        census.ProcessingInstructionHandler = mention
+        census.EntityDeclHandler = lambda name, _parameter, value, _base, system, public, notation: mention(
+            name, value, system, public, notation
         )
-        declaration_parser.StartDoctypeDeclHandler = lambda _name, system, public, _internal: (
-            declarations.extend(item for item in (system, public) if item is not None)
-        )
-        declaration_parser.Parse(data, True)
-        values.extend(declarations)
+        census.StartDoctypeDeclHandler = lambda name, system, public, _internal: mention(name, system, public)
+        census.ElementDeclHandler = element_declaration
+        census.AttlistDeclHandler = attribute_declaration
+        census.NotationDeclHandler = lambda name, _base, system, public: mention(name, system, public)
+        census.SkippedEntityHandler = lambda name, _parameter: mention(name)
+        census.DefaultHandlerExpand = mention
+        census.ExternalEntityRefHandler = lambda *_args: 0
+        census.Parse(data, True)
+        flush_text()
     except (ET.ParseError, expat.ExpatError, ValueError, LookupError) as exc:
         raise AssertionError(f"XML interpretation not admitted: {path}") from exc
-    # A literal attribute is one occurrence, not two for its lexical and parsed representations.
-    return max(lexical_count, sum(value.count(_AUTO_SANCTION_FLAT_VAR) for value in values))
+    logical_count = sum(value.count(_AUTO_SANCTION_FLAT_VAR) for value in values)
+    # Lexical mentions are a coverage fence, not a second representation to merge
+    # or add. Unexplained source mentions refuse admission instead of disappearing.
+    assert lexical_count <= logical_count, f"XML mention provenance not admitted: {path}"
+    return logical_count
 
 
 def test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping() -> None:
@@ -1594,6 +1636,83 @@ def test_spec_sanction_scan_rejects_xml_encoding_not_admitted_by_real_parser(
     monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
     with pytest.raises(AssertionError, match="not admitted"):
         test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+
+
+@pytest.mark.parametrize("codec", ["utf-8", "utf-16", "iso-8859-1"])
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        "<!--auto_aprovacao_recomendacao-->",
+        '<!DOCTYPE root [<!ENTITY auto_aprovacao_recomendacao "unused">]>',
+        "<?auto_aprovacao_recomendacao unused?>",
+        '<!DOCTYPE root [<!NOTATION auto_aprovacao_recomendacao SYSTEM "unused">]>',
+    ],
+)
+def test_spec_sanction_scan_disjoint_metadata_and_escaped_value_are_two_mentions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codec: str, metadata: str
+) -> None:
+    canonical = tmp_path / "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn"
+    canonical.parent.mkdir(parents=True)
+    declared = {"utf-8": "UTF-8", "utf-16": "UTF-16", "iso-8859-1": "ISO-8859-1"}[codec]
+    xml = f'<?xml version="1.0" encoding="{declared}"?>{metadata}<root id="auto_&#97;provacao_recomendacao"/>'
+    canonical.write_bytes(xml.encode(codec))
+    assert ET.parse(canonical).getroot().get("id") == _AUTO_SANCTION_FLAT_VAR
+    assert _spec_sanction_occurrence_count(canonical) == 2
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    with pytest.raises(AssertionError, match="must occur exactly once"):
+        test_spec_flattened_sanction_variable_is_write_only_by_the_auto_input_mapping()
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        '<root xmlns:auto_aprovacao_recomendacao="urn:unused" id="auto_&#97;provacao_recomendacao"/>',
+        '<root id="auto_&#97;provacao_recomendacao"/><!--auto_aprovacao_recomendacao-->',
+        '<root id="auto_&#97;provacao_recomendacao"/><?unused auto_aprovacao_recomendacao?>',
+        '<root id="auto_&#97;provacao_recomendacao">auto_aprovacao_recomendacao</root>',
+    ],
+)
+def test_spec_sanction_scan_keeps_namespace_prefix_and_trailing_or_text_mentions(
+    tmp_path: Path, xml: str
+) -> None:
+    path = tmp_path / "untyped"
+    path.write_bytes(xml.encode("utf-16"))
+    assert _spec_sanction_occurrence_count(path) == 2
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        '<root id="auto_aprovacao_recomendacao"/>',
+        '<root id="auto_&#97;provacao_recomendacao"/>',
+        "<!--auto_aprovacao_recomendacao--><root/>",
+        '<root xmlns:auto_aprovacao_recomendacao="urn:unused"/>',
+        '<!DOCTYPE root [<!ENTITY auto_aprovacao_recomendacao "unused">]><root/>',
+        "<root>auto_<!--ignored-->aprovacao_recomendacao</root>",
+        "<root>auto_&#97;provacao_recomendacao</root>",
+    ],
+)
+def test_spec_sanction_census_does_not_duplicate_one_literal_or_parsed_event(
+    tmp_path: Path, xml: str
+) -> None:
+    path = tmp_path / "untyped"
+    path.write_bytes(xml.encode("utf-8"))
+    assert _spec_sanction_occurrence_count(path) == 1
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        "<!DOCTYPE root [<!ATTLIST auto_aprovacao_recomendacao a CDATA #IMPLIED b CDATA #IMPLIED>]><root/>",
+        '<!DOCTYPE root [<!ATTLIST root id CDATA "auto_&#97;provacao_recomendacao">]><root/>',
+        "<auto_aprovacao_recomendacao></auto_aprovacao_recomendacao>",
+    ],
+)
+def test_spec_sanction_census_refuses_unproved_duplicate_source_origins(tmp_path: Path, xml: str) -> None:
+    path = tmp_path / "untyped"
+    path.write_bytes(xml.encode("utf-8"))
+    with pytest.raises(AssertionError, match="provenance not admitted"):
+        _spec_sanction_occurrence_count(path)
 
 
 @pytest.mark.parametrize(
