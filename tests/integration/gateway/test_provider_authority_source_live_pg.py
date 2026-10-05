@@ -6,21 +6,16 @@ contract, professional opinion or production authority. ROOT/CI owns execution.
 
 import asyncio
 import hashlib
-import ipaddress
-import secrets
-import ssl
-import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 import asyncpg
 import pytest
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
 from sqlalchemy.ext.asyncio import create_async_engine
+from tests.support.provider_tls_pg import docker as docker
+from tests.support.provider_tls_pg import owned_tls_postgres
+from tests.support.provider_tls_pg import server_certificate as server_certificate
 
 from maezo.gateway.capabilities.authority_postgres import PostgresProviderAuthoritySource
 from maezo.gateway.capabilities.authority_source import (
@@ -43,257 +38,184 @@ DDL_PATH = (
 )
 
 
-def docker(*args):
-    result = subprocess.run(["docker", *args], capture_output=True, timeout=90, check=False)
-    if result.returncode:
-        raise RuntimeError("TestOnly authority TLS container operation failed")
-    return result.stdout.decode().strip()
-
-
-def server_certificate(directory):
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    now = datetime.now(UTC)
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(subject)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(minutes=1))
-        .not_valid_after(now + timedelta(hours=2))
-        .add_extension(
-            x509.SubjectAlternativeName(
-                [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
-            ),
-            critical=False,
-        )
-        .sign(key, hashes.SHA256())
-    )
-    (directory / "server.key").write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
-        )
-    )
-    (directory / "server.crt").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    return ssl.create_default_context(cafile=str(directory / "server.crt"))
-
-
 @pytest.fixture
 async def source_db(tmp_path):
-    certificate = server_certificate(tmp_path)
-    name = "maezo-provider-authority-it-" + uuid4().hex
-    password = secrets.token_hex(20)
-    container = None
-    admin = None
-    engines = []
-    try:
-        container = docker(
-            "run",
-            "--detach",
-            "--name",
-            name,
-            "--label",
-            "maezo.test-only=provider-authority-source",
-            "--publish",
-            "127.0.0.1::5432",
-            "--volume",
-            str(tmp_path) + ":/test-tls:ro",
-            "--env",
-            "POSTGRES_PASSWORD=" + password,
-            "postgres:16",
-            "bash",
-            "-ceu",
-            "cp /test-tls/server.crt /tmp/server.crt; cp /test-tls/server.key /tmp/server.key; "
-            "chown postgres:postgres /tmp/server.key /tmp/server.crt; chmod 600 /tmp/server.key; "
-            "exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/server.crt "
-            "-c ssl_key_file=/tmp/server.key",
-        )
-        port = int(docker("port", container, "5432/tcp").rsplit(":", 1)[1])
-        for _ in range(120):
-            try:
-                admin = await asyncpg.connect(
-                    host="127.0.0.1",
-                    port=port,
-                    user="postgres",
-                    password=password,
-                    database="postgres",
-                    ssl=certificate,
+    async with owned_tls_postgres(tmp_path, owner="provider-authority-source") as pg:
+        certificate = pg.tls_context
+        password = pg.password
+        admin = pg.admin
+        engines = []
+        try:
+            suffix = uuid4().hex[:12]
+            roles = {
+                kind: "authority_" + kind + "_" + suffix
+                for kind in ("owner", "publisher", "validator", "reader")
+            }
+            for role in roles.values():
+                await admin.execute(
+                    f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}' "
+                    "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                 )
-                break
-            except (asyncpg.PostgresError, OSError):
-                await asyncio.sleep(0.25)
-        if admin is None:
-            raise RuntimeError("TestOnly TLS Postgres readiness failed")
-        suffix = uuid4().hex[:12]
-        roles = {
-            kind: "authority_" + kind + "_" + suffix for kind in ("owner", "publisher", "validator", "reader")
-        }
-        for role in roles.values():
+            # This is own disposable database, never a shared PostgreSQL or application DB.
+            await admin.execute("REVOKE TEMP ON DATABASE postgres FROM PUBLIC")
+            schema = "provider_source_" + suffix
+            await admin.execute(f'CREATE SCHEMA "{schema}" AUTHORIZATION "{roles["owner"]}"')
+            await admin.execute(f'REVOKE ALL ON SCHEMA "{schema}" FROM PUBLIC')
+            await admin.execute(f'SET ROLE "{roles["owner"]}"')
+            await admin.execute(f'SET search_path TO "{schema}"')
+            ddl = await asyncio.to_thread(DDL_PATH.read_text)
+            await admin.execute(ddl)
+            await admin.execute("RESET ROLE")
+            for role in roles.values():
+                await admin.execute(f'GRANT USAGE ON SCHEMA "{schema}" TO "{role}"')
+            for kind in ("reader", "publisher"):
+                await admin.execute(f'GRANT SELECT ON ALL TABLES IN SCHEMA "{schema}" TO "{roles[kind]}"')
+            await admin.execute(f'GRANT INSERT ON "{schema}".evidence TO "{roles["publisher"]}"')
             await admin.execute(
-                f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}' "
-                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+                f'GRANT EXECUTE ON FUNCTION "{schema}".publish_validated(jsonb,text,text,bigint) '
+                f'TO "{roles["publisher"]}"'
             )
-        # This is own disposable database, never a shared PostgreSQL or application DB.
-        await admin.execute("REVOKE TEMP ON DATABASE postgres FROM PUBLIC")
-        schema = "provider_source_" + suffix
-        await admin.execute(f'CREATE SCHEMA "{schema}" AUTHORIZATION "{roles["owner"]}"')
-        await admin.execute(f'REVOKE ALL ON SCHEMA "{schema}" FROM PUBLIC')
-        await admin.execute(f'SET ROLE "{roles["owner"]}"')
-        await admin.execute(f'SET search_path TO "{schema}"')
-        ddl = await asyncio.to_thread(DDL_PATH.read_text)
-        await admin.execute(ddl)
-        await admin.execute("RESET ROLE")
-        for role in roles.values():
-            await admin.execute(f'GRANT USAGE ON SCHEMA "{schema}" TO "{role}"')
-        for kind in ("reader", "publisher"):
-            await admin.execute(f'GRANT SELECT ON ALL TABLES IN SCHEMA "{schema}" TO "{roles[kind]}"')
-        await admin.execute(f'GRANT INSERT ON "{schema}".evidence TO "{roles["publisher"]}"')
-        await admin.execute(
-            f'GRANT EXECUTE ON FUNCTION "{schema}".publish_validated(jsonb,text,text,bigint) '
-            f'TO "{roles["publisher"]}"'
-        )
-        await admin.execute(
-            f'GRANT SELECT,INSERT,UPDATE ON "{schema}".source_binding,"{schema}".authority_proof '
-            f'TO "{roles["validator"]}"'
-        )
-        relation_pins = {
-            record["relname"]: {"oid": record["oid"]}
-            for record in await admin.fetch(
-                "SELECT c.relname,c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
-                "WHERE n.nspname=$1 AND c.relname=ANY($2::text[])",
-                schema,
-                list(TABLES),
+            await admin.execute(
+                f'GRANT SELECT,INSERT,UPDATE ON "{schema}".source_binding,"{schema}".authority_proof '
+                f'TO "{roles["validator"]}"'
             )
-        }
-        functions = {
-            row["proname"]: row
-            for row in await admin.fetch(
-                "SELECT p.proname,p.oid,pg_get_functiondef(p.oid) AS definition FROM pg_proc p "
-                "JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname=$1",
-                schema,
-            )
-        }
-        now = datetime.now(UTC)
-        descriptor = SourceDescriptor(
-            schema_version="provider-authority-source.v1",
-            database_oid=await admin.fetchval("SELECT oid FROM pg_database WHERE datname=current_database()"),
-            schema_name=schema,
-            schema_oid=await admin.fetchval("SELECT oid FROM pg_namespace WHERE nspname=$1", schema),
-            owner_role=roles["owner"],
-            publisher_role=roles["publisher"],
-            validator_role=roles["validator"],
-            reader_role=roles["reader"],
-            relation_pins=relation_pins,
-            immutable_function_oid=functions["immutable_source_record"]["oid"],
-            immutable_function_sha256=hashlib.sha256(
-                functions["immutable_source_record"]["definition"].encode()
-            ).hexdigest(),
-            publication_function_oid=functions["publish_validated"]["oid"],
-            publication_function_sha256=hashlib.sha256(
-                functions["publish_validated"]["definition"].encode()
-            ).hexdigest(),
-            history_function_oid=functions["protect_authority_history"]["oid"],
-            history_function_sha256=hashlib.sha256(
-                functions["protect_authority_history"]["definition"].encode()
-            ).hexdigest(),
-            tenant_ref="TestOnly-tenant",
-            legal_entity_ref="TestOnly-entity",
-            source_authority_ref="TestOnly-source",
-            source_contract_publication_ref="TestOnly-contract-publication",
-            valid_until=now + timedelta(hours=1),
-        )
-        sources = {}
-        for kind in ("reader", "publisher"):
-            engine = create_async_engine(
-                f"postgresql+asyncpg://{roles[kind]}:{password}@127.0.0.1:{port}/postgres",
-                echo=False,
-                hide_parameters=True,
-                connect_args={"ssl": certificate},
-            )
-            engines.append(engine)
-            sources[kind] = PostgresProviderAuthoritySource(engine, descriptor, publisher=kind == "publisher")
-        scope = ContractReadScope(
-            tenant_ref=descriptor.tenant_ref,
-            legal_entity_ref=descriptor.legal_entity_ref,
-            principal_ref="TestOnly-actor",
-            task_ref="TestOnly-task",
-            source_authority_ref=descriptor.source_authority_ref,
-            policy_revision="TestOnly-policy",
-            data_classification="administrative",
-            purpose_ref="TestOnly-contract",
-            provider_ref="TestOnly-provider",
-            contract_instrument_ref="TestOnly-instrument",
-            expected_business_revision="1",
-            clause_purpose="payment_prazo",
-            purpose_policy_ref="TestOnly-purpose",
-        )
-        snapshot = ContractSnapshot(
-            tenant_ref=scope.tenant_ref,
-            legal_entity_ref=scope.legal_entity_ref,
-            provider_ref=scope.provider_ref,
-            contract_instrument_ref=scope.contract_instrument_ref,
-            business_revision="1",
-            source_revision_ref="TestOnly-source-revision",
-            contract_status="vigente",
-            admission_state="enabled",
-            clause_groups=(
-                ContractClauseGroup(
-                    clause_purpose="payment_prazo",
-                    clause_refs=("TestOnly-payment-clause",),
-                    declared_value_refs=("TestOnly-value",),
-                ),
-                ContractClauseGroup(
-                    clause_purpose="tabela_valor",
-                    clause_refs=("TestOnly-table-clause",),
-                    declared_value_refs=("TestOnly-table",),
-                ),
-            ),
-            evidence_ref="TestOnly-evidence",
-            declared_at=now,
-            authority_receipt_ref="TestOnly-receipt",
-            source_publication_ref="TestOnly-publication",
-            currentness_ref="TestOnly-currentness",
-            valid_from=now - timedelta(minutes=1),
-            valid_until=now + timedelta(minutes=10),
-        )
-        binding = SourceBinding(
-            binding_ref="TestOnly-binding",
-            **{
-                k: getattr(scope, k)
-                for k in (
-                    "tenant_ref",
-                    "legal_entity_ref",
-                    "provider_ref",
-                    "principal_ref",
-                    "task_ref",
-                    "source_authority_ref",
-                    "policy_revision",
-                    "data_classification",
-                    "purpose_ref",
-                    "purpose_policy_ref",
+            relation_pins = {
+                record["relname"]: {"oid": record["oid"]}
+                for record in await admin.fetch(
+                    "SELECT c.relname,c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+                    "WHERE n.nspname=$1 AND c.relname=ANY($2::text[])",
+                    schema,
+                    list(TABLES),
                 )
-            },
-            clause_purposes=("payment_prazo", "tabela_valor"),
-            source_contract_publication_ref=descriptor.source_contract_publication_ref,
-            valid_until=now + timedelta(minutes=20),
-        )
-        yield dict(
-            admin=admin,
-            schema=schema,
-            roles=roles,
-            sources=sources,
-            scope=scope,
-            snapshot=snapshot,
-            binding=binding,
-        )
-    finally:
-        for engine in engines:
-            await engine.dispose()
-        if admin is not None:
-            await admin.close()
-        if container is not None:
-            docker("rm", "--force", container)
+            }
+            functions = {
+                row["proname"]: row
+                for row in await admin.fetch(
+                    "SELECT p.proname,p.oid,pg_get_functiondef(p.oid) AS definition FROM pg_proc p "
+                    "JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname=$1",
+                    schema,
+                )
+            }
+            now = datetime.now(UTC)
+            descriptor = SourceDescriptor(
+                schema_version="provider-authority-source.v1",
+                database_oid=await admin.fetchval(
+                    "SELECT oid FROM pg_database WHERE datname=current_database()"
+                ),
+                schema_name=schema,
+                schema_oid=await admin.fetchval("SELECT oid FROM pg_namespace WHERE nspname=$1", schema),
+                owner_role=roles["owner"],
+                publisher_role=roles["publisher"],
+                validator_role=roles["validator"],
+                reader_role=roles["reader"],
+                relation_pins=relation_pins,
+                immutable_function_oid=functions["immutable_source_record"]["oid"],
+                immutable_function_sha256=hashlib.sha256(
+                    functions["immutable_source_record"]["definition"].encode()
+                ).hexdigest(),
+                publication_function_oid=functions["publish_validated"]["oid"],
+                publication_function_sha256=hashlib.sha256(
+                    functions["publish_validated"]["definition"].encode()
+                ).hexdigest(),
+                history_function_oid=functions["protect_authority_history"]["oid"],
+                history_function_sha256=hashlib.sha256(
+                    functions["protect_authority_history"]["definition"].encode()
+                ).hexdigest(),
+                tenant_ref="TestOnly-tenant",
+                legal_entity_ref="TestOnly-entity",
+                source_authority_ref="TestOnly-source",
+                source_contract_publication_ref="TestOnly-contract-publication",
+                valid_until=now + timedelta(hours=1),
+            )
+            sources = {}
+            for kind in ("reader", "publisher"):
+                engine = create_async_engine(
+                    pg.url_for(roles[kind], password),
+                    echo=False,
+                    hide_parameters=True,
+                    connect_args={"ssl": certificate},
+                )
+                engines.append(engine)
+                sources[kind] = PostgresProviderAuthoritySource(
+                    engine, descriptor, publisher=kind == "publisher"
+                )
+            scope = ContractReadScope(
+                tenant_ref=descriptor.tenant_ref,
+                legal_entity_ref=descriptor.legal_entity_ref,
+                principal_ref="TestOnly-actor",
+                task_ref="TestOnly-task",
+                source_authority_ref=descriptor.source_authority_ref,
+                policy_revision="TestOnly-policy",
+                data_classification="administrative",
+                purpose_ref="TestOnly-contract",
+                provider_ref="TestOnly-provider",
+                contract_instrument_ref="TestOnly-instrument",
+                expected_business_revision="1",
+                clause_purpose="payment_prazo",
+                purpose_policy_ref="TestOnly-purpose",
+            )
+            snapshot = ContractSnapshot(
+                tenant_ref=scope.tenant_ref,
+                legal_entity_ref=scope.legal_entity_ref,
+                provider_ref=scope.provider_ref,
+                contract_instrument_ref=scope.contract_instrument_ref,
+                business_revision="1",
+                source_revision_ref="TestOnly-source-revision",
+                contract_status="vigente",
+                admission_state="enabled",
+                clause_groups=(
+                    ContractClauseGroup(
+                        clause_purpose="payment_prazo",
+                        clause_refs=("TestOnly-payment-clause",),
+                        declared_value_refs=("TestOnly-value",),
+                    ),
+                    ContractClauseGroup(
+                        clause_purpose="tabela_valor",
+                        clause_refs=("TestOnly-table-clause",),
+                        declared_value_refs=("TestOnly-table",),
+                    ),
+                ),
+                evidence_ref="TestOnly-evidence",
+                declared_at=now,
+                authority_receipt_ref="TestOnly-receipt",
+                source_publication_ref="TestOnly-publication",
+                currentness_ref="TestOnly-currentness",
+                valid_from=now - timedelta(minutes=1),
+                valid_until=now + timedelta(minutes=10),
+            )
+            binding = SourceBinding(
+                binding_ref="TestOnly-binding",
+                **{
+                    k: getattr(scope, k)
+                    for k in (
+                        "tenant_ref",
+                        "legal_entity_ref",
+                        "provider_ref",
+                        "principal_ref",
+                        "task_ref",
+                        "source_authority_ref",
+                        "policy_revision",
+                        "data_classification",
+                        "purpose_ref",
+                        "purpose_policy_ref",
+                    )
+                },
+                clause_purposes=("payment_prazo", "tabela_valor"),
+                source_contract_publication_ref=descriptor.source_contract_publication_ref,
+                valid_until=now + timedelta(minutes=20),
+            )
+            yield dict(
+                admin=admin,
+                schema=schema,
+                roles=roles,
+                sources=sources,
+                scope=scope,
+                snapshot=snapshot,
+                binding=binding,
+            )
+        finally:
+            for engine in engines:
+                await engine.dispose()
 
 
 async def seed_validation(db, *, state="enabled", evidence_ref=None):

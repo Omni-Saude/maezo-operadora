@@ -22,7 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from tests.integration.gateway.test_provider_authority_source_live_pg import docker, server_certificate
+from tests.support.provider_tls_pg import owned_tls_postgres
 
 from maezo.gateway.human.provider_membership_administration import (
     ADMIN_ACTION,
@@ -96,59 +96,12 @@ class PgSource:
 
 @pytest.fixture
 async def pg_source(tmp_path) -> AsyncIterator[PgSource]:
-    certificate = server_certificate(tmp_path)
-    container = None
-    control = None
-    admin_password = secrets.token_hex(24)
-    name = "maezo-provider-admin-it-" + uuid.uuid4().hex
-    try:
-        container = docker(
-            "run",
-            "--detach",
-            "--name",
-            name,
-            "--label",
-            "maezo.test-only=provider-membership-administration",
-            "--publish",
-            "127.0.0.1::5432",
-            "--volume",
-            str(tmp_path) + ":/test-tls:ro",
-            "--env",
-            "POSTGRES_PASSWORD=" + admin_password,
-            "postgres:16",
-            "bash",
-            "-ceu",
-            "cp /test-tls/server.crt /tmp/server.crt; cp /test-tls/server.key /tmp/server.key; "
-            "chown postgres:postgres /tmp/server.key /tmp/server.crt; chmod 600 /tmp/server.key; "
-            "exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/server.crt "
-            "-c ssl_key_file=/tmp/server.key",
-        )
-        port = int(docker("port", container, "5432/tcp").rsplit(":", 1)[1])
-        for _ in range(120):
-            try:
-                control = await asyncpg.connect(
-                    host="127.0.0.1",
-                    port=port,
-                    user="postgres",
-                    password=admin_password,
-                    database="postgres",
-                    ssl=certificate,
-                    timeout=2,
-                )
-                break
-            except (OSError, asyncpg.PostgresError):
-                await asyncio.sleep(0.25)
-        if control is None:
-            raise RuntimeError("TestOnly provider admin TLS PostgreSQL unavailable")
+    async with owned_tls_postgres(tmp_path, owner="provider-membership-administration") as pg:
+        control = pg.admin
         # TEMP revocation belongs exclusively to this own disposable database.
         await control.execute("REVOKE TEMP ON DATABASE postgres FROM PUBLIC")
-        async with installed_source(control, port, certificate) as source:
+        async with installed_source(control, pg.port, pg.tls_context) as source:
             yield source
-    finally:
-        if control is not None:
-            await control.close()
-        if container is not None:
-            docker("rm", "--force", container)
 
 
 @asynccontextmanager

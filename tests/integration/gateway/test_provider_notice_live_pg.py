@@ -1,7 +1,8 @@
 """Real PG16 notice/ack journal in an isolated TestOnly DB, with verified TLS.
 
-No server/container is started. ROOT/CI provides loopback PostgreSQL administrator
-and CA. All authorities, identities and acts are synthetic. The identity helper's
+ROOT/CI executes an own portable, disposable PostgreSQL with verified TLS.
+The helper validates Docker ownership and its actual loopback published port.
+All authorities, identities and acts are synthetic. The identity helper's
 stable-return contract here is not qualification of a production AUTH-SL1 helper.
 """
 
@@ -10,9 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import secrets
-import ssl
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -21,9 +20,9 @@ from pathlib import Path
 
 import asyncpg  # type: ignore[import-untyped]
 import pytest
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
+from tests.support.provider_tls_pg import owned_tls_postgres
 from tests.unit.gateway.communications.test_provider_notice import CONTENT, NOTICE, PROVIDER, ack
 from tests.unit.portal.test_human_session import ISSUER, SUBJECT, config, membership
 
@@ -79,257 +78,257 @@ class TestOnlyPgNotices:
 
 
 @pytest.fixture
-async def pg_notices() -> AsyncIterator[TestOnlyPgNotices]:
-    dsn = os.environ.get("MAEZO_TEST_DATABASE_URL")
-    ca = os.environ.get("MAEZO_TEST_PG_SSL_CA_FILE")
-    if not dsn or not ca:
-        pytest.fail("TestOnly PG administrator and verified TLS CA required; no service/skip/fallback")
-    url = make_url(dsn)
-    if url.host not in {"localhost", "127.0.0.1", "::1"}:
-        pytest.fail("Notice tests require an explicit loopback TestOnly PostgreSQL")
-    context = ssl.create_default_context(cafile=ca)
-    context.check_hostname = True
-    base = url.set(drivername="postgresql", query={}).render_as_string(hide_password=False)
-    admin = await asyncpg.connect(base, ssl=context, timeout=5)
-    suffix = uuid.uuid4().hex[:12]
-    database = f"testonly_notice_{suffix}"
-    owner, validator, producer, recipient, phi_owner, id_owner = (
-        f"pno_{suffix}",
-        f"pnv_{suffix}",
-        f"pnp_{suffix}",
-        f"pnr_{suffix}",
-        f"pnphi_{suffix}",
-        f"pnid_{suffix}",
-    )
-    roles = [owner, validator, producer, recipient, phi_owner, id_owner]
-    passwords = {producer: secrets.token_hex(24), recipient: secrets.token_hex(24)}
-    control = None
-    engines = []
-    created_db = False
-    try:
-        for role in roles:
-            if role in passwords:
-                await admin.execute(f"CREATE ROLE {role} LOGIN PASSWORD '{passwords[role]}'")
-            else:
-                await admin.execute(f"CREATE ROLE {role} NOLOGIN")
-        await admin.execute(f"CREATE DATABASE {database}")
-        created_db = True
-        db_url = url.set(drivername="postgresql", database=database, query={})
-        control = await asyncpg.connect(db_url.render_as_string(hide_password=False), ssl=context, timeout=5)
-        await control.execute(f"REVOKE TEMPORARY ON DATABASE {database} FROM PUBLIC")
-        await control.execute(
-            f"CREATE SCHEMA portal_communication AUTHORIZATION {phi_owner};"
-            f"CREATE SCHEMA portal_provider_notice AUTHORIZATION {owner}"
+async def pg_notices(tmp_path) -> AsyncIterator[TestOnlyPgNotices]:
+    async with owned_tls_postgres(tmp_path, owner="provider-notice") as pg:
+        url = pg.url_for("postgres", pg.password)
+        context = pg.tls_context
+        admin = pg.admin
+        suffix = uuid.uuid4().hex[:12]
+        database = f"testonly_notice_{suffix}"
+        owner, validator, producer, recipient, phi_owner, id_owner = (
+            f"pno_{suffix}",
+            f"pnv_{suffix}",
+            f"pnp_{suffix}",
+            f"pnr_{suffix}",
+            f"pnphi_{suffix}",
+            f"pnid_{suffix}",
         )
-        await control.execute(f"SET ROLE {phi_owner}")
-        protected = await asyncio.to_thread(Path("src/maezo/gateway/communications/schema.sql").read_text)
-        await control.execute(protected.replace("CREATE SCHEMA portal_communication;", ""))
-        await control.execute(
-            await asyncio.to_thread(Path("src/maezo/gateway/communications/authority_schema.sql").read_text)
-        )
-        await control.execute("RESET ROLE")
-        await control.execute(
-            "CREATE TABLE public.portal_sessions(tenant text NOT NULL,secret_hash text NOT NULL,"
-            "expires_at timestamptz NOT NULL,payload text NOT NULL,PRIMARY KEY(tenant,secret_hash));"
-            "CREATE TABLE public.portal_memberships(tenant text NOT NULL,issuer text NOT NULL,"
-            "subject text NOT NULL,"
-            "principal_ref text NOT NULL,payload text NOT NULL,PRIMARY KEY(tenant,issuer,subject));"
-            "REVOKE ALL ON public.portal_sessions,public.portal_memberships FROM PUBLIC"
-        )
-        await control.execute(
-            f"ALTER FUNCTION portal_communication.lock_session(text) OWNER TO {id_owner};"
-            f"GRANT USAGE ON SCHEMA portal_communication TO {id_owner},{owner},{recipient};"
-            f"GRANT SELECT ON portal_communication.admission_login TO {id_owner};"
-            f"GRANT SELECT,UPDATE(payload) ON public.portal_sessions,public.portal_memberships TO {id_owner};"
-            f"GRANT EXECUTE ON FUNCTION portal_communication.lock_session(text) TO {owner},{recipient};"
-            f"GRANT SELECT(tenant,environment,case_ref,body_ref,content_digest),UPDATE(body_ref)"
-            f" ON portal_communication.content TO {owner}"
-        )
-        await control.execute(
-            "INSERT INTO portal_communication.admission_login VALUES($1,'test-tenant')", recipient
-        )
-        await control.execute(f"SET ROLE {owner}")
-        await control.execute(
-            await asyncio.to_thread(
-                Path("src/maezo/gateway/communications/provider-notice-schema.sql").read_text
+        roles = [owner, validator, producer, recipient, phi_owner, id_owner]
+        passwords = {producer: secrets.token_hex(24), recipient: secrets.token_hex(24)}
+        control = None
+        engines = []
+        created_db = False
+        try:
+            for role in roles:
+                if role in passwords:
+                    await admin.execute(f"CREATE ROLE {role} LOGIN PASSWORD '{passwords[role]}'")
+                else:
+                    await admin.execute(f"CREATE ROLE {role} NOLOGIN")
+            await admin.execute(f"CREATE DATABASE {database}")
+            created_db = True
+            db_url = url.set(drivername="postgresql", database=database, query={})
+            control = await asyncpg.connect(
+                db_url.render_as_string(hide_password=False), ssl=context, timeout=5
             )
-        )
-        await control.execute("RESET ROLE")
-        await control.execute(
-            f"GRANT USAGE ON SCHEMA portal_provider_notice TO {validator},{producer},{recipient};"
-            f"GRANT SELECT,INSERT,UPDATE ON portal_provider_notice.authority TO {validator}"
-        )
-        for name, args in NOTICE_FUNCTIONS.items():
-            actor = (
-                producer
-                if name == "prepare_notice"
-                else recipient
-                if name in {"acknowledge_notice", "inspect_notice"}
-                else None
+            await control.execute(f"REVOKE TEMPORARY ON DATABASE {database} FROM PUBLIC")
+            await control.execute(
+                f"CREATE SCHEMA portal_communication AUTHORIZATION {phi_owner};"
+                f"CREATE SCHEMA portal_provider_notice AUTHORIZATION {owner}"
             )
-            if actor:
-                await control.execute(
-                    f"GRANT EXECUTE ON FUNCTION portal_provider_notice.{name}({args}) TO {actor}"
+            await control.execute(f"SET ROLE {phi_owner}")
+            protected = await asyncio.to_thread(Path("src/maezo/gateway/communications/schema.sql").read_text)
+            await control.execute(protected.replace("CREATE SCHEMA portal_communication;", ""))
+            await control.execute(
+                await asyncio.to_thread(
+                    Path("src/maezo/gateway/communications/authority_schema.sql").read_text
                 )
-        until = datetime.now(UTC) + timedelta(minutes=10)
-        token = secrets.token_urlsafe(32)
-        record = membership(
-            audience="provider", subject_bindings=(SubjectBinding(kind="provider", resource_ref=PROVIDER),)
-        )
-        session = SessionRecord(
-            secret_hash=digest(token),
-            session_ref="session-testonly",
-            csrf_token="csrf-testonly",
-            issuer=ISSUER,
-            subject=SUBJECT,
-            principal_ref=record.principal_ref,
-            membership_revision=1,
-            authenticated_at=datetime.now(UTC),
-            expires_at=until,
-        )
-        await control.execute(
-            "INSERT INTO public.portal_sessions VALUES($1,$2,$3,$4)",
-            record.tenant,
-            session.secret_hash,
-            session.expires_at,
-            session.model_dump_json(),
-        )
-        await control.execute(
-            "INSERT INTO public.portal_memberships VALUES($1,$2,$3,$4,$5)",
-            record.tenant,
-            ISSUER,
-            SUBJECT,
-            record.principal_ref,
-            record.model_dump_json(),
-        )
-        await control.execute(
-            "INSERT INTO portal_communication.content VALUES($1,'testonly','case-testonly',"
-            "$2,'body-command-testonly','protected-body-testonly',$3,$4,'key-testonly',$5,$6,"
-            "'testonly-content-authority',$3,clock_timestamp())",
-            record.tenant,
-            "e" * 64,
-            "f" * 64,
-            CONTENT,
-            secrets.token_bytes(12),
-            secrets.token_bytes(32),
-        )
-        notice_scope = ProviderNoticeScope(
-            tenant_ref=record.tenant,
-            environment="testonly",
-            legal_entity_ref="operator",
-            principal_ref="workload-testonly",
-            task_ref="task-testonly",
-            purpose_ref="provider_notice",
-            source_authority_ref="testonly-source",
-            policy_revision="policy1",
-            contract_revision="contract1",
-            data_classification="opaque_references",
-            business_revision="revision1",
-            producer_role=producer,
-        )
-        intent = NoticeIntent(
-            notice_ref=NOTICE,
-            notice_class="mandatory",
-            authorized_content_ref="protected-body-testonly",
-            recipient_authority_ref="recipient-authority-testonly",
-            confirmed_channel_ref="portal-ack-testonly",
-            delivery_policy_ref="explicit-ack-policy-testonly",
-        )
-        await control.execute(f"SET ROLE {validator}")
-        await control.execute(
-            "INSERT INTO portal_provider_notice.authority VALUES($1,'testonly',$2,"
-            "'prepare-command-testonly',$3,$4::jsonb,$5::jsonb,'case-testonly',$6,$7,$8,$9,1,"
-            "'protected-body-testonly',$10,'revision1','source-receipt-testonly','explicit-ack-policy-testonly',"
-            "'protected_portal_ack','enabled',clock_timestamp()-interval '1 second',$11)",
-            record.tenant,
-            NOTICE,
-            "d" * 64,
-            json.dumps(notice_scope.model_dump(mode="json")),
-            json.dumps(intent.model_dump(mode="json")),
-            PROVIDER,
-            record.principal_ref,
-            ISSUER,
-            SUBJECT,
-            CONTENT,
-            until,
-        )
-        await control.execute("RESET ROLE")
-        relations = []
-        for name in sorted(NOTICE_TABLES):
-            oid = await control.fetchval("SELECT to_regclass($1)::oid", f"portal_provider_notice.{name}")
-            relations.append(NoticeRelationPin(name=name, oid=oid))
-        functions = []
-        for name, args in sorted(NOTICE_FUNCTIONS.items()):
-            oid = await control.fetchval(
-                "SELECT to_regprocedure($1)::oid", f"portal_provider_notice.{name}({args})"
             )
-            definition = await control.fetchval("SELECT pg_get_functiondef($1)", oid)
-            functions.append(
-                FunctionPin(name=name, oid=oid, sha256=hashlib.sha256(definition.encode()).hexdigest())
+            await control.execute("RESET ROLE")
+            await control.execute(
+                "CREATE TABLE public.portal_sessions(tenant text NOT NULL,secret_hash text NOT NULL,"
+                "expires_at timestamptz NOT NULL,payload text NOT NULL,PRIMARY KEY(tenant,secret_hash));"
+                "CREATE TABLE public.portal_memberships(tenant text NOT NULL,issuer text NOT NULL,"
+                "subject text NOT NULL,"
+                "principal_ref text NOT NULL,payload text NOT NULL,PRIMARY KEY(tenant,issuer,subject));"
+                "REVOKE ALL ON public.portal_sessions,public.portal_memberships FROM PUBLIC"
             )
-        lock_oid = await control.fetchval(
-            "SELECT to_regprocedure('portal_communication.lock_session(text)')::oid"
-        )
-        lock_body = await control.fetchval("SELECT pg_get_functiondef($1)", lock_oid)
-        descriptor = ProviderNoticeInstallation(
-            schema_version="provider-notice-installation.v1",
-            scope=CommunicationScope(tenant=record.tenant, environment="testonly"),
-            database_oid=await control.fetchval(
-                "SELECT oid FROM pg_database WHERE datname=current_database()"
-            ),
-            schema_name="portal_provider_notice",
-            schema_oid=await control.fetchval(
-                "SELECT oid FROM pg_namespace WHERE nspname='portal_provider_notice'"
-            ),
-            owner_role=owner,
-            authority_validator_role=validator,
-            producer_role=producer,
-            recipient_role=recipient,
-            installation_receipt_ref="testonly-install",
-            identity_source_ref="testonly-identity-source",
-            identity_installation_receipt_ref="testonly-id-install",
-            content_relation_oid=await control.fetchval(
-                "SELECT 'portal_communication.content'::regclass::oid"
-            ),
-            content_owner_role=phi_owner,
-            session_lock_oid=lock_oid,
-            session_lock_owner_role=id_owner,
-            session_lock_sha256=hashlib.sha256(lock_body.encode()).hexdigest(),
-            relations=tuple(relations),
-            functions=tuple(functions),
-            valid_until=until,
-        )
-        for actor in (producer, recipient):
-            actor_url = db_url.set(drivername="postgresql+asyncpg", username=actor, password=passwords[actor])
-            engines.append(create_async_engine(actor_url, connect_args={"ssl": context}))
-        identity_store = PostgresIdentityStore(record.tenant, engines[1])
-        admission = PostgresCommunicationAdmission(identity_store, scope=descriptor.scope, issuer=ISSUER)
-        # Explicit TestOnly IdP/session fixture used for software mechanics, not production factory.
-        identities = LocalTestIdentityStore(record.tenant)
-        identities.memberships[(ISSUER, SUBJECT)] = record
-        await identities.put_session(session, None)
-        resolver = HumanSessionResolver(config(), identities)
-        yield TestOnlyPgNotices(
-            control,
-            PostgresProviderNoticeStore(engines[0], descriptor, role="producer"),
-            PostgresProviderNoticeStore(
-                engines[1], descriptor, role="recipient", identity_admission=admission
-            ),
-            notice_scope,
-            intent,
-            resolver,
-            token,
-        )
-    finally:
-        for engine in engines:
-            await engine.dispose()
-        if control is not None:
-            await control.close()
-        if created_db:
-            await admin.execute(f"DROP DATABASE {database}")
-        for role in reversed(roles):
-            await admin.execute(f"DROP ROLE IF EXISTS {role}")
-        await admin.close()
+            await control.execute(
+                f"ALTER FUNCTION portal_communication.lock_session(text) OWNER TO {id_owner};"
+                f"GRANT USAGE ON SCHEMA portal_communication TO {id_owner},{owner},{recipient};"
+                f"GRANT SELECT ON portal_communication.admission_login TO {id_owner};"
+                "GRANT SELECT,UPDATE(payload) ON public.portal_sessions,public.portal_memberships "
+                f"TO {id_owner};"
+                f"GRANT EXECUTE ON FUNCTION portal_communication.lock_session(text) TO {owner},{recipient};"
+                f"GRANT SELECT(tenant,environment,case_ref,body_ref,content_digest),UPDATE(body_ref)"
+                f" ON portal_communication.content TO {owner}"
+            )
+            await control.execute(
+                "INSERT INTO portal_communication.admission_login VALUES($1,'test-tenant')", recipient
+            )
+            await control.execute(f"SET ROLE {owner}")
+            await control.execute(
+                await asyncio.to_thread(
+                    Path("src/maezo/gateway/communications/provider-notice-schema.sql").read_text
+                )
+            )
+            await control.execute("RESET ROLE")
+            await control.execute(
+                f"GRANT USAGE ON SCHEMA portal_provider_notice TO {validator},{producer},{recipient};"
+                f"GRANT SELECT,INSERT,UPDATE ON portal_provider_notice.authority TO {validator}"
+            )
+            for name, args in NOTICE_FUNCTIONS.items():
+                actor = (
+                    producer
+                    if name == "prepare_notice"
+                    else recipient
+                    if name in {"acknowledge_notice", "inspect_notice"}
+                    else None
+                )
+                if actor:
+                    await control.execute(
+                        f"GRANT EXECUTE ON FUNCTION portal_provider_notice.{name}({args}) TO {actor}"
+                    )
+            until = datetime.now(UTC) + timedelta(minutes=10)
+            token = secrets.token_urlsafe(32)
+            record = membership(
+                audience="provider",
+                subject_bindings=(SubjectBinding(kind="provider", resource_ref=PROVIDER),),
+            )
+            session = SessionRecord(
+                secret_hash=digest(token),
+                session_ref="session-testonly",
+                csrf_token="csrf-testonly",
+                issuer=ISSUER,
+                subject=SUBJECT,
+                principal_ref=record.principal_ref,
+                membership_revision=1,
+                authenticated_at=datetime.now(UTC),
+                expires_at=until,
+            )
+            await control.execute(
+                "INSERT INTO public.portal_sessions VALUES($1,$2,$3,$4)",
+                record.tenant,
+                session.secret_hash,
+                session.expires_at,
+                session.model_dump_json(),
+            )
+            await control.execute(
+                "INSERT INTO public.portal_memberships VALUES($1,$2,$3,$4,$5)",
+                record.tenant,
+                ISSUER,
+                SUBJECT,
+                record.principal_ref,
+                record.model_dump_json(),
+            )
+            await control.execute(
+                "INSERT INTO portal_communication.content VALUES($1,'testonly','case-testonly',"
+                "$2,'body-command-testonly','protected-body-testonly',$3,$4,'key-testonly',$5,$6,"
+                "'testonly-content-authority',$3,clock_timestamp())",
+                record.tenant,
+                "e" * 64,
+                "f" * 64,
+                CONTENT,
+                secrets.token_bytes(12),
+                secrets.token_bytes(32),
+            )
+            notice_scope = ProviderNoticeScope(
+                tenant_ref=record.tenant,
+                environment="testonly",
+                legal_entity_ref="operator",
+                principal_ref="workload-testonly",
+                task_ref="task-testonly",
+                purpose_ref="provider_notice",
+                source_authority_ref="testonly-source",
+                policy_revision="policy1",
+                contract_revision="contract1",
+                data_classification="opaque_references",
+                business_revision="revision1",
+                producer_role=producer,
+            )
+            intent = NoticeIntent(
+                notice_ref=NOTICE,
+                notice_class="mandatory",
+                authorized_content_ref="protected-body-testonly",
+                recipient_authority_ref="recipient-authority-testonly",
+                confirmed_channel_ref="portal-ack-testonly",
+                delivery_policy_ref="explicit-ack-policy-testonly",
+            )
+            await control.execute(f"SET ROLE {validator}")
+            await control.execute(
+                "INSERT INTO portal_provider_notice.authority VALUES($1,'testonly',$2,"
+                "'prepare-command-testonly',$3,$4::jsonb,$5::jsonb,'case-testonly',$6,$7,$8,$9,1,"
+                "'protected-body-testonly',$10,'revision1','source-receipt-testonly','explicit-ack-policy-testonly',"
+                "'protected_portal_ack','enabled',clock_timestamp()-interval '1 second',$11)",
+                record.tenant,
+                NOTICE,
+                "d" * 64,
+                json.dumps(notice_scope.model_dump(mode="json")),
+                json.dumps(intent.model_dump(mode="json")),
+                PROVIDER,
+                record.principal_ref,
+                ISSUER,
+                SUBJECT,
+                CONTENT,
+                until,
+            )
+            await control.execute("RESET ROLE")
+            relations = []
+            for name in sorted(NOTICE_TABLES):
+                oid = await control.fetchval("SELECT to_regclass($1)::oid", f"portal_provider_notice.{name}")
+                relations.append(NoticeRelationPin(name=name, oid=oid))
+            functions = []
+            for name, args in sorted(NOTICE_FUNCTIONS.items()):
+                oid = await control.fetchval(
+                    "SELECT to_regprocedure($1)::oid", f"portal_provider_notice.{name}({args})"
+                )
+                definition = await control.fetchval("SELECT pg_get_functiondef($1)", oid)
+                functions.append(
+                    FunctionPin(name=name, oid=oid, sha256=hashlib.sha256(definition.encode()).hexdigest())
+                )
+            lock_oid = await control.fetchval(
+                "SELECT to_regprocedure('portal_communication.lock_session(text)')::oid"
+            )
+            lock_body = await control.fetchval("SELECT pg_get_functiondef($1)", lock_oid)
+            descriptor = ProviderNoticeInstallation(
+                schema_version="provider-notice-installation.v1",
+                scope=CommunicationScope(tenant=record.tenant, environment="testonly"),
+                database_oid=await control.fetchval(
+                    "SELECT oid FROM pg_database WHERE datname=current_database()"
+                ),
+                schema_name="portal_provider_notice",
+                schema_oid=await control.fetchval(
+                    "SELECT oid FROM pg_namespace WHERE nspname='portal_provider_notice'"
+                ),
+                owner_role=owner,
+                authority_validator_role=validator,
+                producer_role=producer,
+                recipient_role=recipient,
+                installation_receipt_ref="testonly-install",
+                identity_source_ref="testonly-identity-source",
+                identity_installation_receipt_ref="testonly-id-install",
+                content_relation_oid=await control.fetchval(
+                    "SELECT 'portal_communication.content'::regclass::oid"
+                ),
+                content_owner_role=phi_owner,
+                session_lock_oid=lock_oid,
+                session_lock_owner_role=id_owner,
+                session_lock_sha256=hashlib.sha256(lock_body.encode()).hexdigest(),
+                relations=tuple(relations),
+                functions=tuple(functions),
+                valid_until=until,
+            )
+            for actor in (producer, recipient):
+                actor_url = db_url.set(
+                    drivername="postgresql+asyncpg", username=actor, password=passwords[actor]
+                )
+                engines.append(create_async_engine(actor_url, connect_args={"ssl": context}))
+            identity_store = PostgresIdentityStore(record.tenant, engines[1])
+            admission = PostgresCommunicationAdmission(identity_store, scope=descriptor.scope, issuer=ISSUER)
+            # Explicit TestOnly IdP/session fixture used for software mechanics, not production factory.
+            identities = LocalTestIdentityStore(record.tenant)
+            identities.memberships[(ISSUER, SUBJECT)] = record
+            await identities.put_session(session, None)
+            resolver = HumanSessionResolver(config(), identities)
+            yield TestOnlyPgNotices(
+                control,
+                PostgresProviderNoticeStore(engines[0], descriptor, role="producer"),
+                PostgresProviderNoticeStore(
+                    engines[1], descriptor, role="recipient", identity_admission=admission
+                ),
+                notice_scope,
+                intent,
+                resolver,
+                token,
+            )
+        finally:
+            for engine in engines:
+                await engine.dispose()
+            if control is not None:
+                await control.close()
+            if created_db:
+                await admin.execute(f"DROP DATABASE {database}")
+            for role in reversed(roles):
+                await admin.execute(f"DROP ROLE IF EXISTS {role}")
 
 
 async def test_real_pg_prepare_is_pending_and_concurrent_replay_is_one_fact(
