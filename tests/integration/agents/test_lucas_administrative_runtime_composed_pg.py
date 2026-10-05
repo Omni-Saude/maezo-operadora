@@ -156,6 +156,11 @@ class Faults:
     foreign_wait: bool = False
     last_commit_phase: str | None = None
     held_digest: str | None = None
+    cas_initial_reads: bool = False
+    initial_revisions: dict[str, int] = field(default_factory=dict)
+    both_initial_observed: asyncio.Event = field(default_factory=asyncio.Event)
+    winner_pid: int | None = None
+    loser_pid: int | None = None
     winner_locked: asyncio.Event = field(default_factory=asyncio.Event)
     release_winner: asyncio.Event = field(default_factory=asyncio.Event)
     loser_attempted: asyncio.Event = field(default_factory=asyncio.Event)
@@ -184,12 +189,23 @@ class RealTransaction:
         ):
             fault.lost_ack_fired = True
             raise ConnectionResetError("SYNTHETIC.known.PG.commit.ack.lost")
+        if fault.cas_initial_reads and self.connection.initial_revision is not None:
+            # The actual observation transaction has COMMITTED, releasing its
+            # FOR UPDATE lock. Waiting before COMMIT would deadlock the readers.
+            fault.initial_revisions[self.connection.role] = self.connection.initial_revision
+            self.connection.initial_revision = None
+            if set(fault.initial_revisions) == {"winner", "loser"}:
+                fault.both_initial_observed.set()
+            await fault.both_initial_observed.wait()
 
 
 class RealConnection:
     def __init__(self, connection: Any, fault: Faults, *, track_loser: bool = False) -> None:
         self.connection, self.fault, self.track_loser = connection, fault, track_loser
         self.phase: str | None = None
+        self.role = "loser" if track_loser else "winner"
+        self.aggregate_write = False
+        self.initial_revision: int | None = None
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.connection, name)
@@ -198,11 +214,28 @@ class RealConnection:
         return RealTransaction(self.connection.transaction(**kwargs), self)
 
     async def fetchrow(self, query: str, *args: Any, **kwargs: Any) -> Any:
-        if self.track_loser and "FROM v21_journey_journal WHERE" in query and query.endswith("FOR UPDATE"):
+        aggregate_lock = "FROM v21_journey_journal WHERE" in query and query.endswith("FOR UPDATE")
+        if self.fault.cas_initial_reads and self.aggregate_write and aggregate_lock and self.track_loser:
+            self.fault.loser_pid = self.connection.get_server_pid()
             self.fault.loser_attempted.set()
-        return await self.connection.fetchrow(query, *args, **kwargs)
+        result = await self.connection.fetchrow(query, *args, **kwargs)
+        if self.fault.cas_initial_reads and aggregate_lock:
+            if self.aggregate_write and not self.track_loser:
+                self.fault.winner_pid = self.connection.get_server_pid()
+            elif (
+                not self.aggregate_write
+                and self.role not in self.fault.initial_revisions
+                and result is not None
+            ):
+                self.initial_revision = result["journal_revision"]
+        return result
 
     async def execute(self, query: str, *args: Any, **kwargs: Any) -> Any:
+        if self.fault.cas_initial_reads and query.startswith("INSERT INTO v21_journey_journal"):
+            assert self.fault.initial_revisions == {"winner": 0, "loser": 0}
+            if self.track_loser:
+                await self.fault.winner_locked.wait()
+            self.aggregate_write = True
         result = await self.connection.execute(query, *args, **kwargs)
         if query.startswith("INSERT INTO v21_capability_command"):
             self.phase = "command"
@@ -243,6 +276,7 @@ class Registry:
         self.original_until = self.now + timedelta(minutes=10)
         self.tick = self.now
         self.metadata_allowed = True
+        self.ingress_allowed = True
         self.turn_allowed = True
         self.read_allowed = True
         self.operation_revoked = False
@@ -312,7 +346,7 @@ class Registry:
 
     async def verify(self, b: JourneyBinding, current: Any) -> Any:
         self.ingress_calls += 1
-        if b != self.binding or not self.metadata_allowed:
+        if b != self.binding or not self.ingress_allowed:
             return R.AUTHORITY_UNPROVEN
         if isinstance(current, str):
             issuance = self.resume_refs.get(current)
@@ -1709,11 +1743,14 @@ async def test_compg04_metadata_revoked_after_real_result_commit_hides_snapshot(
     r.fault.metadata_postcommit = True
     async with db.root(r) as root:
         result = await root.dispatcher.accept_administrative_turn(r.stimulus())
+        assert isinstance(result, JourneyDispatchOutcome)
         assert result.technical_refusal is R.SOURCE_UNAVAILABLE
         inner = r.adapter_results[-1]
         assert inner.technical_status is JournalCallTechnicalStatus.UNAVAILABLE
         assert inner.refusal_reason is JournalRefusalReason.DATA_GATE_CLOSED and inner.snapshot is None
-        assert not r.metadata_allowed
+        assert not r.metadata_allowed and r.ingress_allowed
+        assert result.source_completion_receipt_ref is None and result.verified_transition_ref is None
+        assert result.source_case_refs == () and r.transport_calls == 0
         assert await db.counts() == (1, 1, 1, 1, 0) and await db.revision(r.binding) == 3
         commands = await r.snapshots()
         assert commands[0].technical_state is CommandTechnicalState.RESPONSE_RECORDED
@@ -1845,9 +1882,15 @@ async def test_compg10_two_real_pool_forced_cas_has_one_effect(db: Database, win
     a.key_suffix, z.key_suffix = ".writer_A", ".writer_B"
     selected, loser = (a, z) if winner.startswith("writer_A") else (z, a)
     loser.fault = selected.fault
+    selected.fault.cas_initial_reads = True
     initial = selected.make_action(0, ())
     selected.fault.held_digest = request_digest(initial.envelope, initial.request)
-    async with db.root(selected) as winning, db.root(loser, pool_index=1, loser=True) as losing:
+    # One-action technical CAS fixture; COMPG01 independently retains budget2
+    # success. The unchanged real driver budget stops the winner, not a post-check.
+    async with (
+        db.root(selected, budget=1) as winning,
+        db.root(loser, budget=1, pool_index=1, loser=True) as losing,
+    ):
         tasks: list[asyncio.Task[Any]] = []
         try:
             async with asyncio.timeout(15):
@@ -1855,11 +1898,27 @@ async def test_compg10_two_real_pool_forced_cas_has_one_effect(db: Database, win
                     winning.dispatcher.accept_administrative_turn(selected.stimulus())
                 )
                 tasks.append(first)
-                await selected.fault.winner_locked.wait()
                 second = asyncio.create_task(losing.dispatcher.accept_administrative_turn(loser.stimulus()))
                 tasks.append(second)
+                await selected.fault.both_initial_observed.wait()
+                assert selected.fault.initial_revisions == {"winner": 0, "loser": 0}
+                await selected.fault.winner_locked.wait()
                 await selected.fault.loser_attempted.wait()
                 assert not first.done() and not second.done()
+                assert selected.fault.winner_pid is not None and selected.fault.loser_pid is not None
+                assert selected.fault.winner_pid != selected.fault.loser_pid
+                # Observe the actual owned PostgreSQL lock condition before
+                # releasing the winner. This retries no source/transaction and
+                # relies on no sleep or scheduler-assumed lock arrival.
+                while True:
+                    blocked = await db.query(
+                        "SELECT $1::int = ANY(pg_blocking_pids($2::int)) AS blocked",
+                        selected.fault.winner_pid,
+                        selected.fault.loser_pid,
+                    )
+                    if blocked[0]["blocked"]:
+                        break
+                    assert not first.done() and not second.done()
                 selected.fault.release_winner.set()
                 positive, rejected = await asyncio.gather(first, second)
         finally:
@@ -2317,3 +2376,28 @@ async def test_compg17_operation_currentness_binds_only_original_registered_resu
     assert refused.value.reason is R.AUTHORITY_UNPROVEN
     assert original_issuance == r.operation_issuances[auth.authorization_ref]
     assert r.source_calls == r.source_commits == 0
+
+
+@pytest.mark.parametrize(
+    ("metadata_allowed", "ingress_allowed"),
+    [(False, True), (True, False), (False, False)],
+)
+async def test_compg18_ingress_and_journal_data_grants_are_independent(
+    metadata_allowed: bool, ingress_allowed: bool
+) -> None:
+    """Pure grant separation; no constructed input qualifies a PG/source fact."""
+    db = Database("UNCONNECTED.GRANT.CONTROL", "pgcmp_grant_control", "pgcmp_cp_grant_control")
+    r = Registry(db, binding(db))
+    original_turn = r.stimulus().turn
+    assert await r.verify(r.binding, original_turn) == "administrative"
+    assert await JournalProofs(r).authorize(r.binding.journal_binding(), "observe_journey") is True
+    r.metadata_allowed, r.ingress_allowed = metadata_allowed, ingress_allowed
+    admission = await r.verify(r.binding, original_turn)
+    if ingress_allowed:
+        assert admission == "administrative"
+    else:
+        assert admission is R.AUTHORITY_UNPROVEN
+    assert (
+        await JournalProofs(r).authorize(r.binding.journal_binding(), "observe_journey") is metadata_allowed
+    )
+    assert r.source_calls == r.source_commits == r.transport_calls == 0
