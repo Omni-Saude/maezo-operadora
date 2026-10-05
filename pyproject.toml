@@ -14,6 +14,7 @@ classifiers = [
 dependencies = [
     # --- Agent runtime (cidadaos de primeira classe desde o commit 1) ---
     "langgraph>=0.4,<2.0",
+    "langgraph-sdk==0.4.4",         # GHSA-fvww-7h3r-vfhp: corrected resource-scoped auth actions
     "langgraph-checkpoint-postgres>=3.1.1,<4.0",
     "a2a-sdk>=1.0,<2.0",            # Agent2Agent v1.0 (Linux Foundation)
     "mcp>=1.9,<3.0",                # Model Context Protocol (tools)
@@ -194,7 +195,9 @@ exclude-newer = "2026-08-05T00:00:00Z"
 # - urllib3 (30/09/2026): 2.7.0 recebeu 3 GHSA em 30/09 (GHSA-8988-9cw3-xx77 proxy TLS ignorado,
 #   GHSA-gh4c-6fx4-qh6g loop infinito no deflate, GHSA-vxq7-64xx-v4gw chunk-size sem limite), fix
 #   2.8.0 de 15/09 (transitiva via botocore/requests). Janela ate' 16/09.
-exclude-newer-package = { pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
+# - langgraph-sdk: GHSA-fvww-7h3r-vfhp affects resource-scoped auth action filtering.
+#   Fixed 0.4.4 was published 27/08/2026; admit only this package through 28/08.
+exclude-newer-package = { langgraph-sdk = "2026-08-28T00:00:00Z", pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
