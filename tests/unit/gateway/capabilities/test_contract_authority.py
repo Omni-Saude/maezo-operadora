@@ -1,5 +1,6 @@
 """PW2 contract/adapter negatives; synthetic UNIT ports are never source qualification."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -196,12 +197,84 @@ async def test_optional_lookup_requires_source_resolved_identity_before_key_or_p
         envelope(), request(contract_instrument_ref=None, expected_business_revision=None), timeout_seconds=1
     )
     assert reader.calls[0].contract_instrument_ref is None
-    assert reader.calls[0].expected_business_revision is None
+    assert reader.calls[0].expected_business_revision == envelope().expected_business_revision
     assert result.source_revision_ref == reader.value.source_revision_ref
     assert result.authority_receipt_ref == reader.value.authority_receipt_ref
     # The key uses only source-resolved non-null identifiers, not caller NULLs.
     changed = reader.value.model_copy(update={"contract_instrument_ref": "unit-other-instrument"})
     assert changed.snapshot_key() != reader.value.snapshot_key()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("omit_optional", [False, True])
+async def test_optional_request_revision_never_erases_mandatory_envelope_expectation(
+    omit_optional: bool,
+) -> None:
+    reader, verifier = UnitReader(snapshot(business_revision="unit-business-2")), UnitVerifier()
+    intent = request(contract_instrument_ref=None, expected_business_revision=None)
+    if omit_optional:
+        intent = parse_request(
+            "contract.authority.resolve",
+            intent.model_dump(exclude={"expected_business_revision"}),
+            schema_version=PROVIDER_SCHEMA_VERSION,
+        )
+    with pytest.raises(CapabilityContractError) as caught:
+        await source(reader, verifier).execute(envelope(), intent, timeout_seconds=1)
+    assert caught.value.reason == CapabilityRefusalReason.STALE_REVISION
+    assert reader.calls[0].contract_instrument_ref is None
+    assert reader.calls[0].expected_business_revision == "unit-business-1"
+    assert verifier.calls == []
+
+
+@pytest.mark.asyncio
+async def test_explicit_request_envelope_revision_conflict_is_refused_before_source_io() -> None:
+    reader, verifier = UnitReader(), UnitVerifier()
+    with pytest.raises(CapabilityContractError) as caught:
+        await source(reader, verifier).execute(
+            envelope(), request(expected_business_revision="unit-business-2"), timeout_seconds=1
+        )
+    assert caught.value.reason == CapabilityRefusalReason.STALE_REVISION
+    assert reader.calls == []
+    assert verifier.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_revision", ["unit-business-1", "unit-business-2"])
+async def test_awaited_optional_lookup_keeps_revision_binding_before_disclosure(
+    source_revision: str,
+) -> None:
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class AwaitedUnitReader(UnitReader):
+        async def resolve(self, scope, *, timeout_seconds):
+            self.calls.append(scope)
+            entered.set()
+            await release.wait()
+            return self.value
+
+    reader, verifier = AwaitedUnitReader(), UnitVerifier()
+    pending = asyncio.create_task(
+        source(reader, verifier).execute(
+            envelope(),
+            request(contract_instrument_ref=None, expected_business_revision=None),
+            timeout_seconds=1,
+        )
+    )
+    await entered.wait()
+    reader.value = snapshot(business_revision=source_revision)
+    release.set()
+    if source_revision == "unit-business-2":
+        with pytest.raises(CapabilityContractError) as caught:
+            await pending
+        assert caught.value.reason == CapabilityRefusalReason.STALE_REVISION
+        assert verifier.calls == []
+    else:
+        result = await pending
+        assert result.source_revision_ref == reader.value.source_revision_ref
+        assert [phase for phase, _ in verifier.calls] == ["verify", "current"]
+        assert all(scope.expected_business_revision == "unit-business-1" for _, scope in verifier.calls)
+    assert reader.calls[0].contract_instrument_ref is None
+    assert reader.calls[0].expected_business_revision == "unit-business-1"
 
 
 @pytest.mark.asyncio

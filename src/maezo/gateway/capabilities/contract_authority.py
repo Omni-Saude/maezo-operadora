@@ -214,7 +214,9 @@ class ContractAuthoritySource:
             purpose_ref=self.binding.purpose_ref,
             provider_ref=request.provider_ref,
             contract_instrument_ref=request.contract_instrument_ref,
-            expected_business_revision=request.expected_business_revision,
+            # OP12 binds the envelope expectation to the instrument revision.
+            # Optional instrument discovery cannot erase that mandatory scope.
+            expected_business_revision=envelope.expected_business_revision,
             clause_purpose=request.clause_purpose,
             purpose_policy_ref=request.purpose_policy_ref,
         )
