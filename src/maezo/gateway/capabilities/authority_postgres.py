@@ -55,6 +55,7 @@ class PostgresProviderAuthoritySource:
             SELECT session_user::text AS login,current_user::text AS effective,
             (SELECT oid FROM pg_database WHERE datname=current_database()) AS database_oid,
             pg_my_temp_schema() AS temp_oid,
+            current_setting('session_replication_role') IN ('origin','local') AS guards_fire,
             COALESCE((SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()),false) AS tls
         """)
                 )
@@ -68,6 +69,7 @@ class PostgresProviderAuthoritySource:
             or info["database_oid"] != d.database_oid
             or info["temp_oid"] != 0
             or info["tls"] is not True
+            or info["guards_fire"] is not True
         ):
             raise AuthoritySourceError("SOURCE_UNAVAILABLE")
         for login in (d.owner_role, d.publisher_role, d.validator_role, d.reader_role):
@@ -77,6 +79,7 @@ class PostgresProviderAuthoritySource:
                         text("""
                 SELECT rolsuper,rolcreatedb,rolcreaterole,rolbypassrls,rolreplication,
                 EXISTS(SELECT 1 FROM pg_auth_members WHERE member=r.oid) AS member,
+                has_parameter_privilege(r.oid,'session_replication_role','SET') AS can_disable_triggers,
                 has_schema_privilege(r.oid,n.oid,'CREATE') AS can_create,
                 has_database_privilege(r.oid,current_database(),'TEMP') AS can_temp
                 FROM pg_roles r JOIN pg_namespace n ON n.nspname=:schema WHERE r.rolname=:role
@@ -96,6 +99,7 @@ class PostgresProviderAuthoritySource:
                     "rolbypassrls",
                     "rolreplication",
                     "member",
+                    "can_disable_triggers",
                 )
             ):
                 raise AuthoritySourceError("SOURCE_UNAVAILABLE")
@@ -257,62 +261,58 @@ class PostgresProviderAuthoritySource:
             or hashlib.sha256(history["definition"].encode()).hexdigest() != d.history_function_sha256
         ):
             raise AuthoritySourceError("SOURCE_UNAVAILABLE")
-        for relation in ("source_binding", "authority_proof"):
-            guards = (
-                (
-                    await connection.execute(
-                        text("""
-                SELECT tgtype,tgenabled::text AS tgenabled FROM pg_trigger WHERE tgrelid=:relation
-                AND tgfoid=:function AND NOT tgisinternal
-            """),
-                        dict(relation=d.relation_pins[relation].oid, function=d.history_function_oid),
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            if len(guards) != 1 or guards[0]["tgtype"] != 19 or guards[0]["tgenabled"] not in {"O", "A"}:
-                raise AuthoritySourceError("SOURCE_UNAVAILABLE")
-            deletions = (
-                (
-                    await connection.execute(
-                        text("""
-                SELECT tgtype,tgenabled::text AS tgenabled FROM pg_trigger WHERE tgrelid=:relation
-                AND tgfoid=:function AND NOT tgisinternal
-            """),
-                        dict(relation=d.relation_pins[relation].oid, function=d.immutable_function_oid),
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            if (
-                len(deletions) != 1
-                or deletions[0]["tgtype"] != 42
-                or deletions[0]["tgenabled"] not in {"O", "A"}
-            ):
-                raise AuthoritySourceError("SOURCE_UNAVAILABLE")
-        for relation in ("evidence", "publication"):
+        # Exact profile of the admitted source DDL. A matching function alone
+        # cannot prove a guard fires: WHEN/UPDATE OF/args and additional triggers
+        # can bypass history or alter an effect. Census also covers the CAS head,
+        # whose declared profile intentionally has no trigger.
+        expected = {
+            "source_binding": {
+                "binding_history": (d.history_function_oid, 19),
+                "binding_no_delete": (d.immutable_function_oid, 42),
+            },
+            "authority_proof": {
+                "proof_history": (d.history_function_oid, 19),
+                "proof_no_delete": (d.immutable_function_oid, 42),
+            },
+            "evidence": {"evidence_immutable": (d.immutable_function_oid, 58)},
+            "publication": {"publication_immutable": (d.immutable_function_oid, 58)},
+            "instrument_head": {},
+        }
+        for relation, profile in expected.items():
             triggers = (
                 (
                     await connection.execute(
                         text("""
-                SELECT tgtype,tgenabled::text AS tgenabled FROM pg_trigger
-                WHERE tgrelid=:relation AND tgfoid=:function AND NOT tgisinternal
+                SELECT tgname::text AS tgname,tgfoid,tgtype,tgenabled::text AS tgenabled,
+                tgisinternal,tgqual IS NULL AS unconditional,tgnargs,
+                octet_length(tgargs)=0 AS no_args,tgattr::text AS tgattr,
+                tgconstraint,tgdeferrable,tginitdeferred,
+                (tgoldtable IS NULL AND tgnewtable IS NULL) AS no_transition
+                FROM pg_trigger WHERE tgrelid=:relation
             """),
-                        {"relation": d.relation_pins[relation].oid, "function": d.immutable_function_oid},
+                        {"relation": d.relation_pins[relation].oid},
                     )
                 )
                 .mappings()
                 .all()
             )
-            # BEFORE statement UPDATE/DELETE/TRUNCATE is tgtype 58. No disabled/replica-only trigger.
-            if (
-                len(triggers) != 1
-                or triggers[0]["tgtype"] != 58
-                or triggers[0]["tgenabled"] not in {"O", "A"}
-            ):
+            if len(triggers) != len(profile) or {t["tgname"] for t in triggers} != set(profile):
                 raise AuthoritySourceError("SOURCE_UNAVAILABLE")
+            for trigger in triggers:
+                if (
+                    (trigger["tgfoid"], trigger["tgtype"]) != profile[trigger["tgname"]]
+                    or trigger["tgenabled"] not in {"O", "A"}
+                    or trigger["tgisinternal"] is not False
+                    or trigger["unconditional"] is not True
+                    or trigger["tgnargs"] != 0
+                    or trigger["no_args"] is not True
+                    or trigger["tgattr"] != ""
+                    or trigger["tgconstraint"] != 0
+                    or trigger["tgdeferrable"] is not False
+                    or trigger["tginitdeferred"] is not False
+                    or trigger["no_transition"] is not True
+                ):
+                    raise AuthoritySourceError("SOURCE_UNAVAILABLE")
 
     @asynccontextmanager
     async def _connection(self, seconds: float) -> AsyncIterator[AsyncConnection]:

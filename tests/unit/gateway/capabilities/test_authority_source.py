@@ -166,13 +166,34 @@ class TriggerMetadataConnection:
         "protect_authority_history": "UNIT-history-function",
     }
 
-    def __init__(self, d, *, publisher=False, enabled=b"O", drift=None, changed_mask=None):
+    def __init__(
+        self,
+        d,
+        *,
+        publisher=False,
+        enabled=b"O",
+        drift=None,
+        changed_mask=None,
+        guard_changes=None,
+        extra_trigger=None,
+        missing_guard=None,
+        duplicate_guard=None,
+        session_replica=False,
+        disable_privilege_role=None,
+    ):
         self.d = d
         self.publisher = publisher
         self.enabled = enabled
         self.drift = drift
         self.changed_mask = changed_mask
+        self.guard_changes = guard_changes
+        self.extra_trigger = extra_trigger
+        self.missing_guard = missing_guard
+        self.duplicate_guard = duplicate_guard
+        self.session_replica = session_replica
+        self.disable_privilege_role = disable_privilege_role
         self.trigger_keys = []
+        self.trigger_relations = []
         self.queries = []
 
     async def execute(self, statement, params=None):
@@ -182,22 +203,24 @@ class TriggerMetadataConnection:
         params = params or {}
         if "AS database_oid" in sql:
             role = d.publisher_role if self.publisher else d.reader_role
-            return TriggerMetadataRows(
-                dict(login=role, effective=role, database_oid=d.database_oid, temp_oid=0, tls=True)
-            )
+            row = dict(login=role, effective=role, database_oid=d.database_oid, temp_oid=0, tls=True)
+            if "AS guards_fire" in sql:
+                row["guards_fire"] = not self.session_replica
+            return TriggerMetadataRows(row)
         if "FROM pg_roles r JOIN pg_namespace" in sql:
-            return TriggerMetadataRows(
-                dict(
-                    rolsuper=False,
-                    rolcreatedb=False,
-                    rolcreaterole=False,
-                    rolbypassrls=False,
-                    rolreplication=False,
-                    member=False,
-                    can_create=params["role"] == d.owner_role,
-                    can_temp=False,
-                )
+            row = dict(
+                rolsuper=False,
+                rolcreatedb=False,
+                rolcreaterole=False,
+                rolbypassrls=False,
+                rolreplication=False,
+                member=False,
+                can_create=params["role"] == d.owner_role,
+                can_temp=False,
             )
+            if "AS can_disable_triggers" in sql:
+                row["can_disable_triggers"] = params["role"] == self.disable_privilege_role
+            return TriggerMetadataRows(row)
         if "FROM pg_class c JOIN pg_namespace" in sql:
             name = params["name"]
             return TriggerMetadataRows(
@@ -256,19 +279,78 @@ class TriggerMetadataConnection:
             )
         if "FROM pg_trigger" in sql:
             relation = next(name for name, pin in d.relation_pins.items() if pin.oid == params["relation"])
-            history = params["function"] == d.history_function_oid
-            assert history or params["function"] == d.immutable_function_oid
-            key = (relation, "history" if history else "immutable")
-            self.trigger_keys.append(key)
-            mask = 19 if history else (42 if relation in {"source_binding", "authority_proof"} else 58)
-            raw_enabled = self.enabled
-            if self.drift is not None and key == self.drift[0]:
-                raw_enabled = self.drift[1]
-            if self.changed_mask is not None and key == self.changed_mask[0]:
-                mask = self.changed_mask[1]
-            # pg_catalog expression type, not a Python fallback in the source qualifier.
-            enabled = raw_enabled.decode("ascii") if "tgenabled::text" in sql and raw_enabled else raw_enabled
-            return TriggerMetadataRows([dict(tgtype=mask, tgenabled=enabled)])
+            self.trigger_relations.append(relation)
+            declared = {
+                "source_binding": [
+                    ("binding_history", d.history_function_oid, 19),
+                    ("binding_no_delete", d.immutable_function_oid, 42),
+                ],
+                "authority_proof": [
+                    ("proof_history", d.history_function_oid, 19),
+                    ("proof_no_delete", d.immutable_function_oid, 42),
+                ],
+                "evidence": [("evidence_immutable", d.immutable_function_oid, 58)],
+                "publication": [("publication_immutable", d.immutable_function_oid, 58)],
+                "instrument_head": [],
+            }[relation]
+            rows = []
+            for name, function, mask in declared:
+                key = (relation, "history" if function == d.history_function_oid else "immutable")
+                if self.missing_guard == key:
+                    continue
+                raw_enabled = self.drift[1] if self.drift and key == self.drift[0] else self.enabled
+                mask = self.changed_mask[1] if self.changed_mask and key == self.changed_mask[0] else mask
+                enabled = (
+                    raw_enabled.decode("ascii") if "tgenabled::text" in sql and raw_enabled else raw_enabled
+                )
+                row = dict(
+                    tgname=name,
+                    tgfoid=function,
+                    tgtype=mask,
+                    tgenabled=enabled,
+                    tgisinternal=False,
+                    unconditional=True,
+                    tgnargs=0,
+                    no_args=True,
+                    tgattr="",
+                    tgconstraint=0,
+                    tgdeferrable=False,
+                    tginitdeferred=False,
+                    no_transition=True,
+                )
+                if self.guard_changes and key == self.guard_changes[0]:
+                    row.update(self.guard_changes[1])
+                if "function" in params and row["tgfoid"] != params["function"]:
+                    continue
+                self.trigger_keys.append(key)
+                # Selected metadata only: old filtered SQL cannot observe omitted guard attributes.
+                selected = (
+                    row
+                    if "tgqual IS NULL AS unconditional" in sql
+                    else {"tgtype": row["tgtype"], "tgenabled": row["tgenabled"]}
+                )
+                rows.append(selected)
+                if self.duplicate_guard == key:
+                    rows.append(dict(selected))
+            if self.extra_trigger == relation and "function" not in params:
+                rows.append(
+                    dict(
+                        tgname="unexpected_guard",
+                        tgfoid=9999,
+                        tgtype=19,
+                        tgenabled="O",
+                        tgisinternal=False,
+                        unconditional=True,
+                        tgnargs=0,
+                        no_args=True,
+                        tgattr="",
+                        tgconstraint=0,
+                        tgdeferrable=False,
+                        tginitdeferred=False,
+                        no_transition=True,
+                    )
+                )
+            return TriggerMetadataRows(rows)
         raise AssertionError("Unexpected catalogue query; no permissive UNIT fallback")
 
 
@@ -313,7 +395,8 @@ async def test_typed_trigger_projection_still_refuses_disabled_replica_and_unkno
     with pytest.raises(AuthoritySourceError) as failure:
         await source.qualify(db)
     assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
-    assert db.trigger_keys[-1] == key  # refusal must reach the deliberately changed trigger
+    assert key in db.trigger_keys
+    assert db.trigger_relations[-1] == key[0]  # census must reach the altered table, not fail elsewhere
 
 
 @pytest.mark.parametrize(
@@ -331,4 +414,72 @@ async def test_typed_trigger_projection_preserves_exact_trigger_bitmask(key, mas
     with pytest.raises(AuthoritySourceError) as failure:
         await source.qualify(db)
     assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
-    assert db.trigger_keys[-1] == key
+    assert key in db.trigger_keys
+    assert db.trigger_relations[-1] == key[0]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"unconditional": False},
+        {"tgnargs": 1, "no_args": False},
+        {"no_args": False},
+        {"tgattr": "1"},
+        {"tgconstraint": 55},
+        {"tgdeferrable": True},
+        {"tginitdeferred": True},
+        {"no_transition": False},
+        {"tgisinternal": True},
+        {"tgname": "unregistered_name"},
+        {"tgfoid": 9999},
+    ],
+)
+async def test_complete_trigger_census_refuses_conditional_arguments_and_partial_guard(changes):
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, guard_changes=(("source_binding", "history"), changes))
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    with pytest.raises(AuthoritySourceError) as failure:
+        await source.qualify(db)
+    assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
+    assert db.trigger_relations[-1] == "source_binding"
+
+
+@pytest.mark.parametrize("relation", sorted(TABLES))
+async def test_complete_trigger_census_refuses_unexpected_function_on_every_owned_table(relation):
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, extra_trigger=relation)
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    with pytest.raises(AuthoritySourceError) as failure:
+        await source.qualify(db)
+    assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
+    assert db.trigger_relations[-1] == relation
+
+
+@pytest.mark.parametrize("field", ["missing_guard", "duplicate_guard"])
+async def test_complete_trigger_census_requires_exact_registered_count(field):
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, **{field: ("evidence", "immutable")})
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    with pytest.raises(AuthoritySourceError) as failure:
+        await source.qualify(db)
+    assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
+    assert db.trigger_relations[-1] == "evidence"
+
+
+async def test_trigger_guards_must_fire_in_current_session():
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, session_replica=True)
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    with pytest.raises(AuthoritySourceError):
+        await source.qualify(db)
+    assert db.trigger_relations == []
+
+
+@pytest.mark.parametrize("role_field", ["owner_role", "reader_role", "publisher_role", "validator_role"])
+async def test_source_roles_cannot_disable_trigger_execution_via_parameter_set(role_field):
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, disable_privilege_role=getattr(d, role_field))
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    with pytest.raises(AuthoritySourceError):
+        await source.qualify(db)
+    assert db.trigger_relations == []

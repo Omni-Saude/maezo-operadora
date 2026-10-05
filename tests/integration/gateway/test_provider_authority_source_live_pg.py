@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import asyncpg
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from tests.support.provider_tls_pg import docker as docker
 from tests.support.provider_tls_pg import owned_tls_postgres
@@ -373,3 +374,173 @@ async def test_expired_or_wrong_evidence_validation_never_creates_publication(so
     with pytest.raises(AuthoritySourceError):
         await admit(db)
     assert await db["admin"].fetchval(f'SELECT count(*) FROM "{db["schema"]}".publication') == 0
+
+
+@pytest.mark.parametrize(
+    "table,trigger,field,revoked,active",
+    [
+        ("source_binding", "binding_history", "revoked", True, False),
+        ("authority_proof", "proof_history", "state", "revoked", "enabled"),
+    ],
+)
+async def test_when_false_can_corrupt_real_history_but_census_closes_source(
+    source_db, table, trigger, field, revoked, active
+):
+    """Actual PG counterexample in TestOnly DB; no production/mandate assertion.
+
+    Installed guard blocks reactivation. Owner replaces its definition with
+    WHEN(FALSE), retaining name/function/mask/O; raw validator can then corrupt
+    the source state. Reader/publisher must refuse qualification before acting.
+    """
+    db = source_db
+    publisher = db["sources"]["publisher"]
+    await publisher.receive(db["snapshot"], timeout_seconds=5)
+    await seed_validation(db)
+    admin, schema = db["admin"], db["schema"]
+    await admin.execute(f'SET ROLE "{db["roles"]["validator"]}"')
+    try:
+        await admin.execute(f'UPDATE "{schema}"."{table}" SET "{field}"=$1', revoked)
+        with pytest.raises(asyncpg.PostgresError):
+            await admin.execute(f'UPDATE "{schema}"."{table}" SET "{field}"=$1', active)
+    finally:
+        await admin.execute("RESET ROLE")
+    await admin.execute(f'SET ROLE "{db["roles"]["owner"]}"')
+    try:
+        await admin.execute(f'DROP TRIGGER "{trigger}" ON "{schema}"."{table}"')
+        await admin.execute(
+            f'CREATE TRIGGER "{trigger}" BEFORE UPDATE ON "{schema}"."{table}" '
+            f'FOR EACH ROW WHEN (FALSE) EXECUTE FUNCTION "{schema}".protect_authority_history()'
+        )
+    finally:
+        await admin.execute("RESET ROLE")
+    profile = await admin.fetchrow(
+        "SELECT tgtype,tgenabled::text AS enabled,tgqual IS NOT NULL AS has_when "
+        "FROM pg_trigger WHERE tgrelid=$1::regclass AND tgname=$2",
+        f'"{schema}"."{table}"',
+        trigger,
+    )
+    assert tuple(profile.values()) == (19, "O", True)
+    await admin.execute(f'SET ROLE "{db["roles"]["validator"]}"')
+    try:
+        await admin.execute(f'UPDATE "{schema}"."{table}" SET "{field}"=$1', active)
+    finally:
+        await admin.execute("RESET ROLE")
+    assert await admin.fetchval(f'SELECT "{field}" FROM "{schema}"."{table}"') == active
+    # Raw source corruption is observed, never admitted as an authority result.
+    for source in db["sources"].values():
+        async with source.engine.connect() as connection:
+            with pytest.raises(AuthoritySourceError) as failure:
+                await source.qualify(connection)
+        assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
+    with pytest.raises(AuthoritySourceError):
+        await admit(db)
+    with pytest.raises(AuthoritySourceError):
+        await db["sources"]["reader"].resolve(db["scope"], timeout_seconds=5)
+    for relation in ("publication", "instrument_head"):
+        assert await admin.fetchval(f'SELECT count(*) FROM "{schema}"."{relation}"') == 0
+
+
+@pytest.mark.parametrize("variant", ["args", "update_columns", "replica", "disabled", "missing", "function"])
+async def test_real_trigger_profile_arguments_columns_flags_and_function_are_refused(source_db, variant):
+    db = source_db
+    await db["sources"]["publisher"].receive(db["snapshot"], timeout_seconds=5)
+    await seed_validation(db)
+    admin, schema = db["admin"], db["schema"]
+    await admin.execute(f'SET ROLE "{db["roles"]["owner"]}"')
+    try:
+        if variant in {"replica", "disabled"}:
+            operation = "ENABLE REPLICA" if variant == "replica" else "DISABLE"
+            await admin.execute(f'ALTER TABLE "{schema}".source_binding {operation} TRIGGER binding_history')
+        else:
+            await admin.execute(f'DROP TRIGGER binding_history ON "{schema}".source_binding')
+            if variant != "missing":
+                event = "UPDATE OF revoked" if variant == "update_columns" else "UPDATE"
+                function = "immutable_source_record" if variant == "function" else "protect_authority_history"
+                args = "'TestOnly-extra-arg'" if variant == "args" else ""
+                await admin.execute(
+                    f'CREATE TRIGGER binding_history BEFORE {event} ON "{schema}".source_binding '
+                    f'FOR EACH ROW EXECUTE FUNCTION "{schema}".{function}({args})'
+                )
+    finally:
+        await admin.execute("RESET ROLE")
+    with pytest.raises(AuthoritySourceError) as failure:
+        await admit(db)
+    assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
+    assert await admin.fetchval(f'SELECT count(*) FROM "{schema}".publication') == 0
+
+
+@pytest.mark.parametrize("relation", sorted(TABLES))
+async def test_extra_unregistered_trigger_on_any_owned_table_closes_source(source_db, relation):
+    db = source_db
+    await db["sources"]["publisher"].receive(db["snapshot"], timeout_seconds=5)
+    await seed_validation(db)
+    admin, schema = db["admin"], db["schema"]
+    await admin.execute(f'SET ROLE "{db["roles"]["owner"]}"')
+    try:
+        await admin.execute(
+            f'CREATE FUNCTION "{schema}".test_only_unregistered_trigger() RETURNS trigger '
+            "LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$"
+        )
+        await admin.execute(
+            f'CREATE TRIGGER test_only_extra BEFORE INSERT ON "{schema}"."{relation}" '
+            f'FOR EACH ROW EXECUTE FUNCTION "{schema}".test_only_unregistered_trigger()'
+        )
+    finally:
+        await admin.execute("RESET ROLE")
+    for source in db["sources"].values():
+        async with source.engine.connect() as connection:
+            with pytest.raises(AuthoritySourceError):
+                await source.qualify(connection)
+    with pytest.raises(AuthoritySourceError):
+        await admit(db)
+    assert await admin.fetchval(f'SELECT count(*) FROM "{schema}".publication') == 0
+
+
+@pytest.mark.parametrize("kind", ["owner", "reader", "publisher", "validator"])
+async def test_parameter_set_privilege_cannot_disable_source_guards(source_db, kind):
+    db = source_db
+    await db["sources"]["publisher"].receive(db["snapshot"], timeout_seconds=5)
+    await seed_validation(db)
+    role = db["roles"][kind]
+    await db["admin"].execute(f'GRANT SET ON PARAMETER session_replication_role TO "{role}"')
+    assert await db["admin"].fetchval(
+        "SELECT has_parameter_privilege($1,'session_replication_role','SET')", role
+    )
+    with pytest.raises(AuthoritySourceError) as failure:
+        await admit(db)
+    assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
+    assert await db["admin"].fetchval(f'SELECT count(*) FROM "{db["schema"]}".publication') == 0
+
+
+async def test_replica_session_cannot_qualify_even_after_set_privilege_revoked(source_db):
+    db = source_db
+    role = db["roles"]["publisher"]
+    await db["admin"].execute(f'GRANT SET ON PARAMETER session_replication_role TO "{role}"')
+    source = db["sources"]["publisher"]
+    async with source.engine.connect() as connection:
+        await connection.execute(text("SET session_replication_role='replica'"))
+        assert (await connection.execute(text("SHOW session_replication_role"))).scalar_one() == "replica"
+        await db["admin"].execute(f'REVOKE SET ON PARAMETER session_replication_role FROM "{role}"')
+        assert not await db["admin"].fetchval(
+            "SELECT has_parameter_privilege($1,'session_replication_role','SET')", role
+        )
+        with pytest.raises(AuthoritySourceError) as failure:
+            await source.qualify(connection)
+        assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
+        await connection.rollback()
+        await connection.invalidate()  # never return a deliberately changed test session to the pool
+
+
+async def test_local_session_preserves_origin_guard_semantics(source_db):
+    db = source_db
+    # Superuser creates the pool's initial local setting, then revokes SET; only
+    # this TestOnly connection survives. PG treats origin/local guards equally.
+    role = db["roles"]["publisher"]
+    await db["admin"].execute(f'GRANT SET ON PARAMETER session_replication_role TO "{role}"')
+    source = db["sources"]["publisher"]
+    async with source.engine.connect() as connection:
+        await connection.execute(text("SET session_replication_role='local'"))
+        await db["admin"].execute(f'REVOKE SET ON PARAMETER session_replication_role FROM "{role}"')
+        await source.qualify(connection)
+        await connection.rollback()
+        await connection.invalidate()
