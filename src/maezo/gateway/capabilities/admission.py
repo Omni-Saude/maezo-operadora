@@ -18,8 +18,8 @@ from typing import Annotated, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError, field_validator
 
 from maezo.gateway.capabilities.models import (
+    AnyCapabilityEnvelope,
     CandidateDTO,
-    CapabilityEnvelope,
     CapabilityRefusalReason,
     request_digest,
 )
@@ -169,7 +169,7 @@ class AuthorityVerifier(Protocol):
     """
 
     async def authorize(
-        self, binding: AdmissionBinding, envelope: CapabilityEnvelope, request: BaseModel
+        self, binding: AdmissionBinding, envelope: AnyCapabilityEnvelope, request: BaseModel
     ) -> VerifiedAuthority: ...
 
     async def check_current(
@@ -197,7 +197,7 @@ class AdmissionLease:
 @dataclass(slots=True, repr=False)
 class _LeaseRecord:
     lease: AdmissionLease
-    envelope: CapabilityEnvelope
+    envelope: AnyCapabilityEnvelope
     request: BaseModel
     authority: VerifiedAuthority
     audit_receipt: str
@@ -245,7 +245,7 @@ class CapabilityAdmission:
         if now.utcoffset() is None or not observed_at <= now < valid_until:
             raise AdmissionDeniedError(CapabilityRefusalReason.STALE_REVISION)
 
-    def _envelope_scope(self, envelope: CapabilityEnvelope) -> None:
+    def _envelope_scope(self, envelope: AnyCapabilityEnvelope) -> None:
         for name in (
             "tenant_ref",
             "legal_entity_ref",
@@ -285,7 +285,7 @@ class CapabilityAdmission:
         if record is not None and record.lease is lease:
             del self._leases[lease.token]
 
-    async def authorize(self, envelope: CapabilityEnvelope, request: BaseModel) -> AdmissionLease:
+    async def authorize(self, envelope: AnyCapabilityEnvelope, request: BaseModel) -> AdmissionLease:
         try:
             self._envelope_scope(envelope)
             self._autonomy_allowed()
