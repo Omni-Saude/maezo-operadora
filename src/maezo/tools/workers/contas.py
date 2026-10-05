@@ -27,6 +27,7 @@ import dataclasses
 import functools
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -43,6 +44,8 @@ from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first
 from maezo.tools.workers.harness import AUDIT_AGENT_ID, _resolve_app_version
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
@@ -1751,6 +1754,164 @@ def publish_entry(variables: dict[str, Any], *, kafka: KafkaPublisher | None = N
     return publish(event_type, payload, topic)
 
 
+# PW1-A: explicit per-topic fetch scopes. Contracts and transitive sources are
+# traced in docs/design/provider/fetch-scopes.md; no implicit family/global scope.
+_CONTAS_FETCH_SCOPES: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "operadora.contas.identify_glosa": (
+            "beneficiario_pseudo_id",
+            "competencia",
+            "conta_origem_ref",
+            "data_recebimento_lote",
+            "data_vencimento",
+            "documentacao_anexa",
+            "indicio_fraude_sinalizado",
+            "instrumento_pagamento",
+            "item_conforme_tabela",
+            "linhas_conta_refs",
+            "numero_conta",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+            "prestador_id",
+            "reason_codes_tiss",
+            "tenant_id",
+            "tipo_lote",
+            "valor_apresentado_brl",
+        ),
+        "operadora.contas.analyze_reason": (
+            "beneficiario_pseudo_id",
+            "competencia",
+            "conta_origem_ref",
+            "data_recebimento_lote",
+            "data_vencimento",
+            "documentacao_anexa",
+            "indicio_fraude_sinalizado",
+            "instrumento_pagamento",
+            "item_conforme_tabela",
+            "linhas_conta_refs",
+            "numero_conta",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+            "prestador_id",
+            "reason_codes_tiss",
+            "tenant_id",
+            "tipo_lote",
+            "valor_apresentado_brl",
+        ),
+        "operadora.contas.calculate_impact": (
+            "denial_ratio",
+            "divergencia_valor",
+            "glosa_count",
+            "has_glosas",
+            "linhas_glosadas_candidatas",
+            "total_glosado_candidato_centavos",
+            "valor_apresentado_brl",
+        ),
+        "operadora.contas.prepare_triage_dossier": (
+            "beneficiario_pseudo_id",
+            "categoria_normalizada",
+            "categories",
+            "competencia",
+            "conta_origem_ref",
+            "data_recebimento_lote",
+            "data_vencimento",
+            "denial_ratio",
+            "divergencia_valor",
+            "documentacao_anexa",
+            "glosa_count",
+            "has_glosas",
+            "indicio_fraude_sinalizado",
+            "instrumento_pagamento",
+            "item_conforme_tabela",
+            "linhas_conta_refs",
+            "linhas_glosadas_candidatas",
+            "numero_conta",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+            "prestador_id",
+            "reason_codes_tiss",
+            "reason_map",
+            "tenant_id",
+            "tipo_item",
+            "tipo_lote",
+            "total_glosado_candidato_centavos",
+            "valor_apresentado_brl",
+        ),
+        "operadora.contas.registrar_glosa": (
+            "analista_id",
+            "codigo_glosa_tiss",
+            "decisao_contas",
+            "justificativa_glosa",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+            "tenant_id",
+            "valor_glosado_brl",
+            "valor_liberado_brl",
+        ),
+        "operadora.contas.emitir_demonstrativo": (
+            "analista_id",
+            "business_key",
+            "codigo_glosa_tiss",
+            "competencia",
+            "desfecho",
+            "justificativa_devolucao",
+            "justificativa_glosa",
+            "motivo_devolucao",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+            "prestador_id",
+            "tenant_id",
+            "tipo_comunicacao",
+            "valor_apresentado_brl",
+            "valor_glosado_brl",
+            "valor_liberado_brl",
+        ),
+        "operadora.contas.devolver_conta": (
+            "analista_id",
+            "justificativa_devolucao",
+            "motivo_devolucao",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+        ),
+        "operadora.contas.notify_sla_risk": (
+            "grupo",
+            "numero_lote_tiss",
+            "sla_remaining",
+            "tenant_id",
+        ),
+        "operadora.contas.handoff_pagamento": (
+            "analista_id",
+            "competencia",
+            "conta_origem_ref",
+            "data_vencimento",
+            "fonte_valor",
+            "instrumento_pagamento",
+            "lastro_origem",
+            "numero_guia_tiss",
+            "numero_lote_tiss",
+            "prestador_id",
+            "tenant_id",
+            "valor_apresentado_brl",
+            "valor_liberado_brl",
+        ),
+        "operadora.contas.start_fraude": (
+            "analista_id",
+            "evidencia_refs",
+            "indicadores_presentes",
+            "numero_caso",
+            "numero_lote_tiss",
+            "prestador_id",
+            "tenant_id",
+        ),
+        "operadora.contas.publish": (
+            "event_type",
+            "payload",
+            "topic",
+        ),
+    }
+)
+
+
 def register_contas_workers(
     harness: WorkerHarness,
     kafka: KafkaPublisher | None = None,
@@ -1778,59 +1939,70 @@ def register_contas_workers(
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.identify_glosa", functools.partial(identify_glosa_entry, kafka=kafka)
-        )
+        ),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.identify_glosa"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.analyze_reason",
             functools.partial(analyze_reason_entry, kafka=kafka, dmn=dmn),
-        )
+        ),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.analyze_reason"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.calculate_impact", functools.partial(calculate_impact_entry, kafka=kafka)
-        )
+        ),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.calculate_impact"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.prepare_triage_dossier",
             functools.partial(prepare_triage_dossier_entry, kafka=kafka, dmn=dmn),
-        )
+        ),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.prepare_triage_dossier"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.registrar_glosa",
             functools.partial(registrar_glosa_entry, kafka=kafka),
-        )
+        ),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.registrar_glosa"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.emitir_demonstrativo",
             functools.partial(emitir_demonstrativo_entry, kafka=kafka),
-        )
+        ),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.emitir_demonstrativo"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.devolver_conta", functools.partial(devolver_conta_entry, kafka=kafka)
-        )
+        ),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.devolver_conta"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.notify_sla_risk", functools.partial(notify_sla_risk_entry, kafka=kafka)
-        )
+        ),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.notify_sla_risk"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.handoff_pagamento",
             functools.partial(handoff_pagamento_entry, kafka=kafka, engine=engine, audit_sink=audit_sink),
-        )
+        ),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.handoff_pagamento"],
     )
     harness.register_worker(
         FunctionWorker(
             "operadora.contas.start_fraude",
             functools.partial(start_fraude_entry, kafka=kafka, engine=engine, audit_sink=audit_sink),
-        )
+        ),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.start_fraude"],
     )
     harness.register_worker(
-        FunctionWorker("operadora.contas.publish", functools.partial(publish_entry, kafka=kafka))
+        FunctionWorker("operadora.contas.publish", functools.partial(publish_entry, kafka=kafka)),
+        variables=_CONTAS_FETCH_SCOPES["operadora.contas.publish"],
     )

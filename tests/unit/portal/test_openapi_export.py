@@ -41,6 +41,9 @@ EXPECTED_PATHS = {
     "/api/v1/portal/intakes/auth/links",
     "/api/v1/portal/intakes/{intake_ref}",
     "/api/v1/portal/intakes/{intake_ref}/document-uploads",
+    # Provider notice read and explicit acknowledgement; no delivery on GET.
+    "/api/v1/portal/provider-notices/{notice_ref}",
+    "/api/v1/portal/provider-notices/{notice_ref}/acknowledgements",
     "/api/v1/portal/session",
     "/api/v1/portal/tasks",
     "/api/v1/portal/tasks/{task_id}",
