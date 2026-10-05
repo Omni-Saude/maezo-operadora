@@ -367,11 +367,16 @@ class ProviderSchemaValidator:
     ) -> ProviderSchemaResult:
         start = time.monotonic()
         # Runtime validation also protects callers that ignore the Python type contract.
-        if not isinstance(profile, Profile) or not isinstance(direction, Direction):
+        if (
+            type(profile) is not Profile
+            or not any(profile is member for member in Profile)
+            or type(direction) is not Direction
+            or not any(direction is member for member in Direction)
+        ):
             return ProviderSchemaResult(False, False, None, ("UNSUPPORTED_PROFILE_OR_DIRECTION",))
-        if catalogue_version != CATALOGUE_VERSION:
+        if type(catalogue_version) is not str or catalogue_version != CATALOGUE_VERSION:
             return ProviderSchemaResult(False, False, None, ("UNSUPPORTED_CATALOGUE_VERSION",))
-        if not isinstance(operation, str) or operation not in OPERATIONS:
+        if type(operation) is not str or operation not in OPERATIONS:
             return ProviderSchemaResult(False, False, None, ("UNSUPPORTED_OPERATION",))
         selected = OPERATIONS[operation]
         if direction != selected.direction:
@@ -381,7 +386,7 @@ class ProviderSchemaValidator:
         def result(reason: str, *, xsd: bool | None = None, available: bool = True) -> ProviderSchemaResult:
             return ProviderSchemaResult(available, False, xsd, (reason,), graph_sha256=graph)
 
-        if not isinstance(payload, bytes) or not payload or len(payload) > MAX_BYTES:
+        if type(payload) is not bytes or not payload or len(payload) > MAX_BYTES:
             return result("PAYLOAD_SIZE_OR_TYPE_REFUSED", available=False)
         try:
             files = _verified_files()
