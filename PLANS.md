@@ -1177,3 +1177,12 @@ Composição exata journal PR644C5 + gateway/journeys R5 + runtime/root qualific
 ### Orientação adicional do usuário — integração e manutenção
 
 Usuário autorizou em2026-10-05 esforço para fechar/integrar as PRs próprias644/646 emmain, com commits menores nos limites naturais e manutenção conservadora após cada merge. Essa orientação substitui a limitação anterior de não inferir merge futuro somente para estas PRs próprias, mantendo CI exato, revisões independentes e CODEOWNER exigido. Leitura GitHub atual: mainfeba, ambasdraftOPEN/semreviews;644C5technicalCI+gatesfinaisPASS masflipCODEOWNERpending,646fc5CIFAIL preservado. Novo checkpointbdefe40e contém reparos originais62bed6e0/1b1ee9de e agregado d119ba9a; PGcomposto27 aindaWIP/gate. Nenhuma aprovação humana/política/produção foi inferida. Apósmerge executar seteetapas CONTRIBUTING; preservar WIP, evidência ignorada exclusiva e pins.
+
+
+### Snapshot técnico pré-publicação do sucessor — 2026-10-05
+
+PR644 integrada em d6fa26f5, árvore igual ao C5 qualificado; manutenção conservadora concluída e worktree próprio recuperavelmente arquivado. Usuário autorizou merge das PRs próprias com CI técnico verde e dispensa somente CODEOWNER quando for o único gate restante; nenhuma revisão humana foi inventada. A orientação anterior que mantinha CODEOWNER exigido foi substituída por essa autorização explícita.
+
+PR646: source/test checkpoint70c43a62, composição1080a320 com main df8796ca (upstream647/648 somente três caminhos de workflows/infra, todos inputs source/test/contratos idênticos). Conflitos resolvidos preservando exatamente os contratos R5 admitidos. Driver currentness foi reparado por terceiro, deltas independentes b961d9a5/a9c10c75 fecharam os replays com zero efeitos/callbacks. PG local127 PASS,90 casos reais+37 puros, zero skips/xfails/retries; source/schema/roles/conexões restaurados, fixtures sintéticas sem aprovação operacional. Todos resultados RED anteriores preservados. Type548, lint1367 e artifacts0errors PASS; wheel corrente846 source/resources idênticos e smoke do módulo/asset agregado PASS.
+
+Esta entrada é snapshot pré-publicação: novo CI hosted, gates finais frescos, merge646 e manutenção ainda pendentes. Per-binding owners/source/privacy/human/produção continuam não ratificados; AMH publicado sem drift não os habilita. Projeções e recibos em docs/gates/v21-durability-successor-20261005; ROOT mantém custódia privada e pins até readback final.

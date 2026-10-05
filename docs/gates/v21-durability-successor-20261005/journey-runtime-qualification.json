@@ -2,50 +2,70 @@
   "schema": "maezo.durable-administrative-runtime-qualification.v1",
   "event_id": "DUR-JOURNEY-RUNTIME",
   "baseline": "feba801cf5eea6383f2db88bb02d52d9911049f3",
-  "source_composition_commit": "47d571eb94088d1bbcc3b1ec2e5d323a915b3215",
+  "source_composition_commit": "1080a320dea1e20347b098d96eb90b7bdcf38c56",
   "journal_dependency": {
     "draft_pr": 644,
     "head": "c5d9cb79f0191ff9b0e696e4cb0117dde6a88075",
     "ci_run": 37269454216,
-    "code_test_ci": "PASS",
-    "qualified_CODEOWNER_approval": "PENDING"
+    "code_test_ci": "PASS_HISTORICAL_EXACT_C5",
+    "qualified_CODEOWNER_approval": "NO_REVIEW_INFERRED_FROM_HUMAN_MERGE_AUTHORIZATION",
+    "status": "MERGED",
+    "merged_at_utc": "2026-10-05T11:21:41Z",
+    "main_squash_commit": "d6fa26f506a1524451bda2e3fc0db8d756722697",
+    "main_squash_tree": "0e5471616877312d9e5a77d40768b3c1c0c6ad5e",
+    "main_squash_tree_equals_C5": true,
+    "maintenance": "SEVEN_STEPS_COMPLETE_SCOPED_OWN_RESOURCES",
+    "draft": false
   },
-  "status": "COMBINED_SOURCE_REAL_POSTGRES_PASS__PUBLISHED_CI_FINAL_GATES_PENDING",
-  "scope": "Default-disabled shared durable capability gateway, Compras/Suporte journey driver and return, complete Lucas LangGraph runtime over PostgreSQL saver, explicit trusted registry/webhook and administrative resume attachment.",
+  "status": "PREPUBLICATION_SOURCE_REAL_POSTGRES_PASS__EXACT_HOSTED_CI_FINAL_PENDING",
+  "scope": "Default-disabled shared durable gateway, Compras/Suporte driver/return, full Lucas LangGraph over real PostgreSQL saver, explicit trusted ingress/resume, closed currentness and exception custody, and pure aggregate-export validator. Technical mechanism qualification only; operational providers and human policy remain gated.",
   "source_inputs": {
+    "docs/design/v21-capabilities/aggregate-validator-technical-api.proposed-r1.json": "546d8c5ea0a5de90b40ec2c0fec83781fe32ba3bacfdf794af1c8b2586cd4ec2",
     "docs/design/v21-capabilities/durability-contract.json": "818a4663cb9f0e4095ef87657eefd63f9d3728a414f4ea9bfe78d17f5c7147fd",
     "docs/design/v21-capabilities/durability-contract.md": "526e76a4f177d41771a03c83b495ee97b5df82306374952bbea8b49f38f3921f",
     "docs/design/v21-capabilities/journey-orchestration-contract.json": "62ac7e3bf121e70719c4a09bbadf0f91fee1651116b8fb821fd05e1d65f76160",
     "docs/design/v21-capabilities/journey-orchestration-contract.md": "5bc851ada46b7f3b78e503fcb8480a178b4277f358d13e7d1aada2db413d7904",
+    "docs/design/v21-capabilities/proposals/human-source-decision-packet.proposed-v1.json": "f12a6d006ad9f62e8b5d46fdacc0af367c32abd5a6e7f95b3a059955c8af2e54",
+    "docs/design/v21-capabilities/proposals/measurement-export-closed-shapes.proposed-v2.json": "9f7063d5e3a633e22459be25e6c61ce64e07eaff92ccb7259deaf06bc577313c",
+    "docs/design/v21-capabilities/proposals/measurement-export-contract.proposed-v2.md": "290c9f27474f08bf97d3736c1c0b922a6c5a7b6b6530fb1b01ad3ac98614520e",
+    "docs/design/v21-capabilities/proposals/measurement-protocol.proposed-v2.json": "08ed9bdec583ee6516818dfebfe8c7b96354b3975dcf287a89e9bebfaccd81a0",
+    "docs/design/v21-capabilities/proposals/optional-feedback-financial-independence.proposed-v2.md": "f0943110cbcbe5cabcd3a0e2b91ad4f7590e11c48b30818b1e72a3835fe365bf",
+    "docs/design/v21-capabilities/proposals/remaining-gate-matrix.proposed-v2-financial-only.json": "f9d0027457abf5324375ddf1ffe47c409387f707ffce90e58d92ccd6a6a6c70c",
+    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "b3d2314da31ad225d94e7ab4594c1392c696522dfc801594f5d52fd7d57d7f8c",
     "spec/policies/retention/erasure-plan.template.yaml": "42f7767f26ff798e74687b239e51743dcac616a921d7b225fa92741f767ddafc",
     "src/maezo/agents/lucas/administrative/journey.py": "3469cb27912fa528287461645b4475f4f508195917957a8ac3ad6ab2882bd783",
-    "src/maezo/agents/lucas/administrative/runtime.py": "254335d7dc39a2997add767fe56c9d50b2f4cea46cae05412e795e1229e09b1f",
+    "src/maezo/agents/lucas/administrative/runtime.py": "e59027436df49f9177b3d91651beeeb5f9895d1628ada3083342f3511bfe0254",
+    "src/maezo/gateway/aggregate_export_validation.py": "c31e72c62669cca147f482e6959784d16fb62706661095c7c6ca0ddb9518e50e",
     "src/maezo/gateway/capabilities/admission.py": "9162495134df9a022127c6c6db69aa78c08f2bdc7ba7779f166d617aeb9e8202",
     "src/maezo/gateway/capabilities/durability/__init__.py": "46604853bfa7a9ce49a46acb9c3e7dfa20898a9017df5f36fd4da90ac37a2361",
     "src/maezo/gateway/capabilities/durability/models.py": "d51835e2f446c991e390aa044f9dfcbc45cd91da831ce67da04b0f74c9cde22d",
     "src/maezo/gateway/capabilities/durability/ports.py": "20f0189737a557845d875b9ce6f1afddf488281dfd5127d30c7045910e9aba40",
     "src/maezo/gateway/capabilities/durability/postgres.py": "4a94e672c43cedfd050928c5b77d1ef07993b44b7aedc24c02b79f30aff0bdc8",
     "src/maezo/gateway/capabilities/durability/schema.sql": "b9420a4f5d37cc7f654989445b9288cec3912dc6c23b42f38359271405a6430d",
-    "src/maezo/gateway/capabilities/durable_execution.py": "5e6e38936b8422f4c91dfa5826ec43afee9a410bc9e5ff04a2bcb52d66e00565",
+    "src/maezo/gateway/capabilities/durable_execution.py": "9f5b3c0b1ef920055655b18bd1db19c7f17d6a2f29614dda5b623b005d2f1c22",
     "src/maezo/gateway/capabilities/journeys/__init__.py": "2dcf51ab7c753c0e98cfb72a5545d0ece8ea19faa208bfe4d5246c86da899257",
     "src/maezo/gateway/capabilities/journeys/contracts.py": "d657b43c231ec2392c2e98fd28836a735c835605db75998427314da7b3a4f8a1",
-    "src/maezo/gateway/capabilities/journeys/domain_boundary.py": "49c63da18b6ff56600030584c16fa12310195dd7758496f535bf906340f321b4",
-    "src/maezo/gateway/capabilities/journeys/driver.py": "f9da014f2b916479c59eafb8fad8612fcfac51dc85619f7b5cc81489ab276338",
+    "src/maezo/gateway/capabilities/journeys/domain_boundary.py": "8dd62c4391aa3ae31acd1af585626a7ad4ed07ce94dbcd719840259f6f5448ba",
+    "src/maezo/gateway/capabilities/journeys/driver.py": "acdb21492560e6ca6acf4e7a2248a5e68a569c4b4b3b218f023d814322f5e134",
     "src/maezo/gateway/capabilities/journeys/returns.py": "e0b24ffc13d362174bd4a6d4081faa2643c84db150862a845abfbcd8f1235ab2",
     "src/maezo/gateway/capabilities/journeys/topology.py": "bc45cead90731d5c80a2f459269b7267f53b1e78c1e719e57f2b0845f8a79b51",
     "src/maezo/gateway/capabilities/service.py": "685750e081d49b3f53e3eb2f8557c8cab2d8caf2be0ae6ccb9c60f0b45e35d02",
+    "src/maezo/gateway/measurement-export-closed-shapes.proposed-v2.json": "9f7063d5e3a633e22459be25e6c61ce64e07eaff92ccb7259deaf06bc577313c",
     "src/maezo/gateway/tool_registry.py": "a635cadf8fc0b57a2dcab268535dfd3e2938bf11f365685cc0201ad1799d50a5",
     "src/maezo/platform/integrations/agent_resume.py": "5a9bc294e54ff1f61191bfcf403a218ff41a7d5b932aca0e5137439389516f5a",
     "src/maezo/platform/lifecycle/erasure_plan.py": "9db11a3520d9286bc995501875fbb7ac7f6bc614675489492341829a55ec22b2",
     "src/maezo/platform/migrations/versions/0018_capability_durability_journal.py": "7f9884297523f8030519a34df7172e4121c85b7262b207b00d2058bc31e31afc",
     "src/maezo/platform/webhooks/service.py": "31faf4aef1b6d83769b9dcfc2ff6eb88a87308788fb8269b9e2ed2eed8784e22",
     "src/maezo/platform/webhooks/whatsapp/dispatch.py": "3f84561f8b9e5bc4587614d6c407eaa2d6ce25fedea96d78f2c7a3df2ce6e1f6",
+    "src/maezo/runtime/dependency_failures.py": "7b8a8af102d24195bfab7e5c40b7820b6378caa88dbdf207f12f65fd1ec072f6",
     "tests/integration/agents/test_lucas_administrative_runtime_pg.py": "99c3e3fb2bd6bd7b2419bf4caac7ec8280ce137abb4d9086362c30df89a45902",
     "tests/integration/gateway/test_capability_durability_pg.py": "730ae2b92fe5bcb1de838a72a982a9f5f01fc328c1b6d7baf464afc67c24f483",
     "tests/integration/platform/test_capability_durability_migration_pg.py": "122b34ab2f23e44a4db9dbcc7d06a13c81f8bfba37a5f6b07e4fa0b7ab32a3d0",
     "tests/unit/agents/test_administrative_journeys.py": "b141a8c561c64cde2b9cf98984000b8d6da286accea81bb45aa47a40068a2ba7",
+    "tests/unit/agents/test_error_field_no_raw_exception.py": "8cee745b606f88af061ae0d353d3a1655e1d7257eebd76098c06e0473a82fb2a",
     "tests/unit/agents/test_lucas_administrative_runtime.py": "9599d185fe4e0b987a5478a32d9c8ddeb67f188eced7b64251444f217c87517b",
     "tests/unit/agents/test_lucas_administrative_runtime_closed_input.py": "54d2d655b829c7fd0799dfa09cd1ac9940aaa4a02b807fbb73dae6f24112dae1",
+    "tests/unit/agents/test_lucas_administrative_runtime_exception_boundary.py": "78803a07eca717be440fe60bd4ecb420b9106a7542e37688b212f3cfae935d5f",
     "tests/unit/docs/test_dpo_drafts_citations.py": "622fc7c58106fadeb0e25e48526cbadd894aed172c76e398f7fc6ad324391522",
     "tests/unit/gateway/capabilities/durability/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "tests/unit/gateway/capabilities/durability/fixtures.py": "5defa55b82b6198f9af7a3ea1b99c1cec310987643972accc2c4425d741642ea",
@@ -61,19 +81,24 @@
     "tests/unit/gateway/capabilities/test_admission.py": "94454b0e0299e380f27122696bd6ad1b9acdaaf7097e13f62a6f98c2ed3d92f0",
     "tests/unit/gateway/capabilities/test_durable_execution.py": "357c40780d6bedb7bb32aa8afcc22e68e42bab3c83d0d3d459665b1a6793fc11",
     "tests/unit/gateway/capabilities/test_durable_result_custody.py": "fe0936903c1b93e9af390f349894cc74f1de023b60bcb57827ac6a7ab76f7971",
+    "tests/unit/gateway/capabilities/test_exception_refusal_custody.py": "cbe4ad1a2db05120d47866058041ebc6cc2e2cda2fb668e597b5b14934b4368b",
+    "tests/unit/gateway/test_aggregate_export_validation.py": "5949d9aa51d2657f2997a9182e12d8cb8fc1655dc9f368e7b6d1d3a5a8b338f3",
     "tests/unit/platform/integrations/test_administrative_resume_attachment_disabled.py": "0935f397463f802777cfdbb840cc448d8cfa5ffc73e4eab5d95061319b67b7c6",
+    "tests/unit/platform/integrations/test_agent_resume.py": "08fecabe025e923475bb602ce6170285fb99aee5a1fb60cb53cc392c7da16c5f",
+    "tests/unit/platform/integrations/test_agent_resume_flow.py": "a9d87bbc016931c099636a122d4d1e7d792f25bd63c7467e43584d0a1afb9c00",
     "tests/unit/platform/test_administrative_root_canonical_snapshot.py": "6aace8ab6e4237b3ac6ce0d2b482a27866cb598e3263d8313f310d5745763d66",
     "tests/unit/platform/test_administrative_root_epoch.py": "043c87d3221557454831eb5d31e67e11a82bfda0fd59a337274f8fac3f46c8c5",
+    "tests/unit/platform/test_alert_metrics_fence.py": "235e67ec6ebb7ddf9ff8d622c0f18fb3c1d326ac1229296081f8c8727cc0f919",
     "tests/unit/platform/test_erasure_plan.py": "8f13507c5400253a1194338e9ce888ad3e0d46c9b391e2b4a652bfa44a40bccc",
     "tests/unit/platform/test_migration_0010_webhook_wamid_dedup.py": "458dd3e0f0dfd08a7bf12e1fdd31a10bf4949872a36cce67d669ba6f9b3049b1",
     "tests/unit/platform/webhooks/test_administrative_attachment_disabled.py": "405b2322e2792e3c8ea20563e85477770d1ea051d826c5bd8c4b5cf005f51044",
+    "tests/unit/platform/webhooks/test_service.py": "b0a3aef36bb11185bced3480aebe7ade8f29652a4620f8856f9bfafbfaef37a9",
+    "tests/unit/platform/webhooks/test_service_roteador.py": "76657184750f69e2e3ac1e6304ab14653e3db2ec140b5a1022c28d99fd4e854b",
+    "tests/unit/platform/webhooks/whatsapp/test_dispatch.py": "805db2eab8216fc0aad0993698b8eac5710304c5c369bed67eaa74fedbe1ff99",
     "tests/unit/portal/test_identity_migration.py": "8a08d09fc42a23c4113161ea4e7a477c7fb9ad58906b985a668e63b551d4d6b8",
-    "docs/design/v21-capabilities/proposals/measurement-protocol.proposed-v2.json": "08ed9bdec583ee6516818dfebfe8c7b96354b3975dcf287a89e9bebfaccd81a0",
-    "docs/design/v21-capabilities/proposals/remaining-gate-matrix.proposed-v2-financial-only.json": "f9d0027457abf5324375ddf1ffe47c409387f707ffce90e58d92ccd6a6a6c70c",
-    "docs/design/v21-capabilities/proposals/measurement-export-closed-shapes.proposed-v2.json": "9f7063d5e3a633e22459be25e6c61ce64e07eaff92ccb7259deaf06bc577313c",
-    "docs/design/v21-capabilities/proposals/optional-feedback-financial-independence.proposed-v2.md": "f0943110cbcbe5cabcd3a0e2b91ad4f7590e11c48b30818b1e72a3835fe365bf",
-    "docs/design/v21-capabilities/proposals/measurement-export-contract.proposed-v2.md": "290c9f27474f08bf97d3736c1c0b922a6c5a7b6b6530fb1b01ad3ac98614520e",
-    "docs/design/v21-capabilities/proposals/human-source-decision-packet.proposed-v1.json": "f12a6d006ad9f62e8b5d46fdacc0af367c32abd5a6e7f95b3a059955c8af2e54"
+    "tests/unit/runtime/test_broad_except_allowlist.py": "7f3b2369a21c30702d352eaeef25bcf1625f2fc079a30ccf7f226ecdcf04ecd7",
+    "tests/integration/agents/test_lucas_administrative_runtime_composed_pg.py": "50d892a30eda68a7b167f25cbb962ae6d1947e218ffa18348c17d921daf11af3",
+    "tests/unit/gateway/capabilities/journeys/test_driver_currentness_control.py": "d164967fc330cffc12dc71f820b2b8b3fdd39d6b04bd5f552fe2a422b23c2fe1"
   },
   "independent_private_receipt_digests": {
     "authority_contract_r5": "876de480e73c289705ae017a70014fa87fb38cc3ae487f21ae546fd7df78e8fb",
@@ -83,44 +108,82 @@
     "journal_c5_ci": "32dabd482cbe3816acd766c9f7fa6e4928ebb6900217d8a4f97d294b8e673e9b",
     "combined_runtime_pg_original_delta": "532e975c3f05c2f9d21b4753a86b06cb0b173c9a59b84605f9e2962fc82eb903",
     "proposal_publication_delta": "1a0f6cbc7524bb904d3e5ecd0d7bd982890af10e58762f644eca77769c6de419",
-    "fresh_architecture_preflight": "2938b818790394a55d9c921e696c197cb8447bcd40272f634578d354d4a848c3",
-    "fresh_security_preflight": "7b12c2259c672d0f07caa1b197108ead8ba201c8ef4be967b0f11d2bd3208e02"
+    "runtime_exception_original_delta": "62bed6e050ffae0ed40488b3f2ad68678fc3e1c93786a8daa0fe269ee7d94c3a",
+    "gateway_exception_privacy_original_delta": "1b1ee9de035a60ce18a2d51c9c1ae05becef9f282ba4f401080e7c45c8e263f4",
+    "aggregate_validator_source_original_delta": "d119ba9a8eb53f64f86718a5964a01a49970294f2c1923cfe7ec4d64c30c080c",
+    "aggregate_validator_publication_delta": "103ebd6210aed7f63c047ee9ee4468c6fc1ab9e00a1d6396ed1795c0aab68094",
+    "currentness_security_original_delta": "b961d9a567d21df134dcbae3e7f63ab2c410884149f08f24ec3650e28d737449",
+    "currentness_architecture_original_delta": "a9c10c75610c72ffd36e7a7554c7e62af7ef93a3973eb878d750a347281e8aae",
+    "combined_pg127_original_delta": "8269436a1dae2bc0fb885e7477a35eaaa9355065480355f2877e72c1c4924616",
+    "source_readiness_refresh": "8899c6ba0d36ec579c05c25766e3409d3b079f611bcc23eb15e013de8a313d98",
+    "historical_fc5_fresh_architecture_preflight": "2938b818790394a55d9c921e696c197cb8447bcd40272f634578d354d4a848c3",
+    "historical_fc5_fresh_security_preflight": "7b12c2259c672d0f07caa1b197108ead8ba201c8ef4be967b0f11d2bd3208e02"
   },
   "validated_scopes": {
-    "journey_gateway_unit": 277,
-    "root_runtime_unit": 589,
-    "journal_storage_unit": 45,
-    "journal_real_pg": 28,
-    "migration_real_pg": 12
+    "historical_only": {
+      "journey_gateway_unit": 277,
+      "root_runtime_unit": 589,
+      "journal_storage_unit": 45,
+      "journal_real_pg": 28,
+      "migration_real_pg": 12
+    },
+    "current_component_units": {
+      "runtime_exception": 864,
+      "gateway_privacy": 508,
+      "aggregate_validator_python312": 176,
+      "driver_currentness_author": 43
+    },
+    "counts_are_separate_overlapping_component_runs_not_a_combined_total": true
   },
   "combined_runtime_pg": {
-    "status": "PASS_REAL_POSTGRES_MECHANISM_ONLY",
-    "passed": 22,
+    "status": "PASS_REAL_POSTGRES_MECHANISMS_ONLY",
+    "execution_head": "70c43a625460db2b8fcca302425a086e69428afa",
+    "execution_tree": "3d862ebfa7f5d553263e881b603b6c3395e400a7",
+    "passed": 127,
     "failed": 0,
+    "errors": 0,
     "skipped": 0,
     "xfail": 0,
-    "original_rejected_result": {
-      "passed": 21,
-      "failed": 1,
-      "finding": "Invalid tenant test fixture rejected before isolation assertion",
-      "preserved": true
+    "retries": 0,
+    "actual_PG_cases": 90,
+    "pure_fixture_controls": 37,
+    "new_composed_file": {
+      "passed": 65,
+      "actual_PG": 28,
+      "pure": 37
     },
-    "third_repair": "Two fixture-only lines; all 11 binding parameters and config/cross-load assertions retained.",
-    "original_delta_sha256": "532e975c3f05c2f9d21b4753a86b06cb0b173c9a59b84605f9e2962fc82eb903",
-    "source_provider_qualification": false
+    "previous_files_refreshed_actual_PG": 62,
+    "original_delta_sha256": "8269436a1dae2bc0fb885e7477a35eaaa9355065480355f2877e72c1c4924616",
+    "fixture_source_delta_sha256": "b9bc3f2495a40de27f1c8ef540fcc9ecf676ac41ede6a81639fa6a86867086df",
+    "cleanup_schemas_roles_connections_restored": true,
+    "both_CAS_orders_with_server_blocking_confirmed": true,
+    "postcommit_data_gate_closed_no_snapshot_known_facts_retained": true,
+    "both_task_multi_action_reconnect_fresh_resume_reply_passed": true,
+    "source_provider_qualification": false,
+    "prior_rejections_preserved": true
   },
   "CI": {
-    "status": "PENDING_EXACT_PUBLISHED_CANDIDATE"
+    "status": "PENDING_EXACT_NEXT_PUBLISHED_CANDIDATE",
+    "head": "PENDING",
+    "tree": "PENDING",
+    "run_id": "PENDING",
+    "conclusion": "PENDING",
+    "pr646_fc5_failure_preserved": true,
+    "local_component_pass_is_hosted_CI": false
   },
   "fresh_final_architecture": {
-    "status": "PENDING"
+    "status": "PENDING_EXACT_COMBINED_CANDIDATE",
+    "sha256": "PENDING",
+    "author_must_be_independent_of_this_documentation_proposal": true
   },
   "fresh_final_security": {
-    "status": "PENDING"
+    "status": "PENDING_EXACT_COMBINED_CANDIDATE",
+    "sha256": "PENDING"
   },
   "operational_source_authority": {
     "status": "PENDING_PER_BINDING",
-    "synthetic_mechanism_fixtures_are_provider_qualification": false
+    "synthetic_mechanism_fixtures_are_provider_qualification": false,
+    "published_refresh_sha256": "8899c6ba0d36ec579c05c25766e3409d3b079f611bcc23eb15e013de8a313d98"
   },
   "human_conduct_provider_privacy_ratification": "PENDING",
   "production": {
@@ -133,8 +196,8 @@
   "known_commit_or_fence_cleared_for_retry": false,
   "historical_rejections_and_raw_evidence": "Preserved privately, never converted into passing source/runtime approval.",
   "owner": "ROOT successor",
-  "release_condition": "Exact published CI and independent final readback; private rejected snapshots, source pins and custody retained. No future main merge authorized.",
-  "proposal_documents": "Six reviewed W0/W4/W5 projections, PASS_PROPOSAL_ONLY, exact inputs qualified separately in program-proposals-qualification.json; no source/human/operational ratification.",
+  "release_condition": "Exact next published CI and applicable independent final gates green; conditional direct-human CODEOWNER-only waiver applies solely when it is the only remaining gate. Then authorized merge and seven-step conservative maintenance. Human/provider/production acts remain separate.",
+  "proposal_documents": "Six W0/W4/W5 proposal-only projections plus scoped pure aggregate-validator technical API/source/publication projection. Owner/source/privacy/export policy and numerical disclosure remain unratified; baseline/ROI UNMEASURED.",
   "ledger_recipe": {
     "test_path": "tests/unit/gateway/capabilities/journeys/test_contracts.py",
     "actual_passed_results": 15,
@@ -142,5 +205,250 @@
     "metadata_admission": "OFFLINE statically resolved pytest metadata",
     "claim": "Representative R5 closed-record/27-cursor contract controls. Broad runtime/source/PG evidence remains independently anchored in this record.",
     "prior_anchor": "Attachment16 recipe actual PASS, but offline ledger admission could not resolve inherited Pydantic model_fields collection metadata; refusal preserved. No live override, checker edits or selector changes."
-  }
+  },
+  "source_inputs_are_digest_inventory_not_combined_approval": true,
+  "candidate_head": "PENDING_NEXT_PUBLISHED_HEAD",
+  "candidate_tree": "PENDING_NEXT_PUBLISHED_TREE",
+  "merge_base": "df8796caed938942a33c8c99503f579ff148e415",
+  "main_readbacks": {
+    "pr644_integration": {
+      "head": "d6fa26f506a1524451bda2e3fc0db8d756722697",
+      "tree": "0e5471616877312d9e5a77d40768b3c1c0c6ad5e",
+      "tree_equals_C5": true,
+      "evidence_sha256": "8156834b802b522bc31c687b6a5098fe0ad2ad64d2c82916f0e5f4845cd4a7a7",
+      "snapshot_not_live_query_by_this_document_author": true
+    },
+    "later_root_readback": {
+      "head": "df8796caed938942a33c8c99503f579ff148e415",
+      "tree": "ed15dd09f8070e4fc2ca94e27a308caa643270e9",
+      "external_PRs": [
+        647,
+        648
+      ],
+      "delta_paths": [
+        ".github/workflows/cd.yml",
+        ".github/workflows/supply-chain.yml",
+        "deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars"
+      ],
+      "composition_commit": "1080a320dea1e20347b098d96eb90b7bdcf38c56",
+      "source_test_contract_inputs_unchanged_from_executed70c43": true,
+      "merge_conflicts_resolved_with_exact_qualified_R5_bytes": true,
+      "whole_combined_CI_approval": false
+    }
+  },
+  "component_original_deltas": {
+    "runtime_exceptions": {
+      "status": "PASS_SCOPED_RUNTIME_CI_EXCEPTION_SOURCE",
+      "sha256": "62bed6e050ffae0ed40488b3f2ad68678fc3e1c93786a8daa0fe269ee7d94c3a",
+      "unit_passed": 864,
+      "components": {
+        "prior_behavior": 589,
+        "new_exception_controls": 185,
+        "complete_existing_fence_modules": 90
+      },
+      "original_programming_error_cases": 24,
+      "precise_closed_refusal_values": 7,
+      "cancellation_counted": false,
+      "scope": "Four private runtime methods/staged control and one justified existing-category(a) count-and-reraise inventory entry; current whole candidate/PG/CI not inherited."
+    },
+    "gateway_exception_custody": {
+      "status": "PASS_SCOPED_ORIGINAL_REVIEWER_DELTA_SOURCE_UNIT_ONLY",
+      "sha256": "1b1ee9de035a60ce18a2d51c9c1ae05becef9f282ba4f401080e7c45c8e263f4",
+      "unit_passed": 508,
+      "original_regressions": 277,
+      "new_exception_controls": 231,
+      "scope": "Only original three reproduced exception-reason custody P1s in actual DUR3 APIs/domain boundary/driver catches. Native storage read is bounded to trusted BaseException descriptor, exact built-in dictionary and exact primitive key, canonical CapabilityRefusalReason member identity. No exception getter/string/coercion/reflection hook can supply protected output.",
+      "whole_candidate_approved": false
+    },
+    "aggregate_validator": {
+      "status": "PASS_SOURCE_IMPLEMENTATION_ONLY",
+      "sha256": "d119ba9a8eb53f64f86718a5964a01a49970294f2c1923cfe7ec4d64c30c080c",
+      "qualified_python": "3.12.13",
+      "unit_passed": 176,
+      "wheel_module_asset_verified": true,
+      "python314_known_baseline": {
+        "suite": "RED_UNQUALIFIED",
+        "independent_original_R1_and_repaired_R2": "both reject dataclasses.replace disclosure-field mutation with TypeError; unchanged test expects ValueError",
+        "permission_bypass": false,
+        "repair_regression": false,
+        "not_concealed_by_skip_or_original_test_edit": true
+      },
+      "numeric_disclosure_export_owner_privacy_authority_granted": false
+    },
+    "aggregate_publication_projection": {
+      "status": "PASS_PUBLICATION_PROJECTION_AND_SOURCE_READBACK_ONLY",
+      "sha256": "103ebd6210aed7f63c047ee9ee4468c6fc1ab9e00a1d6396ed1795c0aab68094",
+      "checkpoint_observed": "bdefe40e0bd806610ebc9f51db57c850b9ea0a74",
+      "claim_limit": "Only path-normalized public API and truthful scoped qualification working draft bytes, and identical integrated3sourceinputs committed at bdef checkpoint. Public docs are untracked drafts at readback, not published/committed by this gate. Whole candidate CI, current runtime/integrated wheel and fresh final independent gate remain separate.",
+      "qualified_source_bytes_not_whole_candidate": true,
+      "final_commit_publication_readback": "39f8ed28ddd901701899c9be325773450ace1e98; exact API/source inputs retained"
+    },
+    "driver_currentness_control": {
+      "status": "PASS_SOURCE_UNIT_ONLY",
+      "source_sha256": "acdb21492560e6ca6acf4e7a2248a5e68a569c4b4b3b218f023d814322f5e134",
+      "author_unit_passed": 43,
+      "original_security_delta_sha256": "b961d9a567d21df134dcbae3e7f63ab2c410884149f08f24ec3650e28d737449",
+      "security_unit_passed": 88,
+      "independent_architecture_delta_sha256": "a9c10c75610c72ffd36e7a7554c7e62af7ef93a3973eb878d750a347281e8aae",
+      "architecture_focal_passed": 85,
+      "architecture_own_controls_passed": 18,
+      "original_replays_effects_commands_callbacks": 0,
+      "original_RED_preserved": true,
+      "scope": "Only _control exact-type/canonical enum identity guard and new focused UNIT. All other driver bytes, guards, authority and currentness await positions remain identical."
+    }
+  },
+  "historical_evidence": {
+    "pre_exception_source_runtime": {
+      "source_composition_commit": "47d571eb94088d1bbcc3b1ec2e5d323a915b3215",
+      "validated_scopes": {
+        "journey_gateway_unit": 277,
+        "root_runtime_unit": 589,
+        "journal_storage_unit": 45,
+        "journal_real_pg": 28,
+        "migration_real_pg": 12
+      },
+      "independent_private_receipt_digests": {
+        "authority_contract_r5": "876de480e73c289705ae017a70014fa87fb38cc3ae487f21ae546fd7df78e8fb",
+        "journey_gateway_source_r2": "68af07339fdb926db433766dca2439e94fb498e6be8266cf7082ea3660661f87",
+        "complete_runtime_source": "684b3f33f2b6c5c63621aaebfe1641b637017d3517af29ece0f9edb0da25771c",
+        "root_runtime_final_source_delta": "1ddf7f8c0de48361e2074dc43a94db5e00ac191f8d7f9bee4b0113bc1e1203fb",
+        "journal_c5_ci": "32dabd482cbe3816acd766c9f7fa6e4928ebb6900217d8a4f97d294b8e673e9b",
+        "combined_runtime_pg_original_delta": "532e975c3f05c2f9d21b4753a86b06cb0b173c9a59b84605f9e2962fc82eb903",
+        "proposal_publication_delta": "1a0f6cbc7524bb904d3e5ecd0d7bd982890af10e58762f644eca77769c6de419",
+        "fresh_architecture_preflight": "2938b818790394a55d9c921e696c197cb8447bcd40272f634578d354d4a848c3",
+        "fresh_security_preflight": "7b12c2259c672d0f07caa1b197108ead8ba201c8ef4be967b0f11d2bd3208e02"
+      },
+      "combined_runtime_pg": {
+        "status": "PASS_REAL_POSTGRES_MECHANISM_ONLY",
+        "passed": 22,
+        "failed": 0,
+        "skipped": 0,
+        "xfail": 0,
+        "original_rejected_result": {
+          "passed": 21,
+          "failed": 1,
+          "finding": "Invalid tenant test fixture rejected before isolation assertion",
+          "preserved": true
+        },
+        "third_repair": "Two fixture-only lines; all 11 binding parameters and config/cross-load assertions retained.",
+        "original_delta_sha256": "532e975c3f05c2f9d21b4753a86b06cb0b173c9a59b84605f9e2962fc82eb903",
+        "source_provider_qualification": false
+      },
+      "claim": "Exact prior source/tree component receipts preserved; not reused as approval of changed current runtime/gateway/fixture bytes."
+    },
+    "pr646_fc5_CI": {
+      "status": "FAILURE_PRESERVED",
+      "head": "fc5b668b592f027370f40008e19b631f6ed85092",
+      "tree": "0f094d13d94f9b8459bd121bf748e97687983f19",
+      "run_id": 37288211689,
+      "unit_counts": {
+        "passed": 26891,
+        "skipped": 132,
+        "xfailed": 5,
+        "failed": 2
+      },
+      "unit_errors": 0,
+      "duplicate_identities": 0,
+      "quality_and_floor": "SKIPPED because unit(restante) failed",
+      "integration_executed_shards": 0,
+      "hosted_runtime_pg22_executed": 0,
+      "hosted_journal_pg40_executed": 0,
+      "artifact_digests_verified": 24,
+      "verdict_sha256": "0df4c22ac6f20c6788cc78c7e58c56398aaf2eb86a6a4f2e04109aaeeaccc1be",
+      "custody_sha256": "542a129fae231f20a6aa28052ad1ae5c74fc2cd69c1d81e13bb08016148e1463",
+      "not_promoted_by_local_repairs": true
+    },
+    "actual_pg118_5d72": {
+      "status": "REVISE_PRESERVED",
+      "head": "5d72e7419907f8a6b1350d5e914207b602b5225a",
+      "tree": "8ea78c0bf925d368e842c23b90775a1ee3ed0499",
+      "passed": 115,
+      "failed": 3,
+      "errors": 0,
+      "skipped": 0,
+      "xfail": 0,
+      "real_PG_passed": 87,
+      "real_PG_failed": 3,
+      "pure_controls_passed": 28,
+      "total_test_nodes": 118,
+      "source_proof_is_provider_qualification": false,
+      "schema_roles_connections_restored": true,
+      "exclusive_lane_released": "Reported by ROOT after cleanup",
+      "summary_sha256": "ad9cfb4ca4a38bf4ee372c383b0a2d26552e802b7145a0bb97757e57b2420d4e",
+      "junit_sha256": "786ad33d77f1b6b2e955f6b7ea23590d0f39ecbf6075dc46f3fa699bb5b2315a",
+      "original_findings": [
+        "F04 fixture ingress/data authority joined, wrong carrier boundary",
+        "F05 loser initial observe blocked before intended CAS"
+      ],
+      "third_repair": "TEST_ONLY_COMPOSED_FIXTURE_PENDING_ORIGINAL_DELTA",
+      "no_production_source_repair_from_these_faults": true
+    },
+    "local_composed_rejections": [
+      {
+        "head": "dd741fc1",
+        "cases": 103,
+        "passed": 79,
+        "failed": 24,
+        "finding": "F02 false normal COMMIT acknowledgement loss",
+        "receipt_sha256": "586a3f42fe0e51d4f3c411177878bdc5b4dfa613a4db1746064e50bd31d2bdea"
+      },
+      {
+        "head": "64da5b9d",
+        "cases": 104,
+        "passed": 85,
+        "failed": 19,
+        "finding": "F03 registered protected-result currentness proof absent",
+        "receipt_sha256": "1987e0c80e314d06749409dac6d4bedaee12d6f66af5328dc1a0151bd33eda46"
+      },
+      {
+        "head": "5d72e741",
+        "cases": 118,
+        "passed": 115,
+        "failed": 3,
+        "finding": "F04 coupled ingress/data revocation and F05 barriers before CAS",
+        "receipt_sha256": "4fc714ae4dcf6504911adcf4264483f574128fb549146ee2e3d9bcfe46ee41be"
+      },
+      {
+        "head": "b2c1de9c",
+        "cases": 121,
+        "passed": 120,
+        "failed": 1,
+        "finding": "F06 registered wait/outbox proof scope coupled to data permission",
+        "receipt_sha256": "24e48c8f65d6dfdc362959a55d3fba355d61b39ea763c950b78e4c13e86cb64e"
+      }
+    ]
+  },
+  "pending_fixture_inputs": {
+    "status": "PASS_ORIGINAL_SOURCE_DELTA_AND_ACTUAL_REAL_POSTGRES",
+    "input_path": "tests/integration/agents/test_lucas_administrative_runtime_composed_pg.py",
+    "input_sha256": "50d892a30eda68a7b167f25cbb962ae6d1947e218ffa18348c17d921daf11af3",
+    "excluded_from_approved_source_inputs": false
+  },
+  "human_merge_authorization": {
+    "status": "AUTHORIZED_CONDITIONALLY_FOR_OWN_PR644_PR646_REPORTED_BY_ROOT",
+    "source": "Current direct human instruction relayed by ROOT in this task; ROOT retains original conversation evidence. This document author performs no merge/authentication action.",
+    "scope_PRs": [
+      644,
+      646
+    ],
+    "exact_head_CI_green_required": true,
+    "independent_applicable_source_runtime_final_gates_required": true,
+    "CODEOWNER_waiver": {
+      "authorized_only_if_sole_remaining_requirement": true,
+      "qualified_CODEOWNER_review_created_or_inferred": false,
+      "other_failure_or_gate_waived": false,
+      "current_PR646_trigger_satisfied": "PENDING_EXACT_HEAD_CI_AND_FINAL_READBACK"
+    },
+    "production_source_human_conduct_privacy_role_grants_or_retention_ratified": false,
+    "conversation_record_sha256": "a9b13adaed69554013f3872c55ccc7f237b85ff333dfe127f89ae496843b7ba4"
+  },
+  "known_checkpoint_readbacks": {
+    "bdef_checkpoint": "bdefe40e0bd806610ebc9f51db57c850b9ea0a74",
+    "latest_tested_checkpoint": "5d72e7419907f8a6b1350d5e914207b602b5225a",
+    "latest_tested_tree": "8ea78c0bf925d368e842c23b90775a1ee3ed0499",
+    "next_published_candidate_head": "PENDING"
+  },
+  "snapshot_date": "2026-10-05",
+  "snapshot_scope": "Technical prepublication evidence at the immutable source/test checkpoints below; later hosted CI, final verdict and merge readbacks are separate events on PR646, not self-referential hashes in this document.",
+  "local_executed_source_checkpoint": "70c43a625460db2b8fcca302425a086e69428afa"
 }

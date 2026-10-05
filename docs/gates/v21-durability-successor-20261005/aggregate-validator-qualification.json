@@ -24,7 +24,15 @@
     "independent_adversarial_passed": 133,
     "independent_numeric_budget_passed": 3000,
     "installed_wheel_sha256": "d772b6e681adca7ccbac87a7afa2e5bb3c6fcf40661da1cbc764d1e10eb7cc90",
-    "installed_wheel_scope": "Exact aggregate module/asset imported away from checkout/docs. Whole later candidate wheel must be separately assessed."
+    "installed_wheel_scope": "Exact aggregate module/asset imported away from checkout/docs. Whole later candidate wheel must be separately assessed.",
+    "current_candidate_wheel": {
+      "source_composition": "1080a320dea1e20347b098d96eb90b7bdcf38c56",
+      "wheel_sha256": "8f042461d9fd81a894eeb8b39333f5a9b00cf04a205de4ce2ec80ada5ca16595",
+      "custody_sha256": "0bc818b717db3fde547800b6b1faf8005bea0ffd01f463d3e071d1931899b959",
+      "packaged_source_resource_files_matched": 846,
+      "aggregate_module_asset_smoke_passed": 1,
+      "whole_app_provider_or_production_runtime_qualification": false
+    }
   },
   "baseline_python314_test_compatibility": "Original and repaired implementation reject immutable field replacement with TypeError, while existing test expects ValueError. Baseline RED retained; no bypass/regression; full Python3.14 suite unqualified.",
   "source_or_currentness_proof_assessed": false,
@@ -37,5 +45,6 @@
   "canonical_schema_authority": "docs/design/v21-capabilities/proposals/measurement-export-closed-shapes.proposed-v2.json",
   "installed_asset": "Consumed exact wheel projection of canonical schema; no second schema authority/fallback.",
   "owner": "ROOT successor",
-  "CI": "PENDING_EXACT_CANDIDATE"
+  "CI": "PENDING_EXACT_CANDIDATE",
+  "snapshot": "Prepublication qualification at source composition1080a320; exact hosted CI and final gates remain separately tracked on PR646."
 }
