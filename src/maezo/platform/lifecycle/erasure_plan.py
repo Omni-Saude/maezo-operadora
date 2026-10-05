@@ -44,6 +44,11 @@ MISSING IDENTITY BRIDGES (why subject references do not imply a countable relati
 - DSR/FHIR reference -> portal principal. ADR-0049 D4/D6 authenticates human actors;
   issuer/subject/principal_ref and reviewed subject_bindings are not a contracted
   per-titular erasure bridge. None of the nine portal relations carries a count probe.
+- DSR/FHIR reference -> capability journal principal or protected request/result custody.
+  Migration 0018 records scoped technical bindings, refs and digests; `principal_ref`
+  identifies the invocation principal, not a contracted titular lookup. Observation and
+  inbox rows reach commands by foreign key, not a subject column. All six journal relations
+  stay uncountable until that identity/custody mapping is qualified (DUR0).
 
 A dry-run given a `titular_pseudo_id` therefore counts no layer: it reports the absent
 bridge or the applicable structural blocker (no column, retired, etc.). This is the true state, and
@@ -271,7 +276,7 @@ class PersistenceLayer:
 
 
 # ---------------------------------------------------------------------------------------
-# The enumeration. Derived from migrations 0001-0014; every entry cites its source. Held in
+# The enumeration. Derived from migrations 0001-0018; every entry cites its source. Held in
 # CODE, not read from the artifact, so that editing the (human-owned) plan can never change
 # which statement a probe would issue.
 #
@@ -651,6 +656,94 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         ordem=28,
         subject_column="conversation_id",
         # No probe, same reason as `beneficiario_contato_retomada`: a count would be a fabricated zero.
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="durabilidade_capacidade",
+        tabela="v21_journey_journal",
+        migracao="0018_capability_durability_journal.py::upgrade (v21_journey_journal)",
+        identificacao=(
+            "environment_ref + tenant_ref + legal_entity_ref + journey_ref + principal_ref + task_ref; "
+            "binding and local journal_revision describe technical coordination. principal_ref "
+            "identifies the invocation principal, not a qualified DSR/FHIR titular bridge"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=29,
+        subject_column="principal_ref",
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="durabilidade_capacidade",
+        tabela="v21_capability_command",
+        migracao="0018_capability_durability_journal.py::upgrade (v21_capability_command; journal FK)",
+        identificacao=(
+            "environment_ref + tenant_ref + legal_entity_ref + command_ref; scoped journey_ref + "
+            "principal_ref + task_ref reference v21_journey_journal. Descriptor, snapshot and "
+            "dispatch evidence retain protected refs/digests; no qualified DSR/FHIR-to-principal "
+            "or request/result custody mapping exists"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=30,
+        subject_column="principal_ref",
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="durabilidade_capacidade",
+        tabela="v21_journal_observation",
+        migracao="0018_capability_durability_journal.py::upgrade (v21_journal_observation; command FK)",
+        identificacao=(
+            "environment_ref + tenant_ref + legal_entity_ref + command_ref + observation_ref; "
+            "observation and causal_intents are protected technical refs/digests. Command foreign "
+            "key is not a titular identity column or a qualified DSR/custody lookup"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=31,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="durabilidade_capacidade",
+        tabela="v21_journal_inbox",
+        migracao="0018_capability_durability_journal.py::upgrade (v21_journal_inbox; command FK)",
+        identificacao=(
+            "environment_ref + tenant_ref + legal_entity_ref + source_authority_ref + producer_ref + "
+            "source_contract_revision_ref + event_ref; command_ref references v21_capability_command. "
+            "Authenticated event/observation refs and local revision do not identify a titular; "
+            "no subject column or qualified DSR/custody lookup exists"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=32,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="durabilidade_capacidade",
+        tabela="v21_external_wait",
+        migracao="0018_capability_durability_journal.py::upgrade (v21_external_wait; journal/command FKs)",
+        identificacao=(
+            "environment_ref + tenant_ref + legal_entity_ref + journey_ref + task_ref + wait_ref; "
+            "principal_ref scopes the journal foreign key and command_ref scopes the command. "
+            "Descriptor/snapshot carry technical wait refs; no qualified DSR/FHIR-to-principal "
+            "or protected custody mapping exists"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=33,
+        subject_column="principal_ref",
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="durabilidade_capacidade",
+        tabela="v21_journal_outbox",
+        migracao="0018_capability_durability_journal.py::upgrade (v21_journal_outbox; journal/command FKs)",
+        identificacao=(
+            "environment_ref + tenant_ref + legal_entity_ref + outbox_ref; scoped journey_ref + "
+            "principal_ref + task_ref + command_ref reference journal/command. Descriptor/snapshot "
+            "carry target binding, protected payload ref/digest and technical delivery fences; "
+            "no qualified DSR/FHIR-to-principal or payload custody mapping exists"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=34,
+        subject_column="principal_ref",
         count_statement=None,
     ),
 )

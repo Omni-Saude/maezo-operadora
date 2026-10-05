@@ -1,0 +1,1562 @@
+{
+  "schema": "maezo-v21-durability-contract.proposal.v1",
+  "contract_status": "PROPOSED",
+  "runtime_enabled_by_default": false,
+  "candidate_mechanism_only": true,
+  "grant_published": false,
+  "human_ratification": null,
+  "source_provider_qualified": false,
+  "author_role": "AMH source/data-boundary and W1 durability contract specialist",
+  "authoring_checkout": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora",
+  "implementation_base_head": "a62c05008f4d2e13af83cee7f6a61e913b51dcab",
+  "admitted_plan_base_head": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "contract_authority": "administrative-contracts.md:182-184 candidate reversible common state/receipt/wait mechanisms; affected W0 gates still block binding/read/effect.",
+  "interface_id": "DurabilityJournalPort.proposed.v1",
+  "common_envelope": {
+    "field_names": [
+      "schema_version",
+      "operation_name",
+      "tenant_ref",
+      "legal_entity_ref",
+      "journey_ref",
+      "correlation_ref",
+      "causation_ref",
+      "idempotency_key",
+      "expected_business_revision",
+      "source_authority_ref",
+      "policy_revision",
+      "data_classification"
+    ],
+    "source_exact": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+    "closed": true,
+    "schema_version_value": "v21-capabilities.proposed.v1",
+    "identity_rule": "Opaque authority references only; local prospect journey ref never minting an AMH portable_subject_ref",
+    "candidate_interface_only": true,
+    "published": false
+  },
+  "preserved_operation_contracts": [
+    {
+      "id": "OP01",
+      "operation": "access.resolve",
+      "request": "ContextAccessIntent",
+      "response": "ContextAccessResult",
+      "request_fields_proposed": {
+        "subject_type": "prospect|beneficiary",
+        "subject_or_prospect_ref": "OpaqueRef",
+        "operation_scope_ref": "OpaqueRef",
+        "purpose_policy_ref": "OpaqueRef",
+        "expected_consent_revision_ref": "OpaqueRef?",
+        "source_context_refs": "list<OpaqueRef>"
+      },
+      "response_fields_proposed": {
+        "access_status": "available|denied|unavailable",
+        "context_refs": "list<OpaqueRef>",
+        "source_revision_ref": "OpaqueRef?",
+        "access_decision_ref": "OpaqueRef"
+      }
+    },
+    {
+      "id": "OP02",
+      "operation": "offer.compose",
+      "request": "OfferOptionsIntent",
+      "response": "VersionedOfferOptions",
+      "request_fields_proposed": {
+        "catalogue_ref": "OpaqueRef",
+        "catalogue_version": "VersionRef",
+        "administrative_preferences_ref": "OpaqueRef",
+        "availability_refs": "list<OpaqueRef>",
+        "purpose_policy_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "offer_ref": "OpaqueRef?",
+        "offer_version": "VersionRef?",
+        "valid_until": "Instant?",
+        "option_refs": "list<OpaqueRef>",
+        "explanation_refs": "list<OpaqueRef>",
+        "status": "usable|unavailable|review_required"
+      }
+    },
+    {
+      "id": "OP03",
+      "operation": "acceptance.record",
+      "request": "AcceptanceCommand",
+      "response": "AcceptanceEvidenceReceipt",
+      "request_fields_proposed": {
+        "offer_ref": "OpaqueRef",
+        "offer_version": "VersionRef",
+        "decision": "accept|decline",
+        "terms_evidence_ref": "OpaqueRef",
+        "customer_authority_proof_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "acceptance_ref": "OpaqueRef",
+        "recorded_decision": "accepted|declined",
+        "recorded_at": "Instant",
+        "receipt_ref": "OpaqueRef",
+        "business_revision": "RevisionRef"
+      }
+    },
+    {
+      "id": "OP04",
+      "operation": "enrollment.request",
+      "request": "EnrollmentIntent",
+      "response": "EnrollmentAuthorityReceipt",
+      "request_fields_proposed": {
+        "accepted_commitment_ref": "OpaqueRef",
+        "prospect_linkage_ref": "OpaqueRef",
+        "enrollment_authority_contract_ref": "OpaqueRef",
+        "administrative_evidence_refs": "list<OpaqueRef>"
+      },
+      "response_fields_proposed": {
+        "enrollment_status": "pending|issued|refused|review_required",
+        "enrollment_ref": "OpaqueRef?",
+        "issuer_receipt_ref": "OpaqueRef?",
+        "portable_subject_ref": "AMH_MintedOpaqueRef?",
+        "source_revision_ref": "RevisionRef?"
+      }
+    },
+    {
+      "id": "OP05",
+      "operation": "reservation.command",
+      "request": "ReservationCommand",
+      "response": "ProviderReservationReceipt",
+      "request_fields_proposed": {
+        "provider_ref": "OpaqueRef",
+        "operation": "hold|confirm|reschedule|cancel",
+        "offer_or_booking_ref": "OpaqueRef",
+        "expected_provider_revision": "RevisionRef",
+        "customer_commitment_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "reservation_status": "pending|held|confirmed|cancelled|disrupted",
+        "booking_ref": "OpaqueRef?",
+        "hold_expires_at": "Instant?",
+        "provider_receipt_ref": "OpaqueRef?",
+        "provider_revision": "RevisionRef?"
+      }
+    },
+    {
+      "id": "OP06",
+      "operation": "fulfillment.observe",
+      "request": "FulfillmentObservation",
+      "response": "VerifiedFulfillmentFact",
+      "request_fields_proposed": {
+        "fulfillment_ref": "OpaqueRef",
+        "source_event_or_observation_ref": "OpaqueRef",
+        "source_authority_contract_ref": "OpaqueRef",
+        "expected_revision": "RevisionRef"
+      },
+      "response_fields_proposed": {
+        "fact_kind": "performed|result_available|no_show|disrupted|pending",
+        "factual_at": "Instant?",
+        "source_fact_ref": "OpaqueRef",
+        "source_revision": "RevisionRef",
+        "clinical_result_context_ref": "OpaqueRef?"
+      }
+    },
+    {
+      "id": "OP07",
+      "operation": "case.open_or_update",
+      "request": "ResolutionCaseIntent",
+      "response": "ResolutionCaseStatus",
+      "request_fields_proposed": {
+        "problem_ref": "OpaqueRef",
+        "origin_case_or_journey_ref": "OpaqueRef",
+        "case_kind": "DeclaredCaseKind",
+        "requester_authority_ref": "OpaqueRef",
+        "evidence_refs": "list<OpaqueRef>",
+        "formal_regulatory_request_ref": "OpaqueRef?"
+      },
+      "response_fields_proposed": {
+        "case_ref": "OpaqueRef",
+        "protocol_ref": "OpaqueRef?",
+        "case_status": "DeclaredCaseStatus",
+        "authority_receipt_ref": "OpaqueRef",
+        "business_revision": "RevisionRef"
+      }
+    },
+    {
+      "id": "OP08",
+      "operation": "external_wait.settle",
+      "request": "ExternalWaitIntent",
+      "response": "ExternalWaitOutcome",
+      "request_fields_proposed": {
+        "wait_ref": "OpaqueRef",
+        "expected_producer_ref": "OpaqueRef",
+        "correlation_ref": "OpaqueRef",
+        "authoritative_deadline_ref": "OpaqueRef?",
+        "source_outcome_ref": "OpaqueRef?"
+      },
+      "response_fields_proposed": {
+        "wait_status": "pending|completed|timed_out|incident",
+        "outcome_evidence_ref": "OpaqueRef?",
+        "settlement_revision": "RevisionRef",
+        "owner_case_ref": "OpaqueRef"
+      }
+    },
+    {
+      "id": "OP09",
+      "operation": "notice.prepare_or_send",
+      "request": "NoticeIntent",
+      "response": "DeliveryEvidenceReceipt",
+      "request_fields_proposed": {
+        "notice_ref": "OpaqueRef",
+        "notice_class": "mandatory|facultative",
+        "authorized_content_ref": "OpaqueRef",
+        "recipient_authority_ref": "OpaqueRef",
+        "confirmed_channel_ref": "OpaqueRef",
+        "delivery_policy_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "delivery_status": "pending|attempted|delivered|failed|unknown",
+        "provider_delivery_receipt_ref": "OpaqueRef?",
+        "attempt_revision": "RevisionRef",
+        "metadata_publication_receipt_ref": "OpaqueRef?"
+      }
+    },
+    {
+      "id": "OP10",
+      "operation": "milestone.publish",
+      "request": "VerifiedMilestoneIntent",
+      "response": "MilestonePublicationReceipt",
+      "request_fields_proposed": {
+        "source_fact_ref": "OpaqueRef",
+        "milestone_kind": "DeclaredMilestoneKind",
+        "source_revision": "RevisionRef",
+        "audience_contract_ref": "OpaqueRef",
+        "prediction_ref": "OpaqueRef?"
+      },
+      "response_fields_proposed": {
+        "publication_status": "committed|pending|failed",
+        "outbox_receipt_ref": "OpaqueRef?",
+        "milestone_revision": "RevisionRef"
+      }
+    },
+    {
+      "id": "OP11",
+      "operation": "feedback.record",
+      "request": "CustomerFeedbackIntent",
+      "response": "FeedbackObservationReceipt",
+      "request_fields_proposed": {
+        "case_or_fulfillment_ref": "OpaqueRef",
+        "instrument_version_ref": "OpaqueRef",
+        "respondent_authority_ref": "OpaqueRef",
+        "feedback_evidence_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "feedback_observation_ref": "OpaqueRef",
+        "feedback_kind": "observed|contested|no_response",
+        "recorded_at": "Instant",
+        "does_not_authorize_clinical_or_financial_change": "LiteralTrue"
+      }
+    }
+  ],
+  "existing_type_invariants": {
+    "expected_business_revision": "Existing Ref/string, opaque source-owned; no int/decimal cast",
+    "business_revision": "Existing source-owned opaque Ref",
+    "settlement_revision": "Existing source-owned opaque Ref",
+    "journal_revision": "Strict local nonnegative int; bool forbidden; never source revision",
+    "fence_version": "Strict local positive int; bool forbidden; local coordination only"
+  },
+  "key_contract": {
+    "literal_source": "CapabilityEnvelope.idempotency_key supplied by admitted caller",
+    "new_compositor_chosen": false,
+    "technical_uniqueness_namespace": [
+      "environment_ref",
+      "tenant_ref",
+      "legal_entity_ref",
+      "operation_name",
+      "literal idempotency_key"
+    ],
+    "same_identity_divergence": "conflict; never rebind journey/request/task/principal/admission binding",
+    "request_digest_owner": "src/maezo/gateway/capabilities/models.py::request_digest",
+    "result_digest_owner": "src/maezo/gateway/capabilities/admission.py::result_digest",
+    "digest_is_anonymization_or_authority": false
+  },
+  "closed_technical_enums": {
+    "CommandTechnicalState": [
+      "RECORDED",
+      "DISPATCH_FENCED",
+      "UNCERTAIN",
+      "RESPONSE_RECORDED",
+      "REFUSED_BEFORE_DISPATCH"
+    ],
+    "WaitTechnicalState": [
+      "OPEN",
+      "ELAPSED",
+      "OBSERVATION_RECORDED"
+    ],
+    "OutboxTechnicalState": [
+      "RECORDED",
+      "CLAIMED",
+      "DELIVERY_FENCED",
+      "UNCERTAIN",
+      "ACK_RECORDED"
+    ],
+    "OutboxTechnicalKind": [
+      "RECONCILIATION_REQUEST",
+      "RETURN_INTENT"
+    ],
+    "JournalCallTechnicalStatus": [
+      "recorded",
+      "unchanged",
+      "conflict",
+      "unavailable",
+      "uncertain"
+    ],
+    "JournalRefusalReason": [
+      "CONTRACT_MISMATCH",
+      "BINDING_DENIED",
+      "DATA_GATE_CLOSED",
+      "CAS_CONFLICT",
+      "IDENTITY_CONFLICT",
+      "INVALID_TRANSITION",
+      "PROOF_UNAVAILABLE",
+      "STORE_UNAVAILABLE",
+      "COMMIT_UNCERTAIN"
+    ]
+  },
+  "records": {
+    "JournalBinding": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "environment_ref": "Ref",
+        "tenant_ref": "Ref",
+        "legal_entity_ref": "Ref",
+        "journey_ref": "Ref",
+        "principal_ref": "Ref",
+        "task_ref": "Ref",
+        "data_policy_ref": "Ref"
+      },
+      "caller_wire": false
+    },
+    "CommandDescriptor": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "envelope": "CapabilityEnvelope existing exactly 12 fields",
+        "request_ref": "Ref to existing qualified protected custody",
+        "request_sha256": "Digest from existing request_digest",
+        "admission_binding_sha256": "Digest of expected server AdmissionBinding",
+        "predecessor_command_refs": "tuple[Ref] same scoped journey"
+      },
+      "caller_wire": false
+    },
+    "CommandHandle": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "binding": "JournalBinding",
+        "command_ref": "Ref generated locally for technical command only",
+        "request_sha256": "Digest"
+      },
+      "caller_wire": false
+    },
+    "CommandSnapshot": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "handle": "CommandHandle",
+        "journal_revision": "LocalRevision",
+        "technical_state": "CommandTechnicalState",
+        "dispatch_ref": "Ref | None",
+        "fence_version": "FenceVersion | None",
+        "verified_result_observation_ref": "Ref | None",
+        "result_ref": "Ref | None",
+        "result_sha256": "Digest | None",
+        "source_receipt_ref": "Ref | None from verified source",
+        "source_revision_ref": "Ref | None from verified source",
+        "recorded_at": "AwareUTCInstant",
+        "last_observed_at": "AwareUTCInstant"
+      },
+      "caller_wire": false
+    },
+    "JourneySnapshot": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "binding": "JournalBinding",
+        "journal_revision": "LocalRevision",
+        "command_refs": "tuple[Ref]",
+        "wait_refs": "tuple[Ref]",
+        "outbox_refs": "tuple[Ref]"
+      },
+      "caller_wire": false
+    },
+    "DispatchEvidence": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "authority": "VerifiedAuthority existing",
+        "currentness": "VerifiedCurrentness existing",
+        "audit_receipt_sha256": "Digest of verified durable audit receipt",
+        "audit_intent_ref": "Ref to qualified audit linkage"
+      },
+      "caller_wire": false
+    },
+    "DispatchToken": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "handle": "CommandHandle",
+        "dispatch_ref": "Ref",
+        "fence_version": "FenceVersion",
+        "journal_revision": "LocalRevision"
+      },
+      "caller_wire": false
+    },
+    "VerifiedResultObservation": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "source_result": "VerifiedSourceResult existing",
+        "result_ref": "Ref to existing qualified protected custody",
+        "result_sha256": "Digest from existing result_digest",
+        "observer_binding_ref": "Ref to trusted verifier composition",
+        "provenance_ref": "Ref to source-verification evidence",
+        "source_revision_order_witness_ref": "Ref | None; mandatory to replace an existing result head with a different revision"
+      },
+      "caller_wire": false
+    },
+    "VerifiedInboxObservation": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "event_ref": "Ref authenticated source event identity",
+        "source_authority_ref": "Ref",
+        "producer_ref": "Ref",
+        "source_contract_revision_ref": "Ref",
+        "event_sha256": "Digest",
+        "handle": "CommandHandle",
+        "correlation_ref": "Ref equal to bound envelope",
+        "observation": "VerifiedResultObservation"
+      },
+      "caller_wire": false
+    },
+    "WaitDescriptor": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "intent": "ExternalWaitIntent existing unchanged",
+        "handle": "CommandHandle",
+        "operational_wakeup_at": "AwareUTCInstant | None from admitted operational scheduler"
+      },
+      "caller_wire": false
+    },
+    "WaitSnapshot": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "descriptor": "WaitDescriptor",
+        "journal_revision": "LocalRevision",
+        "technical_state": "WaitTechnicalState",
+        "source_observation_ref": "Ref | None",
+        "elapsed_observed_at": "AwareUTCInstant | None"
+      },
+      "caller_wire": false
+    },
+    "OutboxDescriptor": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "outbox_ref": "Ref technical local stable intent identity",
+        "command_ref": "Ref",
+        "kind": "OutboxTechnicalKind",
+        "target_binding_ref": "Ref to existing registered trusted target, not caller selected",
+        "payload_ref": "Ref to qualified protected custody",
+        "payload_sha256": "Digest from existing contract canonicalization",
+        "causation_ref": "Ref",
+        "dedupe_identity_ref": "Ref stable contracted event/command identity"
+      },
+      "caller_wire": false
+    },
+    "OutboxSnapshot": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "descriptor": "OutboxDescriptor",
+        "journal_revision": "LocalRevision",
+        "technical_state": "OutboxTechnicalState",
+        "claim_ref": "Ref | None",
+        "worker_ref": "Ref | None from registered trusted worker",
+        "lease_until": "AwareUTCInstant | None operational only",
+        "fence_version": "FenceVersion | None",
+        "delivery_ref": "Ref | None",
+        "acknowledgement_ref": "Ref | None",
+        "acknowledgement_sha256": "Digest | None"
+      },
+      "caller_wire": false
+    },
+    "OutboxAckEvidence": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "outbox_ref": "Ref",
+        "delivery_ref": "Ref",
+        "target_binding_ref": "Ref",
+        "payload_sha256": "Digest",
+        "acknowledgement_ref": "Ref from qualified authenticated target",
+        "acknowledgement_sha256": "Digest",
+        "verifier_binding_ref": "Ref to qualified trusted verifier",
+        "observed_at": "AwareUTCInstant"
+      },
+      "caller_wire": false
+    },
+    "PreDispatchRefusal": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "reason": "Existing CapabilityRefusalReason or closed technical gate refusal",
+        "evidence_ref": "Ref to local pre-dispatch observation",
+        "observed_at": "AwareUTCInstant"
+      },
+      "caller_wire": false
+    },
+    "JournalCallResult": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "technical_status": "JournalCallTechnicalStatus",
+        "snapshot": "Method-specific typed snapshot | None",
+        "refusal_reason": "JournalRefusalReason | None"
+      },
+      "caller_wire": false
+    },
+    "RecoverySnapshot": {
+      "closed": true,
+      "origin": "TRUSTED_INTERNAL_COMPOSITION_ONLY",
+      "fields": {
+        "binding": "JournalBinding",
+        "journal_revision": "LocalRevision",
+        "command_refs_for_reconciliation": "tuple[Ref] of DISPATCH_FENCED or UNCERTAIN",
+        "outbox_refs_for_reconciliation": "tuple[Ref] of DELIVERY_FENCED or UNCERTAIN",
+        "wait_refs_for_observation": "tuple[Ref]",
+        "next_cursor_ref": "Ref | None technical protected pagination cursor"
+      },
+      "caller_wire": false
+    }
+  },
+  "protocol_methods": [
+    {
+      "name": "record_command",
+      "allowed_role": "trusted_driver_or_gateway",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "descriptor": "CommandDescriptor",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[CommandSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "Validate data policy and server task/scope; insert once under literal key namespace.",
+        "Same key/request digest/admission binding/journey returns unchanged existing command; divergence conflicts.",
+        "Initial absent journey revision 0; acknowledged insertion becomes 1. Record refs/metadata only."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "observe_command",
+      "allowed_role": "trusted_scoped_reader",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "handle": "CommandHandle"
+      },
+      "result": "JournalCallResult[CommandSnapshot]",
+      "mutates_journal": false,
+      "rules": [
+        "Never grants dispatch or discloses protected result payload; authorize scoped metadata access."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "observe_journey",
+      "allowed_role": "trusted_scoped_reader",
+      "closed_arguments": {
+        "binding": "JournalBinding"
+      },
+      "result": "JournalCallResult[JourneySnapshot]",
+      "mutates_journal": false,
+      "rules": [
+        "No business cursor/status; source-owned refs and result custody remain separately governed."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "begin_dispatch",
+      "allowed_role": "trusted_gateway_command_boundary",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "handle": "CommandHandle",
+        "evidence": "DispatchEvidence",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[DispatchToken]",
+      "mutates_journal": true,
+      "rules": [
+        "Only RECORDED with current validated authority/audit evidence, binding and request digest.",
+        "Atomic acknowledged CAS writes DISPATCH_FENCED and immutable dispatch_ref/fence_version before source I/O.",
+        "Commit uncertain or CAS conflict forbids source I/O. Evidence presence/type alone is not authorization."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "record_pre_dispatch_refusal",
+      "allowed_role": "trusted_gateway_command_boundary",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "handle": "CommandHandle",
+        "refusal": "PreDispatchRefusal",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[CommandSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "Only RECORDED; after dispatch fence no event can be classified as pre-dispatch refusal."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "mark_uncertain",
+      "allowed_role": "trusted_gateway_or_recovery_boundary",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "handle": "CommandHandle",
+        "dispatch_ref": "Ref",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[CommandSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "DISPATCH_FENCED to UNCERTAIN; keep original key/ref/fence; no reset, release, retry or new source effect."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "record_verified_result",
+      "allowed_role": "trusted_gateway_command_boundary",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "handle": "CommandHandle",
+        "dispatch_ref": "Ref",
+        "observation": "VerifiedResultObservation",
+        "outbox_intents": "tuple[OutboxDescriptor]",
+        "wait_intents": "tuple[WaitDescriptor] explicit; empty tuple means no new wait",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[CommandSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "Validate exact original command/dispatch_ref/request digest and source proof, tenant/legal entity/task/principal/source contract, current read authority and data/currentness gates before every initial, lookup or duplicate call.",
+        "DISPATCH_FENCED or UNCERTAIN to RESPONSE_RECORDED records the first verified direct result or qualified receipt lookup. RESPONSE_RECORDED to itself accepts a qualified later lookup result under result_head_rules. No source event_ref or transport ACK is required or synthesized for this path.",
+        "QualifiedSourceRecoveryPort supplies verified lookup evidence through the trusted gateway command boundary under independent current source read authority; it never calls execute or allocates a new command key.",
+        "The exact observation/result-head refs, declared new wait_intents, outbox_intents and one journal revision update share one tenant transaction as atomic_method_entities specifies. Pending/refused is not business completion.",
+        "Before any write validate all WaitDescriptor/OutboxDescriptor bindings, existing source producer/correlation and registered target/protected custody. Divergent intents or invalid proof roll back the whole call; creation never reopens an existing wait/fence.",
+        "Exact current-head duplicate with identical causal intents returns unchanged without a new revision/wait/outbox. Adding intents to an old duplicate is not a head update and requires the explicitly separate preparation path.",
+        "Different later source revision needs a qualified authority-owned ordering witness binding current and candidate head to this original command. Same-revision divergence, older/incomparable revision, stale authority/currentness or absent witness refuses without replacing head or creating intents.",
+        "This method creates declared waits only; it does not silently settle an existing wait. Settlement follows the existing authenticated ingest wait_ref path or the published OP08 source flow."
+      ],
+      "runtime_enabled_by_default": false,
+      "allowed_command_states": [
+        "DISPATCH_FENCED",
+        "UNCERTAIN",
+        "RESPONSE_RECORDED"
+      ],
+      "technical_signature_extension": {
+        "status": "PROPOSED_BEFORE_CODE_PENDING_INDEPENDENT_DELTA",
+        "added_argument": "wait_intents",
+        "existing_record_reused": "WaitDescriptor",
+        "reason": "DJ-F02: result-created waits must be represented in the atomic journal call",
+        "external_source_request_or_result_changed": false,
+        "implicit_default_or_signature_alias_allowed": false
+      }
+    },
+    {
+      "name": "ingest_verified_observation",
+      "allowed_role": "trusted_authenticated_inbox_boundary",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "observation": "VerifiedInboxObservation",
+        "wait_ref": "Ref | None existing same-scope wait",
+        "outbox_intents": "tuple[OutboxDescriptor]",
+        "wait_intents": "tuple[WaitDescriptor] explicit; empty tuple means no new wait",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[CommandSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "Authenticate the actual source event_ref, registered producer/source/contract and exact original command/object/correlation under current read authority/data/currentness before dedup or apply. A point lookup has no manufactured event_ref and uses record_verified_result instead.",
+        "DISPATCH_FENCED or UNCERTAIN to RESPONSE_RECORDED supports an authenticated first callback even without a synchronous result. RESPONSE_RECORDED to itself applies a qualified newer event result under result_head_rules; preserve original command/fence/identity.",
+        "Exact event namespace/digest/command link replay with current access verification is unchanged, no new journal revision/wait/outbox and no reapplication of its result over a newer head. Same event identity with different digest/link conflicts or goes to qualified durable quarantine without overwriting accepted bytes.",
+        "For a new event, same-revision divergent result, older/incomparable revision, missing ordering witness or stale authority/currentness refuses; preserve the accepted head and waits/outbox. Quarantine is separately gated and never constitutes source effect or disclosure.",
+        "Inbox, append-only observation/result-head refs, declared new wait_intents, optional existing wait_ref update, outbox_intents and one journal revision share one tenant transaction as atomic_method_entities specifies.",
+        "wait_ref must exist in the same scope at transaction entry and have a qualified original-producer/correlation settlement mapping. It cannot be simultaneously created/reopened through wait_intents; technical timeout never supplies source settlement.",
+        "Broker ACK is eligible only after acknowledged apply commit, exact authenticated durable duplicate or qualified durable quarantine; no ACK on invalid/unpersisted evidence or unknown local commit."
+      ],
+      "runtime_enabled_by_default": false,
+      "allowed_command_states": [
+        "DISPATCH_FENCED",
+        "UNCERTAIN",
+        "RESPONSE_RECORDED"
+      ],
+      "technical_signature_extension": {
+        "status": "PROPOSED_BEFORE_CODE_PENDING_INDEPENDENT_DELTA",
+        "added_argument": "wait_intents",
+        "existing_record_reused": "WaitDescriptor",
+        "reason": "DJ-F02: result-created waits must be represented in the atomic journal call",
+        "external_source_request_or_result_changed": false,
+        "implicit_default_or_signature_alias_allowed": false
+      }
+    },
+    {
+      "name": "record_wait",
+      "allowed_role": "trusted_driver_or_gateway",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "descriptor": "WaitDescriptor",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[WaitSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "Preserve existing ExternalWaitIntent fields; source deadline ref is not local invented deadline. Technical OPEN only."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "mark_wait_elapsed",
+      "allowed_role": "trusted_registered_scheduler",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "wait_ref": "Ref",
+        "observed_at": "AwareUTCInstant",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[WaitSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "Require existing admitted operational_wakeup_at and trusted-clock observation; OPEN to ELAPSED.",
+        "No OP08 timed_out/completed/incident, negative decision or customer resolution inferred."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "enqueue_outbox",
+      "allowed_role": "trusted_driver_or_gateway",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "descriptor": "OutboxDescriptor",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[OutboxSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "Only existing registered target and authorized payload ref; stable identity/digest; no arbitrary channel/address.",
+        "Creation causally needed by result/inbox apply uses their same transaction; standalone call never claims source-fact atomicity."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "claim_outbox",
+      "allowed_role": "trusted_registered_outbox_worker",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "outbox_ref": "Ref",
+        "worker_ref": "Ref",
+        "lease_until": "AwareUTCInstant from explicit operational configuration",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[OutboxSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "RECORDED to CLAIMED; expired CLAIMED may be claimed only if no delivery fence ever exists.",
+        "Increment technical fencing version and reject old workers; lease is coordination, not authorization."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "begin_outbox_delivery",
+      "allowed_role": "trusted_registered_outbox_worker",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "outbox_ref": "Ref",
+        "claim_ref": "Ref",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[OutboxSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "Current claim/version/CAS only; commit DELIVERY_FENCED with stable delivery_ref before transport.",
+        "Recheck target authorization/currentness after await; no external send with unknown local commit."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "record_outbox_ack",
+      "allowed_role": "trusted_verified_outbox_boundary",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "outbox_ref": "Ref",
+        "delivery_ref": "Ref",
+        "evidence": "OutboxAckEvidence",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[OutboxSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "Exact authenticated target/payload/delivery acknowledgement; FENCED/UNCERTAIN to ACK_RECORDED.",
+        "Transport acknowledgement is not delivery receipt/domain completion; those remain OP09/OP10 source results."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "mark_outbox_uncertain",
+      "allowed_role": "trusted_outbox_or_recovery_boundary",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "outbox_ref": "Ref",
+        "delivery_ref": "Ref",
+        "expected_journal_revision": "LocalRevision from authenticated journal reader"
+      },
+      "result": "JournalCallResult[OutboxSnapshot]",
+      "mutates_journal": true,
+      "rules": [
+        "Keep fence/identity after failure/crash/timeout; no lease expiry resend/reset/release."
+      ],
+      "runtime_enabled_by_default": false
+    },
+    {
+      "name": "recover",
+      "allowed_role": "trusted_scoped_recovery_reader",
+      "closed_arguments": {
+        "binding": "JournalBinding",
+        "limit": "Strict positive operational int from bounded configuration; no default",
+        "cursor_ref": "Ref | None technical protected cursor"
+      },
+      "result": "JournalCallResult[RecoverySnapshot]",
+      "mutates_journal": false,
+      "rules": [
+        "Returns reference-only reconciliation candidates and operational wait observations; does not contact source or dispatch.",
+        "Lookup/reconciliation is read-only using original command/key under source contract, fresh admission and retention/erasure gate.",
+        "No automatic redispatch even on not-found or expired lease; source contract must prove old attempt cannot commit later before any separately admitted change."
+      ],
+      "runtime_enabled_by_default": false
+    }
+  ],
+  "cas": {
+    "unit": "Scoped journey aggregate; command/observation/inbox/wait/outbox mutations in one local PostgreSQL transaction",
+    "initial_revision": 0,
+    "first_acknowledged_insert_revision": 1,
+    "successful_mutation_increment": 1,
+    "identical_duplicate_increments_revision": false,
+    "zero_rows_updated": "conflict, no source dispatch",
+    "retry_allowed_scope": "Deterministic local merge only after authenticated reread; never remote source.execute replay",
+    "source_revision_comparison": "Authority-owned witness only; no lexical/offset/clock/local int ordering"
+  },
+  "command_transitions": [
+    {
+      "from": null,
+      "to": "RECORDED",
+      "method": "record_command",
+      "condition": "closed parse/data gate/unique literal key/exact digest/binding; acknowledged local commit"
+    },
+    {
+      "from": "RECORDED",
+      "to": "REFUSED_BEFORE_DISPATCH",
+      "method": "record_pre_dispatch_refusal",
+      "condition": "no dispatch fence or source I/O ever occurred"
+    },
+    {
+      "from": "RECORDED",
+      "to": "DISPATCH_FENCED",
+      "method": "begin_dispatch",
+      "condition": "current enforcing admission/audit link and acknowledged CAS before source I/O"
+    },
+    {
+      "from": "DISPATCH_FENCED",
+      "to": "UNCERTAIN",
+      "method": "mark_uncertain",
+      "condition": "failure/timeout/cancel/crash observation without verified source result"
+    },
+    {
+      "from": [
+        "DISPATCH_FENCED",
+        "UNCERTAIN",
+        "RESPONSE_RECORDED"
+      ],
+      "to": "RESPONSE_RECORDED",
+      "method": "record_verified_result",
+      "condition": "verified direct/lookup result over original dispatch/request; first head or later head per result_head_rules; no event_ref synthesized"
+    },
+    {
+      "from": [
+        "DISPATCH_FENCED",
+        "UNCERTAIN",
+        "RESPONSE_RECORDED"
+      ],
+      "to": "RESPONSE_RECORDED",
+      "method": "ingest_verified_observation",
+      "condition": "actual authenticated source event; first callback or qualified later head per result_head_rules; inbox/apply/declared waits/outbox atomic"
+    }
+  ],
+  "forbidden_transitions": [
+    "DISPATCH_FENCED->RECORDED",
+    "UNCERTAIN->RECORDED",
+    "DELIVERY_FENCED->RECORDED",
+    "UNCERTAIN->CLAIMED after delivery fence"
+  ],
+  "dispatch_order": [
+    "closed input and data gate",
+    "durable command metadata/ref/digest",
+    "current enforcing admission and durable audit",
+    "acknowledged dispatch fence/CAS",
+    "same lease/request currentness recheck after journal await",
+    "one source.execute under provider atomic authority/revision check",
+    "closed result parse and qualified VerifiedSourceResult",
+    "atomic record_verified_result(observation, wait_intents, outbox_intents, expected_journal_revision) stores verified refs/declared new waits/continuation outbox refs; no unrepresented element",
+    "after-persistence currentness recheck before disclosure/resume"
+  ],
+  "private_gateway_delta_required": {
+    "service_currently_has_journal": false,
+    "before_source_current_phase": "one-shot authorized->dispatched",
+    "before_disclosure_current_phase": "one-shot result_verified then lease removed",
+    "verify_result_current_return": "None; VerifiedSourceResult stored privately",
+    "required": "Trusted CommandBoundary gains private evidence/audit linkage and after-fence/after-result-write checks; no twice-called one-shot, new wire, arbitrary async guard callback or public authority claims.",
+    "shared_edit_owner": "ROOT serial gateway integration",
+    "independent_review_required": true
+  },
+  "atomicity": {
+    "local": "Only atomic_method_entities elements declared in exact record_verified_result/ingest_verified_observation arguments share one tenant transaction; separately prepared custody bodies and standalone record_wait/enqueue_outbox do not share it.",
+    "source": "separate provider business transaction; no local transaction across source I/O; no distributed exactly-once promise",
+    "source_outbox": "OP10 source outbox belongs in source business-fact commit; local journal does not substitute it",
+    "unknown_local_commit": "No dispatch/disclosure/ACK until authenticated readback under same identity; preserve uncertainty",
+    "source_unknown": "reconcile original command under fresh admission; crash/lease/not-found alone never authorizes redispatch",
+    "lease_release": "Invocation/worker coordination only; never effect fence deletion or settlement"
+  },
+  "inbox": {
+    "namespace": [
+      "environment_ref",
+      "tenant_ref",
+      "legal_entity_ref",
+      "source_authority_ref",
+      "producer_ref",
+      "source_contract_revision_ref",
+      "event_ref"
+    ],
+    "authentication_required": [
+      "registered source/producer/contract",
+      "same original command/tenant/legal entity/journey/object/correlation",
+      "exact result receipt/digest/currentness",
+      "source revision witness when replacing head"
+    ],
+    "ack_condition": "acknowledged applied transaction, exact duplicate or qualified durable quarantine; never unknown commit",
+    "new_topic_or_channel_created": false,
+    "first_callback": "ingest_verified_observation accepts DISPATCH_FENCED/UNCERTAIN before any synchronous result; RESPONSE_RECORDED later apply requires result_head_rules"
+  },
+  "outbox": {
+    "target": "existing registered trusted target binding; caller cannot choose destination",
+    "lease_reclaim": "CLAIMED expired before any delivery fence only; CAS/fence rejects previous worker",
+    "post_fence_recovery": "Read-only contracted lookup by original delivery/event/command identity; no W1 resend API",
+    "ack_is_domain_delivery_receipt": false,
+    "source_retry_requires": "Separate owner-published exact-redelivery/dedup and old-attempt fencing guarantee plus independent admission; not provided by this W1 contract"
+  },
+  "wait": {
+    "wire_preserved": "ExternalWaitIntent/Outcome existing maps",
+    "technical_elapsed_is_domain_timeout": false,
+    "source_settlement": "Authenticated original producer/source outcome with current source revision; late events require owner mapping",
+    "regulatory_deadline_owner": "Source ratification and BPMN governance, never operational lease/wakeup default",
+    "generic_agent_resume_or_direct_completion_added": false
+  },
+  "logical_storage_entities": [
+    {
+      "name": "v21_journey_journal",
+      "role": "Technical aggregate revision and protected binding only",
+      "fields": [
+        "binding fields",
+        "journal_revision",
+        "created_at",
+        "updated_at"
+      ],
+      "unique": [
+        "environment_ref",
+        "tenant_ref",
+        "legal_entity_ref",
+        "journey_ref",
+        "principal_ref",
+        "task_ref"
+      ],
+      "constraints": [
+        "strict nonnegative local revision",
+        "trusted binding access",
+        "no source business fields"
+      ]
+    },
+    {
+      "name": "v21_capability_command",
+      "role": "Literal idempotency fence; immutable command descriptor",
+      "fields": [
+        "CommandDescriptor metadata",
+        "CommandHandle metadata",
+        "CommandTechnicalState",
+        "dispatch_ref",
+        "fence_version",
+        "last verified observation_ref"
+      ],
+      "unique": [
+        "environment_ref",
+        "tenant_ref",
+        "legal_entity_ref",
+        "operation_name",
+        "literal envelope.idempotency_key"
+      ],
+      "constraints": [
+        "same unique identity must match digest/journey/task/principal/admission binding",
+        "immutable envelope/request digest",
+        "no FENCED or UNCERTAIN reset",
+        "foreign key to scoped journey"
+      ]
+    },
+    {
+      "name": "v21_journal_observation",
+      "role": "Append-only verified result/provenance refs and source revision witness",
+      "fields": [
+        "observation_ref",
+        "command_ref",
+        "result_ref",
+        "result_sha256",
+        "source_receipt_ref",
+        "source_revision_ref",
+        "provenance_ref",
+        "source_revision_order_witness_ref",
+        "observed_at"
+      ],
+      "unique": [
+        "environment_ref",
+        "tenant_ref",
+        "legal_entity_ref",
+        "command_ref",
+        "observation_ref"
+      ],
+      "constraints": [
+        "exact verified source/request binding",
+        "source revision opaque",
+        "no overwrite or source-status invention"
+      ]
+    },
+    {
+      "name": "v21_journal_inbox",
+      "role": "Authenticated event dedup and apply linkage",
+      "fields": [
+        "VerifiedInboxObservation metadata",
+        "inbox technical disposition",
+        "applied_journal_revision",
+        "quarantine_ref optional"
+      ],
+      "unique": [
+        "environment_ref",
+        "tenant_ref",
+        "legal_entity_ref",
+        "source_authority_ref",
+        "producer_ref",
+        "source_contract_revision_ref",
+        "event_ref"
+      ],
+      "constraints": [
+        "digest/link divergence conflicts without overwrite",
+        "apply local state/outbox/wait in same transaction",
+        "no ACK on unknown commit"
+      ]
+    },
+    {
+      "name": "v21_journal_outbox",
+      "role": "Stable technical intent and delivery fence, existing target only",
+      "fields": [
+        "OutboxDescriptor",
+        "OutboxSnapshot technical metadata"
+      ],
+      "unique": [
+        "environment_ref",
+        "tenant_ref",
+        "legal_entity_ref",
+        "outbox_ref"
+      ],
+      "constraints": [
+        "stable target/payload/dedupe linkage",
+        "same-transaction causal local journal change",
+        "claim expired never resets delivery fence",
+        "ACK not business completion"
+      ]
+    },
+    {
+      "name": "v21_external_wait",
+      "role": "Technical wait coordination, not domain clock",
+      "fields": [
+        "WaitDescriptor metadata",
+        "WaitTechnicalState",
+        "source_observation_ref",
+        "elapsed_observed_at"
+      ],
+      "unique": [
+        "environment_ref",
+        "tenant_ref",
+        "legal_entity_ref",
+        "journey_ref",
+        "task_ref",
+        "wait_ref"
+      ],
+      "constraints": [
+        "original expected producer/correlation",
+        "no operational timeout to domain settlement",
+        "source outcome proof for resume"
+      ]
+    }
+  ],
+  "migration_applied": false,
+  "data_boundary": {
+    "stored": "Existing envelope, protected request/result refs/digests, scoped binding, local revision/fence states, operational instants, source/audit/provenance refs and causality only",
+    "forbidden": [
+      "free text/transcript",
+      "name/phone/email",
+      "CPF/MPI/FHIR raw identifiers",
+      "source payload or clinical detail",
+      "secret/token/credential",
+      "stack trace or driver SQL diagnostics",
+      "health risk/proxy data"
+    ],
+    "opaque_refs_and_digests_remain_protected": true,
+    "purpose_or_classification_default_created": false,
+    "request_result_custody": "Existing qualified source custody only; no new store or grant inferred",
+    "retention_or_erasure_period_chosen": null,
+    "permanent_tombstone_chosen": false,
+    "privacy_gate_missing_behavior": "Actual writes/recovery/disclosure disabled; erasure never reopens uncertain command or recreates content",
+    "technical_fence_retention": "Only owner/DPO-approved minimal retention; otherwise recovery blocked without recreating deleted refs",
+    "metrics": "bounded codes and authorized aggregates; journey/command/receipt refs never Prometheus labels"
+  },
+  "reuse_foundations": [
+    {
+      "path": "src/maezo/gateway/human/outbox.py",
+      "role": "same tenant transaction/audit linkage/immutable command and fence patterns",
+      "not_reused_as": "customer signature or supplier transaction receipt"
+    },
+    {
+      "path": "src/maezo/platform/integrations/amh_inbox.py",
+      "role": "digest/event identity conflict and durable inbox/settlement patterns",
+      "not_reused_as": "new provider broker consumer/publication or domain contract"
+    },
+    {
+      "path": "src/maezo/gateway/communications/admission.py",
+      "role": "unknown commit/source-owned freeze and receipt acknowledgement discipline",
+      "not_reused_as": "real source installed by callback or channel delivery"
+    },
+    {
+      "path": "src/maezo/gateway/external_cases/postgres.py",
+      "role": "bounded local transaction and unknown-commit cleanup",
+      "not_reused_as": "business schema/authority or generic source transaction"
+    },
+    {
+      "path": "src/maezo/platform/driver_idempotency.py",
+      "role": "existing channel dedup preserved separately",
+      "not_reused_as": "post-dispatch commercial effect fence; its lease/TTL reclaim must not be copied"
+    },
+    {
+      "path": "src/maezo/runtime/checkpoint.py",
+      "role": "upstream saver/thread privacy and distinct task/tenant/journey root isolation",
+      "not_reused_as": "journal CAS/source business revision or mirror of upstream DDL"
+    },
+    {
+      "path": "src/maezo/platform/integrations/agent_resume.py",
+      "role": "existing admitted event/history/currentness and recipient custody boundary",
+      "not_reused_as": "generic new administrative resume/channel"
+    }
+  ],
+  "dag_write_sets": [
+    {
+      "id": "DUR0",
+      "depends_on": [],
+      "owner_role": "contract author then distinct contract verifier",
+      "writes": [
+        "docs/design/v21-capabilities/durability-contract.md",
+        "docs/design/v21-capabilities/durability-contract.json",
+        "local durability-contract-* evidence"
+      ],
+      "exit": "independent interface PASS and exact file hashes frozen before code"
+    },
+    {
+      "id": "DUR1",
+      "depends_on": [
+        "DUR0"
+      ],
+      "owner_role": "PostgreSQL durability author",
+      "proposed_writes": [
+        "src/maezo/gateway/capabilities/durability/models.py",
+        "src/maezo/gateway/capabilities/durability/ports.py",
+        "src/maezo/gateway/capabilities/durability/postgres.py",
+        "src/maezo/gateway/capabilities/durability/schema.sql",
+        "src/maezo/gateway/capabilities/durability/__init__.py",
+        "own tests assigned by ROOT"
+      ],
+      "exit": "disabled mechanism plus PG/CAS/crash evidence; migration publication remains serialized owner gate"
+    },
+    {
+      "id": "DUR2",
+      "depends_on": [
+        "DUR0"
+      ],
+      "owner_role": "journey orchestration author",
+      "proposed_writes": [
+        "src/maezo/agents/lucas/administrative/journey.py",
+        "own tests assigned by ROOT"
+      ],
+      "exit": "same port/core for JR1/JR2; next envelope from qualified planner, source absent remains blocked"
+    },
+    {
+      "id": "DUR3",
+      "depends_on": [
+        "DUR0",
+        "DUR1 interface",
+        "DUR2 interface"
+      ],
+      "owner_role": "gateway/driver integration author",
+      "proposed_writes": [
+        "src/maezo/gateway/capabilities/service.py",
+        "src/maezo/gateway/capabilities/admission.py",
+        "own tests assigned by ROOT"
+      ],
+      "serial_root_writes": [
+        "composition roots",
+        "registry",
+        "imports",
+        "shared graph/state edits"
+      ],
+      "exit": "audit/fence/currentness/result/refusal order, no DTO/grant/source fallback"
+    },
+    {
+      "id": "DUR4",
+      "depends_on": [
+        "DUR1",
+        "DUR2",
+        "DUR3"
+      ],
+      "owner_role": "independent verifier, no code authorship or repair",
+      "writes": [
+        "exclusive verification evidence only"
+      ],
+      "exit": "reproduced exact SHA tests; findings to distinct repair then original-review delta"
+    },
+    {
+      "id": "DUR5",
+      "depends_on": [
+        "DUR4"
+      ],
+      "owner_role": "ROOT integration/CI and fresh independent final gate",
+      "writes": [
+        "serial shared composition/migration/delta integration only when authorized"
+      ],
+      "exit": "applicable CI and fresh exact-artifact final gates"
+    }
+  ],
+  "gate_requirements": [
+    {
+      "id": "DUR-INTERFACE",
+      "required": "Independent review of exact 12 envelope fields/11 DTO maps/technical protocols, then hash freeze before source authors.",
+      "closed": false
+    },
+    {
+      "id": "DUR-STORAGE",
+      "required": "Qualified PostgreSQL schema/migration/roles/tenant scope/CAS/audit linkage and real crash/commit-uncertain proof; no mock PG acceptance.",
+      "closed": false
+    },
+    {
+      "id": "DUR-DATA",
+      "required": "Owner/DPO/privacy approval of refs/digests/custody/retention/erasure; no new default TTL or permanent tombstone.",
+      "closed": false
+    },
+    {
+      "id": "DUR-ORDERING",
+      "required": "Gateway private lease phases support after-fence and after-result-persistence currentness revalidation; no arbitrary callback authority.",
+      "closed": false
+    },
+    {
+      "id": "DUR-SOURCE",
+      "required": "Affected CR-F source/provider publication, atomic business CAS/idempotency and original-command lookup/reconciliation receipts.",
+      "closed": false
+    },
+    {
+      "id": "DUR-ADMISSION",
+      "required": "Qualified principal/task/operation/channel/tool/action enforcing and current source/purpose/consent/erasure/audit.",
+      "closed": false
+    },
+    {
+      "id": "DUR-PLANNER",
+      "required": "Qualified source-owned next-envelope planner and source revision ordering witness; no local casting/increment.",
+      "closed": false
+    },
+    {
+      "id": "DUR-INBOX-RETURN",
+      "required": "Authenticated producer/contract/object/correlation event plus current same-principal reply/resume and qualified existing target/publisher.",
+      "closed": false
+    },
+    {
+      "id": "DUR-REUSE",
+      "required": "Same contract/implementation executed by JR1/JR2, S4 via OP07, no source simulation accepted as product, old consumers unchanged.",
+      "closed": false
+    },
+    {
+      "id": "DUR-INDEPENDENT",
+      "required": "Distinct contract/code verifiers, third-party repair, original reviewer delta, integration/CI and fresh final gates.",
+      "closed": false
+    }
+  ],
+  "verification_requirements": [
+    "Exact 12-field envelope and 11 request/result maps preserved; expected/source revisions remain opaque refs.",
+    "Duplicate identical same scope returns stored identity without execute; divergent digest/journey/binding conflicts.",
+    "Concurrent CAS has one acknowledged winner; loser cannot source-dispatch; local revision not business revision.",
+    "Cross environment/tenant/legal entity/journey/task/principal/object attempts denied before any apply/disclosure.",
+    "Crash before record commit, after dispatch fence, after source commit before result, and after inbox/outbox commit before ACK.",
+    "DB commit uncertain/cancellation leads to readback/reconciliation only, never fake receipt/reset/second source.execute.",
+    "Stale worker/fencing version and expired claim cannot send after another claim; fenced work never auto reclaims.",
+    "Revocation/erasure/health/human/current message across DB/network awaits blocks disclosure/resume without deleting committed effect.",
+    "Pending/refused source result can be RESPONSE_RECORDED without business completion; unknown source cannot be completed.",
+    "Forged/unknown producer, extra/output fields, duplicate/conflicting/reordered source event and opaque revision witness handling.",
+    "Atomic journal/inbox/projection/wait/outbox with acknowledged commit before consumption ACK.",
+    "Wait ELAPSED does not become OP08 timed_out/completed or customer resolution; late observation respects source revision.",
+    "Outbox ACK proves transport only; no enrollment/reservation/notice/service delivered inferred.",
+    "Replay recovery preserves original envelope/key/digests/command refs; planner alone supplies next envelope.",
+    "Checkpoint saver isolation reproduced for JR1/JR2/root threads; router/checkpoint does not advance source business state.",
+    "Actual PostgreSQL integration lane coordinated; real source/CIB lanes separate and UNVERIFIED until executed.",
+    "No retry/reset/release/direct completion/generic resume/new topic/new channel/fake publication/grant installed.",
+    "DJ-F01 transition matrix: record_verified_result and ingest_verified_observation each accept DISPATCH_FENCED/UNCERTAIN/RESPONSE_RECORDED; pending head -> newer lookup needs no invented event_ref; first callback before sync result applies via real inbox.",
+    "DJ-F01 identity/currentness cases: exact duplicate unchanged; divergent result/event conflict; older/incomparable/missing witness/stale proof do not replace head or mutate waits/outbox; concurrent callback+lookup CAS loser never execute.",
+    "DJ-F02 same-TX elements must resolve to closed method arguments and atomic_method_entities; new waits require wait_intents, continuation refs require declared outbox_intents; no hidden cursor/body TX.",
+    "DJ-F03 reply receives declared JournalBinding/OutboxSnapshot and existing VerifiedAuthority/VerifiedCurrentness; current acknowledged claim/fence/binding/lease checked before transport; ACK cannot stand in for DeliveryEvidenceReceipt."
+  ],
+  "source_blockers_by_effect": [
+    {
+      "operations": [
+        "OP01"
+      ],
+      "request": "CR-F1",
+      "blocker": "source/identity/purpose/freshness current; ClinicalContextPort consumer/injection unqualified"
+    },
+    {
+      "operations": [
+        "OP02"
+      ],
+      "request": "CR-F2",
+      "blocker": "real catalogue/terms/availability/nonclinical rules and qualified source planner"
+    },
+    {
+      "operations": [
+        "OP03",
+        "OP04"
+      ],
+      "request": "CR-F3",
+      "blocker": "customer acceptance and separate administrative issuer receipts, original-command lookup/idempotency; not AUTH or portal membership"
+    },
+    {
+      "operations": [
+        "OP05",
+        "OP06"
+      ],
+      "request": "CR-F4",
+      "blocker": "agenda atomicity/expiry/receipt and source-owned fulfillment facts plus original-command reconciliation"
+    },
+    {
+      "operations": [
+        "OP07",
+        "OP08",
+        "OP11"
+      ],
+      "request": "CR-F5",
+      "blocker": "published case-kind/status/role/audience/S4 and producer outcome; timeout/silence no settlement"
+    },
+    {
+      "operations": [
+        "OP09",
+        "OP10"
+      ],
+      "request": "CR-F6",
+      "blocker": "authorized content/recipient/sender/channel/receipt and actual source publisher/outbox; journal ACK not delivery"
+    }
+  ],
+  "source_artifacts": [
+    {
+      "path": "docs/design/v21-capabilities/administrative-contracts.md",
+      "sha256": "fca53c3ba6f170729ac1ae127483a4dae4d7f36b75e72a22ad2b0fe474745f50",
+      "matches_base": true
+    },
+    {
+      "path": "docs/design/v21-capabilities/contracts.json",
+      "sha256": "81d7848127e2d71a4b21b4bc1ed8df992bc9534531798ad329680fd5f28decec",
+      "matches_base": true
+    },
+    {
+      "path": "docs/design/v21-capabilities/source-contracts.md",
+      "sha256": "78c4093e68e74ed8abff332086bf8b93c715a20ade362975b55c8deef42e305f",
+      "matches_base": true
+    },
+    {
+      "path": "docs/design/v21-capabilities/source-readiness.json",
+      "sha256": "8fcf13390136ee27cf81439567b217b976de9782a6994a47453f186c081f30a9",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/capabilities/models.py",
+      "sha256": "2dba24193d5409779d15ec91b696edc4c8a043bfbc9a325ac88b0bd35d923d31",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/capabilities/admission.py",
+      "sha256": "e6ca3294b74f67bc4957a4bffa5c2293877f33cc107d1766dd3a0504a15fe4ea",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/capabilities/service.py",
+      "sha256": "a763125e4e2bf46dbe4d344d8f6ff111cb442a2f73f36e29d4f19b6202781dec",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/agents/lucas/administrative/state.py",
+      "sha256": "6fae933bac8cd15bc6b32d01cb199c53140130f799f60e347a0bc28d7248d627",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/agents/lucas/administrative/graph.py",
+      "sha256": "50977755697707762b7c4e923bb6d5d1b86761e59aab355f7afa9391d320e5a3",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/human/outbox.py",
+      "sha256": "dc883bfe0ca35efaf7441afeb73cd98c1c6762b4d8b2982b6f2758f59ae877f1",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/platform/integrations/amh_inbox.py",
+      "sha256": "2d6a9c530d1342160c7dab3521b67793d4debe39669c500105bd6071cf7df98c",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/platform/driver_idempotency.py",
+      "sha256": "9dbaa5a8b9f9ffb1a912dd3c6d216a9105b286bbb3f97763e7b6e8c5b4c2a8fd",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/communications/admission.py",
+      "sha256": "c5ff8559b9b591c244b37a24d79ced5a7bbc8537e035366361a2ecf6d7abc8ae",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/gateway/external_cases/postgres.py",
+      "sha256": "842b3b69db5fa5da2f60434efea5a885dd7515b4df54ac048516ed45fa60324c",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/runtime/checkpoint.py",
+      "sha256": "73f3679895fa092fc1f3ddf7e53308a2f939b532664c80fdb0d020bc52b2a848",
+      "matches_base": true
+    },
+    {
+      "path": "src/maezo/platform/integrations/agent_resume.py",
+      "sha256": "29a7f0816541a0ffcc8a978d379cb512fa93adaeacf5e4fd1f031a8d3a9471e7",
+      "matches_base": true
+    }
+  ],
+  "author_check_status": "PASS_LOCAL_STRUCTURAL_ONLY_NOT_INDEPENDENT_GATE",
+  "independent_contract_review": {
+    "status": "REVISE_ORIGINAL_INPUT_PENDING_REPAIRED_DELTA",
+    "reviewer": null,
+    "reviewed_file_hashes": null,
+    "proof": null
+  },
+  "contract_freeze": {
+    "status": "PENDING_REPAIRED_INTERFACE_ROOT_FREEZE_AND_ORIGINAL_REVIEWER_DELTA",
+    "hash_scope": [
+      "durability-contract.md",
+      "durability-contract.json"
+    ],
+    "self_referential_digest_in_contract": false
+  },
+  "journeys_complete": false,
+  "provider_publication_or_new_policy_installed": false,
+  "deploy_or_flags_changed": false,
+  "financial_ROI": "UNMEASURED",
+  "document_repair": {
+    "status": "PROPOSED_THIRD_PARTY_REPAIR_PENDING_ORIGINAL_REVIEWER_DELTA",
+    "repair_role": "checkpoint_input_boundary_repair: narrowly scoped DUR0/JOURNEY document repair only",
+    "finding_ids": [
+      "DJ-F01",
+      "DJ-F02",
+      "DJ-F03"
+    ],
+    "gate_path": "docs/gates/v21-capability-execution-20261004/durability-journey-contract-verifier.json",
+    "gate_sha256": "1aa5a2af5e4369d6dab5b8091ef67b49595d290730f5f8779393738afef088fb",
+    "original_freeze_path": "docs/gates/v21-capability-execution-20261004/initial-durability-journey-freeze.json",
+    "original_snapshots_preserved": true,
+    "source_code_or_external_wire_modified": false,
+    "human_source_authority_or_production_gate_closed": false,
+    "independent_pass_claimed": false
+  },
+  "result_head_rules": {
+    "applies_to": [
+      "record_verified_result",
+      "ingest_verified_observation"
+    ],
+    "required_before_any_result": "original immutable handle/request/dispatch fence, verified source contract/scope, current independent read authority and qualified data/currentness; no proof by object construction",
+    "no_previous_head": "first verified result from DISPATCH_FENCED or UNCERTAIN records RESPONSE_RECORDED; pending/refused remain source outcomes",
+    "head_identity": "original command/request binding plus exact source_revision_ref/source_receipt_ref/result_sha256 and qualified result/provenance linkage; a locally minted observation_ref is not a source event identity",
+    "same_revision_same_result": "unchanged existing head with identical causal intents; no additional wait/outbox/revision",
+    "same_revision_divergent_result": "conflict IDENTITY_CONFLICT; no overwrite or intent mutation",
+    "different_revision": "replace only if qualified source_revision_order_witness_ref proves candidate newer than current head for this command and candidate currentness remains valid",
+    "older_incomparable_or_missing_witness": "conflict PROOF_UNAVAILABLE; accepted head/waits/outbox unchanged; no numeric/lexical/clock/offset/local-CAS revision ordering",
+    "stale_or_revoked_currentness": "refuse before apply, duplicate acknowledgement or disclosure under existing bounded proof/binding/data refusal; no new result/intent",
+    "known_event_replay_after_newer_head": "only exact authenticated inbox identity/digest/link with current access proof may return unchanged/ACK eligible; never replace the newer head",
+    "racing_sync_lookup_and_callback": "one CAS winner, loser authenticated rereads and revalidates only deterministic local merge; never another source.execute",
+    "transport_receipt_substitution": false
+  },
+  "atomic_method_entities": {
+    "record_verified_result": {
+      "binding+handle+dispatch_ref+observation": [
+        "v21_capability_command",
+        "v21_journal_observation"
+      ],
+      "wait_intents": [
+        "v21_external_wait",
+        "v21_journey_journal.wait_refs"
+      ],
+      "outbox_intents": [
+        "v21_journal_outbox",
+        "v21_journey_journal.outbox_refs"
+      ],
+      "expected_journal_revision": [
+        "v21_journey_journal.journal_revision"
+      ]
+    },
+    "ingest_verified_observation": {
+      "binding+observation": [
+        "v21_journal_inbox",
+        "v21_capability_command",
+        "v21_journal_observation"
+      ],
+      "wait_intents": [
+        "v21_external_wait",
+        "v21_journey_journal.wait_refs"
+      ],
+      "wait_ref": [
+        "v21_external_wait existing qualified observation linkage only"
+      ],
+      "outbox_intents": [
+        "v21_journal_outbox",
+        "v21_journey_journal.outbox_refs"
+      ],
+      "expected_journal_revision": [
+        "v21_journey_journal.journal_revision"
+      ]
+    },
+    "unit": "one tenant-scoped journal CAS transaction, one accepted revision increment, full rollback on any failed evidence/descriptor/link/constraint",
+    "continuation_reference_path": "qualified protected continuation payload prepared before journal call -> OutboxDescriptor.payload_ref/payload_sha256 in outbox_intents; journal atomically stores these references only, no new cursor or continuation body/entity",
+    "custody_body_transaction": "existing qualified custody preparation remains separate unless a separately qualified same-connection custody interface provides atomic participation; this proposal does not claim it",
+    "new_wait_rules": "new exact scoped WaitDescriptor yields technical OPEN only; identical existing descriptor preserves state; divergent descriptor conflicts; never resets settled wait",
+    "absent_preparation": "empty wait_intents/outbox_intents may record source evidence only; no continuation/wait/progress claim. Later qualified record_wait/enqueue_outbox are explicit separate CAS preparations with recoverable source/planner lineage, never retroactive atomicity or reapplication via duplicate result",
+    "new_source_or_business_status": false
+  }
+}

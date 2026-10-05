@@ -629,3 +629,135 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: durabilidade_capacidade
+    tabela: v21_journey_journal
+    migracao: "0018_capability_durability_journal.py::upgrade (v21_journey_journal)"
+    identificacao: "environment_ref + tenant_ref + legal_entity_ref + journey_ref + principal_ref + task_ref; binding and local journal_revision describe technical coordination. principal_ref identifies the invocation principal, not a qualified DSR/FHIR titular bridge"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 29
+    tensao: null
+    notas: >-
+      DUR0: inventario estrutural de metadados tecnicos da migracao 0018. Referencias
+      opacas e digests continuam protegidos; request/result/payload exigem custodia
+      qualificada fora deste journal. Texto clinico, telefone e identidade FHIR
+      nao fazem parte do contrato de metadados deste journal. Principal de invocacao, command/event
+      refs e foreign keys nao qualificam uma ponte DSR para titular ou custodia.
+      Nenhuma sonda por titular existe; desconhecido nao significa zero. Escrita,
+      recovery e lifecycle produtivos permanecem negados ate os gates de politica,
+      identidade, custodia e permissoes proprios. Retencao de dedup/fences e apagamento
+      de refs exigem decisao owner/DPO; nao reabrir comando incerto nem recriar
+      conteudo apagado. Nenhum prazo, acao de eliminacao ou tombstone e escolhido.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: durabilidade_capacidade
+    tabela: v21_capability_command
+    migracao: "0018_capability_durability_journal.py::upgrade (v21_capability_command; journal FK)"
+    identificacao: "environment_ref + tenant_ref + legal_entity_ref + command_ref; scoped journey_ref + principal_ref + task_ref reference v21_journey_journal. Descriptor, snapshot and dispatch evidence retain protected refs/digests; no qualified DSR/FHIR-to-principal or request/result custody mapping exists"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 30
+    tensao: null
+    notas: >-
+      DUR0: inventario estrutural de metadados tecnicos da migracao 0018. Referencias
+      opacas e digests continuam protegidos; request/result/payload exigem custodia
+      qualificada fora deste journal. Texto clinico, telefone e identidade FHIR
+      nao fazem parte do contrato de metadados deste journal. Principal de invocacao, command/event
+      refs e foreign keys nao qualificam uma ponte DSR para titular ou custodia.
+      Nenhuma sonda por titular existe; desconhecido nao significa zero. Escrita,
+      recovery e lifecycle produtivos permanecem negados ate os gates de politica,
+      identidade, custodia e permissoes proprios. Retencao de dedup/fences e apagamento
+      de refs exigem decisao owner/DPO; nao reabrir comando incerto nem recriar
+      conteudo apagado. Nenhum prazo, acao de eliminacao ou tombstone e escolhido.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: durabilidade_capacidade
+    tabela: v21_journal_observation
+    migracao: "0018_capability_durability_journal.py::upgrade (v21_journal_observation; command FK)"
+    identificacao: "environment_ref + tenant_ref + legal_entity_ref + command_ref + observation_ref; observation and causal_intents are protected technical refs/digests. Command foreign key is not a titular identity column or a qualified DSR/custody lookup"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 31
+    tensao: null
+    notas: >-
+      DUR0: inventario estrutural de metadados tecnicos da migracao 0018. Referencias
+      opacas e digests continuam protegidos; request/result/payload exigem custodia
+      qualificada fora deste journal. Texto clinico, telefone e identidade FHIR
+      nao fazem parte do contrato de metadados deste journal. Principal de invocacao, command/event
+      refs e foreign keys nao qualificam uma ponte DSR para titular ou custodia.
+      Nenhuma sonda por titular existe; desconhecido nao significa zero. Escrita,
+      recovery e lifecycle produtivos permanecem negados ate os gates de politica,
+      identidade, custodia e permissoes proprios. Retencao de dedup/fences e apagamento
+      de refs exigem decisao owner/DPO; nao reabrir comando incerto nem recriar
+      conteudo apagado. Nenhum prazo, acao de eliminacao ou tombstone e escolhido.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: durabilidade_capacidade
+    tabela: v21_journal_inbox
+    migracao: "0018_capability_durability_journal.py::upgrade (v21_journal_inbox; command FK)"
+    identificacao: "environment_ref + tenant_ref + legal_entity_ref + source_authority_ref + producer_ref + source_contract_revision_ref + event_ref; command_ref references v21_capability_command. Authenticated event/observation refs and local revision do not identify a titular; no subject column or qualified DSR/custody lookup exists"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 32
+    tensao: null
+    notas: >-
+      DUR0: inventario estrutural de metadados tecnicos da migracao 0018. Referencias
+      opacas e digests continuam protegidos; request/result/payload exigem custodia
+      qualificada fora deste journal. Texto clinico, telefone e identidade FHIR
+      nao fazem parte do contrato de metadados deste journal. Principal de invocacao, command/event
+      refs e foreign keys nao qualificam uma ponte DSR para titular ou custodia.
+      Nenhuma sonda por titular existe; desconhecido nao significa zero. Escrita,
+      recovery e lifecycle produtivos permanecem negados ate os gates de politica,
+      identidade, custodia e permissoes proprios. Retencao de dedup/fences e apagamento
+      de refs exigem decisao owner/DPO; nao reabrir comando incerto nem recriar
+      conteudo apagado. Nenhum prazo, acao de eliminacao ou tombstone e escolhido.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: durabilidade_capacidade
+    tabela: v21_external_wait
+    migracao: "0018_capability_durability_journal.py::upgrade (v21_external_wait; journal/command FKs)"
+    identificacao: "environment_ref + tenant_ref + legal_entity_ref + journey_ref + task_ref + wait_ref; principal_ref scopes the journal foreign key and command_ref scopes the command. Descriptor/snapshot carry technical wait refs; no qualified DSR/FHIR-to-principal or protected custody mapping exists"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 33
+    tensao: null
+    notas: >-
+      DUR0: inventario estrutural de metadados tecnicos da migracao 0018. Referencias
+      opacas e digests continuam protegidos; request/result/payload exigem custodia
+      qualificada fora deste journal. Texto clinico, telefone e identidade FHIR
+      nao fazem parte do contrato de metadados deste journal. Principal de invocacao, command/event
+      refs e foreign keys nao qualificam uma ponte DSR para titular ou custodia.
+      Nenhuma sonda por titular existe; desconhecido nao significa zero. Escrita,
+      recovery e lifecycle produtivos permanecem negados ate os gates de politica,
+      identidade, custodia e permissoes proprios. Retencao de dedup/fences e apagamento
+      de refs exigem decisao owner/DPO; nao reabrir comando incerto nem recriar
+      conteudo apagado. Nenhum prazo, acao de eliminacao ou tombstone e escolhido.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: durabilidade_capacidade
+    tabela: v21_journal_outbox
+    migracao: "0018_capability_durability_journal.py::upgrade (v21_journal_outbox; journal/command FKs)"
+    identificacao: "environment_ref + tenant_ref + legal_entity_ref + outbox_ref; scoped journey_ref + principal_ref + task_ref + command_ref reference journal/command. Descriptor/snapshot carry target binding, protected payload ref/digest and technical delivery fences; no qualified DSR/FHIR-to-principal or payload custody mapping exists"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 34
+    tensao: null
+    notas: >-
+      DUR0: inventario estrutural de metadados tecnicos da migracao 0018. Referencias
+      opacas e digests continuam protegidos; request/result/payload exigem custodia
+      qualificada fora deste journal. Texto clinico, telefone e identidade FHIR
+      nao fazem parte do contrato de metadados deste journal. Principal de invocacao, command/event
+      refs e foreign keys nao qualificam uma ponte DSR para titular ou custodia.
+      Nenhuma sonda por titular existe; desconhecido nao significa zero. Escrita,
+      recovery e lifecycle produtivos permanecem negados ate os gates de politica,
+      identidade, custodia e permissoes proprios. Retencao de dedup/fences e apagamento
+      de refs exigem decisao owner/DPO; nao reabrir comando incerto nem recriar
+      conteudo apagado. Nenhum prazo, acao de eliminacao ou tombstone e escolhido.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
