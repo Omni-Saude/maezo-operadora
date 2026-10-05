@@ -250,8 +250,13 @@ class PostgresDurabilityJournal:
             # COMMIT and pool release are awaits too. A revoked data lease or
             # expired evidence after a known commit cannot disclose a token/ref.
             # The committed fence remains in storage for qualified recovery.
-            if await port.authorize(binding, method) is not True:
-                raise _RefusedError(Reason.DATA_GATE_CLOSED, Status.UNAVAILABLE)
+            try:
+                if await port.authorize(binding, method) is not True:
+                    raise _RefusedError(Reason.DATA_GATE_CLOSED, Status.UNAVAILABLE)
+            except _RefusedError:
+                raise
+            except Exception:
+                raise _RefusedError(Reason.DATA_GATE_CLOSED, Status.UNAVAILABLE) from None
             for check in work.checks:
                 try:
                     if await check() is not True:
@@ -260,6 +265,16 @@ class PostgresDurabilityJournal:
                     raise
                 except Exception:
                     raise _RefusedError(Reason.PROOF_UNAVAILABLE, Status.UNAVAILABLE) from None
+            # Metadata admission must follow every awaited evidence recheck.
+            # Its own await is covered by the synchronous validity sweep below;
+            # no further await may intervene before protected refs are disclosed.
+            try:
+                if await port.authorize(binding, method) is not True:
+                    raise _RefusedError(Reason.DATA_GATE_CLOSED, Status.UNAVAILABLE)
+            except _RefusedError:
+                raise
+            except Exception:
+                raise _RefusedError(Reason.DATA_GATE_CLOSED, Status.UNAVAILABLE) from None
             self._check_time_bounds(work)
             return result
         except _RefusedError as refusal:

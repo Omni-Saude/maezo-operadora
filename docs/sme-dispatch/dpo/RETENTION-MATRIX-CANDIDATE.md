@@ -45,7 +45,8 @@ um agente supra assinatura humana.
 ## 2. Escopo — opção **B** (decisão aprovada do dono, R-022)
 
 Cobertura: **apenas as camadas que os 3 CronJobs de lifecycle tocam**. Todas as demais relações
-enumeradas em `src/maezo/platform/lifecycle/erasure_plan.py::PERSISTENCE_LAYERS` (25 relações)
+enumeradas em `src/maezo/platform/lifecycle/erasure_plan.py::PERSISTENCE_LAYERS` (34 relações,
+incluindo as três retiradas)
 ficam **declaradas como NÃO COBERTAS** por esta matriz — não são omissão, são exclusão explícita.
 
 | CronJob (`values.yaml::lifecycle.jobs`) | Comando | Camadas / relações que ele tocaria |
@@ -73,9 +74,13 @@ aviso `escalation.notify_team`, endereçada a um GRUPO de atendimento e sem colu
 `custodia_contato_retomada`/`beneficiario_contato_retomada` (migração `0016`, GAP-XHITL-4 /
 ADR-0061 Proposto — telefone do beneficiário CIFRADO para a retomada, TTL proposto de 30 dias); e
 `roteamento_conversa`/`conversa_agente_ativo` (migração `0017`, ADR-0062 Proposto — agente ativo
-da conversa no número único, só enums e `YYYY-MM`, purga proposta de 30 dias após o último turno).
-Essas dezessete relações continuam sem decisão de
-retenção — e sem qualquer mecanismo que as toque. As seis últimas foram introduzidas pelas
+da conversa no número único, só enums e `YYYY-MM`, purga proposta de 30 dias após o último turno); e
+`durabilidade_capacidade`/`v21_journey_journal`, `v21_capability_command`,
+`v21_journal_observation`, `v21_journal_inbox`, `v21_external_wait`, `v21_journal_outbox`
+(migração `0018`, metadados técnicos de coordenação, recibos e refs/digests protegidos; §8.5).
+Essas vinte e três relações continuam sem decisão de
+retenção — e sem mecanismo de lifecycle produtivo qualificado que as toque.
+As seis relações de `identidade_portal` e `comando_humano` foram introduzidas pelas
 migrações `src/maezo/platform/migrations/versions/0012_portal_identity_session.py` e
 `src/maezo/platform/migrations/versions/0013_human_command_outbox.py`: as três primeiras relações
 de portal e `human_command_delivery` estão como `SEM_COLUNA_DE_TITULAR`; `portal_memberships` e
@@ -172,7 +177,7 @@ escopo_b:
         RETIRADAS pela migracao `0006_retire_dead_checkpoint_tables` (criadas por 0001, removidas
         por 0006). Em `erasure_plan.py::PERSISTENCE_LAYERS` sao as entradas de ordem 5 e 6, ambas
         `resolucao: RETIRADA` e sem probe. Estavam so na prosa da §2 ate 2026-09-05 (§Delta-4);
-        agora estao no bloco assinavel, para que ele enumere as VINTE E CINCO relacoes da plataforma e
+        agora estao no bloco assinavel, para que ele enumere as TRINTA E QUATRO relacoes da plataforma e
         nao um subconjunto -- ver §8.3.
     - camada: episodica           # CronJob lifecycle-verify-erasure
       tabelas: [agent_memory]
@@ -244,6 +249,21 @@ escopo_b:
         uma vez a cada 10 minutos por processo (PROPOSTA de engenharia, nao decisao); PONTE_AUSENTE
         (conversation_id e' pseudonimo keyed, a referencia DSR nao o alcanca); sem decisao de
         retencao ratificada
+    - camada: durabilidade_capacidade
+      tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
+      motivo: >-
+        fora do escopo B; 0018 enumera seis relacoes tecnicas, ordens 29 a 34 de
+        erasure_plan.py::PERSISTENCE_LAYERS. v21_journey_journal, v21_capability_command,
+        v21_external_wait e v21_journal_outbox sao PONTE_AUSENTE; principal_ref identifica
+        o principal de invocacao e nao uma ponte DSR/FHIR para titular ou custodia.
+        v21_journal_observation e v21_journal_inbox sao SEM_COLUNA_DE_TITULAR; refs de
+        comando, evento, observacao e foreign keys nao qualificam identidade de titular.
+        As seis tem count_statement: None; desconhecido nao significa zero. Retencao,
+        base legal, eliminacao/tombstone, custodia e permissoes produtivas permanecem
+        PENDENTES de owner/DPO/juridico, sem prazo escolhido, sem sonda ou autorizacao
+        de efeito. Preservar dedup/fences e recovery de comandos incertos; nao recriar
+        conteudo apagado nem reenviar efeito. Esta inclusao e inventario estrutural,
+        nao qualificacao de fonte, runtime ou lifecycle produtivo; ver §8.5.
   categorias_nao_cobertas:
     - financeiros_faturamento
     - regulatorios_ans
@@ -395,3 +415,45 @@ de identidade, prazo, base legal, mecanismo de eliminação ou ratificação. Em
 `principal_ref` registra o ator humano do portal/comando e não estabelece identidade de
 beneficiário para DSR/FHIR; a ordem da enumeração continua sendo apenas ordem de relatório e
 revisão. Os bloqueios da §5 e todos os campos de assinatura permanecem inalterados.
+
+### 8.5 Reancoragem nas 34 relações após 0018 — 2026-10-05
+
+As 28 relações já enumeradas no bloco assinável permanecem no mesmo grupo e com a mesma
+marcação de retirada. As seis relações de `durabilidade_capacidade` foram acrescentadas
+**somente a `nao_cobertas`**: agora são 34 relações de revisão, 11 no grupo coberto (incluindo
+as três retiradas) e 23 não cobertas. O escopo de decisão do encarregado cresce; a cobertura
+dos três CronJobs continua a mesma. A ordem 29–34 é ordem de relatório/revisão, não sequência
+de eliminação ou autorização de efeito.
+
+| Ordem | Relação técnica de 0018 | Resolução de identidade atual | Sonda por titular |
+|---|---|---|---|
+| 29 | `v21_journey_journal` | `PONTE_AUSENTE`; escopo de ambiente/tenant/entidade/jornada/principal/tarefa | Ausente (`count_statement: None`) |
+| 30 | `v21_capability_command` | `PONTE_AUSENTE`; comando e refs/digests sob escopo e FK do journal | Ausente (`count_statement: None`) |
+| 31 | `v21_journal_observation` | `SEM_COLUNA_DE_TITULAR`; observação e intenções causais referenciam o comando | Ausente (`count_statement: None`) |
+| 32 | `v21_journal_inbox` | `SEM_COLUNA_DE_TITULAR`; produtor/contrato/evento autenticado não identifica titular | Ausente (`count_statement: None`) |
+| 33 | `v21_external_wait` | `PONTE_AUSENTE`; espera referencia journal/comando, sem ponte DSR/custódia qualificada | Ausente (`count_statement: None`) |
+| 34 | `v21_journal_outbox` | `PONTE_AUSENTE`; alvo/payload protegido/digest/fence não qualificam ponte DSR/custódia | Ausente (`count_statement: None`) |
+
+Fontes estruturais desta reancoragem: `src/maezo/platform/lifecycle/erasure_plan.py::PERSISTENCE_LAYERS`,
+`spec/policies/retention/erasure-plan.template.yaml`, a migração forward com DDL congelado
+`src/maezo/platform/migrations/versions/0018_capability_durability_journal.py::upgrade` e
+`src/maezo/gateway/capabilities/durability/schema.sql` e o mecanismo técnico
+`src/maezo/gateway/capabilities/durability/postgres.py::PostgresDurabilityJournal`.
+SHA-256 dos bytes inspecionados:
+
+- Migração 0018: `7f9884297523f8030519a34df7172e4121c85b7262b207b00d2058bc31e31afc`.
+- Schema técnico: `b9420a4f5d37cc7f654989445b9288cec3912dc6c23b42f38359271405a6430d`.
+- Fonte do mecanismo PostgreSQL: `4a94e672c43cedfd050928c5b77d1ef07993b44b7aedc24c02b79f30aff0bdc8`.
+
+Esses digests identificam os artefatos de implementação lidos; não atestam sua aplicação
+em um banco, permissões produtivas, contrato de fornecedor ou aceitação operacional.
+As referências e digests do journal continuam protegidos e podem exigir tratamento como
+dados pessoais; request/result/payload precisam de custódia qualificada fora deste inventário.
+Não foi publicada ponte entre sujeito DSR/FHIR, principal de invocação e essa custódia.
+
+Nas seis relações, decisão DPO, base legal, retenção e disposição de eliminação continuam
+**PENDENTES** de owner/DPO/jurídico. Nenhum TTL, prazo, SQL de eliminação, tombstone ou
+permissão foi escolhido por esta reancoragem. Dedup e fences não podem ser apagados para
+reabrir comandos incertos; refs apagadas não autorizam reconstruir conteúdo ou reenviar
+efeitos. O bloco continua `unratified: true`, com ratificação falsa, nomes/datas nulos e
+assinaturas em branco; os bloqueios de execução da §5 permanecem.

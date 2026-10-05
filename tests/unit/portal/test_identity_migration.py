@@ -10,8 +10,8 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     """No fork: every revision claimed once, exactly one revision unreferenced as a parent.
 
     A forked chain is the failure mode where `alembic upgrade head` applies one branch while an
-    operator believes it applied the other. Propagated from 0010 to the real 0014 head;
-    integration with the concurrent 0011 must retain one connected linear chain.
+    operator believes it applied the other. The fence originated at 0010 and the
+    0014 identity migration; later migrations must retain one connected linear chain.
     """
     revisions: dict[str, str | None] = {}
     for path in sorted(_VERSIONS_DIR.glob("[0-9]*.py")):
@@ -30,12 +30,17 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # upgrade head` applies one branch while an operator believes it applied the other.
     # GAP-XHITL-4 moved it to 0016 (`beneficiario_contato_retomada`, ADR-0061).
     # ADR-0062 moved it to 0017 (`conversa_agente_ativo`).
-    assert heads == {"0017"}, f"expected 0017 to be the sole head, got {heads}"
+    # DUR0 adds the tenant-local journal as forward migration 0018 after 0017.
+    assert heads == {"0018"}, f"expected 0018 to be the sole head, got {heads}"
+    assert revisions["0018"] == "0017"
+    assert revisions["0017"] == "0016"
+    assert revisions["0016"] == "0015"
+    assert revisions["0015"] == "0014"
     assert len(parents) == len(revisions) - 1, "a revision is claimed as parent by two children"
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0017"
+    current = "0018"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

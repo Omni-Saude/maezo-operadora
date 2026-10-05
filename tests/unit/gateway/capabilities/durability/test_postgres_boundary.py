@@ -1,5 +1,6 @@
 """UNIT gate and unknown-ACK tests only; no fake engine or durability claim."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -417,3 +418,183 @@ async def test_later_awaited_proof_cannot_leave_earlier_result_bounds_stale(monk
     assert connection.committed
     assert result.snapshot is None
     assert result.refusal_reason == JournalRefusalReason.PROOF_UNAVAILABLE
+
+
+@pytest.mark.parametrize("revoke_metadata", [True, False])
+async def test_postcommit_source_await_rechecks_metadata_and_preserves_committed_inbox(revoke_metadata):
+    """Independent metadata revocation does not invalidate a still-current source proof."""
+    b = binding()
+    connection = JournalControlConnection(b)
+
+    class MetadataProofs(SyntheticProofs):
+        def __init__(self):
+            super().__init__()
+            self.metadata_current = True
+            self.postcommit_source = asyncio.Event()
+            self.release_source = asyncio.Event()
+            self.authorizations = []
+            self.source_checks_after_commit = 0
+
+        async def authorize(self, actual_binding, method):
+            assert actual_binding == b and method == "ingest_verified_observation"
+            self.authorizations.append((connection.committed, self.metadata_current))
+            return self.metadata_current
+
+        async def verify_result(self, *args):
+            accepted = await super().verify_result(*args)
+            if connection.committed:
+                self.source_checks_after_commit += 1
+                if not self.postcommit_source.is_set():
+                    self.postcommit_source.set()
+                    await self.release_source.wait()
+            return accepted
+
+    proofs = MetadataProofs()
+    store = SameHeadStore(connection, proofs)
+    event = inbox(store.handle, store.obs, event="unit-postcommit-metadata-identity")
+    task = asyncio.create_task(store.ingest_verified_observation(b, event, None, (), (), 9))
+    try:
+        async with asyncio.timeout(5):
+            await proofs.postcommit_source.wait()
+            # Commit is known before an independent metadata lease changes during
+            # the final source-verifier await; the source oracle still allows it.
+            assert connection.committed and not connection.rolled_back
+            assert connection.inserts == connection.bumps == 1
+            assert connection.revision == 10
+            assert proofs.authorizations[-1] == (True, True)
+            proofs.metadata_current = not revoke_metadata
+            proofs.release_source.set()
+            result = await task
+    finally:
+        proofs.release_source.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    assert proofs.allowed is True and proofs.source_checks_after_commit == 1
+    assert connection.committed and not connection.rolled_back
+    assert connection.inserts == connection.bumps == 1 and connection.revision == 10
+    committed_inbox = dict(connection.inbox_row)
+    committed_fence = (store.snapshot.handle, store.snapshot.dispatch_ref, store.snapshot.fence_version)
+    if revoke_metadata:
+        assert result.snapshot is None
+        assert result.technical_status == JournalCallTechnicalStatus.UNAVAILABLE
+        assert result.refusal_reason == JournalRefusalReason.DATA_GATE_CLOSED
+        assert proofs.authorizations[-1] == (True, False)
+        assert "unit-command" not in result.model_dump_json()
+        assert "unit-dispatch" not in result.model_dump_json()
+    else:
+        assert result.technical_status == JournalCallTechnicalStatus.RECORDED
+        assert result.refusal_reason is None
+        assert result.snapshot.handle == store.handle and result.snapshot.journal_revision == 10
+
+    # Restoring only the explicit synthetic metadata gate permits a durable
+    # exact-identity read. It cannot increment, reapply or reset the committed work.
+    proofs.metadata_current = True
+    replay = await store.ingest_verified_observation(b, event, None, (), (), 0)
+    assert replay.technical_status == JournalCallTechnicalStatus.UNCHANGED
+    assert replay.snapshot.handle == store.handle and replay.snapshot.journal_revision == 10
+    assert connection.inserts == connection.bumps == 1 and connection.revision == 10
+    assert connection.inbox_row == committed_inbox
+    assert (
+        store.snapshot.handle,
+        store.snapshot.dispatch_ref,
+        store.snapshot.fence_version,
+    ) == committed_fence
+    assert store.d.envelope.idempotency_key == "unit-literal-key"
+    assert not connection.rolled_back
+
+
+async def test_final_metadata_authorization_await_cannot_leave_source_validity_stale(monkeypatch):
+    b, d = binding(), descriptor(binding())
+    obs = observation(b, d)
+    expiry = obs.source_result.valid_until
+    clock = SimpleNamespace(now=obs.source_result.checked_at)
+    monkeypatch.setattr(postgres, "datetime", SimpleNamespace(now=lambda zone: clock.now))
+    connection = JournalControlConnection(b, revision=1)
+
+    class MetadataAwaitExpiresSource(SyntheticProofs):
+        async def authorize(self, actual_binding, method):
+            assert actual_binding == b and method == "observe_journey"
+            if connection.committed and self.result_checks == 3:
+                await cross_expiry()
+            return True
+
+    crossed = False
+
+    async def cross_expiry():
+        nonlocal crossed
+        # A separate awaited metadata authority call can consume the source
+        # proof's remaining validity; no new product timeout is introduced.
+        crossed = True
+        clock.now = expiry + timedelta(microseconds=1)
+
+    proofs = MetadataAwaitExpiresSource()
+    store = PostgresDurabilityJournal(
+        pool=JournalControlPool(connection), binding=b, proofs=proofs, enabled=True
+    )
+
+    async def action(work):
+        await store._verify_result(work, d, "unit-dispatch", None, obs)
+        return _accepted(
+            JourneySnapshot(
+                binding=b,
+                journal_revision=1,
+                command_refs=("unit-protected-command",),
+                wait_refs=(),
+                outbox_refs=(),
+            )
+        )
+
+    result = await store._run(b, "observe_journey", action)
+    assert result.snapshot is None
+    assert result.technical_status == JournalCallTechnicalStatus.UNAVAILABLE
+    assert result.refusal_reason == JournalRefusalReason.PROOF_UNAVAILABLE
+    assert crossed and clock.now >= expiry and proofs.result_checks == 3
+    assert connection.committed and not connection.rolled_back
+    assert connection.bumps == connection.inserts == 0 and connection.revision == 1
+
+
+@pytest.mark.parametrize("authorization_phase", ["early", "final"])
+async def test_postcommit_metadata_verifier_unavailable_hides_refs_without_reclassifying_known_commit(
+    authorization_phase,
+):
+    b, d = binding(), descriptor(binding())
+    obs = observation(b, d)
+    connection = JournalControlConnection(b, revision=1)
+
+    expected_result_checks = 2 if authorization_phase == "early" else 3
+
+    class UnavailableFinalMetadata(SyntheticProofs):
+        async def authorize(self, actual_binding, method):
+            assert actual_binding == b and method == "observe_journey"
+            if connection.committed and self.result_checks == expected_result_checks:
+                raise ConnectionResetError("unit-private-metadata-verifier-diagnostics")
+            return True
+
+    proofs = UnavailableFinalMetadata()
+    store = PostgresDurabilityJournal(
+        pool=JournalControlPool(connection), binding=b, proofs=proofs, enabled=True
+    )
+
+    async def action(work):
+        await store._verify_result(work, d, "unit-dispatch", None, obs)
+        return _accepted(
+            JourneySnapshot(
+                binding=b,
+                journal_revision=1,
+                command_refs=("unit-protected-command",),
+                wait_refs=(),
+                outbox_refs=(),
+            )
+        )
+
+    result = await store._run(b, "observe_journey", action)
+    assert result.snapshot is None
+    assert result.technical_status == JournalCallTechnicalStatus.UNAVAILABLE
+    assert result.refusal_reason == JournalRefusalReason.DATA_GATE_CLOSED
+    assert connection.committed and not connection.rolled_back
+    assert connection.bumps == connection.inserts == 0 and connection.revision == 1
+    assert proofs.result_checks == expected_result_checks
+    assert "private-metadata" not in result.model_dump_json()
+    assert "unit-protected-command" not in result.model_dump_json()
