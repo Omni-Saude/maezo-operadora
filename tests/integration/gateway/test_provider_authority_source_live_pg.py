@@ -12,6 +12,12 @@ from uuid import uuid4
 
 import asyncpg
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+from tests.support.provider_tls_pg import docker as docker
+from tests.support.provider_tls_pg import owned_tls_postgres
+from tests.support.provider_tls_pg import server_certificate as server_certificate
+
 from maezo.gateway.capabilities.authority_postgres import PostgresProviderAuthoritySource
 from maezo.gateway.capabilities.authority_source import (
     TABLES,
@@ -26,11 +32,6 @@ from maezo.gateway.capabilities.contract_authority import (
     ContractSnapshot,
 )
 from maezo.gateway.capabilities.models import CapabilityRefusalReason
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-from tests.support.provider_tls_pg import docker as docker
-from tests.support.provider_tls_pg import owned_tls_postgres
-from tests.support.provider_tls_pg import server_certificate as server_certificate
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 DDL_PATH = (

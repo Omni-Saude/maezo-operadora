@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
+
 from maezo.gateway.capabilities.authority_postgres import PostgresProviderAuthoritySource
 from maezo.gateway.capabilities.authority_source import (
     TABLES,
@@ -15,7 +17,6 @@ from maezo.gateway.capabilities.authority_source import (
     parse_binding,
 )
 from maezo.gateway.capabilities.models import CapabilityContractError, CapabilityRefusalReason
-from pydantic import ValidationError
 
 
 def descriptor(**changes):
