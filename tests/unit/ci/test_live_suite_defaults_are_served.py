@@ -849,6 +849,76 @@ def _owned_transport_is_verified(
             value = value.value
         return value.id if isinstance(value, ast.Name) else None
 
+    mutators = {"setattr", "delattr", "vars"}
+    reflective_attributes = {
+        "__dict__",
+        "__globals__",
+        "__builtins__",
+        "__class__",
+        "__mro__",
+        "__bases__",
+        "__subclasses__",
+        "__getattribute__",
+        "__setattr__",
+        "__delattr__",
+    }
+    # This grammar describes plain, immutable library references. Reflection
+    # and its aliases cannot silently mutate a trusted constructor/converter.
+    if any(
+        isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Load)
+        and node.id in mutators
+        or isinstance(node, ast.Attribute)
+        and node.attr in mutators | reflective_attributes
+        or isinstance(node, ast.ImportFrom)
+        and node.module == "builtins"
+        and any(alias.name in mutators for alias in node.names)
+        for node in ast.walk(tree)
+    ):
+        return False
+    protected_aliases = {
+        "URL",
+        "make_url",
+        "str",
+        "asyncpg",
+        "create_async_engine",
+        "__builtins__",
+    } | builtin_aliases
+    for _ in range(len(list(ast.walk(tree)))):
+        previous = set(protected_aliases)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
+                and node.value is not None
+                and root_name(node.value) in protected_aliases
+            ):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                protected_aliases |= {name for target in targets for name in _bound_target_names(target)}
+        if protected_aliases == previous:
+            break
+    if any(
+        isinstance(node, (ast.Attribute, ast.Subscript))
+        and isinstance(node.ctx, (ast.Store, ast.Del))
+        and root_name(node) in protected_aliases
+        or isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and (
+            bool(node.args)
+            and root_name(node.args[0]) in protected_aliases
+            or len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in mutators | reflective_attributes
+        )
+        or isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr
+        in {"update", "setdefault", "pop", "popitem", "clear", "__setitem__", "__delitem__"}
+        and root_name(node.func.value) in protected_aliases
+        for node in ast.walk(tree)
+    ):
+        return False
+
     def trusted_symbol(name: str, module: str | None = None) -> bool:
         """Resolve canonical builtin/import bindings, never aliases or caller locals."""
         if any(

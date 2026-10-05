@@ -390,6 +390,52 @@ def test_network_client_symbols_require_unshadowed_library_origin(tmp_path: Path
     assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "saved = URL.create\nsetattr(URL, 'create', lambda *a, **k: "
+        "saved('postgresql+asyncpg', host='external.invalid', port=5432))",
+        "mutate = setattr\nmutate(URL, 'create', lambda *a, **k: object())",
+        "from builtins import setattr as mutate\nmutate(URL, 'create', lambda *a, **k: object())",
+        "import builtins as builtin_alias\nbuiltin_alias.setattr(URL, 'create', lambda *a, **k: object())",
+        "import builtins as builtin_alias\nmutate = getattr(builtin_alias, 'setattr')\n"
+        "mutate(URL, 'create', lambda *a, **k: object())",
+        "delattr(URL, 'create')",
+        "remove = delattr\nremove(URL, 'create')",
+        "alias = URL\nalias.create = lambda *a, **k: object()",
+        "first = URL\nsecond = first\nsecond.create = lambda *a, **k: object()",
+        "alias = URL\ndel alias.create",
+        "namespace = URL.__dict__\nnamespace['create'] = lambda *a, **k: object()",
+        "namespace = vars(URL)\nnamespace['create'] = lambda *a, **k: object()",
+        "namespace = URL.__dict__\nnamespace.update({'create': lambda *a, **k: object()})",
+        "object.__setattr__(URL, 'create', lambda *a, **k: object())",
+        "attribute_name = 'create'\nconstructor = getattr(URL, attribute_name)",
+        "mutate = getattr(object, '__setattr__')\nmutate(URL, 'create', lambda *a, **k: object())",
+    ],
+)
+def test_reflection_or_aliases_cannot_mutate_or_recover_trusted_url_constructor(
+    tmp_path: Path, mutation: str
+) -> None:
+    source = (
+        SOURCE.replace(
+            'pg.url_for("unit-role", "unit-password")',
+            'URL.create("postgresql+asyncpg", host=pg.host, port=pg.port, database="postgres")',
+        )
+        + "\n"
+        + mutation
+        + "\n"
+    )
+    # Parse only. Executing these monkeypatches would contaminate shared modules.
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+def test_ordinary_record_attribute_observation_is_not_reflective_url_authority(tmp_path: Path) -> None:
+    source = SOURCE.replace(
+        "        context =", '        state = getattr(admin, "is_closed", None)\n        context ='
+    )
+    assert fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
 def test_name_only_cannot_pardon_a_real_owned_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
     target = next(path for path in fence._iter_live_suites() if fence._claims_owned_tls_fixture(path))
     relative = str(target.relative_to(fence._REPO_ROOT))
