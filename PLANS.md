@@ -1115,6 +1115,16 @@ terraform validate      # todos os módulos
 | `performance-monitor` | M11, M13 |
 
 
+## 2026-10-04 — Encerramento da revisão de feedback BPMN CA
+
+Os quatro BPMNs adaptados e os dois documentos acompanhantes foram refinados e verificados como devolutiva à equipe autora. Esta entrega não implementa processos, agentes, workers ou integrações MAEZO. Os originais de terceiro continuam locais e intocados; a evidência detalhada permanece deliberadamente fora do Git em `docs/audits/BPMN-CA-2026-10/feedback/revisions/20261004T153751Z-codex-refinement/`.
+
+O bundle inicial `e73cbc80fe82a8eec4f7be51e1c26054c80a1f8f022c1cf221827e2be4f8fefa` tem dois gates frescos independentes. A edição posterior do Modeler em Compras foi preservada, reparada pontualmente e revalidada (366 verificações semânticas e 16 visuais); source final de Compras `067cf607ddb0c6647598d1b52d1237f2e1eafbbfc944aedcfbdddf91bcf12cb9`. Engine e contratos externos não foram executados; sugestões mantêm essa qualificação.
+
+O flywheel registrou seis lições e um checker read-only com controles sobre o snapshot real rejeitado, incluindo quatro aliases businessKey→journeyId. A checagem anterior case-sensitive não reconhecia processBusinessKey; o novo controle identifica o caso sem reescrever a evidência congelada. Artefatos de retomada: `session-close/FLYWHEEL-LESSONS.md` e `HANDOFF.yaml` no diretório de evidência acima.
+
+Pacote de publicação: branch `codex/feedback-bpmn-refinement-closeout`. Estado Git/PR/CI e disposição de integração são registrados no recibo de encerramento desta sessão; não inferir aprovação de main, produção ou outras PRs desta nota. O programa de implementação MAEZO mantém seus próprios gates e responsáveis. Não retomá-lo automaticamente após esta devolutiva.
+
 ## 2026-10-04 — Implementação prestador (Codex, em execução)
 
 Autorizada execução de `maezo-provider-implementation-pickup-prompt-v2.md` com análise/decisão delegada, especialistas e revisão independente. Bundle prestador cc7f4248 teve admissão independente PASS; V2 histórico íntegro mas admissão atual FAIL_SOURCE_DRIFT (Helena/DL-0071). A revisão de execução fora dos bundles congelados aguarda dois gates independentes. Não há fonte/ativação fictícia nem pacote funcional encerrado.
@@ -1125,3 +1135,7 @@ Evidência privada própria sob custódia em ROOT `docs/audits/PROVIDER-IMPL-202
 ### 2026-10-05 — Gate da revisão prestador para construção
 
 PROVIDER-EXEC-V1-ARCHITECTURE e PROVIDER-EXEC-V1-SECURITY PASS no mesmo digest `a7c9d3722c2ba9f671b637c9740914a62aa3067ea46f508470cedd5e68fc593c`, registrados e relidos no SQLite próprio. Original V2 SOURCE_DRIFT exit1 preservado; revisão independente atual qualifica somente construção delimitada. ADR0063 aceito nesse escopo. Autoria PW1-A allowlists e PW2 OP12/core em paralelo, workers compartilhados serializados. Nenhum gate funcional ou ato externo/ativação declarado.
+
+### 2026-10-05 — Reconciliação da base integrada
+
+PR #633 integrado por squash `54fa791298bc59a92a1c673246b1568fe93e27e2`; `main` consultada em `feba801cf5eea6383f2db88bb02d52d9911049f3`, incluindo análise CA do PR #634. Merge explícito preserva os reparos provider; seis conflitos de add/add têm bytes incoming iguais à dependência pinada `9680e5db`. Evidência própria em `evidence/current-main-base-delta/`, sujeita à revisão independente do delta. PW1-A tem três testes CIB reais PASS sem skip. Rodada direta D1 exit0 teve oito skips e não qualifica PG; nova rodada hermética CIB+PG está em execução. PW1-B passou revisão delimitada de código; PW1-C tem REVISE por ACL/TRUNCATE com reparador terceiro. Nenhuma fonte produtiva, ato externo, ativação ou pacote funcional integral declarado.

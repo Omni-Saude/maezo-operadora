@@ -83,12 +83,19 @@
       <bpmn:outgoing>F_CA_SUPORTE_04</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:callActivity id="SP_CA_S1" name="Ouvir e registrar o caso" camunda:asyncBefore="true" calledElement="Process_CA_SUPORTE_S1_OuvirRegistrar">
+      <bpmn:documentation>Contrato explícito de chamada: clienteId, journeyId, canal e mensagemCliente vêm do ingresso autorizado do caso; businessKey é preservada e não transporta esse payload. contextAssemblyService declara contextoCliente e protocoloId, este último somente se houver caso aberto. Presença, tipo, finalidade e tratamento de campo opcional são responsabilidade do contrato de ingresso/delegate, não comprovados por execução nesta devolutiva. Sem valor fictício ou cópia global de variáveis.</bpmn:documentation>
       <bpmn:documentation>Origem: ARQ-01 S1</bpmn:documentation>
       <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:in businessKey="#{execution.processBusinessKey}"/>
         <camunda:in source="origemSuporte" target="origemSuporte"/>
         <camunda:out source="urgenciaSugerida" target="urgenciaSugerida"/>
+        <camunda:in source="clienteId" target="clienteId"/>
+        <camunda:in source="journeyId" target="journeyId"/>
+        <camunda:in source="canal" target="canal"/>
+        <camunda:in source="mensagemCliente" target="mensagemCliente"/>
+        <camunda:out source="contextoCliente" target="contextoCliente"/>
+        <camunda:out source="protocoloId" target="protocoloId"/>
       </bpmn:extensionElements>
       <bpmn:incoming>F_CA_SUPORTE_04</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_05</bpmn:outgoing>
@@ -106,12 +113,18 @@
       <bpmn:outgoing>F_CA_SUPORTE_07</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:callActivity id="SP_CA_S2" name="Diagnosticar e rotear o caso" camunda:asyncBefore="true" calledElement="Process_CA_SUPORTE_S2_DiagnosticarRotear">
+      <bpmn:documentation>Contrato de triagem: recebe contextoCliente e protocoloId de S1. intentTriageAI declara intencaoCompra e naturezaCaso, devolvidos explicitamente ao processo principal para SP_GW_Compra e SP_CA_S3. rotaAtendimento continua produzida pelos listeners de término. clienteId identifica o caso; contrato externo/formulário não executado nesta devolutiva.</bpmn:documentation>
       <bpmn:documentation>Origem: ARQ-01 S2</bpmn:documentation>
       <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:in businessKey="#{execution.processBusinessKey}"/>
         <camunda:in source="questaoClinica" target="questaoClinica"/>
         <camunda:out source="rotaAtendimento" target="rotaAtendimento"/>
+        <camunda:in source="clienteId" target="clienteId"/>
+        <camunda:in source="contextoCliente" target="contextoCliente"/>
+        <camunda:in source="protocoloId" target="protocoloId"/>
+        <camunda:out source="intencaoCompra" target="intencaoCompra"/>
+        <camunda:out source="naturezaCaso" target="naturezaCaso"/>
       </bpmn:extensionElements>
       <bpmn:incoming>F_CA_SUPORTE_06</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_08</bpmn:outgoing>
@@ -145,6 +158,7 @@
       <bpmn:outgoing>F_CA_SUPORTE_11</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:callActivity id="SP_CA_S3" name="Resolver ou encaminhar o caso" camunda:asyncBefore="true" calledElement="Process_CA_SUPORTE_S3_ResolverEncaminhar">
+      <bpmn:documentation>Contrato do caso: recebe clienteId, journeyId, contextoCliente e protocoloId; fontes de ingresso/contextAssemblyService permanecem contratos externos. S3_T_Protocolo declara o protocoloId atualizado, devolvido ao processo principal para S4; nas demais rotas o protocolo de entrada pode permanecer ausente quando não existir caso aberto. Não criar identificador fictício nem presumir resolução por mera presença do protocolo. Formulários e delegates não foram executados nesta devolutiva.</bpmn:documentation>
       <bpmn:documentation>Origem: ARQ-01 S3</bpmn:documentation>
       <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
       <bpmn:extensionElements>
@@ -156,6 +170,11 @@
         <camunda:in source="respostaVerificada" target="respostaVerificada"/>
         <camunda:in source="naturezaCaso" target="naturezaCaso"/>
         <camunda:in source="resolvidoPrimeiroContato" target="resolvidoPrimeiroContato"/>
+        <camunda:in source="clienteId" target="clienteId"/>
+        <camunda:in source="journeyId" target="journeyId"/>
+        <camunda:in source="contextoCliente" target="contextoCliente"/>
+        <camunda:in source="protocoloId" target="protocoloId"/>
+        <camunda:out source="protocoloId" target="protocoloId"/>
       </bpmn:extensionElements>
       <bpmn:incoming>F_CA_SUPORTE_11</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_12</bpmn:outgoing>
@@ -166,6 +185,7 @@
       </bpmn:dataInputAssociation>
     </bpmn:callActivity>
     <bpmn:callActivity id="SP_CA_S4" name="Confirmar, encerrar e aprender" camunda:asyncBefore="true" calledElement="Process_CA_SUPORTE_S4_ConfirmarEncerrar">
+      <bpmn:documentation>Contrato de confirmação: recebe clienteId para o assignee, journeyId para correlação e protocoloId/contextoCliente para identificar o caso. São dados do ingresso e dos contratos S1/S3; nenhuma existência ou atualidade é fabricada por este mapeamento. clienteConfirmouResolucao é resultado do formulário do cliente, distinto de aceite comercial. O publisher de aprendizado tem inputParameters locais; tipoEventoNegocio só constitui saída global se o contrato externo a produzir explicitamente. Execução externa não verificada.</bpmn:documentation>
       <bpmn:documentation>Origem: ARQ-01 S4</bpmn:documentation>
       <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
       <bpmn:extensionElements>
@@ -176,6 +196,10 @@
         <camunda:out source="desfechoSuporte" target="desfechoSuporte"/>
         <camunda:out source="rotaAtendimento" target="rotaAtendimento"/>
         <camunda:out source="tipoEventoNegocio" target="tipoEventoNegocio"/>
+        <camunda:in source="clienteId" target="clienteId"/>
+        <camunda:in source="journeyId" target="journeyId"/>
+        <camunda:in source="protocoloId" target="protocoloId"/>
+        <camunda:in source="contextoCliente" target="contextoCliente"/>
       </bpmn:extensionElements>
       <bpmn:incoming>F_CA_SUPORTE_12</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_13</bpmn:outgoing>
@@ -284,6 +308,7 @@
       <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_01</bpmn:outgoing>
     </bpmn:startEvent>
     <bpmn:callActivity id="S1_CA_H1" name="Identificar cliente e verificar consentimento" camunda:asyncBefore="true" calledElement="Process_CA_H1_IdentidadeConsentimento">
+      <bpmn:documentation>clienteId é transferido explicitamente do ingresso de S1. A finalidade literal atendimento e a businessKey permanecem inalteradas. Identidade e consentimento seguem contrato externo de H1; esta devolutiva não comprova sua execução.</bpmn:documentation>
       <bpmn:documentation>Origem: [SEM ORIGEM] — ARQ-01 §7 H1 (chamado por S1)</bpmn:documentation>
       <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
       <bpmn:extensionElements>
@@ -291,6 +316,7 @@
         <camunda:in sourceExpression="atendimento" target="finalidade"/>
         <camunda:out source="consentimentoValido" target="consentimentoValido"/>
         <camunda:out source="identidadeUnificada" target="identidadeUnificada"/>
+        <camunda:in source="clienteId" target="clienteId"/>
       </bpmn:extensionElements>
       <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_01</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_02</bpmn:outgoing>
@@ -306,6 +332,7 @@
       <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_03</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:serviceTask id="S1_T_Contexto" name="Montar contexto completo (360 + histórico)" camunda:asyncBefore="true" camunda:delegateExpression="${contextAssemblyService}">
+      <bpmn:documentation>Limite de acesso: o nome contexto completo descreve somente os dados autorizados para a finalidade do atendimento. Após S1_B_Consent, o contrato esperado de contextAssemblyService restringe a montagem ao contexto mínimo permitido, sem acesso implícito ao perfil 360 ou histórico sensível. A reconvergência não concede autorização; o executor deve verificar identidade, base/finalidade e permissões vigentes antes de obter dados. Implementação desta restrição não fornecida; contrato externo não verificado, sem flag ou dado fictício acrescentado ao fluxo.</bpmn:documentation>
       <bpmn:documentation>Produz contextoCliente e protocoloId (se houver caso aberto). | Origem: M3_T_Contexto</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_03</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_04</bpmn:outgoing>
@@ -527,13 +554,14 @@
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_12</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:boundaryEvent id="S3_B_SLA_Especialista" name="SLA 2h estourado" cancelActivity="false" attachedToRef="S3_T_Especialista">
-      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: mesmo SLA literal do processo (S3_B_SLARecovery, PT2H).</bpmn:documentation>
+      <bpmn:documentation>SLA proposto, sem ratificação comprovada nesta devolutiva. Valor preservado para avaliação posterior. Fundamento: mesmo SLA literal do processo (S3_B_SLARecovery, PT2H).</bpmn:documentation>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_25</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT2H</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="S3_T_EscalarEspecialista" name="Escalar caso com especialista pendente">
+      <bpmn:documentation>Proposta de contrato reutilizável: executor compartilhado de escalação com identificador da jornada, caso/tarefa e tentativa, motivo, destinatário competente, chave de idempotência e recibo de registro. O destinatário e a alçada seguem o caso e as lanes existentes; registro não equivale a decisão clínica ou resolução. O timer não interruptivo preserva a tarefa humana principal e o término desta ramificação só encerra a escalação. Binding externo não fornecido: serviceTask abstrata, execução não verificada nesta devolutiva; nenhum worker, API ou MCP foi construído.</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_25</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_26</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -546,13 +574,14 @@
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_13</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:boundaryEvent id="S3_B_SLA_Enfermagem" name="SLA 2h estourado" cancelActivity="false" attachedToRef="S3_T_Enfermagem">
-      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: mesmo SLA literal do processo (S3_B_SLARecovery, PT2H).</bpmn:documentation>
+      <bpmn:documentation>SLA proposto, sem ratificação comprovada nesta devolutiva. Valor preservado para avaliação posterior. Fundamento: mesmo SLA literal do processo (S3_B_SLARecovery, PT2H).</bpmn:documentation>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_27</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT2H</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="S3_T_EscalarEnfermagem" name="Escalar caso clínico de enfermagem pendente">
+      <bpmn:documentation>Proposta de contrato reutilizável: executor compartilhado de escalação com identificador da jornada, caso/tarefa e tentativa, motivo, destinatário competente, chave de idempotência e recibo de registro. O destinatário e a alçada seguem o caso e as lanes existentes; registro não equivale a decisão clínica ou resolução. O timer não interruptivo preserva a tarefa humana principal e o término desta ramificação só encerra a escalação. Binding externo não fornecido: serviceTask abstrata, execução não verificada nesta devolutiva; nenhum worker, API ou MCP foi construído.</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_27</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_28</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -582,13 +611,14 @@
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_17</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:boundaryEvent id="S3_B_SLA_Protocolo" name="SLA 2h sem protocolo" cancelActivity="false" attachedToRef="S3_T_Protocolo">
-      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: mesmo SLA literal do processo (S3_B_SLARecovery, PT2H).</bpmn:documentation>
+      <bpmn:documentation>SLA proposto, sem ratificação comprovada nesta devolutiva. Valor preservado para avaliação posterior. Fundamento: mesmo SLA literal do processo (S3_B_SLARecovery, PT2H).</bpmn:documentation>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_29</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT2H</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="S3_T_EscalarProtocolo" name="Escalar abertura de protocolo pendente">
+      <bpmn:documentation>Proposta de contrato reutilizável: executor compartilhado de escalação com identificador da jornada, caso/tarefa e tentativa, motivo, destinatário competente, chave de idempotência e recibo de registro. O destinatário e a alçada seguem o caso e as lanes existentes; registro não equivale a decisão clínica ou resolução. O timer não interruptivo preserva a tarefa humana principal e o término desta ramificação só encerra a escalação. Binding externo não fornecido: serviceTask abstrata, execução não verificada nesta devolutiva; nenhum worker, API ou MCP foi construído.</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_29</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_30</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -596,6 +626,7 @@
       <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_30</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:userTask id="S3_T_Cumprir" name="Resolver e retornar ao cliente no prazo" camunda:formKey="ced:cumprir-protocolo" camunda:candidateGroups="centrais-experiencia">
+      <bpmn:documentation>Direção de reuso: usar o mesmo mecanismo de registro de pedido, retorno e recibo, com identificador do caso e da tentativa, preservando a alçada humana. Resposta enviada não equivale a problema resolvido; o retorno segue a S4_T_Confirmar para obter confirmação do cliente. Reenvio do mesmo retorno não deve duplicar o efeito. Inspiração: composição de funções BIAN e registro/idempotência de fulfillment Stripe; encerramento, reabertura e prazos seguem as regras deste caso. Contrato externo não executado nesta devolutiva.</bpmn:documentation>
       <bpmn:documentation>Origem: AH_T_CumprirProtocolo</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_17</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_18</bpmn:outgoing>
@@ -606,13 +637,14 @@
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_20</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:boundaryEvent id="S3_B_SLA_Priorizar" name="SLA 4h sem priorização" cancelActivity="false" attachedToRef="S3_T_Priorizar">
-      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: proposta — meia jornada de supervisão.</bpmn:documentation>
+      <bpmn:documentation>SLA proposto, sem ratificação comprovada nesta devolutiva. Valor preservado para avaliação posterior. Fundamento: proposta — meia jornada de supervisão.</bpmn:documentation>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_31</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT4H</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="S3_T_EscalarPriorizar" name="Escalar priorização de protocolo pendente">
+      <bpmn:documentation>Proposta de contrato reutilizável: executor compartilhado de escalação com identificador da jornada, caso/tarefa e tentativa, motivo, destinatário competente, chave de idempotência e recibo de registro. O destinatário e a alçada seguem o caso e as lanes existentes; registro não equivale a decisão clínica ou resolução. O timer não interruptivo preserva a tarefa humana principal e o término desta ramificação só encerra a escalação. Binding externo não fornecido: serviceTask abstrata, execução não verificada nesta devolutiva; nenhum worker, API ou MCP foi construído.</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_31</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_32</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -638,13 +670,14 @@
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_23</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:boundaryEvent id="S3_B_SLA_Supervisor" name="SLA 24h sem ação" cancelActivity="false" attachedToRef="S3_T_Supervisor">
-      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: proposta — convenção 24h do corpus (S4_B_Silencio, PT24H).</bpmn:documentation>
+      <bpmn:documentation>SLA proposto, sem ratificação comprovada nesta devolutiva. Valor preservado para avaliação posterior. Fundamento: proposta — convenção 24h do corpus (S4_B_Silencio, PT24H).</bpmn:documentation>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_33</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT24H</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="S3_T_EscalarSupervisao" name="Escalar ação de supervisão pendente">
+      <bpmn:documentation>Proposta de contrato reutilizável: executor compartilhado de escalação com identificador da jornada, caso/tarefa e tentativa, motivo, destinatário competente, chave de idempotência e recibo de registro. O destinatário e a alçada seguem o caso e as lanes existentes; registro não equivale a decisão clínica ou resolução. O timer não interruptivo preserva a tarefa humana principal e o término desta ramificação só encerra a escalação. Binding externo não fornecido: serviceTask abstrata, execução não verificada nesta devolutiva; nenhum worker, API ou MCP foi construído.</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_33</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_34</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -664,13 +697,14 @@
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_24</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:boundaryEvent id="S3_B_SLA_Intervencao" name="SLA 4h sem intervenção" cancelActivity="false" attachedToRef="S3_T_Intervencao">
-      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: proposta — entrega em risco.</bpmn:documentation>
+      <bpmn:documentation>SLA proposto, sem ratificação comprovada nesta devolutiva. Valor preservado para avaliação posterior. Fundamento: proposta — entrega em risco.</bpmn:documentation>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_35</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT4H</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:serviceTask id="S3_T_EscalarIntervencao" name="Escalar intervenção na entrega pendente">
+      <bpmn:documentation>Proposta de contrato reutilizável: executor compartilhado de escalação com identificador da jornada, caso/tarefa e tentativa, motivo, destinatário competente, chave de idempotência e recibo de registro. O destinatário e a alçada seguem o caso e as lanes existentes; registro não equivale a decisão clínica ou resolução. O timer não interruptivo preserva a tarefa humana principal e o término desta ramificação só encerra a escalação. Binding externo não fornecido: serviceTask abstrata, execução não verificada nesta devolutiva; nenhum worker, API ou MCP foi construído.</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_35</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_36</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -769,6 +803,7 @@
       <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_01</bpmn:outgoing>
     </bpmn:startEvent>
     <bpmn:userTask id="S4_T_Confirmar" name="Confirmar a resolução (1 toque)" camunda:formKey="ced:confirmacao-resolucao" camunda:assignee="${clienteId}">
+      <bpmn:documentation>Confirmação específica de Suporte: clienteConfirmouResolucao registra a avaliação do cliente sobre o caso e o retorno de S3_T_Cumprir; não constitui aceite comercial, matrícula, autorização assistencial ou liberação financeira. Reutilizar identidade do caso/tentativa e recibo do retorno, preservando o assignee e os ramos de reabertura/silêncio existentes. Sem resposta não prova resolução; recebimento de mensagem não prova confirmação. Formulário e contrato externo não executados nesta devolutiva.</bpmn:documentation>
       <bpmn:documentation>Produz clienteConfirmouResolucao. | Origem: M3_T_RespostaEnviada + M3_GW_ResolvidoHumano + M2_GW_RecoveryOK (SO-05)</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_01</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_02</bpmn:outgoing>
@@ -1492,7 +1527,9 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_20_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_20">
         <di:waypoint x="2398" y="3090"/>
-        <di:waypoint x="2498" y="3090"/>
+        <di:waypoint x="2418" y="3090"/>
+        <di:waypoint x="2418" y="3008"/>
+        <di:waypoint x="2498" y="3008"/>
         <di:waypoint x="2498" y="2936"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_21_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_21">
@@ -1508,7 +1545,9 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_23_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_23">
         <di:waypoint x="898" y="3090"/>
-        <di:waypoint x="998" y="3090"/>
+        <di:waypoint x="918" y="3090"/>
+        <di:waypoint x="918" y="3008"/>
+        <di:waypoint x="998" y="3008"/>
         <di:waypoint x="998" y="2770"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_24_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_24">

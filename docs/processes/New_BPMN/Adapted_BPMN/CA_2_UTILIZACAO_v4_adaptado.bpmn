@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_CA_UTILIZACAO" targetNamespace="http://central-atendimento/bpmn/arq01" exporter="Camunda Modeler" exporterVersion="5.36.1" modeler:executionPlatform="Camunda Platform" modeler:executionPlatformVersion="7.24.0">
   <bpmn:collaboration id="Collaboration_CA_UTILIZACAO" name="Central de Atendimento — 2 · UTILIZAÇÃO">
-    <bpmn:documentation>UTILIZAÇÃO cobre preparo, entrega, acompanhamento e liquidação, com cancelamento e evento clínico como sub-processos de evento em planos de diagrama próprios. As nove interseções de coordenadas entre planos são conhecidas e mantidas (avaliação visual original não reproduzida); regenerar apenas o plano principal quando houver novos elementos.</bpmn:documentation>
+    <bpmn:documentation>UTILIZAÇÃO cobre preparo, entrega, acompanhamento e liquidação. Cancelamento pelo cliente, cancelamento pelo prestador e evento clínico têm planos de diagrama próprios. Coordenadas iguais em canvases independentes não demonstram sobreposição visual. TKN-01 separa apenas o ramo do prestador e acrescenta seu shape/associação no plano principal; os demais layouts são preservados.</bpmn:documentation>
     <bpmn:participant id="Participant_Cliente" name="Cliente — necessidade · visão · intenção"/>
     <bpmn:participant id="Participant_CompraSup" name="Macroprocessos COMPRA · SUPORTE"/>
     <bpmn:participant id="Participant_CA_UTILIZACAO" name="UTILIZAÇÃO — Receber o cuidado contratado" processRef="Process_CA_UTILIZACAO"/>
@@ -21,7 +21,7 @@
     <bpmn:messageFlow id="MF_UT_10" name="Resultado disponível" sourceRef="Participant_Prestador" targetRef="U3_T_Aguardar"/>
   </bpmn:collaboration>
   <bpmn:process id="Process_CA_UTILIZACAO" name="UTILIZAÇÃO — Receber o cuidado contratado" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
-    <bpmn:documentation>Macroprocesso 2 (ARQ-01 §5). Entrada: direito habilitado (T-01). Resultado: cuidado realizado, resultado entregue, consumo encerrado e avaliado. Variantes: requerPreparo, geraResultado, statusEntrega. Journey ID = business key (correlaciona cancelamentos e eventos clínicos).</bpmn:documentation>
+    <bpmn:documentation>Macroprocesso 2 (ARQ-01 §5). Entrada: direito habilitado (T-01). Resultado: cuidado realizado, resultado entregue, consumo encerrado e avaliado. Variantes: requerPreparo, geraResultado, statusEntrega. A business key existente é preservada na instância e nas chamadas. Journey ID do payload não é automaticamente seu alias; o contrato externo deve especificar associação e correlação dos cancelamentos/eventos clínicos à instância vigente, sem derivar um identificador do outro.</bpmn:documentation>
     <bpmn:laneSet id="LaneSet_Process_CA_UTILIZACAO">
       <bpmn:lane id="LN_CA2_UTILIZACAO_AgendamentoAutorizacao" name="Agendamento e autorização">
         <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.12 · Ref: UT_CA_U1</bpmn:documentation>
@@ -54,6 +54,7 @@
       <bpmn:lane id="LN_CA2_UTILIZACAO_AtendenteSuporte" name="Atendente de suporte">
         <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.16 · Ref: UT_ES_Cancelamento</bpmn:documentation>
         <bpmn:flowNodeRef>UT_ES_Cancelamento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>UT_ES_CancelamentoPrestador</bpmn:flowNodeRef>
       </bpmn:lane>
     </bpmn:laneSet>
     <bpmn:startEvent id="UT_Start" name="Direito habilitado">
@@ -62,9 +63,13 @@
       <bpmn:messageEventDefinition messageRef="Message_CA_DireitoHabilitado"/>
     </bpmn:startEvent>
     <bpmn:callActivity id="UT_CA_U1" name="Preparar o consumo" camunda:asyncBefore="true" calledElement="Process_CA_UTILIZACAO_U1_Preparar">
-      <bpmn:documentation>Origem: ARQ-01 U1</bpmn:documentation>
+      <bpmn:documentation>Origem: ARQ-01 U1 | VA-01: entradas explícitas apenas para dados consumidos. Business key existente preservada; não se acrescenta mapping journeyId sem contrato de consumidor e origem que o comprove. clienteId/agendamentoId vêm do payload T-01 e a origem externa deve fornecer dataHoraServico, dataLembrete. Dados de calendário não são calculados aqui; fonte, freshness e persistência são contratos externos não executados. Os marcos/transições declarados em inputParameter são locais ao publisher; output global exige promoção explícita pelo contrato do delegate e não é comprovado por esse mapeamento.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="clienteId" target="clienteId"/>
+        <camunda:in source="agendamentoId" target="agendamentoId"/>
+        <camunda:in source="dataHoraServico" target="dataHoraServico"/>
+        <camunda:in source="dataLembrete" target="dataLembrete"/>
         <camunda:in source="requerPreparo" target="requerPreparo"/>
         <camunda:out source="marcoJornada" target="marcoJornada"/>
       </bpmn:extensionElements>
@@ -81,9 +86,12 @@
       </bpmn:dataInputAssociation>
     </bpmn:callActivity>
     <bpmn:callActivity id="UT_CA_U2" name="Receber o cuidado" camunda:asyncBefore="true" calledElement="Process_CA_UTILIZACAO_U2_Receber">
-      <bpmn:documentation>Origem: ARQ-01 U2</bpmn:documentation>
+      <bpmn:documentation>Origem: ARQ-01 U2 | VA-01: entradas explícitas apenas para dados consumidos. Business key existente preservada; não se acrescenta mapping journeyId sem contrato de consumidor e origem que o comprove. clienteId/agendamentoId vêm do payload T-01 e a origem externa deve fornecer limiteNoShow. Dados de calendário não são calculados aqui; fonte, freshness e persistência são contratos externos não executados. Os marcos/transições declarados em inputParameter são locais ao publisher; output global exige promoção explícita pelo contrato do delegate e não é comprovado por esse mapeamento.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="clienteId" target="clienteId"/>
+        <camunda:in source="agendamentoId" target="agendamentoId"/>
+        <camunda:in source="limiteNoShow" target="limiteNoShow"/>
         <camunda:out source="statusEntrega" target="statusEntrega"/>
         <camunda:out source="marcoJornada" target="marcoJornada"/>
       </bpmn:extensionElements>
@@ -127,9 +135,13 @@
       <bpmn:messageEventDefinition messageRef="Message_CA_ConsumoNaoRealizado" camunda:delegateExpression="${journeyTransitionPublisher}"/>
     </bpmn:endEvent>
     <bpmn:callActivity id="UT_CA_U3" name="Acompanhar o resultado" camunda:asyncBefore="true" calledElement="Process_CA_UTILIZACAO_U3_Acompanhar">
-      <bpmn:documentation>Origem: ARQ-01 U3</bpmn:documentation>
+      <bpmn:documentation>Origem: ARQ-01 U3 | VA-01: entradas explícitas apenas para dados consumidos. Business key existente preservada; não se acrescenta mapping journeyId sem contrato de consumidor e origem que o comprove. clienteId/agendamentoId vêm do payload T-01 e a origem externa deve fornecer promessaResultado, prazoResultadoAlerta. Dados de calendário não são calculados aqui; fonte, freshness e persistência são contratos externos não executados. Os marcos/transições declarados em inputParameter são locais ao publisher; output global exige promoção explícita pelo contrato do delegate e não é comprovado por esse mapeamento.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="clienteId" target="clienteId"/>
+        <camunda:in source="agendamentoId" target="agendamentoId"/>
+        <camunda:in source="promessaResultado" target="promessaResultado"/>
+        <camunda:in source="prazoResultadoAlerta" target="prazoResultadoAlerta"/>
         <camunda:in source="geraResultado" target="geraResultado"/>
         <camunda:out source="marcoJornada" target="marcoJornada"/>
       </bpmn:extensionElements>
@@ -142,11 +154,15 @@
       </bpmn:dataInputAssociation>
     </bpmn:callActivity>
     <bpmn:callActivity id="UT_CA_U4" name="Liquidar e avaliar o consumo" camunda:asyncBefore="true" calledElement="Process_CA_UTILIZACAO_U4_LiquidarAvaliar">
-      <bpmn:documentation>Origem: ARQ-01 U4 | Pendência: confirmar com a equipe quem produz experienciaSatisfatoria/npsScore (documentação da tarefa de pesquisa afirma; nenhum produtor declarado no modelo).</bpmn:documentation>
+      <bpmn:documentation>Origem: ARQ-01 U4. VA-04: o formulário ced:pos-servico de U4_T_Pesquisa declara as saídas experienciaSatisfatoria (Boolean quando respondida) e npsScore; estes outputs são devolvidos explicitamente. A implementação do formulário não foi fornecida nem executada. Sem resposta/timeout não se fabrica false nem pontuação: dados da tentativa atual permanecem desconhecidos; o contrato externo deve impedir reaproveitamento de avaliação antiga. A condição já existente usa getVariable; apenas false explícito encaminha insatisfação. O default encerra também sem pesquisa, sem declarar satisfação. | VA-01: entradas explícitas apenas para dados consumidos. Business key existente preservada; não se acrescenta mapping journeyId sem contrato de consumidor e origem que o comprove. clienteId/agendamentoId vêm do payload T-01 e a origem externa deve fornecer os dados do contexto do consumo. Dados de calendário não são calculados aqui; fonte, freshness e persistência são contratos externos não executados. Os marcos/transições declarados em inputParameter são locais ao publisher; output global exige promoção explícita pelo contrato do delegate e não é comprovado por esse mapeamento.</bpmn:documentation>
       <bpmn:extensionElements>
         <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="clienteId" target="clienteId"/>
+        <camunda:in source="agendamentoId" target="agendamentoId"/>
         <camunda:in source="proximaAcaoIndicada" target="proximaAcaoIndicada"/>
         <camunda:out source="transicao" target="transicao"/>
+        <camunda:out source="experienciaSatisfatoria" target="experienciaSatisfatoria"/>
+        <camunda:out source="npsScore" target="npsScore"/>
       </bpmn:extensionElements>
       <bpmn:incoming>F_CA_UTILIZACAO_07</bpmn:incoming>
       <bpmn:outgoing>F_CA_UTILIZACAO_08</bpmn:outgoing>
@@ -157,7 +173,7 @@
       </bpmn:dataInputAssociation>
     </bpmn:callActivity>
     <bpmn:exclusiveGateway id="UT_GW_Satisfacao" name="Experiência satisfatória?" default="F_CA_UTILIZACAO_09">
-      <bpmn:documentation>Regra: experiência insatisfatória encaminha ao suporte com o contexto do consumo — dono: Liquidação e auditoria de contas | Origem: M2_GW_Satisfaction</bpmn:documentation>
+      <bpmn:documentation>Regra: experiência insatisfatória encaminha ao suporte com o contexto do consumo — dono: Liquidação e auditoria de contas | Origem: M2_GW_Satisfaction | Sem resposta permanece desconhecido; somente experienciaSatisfatoria explicitamente false dispara T-04. Default existente inclui ausência de resposta e não comprova satisfação. Dados antigos da pesquisa não podem ser tratados como resposta da tentativa vigente.</bpmn:documentation>
       <bpmn:incoming>F_CA_UTILIZACAO_08</bpmn:incoming>
       <bpmn:outgoing>F_CA_UTILIZACAO_09</bpmn:outgoing>
       <bpmn:outgoing>F_CA_UTILIZACAO_10</bpmn:outgoing>
@@ -183,13 +199,13 @@
       <bpmn:messageEventDefinition messageRef="Message_CA_ExperienciaInsatisfatoria" camunda:delegateExpression="${journeyTransitionPublisher}"/>
     </bpmn:endEvent>
     <bpmn:subProcess id="UT_ES_Cancelamento" name="Cancelamentos durante o consumo" triggeredByEvent="true">
-      <bpmn:documentation>Origem: ES_Sub_Cancelamento</bpmn:documentation>
+      <bpmn:documentation>Origem: ES_Sub_Cancelamento | Ramo interruptivo do cliente, separado do ramo do prestador por TKN-01. Mesmo catálogo e business key. Journey ID do payload não é fabricado nem equiparado à business key nesta revisão. Ambos usam o insumo documental INS-027; a correlação e seu payload são contrato externo não executado.</bpmn:documentation>
       <bpmn:property id="Property_UT_ES_Cancelamento_targetRef" name="__targetRef_placeholder"/>
       <bpmn:dataInputAssociation id="DIA_INS_027_1">
         <bpmn:sourceRef>DOR_INS_027_1</bpmn:sourceRef>
         <bpmn:targetRef>Property_UT_ES_Cancelamento_targetRef</bpmn:targetRef>
       </bpmn:dataInputAssociation>
-      <bpmn:startEvent id="UT_ES_Start_CancCliente" name="Cliente cancelou">
+      <bpmn:startEvent id="UT_ES_Start_CancCliente" name="Cliente cancelou" isInterrupting="true">
         <bpmn:documentation>Origem: ES_Start_CancelCliente</bpmn:documentation>
         <bpmn:extensionElements>
           <camunda:executionListener expression="${execution.setVariable('statusEntrega', 'CANCELADO_CLIENTE')}" event="start"/>
@@ -207,7 +223,16 @@
         <bpmn:incoming>UT_ES_F1</bpmn:incoming>
         <bpmn:messageEventDefinition messageRef="Message_CA_ConsumoNaoRealizado" camunda:delegateExpression="${journeyTransitionPublisher}"/>
       </bpmn:endEvent>
-      <bpmn:startEvent id="UT_ES_Start_CancPrestador" name="Prestador cancelou">
+      <bpmn:sequenceFlow id="UT_ES_F1" sourceRef="UT_ES_Start_CancCliente" targetRef="UT_ES_End_CancCliente"/>
+    </bpmn:subProcess>
+    <bpmn:subProcess id="UT_ES_CancelamentoPrestador" name="Cancelamento pelo prestador durante o consumo" triggeredByEvent="true">
+      <bpmn:documentation>TKN-01: ramo do prestador separado para manter um único início por subprocesso de evento Camunda 7. Origem preservada: ES_Sub_Cancelamento e ES_Start_CancelPrestador. A mensagem mantém seu nome e business key existente preservada; o adapter externo deve correlacionar à instância vigente sem presumir equivalência com o Journey ID do payload. O início interruptivo cancela a atividade da scope de Utilização, sem renomear o evento nem trocar a transição T-02. Dados do agendamento vigente são o mesmo insumo INS-027; a associação documenta o contrato, não cria produtor nem comprova implementação externa.</bpmn:documentation>
+      <bpmn:property id="Property_UT_ES_CancelamentoPrestador_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_027_Prestador">
+        <bpmn:sourceRef>DOR_INS_027_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_UT_ES_CancelamentoPrestador_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+      <bpmn:startEvent id="UT_ES_Start_CancPrestador" name="Prestador cancelou" isInterrupting="true">
         <bpmn:documentation>Origem: ES_Start_CancelPrestador</bpmn:documentation>
         <bpmn:extensionElements>
           <camunda:executionListener expression="${execution.setVariable('statusEntrega', 'CANCELADO_PRESTADOR')}" event="start"/>
@@ -225,7 +250,6 @@
         <bpmn:incoming>UT_ES_F2</bpmn:incoming>
         <bpmn:messageEventDefinition messageRef="Message_CA_ConsumoNaoRealizado" camunda:delegateExpression="${journeyTransitionPublisher}"/>
       </bpmn:endEvent>
-      <bpmn:sequenceFlow id="UT_ES_F1" sourceRef="UT_ES_Start_CancCliente" targetRef="UT_ES_End_CancCliente"/>
       <bpmn:sequenceFlow id="UT_ES_F2" sourceRef="UT_ES_Start_CancPrestador" targetRef="UT_ES_End_CancPrestador"/>
     </bpmn:subProcess>
     <bpmn:subProcess id="UT_ES_EventoClinico" name="Eventos clínicos durante o consumo" triggeredByEvent="true">
@@ -240,7 +264,7 @@
         <bpmn:targetRef>Property_UT_ES_EventoClinico_targetRef</bpmn:targetRef>
       </bpmn:dataInputAssociation>
       <bpmn:startEvent id="UT_EC_Start" name="Evento clínico relevante" isInterrupting="false">
-        <bpmn:documentation>EV-U02. Mensagem do hospital/prestador. Payload: evento, urgenciaSugerida. Correlacionada pelo Journey ID (FR-03). | Origem: M3_Start_EventoClinico</bpmn:documentation>
+        <bpmn:documentation>EV-U02. Mensagem do hospital/prestador. Payload: evento, urgenciaSugerida. Correlacionada pelo Journey ID (FR-03). | Origem: M3_Start_EventoClinico | Início não interruptivo preservado: recebe evento externo e publica comunicação; não cancela a esteira nem modela ato clínico humano. Payload, fonte e conduta clínica/protocolo permanecem contratos externos.</bpmn:documentation>
         <bpmn:outgoing>sub_clin_01</bpmn:outgoing>
         <bpmn:messageEventDefinition messageRef="Message_CA_EventoClinico"/>
       </bpmn:startEvent>
@@ -484,7 +508,7 @@
       <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente" camunda:delegateExpression="${comunicarClientePublisher}"/>
     </bpmn:intermediateThrowEvent>
     <bpmn:receiveTask id="U2_T_Aguardar" name="Aguardar realização do serviço" messageRef="Message_CA_ServicoRealizado">
-      <bpmn:documentation>Origem: ES_T_AguardarRealizacao</bpmn:documentation>
+      <bpmn:documentation>Origem: ES_T_AguardarRealizacao | Proposta para espera externa reutilizável: correlacionar retorno ao pedido/serviço e à jornada, verificar a fonte responsável e registrar o recibo da realização. Pedido enviado, cliente chegou, prazo decorrido e serviço realizado são estados diferentes. Duplicidade ou retorno de tentativa anterior não deve repetir o efeito nem concluir outra espera. Critérios clínicos, obrigação de entrega e consequência de timeout permanecem específicos. Contrato externo não executado nesta devolutiva; referências primárias e limites de adaptação constam no registro RB-04.</bpmn:documentation>
       <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_07</bpmn:incoming>
       <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_08</bpmn:outgoing>
     </bpmn:receiveTask>
@@ -677,12 +701,12 @@
       <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_08</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:userTask id="U4_T_Pesquisa" name="Responder pesquisa pós-serviço (NPS + desfecho)" camunda:formKey="ced:pos-servico" camunda:assignee="${clienteId}">
-      <bpmn:documentation>Produz npsScore, experienciaSatisfatoria. | Origem: M2_T_PosAtendimento</bpmn:documentation>
+      <bpmn:documentation>Produz npsScore, experienciaSatisfatoria. | Origem: M2_T_PosAtendimento | Contrato externo do formulário: persistir respostas da tentativa vigente na instância chamada antes de completar a tarefa. Boolean false só representa insatisfação respondida; ausência não é false. Timeout não produz resposta nem NPS. Formulário não implementado/executado nesta devolutiva.</bpmn:documentation>
       <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_03</bpmn:incoming>
       <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_09</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:boundaryEvent id="U4_B_Pesquisa" name="72h sem resposta" attachedToRef="U4_T_Pesquisa">
-      <bpmn:documentation>Timeout evita deadlock do join. | Origem: M2_Boundary_SLAPesquisa</bpmn:documentation>
+      <bpmn:documentation>Timeout evita deadlock do join. | Origem: M2_Boundary_SLAPesquisa | Boundary interruptivo por padrão, preservado: cancela a tarefa de pesquisa e produz um único token no XOR de escape, assim como a resposta. PT72H é proposta operacional existente, sem homologação regulatória.</bpmn:documentation>
       <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_10</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT72H</bpmn:timeDuration>
@@ -700,7 +724,7 @@
       <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_11</bpmn:outgoing>
     </bpmn:parallelGateway>
     <bpmn:task id="U4_T_Liquidar" name="Liquidar o consumo">
-      <bpmn:documentation>⚠️ LACUNA LA-02 [SEM ORIGEM]: coparticipação, faturamento e contas não modelados nas fontes. Tarefa abstrata mantida para a visão E2E — decisão pendente da Process Owner. | Origem: [SEM ORIGEM] — ARQ-01 LA-02</bpmn:documentation>
+      <bpmn:documentation>⚠️ LACUNA LA-02 [SEM ORIGEM]: coparticipação, faturamento e contas não modelados nas fontes. Tarefa abstrata mantida para a visão E2E — decisão pendente da Process Owner. | Origem: [SEM ORIGEM] — ARQ-01 LA-02 | A tarefa abstrata não comprova autorização financeira, liquidação real nem pagamento. Contrato, autoridade, recibo e eventual implementação financeira estão fora desta devolutiva.</bpmn:documentation>
       <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_11</bpmn:incoming>
       <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_12</bpmn:outgoing>
     </bpmn:task>
@@ -811,6 +835,15 @@
       <bpmndi:BPMNShape id="UT_ES_Cancelamento_di" bpmnElement="UT_ES_Cancelamento">
         <dc:Bounds x="240" y="1550" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_ES_CancelamentoPrestador_di" bpmnElement="UT_ES_CancelamentoPrestador">
+        <dc:Bounds x="480" y="1550" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_027_Prestador_di" bpmnElement="DIA_INS_027_Prestador">
+        <di:waypoint x="250" y="1704"/>
+        <di:waypoint x="250" y="1730"/>
+        <di:waypoint x="530" y="1730"/>
+        <di:waypoint x="530" y="1630"/>
+      </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="UT_ES_EventoClinico_di" bpmnElement="UT_ES_EventoClinico">
         <dc:Bounds x="240" y="1395" width="100" height="80"/>
       </bpmndi:BPMNShape>
@@ -1431,16 +1464,20 @@
       <bpmndi:BPMNShape id="UT_ES_End_CancCliente_di" bpmnElement="UT_ES_End_CancCliente">
         <dc:Bounds x="330" y="160" width="36" height="36"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="UT_ES_F1_di" bpmnElement="UT_ES_F1">
+        <di:waypoint x="216" y="178"/>
+        <di:waypoint x="330" y="178"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_UT_ES_CancelamentoPrestador">
+    <bpmndi:BPMNPlane id="BPMNPlane_UT_ES_CancelamentoPrestador" bpmnElement="UT_ES_CancelamentoPrestador">
       <bpmndi:BPMNShape id="UT_ES_Start_CancPrestador_di" bpmnElement="UT_ES_Start_CancPrestador">
         <dc:Bounds x="180" y="300" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="UT_ES_End_CancPrestador_di" bpmnElement="UT_ES_End_CancPrestador">
         <dc:Bounds x="330" y="300" width="36" height="36"/>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="UT_ES_F1_di" bpmnElement="UT_ES_F1">
-        <di:waypoint x="216" y="178"/>
-        <di:waypoint x="330" y="178"/>
-      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="UT_ES_F2_di" bpmnElement="UT_ES_F2">
         <di:waypoint x="216" y="318"/>
         <di:waypoint x="330" y="318"/>
