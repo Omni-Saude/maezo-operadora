@@ -1,6 +1,6 @@
 """PW1-B real PostgreSQL source-owner transaction; all identities/approvals are synthetic.
 
-No services started here. DBA test login installs an isolated UUID schema/roles;
+ROOT/CI executes own disposable TLS PostgreSQL only. Isolated UUID schema/roles;
 application uses its own EXECUTE-only login. Production identity/publication stays unqualified.
 """
 
@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import os
 import secrets
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,11 +19,11 @@ from pathlib import Path
 import asyncpg  # type: ignore[import-untyped]
 import pytest
 from sqlalchemy import text
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from tests.integration.gateway.test_provider_authority_source_live_pg import docker, server_certificate
 
-from maezo.gateway.audit_postgres import normalize_dsn
 from maezo.gateway.human.provider_membership_administration import (
     ADMIN_ACTION,
     AdministrationBinding,
@@ -95,23 +95,76 @@ class PgSource:
 
 
 @pytest.fixture
-async def pg_source() -> AsyncIterator[PgSource]:
-    dsn = os.environ.get("MAEZO_TEST_DATABASE_URL")
-    if not dsn:
-        port = os.environ.get("MAEZO_PG_HOST_PORT", "5433")
-        dsn = f"postgresql://maezo:maezo@localhost:{port}/maezo"
+async def pg_source(tmp_path) -> AsyncIterator[PgSource]:
+    certificate = server_certificate(tmp_path)
+    container = None
+    control = None
+    admin_password = secrets.token_hex(24)
+    name = "maezo-provider-admin-it-" + uuid.uuid4().hex
     try:
-        control = await asyncpg.connect(normalize_dsn(dsn), timeout=5)
-    except (OSError, asyncpg.PostgresError):
-        pytest.skip("COULD NOT VERIFY: explicit test PostgreSQL unreachable; no service started")
+        container = docker(
+            "run",
+            "--detach",
+            "--name",
+            name,
+            "--label",
+            "maezo.test-only=provider-membership-administration",
+            "--publish",
+            "127.0.0.1::5432",
+            "--volume",
+            str(tmp_path) + ":/test-tls:ro",
+            "--env",
+            "POSTGRES_PASSWORD=" + admin_password,
+            "postgres:16",
+            "bash",
+            "-ceu",
+            "cp /test-tls/server.crt /tmp/server.crt; cp /test-tls/server.key /tmp/server.key; "
+            "chown postgres:postgres /tmp/server.key /tmp/server.crt; chmod 600 /tmp/server.key; "
+            "exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/server.crt "
+            "-c ssl_key_file=/tmp/server.key",
+        )
+        port = int(docker("port", container, "5432/tcp").rsplit(":", 1)[1])
+        for _ in range(120):
+            try:
+                control = await asyncpg.connect(
+                    host="127.0.0.1",
+                    port=port,
+                    user="postgres",
+                    password=admin_password,
+                    database="postgres",
+                    ssl=certificate,
+                    timeout=2,
+                )
+                break
+            except (OSError, asyncpg.PostgresError):
+                await asyncio.sleep(0.25)
+        if control is None:
+            raise RuntimeError("TestOnly provider admin TLS PostgreSQL unavailable")
+        # TEMP revocation belongs exclusively to this own disposable database.
+        await control.execute("REVOKE TEMP ON DATABASE postgres FROM PUBLIC")
+        async with installed_source(control, port, certificate) as source:
+            yield source
+    finally:
+        if control is not None:
+            await control.close()
+        if container is not None:
+            docker("rm", "--force", container)
+
+
+@asynccontextmanager
+async def installed_source(control, port, certificate) -> AsyncIterator[PgSource]:
     suffix = uuid.uuid4().hex[:12]
     schema, owner, writer, publisher = (f"pma_{suffix}", f"pmao_{suffix}", f"pmaw_{suffix}", f"pmap_{suffix}")
     password = secrets.token_hex(24)
     engine: AsyncEngine | None = None
     try:
         await control.execute(
-            f"CREATE ROLE {owner} NOLOGIN; CREATE ROLE {writer} LOGIN PASSWORD '{password}'; "
-            f"CREATE ROLE {publisher} NOLOGIN; CREATE SCHEMA {schema} AUTHORIZATION {owner}"
+            f"CREATE ROLE {owner} NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOREPLICATION NOBYPASSRLS; "
+            f"CREATE ROLE {writer} LOGIN PASSWORD '{password}' NOINHERIT NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOREPLICATION NOBYPASSRLS; "
+            f"CREATE ROLE {publisher} NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            f"NOREPLICATION NOBYPASSRLS; CREATE SCHEMA {schema} AUTHORIZATION {owner}"
         )
         await control.execute(f"SET ROLE {owner}")
         sql = await asyncio.to_thread(
@@ -162,8 +215,22 @@ async def pg_source() -> AsyncIterator[PgSource]:
             function_oid=function_oid,
             function_definition_digest=hashlib.sha256(body.encode()).hexdigest(),
         )
-        url = make_url(dsn).set(drivername="postgresql+asyncpg", username=writer, password=password)
-        engine = create_async_engine(url, pool_size=5, max_overflow=5)
+        url = URL.create(
+            "postgresql+asyncpg",
+            username=writer,
+            password=password,
+            host="127.0.0.1",
+            port=port,
+            database="postgres",
+        )
+        engine = create_async_engine(
+            url,
+            pool_size=5,
+            max_overflow=5,
+            echo=False,
+            hide_parameters=True,
+            connect_args={"ssl": certificate},
+        )
         yield PgSource(
             control,
             engine,
@@ -181,7 +248,6 @@ async def pg_source() -> AsyncIterator[PgSource]:
         await control.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
         for role in (writer, publisher, owner):
             await control.execute(f"DROP ROLE IF EXISTS {role}")
-        await control.close()
 
 
 def reviewed_command(
@@ -312,3 +378,145 @@ async def test_source_acl_and_function_digest_drift_refused(pg_source: PgSource)
     bad = p.store.descriptor.model_copy(update={"function_definition_digest": "b" * 64})
     with pytest.raises(ProviderAdministrationError):
         await PostgresProviderMembershipAdministration(p.engine, bad).record(c, p.binding)
+
+
+async def raw_function(p, command, **changes):
+    values = dict(
+        tenant=p.binding.tenant,
+        actor=p.binding.actor_ref,
+        session=p.binding.actor_session_ref,
+        source=p.binding.source_authority_ref,
+        policy=p.binding.policy_revision,
+        install=p.store.descriptor.installation_receipt_ref,
+        until=p.binding.valid_until,
+        raw=command_bytes(command).decode(),
+        act="TestOnly-direct-act",
+        audit="TestOnly-direct-audit",
+    )
+    values.update(changes)
+    async with p.engine.begin() as db:
+        return (
+            await db.execute(
+                text(
+                    f"SELECT {p.schema}.record_provider_administration("
+                    ":tenant,:actor,:session,:source,:policy,:install,:until,:raw,:act,:audit)"
+                ),
+                values,
+            )
+        ).scalar_one()
+
+
+async def test_raw_sql_each_null_argument_and_ceiling_cannot_escape_approval(pg_source):
+    p = pg_source
+    c = reviewed_command()
+    await p.approve(c)
+    for field in (
+        "tenant",
+        "actor",
+        "session",
+        "source",
+        "policy",
+        "install",
+        "until",
+        "raw",
+        "act",
+        "audit",
+    ):
+        assert await raw_function(p, c, **{field: None}) == "AUTHORITY_UNPROVEN"
+    assert (
+        await raw_function(p, c, until=p.binding.valid_until + timedelta(seconds=1)) == "AUTHORITY_UNPROVEN"
+    )
+    for table in ("administrative_head", "administrative_act", "administrative_audit"):
+        assert await p.control.fetchval(f"SELECT count(*) FROM {p.schema}.{table}") == 0
+
+
+async def test_effective_column_privilege_is_detected_before_source_function(pg_source):
+    p = pg_source
+    c = reviewed_command()
+    await p.approve(c)
+    columns = {
+        "administrator_authority": "proof_state",
+        "provider_relationship": "proof_state",
+        "administrative_head": "payload",
+        "administrative_act": "receipt",
+        "administrative_audit": "actor_ref",
+    }
+    for table, column in columns.items():
+        for privilege in ("SELECT", "INSERT", "UPDATE", "REFERENCES"):
+            await p.control.execute(f"GRANT {privilege}({column}) ON {p.schema}.{table} TO {p.writer}")
+            # Native PG counterexample: frozen qualifier's table predicate remains false,
+            # but column privilege is effective. No simulated qualifier/DB here.
+            assert not await p.control.fetchval(
+                "SELECT has_table_privilege($1,$2,$3)", p.writer, f"{p.schema}.{table}", privilege
+            )
+            assert await p.control.fetchval(
+                "SELECT has_any_column_privilege($1,$2,$3)", p.writer, f"{p.schema}.{table}", privilege
+            )
+            with pytest.raises(ProviderAdministrationError):
+                await p.store.record(c, p.binding)
+            await p.control.execute(f"REVOKE {privilege}({column}) ON {p.schema}.{table} FROM {p.writer}")
+    assert await p.control.fetchval(f"SELECT count(*) FROM {p.schema}.administrative_act") == 0
+
+
+async def test_direct_column_write_could_promote_source_but_qualifier_refuses(pg_source):
+    p = pg_source
+    c = reviewed_command()
+    await p.approve(c, enabled=False)
+    await p.control.execute(f"GRANT UPDATE(proof_state) ON {p.schema}.administrator_authority TO {p.writer}")
+    async with p.engine.begin() as db:
+        await db.execute(text(f"UPDATE {p.schema}.administrator_authority SET proof_state='enabled'"))
+    assert (
+        await p.control.fetchval(f"SELECT proof_state FROM {p.schema}.administrator_authority") == "enabled"
+    )
+    with pytest.raises(ProviderAdministrationError):
+        await p.store.record(c, p.binding)
+    assert await p.control.fetchval(f"SELECT count(*) FROM {p.schema}.administrative_act") == 0
+
+
+async def test_cross_publisher_and_third_role_relation_or_function_acl_refused(pg_source):
+    p = pg_source
+    c = reviewed_command()
+    await p.approve(c)
+    third = "pmat_" + uuid.uuid4().hex[:12]
+    await p.control.execute(f"CREATE ROLE {third} NOLOGIN NOINHERIT")
+    try:
+        for table in RELATIONS:
+            await p.control.execute(f"GRANT SELECT ON {p.schema}.{table} TO {third}")
+            with pytest.raises(ProviderAdministrationError):
+                await p.store.record(c, p.binding)
+            await p.control.execute(f"REVOKE SELECT ON {p.schema}.{table} FROM {third}")
+        for table in ("administrative_head", "administrative_act", "administrative_audit"):
+            await p.control.execute(f"GRANT SELECT ON {p.schema}.{table} TO {p.publisher}")
+            with pytest.raises(ProviderAdministrationError):
+                await p.store.record(c, p.binding)
+            await p.control.execute(f"REVOKE SELECT ON {p.schema}.{table} FROM {p.publisher}")
+        await p.control.execute(
+            f"GRANT EXECUTE ON FUNCTION {p.schema}.record_provider_administration({FUNCTION_TYPES}) "
+            f"TO {third}"
+        )
+        with pytest.raises(ProviderAdministrationError):
+            await p.store.record(c, p.binding)
+        await p.control.execute(
+            f"REVOKE EXECUTE ON FUNCTION {p.schema}.record_provider_administration({FUNCTION_TYPES}) "
+            f"FROM {third}"
+        )
+    finally:
+        await p.control.execute(f"DROP ROLE {third}")
+
+
+async def test_unsafe_role_temp_replication_or_inheritance_refused(pg_source):
+    p = pg_source
+    c = reviewed_command()
+    await p.approve(c)
+    for grant, revoke in [
+        (f"ALTER ROLE {p.writer} REPLICATION", f"ALTER ROLE {p.writer} NOREPLICATION"),
+        (f"ALTER ROLE {p.writer} INHERIT", f"ALTER ROLE {p.writer} NOINHERIT"),
+        (
+            f"GRANT TEMP ON DATABASE postgres TO {p.writer}",
+            f"REVOKE TEMP ON DATABASE postgres FROM {p.writer}",
+        ),
+    ]:
+        await p.control.execute(grant)
+        with pytest.raises(ProviderAdministrationError):
+            await p.store.record(c, p.binding)
+        await p.control.execute(revoke)

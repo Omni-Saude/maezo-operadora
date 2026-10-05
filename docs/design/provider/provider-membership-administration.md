@@ -36,3 +36,16 @@ Nenhum hot path foi alterado neste pacote. Para completar a fatia funcional, ROO
 Unit cobre DTOs inconsistentes/staff, bindings cross-tenant, policy desconhecida, ceiling vencido, source ausente, receipt divergente e exceção sanitizada. São doubles UNIT explicitamente, sem prova de autoridade externa.
 
 `test_provider_membership_administration_live_pg.py` instala fonte sintética em schema/roles UUID somente no PostgreSQL de teste; nenhum serviço é iniciado. Valida CAS/replay concorrente/revocation, fonte ausente/received/expired/revoked/session/provider errados, ausência de DML/SELECT direto (SQLSTATE 42501), função recusando fonte ausente e ACL/hash drift. ROOT serializa essa execução e preserva resultados. Receipt/admin sintético não é principal ou provisionamento real. Contrato e backend ainda exigem gate independente de autor distinto antes de integração.
+
+
+## Addendum de reparo terceiro — first-source REVISE / 2026-10-05
+
+Reparador: engine_readiness_specialist, distinto do autor PW1-B e dos reviewers. Interface administrativa, operações/roles de domínio e classificação de receipt validated/pending permanecem; nenhum grants/feed/produção passa a ser aceito por este delta.
+
+Qualifier agora exige matriz de ACL exata: writer só EXECUTE do source function e USAGE do schema, sem privilégio efetivo de tabela/coluna; publisher SELECT/INSERT/UPDATE somente administrator_authority/provider_relationship; head/act/audit apenas owner. Grants PUBLIC, terceiro ou cross-publisher, GRANT OPTION e todo column ACL recusam. Verifica role sem elevação/replication/inheritance/membership, runtime sem TEMP/CREATE, TLS e ausência de pg_temp, schema/relation/function OIDs/owner/digest/search_path e EXECUTE ACL exata. Não expande privilégios legítimos para fazer fixture passar.
+
+Função source-owner recusa NULL/empty em todos argumentos críticos antes de parse/IO, usa comparação null-safe dos campos source/policy/installation/identity/digest e limita p_until ao proof ceiling; guards não dependem do DTO Python. Raw SQL possui negativos por argumento e nenhum receipt/outbox/audit/head em recusa.
+
+Engine echo/hide_parameters é verificado antes de conexão e novamente no record/qualifier. Transação finita usa boundary existente external_cases.postgres.transaction: commit/rollback/invalidation aguardados, parâmetro privado não logado e resultado só retorna após commit reconhecido. Nenhum driver payload/cause vira texto público.
+
+Fixture live mudou para PostgreSQL16 TestOnly próprio TLS verificado, loopback random port/roles isolados, teardown somente container próprio; reusa helpers TestOnly de D1, nunca serviço/credencial/fonte real. Zero skip/xfail/fallback. Autoria executa apenas unit/lint/type/collection; ROOT executa lane real. Grants/atos sintéticos da fixture não provam mandato/profissional/produção. Freeze/red-green/hashes em evidence/pw1-b-third-repair; pareceres e relatório originais permanecem preservados.

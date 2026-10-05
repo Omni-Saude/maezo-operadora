@@ -54,6 +54,11 @@ DECLARE
  digest text; key text; keys text[]; result text; now_at timestamptz;
  expected bigint; next_revision bigint; until_at timestamptz;
 BEGIN
+ IF p_until IS NULL OR NOT isfinite(p_until)
+ OR EXISTS(SELECT 1 FROM unnest(ARRAY[p_tenant,p_actor,p_session,p_source,p_policy,p_install,
+                                    p_payload,p_act,p_audit]) v WHERE v IS NULL OR length(v)=0)
+ THEN RETURN 'AUTHORITY_UNPROVEN'; END IF;
+ IF octet_length(p_payload)>65536 THEN RETURN 'CONTRACT_MISMATCH'; END IF;
  c := p_payload::jsonb; m := c->'record';
  IF EXISTS(SELECT 1 FROM unnest(ARRAY['command_id','operation','provider_ref','schema_version']) x
            WHERE jsonb_typeof(c->x) IS DISTINCT FROM 'string' OR length(c->>x)=0)
@@ -68,8 +73,8 @@ BEGIN
  OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(m) k)
     IS DISTINCT FROM ARRAY['audience','issuer','memberships','principal_ref','reviewed_until','revoked','revision','subject','subject_bindings','tenant']
  OR m->>'tenant' IS DISTINCT FROM p_tenant OR m->>'audience' IS DISTINCT FROM 'provider'
- OR c->>'operation' NOT IN ('grant','revoke') OR jsonb_typeof(m->'revoked') <> 'boolean'
- OR jsonb_typeof(c->'expected_revision') <> 'number' OR jsonb_typeof(m->'revision') <> 'number'
+ OR c->>'operation' NOT IN ('grant','revoke') OR jsonb_typeof(m->'revoked') IS DISTINCT FROM 'boolean'
+ OR jsonb_typeof(c->'expected_revision') IS DISTINCT FROM 'number' OR jsonb_typeof(m->'revision') IS DISTINCT FROM 'number'
  OR jsonb_array_length(m->'subject_bindings') <> 1
  OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(m->'subject_bindings'->0) k)
     IS DISTINCT FROM ARRAY['kind','resource_ref']
@@ -87,18 +92,18 @@ BEGIN
  WHERE tenant=p_tenant AND actor_ref=p_actor AND session_ref=p_session
  AND command_id=c->>'command_id' FOR SHARE;
  now_at := clock_timestamp();
- IF NOT FOUND OR g.revoked OR g.proof_state <> 'enabled' OR g.actor_kind <> 'human'
- OR g.action <> 'provider_membership_administration' OR g.policy_revision <> p_policy
- OR g.source_authority_ref <> p_source OR g.installation_receipt_ref <> p_install
- OR g.request_digest <> digest OR NOT (g.verified_at <= now_at AND now_at < g.valid_until)
- OR now_at >= p_until THEN RETURN 'AUTHORITY_UNPROVEN'; END IF;
+ IF NOT FOUND OR g.revoked OR g.proof_state IS DISTINCT FROM 'enabled' OR g.actor_kind IS DISTINCT FROM 'human'
+ OR g.action IS DISTINCT FROM 'provider_membership_administration' OR g.policy_revision IS DISTINCT FROM p_policy
+ OR g.source_authority_ref IS DISTINCT FROM p_source OR g.installation_receipt_ref IS DISTINCT FROM p_install
+ OR g.request_digest IS DISTINCT FROM digest OR NOT (g.verified_at <= now_at AND now_at < g.valid_until)
+ OR p_until > g.valid_until OR now_at >= p_until THEN RETURN 'AUTHORITY_UNPROVEN'; END IF;
  SELECT * INTO r FROM portal_provider_admin.provider_relationship
  WHERE tenant=p_tenant AND issuer=m->>'issuer' AND subject=m->>'subject' FOR SHARE;
  now_at := clock_timestamp();
  until_at := (m->>'reviewed_until')::timestamptz;
- IF NOT FOUND OR r.proof_state NOT IN ('enabled','expired','revoked')
- OR r.principal_ref <> m->>'principal_ref' OR r.provider_ref <> c->>'provider_ref'
- OR (c->>'operation'='grant' AND (r.revoked OR r.proof_state <> 'enabled'
+ IF until_at IS NULL OR NOT isfinite(until_at) OR NOT FOUND OR r.proof_state NOT IN ('enabled','expired','revoked')
+ OR r.principal_ref IS DISTINCT FROM m->>'principal_ref' OR r.provider_ref IS DISTINCT FROM c->>'provider_ref'
+ OR (c->>'operation'='grant' AND (r.revoked OR r.proof_state IS DISTINCT FROM 'enabled'
      OR NOT(r.verified_at <= now_at AND now_at < r.valid_until)
      OR until_at > LEAST(r.valid_until,g.valid_until,p_until) OR until_at <= now_at))
  THEN RETURN 'AUTHORITY_UNPROVEN'; END IF;
@@ -134,7 +139,7 @@ BEGIN
  SELECT * INTO a FROM portal_provider_admin.administrative_act
  WHERE tenant=p_tenant AND command_id=c->>'command_id';
  IF FOUND THEN
-   IF a.request_digest <> digest THEN RETURN 'REVISION_CONFLICT'; END IF;
+   IF a.request_digest IS DISTINCT FROM digest THEN RETURN 'REVISION_CONFLICT'; END IF;
    IF clock_timestamp() >= LEAST(g.valid_until,p_until)
    OR (c->>'operation'='grant' AND clock_timestamp() >= r.valid_until)
    THEN RETURN 'AUTHORITY_UNPROVEN'; END IF;
@@ -147,8 +152,8 @@ BEGIN
    old_record := h.payload::jsonb;
    IF (SELECT count(*) FROM portal_provider_admin.administrative_head WHERE tenant=p_tenant
        AND (principal_ref=m->>'principal_ref' OR (issuer=m->>'issuer' AND subject=m->>'subject'))) <> 1
-   OR h.principal_ref <> m->>'principal_ref' OR h.issuer <> m->>'issuer' OR h.subject <> m->>'subject'
-   OR old_record->>'audience' <> 'provider' OR h.revision <> expected
+   OR h.principal_ref IS DISTINCT FROM m->>'principal_ref' OR h.issuer IS DISTINCT FROM m->>'issuer' OR h.subject IS DISTINCT FROM m->>'subject'
+   OR old_record->>'audience' IS DISTINCT FROM 'provider' OR h.revision <> expected
    THEN RETURN 'REVISION_CONFLICT'; END IF;
    IF c->>'operation'='revoke' AND (
        (m - ARRAY['revision','revoked','reviewed_until'])

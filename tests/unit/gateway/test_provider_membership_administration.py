@@ -242,3 +242,43 @@ def test_descriptor_refuses_native_namespace_shared_authority_and_missing_pins(
 ) -> None:
     with pytest.raises(ProviderAdministrationError):
         descriptor(**change)
+
+
+@pytest.mark.parametrize("echo,hide_parameters", [(True, True), (False, False), (True, False)])
+def test_source_rejects_parameter_logging_engine_before_any_connection(echo, hide_parameters):
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from maezo.gateway.human.provider_membership_administration_postgres import (
+        PostgresProviderMembershipAdministration,
+    )
+
+    engine = create_async_engine(
+        "postgresql+asyncpg://test-only:test-only@127.0.0.1:1/test_only",
+        echo=echo,
+        hide_parameters=hide_parameters,
+    )
+    with pytest.raises(ProviderAdministrationError) as failure:
+        PostgresProviderMembershipAdministration(engine, descriptor())
+    assert failure.value.reason == AdministrationReason.SOURCE_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["echo", "hide_parameters"])
+async def test_logging_configuration_drift_denied_before_record_io(change):
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from maezo.gateway.human.provider_membership_administration_postgres import (
+        PostgresProviderMembershipAdministration,
+    )
+
+    engine = create_async_engine(
+        "postgresql+asyncpg://test-only:test-only@127.0.0.1:1/test_only", echo=False, hide_parameters=True
+    )
+    store = PostgresProviderMembershipAdministration(engine, descriptor())
+    if change == "echo":
+        engine.echo = True
+    else:
+        engine.sync_engine.hide_parameters = False
+    with pytest.raises(ProviderAdministrationError) as failure:
+        await store.record(command(), binding())
+    assert failure.value.reason == AdministrationReason.SOURCE_UNAVAILABLE
