@@ -436,6 +436,59 @@ def test_ordinary_record_attribute_observation_is_not_reflective_url_authority(t
     assert fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
 
 
+@pytest.mark.parametrize(
+    "recovery",
+    [
+        "lookup = getattr\nsetter = lookup(builtins, 'setattr')\n"
+        "setter(URL, 'create', lambda *a, **k: object())",
+        "lookup = getattr\napply = lookup(type, '__setattr__')\n"
+        "apply(URL, 'create', lambda *a, **k: object())",
+        "first = getattr\nsecond = first\nsecond(URL, 'create')",
+        "lookup = lambda obj, name: getattr(obj, name)\n"
+        "lookup(builtins, 'setattr')(URL, 'create', lambda *a, **k: object())",
+        "def lookup(obj, name):\n    return getattr(obj, name)\n"
+        "lookup(builtins, 'setattr')(URL, 'create', lambda *a, **k: object())",
+        "lookups = [getattr]\nlookups[0](builtins, 'setattr')",
+        "lookups = {'getter': getattr}\nlookups['getter'](builtins, 'setattr')",
+        "from builtins import getattr as lookup\nlookup(builtins, 'setattr')",
+        "lookup = builtins.getattr\nlookup(type, '__setattr__')",
+    ],
+)
+def test_getter_references_or_opaque_wrappers_cannot_recover_mutating_callables(
+    tmp_path: Path, recovery: str
+) -> None:
+    source = (
+        SOURCE.replace(
+            'pg.url_for("unit-role", "unit-password")',
+            'URL.create("postgresql+asyncpg", host=pg.host, port=pg.port, database="postgres")',
+        )
+        + "\nimport builtins\n"
+        + recovery
+        + "\n"
+    )
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+def test_direct_getter_cannot_become_a_callable_result_or_shadowed_context_symbol(tmp_path: Path) -> None:
+    source = SOURCE.replace(
+        "        context =", '        observed = getattr(admin, "is_closed", None)\n        context ='
+    )
+    assert fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+    called = source.replace("        yield engine", "        observed()\n        yield engine")
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, called))
+    shadowed = source.replace("async def owned_pg(tmp_path):", "async def owned_pg(tmp_path, getattr):")
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, shadowed))
+
+
+def test_direct_record_field_dictionary_remains_supported(tmp_path: Path) -> None:
+    source = SOURCE.replace(
+        "        context =",
+        '        fields = dict_record(**{name: getattr(admin, name) for name in ("closed", "status")})\n'
+        "        context =",
+    )
+    assert fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
 def test_name_only_cannot_pardon_a_real_owned_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
     target = next(path for path in fence._iter_live_suites() if fence._claims_owned_tls_fixture(path))
     relative = str(target.relative_to(fence._REPO_ROOT))

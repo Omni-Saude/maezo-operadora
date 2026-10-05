@@ -850,6 +850,67 @@ def _owned_transport_is_verified(
         return value.id if isinstance(value, ast.Name) else None
 
     mutators = {"setattr", "delattr", "vars"}
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    if bindings.get("getattr") or any(
+        isinstance(node, ast.Attribute)
+        and node.attr == "getattr"
+        or isinstance(node, ast.ImportFrom)
+        and any(alias.name == "getattr" for alias in node.names)
+        for node in ast.walk(tree)
+    ):
+        return False
+    # Direct record observation is supported. Getter references, wrappers and
+    # callable recovery are not verified transport constructors in this grammar.
+    for reference in ast.walk(tree):
+        if (
+            not isinstance(reference, ast.Name)
+            or reference.id != "getattr"
+            or not isinstance(reference.ctx, ast.Load)
+        ):
+            continue
+        call = parents.get(reference)
+        if not isinstance(call, ast.Call) or call.func is not reference:
+            return False
+        current = parents.get(call)
+        result_names: set[str] = set()
+        record_container = False
+        while current is not None and not isinstance(
+            current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ):
+            if isinstance(current, (ast.Dict, ast.DictComp)):
+                record_container = True
+            if (
+                isinstance(current, (ast.Lambda, ast.Return))
+                or isinstance(current, ast.Call)
+                and (not record_container or call in ast.walk(current.func))
+            ):
+                return False
+            if isinstance(current, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+                targets = current.targets if isinstance(current, ast.Assign) else [current.target]
+                result_names |= {name for target in targets for name in _bound_target_names(target)}
+            current = parents.get(current)
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = [*current.args.posonlyargs, *current.args.args, *current.args.kwonlyargs]
+            if any(arg.arg == "getattr" for arg in args) or any(
+                isinstance(node, ast.Name)
+                and node.id == "getattr"
+                and isinstance(node.ctx, (ast.Store, ast.Del))
+                for node in ast.walk(current)
+            ):
+                return False
+        for _ in range(len(assignments) + 1):
+            before = set(result_names)
+            for assignment in [node for node in ast.walk(tree) if isinstance(node, ast.Assign)]:
+                if root_name(assignment.value) in result_names:
+                    result_names |= {
+                        name for target in assignment.targets for name in _bound_target_names(target)
+                    }
+            if result_names == before:
+                break
+        if any(
+            isinstance(node, ast.Call) and root_name(node.func) in result_names for node in ast.walk(tree)
+        ):
+            return False
     reflective_attributes = {
         "__dict__",
         "__globals__",
