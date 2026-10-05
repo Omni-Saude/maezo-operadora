@@ -87,7 +87,7 @@ linhas:
     termo_pagador_proposto: "worker `registrar_glosa` / topico `operadora.contas.registrar_glosa`"
     razao: "Q1: o worker materializa o ato da operadora. O nome pt-BR alinha-se ao dominio (`registrar_glosa`), e o topico e a superficie que o BPMN chama."
     arquivo: src/maezo/tools/workers/contas.py
-    linha: 487
+    linha: 490
     ancora: "def registrar_glosa(input_data: GlosaRegistroInput)"
   - id: C07
     cadeia: CONTAS
@@ -312,7 +312,7 @@ linhas:
     termo_pagador_proposto: "worker `registrar_indeferimento` / topico `operadora.recurso.registrar_indeferimento`, servindo as QUATRO tarefas adversas (indeferir, deferir parcial, indeferir pelo auditor, inadmitir)"
     razao: "Q1/Q3: o unico worker de efeito adverso da cadeia se chamava \"desistencia\" — o ato de quem recorre. Sob a perspectiva do pagador, o adverso e o indeferimento."
     arquivo: src/maezo/tools/workers/recurso.py
-    linha: 1590
+    linha: 1752
     ancora: "\"operadora.recurso.registrar_indeferimento\","
   - id: R20
     cadeia: RECURSO

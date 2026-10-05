@@ -430,3 +430,110 @@ async def test_real_pg_direct_sql_cannot_forge_actor_or_receipt(pg_notices: Test
     assert (
         await pg_notices.control.fetchval("SELECT count(*) FROM portal_provider_notice.acknowledgement") == 0
     )
+
+
+async def test_validator_truncate_drift_rejected_and_authority_history_cannot_be_rebound(
+    pg_notices: TestOnlyPgNotices,
+) -> None:
+    p = pg_notices
+    await p.prepare()
+    await p.acknowledge()
+    original = await p.control.fetchval("SELECT to_jsonb(a)::text FROM portal_provider_notice.authority a")
+    old_receipt = await p.control.fetchval("SELECT receipt_ref FROM portal_provider_notice.acknowledgement")
+    validator = p.producer.installation.authority_validator_role
+    await p.control.execute(f"GRANT TRUNCATE ON portal_provider_notice.authority TO {validator}")
+    with pytest.raises(ExternalCaseError):
+        await p.prepare()
+    with pytest.raises(ExternalCaseError):
+        await p.acknowledge()
+    await p.control.execute(f"SET ROLE {validator}")
+    try:
+        with pytest.raises(asyncpg.PostgresError) as denied:
+            await p.control.execute("TRUNCATE portal_provider_notice.authority")
+        assert denied.value.sqlstate == "P7E04"
+    finally:
+        await p.control.execute("RESET ROLE")
+    assert (
+        await p.control.fetchval("SELECT to_jsonb(a)::text FROM portal_provider_notice.authority a")
+        == original
+    )
+    assert (
+        await p.control.fetchval("SELECT receipt_ref FROM portal_provider_notice.acknowledgement")
+        == old_receipt
+    )
+    await p.control.execute(f"REVOKE TRUNCATE ON portal_provider_notice.authority FROM {validator}")
+    assert (await p.prepare()).provider_delivery_receipt_ref == old_receipt
+
+
+async def test_all_notice_history_tables_reject_truncate_even_to_privileged_owner(
+    pg_notices: TestOnlyPgNotices,
+) -> None:
+    p = pg_notices
+    await p.prepare()
+    await p.acknowledge()
+    for table in NOTICE_TABLES:
+        before = await p.control.fetchval(f"SELECT count(*) FROM portal_provider_notice.{table}")
+        with pytest.raises(asyncpg.PostgresError) as denied:
+            await p.control.execute(f"TRUNCATE portal_provider_notice.{table}")
+        assert denied.value.sqlstate == "P7E04"
+        assert await p.control.fetchval(f"SELECT count(*) FROM portal_provider_notice.{table}") == before
+
+
+async def test_validator_exact_privilege_and_schema_function_delegation_matrix(
+    pg_notices: TestOnlyPgNotices,
+) -> None:
+    p = pg_notices
+    d = p.producer.installation
+    for privilege in ("DELETE", "TRUNCATE", "TRIGGER", "REFERENCES"):
+        await p.control.execute(
+            f"GRANT {privilege} ON portal_provider_notice.authority TO {d.authority_validator_role}"
+        )
+        with pytest.raises(ExternalCaseError):
+            await p.prepare()
+        await p.control.execute(
+            f"REVOKE {privilege} ON portal_provider_notice.authority FROM {d.authority_validator_role}"
+        )
+    await p.control.execute(
+        f"GRANT SELECT ON portal_provider_notice.authority TO {d.authority_validator_role} WITH GRANT OPTION"
+    )
+    with pytest.raises(ExternalCaseError):
+        await p.prepare()
+    await p.control.execute(
+        "REVOKE GRANT OPTION FOR SELECT ON portal_provider_notice.authority "
+        f"FROM {d.authority_validator_role}"
+    )
+    await p.control.execute(
+        f"GRANT UPDATE(state) ON portal_provider_notice.authority TO {d.authority_validator_role}"
+    )
+    with pytest.raises(ExternalCaseError):
+        await p.prepare()
+    await p.control.execute(
+        f"REVOKE UPDATE(state) ON portal_provider_notice.authority FROM {d.authority_validator_role}"
+    )
+    for role in (d.authority_validator_role, d.producer_role, d.recipient_role):
+        await p.control.execute(f"GRANT USAGE ON SCHEMA portal_provider_notice TO {role} WITH GRANT OPTION")
+        with pytest.raises(ExternalCaseError):
+            await p.prepare()
+        await p.control.execute(f"REVOKE GRANT OPTION FOR USAGE ON SCHEMA portal_provider_notice FROM {role}")
+    prepare_sig = NOTICE_FUNCTIONS["prepare_notice"]
+    await p.control.execute(
+        f"GRANT EXECUTE ON FUNCTION portal_provider_notice.prepare_notice({prepare_sig}) "
+        f"TO {d.producer_role} WITH GRANT OPTION"
+    )
+    with pytest.raises(ExternalCaseError):
+        await p.prepare()
+    await p.control.execute(
+        f"REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION portal_provider_notice.prepare_notice({prepare_sig}) "
+        f"FROM {d.producer_role}"
+    )
+    await p.control.execute(
+        f"GRANT EXECUTE ON FUNCTION portal_provider_notice.prepare_notice({prepare_sig}) "
+        f"TO {d.recipient_role}"
+    )
+    with pytest.raises(ExternalCaseError):
+        await p.prepare()
+    await p.control.execute(
+        f"REVOKE EXECUTE ON FUNCTION portal_provider_notice.prepare_notice({prepare_sig}) "
+        f"FROM {d.recipient_role}"
+    )
+    assert await p.control.fetchval("SELECT count(*) FROM portal_provider_notice.notice") == 0

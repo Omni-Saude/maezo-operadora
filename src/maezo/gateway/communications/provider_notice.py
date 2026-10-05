@@ -163,6 +163,12 @@ def _json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
+def _installation_digest(value: ProviderNoticeInstallation) -> str:
+    # Typed installation metadata owns integer OIDs. Human/operation wire stays
+    # on its existing number-free canonical profile; no values are stringified.
+    return hashlib.sha256(_json(value.model_dump(mode="json")).encode("utf-8")).hexdigest()
+
+
 def _notice_intent(request: CandidateDTO) -> NoticeIntent:
     try:
         intent = NoticeIntent.model_validate_json(request.model_dump_json())
@@ -200,7 +206,7 @@ class PostgresProviderNoticeStore:
         self.installation = ProviderNoticeInstallation.model_validate_json(installation.model_dump_json())
         self.scope = self.installation.scope
         self.role, self.identity_admission = role, identity_admission
-        self._installation_digest = fingerprint(self.installation.model_dump(mode="json"))
+        self._installation_digest = _installation_digest(self.installation)
         if role == "recipient" and (
             identity_admission is None
             or identity_admission.engine is not engine
@@ -212,9 +218,7 @@ class PostgresProviderNoticeStore:
     async def qualify(self, db: AsyncConnection) -> None:
         d = self.installation
         alive(d.valid_until)
-        if self.engine.dialect.name != "postgresql" or self._installation_digest != fingerprint(
-            d.model_dump(mode="json")
-        ):
+        if self.engine.dialect.name != "postgresql" or self._installation_digest != _installation_digest(d):
             raise ExternalCaseError("unavailable")
         role = d.producer_role if self.role == "producer" else d.recipient_role
         info = (
@@ -264,10 +268,18 @@ class PostgresProviderNoticeStore:
                 (
                     await db.execute(
                         text("""
-                SELECT c.oid,n.oid AS schema_oid,c.relkind,pg_get_userbyid(c.relowner) AS owner,
+                SELECT c.oid,n.oid AS schema_oid,c.relkind::text AS relkind,
+                 pg_get_userbyid(c.relowner) AS owner,
                  pg_get_userbyid(n.nspowner) AS schema_owner,c.relrowsecurity,
                  EXISTS(SELECT 1 FROM aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) a
                    WHERE a.grantee=0) AS public_schema,
+                 EXISTS(SELECT 1 FROM aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) a
+                   WHERE a.grantee<>n.nspowner AND (a.is_grantable OR a.privilege_type<>'USAGE'
+                    OR a.grantee NOT IN (SELECT oid FROM pg_roles WHERE rolname IN
+                    (:validator,:producer,:recipient)))) AS schema_acl_drift,
+                 (SELECT count(*) FROM aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) a
+                   WHERE a.grantee<>n.nspowner AND a.privilege_type='USAGE' AND NOT a.is_grantable)
+                   AS schema_usage_count,
                  EXISTS(SELECT 1 FROM aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
                    WHERE a.grantee<>c.relowner AND NOT
                    (c.relname='authority' AND a.grantee IN
@@ -275,7 +287,13 @@ class PostgresProviderNoticeStore:
                  EXISTS(SELECT 1 FROM pg_attribute at,LATERAL aclexplode(at.attacl) a
                    WHERE at.attrelid=c.oid AND a.grantee<>c.relowner) AS extra_column_acl,
                  (SELECT count(*) FROM pg_trigger t WHERE t.tgrelid=c.oid AND NOT t.tgisinternal
-                  AND t.tgenabled='O' AND t.tgtype=27 AND t.tgfoid=:trigger_oid) AS expected_triggers,
+                  AND t.tgenabled='O' AND t.tgtype=27 AND t.tgfoid=:trigger_oid
+                  AND t.tgqual IS NULL AND t.tgnargs=0) AS expected_triggers,
+                 (SELECT count(*) FROM pg_trigger t WHERE t.tgrelid=c.oid AND NOT t.tgisinternal
+                  AND t.tgenabled='O' AND t.tgtype=34 AND t.tgfoid=:truncate_oid
+                  AND t.tgqual IS NULL AND t.tgnargs=0) AS expected_truncate_triggers,
+                 (SELECT count(*) FROM pg_trigger t WHERE t.tgrelid=c.oid AND NOT t.tgisinternal)
+                   AS trigger_count,
                  has_table_privilege(session_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
                    AS direct_access,
                  has_any_column_privilege(session_user,c.oid,'SELECT,INSERT,UPDATE,REFERENCES')
@@ -287,6 +305,9 @@ class PostgresProviderNoticeStore:
                             "schema": d.schema_name,
                             "name": pin.name,
                             "validator": d.authority_validator_role,
+                            "producer": d.producer_role,
+                            "recipient": d.recipient_role,
+                            "truncate_oid": next(f.oid for f in d.functions if f.name == "immutable_history"),
                             "trigger_oid": next(
                                 f.oid
                                 for f in d.functions
@@ -299,35 +320,53 @@ class PostgresProviderNoticeStore:
                 .mappings()
                 .one_or_none()
             )
-            if relation is None or tuple(
-                relation[k]
-                for k in (
-                    "oid",
-                    "schema_oid",
-                    "relkind",
-                    "owner",
-                    "schema_owner",
-                    "relrowsecurity",
-                    "public_schema",
-                    "extra_acl",
-                    "extra_column_acl",
-                    "expected_triggers",
-                    "direct_access",
-                    "column_access",
+            if (
+                relation is None
+                or tuple(relation[k] for k in ("oid", "schema_oid", "relkind", "owner", "schema_owner"))
+                != (pin.oid, d.schema_oid, "r", d.owner_role, d.owner_role)
+                or any(
+                    relation[k]
+                    for k in (
+                        "relrowsecurity",
+                        "public_schema",
+                        "schema_acl_drift",
+                        "extra_acl",
+                        "extra_column_acl",
+                        "direct_access",
+                        "column_access",
+                    )
                 )
-            ) != (
-                pin.oid,
-                d.schema_oid,
-                "r",
-                d.owner_role,
-                d.owner_role,
-                False,
-                False,
-                False,
-                False,
-                1,
-                False,
-                False,
+                or relation["schema_usage_count"] != 3
+                or (
+                    relation["expected_triggers"],
+                    relation["expected_truncate_triggers"],
+                    relation["trigger_count"],
+                )
+                != (1, 1, 2)
+            ):
+                raise ExternalCaseError("unavailable")
+            grants = (
+                (
+                    await db.execute(
+                        text("""
+                SELECT a.grantee,pg_get_userbyid(a.grantee) AS grantee_name,a.privilege_type,a.is_grantable
+                FROM pg_class c,LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+                WHERE c.oid=:oid AND a.grantee<>c.relowner
+            """),
+                        dict(oid=pin.oid),
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            expected = (
+                {(d.authority_validator_role, p, False) for p in ("SELECT", "INSERT", "UPDATE")}
+                if (pin.name == "authority")
+                else set()
+            )
+            if (
+                any(g["grantee"] == 0 for g in grants)
+                or {(g["grantee_name"], g["privilege_type"], g["is_grantable"]) for g in grants} != expected
             ):
                 raise ExternalCaseError("unavailable")
         for function_pin in d.functions:
@@ -370,6 +409,33 @@ class PostgresProviderNoticeStore:
                     False,
                 )
                 or hashlib.sha256(function["body"].encode()).hexdigest() != function_pin.sha256
+            ):
+                raise ExternalCaseError("unavailable")
+            grants = (
+                (
+                    await db.execute(
+                        text("""
+                SELECT a.grantee,pg_get_userbyid(a.grantee) AS grantee_name,a.privilege_type,a.is_grantable
+                FROM pg_proc p,LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                WHERE p.oid=:oid AND a.grantee<>p.proowner
+            """),
+                        dict(oid=function_pin.oid),
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            allowed_role = (
+                d.producer_role
+                if function_pin.name == "prepare_notice"
+                else d.recipient_role
+                if function_pin.name in {"acknowledge_notice", "inspect_notice"}
+                else None
+            )
+            expected = {(allowed_role, "EXECUTE", False)} if allowed_role is not None else set()
+            if (
+                any(g["grantee"] == 0 for g in grants)
+                or {(g["grantee_name"], g["privilege_type"], g["is_grantable"]) for g in grants} != expected
             ):
                 raise ExternalCaseError("unavailable")
         # Cross-owner permissions must have been explicitly installed by source administrators.

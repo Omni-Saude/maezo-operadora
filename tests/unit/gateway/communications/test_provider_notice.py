@@ -345,3 +345,223 @@ def test_receipt_status_cannot_fabricate_delivery(status: str, receipt: str | No
             metadata_publication_receipt_ref="metadata",
             provider_delivery_receipt_ref=receipt,
         )
+
+
+def test_real_constructor_preserves_installation_oid_integers_outside_human_wire():
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from maezo.gateway.communications.provider_notice import PostgresProviderNoticeStore
+
+    engine = create_async_engine(
+        "postgresql+asyncpg://testonly:testonly@127.0.0.1:1/testonly", echo=False, hide_parameters=True
+    )
+    store = PostgresProviderNoticeStore(engine, installation(), role="producer")
+    assert store.installation.database_oid == 123
+    assert type(store.installation.schema_oid) is int
+
+
+class UnitNoticeMetadataResult:
+    """Metadata DTOs only; no real PostgreSQL or professional/source acceptance."""
+
+    def __init__(self, values):
+        self.values = values
+
+    def mappings(self):
+        return self
+
+    def one(self):
+        return self.values
+
+    def one_or_none(self):
+        return self.values
+
+    def all(self):
+        return self.values
+
+
+class UnitNoticeMetadata:
+    def __init__(
+        self, descriptor, *, truncate=False, grant_option=False, schema_option=False, function_option=False
+    ):
+        self.d = descriptor
+        self.truncate = truncate
+        self.grant_option = grant_option
+        self.schema_option = schema_option
+        self.function_option = function_option
+        self.queries = []
+
+    async def execute(self, statement, params=None):
+        sql = str(statement)
+        self.queries.append(sql)
+        params = params or {}
+        d = self.d
+        if "AS login,current_user" in sql:
+            value = dict(
+                login=d.producer_role, effective=d.producer_role, db_oid=d.database_oid, temp_oid=0, tls=True
+            )
+        elif "FROM pg_roles r JOIN pg_namespace" in sql:
+            value = {
+                k: False
+                for k in (
+                    "rolsuper",
+                    "rolcreatedb",
+                    "rolcreaterole",
+                    "rolbypassrls",
+                    "rolreplication",
+                    "inherited",
+                    "owner_login",
+                    "can_create",
+                    "can_temp",
+                )
+            }
+        elif "FROM pg_class c JOIN pg_namespace" in sql:
+            pin = next(x for x in d.relations if x.name == params["name"])
+            value = dict(
+                oid=pin.oid,
+                schema_oid=d.schema_oid,
+                relkind="r",
+                owner=d.owner_role,
+                schema_owner=d.owner_role,
+                relrowsecurity=False,
+                public_schema=False,
+                extra_acl=False,
+                extra_column_acl=False,
+                expected_triggers=1,
+                direct_access=False,
+                column_access=False,
+            )
+            if "expected_truncate_triggers" in sql:
+                value.update(expected_truncate_triggers=1, trigger_count=2)
+            if "AS schema_acl_drift" in sql:
+                value["schema_acl_drift"] = self.schema_option
+                value["schema_usage_count"] = 3
+        elif "FROM pg_class c,LATERAL aclexplode" in sql:
+            pin = next(x for x in d.relations if x.oid == params["oid"])
+            value = (
+                [
+                    dict(
+                        grantee=100,
+                        grantee_name=d.authority_validator_role,
+                        privilege_type=p,
+                        is_grantable=self.grant_option,
+                    )
+                    for p in ("SELECT", "INSERT", "UPDATE")
+                ]
+                if pin.name == "authority"
+                else []
+            )
+            if pin.name == "authority" and self.truncate:
+                value.append(
+                    dict(
+                        grantee=100,
+                        grantee_name=d.authority_validator_role,
+                        privilege_type="TRUNCATE",
+                        is_grantable=False,
+                    )
+                )
+        elif "FROM pg_proc p,LATERAL aclexplode" in sql:
+            pin = next(x for x in d.functions if x.oid == params["oid"])
+            role = (
+                d.producer_role
+                if pin.name == "prepare_notice"
+                else d.recipient_role
+                if pin.name in {"acknowledge_notice", "inspect_notice"}
+                else None
+            )
+            value = (
+                []
+                if role is None
+                else [
+                    dict(
+                        grantee=100,
+                        grantee_name=role,
+                        privilege_type="EXECUTE",
+                        is_grantable=self.function_option,
+                    )
+                ]
+            )
+        elif "portal_communication.lock_session" in sql:
+            value = dict(
+                oid=d.session_lock_oid,
+                owner=d.session_lock_owner_role,
+                prosecdef=True,
+                owner_execute=True,
+                body="unit-session-lock-definition",
+            )
+        elif "FROM pg_proc p WHERE" in sql:
+            name = params["signature"].split(".")[1].split("(")[0]
+            pin = next(x for x in d.functions if x.name == name)
+            value = dict(
+                oid=pin.oid,
+                owner=d.owner_role,
+                body="unit-source-definition-" + name,
+                proconfig=["search_path=pg_catalog"],
+                prosecdef=name not in {"immutable_history", "protect_authority"},
+                execute=name == "prepare_notice",
+                extra_acl=False,
+            )
+        elif "to_regclass('portal_communication.content')" in sql:
+            value = dict(
+                oid=d.content_relation_oid,
+                owner=d.content_owner_role,
+                ciphertext=False,
+                nonce=False,
+                key_id=False,
+                actor_ciphertext=False,
+                actor_nonce=False,
+                actor_key_id=False,
+            )
+        else:
+            raise AssertionError("Unexpected metadata query; no permissive fallback")
+        return UnitNoticeMetadataResult(value)
+
+
+def metadata_store():
+    import hashlib
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from maezo.gateway.communications.provider_notice import PostgresProviderNoticeStore
+
+    d = installation(
+        session_lock_sha256=hashlib.sha256(b"unit-session-lock-definition").hexdigest(),
+        functions=tuple(
+            FunctionPin(
+                name=n,
+                oid=i + 2000,
+                sha256=hashlib.sha256(("unit-source-definition-" + n).encode()).hexdigest(),
+            )
+            for i, n in enumerate(sorted(NOTICE_FUNCTIONS))
+        ),
+    )
+    engine = create_async_engine(
+        "postgresql+asyncpg://testonly:testonly@127.0.0.1:1/testonly", echo=False, hide_parameters=True
+    )
+    return PostgresProviderNoticeStore(engine, d, role="producer")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift", ["truncate", "grant_option", "schema_option", "function_option"])
+async def test_qualifier_rejects_destructive_or_delegable_validator_source_rights(drift):
+    store = metadata_store()
+    with pytest.raises(ExternalCaseError):
+        await store.qualify(UnitNoticeMetadata(store.installation, **{drift: True}))
+
+
+@pytest.mark.asyncio
+async def test_metadata_control_reaches_complete_notice_qualifier_without_fallback():
+    store = metadata_store()
+    db = UnitNoticeMetadata(store.installation)
+    await store.qualify(db)
+    assert any("expected_truncate_triggers" in sql for sql in db.queries)
+    assert any("FROM pg_class c,LATERAL aclexplode" in sql for sql in db.queries)
+    assert any("FROM pg_proc p,LATERAL aclexplode" in sql for sql in db.queries)
+
+
+def test_metadata_digest_does_not_weaken_number_free_human_wire():
+    from maezo.portal.engine.profile import ProfileError, canonicalize
+
+    store = metadata_store()
+    assert type(store.installation.database_oid) is int
+    with pytest.raises(ProfileError):
+        canonicalize({"database_oid": store.installation.database_oid})

@@ -75,6 +75,19 @@ END $$;
 CREATE TRIGGER authority_history BEFORE UPDATE OR DELETE ON portal_provider_notice.authority
  FOR EACH ROW EXECUTE FUNCTION portal_provider_notice.protect_authority();
 
+-- Statement TRUNCATE does not fire UPDATE/DELETE row guards. Preserve all
+-- history/identities even under destructive validator grant drift.
+CREATE TRIGGER authority_no_truncate BEFORE TRUNCATE ON portal_provider_notice.authority
+ FOR EACH STATEMENT EXECUTE FUNCTION portal_provider_notice.immutable_history();
+CREATE TRIGGER notice_no_truncate BEFORE TRUNCATE ON portal_provider_notice.notice
+ FOR EACH STATEMENT EXECUTE FUNCTION portal_provider_notice.immutable_history();
+CREATE TRIGGER acknowledgement_no_truncate BEFORE TRUNCATE ON portal_provider_notice.acknowledgement
+ FOR EACH STATEMENT EXECUTE FUNCTION portal_provider_notice.immutable_history();
+CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON portal_provider_notice.audit
+ FOR EACH STATEMENT EXECUTE FUNCTION portal_provider_notice.immutable_history();
+CREATE TRIGGER outbox_no_truncate BEFORE TRUNCATE ON portal_provider_notice.outbox
+ FOR EACH STATEMENT EXECUTE FUNCTION portal_provider_notice.immutable_history();
+
 CREATE FUNCTION portal_provider_notice.prepare_notice(
  p_scope jsonb,p_intent jsonb,p_command text,p_digest text,p_metadata text,p_audit text,p_until timestamptz
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
