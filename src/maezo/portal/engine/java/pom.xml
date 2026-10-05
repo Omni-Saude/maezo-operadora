@@ -39,6 +39,7 @@
     <build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><configuration>
       <classesDirectory>${project.build.directory}/${project.build.finalName}.jar</classesDirectory>
       <additionalClasspathElements><additionalClasspathElement>${project.build.directory}/${project.build.finalName}-rest-spi.jar</additionalClasspathElement></additionalClasspathElements>
+      <systemPropertyVariables><maezo.consumer.jar>${project.build.directory}/${project.build.finalName}.jar</maezo.consumer.jar></systemPropertyVariables>
     </configuration></plugin></plugins></build>
   </profile></profiles>
 </project>
