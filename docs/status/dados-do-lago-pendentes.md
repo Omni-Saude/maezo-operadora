@@ -17,22 +17,22 @@ publicado pela AMH. Os rascunhos dos dois contratos estão em `Omni-Saude/amh-da
 |---|---|---|
 | competência, parcela, vencimento, situação, valores, liquidação | existe (`amh_omni_gold.mensalidade_beneficiario`) | escala a humano (catch-all da DMN) |
 | ciclos sem conciliação | derivável (competências distintas `vencida`) | escala a humano |
-| status conciliado | **critério a decidir (financeiro/PO)**: não há retorno bancário | escala a humano; nunca confirma pagamento |
+| status conciliado | **critério a decidir (financeiro/PO)**. Desde 05/10 o lago tem `tasy_titulo_receber_liq` (2,79 mi) e `tasy_titulo_receber_cobr`; a ocorrência CNAB (`OBTER_OCORRENCIA_TIT_ESCRIT`) é função PL/SQL e ainda precisa de view no Tasy | escala a humano; nunca confirma pagamento |
 | boleto (mascarado) | existe | responde sem citar número |
-| pagador (pessoa ou empresa) | tabela não ingerida | tratado como `desconhecido` |
+| pagador (pessoa ou empresa) | **existe desde 05/10** (`amh_omni_bronze.tasy_pls_contrato_pagador`, 83.189 linhas) — falta o adaptador ler | tratado como `desconhecido` até o contrato expor |
 | `portable_subject_ref` do tenant da operadora | **0 de 187.646 pessoas com cobrança** | sem referência não há consulta: segue como hoje (fonte simulada só em dev; em produção escala) |
 
 ## Identidade (Helena e Lucas): contrato `subject-resolution`
 | Campo | Lago hoje | Se faltar, o agente... |
 |---|---|---|
-| telefone → pessoa | **não existe** | Helena pergunta e segue sem identidade; Lucas escala |
-| idade | **vazia** (0 de 215.280 no MPI da operadora) | Helena pergunta a idade (como hoje). O contrato não traz sexo: a triagem decide por população e idade |
+| telefone → pessoa | **bruto existe desde 05/10** (`amh_omni_bronze.tasy_compl_pessoa_fisica`, 665.815 linhas, `nr_telefone`/`ds_email`); falta o hash de telefone e a ligação no MPI | Helena pergunta e segue sem identidade; Lucas escala |
+| idade | **bruto existe desde 05/10** (`amh_omni_bronze.tasy_pessoa_fisica`, 243.481 linhas, `dt_nascimento`/`ie_sexo`/`nm_pessoa_fisica`); o MPI da operadora continua vazio (0 de 215.280) até ser repopulado | Helena pergunta a idade (como hoje). O contrato não traz sexo: a triagem decide por população e idade |
 | plano ativo, vigência, carência | existe (`fhir_coverage`, `carencia_beneficiario`) | não afirma cobertura |
 | titular / dependente | existe | pergunta quando houver mais de um candidato |
 
 ## O que depende da AMH (lado do lago)
 1. Mintar `portable_subject_ref` para o tenant `omni`.
-2. Ingerir o cadastro de pessoa física do Tasy PLS (telefone, e-mail, nascimento) e a tabela de pagador.
+2. ~~Ingerir o cadastro de pessoa física do Tasy PLS (telefone, e-mail, nascimento) e a tabela de pagador.~~ **Feito em 05/10** (amh-data-platform#181: 13 tabelas em `amh_omni_bronze`, inclusive rescisão, reajuste e cobrança ativa). Falta repopular o MPI a partir delas.
 3. Fixar UM esquema de hash de telefone e popular a ligação telefone → pessoa.
 4. Propósito LGPD de atendimento ao beneficiário (hoje o vocabulário não tem).
 5. Critério de "conciliado" e política de atraso (financeiro/PO).
