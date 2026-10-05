@@ -1121,7 +1121,7 @@ jobs:
 
       # Direct goal: keep candidate bytecode, resolve only the deployed provided
       # libraries, and exercise the packaged JAR (never recompile against the old API).
-      - name: Qualificar JAR candidato no runtime CIB 2.1 e Tomcat 10.1.47
+      - name: Qualificar JAR candidato com CIB 2.1 e pool JDBC 10.1.47
         env:
           MAEZO_HUMAN_IT_JDBC_URL: jdbc:postgresql://localhost:5432/postgres
           MAEZO_HUMAN_IT_DB_USER: postgres

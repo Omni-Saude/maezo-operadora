@@ -16,10 +16,12 @@ Uma atualização Maven de dependência `provided` não atualiza a imagem implan
 O CI primeiro compila e empacota o candidato com as dependências atualizadas. Depois chama
 diretamente `surefire:test -Pdeployed-runtime-compatibility`, sem fases de compilação ou
 empacotamento: os mesmos JARs candidato e REST SPI são testados contra CIB Seven 2.1.0 e
-Tomcat 10.1.47, versões cujos JARs correspondem aos hashes de
+o pool JDBC Tomcat 10.1.47, versões cujos JARs correspondem aos hashes de
 `secured-startup-vendor.sha256` na imagem pinada de `Dockerfile.human`/`Dockerfile.secured-v2`.
 Essa segunda rodada inclui os testes finitos e os oito `EngineIT` dos grupos A+B com Postgres
 real. Os hashes dos JARs são conferidos antes/depois para garantir que não foram recompilados.
+Os demais componentes Tomcat mantêm as versões de compilação existentes; esse perfil não
+introduz um downgrade do servidor para qualificar uma atualização do pool ou do engine.
 Isso qualifica a compatibilidade do binário; não promove nem atualiza o engine implantado.
 Não use `verify` com esse perfil: isso recompilaria contra as versões antigas e não provaria a
 compatibilidade do candidato construído com as novas dependências.
