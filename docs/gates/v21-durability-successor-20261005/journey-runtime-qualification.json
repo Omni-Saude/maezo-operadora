@@ -2,7 +2,7 @@
   "schema": "maezo.durable-administrative-runtime-qualification.v1",
   "event_id": "DUR-JOURNEY-RUNTIME",
   "baseline": "feba801cf5eea6383f2db88bb02d52d9911049f3",
-  "source_composition_commit": "1080a320dea1e20347b098d96eb90b7bdcf38c56",
+  "source_composition_commit": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
   "journal_dependency": {
     "draft_pr": 644,
     "head": "c5d9cb79f0191ff9b0e696e4cb0117dde6a88075",
@@ -31,25 +31,25 @@
     "docs/design/v21-capabilities/proposals/measurement-protocol.proposed-v2.json": "08ed9bdec583ee6516818dfebfe8c7b96354b3975dcf287a89e9bebfaccd81a0",
     "docs/design/v21-capabilities/proposals/optional-feedback-financial-independence.proposed-v2.md": "f0943110cbcbe5cabcd3a0e2b91ad4f7590e11c48b30818b1e72a3835fe365bf",
     "docs/design/v21-capabilities/proposals/remaining-gate-matrix.proposed-v2-financial-only.json": "f9d0027457abf5324375ddf1ffe47c409387f707ffce90e58d92ccd6a6a6c70c",
-    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "b3d2314da31ad225d94e7ab4594c1392c696522dfc801594f5d52fd7d57d7f8c",
+    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "c3336f7eb492a0456b7df4aefe77740d6dc52e4c1b4f9e321477430ffc2a79ad",
     "spec/policies/retention/erasure-plan.template.yaml": "42f7767f26ff798e74687b239e51743dcac616a921d7b225fa92741f767ddafc",
     "src/maezo/agents/lucas/administrative/journey.py": "3469cb27912fa528287461645b4475f4f508195917957a8ac3ad6ab2882bd783",
     "src/maezo/agents/lucas/administrative/runtime.py": "e59027436df49f9177b3d91651beeeb5f9895d1628ada3083342f3511bfe0254",
     "src/maezo/gateway/aggregate_export_validation.py": "c31e72c62669cca147f482e6959784d16fb62706661095c7c6ca0ddb9518e50e",
-    "src/maezo/gateway/capabilities/admission.py": "9162495134df9a022127c6c6db69aa78c08f2bdc7ba7779f166d617aeb9e8202",
+    "src/maezo/gateway/capabilities/admission.py": "86d196bea90b6724c01c7eea40386a12b6d7d17280212163567d67e21982fc55",
     "src/maezo/gateway/capabilities/durability/__init__.py": "46604853bfa7a9ce49a46acb9c3e7dfa20898a9017df5f36fd4da90ac37a2361",
     "src/maezo/gateway/capabilities/durability/models.py": "d51835e2f446c991e390aa044f9dfcbc45cd91da831ce67da04b0f74c9cde22d",
     "src/maezo/gateway/capabilities/durability/ports.py": "20f0189737a557845d875b9ce6f1afddf488281dfd5127d30c7045910e9aba40",
     "src/maezo/gateway/capabilities/durability/postgres.py": "4a94e672c43cedfd050928c5b77d1ef07993b44b7aedc24c02b79f30aff0bdc8",
     "src/maezo/gateway/capabilities/durability/schema.sql": "b9420a4f5d37cc7f654989445b9288cec3912dc6c23b42f38359271405a6430d",
-    "src/maezo/gateway/capabilities/durable_execution.py": "9f5b3c0b1ef920055655b18bd1db19c7f17d6a2f29614dda5b623b005d2f1c22",
+    "src/maezo/gateway/capabilities/durable_execution.py": "3ae8ea1e8c8187cd8b23a7245883d76aec24d8550d93f8258e7f217e746c0f0f",
     "src/maezo/gateway/capabilities/journeys/__init__.py": "2dcf51ab7c753c0e98cfb72a5545d0ece8ea19faa208bfe4d5246c86da899257",
-    "src/maezo/gateway/capabilities/journeys/contracts.py": "d657b43c231ec2392c2e98fd28836a735c835605db75998427314da7b3a4f8a1",
+    "src/maezo/gateway/capabilities/journeys/contracts.py": "9ac0020dfadd6b1a337f88134612387adfd57d79ff33c9dbc53dabbf70e99db8",
     "src/maezo/gateway/capabilities/journeys/domain_boundary.py": "8dd62c4391aa3ae31acd1af585626a7ad4ed07ce94dbcd719840259f6f5448ba",
     "src/maezo/gateway/capabilities/journeys/driver.py": "acdb21492560e6ca6acf4e7a2248a5e68a569c4b4b3b218f023d814322f5e134",
     "src/maezo/gateway/capabilities/journeys/returns.py": "e0b24ffc13d362174bd4a6d4081faa2643c84db150862a845abfbcd8f1235ab2",
     "src/maezo/gateway/capabilities/journeys/topology.py": "bc45cead90731d5c80a2f459269b7267f53b1e78c1e719e57f2b0845f8a79b51",
-    "src/maezo/gateway/capabilities/service.py": "685750e081d49b3f53e3eb2f8557c8cab2d8caf2be0ae6ccb9c60f0b45e35d02",
+    "src/maezo/gateway/capabilities/service.py": "bcaf0a9c3ef3073c068b08dda16d2b66386affc19d481bdbc146d6398b8b67db",
     "src/maezo/gateway/measurement-export-closed-shapes.proposed-v2.json": "9f7063d5e3a633e22459be25e6c61ce64e07eaff92ccb7259deaf06bc577313c",
     "src/maezo/gateway/tool_registry.py": "a635cadf8fc0b57a2dcab268535dfd3e2938bf11f365685cc0201ad1799d50a5",
     "src/maezo/platform/integrations/agent_resume.py": "5a9bc294e54ff1f61191bfcf403a218ff41a7d5b932aca0e5137439389516f5a",
@@ -98,7 +98,12 @@
     "tests/unit/portal/test_identity_migration.py": "8a08d09fc42a23c4113161ea4e7a477c7fb9ad58906b985a668e63b551d4d6b8",
     "tests/unit/runtime/test_broad_except_allowlist.py": "7f3b2369a21c30702d352eaeef25bcf1625f2fc079a30ccf7f226ecdcf04ecd7",
     "tests/integration/agents/test_lucas_administrative_runtime_composed_pg.py": "50d892a30eda68a7b167f25cbb962ae6d1947e218ffa18348c17d921daf11af3",
-    "tests/unit/gateway/capabilities/journeys/test_driver_currentness_control.py": "d164967fc330cffc12dc71f820b2b8b3fdd39d6b04bd5f552fe2a422b23c2fe1"
+    "tests/unit/gateway/capabilities/journeys/test_driver_currentness_control.py": "d164967fc330cffc12dc71f820b2b8b3fdd39d6b04bd5f552fe2a422b23c2fe1",
+    "src/maezo/gateway/capabilities/models.py": "0624e0bc429ac0e2d8f3a0427c2193dc560a1be154adf56cca1f6914d0828a4a",
+    "src/maezo/gateway/capabilities/__init__.py": "8379b5d33fbe323ef66216d26a7f3bf4aa1c4281e7d0a57eaa51dca16d66b4f9",
+    "src/maezo/agents/lucas/administrative/state.py": "94ed001b6bf9c550e67ec6f8581c1bb064543f327e0aa8e28aa993d646cd53e1",
+    "tests/unit/gateway/capabilities/test_r5_provider_schema_boundary.py": "588e7fb04658bb19ae8e011f404a30d64fd1ee27629149c78568a658662c783c",
+    ".gitleaksignore": "4f43c1fedd5bf309ab42fcc357929131ff11e100e70744da4b2ad5a6b5297d75"
   },
   "independent_private_receipt_digests": {
     "authority_contract_r5": "876de480e73c289705ae017a70014fa87fb38cc3ae487f21ae546fd7df78e8fb",
@@ -114,10 +119,13 @@
     "aggregate_validator_publication_delta": "103ebd6210aed7f63c047ee9ee4468c6fc1ab9e00a1d6396ed1795c0aab68094",
     "currentness_security_original_delta": "b961d9a567d21df134dcbae3e7f63ab2c410884149f08f24ec3650e28d737449",
     "currentness_architecture_original_delta": "a9c10c75610c72ffd36e7a7554c7e62af7ef93a3973eb878d750a347281e8aae",
-    "combined_pg127_original_delta": "8269436a1dae2bc0fb885e7477a35eaaa9355065480355f2877e72c1c4924616",
     "source_readiness_refresh": "8899c6ba0d36ec579c05c25766e3409d3b079f611bcc23eb15e013de8a313d98",
     "historical_fc5_fresh_architecture_preflight": "2938b818790394a55d9c921e696c197cb8447bcd40272f634578d354d4a848c3",
-    "historical_fc5_fresh_security_preflight": "7b12c2259c672d0f07caa1b197108ead8ba201c8ef4be967b0f11d2bd3208e02"
+    "historical_fc5_fresh_security_preflight": "7b12c2259c672d0f07caa1b197108ead8ba201c8ef4be967b0f11d2bd3208e02",
+    "provider_main_interface_admission": "d0dedfec6629347ddc583c656f6a96056ee3943b8796245216049338ac4e629c",
+    "provider_main_source_verifier": "f4b4d51a9bc152b2d6b24366f56ffe32710ef0f2ae05fd0910480d187f8643e6",
+    "provider_main_composed_actual_pg127": "9211cc7ae50242e8896196a181b612133e50a2a6ebabdeda23efd1ed841d68a5",
+    "historical_pre_provider_pg127": "8269436a1dae2bc0fb885e7477a35eaaa9355065480355f2877e72c1c4924616"
   },
   "validated_scopes": {
     "historical_only": {
@@ -137,8 +145,8 @@
   },
   "combined_runtime_pg": {
     "status": "PASS_REAL_POSTGRES_MECHANISMS_ONLY",
-    "execution_head": "70c43a625460db2b8fcca302425a086e69428afa",
-    "execution_tree": "3d862ebfa7f5d553263e881b603b6c3395e400a7",
+    "execution_head": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
+    "execution_tree": "749e6261ba6034dba872834396a894cb5bebcb06",
     "passed": 127,
     "failed": 0,
     "errors": 0,
@@ -153,23 +161,24 @@
       "pure": 37
     },
     "previous_files_refreshed_actual_PG": 62,
-    "original_delta_sha256": "8269436a1dae2bc0fb885e7477a35eaaa9355065480355f2877e72c1c4924616",
+    "original_delta_sha256": "9211cc7ae50242e8896196a181b612133e50a2a6ebabdeda23efd1ed841d68a5",
     "fixture_source_delta_sha256": "b9bc3f2495a40de27f1c8ef540fcc9ecf676ac41ede6a81639fa6a86867086df",
     "cleanup_schemas_roles_connections_restored": true,
     "both_CAS_orders_with_server_blocking_confirmed": true,
     "postcommit_data_gate_closed_no_snapshot_known_facts_retained": true,
     "both_task_multi_action_reconnect_fresh_resume_reply_passed": true,
     "source_provider_qualification": false,
-    "prior_rejections_preserved": true
+    "prior_rejections_preserved": true,
+    "strict_v21_and_provider_main_composed_core_actually_executed": true
   },
   "CI": {
-    "status": "PENDING_EXACT_NEXT_PUBLISHED_CANDIDATE",
+    "status": "PENDING_EXACT_NEXT_COMPOSED_PUBLISHED_CANDIDATE",
     "head": "PENDING",
     "tree": "PENDING",
     "run_id": "PENDING",
     "conclusion": "PENDING",
-    "pr646_fc5_failure_preserved": true,
-    "local_component_pass_is_hosted_CI": false
+    "historical_fc5_failure_and_94d2_Security_rejection_preserved": true,
+    "historical_587_old_base_success_not_promoted": true
   },
   "fresh_final_architecture": {
     "status": "PENDING_EXACT_COMBINED_CANDIDATE",
@@ -209,7 +218,7 @@
   "source_inputs_are_digest_inventory_not_combined_approval": true,
   "candidate_head": "PENDING_NEXT_PUBLISHED_HEAD",
   "candidate_tree": "PENDING_NEXT_PUBLISHED_TREE",
-  "merge_base": "df8796caed938942a33c8c99503f579ff148e415",
+  "merge_base": "d2b311312227c82b6f28d8a9e429a17e1878892d",
   "main_readbacks": {
     "pr644_integration": {
       "head": "d6fa26f506a1524451bda2e3fc0db8d756722697",
@@ -234,6 +243,13 @@
       "source_test_contract_inputs_unchanged_from_executed70c43": true,
       "merge_conflicts_resolved_with_exact_qualified_R5_bytes": true,
       "whole_combined_CI_approval": false
+    },
+    "published_provider_integration": {
+      "head": "d2b311312227c82b6f28d8a9e429a17e1878892d",
+      "tree": "141abe86ec10c96af152482d1b14adf4baee8eb7",
+      "composition_commit": "c53a64ba278caf8242307fb3260b1357878ed938",
+      "shared_boundary_guard_source_commit": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
+      "whole_CI_and_operational_approval": false
     }
   },
   "component_original_deltas": {
@@ -295,6 +311,41 @@
       "original_replays_effects_commands_callbacks": 0,
       "original_RED_preserved": true,
       "scope": "Only _control exact-type/canonical enum identity guard and new focused UNIT. All other driver bytes, guards, authority and currentness await positions remain identical."
+    },
+    "published_provider_main_compatibility": {
+      "status": "PASS_INITIAL_SOURCE_UNIT_AND_REAL_POSTGRES_ONLY",
+      "published_main": "d2b311312227c82b6f28d8a9e429a17e1878892d",
+      "published_PR": 645,
+      "interface_admission_sha256": "d0dedfec6629347ddc583c656f6a96056ee3943b8796245216049338ac4e629c",
+      "source_verifier_sha256": "f4b4d51a9bc152b2d6b24366f56ffe32710ef0f2ae05fd0910480d187f8643e6",
+      "actual_pg_sha256": "9211cc7ae50242e8896196a181b612133e50a2a6ebabdeda23efd1ed841d68a5",
+      "unit_passed": 831,
+      "original_unit": 775,
+      "new_unit": 56,
+      "independent_own_controls": 37,
+      "generic_provider_operations_positive_once": 12,
+      "strict_v21_seams": [
+        "prepared_action",
+        "service_execute_durable",
+        "direct_DUR3_execute",
+        "protected_descriptor_restore",
+        "Lucas_state_existing_public_main_guard"
+      ],
+      "all_other_generic_provider_and_R5_authorities_preserved": true,
+      "JR1_JR2_provider_migration_or_business_source_approval": false,
+      "source_snapshot": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
+      "provider_live_tests_or_current_candidate_CI": "PENDING_EXACT_NEW_HOSTED_TREE"
+    },
+    "native_artifact_digest_false_positives": {
+      "status": "PASS_EXACT_THREE_HISTORICAL_NONSECRET_FINGERPRINTS_ONLY",
+      "classification_sha256": "1fbc899661530c28bdc386ec28f0ff5969658d4934227b7f9bd5eb01804c91a8",
+      "third_freeze_sha256": "7638ad98e74886258456de0c267c221fef38861a832dec1acd02cbd9761d1b91",
+      "original_security_delta_sha256": "c4153aecb450f483e625bb24812d1a26ae89d91c83ec66218dca2001b948c542",
+      "real_gitleaks_version": "8.30.1",
+      "future_secret_shape_controls_detected": 6,
+      "all_default_rules_entropy_paths_and_scan_range_unchanged": true,
+      "exact_original_historical_case_count": 3,
+      "no_real_credentials_found_in_these_three_cases": true
     }
   },
   "historical_evidence": {
@@ -416,7 +467,50 @@
         "finding": "F06 registered wait/outbox proof scope coupled to data permission",
         "receipt_sha256": "24e48c8f65d6dfdc362959a55d3fba355d61b39ea763c950b78e4c13e86cb64e"
       }
-    ]
+    ],
+    "local_pg127_before_provider_main": {
+      "status": "PASS_REAL_POSTGRES_MECHANISMS_ONLY",
+      "execution_head": "70c43a625460db2b8fcca302425a086e69428afa",
+      "execution_tree": "3d862ebfa7f5d553263e881b603b6c3395e400a7",
+      "passed": 127,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xfail": 0,
+      "retries": 0,
+      "actual_PG_cases": 90,
+      "pure_fixture_controls": 37,
+      "new_composed_file": {
+        "passed": 65,
+        "actual_PG": 28,
+        "pure": 37
+      },
+      "previous_files_refreshed_actual_PG": 62,
+      "original_delta_sha256": "8269436a1dae2bc0fb885e7477a35eaaa9355065480355f2877e72c1c4924616",
+      "fixture_source_delta_sha256": "b9bc3f2495a40de27f1c8ef540fcc9ecf676ac41ede6a81639fa6a86867086df",
+      "cleanup_schemas_roles_connections_restored": true,
+      "both_CAS_orders_with_server_blocking_confirmed": true,
+      "postcommit_data_gate_closed_no_snapshot_known_facts_retained": true,
+      "both_task_multi_action_reconnect_fresh_resume_reply_passed": true,
+      "source_provider_qualification": false,
+      "prior_rejections_preserved": true
+    },
+    "published_587_pre_provider_base_CI": {
+      "head": "58769f426482f7e94539043745e08f17535070a7",
+      "tree": "ab85229a0b13e6987f5826ce89a2b512adbbf297",
+      "tested_base": "df8796caed938942a33c8c99503f579ff148e415",
+      "tested_merge": "f7cf36f55b1241dac97f017944c6fa73bd39151c",
+      "CI": 37328889978,
+      "Security": 37328890038,
+      "status": "PASS_EXACT_OLD_BASE_ONLY",
+      "unit_passed": 27528,
+      "integration_passed": 894,
+      "strict_xfails_executed": 26,
+      "inactive_integration_companions": 2,
+      "verdict_sha256": "9ba55b9bd2440eff211a83f83a4c67276220bec55082ff8b2755df3dbc4336c3",
+      "custody_sha256": "d9880962ede8277e81af96a389eefd7c6a170011f7d04fd7e94e04f396a09097",
+      "qualifies_current_provider_main_composition": false
+    }
   },
   "pending_fixture_inputs": {
     "status": "PASS_ORIGINAL_SOURCE_DELTA_AND_ACTUAL_REAL_POSTGRES",
@@ -444,11 +538,11 @@
   },
   "known_checkpoint_readbacks": {
     "bdef_checkpoint": "bdefe40e0bd806610ebc9f51db57c850b9ea0a74",
-    "latest_tested_checkpoint": "70c43a625460db2b8fcca302425a086e69428afa",
-    "latest_tested_tree": "3d862ebfa7f5d553263e881b603b6c3395e400a7",
+    "latest_tested_checkpoint": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
+    "latest_tested_tree": "749e6261ba6034dba872834396a894cb5bebcb06",
     "next_published_candidate_head": "PENDING"
   },
   "snapshot_date": "2026-10-05",
-  "snapshot_scope": "Technical prepublication evidence at the immutable source/test checkpoints below; later hosted CI, final verdict and merge readbacks are separate events on PR646, not self-referential hashes in this document.",
-  "local_executed_source_checkpoint": "70c43a625460db2b8fcca302425a086e69428afa"
+  "snapshot_scope": "Prepublication technical evidence at composed source1b0b6fa5/main d2b311. Source strict v21 coexists with generic provider contracts; previous587 CI on df8796 is retained only as history. New exact hosted CI, final verdicts and merge remain separate events.",
+  "local_executed_source_checkpoint": "1b0b6fa503de75d00dab94377cf6e56789636ce6"
 }
