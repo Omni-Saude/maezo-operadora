@@ -444,8 +444,8 @@
   },
   "known_checkpoint_readbacks": {
     "bdef_checkpoint": "bdefe40e0bd806610ebc9f51db57c850b9ea0a74",
-    "latest_tested_checkpoint": "5d72e7419907f8a6b1350d5e914207b602b5225a",
-    "latest_tested_tree": "8ea78c0bf925d368e842c23b90775a1ee3ed0499",
+    "latest_tested_checkpoint": "70c43a625460db2b8fcca302425a086e69428afa",
+    "latest_tested_tree": "3d862ebfa7f5d553263e881b603b6c3395e400a7",
     "next_published_candidate_head": "PENDING"
   },
   "snapshot_date": "2026-10-05",
