@@ -26,6 +26,7 @@ from maezo.gateway.capabilities.durability.models import (
     WaitDescriptor,
 )
 from maezo.gateway.capabilities.durability.ports import DurabilityJournalPort
+from maezo.gateway.capabilities.durable_execution import _exception_refusal
 from maezo.gateway.capabilities.models import (
     CapabilityRefusalReason,
     DeclaredMemberships,
@@ -445,7 +446,9 @@ class JourneyDriver:
             ) or not hmac.compare_digest(turn.handoff.message_ref, turn.current_message_ref):
                 raise JourneyContractError()
         except JourneyContractError as exc:
-            return await self._outcome(None, refusal=exc.reason)
+            return await self._outcome(
+                None, refusal=_exception_refusal(exc, fallback=CapabilityRefusalReason.SOURCE_UNAVAILABLE)
+            )
         return await self._run(turn, turn.expected_journal_revision)
 
     async def resume(self, observation_ref: str, expected_journal_revision: int) -> JourneyDispatchOutcome:
@@ -617,7 +620,9 @@ class JourneyDriver:
                     return await self._outcome(snapshot, transition=proof, current=current)
             return await self._outcome(snapshot, transition=proof, current=current)
         except JourneyContractError as exc:
-            return await self._outcome(snapshot, refusal=exc.reason)
+            return await self._outcome(
+                snapshot, refusal=_exception_refusal(exc, fallback=CapabilityRefusalReason.SOURCE_UNAVAILABLE)
+            )
         except (ValidationError, TypeError, ValueError):
             return await self._outcome(snapshot, refusal=CapabilityRefusalReason.CONTRACT_MISMATCH)
         except Exception:
@@ -681,4 +686,6 @@ class JourneyDriver:
                 snapshot = await self._snapshot()
             return await self._outcome(snapshot)
         except JourneyContractError as exc:
-            return await self._outcome(snapshot, refusal=exc.reason)
+            return await self._outcome(
+                snapshot, refusal=_exception_refusal(exc, fallback=CapabilityRefusalReason.SOURCE_UNAVAILABLE)
+            )

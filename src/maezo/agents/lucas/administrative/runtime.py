@@ -43,6 +43,7 @@ from maezo.gateway.capabilities.models import CapabilityRefusalReason, Ref
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.platform.webhooks.whatsapp.security import hash_message_id
 from maezo.runtime.checkpoint import checkpoint_thread_config
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.metrics import classify_agent_error_type
 
 FULL_RUNTIME_GRAPH_VERSION: Final[str] = "lucas-administrative-full-driver.proposed.v1"
@@ -367,22 +368,30 @@ class AdministrativeJourneyRuntime:
             ):
                 raise JourneyContractError()
 
-    async def _authenticate(self, stimulus: RuntimeTurnStimulus | RuntimeResumeStimulus) -> None:
-        self._scope()
-        if self.__currentness is None:
-            raise JourneyContractError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+    async def _authenticate(
+        self, stimulus: RuntimeTurnStimulus | RuntimeResumeStimulus
+    ) -> CapabilityRefusalReason | None:
+        # Expected source refusals are closed values, never exception metadata.
+        if self.__currentness is None or not self.is_bound_to(self.__binding):
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
         bound, copied = _binding(self.__binding), _stimulus(stimulus)
         current: JourneyStimulus = (
             copied.turn if isinstance(copied, RuntimeTurnStimulus) else copied.observation_ref
         )
         result = await self.__currentness.verify(bound, current)
-        self._scope()
-        if bound != self.__binding or _stimulus(copied) != stimulus:
-            raise JourneyContractError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+        if not self.is_bound_to(self.__binding):
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+        try:
+            if bound != self.__binding or _stimulus(copied) != stimulus:
+                return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+        except (ValidationError, JourneyContractError, AttributeError, TypeError):
+            # Pure validation of a private copied record after an authority await.
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
         if isinstance(result, CapabilityRefusalReason):
-            raise JourneyContractError(result)
-        if result != "administrative":
-            raise JourneyContractError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+            return result
+        if type(result) is not str or result != "administrative":
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+        return None
 
     async def accept_turn(
         self, value: RuntimeTurnStimulus
@@ -431,10 +440,9 @@ class AdministrativeJourneyRuntime:
                 == (FULL_RUNTIME_GRAPH_VERSION, FULL_RUNTIME_STATE_SCHEMA)
                 and self.__driver.currentness is self.__currentness
             )
-        except Exception:
-            # Ownership is a total fail-closed boolean query, including forged
-            # carriers with deleted metadata or otherwise unreadable values.
-            # No authentication, saver operation or exception payload is used.
+        except (AttributeError, TypeError, ValueError):
+            # Only local canonical carrier/metadata parsing is protected here.
+            # Exact primitive validation invokes no external dependency or hook.
             return False
 
     async def resume(self, value: RuntimeResumeStimulus) -> JourneyDispatchOutcome | CapabilityRefusalReason:
@@ -448,28 +456,39 @@ class AdministrativeJourneyRuntime:
             if type(fresh) is not expected:
                 raise JourneyContractError()
             self._anchors(fresh)
-            self._scope()
-            if not self.__enabled or not self.__binding.enabled or self.__currentness is None:
-                raise JourneyContractError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
-            if not isinstance(self.__checkpointer, BaseCheckpointSaver) or not isinstance(
-                self.__pseudonymizer, Pseudonymizer
-            ):
-                raise JourneyContractError(CapabilityRefusalReason.SOURCE_UNAVAILABLE)
+        except (ValidationError, JourneyContractError, AttributeError, TypeError):
+            # This try contains only closed input parsing, never an injected port.
+            return CapabilityRefusalReason.CONTRACT_MISMATCH
+        if not self.is_bound_to(self.__binding):
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+        if not self.__enabled or not self.__binding.enabled or self.__currentness is None:
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+        if not isinstance(self.__checkpointer, BaseCheckpointSaver) or not isinstance(
+            self.__pseudonymizer, Pseudonymizer
+        ):
+            return CapabilityRefusalReason.SOURCE_UNAVAILABLE
+        try:
             async with self.__lock:
                 # Authentication precedes every saver access, including framework reads.
-                await self._authenticate(fresh)
+                refusal = await self._authenticate(fresh)
+                if refusal is not None:
+                    return refusal
                 return await _in_administrative_context(lambda: self.__run(fresh))
-        except (ValidationError, JourneyContractError) as exc:
+        except PROGRAMMING_ERRORS:
+            raise
+        except (ValidationError, JourneyContractError):
+            # A forged error object cannot provide a value for outward disclosure.
             return (
-                exc.reason
-                if isinstance(exc, JourneyContractError)
-                else CapabilityRefusalReason.CONTRACT_MISMATCH
+                CapabilityRefusalReason.CONTRACT_MISMATCH
+                if self.is_bound_to(self.__binding)
+                else CapabilityRefusalReason.AUTHORITY_UNPROVEN
             )
-        except Exception:
-            # No untrusted exception/log/DLQ/checkpoint error text is emitted.
+        except EXTERNAL_DEPENDENCY_FAILURES:
             return CapabilityRefusalReason.SOURCE_UNAVAILABLE
 
-    async def __run(self, fresh: RuntimeTurnStimulus | RuntimeResumeStimulus) -> JourneyDispatchOutcome:
+    async def __run(
+        self, fresh: RuntimeTurnStimulus | RuntimeResumeStimulus
+    ) -> JourneyDispatchOutcome | CapabilityRefusalReason:
         assert self.__checkpointer is not None
         saver = _ScopedSaver(self.__checkpointer, self)
         config = self._config()
@@ -477,6 +496,10 @@ class AdministrativeJourneyRuntime:
         self._scope()
         produced: JourneyDispatchOutcome | None = None
         cancelled = False
+        refusal: CapabilityRefusalReason | None = None
+
+        class _AuthenticationRefusedError(ValueError):
+            """Invocation-local graph stop; carries no source reason or payload."""
 
         def validate(value: object, *, finished: bool = False) -> RuntimeCheckpointSnapshot:
             self._scope()
@@ -494,10 +517,14 @@ class AdministrativeJourneyRuntime:
             return state
 
         async def drive(state: _RuntimeState) -> _RuntimeState:
-            nonlocal produced, cancelled
+            nonlocal produced, cancelled, refusal
             validate(state)
             try:
-                await self._authenticate(fresh)
+                refusal = await self._authenticate(fresh)
+                if refusal is not None:
+                    # The graph stops before driver/effect, preserving the exact
+                    # qualified enum privately instead of storing it on an error.
+                    raise _AuthenticationRefusedError()
                 if isinstance(fresh, RuntimeTurnStimulus):
                     result = await self.__driver.accept_turn(deepcopy(fresh.turn))
                 else:
@@ -535,21 +562,31 @@ class AdministrativeJourneyRuntime:
             "refusal": None,
         }
         try:
-            actual = await compiled.ainvoke(initial, config)
-        except Exception as exc:
-            if cancelled:
-                raise asyncio.CancelledError() from None
-            from maezo.platform.observability import record_agent_error
+            try:
+                actual = await compiled.ainvoke(initial, config)
+            except Exception as exc:
+                if cancelled:
+                    raise asyncio.CancelledError() from None
+                from maezo.platform.observability import record_agent_error
 
-            record_agent_error(agent="lucas", error_type=classify_agent_error_type(exc))
-            raise
+                # Existing category(a): all graph failures get one safe bounded
+                # class label, then bare rethrow. Unknown/programming failures
+                # cannot become a source-availability result here.
+                record_agent_error(agent="lucas", error_type=classify_agent_error_type(exc))
+                raise
+        except _AuthenticationRefusedError:
+            if refusal is None:
+                raise
+            return refusal
         if cancelled:
             raise asyncio.CancelledError()
         self._scope()
         validate(actual, finished=True)
         await saver.aget_tuple(config)
         self._scope()
-        await self._authenticate(fresh)
+        final_refusal = await self._authenticate(fresh)
+        if final_refusal is not None:
+            return final_refusal
         if produced is None:
             raise JourneyContractError()
         return deepcopy(produced)

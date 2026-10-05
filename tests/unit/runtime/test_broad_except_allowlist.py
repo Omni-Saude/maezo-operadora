@@ -108,6 +108,13 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         "conta maezo_agent_errors_total no seam ainvoke e RE-LEVANTA (ALERTS-WITHOUT-METRICS-a); o try "
         "externo so' absorve EXTERNAL_DEPENDENCY_FAILURES e re-levanta PROGRAMMING_ERRORS",
     ),
+    "src/maezo/agents/lucas/administrative/runtime.py::AdministrativeJourneyRuntime::__run": (
+        1,
+        "categoria(a) runtime administrativo completo: classifica com vocabulario fechado e conta "
+        "cada falha real de compiled.ainvoke uma vez, entao RE-LEVANTA nua; erros inesperados e "
+        "PROGRAMMING_ERRORS propagam, CancelledError/drained cancellation nao contam; recusas "
+        "qualificadas sao valores privados, nunca metadados crus de excecao",
+    ),
     "src/maezo/agents/lucas/administrative/graph.py::CompiledAdministrativeConsumer::_invoke": (
         1,
         "conta maezo_agent_errors_total uma vez por turno falho no seam administrativo ainvoke, "

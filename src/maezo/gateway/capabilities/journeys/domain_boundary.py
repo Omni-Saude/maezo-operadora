@@ -15,6 +15,7 @@ from datetime import datetime
 from pydantic import ValidationError
 
 from maezo.gateway.capabilities.durability.models import JournalBinding, JourneySnapshot, OutboxDescriptor
+from maezo.gateway.capabilities.durable_execution import _exception_refusal
 from maezo.gateway.capabilities.journeys.contracts import (
     ExistingDomainHandoffPort,
     ExistingDomainInvocationAuthorityPort,
@@ -201,6 +202,6 @@ class ExistingDomainEffectBoundary:
                 raise JourneyContractError()
             return OutboxDescriptor.model_validate(deepcopy(result.__dict__))
         except JourneyContractError as exc:
-            return exc.reason
+            return _exception_refusal(exc, fallback=CapabilityRefusalReason.AUTHORITY_UNPROVEN)
         except ValidationError:
             return CapabilityRefusalReason.CONTRACT_MISMATCH

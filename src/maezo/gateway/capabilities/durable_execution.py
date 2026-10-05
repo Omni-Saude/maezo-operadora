@@ -78,6 +78,22 @@ type DurableOutcome = JournalCallResult[CommandSnapshot] | CapabilityRefusalReas
 _ACKNOWLEDGED = frozenset({JournalCallTechnicalStatus.RECORDED, JournalCallTechnicalStatus.UNCHANGED})
 
 
+def _exception_refusal(error: Exception, *, fallback: CapabilityRefusalReason) -> CapabilityRefusalReason:
+    """Read native exception storage without caller hooks; only genuine enum members leave."""
+    storage: object = BaseException.__dict__["__dict__"].__get__(error, BaseException)
+    if type(storage) is not dict:
+        return fallback
+    # Native iteration avoids equality/hash hooks on a forged dictionary key.
+    for name, reason in dict.items(storage):
+        if type(name) is str and name == "reason":
+            if type(reason) is CapabilityRefusalReason:
+                for member in CapabilityRefusalReason:
+                    if reason is member:
+                        return member
+            break
+    return fallback
+
+
 def admission_binding_digest(binding: AdmissionBinding) -> str:
     return hashlib.sha256(canonicalize(binding.model_dump(mode="json", warnings="error"))).hexdigest()
 
@@ -633,8 +649,8 @@ class DurableCapabilityExecutor:
                     raise AdmissionDeniedError(CapabilityRefusalReason.CONTRACT_MISMATCH)
                 return stored
         except (AdmissionDeniedError, CapabilityContractError, JourneyContractError) as exc:
-            failure = exc.reason
-            return exc.reason
+            failure = _exception_refusal(exc, fallback=CapabilityRefusalReason.SOURCE_UNAVAILABLE)
+            return failure
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -702,7 +718,7 @@ class DurableCapabilityExecutor:
                     await self._current_stored_head(command.descriptor, observed.snapshot, admission)
             return observed
         except (AdmissionDeniedError, CapabilityContractError) as exc:
-            return exc.reason
+            return _exception_refusal(exc, fallback=CapabilityRefusalReason.SOURCE_UNAVAILABLE)
         except Exception:
             return CapabilityRefusalReason.SOURCE_UNAVAILABLE
 
@@ -838,7 +854,7 @@ class DurableCapabilityExecutor:
                 await self._current_read(command.descriptor, source, admission)
                 return stored
         except (AdmissionDeniedError, CapabilityContractError) as exc:
-            return exc.reason
+            return _exception_refusal(exc, fallback=CapabilityRefusalReason.SOURCE_UNAVAILABLE)
         except Exception:
             return CapabilityRefusalReason.SOURCE_UNAVAILABLE
 
@@ -923,6 +939,6 @@ class DurableCapabilityExecutor:
                     await self._current_read(command.descriptor, source, admission)
                 return stored
         except (AdmissionDeniedError, CapabilityContractError) as exc:
-            return exc.reason
+            return _exception_refusal(exc, fallback=CapabilityRefusalReason.SOURCE_UNAVAILABLE)
         except Exception:
             return CapabilityRefusalReason.SOURCE_UNAVAILABLE
