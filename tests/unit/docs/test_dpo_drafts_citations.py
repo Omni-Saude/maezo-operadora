@@ -580,9 +580,34 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     # relation and must never shrink — 25 -> 26 total, 14 -> 15 uncovered. GAP-XHITL-4 (0016)
     # added `custodia_contato_retomada`, also NOT covered — 27 total, 16 uncovered. ADR-0062 (0017)
     # added `roteamento_conversa`/`conversa_agente_ativo`, also NOT covered — 28 total, 17 uncovered.
-    assert len(covered | uncovered) == 28
-    assert len(uncovered) == 17
+    # DUR0 (0018) adds six physical journal relations, all still NOT covered:
+    # no qualified titular/custody bridge or operational privacy disposition was
+    # admitted. Scope grows to 34 total and 23 uncovered; the prior 28 stay intact.
+    journal = {
+        ("durabilidade_capacidade", "v21_journey_journal"),
+        ("durabilidade_capacidade", "v21_capability_command"),
+        ("durabilidade_capacidade", "v21_journal_observation"),
+        ("durabilidade_capacidade", "v21_journal_inbox"),
+        ("durabilidade_capacidade", "v21_external_wait"),
+        ("durabilidade_capacidade", "v21_journal_outbox"),
+    }
+    assert journal <= uncovered
+    assert journal.isdisjoint(covered)
+    assert journal.isdisjoint(retired)
+    assert len(covered | uncovered) == 34
+    assert len(uncovered) == 23
+    assert len((covered | uncovered) - journal) == 28
+    assert len(uncovered - journal) == 17
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
+    assert all(by_key[key].count_statement is None for key in journal)
+    assert {key: by_key[key].resolucao for key in journal} == {
+        ("durabilidade_capacidade", "v21_journey_journal"): IdentityResolution.PONTE_AUSENTE,
+        ("durabilidade_capacidade", "v21_capability_command"): IdentityResolution.PONTE_AUSENTE,
+        ("durabilidade_capacidade", "v21_journal_observation"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ("durabilidade_capacidade", "v21_journal_inbox"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ("durabilidade_capacidade", "v21_external_wait"): IdentityResolution.PONTE_AUSENTE,
+        ("durabilidade_capacidade", "v21_journal_outbox"): IdentityResolution.PONTE_AUSENTE,
+    }
     assert all(by_key[key].count_statement is None for key in expected)
     assert {key: by_key[key].resolucao for key in expected} == {
         ("identidade_portal", "portal_login_transactions"): IdentityResolution.SEM_COLUNA_DE_TITULAR,

@@ -22,7 +22,10 @@
     "tests/unit/platform/test_erasure_plan.py": "8f13507c5400253a1194338e9ce888ad3e0d46c9b391e2b4a652bfa44a40bccc",
     "tests/unit/platform/test_migration_0010_webhook_wamid_dedup.py": "458dd3e0f0dfd08a7bf12e1fdd31a10bf4949872a36cce67d669ba6f9b3049b1",
     "docs/design/v21-capabilities/durability-contract.json": "173db7440d95f895edcd54c2b0e0c5cc91bfdaa4a01355e6e15349ca9130b21b",
-    "docs/design/v21-capabilities/durability-contract.md": "72a1beeddae110f810f0d08a9448a396420ba2312762866713a59522c9cbb741"
+    "docs/design/v21-capabilities/durability-contract.md": "72a1beeddae110f810f0d08a9448a396420ba2312762866713a59522c9cbb741",
+    "docs/sme-dispatch/dpo/RETENTION-MATRIX-CANDIDATE.md": "f870ce3e8807d5aca5573706087b4a0f420726b8f3851742824e28d9615a1c93",
+    "tests/unit/docs/test_dpo_drafts_citations.py": "622fc7c58106fadeb0e25e48526cbadd894aed172c76e398f7fc6ad324391522",
+    "tests/unit/portal/test_identity_migration.py": "8a08d09fc42a23c4113161ea4e7a477c7fb9ad58906b985a668e63b551d4d6b8"
   },
   "independent_review_receipts": {
     "migration-original-reviewer-delta.json": "7d550295cebb3001ffdeca8785e1425e097cede7db40ff8c125ee2299736e52d",
@@ -30,7 +33,9 @@
     "privacy-inventory-independent-verdict.json": "635bfb9c72b68c32dc2b910399d46c36a0a1d8f748d62c1a9d56cb12ddcc7ced",
     "baseline-source-delta-verdict.json": "82d98dd1b8b44118ec0369462d3e60094e8a0962f93b85c046c1eba46c624526",
     "component-code-r2-gate.json": "369ba56e1845ae5230f12467316799162a1400d9aadebfbb465f174e5b4fe744",
-    "security-original-delta-r2.json": "d9d9ff06a6d7eeddea281531c79e0066066492e378d11e929eccca9d6379b7e2"
+    "security-original-delta-r2.json": "d9d9ff06a6d7eeddea281531c79e0066066492e378d11e929eccca9d6379b7e2",
+    "ci-structural-security-delta.json": "af51d96cc6a8f2839c541e4c072ae760004aad73c0a68b8d993d70ac09253e2b",
+    "ci-migration-chain-delta.json": "6596dac986739fab5a845b75121ce5c0db84c3dfbfd60653505c96cc6aa16f78"
   },
   "validation": {
     "storage_unit": {
@@ -74,13 +79,32 @@
       "passed": 5,
       "failed": 0,
       "synthetic_authority": "Qualified-mechanism UNIT ports over real PostgreSQL; no provider policy approval"
+    },
+    "dpo_signable_scope_unit": {
+      "passed": 21,
+      "failed": 0,
+      "skipped": 0
+    },
+    "portal_linear_chain_unit": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "related_erasure_scope_unit": {
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "scope": "Subset checks explicitly selected; broader lifecycle135 separately recorded"
     }
   },
   "findings_closed": [
     "PG-MIG-F01 SQL comment split",
     "PG-MIG-TEST-F01 trigger internal char cast",
     "PG-MIG-TEST-F02 constraint internal char cast",
-    "SEC-DUR1-F01 final metadata authorization after all proof awaits; known commit retained"
+    "SEC-DUR1-F01 final metadata authorization after all proof awaits; known commit retained",
+    "CI DPO signable scope now contains six new relations with pending human dispositions",
+    "CI exact Alembic head0018 and every historical edge preserved",
+    "CI structural count34/uncovered23 preserves original28/17 and original nine portal guards"
   ],
   "original_REDs_preserved_privately": true,
   "lifecycle": {
@@ -102,5 +126,29 @@
     "original_security_REVISE": "4f578c888fa24d01f67b01e9ffb8f9205b1dc5f1fb2f29a7e953ac9f6df2dcbe",
     "old_candidate_published": false
   },
-  "narrow_role_DDL_reuse": "SQL call AST and schema/migration bytes identical, demonstrated in fresh R2 code/PG gate; old source gate not inherited"
+  "narrow_role_DDL_reuse": "SQL call AST and schema/migration bytes identical, demonstrated in fresh R2 code/PG gate; old source gate not inherited",
+  "historical_hosted_CI": {
+    "head": "8176317d0439ca950d363231894542d00129feeb",
+    "run": 37266143835,
+    "conclusion": "FAILURE",
+    "unit": {
+      "passed": 26188,
+      "skipped": 132,
+      "xfail": 5,
+      "failures": 2,
+      "errors": 0,
+      "duplicates": 0
+    },
+    "integration_executed": false,
+    "custody_verdict_sha256": "c2f885a27b462438ef8dfbfb28c95c4a71f09185123ebd36d94fb4d613a9d22f",
+    "custody_manifest_sha256": "dc377ef208d5ccd546909d953f9dc91fa20059ee8d003ad85c7c6a82c6e10343",
+    "artifact_ZIP_digests_verified": 24,
+    "not_represented_as_PASS": true
+  },
+  "github_owner_review": {
+    "status": "PENDING_EXACT_PUBLISHED_HEAD",
+    "required": "Qualified CODEOWNER approval for retention policy path",
+    "self_approval_accepted": false,
+    "requested_by_this_task": false
+  }
 }
