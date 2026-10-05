@@ -8,7 +8,13 @@ from maezo.agents.lucas.administrative.state import (
     new_administrative_state,
     validate_administrative_input,
 )
-from maezo.gateway.capabilities.models import CANDIDATE_SCHEMA_VERSION, DeclaredMemberships
+from maezo.gateway.capabilities.models import (
+    CANDIDATE_SCHEMA_VERSION,
+    PROVIDER_SCHEMA_VERSION,
+    DeclaredMemberships,
+    ProviderCapabilityEnvelope,
+    parse_envelope,
+)
 from maezo.gateway.pseudonymizer import Pseudonymizer
 
 
@@ -95,6 +101,41 @@ def test_validated_carrier_is_reconstructed_without_aliasing_caller_dtos() -> No
     assert validated.handoff is not original.handoff
     object.__setattr__(original.handoff, "message_ref", "clinical body")
     assert validated.handoff.message_ref == "hk1_" + "a" * 64
+
+
+@pytest.mark.parametrize("task", ["journey.compras.step", "journey.suporte.step"])
+@pytest.mark.parametrize("form", ["wire", "parsed", "revived"])
+def test_v21_consumers_reject_provider_profile_before_payload_or_checkpoint_state(
+    task: str, form: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    values = state_values()
+    handoff = values["handoff"]
+    assert isinstance(handoff, dict)
+    handoff["task_type"] = task
+    original = new_administrative_state(values)["turn"]
+    raw = values["envelope"]
+    assert isinstance(raw, dict)
+    provider_wire = raw | {"schema_version": PROVIDER_SCHEMA_VERSION}
+    provider = parse_envelope(provider_wire)
+    assert type(provider) is ProviderCapabilityEnvelope
+
+    # A provider DTO is valid at the shared parser. It is not an admitted
+    # migration of JR1/JR2; reject it before parsing any business payload.
+    def unexpected_request_parse(*args: object, **kwargs: object) -> None:
+        pytest.fail("provider profile reached the v21 payload parser")
+
+    monkeypatch.setattr("maezo.agents.lucas.administrative.state.parse_request", unexpected_request_parse)
+    with pytest.raises(
+        AdministrativeInputError, match="^administrative_envelope_or_payload_contract_mismatch$"
+    ):
+        if form == "revived":
+            # Frozen carriers can be corrupted during revival; reparsing the
+            # consumer boundary must close them before checkpointable output.
+            object.__setattr__(original, "envelope", provider)
+            validate_administrative_input({"turn": original})
+        else:
+            values["envelope"] = provider_wire if form == "wire" else provider
+            new_administrative_state(values)
 
 
 def test_preparsed_case_request_requires_current_composition_memberships() -> None:

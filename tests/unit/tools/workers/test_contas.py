@@ -1843,16 +1843,11 @@ def test_register_contas_workers_registers_all_11_topics() -> None:
     `emitir_demonstrativo`, `devolver_conta` and `handoff_pagamento` are the new surface. Pinned
     so a rename in either direction has to come here first."""
 
-    class _Harness:
-        def __init__(self) -> None:
-            self.topics: list[str] = []
+    from maezo.tools.workers.harness import FakeWorkerTransport, WorkerHarness
 
-        def register_worker(self, worker: Any) -> None:
-            self.topics.append(worker.topic)
-
-    harness = _Harness()
-    register_contas_workers(harness)  # type: ignore[arg-type]
-    assert sorted(harness.topics) == sorted(
+    harness = WorkerHarness(FakeWorkerTransport(), worker_id="contas-registration-unit")
+    register_contas_workers(harness)
+    assert harness.registered_topics == sorted(
         [
             "operadora.contas.identify_glosa",
             "operadora.contas.analyze_reason",
@@ -1867,7 +1862,8 @@ def test_register_contas_workers_registers_all_11_topics() -> None:
             "operadora.contas.publish",
         ]
     )
-    assert len(harness.topics) == 11
+    assert len(harness.registered_topics) == 11
+    assert all(harness._topic_variables[topic] is not None for topic in harness.registered_topics)
 
 
 def test_publish_entry_round_trips_publish() -> None:

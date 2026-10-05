@@ -362,6 +362,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/provider-notices/{notice_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect Provider Notice */
+        get: operations["inspect_provider_notice_api_v1_portal_provider_notices__notice_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/provider-notices/{notice_ref}/acknowledgements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledge Provider Notice */
+        post: operations["acknowledge_provider_notice_api_v1_portal_provider_notices__notice_ref__acknowledgements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/session": {
         parameters: {
             query?: never;
@@ -2294,6 +2328,64 @@ export interface components {
             motivo_desligamento_clinico?: string | null;
             /** Referencia Clinica */
             referencia_clinica?: string | null;
+        };
+        /**
+         * ProviderNoticeAcknowledgement
+         * @description Explicit acknowledgement; actor and membership never come from this DTO.
+         */
+        ProviderNoticeAcknowledgement: {
+            /** Command Id */
+            command_id: string;
+            /** Content Digest */
+            content_digest: string;
+            /** Notice Revision */
+            notice_revision: string;
+            /**
+             * Schema Version
+             * @default provider-notice-ack.v1
+             * @constant
+             */
+            schema_version: "provider-notice-ack.v1";
+        };
+        /** ProviderNoticeReceipt */
+        ProviderNoticeReceipt: {
+            /**
+             * Delivery Status
+             * @enum {string}
+             */
+            delivery_status: "pending" | "delivered";
+            /** Metadata Publication Receipt Ref */
+            metadata_publication_receipt_ref: string;
+            /** Notice Ref */
+            notice_ref: string;
+            /** Notice Revision */
+            notice_revision: string;
+            /** Provider Delivery Receipt Ref */
+            provider_delivery_receipt_ref?: string | null;
+            /**
+             * Schema Version
+             * @default provider-notice-receipt.v1
+             * @constant
+             */
+            schema_version: "provider-notice-receipt.v1";
+        };
+        /** ProviderNoticeSummary */
+        ProviderNoticeSummary: {
+            /** Body Ref */
+            body_ref: string;
+            /** Content Digest */
+            content_digest: string;
+            /** Notice Ref */
+            notice_ref: string;
+            /** Notice Revision */
+            notice_revision: string;
+            receipt: components["schemas"]["ProviderNoticeReceipt"];
+            /**
+             * Schema Version
+             * @default provider-notice-summary.v1
+             * @constant
+             */
+            schema_version: "provider-notice-summary.v1";
         };
         /**
          * PublicAssignmentReceipt
@@ -4563,6 +4655,180 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadReceipt"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    inspect_provider_notice_api_v1_portal_provider_notices__notice_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notice_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderNoticeSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    acknowledge_provider_notice_api_v1_portal_provider_notices__notice_ref__acknowledgements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notice_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderNoticeAcknowledgement"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderNoticeReceipt"];
                 };
             };
             /** @description Bad Request */

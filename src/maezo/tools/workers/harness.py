@@ -69,7 +69,7 @@ import os
 import random
 import re
 import time
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple, Protocol, runtime_checkable
 
@@ -512,7 +512,7 @@ class TopicSubscription(NamedTuple):
 
     topic_name: str
     lock_duration_ms: int
-    variables: list[str] | None = None
+    variables: Sequence[str] | None = None
 
 
 class WorkerBpmnError(Exception):
@@ -790,7 +790,7 @@ class CibSevenWorkerTransport:
         for sub in topics:
             entry: dict[str, Any] = {"topicName": sub.topic_name, "lockDuration": sub.lock_duration_ms}
             if sub.variables is not None:
-                entry["variables"] = sub.variables
+                entry["variables"] = list(sub.variables)
             topic_payload.append(entry)
         payload = {
             "workerId": worker_id,
@@ -1324,7 +1324,7 @@ class WorkerHarness:
         self._engine_unreachable_after = max(engine_unreachable_after, 1)
 
         self._handlers: dict[str, TaskHandler] = {}
-        self._topic_variables: dict[str, list[str] | None] = {}
+        self._topic_variables: dict[str, tuple[str, ...] | None] = {}
         # WORKER-METRICS-COVERAGE: which topics emit the M11 per-worker metrics THEMSELVES (every
         # `register_worker` topic, via `WorkerBase.run()`) and what `worker` label the rest get.
         # `_handle` reads both to emit exactly once per topic — see
@@ -1347,7 +1347,7 @@ class WorkerHarness:
 
     # -- registration -------------------------------------------------------------------------
 
-    def register(self, topic: str, handler: TaskHandler, *, variables: list[str] | None = None) -> None:
+    def register(self, topic: str, handler: TaskHandler, *, variables: Sequence[str] | None = None) -> None:
         """Register a raw async handler for a topic. Idempotent (last registration wins).
 
         WORKER-METRICS-COVERAGE: also records the `worker` metric label this topic will be
@@ -1355,21 +1355,25 @@ class WorkerHarness:
         wins" has to hold for the metric identity too, or a topic re-registered raw would keep
         being treated as `WorkerBase`-emitted and would emit nothing at all.
 
+        A declared variable scope is frozen before registration; later mutation by the
+        caller cannot widen fetch authority. An empty scope is distinct from legacy None.
+
         "Last registration wins" stops at a SEALED topic (`seal_topic`): an exclusive
         owner that can be displaced by a later caller is not exclusive.
         """
         self._assert_not_sealed(topic, None)
         self._handlers[topic] = handler
-        self._topic_variables[topic] = variables
+        self._topic_variables[topic] = None if variables is None else tuple(variables)
         self._handler_names[topic] = derive_handler_name(handler)
         self._worker_base_topics.discard(topic)
 
-    def register_worker(self, worker: WorkerBase) -> None:
+    def register_worker(self, worker: WorkerBase, *, variables: Sequence[str] | None = None) -> None:
         """Register a `WorkerBase` instance (today's 3 modules: auth/escalation/lgpd).
 
         Adds `worker` to the harness's own `WorkerRegistry` (ADR-0026 §Decisao 2 contract —
         `register_worker` delegates to it) AND wraps it into a raw async handler stored in the
         same `_handlers` table `.register()` uses, so `_handle`'s dispatch stays uniform.
+        The explicit fetch scope is forwarded to that registration and defensively frozen.
 
         Sync/async bridge (design §7): `WorkerBase.run()` is synchronous by design and may
         internally `time.sleep` between in-process retries — running it on the event loop would
@@ -1389,7 +1393,7 @@ class WorkerHarness:
 
         sealed = self._sealed_topics.pop(worker.topic, None)
         try:
-            self.register(worker.topic, _adapter)
+            self.register(worker.topic, _adapter, variables=variables)
         finally:
             if sealed is not None:
                 self._sealed_topics[worker.topic] = sealed
