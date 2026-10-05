@@ -103,7 +103,7 @@
     "src/maezo/gateway/capabilities/__init__.py": "8379b5d33fbe323ef66216d26a7f3bf4aa1c4281e7d0a57eaa51dca16d66b4f9",
     "src/maezo/agents/lucas/administrative/state.py": "94ed001b6bf9c550e67ec6f8581c1bb064543f327e0aa8e28aa993d646cd53e1",
     "tests/unit/gateway/capabilities/test_r5_provider_schema_boundary.py": "588e7fb04658bb19ae8e011f404a30d64fd1ee27629149c78568a658662c783c",
-    ".gitleaksignore": "6155160386d41cdd26d9010f4ca807b573b0bceac15676147cb2c3324a306475",
+    ".gitleaksignore": "ab3e720f709da4ffbaff1e19c478fac5f39da0052beeff823d32570a406d5592",
     "docs/design/provider/contract-read-admission.md": "0a5df92145b2d7a503c7f7efdaca3d435ca1aa31305a02b1e685b7997d20710c",
     "spec/policies/autonomy/L0-core.yaml": "a268ab3870610c52fe6f4531c66515802dbe6a758fb8b64e96aa4075a4eae1d8",
     "tests/unit/gateway/test_provider_contract_read_policy.py": "b6ff8a45286141cae18f12f14bf10ac2ed621d40d19727d5d600ed2680c7d796",
