@@ -134,5 +134,13 @@
   "historical_rejections_and_raw_evidence": "Preserved privately, never converted into passing source/runtime approval.",
   "owner": "ROOT successor",
   "release_condition": "Exact published CI and independent final readback; private rejected snapshots, source pins and custody retained. No future main merge authorized.",
-  "proposal_documents": "Six reviewed W0/W4/W5 projections, PASS_PROPOSAL_ONLY, exact inputs qualified separately in program-proposals-qualification.json; no source/human/operational ratification."
+  "proposal_documents": "Six reviewed W0/W4/W5 projections, PASS_PROPOSAL_ONLY, exact inputs qualified separately in program-proposals-qualification.json; no source/human/operational ratification.",
+  "ledger_recipe": {
+    "test_path": "tests/unit/gateway/capabilities/journeys/test_contracts.py",
+    "actual_passed_results": 15,
+    "result_recipe_sha256": "b2c1819a51d7706fb1fee1b292c1cf1da85a596162472311737a6f1489534b3b",
+    "metadata_admission": "OFFLINE statically resolved pytest metadata",
+    "claim": "Representative R5 closed-record/27-cursor contract controls. Broad runtime/source/PG evidence remains independently anchored in this record.",
+    "prior_anchor": "Attachment16 recipe actual PASS, but offline ledger admission could not resolve inherited Pydantic model_fields collection metadata; refusal preserved. No live override, checker edits or selector changes."
+  }
 }
