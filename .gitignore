@@ -18,7 +18,9 @@ __pycache__/
 *.egg-info/
 dist/
 .venv/
-uv.lock
+# uv.lock NAO e ignorado: o lockfile fica versionado e e consumido em CI pelo
+# osv-scanner (security.yml: `--lockfile=uv.lock`, varredura de supply-chain a cada trigger).
+# Regra de ignorar foi removida em 05/10/2026 — auditar em docs/audits/REPO-SYNC-LEAK-AUDIT-2026-10.md.
 
 # Test / coverage artifacts
 .coverage
@@ -53,6 +55,11 @@ docs/audits/
 # Orchestrator machine-state handoff — deliberately local-only, never enters the repo (rewritten
 # every session; see MEMORY.md orchestrator-operating-model / v2-execution-state notes).
 /handoff.yaml
+
+# Lock de execucao do engine local (PID, pgids, token de sessao, paths locais) escrito por
+# sessoes concorrentes do projeto maezo-completion-engine. Estado de maquina efemero —
+# local-only, mesmo tratamento de /handoff.yaml.
+/engine.lock/
 
 # Owner's private working file — not for GitHub/CI (docs/reports/ itself stays tracked; only this
 # one file is excluded).
