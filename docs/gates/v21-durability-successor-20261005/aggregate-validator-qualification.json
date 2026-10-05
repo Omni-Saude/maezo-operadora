@@ -34,9 +34,9 @@
       "whole_app_provider_or_production_runtime_qualification": false
     },
     "current_candidate_wheel": {
-      "source_composition": "cff107b5d9aba12a45fe3b214bc0f5c99898d5f3",
-      "wheel_sha256": "2e197ba26aea4a5f5b78e174b6c96e7cb7836a2aa57e04640100c79e1f7f24ce",
-      "custody_sha256": "19af2ba6cec27416831d821656a89afccde7dcbfc435ccd8f20a87c775fcd60c",
+      "source_composition": "c093241f9b2af36f8bd76a7c43a36324f495d5bf",
+      "wheel_sha256": "b21e905a8c92460aed1163e60cb36abe665b949e28334e5aa00ad67b1bbeaccd",
+      "custody_sha256": "4c6998765cbbff587c1095609433cf0ba44be9a1d15bc11ad23f58f25ebbc1aa",
       "all_tracked_source_members": 858,
       "all_forceinclude_assets": 120,
       "packaged_source_resource_files_matched": 978,
@@ -77,8 +77,8 @@
       "whole_app_provider_or_production_runtime_qualification": false
     },
     "current_linux_amd64_image": {
-      "source_composition": "cff107b5d9aba12a45fe3b214bc0f5c99898d5f3",
-      "artifact_gate_sha256": "bedb27d07d85222dda6f14f6cc2186a20fadd6cef4890441fb6de8f966f94b60",
+      "source_composition": "c093241f9b2af36f8bd76a7c43a36324f495d5bf",
+      "artifact_gate_sha256": "d63cba434ee869f448c0b041fff5bcd912acd08bf50b156922d14cc50e6e34ff",
       "actual_image_members_matched": 978,
       "natural_interpreter_imports": true,
       "profiles_offline": 2,
@@ -88,6 +88,20 @@
       "network_attempts": 0,
       "application_provider_or_DB_started": false,
       "operational_or_deployment_qualification": false
+    },
+    "historical_current_candidate_wheel_cff107": {
+      "source_composition": "c093241f9b2af36f8bd76a7c43a36324f495d5bf",
+      "wheel_sha256": "b21e905a8c92460aed1163e60cb36abe665b949e28334e5aa00ad67b1bbeaccd",
+      "custody_sha256": "4c6998765cbbff587c1095609433cf0ba44be9a1d15bc11ad23f58f25ebbc1aa",
+      "all_tracked_source_members": 858,
+      "all_forceinclude_assets": 120,
+      "packaged_source_resource_files_matched": 978,
+      "actual_isolated_installer": true,
+      "aggregate_module_asset_smoke_passed": 1,
+      "TISS_profiles_compiled_offline": 2,
+      "TISS_bounded_format_negatives": 6,
+      "TISS_installed_closed_carrier_negatives": 7,
+      "whole_app_provider_or_production_runtime_qualification": false
     }
   },
   "baseline_python314_test_compatibility": "Original and repaired implementation reject immutable field replacement with TypeError, while existing test expects ValueError. Baseline RED retained; no bypass/regression; full Python3.14 suite unqualified.",
@@ -102,5 +116,5 @@
   "installed_asset": "Consumed exact wheel projection of canonical schema; no second schema authority/fallback.",
   "owner": "ROOT successor",
   "CI": "PENDING_EXACT_CANDIDATE",
-  "snapshot": "Prepublication corrected compositioncff107/main76e:978 source+forceinclude bytes verified in current wheel, isolated install and actualLinuxAMD64 image with offline structural smoke. Previous155 artifact/source proofs are historical; new full hosted CI and independent final gates remain pending."
+  "snapshot": "Prepublication compositionc09324/main423: actualwheel/installed/image978 bytes match actualtreeff1c (same asGitHubsynthetic510), with3Maven resources updated and975othermembers unchanged. Currentfull CI and deployed-runtime SAMEJAR compatibility execution remain pending; priorpartial441 run is not a pass."
 }

@@ -2,7 +2,7 @@
   "schema": "maezo.durable-administrative-runtime-qualification.v1",
   "event_id": "DUR-JOURNEY-RUNTIME",
   "baseline": "feba801cf5eea6383f2db88bb02d52d9911049f3",
-  "source_composition_commit": "cff107b5d9aba12a45fe3b214bc0f5c99898d5f3",
+  "source_composition_commit": "c093241f9b2af36f8bd76a7c43a36324f495d5bf",
   "journal_dependency": {
     "draft_pr": 644,
     "head": "c5d9cb79f0191ff9b0e696e4cb0117dde6a88075",
@@ -31,7 +31,7 @@
     "docs/design/v21-capabilities/proposals/measurement-protocol.proposed-v2.json": "08ed9bdec583ee6516818dfebfe8c7b96354b3975dcf287a89e9bebfaccd81a0",
     "docs/design/v21-capabilities/proposals/optional-feedback-financial-independence.proposed-v2.md": "f0943110cbcbe5cabcd3a0e2b91ad4f7590e11c48b30818b1e72a3835fe365bf",
     "docs/design/v21-capabilities/proposals/remaining-gate-matrix.proposed-v2-financial-only.json": "f9d0027457abf5324375ddf1ffe47c409387f707ffce90e58d92ccd6a6a6c70c",
-    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "723842baa7f57774e4f07d7b09b800ed2db74cdfdbb6409c8f42b25ac7fd56bc",
+    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "70ce085625a1918ec31fe4fb1c79e6aa1c0202854e4d3b50bf73f25f16e2479a",
     "spec/policies/retention/erasure-plan.template.yaml": "42f7767f26ff798e74687b239e51743dcac616a921d7b225fa92741f767ddafc",
     "src/maezo/agents/lucas/administrative/journey.py": "3469cb27912fa528287461645b4475f4f508195917957a8ac3ad6ab2882bd783",
     "src/maezo/agents/lucas/administrative/runtime.py": "e59027436df49f9177b3d91651beeeb5f9895d1628ada3083342f3511bfe0254",
@@ -107,7 +107,7 @@
     "docs/design/provider/contract-read-admission.md": "0a5df92145b2d7a503c7f7efdaca3d435ca1aa31305a02b1e685b7997d20710c",
     "spec/policies/autonomy/L0-core.yaml": "a268ab3870610c52fe6f4531c66515802dbe6a758fb8b64e96aa4075a4eae1d8",
     "tests/unit/gateway/test_provider_contract_read_policy.py": "b6ff8a45286141cae18f12f14bf10ac2ed621d40d19727d5d600ed2680c7d796",
-    "src/maezo/portal/engine/java/pom.xml": "a3d2074d1695504706b4e43673b8505c046691fe722296d26ad4126bdf341655",
+    "src/maezo/portal/engine/java/pom.xml": "66753d9ec5d88fc2b7b16ba1e1ecae9824c1136c2cad2531b8e63f76359bc9f9",
     "deploy/Dockerfile": "5ea9f0ecc5a54aa231891c66cfc441f551416f44ebe32c92a25c561e6b678682",
     "docs/design/provider/tiss-provider-schema.md": "b966e1eee95d4702856e85ac42d9bd1b5b8aa1fcb0d7e043abe660d83498869d",
     "pyproject.toml": "6bc6f253d9b013937dabeb1af43d38376d740304e56b3330dbd29c66f5d7e143",
@@ -124,7 +124,10 @@
     "tests/unit/ci/test_spec_packaging_fence.py": "f15f9bc7afdacafe5cd4a0c6424ce86f2a6b00a7bca3b5502b07af704bd4d810",
     "tests/unit/gateway/tiss/test_provider_schema.py": "6403aa0c0e336b3c34a98ac8233f4d3c97607959a3afe84579593bf493fc10b5",
     "tests/unit/tools/workers/test_auth_denial_guard.py": "7ea9996f39c2a4812eb37137c4cd32fb1ff056887401c93a412153e979f7f1cf",
-    "tests/unit/gateway/tiss/test_provider_schema_closed_carriers.py": "ef54355b206f3f7161e6d36c5451009a2eff714070e8eadabe7711c8f5d89302"
+    "tests/unit/gateway/tiss/test_provider_schema_closed_carriers.py": "ef54355b206f3f7161e6d36c5451009a2eff714070e8eadabe7711c8f5d89302",
+    ".github/workflows/ci.yml": "b02abb999a4bcb899a2b916c221b6df438162f07b609b6d7380df309fdcf823e",
+    "src/maezo/portal/engine/java/ENGINE-IT.md": "be28d3395fd25eaa96b304885ce9a54b0e3e6df82833cfa7c41b9e405bd6f348",
+    "src/maezo/portal/engine/read-provider/pom.xml": "846c3f80c1baf193e8581ca1b5e80d58d76348212bd1215d234edac593939b87"
   },
   "independent_private_receipt_digests": {
     "authority_contract_r5": "876de480e73c289705ae017a70014fa87fb38cc3ae487f21ae546fd7df78e8fb",
@@ -150,10 +153,10 @@
     "published_read_policy_interface": "9c50e98e3a449ffd30cd9ac6a50af69137cadc6335ef57a11ffb49a4dc863b44",
     "published_TISS_interface_intake": "75f286e5d1664a4e9e3d6c823753e72f2077bb28cee119ac1db0941b1b84dacd",
     "published_TISS_packaging_intake": "abc56e467a319c603b498cc2eef5c1db6afccee0e6227010ddfe82c80595ed32",
-    "current_installed_wheel_artifact": "19af2ba6cec27416831d821656a89afccde7dcbfc435ccd8f20a87c775fcd60c",
+    "current_installed_wheel_artifact": "4c6998765cbbff587c1095609433cf0ba44be9a1d15bc11ad23f58f25ebbc1aa",
     "current_focal_cheap_gates": "2f9a683acae20566ee0704f413c4a50529e0f3a745cf18b0041104684dca0963",
     "W0_private_source_reuse_gap_original_document_delta": "d65c2a62e2121f85b8a868e43d7198c4072715466c3d89915bcaffe94371441f",
-    "current_linux_amd64_image_artifact": "bedb27d07d85222dda6f14f6cc2186a20fadd6cef4890441fb6de8f966f94b60",
+    "current_linux_amd64_image_artifact": "d63cba434ee869f448c0b041fff5bcd912acd08bf50b156922d14cc50e6e34ff",
     "TISS_original_closed_carrier_source_delta": "2500f80e1f90c50a738b4494705f22c80f9cb391f073e2d94ce08a0f6ffa22f7",
     "TISS_independent_security_source_delta": "226aff415fec4424509ff5f4f6d4117f70305fb26d23f8fad4a7a95c22079a08",
     "source_hash_scanner_nonsecret_classification": "0f76b4cdcbb6f6a4531a097e53fcf2a2c6f212c7907fdcae03ff5d16d2fb582e",
@@ -251,7 +254,7 @@
   "source_inputs_are_digest_inventory_not_combined_approval": true,
   "candidate_head": "PENDING_NEXT_PUBLISHED_HEAD",
   "candidate_tree": "PENDING_NEXT_PUBLISHED_TREE",
-  "merge_base": "76e0094d055b8a60a470a5db6a96dcea8883d4f0",
+  "merge_base": "423b643160eee8164000fa98ccb08d95eab965f1",
   "main_readbacks": {
     "pr644_integration": {
       "head": "d6fa26f506a1524451bda2e3fc0db8d756722697",
@@ -339,6 +342,26 @@
       "corrected_source_tree": "4835333827293154791b1a9122dcf98f7778bca5",
       "current_image_artifact_gate_sha256": "bedb27d07d85222dda6f14f6cc2186a20fadd6cef4890441fb6de8f966f94b60",
       "corrected_focal_passed": 473
+    },
+    "published_Maven_CI_integration": {
+      "head": "423b643160eee8164000fa98ccb08d95eab965f1",
+      "composition_commit": "c093241f9b2af36f8bd76a7c43a36324f495d5bf",
+      "composition_tree": "ff1c1a3e118277f4a81bbd457c2541800c4b245b",
+      "tree_equals_actual_prior_GitHub_merge510": true,
+      "initial_intake_sha256": "1df96a70fd7a4ca06712466f810866addc8beb0454e91ec980cc030591f5f882",
+      "changed_paths": [
+        ".github/workflows/ci.yml",
+        "src/maezo/portal/engine/java/ENGINE-IT.md",
+        "src/maezo/portal/engine/java/pom.xml",
+        "src/maezo/portal/engine/read-provider/pom.xml"
+      ],
+      "actual_source_asset_members": 978,
+      "updated_Maven_resource_members": 3,
+      "all_other_975_members_unchanged": true,
+      "R5_TISS_source_guards_and_all_120_forced_assets_unchanged": true,
+      "compiled_candidate_JAR_deployed_library_compatibility": "PENDING_ACTUAL_EFFECTIVE_WORKFLOW_EXECUTION_NO_RECOMPILE",
+      "new_full_CI_and_final_gates": "PENDING",
+      "source_or_operational_activation": false
     }
   },
   "component_original_deltas": {
@@ -636,6 +659,26 @@
       "current_TISS_composition_approval": false,
       "final_security_old_base_sha256": "096dc3db903c5adede275757e8da1326747a9358dcd7cd47c09f0ecb8565c30a",
       "final_architecture_signature_withheld_due_main_drift": true
+    },
+    "pr646_441_runner_acquisition_failure": {
+      "head": "441f50108bb85ce36d3460c1e2e65963d1d51d02",
+      "run": 37368782859,
+      "status": "PARTIAL_UNQUALIFIED_QUEUED_WRAPPER_NOT_TERMINAL",
+      "actual_partial_tree": "ff1c1a3e118277f4a81bbd457c2541800c4b245b",
+      "actual_checkout": "510ae78ec18af306152b276d7f64be9387e197ec",
+      "actual_unit_shards": 3,
+      "unit_passed": 2446,
+      "unit_skipped": 2,
+      "unit_shards_never_started": 6,
+      "CI_jobs_zero_step_cancelled": 12,
+      "reason": "Hosted runner not acquired after multiple attempts",
+      "Java_secrets_flip_not_executed": true,
+      "running_jobs": 0,
+      "engine_aggregator_queued": true,
+      "partial_receipt_sha256": "8f77a60b3d8e766df9929e34be16e84df1242cbad1805e2e20713a594249730e",
+      "partial_custody_sha256": "acbbfb12a81c45431be1fffec90f3016e2b121ba200c0a60e65b47a9340e8743",
+      "Source_or_full_CI_pass_inferred": false,
+      "ROOT_cancel_or_workflow_rerun": false
     }
   },
   "pending_fixture_inputs": {
@@ -671,14 +714,14 @@
     "latest_focal_tested_tree": "4835333827293154791b1a9122dcf98f7778bca5"
   },
   "snapshot_date": "2026-10-05",
-  "snapshot_scope": "Prepublication corrected sourcecff107/main76e:closedcarrierSOURCE/UNIT deltas pass,473 focal and currentinstalledwheel/image978 bytes pass. New full hosted CI and fresh final gates remain pending. Prior98/155 TISS source/wheel/image do not approve corrected bytes; aadf CI remains scoped to oldbase298c. Human/provider/privacy/numerical/operational/deployment acts remain unratified.",
+  "snapshot_scope": "Prepublication compositionc09324/main423 (treeff1c) with immutableR5/TISS source,3updatedMaven resources/currentwheel+image978verified. NewpublishedCI definition adopts the direct SAMEJAR deployed-library compatibility step. Prior441 run had hostedrunner acquisition failures and is partial/unqualified, not a source failure or wholepass. NewfullCI/compatibility/freshfinals/merge pending; no source/human/provider/privacy/export/production grant.",
   "local_executed_source_checkpoint": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
   "current_application_image": {
-    "source_checkpoint": "cff107b5d9aba12a45fe3b214bc0f5c99898d5f3",
-    "image_index": "sha256:cd7ee828347aec80ce461b342b0ea93a78fe8d14370745910f483065170c06b3",
+    "source_checkpoint": "c093241f9b2af36f8bd76a7c43a36324f495d5bf",
+    "image_index": "sha256:7f0f97f700f30e8ae4e412cc7bf22fa50d795b3f6bf702d88b67c3440854d4b8",
     "platform": "linux/amd64",
     "all_source_assets_matched": 978,
-    "artifact_gate_sha256": "bedb27d07d85222dda6f14f6cc2186a20fadd6cef4890441fb6de8f966f94b60",
+    "artifact_gate_sha256": "d63cba434ee869f448c0b041fff5bcd912acd08bf50b156922d14cc50e6e34ff",
     "network_attempts": 0,
     "app_provider_DB_startup": false,
     "deployment_or_business_authority_admitted": false
