@@ -1210,3 +1210,20 @@ PR646 head58769f42 passou CI37328889978/Security37328890038 no base df8796:27528
 2026-10-05 — ROOT compôs main298c89eb em007da1aa: apenas publicação canônica provider_contract_read/version2 (PR656) e atualização Maven compiler3.16 (PR650) sobre248f. Gate independente de política9c50e98e confirma hard-set e todas ações anteriores preservados. Os inputs Python R5 permanecem iguais ao source1b0b efetivamente executado; recibo127PG conserva esse escopo. O revisor identificou1recurso empacotado alterado(pom.xml):855/856 iguais ao wheel04bc, que agora é histórico; novo wheel em validação. Novo CI do candidato combinado, build Maven e gates finais continuam pendentes; nenhuma ratificação operacional inferida.
 
 Composição007da:233UNIT focais real loader/PEP/R5 PASS semskip/xfail; artifacts0errors0notices e Ruff novo teste PASS. Novo wheelda08d222:856source/resources atuais iguais ao ZIP, apenaspom alterado contra04bc; smokeisolado1PASS. Custody6b755ee0 e reciboUNIT2ea6737e; build Maven/novo CI/final/merge pendentes.
+
+### Status WIP — 2026-10-05T18:39:53.741002+00:00
+
+Estimativa: **95% da entrega técnica em andamento**. Prioridade do usuário: finalizar o WIP existente antes de abrir novas frentes. ROOT está na worktree `/Users/familia/.codex/worktrees/913e/maezo-operadora`, branch `codex/v21-journey-effect-boundary-20261005`. O destino é `main` pelo PR646; publicação da branch não equivale a integração.
+
+- [x] PR644 integrado em `d6fa26f5`; manutenção de sete etapas concluída e worktree do journal arquivada com recuperação.
+- [x] PR646 publicado: head `aadf1ac93e1e8ace342ba2285b9642dcf2d402ce`, tree `f29b049cb039398c41f61eb0bbc7610575ce2882`. Todo código desta entrega está no GitHub; checkout sem WIP de código.
+- [x] CI37349288758 e Security37349288793 SUCCESS na base `298c89eb`: 27.994 UNIT PASS, 132 skips e 5 xfails; 958 integrações PASS, 26 xfails estritos executados e dois companions inativos. Conjunto composto: 90 PG reais + 37 controles puros; 64 casos novos de prestador. Custódia: 34 ZIPs, 1.363 arquivos, zero divergências; recibos `8fd960b1`/`42e02b2c`. Native v2 HTTP root_fixture não foi selecionado/executado. Suite Python3.14 do agregado permanece explicitamente não qualificada.
+- [x] Dossiê W0 privado concluído por revisão independente, reparo terceiro mínimo e delta original `d65c2a62`; nenhuma autoridade operacional foi ratificada.
+- [x] PostgreSQL próprio parado e preservado após zero schemas/clientes de teste; demais containers intactos.
+- [ ] Compor `main 76e0094d055b8a60a470a5db6a96dcea8883d4f0` (PR657, TISS) no PR646. Intake independente `75f286e5` e revisão de build/packaging admitiram composição, exigindo novas verificações.
+- [ ] Verificar wheel instalado fora do checkout, assets TISS/agregado, build/fences e testes focais; criar checkpoints coesos e publicar no mesmo PR646.
+- [ ] Concluir novo CI/custódia e gates finais no head/base atualizados. Segurança `096dc3d` cobre somente aadf/base298c; arquitetura reteve a assinatura em `a2e14df1` por drift de main.
+- [ ] Fazer merge autorizado do PR646 com CI e gates aplicáveis verdes. Dispensa CODEOWNER somente se for o único restante; recibo humano `a9b13ada`, sem criar revisão fictícia.
+- [ ] Conferir main e executar as sete etapas de CONTRIBUTING. Worktree do agregado fica retida até igualdade dos três arquivos em main e liberação de consumidores; depois snapshot e archive conservador. Preservar checkout principal sujo e worktrees de terceiros.
+
+Custódia: `/Users/familia/.codex/private-evidence/v21-dur-successor-20261005/`. Cards/mandatos operativos, grants/retention/DPO, ativação e baseline/ROI seguem gates próprios. Próxima sequência: composição657 → verificações → CI → gates finais → merge646 → manutenção. Sem nova frente ou novo PR.
