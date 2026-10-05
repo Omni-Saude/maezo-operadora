@@ -87,6 +87,7 @@ COPY spec/policies/roteamento ./spec/policies/roteamento
 # e, se passasse, o scrubber de PHI nunca instalaria na imagem sem erro nenhum.
 COPY spec/policies/privacy ./spec/policies/privacy
 COPY spec/policies/ans ./spec/policies/ans
+COPY spec/schemas/tiss ./spec/schemas/tiss
 COPY src/ ./src/
 COPY config/ ./config/
 RUN uv sync --frozen --no-dev --no-editable
