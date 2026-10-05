@@ -1127,7 +1127,7 @@ jobs:
           MAEZO_HUMAN_IT_DB_USER: postgres
           MAEZO_HUMAN_IT_DB_PASSWORD: read_provider_it
           MAEZO_PORTAL_READ_IT_REPO: ${{ github.workspace }}
-          MAEZO_NATIVE_PIN_JDBC_URL: jdbc:postgresql://localhost:5432/postgres
+          MAEZO_NATIVE_PIN_JDBC_URL: jdbc:postgresql://localhost:5432/
           MAEZO_NATIVE_PIN_DB_USER: postgres
           MAEZO_NATIVE_PIN_DB_PASSWORD: read_provider_it
         run: |
