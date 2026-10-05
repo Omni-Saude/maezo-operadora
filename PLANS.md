@@ -1147,3 +1147,10 @@ Admission custódia PASS parcial; original checkers SOURCE_DRIFT em cinco arquiv
 ### DUR1 publicação técnica independente
 
 Pacote `DUR1-JOURNAL-COMPONENT`: journal PostgreSQL default-disabled, migration0018 e inventário estrutural34relações com todas decisõesDPOpendentes. Gates independentes PG28+12, UNIT40 e lifecycle135 PASS; nine existing wamid PASS e um outboxhumano SKIP local dependem do engine hosted. Public projection docs/gates/v21-durability-successor-20261005/journal-qualification.json; draft/source custody/CI separados, sem merge futuro autorizado. DUR2/3 source e runtime seguem WIP separado no checkout, não incluídos automaticamente neste pacote. ROOT preserva inputs e pins até publicação/CI/gates frescos.
+
+
+### DUR1 SEC-DUR1-F01 — rejeição preservada e reparo qualificado
+
+a6059c39 não publicado: gate segurança4f578c88 REVISE por autorização de dados antes de await posterior ao commit. Terceiro postgres_race_author reparou somentepostgres.py+unitboundary: source4a94e672/test71211b18, freeze3abf829d. Deltaoriginal segurança d9d9ff06 PASS_CODE_ONLY; PGverifier369ba56e novo45UNIT+40PG e cinco controles reais PASS, zero skips. Metadados negados após revogação sem apagar commit/fence; limites de fonte rechecados sincronamente depois do últimoawait. SQL AST/schema/migration unchanged demonstra reuse limitado do gate mínimo de roles, source gate antigo não promovido.
+
+Worktree próprio gerenciado dur1-journal-security-repair, branchjournal, owner ROOT; candidato atual913e fica comDUR2/runtime em reparos separados. Projeção/ledger atualizados sem duplicar evento; gate do novo commit e hostedCI permanecem pendentes. Nenhum push/PR/merge/flag/deploy nesta etapa. TaskWT antigo observado ausente, não removido por esta tarefa; tar0242ae1a/manifest10f61ce5 rehashados intactos emcustódia privada. Liberação doWT novo só após CI/gates frescos e pins/evidência transferidos.

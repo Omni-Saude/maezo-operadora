@@ -8,13 +8,13 @@
     "src/maezo/gateway/capabilities/durability/__init__.py": "46604853bfa7a9ce49a46acb9c3e7dfa20898a9017df5f36fd4da90ac37a2361",
     "src/maezo/gateway/capabilities/durability/models.py": "d51835e2f446c991e390aa044f9dfcbc45cd91da831ce67da04b0f74c9cde22d",
     "src/maezo/gateway/capabilities/durability/ports.py": "20f0189737a557845d875b9ce6f1afddf488281dfd5127d30c7045910e9aba40",
-    "src/maezo/gateway/capabilities/durability/postgres.py": "af76c61842c2de653cd0e574b4c5eb272c5fa217f780fa2e854a524cc410894b",
+    "src/maezo/gateway/capabilities/durability/postgres.py": "4a94e672c43cedfd050928c5b77d1ef07993b44b7aedc24c02b79f30aff0bdc8",
     "src/maezo/gateway/capabilities/durability/schema.sql": "b9420a4f5d37cc7f654989445b9288cec3912dc6c23b42f38359271405a6430d",
     "src/maezo/platform/migrations/versions/0018_capability_durability_journal.py": "7f9884297523f8030519a34df7172e4121c85b7262b207b00d2058bc31e31afc",
     "tests/unit/gateway/capabilities/durability/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "tests/unit/gateway/capabilities/durability/fixtures.py": "5defa55b82b6198f9af7a3ea1b99c1cec310987643972accc2c4425d741642ea",
     "tests/unit/gateway/capabilities/durability/test_models.py": "c30d3a7fe0dbd2c4bb5bbdae485e16ac8d4a05cbf4515afd5eb41ce54687c6d9",
-    "tests/unit/gateway/capabilities/durability/test_postgres_boundary.py": "98d84043a04352d177825908a297f0ca807f7d00e83327a8979bc1e1275c9257",
+    "tests/unit/gateway/capabilities/durability/test_postgres_boundary.py": "71211b1853d8ae9541867abecb46c32cf03fd1b12d8526a7676e96f18434c1e8",
     "tests/integration/gateway/test_capability_durability_pg.py": "730ae2b92fe5bcb1de838a72a982a9f5f01fc328c1b6d7baf464afc67c24f483",
     "tests/integration/platform/test_capability_durability_migration_pg.py": "122b34ab2f23e44a4db9dbcc7d06a13c81f8bfba37a5f6b07e4fa0b7ab32a3d0",
     "src/maezo/platform/lifecycle/erasure_plan.py": "9db11a3520d9286bc995501875fbb7ac7f6bc614675489492341829a55ec22b2",
@@ -25,15 +25,16 @@
     "docs/design/v21-capabilities/durability-contract.md": "72a1beeddae110f810f0d08a9448a396420ba2312762866713a59522c9cbb741"
   },
   "independent_review_receipts": {
-    "component-gate.json": "c113af8243f1d1a3c4ff726dbc423607974e33a1c97132a1f6440d7b32e0730f",
     "migration-original-reviewer-delta.json": "7d550295cebb3001ffdeca8785e1425e097cede7db40ff8c125ee2299736e52d",
     "migration-tests-original-reviewer-delta.json": "fbc68bd2974300bbfb95f7076a1dbebfad542201a64981c8d2e4529c8cfa0e8b",
     "privacy-inventory-independent-verdict.json": "635bfb9c72b68c32dc2b910399d46c36a0a1d8f748d62c1a9d56cb12ddcc7ced",
-    "baseline-source-delta-verdict.json": "82d98dd1b8b44118ec0369462d3e60094e8a0962f93b85c046c1eba46c624526"
+    "baseline-source-delta-verdict.json": "82d98dd1b8b44118ec0369462d3e60094e8a0962f93b85c046c1eba46c624526",
+    "component-code-r2-gate.json": "369ba56e1845ae5230f12467316799162a1400d9aadebfbb465f174e5b4fe744",
+    "security-original-delta-r2.json": "d9d9ff06a6d7eeddea281531c79e0066066492e378d11e929eccca9d6379b7e2"
   },
   "validation": {
     "storage_unit": {
-      "passed": 40,
+      "passed": 45,
       "failed": 0,
       "skipped": 0
     },
@@ -68,12 +69,18 @@
       "passed": 64,
       "failed": 0,
       "skipped": 0
+    },
+    "independent_real_postcommit_controls": {
+      "passed": 5,
+      "failed": 0,
+      "synthetic_authority": "Qualified-mechanism UNIT ports over real PostgreSQL; no provider policy approval"
     }
   },
   "findings_closed": [
     "PG-MIG-F01 SQL comment split",
     "PG-MIG-TEST-F01 trigger internal char cast",
-    "PG-MIG-TEST-F02 constraint internal char cast"
+    "PG-MIG-TEST-F02 constraint internal char cast",
+    "SEC-DUR1-F01 final metadata authorization after all proof awaits; known commit retained"
   ],
   "original_REDs_preserved_privately": true,
   "lifecycle": {
@@ -88,5 +95,12 @@
   "source_provider_human_production_approval": false,
   "reviewer_identity": "Own successor independent gates; prior-window identity not claimed",
   "owner": "ROOT successor",
-  "release_condition": "Exact published candidate CI/fresh final gates and transfer of private custody/runtime pins; no merge authorized for this increment"
+  "release_condition": "Exact published candidate CI/fresh final gates and transfer of private custody/runtime pins; no merge authorized for this increment",
+  "historical_receipts": {
+    "rejected_candidate": "a6059c39f58b1601c99947ad76bf88bbe96b4646",
+    "old_component_gate": "c113af8243f1d1a3c4ff726dbc423607974e33a1c97132a1f6440d7b32e0730f",
+    "original_security_REVISE": "4f578c888fa24d01f67b01e9ffb8f9205b1dc5f1fb2f29a7e953ac9f6df2dcbe",
+    "old_candidate_published": false
+  },
+  "narrow_role_DDL_reuse": "SQL call AST and schema/migration bytes identical, demonstrated in fresh R2 code/PG gate; old source gate not inherited"
 }
