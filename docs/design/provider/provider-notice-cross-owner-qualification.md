@@ -53,3 +53,20 @@ PG/Docker real e revisão independente pertencem ao ROOT. Dados e descriptors do
 testes são TestOnly e não comprovam instalação AUTH-SL1, credenciais, autoridade
 ou atos externos de produção. A dependência do helper canônico AUTH com os pins
 e contratos de currentness continua pendente de sua qualificação própria.
+
+## Reparo v2 — configuração privada do engine
+
+A execução ROOT seguinte, em `9f0772d41d713a7fa534af4479f7cb1f9d3f58f9`, executou
+14 casos PG: oito PASS, seis FAIL, sem skips. A qualificação de metadados do
+producer passou; o prepare foi recusado antes de I/O pelo fence de transação
+finita existente. O fixture criava seus engines com o default
+`hide_parameters=False`. A recusa é correta e o fence global permanece intacto.
+
+O fixture declara agora `echo=False` e `hide_parameters=True` para seus próprios
+engines, preservando o SSLContext verificado e os 14 corpos de testes. O store
+recusa engine com echo ativo, parâmetros visíveis ou dialect distinto de
+PostgreSQL já na construção e repete a checagem no início de `qualify`, cobrindo
+mudança de configuração posterior. Nenhuma consulta de qualificação ocorre
+antes dessa recusa. Os testes negativos usam AsyncEngine real sem abrir conexão;
+não comprovam execução PostgreSQL. O próximo run ROOT e os veredictos
+independentes continuam necessários para qualificar o corpo dos 14 casos.

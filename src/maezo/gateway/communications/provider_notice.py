@@ -202,6 +202,10 @@ class PostgresProviderNoticeStore:
         role: Literal["producer", "recipient"],
         identity_admission: PostgresCommunicationAdmission | None = None,
     ) -> None:
+        # Match the finite-TX privacy fence before any metadata or effect I/O.
+        # Direct construction must not admit parameter logging or SQL echo.
+        if engine.dialect.name != "postgresql" or engine.echo or not engine.sync_engine.hide_parameters:
+            raise ExternalCaseError("unavailable")
         self.engine = engine
         self.installation = ProviderNoticeInstallation.model_validate_json(installation.model_dump_json())
         self.scope = self.installation.scope
@@ -218,7 +222,12 @@ class PostgresProviderNoticeStore:
     async def qualify(self, db: AsyncConnection) -> None:
         d = self.installation
         alive(d.valid_until)
-        if self.engine.dialect.name != "postgresql" or self._installation_digest != _installation_digest(d):
+        if (
+            self.engine.dialect.name != "postgresql"
+            or self.engine.echo
+            or not self.engine.sync_engine.hide_parameters
+            or self._installation_digest != _installation_digest(d)
+        ):
             raise ExternalCaseError("unavailable")
         role = d.producer_role if self.role == "producer" else d.recipient_role
         info = (
