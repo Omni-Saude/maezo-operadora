@@ -130,3 +130,205 @@ async def test_expired_descriptor_fails_before_source_io():
     with pytest.raises(AuthoritySourceError) as failure:
         await source.qualify(SimpleNamespace())
     assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
+
+
+class TriggerMetadataRows:
+    """UNIT selected catalogue data, not PostgreSQL installation or source authority."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def mappings(self):
+        return self
+
+    def one(self):
+        return self.value
+
+    def one_or_none(self):
+        return self.value
+
+    def all(self):
+        return self.value
+
+
+class TriggerMetadataConnection:
+    """Reproduce the actual asyncpg `char` codec seen in ROOT's diagnostic.
+
+    Uncast pg_trigger.tgenabled is bytes, even for enabled O. PostgreSQL's
+    explicit text projection is text. All unrelated catalogue prerequisites are
+    synthetic UNIT values; no receipt/act/publication is constructed or admitted.
+    Unknown SQL raises instead of providing a permissive metadata fallback.
+    """
+
+    definitions = {
+        "immutable_source_record": "UNIT-immutable-function",
+        "publish_validated": "UNIT-publication-function",
+        "protect_authority_history": "UNIT-history-function",
+    }
+
+    def __init__(self, d, *, publisher=False, enabled=b"O", drift=None, changed_mask=None):
+        self.d = d
+        self.publisher = publisher
+        self.enabled = enabled
+        self.drift = drift
+        self.changed_mask = changed_mask
+        self.trigger_keys = []
+        self.queries = []
+
+    async def execute(self, statement, params=None):
+        sql = str(statement)
+        self.queries.append(sql)
+        d = self.d
+        params = params or {}
+        if "AS database_oid" in sql:
+            role = d.publisher_role if self.publisher else d.reader_role
+            return TriggerMetadataRows(
+                dict(login=role, effective=role, database_oid=d.database_oid, temp_oid=0, tls=True)
+            )
+        if "FROM pg_roles r JOIN pg_namespace" in sql:
+            return TriggerMetadataRows(
+                dict(
+                    rolsuper=False,
+                    rolcreatedb=False,
+                    rolcreaterole=False,
+                    rolbypassrls=False,
+                    rolreplication=False,
+                    member=False,
+                    can_create=params["role"] == d.owner_role,
+                    can_temp=False,
+                )
+            )
+        if "FROM pg_class c JOIN pg_namespace" in sql:
+            name = params["name"]
+            return TriggerMetadataRows(
+                dict(
+                    oid=d.relation_pins[name].oid,
+                    schema_oid=d.schema_oid,
+                    kind="r",
+                    schema_owner=d.owner_role,
+                    relation_owner=d.owner_role,
+                    relrowsecurity=False,
+                    extra_acl=False,
+                    column_acl=False,
+                    reader_select=True,
+                    reader_write=False,
+                    publisher_select=True,
+                    publisher_mutate=False,
+                    publisher_insert=name == "evidence",
+                    validator_write=name in {"source_binding", "authority_proof"},
+                    validator_extra=False,
+                    public_table=False,
+                    public_schema=False,
+                )
+            )
+        if "p.proname='immutable_source_record'" in sql:
+            return TriggerMetadataRows(
+                dict(
+                    oid=d.immutable_function_oid,
+                    definition=self.definitions["immutable_source_record"],
+                    owner=d.owner_role,
+                    prosecdef=False,
+                    public_execute=False,
+                )
+            )
+        if "p.proname='publish_validated'" in sql:
+            return TriggerMetadataRows(
+                dict(
+                    oid=d.publication_function_oid,
+                    definition=self.definitions["publish_validated"],
+                    owner=d.owner_role,
+                    prosecdef=True,
+                    proconfig=["search_path=" + d.schema_name],
+                    publisher_execute=True,
+                    reader_execute=False,
+                    extra_acl=False,
+                )
+            )
+        if "p.proname='protect_authority_history'" in sql:
+            return TriggerMetadataRows(
+                dict(
+                    oid=d.history_function_oid,
+                    definition=self.definitions["protect_authority_history"],
+                    owner=d.owner_role,
+                    prosecdef=False,
+                    public_execute=False,
+                )
+            )
+        if "FROM pg_trigger" in sql:
+            relation = next(name for name, pin in d.relation_pins.items() if pin.oid == params["relation"])
+            history = params["function"] == d.history_function_oid
+            assert history or params["function"] == d.immutable_function_oid
+            key = (relation, "history" if history else "immutable")
+            self.trigger_keys.append(key)
+            mask = 19 if history else (42 if relation in {"source_binding", "authority_proof"} else 58)
+            raw_enabled = self.enabled
+            if self.drift is not None and key == self.drift[0]:
+                raw_enabled = self.drift[1]
+            if self.changed_mask is not None and key == self.changed_mask[0]:
+                mask = self.changed_mask[1]
+            # pg_catalog expression type, not a Python fallback in the source qualifier.
+            enabled = raw_enabled.decode("ascii") if "tgenabled::text" in sql and raw_enabled else raw_enabled
+            return TriggerMetadataRows([dict(tgtype=mask, tgenabled=enabled)])
+        raise AssertionError("Unexpected catalogue query; no permissive UNIT fallback")
+
+
+def trigger_descriptor():
+    bodies = TriggerMetadataConnection.definitions
+    return descriptor(
+        immutable_function_sha256=hashlib.sha256(bodies["immutable_source_record"].encode()).hexdigest(),
+        publication_function_sha256=hashlib.sha256(bodies["publish_validated"].encode()).hexdigest(),
+        history_function_sha256=hashlib.sha256(bodies["protect_authority_history"].encode()).hexdigest(),
+    )
+
+
+@pytest.mark.parametrize("publisher", [False, True])
+@pytest.mark.parametrize("enabled", [b"O", b"A"])
+async def test_typed_trigger_projection_accepts_real_enabled_codec_through_complete_qualifier(
+    publisher, enabled
+):
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, publisher=publisher, enabled=enabled)
+    source = PostgresProviderAuthoritySource(
+        SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d, publisher=publisher
+    )
+    await source.qualify(db)
+    assert len(db.trigger_keys) == 6
+    assert db.trigger_keys[-1] == ("publication", "immutable")
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        ("source_binding", "history"),
+        ("authority_proof", "immutable"),
+        ("evidence", "immutable"),
+        ("publication", "immutable"),
+    ],
+)
+@pytest.mark.parametrize("enabled", [b"D", b"R", b"?", None])
+async def test_typed_trigger_projection_still_refuses_disabled_replica_and_unknown_at_target(key, enabled):
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, drift=(key, enabled))
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    with pytest.raises(AuthoritySourceError) as failure:
+        await source.qualify(db)
+    assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
+    assert db.trigger_keys[-1] == key  # refusal must reach the deliberately changed trigger
+
+
+@pytest.mark.parametrize(
+    "key,mask",
+    [
+        (("source_binding", "history"), 17),
+        (("authority_proof", "immutable"), 58),
+        (("evidence", "immutable"), 42),
+    ],
+)
+async def test_typed_trigger_projection_preserves_exact_trigger_bitmask(key, mask):
+    d = trigger_descriptor()
+    db = TriggerMetadataConnection(d, changed_mask=(key, mask))
+    source = PostgresProviderAuthoritySource(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), d)
+    with pytest.raises(AuthoritySourceError) as failure:
+        await source.qualify(db)
+    assert failure.value.reason == CapabilityRefusalReason.SOURCE_UNAVAILABLE
+    assert db.trigger_keys[-1] == key

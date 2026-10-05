@@ -262,7 +262,7 @@ class PostgresProviderAuthoritySource:
                 (
                     await connection.execute(
                         text("""
-                SELECT tgtype,tgenabled FROM pg_trigger WHERE tgrelid=:relation
+                SELECT tgtype,tgenabled::text AS tgenabled FROM pg_trigger WHERE tgrelid=:relation
                 AND tgfoid=:function AND NOT tgisinternal
             """),
                         dict(relation=d.relation_pins[relation].oid, function=d.history_function_oid),
@@ -277,7 +277,7 @@ class PostgresProviderAuthoritySource:
                 (
                     await connection.execute(
                         text("""
-                SELECT tgtype,tgenabled FROM pg_trigger WHERE tgrelid=:relation
+                SELECT tgtype,tgenabled::text AS tgenabled FROM pg_trigger WHERE tgrelid=:relation
                 AND tgfoid=:function AND NOT tgisinternal
             """),
                         dict(relation=d.relation_pins[relation].oid, function=d.immutable_function_oid),
@@ -297,7 +297,7 @@ class PostgresProviderAuthoritySource:
                 (
                     await connection.execute(
                         text("""
-                SELECT tgtype,tgenabled FROM pg_trigger
+                SELECT tgtype,tgenabled::text AS tgenabled FROM pg_trigger
                 WHERE tgrelid=:relation AND tgfoid=:function AND NOT tgisinternal
             """),
                         {"relation": d.relation_pins[relation].oid, "function": d.immutable_function_oid},
