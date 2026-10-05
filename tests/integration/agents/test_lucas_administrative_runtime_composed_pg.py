@@ -177,7 +177,11 @@ class RealTransaction:
         await self.transaction.commit()
         fault = self.connection.fault
         fault.last_commit_phase = self.connection.phase
-        if fault.lost_ack == self.connection.phase and not fault.lost_ack_fired:
+        if (
+            fault.lost_ack is not None
+            and fault.lost_ack == self.connection.phase
+            and not fault.lost_ack_fired
+        ):
             fault.lost_ack_fired = True
             raise ConnectionResetError("SYNTHETIC.known.PG.commit.ack.lost")
 
@@ -2099,3 +2103,28 @@ async def test_compg15_reply_owner_rejects_original_fence_substitution(
     assert r.source_calls == r.source_commits == 0
     assert await reply.revalidate(scope, snapshot, auth, current) is R.AUTHORITY_UNPROVEN
     assert await reply.authorize(scope, snapshot) is R.AUTHORITY_UNPROVEN
+
+
+async def test_compg16_unselected_fault_preserves_real_commit_ack(db: Database) -> None:
+    """A normal real SQL commit with phase=None must not inject ACK loss.
+
+    The table/row belong only to this owned test schema, not to source/journal
+    authority or an operational fact. The independent admin read proves COMMIT.
+    """
+    await db.admin.execute(
+        f'CREATE TABLE "{db.schema}".synthetic_unfaulted_commit (technical_ref text PRIMARY KEY)'
+    )
+    fault = Faults()
+    async with db.pools[0].acquire() as connection:
+        wrapped = RealConnection(connection, fault)
+        transaction = wrapped.transaction()
+        await transaction.start()
+        await wrapped.execute(
+            f'INSERT INTO "{db.schema}".synthetic_unfaulted_commit (technical_ref) VALUES ($1)',
+            "SYNTHETIC.unfaulted.commit",
+        )
+        assert fault.lost_ack is None and wrapped.phase is None
+        await transaction.commit()
+        assert fault.lost_ack_fired is False and fault.last_commit_phase is None
+    rows = await db.query("SELECT technical_ref FROM synthetic_unfaulted_commit")
+    assert [row["technical_ref"] for row in rows] == ["SYNTHETIC.unfaulted.commit"]
