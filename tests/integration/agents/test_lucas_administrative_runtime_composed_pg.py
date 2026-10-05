@@ -252,6 +252,7 @@ class Registry:
         self.fault = Faults()
         self.actions: dict[str, PreparedCapabilityAction] = {}
         self.authorities: dict[str, VerifiedAuthority] = {}
+        self.operation_issuances: dict[str, tuple[str, str, str, str | None]] = {}
         self.originals: dict[str, VerifiedJourneyContinuation] = {}
         self.contexts: dict[str, Any] = {}
         self.records: dict[str, SourceRecord] = {}
@@ -563,6 +564,7 @@ class TransitionOwner:
 class OperationOwner:
     def __init__(self, registry: Registry) -> None:
         self.r = registry
+        self.issuances = registry.operation_issuances
 
     async def authorize(self, scope: Any, env: Any, request: Any) -> VerifiedAuthority:
         r = self.r
@@ -591,22 +593,84 @@ class OperationOwner:
             verified_at=r.now,
             valid_until=r.original_until,
         )
+        custody = r.descriptors.get(digest)
+        original = (
+            pins(value),
+            pins(action),
+            pins(r.binding),
+            pins(custody) if custody is not None else None,
+        )
+        if value.authorization_ref in self.issuances and self.issuances[value.authorization_ref] != original:
+            raise AdmissionDeniedError(R.AUTHORITY_UNPROVEN)
+        self.issuances[value.authorization_ref] = original
         r.authorities[value.authorization_ref] = deepcopy(value)
         return deepcopy(value)
 
     async def check_current(self, authority: Any, *, source_result: Any = None) -> VerifiedCurrentness:
         r = self.r
+        if (
+            type(authority) is not VerifiedAuthority
+            or set(authority.__dict__) != set(VerifiedAuthority.model_fields)
+            or (
+                source_result is not None
+                and (
+                    type(source_result) is not VerifiedSourceResult
+                    or set(source_result.__dict__) != set(VerifiedSourceResult.model_fields)
+                )
+            )
+        ):
+            raise AdmissionDeniedError(R.AUTHORITY_UNPROVEN)
+        original_authority = pins(authority)
+        original_result = pins(source_result) if source_result is not None else None
         await turn_of_loop()
         issued = r.authorities.get(authority.authorization_ref)
-        if r.operation_revoked or issued is None or pins(issued) != pins(authority):
+        issuance = self.issuances.get(authority.authorization_ref)
+        if (
+            r.operation_revoked
+            or issued is None
+            or issuance is None
+            or original_authority != pins(authority)
+            or pins(issued) != original_authority
+            or issuance[0] != original_authority
+            or issuance[2] != pins(r.binding)
+        ):
             raise AdmissionDeniedError(R.AUTHORITY_UNPROVEN)
-        if source_result is not None and pins(source_result) not in r.attestations:
-            raise AdmissionDeniedError(R.AUTHORITY_UNPROVEN)
+        qualified_digest = None
+        if source_result is not None:
+            record = r.records.get(issued.request_sha256)
+            custody = r.descriptors.get(issued.request_sha256)
+            request = r.requests.get(issued.request_sha256)
+            if (
+                record is None
+                or custody is None
+                or request is None
+                or original_result != pins(source_result)
+                or original_result not in r.attestations
+                or original_result != pins(record.source)
+                or pins(record.action) != issuance[1]
+                or pins(custody) != issuance[3]
+                or custody.request_sha256 != issued.request_sha256
+                or custody.admission_binding_sha256 != admission_binding_digest(issued.binding)
+                or custody.envelope != record.action.envelope
+                or pins(request) != pins(record.action.request)
+                or request_digest(custody.envelope, request) != issued.request_sha256
+                or record.source.binding != issued.binding
+                or record.source.request_sha256 != issued.request_sha256
+                or record.source.authorization_ref != issued.authorization_ref
+                or record.source.currentness_ref != issued.currentness_ref
+                or record.source.result_sha256 != result_digest(record.result)
+                or not record.source.checked_at
+                <= r.clock()
+                < min(record.source.valid_until, issued.valid_until)
+            ):
+                raise AdmissionDeniedError(R.AUTHORITY_UNPROVEN)
+            qualified_digest = record.source.result_sha256
         return VerifiedCurrentness(
             binding=issued.binding,
             request_sha256=issued.request_sha256,
             authorization_ref=issued.authorization_ref,
             currentness_ref=issued.currentness_ref,
+            source_result_sha256=qualified_digest,
             checked_at=r.clock(),
             valid_until=r.op_deadline,
         )
@@ -2128,3 +2192,128 @@ async def test_compg16_unselected_fault_preserves_real_commit_ack(db: Database) 
         assert fault.lost_ack_fired is False and fault.last_commit_phase is None
     rows = await db.query("SELECT technical_ref FROM synthetic_unfaulted_commit")
     assert [row["technical_ref"] for row in rows] == ["SYNTHETIC.unfaulted.commit"]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "result_digest",
+        "authorization_ref",
+        "request_sha256",
+        "binding",
+        "currentness_ref",
+        "source_receipt_ref",
+        "source_revision_ref",
+        "result_body",
+        "action",
+        "custody",
+        "issuer_authority",
+        "registered_cross_authority",
+        "registered_cross_binding",
+        "after_await_result",
+    ],
+)
+async def test_compg17_operation_currentness_binds_only_original_registered_result(fault: str) -> None:
+    """Pure fixture proof relation; these constructed controls qualify no PG/provider.
+
+    Registered positive and pre-result absence precede each hostile case. Custody
+    and issuer use the same existing fixture methods as real DUR3, not a digest
+    computed from arbitrary caller fields as an approval.
+    """
+    db = Database("UNCONNECTED.RESULT.CONTROL", "pgcmp_result_control", "pgcmp_cp_result_control")
+    r = Registry(db, binding(db))
+    action = r.make_action(0, ())
+    digest = request_digest(action.envelope, action.request)
+    await Custody(r).prepare_command(
+        r.binding.journal_binding(),
+        r.scope(action.envelope.operation_name),
+        action.envelope,
+        action.request,
+        (),
+        None,
+    )
+    owner = OperationOwner(r)
+    auth = await owner.authorize(r.scope(action.envelope.operation_name), action.envelope, action.request)
+    before = await owner.check_current(auth)
+    assert before.source_result_sha256 is None
+    result = ContextAccessResult(
+        access_status="available",
+        context_refs=("SYNTHETIC.context",),
+        source_revision_ref="SYNTHETIC.source.rev",
+        access_decision_ref="SYNTHETIC.decision",
+    )
+    proof = VerifiedSourceResult(
+        binding=auth.binding,
+        request_sha256=digest,
+        result_sha256=result_digest(result),
+        authorization_ref=auth.authorization_ref,
+        source_receipt_ref="SYNTHETIC.registered.source.receipt",
+        source_revision_ref="SYNTHETIC.source.rev",
+        currentness_ref=auth.currentness_ref,
+        checked_at=r.clock(),
+        valid_until=auth.valid_until,
+    )
+    r.records[digest] = SourceRecord(deepcopy(action), deepcopy(result), deepcopy(proof))
+    r.attestations.add(pins(proof))
+    after = await owner.check_current(auth, source_result=deepcopy(proof))
+    assert after.source_result_sha256 == proof.result_sha256
+    assert after.binding == before.binding == auth.binding
+    assert after.authorization_ref == before.authorization_ref == auth.authorization_ref
+    assert after.currentness_ref == before.currentness_ref == auth.currentness_ref
+    # New owner objects after reconnect retain the original immutable issuer
+    # registry; restoring a fixture owner cannot silently manufacture a grant.
+    assert (
+        await OperationOwner(r).check_current(auth, source_result=proof)
+    ).source_result_sha256 == proof.result_sha256
+    original_issuance = r.operation_issuances[auth.authorization_ref]
+    if fault in {
+        "result_digest",
+        "authorization_ref",
+        "request_sha256",
+        "binding",
+        "currentness_ref",
+        "source_receipt_ref",
+        "source_revision_ref",
+    }:
+        field_name = "result_sha256" if fault == "result_digest" else fault
+        replacement = (
+            auth.binding.model_copy(update={"tenant_ref": "SYNTHETIC.other.tenant"})
+            if fault == "binding"
+            else "b" * 64
+            if fault in {"result_digest", "request_sha256"}
+            else "SYNTHETIC.unissued." + fault
+        )
+        proof = proof.model_copy(update={field_name: replacement})
+        # Attestation membership alone must not authorize a changed or
+        # cross-authority full proof; the original protected record also binds it.
+        r.attestations.add(pins(proof))
+    elif fault == "result_body":
+        r.records[digest].result = result.model_copy(update={"context_refs": ("SYNTHETIC.changed.body",)})
+    elif fault == "action":
+        r.records[digest].action = action.model_copy(update={"cursor_ref": "C_recovery"})
+    elif fault == "custody":
+        r.descriptors[digest] = r.descriptors[digest].model_copy(
+            update={"request_ref": "SYNTHETIC.changed.custody"}
+        )
+    elif fault == "issuer_authority":
+        auth = auth.model_copy(update={"signed_task_ref": "SYNTHETIC.changed.issuer"})
+        r.authorities[auth.authorization_ref] = deepcopy(auth)
+    elif fault in {"registered_cross_authority", "registered_cross_binding"}:
+        proof = proof.model_copy(
+            update={"authorization_ref": "SYNTHETIC.other.authority"}
+            if fault == "registered_cross_authority"
+            else {"binding": auth.binding.model_copy(update={"tenant_ref": "SYNTHETIC.other.tenant"})}
+        )
+        r.records[digest].source = deepcopy(proof)
+        r.attestations.add(pins(proof))
+        # Even a complete registered source-record pair cannot be attached to
+        # a different original admission authority or scope.
+    else:
+        asyncio.get_running_loop().call_soon(
+            proof.__dict__.__setitem__, "source_revision_ref", "SYNTHETIC.changed.during.await"
+        )
+    with pytest.raises(AdmissionDeniedError) as refused:
+        await owner.check_current(auth, source_result=proof)
+    assert refused.value.reason is R.AUTHORITY_UNPROVEN
+    assert original_issuance == r.operation_issuances[auth.authorization_ref]
+    assert r.source_calls == r.source_commits == 0
