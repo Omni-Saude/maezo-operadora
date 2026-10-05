@@ -2,17 +2,17 @@
   <modelVersion>4.0.0</modelVersion><groupId>br.com.maezo</groupId><artifactId>human-command-engine</artifactId><version>1.0.0</version>
   <properties><maven.compiler.release>17</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding><project.build.outputTimestamp>2026-09-08T00:00:00Z</project.build.outputTimestamp></properties>
   <dependencies>
-    <dependency><groupId>org.apache.tomcat</groupId><artifactId>tomcat-jdbc</artifactId><version>10.1.59</version><scope>provided</scope></dependency>
+    <dependency><groupId>org.apache.tomcat</groupId><artifactId>tomcat-jdbc</artifactId><version>11.0.26</version><scope>provided</scope></dependency>
     <dependency><groupId>org.apache.tomcat</groupId><artifactId>tomcat-catalina</artifactId><version>10.1.59</version><scope>provided</scope></dependency>
-    <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.1.0</version><scope>provided</scope></dependency>
+    <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.2.0</version><scope>provided</scope></dependency>
     <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><version>6.0.0</version><scope>provided</scope></dependency>
     <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine-rest-core-jakarta</artifactId><version>2.1.0</version><scope>provided</scope><exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions></dependency>
-    <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>2.18.11</version></dependency>
+    <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>2.22.3</version></dependency>
     <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.4</version><scope>test</scope></dependency>
     <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>42.7.12</version><scope>test</scope></dependency>
   </dependencies>
   <build><plugins>
-    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-resources-plugin</artifactId><version>3.3.1</version></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-resources-plugin</artifactId><version>3.5.0</version></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.5.1</version><executions>
       <execution><id>default-jar</id><configuration><excludes><exclude>br/com/maezo/workload/CertificateAuthenticationProvider.class</exclude><exclude>br/com/maezo/workload/SecuredFetchAndLockContextListener*.class</exclude></excludes></configuration></execution>
       <execution><id>native-rest-spi</id><phase>package</phase><goals><goal>jar</goal></goals><configuration><classifier>rest-spi</classifier><includes><include>br/com/maezo/workload/CertificateAuthenticationProvider.class</include><include>br/com/maezo/workload/SecuredFetchAndLockContextListener*.class</include></includes></configuration></execution>
@@ -26,5 +26,19 @@
       <classesDirectory>${project.build.directory}/${project.build.finalName}.jar</classesDirectory>
       <systemPropertyVariables><maezo.consumer.jar>${project.build.directory}/${project.build.finalName}.jar</maezo.consumer.jar></systemPropertyVariables>
     </configuration></plugin>
-  </plugins></build></profile></profiles>
+  </plugins></build></profile>
+  <!-- Run surefire:test directly AFTER package: test the already-built candidate JAR,
+       without recompilation, against the provided libraries in Dockerfile.human's
+       pinned CIB image. These versions match secured-startup-vendor.sha256. -->
+  <profile><id>deployed-runtime-compatibility</id>
+    <dependencies>
+      <dependency><groupId>org.apache.tomcat</groupId><artifactId>tomcat-jdbc</artifactId><version>10.1.47</version><scope>provided</scope></dependency>
+      <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.1.0</version><scope>provided</scope></dependency>
+    </dependencies>
+    <build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><configuration>
+      <classesDirectory>${project.build.directory}/${project.build.finalName}.jar</classesDirectory>
+      <additionalClasspathElements><additionalClasspathElement>${project.build.directory}/${project.build.finalName}-rest-spi.jar</additionalClasspathElement></additionalClasspathElements>
+      <systemPropertyVariables><maezo.consumer.jar>${project.build.directory}/${project.build.finalName}.jar</maezo.consumer.jar></systemPropertyVariables>
+    </configuration></plugin></plugins></build>
+  </profile></profiles>
 </project>
