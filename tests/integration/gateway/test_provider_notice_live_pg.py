@@ -301,7 +301,11 @@ async def pg_notices(tmp_path) -> AsyncIterator[TestOnlyPgNotices]:
                 actor_url = db_url.set(
                     drivername="postgresql+asyncpg", username=actor, password=passwords[actor]
                 )
-                engines.append(create_async_engine(actor_url, connect_args={"ssl": context}))
+                engines.append(
+                    create_async_engine(
+                        actor_url, connect_args={"ssl": context}, echo=False, hide_parameters=True
+                    )
+                )
             identity_store = PostgresIdentityStore(record.tenant, engines[1])
             admission = PostgresCommunicationAdmission(identity_store, scope=descriptor.scope, issuer=ISSUER)
             # Explicit TestOnly IdP/session fixture used for software mechanics, not production factory.

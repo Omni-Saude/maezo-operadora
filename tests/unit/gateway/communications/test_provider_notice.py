@@ -360,6 +360,27 @@ def test_real_constructor_preserves_installation_oid_integers_outside_human_wire
     assert type(store.installation.schema_oid) is int
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("echo", "hide_parameters"), [(False, False), (True, True), ("debug", True)])
+async def test_real_async_engine_unsafe_logging_is_refused_by_constructor_without_connection(
+    echo, hide_parameters
+):
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from maezo.gateway.communications.provider_notice import PostgresProviderNoticeStore
+
+    engine = create_async_engine(
+        "postgresql+asyncpg://testonly:testonly@127.0.0.1:1/testonly",
+        echo=echo,
+        hide_parameters=hide_parameters,
+    )
+    try:
+        with pytest.raises(ExternalCaseError):
+            PostgresProviderNoticeStore(engine, installation(), role="producer")
+    finally:
+        await engine.dispose()
+
+
 class UnitNoticeMetadataResult:
     """Metadata DTOs only; no real PostgreSQL or professional/source acceptance."""
 
@@ -586,6 +607,23 @@ async def test_cross_owner_metadata_uses_pinned_catalog_oids_without_actor_schem
     assert len(lock) == len(content) == 1
     assert "pg_catalog.pg_proc" in lock[0] and "pg_catalog.pg_class" in content[0]
     assert "to_regprocedure" not in lock[0] and "to_regclass" not in content[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift", ["echo", "hide_parameters"])
+async def test_engine_logging_drift_is_refused_before_any_qualification_query(drift):
+    store = metadata_store()
+    db = UnitNoticeMetadata(store.installation)
+    if drift == "echo":
+        store.engine.echo = True
+    else:
+        store.engine.sync_engine.hide_parameters = False
+    try:
+        with pytest.raises(ExternalCaseError):
+            await store.qualify(db)
+        assert db.queries == []
+    finally:
+        await store.engine.dispose()
 
 
 @pytest.mark.asyncio
