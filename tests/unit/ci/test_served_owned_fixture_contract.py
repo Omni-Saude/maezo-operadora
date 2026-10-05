@@ -483,7 +483,57 @@ def test_direct_getter_cannot_become_a_callable_result_or_shadowed_context_symbo
 def test_direct_record_field_dictionary_remains_supported(tmp_path: Path) -> None:
     source = SOURCE.replace(
         "        context =",
-        '        fields = dict_record(**{name: getattr(admin, name) for name in ("closed", "status")})\n'
+        '        fields = dict(**{name: getattr(admin, name) for name in ("closed", "status")})\n'
+        "        context =",
+    )
+    assert fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+@pytest.mark.parametrize(
+    "construction",
+    [
+        "import operator\nsetter = operator.attrgetter('setattr')(builtins)\n"
+        "setter(URL, 'create', lambda *a, **k: object())",
+        "from operator import attrgetter\nsetter = attrgetter('setattr')(builtins)\n"
+        "setter(URL, 'create', lambda *a, **k: object())",
+        "calls = {'setter': lambda *a, **k: object()}\ncalls['setter'](URL, 'create', None)",
+        "(lambda value: value)(URL)",
+        "constructor_alias = URL.create\n"
+        "constructor_alias('postgresql+asyncpg', host='external.invalid', port=5432)",
+        "from sqlalchemy.engine import unknown_factory\nunknown_factory(URL)",
+    ],
+)
+def test_only_proven_callable_construction_and_invocation_forms_are_admitted(
+    tmp_path: Path, construction: str
+) -> None:
+    source = SOURCE + "\n" + construction + "\n"
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+@pytest.mark.parametrize(
+    "construction",
+    [
+        '        stash = {}\n        field = "__set" + "attr__"\n'
+        '        stash["setter"] = getattr(type, field)\n'
+        '        stash["setter"](URL, "create", lambda *a, **k: object())\n',
+        '        field = "sql" + "state"\n        observed = getattr(admin, field)\n',
+        '        names = ("__setattr__",)\n        values = {key: getattr(type, key) for key in names}\n',
+        '        constructor_alias = URL.create\n        constructor_alias("postgresql+asyncpg")\n',
+    ],
+)
+def test_dynamic_getter_field_or_subscript_callable_has_no_construction_proof(
+    tmp_path: Path, construction: str
+) -> None:
+    source = SOURCE.replace("        admin =", construction + "        admin =")
+    assert not fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))
+
+
+def test_verified_record_fields_are_data_observation_not_callable_inference(tmp_path: Path) -> None:
+    source = SOURCE.replace(
+        "        context =",
+        '        original = getattr(admin, "orig", None)\n'
+        '        state = getattr(original, "sqlstate", None)\n'
+        '        fields = {field: getattr(admin, field) for field in ("closed", "status")}\n'
         "        context =",
     )
     assert fence._suite_uses_owned_tls_fixture(candidate(tmp_path, source))

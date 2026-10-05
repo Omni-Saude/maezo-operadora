@@ -822,6 +822,216 @@ def _owned_transport_is_verified(
     tls, ports, urls = set(tls_inputs), set(port_inputs), set()
     bindings = _module_scope_bindings(tree)
     assignments = [node for node in ast.walk(function) if isinstance(node, ast.Assign)]
+    # Constructive source API profile. These are import/call interfaces, never
+    # suite paths or exemptions. New callable-producing forms need review.
+    module_apis = {
+        "asyncio": {"gather", "to_thread", "create_task", "sleep"},
+        "hashlib": {"sha256"},
+        "json": {"loads", "dumps"},
+        "secrets": {"token_hex", "token_bytes", "token_urlsafe"},
+        "uuid": {"uuid4"},
+        "asyncpg": {"connect"},
+        "pytest": {"raises", "fixture", "mark.integration", "mark.asyncio", "mark.parametrize"},
+    }
+    standard_symbols = {
+        "__future__": {"annotations"},
+        "collections.abc": {"AsyncIterator"},
+        "contextlib": {"asynccontextmanager"},
+        "dataclasses": {"dataclass", "field"},
+        "datetime": {"UTC", "datetime", "timedelta"},
+        "pathlib": {"Path"},
+        "uuid": {"uuid4"},
+        "sqlalchemy": {"text"},
+        "sqlalchemy.engine": {"URL", "make_url"},
+        "sqlalchemy.exc": {"DBAPIError"},
+        "sqlalchemy.ext.asyncio": {"AsyncEngine", "create_async_engine"},
+        _OWNED_TLS_HELPER: {"owned_tls_postgres", "docker", "server_certificate"},
+    }
+    callable_names = {
+        "all",
+        "any",
+        "dict",
+        "list",
+        "tuple",
+        "sorted",
+        "range",
+        "len",
+        "reversed",
+        "getattr",
+        "str",
+        "int",
+        "set",
+        "isinstance",
+    }
+    callable_names |= {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+
+    def source_callable(module: str, name: str, seen: frozenset[tuple[str, str]] = frozenset()) -> bool:
+        if (module, name) in seen:
+            return False
+        source = (
+            _REPO_ROOT.joinpath("src", *module.split(".")).with_suffix(".py")
+            if module.startswith("maezo.")
+            else _module_path(module)
+        )
+        if source is None or not source.is_file():
+            return False
+        declared = _module_scope_bindings(ast.parse(source.read_text(encoding="utf-8"))).get(name, [])
+        if len(declared) != 1:
+            return False
+        if isinstance(declared[0], (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return True
+        node = declared[0]
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.level == 0
+            and node.module.startswith(("maezo.", "tests.unit."))
+        ):
+            origin = next((alias.name for alias in node.names if (alias.asname or alias.name) == name), None)
+            return origin is not None and source_callable(node.module, origin, seen | {(module, name)})
+        return False
+
+    imported_modules: set[str] = set()
+    for statement in ast.walk(tree):
+        if isinstance(statement, ast.Import):
+            if any(
+                alias.name not in module_apis or alias.asname not in {None, alias.name}
+                for alias in statement.names
+            ):
+                return False
+            imported_modules |= {alias.name for alias in statement.names}
+        elif isinstance(statement, ast.ImportFrom):
+            module = statement.module or ""
+            if statement.level or any(alias.asname not in {None, alias.name} for alias in statement.names):
+                return False
+            if module in standard_symbols:
+                if not {alias.name for alias in statement.names} <= standard_symbols[module]:
+                    return False
+                callable_names |= {alias.name for alias in statement.names} - {
+                    "annotations",
+                    "UTC",
+                    "AsyncIterator",
+                    "docker",
+                    "server_certificate",
+                }
+            elif module.startswith("tests.integration."):
+                target = _module_path(module)
+                if target is None or not all(
+                    _fixture_uses_owned_tls(target, alias.name) for alias in statement.names
+                ):
+                    return False
+            elif module.startswith(("maezo.", "tests.unit.")):
+                source = (
+                    _REPO_ROOT.joinpath("src", *module.split(".")).with_suffix(".py")
+                    if module.startswith("maezo.")
+                    else _module_path(module)
+                )
+                if source is None or not source.is_file():
+                    return False
+                definitions = _module_scope_bindings(ast.parse(source.read_text(encoding="utf-8")))
+                for alias in statement.names:
+                    declared = definitions.get(alias.name, [])
+                    if len(declared) != 1:
+                        return False
+                    if source_callable(module, alias.name):
+                        callable_names.add(alias.name)
+            else:
+                return False
+    object_methods = {
+        "scalar_one",
+        "resolve",
+        "execute",
+        "fetch",
+        "fetchrow",
+        "fetchval",
+        "append",
+        "values",
+        "items",
+        "dispose",
+        "close",
+        "encode",
+        "decode",
+        "hexdigest",
+        "model_copy",
+        "model_dump",
+        "model_dump_json",
+        "snapshot_key",
+        "snapshot_sha256",
+        "publish_validated",
+        "receive",
+        "check_current",
+        "verify_snapshot",
+        "qualify",
+        "connect",
+        "begin",
+        "record",
+        "approve",
+        "recipient",
+        "prepare",
+        "acknowledge",
+        "transaction",
+        "commit",
+        "start",
+        "rollback",
+        "invalidate",
+        "replace",
+        "pop",
+        "update",
+        "startswith",
+        "put_session",
+        "now",
+        "url_for",
+        "set",
+        "render_as_string",
+        "create",
+        "read_text",
+    }
+    construction_parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    for callsite in [node for node in ast.walk(tree) if isinstance(node, ast.Call)]:
+        callee = callsite.func
+        owner = construction_parents.get(callsite)
+        while owner is not None and not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            owner = construction_parents.get(owner)
+        local = (
+            _module_scope_bindings(ast.Module(body=owner.body, type_ignores=[])) if owner is not None else {}
+        )
+        parameters = (
+            {arg.arg for arg in [*owner.args.posonlyargs, *owner.args.args, *owner.args.kwonlyargs]}
+            if owner is not None
+            else set()
+        )
+        if isinstance(callee, ast.Name):
+            if callee.id not in callable_names:
+                return False
+            declarations = local.get(callee.id, bindings.get(callee.id, []))
+            if (
+                callee.id in parameters
+                or len(declarations) > 1
+                or declarations
+                and not isinstance(
+                    declarations[0], (ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                )
+            ):
+                return False
+        elif isinstance(callee, ast.Attribute):
+            root = callee
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(root, ast.Name) and root.id in imported_modules:
+                if root.id in local or root.id in parameters or len(bindings.get(root.id, [])) != 1:
+                    return False
+                path = ast.unparse(callee).removeprefix(root.id + ".")
+                if path not in module_apis[root.id]:
+                    return False
+            elif callee.attr not in object_methods:
+                return False
+        else:
+            # Invocation of a recovered value is not a verified constructor.
+            return False
     arguments = [*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs]
     arguments += [arg for arg in (function.args.vararg, function.args.kwarg) if arg is not None]
     local_bindings = {arg.arg for arg in arguments}
@@ -870,6 +1080,31 @@ def _owned_transport_is_verified(
             continue
         call = parents.get(reference)
         if not isinstance(call, ast.Call) or call.func is not reference:
+            return False
+        if len(call.args) not in {2, 3} or call.keywords:
+            return False
+        attribute_name = call.args[1]
+        names: list[ast.expr] = [attribute_name] if isinstance(attribute_name, ast.Constant) else []
+        if isinstance(attribute_name, ast.Name):
+            enclosing = parents.get(call)
+            while enclosing is not None and not isinstance(
+                enclosing, (ast.FunctionDef, ast.AsyncFunctionDef)
+            ):
+                if isinstance(enclosing, ast.DictComp):
+                    for generator in enclosing.generators:
+                        if (
+                            isinstance(generator.target, ast.Name)
+                            and generator.target.id == attribute_name.id
+                            and isinstance(generator.iter, (ast.Tuple, ast.List))
+                        ):
+                            names = list(generator.iter.elts)
+                enclosing = parents.get(enclosing)
+        if not names or not all(
+            isinstance(name, ast.Constant)
+            and isinstance(name.value, str)
+            and re.fullmatch(r"[a-z][a-z0-9_]*", name.value)
+            for name in names
+        ):
             return False
         current = parents.get(call)
         result_names: set[str] = set()
@@ -1358,7 +1593,7 @@ def _fixture_uses_owned_tls(path: Path, name: str, seen: frozenset[tuple[Path, s
                 for item in ast.walk(statement)
             )
         ):
-            return True
+            return _owned_transport_is_verified(tree, node)
     return False
 
 
