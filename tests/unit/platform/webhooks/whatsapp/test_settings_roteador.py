@@ -89,7 +89,7 @@ def test_fonte_amh_e_aceita_e_os_defaults_ficam_desligados(_ambiente_amh_limpo: 
     assert s.amh_interop_token_url is None
     assert s.amh_interop_client_secret is None
     assert s.amh_phone_lookup_key is None
-    assert s.amh_interop_tenant == "omni"
+    assert s.amh_interop_tenant == "austa_operadora"
     assert s.amh_interop_purpose_of_use == "sharing_amh_internal"
     assert s.amh_interop_scopes.split() == [
         "interop/billing.read",
