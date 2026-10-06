@@ -83,7 +83,8 @@ variable "fhir_partition" {
     propósito: token de `omni` recebe 403 na particao `austa_hospital`.
   EOT
   type        = string
-  default     = "omni"
+  # AMH ADR-046 (06/10/2026): a operadora e' a Austa Clinicas; particao 14 `austa_operadora` (a `omni` estava vazia).
+  default = "austa_operadora"
 }
 
 variable "fhir_cognito_client_id" {
@@ -99,7 +100,7 @@ variable "fhir_cognito_client_id" {
     aqui falha alto, no boot, em vez de silenciosamente.
   EOT
   type        = string
-  default     = "3kr6l4lq5mgq84rta88a2ugpd" # agent-rafael-omni
+  default     = "6s2qb3hn7f6r70sbso0qkin50e" # agent-rafael-austa_operadora (AMH ADR-046; antes 3kr6l4lq5mgq84rta88a2ugpd = agent-rafael-omni)
 }
 
 variable "fhir_token_url" {

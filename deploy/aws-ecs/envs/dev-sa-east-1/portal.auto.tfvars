@@ -73,10 +73,10 @@ portal = {
   human_client_id      = "61gml104sr5nc8jskrptstua0u"
   human_client_purpose = "dedicated-human-code-pkce"
 
-  // Client M2M EXISTENTE (`agent-rafael-omni`), declarado so' para comparacao: o validador
+  // Client M2M EXISTENTE (`agent-rafael-austa_operadora`; antes `agent-rafael-omni`, AMH ADR-046), declarado so' para comparacao: o validador
   // exige que seja igual a `fhir_cognito_client_id` e diferente do humano. Conferido contra
   // a task definition VIVA de agent-rafael (FHIR_CLIENT_ID), nao contra o default do repo.
-  machine_client_id = "3kr6l4lq5mgq84rta88a2ugpd"
+  machine_client_id = "6s2qb3hn7f6r70sbso0qkin50e"
 
   // Hostname publico decidido pelo dono. A zona `austa.com.br` e' EXTERNA a esta conta —
   // ela vive no Cloudflare, e os dois registros (validacao do ACM + este hostname para o
