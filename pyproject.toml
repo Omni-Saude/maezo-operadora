@@ -194,7 +194,8 @@ exclude-newer = "2026-08-05T00:00:00Z"
 # - urllib3 (30/09/2026): 2.7.0 recebeu 3 GHSA em 30/09 (GHSA-8988-9cw3-xx77 proxy TLS ignorado,
 #   GHSA-gh4c-6fx4-qh6g loop infinito no deflate, GHSA-vxq7-64xx-v4gw chunk-size sem limite), fix
 #   2.8.0 de 15/09 (transitiva via botocore/requests). Janela ate' 16/09.
-exclude-newer-package = { pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
+# - langgraph-sdk (06/10/2026): GHSA-fvww-7h3r-vfhp, actions= ignorado; fix 0.4.4 de 27/08.
+exclude-newer-package = { pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z", langgraph-sdk = "2026-08-28T00:00:00Z" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
