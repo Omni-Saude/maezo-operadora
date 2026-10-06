@@ -432,16 +432,26 @@ def _process_identity(pid: int, guard: runtime._ObservationWaitGuard) -> tuple[A
     status = _proc_bytes(pid, "status", guard).decode("ascii")
     ids = {}
     for line in status.splitlines():
-        if line.startswith(("NSpid:", "Uid:", "Gid:")):
+        if line.startswith(("NSpid:", "Uid:", "Gid:", "Groups:")):
             key, value = line.split(":", 1)
             ids[key] = tuple(int(v) for v in value.split())
     namespaces = tuple(os.readlink(f"/proc/{pid}/ns/{name}") for name in ("pid", "mnt", "net"))
     guard.check()
     if not ids.get("NSpid") or ids["NSpid"][0] != pid:
         raise runtime.NativeObservationError("Actual Linux host PID namespace required")
-    if len(set(ids["Uid"])) != 1 or len(set(ids["Gid"])) != 1:
+    if (
+        len(ids.get("Uid", ())) != 4
+        or len(ids.get("Gid", ())) != 4
+        or "Groups" not in ids
+        or len(set(ids["Uid"])) != 1
+        or len(set(ids["Gid"])) != 1
+        or any(value < 0 for values in ids.values() for value in values)
+    ):
         raise runtime.NativeObservationError("Process credentials change privilege domains")
-    return (pid, ids["NSpid"][-1], ids["Uid"][0], ids["Gid"][0], start_ticks, *namespaces)
+    return (
+        pid, ids["NSpid"][-1], ids["Uid"][0], ids["Gid"][0], start_ticks,
+        *namespaces, tuple(sorted(set((ids["Gid"][0], *ids["Groups"])))),
+    )
 
 
 def _xattrs(path: Path) -> list[str]:
@@ -455,7 +465,8 @@ def _xattrs(path: Path) -> list[str]:
 
 
 def _socket_custody(
-    path: Path, config: dict[str, Any], guard: runtime._ObservationWaitGuard, *, exists: bool
+    path: Path, config: dict[str, Any], guard: runtime._ObservationWaitGuard, *, exists: bool,
+    jvm_identity: tuple[Any, ...] | None = None,
 ) -> tuple[int, int] | None:
     guard.check()
     if path.resolve() != path or path.parent.resolve() != path.parent:
@@ -479,9 +490,23 @@ def _socket_custody(
         or members != {config["root_peer_uid"], config["jvm_uid"]}
     ):
         raise runtime.NativeObservationError("Actual exclusive IPC group membership refused")
+    # Before SO_PEERCRED is available, group-write is refused for every group.
+    # Once the kernel peer is joined, its actual primary/supplementary group set
+    # determines write access; configured/account-directory membership is not
+    # promoted to a running process credential observation.
+    jvm_groups = None
+    if jvm_identity is not None:
+        if (len(jvm_identity) != 9 or jvm_identity[2:4] != (config["jvm_uid"], config["jvm_gid"])
+                or type(jvm_identity[8]) is not tuple or not jvm_identity[8]
+                or any(type(gid) is not int or gid < 0 for gid in jvm_identity[8])):
+            raise runtime.NativeObservationError("Actual JVM ancestor credentials unavailable")
+        jvm_groups = jvm_identity[8]
     for parent_path in (path.parent, *path.parent.parents):
         st = parent_path.stat(follow_symlinks=False)
-        if parent_path.resolve() != parent_path or not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o002:
+        if (parent_path.resolve() != parent_path or not stat.S_ISDIR(st.st_mode)
+                or st.st_mode & 0o002
+                or (st.st_uid == config["jvm_uid"] and st.st_mode & 0o200)
+                or (st.st_mode & 0o020 and (jvm_groups is None or st.st_gid in jvm_groups))):
             raise runtime.NativeObservationError("UDS ancestor writable or substituted")
         if "system.posix_acl_access" in _xattrs(parent_path):
             raise runtime.NativeObservationError("Unqualified UDS ACL refused")
@@ -530,6 +555,7 @@ class NativeMeasurementCollector:
         self._primary_listener: socket.socket | None = None
         self._primary_accepted = False
         self._outcome_accepted = False
+        self._outcome_arrival_observed = False
         self._terminal_seen = False
         self._outcome_listener: socket.socket | None = None
         self._listener_inodes: dict[str, tuple[int, int]] = {}
@@ -546,18 +572,52 @@ class NativeMeasurementCollector:
                 raise runtime.NativeObservationError("Actual JVM process start/namespace changed")
             for channel, inode in self._listener_inodes.items():
                 path = Path(self.config["socket_path" if channel == "primary" else "outcome_socket_path"])
-                if _socket_custody(path, self.config, self.guard, exists=True) != inode:
+                if _socket_custody(path, self.config, self.guard, exists=True, jvm_identity=self._peer) != inode:
                     raise runtime.NativeObservationError("Actual socket inode changed")
-        for listener, forbidden in (
-            (self._primary_listener, self._primary_accepted),
-            (
-                self._outcome_listener,
-                self._outcome_accepted,
-            ),
-        ):
-            if listener is not None and forbidden and select.select([listener], [], [], 0)[0]:
-                raise runtime.NativeObservationError("Extra/premature UDS connection refused")
+        if (self._primary_listener is not None and self._primary_accepted
+                and select.select([self._primary_listener], [], [], 0)[0]):
+            raise runtime.NativeObservationError("Extra primary UDS connection refused")
+        self._check_outcome_arrival()
         self.guard.check()
+
+    def _check_outcome_arrival(self) -> None:
+        listener = self._outcome_listener
+        if listener is None or not select.select([listener], [], [], 0)[0]:
+            return
+        if self._outcome_accepted:
+            self._failed = True
+            raise runtime.NativeObservationError("Extra outcome UDS connection refused")
+        if self._primary is not None:
+            # HUP/RDHUP is a kernel observation of remote stream closure even
+            # with buffered TERMINAL bytes. Peeking those bytes cannot establish
+            # EOF. The closed primary grammar still must be consumed and its
+            # actual EOF/local close completed before outcome acceptance.
+            poll = select.poll()
+            closed_mask = select.POLLHUP | getattr(select, "POLLRDHUP", 0)
+            poll.register(self._primary, select.POLLIN | closed_mask | select.POLLERR)
+            events = poll.poll(0)
+            closed = (len(events) == 1 and events[0][1] & closed_mask
+                      and not events[0][1] & (select.POLLERR | select.POLLNVAL))
+            if closed:
+                self._outcome_arrival_observed = True
+                return
+        elif self._terminal_seen:
+            self._outcome_arrival_observed = True
+            return
+        self._failed = True
+        raise runtime.NativeObservationError("Actual premature outcome UDS connection refused")
+
+    def _observe_outcome_arrival(self) -> None:
+        # A readiness callback records an observed early queue while other
+        # owned asynchronous I/O is pending; checks also bracket every I/O.
+        # It cannot reconstruct an arrival then close between observations.
+        try:
+            self._check_outcome_arrival()
+        except runtime.NativeObservationError:
+            self._failed = True
+        finally:
+            if self._outcome_listener is not None:
+                asyncio.get_running_loop().remove_reader(self._outcome_listener.fileno())
 
     async def _wait(self, awaitable: Any, *, accepting: bool = False) -> Any:
         try:
@@ -742,6 +802,7 @@ class NativeMeasurementCollector:
             self._primary_listener = primary_listener
             outcome_listener = self._bind("outcome_socket_path")
             self._outcome_listener = outcome_listener
+            asyncio.get_running_loop().add_reader(outcome_listener, self._observe_outcome_arrival)
             peer, _ = await self._wait(
                 asyncio.get_running_loop().sock_accept(primary_listener), accepting=True
             )
@@ -922,6 +983,8 @@ class NativeMeasurementCollector:
             self._failed = True
             raise
         finally:
+            if outcome_listener is not None:
+                asyncio.get_running_loop().remove_reader(outcome_listener.fileno())
             close_error = None
             for owned in (peer, outcome_peer, primary_listener, outcome_listener):
                 if owned is not None:
@@ -949,6 +1012,7 @@ class NativeMeasurementCollector:
         cgroup = _proc_bytes(self._peer[0], "cgroup", self.guard).decode("ascii")
         if installation["actual_container_id"] not in cgroup:
             raise runtime.NativeObservationError("Actual kernel cgroup/container join unavailable")
+        self._check()  # Actual kernel peer groups and every ancestor precede custody claim.
         peer = self._peer
         self._process_capture = dict(
             schema="provider-native-root-process-socket-capture.v1",
