@@ -62,7 +62,7 @@ def _reference(value: str) -> str | None:
         return None
 
 
-Audience = Literal["beneficiary", "provider"]
+Audience = Literal["beneficiary", "provider", "vendor"]
 
 
 def actor_matches(actor: Actor, principal: HumanPrincipal, audience: Audience | None) -> bool:

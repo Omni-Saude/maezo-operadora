@@ -556,6 +556,7 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
         ("identidade_portal", "portal_code_claims"),
         ("identidade_portal", "portal_sessions"),
         ("identidade_portal", "portal_memberships"),
+        ("identidade_portal", "portal_vendor_channels"),
         ("comando_humano", "human_command_delivery"),
         ("comando_humano", "human_command_outbox"),
         ("autoridade_atribuicao", "portal_assignment_source"),
@@ -583,6 +584,9 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     # DUR0 (0018) adds six physical journal relations, all still NOT covered:
     # no qualified titular/custody bridge or operational privacy disposition was
     # admitted. Scope grows to 34 total and 23 uncovered; the prior 28 stay intact.
+    # VW1-P0 (0019) adds `identidade_portal`/`portal_vendor_channels` (vendor channel
+    # accreditation: CAS revision + closed status, no cipher, no retention), also NOT
+    # covered — 35 total, 24 uncovered; the prior 34 stay intact.
     journal = {
         ("durabilidade_capacidade", "v21_journey_journal"),
         ("durabilidade_capacidade", "v21_capability_command"),
@@ -594,10 +598,10 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     assert journal <= uncovered
     assert journal.isdisjoint(covered)
     assert journal.isdisjoint(retired)
-    assert len(covered | uncovered) == 34
-    assert len(uncovered) == 23
-    assert len((covered | uncovered) - journal) == 28
-    assert len(uncovered - journal) == 17
+    assert len(covered | uncovered) == 35
+    assert len(uncovered) == 24
+    assert len((covered | uncovered) - journal) == 29
+    assert len(uncovered - journal) == 18
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in journal)
     assert {key: by_key[key].resolucao for key in journal} == {
@@ -614,6 +618,7 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
         ("identidade_portal", "portal_code_claims"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ("identidade_portal", "portal_sessions"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ("identidade_portal", "portal_memberships"): IdentityResolution.PONTE_AUSENTE,
+        ("identidade_portal", "portal_vendor_channels"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ("comando_humano", "human_command_delivery"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ("comando_humano", "human_command_outbox"): IdentityResolution.PONTE_AUSENTE,
         ("autoridade_atribuicao", "portal_assignment_source"): IdentityResolution.SEM_COLUNA_DE_TITULAR,

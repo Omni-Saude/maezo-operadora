@@ -1,6 +1,8 @@
 // UI-only, audience-safe view models. Production adapters must map the reviewed generated
 // OpenAPI client into these shapes; these types are not transport DTOs or authorization inputs.
-export type PortalAudience = "staff" | "beneficiary" | "provider";
+// `vendor` mirrors the generated SessionDTO literal (VW1-P0 spine): type-level only — the
+// dedicated vendor experience is a later wave, so no UI branch is authored for it here.
+export type PortalAudience = "staff" | "beneficiary" | "provider" | "vendor";
 
 export type ResourceState =
   | { kind: "ready" }

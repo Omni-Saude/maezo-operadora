@@ -135,7 +135,9 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     # GAP-XHITL-4 appended 0016 (`beneficiario_contato_retomada`, ADR-0061); still linear.
     # ADR-0062 appended 0017 (`conversa_agente_ativo`); still linear.
     # DUR0 appends the separate tenant journal; every historical edge remains exact.
-    assert script.get_heads() == ["0018"]
+    # VW1-P0 appends 0019 (`vendor_channel_authority`); still linear.
+    assert script.get_heads() == ["0019"]
+    assert script.get_revision("0019").down_revision == "0018"
     assert script.get_revision("0018").down_revision == "0017"
     assert script.get_revision("0017").down_revision == "0016"
     assert script.get_revision("0016").down_revision == "0015"

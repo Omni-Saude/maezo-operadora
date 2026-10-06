@@ -111,7 +111,7 @@ class ProducerContext(RequestIdentity):
 class SystemRecipient(Private):
     principal_ref: Ref
     identity_digest: Hash
-    audience: Literal["staff", "beneficiary", "provider"]
+    audience: Literal["staff", "beneficiary", "provider", "vendor"]
     source_revision: Revision
     policy_digest: Hash
     valid_until: datetime

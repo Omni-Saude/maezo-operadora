@@ -45,7 +45,7 @@ um agente supra assinatura humana.
 ## 2. Escopo — opção **B** (decisão aprovada do dono, R-022)
 
 Cobertura: **apenas as camadas que os 3 CronJobs de lifecycle tocam**. Todas as demais relações
-enumeradas em `src/maezo/platform/lifecycle/erasure_plan.py::PERSISTENCE_LAYERS` (34 relações,
+enumeradas em `src/maezo/platform/lifecycle/erasure_plan.py::PERSISTENCE_LAYERS` (35 relações,
 incluindo as três retiradas)
 ficam **declaradas como NÃO COBERTAS** por esta matriz — não são omissão, são exclusão explícita.
 
@@ -77,8 +77,11 @@ ADR-0061 Proposto — telefone do beneficiário CIFRADO para a retomada, TTL pro
 da conversa no número único, só enums e `YYYY-MM`, purga proposta de 30 dias após o último turno); e
 `durabilidade_capacidade`/`v21_journey_journal`, `v21_capability_command`,
 `v21_journal_observation`, `v21_journal_inbox`, `v21_external_wait`, `v21_journal_outbox`
-(migração `0018`, metadados técnicos de coordenação, recibos e refs/digests protegidos; §8.5).
-Essas vinte e três relações continuam sem decisão de
+(migração `0018`, metadados técnicos de coordenação, recibos e refs/digests protegidos; §8.5); e
+`identidade_portal`/`portal_vendor_channels` (migração `0019`, VW1-P0/ADR-0063 — credenciamento
+de canal vendor: revisão CAS e status fechado, ZERO cifras e ZERO prazo de retenção — RATIFY-LATER
+DPO; revogar é gravar o novo estado, a linha nunca é apagada pelo application plane).
+Essas vinte e quatro relações continuam sem decisão de
 retenção — e sem mecanismo de lifecycle produtivo qualificado que as toque.
 As seis relações de `identidade_portal` e `comando_humano` foram introduzidas pelas
 migrações `src/maezo/platform/migrations/versions/0012_portal_identity_session.py` e
@@ -208,10 +211,14 @@ escopo_b:
       tabelas: [a2a_fact_outbox]
       motivo: "fora do escopo B; sem decisao de retencao ratificada"
     - camada: identidade_portal
-      tabelas: [portal_login_transactions, portal_code_claims, portal_sessions, portal_memberships]
+      tabelas: [portal_login_transactions, portal_code_claims, portal_sessions, portal_memberships, portal_vendor_channels]
       motivo: >-
         fora do escopo B; 0012 autentica atores humanos do portal, mas nao cria ponte entre sujeito
-        DSR/FHIR e principal_ref do portal; sem decisao de retencao ratificada
+        DSR/FHIR e principal_ref do portal; 0019 (VW1-P0, ADR-0063) guarda o credenciamento do canal
+        vendor (tenant + channel_ref opaco, revisao CAS, status fechado active/revoked) como
+        SEM_COLUNA_DE_TITULAR — sem coluna de titular e sem referencia DSR/FHIR (o principal vendor
+        vive nos records de portal_memberships, nunca aqui); ZERO cifras e ZERO prazo de retencao
+        (RATIFY-LATER DPO); sem decisao de retencao ratificada
     - camada: comando_humano
       tabelas: [human_command_delivery, human_command_outbox]
       motivo: >-

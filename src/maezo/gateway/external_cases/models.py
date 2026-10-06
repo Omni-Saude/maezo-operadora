@@ -21,7 +21,7 @@ Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 CaseRef = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{16,128}$")]
 Revision = Annotated[str, StringConstraints(pattern=r"^(0|[1-9][0-9]*)$")]
 Kind = Literal["authorization", "reimbursement", "account"]
-Audience = Literal["beneficiary", "provider"]
+Audience = Literal["beneficiary", "provider", "vendor"]
 FIELDS = frozenset({"case_ref", "kind", "state", "record_revision", "state_observed_at"})
 # BPMN SP-OP-AUTH-001: apenas estes dois desfechos declaram `numero_autorizacao` em
 # `event_payload_vars` (:305 ST_PublishAprovadaAuto, :505 ST_PublishAprovadaAuditor).
@@ -29,6 +29,10 @@ ISSUING_DESFECHOS = frozenset({"aprovada_automatica", "aprovada_auditor"})
 KINDS = {
     "beneficiary": frozenset({"authorization", "reimbursement"}),
     "provider": frozenset({"authorization", "account"}),
+    # VW1-P0 spine: the vendor audience enters the closed literal, but this plane still declares
+    # NO case kind for it — every vendor aggregate here is refused (`invalid`), typed, never a
+    # KeyError. A vendor case kind belongs to a later wave.
+    "vendor": frozenset(),
 }
 MAX = 65536
 

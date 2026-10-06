@@ -597,6 +597,7 @@ _PORTAL_TABLES = {
     "portal_assignment_source": "0014_staff_assignment_authority.py",
     "portal_assignment_publications": "0014_staff_assignment_authority.py",
     "portal_assignment_receipt_source": "0014_staff_assignment_authority.py",
+    "portal_vendor_channels": "0019_vendor_channel_authority.py",
 }
 
 
@@ -808,9 +809,10 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     schema fact and deciding the disposition is a human act no agent performs here (the
     artifact's own header says so)."""
     camadas = _shipped_raw()["camadas"]
-    assert len(camadas) == 34, [entry["tabela"] for entry in camadas]
+    # VW1-P0 grew the enumeration by one (`portal_vendor_channels`, migration 0019).
+    assert len(camadas) == 35, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 34, pendentes
+    assert len(pendentes) == 35, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

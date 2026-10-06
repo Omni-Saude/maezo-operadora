@@ -18,7 +18,7 @@ class MembershipRecord(PrivateRecord):
     subject: OpaqueRef = Field(repr=False)
     principal_ref: OpaqueRef
     revision: int = Field(ge=0)
-    audience: Literal["staff", "beneficiary", "provider"]
+    audience: Literal["staff", "beneficiary", "provider", "vendor"]
     memberships: tuple[MembershipBinding, ...]
     subject_bindings: tuple[SubjectBinding, ...]
     # A reviewed record expires. There is no auto-ratification or browser provisioning.
@@ -38,6 +38,8 @@ class MembershipRecord(PrivateRecord):
         if self.audience == "beneficiary" and any(b.kind != "beneficiary" for b in self.subject_bindings):
             raise ValueError("incompatible subject relationship")
         if self.audience == "provider" and any(b.kind != "provider" for b in self.subject_bindings):
+            raise ValueError("incompatible subject relationship")
+        if self.audience == "vendor" and any(b.kind != "vendor" for b in self.subject_bindings):
             raise ValueError("incompatible subject relationship")
         return self
 
@@ -80,9 +82,9 @@ class SessionDTO(PrivateRecord):
 
     schema_version: Literal[1] = 1
     principal_ref: str
-    audience: Literal["staff", "beneficiary", "provider"]
+    audience: Literal["staff", "beneficiary", "provider", "vendor"]
     roles: tuple[str, ...]
     expires_at: datetime
     csrf_token: str = Field(repr=False)
     #: Canonical order; informative only, never an authorization input.
-    capabilities: tuple[Literal["identity", "staff_cases", "human"], ...]
+    capabilities: tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]

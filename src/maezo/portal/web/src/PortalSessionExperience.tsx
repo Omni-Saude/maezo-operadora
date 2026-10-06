@@ -40,7 +40,9 @@ function SessionHeading({
     ? "Área de colaboradores"
     : audience === "beneficiary"
       ? "Área do beneficiário"
-      : "Área do prestador";
+      : audience === "provider"
+        ? "Área do prestador"
+        : "Área vendor";
   return (
     <section className={compact ? "portal-session-card portal-session-compact" : "portal-session-card"} aria-labelledby="audience-heading">
       {!compact && <p className="eyebrow">Sessão ativa</p>}
@@ -238,15 +240,34 @@ export function ExternalPortalExperience({
   onSessionUnavailable: () => void;
   intakeFormProvider?: AuthorizationIntakeFormProvider;
 }) {
-  const service = useMemo(() => createCaseExperienceService({
-    audience,
-    csrfToken,
-    intakeFormProvider,
-  }), [audience, csrfToken, intakeFormProvider, sessionBinding]);
+  // VW1-P0 spine: the vendor audience exists in the session contract, its experience does not
+  // exist yet. Fail closed: no beneficiary/provider-shaped service is ever built for a vendor
+  // session — the area renders as explicitly unavailable until the vendor wave lands.
+  const service = useMemo(() => (
+    audience === "vendor"
+      ? null
+      : createCaseExperienceService({
+        audience,
+        csrfToken,
+        intakeFormProvider,
+      })
+  ), [audience, csrfToken, intakeFormProvider, sessionBinding]);
   const communicationsClient = useMemo(
     () => createCaseCommunicationsClient({ csrfToken }),
     [csrfToken, sessionBinding],
   );
+
+  if (service === null) {
+    return (
+      <main className="portal-session-main external-session-main">
+        <SessionHeading audience={audience} expiresAt={expiresAt} headingRef={headingRef} />
+        <UnavailableArea title="Área vendor">
+          A área vendor ainda não está disponível neste ambiente.
+        </UnavailableArea>
+        <SecurityNote />
+      </main>
+    );
+  }
 
   return (
     <main className="portal-session-main external-session-main">
