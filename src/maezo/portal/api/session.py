@@ -27,7 +27,9 @@ class ResolvedHumanSession:
     record: SessionRecord
     membership: MembershipRecord
 
-    def projection(self, capabilities: tuple[Literal["identity", "staff_cases", "human"], ...]) -> SessionDTO:
+    def projection(
+        self, capabilities: tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]
+    ) -> SessionDTO:
         return SessionDTO(
             capabilities=capabilities,
             principal_ref=self.principal.principal_ref,

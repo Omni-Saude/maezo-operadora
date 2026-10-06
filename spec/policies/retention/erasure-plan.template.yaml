@@ -761,3 +761,20 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+  - camada: identidade_portal
+    tabela: portal_vendor_channels
+    migracao: "0019_vendor_channel_authority.py::upgrade (portal_vendor_channels)"
+    identificacao: "tenant + channel_ref (identificador opaco do credenciamento do canal, migration 0019 VW1-P0); revisao CAS e status fechado active/revoked apenas. Sem coluna de titular e sem referencia DSR/FHIR: o principal vendor vive nos records de portal_memberships, nunca aqui"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 35
+    tensao: null
+    notas: >-
+      VW1-P0 (spine da audiencia vendor, ADR-0063): uma linha por canal credenciado por
+      tenant; quem provisiona e a sessao humana administrativa da operadora. A tabela
+      guarda somente estado de credenciamento — ZERO cifras e ZERO prazo de retencao
+      (RATIFY-LATER DPO, nada inventado na migration). Revogar e gravar o novo estado;
+      a linha nunca e apagada pelo application plane. Downgrade da migration recusa
+      store populado: disposicao de credenciamento vivo e do dono qualificado.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO

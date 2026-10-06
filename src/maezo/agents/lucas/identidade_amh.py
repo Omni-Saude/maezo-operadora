@@ -7,7 +7,10 @@ da cobranca de outra pessoa, e a pergunta "de quem?" pertence a conversa, nao a 
 `FonteDeConsentimentoAmh`: a decisao de consentimento mais recente, so' se `granted`. Sem decisao, revogada,
 expirada ou fonte fora: `None` (a cobranca nao e' lida). Fail-closed, nunca "na duvida, le".
 
-Nenhuma das duas levanta por falha da dependencia: recusa do port vira `None`.
+`BaseLegalExecucaoDeContrato`: a peca LIGADA hoje no lugar do consentimento (decisao do dono de
+06/10/2026). Devolve a referencia fixa da base legal, nunca uma decisao de consentimento.
+
+Nenhuma levanta por falha da dependencia: recusa do port vira `None`.
 """
 
 from __future__ import annotations
@@ -46,6 +49,28 @@ class ResolvedorDeSujeitoAmh:
         if resolucao.resultado != "unico" or len(resolucao.candidatos) != 1:
             return None
         return resolucao.candidatos[0].portable_subject_ref
+
+
+#: Referencia fixa e auditavel da BASE LEGAL da leitura (LGPD art. 7o, V — execucao de contrato).
+BASE_LEGAL_EXECUCAO_DE_CONTRATO: str = "base-legal:execucao-de-contrato"
+
+
+class BaseLegalExecucaoDeContrato:
+    """`FonteDeConsentimento` que NAO e' consentimento: devolve a base legal fixa da leitura.
+
+    Decisao do dono (06/10/2026, `docs/decisions-log.md`): a leitura da situacao de cobranca do
+    PROPRIO beneficiario, para atende-lo sobre o contrato dele, se apoia em execucao de contrato, e
+    o consentimento ainda nao e' ingerido do lado da AMH. Esta peca NUNCA afirma que houve
+    consentimento: o valor devolvido e' o rotulo da base legal (`base-legal:execucao-de-contrato`),
+    e e' isso que o executor do gateway registra (hash) no elo de auditoria. O valor nunca vai na
+    URL nem na query. `FonteDeConsentimentoAmh` (abaixo) continua sendo a fonte REAL, para quando o
+    consentimento existir; trocar uma pela outra e' decisao do dono, nao deste codigo.
+    """
+
+    async def decisao(self, portable_ref: str, purpose_of_use: str) -> str | None:
+        if not portable_ref or not purpose_of_use:
+            return None
+        return BASE_LEGAL_EXECUCAO_DE_CONTRATO
 
 
 class FonteDeConsentimentoAmh:

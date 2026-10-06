@@ -1,4 +1,4 @@
-"""DL-0075 (05/10/2026): a Helena se apresenta de novo depois de 12 h sem a pessoa escrever.
+"""DL-0076 (05/10/2026): a Helena se apresenta de novo depois de 12 h sem a pessoa escrever.
 
 O defeito: o cartao era uma vez por CONVERSA, e a conversa de um numero de WhatsApp nao expira. Quem voltava
 dias depois (o numero do proprio testador, em 04/10) mandava "oi" e recebia a frase curta, como se a Helena

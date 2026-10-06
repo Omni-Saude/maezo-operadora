@@ -60,7 +60,7 @@ class Actor(Closed):
     issuer: str = Field(repr=False, min_length=1, max_length=2048)
     subject: OpaqueRef = Field(repr=False)
     membership_revision: N
-    audience: Literal["staff", "beneficiary", "provider"]
+    audience: Literal["staff", "beneficiary", "provider", "vendor"]
 
     @field_validator("issuer")
     @classmethod
@@ -69,7 +69,7 @@ class Actor(Closed):
 
     @classmethod
     def from_principal(
-        cls, principal: HumanPrincipal, audience: Literal["staff", "beneficiary", "provider"]
+        cls, principal: HumanPrincipal, audience: Literal["staff", "beneficiary", "provider", "vendor"]
     ) -> Actor:
         return cls(
             principal_ref=principal.principal_ref,

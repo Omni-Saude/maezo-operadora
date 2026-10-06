@@ -26,6 +26,9 @@ THREE THINGS THIS FILE DELIBERATELY DOES NOT DO — each is a human decision, re
     — an honest would-deny in shadow telemetry. Inventing a name here would be a second vocabulary
     and a fail-open surface (`gateway/pep.py:12-18`), and adding one to `L0-core.yaml` is an
     ADR-0008/0025 change requiring the `_hard_frozen.yaml` cross-check. NOT DONE HERE.
+    (The one later exception is an OWNER act, not an inference: `read_member_billing_identity`
+    (L3, not hard) was added to `L0-core.yaml` by the 06/10/2026 owner decision recorded in
+    `docs/decisions-log.md` for the Lucas billing/identity reads below.)
   * **No consent flag (Q-5).** Every class declares `consentimento_exigido=False`, so the L-4 leg
     is present-but-inert. `ConsentDecisionSource` exists only as a port (`src/maezo/ports/
     consent.py`) with no adapter; flagging a class true would DENY it until one lands, which is a
@@ -335,6 +338,32 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_phi_data",
         tool_id="mcp-amh.get_subject_coverage",
+    ),
+    # -- Contratos AMH de cobranca e identidade do Lucas (ADR-0037 XRD-04/05; executor em
+    # `gateway/amh_interop.py`; decisao do dono 06/10/2026, ver `docs/decisions-log.md`).
+    # CLASSE `leitura_phi_clinica` REUSADA DE PROPOSITO: e' o degrau de leitura de MAIOR
+    # sensibilidade (C2) e a recusa dele e' `LACUNA_DECLARADA` — exatamente o que o Lucas faz
+    # quando nao ha' fato (Indisponivel -> catch-all da DMN escala). Criar uma 16a classe mudaria
+    # o contrato fechado de 15 classes (manifesto, escada §6.1, cerca §8.5) por um ganho de rotulo.
+    # O dado em si e' Zona Geral (sem identificador cru: `portable_subject_ref` opaco e boleto
+    # mascarado); classificar acima do necessario e' a direcao segura.
+    # `tool_id=None`: nao ha' tool MCP — o executor do gateway e' a superficie. L-1 (capacidade
+    # declarada) e' pulada como nos outros seams sem tool; L-2 (`read_member_billing_identity`,
+    # declarada no `agent.yaml` do Lucas) e L-5 (aprovacao da classe) continuam valendo.
+    OperationSpec(
+        operation="amh.get_billing_status",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_billing_identity",
+    ),
+    OperationSpec(
+        operation="amh.resolve_subject_by_phone",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_billing_identity",
+    ),
+    OperationSpec(
+        operation="amh.get_subject_profile",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_billing_identity",
     ),
     # -- WhatsApp send (C1). Leaf `tools/mcp_whatsapp/server.py:111`.
     OperationSpec(

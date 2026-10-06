@@ -6,14 +6,14 @@
 
 locals {
   # Vazio quando os segredos usam a chave padrao aws/secretsmanager.
-  secret_kms_key_ids = compact(distinct([
+  secret_kms_key_ids = compact(distinct(concat([
     data.aws_secretsmanager_secret.maezo_app_db.kms_key_id,
     data.aws_secretsmanager_secret.cibseven_app_db.kms_key_id,
     # O segredo do Cognito E' cifrado com a CMK compartilhada do env de dados (SEC-010),
     # entao sem `kms:Decrypt` o GetSecretValue falha com AccessDenied — erro que parece de
     # permissao no segredo e nao na chave.
     data.aws_secretsmanager_secret.fhir_cognito.kms_key_id,
-  ]))
+  ], local.amh_interop_secret_kms_key_ids)))
 }
 
 data "aws_iam_policy_document" "ecs_tasks_assume" {
@@ -66,14 +66,16 @@ data "aws_iam_policy_document" "task_execution_secrets" {
     actions = [
       "secretsmanager:GetSecretValue",
     ]
-    resources = [
+    resources = concat([
       data.aws_secretsmanager_secret.maezo_app_db.arn,
       data.aws_secretsmanager_secret.cibseven_app_db.arn,
       # Credencial FHIR do Rafael. Sem esta linha o container falha em
       # CreateContainerConfigError e o motivo aparece so' em `describe-tasks` — nao no log
       # da aplicacao, que e' onde se procura primeiro.
       data.aws_secretsmanager_secret.fhir_cognito.arn,
-    ]
+      # Fonte AMH do Lucas (amh-interop.tf): client secret do Cognito e chave do hash do
+      # telefone. Lista vazia com a fonte `simulada`.
+    ], local.amh_interop_secret_arns)
   }
 
   # Se os segredos estiverem sob CMK (e nao sob a chave padrao aws/secretsmanager),

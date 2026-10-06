@@ -551,6 +551,91 @@ async def test_no_payload_prompt_recipient_or_patient_id_ever_reaches_a_telemetr
         assert secret not in rendered, f"{secret!r} leaked into a telemetry line"
 
 
+_AMH_INTEROP_OPERATIONS = frozenset(
+    {"amh.get_billing_status", "amh.resolve_subject_by_phone", "amh.get_subject_profile"}
+)
+
+
+async def _exercitar_interop_amh(seam: SeamContext) -> None:
+    """Uma chamada por operacao nos executores reais da fonte AMH do Lucas, sem rede: o Cognito
+    responde 500 (token indisponivel), entao a chamada para DEPOIS do gate e recusa fechada."""
+    import json
+
+    import httpx
+
+    from maezo.adapters.amh.billing_status import GovernedBillingStatusRequest
+    from maezo.adapters.amh.subject_resolution import GovernedSubjectResolutionRequest
+    from maezo.gateway import amh_interop
+
+    def _transport() -> httpx.AsyncBaseTransport:
+        return httpx.MockTransport(lambda request: httpx.Response(500))
+
+    class _Audit:
+        async def emit(self, record: Any) -> str:
+            return "0" * 64
+
+    tokens = amh_interop.CognitoClientCredentials(
+        token_url="https://cognito.invalid/oauth2/token",
+        client_id="client1",
+        client_secret="secret1",
+        scopes=("interop/billing.read",),
+        transport_factory=_transport,
+    )
+    comum: dict[str, Any] = {
+        "seam": seam,
+        "origin": "http://interop.invalid",
+        "tokens": tokens,
+        "audit": _Audit(),
+        "purpose_of_use": "sharing_amh_internal",
+        "agent_version": "lucas@v0",
+        "transport_factory": _transport,
+    }
+    billing = amh_interop.AmhBillingStatusExecutor(**comum)
+    subjects = amh_interop.AmhSubjectResolutionExecutor(amh_tenant="omni", **comum)
+    purpose = (("purpose_of_use", "sharing_amh_internal"),)
+    results = [
+        await billing.execute(
+            GovernedBillingStatusRequest(
+                operation="amh.get_billing_status",
+                path="/interop/billing-status/v1/subjects/subject1/billing/status",
+                query=purpose,
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                timeout_seconds=5.0,
+            )
+        ),
+        await subjects.execute(
+            GovernedSubjectResolutionRequest(
+                operation="amh.resolve_subject_by_phone",
+                method="POST",
+                path="/interop/subject-resolution/v1/subjects/resolve-by-phone",
+                query=(),
+                body=json.dumps(
+                    {
+                        "amh_tenant": "omni",
+                        "phone_hash": "a" * 64,
+                        "hash_scheme": "amh-phone-lookup-v1",
+                        "purpose_of_use": "sharing_amh_internal",
+                    }
+                ).encode(),
+                consent_decision_ref=None,
+                timeout_seconds=5.0,
+            )
+        ),
+        await subjects.execute(
+            GovernedSubjectResolutionRequest(
+                operation="amh.get_subject_profile",
+                method="GET",
+                path="/interop/subject-resolution/v1/subjects/subject1/profile",
+                query=purpose,
+                body=None,
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                timeout_seconds=5.0,
+            )
+        ),
+    ]
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 3
+
+
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811
     """Non-vacuity for (B): the catalogue must not contain an operation no wrapper can emit.
 
@@ -569,13 +654,19 @@ async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_
     # Canonical AMH has its own concrete executor and stricter protected-read
     # preconditions; exercise the actual seam rather than exempt its four tools.
     for operation in _operations():
-        if not operation.startswith("amh."):
+        if not operation.startswith("amh.") or operation in _AMH_INTEROP_OPERATIONS:
             continue
         with structlog.testing.capture_logs() as logs:
             await getattr(amh_harness.context, operation.split(".")[1])(
                 "subject1", purpose_of_use="purpose1", consent_decision_ref="consent1"
             )
         emitted |= {entry["operation"] for entry in logs if entry["event"] == EVENT_SHADOW}
+
+    # A fonte de cobranca/identidade do Lucas tem os seus executores (`gateway/amh_interop.py`):
+    # exercita-se o executor REAL, cujo `gate` emite a linha antes de qualquer E/S.
+    with structlog.testing.capture_logs() as logs:
+        await _exercitar_interop_amh(seam)
+    emitted |= {entry["operation"] for entry in logs if entry["event"] == EVENT_SHADOW}
 
     catalogued = set(_operations())
     unreachable = catalogued - emitted

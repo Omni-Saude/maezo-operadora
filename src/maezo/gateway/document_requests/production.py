@@ -88,8 +88,10 @@ RESPOND_ACTION = "auth.documents.respond"
 
 # Decision #18 names two audiences. `staff` is structurally excluded: a staff principal holds no
 # vínculo, and a published `auth.documents.respond` authority naming one is an installation
-# fault, never a weaker permission (see `_recipient`).
-RecipientAudience = Literal["beneficiary", "provider"]
+# fault, never a weaker permission (see `_recipient`). `vendor` rides the same closed literal
+# (VW1-P0 spine); no published `vendor` authority exists until the vendor plane publishes one,
+# so the value degrades fail-closed here by construction.
+RecipientAudience = Literal["beneficiary", "provider", "vendor"]
 
 
 def answers_document_request(authority: ResourceAuthority, *, case_ref: str, request_ref: str | None) -> bool:

@@ -401,7 +401,8 @@ def create_app(
     async def session(request: Request) -> SessionDTO:
         _query(request, set())
         capabilities = cast(
-            'tuple[Literal["identity", "staff_cases", "human"], ...]', tuple(config.capabilities.split(","))
+            'tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]',
+            tuple(config.capabilities.split(",")),
         )
         return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities)
 

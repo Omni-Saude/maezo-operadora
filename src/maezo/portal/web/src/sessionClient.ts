@@ -24,9 +24,15 @@ const exactSessionKeys = [
 
 export type PortalCapability = SessionDTO["capabilities"][number];
 
-const canonicalCapabilities: readonly PortalCapability[] = ["identity", "staff_cases", "human"];
+const canonicalCapabilities: readonly PortalCapability[] = [
+  "identity",
+  "staff_cases",
+  "human",
+  "vendor",
+];
 
-// Canonical order, no duplicates, nothing outside the three literals.
+// Canonical order, no duplicates, nothing outside the four literals. `vendor` is type-level
+// only here: no deployment config can produce it yet (default-off), so no session carries it.
 function isCapabilityList(value: unknown): value is PortalCapability[] {
   if (!Array.isArray(value)) return false;
   let previous = -1;

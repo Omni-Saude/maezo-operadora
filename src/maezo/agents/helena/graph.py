@@ -1037,7 +1037,7 @@ class HelenaState(TypedDict, total=False):
     #: com ele ligado, repetir a apresentacao esta' PROIBIDO no prompt.
     apresentacao_ja_feita: bool
     #: ISO-8601 UTC do ULTIMO turno em que a pessoa escreveu. Memoria de conversa: `receive` o compara
-    #: com o agora para decidir se o cartao de apresentacao ainda vale (DL-0075).
+    #: com o agora para decidir se o cartao de apresentacao ainda vale (DL-0076).
     ultima_mensagem_em: str | None
 
     # Turn output.
@@ -1553,7 +1553,7 @@ def _memoria_clinica_valida(
     return limpa
 
 
-#: DL-0075 (05/10/2026, PRAZO PROVISORIO — decisao de produto): depois de quantas horas SEM a pessoa escrever
+#: DL-0076 (05/10/2026, PRAZO PROVISORIO — decisao de produto): depois de quantas horas SEM a pessoa escrever
 #: a Helena se apresenta de novo. Antes disso o cartao era uma vez por conversa, e a conversa de um numero
 #: nao expira: quem voltava dias depois nao era reapresentado. 12 h por sugestao de engenharia; a janela
 #: de 24 h da Meta (`last_inbound_at`) seria o outro candidato.
@@ -2581,7 +2581,7 @@ class HelenaGraph:
         # de feature — e' um bool que so' anda para True, e o unico efeito e' o prompt nao repetir
         # "Sou Helena..." no segundo turno.
         #
-        # DL-0075 (05/10/2026): o cartao vale por `APRESENTACAO_VALIDADE_HORAS` desde a ULTIMA mensagem
+        # DL-0076 (05/10/2026): o cartao vale por `APRESENTACAO_VALIDADE_HORAS` desde a ULTIMA mensagem
         # da pessoa. Quem volta depois de 12 h (ou numa conversa sem carimbo, de antes desta regra) e'
         # apresentado de novo. O carimbo do turno atual e' gravado SEMPRE, depois da decisao: o valor
         # lido aqui e' o do turno anterior.

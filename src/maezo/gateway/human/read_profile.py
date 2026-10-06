@@ -300,7 +300,7 @@ class MembershipProjection(Closed):
     issuer: str = Field(repr=False)
     subject: OpaqueRef = Field(repr=False)
     membership_revision: Revision
-    audience: Literal["staff", "beneficiary", "provider"]
+    audience: Literal["staff", "beneficiary", "provider", "vendor"]
     memberships: tuple[MembershipBinding, ...]
     subject_bindings: tuple[SubjectBinding, ...]
     state: Literal["active", "revoked"]

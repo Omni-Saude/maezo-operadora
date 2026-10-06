@@ -291,9 +291,13 @@ class MembershipBinding(_FrozenContract):
 
 
 class SubjectBinding(_FrozenContract):
-    """A server-verified beneficiary/provider relationship represented by an opaque reference."""
+    """A server-verified beneficiary/provider/vendor relationship represented by an opaque reference.
 
-    kind: Literal["beneficiary", "provider"]
+    A `vendor` binding names the channel's own accreditation object (the vendor channel authority
+    store, migration 0019) through the opaque `resource_ref`; the reference stays opaque here.
+    """
+
+    kind: Literal["beneficiary", "provider", "vendor"]
     resource_ref: OpaqueRef
 
 

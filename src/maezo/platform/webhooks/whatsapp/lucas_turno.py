@@ -23,8 +23,11 @@ A TABELA DE §2.5 (`ENTRADA_POR_SUBTIPO`) traduz o subtipo para a entrada estrit
 cru (`boleto_2via`) mandaria toda 2a via para o catch-all da DMN, que escala: o teste
 `test_lucas_turno.py::test_tabela_do_subtipo_e_a_do_corpus_da_onda_a` prende as duas pontas.
 
-OS FATOS DE COBRANCA vem da porta `FonteCobranca`. Ate' existir a fonte real, e' a
-`FonteCobrancaSimulada` (onda a), e so' ela e' aceita pelas settings (`MAEZO_LUCAS_FONTE_COBRANCA`).
+OS FATOS DE COBRANCA vem da porta `FonteCobranca`: a `FonteCobrancaSimulada` (onda a, o default)
+ou, com `MAEZO_LUCAS_FONTE_COBRANCA=amh`, a `FonteCobrancaAmh` sobre os contratos da AMH (decisao do
+dono de 06/10/2026; so' sobe com os contratos publicados e pinados). A fonte AMH resolve o sujeito
+pelo hash `amh-phone-lookup-v1` do numero, que o despachante calcula no recebimento
+(`hash_telefone_para_amh`) e entrega em `ConversaDoTurno.phone_hash_amh`.
 `Indisponivel` nao inventa fato: os campos de conciliacao ficam ausentes e o catch-all da DMN
 escala.
 
@@ -56,8 +59,8 @@ from __future__ import annotations
 import hmac
 import re
 import time
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any, Final, Protocol
 
 import structlog
@@ -146,6 +149,11 @@ class ConversaDoTurno:
     beneficiario_pseudo_id: str
     to_hash: str
     message_id: str
+    #: Hash `amh-phone-lookup-v1` do numero (decisao do dono 06/10/2026), calculado pelo despachante
+    #: no RECEBIMENTO e SO' com a fonte AMH ligada; `None` caso contrario. E' a chave com que a AMH
+    #: resolve o sujeito — o `to_hash` (`hk1_`, chave do Maezo) nao significa nada para ela. Vive so'
+    #: neste turno: nunca vai para log, estado do grafo nem armazenamento (`repr=False`).
+    phone_hash_amh: str | None = field(default=None, repr=False)
 
 
 class RemetenteDoTurno(Protocol):
@@ -257,6 +265,12 @@ class LucasTurno:
     dedup: WhatsAppDedupGuard
     fonte: FonteCobranca
     agent_version: str = "lucas@v0"
+    #: So' com a fonte AMH (`MAEZO_LUCAS_FONTE_COBRANCA=amh`): numero cru -> hash
+    #: `amh-phone-lookup-v1` (`gateway.amh_interop.AmhPhoneLookupHasher`). `None` = nenhum hash e'
+    #: calculado (a simulada nao precisa dele). Ver `hash_telefone_para_amh`.
+    hash_telefone_amh: Callable[[str], str | None] | None = field(default=None, repr=False)
+    #: Drenagem dos recursos da fonte (os executores do gateway da fonte AMH). `None` na simulada.
+    fonte_aclose: Callable[[], Awaitable[None]] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.seam_context.principal != AGENT_ID or self.seam_context.tenant != self.tenant_id:
@@ -299,9 +313,26 @@ class LucasTurno:
                 "lucas_turno: handoff de outra mensagem — o message_ref nao e' o da entrada deste turno"
             )
 
+    def hash_telefone_para_amh(self, numero_cru: str) -> str | None:
+        """O hash `amh-phone-lookup-v1` do numero de ENTRADA, ou `None` sem a fonte AMH.
+
+        Chamado SO' pelo despachante, em `_turno_do_lucas`, onde o numero cru ainda existe (ele
+        nao entra no `LucasTurno`). Nunca levanta: um numero fora do padrao brasileiro, ou uma
+        falha do hasher, vira `None` e o Lucas segue sem identidade (a fonte devolve
+        `Indisponivel("sujeito_nao_resolvido")` e a DMN escala).
+        """
+        if self.hash_telefone_amh is None:
+            return None
+        try:
+            return self.hash_telefone_amh(numero_cru)
+        except Exception:
+            return None
+
     async def _fatos(self, conversa: ConversaDoTurno, handoff: HandoffValidado) -> FatosCobranca | None:
+        # O `phone_hash` que a fonte recebe e' o da AMH (`amh-phone-lookup-v1`), nunca o `to_hash`:
+        # o pseudonimo `hk1_` e' chaveado pelo Maezo e nao resolve ninguem do lado da AMH.
         resultado = await self.fonte.fatos(
-            conversa.beneficiario_pseudo_id, handoff.competencia, phone_hash=conversa.to_hash
+            conversa.beneficiario_pseudo_id, handoff.competencia, phone_hash=conversa.phone_hash_amh
         )
         if isinstance(resultado, FatosCobranca):
             return resultado
@@ -372,10 +403,15 @@ class LucasTurno:
         return dict(final)
 
     async def aclose(self) -> None:
-        """Drenagem: fecha o transporte do motor do Lucas (o da Helena e' fechado a parte)."""
-        close = getattr(self.cibseven, "close", None)
-        if close is not None:
-            await close()
+        """Drenagem: fecha o transporte do motor do Lucas (o da Helena e' fechado a parte) e, com a
+        fonte AMH, os executores dela — mesmo que o primeiro fechamento falhe."""
+        try:
+            close = getattr(self.cibseven, "close", None)
+            if close is not None:
+                await close()
+        finally:
+            if self.fonte_aclose is not None:
+                await self.fonte_aclose()
 
 
 __all__ = [

@@ -1025,6 +1025,9 @@ class HelenaDispatcher:
                 beneficiario_pseudo_id=beneficiario_pseudo_id,
                 to_hash=phone_hash,
                 message_id=message.message_id,
+                # Fonte AMH (decisao do dono 06/10/2026): o hash `amh-phone-lookup-v1` nasce AQUI,
+                # onde o numero cru ainda existe, e morre com este turno. Sem a fonte AMH e' `None`.
+                phone_hash_amh=self.lucas_turno.hash_telefone_para_amh(message.from_number),
             ),
             remetente,
         )

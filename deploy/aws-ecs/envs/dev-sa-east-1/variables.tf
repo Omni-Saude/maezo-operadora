@@ -209,7 +209,7 @@ variable "image_tag" {
     no-op nos servicos em vez de incidente. Promover imagem continua sendo passar a variavel.
   EOT
   type        = string
-  default     = "3fbe5871" # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614. Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI). Antes: d4444acc # 02/10/2026 (9a promocao): main com #602 (classify repete 1x em JSON invalido; sincope grave P1). Antes: 3c0d73ca # 02/10/2026 (7a promocao): main com #599 (DL-0056: retomada do Lucas volta ao WhatsApp). Antes: 03428909 # 02/10/2026 (6a promocao): main com o lexico do pre-roteamento empacotado (#597); roteador LIGADO em dev por lucas.auto.tfvars (#596, DL-0053). Antes: e8de19c3 # 01/10/2026 (5a promocao): main com #593 (DL-0055: DMN de admissibilidade do Lucas com categoria). Antes: 01b44ddd # 01/10/2026 (4a promocao): main com as ondas (e) e (f) do Lucas (#589, #590); roteador DESLIGADO. Antes: b3a5d4b9 # 01/10/2026 (3a promocao): main com #579 (DL-0054) e as correcoes de cerca/lint/tipos (#588). Antes: baa12dbd # 01/10/2026 (2a promocao): main baa12dbd. Antes: a94e7d4a # 01/10/2026: main a94e7d4a (mesma imagem do receptor/agentes; deploy-processes/migrations rodam com ela). Antes: 07e72eae-r2 # 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((merge de #440) — promovida a dev por #445 (21/09); antes c745fd94 09/09, 40dc6d4 27/08
+  default     = "1b72be17" # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614. Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI). Antes: d4444acc # 02/10/2026 (9a promocao): main com #602 (classify repete 1x em JSON invalido; sincope grave P1). Antes: 3c0d73ca # 02/10/2026 (7a promocao): main com #599 (DL-0056: retomada do Lucas volta ao WhatsApp). Antes: 03428909 # 02/10/2026 (6a promocao): main com o lexico do pre-roteamento empacotado (#597); roteador LIGADO em dev por lucas.auto.tfvars (#596, DL-0053). Antes: e8de19c3 # 01/10/2026 (5a promocao): main com #593 (DL-0055: DMN de admissibilidade do Lucas com categoria). Antes: 01b44ddd # 01/10/2026 (4a promocao): main com as ondas (e) e (f) do Lucas (#589, #590); roteador DESLIGADO. Antes: b3a5d4b9 # 01/10/2026 (3a promocao): main com #579 (DL-0054) e as correcoes de cerca/lint/tipos (#588). Antes: baa12dbd # 01/10/2026 (2a promocao): main baa12dbd. Antes: a94e7d4a # 01/10/2026: main a94e7d4a (mesma imagem do receptor/agentes; deploy-processes/migrations rodam com ela). Antes: 07e72eae-r2 # 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((merge de #440) — promovida a dev por #445 (21/09); antes c745fd94 09/09, 40dc6d4 27/08
 }
 
 variable "webhook_receiver_image_tag" {
@@ -235,7 +235,7 @@ variable "webhook_receiver_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "3fbe5871" # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614. Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI). Antes: d4444acc # 02/10/2026 (9a promocao): main com #602 (classify repete 1x em JSON invalido; sincope grave P1). Antes: 3c0d73ca # 02/10/2026 (7a promocao): main com #599 (DL-0056: retomada do Lucas volta ao WhatsApp). Antes: 03428909 # 02/10/2026 (6a promocao): main com o lexico do pre-roteamento empacotado (#597); roteador LIGADO em dev por lucas.auto.tfvars (#596, DL-0053). Antes: e8de19c3 # 01/10/2026 (5a promocao): main com #593 (DL-0055: DMN de admissibilidade do Lucas com categoria). Antes: 01b44ddd # 01/10/2026 (4a promocao): main com as ondas (e) e (f) do Lucas (#589, #590); roteador DESLIGADO. Antes: b3a5d4b9 # 01/10/2026 (3a promocao): main com #579 (DL-0054) e as correcoes de cerca/lint/tipos (#588). Antes: baa12dbd # 01/10/2026 (2a promocao): main baa12dbd (ondas a-c do Lucas #581 #582 #584; roteador desligado), CodeBuild sha256:2935cdbc. Antes: a94e7d4a # 01/10/2026: main a94e7d4a (#575 dispneia desconhecida escala, #577 outside_channel, #576 urllib3/pyjwt), CodeBuild sha256:1052fd6c. Antes: 3fbcc34e # 28/09/2026 (#558): merge de #555+#556+#557+#558 (arvore = d7661cec), CodeBuild sha256:d534e0fb..., assinada (supply-chain run 36371193612); roda no webhook-receiver, na ponte e no agent-resume. Antes: 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); response-v3 de 13/09 (`e86c0f89`) que o receptor ja rodava
+  default = "1b72be17" # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614. Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI). Antes: d4444acc # 02/10/2026 (9a promocao): main com #602 (classify repete 1x em JSON invalido; sincope grave P1). Antes: 3c0d73ca # 02/10/2026 (7a promocao): main com #599 (DL-0056: retomada do Lucas volta ao WhatsApp). Antes: 03428909 # 02/10/2026 (6a promocao): main com o lexico do pre-roteamento empacotado (#597); roteador LIGADO em dev por lucas.auto.tfvars (#596, DL-0053). Antes: e8de19c3 # 01/10/2026 (5a promocao): main com #593 (DL-0055: DMN de admissibilidade do Lucas com categoria). Antes: 01b44ddd # 01/10/2026 (4a promocao): main com as ondas (e) e (f) do Lucas (#589, #590); roteador DESLIGADO. Antes: b3a5d4b9 # 01/10/2026 (3a promocao): main com #579 (DL-0054) e as correcoes de cerca/lint/tipos (#588). Antes: baa12dbd # 01/10/2026 (2a promocao): main baa12dbd (ondas a-c do Lucas #581 #582 #584; roteador desligado), CodeBuild sha256:2935cdbc. Antes: a94e7d4a # 01/10/2026: main a94e7d4a (#575 dispneia desconhecida escala, #577 outside_channel, #576 urllib3/pyjwt), CodeBuild sha256:1052fd6c. Antes: 3fbcc34e # 28/09/2026 (#558): merge de #555+#556+#557+#558 (arvore = d7661cec), CodeBuild sha256:d534e0fb..., assinada (supply-chain run 36371193612); roda no webhook-receiver, na ponte e no agent-resume. Antes: 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); response-v3 de 13/09 (`e86c0f89`) que o receptor ja rodava
 }
 
 variable "webhook_receiver_desired_count" {
@@ -541,7 +541,7 @@ variable "canal_teste_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "3fbe5871" # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625 (canal-teste). Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625 (canal-teste). Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614 (canal-teste). Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI) (canal-teste). Antes: 9638f32d # 28/09/2026: main 9638f32d (#564 conclusao na tela do portal, #565), sha256:4f300926, mesma imagem do app. Antes: 28fdd58e # 27/09/2026 (#555): o canal roda 28fdd58e (sha256:b7f8714e, assinada) desde o apply do #555 com -var; o default voltava a 07e72eae-r2. Antes: 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
+  default = "1b72be17" # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17 (canal-teste). Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17 (canal-teste). Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625 (canal-teste). Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625 (canal-teste). Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614 (canal-teste). Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI) (canal-teste). Antes: 9638f32d # 28/09/2026: main 9638f32d (#564 conclusao na tela do portal, #565), sha256:4f300926, mesma imagem do app. Antes: 28fdd58e # 27/09/2026 (#555): o canal roda 28fdd58e (sha256:b7f8714e, assinada) desde o apply do #555 com -var; o default voltava a 07e72eae-r2. Antes: 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
 }
 
 variable "canal_teste_result_allowlist" {
@@ -755,16 +755,108 @@ variable "lucas_inatividade_minutos" {
 
 variable "lucas_fonte_cobranca" {
   description = <<-EOT
-    Fonte dos fatos de cobranca do Lucas. So' existe `simulada`; a fonte real (CNAB) entra com o
-    seu proprio valor e a sua propria revisao. Presente fora de dev-sa-east-1 significa o Lucas
-    montado onde ele nao pode existir — a cerca reprova.
+    Fonte dos fatos de cobranca do Lucas: `simulada` (default) ou `amh` — a fonte real pelos
+    contratos da AMH (decisao do dono de 06/10/2026; ver `amh-interop.tf`). `amh` so' sobe com os
+    contratos publicados e pinados e com as variaveis `amh_*` preenchidas; sem isso o receptor
+    recusa servir. Presente fora de dev-sa-east-1 significa o Lucas montado onde ele nao pode
+    existir — a cerca reprova.
   EOT
   type        = string
   default     = "simulada"
   nullable    = false
 
   validation {
-    condition     = contains(["simulada"], var.lucas_fonte_cobranca)
-    error_message = "lucas_fonte_cobranca so' aceita \"simulada\" (a unica fonte que existe)."
+    condition     = contains(["simulada", "amh"], var.lucas_fonte_cobranca)
+    error_message = "lucas_fonte_cobranca so' aceita \"simulada\" ou \"amh\"."
+  }
+}
+
+# --- Fonte AMH do Lucas (so' lidas com lucas_fonte_cobranca = "amh"; ver amh-interop.tf) --------
+
+variable "amh_interop_base_url" {
+  description = "Origem do servico interop da AMH: ALB INTERNO, `http://<dns>` sem caminho (porta 80 dentro da VPC)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_token_url" {
+  description = "Endpoint de token do Cognito da AMH (client_credentials) para o app client maezo-operadora-interop."
+  type        = string
+  default     = "https://amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com/oauth2/token"
+  nullable    = false
+}
+
+variable "amh_interop_client_id" {
+  description = <<-EOT
+    Id do app client `maezo-operadora-interop` no Cognito da AMH. Gerado pela AWS (muda se o client
+    for recriado); vazio com a fonte AMH ligada faz o receptor recusar subir, alto, no boot.
+  EOT
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_scopes" {
+  description = "Escopos pedidos ao Cognito. Pedir um escopo que o client nao tem faz o Cognito recusar o token inteiro."
+  type        = string
+  default     = "interop/billing.read interop/subject.resolve interop/profile.read"
+  nullable    = false
+}
+
+variable "amh_interop_tenant" {
+  description = "Tenant da operadora no vocabulario da AMH (entra no hash do telefone e no corpo da resolucao)."
+  type        = string
+  default     = "omni"
+  nullable    = false
+}
+
+variable "amh_interop_purpose_of_use" {
+  description = "purpose_of_use enviado a AMH nas leituras do Lucas."
+  type        = string
+  default     = "sharing_amh_internal"
+  nullable    = false
+}
+
+variable "amh_billing_status_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status` publicado (o digest tem de estar no pin)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_subject_resolution_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `subject-resolution` publicado (o digest tem de estar no pin)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_cognito_secret_name" {
+  description = "Segredo (criado pela AMH) com o client secret do app client maezo-operadora-interop."
+  type        = string
+  default     = "amh/cognito/dev/maezo-operadora-interop"
+  nullable    = false
+}
+
+variable "amh_phone_lookup_secret_name" {
+  description = "Segredo (criado pela AMH) com a chave dedicada do hash amh-phone-lookup-v1."
+  type        = string
+  default     = "amh/interop/phone-lookup-key"
+  nullable    = false
+}
+
+variable "amh_interop_alb_security_group_id" {
+  description = <<-EOT
+    SG do ALB interno do servico interop da AMH, para a regra de saida 80 dedicada. Vazio = sem
+    regra dedicada (a regra `hapi_internal` ja' abre 80 para o CIDR da VPC).
+  EOT
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    condition     = var.amh_interop_alb_security_group_id == "" || can(regex("^sg-[0-9a-f]{8,17}$", var.amh_interop_alb_security_group_id))
+    error_message = "amh_interop_alb_security_group_id tem de ser vazio ou um id sg-..."
   }
 }
