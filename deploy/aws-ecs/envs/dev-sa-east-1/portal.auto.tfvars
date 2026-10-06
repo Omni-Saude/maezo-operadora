@@ -103,7 +103,7 @@ portal = {
   // portal (#456), o painel do canal (#457) e o alinhamento do teste psicossocial (#467).
   // 26/09/2026: o 871ecc0b saiu do ECR (o job `verificar` da main reprovava); repinado no mesmo
   // digest do perfil staff abaixo (so' e' usado se `staff` voltar a null).
-  image_digest = "sha256:fdeba8718767af28b4521aa5af6b3c9c946a27367473916e701fd88d8cdc1944"
+  image_digest = "sha256:2887ba81f6b6e397eb329526e4072bc422b21e7a751c9573d40ebe7eb485c4ce"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role
@@ -216,7 +216,8 @@ portal = {
     // aa7ac23e: portal-human sobre a main aa7ac23e, assinada pelo supply-chain.yml run 37040620772.
     // 3fbe5871: portal-human sobre a main 3fbe5871, assinada pelo supply-chain.yml run 37240052573.
     // 1b72be17: portal-human sobre a main 1b72be17, assinada pelo supply-chain.yml run 37467442502.
-    portal_image_digest = "sha256:fdeba8718767af28b4521aa5af6b3c9c946a27367473916e701fd88d8cdc1944"
+    // f7026a7e: portal-human sobre a main f7026a7e, assinada pelo supply-chain.yml run 37489994010.
+    portal_image_digest = "sha256:2887ba81f6b6e397eb329526e4072bc422b21e7a751c9573d40ebe7eb485c4ce"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
     public_manifest_sha256 = "fcc2e9fa4b831edf759119a80c49a4b257d6c21a2b499ba38df3a3bf7e80b1be"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
