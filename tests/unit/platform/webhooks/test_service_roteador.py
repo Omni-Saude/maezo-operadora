@@ -268,7 +268,7 @@ async def test_amh_com_contratos_pinados_compoe_a_fonte_real_e_drena(
     assert isinstance(turno.fonte, FonteCobrancaAmh)
     assert isinstance(turno.fonte._consentimento, BaseLegalExecucaoDeContrato)
     assert isinstance(turno.hash_telefone_amh, AmhPhoneLookupHasher)
-    assert turno.hash_telefone_amh.amh_tenant == "omni"
+    assert turno.hash_telefone_amh.amh_tenant == "austa_operadora"
     assert len(turno.hash_telefone_para_amh("5511987654321") or "") == 64
     assert turno.hash_telefone_para_amh("14155550100") is None
     assert "segredo-SINTETICO" not in repr(turno) and "chave-dedicada-SINTETICA" not in repr(turno)

@@ -805,9 +805,9 @@ variable "amh_interop_scopes" {
 }
 
 variable "amh_interop_tenant" {
-  description = "Tenant da operadora no vocabulario da AMH (entra no hash do telefone e no corpo da resolucao)."
+  description = "Tenant da operadora no vocabulario da AMH (entra no hash do telefone e no corpo da resolucao). AMH ADR-046: era omni."
   type        = string
-  default     = "omni"
+  default     = "austa_operadora"
   nullable    = false
 }
 

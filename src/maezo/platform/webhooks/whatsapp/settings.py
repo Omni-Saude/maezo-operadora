@@ -328,7 +328,7 @@ class WhatsAppWebhookSettings(BaseSettings):
     )
     # Tenant da operadora no vocabulario da AMH (entra no HMAC do telefone e no corpo da resolucao).
     amh_interop_tenant: str = Field(
-        default="omni",
+        default="austa_operadora",  # AMH ADR-046 (06/10/2026): era "omni"; o dado e' da Austa Clinicas
         validation_alias=AliasChoices("MAEZO_AMH_INTEROP_TENANT", "amh_interop_tenant"),
     )
     amh_interop_purpose_of_use: str = Field(
