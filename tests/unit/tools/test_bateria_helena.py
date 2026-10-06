@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
+import urllib.parse
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -76,6 +77,9 @@ class Mundo:
         self.chamadas: list[tuple[str, str]] = []
         self.vivas: list[dict[str, Any]] = []
         self.abrir_ao_enviar: dict[str, Any] | None = None
+        #: Simula o filtro ERRADO (`processInstanceBusinessKey`), que devolve tudo.
+        self.ignora_filtro = False
+        self.abrir_clinico_ao_enviar = False
         self.respostas: dict[str, str] = {}
         self.relogio = 0.0
         self.dormidos: list[float] = []
@@ -93,9 +97,14 @@ class Mundo:
             conv = f"wa:amh:hk1_{corpo['telefone'][-3:]}"
             if self.abrir_ao_enviar is not None:
                 self.vivas = [{"id": "inst-1", "businessKey": f"ESC-amh-{conv}"}]
+            if self.abrir_clinico_ao_enviar:
+                self.vivas.append({"id": "inst-clin", "businessKey": f"ESC-amh-{conv}-clin"})
             return 200, {"resposta": self.respostas.get(corpo["texto"], "ok"), "conversation_id": conv}
         if "/process-instance?" in url and metodo == "GET":
-            return 200, list(self.vivas)
+            if self.ignora_filtro:
+                return 200, list(self.vivas)
+            chave = urllib.parse.unquote(url.split("businessKey=", 1)[1])
+            return 200, [v for v in self.vivas if v["businessKey"] == chave]
         if "/variable-instance?" in url:
             return 200, [
                 {"name": "roteamento", "value": ROTEAMENTO_P1},
@@ -104,7 +113,8 @@ class Mundo:
                 {"name": "dmn_decision_ref", "value": "triage_redflag_adult#triage_redflag_adult:2:abc"},
             ]
         if metodo == "DELETE":
-            self.vivas = []
+            iid = url.split("/process-instance/", 1)[1].split("?", 1)[0]
+            self.vivas = [v for v in self.vivas if v["id"] != iid]
             return 204, None
         raise AssertionError(f"chamada inesperada: {metodo} {url}")
 
@@ -132,6 +142,7 @@ def test_so_cancela_quando_ha_exatamente_uma_instancia_com_a_chave_esperada() ->
 def test_recusa_cancelar_quando_a_consulta_devolve_mais_de_uma_instancia() -> None:
     """O defeito do filtro errado: a consulta devolve TODAS as instancias (77 em dev)."""
     mundo = Mundo()
+    mundo.ignora_filtro = True
     mundo.vivas = [{"id": f"i{n}", "businessKey": f"ESC-amh-outra-{n}"} for n in range(77)]
 
     with pytest.raises(B.RecusaDeSegurancaError):
@@ -142,12 +153,52 @@ def test_recusa_cancelar_quando_a_consulta_devolve_mais_de_uma_instancia() -> No
 
 def test_recusa_cancelar_instancia_unica_de_outra_chave() -> None:
     mundo = Mundo()
+    mundo.ignora_filtro = True
     mundo.vivas = [{"id": "i1", "businessKey": "ESC-amh-wa:amh:hk1_OUTRA"}]
 
     with pytest.raises(B.RecusaDeSegurancaError):
         _bateria(mundo).cancelar("wa:amh:hk1_x")
 
     assert not [c for c in mundo.chamadas if c[0] == "DELETE"]
+
+
+def test_cancela_tambem_o_caso_clinico_paralelo_pela_chave_exata() -> None:
+    """DL-0072: o alerta clinico grave com caso aberto abre `ESC-amh-<conversa>-clin`. Antes o runner nao
+    o via nem o cancelava: 5 atendimentos P1 de teste ficaram abertos no dev em 05/10/2026."""
+    mundo = Mundo()
+    mundo.vivas = [
+        {"id": "inst-1", "businessKey": "ESC-amh-wa:amh:hk1_x"},
+        {"id": "inst-clin", "businessKey": "ESC-amh-wa:amh:hk1_x-clin"},
+        {"id": "de-outra-conversa", "businessKey": "ESC-amh-wa:amh:hk1_y-clin"},
+    ]
+
+    resultado = _bateria(mundo).cancelar("wa:amh:hk1_x")
+
+    assert resultado == "cancelado_204+clin_cancelado_204"
+    assert [v["id"] for v in mundo.vivas] == ["de-outra-conversa"], "so' as duas chaves desta conversa"
+
+
+def test_cancela_so_o_clinico_quando_o_principal_nao_existe() -> None:
+    mundo = Mundo()
+    mundo.vivas = [{"id": "inst-clin", "businessKey": "ESC-amh-wa:amh:hk1_x-clin"}]
+
+    assert _bateria(mundo).cancelar("wa:amh:hk1_x") == "clin_cancelado_204"
+    assert mundo.vivas == []
+
+
+def test_se_uma_das_duas_chaves_recusa_nada_e_apagado() -> None:
+    """A validacao das duas vem antes de qualquer DELETE."""
+    mundo = Mundo()
+    mundo.vivas = [
+        {"id": "inst-1", "businessKey": "ESC-amh-wa:amh:hk1_x"},
+        {"id": "clin-1", "businessKey": "ESC-amh-wa:amh:hk1_x-clin"},
+        {"id": "clin-2", "businessKey": "ESC-amh-wa:amh:hk1_x-clin"},
+    ]
+
+    with pytest.raises(B.RecusaDeSegurancaError):
+        _bateria(mundo).cancelar("wa:amh:hk1_x")
+
+    assert not [c for c in mundo.chamadas if c[0] == "DELETE"], "o principal tambem nao foi apagado"
 
 
 def test_sem_instancia_nao_ha_o_que_cancelar() -> None:
@@ -220,6 +271,29 @@ def test_um_caso_que_abre_atendimento_registra_o_roteamento_do_motor_e_limpa() -
     assert linhas[-1]["bate"] is True
     assert proximo == 301
     assert mundo.vivas == [], "nao pode sobrar atendimento aberto"
+
+
+def test_caso_com_clinico_paralelo_usa_a_rota_do_paralelo_e_limpa_os_dois() -> None:
+    """I02: com um P3 aberto, 'dor no peito' abre um caso clinico paralelo (DL-0072); a rota observada e'
+    a do paralelo (P1 plantao), e os dois casos sao cancelados no fim."""
+    mundo = Mundo()
+    mundo.abrir_ao_enviar = {"abre": True}
+    mundo.abrir_clinico_ao_enviar = True
+    caso = {
+        "id": "T0",
+        "msgs": [{"texto": "dor no peito", "espera_s": 0}],
+        "espera": {"prioridade": "P1", "grupo": "plantao-clinico"},
+    }
+
+    linhas, _ = _bateria(mundo).rodar_caso(caso, 300)
+
+    envio = linhas[0]
+    assert envio["motor"] is not None and envio["motor_paralelo"] is not None
+    assert linhas[-1]["bate"] is True
+    assert any(
+        linha.get("acao") == "limpeza" and "clin_cancelado_204" in linha["resultado"] for linha in linhas
+    )
+    assert mundo.vivas == [], "nao pode sobrar nenhum dos dois"
 
 
 def test_rota_diferente_da_esperada_nao_bate() -> None:
@@ -306,6 +380,18 @@ def test_todo_caso_declara_mensagens_e_a_rota_esperada() -> None:
         assert set(caso["espera"]) == {"prioridade", "grupo"}, caso["id"]
         assert (caso["espera"]["prioridade"] is None) == (caso["espera"]["grupo"] is None), caso["id"]
         assert caso["espera"]["prioridade"] in (None, "P1", "P2", "P3"), caso["id"]
+
+
+def test_o_corpus_tem_os_casos_k_e_as_decisoes_interinas_de_02_10() -> None:
+    por_id = {c["id"]: c for c in _casos()}
+
+    for esperado in ("K01", "K02", "K03", "K04", "K05", "K06", "K07"):
+        assert esperado in por_id, esperado
+    # DL-0068 (falta de ar leve), DL-0069 (panico P1), DL-0070 (reclamacao na ANS), DL-0072 (paralelo).
+    assert por_id["C06"]["espera"] == {"prioridade": "P1", "grupo": "plantao-clinico"}
+    assert por_id["E08"]["espera"] == {"prioridade": "P1", "grupo": "plantao-clinico"}
+    assert por_id["B13"]["espera"] == {"prioridade": "P3", "grupo": "atendimento-humano"}
+    assert por_id["K06"]["espera"] == {"prioridade": "P1", "grupo": "plantao-clinico"}
 
 
 def test_carregar_casos_filtra_por_id_e_recusa_id_inexistente() -> None:

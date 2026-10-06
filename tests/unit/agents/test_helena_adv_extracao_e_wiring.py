@@ -16,6 +16,7 @@ Quatro perguntas adversariais, uma por bloco:
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, cast, get_args
 
@@ -109,7 +110,9 @@ async def test_o_bool_verdadeiro_e_preservado_e_a_ausencia_vira_false() -> None:
     """O RED do teste acima: sem isto, um campo constante `False` passaria os dois."""
     graph = _graph()
 
-    assert (await graph.receive(_estado(apresentacao_ja_feita=True)))["apresentacao_ja_feita"] is True
+    # DL-0076: o sinal so' atravessa com o carimbo da ultima mensagem dentro da janela.
+    recente = _estado(apresentacao_ja_feita=True, ultima_mensagem_em=datetime.now(UTC).isoformat())
+    assert (await graph.receive(recente))["apresentacao_ja_feita"] is True
     assert (await graph.receive(_estado()))["apresentacao_ja_feita"] is False
 
 

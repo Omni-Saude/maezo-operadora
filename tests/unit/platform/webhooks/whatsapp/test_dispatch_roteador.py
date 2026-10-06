@@ -108,11 +108,15 @@ def _dispatcher(
     )
 
 
+_CARIMBOS_DE_RELOGIO = frozenset({"gravado_em", "ultima_mensagem_em"})
+
+
 def _sem_relogio(valor: Any) -> Any:
-    """O estado do turno, sem os carimbos de relogio de parede (`memoria_clinica.gravado_em`):
-    dois turnos identicos rodados um depois do outro diferem so' nisso."""
+    """O estado do turno, sem os carimbos de relogio de parede (`memoria_clinica.gravado_em` e,
+    desde DL-0076, `ultima_mensagem_em` da validade do cartao de apresentacao): dois turnos
+    identicos rodados um depois do outro diferem so' nisso."""
     if isinstance(valor, dict):
-        return {k: _sem_relogio(v) for k, v in valor.items() if k != "gravado_em"}
+        return {k: _sem_relogio(v) for k, v in valor.items() if k not in _CARIMBOS_DE_RELOGIO}
     if isinstance(valor, list):
         return [_sem_relogio(v) for v in valor]
     return valor

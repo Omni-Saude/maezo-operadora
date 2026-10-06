@@ -1,6 +1,6 @@
 {
-  "versao": "bateria-helena-v1",
-  "nota": "Casos da bateria de 01/10/2026. `espera` e' a HIPOTESE de rota (prioridade e grupo do ultimo atendimento aberto; prioridade nula = nao deve abrir), nao o resultado de hoje. Falta de ar 'leve' (C06), crise de panico (E08, tabela P2 x roteamento P1) e piora com atendimento aberto (I02) sao perguntas de dono; o veredito aqui so' compara rota. O texto da resposta e' julgado por uma pessoa. A mensagem 'CANCELAR' cancela o atendimento aberto no meio do caso.",
+  "versao": "bateria-helena-v2",
+  "nota": "Casos da bateria de 01/10/2026 mais os K (H03 do diretor). `espera` e' a HIPOTESE de rota (prioridade e grupo do ultimo atendimento aberto; com caso clinico PARALELO, DL-0072, vale o paralelo; prioridade nula = nao deve abrir), nao o resultado de hoje. Atualizada em 05/10/2026 para as decisoes INTERINAS de 02/10 (falta de ar leve P1, DL-0068; panico P1, DL-0069; reclamacao na ANS abre P3, DL-0070). Continuam perguntas de dono: E11 (pergunta sobre remedio deve ser P2) e B01/B04/B05 (roteador de cobranca do Lucas). O texto da resposta e' julgado por uma pessoa. A mensagem 'CANCELAR' cancela o atendimento aberto no meio do caso.",
   "casos": [
     {
       "id": "A_SEQ",
@@ -241,8 +241,8 @@
       "familia": "B. Canal errado e assunto administrativo",
       "fresh": false,
       "espera": {
-        "prioridade": null,
-        "grupo": null
+        "prioridade": "P3",
+        "grupo": "atendimento-humano"
       },
       "msgs": [
         {
@@ -331,8 +331,8 @@
       "familia": "C. Sintoma real sem criticidade",
       "fresh": false,
       "espera": {
-        "prioridade": null,
-        "grupo": null
+        "prioridade": "P1",
+        "grupo": "plantao-clinico"
       },
       "msgs": [
         {
@@ -856,8 +856,8 @@
       "familia": "E. Escalonamento P2 (enfermagem)",
       "fresh": false,
       "espera": {
-        "prioridade": "P2",
-        "grupo": "enfermagem-triagem"
+        "prioridade": "P1",
+        "grupo": "plantao-clinico"
       },
       "msgs": [
         {
@@ -1270,6 +1270,123 @@
         {
           "texto": "Febre alta e falta de ar forte",
           "espera_s": 1
+        }
+      ]
+    },
+    {
+      "id": "K01",
+      "familia": "K. Validacao do PR #575 (caso H03 do diretor)",
+      "fresh": false,
+      "espera": {
+        "prioridade": "P1",
+        "grupo": "plantao-clinico"
+      },
+      "msgs": [
+        {
+          "texto": "estou com dor de cabeça",
+          "espera_s": 15
+        },
+        {
+          "texto": "agora também estou com falta de ar e confusão mental",
+          "espera_s": 8
+        }
+      ]
+    },
+    {
+      "id": "K02",
+      "familia": "K. Validacao do PR #575 (caso H03 do diretor)",
+      "fresh": false,
+      "espera": {
+        "prioridade": "P1",
+        "grupo": "plantao-clinico"
+      },
+      "msgs": [
+        {
+          "texto": "estou com dor de cabeça",
+          "espera_s": 15
+        },
+        {
+          "texto": "agora também estou com falta de ar",
+          "espera_s": 8
+        }
+      ]
+    },
+    {
+      "id": "K03",
+      "familia": "K. Validacao do PR #575 (caso H03 do diretor)",
+      "fresh": false,
+      "espera": {
+        "prioridade": "P1",
+        "grupo": "plantao-clinico"
+      },
+      "msgs": [
+        {
+          "texto": "estou com falta de ar",
+          "espera_s": 8
+        }
+      ]
+    },
+    {
+      "id": "K04",
+      "familia": "K. Validacao do PR #575 (caso H03 do diretor)",
+      "fresh": false,
+      "espera": {
+        "prioridade": "P1",
+        "grupo": "plantao-clinico"
+      },
+      "msgs": [
+        {
+          "texto": "estou muito confuso, não sei onde estou",
+          "espera_s": 8
+        }
+      ]
+    },
+    {
+      "id": "K05",
+      "familia": "K. Validacao do PR #575 (caso H03 do diretor)",
+      "fresh": false,
+      "espera": {
+        "prioridade": "P1",
+        "grupo": "plantao-clinico"
+      },
+      "msgs": [
+        {
+          "texto": "meu pai está confuso e falando coisa sem sentido",
+          "espera_s": 8
+        }
+      ]
+    },
+    {
+      "id": "K06",
+      "familia": "K. Validacao do PR #575 (caso H03 do diretor)",
+      "fresh": false,
+      "espera": {
+        "prioridade": "P1",
+        "grupo": "plantao-clinico"
+      },
+      "msgs": [
+        {
+          "texto": "estou com um pouco de falta de ar, bem leve",
+          "espera_s": 8
+        }
+      ]
+    },
+    {
+      "id": "K07",
+      "familia": "K. Validacao do PR #575 (caso H03 do diretor)",
+      "fresh": false,
+      "espera": {
+        "prioridade": "P1",
+        "grupo": "plantao-clinico"
+      },
+      "msgs": [
+        {
+          "texto": "bom dia",
+          "espera_s": 15
+        },
+        {
+          "texto": "estou com falta de ar",
+          "espera_s": 8
         }
       ]
     }
