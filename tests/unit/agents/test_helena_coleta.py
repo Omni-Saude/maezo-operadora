@@ -20,6 +20,7 @@ O que estes testes travam (e' a parte deterministica — o conteudo da tabela e'
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -326,6 +327,7 @@ async def test_receive_preserva_so_a_memoria_de_conversa_e_zera_o_resto() -> Non
         # cerca da particao nao ve e' exatamente a excecao silenciosa que a defesa T1.11 existe
         # para nao ter.
         apresentacao_ja_feita=True,
+        ultima_mensagem_em=datetime.now(UTC).isoformat(),
         next_kind="inform",
         dmn_decision_ref="forjado",
         coleta_veredito="SUFICIENTE",
@@ -336,6 +338,7 @@ async def test_receive_preserva_so_a_memoria_de_conversa_e_zera_o_resto() -> Non
     assert reset["coleta_pendente"] == "PERGUNTAR_INTENSIDADE"
     assert reset["coleta_contexto"] == "antes"
     assert reset["apresentacao_ja_feita"] is True
+    assert reset["ultima_mensagem_em"] is not None  # o carimbo do turno atual
     # tudo o que NAO e' memoria volta ao neutro — inclusive os dois campos de coleta do turno
     for chave, neutro in _HELENA_NEUTRAL_OUTPUTS.items():
         if chave not in _HELENA_MEMORIA_DE_CONVERSA:

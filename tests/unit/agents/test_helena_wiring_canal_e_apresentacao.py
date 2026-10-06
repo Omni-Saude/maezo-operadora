@@ -9,6 +9,7 @@ seguinte e chega ao contexto do prompt.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -146,7 +147,9 @@ async def test_o_envio_bem_sucedido_acende_apresentacao_ja_feita() -> None:
 async def test_receive_preserva_o_sinal_entre_turnos_e_nao_o_inventa() -> None:
     graph, _ = _graph("qualquer")
 
-    com_sinal = await graph.receive(_estado(apresentacao_ja_feita=True))
+    com_sinal = await graph.receive(
+        _estado(apresentacao_ja_feita=True, ultima_mensagem_em=datetime.now(UTC).isoformat())
+    )
     sem_sinal = await graph.receive(_estado())
 
     assert com_sinal["apresentacao_ja_feita"] is True

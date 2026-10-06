@@ -13,6 +13,7 @@ O que estes testes fixam, criterio a criterio da spec da diretoria:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, get_args
 
 import pytest
@@ -312,6 +313,7 @@ async def test_resume_saneia_estado_do_escalonamento(desfechos: list[dict[str, A
         escalation_started=True,
         start_desfecho="novo",
         apresentacao_ja_feita=True,
+        ultima_mensagem_em=datetime.now(UTC).isoformat(),
     )
     assert result["coleta_pendente"] is None
     assert result["coleta_rodadas"] == 0

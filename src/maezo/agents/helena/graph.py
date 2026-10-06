@@ -1036,6 +1036,9 @@ class HelenaState(TypedDict, total=False):
     #: turnos por `receive` (como `memoria_clinica`) e lido por `response_prompt` via contexto —
     #: com ele ligado, repetir a apresentacao esta' PROIBIDO no prompt.
     apresentacao_ja_feita: bool
+    #: ISO-8601 UTC do ULTIMO turno em que a pessoa escreveu. Memoria de conversa: `receive` o compara
+    #: com o agora para decidir se o cartao de apresentacao ainda vale (DL-0075).
+    ultima_mensagem_em: str | None
 
     # Turn output.
     response_text: str
@@ -1151,6 +1154,7 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     # desfazer uma vez com `start_failed`. Aqui a ausencia tem NOME.
     "start_desfecho": START_DESFECHO_NAO_TENTADO,
     "apresentacao_ja_feita": False,
+    "ultima_mensagem_em": None,
     "response_text": None,
     "response_kind": None,
     "desfecho": "",
@@ -1326,6 +1330,7 @@ _HELENA_MEMORIA_DE_CONVERSA: frozenset[str] = frozenset(
         "coleta_contexto",
         "memoria_clinica",
         "apresentacao_ja_feita",
+        "ultima_mensagem_em",
     }
 )
 
@@ -1546,6 +1551,36 @@ def _memoria_clinica_valida(
     limpa[_MEMORIA_GRAVADA_EM] = gravado.isoformat()
     limpa[_MEMORIA_CONFIRMADA] = bruta.get(_MEMORIA_CONFIRMADA) is True
     return limpa
+
+
+#: DL-0075 (05/10/2026, PRAZO PROVISORIO — decisao de produto): depois de quantas horas SEM a pessoa escrever
+#: a Helena se apresenta de novo. Antes disso o cartao era uma vez por conversa, e a conversa de um numero
+#: nao expira: quem voltava dias depois nao era reapresentado. 12 h por sugestao de engenharia; a janela
+#: de 24 h da Meta (`last_inbound_at`) seria o outro candidato.
+APRESENTACAO_VALIDADE_HORAS: float = 12.0
+
+
+def _apresentacao_continua_valida(
+    ultima_mensagem_em: Any,
+    *,
+    agora: datetime,
+    janela_horas: float = APRESENTACAO_VALIDADE_HORAS,
+) -> bool:
+    """`True` so' quando a ultima mensagem tem carimbo legivel, nao e' futura e e' mais nova que a janela.
+
+    Ausente, ilegivel, no futuro ou velho => `False` (reapresenta). Fail-safe: o pior caso e' o cartao
+    aparecer uma vez a mais.
+    """
+    if not isinstance(ultima_mensagem_em, str):
+        return False
+    try:
+        quando = datetime.fromisoformat(ultima_mensagem_em)
+    except ValueError:
+        return False
+    if quando.tzinfo is None:
+        quando = quando.replace(tzinfo=UTC)
+    decorrido = (agora - quando).total_seconds()
+    return 0 <= decorrido < janela_horas * 3600
 
 
 def _fundir_memoria_clinica(
@@ -2545,8 +2580,17 @@ class HelenaGraph:
         # F6 (21/09/2026): o cartao de apresentacao e' uma vez por CONVERSA. Preservado sem portao
         # de feature — e' um bool que so' anda para True, e o unico efeito e' o prompt nao repetir
         # "Sou Helena..." no segundo turno.
-        if state.get("apresentacao_ja_feita") is True:
+        #
+        # DL-0075 (05/10/2026): o cartao vale por `APRESENTACAO_VALIDADE_HORAS` desde a ULTIMA mensagem
+        # da pessoa. Quem volta depois de 12 h (ou numa conversa sem carimbo, de antes desta regra) e'
+        # apresentado de novo. O carimbo do turno atual e' gravado SEMPRE, depois da decisao: o valor
+        # lido aqui e' o do turno anterior.
+        agora = datetime.now(UTC)
+        if state.get("apresentacao_ja_feita") is True and _apresentacao_continua_valida(
+            state.get("ultima_mensagem_em"), agora=agora
+        ):
             reset["apresentacao_ja_feita"] = True
+        reset["ultima_mensagem_em"] = agora.isoformat()
         # MEMORIA CLINICA (Frente 2.1): preservada por uma chave PROPRIA, independente da coleta.
         # As duas memorias respondem a perguntas diferentes — "que pergunta ficou em aberto" e
         # "quem e' o paciente" — e amarrar a segunda ao portao da primeira deixaria a crianca
@@ -4018,7 +4062,12 @@ class HelenaGraph:
         para classificar, e o texto e' do humano, nao do modelo.
         """
         reset: dict[str, Any] = dict(_HELENA_NEUTRAL_OUTPUTS)
-        if state.get("apresentacao_ja_feita") is True:
+        # A retomada nao e' mensagem da pessoa: o carimbo da ultima mensagem DELA e' preservado como esta',
+        # sem renovar (renovar adiaria a reapresentacao por causa de uma mensagem do atendente).
+        reset["ultima_mensagem_em"] = state.get("ultima_mensagem_em")
+        if state.get("apresentacao_ja_feita") is True and _apresentacao_continua_valida(
+            state.get("ultima_mensagem_em"), agora=datetime.now(UTC)
+        ):
             reset["apresentacao_ja_feita"] = True
         if self._memoria_clinica_enabled and "memoria_clinica" in state:
             reset["memoria_clinica"] = _memoria_clinica_valida(
