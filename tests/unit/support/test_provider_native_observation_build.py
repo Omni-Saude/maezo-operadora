@@ -1191,3 +1191,52 @@ def test_measurement_schema_shadow_origin_is_refused(name):
 def test_measurement_class_release_preview_refused():
     with pytest.raises(build.NativeObservationBuildError, match="Java 17 without preview"):
         build.class_metadata(b"\xca\xfe\xba\xbe\xff\xff\x00\x3d")
+
+
+@pytest.mark.parametrize(
+    "counts", [{"main": True, "test": 1}, {"main": 1.0, "test": 1}, {"main": 1, "test": True}]
+)
+def test_root_compile_counts_require_json_integers(monkeypatch, counts):
+    record = _unit_compilation_record(counts=counts)
+    monkeypatch.setattr(build, "pinned_record", lambda *args: record)
+    with pytest.raises(build.NativeObservationBuildError, match="single compilation"):
+        build.root_compilation({}, {}, {}, {})
+
+
+def _unit_compilation_record(*, counts=None, release=17):
+    # Boundary counterproof only: no executable/compiler/runtime authority.
+    return dict(
+        schema="provider-native-independent-measurement-root-compilation.v1",
+        scope="ROOT_SINGLE_COMPILATION_CUSTODY_NOT_RUNTIME",
+        candidate_sha="a" * 40,
+        source_files={},
+        main_compilation={},
+        test_compilation={},
+        support_classes={},
+        compilation_commands={"main": "UnitOnly", "test": "UnitOnly"},
+        compile_counts={"main": 1, "test": 1} if counts is None else counts,
+        compiler={"release": release, "version": "UnitOnly", "executable": {}},
+        dependency_jars={},
+    )
+
+
+def test_root_compile_release_requires_json_integer(monkeypatch):
+    monkeypatch.setattr(build, "pinned_record", lambda *args: _unit_compilation_record(release=17.0))
+    with pytest.raises(build.NativeObservationBuildError, match="release/version"):
+        build.root_compilation({}, {}, {}, {})
+
+
+@pytest.mark.parametrize("loose", [False, True])
+def test_nested_mr_vendor_own_class_alias_refused(tmp_path, loose):
+    own = "br/com/maezo/workload/StartupAdmission.class"
+    member = "META-INF/versions/17/META-INF/versions/11/" + own
+    origin = "webapps/docs/WEB-INF/classes/" + member if loose else "lib/vendor.jar"
+    if loose:
+        file(tmp_path, origin, b"UnitOnly")
+    else:
+        jar(tmp_path, origin, {member: b"UnitOnly"})
+    # No positive origin expected; the hidden alias itself must cause refusal.
+    with pytest.raises(build.NativeObservationBuildError, match="own class origin"):
+        build.verify_owner_origins(
+            tmp_path, {origin: "UnitOnly"}, {"support_classes": {}, "descriptor_resources": {}}
+        )

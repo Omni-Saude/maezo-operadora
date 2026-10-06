@@ -116,8 +116,14 @@ def test_unit_metadata_jvm_writable_ancestor_refused(monkeypatch, owner, group, 
     from types import SimpleNamespace
 
     path = Path("/unit-protected/ipc/primary.sock")
-    config = dict(root_peer_uid=1001, root_peer_gid=3030, root_peer_group="unit-ipc",
-                  root_peer_user="unit-root", jvm_uid=2002, jvm_gid=3030)
+    config = dict(
+        root_peer_uid=1001,
+        root_peer_gid=3030,
+        root_peer_group="unit-ipc",
+        root_peer_user="unit-root",
+        jvm_uid=2002,
+        jvm_gid=3030,
+    )
     monkeypatch.setattr(Path, "resolve", lambda self: self)
 
     def metadata(self, **kwargs):
@@ -132,11 +138,49 @@ def test_unit_metadata_jvm_writable_ancestor_refused(monkeypatch, owner, group, 
     monkeypatch.setattr(os, "geteuid", lambda: 1001)
     monkeypatch.setattr(os, "getegid", lambda: 3030)
     monkeypatch.setattr(measurement, "_xattrs", lambda path: [])
-    users = [SimpleNamespace(pw_uid=1001, pw_gid=3030, pw_name="unit-root"),
-             SimpleNamespace(pw_uid=2002, pw_gid=3030, pw_name="unit-jvm")]
-    monkeypatch.setattr(measurement.grp, "getgrgid", lambda gid: SimpleNamespace(gr_name="unit-ipc", gr_mem=[]))
+    users = [
+        SimpleNamespace(pw_uid=1001, pw_gid=3030, pw_name="unit-root"),
+        SimpleNamespace(pw_uid=2002, pw_gid=3030, pw_name="unit-jvm"),
+    ]
+    monkeypatch.setattr(
+        measurement.grp, "getgrgid", lambda gid: SimpleNamespace(gr_name="unit-ipc", gr_mem=[])
+    )
     monkeypatch.setattr(measurement.pwd, "getpwall", lambda: users)
     monkeypatch.setattr(measurement.pwd, "getpwuid", lambda uid: users[0])
     guard = runtime._ObservationWaitGuard.start(datetime.now(UTC) + timedelta(seconds=5))
     with pytest.raises(runtime.NativeObservationError, match="ancestor"):
         measurement._socket_custody(path, config, guard, exists=False)
+
+
+@pytest.mark.parametrize("buffered", [False, True])
+def test_unit_outcome_queue_with_actual_primary_remote_close_is_deferred(tmp_path, buffered):
+    import socket
+
+    collector = measurement.NativeMeasurementCollector.__new__(measurement.NativeMeasurementCollector)
+    collector._failed = False
+    collector._outcome_accepted = False
+    collector._outcome_arrival_observed = False
+    collector._terminal_seen = False
+    primary, producer = socket.socketpair()
+    primary.setblocking(False)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        listener.bind(str(tmp_path / "outcome"))
+        listener.listen(1)
+        listener.setblocking(False)
+        if buffered:
+            producer.sendall(b"UnitOnly-buffered-terminal-not-protocol-authority")
+        producer.close()
+        client.connect(str(tmp_path / "outcome"))
+        collector._primary = primary
+        collector._outcome_listener = listener
+        collector._check_outcome_arrival()
+        assert collector._outcome_arrival_observed
+        assert not collector._outcome_accepted
+        if buffered:
+            assert primary.recv(256) == b"UnitOnly-buffered-terminal-not-protocol-authority"
+        assert primary.recv(1) == b""
+    finally:
+        for owned in (primary, producer, listener, client):
+            owned.close()

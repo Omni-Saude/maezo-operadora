@@ -449,8 +449,13 @@ def _process_identity(pid: int, guard: runtime._ObservationWaitGuard) -> tuple[A
     ):
         raise runtime.NativeObservationError("Process credentials change privilege domains")
     return (
-        pid, ids["NSpid"][-1], ids["Uid"][0], ids["Gid"][0], start_ticks,
-        *namespaces, tuple(sorted(set((ids["Gid"][0], *ids["Groups"])))),
+        pid,
+        ids["NSpid"][-1],
+        ids["Uid"][0],
+        ids["Gid"][0],
+        start_ticks,
+        *namespaces,
+        tuple(sorted(set((ids["Gid"][0], *ids["Groups"])))),
     )
 
 
@@ -465,7 +470,11 @@ def _xattrs(path: Path) -> list[str]:
 
 
 def _socket_custody(
-    path: Path, config: dict[str, Any], guard: runtime._ObservationWaitGuard, *, exists: bool,
+    path: Path,
+    config: dict[str, Any],
+    guard: runtime._ObservationWaitGuard,
+    *,
+    exists: bool,
     jvm_identity: tuple[Any, ...] | None = None,
 ) -> tuple[int, int] | None:
     guard.check()
@@ -496,17 +505,24 @@ def _socket_custody(
     # promoted to a running process credential observation.
     jvm_groups = None
     if jvm_identity is not None:
-        if (len(jvm_identity) != 9 or jvm_identity[2:4] != (config["jvm_uid"], config["jvm_gid"])
-                or type(jvm_identity[8]) is not tuple or not jvm_identity[8]
-                or any(type(gid) is not int or gid < 0 for gid in jvm_identity[8])):
+        if (
+            len(jvm_identity) != 9
+            or jvm_identity[2:4] != (config["jvm_uid"], config["jvm_gid"])
+            or type(jvm_identity[8]) is not tuple
+            or not jvm_identity[8]
+            or any(type(gid) is not int or gid < 0 for gid in jvm_identity[8])
+        ):
             raise runtime.NativeObservationError("Actual JVM ancestor credentials unavailable")
         jvm_groups = jvm_identity[8]
     for parent_path in (path.parent, *path.parent.parents):
         st = parent_path.stat(follow_symlinks=False)
-        if (parent_path.resolve() != parent_path or not stat.S_ISDIR(st.st_mode)
-                or st.st_mode & 0o002
-                or (st.st_uid == config["jvm_uid"] and st.st_mode & 0o200)
-                or (st.st_mode & 0o020 and (jvm_groups is None or st.st_gid in jvm_groups))):
+        if (
+            parent_path.resolve() != parent_path
+            or not stat.S_ISDIR(st.st_mode)
+            or st.st_mode & 0o002
+            or (st.st_uid == config["jvm_uid"] and st.st_mode & 0o200)
+            or (st.st_mode & 0o020 and (jvm_groups is None or st.st_gid in jvm_groups))
+        ):
             raise runtime.NativeObservationError("UDS ancestor writable or substituted")
         if "system.posix_acl_access" in _xattrs(parent_path):
             raise runtime.NativeObservationError("Unqualified UDS ACL refused")
@@ -572,10 +588,16 @@ class NativeMeasurementCollector:
                 raise runtime.NativeObservationError("Actual JVM process start/namespace changed")
             for channel, inode in self._listener_inodes.items():
                 path = Path(self.config["socket_path" if channel == "primary" else "outcome_socket_path"])
-                if _socket_custody(path, self.config, self.guard, exists=True, jvm_identity=self._peer) != inode:
+                if (
+                    _socket_custody(path, self.config, self.guard, exists=True, jvm_identity=self._peer)
+                    != inode
+                ):
                     raise runtime.NativeObservationError("Actual socket inode changed")
-        if (self._primary_listener is not None and self._primary_accepted
-                and select.select([self._primary_listener], [], [], 0)[0]):
+        if (
+            self._primary_listener is not None
+            and self._primary_accepted
+            and select.select([self._primary_listener], [], [], 0)[0]
+        ):
             raise runtime.NativeObservationError("Extra primary UDS connection refused")
         self._check_outcome_arrival()
         self.guard.check()
@@ -596,8 +618,11 @@ class NativeMeasurementCollector:
             closed_mask = select.POLLHUP | getattr(select, "POLLRDHUP", 0)
             poll.register(self._primary, select.POLLIN | closed_mask | select.POLLERR)
             events = poll.poll(0)
-            closed = (len(events) == 1 and events[0][1] & closed_mask
-                      and not events[0][1] & (select.POLLERR | select.POLLNVAL))
+            closed = (
+                len(events) == 1
+                and events[0][1] & closed_mask
+                and not events[0][1] & (select.POLLERR | select.POLLNVAL)
+            )
             if closed:
                 self._outcome_arrival_observed = True
                 return

@@ -396,7 +396,13 @@ def root_compilation(
         and re.fullmatch(r"[a-f0-9]{40}", record["candidate_sha"]) is not None,
         "ROOT candidate SHA differs",
     )
-    require(record["compile_counts"] == {"main": 1, "test": 1}, "ROOT single compilation required")
+    counts = record["compile_counts"]
+    require(
+        type(counts) is dict
+        and set(counts) == {"main", "test"}
+        and all(type(value) is int and value == 1 for value in counts.values()),
+        "ROOT single compilation required",
+    )
     commands = record["compilation_commands"]
     require(
         isinstance(commands, dict) and set(commands) == {"main", "test"}, "ROOT compilation commands differ"
@@ -411,7 +417,8 @@ def root_compilation(
         "ROOT compiler keys differ",
     )
     require(
-        compiler["release"] == 17
+        type(compiler["release"]) is int
+        and compiler["release"] == 17
         and isinstance(compiler["version"], str)
         and 1 <= len(compiler["version"]) <= 256,
         "ROOT compiler release/version differs",
@@ -1083,6 +1090,8 @@ def verify_owner_origins(root: Path, files: dict[str, str], support: dict[str, A
             phase_artifacts[name] = entries
             for member, raw in entries.items():
                 logical = logical_member(member)
+                while logical.startswith("META-INF/versions/"):
+                    logical = logical_member(logical)
                 if logical in (*DEFAULT_RESOURCES, *VENDOR_RESOURCES, *DESCRIPTOR_RESOURCES):
                     require(
                         name == "lib/provider-auth-test-support.jar"
@@ -1104,6 +1113,8 @@ def verify_owner_origins(root: Path, files: dict[str, str], support: dict[str, A
         elif "/WEB-INF/classes/" in name:
             member = name.split("/WEB-INF/classes/", 1)[1]
             logical = logical_member(member)
+            while logical.startswith("META-INF/versions/"):
+                logical = logical_member(logical)
             phase_artifacts[name] = {member: read(root / name)}
             require(
                 logical not in (*DEFAULT_RESOURCES, *VENDOR_RESOURCES, *DESCRIPTOR_RESOURCES),

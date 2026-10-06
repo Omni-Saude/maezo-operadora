@@ -104,7 +104,7 @@ def _positive(value: Any) -> str:
     return value
 
 
-def _rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _rows(rows: Sequence[asyncpg.Record | Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [_plain(dict(row)) for row in rows]
 
 
