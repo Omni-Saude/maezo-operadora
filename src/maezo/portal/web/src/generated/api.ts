@@ -1066,7 +1066,7 @@ export interface components {
              * Audience
              * @enum {string}
              */
-            audience: "beneficiary" | "provider";
+            audience: "beneficiary" | "provider" | "vendor";
             freshness: components["schemas"]["Freshness"];
             /** Items */
             items: components["schemas"]["CaseSummary"][];
@@ -2737,9 +2737,9 @@ export interface components {
              * Audience
              * @enum {string}
              */
-            audience: "staff" | "beneficiary" | "provider";
+            audience: "staff" | "beneficiary" | "provider" | "vendor";
             /** Capabilities */
-            capabilities: ("identity" | "staff_cases" | "human")[];
+            capabilities: ("identity" | "staff_cases" | "human" | "vendor")[];
             /** Csrf Token */
             csrf_token: string;
             /**

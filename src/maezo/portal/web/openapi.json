@@ -1407,7 +1407,8 @@
           "audience": {
             "enum": [
               "beneficiary",
-              "provider"
+              "provider",
+              "vendor"
             ],
             "title": "Audience",
             "type": "string"
@@ -6301,7 +6302,8 @@
             "enum": [
               "staff",
               "beneficiary",
-              "provider"
+              "provider",
+              "vendor"
             ],
             "title": "Audience",
             "type": "string"
@@ -6311,7 +6313,8 @@
               "enum": [
                 "identity",
                 "staff_cases",
-                "human"
+                "human",
+                "vendor"
               ],
               "type": "string"
             },

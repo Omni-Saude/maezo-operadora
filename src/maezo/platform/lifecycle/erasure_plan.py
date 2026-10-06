@@ -746,6 +746,20 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         subject_column="principal_ref",
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="identidade_portal",
+        tabela="portal_vendor_channels",
+        migracao="0019_vendor_channel_authority.py::upgrade (portal_vendor_channels)",
+        identificacao=(
+            "tenant + channel_ref (opaque channel accreditation identifier, migration 0019 VW1-P0); "
+            "CAS revision and closed active/revoked status only. No subject column and no DSR/FHIR "
+            "reference: the vendor principal lives in portal_memberships records, never here"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=35,
+        subject_column=None,
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)
