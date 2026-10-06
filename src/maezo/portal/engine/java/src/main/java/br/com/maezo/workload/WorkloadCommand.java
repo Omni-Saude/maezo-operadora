@@ -23,6 +23,17 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
   private CommandContext context;
   private ProcessEngine engine;
   private BoundaryPolicy policy;
+  enum ObservationStage {CAPTURE,EMISSION_RECHECK}
+  private WorkloadServlet.VerifiedObservationRequest observationRequest;
+  private RuntimeDefinitionObservation.StageToken observationToken;
+  private ObservationStage observationStage;
+  private int observationSequence;
+  private RuntimeDefinitionObservation.CapturedObservation captured;
+  WorkloadCommand(WorkloadPlugin plugin,BoundaryPolicy.Peer peer,Capability cap,WorkloadServlet.VerifiedObservationRequest request,
+      RuntimeDefinitionObservation.StageToken token,ObservationStage stage,int sequence) {
+    this(plugin,peer,cap,request.fields());observationRequest=request;observationToken=token;observationStage=stage;observationSequence=sequence;
+  }
+  RuntimeDefinitionObservation.CapturedObservation observation(){if(captured==null)throw Refused.unavailable();return captured;}
 
   WorkloadCommand(WorkloadPlugin plugin,BoundaryPolicy.Peer peer,Capability cap,Map<String,Object> request) {
     this.plugin=plugin;this.peer=peer;this.cap=cap;this.request=request;
@@ -40,6 +51,10 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
       plugin.authorizeCapability(peer,cap);
       attest(variables);
       current();
+      if(observationRequest!=null) {
+        captured=RuntimeDefinitionObservation.capture(plugin,ctx,peer,cap,observationRequest,observationToken,observationStage,observationSequence);
+        return ()->{throw Refused.unavailable();};
+      }
       Object result=switch(Json.token(cap.schema,"operation")) {
         case "start" -> start(variables);
         case "read_active" -> readActive();

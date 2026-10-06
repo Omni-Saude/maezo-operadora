@@ -1,0 +1,31 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Server port="-1" shutdown="SHUTDOWN" throwOnFailure="true">
+  <Listener className="org.apache.catalina.startup.VersionLoggerListener" />
+  <Listener className="org.apache.catalina.core.AprLifecycleListener" SSLEngine="on" />
+  <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener" />
+  <Listener className="br.com.maezo.workload.SecuredBpmPlatformBootstrap" />
+  <Listener className="br.com.maezo.workload.SecuredGlobalResourcesLifecycleListener" />
+  <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener" />
+  <GlobalNamingResources>
+    <Resource name="UserDatabase" auth="Container" type="org.apache.catalina.UserDatabase" description="User database that can be updated and saved" factory="org.apache.catalina.users.MemoryUserDatabaseFactory" pathname="conf/tomcat-users.xml" />
+    <Resource name="jdbc/ProcessEngine" auth="Container" type="javax.sql.DataSource" factory="br.com.maezo.workload.SecuredDataSourceFactory" uniqueResourceName="process-engine" driverClassName="org.postgresql.Driver" url="jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}?currentSchema=maezo_native,cibseven&amp;sslmode=verify-full&amp;sslrootcert=/run/maezo/provider-native/pg-ca.crt" defaultTransactionIsolation="READ_COMMITTED" username="${DB_USERNAME}" password="${DB_PASSWORD}" maxActive="20" minIdle="5" maxIdle="20" />
+    <Resource name="global/camunda-bpm-platform/process-engine/ProcessEngineService!org.cibseven.bpm.ProcessEngineService" auth="Container" type="org.cibseven.bpm.ProcessEngineService" description="Camunda Platform Process Engine Service" factory="org.cibseven.bpm.container.impl.jndi.ProcessEngineServiceObjectFactory" />
+    <Resource name="global/camunda-bpm-platform/process-engine/ProcessApplicationService!org.cibseven.bpm.ProcessApplicationService" auth="Container" type="org.cibseven.bpm.ProcessApplicationService" description="Camunda Platform Process Application Service" factory="org.cibseven.bpm.container.impl.jndi.ProcessApplicationServiceObjectFactory" />
+  </GlobalNamingResources>
+  <Service name="Catalina" throwOnFailure="true">
+    <Connector port="8443" protocol="org.apache.coyote.http11.Http11NioProtocol" SSLEnabled="true" scheme="https" secure="true" maxThreads="50" connectionTimeout="20000" allowTrace="false" sslImplementationName="org.apache.tomcat.util.net.jsse.JSSEImplementation">
+      <SSLHostConfig certificateVerification="required" protocols="TLSv1.3" truststoreFile="/run/maezo/provider-native-observation/client-ca.p12" truststoreType="PKCS12" truststorePassword="${MAEZO_PROVIDER_OBSERVATION_TRUSTSTORE_PASSWORD}">
+        <Certificate certificateFile="/run/maezo/provider-native-observation/server.crt" certificateKeyFile="/run/maezo/provider-native-observation/server.key" type="EC" />
+      </SSLHostConfig>
+    </Connector>
+    <Engine name="Catalina" defaultHost="localhost" throwOnFailure="true">
+      <Valve className="br.com.maezo.workload.TraceRefusalValve" />
+      <Realm className="org.apache.catalina.realm.LockOutRealm">
+        <Realm className="org.apache.catalina.realm.UserDatabaseRealm" resourceName="UserDatabase" />
+      </Realm>
+      <Host name="localhost" appBase="webapps" unpackWARs="false" autoDeploy="false" deployOnStartup="true">
+        <Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs" prefix="localhost_access_log" suffix=".txt" pattern="%h %l %u %t &quot;%r&quot; %s %b" />
+      </Host>
+    </Engine>
+  </Service>
+</Server>
