@@ -197,3 +197,13 @@ b9f7175791c887fd21b3e25cc544dfaff6e03631:.gitleaksignore:generic-api-key:177
 cd4b0ed4aaa1751ad6aec83eb92f8b5c2b946fa1:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:126
 cd4b0ed4aaa1751ad6aec83eb92f8b5c2b946fa1:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:159
 cd4b0ed4aaa1751ad6aec83eb92f8b5c2b946fa1:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:161
+
+# PR #660: the main squash of #646 retains exactly the previously classified
+# artifact-digest occurrences above. These immutable fingerprints preserve
+# the prior classification; no rule, path or future occurrence is excluded.
+05e9e9f63a26c683106d88334444007461b9e9d9:docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json:generic-api-key:11
+05e9e9f63a26c683106d88334444007461b9e9d9:docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json:generic-api-key:12
+05e9e9f63a26c683106d88334444007461b9e9d9:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:23
+05e9e9f63a26c683106d88334444007461b9e9d9:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:126
+05e9e9f63a26c683106d88334444007461b9e9d9:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:162
+05e9e9f63a26c683106d88334444007461b9e9d9:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:164
