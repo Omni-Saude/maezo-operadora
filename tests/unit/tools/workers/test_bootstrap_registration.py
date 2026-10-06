@@ -1,7 +1,8 @@
 """Registration coverage tests for `register_all_workers` (T1.2/ADR-0026 Decisao §4).
 
-Fail-closed registry-coverage test (ADR-0026 "Test strategy"): asserts 17/17 module bootstraps
-run (16 + T3.1 R2's `events` module), produce a non-empty, collision-free topic set, and —
+Fail-closed registry-coverage test (ADR-0026 "Test strategy"): asserts 18/18 module bootstraps
+run (16 + T3.1 R2's `events` module + VW1-P0-FENCES' `vendor_admin` module, grant
+OWNER-FENCE-DISPATCH-001), produce a non-empty, collision-free topic set, and —
 spot-checked against the real BPMN `camunda:topic` declarations under `spec/processes/bpmn/`
 (5 topics, one per a sample of domains) — that the registry is not "dead" (a spec topic with no
 worker would fail here). Topic NAMES are otherwise derived from the modules themselves (ADR-0026
@@ -34,8 +35,8 @@ def _fresh_harness() -> WorkerHarness:
 # ---------------------------------------------------------------------------
 
 
-def test_all_17_bootstraps_are_composed() -> None:
-    assert len(ALL_WORKER_BOOTSTRAPS) == 17
+def test_all_18_bootstraps_are_composed() -> None:
+    assert len(ALL_WORKER_BOOTSTRAPS) == 18
 
 
 def test_register_all_workers_registers_every_module_without_collision() -> None:
@@ -51,8 +52,8 @@ def test_register_all_workers_registers_every_module_without_collision() -> None
     assert len(topics) > 90, f"expected ~99 topics across 16 modules, got {len(topics)}"
 
 
-def test_register_all_workers_covers_all_17_module_topic_prefixes() -> None:
-    """Every one of the 17 modules contributed at least one topic — the literal "17/17 modules
+def test_register_all_workers_covers_all_18_module_topic_prefixes() -> None:
+    """Every one of the 18 modules contributed at least one topic — the literal "18/18 modules
     registered" acceptance criterion."""
     harness = _fresh_harness()
     register_all_workers(harness)
@@ -76,8 +77,9 @@ def test_register_all_workers_covers_all_17_module_topic_prefixes() -> None:
         "operadora.programa.",
         "operadora.recurso.",
         "operadora.reembolso.",
+        "vendor.membership.",
     }
-    assert len(expected_prefixes) == 17
+    assert len(expected_prefixes) == 18
 
     for prefix in expected_prefixes:
         matching = [t for t in topics if t.startswith(prefix)]
@@ -212,6 +214,11 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         "operadora.programa.notify_sla_risk",
         # item-9 notify-wiring fix (adequacao, module-level rationale above).
         "operadora.adequacao.update_monitoring_plan",
+        # VW1-P0-FENCES (grant OWNER-FENCE-DISPATCH-001): the vendor membership publication
+        # cadence — a raw async handler because the job's inputs are INJECTED SOURCE SEAMS
+        # (channels/memberships/publisher/ledger), never process variables, and its run() is
+        # async; vendor_admin.py's module docstring carries the full rationale.
+        "vendor.membership.publication",
     }
     function_topics = [
         t

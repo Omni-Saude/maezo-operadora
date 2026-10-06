@@ -4,13 +4,14 @@ No engine — exercises the bootstrap (`register_default_workers`), the readines
 (fail-closed on partial topic coverage), and `WorkerState`. The full `run()` lifecycle against a
 real engine is covered by `tests/integration/`.
 
-T1.2/ADR-0026 (+ T3.1 R2): `register_default_workers` now delegates to the FULL 17-module
-`bootstrap.register_all_workers` composition (16 + T3.1 R2's `events` module, closing the
+T1.2/ADR-0026 (+ T3.1 R2 + VW1-P0-FENCES): `register_default_workers` now delegates to the FULL
+18-module `bootstrap.register_all_workers` composition (16 + T3.1 R2's `events` module +
+VW1-P0-FENCES' `vendor_admin` module, closing the
 `operadora.events.publish` gap) — closing the T1.1 verifier's interim-scope note (T1.1 shipped
 only the 3 `WorkerBase` modules — auth/escalation/lgpd, 15 topics). The exact topic count is
 intentionally NOT hard-coded here (`ALL_WORKER_BOOTSTRAPS`/spec-driven counts would make this
 test brittle to a module gaining/losing a topic) — assertions instead check the self-consistency
-invariant and representative membership across all 17 modules.
+invariant and representative membership across all 18 modules.
 """
 
 from __future__ import annotations
@@ -31,11 +32,12 @@ from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS
 from maezo.tools.workers.harness import FakeWorkerTransport, WorkerHarness
 
 
-def test_register_default_workers_registers_all_17_modules() -> None:
-    """T1.2/ADR-0026 + T3.1 R2: the daemon's bootstrap now covers all 17 worker modules (the 3
-    `WorkerBase` modules T1.1 shipped + the 13 `FunctionWorker`-wrapped modules T1.2 adds + T3.1
-    R2's raw-handler `events` module), closing the interim-scope note. `registry.count()` ==
-    `len(registered_topics) - 17` because SEVENTEEN topics use the raw `harness.register()` path
+def test_register_default_workers_registers_all_18_modules() -> None:
+    """T1.2/ADR-0026 + T3.1 R2 + VW1-P0-FENCES: the daemon's bootstrap now covers all 18 worker
+    modules (the 3 `WorkerBase` modules T1.1 shipped + the 13 `FunctionWorker`-wrapped modules
+    T1.2 adds + T3.1 R2's raw-handler `events` module + VW1-P0-FENCES' raw-handler `vendor_admin`
+    module), closing the interim-scope note. `registry.count()` ==
+    `len(registered_topics) - 22` because TWENTY-TWO topics use the raw `harness.register()` path
     (which populates `_handlers` but NOT the `WorkerRegistry`) — MERGE RECONCILIATION (T3.1 P2b
     recurso × origin/main LGPD batch-1 × t5 escalation/ans-notify × DL-0033 dossier A2A ×
     item-9 wave-5 programa): `operadora.events.publish` (T3.1 R2); the three LGPD raw handlers
@@ -63,7 +65,7 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
 
-    assert len(ALL_WORKER_BOOTSTRAPS) == 17
+    assert len(ALL_WORKER_BOOTSTRAPS) == 18
     assert len(harness.registered_topics) > 90
     # DL-0033 real A2A wiring (dossier branch): `operadora.cred.prepare_dossier`,
     # `operadora.adequacao.prepare_remediation_dossier` and (item9-w3) the pagto edge
@@ -93,12 +95,14 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     # registered itself, so the topic keeps exactly one server.
     # Raw-handler count, re-derived cell by cell (the previous one-line sum was arithmetic that
     # no longer matched the assertion below): 1 events + 3 lgpd + 3 recurso + 1 ans-notify
-    # + 1 ans-retransmit + 2 escalation + 4 dossier + 4 programa + 1 adequacao + 1 auth = 21.
-    assert harness.registry.count() == len(harness.registered_topics) - 21
+    # + 1 ans-retransmit + 2 escalation + 4 dossier + 4 programa + 1 adequacao + 1 auth
+    # + 1 vendor (VW1-P0-FENCES: the publication cadence is a raw async handler over injected
+    # source seams — vendor_admin.py's module docstring) = 22.
+    assert harness.registry.count() == len(harness.registered_topics) - 22
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:
-    """Representative membership across every one of the 17 modules' domain prefixes."""
+    """Representative membership across every one of the 18 modules' domain prefixes."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
 
@@ -186,7 +190,8 @@ async def test_workers_registered_healthy_when_full_coverage() -> None:
 async def test_workers_registered_healthy_payload_carries_the_full_scope_detail() -> None:
     """T1.2 charter: add the scope detail string to the HEALTHY `workers_registered` payload
     (closes the T1.1 verifier's interim-scope note) — `/readyz` must be self-describing about
-    what "ready" means now that it covers all 17 modules (T3.1 R2 added `events`), not just the
+    what "ready" means now that it covers all 18 modules (T3.1 R2 added `events`,
+    VW1-P0-FENCES added `vendor_admin`), not just the
     3 T1.1 shipped."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="w")
     register_default_workers(harness)
@@ -197,7 +202,7 @@ async def test_workers_registered_healthy_payload_carries_the_full_scope_detail(
 
     assert result.healthy is True
     assert result.detail is not None
-    assert "17/17" in result.detail
+    assert "18/18" in result.detail
     assert "topics" in result.detail
 
 
