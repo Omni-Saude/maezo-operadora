@@ -82,6 +82,9 @@ def test_unit_actual_outcome_queue_before_primary_kernel_eof_refused(tmp_path, m
     import socket
     from types import SimpleNamespace
 
+    # Bind by relative name after chdir: darwin caps sun_path at 104 bytes and
+    # the pytest tmp_path prefix alone exceeds it (capture-boundary unit idiom).
+    monkeypatch.chdir(tmp_path)
     collector = measurement.NativeMeasurementCollector.__new__(measurement.NativeMeasurementCollector)
     collector._failed = False
     collector.guard = runtime._ObservationWaitGuard.start(datetime.now(UTC) + timedelta(seconds=5))
@@ -96,10 +99,10 @@ def test_unit_actual_outcome_queue_before_primary_kernel_eof_refused(tmp_path, m
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        listener.bind(str(tmp_path / "unit-outcome"))
+        listener.bind("unit-outcome")
         listener.listen(1)
         listener.setblocking(False)
-        client.connect(str(tmp_path / "unit-outcome"))
+        client.connect("unit-outcome")
         collector._primary = primary
         collector._outcome_listener = listener
         with pytest.raises(runtime.NativeObservationError, match="premature"):
@@ -153,9 +156,12 @@ def test_unit_metadata_jvm_writable_ancestor_refused(monkeypatch, owner, group, 
 
 
 @pytest.mark.parametrize("buffered", [False, True])
-def test_unit_outcome_queue_with_actual_primary_remote_close_is_deferred(tmp_path, buffered):
+def test_unit_outcome_queue_with_actual_primary_remote_close_is_deferred(tmp_path, monkeypatch, buffered):
     import socket
 
+    # Relative AF_UNIX bind after chdir: sun_path <= 104 on darwin, tmp_path
+    # prefix alone exceeds it (capture-boundary unit idiom).
+    monkeypatch.chdir(tmp_path)
     collector = measurement.NativeMeasurementCollector.__new__(measurement.NativeMeasurementCollector)
     collector._failed = False
     collector._outcome_accepted = False
@@ -166,13 +172,13 @@ def test_unit_outcome_queue_with_actual_primary_remote_close_is_deferred(tmp_pat
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        listener.bind(str(tmp_path / "outcome"))
+        listener.bind("outcome")
         listener.listen(1)
         listener.setblocking(False)
         if buffered:
             producer.sendall(b"UnitOnly-buffered-terminal-not-protocol-authority")
         producer.close()
-        client.connect(str(tmp_path / "outcome"))
+        client.connect("outcome")
         collector._primary = primary
         collector._outcome_listener = listener
         collector._check_outcome_arrival()

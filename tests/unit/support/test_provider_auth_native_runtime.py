@@ -1698,10 +1698,24 @@ def protected_composed_unit_case(unit_observations, observation_v3_unit_case, re
     observer.admission["candidate_sha"] = case.measurements["candidate_sha"]
     observer.admission["descriptor_sha256"] = case.phase_a_descriptor["sha256"]
     observer.admission["native_jar_sha256"] = case.measurements["native_jar"]["sha256"]
+    # One admitted support material: the composed observer pins the SAME bytes
+    # the installation side measured, re-pinned under the admission-mandated
+    # file name. installed_measurement_origin() re-reads those actual bytes and
+    # refuses any admission pin (or aliased file name) that differs from them,
+    # while corroboration refuses mounted_pins that differ from `measured` —
+    # so the observer-side inert jar built by observation_v3_unit_case is
+    # never a second, divergent material of its own.
+    measured_jar = Path(case.measurements["support_jar"]["path"])
+    admitted_jar = measured_jar.with_name("provider-auth-test-support.jar")
+    admitted_jar.write_bytes(measured_jar.read_bytes())
+    admitted_jar.chmod(0o644)
     observer.admission["support_jar_sha256"] = case.measurements["support_jar"]["sha256"]
     observer.inputs = replace(
         observer.inputs,
         admission=observer.pin("composed-admission.json", observer.encode(observer.admission), secret=True),
+        installed_support_jar=runtime.NativeObservationFile(
+            admitted_jar, case.measurements["support_jar"]["sha256"]
+        ),
     )
     observer.request = runtime.native_observation_request(observer.inputs, deadline=case.deadline)
     result = observer.response["result"]
