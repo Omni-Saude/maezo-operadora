@@ -26,6 +26,8 @@ from pydantic import (
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
 CONTRACT_STATE = "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED"
+CONTRACT_STATE_PUBLISHED = "INTERNAL_CONTRACT_PUBLISHED"
+CONTRACT_STATE_PUBLICATION_WITHDRAWN = "INTERNAL_CONTRACT_PUBLICATION_WITHDRAWN"
 CANDIDATE_SCHEMA_VERSION = "v21-capabilities.proposed.v1"
 PROVIDER_SCHEMA_VERSION = "provider-capabilities.internal.v1"
 OperationName = Literal[

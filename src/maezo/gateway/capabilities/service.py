@@ -32,6 +32,7 @@ from .models import (
     parse_request,
     parse_result,
 )
+from .publication import ContractPublicationLedger
 
 if TYPE_CHECKING:
     from .durability.models import VerifiedInboxObservation
@@ -67,6 +68,7 @@ class CapabilityService:
         timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
         durable: DurableCapabilityExecutor | None = None,
         journey_sources: Mapping[str, JourneyCapabilitySourcePort] | None = None,
+        publication: ContractPublicationLedger | None = None,
     ) -> None:
         if (
             type(timeout_seconds) not in {int, float}
@@ -74,6 +76,8 @@ class CapabilityService:
             or timeout_seconds <= 0
         ):
             raise ValueError("invalid capability timeout")
+        if publication is not None and type(publication) is not ContractPublicationLedger:
+            raise ValueError("invalid capability publication")
         if sources and any(operation not in OPERATION_NAMES for operation in sources):
             raise CapabilityContractError(CapabilityRefusalReason.UNKNOWN_OPERATION)
         if journey_sources and any(operation not in REQUEST_MODELS for operation in journey_sources):
@@ -100,6 +104,8 @@ class CapabilityService:
         self.memberships = memberships or DeclaredMemberships()
         self.timeout_seconds = float(timeout_seconds)
         self.durable = durable
+        # Default-off binding: absent by default, so existing consumers are unchanged.
+        self.publication = publication
 
     def is_bound_to_task(self, task_ref: str) -> bool:
         """Consumer construction fence; caller input can never select a task binding."""
@@ -128,6 +134,14 @@ class CapabilityService:
             )
         except CapabilityContractError as exc:
             return CapabilityOutcome.refused(exc.reason)
+        if self.publication is not None:
+            # Publication precedes admission: a withdrawn or never-published
+            # contract is not an authority question. Refusal stays typed, with no
+            # admission, source IO or downstream effect.
+            try:
+                self.publication.require_published(envelope.schema_version, envelope.operation_name)
+            except CapabilityContractError as exc:
+                return self._refused(envelope, exc.reason)
         source = self.sources.get(envelope.operation_name)
         admission = self.admissions.get(envelope.operation_name)
         if admission is None:
@@ -186,6 +200,13 @@ class CapabilityService:
             )
         except CapabilityContractError as exc:
             return exc.reason
+        if self.publication is not None:
+            # Same new-admission gate as execute(); observation/reconciliation paths
+            # stay open so a withdrawal drains uncertain effects (V2 rollback).
+            try:
+                self.publication.require_published(envelope.schema_version, envelope.operation_name)
+            except CapabilityContractError as exc:
+                return exc.reason
         admission = self.admissions.get(envelope.operation_name)
         if admission is None:
             return CapabilityRefusalReason.AUTHORITY_UNPROVEN
