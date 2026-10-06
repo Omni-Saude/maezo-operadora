@@ -536,11 +536,11 @@ def _fabricated_fact_hits(tree: ast.AST) -> set[str]:
 
 
 def test_domain_worker_modules_discovered() -> None:
-    """Guard: the discovery actually found the 17 registered worker modules (so the fences below
+    """Guard: the discovery actually found the 18 registered worker modules (so the fences below
     are not silently scanning an empty set)."""
     mods = _domain_worker_modules()
-    # 17 SP-OP-* modules (bootstrap.ALL_WORKER_BOOTSTRAPS = 17: 16 + events).
-    assert len(mods) == 17, f"expected 17 domain worker modules, found {sorted(mods)}"
+    # 18 worker modules (bootstrap.ALL_WORKER_BOOTSTRAPS = 18: 16 + events + vendor_admin).
+    assert len(mods) == 18, f"expected 18 domain worker modules, found {sorted(mods)}"
 
 
 def test_no_domain_worker_imports_a_network_or_engine_client() -> None:

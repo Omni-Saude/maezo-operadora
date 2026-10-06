@@ -1,6 +1,6 @@
 """Composition root — `register_all_workers` (T1.2/ADR-0026 Decisao §4).
 
-Composes all 17 `register_<domain>_workers(harness, kafka=None, **seams)` bootstraps (the
+Composes all 18 `register_<domain>_workers(harness, kafka=None, **seams)` bootstraps (the
 donor's `_register_all_workers` shape, T1.1 design §16) into a single call the worker-runtime
 daemon makes at boot (`worker_runtime/service.py` STEP B). This is the ONLY place that imports
 every domain worker module — the modules themselves stay independent of each other.
@@ -18,6 +18,15 @@ every domain worker module — the modules themselves stay independent of each o
     NOT `FunctionWorker`-wrapped) because it needs `task.business_key`/`task.process_instance_id`,
     metadata the dict-first `FunctionWorker` boundary does not expose — see `events.py`'s module
     docstring for the full rationale.
+1 raw-handler module (VW1-P0-FENCES, grant OWNER-FENCE-DISPATCH-001): `vendor_admin` — serves the
+    `vendor.membership.publication` cadence topic of the vendor membership-to-access publication
+    job (`gateway/human/vendor_membership_publication_job.py`, whose own code is UNCHANGED: its
+    fail-closed sources, durable ledger and canonical payload are exactly the job's own). Raw
+    `harness.register()` under the EMPTY fetch scope (`variables=()`) — the job's inputs are
+    injected source seams, never process variables, and its `run()` is async. Unwired or
+    partially wired, the handler refuses typed (`unavailable()`); it never fabricates a
+    publication. No BPMN declares this topic (no new BPMN in that wave) — `vendor_admin.py`'s
+    module docstring carries the full rationale.
 """
 
 from __future__ import annotations
@@ -42,12 +51,13 @@ from maezo.tools.workers.pagto import register_pagto_workers
 from maezo.tools.workers.programa import register_programa_workers
 from maezo.tools.workers.recurso import register_recurso_workers
 from maezo.tools.workers.reembolso import register_reembolso_workers
+from maezo.tools.workers.vendor_admin import register_vendor_workers
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
 
-#: All 17 per-module bootstraps, in a stable (alphabetical-by-module) order. Exposed so tests can
-#: assert 17/17 without re-deriving the list from imports.
+#: All 18 per-module bootstraps, in a stable (alphabetical-by-module) order. Exposed so tests can
+#: assert 18/18 without re-deriving the list from imports.
 ALL_WORKER_BOOTSTRAPS: tuple[Any, ...] = (
     register_adequacao_workers,
     register_ans_cron_workers,
@@ -66,6 +76,7 @@ ALL_WORKER_BOOTSTRAPS: tuple[Any, ...] = (
     register_programa_workers,
     register_recurso_workers,
     register_reembolso_workers,
+    register_vendor_workers,
 )
 
 
@@ -74,7 +85,7 @@ def register_all_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register all 17 SP-OP-* worker modules on `harness` (donor's `_register_all_workers`).
+    """Register all 18 worker modules on `harness` (donor's `_register_all_workers`).
 
     Idempotent (`WorkerHarness.register_worker`/`.register` replace on re-registration, same
     topic) — safe to call more than once against the same harness.

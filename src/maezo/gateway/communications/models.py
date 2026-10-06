@@ -74,7 +74,7 @@ class CommunicationAccess(Closed):
 
 class IntendedRecipient(Closed):
     identity_digest: Sha256Digest
-    audience: Literal["staff", "beneficiary", "provider"]
+    audience: Literal["staff", "beneficiary", "provider", "vendor"]
     source_revision: DecimalRevision
     policy_digest: Sha256Digest
     valid_until: datetime
