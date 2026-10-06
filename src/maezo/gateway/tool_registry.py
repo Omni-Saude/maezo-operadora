@@ -112,7 +112,19 @@ if TYPE_CHECKING:
     from maezo.gateway.capabilities.journeys.driver import JourneyDriver
     from maezo.gateway.pseudonymizer import Pseudonymizer
 
+from maezo.adapters.amh.billing_status import OPERATION as OP_BILLING
+from maezo.adapters.amh.subject_resolution import OP_RESOLVE
 from maezo.gateway.amh import AmhRuntime, AmhSubjectContextExecutor, GatedAmhContext
+from maezo.gateway.amh_interop import (
+    HASH_SCHEME,
+    SCOPE_BY_OPERATION,
+    AmhBillingStatusExecutor,
+    AmhInteropComposition,
+    AmhInteropCompositionError,
+    AmhPhoneLookupHasher,
+    AmhSubjectResolutionExecutor,
+    CognitoClientCredentials,
+)
 from maezo.gateway.credential_vault import (
     AgentCredentialView,
     CredentialVault,
@@ -200,11 +212,18 @@ BRIDGE_PRINCIPAL: Final[str] = "notifications_bridge"
 #: a credential, asserted as though it could (AF-14-F2). Removed: the FHIR seams take their
 #: adapters already constructed, so no root reads such a field. A future FHIR credential is added
 #: here TOGETHER with the settings field, and the test above is what forces the pair.
+#:
+#: As duas ultimas entradas (decisao do dono 06/10/2026) sao da fonte REAL de cobranca do Lucas:
+#: `WhatsAppWebhookSettings.amh_interop_client_secret` (segredo do cliente Cognito
+#: `maezo-operadora-interop`) e `WhatsAppWebhookSettings.amh_phone_lookup_key` (chave DEDICADA do
+#: hash `amh-phone-lookup-v1`). So' :func:`build_amh_interop` as le', e so' pela visao do agente.
 AGENT_CREDENTIAL_FIELDS: Final[dict[str, str]] = {
     "cibseven_auth_token": "cibseven_auth_token",
     "llm_phi_api_key": "llm_phi_api_key",
     "llm_general_api_key": "llm_general_api_key",
     "whatsapp_token": "whatsapp_token",
+    "amh_interop_client_secret": "amh_interop_client_secret",
+    "amh_phone_lookup_key": "amh_phone_lookup_key",
 }
 
 #: Settings fields that carry a HUMAN-RESTRICTED credential, and the ADR-0005 partition each one
@@ -577,6 +596,99 @@ def build_amh_context(*, runtime: AmhRuntime, seam: SeamContext) -> GatedAmhCont
     return executor.context
 
 
+#: Teto de leitura de cada artefato OpenAPI (o adaptador recusa acima do proprio limite de qualquer
+#: forma; este so' evita ler um arquivo arbitrariamente grande para a memoria).
+_MAX_OPENAPI_FILE_BYTES: Final[int] = 4 * 1_048_576
+
+
+def _ler_openapi(caminho: str) -> bytes:
+    with open(caminho, "rb") as arquivo:
+        dados = arquivo.read(_MAX_OPENAPI_FILE_BYTES + 1)
+    if len(dados) > _MAX_OPENAPI_FILE_BYTES:
+        raise AmhInteropCompositionError("amh_interop_openapi_grande_demais")
+    return dados
+
+
+def build_amh_interop(
+    *,
+    settings: Any,
+    seam: SeamContext,
+    audit: Any,
+    agent_version: str,
+    transport_factory: Any = None,
+) -> AmhInteropComposition:
+    """A fonte REAL de cobranca/identidade do Lucas: executores do gateway -> adaptadores pinados.
+
+    FAIL-CLOSED NA COMPOSICAO. Qualquer peca ausente — URL do servico, URL de token, client id,
+    escopos, segredo do cliente, chave do hash do telefone, tenant AMH, proposito, caminho de um dos
+    dois OpenAPI, sink de auditoria — LEVANTA `AmhInteropCompositionError` com os NOMES dos campos
+    ausentes (nunca valores). Um OpenAPI cujo digest nao esta no pin imutavel
+    (`config/integrations/amh/contracts.lock.json`) levanta o erro de contrato do proprio adaptador.
+    Hoje os contratos NAO estao publicados (XRG-2/XRG-3), entao ligar esta fonte recusa o boot —
+    que e' o desenho. A raiz (`platform/webhooks/service.py`) trata a recusa como recusa de servir.
+
+    OS SEGREDOS chegam SO' pela visao de agente do cofre (ADR-0005 #3, AF-14): o principal do
+    `seam` e' quem os recebe, e nenhum outro caminho le' esses campos de settings.
+    """
+    from maezo.adapters.amh.billing_status import AmhBillingStatusAdapter
+    from maezo.adapters.amh.subject_resolution import AmhSubjectResolutionAdapter
+
+    credentials = build_agent_credential_view(settings=settings, agent_id=seam.principal)
+    client_secret = agent_credential(credentials, "amh_interop_client_secret")
+    phone_key = agent_credential(credentials, "amh_phone_lookup_key")
+    exigidos: dict[str, Any] = {
+        "amh_interop_base_url": getattr(settings, "amh_interop_base_url", None),
+        "amh_interop_token_url": getattr(settings, "amh_interop_token_url", None),
+        "amh_interop_client_id": getattr(settings, "amh_interop_client_id", None),
+        "amh_interop_scopes": getattr(settings, "amh_interop_scopes", None),
+        "amh_interop_client_secret": client_secret,
+        "amh_phone_lookup_key": phone_key,
+        "amh_interop_tenant": getattr(settings, "amh_interop_tenant", None),
+        "amh_interop_purpose_of_use": getattr(settings, "amh_interop_purpose_of_use", None),
+        "amh_billing_status_openapi_path": getattr(settings, "amh_billing_status_openapi_path", None),
+        "amh_subject_resolution_openapi_path": getattr(settings, "amh_subject_resolution_openapi_path", None),
+        "audit_sink": audit,
+    }
+    ausentes = sorted(nome for nome, valor in exigidos.items() if not valor)
+    if ausentes:
+        raise AmhInteropCompositionError("amh_interop_config_ausente: " + ",".join(ausentes))
+    scopes = tuple(str(exigidos["amh_interop_scopes"]).split())
+    if not {SCOPE_BY_OPERATION[OP_BILLING], SCOPE_BY_OPERATION[OP_RESOLVE]} <= set(scopes):
+        raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
+    tokens = CognitoClientCredentials(
+        token_url=exigidos["amh_interop_token_url"],
+        client_id=exigidos["amh_interop_client_id"],
+        client_secret=client_secret,  # type: ignore[arg-type]  # conferido acima
+        scopes=scopes,
+        transport_factory=transport_factory,
+    )
+    comum: dict[str, Any] = {
+        "seam": seam,
+        "origin": exigidos["amh_interop_base_url"],
+        "tokens": tokens,
+        "audit": audit,
+        "purpose_of_use": exigidos["amh_interop_purpose_of_use"],
+        "agent_version": agent_version,
+        "transport_factory": transport_factory,
+    }
+    billing_executor = AmhBillingStatusExecutor(**comum)
+    subjects_executor = AmhSubjectResolutionExecutor(amh_tenant=exigidos["amh_interop_tenant"], **comum)
+    return AmhInteropComposition(
+        billing=AmhBillingStatusAdapter(
+            _ler_openapi(exigidos["amh_billing_status_openapi_path"]), executor=billing_executor
+        ),
+        subjects=AmhSubjectResolutionAdapter(
+            _ler_openapi(exigidos["amh_subject_resolution_openapi_path"]), executor=subjects_executor
+        ),
+        phone_hasher=AmhPhoneLookupHasher(key=phone_key, amh_tenant=exigidos["amh_interop_tenant"]),  # type: ignore[arg-type]
+        amh_tenant=exigidos["amh_interop_tenant"],
+        purpose_of_use=exigidos["amh_interop_purpose_of_use"],
+        hash_scheme=HASH_SCHEME,
+        _executors=(billing_executor, subjects_executor),
+        _tokens=tokens,
+    )
+
+
 def build_fhir_seam(*, seam: SeamContext, base_url: str, adapter: str = "read_patient") -> GatedFhirReader:
     """A gated FHIR reader over `FhirServer`.
 
@@ -931,6 +1043,7 @@ __all__ = [
     "build_agent_seam_context",
     "build_agent_seams",
     "build_amh_context",
+    "build_amh_interop",
     "build_cibseven_seam",
     "build_dmn_seam",
     "build_fhir_seam",

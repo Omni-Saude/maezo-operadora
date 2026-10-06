@@ -43,6 +43,10 @@ actions:
   provider_contract_read:       { level: L3 }
   # mcp_fhir: leitura de dados clínicos PHI (Zona PHI — pseudonimizado pela gateway antes da Zona Geral)
   read_phi_data:                { level: L3 }
+  # Lucas (Zona Geral): leitura dos fatos de cobranca/identidade do PROPRIO beneficiario pelo
+  # contrato da AMH (billing-status / subject-resolution, ADR-0037), sem identificador cru — so'
+  # `portable_subject_ref` opaco e boleto mascarado. NAO e' hard. Decisao do dono 06/10/2026 (DL).
+  read_member_billing_identity: { level: L3 }
   # mcp_whatsapp: envio de mensagem ao beneficiário — L3 informativo; template = L2 (efeito externo)
   send_beneficiary_message:     { level: L3 }
   send_beneficiary_template:    { level: L2 }

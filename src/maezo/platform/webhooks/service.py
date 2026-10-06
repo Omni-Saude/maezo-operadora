@@ -70,8 +70,11 @@ from .whatsapp.settings import WhatsAppWebhookSettings
 
 if TYPE_CHECKING:
     from maezo.agents.lucas.administrative.runtime import AdministrativeJourneyRuntime
+    from maezo.agents.lucas.fonte_cobranca_amh import FonteCobrancaAmh
+    from maezo.gateway.amh_interop import AmhInteropComposition
     from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyCurrentnessPort
     from maezo.gateway.capabilities.journeys.driver import JourneyDriver
+    from maezo.gateway.seams import SeamContext
 
     from .whatsapp.lucas_turno import LucasTurno
 
@@ -79,6 +82,9 @@ if TYPE_CHECKING:
 #: "kubernetes") is PRODUCTION, where a checkpointer that fails to provision makes the receiver
 #: refuse to serve. Mirrors `agent_runtime.service._LOCAL_RUNTIME_MODE`.
 _LOCAL_RUNTIME_MODE = "local"
+
+#: A versao do Lucas que o executor da fonte AMH grava no elo de auditoria (a mesma do `LucasTurno`).
+_LUCAS_AGENT_VERSION = "lucas@v0"
 
 logger = structlog.get_logger(__name__)
 
@@ -303,7 +309,7 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
     """
     lucas_turno = None
     if settings.roteador_lucas_enabled:
-        from maezo.agents.lucas.fonte_cobranca import FonteCobrancaSimulada
+        from maezo.agents.lucas.fonte_cobranca import FonteCobranca, FonteCobrancaSimulada
         from maezo.platform.webhooks.whatsapp.lucas_turno import LucasTurno
 
         if dispatcher.dedup is None:
@@ -315,18 +321,27 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
             raise ValueError(
                 "lucas_turno: o provedor da Helena nao e' um seam cercado; recusando reembrulhar"
             )
-        if settings.lucas_fonte_cobranca != "simulada":  # Literal["simulada"]: defesa em profundidade
+        if settings.lucas_fonte_cobranca not in ("simulada", "amh"):  # Literal: defesa em profundidade
             raise ValueError("lucas_turno: fonte de cobranca desconhecida")
         seams = build_agent_seams(settings=settings, agent_id="lucas", inference=helena_inference.inner)
+        seam_context = build_agent_seam_context(tenant=settings.tenant_id, agent_id="lucas")
+        fonte: FonteCobranca = FonteCobrancaSimulada()
+        amh_interop: AmhInteropComposition | None = None
+        if settings.lucas_fonte_cobranca == "amh":
+            fonte, amh_interop = _build_fonte_cobranca_amh(
+                settings, seam_context=seam_context, audit=seams.get("audit_sink")
+            )
         lucas_turno = LucasTurno(
             tenant_id=settings.tenant_id,
             inference=seams["inference"],
             dmn=seams["dmn"],
             cibseven=seams["cibseven"],
             audit_sink=seams["audit_sink"],
-            seam_context=build_agent_seam_context(tenant=settings.tenant_id, agent_id="lucas"),
+            seam_context=seam_context,
             dedup=dispatcher.dedup,
-            fonte=FonteCobrancaSimulada(),
+            fonte=fonte,
+            hash_telefone_amh=amh_interop.phone_hasher if amh_interop is not None else None,
+            fonte_aclose=amh_interop.aclose if amh_interop is not None else None,
         )
         logger.warning(
             "lucas_turno_construido",
@@ -335,6 +350,46 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
             detail="entrada do Lucas pronta; o despachante so' a chama a partir da onda (e)",
         )
     return lucas_turno
+
+
+def _build_fonte_cobranca_amh(
+    settings: WhatsAppWebhookSettings, *, seam_context: SeamContext, audit: object
+) -> tuple[FonteCobrancaAmh, AmhInteropComposition]:
+    """A fonte REAL de cobranca do Lucas (`MAEZO_LUCAS_FONTE_COBRANCA=amh`, decisao do dono 06/10/2026).
+
+    executores do gateway -> adaptadores pinados (`tool_registry.build_amh_interop`) ->
+    `ResolvedorDeSujeitoAmh` + `BaseLegalExecucaoDeContrato` (base legal fixa, NAO consentimento) ->
+    `FonteCobrancaAmh`. Chamada SO' de dentro do `if settings.roteador_lucas_enabled` de
+    `_build_lucas_turno`. FAIL-CLOSED: sem pin, sem segredo, sem URL ou sem OpenAPI, `build_amh_interop`
+    LEVANTA e o receptor recusa servir — nunca cai de volta na simulada em silencio. Hoje os contratos
+    nao estao publicados (XRG-2/XRG-3), entao `amh` recusa o boot por desenho.
+    """
+    from maezo.agents.lucas.fonte_cobranca_amh import FonteCobrancaAmh
+    from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, ResolvedorDeSujeitoAmh
+    from maezo.gateway.tool_registry import build_amh_interop
+
+    interop = build_amh_interop(
+        settings=settings, seam=seam_context, audit=audit, agent_version=_LUCAS_AGENT_VERSION
+    )
+    fonte = FonteCobrancaAmh(
+        billing=interop.billing,
+        resolvedor=ResolvedorDeSujeitoAmh(
+            port=interop.subjects,
+            amh_tenant=interop.amh_tenant,
+            hash_scheme=interop.hash_scheme,
+            purpose_of_use=interop.purpose_of_use,
+        ),
+        consentimento=BaseLegalExecucaoDeContrato(),
+        purpose_of_use=interop.purpose_of_use,
+    )
+    logger.warning(
+        "lucas_fonte_cobranca_amh_construida",
+        tenant_id=settings.tenant_id,
+        amh_tenant=interop.amh_tenant,
+        purpose_of_use=interop.purpose_of_use,
+        base_legal="execucao-de-contrato",
+    )
+    return fonte, interop
 
 
 async def _provision_dispatch_checkpointer(state: WebhookState) -> None:

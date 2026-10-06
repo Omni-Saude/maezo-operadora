@@ -104,6 +104,9 @@ class _LucasEspiao:
         self._erro = erro
         self.handoffs: list[dict[str, Any]] = []
 
+    def hash_telefone_para_amh(self, numero_cru: str) -> str | None:
+        return self._real.hash_telefone_para_amh(numero_cru)
+
     async def executar(self, handoff: Any, conversa: Any, sender: Any) -> dict[str, Any]:
         self.handoffs.append(dict(handoff))
         if self._falhar:
