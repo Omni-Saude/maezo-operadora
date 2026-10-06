@@ -150,6 +150,24 @@ class VerifiedSourceResult(AdmissionDTO):
         return VerifiedAuthority.aware_time(value)
 
 
+class OperationInvocationAuthority(AdmissionDTO):
+    """Private same-invocation checkpoint; construction never grants source authority."""
+
+    kind: Literal["operation"] = "operation"
+    original_authority: VerifiedAuthority
+    original_currentness: VerifiedCurrentness
+    latest_currentness: VerifiedCurrentness
+    envelope_sha256: Digest
+    request_sha256: Digest
+    accumulated_valid_until: datetime
+    last_checked_at: datetime
+
+    @field_validator("accumulated_valid_until", "last_checked_at")
+    @classmethod
+    def aware_time(cls, value: datetime) -> datetime:
+        return VerifiedAuthority.aware_time(value)
+
+
 class AdmissionAuditIntent(AdmissionDTO):
     """Audit-before-dispatch metadata: opaque references and digests, no request payload."""
 
@@ -201,10 +219,25 @@ class _LeaseRecord:
     request: BaseModel
     authority: VerifiedAuthority
     audit_receipt: str
-    phase: Literal["authorized", "dispatched", "result_verified"] = "authorized"
+    authority_sha256: str
+    envelope_sha256: str
+    authority_valid_until: datetime
+    original_currentness: VerifiedCurrentness | None = None
+    latest_currentness: VerifiedCurrentness | None = None
+    phase: Literal["authorized", "durable_prepared", "dispatched", "result_verified"] = "authorized"
     result: BaseModel | None = None
     result_sha256: str | None = None
     source_result: VerifiedSourceResult | None = None
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _DurableAdmissionEvidence:
+    """Private invocation evidence; no new wire, grant or source authority."""
+
+    authority: VerifiedAuthority
+    currentness: VerifiedCurrentness
+    audit_receipt_sha256: str
+    audit_intent: AdmissionAuditIntent
 
 
 def _utc_now() -> datetime:
@@ -214,7 +247,7 @@ def _utc_now() -> datetime:
 def result_digest(result: BaseModel) -> str:
     """Hash the exact closed result using the same canonical profile as request_digest."""
     # model_dump_json is not used as a signature profile: key ordering must be canonical.
-    return hashlib.sha256(canonicalize(result.model_dump(mode="json"))).hexdigest()
+    return hashlib.sha256(canonicalize(result.model_dump(mode="json", warnings="error"))).hexdigest()
 
 
 class CapabilityAdmission:
@@ -270,9 +303,16 @@ class CapabilityAdmission:
         record = self._leases.get(lease.token)
         if record is None or record.lease is not lease:
             raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+        if (
+            result_digest(record.authority) != record.authority_sha256
+            or result_digest(record.envelope) != record.envelope_sha256
+            or record.authority.binding != self._binding
+        ):
+            raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
         if request_digest(record.envelope, record.request) != record.authority.request_sha256:
             raise AdmissionDeniedError(CapabilityRefusalReason.CONTRACT_MISMATCH)
         self._fresh(record.authority.verified_at, record.authority.valid_until)
+        self._fresh(record.authority.verified_at, record.authority_valid_until)
         return record
 
     def release(self, lease: AdmissionLease) -> None:
@@ -294,7 +334,11 @@ class CapabilityAdmission:
             if self._audit is None:
                 raise AdmissionDeniedError(CapabilityRefusalReason.AUDIT_UNAVAILABLE)
             evidence = VerifiedAuthority.model_validate(
-                await self._authority.authorize(self._binding, envelope, request)
+                await self._authority.authorize(
+                    self._binding.model_copy(deep=True),
+                    envelope.model_copy(deep=True),
+                    request.model_copy(deep=True),
+                )
             )
             if evidence.binding != self._binding or evidence.request_sha256 != request_digest(
                 envelope, request
@@ -316,7 +360,17 @@ class CapabilityAdmission:
             except Exception:
                 raise AdmissionDeniedError(CapabilityRefusalReason.AUDIT_UNAVAILABLE) from None
             lease = AdmissionLease(uuid.uuid4().hex)
-            self._leases[lease.token] = _LeaseRecord(lease, envelope, request, evidence, receipt)
+            evidence = evidence.model_copy(deep=True)
+            self._leases[lease.token] = _LeaseRecord(
+                lease,
+                envelope,
+                request,
+                evidence,
+                receipt,
+                result_digest(evidence),
+                result_digest(envelope),
+                evidence.valid_until,
+            )
             return lease
         except AdmissionDeniedError:
             raise
@@ -335,7 +389,12 @@ class CapabilityAdmission:
             if self._authority is None:
                 raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
             current = VerifiedCurrentness.model_validate(
-                await self._authority.check_current(record.authority, source_result=record.source_result)
+                await self._authority.check_current(
+                    record.authority.model_copy(deep=True),
+                    source_result=record.source_result.model_copy(deep=True)
+                    if record.source_result is not None
+                    else None,
+                )
             )
             if (
                 current.binding != self._binding
@@ -366,6 +425,128 @@ class CapabilityAdmission:
         except Exception:
             raise AdmissionDeniedError(CapabilityRefusalReason.SOURCE_UNAVAILABLE) from None
 
+    async def _durable_checkpoint(
+        self, lease: AdmissionLease, *, expected: Literal["authorized", "durable_prepared", "result_verified"]
+    ) -> VerifiedCurrentness:
+        """Recheck this exact lease after awaited durable work, without replaying its phases."""
+        try:
+            record = self._record(lease)
+            self._autonomy_allowed()
+            if record.phase != expected or self._authority is None:
+                raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+            current = VerifiedCurrentness.model_validate(
+                await self._authority.check_current(
+                    record.authority.model_copy(deep=True),
+                    source_result=record.source_result.model_copy(deep=True)
+                    if record.source_result is not None
+                    else None,
+                )
+            )
+            if (
+                current.binding != self._binding
+                or current.authorization_ref != record.authority.authorization_ref
+                or current.request_sha256 != record.authority.request_sha256
+                or current.currentness_ref != record.authority.currentness_ref
+                or current.source_result_sha256 != record.result_sha256
+                or current.checked_at < record.authority.verified_at
+                or current.valid_until > record.authority_valid_until
+                or (
+                    record.latest_currentness is not None
+                    and current.checked_at < record.latest_currentness.checked_at
+                )
+            ):
+                raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+            self._fresh(current.checked_at, current.valid_until)
+            # Original ceilings cannot be renewed by a later currentness response.
+            after = self._record(lease)
+            if after is not record or after.phase != expected:
+                raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+            if after.source_result is not None:
+                self._fresh(after.source_result.checked_at, after.source_result.valid_until)
+            if after.original_currentness is None:
+                after.original_currentness = current.model_copy(deep=True)
+            after.latest_currentness = current.model_copy(deep=True)
+            after.authority_valid_until = min(after.authority_valid_until, current.valid_until)
+            return current
+        except AdmissionDeniedError:
+            raise
+        except (ValidationError, ValueError, TypeError):
+            raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN) from None
+        except Exception:
+            raise AdmissionDeniedError(CapabilityRefusalReason.SOURCE_UNAVAILABLE) from None
+
+    async def _durable_before_fence(self, lease: AdmissionLease) -> _DurableAdmissionEvidence:
+        """One-use prepare. The source cannot execute before an acknowledged journal fence."""
+        current = await self._durable_checkpoint(lease, expected="authorized")
+        record = self._record(lease)
+        if record.phase != "authorized":
+            raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+        record.phase = "durable_prepared"
+        intent = AdmissionAuditIntent(
+            binding=self._binding,
+            request_sha256=record.authority.request_sha256,
+            authorization_ref=record.authority.authorization_ref,
+            source_contract_publication_ref=record.authority.source_contract_publication_ref,
+            policy_ratification_ref=record.authority.policy_ratification_ref,
+            currentness_ref=record.authority.currentness_ref,
+        )
+        return _DurableAdmissionEvidence(record.authority, current, record.audit_receipt, intent)
+
+    async def _durable_after_fence(self, lease: AdmissionLease) -> None:
+        """One-use source admission AFTER acknowledged DB fence and its awaited work."""
+        await self._durable_checkpoint(lease, expected="durable_prepared")
+        record = self._record(lease)
+        if record.phase != "durable_prepared":
+            raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+        record.phase = "dispatched"
+
+    def _durable_source_result(self, lease: AdmissionLease) -> VerifiedSourceResult:
+        """Exact qualified receipt for internal persistence, never caller-supplied evidence."""
+        record = self._record(lease)
+        if (
+            record.phase != "result_verified"
+            or record.result is None
+            or record.source_result is None
+            or result_digest(record.result) != record.result_sha256
+        ):
+            raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+        self._fresh(record.source_result.checked_at, record.source_result.valid_until)
+        return VerifiedSourceResult.model_validate(record.source_result)
+
+    async def _durable_before_result_write(self, lease: AdmissionLease) -> None:
+        """Fresh source/data read currentness after custody/preparation I/O and before DB write."""
+        await self._durable_checkpoint(lease, expected="result_verified")
+
+    async def _durable_before_disclosure(self, lease: AdmissionLease) -> None:
+        """Nondestructive same-lease check; final sync checks precede release in finally."""
+        await self._durable_checkpoint(lease, expected="result_verified")
+
+    def _durable_assert_current(self, lease: AdmissionLease) -> None:
+        """Validate both original operation pins and every narrowed ceiling without awaiting."""
+        record = self._record(lease)
+        self._autonomy_allowed()
+        if record.latest_currentness is None:
+            raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+        self._fresh(record.latest_currentness.checked_at, record.authority_valid_until)
+        if record.source_result is not None:
+            self._durable_source_result(lease)
+
+    def _durable_effect_checkpoint(self, lease: AdmissionLease) -> OperationInvocationAuthority:
+        """Private original evidence to the qualified source; no public lease or renewal."""
+        self._durable_assert_current(lease)
+        record = self._record(lease)
+        if record.original_currentness is None or record.latest_currentness is None:
+            raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
+        return OperationInvocationAuthority(
+            original_authority=record.authority.model_copy(deep=True),
+            original_currentness=record.original_currentness.model_copy(deep=True),
+            latest_currentness=record.latest_currentness.model_copy(deep=True),
+            envelope_sha256=record.envelope_sha256,
+            request_sha256=record.authority.request_sha256,
+            accumulated_valid_until=record.authority_valid_until,
+            last_checked_at=record.latest_currentness.checked_at,
+        )
+
     async def verify_result(self, lease: AdmissionLease, result: BaseModel) -> None:
         try:
             record = self._record(lease)
@@ -377,7 +558,9 @@ class CapabilityAdmission:
             ):
                 raise AdmissionDeniedError(CapabilityRefusalReason.PURPOSE_DENIED)
             evidence = VerifiedSourceResult.model_validate(
-                await self._authority.verify_source_result(record.authority, result)
+                await self._authority.verify_source_result(
+                    record.authority.model_copy(deep=True), result.model_copy(deep=True)
+                )
             )
             digest = result_digest(result)
             if (
@@ -392,9 +575,9 @@ class CapabilityAdmission:
             self._fresh(evidence.checked_at, evidence.valid_until)
             if self._record(lease).phase != "dispatched":
                 raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
-            record.result = result
+            record.result = result.model_copy(deep=True)
             record.result_sha256 = digest
-            record.source_result = evidence
+            record.source_result = evidence.model_copy(deep=True)
             record.phase = "result_verified"
         except AdmissionDeniedError:
             raise

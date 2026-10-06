@@ -100,9 +100,17 @@ the same refuse-to-serve shape a missing `DATABASE_URL` already triggers — and
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
+
+if TYPE_CHECKING:
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+
+    from maezo.agents.lucas.administrative.runtime import AdministrativeJourneyRuntime
+    from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyCurrentnessPort
+    from maezo.gateway.capabilities.journeys.driver import JourneyDriver
+    from maezo.gateway.pseudonymizer import Pseudonymizer
 
 from maezo.gateway.amh import AmhRuntime, AmhSubjectContextExecutor, GatedAmhContext
 from maezo.gateway.credential_vault import (
@@ -937,3 +945,25 @@ __all__ = [
     "is_gated_seam",
     "whatsapp_adapter_for",
 ]
+
+
+def build_administrative_journey_runtime(
+    *,
+    binding: JourneyBinding,
+    driver: JourneyDriver,
+    currentness: JourneyCurrentnessPort | None = None,
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
+    pseudonymizer: Pseudonymizer | None = None,
+    enabled: bool = False,
+) -> AdministrativeJourneyRuntime:
+    """Trusted complete-driver factory; adds no task/channel membership or source grant."""
+    from maezo.agents.lucas.administrative.runtime import AdministrativeJourneyRuntime
+
+    return AdministrativeJourneyRuntime(
+        binding=binding,
+        driver=driver,
+        currentness=currentness,
+        checkpointer=checkpointer,
+        pseudonymizer=pseudonymizer,
+        enabled=enabled,
+    )

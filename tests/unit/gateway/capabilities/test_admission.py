@@ -478,3 +478,150 @@ async def test_final_currentness_must_bind_the_exact_source_result():
     authority.current_updates["source_result_sha256"] = "f" * 64
     with pytest.raises(AdmissionDeniedError):
         await admission.revalidate(lease, phase="before_disclosure")
+
+
+@pytest.mark.asyncio
+async def test_durable_private_phases_are_single_use_and_do_not_replay_before_source():
+    authority = UnitAuthority()
+    admission = guard(authority=authority, audit=UnitAudit(authority))
+    lease = await admission.authorize(envelope(), REQUEST)
+    evidence = await admission._durable_before_fence(lease)
+    assert evidence.authority.request_sha256 == request_digest(envelope(), REQUEST)
+    assert evidence.audit_receipt_sha256 == "b" * 64
+    with pytest.raises(AdmissionDeniedError):
+        await admission.revalidate(lease, phase="before_source")
+    with pytest.raises(AdmissionDeniedError):
+        await admission._durable_before_fence(lease)
+    await admission._durable_after_fence(lease)
+    with pytest.raises(AdmissionDeniedError):
+        await admission._durable_after_fence(lease)
+    await admission.verify_result(lease, RESULT)
+    verified = admission._durable_source_result(lease)
+    assert verified.result_sha256 == result_digest(RESULT)
+    await admission._durable_before_result_write(lease)
+    await admission.revalidate(lease, phase="before_disclosure")
+    with pytest.raises(AdmissionDeniedError):
+        admission._durable_source_result(lease)
+
+
+@pytest.mark.asyncio
+async def test_private_after_fence_checks_revocation_and_original_authority_ceiling():
+    authority = UnitAuthority()
+    ticks = [NOW]
+    admission = CapabilityAdmission(
+        binding=binding(),
+        authority=authority,
+        audit=UnitAudit(authority),
+        autonomy=build_pep(tenant="unit-tenant"),
+        clock=lambda: ticks[0],
+    )
+    lease = await admission.authorize(envelope(), REQUEST)
+    await admission._durable_before_fence(lease)
+    ticks[0] = EXPIRY
+    authority.current_updates["valid_until"] = EXPIRY + timedelta(minutes=1)
+    with pytest.raises(AdmissionDeniedError) as refusal:
+        await admission._durable_after_fence(lease)
+    assert refusal.value.reason == CapabilityRefusalReason.STALE_REVISION
+
+
+@pytest.mark.asyncio
+async def test_durable_currentness_cannot_renew_a_previously_narrowed_operation_grant():
+    authority = UnitAuthority()
+    admission = guard(authority=authority, audit=UnitAudit(authority))
+    lease = await admission.authorize(envelope(), REQUEST)
+    authority.current_updates["valid_until"] = NOW + timedelta(seconds=1)
+    await admission._durable_before_fence(lease)
+    checkpoint = admission._durable_effect_checkpoint(lease)
+    assert checkpoint.accumulated_valid_until == NOW + timedelta(seconds=1)
+    authority.current_updates["valid_until"] = EXPIRY
+    with pytest.raises(AdmissionDeniedError) as refused:
+        await admission._durable_after_fence(lease)
+    assert refused.value.reason == CapabilityRefusalReason.AUTHORITY_UNPROVEN
+    assert admission._durable_effect_checkpoint(lease) == checkpoint
+
+
+@pytest.mark.asyncio
+async def test_durable_snapshot_and_verifier_arguments_cannot_replace_original_signed_evidence():
+    class MutatingVerifier(UnitAuthority):
+        async def check_current(self, evidence, *, source_result=None):
+            # Return unchanged authenticated evidence while trying to overwrite the lease
+            # through the verifier argument. Divergent returned evidence is tested separately.
+            current = (await super().check_current(evidence, source_result=source_result)).model_copy(
+                deep=True
+            )
+            object.__setattr__(evidence, "signed_task_ref", "unit-other-signed-task")
+            object.__setattr__(evidence.binding, "principal_ref", "unit-other-principal")
+            return current
+
+    authority = MutatingVerifier()
+    admission = guard(authority=authority, audit=UnitAudit(authority))
+    lease = await admission.authorize(envelope(), REQUEST)
+    await admission._durable_before_fence(lease)
+    first = admission._durable_effect_checkpoint(lease)
+    assert first.original_authority.signed_task_ref == "unit-verified-task-signature"
+    assert first.original_authority.binding.principal_ref == "lucas"
+    object.__setattr__(first.original_authority, "authorization_ref", "unit-other-grant")
+    await admission._durable_after_fence(lease)
+    second = admission._durable_effect_checkpoint(lease)
+    assert second.original_authority.authorization_ref == "unit-authorized"
+    assert second.original_authority.signed_task_ref == "unit-verified-task-signature"
+    assert second.original_authority.binding.principal_ref == "lucas"
+
+
+@pytest.mark.asyncio
+async def test_durable_final_synchronous_check_observes_expiry_without_another_await():
+    authority = UnitAuthority()
+    ticks = [NOW]
+    admission = CapabilityAdmission(
+        binding=binding(),
+        authority=authority,
+        audit=UnitAudit(authority),
+        autonomy=build_pep(tenant="unit-tenant"),
+        clock=lambda: ticks[0],
+    )
+    lease = await admission.authorize(envelope(), REQUEST)
+    authority.current_updates["valid_until"] = NOW + timedelta(seconds=1)
+    await admission._durable_before_fence(lease)
+    await admission._durable_after_fence(lease)
+    ticks[0] = NOW + timedelta(seconds=1)
+    with pytest.raises(AdmissionDeniedError) as refused:
+        admission._durable_assert_current(lease)
+    assert refused.value.reason == CapabilityRefusalReason.STALE_REVISION
+
+
+@pytest.mark.asyncio
+async def test_durable_currentness_cannot_move_backwards_in_factual_time():
+    authority = UnitAuthority()
+    admission = CapabilityAdmission(
+        binding=binding(),
+        authority=authority,
+        audit=UnitAudit(authority),
+        autonomy=build_pep(tenant="unit-tenant"),
+        clock=lambda: NOW + timedelta(seconds=2),
+    )
+    lease = await admission.authorize(envelope(), REQUEST)
+    authority.current_updates["checked_at"] = NOW + timedelta(seconds=1)
+    await admission._durable_before_fence(lease)
+    authority.current_updates["checked_at"] = NOW
+    with pytest.raises(AdmissionDeniedError) as refused:
+        await admission._durable_after_fence(lease)
+    assert refused.value.reason == CapabilityRefusalReason.AUTHORITY_UNPROVEN
+
+
+@pytest.mark.asyncio
+async def test_durable_disclosure_keeps_original_lease_for_final_both_checks_then_release():
+    authority = UnitAuthority()
+    admission = guard(authority=authority, audit=UnitAudit(authority))
+    lease = await admission.authorize(envelope(), REQUEST)
+    await admission._durable_before_fence(lease)
+    await admission._durable_after_fence(lease)
+    await admission.verify_result(lease, RESULT)
+    await admission._durable_before_disclosure(lease)
+    admission._durable_assert_current(lease)
+    checkpoint = admission._durable_effect_checkpoint(lease)
+    assert checkpoint.original_currentness.source_result_sha256 is None
+    assert checkpoint.latest_currentness.source_result_sha256 == result_digest(RESULT)
+    assert admission._durable_source_result(lease).source_receipt_ref == "unit-domain-receipt"
+    admission.release(lease)
+    with pytest.raises(AdmissionDeniedError):
+        admission._durable_assert_current(lease)

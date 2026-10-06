@@ -1,0 +1,2676 @@
+{
+  "schema": "maezo-v21-journey-orchestration.proposal.v1",
+  "state": "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED",
+  "baseline_sha": "a62c05008f4d2e13af83cee7f6a61e913b51dcab",
+  "implementation_authorized_by_this_document": false,
+  "production_binding_added": false,
+  "published_provider_contract": false,
+  "human_ratification_recorded": false,
+  "runtime_acceptance": false,
+  "defaults_enabled": false,
+  "input_provenance": [
+    {
+      "path": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-capabilities/plan.json",
+      "sha256": "ef83361ee40324717d6af3ed94b04d841d1977dfe0d5f8f770e84984866893e6"
+    },
+    {
+      "path": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/agent-wiring.json",
+      "sha256": "8dcd21e9f12a2248eaf2c0688f947cdd75bf6e44730c5ae1d8170ed571540f20"
+    },
+    {
+      "path": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/INTEGRATION-PLAN-V2.1.md",
+      "sha256": "620432008f25c72cc00e8923f37812e89d802b50ea0fb77b34d5644453ce2a8d"
+    },
+    {
+      "path": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/design/v21-capabilities/contracts.json",
+      "sha256": "81d7848127e2d71a4b21b4bc1ed8df992bc9534531798ad329680fd5f28decec"
+    },
+    {
+      "path": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/src/maezo/gateway/capabilities/models.py",
+      "sha256": "2dba24193d5409779d15ec91b696edc4c8a043bfbc9a325ac88b0bd35d923d31"
+    },
+    {
+      "path": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/src/maezo/gateway/capabilities/service.py",
+      "sha256": "a763125e4e2bf46dbe4d344d8f6ff111cb442a2f73f36e29d4f19b6202781dec"
+    },
+    {
+      "path": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/src/maezo/gateway/capabilities/admission.py",
+      "sha256": "e6ca3294b74f67bc4957a4bffa5c2293877f33cc107d1766dd3a0504a15fe4ea"
+    },
+    {
+      "path": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/src/maezo/agents/lucas/administrative/graph.py",
+      "sha256": "50977755697707762b7c4e923bb6d5d1b86761e59aab355f7afa9391d320e5a3"
+    },
+    {
+      "path": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/src/maezo/agents/lucas/administrative/state.py",
+      "sha256": "6fae933bac8cd15bc6b32d01cb199c53140130f799f60e347a0bc28d7248d627"
+    },
+    {
+      "path": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/src/maezo/agents/lucas/administrative/handoff.py",
+      "sha256": "efd3e0cb98a90134372f9f18e6386a163d65ecb77ec35776c06b824bccac3f70"
+    }
+  ],
+  "existing_runtime_limit": "receive→execute→END one operation per turn, no durable complete journey driver",
+  "shared_driver_is_full_journey": true,
+  "new_personas_mcp_servers_or_apis": [],
+  "common_envelope": {
+    "field_names": [
+      "schema_version",
+      "operation_name",
+      "tenant_ref",
+      "legal_entity_ref",
+      "journey_ref",
+      "correlation_ref",
+      "causation_ref",
+      "idempotency_key",
+      "expected_business_revision",
+      "source_authority_ref",
+      "policy_revision",
+      "data_classification"
+    ],
+    "source_exact": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+    "closed": true,
+    "schema_version_value": "v21-capabilities.proposed.v1",
+    "identity_rule": "Opaque authority references only; local prospect journey ref never minting an AMH portable_subject_ref",
+    "candidate_interface_only": true,
+    "published": false
+  },
+  "operations": [
+    {
+      "id": "OP01",
+      "family": "F1",
+      "operation": "access.resolve",
+      "request": "ContextAccessIntent",
+      "response": "ContextAccessResult",
+      "request_fields_proposed": {
+        "subject_type": "prospect|beneficiary",
+        "subject_or_prospect_ref": "OpaqueRef",
+        "operation_scope_ref": "OpaqueRef",
+        "purpose_policy_ref": "OpaqueRef",
+        "expected_consent_revision_ref": "OpaqueRef?",
+        "source_context_refs": "list<OpaqueRef>"
+      },
+      "response_fields_proposed": {
+        "access_status": "available|denied|unavailable",
+        "context_refs": "list<OpaqueRef>",
+        "source_revision_ref": "OpaqueRef?",
+        "access_decision_ref": "OpaqueRef"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F1"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    },
+    {
+      "id": "OP02",
+      "family": "F2",
+      "operation": "offer.compose",
+      "request": "OfferOptionsIntent",
+      "response": "VersionedOfferOptions",
+      "request_fields_proposed": {
+        "catalogue_ref": "OpaqueRef",
+        "catalogue_version": "VersionRef",
+        "administrative_preferences_ref": "OpaqueRef",
+        "availability_refs": "list<OpaqueRef>",
+        "purpose_policy_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "offer_ref": "OpaqueRef?",
+        "offer_version": "VersionRef?",
+        "valid_until": "Instant?",
+        "option_refs": "list<OpaqueRef>",
+        "explanation_refs": "list<OpaqueRef>",
+        "status": "usable|unavailable|review_required"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F2"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    },
+    {
+      "id": "OP03",
+      "family": "F3",
+      "operation": "acceptance.record",
+      "request": "AcceptanceCommand",
+      "response": "AcceptanceEvidenceReceipt",
+      "request_fields_proposed": {
+        "offer_ref": "OpaqueRef",
+        "offer_version": "VersionRef",
+        "decision": "accept|decline",
+        "terms_evidence_ref": "OpaqueRef",
+        "customer_authority_proof_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "acceptance_ref": "OpaqueRef",
+        "recorded_decision": "accepted|declined",
+        "recorded_at": "Instant",
+        "receipt_ref": "OpaqueRef",
+        "business_revision": "RevisionRef"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F3"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    },
+    {
+      "id": "OP04",
+      "family": "F3",
+      "operation": "enrollment.request",
+      "request": "EnrollmentIntent",
+      "response": "EnrollmentAuthorityReceipt",
+      "request_fields_proposed": {
+        "accepted_commitment_ref": "OpaqueRef",
+        "prospect_linkage_ref": "OpaqueRef",
+        "enrollment_authority_contract_ref": "OpaqueRef",
+        "administrative_evidence_refs": "list<OpaqueRef>"
+      },
+      "response_fields_proposed": {
+        "enrollment_status": "pending|issued|refused|review_required",
+        "enrollment_ref": "OpaqueRef?",
+        "issuer_receipt_ref": "OpaqueRef?",
+        "portable_subject_ref": "AMH_MintedOpaqueRef?",
+        "source_revision_ref": "RevisionRef?"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F3"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    },
+    {
+      "id": "OP05",
+      "family": "F4",
+      "operation": "reservation.command",
+      "request": "ReservationCommand",
+      "response": "ProviderReservationReceipt",
+      "request_fields_proposed": {
+        "provider_ref": "OpaqueRef",
+        "operation": "hold|confirm|reschedule|cancel",
+        "offer_or_booking_ref": "OpaqueRef",
+        "expected_provider_revision": "RevisionRef",
+        "customer_commitment_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "reservation_status": "pending|held|confirmed|cancelled|disrupted",
+        "booking_ref": "OpaqueRef?",
+        "hold_expires_at": "Instant?",
+        "provider_receipt_ref": "OpaqueRef?",
+        "provider_revision": "RevisionRef?"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F4"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    },
+    {
+      "id": "OP06",
+      "family": "F4",
+      "operation": "fulfillment.observe",
+      "request": "FulfillmentObservation",
+      "response": "VerifiedFulfillmentFact",
+      "request_fields_proposed": {
+        "fulfillment_ref": "OpaqueRef",
+        "source_event_or_observation_ref": "OpaqueRef",
+        "source_authority_contract_ref": "OpaqueRef",
+        "expected_revision": "RevisionRef"
+      },
+      "response_fields_proposed": {
+        "fact_kind": "performed|result_available|no_show|disrupted|pending",
+        "factual_at": "Instant?",
+        "source_fact_ref": "OpaqueRef",
+        "source_revision": "RevisionRef",
+        "clinical_result_context_ref": "OpaqueRef?"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F4"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    },
+    {
+      "id": "OP07",
+      "family": "F5",
+      "operation": "case.open_or_update",
+      "request": "ResolutionCaseIntent",
+      "response": "ResolutionCaseStatus",
+      "request_fields_proposed": {
+        "problem_ref": "OpaqueRef",
+        "origin_case_or_journey_ref": "OpaqueRef",
+        "case_kind": "DeclaredCaseKind",
+        "requester_authority_ref": "OpaqueRef",
+        "evidence_refs": "list<OpaqueRef>",
+        "formal_regulatory_request_ref": "OpaqueRef?"
+      },
+      "response_fields_proposed": {
+        "case_ref": "OpaqueRef",
+        "protocol_ref": "OpaqueRef?",
+        "case_status": "DeclaredCaseStatus",
+        "authority_receipt_ref": "OpaqueRef",
+        "business_revision": "RevisionRef"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F5"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    },
+    {
+      "id": "OP08",
+      "family": "F5",
+      "operation": "external_wait.settle",
+      "request": "ExternalWaitIntent",
+      "response": "ExternalWaitOutcome",
+      "request_fields_proposed": {
+        "wait_ref": "OpaqueRef",
+        "expected_producer_ref": "OpaqueRef",
+        "correlation_ref": "OpaqueRef",
+        "authoritative_deadline_ref": "OpaqueRef?",
+        "source_outcome_ref": "OpaqueRef?"
+      },
+      "response_fields_proposed": {
+        "wait_status": "pending|completed|timed_out|incident",
+        "outcome_evidence_ref": "OpaqueRef?",
+        "settlement_revision": "RevisionRef",
+        "owner_case_ref": "OpaqueRef"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F5"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    },
+    {
+      "id": "OP09",
+      "family": "F6",
+      "operation": "notice.prepare_or_send",
+      "request": "NoticeIntent",
+      "response": "DeliveryEvidenceReceipt",
+      "request_fields_proposed": {
+        "notice_ref": "OpaqueRef",
+        "notice_class": "mandatory|facultative",
+        "authorized_content_ref": "OpaqueRef",
+        "recipient_authority_ref": "OpaqueRef",
+        "confirmed_channel_ref": "OpaqueRef",
+        "delivery_policy_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "delivery_status": "pending|attempted|delivered|failed|unknown",
+        "provider_delivery_receipt_ref": "OpaqueRef?",
+        "attempt_revision": "RevisionRef",
+        "metadata_publication_receipt_ref": "OpaqueRef?"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F6"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    },
+    {
+      "id": "OP10",
+      "family": "F6",
+      "operation": "milestone.publish",
+      "request": "VerifiedMilestoneIntent",
+      "response": "MilestonePublicationReceipt",
+      "request_fields_proposed": {
+        "source_fact_ref": "OpaqueRef",
+        "milestone_kind": "DeclaredMilestoneKind",
+        "source_revision": "RevisionRef",
+        "audience_contract_ref": "OpaqueRef",
+        "prediction_ref": "OpaqueRef?"
+      },
+      "response_fields_proposed": {
+        "publication_status": "committed|pending|failed",
+        "outbox_receipt_ref": "OpaqueRef?",
+        "milestone_revision": "RevisionRef"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F6"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    },
+    {
+      "id": "OP11",
+      "family": "F5",
+      "operation": "feedback.record",
+      "request": "CustomerFeedbackIntent",
+      "response": "FeedbackObservationReceipt",
+      "request_fields_proposed": {
+        "case_or_fulfillment_ref": "OpaqueRef",
+        "instrument_version_ref": "OpaqueRef",
+        "respondent_authority_ref": "OpaqueRef",
+        "feedback_evidence_ref": "OpaqueRef"
+      },
+      "response_fields_proposed": {
+        "feedback_observation_ref": "OpaqueRef",
+        "feedback_kind": "observed|contested|no_response",
+        "recorded_at": "Instant",
+        "does_not_authorize_clinical_or_financial_change": "LiteralTrue"
+      },
+      "common_envelope": "schema_version,operation_name,tenant_ref,legal_entity_ref,journey_ref,correlation_ref,causation_ref,idempotency_key,expected_business_revision,source_authority_ref,policy_revision,data_classification; domain-specific request/result are closed and authoritative",
+      "W0_contract_requests": [
+        "CR-F5"
+      ],
+      "published": false,
+      "provider_qualified": false,
+      "effective_admission_required": "New effect/read bindings require proven effective enforcing policy+registered operation+purpose/consent/ceiling/currentness+audit-before-effect; global shadow or approved product mandate alone never admits effect. Reuse protected baseline only within its qualified contract and explicit strict denial guards."
+    }
+  ],
+  "task_operation_allowlists": {
+    "journey.compras.step": [
+      "OP01",
+      "OP02",
+      "OP03",
+      "OP04",
+      "OP05",
+      "OP06",
+      "OP07",
+      "OP08",
+      "OP09",
+      "OP10"
+    ],
+    "journey.suporte.step": [
+      "OP01",
+      "OP07",
+      "OP08",
+      "OP09",
+      "OP10",
+      "OP11"
+    ]
+  },
+  "support_confirmation_refinement": {
+    "state": "PLANNED_W0_CONTRACT_REQUIRED_NOT_PUBLISHED",
+    "process_id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+    "operation": "OP07",
+    "nodes": [
+      "collect_resolution_confirmation",
+      "record_resolution_confirmation"
+    ],
+    "request_bindings": {
+      "problem_ref": "AUTHORITATIVE_CASE_PROBLEM_REF",
+      "origin_case_or_journey_ref": "AUTHORITATIVE_EXISTING_CASE_REF",
+      "case_kind": "W0_PUBLISHED_DECLARED_CASE_KIND_MEMBER",
+      "requester_authority_ref": "CURRENT_AUTHENTICATED_CUSTOMER_OR_DELEGATE_AUTHORITY_REF",
+      "evidence_refs": [
+        "AUTHORITATIVE_RESOLUTION_RECEIPT_REF",
+        "CURRENT_CUSTOMER_CONFIRMATION_EVIDENCE_REF"
+      ],
+      "formal_regulatory_request_ref": "ABSENT_UNLESS_ACTUAL_FORMAL_REQUEST"
+    },
+    "envelope_bindings": {
+      "expected_business_revision": "AUTHORITATIVE_EXPECTED_CASE_REVISION"
+    },
+    "response_bindings": {
+      "case_ref": "SAME_AUTHORITATIVE_CASE_REF",
+      "protocol_ref": "EXISTING_PROTOCOL_IF_APPLICABLE",
+      "case_status": "W0_PUBLISHED_DECLARED_CASE_STATUS_MEMBER",
+      "authority_receipt_ref": "VERIFIED_DOMAIN_CASE_AUTHORITY_RECEIPT_REF",
+      "business_revision": "AUTHORITATIVE_RESULTING_CASE_REVISION"
+    },
+    "W0_contract_request": "CR-F5",
+    "requires_published_confirmation_intent": true,
+    "requires_declared_case_kind_membership": true,
+    "requires_current_requester_authority": true,
+    "requires_receipt_verification": true,
+    "published_enum_members": [],
+    "planning_outcome_classes": [
+      "customer_confirmed",
+      "customer_disagreed",
+      "confirmation_timeout",
+      "closed_without_confirmation"
+    ],
+    "outcome_classes_are_DTO_enum_members": false,
+    "silence_proves_resolution": false,
+    "return_path": "Verify current requester evidence and source resolution receipt against tenant+same case+expected revision; domain source updates case and returns authority_receipt_ref/business_revision; durable state then qualified same-principal reply. No commercial acceptance receipt substitutes for case resolution.",
+    "required_future_tests": [
+      "no_offer_case_confirmation",
+      "disagreed_not_confirmed",
+      "timeout_not_confirmed",
+      "closed_without_confirmation_distinct",
+      "stale_case_revision_refused",
+      "forged_or_stale_requester_refused",
+      "wrong_case_or_tenant_receipt_refused",
+      "duplicate_confirmation_idempotent",
+      "unknown_DTO_fields_refused",
+      "unpublished_case_kind_refused"
+    ],
+    "source_contract_ref": "../v2-capabilities/COMPATIBILITY-AND-CONTRACTS.md#op07-caseopen_or_update"
+  },
+  "concept_cells": [
+    {
+      "process_id": "Process_CA_COMPRA",
+      "family": "F1",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_CA_C1",
+          "line": 122,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_CA_C1"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_B_ConsentimentoNegado",
+          "line": 138,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_B_ConsentimentoNegado"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA",
+      "family": "F2",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_CA_C1",
+          "line": 122,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_CA_C1"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_GW_Proposta",
+          "line": 147,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_GW_Proposta"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA",
+      "family": "F3",
+      "role": "P",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_CA_C2",
+          "line": 169,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_CA_C2"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_CA_C3",
+          "line": 221,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_CA_C3"
+        }
+      ],
+      "rationale": "Responsabilidade principal demonstrada"
+    },
+    {
+      "process_id": "Process_CA_COMPRA",
+      "family": "F4",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_CA_C4",
+          "line": 279,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_CA_C4"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA",
+      "family": "F5",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_GW_SemOferta",
+          "line": 153,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_GW_SemOferta"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_End_Suporte",
+          "line": 370,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_End_Suporte"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_ES_Ajuda",
+          "line": 392,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_ES_Ajuda"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA",
+      "family": "F6",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_End_DireitoHabilitado",
+          "line": 269,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_End_DireitoHabilitado"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "CP_End_Recusa",
+          "line": 195,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#CP_End_Recusa"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C1_EntenderRecomendar",
+      "family": "F1",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C1_CA_H1",
+          "line": 483,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C1_CA_H1"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C1_EntenderRecomendar",
+      "family": "F2",
+      "role": "P",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C1_CA_NBA",
+          "line": 499,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C1_CA_NBA"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C1_T_Cruzar",
+          "line": 527,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C1_T_Cruzar"
+        }
+      ],
+      "rationale": "Responsabilidade principal demonstrada"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C1_EntenderRecomendar",
+      "family": "F4",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C1_T_Agenda",
+          "line": 522,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C1_T_Agenda"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C1_T_Capacidade",
+          "line": 540,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C1_T_Capacidade"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C1_EntenderRecomendar",
+      "family": "F6",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C1_T_Reward",
+          "line": 551,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C1_T_Reward"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C2_DecidirContratar",
+      "family": "F3",
+      "role": "P",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C2_T_Aceite",
+          "line": 669,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C2_T_Aceite"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C2_B_Recusa",
+          "line": 688,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C2_B_Recusa"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C2_B_PrazoMax",
+          "line": 674,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C2_B_PrazoMax"
+        }
+      ],
+      "rationale": "Responsabilidade principal demonstrada"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C2_DecidirContratar",
+      "family": "F4",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C2_EV_Agendado",
+          "line": 633,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C2_EV_Agendado"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C2_DecidirContratar",
+      "family": "F6",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C2_EV_Lembrete",
+          "line": 619,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C2_EV_Lembrete"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C2_EV_Agendado",
+          "line": 633,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C2_EV_Agendado"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C3_HabilitarDireito",
+      "family": "F1",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C3_CA_Perfil",
+          "line": 745,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C3_CA_Perfil"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C3_HabilitarDireito",
+      "family": "F3",
+      "role": "P",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C3_GW_Tipo",
+          "line": 740,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C3_GW_Tipo"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C3_T_Elegibilidade",
+          "line": 775,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C3_T_Elegibilidade"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C3_T_AutoAutorizar",
+          "line": 786,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C3_T_AutoAutorizar"
+        }
+      ],
+      "rationale": "Responsabilidade principal demonstrada"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C3_HabilitarDireito",
+      "family": "F5",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C3_T_Parecer",
+          "line": 881,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C3_T_Parecer"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C3_EV_Pendencia",
+          "line": 849,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C3_EV_Pendencia"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C3_T_Renegociar",
+          "line": 894,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C3_T_Renegociar"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C3_HabilitarDireito",
+      "family": "F6",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C3_EV_EmAnalise",
+          "line": 824,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C3_EV_EmAnalise"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C3_EV_Autorizado",
+          "line": 797,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C3_EV_Autorizado"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C4_ManterDireito",
+      "family": "F3",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C4_T_Confirmar",
+          "line": 1018,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C4_T_Confirmar"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C4_ManterDireito",
+      "family": "F4",
+      "role": "P",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C4_T_Reagendar",
+          "line": 1008,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C4_T_Reagendar"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C4_B_SemSlot",
+          "line": 1013,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C4_B_SemSlot"
+        }
+      ],
+      "rationale": "Responsabilidade principal demonstrada"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C4_ManterDireito",
+      "family": "F5",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C4_End_SemSlot",
+          "line": 1081,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C4_End_SemSlot"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_COMPRA_C4_ManterDireito",
+      "family": "F6",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C4_EV_Lembrete",
+          "line": 1037,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C4_EV_Lembrete"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+          "element_id": "C4_EV_Agendado",
+          "line": 1051,
+          "locator": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn#C4_EV_Agendado"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE",
+      "family": "F2",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "SP_GW_Compra",
+          "line": 120,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#SP_GW_Compra"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE",
+      "family": "F5",
+      "role": "P",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "SP_CA_S1",
+          "line": 84,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#SP_CA_S1"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "SP_CA_S2",
+          "line": 105,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#SP_CA_S2"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "SP_CA_S3",
+          "line": 142,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#SP_CA_S3"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "SP_CA_S4",
+          "line": 157,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#SP_CA_S4"
+        }
+      ],
+      "rationale": "Responsabilidade principal demonstrada"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE",
+      "family": "F6",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "SP_End_Resolvido",
+          "line": 183,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#SP_End_Resolvido"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "SP_End_SemConfirmacao",
+          "line": 191,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#SP_End_SemConfirmacao"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S1_OuvirRegistrar",
+      "family": "F1",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S1_CA_H1",
+          "line": 269,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S1_CA_H1"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S1_T_Contexto",
+          "line": 290,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S1_T_Contexto"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S1_OuvirRegistrar",
+      "family": "F5",
+      "role": "P",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S1_T_Contexto",
+          "line": 290,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S1_T_Contexto"
+        }
+      ],
+      "rationale": "Responsabilidade principal demonstrada"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S1_OuvirRegistrar",
+      "family": "F6",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S1_EV_Cuidando",
+          "line": 309,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S1_EV_Cuidando"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S2_DiagnosticarRotear",
+      "family": "F2",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S2_T_Triagem",
+          "line": 373,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S2_T_Triagem"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S2_DiagnosticarRotear",
+      "family": "F5",
+      "role": "P",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S2_T_Triagem",
+          "line": 373,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S2_T_Triagem"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S2_GW_Clinico",
+          "line": 378,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S2_GW_Clinico"
+        }
+      ],
+      "rationale": "Responsabilidade principal demonstrada"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+      "family": "F5",
+      "role": "P",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S3_T_Especialista",
+          "line": 479,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S3_T_Especialista"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S3_T_Enfermagem",
+          "line": 484,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S3_T_Enfermagem"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S3_T_Recovery",
+          "line": 528,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S3_T_Recovery"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S3_T_Cumprir",
+          "line": 510,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S3_T_Cumprir"
+        }
+      ],
+      "rationale": "Responsabilidade principal demonstrada"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+      "family": "F1",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S4_T_Aprender",
+          "line": 656,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S4_T_Aprender"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+      "family": "F5",
+      "role": "P",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S4_T_Confirmar",
+          "line": 629,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S4_T_Confirmar"
+        },
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S4_T_Ouvidoria",
+          "line": 645,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S4_T_Ouvidoria"
+        }
+      ],
+      "rationale": "Responsabilidade principal demonstrada"
+    },
+    {
+      "process_id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+      "family": "F6",
+      "role": "S",
+      "source_refs": [
+        {
+          "file": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+          "element_id": "S4_EV_Aprendizado",
+          "line": 661,
+          "locator": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn#S4_EV_Aprendizado"
+        }
+      ],
+      "rationale": "Consumidor/fornecedor parcial demonstrado; sem claim de API existente"
+    }
+  ],
+  "interfaces": {
+    "JourneyBinding": {
+      "fields": {
+        "task_ref": "existing admitted candidate task token",
+        "tenant_ref": "OpaqueRef",
+        "legal_entity_ref": "OpaqueRef",
+        "topology_contract_ref": "OpaqueRef",
+        "topology_version_ref": "VersionRef",
+        "source_transition_contract_ref": "OpaqueRef",
+        "enabled": "bool default false",
+        "environment_ref": "OpaqueRef trusted environment binding",
+        "principal_ref": "OpaqueRef fixed current signed principal binding",
+        "data_policy_ref": "OpaqueRef admitted custody/retention/erasure policy",
+        "journey_ref": "OpaqueRef fixed source-authorized or admitted local journey reference; not minted AMH identity"
+      },
+      "trusted_server_only": true,
+      "journal_binding_projection": "environment_ref/tenant_ref/legal_entity_ref/journey_ref/principal_ref/task_ref/data_policy_ref exactly match frozen JournalBinding; no operation/purpose reassignment",
+      "current_turn_scope_rule": "handoff/task/tenant/journey and authenticated legal entity/principal/environment exactly match this server-owned binding on every turn, observation, resume and journal call"
+    },
+    "CurrentJourneyTurn": {
+      "fields": {
+        "handoff": "existing AdministrativeHandoff",
+        "current_message_ref": "existing keyed pseudonymous message ref",
+        "manifestation_evidence_ref": "OpaqueRef authenticated current input evidence",
+        "safety_observation_ref": "OpaqueRef trusted current health/human observation",
+        "expected_journal_revision": "local journal integer"
+      },
+      "forbidden": [
+        "operation_name",
+        "next_cursor",
+        "source_result",
+        "receipt",
+        "raw_message",
+        "clinical_text",
+        "recipient",
+        "arbitrary checkpoint/config/Command"
+      ]
+    },
+    "JourneyPreparationPort.prepare": {
+      "arguments": [
+        "JourneyBinding",
+        "JourneySnapshot",
+        "CurrentJourneyTurn or durably verified observation reference"
+      ],
+      "returns": "PreparedJourneyAction",
+      "must_supply": [
+        "exact next CapabilityEnvelope+CandidateDTO when OP",
+        "source-prepared current refs/version/correlation/authority/policy/idempotency literal",
+        "predecessor fact/receipt binding",
+        "source-owned transition attestation"
+      ],
+      "may_not": [
+        "increment opaque refs",
+        "use journal integer as source revision",
+        "mint source identity/receipt",
+        "invent deterministic rule"
+      ]
+    },
+    "JourneyTransitionAuthorityPort.verify": {
+      "arguments": [
+        "JourneyBinding",
+        "current technical cursor/predecessor evidence",
+        "PreparedJourneyAction",
+        "current source facts/receipts"
+      ],
+      "returns": "VerifiedJourneyContinuation or existing CapabilityRefusalReason; qualified source-owned transition proof, not authority by construction",
+      "missing_contract": "deny dependent transition",
+      "qualified_internal_records": [
+        "VerifiedJourneyContinuation"
+      ]
+    },
+    "JourneyDriver": {
+      "methods": {
+        "accept_turn": [
+          "CurrentJourneyTurn",
+          "JourneyDispatchOutcome"
+        ],
+        "accept_observation": [
+          "VerifiedInboxObservation",
+          "durable observation handle/ack eligibility"
+        ],
+        "resume": [
+          "durable observation ref+expected local journal revision",
+          "JourneyDispatchOutcome"
+        ],
+        "recover": [
+          "scoped recovery handles",
+          "source reconciliation/outbox recovery report"
+        ]
+      },
+      "shared_implementation": true,
+      "no_arbitrary_graph_resume": true,
+      "journal_method_ownership": {
+        "driver": [
+          "record_command",
+          "observe_command",
+          "observe_journey",
+          "record_wait",
+          "enqueue_outbox",
+          "recover"
+        ],
+        "trusted_gateway_command_boundary": [
+          "begin_dispatch",
+          "record_pre_dispatch_refusal",
+          "record_verified_result",
+          "mark_uncertain"
+        ],
+        "trusted_authenticated_inbox_boundary": [
+          "ingest_verified_observation"
+        ],
+        "trusted_registered_scheduler": [
+          "mark_wait_elapsed"
+        ],
+        "trusted_registered_outbox_boundary": [
+          "claim_outbox",
+          "begin_outbox_delivery",
+          "record_outbox_ack",
+          "mark_outbox_uncertain"
+        ]
+      },
+      "no_business_cursor_in_JourneySnapshot": true,
+      "recovery_cursor_not_journey_successor": true
+    },
+    "JourneyDispatchOutcome": {
+      "fields": {
+        "journey_ref": "OpaqueRef",
+        "source_case_refs": "tuple<OpaqueRef>",
+        "journal_revision": "local integer",
+        "source_completion_receipt_ref": "OpaqueRef? genuine source terminal evidence",
+        "pending_command_refs": "tuple<OpaqueRef>",
+        "wait_refs": "tuple<OpaqueRef>",
+        "outbox_refs": "tuple<OpaqueRef>",
+        "technical_refusal": "CapabilityRefusalReason?",
+        "verified_transition_ref": "OpaqueRef?"
+      },
+      "business_completion_inferred": false,
+      "reply_delivery_inferred": false
+    },
+    "DurableCommandBoundaryPort": {
+      "composition": "internal optional CapabilityService dependency, only after interface gate",
+      "source_wire_change": false,
+      "owns": [
+        "journal record_command/observe_command",
+        "admission/audit lease",
+        "begin_dispatch durable fence",
+        "private same-lease after-fence currentness checkpoint",
+        "qualified source I/O and source atomic commit validation",
+        "verified-result+audit receipt internal attestation",
+        "journal record_verified_result/mark_uncertain",
+        "receipt-first source reconciliation"
+      ],
+      "driver_may_not": [
+        "call begin_dispatch directly",
+        "record unverified result",
+        "retry uncertain effect"
+      ],
+      "qualified_internal_records": [
+        "CommandDescriptor",
+        "DispatchEvidence",
+        "DispatchToken",
+        "VerifiedResultObservation",
+        "PreDispatchRefusal"
+      ]
+    },
+    "ExistingDomainHandoffPort": {
+      "arguments": [
+        "source-authorized domain route+case+minimum material refs"
+      ],
+      "returns": [
+        "original domain authority/handoff receipt refs",
+        "expected return producer/correlation refs"
+      ],
+      "required": [
+        "actual target/card/task/catalogue/handler/root/source/return",
+        "native human commands for protected effect",
+        "ack not business resolution"
+      ]
+    },
+    "QualifiedReplyPort": {
+      "arguments": [
+        "JournalBinding",
+        "OutboxSnapshot",
+        "VerifiedAuthority existing",
+        "VerifiedCurrentness existing"
+      ],
+      "returns": "tuple[OutboxAckEvidence | None, DeliveryEvidenceReceipt existing | None] or existing CapabilityRefusalReason; each evidence independently verified",
+      "no_raw_recipient_or_message_in_journal": true,
+      "qualified_internal_records": [
+        "JournalBinding",
+        "OutboxDescriptor",
+        "OutboxSnapshot",
+        "OutboxAckEvidence"
+      ],
+      "existing_external_record_types": [
+        "VerifiedAuthority",
+        "VerifiedCurrentness",
+        "DeliveryEvidenceReceipt",
+        "CapabilityRefusalReason"
+      ],
+      "consumed_fields": {
+        "JournalBinding": [
+          "environment_ref",
+          "tenant_ref",
+          "legal_entity_ref",
+          "journey_ref",
+          "principal_ref",
+          "task_ref",
+          "data_policy_ref"
+        ],
+        "OutboxSnapshot": [
+          "descriptor",
+          "journal_revision",
+          "technical_state",
+          "claim_ref",
+          "worker_ref",
+          "lease_until",
+          "fence_version",
+          "delivery_ref"
+        ],
+        "OutboxDescriptor": [
+          "outbox_ref",
+          "command_ref",
+          "kind",
+          "target_binding_ref",
+          "payload_ref",
+          "payload_sha256",
+          "causation_ref",
+          "dedupe_identity_ref"
+        ],
+        "VerifiedAuthority": [
+          "binding",
+          "request_sha256",
+          "authorization_ref",
+          "currentness_ref",
+          "enforcement",
+          "decision",
+          "verified_at",
+          "valid_until"
+        ],
+        "VerifiedCurrentness": [
+          "binding",
+          "request_sha256",
+          "authorization_ref",
+          "currentness_ref",
+          "source_result_sha256",
+          "checked_at",
+          "valid_until"
+        ]
+      },
+      "rules": [
+        "OutboxSnapshot must come from acknowledged begin_outbox_delivery under the exact scoped JournalBinding and expected local CAS, with state DELIVERY_FENCED. Snapshot type/fields alone are not proof; trusted boundary binds it to the acknowledged current journal claim/fence.",
+        "Require current registered worker_ref and claim_ref, exact positive fence_version, delivery_ref and journal_revision from that acknowledged fence; lease_until must still be valid under admitted operational clock/configuration. Expired lease or stale claim rejects send, preserves fence/uncertainty and never permits reclaim/redelivery.",
+        "Bind descriptor.command_ref/outbox_ref/causation/dedupe identity to original scoped command and immutable target_binding_ref/payload_ref/payload_sha256. Resolve protected content/recipient/channel through the already registered qualified target, never caller input or a journal raw recipient.",
+        "Existing VerifiedAuthority and VerifiedCurrentness are produced by qualified current OP09/source admission, not caller assertions. Both bind the exact current AdmissionBinding/request digest/authorization to this original journal command; enforce principal/task/tenant/legal entity/purpose/source policy and admitted sender/recipient/window/content revisions.",
+        "After every awaited journal/custody/source step recheck the same private authorized lease/currentness before transport and disclosure. Missing/expired/revoked/erased evidence or sender/channel publication refuses without erasing source fact or resetting delivery fence.",
+        "Transport acknowledgement must yield independently verified OutboxAckEvidence bound to original outbox/delivery/target/payload; only then record_outbox_ack may mark ACK_RECORDED. No arbitrary tuple/HTTP ACK can fabricate this evidence.",
+        "DeliveryEvidenceReceipt remains an existing independently parsed/verified OP09 source result. ACK_RECORDED, an OutboxAckEvidence or tuple field presence never proves domain delivery/business completion; absence stays unknown and post-fence recovery is contracted lookup only.",
+        "A tuple with no independently verified acknowledgement and no source delivery evidence is inconclusive: retain/mark post-fence uncertainty, never ACK_RECORDED or completed. A delivery receipt with absent transport ACK preserves the genuine source fact but does not manufacture an outbox ACK."
+      ]
+    },
+    "PreparedJourneyAction": {
+      "candidate_schema_version": "v21-journey-action.proposed.v1",
+      "trusted_preparation_output_only": true,
+      "closed_common_fields": {
+        "schema_version": "Literal candidate version",
+        "task_ref": "existing candidate task token",
+        "tenant_ref": "OpaqueRef",
+        "legal_entity_ref": "OpaqueRef",
+        "journey_ref": "OpaqueRef",
+        "topology_contract_ref": "OpaqueRef",
+        "topology_version_ref": "VersionRef",
+        "cursor_ref": "configured technical cursor",
+        "predecessor_command_refs": "tuple<OpaqueRef>",
+        "predecessor_source_receipt_refs": "tuple<OpaqueRef>",
+        "preparation_authority_ref": "OpaqueRef",
+        "transition_contract_ref": "OpaqueRef"
+      },
+      "closed_variants": {
+        "capability": {
+          "envelope": "exact CapabilityEnvelope",
+          "request": "exact operation CandidateDTO"
+        },
+        "existing_domain_handoff": {
+          "route_authority_ref": "OpaqueRef",
+          "source_case_ref": "OpaqueRef",
+          "existing_target_binding_ref": "OpaqueRef",
+          "minimum_material_refs": "tuple<OpaqueRef>",
+          "expected_return_binding_ref": "OpaqueRef"
+        },
+        "await_observation": {
+          "wait_ref": "OpaqueRef",
+          "expected_producer_ref": "OpaqueRef",
+          "correlation_ref": "OpaqueRef",
+          "authoritative_deadline_ref": "OpaqueRef?",
+          "source_case_or_journey_ref": "OpaqueRef"
+        },
+        "current_client_manifestation": {
+          "source_case_or_offer_ref": "OpaqueRef",
+          "manifestation_contract_ref": "OpaqueRef",
+          "authorized_notice_intent_ref": "OpaqueRef"
+        },
+        "verify_source_terminal": {
+          "source_terminal_fact_ref": "OpaqueRef",
+          "source_receipt_refs": "tuple<OpaqueRef>",
+          "source_completion_contract_ref": "OpaqueRef"
+        }
+      },
+      "variant_discriminators_are_technical_only": true,
+      "new_provider_wire_or_business_enum": false,
+      "caller_supplied_variant_or_cursor_allowed": false
+    },
+    "VerifiedJourneyContinuation": {
+      "candidate_schema_version": "v21-journey-continuation.proposed.v1",
+      "qualified_source_verifier_only": true,
+      "closed_fields": {
+        "schema_version": "Literal candidate version",
+        "task_ref": "existing candidate task token",
+        "tenant_ref": "OpaqueRef",
+        "legal_entity_ref": "OpaqueRef",
+        "journey_ref": "OpaqueRef",
+        "topology_contract_ref": "OpaqueRef",
+        "topology_version_ref": "VersionRef",
+        "from_cursor_ref": "configured technical cursor",
+        "successor_cursor_ref": "configured allowed successor or None",
+        "predecessor_command_refs": "tuple<OpaqueRef>",
+        "source_receipt_refs": "tuple<OpaqueRef>",
+        "source_decision_ref": "OpaqueRef",
+        "source_observation_ref": "OpaqueRef",
+        "transition_contract_ref": "OpaqueRef",
+        "policy_revision_ref": "OpaqueRef",
+        "valid_until": "source-published aware Instant"
+      },
+      "meaning": "source-owned rule/obligation/terminal classification proven and mapped to admitted technical successor; no status inference from absent ref/None",
+      "not_authority_by_construction": true,
+      "business_status_enum_members": []
+    },
+    "QualifiedSourceRecoveryPort": {
+      "arguments": [
+        "original immutable command handle/envelope/request digest",
+        "independent current read authority",
+        "original source binding/contract"
+      ],
+      "returns": "source-attested result/receipt or explicit contractual uncertainty/absence; journal receives verified evidence only",
+      "requires": [
+        "source receipt query contract and original command binding",
+        "source proof for old packet/native uniqueness",
+        "no different idempotency key or inferred business revision",
+        "qualified source validates current read scope",
+        "never fallback execute when query/source is unavailable"
+      ],
+      "absence_requires_separate_replay_publication": true,
+      "result_ingest_path": "Qualified lookup -> VerifiedResultObservation -> trusted gateway record_verified_result on DISPATCH_FENCED/UNCERTAIN/RESPONSE_RECORDED; no event_ref invented, source transport ACK never result proof."
+    }
+  },
+  "durability_dependency": {
+    "document": "docs/design/v21-capabilities/durability-contract.json",
+    "port": "DurabilityJournalPort",
+    "sha256": "173db7440d95f895edcd54c2b0e0c5cc91bfdaa4a01355e6e15349ca9130b21b",
+    "interface_gate_status": "REVISE_ORIGINAL_INPUT_PENDING_REPAIRED_ORIGINAL_REVIEWER_DELTA",
+    "source_code_edits_before_interface_gate": false,
+    "single_journal": true,
+    "journal_revision_type": "local integer",
+    "source_expected_business_revision_type": "existing Ref opaque string",
+    "source_revision_conversion_or_increment": false,
+    "local_revision_substitutes_source_revision": false,
+    "idempotency_compositor_added": false,
+    "key_source": "literal original CapabilityEnvelope.idempotency_key",
+    "no_business_cursor_or_status_owned_by_journal": true,
+    "markdown_sha256": "72a1beeddae110f810f0d08a9448a396420ba2312762866713a59522c9cbb741",
+    "interface_id": "DurabilityJournalPort.proposed.v1",
+    "protocol_method_names": [
+      "record_command",
+      "observe_command",
+      "observe_journey",
+      "begin_dispatch",
+      "record_pre_dispatch_refusal",
+      "mark_uncertain",
+      "record_verified_result",
+      "ingest_verified_observation",
+      "record_wait",
+      "mark_wait_elapsed",
+      "enqueue_outbox",
+      "claim_outbox",
+      "begin_outbox_delivery",
+      "record_outbox_ack",
+      "mark_outbox_uncertain",
+      "recover"
+    ],
+    "record_type_names": [
+      "JournalBinding",
+      "CommandDescriptor",
+      "CommandHandle",
+      "CommandSnapshot",
+      "JourneySnapshot",
+      "DispatchEvidence",
+      "DispatchToken",
+      "VerifiedResultObservation",
+      "VerifiedInboxObservation",
+      "WaitDescriptor",
+      "WaitSnapshot",
+      "OutboxDescriptor",
+      "OutboxSnapshot",
+      "OutboxAckEvidence",
+      "PreDispatchRefusal",
+      "JournalCallResult",
+      "RecoverySnapshot"
+    ],
+    "argument_result_authority": "exact frozen durability-contract.json#/protocol_methods and #/records; never a locally redeclared signature",
+    "journal_recovery_next_cursor_is_pagination_only": true,
+    "driver_cursor_recovery": "qualified planner reconstructs source-owned technical position from exact command predecessor lineage, admitted topology and source facts/protected custody; journal snapshot has no business cursor. Incomplete lineage refuses preparation, never restarts C1/S1 by inference.",
+    "author_freeze_received": false,
+    "technical_signature_delta": "DJ-F02 explicit wait_intents argument on both result-arrival methods; exact repaired argument/result authority remains durability JSON, pending original reviewer delta"
+  },
+  "journeys": {
+    "JR1": {
+      "task_ref": "journey.compras.step",
+      "artifact": {
+        "id": "JR1",
+        "families": [
+          "F2",
+          "F3",
+          "F4",
+          "F5",
+          "F6"
+        ],
+        "choice": "ADAPT_JOURNEY",
+        "runtime": "LangGraph + durable checkpoint and shared capability intents",
+        "targets": [
+          "src/maezo/runtime",
+          "src/maezo/agents",
+          "spec/agents"
+        ],
+        "delta": "Logical AGJ-COMPRA first consumer; controlled declared composition/agent scopes, no implicit broadening Helena/Lucas, no new persona/server per family",
+        "provider_gate": "W0 actor/ingress/catalogue contract"
+      },
+      "stages": [
+        {
+          "cursor_ref": "C1_need",
+          "source_process_id": "Process_CA_COMPRA_C1_EntenderRecomendar",
+          "operations": [
+            "OP01"
+          ],
+          "successor_cursor_refs": [
+            "C1_options",
+            "C_recovery"
+          ],
+          "transition_authority": "qualified context/source authority",
+          "guards": [
+            "authenticated current administrative need refs only",
+            "no universal profile",
+            "no health-risk selection",
+            "unavailable/denied never grants access"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C1_options",
+          "source_process_id": "Process_CA_COMPRA_C1_EntenderRecomendar",
+          "operations": [
+            "OP02"
+          ],
+          "successor_cursor_refs": [
+            "C1_present",
+            "C_recovery"
+          ],
+          "transition_authority": "operator catalogue/offer owner",
+          "guards": [
+            "exact catalogue/version/availability/preferences",
+            "usable/unavailable/review_required preserved",
+            "no business rule in Python/LLM"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C1_present",
+          "source_process_id": "Process_CA_COMPRA_C1_EntenderRecomendar",
+          "operations": [
+            "OP09",
+            "OP10"
+          ],
+          "successor_cursor_refs": [
+            "C2_wait_manifestation",
+            "C_recovery"
+          ],
+          "transition_authority": "communication/milestone owner",
+          "guards": [
+            "qualified content/recipient/channel",
+            "no delivery inferred from preparation/offset",
+            "OP10 only for closed declared required milestone"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C2_wait_manifestation",
+          "source_process_id": "Process_CA_COMPRA_C2_DecidirContratar",
+          "operations": [
+            "OP08"
+          ],
+          "successor_cursor_refs": [
+            "C2_acceptance",
+            "C_recovery"
+          ],
+          "transition_authority": "customer manifestation/wait owner",
+          "guards": [
+            "current authenticated customer/delegate evidence",
+            "deadline only source contract",
+            "silence is not acceptance"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C2_acceptance",
+          "source_process_id": "Process_CA_COMPRA_C2_DecidirContratar",
+          "operations": [
+            "OP03"
+          ],
+          "successor_cursor_refs": [
+            "C3_route",
+            "C_terminal",
+            "C_recovery"
+          ],
+          "transition_authority": "commercial acceptance source",
+          "guards": [
+            "exact original offer/version/terms",
+            "source recorded_decision kept",
+            "uncertain command reconciles same identity",
+            "declined never enrolls"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C3_route",
+          "source_process_id": "Process_CA_COMPRA_C3_HabilitarDireito",
+          "operations": [],
+          "successor_cursor_refs": [
+            "C3_enrollment",
+            "C3_reservation",
+            "C3_existing_AUTH",
+            "C_recovery"
+          ],
+          "transition_authority": "published route/authority contract",
+          "guards": [
+            "no route from arbitrary caller/LLM",
+            "enrollment independent of AUTH",
+            "selected obligations source-owned"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C3_enrollment",
+          "source_process_id": "Process_CA_COMPRA_C3_HabilitarDireito",
+          "operations": [
+            "OP04"
+          ],
+          "successor_cursor_refs": [
+            "C3_wait",
+            "C3_reservation",
+            "C4_fulfillment",
+            "C_recovery"
+          ],
+          "transition_authority": "administrative issuer",
+          "guards": [
+            "source links accepted_commitment_ref",
+            "issued requires issuer evidence verified",
+            "pending/refused/review_required kept distinct",
+            "coverage/care.enroll/portal/bootstrap not enrollment"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C3_reservation",
+          "source_process_id": "Process_CA_COMPRA_C3_HabilitarDireito",
+          "operations": [
+            "OP05"
+          ],
+          "successor_cursor_refs": [
+            "C3_wait",
+            "C4_fulfillment",
+            "C4_maintenance",
+            "C_recovery"
+          ],
+          "transition_authority": "agenda provider",
+          "guards": [
+            "hold/confirm/reschedule/cancel source-authorized",
+            "slot availability not hold; held not confirmed",
+            "provider revision and idempotency exact",
+            "no Tasy/HAPI write"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C3_existing_AUTH",
+          "source_process_id": "Process_CA_COMPRA_C3_HabilitarDireito",
+          "operations": [],
+          "successor_cursor_refs": [
+            "C3_wait",
+            "C4_fulfillment",
+            "C_recovery"
+          ],
+          "transition_authority": "existing AUTH ingress/native/Rafael/medical boundary",
+          "guards": [
+            "legitimate clinical request own source contract",
+            "signed scope/registered real handler",
+            "native currentness/receipts",
+            "never administrative enrollment alias",
+            "no direct completion or ADEQUACAO start"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C3_wait",
+          "source_process_id": "Process_CA_COMPRA_C3_HabilitarDireito",
+          "operations": [
+            "OP08"
+          ],
+          "successor_cursor_refs": [
+            "C3_enrollment",
+            "C3_reservation",
+            "C3_existing_AUTH",
+            "C4_fulfillment",
+            "C_recovery"
+          ],
+          "transition_authority": "expected source/human event and wait owner",
+          "guards": [
+            "same source object/correlation/producer/revision",
+            "existing result observation/reconcile does not issue another enrollment/reservation",
+            "real engine only for governed timer/obligation"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C4_fulfillment",
+          "source_process_id": "Process_CA_COMPRA_C4_ManterDireito",
+          "operations": [
+            "OP06"
+          ],
+          "successor_cursor_refs": [
+            "C3_wait",
+            "C4_maintenance",
+            "C_terminal",
+            "C_recovery"
+          ],
+          "transition_authority": "fulfillment source",
+          "guards": [
+            "current performed/result_available/no_show/disrupted/pending fact",
+            "no clinical_result_context_ref to administrative",
+            "ETA/A2A completed not source fulfillment"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C4_maintenance",
+          "source_process_id": "Process_CA_COMPRA_C4_ManterDireito",
+          "operations": [
+            "OP05",
+            "OP07",
+            "OP08"
+          ],
+          "successor_cursor_refs": [
+            "C3_wait",
+            "C4_fulfillment",
+            "C_recovery"
+          ],
+          "transition_authority": "domain reservation/case authority",
+          "guards": [
+            "compensation/reschedule/cancel owner-authorized only",
+            "no undo on topic switch/reply failure",
+            "preserve committed receipts"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C_recovery",
+          "source_process_id": "Process_CA_COMPRA",
+          "operations": [
+            "OP07",
+            "OP08",
+            "OP09"
+          ],
+          "successor_cursor_refs": [
+            "C1_options",
+            "C3_wait",
+            "C4_maintenance",
+            "C_terminal",
+            "C_to_support"
+          ],
+          "transition_authority": "source recovery/case owner",
+          "guards": [
+            "receipt-first uncertain reconcile",
+            "absence technical not absence effect",
+            "source decides refusal/expiry/intervention distinct",
+            "explicit admitted JR2 handoff only"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C_to_support",
+          "source_process_id": "Process_CA_COMPRA",
+          "operations": [],
+          "successor_cursor_refs": [
+            "C_recovery"
+          ],
+          "transition_authority": "existing admitted JR2 handoff",
+          "guards": [
+            "real acknowledgement",
+            "link original case/journey/receipts",
+            "no duplicate case protocol or implicit source mutation"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "C_terminal",
+          "source_process_id": "Process_CA_COMPRA",
+          "operations": [
+            "OP09",
+            "OP10"
+          ],
+          "successor_cursor_refs": [],
+          "transition_authority": "source terminal fact + required current customer proof + communication owner",
+          "guards": [
+            "source contractual delivered/refused/intervened terminal verified",
+            "missing provider never complete",
+            "source completion and reply delivered separate",
+            "pending outbox retained",
+            "no survey/advancedML prerequisite"
+          ],
+          "business_status_enum": false
+        }
+      ],
+      "entry_cursor_ref": "C1_need",
+      "policy_source_owned": true
+    },
+    "JR2": {
+      "task_ref": "journey.suporte.step",
+      "artifact": {
+        "id": "JR2",
+        "families": [
+          "F1",
+          "F2",
+          "F3",
+          "F4",
+          "F5",
+          "F6"
+        ],
+        "choice": "ADAPT_JOURNEY",
+        "runtime": "LangGraph + same shared capability contracts",
+        "targets": [
+          "src/maezo/runtime",
+          "src/maezo/agents",
+          "spec/agents"
+        ],
+        "delta": "Suporte second consumer uses identical implementations, different domain policies/authority; prove real reuse, not copied code",
+        "provider_gate": "W0 support authority and native binding"
+      },
+      "stages": [
+        {
+          "cursor_ref": "S1_case",
+          "source_process_id": "Process_CA_SUPORTE_S1_OuvirRegistrar",
+          "operations": [
+            "OP01",
+            "OP07"
+          ],
+          "successor_cursor_refs": [
+            "S1_ack",
+            "S_recovery"
+          ],
+          "transition_authority": "case/intake/requester source",
+          "guards": [
+            "minimum authenticated problem refs",
+            "published kind/role/audience",
+            "same case/protocol non-resettable clock",
+            "OP01 only current qualified purpose"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S1_ack",
+          "source_process_id": "Process_CA_SUPORTE_S1_OuvirRegistrar",
+          "operations": [
+            "OP09",
+            "OP10"
+          ],
+          "successor_cursor_refs": [
+            "S2_route",
+            "S_recovery"
+          ],
+          "transition_authority": "communication/source milestone owner",
+          "guards": [
+            "actual case/protocol receipt before registered/forwarded claim",
+            "qualified recipient/channel",
+            "source-owned closed milestone membership"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S2_route",
+          "source_process_id": "Process_CA_SUPORTE_S2_DiagnosticarRotear",
+          "operations": [
+            "OP07"
+          ],
+          "successor_cursor_refs": [
+            "S3_resolve_or_handoff",
+            "S_to_compras",
+            "S_recovery"
+          ],
+          "transition_authority": "case domain route/source owner",
+          "guards": [
+            "domain/material minimum",
+            "NIP formal only; RECURSO payer glosa only",
+            "clinical/fraud/hard actions own protected authority",
+            "no fallback default specialist"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S3_resolve_or_handoff",
+          "source_process_id": "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+          "operations": [],
+          "successor_cursor_refs": [
+            "S3_wait",
+            "S4_current_confirmation",
+            "S_recovery"
+          ],
+          "transition_authority": "qualified case source/existing domain handler",
+          "guards": [
+            "signed task/Card when A2A",
+            "real handler/catalogue/root/material/source/return",
+            "ack not resolution",
+            "no direct completion fallback"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S3_wait",
+          "source_process_id": "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+          "operations": [
+            "OP08",
+            "OP09"
+          ],
+          "successor_cursor_refs": [
+            "S3_resume",
+            "S_recovery"
+          ],
+          "transition_authority": "expected source/human/wait owner",
+          "guards": [
+            "producer/correlation/revision/currentness",
+            "deadline only published source",
+            "technical elapsed not completed",
+            "preserve protocol/clock"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S3_resume",
+          "source_process_id": "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+          "operations": [
+            "OP08",
+            "OP07"
+          ],
+          "successor_cursor_refs": [
+            "S3_wait",
+            "S4_current_confirmation",
+            "S_recovery"
+          ],
+          "transition_authority": "current human/external authority receipt",
+          "guards": [
+            "same tenant/case/journey/object",
+            "revoked/stale cannot new effect/disclose",
+            "current recipient/window on reply",
+            "resume only from durable verified observation"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S4_current_confirmation",
+          "source_process_id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+          "operations": [],
+          "successor_cursor_refs": [
+            "S4_record_confirmation",
+            "S3_wait",
+            "S_recovery"
+          ],
+          "transition_authority": "case resolution source + current authenticated customer/delegate",
+          "guards": [
+            "verify source resolution receipt before collect",
+            "no commercial offer/OP03",
+            "silence/disagreement/timeout/closed without confirmation not resolved inference",
+            "published source translation needed"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S4_record_confirmation",
+          "source_process_id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+          "operations": [
+            "OP07"
+          ],
+          "successor_cursor_refs": [
+            "S_terminal",
+            "S3_wait",
+            "S_recovery"
+          ],
+          "transition_authority": "published CR-F5 confirmation intent/source requester authority",
+          "guards": [
+            "exact v2.1 OP07 confirmation_refinement",
+            "existing source case/problem/current requester",
+            "source resolution + manifestation evidence refs",
+            "expected revision in envelope; no added action/bool",
+            "same source case/receipt/result revision"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S_to_compras",
+          "source_process_id": "Process_CA_SUPORTE_S2_DiagnosticarRotear",
+          "operations": [],
+          "successor_cursor_refs": [
+            "S3_wait"
+          ],
+          "transition_authority": "explicit admitted JR1 handoff",
+          "guards": [
+            "separate JR1 authority/service task",
+            "retain original support case/protocol",
+            "real acknowledgement",
+            "never OP03 in JR2"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S_recovery",
+          "source_process_id": "Process_CA_SUPORTE_S3_ResolverEncaminhar",
+          "operations": [
+            "OP07",
+            "OP08",
+            "OP09"
+          ],
+          "successor_cursor_refs": [
+            "S2_route",
+            "S3_wait",
+            "S4_current_confirmation",
+            "S_terminal"
+          ],
+          "transition_authority": "case recovery/source authority",
+          "guards": [
+            "no invented NIP/ouvidoria destination",
+            "destination receipt/source deadline before forwarded claim",
+            "uncertain command reconcile-only",
+            "source contractual outcome mapping required"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S_terminal",
+          "source_process_id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+          "operations": [
+            "OP09",
+            "OP10"
+          ],
+          "successor_cursor_refs": [],
+          "transition_authority": "published case terminal/source receipt + reply owner",
+          "guards": [
+            "same case/protocol/status/ref receipt and revision",
+            "source closure independent from reply loss",
+            "unknown reply not delivered",
+            "feedback optional separate queue"
+          ],
+          "business_status_enum": false
+        },
+        {
+          "cursor_ref": "S_optional_feedback",
+          "source_process_id": "Process_CA_SUPORTE_S4_ConfirmarEncerrar",
+          "operations": [
+            "OP11"
+          ],
+          "successor_cursor_refs": [],
+          "transition_authority": "feedback instrument/respondent owner",
+          "guards": [
+            "optional asynchronous branch independent of S_terminal",
+            "no silence-as-resolution",
+            "never blocks funds/delivery/resolution",
+            "does_not_authorize_clinical_or_financial_change remains literal true"
+          ],
+          "business_status_enum": false
+        }
+      ],
+      "entry_cursor_ref": "S1_case",
+      "policy_source_owned": true,
+      "OP03_allowed": false,
+      "optional_async_branch_cursor": "S_optional_feedback"
+    }
+  },
+  "durable_dispatch_order": [
+    "prepare exact source-owned step and record immutable command",
+    "strict admission+audit before source",
+    "durable begin_dispatch fence",
+    "private same-lease currentness after journal await",
+    "provider checks original authority/revision atomically before source commit",
+    "parse+independent verified source result attestation",
+    "record_verified_result or ingest_verified_observation stores verified source refs, explicit wait_intents and continuation refs via outbox_intents in exactly the declared atomic journal transaction",
+    "independent currentness before disclosure including source receipt",
+    "source receipt-first reconcile uncertain command under independent read scope"
+  ],
+  "uncertainty": {
+    "post_fence_crash_or_timeout": "UNCERTAIN/reconcile-only via durability contract",
+    "reset_fence_or_automatic_resend": false,
+    "technical_absence_means_effect_absence": false,
+    "source_proven_absence_replay": "No redispatch in this frozen interface. Any future exact-command replay requires a separate independently admitted source/old-packet nonexecution/native uniqueness contract and explicit owner gate; not a branch added to this driver.",
+    "confirmed_fact_survives_disclosure_failure": true,
+    "local_lease_release_releases_source_claim": false,
+    "current_frozen_interface_has_redispatch_api": false
+  },
+  "inbox_outbox": {
+    "broker_ack": "after durable verified inbox+refs+continuation/outbox transaction",
+    "duplicate_event_same_digest": "idempotent; no new effect/outbox",
+    "same_event_different_digest": "conflict/quarantine by published retention/custody contract",
+    "source_stale_order": "qualified source verifies opaque revision; no numeric sorting invented",
+    "outbox_fence_required_before_transport": true,
+    "outbox_claim_expiry_proves_no_delivery": false,
+    "business_terminal_and_reply_delivery_distinct": true,
+    "reply_principal_recipient_window_current": true,
+    "first_callback": "VerifiedInboxObservation with actual authenticated event_ref -> ingest_verified_observation on DISPATCH_FENCED/UNCERTAIN/RESPONSE_RECORDED; same result_head_rules and declared wait_intents/outbox_intents"
+  },
+  "interruptions": {
+    "priority_source": "current trusted ingress health/human observation; never LLM rule",
+    "health_priority_preserved": true,
+    "human_priority_preserved": true,
+    "topic_switch_deletes_case_or_claim": false,
+    "conversation_router_CAS_is_business_state": false,
+    "post_fence_interrupt": "retain uncertainty/receipt; reconcile protected source; no new administrative effect until qualified current intent/authority",
+    "checkpoint_identity": "existing trusted task+tenant+journey keyed pseudonymizer helper; no raw caller config/Command"
+  },
+  "write_sets": {
+    "journey_author_exclusive_new": [
+      "src/maezo/gateway/capabilities/journeys/__init__.py",
+      "src/maezo/gateway/capabilities/journeys/contracts.py",
+      "src/maezo/gateway/capabilities/journeys/topology.py",
+      "src/maezo/gateway/capabilities/journeys/driver.py",
+      "src/maezo/gateway/capabilities/journeys/returns.py",
+      "src/maezo/agents/lucas/administrative/journey.py",
+      "tests/unit/gateway/capabilities/journeys/",
+      "tests/unit/agents/test_administrative_journeys.py"
+    ],
+    "journal_steward_exclusive": "DurabilityJournalPort implementation/PostgreSQL SQL and migration write set from durability-contract.json; no driver author edits",
+    "shared_serial_only": [
+      "src/maezo/gateway/capabilities/service.py",
+      "src/maezo/gateway/capabilities/admission.py",
+      "src/maezo/gateway/capabilities/durable_execution.py",
+      "src/maezo/gateway/tool_registry.py",
+      "src/maezo/runtime/agent_runtime/service.py",
+      "src/maezo/runtime/agent_runtime/a2a_composition.py",
+      "src/maezo/platform/webhooks/service.py",
+      "src/maezo/platform/integrations/agent_resume.py"
+    ],
+    "gated_separate_owners": [
+      "agent.yaml/AgentCards/accepted task/tool/actions",
+      "published source transition/planner/source/provider contracts",
+      "domain policy/DMN ratification",
+      "real source/recipient/sender composition",
+      "CIB obligations/variable/timer changes if independently required"
+    ],
+    "integration_lane_serial": [
+      "tests/integration/gateway/test_journey_compras_sources.py",
+      "tests/integration/gateway/test_journey_suporte_sources.py",
+      "real PostgreSQL race/crash/outbox integration tests",
+      "real CIB AUTH path with qualified source fixture, never mocked engine"
+    ]
+  },
+  "verification": [
+    {
+      "id": "J-FLOW-COMPRA",
+      "path": "authenticated current need→OP01→OP02 options→OP09 presentation→current customer evidence→OP03 receipt→source C3 route→OP04 or OP05 or existing AUTH→OP08 when pending→OP06 source delivery→source terminal→outbox OP09 reply/resume",
+      "requires": [
+        "full driver, not repeated unrelated wrapper calls",
+        "qualified source/publication/authority contracts",
+        "source receipt facts",
+        "real engine for AUTH slice"
+      ],
+      "missing_source": "operational qualification BLOCKED"
+    },
+    {
+      "id": "J-FLOW-SUPORTE",
+      "path": "authenticated current problem→OP01 if required→OP07 same case/protocol→OP09 ack→source domain route→actual handler/source ack→OP08 wait→verified source/human event inbox→same-case resume→source resolution receipt+current customer manifestation→OP07 S4→same case/protocol/result receipt→OP09 final reply",
+      "forbidden": [
+        "OP03",
+        "silence-as-confirmation",
+        "direct human completion",
+        "NIP absent formal request"
+      ]
+    },
+    {
+      "id": "J-REUSE",
+      "assertions": [
+        "same modules/contract versions for two task-scoped bindings",
+        "independent policies/source/requester authority",
+        "cannot reuse Compras admission as Suporte",
+        "optional feedback independent"
+      ]
+    },
+    {
+      "id": "J-NEGATIVE",
+      "assertions": [
+        "unknown operation/extra/output field before saver/source",
+        "wrong principal/task/tenant/legal entity/purpose/source",
+        "unpublished memberships",
+        "stale/revoked/erased actor/evidence",
+        "wrong case/offer/version/producer/correlation/receipt",
+        "clinical refs in general denied"
+      ]
+    },
+    {
+      "id": "J-CRASH-REPLAY",
+      "assertions": [
+        "same key+same digest idempotent handle",
+        "same key+different digest conflict",
+        "two workers CAS/fence only one source dispatch",
+        "crash after durable fence reconcile-only",
+        "timeout after actual effect resolves exact original receipt",
+        "source ACK absence never means absence effect",
+        "source commit persists despite disclosure failure",
+        "read receipt requires current independent read authority"
+      ]
+    },
+    {
+      "id": "J-INBOX-OUTBOX",
+      "assertions": [
+        "no broker ack before journal/inbox/outbox commit",
+        "same event ID+same digest no extra reply",
+        "same event ID+different digest collision",
+        "source stale/out-of-order opaque revision mapping",
+        "outbox lease expiry unknown delivery reconcile",
+        "reply loss no duplicate enrollment/reservation/source completion"
+      ]
+    },
+    {
+      "id": "J-INTERRUPT",
+      "assertions": [
+        "current message trusted health beats all",
+        "human request interrupts administrative",
+        "post-fence interruption preserves uncertainty/source claim",
+        "topic switch keeps case/protocol/waits/receipts/reply",
+        "business journal separate conversation routing CAS",
+        "checkpoint roots task+tenant+journey with injected pseudonymizer"
+      ]
+    },
+    {
+      "id": "J-S4",
+      "assertions": [
+        "no commercial offer needed",
+        "OP07 exact field/refinement only",
+        "customer_confirmed/customer_disagreed/confirmation_timeout/closed_without_confirmation source translation distinct",
+        "those planning classes not new DTO enums",
+        "current requester and same case revision verified",
+        "duplicate confirmation idempotent",
+        "no confirmation from silence"
+      ]
+    },
+    {
+      "id": "J-WITNESS",
+      "assertions": [
+        "removing origin/registry/source/consumer/resume causes e2e failure",
+        "real PostgreSQL tests not in-memory durability claim",
+        "real CIB no engine mock",
+        "UNIT doubles clearly not providers/real receipts",
+        "required make lint type test validate-artifacts lanes and independent gate"
+      ]
+    },
+    {
+      "id": "J-RESULT-ARRIVAL-MATRIX",
+      "assertions": [
+        "pending RESPONSE_RECORDED head -> newer authenticated receipt lookup via record_verified_result without event_ref",
+        "DISPATCH_FENCED/UNCERTAIN -> first authenticated callback via ingest_verified_observation",
+        "exact current duplicate no new revision/wait/outbox",
+        "divergent/stale/older/incomparable/missing witness preserves accepted head",
+        "callback/lookup CAS race never causes source redispatch"
+      ]
+    },
+    {
+      "id": "J-ATOMIC-ARGS",
+      "assertions": [
+        "direct_result_atomic_path resolves exact wait_intents/outbox_intents and existing records",
+        "every promised sameTX element resolves durability atomic_method_entities and closed arguments",
+        "continuation body prepared separately in qualified custody; only declared references in local TX",
+        "missing preparation has explicit separate recoverable CAS path and no retroactive atomicity"
+      ]
+    },
+    {
+      "id": "J-REPLY-RECORD-CLOSURE",
+      "assertions": [
+        "every named reply argument/return resolves existing frozen/internal or existing source record",
+        "OutboxSnapshot acknowledged current DELIVERY_FENCED/claim/lease/fence/binding required",
+        "old worker/expired lease/wrong tenant/target/payload refused before transport",
+        "OutboxAckEvidence independently verified; ACK_RECORDED never substitutes DeliveryEvidenceReceipt"
+      ]
+    }
+  ],
+  "independent_gates": [
+    "author→distinct verifier",
+    "findings→third-party repair",
+    "delta→original reviewer",
+    "integration serial",
+    "applicable CI/real source/engine lanes",
+    "fresh final gate independent of author/repair/integration"
+  ],
+  "known_gates": {
+    "W0_source_contracts": "UNPUBLISHED/PENDING affected per operation",
+    "agent_conduta_tasks_actions": "PENDING human ratification and signed registration",
+    "durability_interface": "REVISE original interface; repaired documents pending original reviewer delta; no code admitted by document repair",
+    "provider_acceptance": "NOT_VERIFIED",
+    "production_root_binding": "ABSENT/default disabled",
+    "complete_journey_runtime": "NOT_IMPLEMENTED_BY_THIS_DOCUMENT"
+  },
+  "request_field_origins": {
+    "OP01": {
+      "subject_type": "current contracted administrative subject/prospect class",
+      "subject_or_prospect_ref": "source-owned opaque identity or contracted prospect reference",
+      "operation_scope_ref": "server declared exact operation scope",
+      "purpose_policy_ref": "current published purpose policy",
+      "expected_consent_revision_ref": "current source consent expectation when applicable, otherwise absent",
+      "source_context_refs": "minimal permitted source references, never clinical profile clone"
+    },
+    "OP02": {
+      "catalogue_ref": "operator/provider published catalogue",
+      "catalogue_version": "current source catalogue version",
+      "administrative_preferences_ref": "authenticated nonclinical current preferences evidence",
+      "availability_refs": "provider availability facts, not hold receipts",
+      "purpose_policy_ref": "current nonclinical commercial purpose policy"
+    },
+    "OP03": {
+      "offer_ref": "same source OP02 offer currentness rechecked",
+      "offer_version": "exact original offered version authenticated by acceptance source",
+      "decision": "current authenticated customer/delegate manifestation translated by published contract",
+      "terms_evidence_ref": "exact terms/version evidence of source",
+      "customer_authority_proof_ref": "current authenticated legal/delegation authority; not LLM text"
+    },
+    "OP04": {
+      "accepted_commitment_ref": "source-published link from accepted commercial receipt; not local alias of acceptance_ref",
+      "prospect_linkage_ref": "source-authorized prospect→member linkage",
+      "enrollment_authority_contract_ref": "current administrative issuer contract",
+      "administrative_evidence_refs": "minimal source-authorized evidence for administrative issuer"
+    },
+    "OP05": {
+      "provider_ref": "current contracted agenda provider",
+      "operation": "hold/confirm/reschedule/cancel command authenticated by domain contract",
+      "offer_or_booking_ref": "source-published linkage to actual offer/booking object",
+      "expected_provider_revision": "current opaque provider revision supplied by planner",
+      "customer_commitment_ref": "same current accepted commitment or domain-authorized change evidence"
+    },
+    "OP06": {
+      "fulfillment_ref": "actual issuer/reservation/service source linkage",
+      "source_event_or_observation_ref": "authenticated source event or point observation",
+      "source_authority_contract_ref": "current source fulfillment observation contract",
+      "expected_revision": "opaque source revision independently supplied by planner; not journal integer"
+    },
+    "OP07": {
+      "problem_ref": "authoritative original problem object",
+      "origin_case_or_journey_ref": "source case/journey binding; S4 same existing authoritative case",
+      "case_kind": "published owner membership, including confirmation intent only after CR-F5",
+      "requester_authority_ref": "current authenticated requester/customer/delegate scope",
+      "evidence_refs": "source authority evidence; S4 resolution receipt + current customer manifestation refs",
+      "formal_regulatory_request_ref": "actual formal request only; absent otherwise"
+    },
+    "OP08": {
+      "wait_ref": "same durable wait source binding",
+      "expected_producer_ref": "published expected source/human producer",
+      "correlation_ref": "same source correlation supplied by planner",
+      "authoritative_deadline_ref": "published deadline reference when actually required; absent otherwise",
+      "source_outcome_ref": "verified actual source/human outcome, absent while still waiting"
+    },
+    "OP09": {
+      "notice_ref": "source-authorized notice object/intention stored by reference",
+      "notice_class": "published mandatory/facultative classification",
+      "authorized_content_ref": "protected source-approved content reference",
+      "recipient_authority_ref": "current recipient custody/source authority",
+      "confirmed_channel_ref": "actually qualified current channel/window/template binding",
+      "delivery_policy_ref": "current published delivery/preference/revocation policy"
+    },
+    "OP10": {
+      "source_fact_ref": "verified committed domain fact/receipt, never LLM prediction",
+      "milestone_kind": "closed published owner membership only",
+      "source_revision": "actual opaque source fact revision",
+      "audience_contract_ref": "current authorized producer/audience contract",
+      "prediction_ref": "explicit governed prediction reference when separately allowed; never replaces source_fact_ref"
+    },
+    "OP11": {
+      "case_or_fulfillment_ref": "same actual case/fulfillment source object",
+      "instrument_version_ref": "published bounded feedback instrument",
+      "respondent_authority_ref": "current source-approved respondent",
+      "feedback_evidence_ref": "actual feedback/refusal/no-response source evidence per published contract; silence never closes case"
+    }
+  },
+  "atomicity_boundary": {
+    "local": "Only closed record_verified_result/ingest_verified_observation arguments mapped in durability atomic_method_entities share one tenant TX: observation/result-head refs, declared wait_intents, qualified existing wait_ref for inbox only, declared outbox_intents and one journal revision.",
+    "source_business_fact": "provider source transaction remains separate; no source network IO while a journal transaction/lock is held",
+    "source_milestone_outbox": "OP10 owner source outbox belongs to source business commit; local journal outbox is not a substitute",
+    "standalone_outbox_enqueue": "standalone enqueue_outbox never claims atomicity with already recorded result; when causally required use outbox_intents in record_verified_result/ingest_verified_observation",
+    "distributed_exactly_once_claimed": false,
+    "continuation": "VerifiedJourneyContinuation is source-verifier qualified in existing protected custody before journal call; OutboxDescriptor.payload_ref/payload_sha256 under registered RETURN_INTENT target carries its reference in outbox_intents. No new journal cursor/entity or uncontracted custody body transaction.",
+    "standalone_wait_preparation": "If continuation/wait preparation is absent, result may be recorded with explicit empty intent tuples only; no journey progression claim. Driver recovery rereads original command/result lineage with current qualified planner; record_wait/enqueue_outbox prepare separately under fresh local CAS/current transition proof, no retroactive atomicity, no duplicate result-as-write, no source redispatch."
+  },
+  "document_repair": {
+    "status": "PROPOSED_THIRD_PARTY_REPAIR_PENDING_ORIGINAL_REVIEWER_DELTA",
+    "repair_role": "checkpoint_input_boundary_repair: narrowly scoped DUR0/JOURNEY document repair only",
+    "finding_ids": [
+      "DJ-F01",
+      "DJ-F02",
+      "DJ-F03"
+    ],
+    "gate_path": "docs/gates/v21-capability-execution-20261004/durability-journey-contract-verifier.json",
+    "gate_sha256": "1aa5a2af5e4369d6dab5b8091ef67b49595d290730f5f8779393738afef088fb",
+    "original_freeze_path": "docs/gates/v21-capability-execution-20261004/initial-durability-journey-freeze.json",
+    "original_snapshots_preserved": true,
+    "source_code_or_external_wire_modified": false,
+    "human_source_authority_or_production_gate_closed": false,
+    "independent_pass_claimed": false
+  },
+  "direct_result_atomic_path": {
+    "status": "PROPOSED_EXPLICIT_DJ_F02_SIGNATURE_DELTA_BEFORE_CODE",
+    "method": "record_verified_result",
+    "closed_wait_argument": "wait_intents: tuple[WaitDescriptor]",
+    "closed_continuation_argument": "outbox_intents: tuple[OutboxDescriptor]",
+    "continuation_type": "VerifiedJourneyContinuation",
+    "continuation_payload_ref_path": "outbox_intents[].payload_ref",
+    "continuation_payload_digest_path": "outbox_intents[].payload_sha256",
+    "continuation_kind": "RETURN_INTENT",
+    "continuation_target": "already registered trusted return/planner target; target binding independently admitted, not granted by type",
+    "qualification": "JourneyTransitionAuthorityPort verifies exact source-owned continuation against original observation/command/binding and topology; trusted gateway receives prepared descriptors from qualified composition, driver never records unverified source result",
+    "transaction_authority": "durability-contract.json#/atomic_method_entities; no locally redeclared protocol signature",
+    "same_transaction_body_claimed": false,
+    "missing_preparation_path": "atomicity_boundary.standalone_wait_preparation"
+  },
+  "journey_effect_authority_amendment": {
+    "schema": "maezo.v21.journey-effect-authority-amendment.v2",
+    "status": "PROPOSED_PENDING_INDEPENDENT_CONTRACT_GATE",
+    "finding": "DJ-SOURCE-F01",
+    "author_role": "journey_gateway_author acting as distinct third contract repair for DUR-CONTRACT-R4-F01",
+    "production_binding_added": false,
+    "source_wire_change": false,
+    "human_ratification_recorded": false,
+    "frozen_taskwt_mutated": false,
+    "provider_operational_qualification": false,
+    "records": {
+      "JourneyEffectAuthority": {
+        "schema_version": "Literal[v21-journey-effect-authority.proposed.v1]",
+        "journey_binding": "JourneyBinding exact server-owned seven-field journal projection plus admitted topology/source-transition pins",
+        "action": "PreparedCapabilityAction | PreparedDomainHandoffAction, exact closed discriminated original prepared action deep immutable snapshot",
+        "original_transition": "VerifiedJourneyContinuation deep immutable snapshot of original entry proof; never result-phase replacement",
+        "request_sha256": "Digest recomputed with existing request_digest for PreparedCapabilityAction; literal None for domain handoff (not an operation request)",
+        "meaning": "Reference-only internal transport context; construction, digest or field presence never grants authority",
+        "public_input_allowed": false,
+        "action_sha256": "Digest of exact original prepared action using existing canonical JSON profile; full original action stays bound through source/handoff calls"
+      },
+      "VerifiedJourneyEffectCurrentness": {
+        "schema_version": "Literal[v21-journey-effect-currentness.proposed.v1]",
+        "effect_authority_sha256": "SHA256 canonical original JourneyEffectAuthority; existing canonical JSON profile",
+        "source_decision_ref": "Same original_transition.source_decision_ref",
+        "source_observation_ref": "Same original_transition.source_observation_ref",
+        "transition_contract_ref": "Same original_transition.transition_contract_ref",
+        "policy_revision_ref": "Same original_transition.policy_revision_ref",
+        "currentness_ref": "Qualified published source-currentness anchor for original transition, pinned at first verification and unchanged at subsequent checks",
+        "checked_at": "source-attested aware Instant; monotonic and <= trusted operational now",
+        "valid_until": "source-published aware Instant, <= original transition.valid_until and <= accumulated prior ceiling",
+        "meaning": "Qualified source verifier must prove original decision still authorizes exact action with current source/policy/actor/consent/erasure and applicable health/human interruption; does not select new transition or mint reference",
+        "closed_frozen_strict": true
+      },
+      "OperationInvocationAuthority": {
+        "kind": "Literal[operation]",
+        "original_authority": "VerifiedAuthority existing strict closed record, deep immutable exact originally authenticated evidence including full AdmissionBinding/request/auth/signed-task/Card/publication/ratification/currentness/enforcement/decision/timestamps",
+        "original_currentness": "VerifiedCurrentness existing strict closed record at the first accepted operation check, deep immutable snapshot",
+        "latest_currentness": "VerifiedCurrentness latest authenticated same-original operation check; exact original binding/request/authorization/currentness pins, no replacement grant",
+        "envelope_sha256": "Digest of exact original CapabilityEnvelope using existing canonical JSON profile; compared to supplied envelope and original binding",
+        "request_sha256": "Digest of exact original closed request, equals original_authority.request_sha256 and every operation currentness request_sha256",
+        "accumulated_valid_until": "Aware Instant = minimum original_authority.valid_until and ALL accepted operation currentness.valid_until; can only decrease",
+        "last_checked_at": "Aware Instant = greatest accepted operation checked_at; nondecreasing, not future; later checks do not alter original_authority or original_currentness",
+        "provenance": "Invocation-private verified evidence snapshot issued by trusted DUR3 over the same private admission lease. No public lease is exposed. Qualified source verifies authentic ORIGINAL authorization evidence through its root-injected qualified operation authority verifier; constructing a record is not authorization.",
+        "closed_frozen_strict": true
+      },
+      "OriginalDomainInvocationAuthority": {
+        "kind": "Literal[existing_domain]",
+        "journey_binding_sha256": "Digest of exact original JourneyBinding using existing canonical JSON profile",
+        "action_sha256": "Digest of exact PreparedDomainHandoffAction, including existing route/case/target/material/return pins",
+        "domain_contract_ref": "Ref of independently admitted existing route/domain authority contract; NOT a newly selected contract",
+        "source_contract_publication_ref": "Ref of authenticated existing source publication for the original domain effect",
+        "authorization_ref": "Ref of same ORIGINAL independently qualified native domain/human authorization, issued by that source owner for this exact binding/action; never minted/selected by driver",
+        "native_authority_evidence_ref": "Existing source-owned protected Ref resolving the original native domain/human authorization evidence under its already admitted contract, not a generic invented token",
+        "native_authority_evidence_sha256": "Digest of that exact source-verified native evidence with the admitted native canonicalization; qualified target resolves/verifies same bytes before effect",
+        "currentness_ref": "Ref of the originally authenticated native authority/currentness anchor, invariant on all later checks",
+        "verified_at": "Aware Instant of original native authority verification",
+        "original_valid_until": "Aware Instant from original qualified domain authority contract; no duration locally invented",
+        "accumulated_valid_until": "Aware Instant = minimum original_valid_until and ALL accepted qualified native-domain currentness ceilings; may only decrease",
+        "last_checked_at": "Aware Instant of latest accepted native-domain currentness; nondecreasing, not future",
+        "provenance": "Issued only by the independently qualified native-domain authority verifier/target for exact original binding/action/contract. Source owner must authenticate and resolve original evidence, including mandatory human decision/principal where its native contract requires it; evidence field presence does not prove human authority.",
+        "closed_frozen_strict": true,
+        "missing_native_contract_or_authentic_resolution": "Refuse dependent handoff before target dispatch; never substitute VerifiedAuthority for an unrelated commercial operation, transition proof, snapshot, OP12 or outbox ACK."
+      },
+      "JourneyInvocationCheckpoint": {
+        "schema_version": "Literal[v21-journey-invocation-checkpoint.proposed.v1]",
+        "original_effect_authority": "JourneyEffectAuthority deep immutable exact original context; never rebuilt from a result-phase proof",
+        "effect_authority_sha256": "Digest of original_effect_authority, equals all accepted transition currentness.effect_authority_sha256",
+        "original_transition_currentness": "VerifiedJourneyEffectCurrentness at first accepted transition check; deep immutable authenticated snapshot; pins original currentness_ref",
+        "latest_transition_currentness": "VerifiedJourneyEffectCurrentness latest accepted same-original check; same source decision/observation/contract/policy/currentness pins",
+        "transition_accumulated_valid_until": "Aware Instant = minimum original transition.valid_until and ALL accepted transition currentness.valid_until; nonincreasing",
+        "transition_last_checked_at": "Aware Instant of latest accepted transition check; nondecreasing, not future",
+        "invocation_authority": "Closed discriminated union OperationInvocationAuthority | OriginalDomainInvocationAuthority; capability action MUST use operation, domain handoff MUST use existing_domain",
+        "effective_valid_until": "Aware Instant = minimum transition_accumulated_valid_until and invocation_authority.accumulated_valid_until and any applicable ALREADY independently verified source-result ceiling; no new result inferred before effect",
+        "issuance_scope": "Private invocation transport only, assembled by trusted dispatch boundary after final awaited checks from authenticated pinned evidence. Passed directly only through root-qualified typed dependencies. Not graph input, public API, envelope/request/result field, persistent journal/custody body or reusable bearer grant.",
+        "closed_frozen_strict": true,
+        "authenticity": "Every receiving qualified source/target reparses a deep copy, authenticates original transition and original operation/native evidence against root-injected qualified source-owner verifiers, pins the canonical checkpoint received at invocation entry, and never accepts an alternate caller-supplied or re-created upstream snapshot. Exact original records/digests plus authentic source-owner evidence are mandatory; constructor/model_copy/model_construct/ref/boolean presence never admits it.",
+        "irreversible_boundary_rule": "After ALL internal awaits, synchronously compare original checkpoint pins plus ALL newly accepted currentness proofs, prior minimum ceilings and trusted now < effective minimum. Any later await invalidates that final check and requires the same-original qualification/check cycle again. Effect/revision/idempotency authority is enforced atomically at the actual source/native effect boundary. Network dispatch start is not presumed an atomic provider effect.",
+        "external_atomicity_limit": "If the existing owner contract/native interface cannot enforce original authorization identity and narrowed ceilings at its true commit boundary, the source is unqualified and refuses. This amendment introduces no external wire fields and does not claim a local check makes a remote effect atomic."
+      }
+    },
+    "ports": {
+      "JourneyEffectAuthorityPort.check_current": {
+        "arguments": [
+          "JourneyEffectAuthority",
+          "phase: Literal[before_fence,before_effect,before_disclosure]"
+        ],
+        "returns": "VerifiedJourneyEffectCurrentness or CapabilityRefusalReason",
+        "issuer": "Root-injected independently qualified verifier for the original source-owned transition contract",
+        "forbidden": [
+          "arbitrary async callable guard",
+          "caller-supplied port",
+          "fresh generic ingress/admission replacing transition proof",
+          "new result-phase proof replacing original entry proof"
+        ]
+      },
+      "JourneyCapabilitySourcePort.execute_under_authority": {
+        "arguments": [
+          "existing CapabilityEnvelope",
+          "existing CandidateDTO",
+          "required keyword-only invocation_checkpoint: JourneyInvocationCheckpoint (operation variant)",
+          "timeout_seconds"
+        ],
+        "returns": "existing source result object, independently parsed/verified by existing admission",
+        "scope": "Typed internal extension implemented only by qualified source adapter; existing external envelope/DTO remains byte-compatible",
+        "requirement": "Receive exact upstream invocation checkpoint, not original context alone. Preserve immutable original context, accepted transition currentness anchor/minimum ceiling and original operation authority/currentness full pins/minimum ceiling. Authenticate same-original source owner evidence; after ALL internal awaits and final currentness awaits apply checkpoint original-pins comparison and nonincreasing minimum deadline synchronously then atomically with native effect/revision/idempotency. Refresh may narrow; authorization A cannot become B; later proof t+60 cannot restore upstream t+5. No legacy execute wrapper or source-created replacement checkpoint.",
+        "qualification": "No provider adapter is supplied or declared qualified by this proposal. A synthetic UNIT implementation proves only local propagation/check order."
+      },
+      "ExistingDomainHandoffPort.execute": {
+        "arguments": [
+          "JourneyBinding",
+          "JourneySnapshot",
+          "PreparedDomainHandoffAction",
+          "required keyword-only invocation_checkpoint: JourneyInvocationCheckpoint (existing_domain variant)"
+        ],
+        "returns": "existing OutboxDescriptor or CapabilityRefusalReason",
+        "requirement": "Driver dispatches through a root-qualified existing-domain boundary that first obtains/pins ORIGINAL authenticated native domain/human authorization for exact original route/binding/action and forms the domain checkpoint. Pass the exact accumulated transition+domain checkpoint to qualified target. After ALL internal awaits including evidence resolution/human/source currentness, preserve original authorization/native evidence digest/currentness/route/case/target/material/return pins and every minimum ceiling, then synchronously assert before atomic native effect. Never use an operation authorization to fill absent domain authority. No old target compatibility fallback, ACK/outbox fabrication or direct human completion.",
+        "missing_qualification": "Deny dependent handoff before calling target; no existing unguarded execute compatibility fallback. Synthetic UNIT context proves only local handoff boundary behavior."
+      },
+      "ExistingDomainInvocationAuthorityPort.authorize_original": {
+        "arguments": [
+          "JourneyEffectAuthority with PreparedDomainHandoffAction"
+        ],
+        "returns": "OriginalDomainInvocationAuthority or existing CapabilityRefusalReason",
+        "issuer": "Root-injected independently qualified native-domain source owner verifier, using existing admitted domain/human contract and original source evidence",
+        "requirement": "Authenticated original native domain grant for exact original binding/action/route/source, with native evidence exact reference/digest. Driver cannot choose, construct or renew authorization. Missing admissible evidence refuses before calling effect target."
+      },
+      "ExistingDomainInvocationAuthorityPort.check_current": {
+        "arguments": [
+          "original OriginalDomainInvocationAuthority deep immutable evidence",
+          "phase: Literal[before_effect,before_disclosure]"
+        ],
+        "returns": "OriginalDomainInvocationAuthority carrying same original identity/evidence/contract/currentness pins plus monotonic checked_at and nonincreasing accumulated_valid_until, or existing CapabilityRefusalReason",
+        "requirement": "Typed qualified native evidence currentness verification only. Returned object is not a replacement authorization. Every identity/pin/verified_at/original_valid_until must equal original, accumulated ceiling <= prior; authorization substitution/revocation/expiry refuse."
+      },
+      "ExistingDomainEffectBoundary": {
+        "kind": "Concrete internal driver-facing dispatch boundary; not an irreversible target or domain business authority",
+        "constructor": {
+          "signature": "ExistingDomainEffectBoundary(*, clock: Callable[[], datetime], transition_authority: JourneyEffectAuthorityPort | None = None, native_authority: ExistingDomainInvocationAuthorityPort | None = None, target: ExistingDomainHandoffPort | None = None)",
+          "dependency_owner": "ROOT installs independently qualified transition authority, original native-domain authority and exact existing target. Dependencies cannot be supplied by turn, graph, caller effect context or source payload.",
+          "defaults": "All three qualifying dependencies default None. Missing any refuses AUTHORITY_UNPROVEN before native authority or effect-target invocation. JourneyDriver.domain_handoff defaults None.",
+          "clock": "Required trusted operational aware-time callable injected by ROOT; naive/future evidence is refused. Clock measures technical currentness and cannot select regulatory deadline or new validity duration."
+        },
+        "execute": {
+          "signature": "async execute(self, binding: JourneyBinding, snapshot: JourneySnapshot, action: PreparedDomainHandoffAction, *, effect_authority: JourneyEffectAuthority) -> OutboxDescriptor | CapabilityRefusalReason",
+          "pre_await_validation": "Before authority or target awaits reparse deep copies of the exact original closed binding/snapshot/action/effect context. Require snapshot.binding == binding.journal_binding(), effect_authority.journey_binding == binding, exact domain action equality and action_sha256, request_sha256 is None, original entry transition identity/topology/contract/lineage matches this action and binding, original time ceiling valid. Preserve canonical original pins privately; passing a constructed context alone grants nothing.",
+          "authority_order": "Obtain original native authorization only from native_authority.authorize_original(copy_of_original_effect_authority). Check its exact original binding/action/native contract/publication/authorization/protected evidence reference and digest/currentness anchors. Qualified transition_authority.check_current(copy_of_original_effect_authority, phase=before_effect) pins first transition currentness and every minimum; native_authority.check_current(copy_of_original_native_authority, phase=before_effect) preserves original native pins and narrows accumulated validity. Any additional preparation/currentness await requires same-original checks again.",
+          "final_boundary": "After the last authority/preparation await synchronously compare BOTH original transition/context and native grant/evidence pins, nondecreasing checked_at and every accumulated minimum against trusted aware now. Form the existing-domain JourneyInvocationCheckpoint exactly from authenticated pinned evidence. No intervening unrelated await; call only target.execute(binding_copy, snapshot_copy, action_copy, invocation_checkpoint=exact_domain_checkpoint). No operation grant substitutes native authority; no checkpoint construction in driver.",
+          "target_obligation": "ExistingDomainHandoffPort remains the actual independently qualified existing target and receives only the domain invocation_checkpoint. Its original native fence/idempotency/receipt semantics and all-internal-await BOTH check at atomic irreversible effect remain exactly R4; boundary cannot infer provider atomicity or human authority.",
+          "disclosure": "After target await, any authority-dependent boundary disclosure rechecks the same original transition and native currentness after all awaited verification, then BOTH synchronously. Failure preserves genuine target facts/native uncertainty and permits only original receipt-first recovery; no target resend or manufactured ACK/outbox.",
+          "failure": "Existing bounded technical refusal; no dynamic dispatch, runtime protocol discovery, arbitrary guard callback, catch-TypeError signature adaptation, legacy execute fallback, invented native grant/receipt, operation authority surrogate or commercial journal fence."
+        }
+      }
+    },
+    "propagation": {
+      "GatewayExecutionAdapter.execute": "Add required keyword-only effect_authority: JourneyEffectAuthority. Driver captures original proof/action/binding before execute and forwards exact context.",
+      "CapabilityService.execute_durable": "Add explicit required keyword-only effect_authority: JourneyEffectAuthority | None. None is allowed only on separately admitted non-journey tasks; any journey task requires context. No permissive omitted default/alias.",
+      "DurableCommandBoundary.execute": "Same explicit keyword; owns qualified JourneyEffectAuthorityPort dependency and exact journey-task/operation/scope validation.",
+      "source_selection": "CapabilityService gains explicit ROOT-injected journey_sources: Mapping[str, JourneyCapabilitySourcePort] default empty/disabled. For non-None effect_authority select only this exact operation mapping; no runtime_checkable/hasattr/legacy fallback/wrapper. Journey task with effect_authority=None refuses; separately admitted nonjourney with explicit None uses existing sources. Mapping installation requires independent source qualification; Protocol conformance alone is not operational authority. Missing mapping returns existing source unavailable/authority unproven refusal before source invocation.",
+      "recovery": "observe/reconcile/ingest retain receipt-first independently authorized read semantics; do not dispatch using expired original effect proof or recapture a new key. Fresh read authority never renews effect authority.",
+      "ExistingDomainHandoffPort.execute": "ExistingDomainEffectBoundary owns the exact driver-facing effect_authority signature; it obtains/pins original native-domain authorization from its ROOT-injected native_authority, checks transition/native evidence after all preparation awaits, forms the existing-domain JourneyInvocationCheckpoint and calls its ROOT-injected target ExistingDomainHandoffPort.execute(binding, snapshot, action, invocation_checkpoint=exact_checkpoint). Target retains original R4 irreversible effect/internal-await checks. No direct driver-to-target call or operation authority surrogate.",
+      "shared_edit_minimization": "ROOT owns narrow private admission snapshot API: exact immutable VerifiedAuthority/initial and latest VerifiedCurrentness/full binding/request/envelope and accumulated minimum ceiling/nondecreasing checked_at for SAME original private lease. _durable_assert_current is synchronous after the final awaited step; _durable_before_disclosure is nondestructive so both original authorities can be checked synchronously before finally releasing lease. Legacy nonjourney execute/revalidate behavior remains compatibility scope; no broad rewrite. Source receives OperationInvocationAuthority value snapshot, never AdmissionLease or callable.",
+      "ownership": {
+        "author": [
+          "journeys/contracts.py",
+          "journeys/driver.py",
+          "durable_execution.py",
+          "focal UNIT tests"
+        ],
+        "ROOT_serial": [
+          "service.py explicit effect_authority keyword and journey_sources mapping",
+          "shared admission.py private accessor only if justified",
+          "composition roots",
+          "four amended contract files after independent gate"
+        ]
+      },
+      "source_checkpoint": "DUR3 creates JourneyInvocationCheckpoint after acknowledged fence and final same-original operation+transition checks. Calls journey source only with the exact operation checkpoint. The receiving source pins canonical upstream snapshot and authenticates actual original evidence. Qualified source-owner verifiers are trusted injected dependencies, not caller callbacks or new provider wire. They must preserve upstream accumulated ceiling on every internal await/atomic native effect check.",
+      "JourneyDriver.domain_handoff": "Explicit constructor dependency domain_handoff: ExistingDomainEffectBoundary | None = None. Driver captures original domain JourneyEffectAuthority from the already admitted entry proof/action/binding, then calls boundary.execute(binding, snapshot, action, effect_authority=original_context). Driver does not obtain native grants or assemble JourneyInvocationCheckpoint. Missing boundary denies the handoff before any target call; ExistingDomainHandoffPort is target-only and is never installed directly as this driver dependency."
+    },
+    "required_order": [
+      "Parse/copy exact original closed JourneyEffectAuthority and validate full original binding/action/predecessors/envelope/literal key/request digest/topology/transition contract to admitted journal and operation scope; no authority by record construction.",
+      "After custody preparation validate original context and original transition ceiling before any fence; record original command. Raw context/proof/checkpoint remains invocation-private, not persisted as journal or public DTO.",
+      "Authorize operation and audit under same private admission lease; capture immutable original VerifiedAuthority/initial VerifiedCurrentness/envelope/request/full binding pins and minimum validity. Alternatively on existing-domain branch obtain original native domain/human evidence from qualified source owner; never substitute an operation grant.",
+      "Qualified same-original transition check before fence pins transition currentness_ref at first accepted check; accumulate minimum transition+operation/domain ceilings and nondecreasing checked_at. Recheck BOTH original identities and ceilings synchronously after this await.",
+      "Acknowledged begin_dispatch CAS produces immutable original fence/token. Unknown/CAS-failed fence means no source effect call. Domain branch preserves its existing accepted native effect fence/idempotency semantics, never fabricates a commercial command fence.",
+      "After fence/preparation await verify original transition currentness and SAME original operation lease/native domain authority. After whichever check is awaited last synchronously compare BOTH exact original pin sets and accumulated ceilings; form immutable JourneyInvocationCheckpoint with all accepted minima and original authentic evidence.",
+      "Call exactly qualified journey source.execute_under_authority with operation checkpoint or qualified existing-domain target.execute with domain checkpoint. Source/target pins upstream canonical snapshot and authenticates original source-owner evidence. Missing source/target/authority contract qualification denies; no fallback.",
+      "After ALL source/target internal awaits including further currentness/evidence resolution, compare original context and original operation/native grant identity/currentness anchors to upstream checkpoint; accumulate further minima without replacing upstream ceiling. After final awaited step assert BOTH synchronously at trusted now strictly before effective minimum, then apply native authority atomically at irreversible effect/revision/idempotency boundary. An additional await requires repeat of same-original checks; local HTTP invocation start never proves provider atomicity.",
+      "Existing source result verification and atomic local result/wait/outbox persistence preserve genuine historical source facts, even if authority later expires; never retroactively erase an unauthorized-effect trace or manufacture receipt.",
+      "Before disclosure/resume obtain current read authority plus original continuation and SAME invocation original operation/native currentness via nondestructive private checkpoint. After final await synchronously compare BOTH original anchors and minimum ceilings; then disclose if admissible and release private lease finally. Failed disclosure preserves committed fact/fence and reconciles only; no resubmit."
+    ],
+    "monotonic_invariants": [
+      "Exact full JourneyBinding including principal/environment/data policy/journey/task/tenant/legal entity and topology/source-transition pins; exact PreparedCapabilityAction and request_digest stay bound through all calls.",
+      "Original transition schema/task/tenant/legal entity/journey/topology/from/successor/predecessor command refs/source receipt refs/source decision/observation/transition contract/policy revision anchors cannot change. New currentness proves same decision, not a replacement decision.",
+      "Original VerifiedAuthority pins remain exact: full AdmissionBinding/request_sha256/authorization_ref/signed_task_ref/agent_card_sha256/source_contract_publication_ref/policy_ratification_ref/currentness_ref/enforcement/decision. VerifiedCurrentness binding/request/auth/currentness anchors remain exact, with expected result digest only when a verified result exists.",
+      "Private invocation accumulates ceiling=min(original transition.valid_until, original operation authority.valid_until, every accepted transition and operation currentness.valid_until, applicable verified source result ceiling). Later checks may shorten but never extend it. Each checked_at is nondecreasing, original issued/observed time <= checked_at <= trusted now < accumulated ceiling.",
+      "Qualified verifier receives copies; mutation or forged object identity cannot modify private original pins. All records strict/frozen/extra-forbid and revalidated; private lease/proof authentic provenance is independently checked, never admitted by construction.",
+      "Revocation, erasure, missing publication/owner contract, digest/binding/auth/currentness substitution or expiry rejects before dependent effect. No generic ingress check, local journal integer, ACK or OP12 fact grants journey transition authority.",
+      "Post-fence failure retains DISPATCH_FENCED/UNCERTAIN and original dispatch/key/ceiling; reconcile-only even when source was locally not invoked. No reset/retry/resubmit or pre-dispatch classification after acknowledged fence.",
+      "Upstream currentness shortening is irrevocable within this invocation. JourneyInvocationCheckpoint transports every earlier accepted minimum, first transition currentness anchor, original operation/native identity and latest checked_at. No source-local refresh can restore original broad expiry or issue a new invocation checkpoint.",
+      "Operation snapshot carries exact original VerifiedAuthority (including verified_at and valid_until), first accepted VerifiedCurrentness, original envelope/request digests and full AdmissionBinding; current checks retain authorization_ref/currentness_ref/publication/ratification/task/Card/enforcement/decision. Source authenticates original A, never accepts separately valid B.",
+      "Domain checkpoint carries exact original native grant reference+evidence digest/publication/contract/route/action/binding/currentness, source-owned original validity and accumulated minimum. Native human evidence resolves under original admitted owner contract; no generic record attests a medical/financial hard act.",
+      "Source/target receives no AdmissionLease, arbitrary callable, public authority ref/boolean or new external wire field. Unqualified native effect atomicity remains unavailable even with local propagation tests.",
+      "Disclosure check does not destroy the lease before final synchronous BOTH check; release only after check/use or final cleanup. Releasing coordination never clears effect fence or permits redispatch."
+    ],
+    "required_gate_controls": [
+      "Expire original transition inside actual driver->CapabilityServiceExecutionAdapter->DUR3 prepare_command await with admission valid: source call/effect zero.",
+      "Expire original transition inside acknowledged begin_dispatch await with admission valid: source call/effect zero, original fence/key retained and recovery reconcile-only.",
+      "Expire original transition inside awaited after-fence admission currentness or transition verifier step: final synchronous check rejects, source call/effect zero.",
+      "Swap any original context binding/action/digest/source decision/observation/topology/contract/policy/currentness pin or operation authorization while each remains separately syntactically valid: reject before effect.",
+      "Return renewed currentness expiration beyond original or prior narrower ceiling: reject, no effective authority renewal.",
+      "Source adapter awaits before effect and proof expires/revokes: actual source spy observes zero effect, source qualification distinct from UNIT. Unknown/unqualified source cannot use legacy fallback.",
+      "Positive current original proof invokes once, stores genuine verified result; post-effect disclosure expiry preserves historical fact and prevents disclosure, no resend.",
+      "Keep all original entry/control/terminal/F02 probes negative and retain historical REVISE evidence unchanged; exact source/input hashes before/after checks.",
+      "Domain handoff proof expires/revokes during actual qualified target await before irreversible handoff: zero target effect, no manufactured ACK/outbox; unqualified old target never invoked. Source/human route and original target/action pins remain exact.",
+      "R3-F01 narrowed ceiling: original transition t+60, upstream accepted transition or operation currentness t+5, source enters t+1 then awaits t+6; fresh currentness t+60 cannot replace checkpoint t+5; ZERO effect, original fence/key retained and reconcile-only.",
+      "Narrowing between any prior/current checks is transported; later proof above prior narrow ceiling refuses; source/target original checkpoint/digests/first currentness anchor cannot be rewritten even when changed object parses.",
+      "Original operation authorization A is authenticated at dispatch; source internal await returns separately valid B with same envelope/request/full binding but changed authorization or publication/Card/currentness anchor: ZERO effect. Also mutate original VerifiedAuthority received by verifier and prove private/checkpoint originals unchanged.",
+      "Domain handoff: original transition t+60 and original native authority independently qualified; upstream accepted t+5 ceiling then target awaits t+6. ZERO irreversible effect and no outbox/ACK fabrication; same-original domain grant/native evidence digest cannot become another grant.",
+      "Positive unchanged original pins with legitimately narrower unexpired ceiling executes exactly once; post-fence recovery only receipt lookup never source execute, and post-effect disclosure expiry retains genuine fact without disclosing.",
+      "Expiry/revocation during final nondestructive before-disclosure await is caught by BOTH final sync check before releasing private lease. Do not allow prior lease deletion to bypass comparison.",
+      "Four-file standalone normative Markdown references resolve to actual sibling contract JSON#/journey_effect_authority_amendment for records/signatures and required_gate_controls; no dependence on private amendment.json after integration.",
+      "R5 exact wiring: JourneyDriver(domain_handoff=ExistingDomainEffectBoundary) sends exact original effect_authority; typed boundary constructor installs only independently qualified transition/native verifier and target. Target receives exact existing-domain invocation_checkpoint, not original effect_authority alone; driver never constructs native grant/checkpoint.",
+      "R5 missing dependencies: absent driver boundary or any one of boundary transition_authority/native_authority/target yields bounded refusal with ZERO target invocations, ZERO irreversible effects and no invented ACK/outbox. Invalid original binding/snapshot/action/digest/context denies before any authority or target await.",
+      "R5 boundary awaits: expiry/revocation or native original authorization/evidence/contract/currentness substitution during authorize_original, transition check_current or native check_current yields ZERO target effect calls. First transition currentness anchor stays fixed and every accepted transition/native minimum only narrows.",
+      "R5 target awaits: positive unchanged original evidence transports exact checkpoint and permits one irreversible effect; target internal await expiry/narrowed-ceiling/native grant substitution yields ZERO irreversible effects and retains original native fence/idempotency/receipt recovery semantics. No dynamic/legacy signature fallback."
+    ],
+    "compatibility": {
+      "provider_fleets": "Read-only filesystem snapshot only; no Git/remote/network or fleet messaging by author.",
+      "provider_internal_service": "Provider worktrees use AnyCapabilityEnvelope/provider schema parsing and expose legacy execute; DUR3 composition must preserve provider-specific schema support when integrated by ROOT, not overwrite shared modules from frozen TaskWT.",
+      "provider_OP12": "ContractAuthoritySource returns factual clause/snapshot authority with same original proof ceiling and purpose/source/currentness checks. OP12 reads factual contract source; not JourneyTransitionAuthorityPort, not authority for commercial/clinical effect.",
+      "provider_source_binding": "SourceDescriptor/SourceBinding are bilateral tenant/legal entity/provider/principal/task/source/policy/purpose/classification/publication pins. They do not include original journey transition context, topology decision or journey effect authority port.",
+      "available_journey_effect_adapter": false,
+      "result": "Existing provider records may supply separate source publication/currentness evidence after independent qualification. They cannot be automatically cast to JourneyEffectAuthority or imply original transition at source commit. Dependent operational journey effects remain gated.",
+      "shared_paths": "admission.py/service.py/models.py/__init__.py overlap known provider work; ROOT serial composition only, no WIP copy/merge or publication claim."
+    },
+    "revision": "R5_DOMAIN_BOUNDARY_THIRD_REPAIR",
+    "repaired_findings": [
+      "DUR-CONTRACT-R3-F01",
+      "DUR-CONTRACT-R3-F02",
+      "DUR-CONTRACT-R4-F01"
+    ],
+    "original_r3_review_sha256": "862f2c247175bd69d3736b93a6f4a2249c55d5f9d0c0aaf78034250e46a0128b",
+    "independent_admission": "PENDING_ORIGINAL_REVIEWER_DELTA",
+    "legacy_nonjourney_behavior_changed": false,
+    "canonical_four_file_references": {
+      "durability-contract.md": "durability-contract.json#/journey_effect_authority_amendment",
+      "journey-orchestration-contract.md": "journey-orchestration-contract.json#/journey_effect_authority_amendment"
+    },
+    "original_r4_review_sha256": "ec855a6c1a2f3ccd9cfe026edd1b120d3749707aae94bfdeac1b912744803c7f"
+  }
+}

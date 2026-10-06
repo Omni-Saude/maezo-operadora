@@ -1,0 +1,120 @@
+{
+  "schema": "maezo.aggregate-validator-source-qualification.v1",
+  "status": "PASS_SOURCE_IMPLEMENTATION_ONLY__CANDIDATE_CI_FINAL_PENDING",
+  "requirement": "W0-MEASUREMENT reusable source-independent validator; W5 structure/missingness controls only",
+  "source_inputs": {
+    "src/maezo/gateway/aggregate_export_validation.py": "c31e72c62669cca147f482e6959784d16fb62706661095c7c6ca0ddb9518e50e",
+    "tests/unit/gateway/test_aggregate_export_validation.py": "5949d9aa51d2657f2997a9182e12d8cb8fc1655dc9f368e7b6d1d3a5a8b338f3",
+    "src/maezo/gateway/measurement-export-closed-shapes.proposed-v2.json": "9f7063d5e3a633e22459be25e6c61ce64e07eaff92ccb7259deaf06bc577313c"
+  },
+  "api_projection": {
+    "original_private_api_sha256": "3a772f0ec61be19d85736b7962d39578c7af2bc2152a9d5033bd7dd48a7b66b8",
+    "published_api_sha256": "546d8c5ea0a5de90b40ec2c0fec83781fe32ba3bacfdf794af1c8b2586cd4ec2",
+    "projection": "Repository locators only; original author-stage status retained as historical, implementation source admission supplied by independent receipts below."
+  },
+  "independent_receipts": {
+    "interface": "6e6800e10295ecf0f3d280d44d7f8e3f383cfbda2f8612eac5465347053ab638",
+    "original_SOURCE_REVISE": "67f9786da96f8df90b35fe9d3e5c4fd49a0eeed24cc6a50f919ad40e7578abd5",
+    "third_repair": "007c08e4669d5454fd02c50092188299dd66947c2b93755331bef3f0665cf3ca",
+    "original_source_delta": "d119ba9a8eb53f64f86718a5964a01a49970294f2c1923cfe7ec4d64c30c080c"
+  },
+  "qualified_runtime": "Python 3.12.13, frozen project lock; jsonschema 4.26.0",
+  "validation": {
+    "unit_passed": 176,
+    "independent_adversarial_passed": 133,
+    "independent_numeric_budget_passed": 3000,
+    "installed_wheel_sha256": "d772b6e681adca7ccbac87a7afa2e5bb3c6fcf40661da1cbc764d1e10eb7cc90",
+    "installed_wheel_scope": "Exact aggregate module/asset imported away from checkout/docs. Whole later candidate wheel must be separately assessed.",
+    "historical_current_candidate_wheel_1080": {
+      "source_composition": "1080a320dea1e20347b098d96eb90b7bdcf38c56",
+      "wheel_sha256": "8f042461d9fd81a894eeb8b39333f5a9b00cf04a205de4ce2ec80ada5ca16595",
+      "custody_sha256": "0bc818b717db3fde547800b6b1faf8005bea0ffd01f463d3e071d1931899b959",
+      "packaged_source_resource_files_matched": 846,
+      "aggregate_module_asset_smoke_passed": 1,
+      "whole_app_provider_or_production_runtime_qualification": false
+    },
+    "current_candidate_wheel": {
+      "source_composition": "c093241f9b2af36f8bd76a7c43a36324f495d5bf",
+      "wheel_sha256": "b21e905a8c92460aed1163e60cb36abe665b949e28334e5aa00ad67b1bbeaccd",
+      "custody_sha256": "4c6998765cbbff587c1095609433cf0ba44be9a1d15bc11ad23f58f25ebbc1aa",
+      "all_tracked_source_members": 858,
+      "all_forceinclude_assets": 120,
+      "packaged_source_resource_files_matched": 978,
+      "actual_isolated_installer": true,
+      "aggregate_module_asset_smoke_passed": 1,
+      "TISS_profiles_compiled_offline": 2,
+      "TISS_bounded_format_negatives": 6,
+      "TISS_installed_closed_carrier_negatives": 7,
+      "whole_app_provider_or_production_runtime_qualification": false
+    },
+    "historical_current_candidate_wheel_1b0b": {
+      "source_composition": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
+      "wheel_sha256": "04bc267474b2486ba65802a82ccb0767987552cc0c09b29f495d245eacfbe512",
+      "custody_sha256": "1b1d6419b9dc065a4edf3518e2a343393bcac13158ec265d2e8308921027538c",
+      "packaged_source_resource_files_matched": 856,
+      "aggregate_module_asset_smoke_passed": 1,
+      "whole_app_provider_or_production_runtime_qualification": false
+    },
+    "historical_current_candidate_wheel_007da": {
+      "source_composition": "007da1aab628ab07b58a9db609bd6b38001dca9a",
+      "wheel_sha256": "da08d222b6c5cb4f3ff8839f05bd8d721ffe28a0772a1fc27741f9689cb913fd",
+      "custody_sha256": "6b755ee0c185e872be4e29569f48b316b11770f376a3b16ea5d2c19c34455c0d",
+      "packaged_source_resource_files_matched": 856,
+      "aggregate_module_asset_smoke_passed": 1,
+      "whole_app_provider_or_production_runtime_qualification": false
+    },
+    "historical_current_candidate_wheel_155132": {
+      "source_composition": "155132c5e861ddaf9831c237bdbab17796fd0191",
+      "wheel_sha256": "3d1cfbc19c9c76d7b5af584b73e9551c1cd447382a9fdf06526eab0f9df8c830",
+      "custody_sha256": "4dccbaec1a24e53b3a12f9c6b59b69aa8923f35283c78fd0f30c133c6ce9b600",
+      "all_tracked_source_members": 858,
+      "all_forceinclude_assets": 120,
+      "packaged_source_resource_files_matched": 978,
+      "actual_isolated_installer": true,
+      "aggregate_module_asset_smoke_passed": 1,
+      "TISS_profiles_compiled_offline": 2,
+      "TISS_bounded_format_negatives": 6,
+      "whole_app_provider_or_production_runtime_qualification": false
+    },
+    "current_linux_amd64_image": {
+      "source_composition": "c093241f9b2af36f8bd76a7c43a36324f495d5bf",
+      "artifact_gate_sha256": "d63cba434ee869f448c0b041fff5bcd912acd08bf50b156922d14cc50e6e34ff",
+      "actual_image_members_matched": 978,
+      "natural_interpreter_imports": true,
+      "profiles_offline": 2,
+      "format_negatives": 6,
+      "closed_carrier_negatives": 5,
+      "carrier_hooks": 0,
+      "network_attempts": 0,
+      "application_provider_or_DB_started": false,
+      "operational_or_deployment_qualification": false
+    },
+    "historical_current_candidate_wheel_cff107": {
+      "source_composition": "c093241f9b2af36f8bd76a7c43a36324f495d5bf",
+      "wheel_sha256": "b21e905a8c92460aed1163e60cb36abe665b949e28334e5aa00ad67b1bbeaccd",
+      "custody_sha256": "4c6998765cbbff587c1095609433cf0ba44be9a1d15bc11ad23f58f25ebbc1aa",
+      "all_tracked_source_members": 858,
+      "all_forceinclude_assets": 120,
+      "packaged_source_resource_files_matched": 978,
+      "actual_isolated_installer": true,
+      "aggregate_module_asset_smoke_passed": 1,
+      "TISS_profiles_compiled_offline": 2,
+      "TISS_bounded_format_negatives": 6,
+      "TISS_installed_closed_carrier_negatives": 7,
+      "whole_app_provider_or_production_runtime_qualification": false
+    }
+  },
+  "baseline_python314_test_compatibility": "Original and repaired implementation reject immutable field replacement with TypeError, while existing test expects ValueError. Baseline RED retained; no bypass/regression; full Python3.14 suite unqualified.",
+  "source_or_currentness_proof_assessed": false,
+  "privacy_release_assessed": false,
+  "numeric_disclosure_permitted": false,
+  "payload_returned": false,
+  "source_fetch_emitter_recommendation_or_owner_grant": false,
+  "human_policy_adoption": "PENDING",
+  "metric_values_baselines_targets_ROI": "UNMEASURED",
+  "canonical_schema_authority": "docs/design/v21-capabilities/proposals/measurement-export-closed-shapes.proposed-v2.json",
+  "installed_asset": "Consumed exact wheel projection of canonical schema; no second schema authority/fallback.",
+  "owner": "ROOT successor",
+  "CI": "PENDING_EXACT_CANDIDATE",
+  "snapshot": "Prepublication compositionc09324/main423: actualwheel/installed/image978 bytes match actualtreeff1c (same asGitHubsynthetic510), with3Maven resources updated and975othermembers unchanged. Currentfull CI and deployed-runtime SAMEJAR compatibility execution remain pending; priorpartial441 run is not a pass."
+}

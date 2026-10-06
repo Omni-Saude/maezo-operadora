@@ -1,0 +1,1211 @@
+{
+  "schema": "v21-human-source-review-packet.proposed.v1",
+  "status": "PROPOSED_NOT_APPROVED",
+  "conduct": {
+    "product_direction_already_authorized": true,
+    "new_agent_scopes_ratified": false,
+    "conduct_messages_approved": false,
+    "required_act": "Owner conduct/routing contract for Compras/Suporte on the single number; scoped security/DPO/clinical decisions only as affected",
+    "health_human_precedence": "health/psychosocial risk stays Helena; health wins when human request occurs simultaneously because escalation reaches a person with higher priority; human requests otherwise interrupt any administrative agent",
+    "proposed_message_literals": [
+      {
+        "proposal_id": "ADM-PASSAGE-COMPRAS",
+        "speaker": "helena",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Current gated JR1 consumer has acknowledged receipt of this message-bound typed handoff; no health/human override; same authorized channel and recipient.",
+        "literal": "Seu pedido de compra passou ao Lucas, aqui na conversa.",
+        "operations_related": [
+          "OP01"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-PASSAGE-SUPORTE",
+        "speaker": "helena",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Current gated JR2 consumer has acknowledged receipt of this message-bound typed handoff; no health/human override; same authorized channel and recipient.",
+        "literal": "Seu pedido de suporte passou ao Lucas, aqui na conversa.",
+        "operations_related": [
+          "OP01"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-PASSAGE-UNAVAILABLE",
+        "speaker": "helena",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Administrative handoff/module/source unavailable; do not announce a passage or successful effect. Preserve current outside-channel/human/health response when its contract applies.",
+        "literal": "Não foi possível continuar este pedido administrativo nesta conversa. Ainda não há confirmação de resultado.",
+        "operations_related": [
+          "OP01"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-PREPARED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Authorized notice preparation record exists; no provider delivered receipt. Preparing does not execute/send/confirm delivery.",
+        "literal": "O aviso foi preparado. A entrega ainda não foi confirmada.",
+        "operations_related": [
+          "OP09"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-NOTICE-PENDING",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP09 delivery_status=pending; same notice/recipient/current revision.",
+        "literal": "O envio deste aviso está pendente. A entrega ainda não foi confirmada.",
+        "operations_related": [
+          "OP09"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-NOTICE-ATTEMPTED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP09 delivery_status=attempted with attempt evidence; no delivered receipt.",
+        "literal": "Houve uma tentativa de envio deste aviso. A entrega ainda não foi confirmada.",
+        "operations_related": [
+          "OP09"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-UNKNOWN",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Technical timeout/uncertain result or verified OP09 unknown; no source-issued/confirmed/delivered fact may be inferred; reconcile original command identity.",
+        "literal": "Ainda não há confirmação do resultado deste pedido.",
+        "operations_related": [
+          "OP04",
+          "OP05",
+          "OP09"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-ENROLLMENT-PENDING",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP04 enrollment_status=pending for the same object; no issued enrollment fact.",
+        "literal": "O pedido de matrícula está pendente de confirmação pela fonte responsável.",
+        "operations_related": [
+          "OP04"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-ENROLLMENT-ISSUED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP04 enrollment_status=issued, enrollment_ref and current issuer_receipt_ref; no clinical authorization or result inferred.",
+        "literal": "A fonte responsável confirmou a emissão da sua matrícula.",
+        "operations_related": [
+          "OP04"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-RESERVATION-HELD",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP05 reservation_status=held with current provider receipt and unexpired hold evidence; never claim confirmed booking.",
+        "literal": "A fonte responsável confirmou uma reserva temporária. A confirmação definitiva ainda não foi registrada.",
+        "operations_related": [
+          "OP05"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-RESERVATION-PENDING",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP05 reservation_status=pending; no held/confirmed booking fact.",
+        "literal": "O pedido de reserva está pendente de confirmação pela fonte responsável.",
+        "operations_related": [
+          "OP05"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-BOOKED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP05 reservation_status=confirmed with booking_ref and current provider_receipt_ref; availability or hold alone is insufficient.",
+        "literal": "A fonte responsável confirmou sua reserva.",
+        "operations_related": [
+          "OP05"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-NOTICE-DELIVERED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP09 delivery_status=delivered with recipient-specific provider_delivery_receipt_ref/current revision. This confirms this notice, not purchase, enrollment, care or fulfillment delivery.",
+        "literal": "A entrega deste aviso foi confirmada pelo canal.",
+        "operations_related": [
+          "OP09"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-REGISTERED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP07 case_ref/authority_receipt_ref and published state meaning registered; protocol may be cited only if actually returned, verified and authorized.",
+        "literal": "Seu caso foi registrado.",
+        "operations_related": [
+          "OP07"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-RESOLUTION-QUERY",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified same-case source resolution receipt and owner-published translation to resolved; current authenticated customer/delegate is asked. No customer confirmation inferred.",
+        "literal": "A fonte responsável informou que seu caso foi resolvido. Você confirma que o problema foi resolvido?",
+        "operations_related": [
+          "OP07"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-CONFIRMATION-RECORDED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP07 receipt of the current customer/delegate manifestation for the same case/revision; published owner translation to confirmed resolution; never OP03.",
+        "literal": "Sua confirmação de resolução foi registrada.",
+        "operations_related": [
+          "OP07"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-DISAGREEMENT-RECORDED",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Verified OP07 receipt of the current customer/delegate disagreement for the same case/revision; published owner translation; closure not inferred.",
+        "literal": "Seu relato de que o problema continua foi registrado no mesmo caso.",
+        "operations_related": [
+          "OP07"
+        ],
+        "authoritative_fact_required": true,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-CONFIRMATION-PENDING",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "Current authorized same-case source confirms no customer manifestation; any wait/timer depends on its admitted authority. Silence is not resolution.",
+        "literal": "Ainda não há uma confirmação sua de que o problema foi resolvido.",
+        "operations_related": [
+          "OP07",
+          "OP08"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      },
+      {
+        "proposal_id": "ADM-CASE-CONTRACTING-HANDOFF",
+        "speaker": "lucas",
+        "status": "PROPOSED_NOT_APPROVED",
+        "predicate_required": "A new explicit JR1 handoff was admitted and acknowledged while preserving JR2 case/protocol. No offer/acceptance authority arises inside JR2.",
+        "literal": "Seu pedido de contratação passou para o fluxo de compra. O caso de suporte mantém seu registro.",
+        "operations_related": [
+          "OP07"
+        ],
+        "authoritative_fact_required": false,
+        "delivery_gate": "CR-F6 recipient/content/sender/channel/factory/currentness/dedupe qualified before any outbound; selected literal becomes authorized_content_ref, not raw message payload in task, business DTO, state or logs."
+      }
+    ],
+    "task_handoff_field_schema": "See administrative_task_contract_candidate: exact current candidate AdministrativeHandoff of five fields, nested AdministrativeInput of six fields, and separate AdmissionBinding. Envelope and each closed operation request retain original field maps. Server owns handoff/context; no caller authority or raw clinical text.",
+    "message_selection_rule": "These IDs are documentation labels, not business states or new enums. Predicates are proposed truth requirements for owner review, not implemented rules; all source state translations need publication and ratification. No literal executes a side effect, promises an unqualified channel/provider, price, SLA, offer, human contact or retries. Rendering/sending is separately gated by CR-F6.",
+    "existing_health_human_texts_preserved": [
+      {
+        "symbol": "RESPOSTA_ESCALONAMENTO_URGENTE",
+        "source": "src/maezo/agents/helena/graph.py:504",
+        "literal_sha256": "2d085ff25524af5bdff8edae58795b66f29b45c1ed71078e96c60162488b5134",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      },
+      {
+        "symbol": "RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL",
+        "source": "src/maezo/agents/helena/graph.py:509",
+        "literal_sha256": "071a93c22d8cb83ef5a476ad653b14c9e7eef2f773292482276026eefaf1511e",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      },
+      {
+        "symbol": "RESPOSTA_HANDOFF_RECUSADA",
+        "source": "src/maezo/agents/helena/graph.py:433",
+        "literal_sha256": "b75b8992a9590945ed3bdfacff9021127f6672022b16b9dd5a3027a4d446133a",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      },
+      {
+        "symbol": "RESPOSTA_HANDOFF_JA_ABERTO",
+        "source": "src/maezo/agents/helena/graph.py:696",
+        "literal_sha256": "4ce5829c344f1b5ac3bf92ed39d8e0d2fef01ac6c21cd836ef3f684de72c6f6e",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      },
+      {
+        "symbol": "RESPOSTA_FALHA_TECNICA_START",
+        "source": "src/maezo/agents/helena/graph.py:389",
+        "literal_sha256": "b52bff7210f209af5aa46d709d5795e11f23ccd6a01bfcea610df137fce98963",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      },
+      {
+        "symbol": "RESPOSTA_SEM_ENCAMINHAMENTO",
+        "source": "src/maezo/agents/helena/graph.py:706",
+        "literal_sha256": "82bc41c9a97968573d7c8086309c65a12738b440a8912df73bda74fe14f746e2",
+        "status": "EXISTING_LITERAL_PRESERVED; no new clinical/human message or signature asserted",
+        "gate": "Existing current-turn start outcome and clinical/human response guards select this text. Neither administrative interruption nor handoff object announces a successful human escalation."
+      }
+    ],
+    "health_human_message_selection": "Every message is triaged by Helena first. Health/psychosocial risk keeps Helena and the existing clinical text/source gate; simultaneous human request retains higher health priority. Human request otherwise interrupts administrative execution and uses existing admitted escalation/intake and current start-outcome truthful text. Failed/not-attempted/already-active starts preserve existing separate text. No new clinical guidance or human-contact promise is proposed."
+  },
+  "adr0062_reconciliation": {
+    "adr_status_observed": "Proposto",
+    "adr_signature_pending_observed": true,
+    "dl0053_recorded_decision": "Filipe 2026-10-01; PR #596; limited billing routing in dev",
+    "dl0053_git_commit": "bee291fea498becf14c0f2a2ad646dcba612d35e",
+    "sources": [
+      "docs/adr/0062-roteamento-de-conversa-por-agente.md:3",
+      "docs/adr/0062-roteamento-de-conversa-por-agente.md:7",
+      "docs/decisions-log.md:16",
+      "docs/plans/lucas-numero-unico.md:38",
+      "docs/adr/README.md:74"
+    ],
+    "provenance_state": "DISCREPANCY_REQUIRES_OWNER_RECONCILIATION",
+    "new_compras_suporte_scope_approved_by_billing_decision": false,
+    "status_changed": false
+  },
+  "task_scope_proposals": [
+    {
+      "task_type": "journey.compras.step",
+      "agent": "lucas",
+      "journey": "JR1",
+      "status": "PROPOSED_NOT_DECLARED_IN_CURRENT_YAML",
+      "contract_required": "typed intent/domain reference/revision/current message; no raw clinical text",
+      "registry_requirement": "approved agent.yaml tasks/skills/actions/tools, signed card where A2A used, actual handler and root registration, principal-specific seams",
+      "no_generic_http_ingress": true
+    },
+    {
+      "task_type": "journey.suporte.step",
+      "agent": "lucas",
+      "journey": "JR2",
+      "status": "PROPOSED_NOT_DECLARED_IN_CURRENT_YAML",
+      "contract_required": "typed case intent/domain reference/revision/current message; no raw clinical text",
+      "registry_requirement": "same shared capabilities/contracts as JR1, distinct case authority and reply/resume",
+      "no_generic_http_ingress": true
+    }
+  ],
+  "administrative_binding_rows": {
+    "status": "PROPOSED_REVIEWABLE_NOT_ADMITTED",
+    "purpose_values_are_not_published_enums": true,
+    "single_dispatcher": {
+      "candidate_tool_id": "gateway.capabilities.execute",
+      "registration_status": "CANDIDATE_NOT_REGISTERED",
+      "target": "src/maezo/gateway/capabilities/service.py:CapabilityService.execute",
+      "composition": "One internal gateway dispatcher and shared capability ports; server-owned source/admission mappings scoped to the authenticated task and operation. This proposal creates no MCP server, journey daemon or HTTP ingress.",
+      "agent_tool_allowlist_requires_scoped_action_and_operation_allowlist": true
+    },
+    "action_identifiers_are_technical_candidates_not_authority": true,
+    "autonomy_tiers_not_assigned": true,
+    "existing_hard_actions_unchanged": true,
+    "helena_null_task_type": "Existing Helena WhatsApp turn, not a new accepted A2A task. A server-owned task_ref for that authenticated turn still requires explicit publication/admission; null here does not bypass AdmissionBinding.task_ref.",
+    "portal_channel": "Not included in these rows. A portal/A2A channel needs a separately admitted channel contract and the same per-agent/task/operation restrictions; no new endpoint is proposed.",
+    "common_guard": "Authenticated server-side principal/task/channel, signed task/Card when A2A is used, exact envelope/request digest, tenant/legal_entity/journey, published purpose/source/contract/policy revisions, current actor/consent/erasure/freshness evidence, enforcing allow decision, audit-before-source and source receipt/currentness-before-disclosure. Construction of references/DTOs never proves authority.",
+    "rows": [
+      {
+        "agent": "helena",
+        "task_type": null,
+        "operation_id": "OP01",
+        "operation_name": "access.resolve",
+        "agent_mode": "READ_REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_access_resolve",
+        "purpose_requirement": "Owner-published minimum ingress identity/routing purpose for this current message; no commercial composition or clinical access.",
+        "source_gate": "CR-F1",
+        "operation_guard": "Ingress minimum only: resolve current administrative/prospect identity and routing context permitted by CR-F1; no offer, acceptance, enrollment, reservation or clinical retrieval. Published purpose-specific minimum administrative fields; tenant/subject/source scope and current consent or other applicable authority; no clinical context, MPI minting or commercial risk selection.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F1"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "helena",
+        "task_type": null,
+        "operation_id": "OP07",
+        "operation_name": "case.open_or_update",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_case_open_or_update",
+        "purpose_requirement": "Owner-published human-request intake purpose for this current message and appropriate group; health has precedence.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Current explicit human request only through the admitted case/intake contract; preserve existing health/human escalation gates and texts. No general commercial case authority inferred. Published case_kind/status membership, audience/requester authority and same-case revision; real protocol/clock/source receipt; NIP only formal request, RECURSO only payer glosa; S4 current manifestation+resolution receipt remain OP07.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP01",
+        "operation_name": "access.resolve",
+        "agent_mode": "READ_REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_access_resolve",
+        "purpose_requirement": "Owner-published purpose for minimum administrative identity/context access in this journey; analytics is not a commercial purpose.",
+        "source_gate": "CR-F1",
+        "operation_guard": "Published purpose-specific minimum administrative fields; tenant/subject/source scope and current consent or other applicable authority; no clinical context, MPI minting or commercial risk selection.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F1"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP02",
+        "operation_name": "offer.compose",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_offer_compose",
+        "purpose_requirement": "Owner-published nonclinical commercial offer purpose for JR1 and permitted administrative preferences only.",
+        "source_gate": "CR-F2",
+        "operation_guard": "Published operator catalogue/version/terms/expiry and current availability; nonclinical feature allowlist; ratified deterministic rules through CIB when used; no clinical proxies or price invented by agent.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F2"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP03",
+        "operation_name": "acceptance.record",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_acceptance_record",
+        "purpose_requirement": "Owner-published purpose to record this customer decision on the exact JR1 commercial offer and terms.",
+        "source_gate": "CR-F3",
+        "operation_guard": "Authenticated current customer/delegate, authoritative offer_ref+offer_version and exact terms evidence; source records explicit accept/decline and receipt; never case-resolution confirmation.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F3"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP04",
+        "operation_name": "enrollment.request",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_enrollment_request",
+        "purpose_requirement": "Owner-published administrative enrollment/base-entitlement purpose under the issuer contract for JR1.",
+        "source_gate": "CR-F3",
+        "operation_guard": "Qualified enrollment issuer contract, accepted commitment and permitted prospect linkage; issuer alone emits base entitlement and any AMH identity is AMH-minted; no AUTH/coverage/portal/care.enroll substitute.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F3"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP05",
+        "operation_name": "reservation.command",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_reservation_command",
+        "purpose_requirement": "Owner-published provider reservation purpose for this accepted JR1 commitment and permitted command.",
+        "source_gate": "CR-F4",
+        "operation_guard": "Qualified provider, actual accepted commitment, published atomic hold/confirm lifecycle and expected provider revision; hold expiry/source receipt; reschedule/cancel only scoped reservation legal effect, never contract termination; reconcile uncertain result without fresh command.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F4"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP06",
+        "operation_name": "fulfillment.observe",
+        "agent_mode": "READ_REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_fulfillment_observe",
+        "purpose_requirement": "Owner-published administrative fulfillment-observation purpose for this JR1 object; no clinical result disclosure.",
+        "source_gate": "CR-F4",
+        "operation_guard": "Qualified observed fact/revision/time; factual performed/result_available differs from ETA; reject administrative disclosure when clinical_result_context_ref is present; no ADEQUACAO start or financial authority.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F4"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP07",
+        "operation_name": "case.open_or_update",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_case_open_or_update",
+        "purpose_requirement": "Owner-published case intake/update purpose, declared role/audience and requester scope for this journey.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Published case_kind/status membership, audience/requester authority and same-case revision; real protocol/clock/source receipt; NIP only formal request, RECURSO only payer glosa; S4 current manifestation+resolution receipt remain OP07.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP08",
+        "operation_name": "external_wait.settle",
+        "agent_mode": "OBSERVE_SERVICE_RESULT",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_external_wait_observe",
+        "purpose_requirement": "Owner-published case/wait observation and return purpose for this journey and expected producer.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Qualified wait service verifies expected producer/correlation/revision and mutually exclusive completed/timeout; source-owned settlement only; technical timeout is uncertain, not a business timed_out result; no agent inference of human decision.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP09",
+        "operation_name": "notice.prepare_or_send",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_notice_request",
+        "purpose_requirement": "Owner-published mandatory/facultative communication purpose, content and recipient for this journey.",
+        "source_gate": "CR-F6",
+        "operation_guard": "Authorized content and notice class, recipient custody/preference/current authority, qualified sender/channel/factory/template/window and durable dedupe; preparation/attempt do not prove delivery; recipient-specific provider receipt before delivered claim.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F6"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.compras.step",
+        "operation_id": "OP10",
+        "operation_name": "milestone.publish",
+        "agent_mode": "OBSERVE_SERVICE_RESULT",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_milestone_observe",
+        "purpose_requirement": "Owner-published milestone audience/observation purpose for this journey; publisher authority remains with source/service.",
+        "source_gate": "CR-F6",
+        "operation_guard": "Source-owned publisher/outbox/inbox verifies source_fact/revision/declared milestone/audience; agent observes service publication result only, cannot author facts; receipt is not Kafka offset and prediction is separate.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F6"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP01",
+        "operation_name": "access.resolve",
+        "agent_mode": "READ_REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_access_resolve",
+        "purpose_requirement": "Owner-published purpose for minimum administrative identity/context access in this journey; analytics is not a commercial purpose.",
+        "source_gate": "CR-F1",
+        "operation_guard": "Published purpose-specific minimum administrative fields; tenant/subject/source scope and current consent or other applicable authority; no clinical context, MPI minting or commercial risk selection.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F1"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP07",
+        "operation_name": "case.open_or_update",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_case_open_or_update",
+        "purpose_requirement": "Owner-published case intake/update purpose, declared role/audience and requester scope for this journey.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Published case_kind/status membership, audience/requester authority and same-case revision; real protocol/clock/source receipt; NIP only formal request, RECURSO only payer glosa; S4 current manifestation+resolution receipt remain OP07.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP08",
+        "operation_name": "external_wait.settle",
+        "agent_mode": "OBSERVE_SERVICE_RESULT",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_external_wait_observe",
+        "purpose_requirement": "Owner-published case/wait observation and return purpose for this journey and expected producer.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Qualified wait service verifies expected producer/correlation/revision and mutually exclusive completed/timeout; source-owned settlement only; technical timeout is uncertain, not a business timed_out result; no agent inference of human decision.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP09",
+        "operation_name": "notice.prepare_or_send",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_notice_request",
+        "purpose_requirement": "Owner-published mandatory/facultative communication purpose, content and recipient for this journey.",
+        "source_gate": "CR-F6",
+        "operation_guard": "Authorized content and notice class, recipient custody/preference/current authority, qualified sender/channel/factory/template/window and durable dedupe; preparation/attempt do not prove delivery; recipient-specific provider receipt before delivered claim.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F6"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP10",
+        "operation_name": "milestone.publish",
+        "agent_mode": "OBSERVE_SERVICE_RESULT",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_milestone_observe",
+        "purpose_requirement": "Owner-published milestone audience/observation purpose for this journey; publisher authority remains with source/service.",
+        "source_gate": "CR-F6",
+        "operation_guard": "Source-owned publisher/outbox/inbox verifies source_fact/revision/declared milestone/audience; agent observes service publication result only, cannot author facts; receipt is not Kafka offset and prediction is separate.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F6"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      },
+      {
+        "agent": "lucas",
+        "task_type": "journey.suporte.step",
+        "operation_id": "OP11",
+        "operation_name": "feedback.record",
+        "agent_mode": "REQUEST",
+        "channel_requirement": "Existing single-number WhatsApp turn after current Helena triage and AW0 channel admission",
+        "candidate_tool_id": "gateway.capabilities.execute",
+        "candidate_autonomy_action": "administrative_feedback_record",
+        "purpose_requirement": "Owner-published optional customer feedback purpose for the JR2 case, instrument and authorized respondent.",
+        "source_gate": "CR-F5",
+        "operation_guard": "Published instrument/version/cohort/scale and current respondent authority; optional asynchronous feedback observation; no response never implies resolution; never blocks payment or delivery.",
+        "required_gates": [
+          "AW0 agent/conduct/channel/task/tool/action decision",
+          "AW-SPEC",
+          "AW-CALL",
+          "AW-AUTH",
+          "AW-FACT",
+          "AW-RETURN",
+          "CR-F5"
+        ],
+        "security_zone_candidate": "general",
+        "tool_registration_status": "CANDIDATE_NOT_REGISTERED",
+        "action_policy_status": "CANDIDATE_NOT_PUBLISHED_OR_RATIFIED",
+        "binding_admitted": false
+      }
+    ],
+    "binding_field_sources": {
+      "principal_ref": "Authenticated server-owned agent principal; not caller agent_id.",
+      "task_ref": "Authenticated server-owned current turn/task binding; Lucas value must match the candidate task type and all CapabilityService admissions for that consumer.",
+      "tenant_ref/legal_entity_ref": "Trusted channel/tenant composition and admitted legal entity, cross-checked against envelope and handoff.",
+      "purpose_ref": "Actual owner-published reference satisfying the row purpose requirement; no new literal purpose enum in this proposal.",
+      "operation_name/schema_version": "Exact closed operation name and proposed envelope version; allowlist checked per agent/task/operation.",
+      "contract_revision/source_authority_ref/policy_revision/data_classification": "Actual published current contract/source/policy/classification evidence from qualified composition; not values inferred from model narrative.",
+      "autonomy_action": "Exact candidate row identifier after policy publication/ratification; absent or unknown action stays denied.",
+      "security_zone": "General candidate for minimum administrative data only; PHI requires its existing separate qualified boundary, not broader permissions here."
+    },
+    "admission_source": "src/maezo/gateway/capabilities/admission.py:AdmissionBinding, VerifiedAuthority, AuthorityVerifier",
+    "channel_evidence_limitation": "AdmissionBinding has no channel field. Qualified AuthorityVerifier must bind the authenticated channel/current message in its checked task/currentness/authorization evidence; the candidate DTO alone does not prove that check or install a verifier."
+  },
+  "decisions_per_family": [
+    {
+      "id": "CR-F1",
+      "roles_to_nominate": [
+        "registration/enrollment owner",
+        "AMH identity/consent steward when AMH boundary is used",
+        "DPO/legal",
+        "security"
+      ],
+      "binding_operations": [
+        "OP01"
+      ],
+      "reviewable_requested_deliverables": [
+        "Designate administrative prospect/context authority and verified requester scope.",
+        "Publish allowed fields, purpose/base, source decision/revision/freshness.",
+        "If linked to AMH, provider-owned subject linking/aliases and current consent/erasure policy."
+      ],
+      "source_ids_crosswalk": {
+        "id": "CR-F1",
+        "family": "F1",
+        "source_ids": [
+          "AMH-V2-01",
+          "AMH-V2-04"
+        ],
+        "condition": "Prospect linking/identity and protected purpose/consent/freshness only for the source actually needed; no invented AMH identity or clinical-purpose reinterpretation"
+      },
+      "conditional_AMH_publication": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "fields_owner_must_resolve": {
+        "nominal_accountable_owner": null,
+        "source_authority_and_provider": null,
+        "published_contract_revision_and_digest": null,
+        "allowed_domain_values_and_field_ownership": null,
+        "principal_task_channel_operation_binding": null,
+        "purpose_base_consent_legal_entity": null,
+        "freshness_business_revision_and_revocation_semantics": null,
+        "idempotency_uncertain_receipt_lookup_and_reconciliation": null,
+        "protected_data_and_ref_custody_retention_erasure": null,
+        "ratification_publication_evidence": null,
+        "runtime_qualification_and_independent_review": null
+      },
+      "current_effect_permission": false,
+      "affected_action_gate_definitions": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ]
+    },
+    {
+      "id": "CR-F2",
+      "roles_to_nominate": [
+        "operator product/commercial/legal owner",
+        "catalogue/availability provider steward",
+        "DPO"
+      ],
+      "binding_operations": [
+        "OP02"
+      ],
+      "reviewable_requested_deliverables": [
+        "Publish authoritative product catalogue, product/terms/offer versions and validity/withdrawal.",
+        "Publish availability observations and nonclinical explanatory criteria; ratified deterministic rules use CIB DMN.",
+        "No clinical/proxy risk selection or population dependency in core offers."
+      ],
+      "source_ids_crosswalk": {
+        "id": "CR-F2",
+        "family": "F2",
+        "source_ids": [
+          "AMH-V2-02",
+          "AMH-V2-04",
+          "AMH-V2-06"
+        ],
+        "condition": "02 offer/catalogue authority is core;04 applies if its source needs governed context;06 only approved aggregate/product analysis in later scope, never mandatory population port for commercial offer or health-risk selection"
+      },
+      "conditional_AMH_publication": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "fields_owner_must_resolve": {
+        "nominal_accountable_owner": null,
+        "source_authority_and_provider": null,
+        "published_contract_revision_and_digest": null,
+        "allowed_domain_values_and_field_ownership": null,
+        "principal_task_channel_operation_binding": null,
+        "purpose_base_consent_legal_entity": null,
+        "freshness_business_revision_and_revocation_semantics": null,
+        "idempotency_uncertain_receipt_lookup_and_reconciliation": null,
+        "protected_data_and_ref_custody_retention_erasure": null,
+        "ratification_publication_evidence": null,
+        "runtime_qualification_and_independent_review": null
+      },
+      "current_effect_permission": false,
+      "affected_action_gate_definitions": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ]
+    },
+    {
+      "id": "CR-F3",
+      "roles_to_nominate": [
+        "customer acceptance/legal owner",
+        "operator administrative enrollment issuer",
+        "registration/identity steward",
+        "AMH contract steward only when outcomes cross AMH"
+      ],
+      "binding_operations": [
+        "OP03",
+        "OP04"
+      ],
+      "reviewable_requested_deliverables": [
+        "Publish customer/delegation authentication and evidence over exact offer_ref/version/terms.",
+        "Publish separate administrative issuer command/status/right-base receipt and prospect linking.",
+        "Provide lookup/reconciliation by command/idempotency key for uncertain timeout; no second enrollment."
+      ],
+      "source_ids_crosswalk": {
+        "id": "CR-F3",
+        "family": "F3",
+        "source_ids": [
+          "AMH-V2-01",
+          "AMH-V2-02",
+          "AMH-V2-05"
+        ],
+        "condition": "01 enrollment/right-base authority;02 accepted offer/terms proof;05 only when published outcome crosses AMH boundary. Customer evidence and administrative issuer receipt stay distinct"
+      },
+      "conditional_AMH_publication": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "fields_owner_must_resolve": {
+        "nominal_accountable_owner": null,
+        "source_authority_and_provider": null,
+        "published_contract_revision_and_digest": null,
+        "allowed_domain_values_and_field_ownership": null,
+        "principal_task_channel_operation_binding": null,
+        "purpose_base_consent_legal_entity": null,
+        "freshness_business_revision_and_revocation_semantics": null,
+        "idempotency_uncertain_receipt_lookup_and_reconciliation": null,
+        "protected_data_and_ref_custody_retention_erasure": null,
+        "ratification_publication_evidence": null,
+        "runtime_qualification_and_independent_review": null
+      },
+      "current_effect_permission": false,
+      "affected_action_gate_definitions": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ]
+    },
+    {
+      "id": "CR-F4",
+      "roles_to_nominate": [
+        "agenda/reservation provider owner",
+        "delivery/network/care source owner",
+        "AMH steward and DPO only for protected AMH context/events"
+      ],
+      "binding_operations": [
+        "OP05",
+        "OP06"
+      ],
+      "reviewable_requested_deliverables": [
+        "Publish provider hold/confirm/reschedule/cancel authority, atomic revision and hold expiry.",
+        "Publish performed/result_available/no_show/disrupted/pending source facts, revision and factual time.",
+        "Provide uncertain-timeout reconciliation and domain-authorized compensation."
+      ],
+      "source_ids_crosswalk": {
+        "id": "CR-F4",
+        "family": "F4",
+        "source_ids": [
+          "AMH-V2-03",
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "03 actual reservation/delivery authority;04 for permitted clinical-result context/freshness;05 if source events cross AMH. Read-only coverage remains not activation or reservation"
+      },
+      "conditional_AMH_publication": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "fields_owner_must_resolve": {
+        "nominal_accountable_owner": null,
+        "source_authority_and_provider": null,
+        "published_contract_revision_and_digest": null,
+        "allowed_domain_values_and_field_ownership": null,
+        "principal_task_channel_operation_binding": null,
+        "purpose_base_consent_legal_entity": null,
+        "freshness_business_revision_and_revocation_semantics": null,
+        "idempotency_uncertain_receipt_lookup_and_reconciliation": null,
+        "protected_data_and_ref_custody_retention_erasure": null,
+        "ratification_publication_evidence": null,
+        "runtime_qualification_and_independent_review": null
+      },
+      "current_effect_permission": false,
+      "affected_action_gate_definitions": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ]
+    },
+    {
+      "id": "CR-F5",
+      "roles_to_nominate": [
+        "domain case/CX owner",
+        "current requester authority owner",
+        "native/staff case owner",
+        "AMH contract steward/DBA/consumer owner only for AMH work items"
+      ],
+      "binding_operations": [
+        "OP07",
+        "OP08",
+        "OP11"
+      ],
+      "reviewable_requested_deliverables": [
+        "Publish case kind/status/audience/role and requester authority for each domain.",
+        "Publish same-case revision/protocol/non-resettable clock, lifecycle and receipts.",
+        "S4 confirms only through OP07 after source resolution receipt and current customer manifestation; no OP03.",
+        "Publish disagreement/timeout/closed-without-confirmation mapping without silence-as-resolved."
+      ],
+      "source_ids_crosswalk": {
+        "id": "CR-F5",
+        "family": "F5",
+        "source_ids": [
+          "AMH-V2-02",
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "Commercial case terms/roles from02;care context under04 only its qualified purpose;05 is provider work-item/framing/outcome plumbing when used, not universal source for all case creation"
+      },
+      "conditional_AMH_publication": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "fields_owner_must_resolve": {
+        "nominal_accountable_owner": null,
+        "source_authority_and_provider": null,
+        "published_contract_revision_and_digest": null,
+        "allowed_domain_values_and_field_ownership": null,
+        "principal_task_channel_operation_binding": null,
+        "purpose_base_consent_legal_entity": null,
+        "freshness_business_revision_and_revocation_semantics": null,
+        "idempotency_uncertain_receipt_lookup_and_reconciliation": null,
+        "protected_data_and_ref_custody_retention_erasure": null,
+        "ratification_publication_evidence": null,
+        "runtime_qualification_and_independent_review": null
+      },
+      "current_effect_permission": false,
+      "affected_action_gate_definitions": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ]
+    },
+    {
+      "id": "CR-F6",
+      "roles_to_nominate": [
+        "communication/channel/recipient-preference owner",
+        "domain fact/milestone source owner",
+        "DPO/security",
+        "AMH publisher/consumer owner only for AMH wire"
+      ],
+      "binding_operations": [
+        "OP09",
+        "OP10"
+      ],
+      "reviewable_requested_deliverables": [
+        "Publish communication class/channel/audience/preferences/revocation and mandatory-notice policy.",
+        "Publish distinct prepared/sent/delivered/unknown receipts and sender/recipient authority.",
+        "Publish authoritative milestone source/revision, fact versus prediction, correction/replay/erasure."
+      ],
+      "source_ids_crosswalk": {
+        "id": "CR-F6",
+        "family": "F6",
+        "source_ids": [
+          "AMH-V2-04",
+          "AMH-V2-05"
+        ],
+        "condition": "04 purpose/recipient preference/revocation when using protected source;05 source milestone/outcome wire when crossing AMH. Sender/channel provider contracts remain their named owner, not AMH-V2-06 population"
+      },
+      "conditional_AMH_publication": {
+        "applies_when": "The requested operation changes or publishes through an AMH-owned boundary.",
+        "gates": [
+          "AMH-XRG-2-PUBLICATION",
+          "AMH-XRG-3-INDEPENDENT-PIN"
+        ],
+        "owner": "AMH contract steward publishes; MAEZO consumer independently verifies.",
+        "source_ownership_decision": null
+      },
+      "fields_owner_must_resolve": {
+        "nominal_accountable_owner": null,
+        "source_authority_and_provider": null,
+        "published_contract_revision_and_digest": null,
+        "allowed_domain_values_and_field_ownership": null,
+        "principal_task_channel_operation_binding": null,
+        "purpose_base_consent_legal_entity": null,
+        "freshness_business_revision_and_revocation_semantics": null,
+        "idempotency_uncertain_receipt_lookup_and_reconciliation": null,
+        "protected_data_and_ref_custody_retention_erasure": null,
+        "ratification_publication_evidence": null,
+        "runtime_qualification_and_independent_review": null
+      },
+      "current_effect_permission": false,
+      "affected_action_gate_definitions": [
+        "SRC-OWNER",
+        "SRC-CONTRACT",
+        "SRC-IDENTITY",
+        "SRC-PURPOSE",
+        "SRC-TIME",
+        "SRC-ERASURE",
+        "SRC-RECEIPT",
+        "SRC-WIRE",
+        "SRC-COMPOSITION",
+        "SRC-RUNTIME",
+        "SRC-INDEPENDENT"
+      ]
+    }
+  ],
+  "signature_evidence_created": false,
+  "source_ownership_assumed": false,
+  "pending_privacy_scope": "DSR-to-journal principal/custody mapping, protected refs/payload custody, productive roles and retention remain separate owner/DPO acts; no durations selected."
+}
