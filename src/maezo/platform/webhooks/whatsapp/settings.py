@@ -278,11 +278,75 @@ class WhatsAppWebhookSettings(BaseSettings):
         le=1440,
         validation_alias=AliasChoices("MAEZO_LUCAS_INATIVIDADE_MINUTOS", "lucas_inatividade_minutos"),
     )
-    # Fonte dos fatos de cobranca do Lucas. So' existe a simulada; a cerca reprova a variavel
-    # presente fora de `dev-sa-east-1`, e a fonte real (CNAB) entra com o seu proprio valor.
-    lucas_fonte_cobranca: Literal["simulada"] = Field(
+    # Fonte dos fatos de cobranca do Lucas. `simulada` (o default) ou `amh` — a fonte REAL pelos
+    # contratos `billing-status`/`subject-resolution` da AMH (decisao do dono 06/10/2026). `amh` so'
+    # sobe com os contratos publicados e pinados e com toda a configuracao abaixo; faltando qualquer
+    # peca o receptor RECUSA servir (`service.py::_build_lucas_turno`). Qualquer outro valor (o
+    # antigo `cnab`, por exemplo) e' recusado aqui. A cerca reprova a variavel presente fora de
+    # `dev-sa-east-1`.
+    lucas_fonte_cobranca: Literal["simulada", "amh"] = Field(
         default="simulada",
         validation_alias=AliasChoices("MAEZO_LUCAS_FONTE_COBRANCA", "lucas_fonte_cobranca"),
+    )
+
+    # --- Fonte AMH do Lucas (so' lidas com `lucas_fonte_cobranca == "amh"`) -------------------
+    # Origem do servico interop da AMH: ALB INTERNO, `http(s)://host[:porta]`, sem caminho.
+    amh_interop_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_BASE_URL", "amh_interop_base_url"),
+    )
+    # Endpoint OAuth2 de token do Cognito da AMH (`https://.../oauth2/token`).
+    amh_interop_token_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_TOKEN_URL", "amh_interop_token_url"),
+    )
+    amh_interop_client_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_CLIENT_ID", "amh_interop_client_id"),
+    )
+    # Escopos pedidos no `client_credentials`, separados por espaco.
+    amh_interop_scopes: str = Field(
+        default="interop/billing.read interop/subject.resolve interop/profile.read",
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_SCOPES", "amh_interop_scopes"),
+    )
+    # Segredo do cliente Cognito. Nunca renderizado; chega ao executor SO' pelo cofre
+    # (`tool_registry.AGENT_CREDENTIAL_FIELDS`). So' o nome canonico no `AliasChoices` (como
+    # `app_secret`): o nome do campo abriria um `AMH_INTEROP_CLIENT_SECRET` sem prefixo no ambiente.
+    amh_interop_client_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_CLIENT_SECRET"),
+        repr=False,
+        exclude=True,
+    )
+    # Chave DEDICADA do hash `amh-phone-lookup-v1` (segredo `amh/interop/phone-lookup-key`). Nao e'
+    # o `PHI_HMAC_KEY`. Mesmo tratamento do segredo acima.
+    amh_phone_lookup_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_PHONE_LOOKUP_KEY"),
+        repr=False,
+        exclude=True,
+    )
+    # Tenant da operadora no vocabulario da AMH (entra no HMAC do telefone e no corpo da resolucao).
+    amh_interop_tenant: str = Field(
+        default="omni",
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_TENANT", "amh_interop_tenant"),
+    )
+    amh_interop_purpose_of_use: str = Field(
+        default="sharing_amh_internal",
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_PURPOSE_OF_USE", "amh_interop_purpose_of_use"),
+    )
+    # Caminhos dos dois artefatos OpenAPI publicados pela AMH; os bytes so' valem com o digest no pin.
+    amh_billing_status_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_BILLING_STATUS_OPENAPI_PATH", "amh_billing_status_openapi_path"
+        ),
+    )
+    amh_subject_resolution_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_SUBJECT_RESOLUTION_OPENAPI_PATH", "amh_subject_resolution_openapi_path"
+        ),
     )
 
     @model_validator(mode="before")
@@ -301,6 +365,8 @@ class WhatsAppWebhookSettings(BaseSettings):
             for field_name, canonical in (
                 ("app_secret", "WHATSAPP_APP_SECRET"),
                 ("verify_token", "WHATSAPP_VERIFY_TOKEN"),
+                ("amh_interop_client_secret", "MAEZO_AMH_INTEROP_CLIENT_SECRET"),
+                ("amh_phone_lookup_key", "MAEZO_AMH_PHONE_LOOKUP_KEY"),
             ):
                 if field_name in data:
                     data[canonical] = data.pop(field_name)

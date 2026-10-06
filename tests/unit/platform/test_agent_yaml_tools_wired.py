@@ -180,6 +180,11 @@ _ACTION_NOT_TOOL_SHAPED: Final[frozenset[str]] = frozenset(
         "reminders_nudges",
         "ans_official_submission",
         "nip_response",
+        # Lucas: leitura dos fatos de cobranca/identidade pelo contrato da AMH. Nao ha' tool MCP:
+        # a superficie e' o executor do gateway (`gateway/amh_interop.py`), com `tool_id=None` no
+        # catalogo (`amh.get_billing_status` / `amh.resolve_subject_by_phone`), entao nao existe
+        # id `mcp-*` para esta sonda procurar no grafo. Decisao do dono 06/10/2026 (decisions-log).
+        "read_member_billing_identity",
     }
 )
 

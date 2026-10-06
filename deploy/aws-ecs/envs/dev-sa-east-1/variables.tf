@@ -755,16 +755,108 @@ variable "lucas_inatividade_minutos" {
 
 variable "lucas_fonte_cobranca" {
   description = <<-EOT
-    Fonte dos fatos de cobranca do Lucas. So' existe `simulada`; a fonte real (CNAB) entra com o
-    seu proprio valor e a sua propria revisao. Presente fora de dev-sa-east-1 significa o Lucas
-    montado onde ele nao pode existir — a cerca reprova.
+    Fonte dos fatos de cobranca do Lucas: `simulada` (default) ou `amh` — a fonte real pelos
+    contratos da AMH (decisao do dono de 06/10/2026; ver `amh-interop.tf`). `amh` so' sobe com os
+    contratos publicados e pinados e com as variaveis `amh_*` preenchidas; sem isso o receptor
+    recusa servir. Presente fora de dev-sa-east-1 significa o Lucas montado onde ele nao pode
+    existir — a cerca reprova.
   EOT
   type        = string
   default     = "simulada"
   nullable    = false
 
   validation {
-    condition     = contains(["simulada"], var.lucas_fonte_cobranca)
-    error_message = "lucas_fonte_cobranca so' aceita \"simulada\" (a unica fonte que existe)."
+    condition     = contains(["simulada", "amh"], var.lucas_fonte_cobranca)
+    error_message = "lucas_fonte_cobranca so' aceita \"simulada\" ou \"amh\"."
+  }
+}
+
+# --- Fonte AMH do Lucas (so' lidas com lucas_fonte_cobranca = "amh"; ver amh-interop.tf) --------
+
+variable "amh_interop_base_url" {
+  description = "Origem do servico interop da AMH: ALB INTERNO, `http://<dns>` sem caminho (porta 80 dentro da VPC)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_token_url" {
+  description = "Endpoint de token do Cognito da AMH (client_credentials) para o app client maezo-operadora-interop."
+  type        = string
+  default     = "https://amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com/oauth2/token"
+  nullable    = false
+}
+
+variable "amh_interop_client_id" {
+  description = <<-EOT
+    Id do app client `maezo-operadora-interop` no Cognito da AMH. Gerado pela AWS (muda se o client
+    for recriado); vazio com a fonte AMH ligada faz o receptor recusar subir, alto, no boot.
+  EOT
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_scopes" {
+  description = "Escopos pedidos ao Cognito. Pedir um escopo que o client nao tem faz o Cognito recusar o token inteiro."
+  type        = string
+  default     = "interop/billing.read interop/subject.resolve interop/profile.read"
+  nullable    = false
+}
+
+variable "amh_interop_tenant" {
+  description = "Tenant da operadora no vocabulario da AMH (entra no hash do telefone e no corpo da resolucao)."
+  type        = string
+  default     = "omni"
+  nullable    = false
+}
+
+variable "amh_interop_purpose_of_use" {
+  description = "purpose_of_use enviado a AMH nas leituras do Lucas."
+  type        = string
+  default     = "sharing_amh_internal"
+  nullable    = false
+}
+
+variable "amh_billing_status_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status` publicado (o digest tem de estar no pin)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_subject_resolution_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `subject-resolution` publicado (o digest tem de estar no pin)."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_cognito_secret_name" {
+  description = "Segredo (criado pela AMH) com o client secret do app client maezo-operadora-interop."
+  type        = string
+  default     = "amh/cognito/dev/maezo-operadora-interop"
+  nullable    = false
+}
+
+variable "amh_phone_lookup_secret_name" {
+  description = "Segredo (criado pela AMH) com a chave dedicada do hash amh-phone-lookup-v1."
+  type        = string
+  default     = "amh/interop/phone-lookup-key"
+  nullable    = false
+}
+
+variable "amh_interop_alb_security_group_id" {
+  description = <<-EOT
+    SG do ALB interno do servico interop da AMH, para a regra de saida 80 dedicada. Vazio = sem
+    regra dedicada (a regra `hapi_internal` ja' abre 80 para o CIDR da VPC).
+  EOT
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    condition     = var.amh_interop_alb_security_group_id == "" || can(regex("^sg-[0-9a-f]{8,17}$", var.amh_interop_alb_security_group_id))
+    error_message = "amh_interop_alb_security_group_id tem de ser vazio ou um id sg-..."
   }
 }

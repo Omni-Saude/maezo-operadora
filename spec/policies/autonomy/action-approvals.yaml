@@ -727,6 +727,9 @@ mapeamento_acoes:
   agente.amh.list_subject_encounters: leitura_phi_clinica
   agente.amh.list_subject_conditions: leitura_phi_clinica
   agente.amh.get_subject_coverage: leitura_phi_clinica
+  agente.amh.get_billing_status: leitura_phi_clinica
+  agente.amh.resolve_subject_by_phone: leitura_phi_clinica
+  agente.amh.get_subject_profile: leitura_phi_clinica
 
   agente.whatsapp.send_message: comunicacao_beneficiario
 

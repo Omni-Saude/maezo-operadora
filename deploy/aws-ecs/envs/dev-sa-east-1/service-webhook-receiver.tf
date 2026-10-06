@@ -125,7 +125,8 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # Os tres valores tem de ser LITERAIS que `scripts/ci/check_roteador_lucas.py` resolve (var
       # com default, `*.auto.tfvars` do diretorio, `tostring()` de escalar): `valueFrom` ou
       # indirecao nao resolvivel REPROVA, e qualquer um destes ligados/presentes fora de
-      # `dev-sa-east-1` tambem. A fonte so' existe `simulada` — por isso ela fica so' em dev.
+      # `dev-sa-east-1` tambem. A fonte e' `simulada` (default) ou `amh` (contratos da AMH,
+      # amh-interop.tf; desligada ate' os contratos serem publicados e pinados) — so' em dev.
       { name = "MAEZO_ROTEADOR_LUCAS", value = tostring(var.roteador_lucas_enabled) },
       { name = "MAEZO_LUCAS_INATIVIDADE_MINUTOS", value = tostring(var.lucas_inatividade_minutos) },
       { name = "MAEZO_LUCAS_FONTE_COBRANCA", value = var.lucas_fonte_cobranca },
@@ -141,7 +142,9 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # o texto presta, nem conferir se vaza orientacao clinica, sem le-lo uma vez.
       { name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = "1" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
-    ], local.recipient_vault_env)
+      # Fonte AMH do Lucas: `local.amh_interop_env` (amh-interop.tf) e' vazia com a fonte
+      # `simulada`, entao esta task definition fica byte a byte igual enquanto ela nao for ligada.
+    ], local.recipient_vault_env, local.amh_interop_env)
 
     secrets = concat(local.db_secrets_maezo, [
       # Sem esta o Pseudonymizer falha FECHADO (ADR-0035) — e o receptor e' quem pseudonimiza
@@ -154,7 +157,9 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # O mesmo processo envia a resposta; ambas as configuracoes sao obrigatorias no envio.
       { name = "WHATSAPP_PHONE_NUMBER_ID", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:phone_number_id::" },
       { name = "WHATSAPP_TOKEN", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:waba_token::" },
-    ])
+      # Segredo do client Cognito e chave do hash do telefone da fonte AMH — so' com ela ligada
+      # (`local.amh_interop_secrets`, amh-interop.tf). Chegam ao executor SO' pelo cofre de agente.
+    ], local.amh_interop_secrets)
 
     readonlyRootFilesystem = true
 

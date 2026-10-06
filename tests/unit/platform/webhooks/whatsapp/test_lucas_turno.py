@@ -299,7 +299,15 @@ def test_estado_do_lucas_nunca_tem_chave_de_texto() -> None:
     # e ela nao entra no estado do Lucas.
     assert [k for k in lt.CHAVES_DO_HANDOFF if _CHAVE_DE_TEXTO.search(k)] == ["message_ref"]
     campos_conversa = {f.name for f in dataclasses.fields(lt.ConversaDoTurno)}
-    assert campos_conversa == {"conversation_id", "beneficiario_pseudo_id", "to_hash", "message_id"}
+    # `phone_hash_amh` (fonte AMH, decisao do dono 06/10/2026) e' um hash HMAC, nunca texto, e nao
+    # entra no estado do Lucas (so' a fonte o le') — ver o teste de estado abaixo.
+    assert campos_conversa == {
+        "conversation_id",
+        "beneficiario_pseudo_id",
+        "to_hash",
+        "message_id",
+        "phone_hash_amh",
+    }
 
 
 @pytest.mark.parametrize("subtipo", sorted(COBRANCA_SUBTIPOS))

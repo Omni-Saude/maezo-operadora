@@ -39,6 +39,7 @@ autonomy_actions:
   - query_decision_engine
   - read_write_memory         # excecao disclosed (fence §8.5 item 2), sem no vivo hoje (CC-05/LUC-01)
   - start_compliance_process
+  - read_member_billing_identity  # fonte real de cobranca via contrato AMH (sem tool MCP; DL de 06/10/2026)
 kpis:
   - { name: resolution_rate, target: "track" }
   - { name: escalation_precision, target: "track" }

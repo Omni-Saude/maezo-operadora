@@ -13,8 +13,10 @@ REGRAS DE DESENHO (as mesmas do contrato):
   * idade em anos/meses, nunca data de nascimento; SEM sexo (a triagem decide por populacao e idade, e a
     cerca de pureza dos ports barra nome de campo com dado pessoal: minimizacao, nao contorno).
 
-O CONTATO e' sempre o PSEUDONIMO chaveado (`hk1_...`), nunca o numero. O parametro se chama
-`contact_pseudonym` por isso: o nome diz o que o valor e'. No contrato da AMH o campo do corpo segue
+O CONTATO e' sempre um PSEUDONIMO chaveado, nunca o numero. O parametro se chama `contact_pseudonym`
+por isso: o nome diz o que o valor e'. Desde a decisao do dono de 06/10/2026 o valor ligado e' o hash
+do esquema `amh-phone-lookup-v1` (HMAC-SHA256 com chave DEDICADA, `gateway/amh_interop.py`), e nao o
+`hk1_` do Maezo, que nao significa nada para a AMH. No contrato da AMH o campo do corpo segue
 `phone_hash` (nome dela); o adaptador faz o mapeamento.
 """
 

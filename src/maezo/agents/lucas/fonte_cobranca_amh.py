@@ -1,7 +1,11 @@
 """`FonteCobranca` REAL: os fatos de cobranca do Lucas lidos pelo contrato `billing-status` da AMH.
 
-Substitui a `FonteCobrancaSimulada` quando o contrato estiver publicado e pinado (ADR-0037). Ate' la' ela
-NAO e' ligada em lugar nenhum: `platform/webhooks/service.py` e as settings continuam so' com a simulada.
+Substitui a `FonteCobrancaSimulada` com `MAEZO_LUCAS_FONTE_COBRANCA=amh` (decisao do dono de 06/10/2026):
+`platform/webhooks/service.py::_build_fonte_cobranca_amh` a compoe sobre os executores do gateway
+(`gateway/amh_interop.py`). O default continua `simulada`, e `amh` so' sobe com os contratos publicados e
+pinados (ADR-0037, XRG-2/XRG-3) — sem isso o receptor recusa servir. O "consentimento" ligado hoje e' a
+base legal fixa de execucao de contrato (`identidade_amh.BaseLegalExecucaoDeContrato`), nunca uma
+afirmacao de que houve consentimento.
 
 O CAMINHO, em quatro passos, cada um com a sua saida fechada:
   1. pseudonimo do Maezo -> `portable_subject_ref` (so' a AMH liga telefone a pessoa, XRD-05);
