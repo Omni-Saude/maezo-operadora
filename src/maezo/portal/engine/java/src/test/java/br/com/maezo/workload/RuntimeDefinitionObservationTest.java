@@ -237,6 +237,31 @@ class RuntimeDefinitionObservationTest {
     var f=admissionFixture(java.time.Instant.now().plusSeconds(30));var admitted=f.admit();
     assertTimeout(java.time.Duration.ofSeconds(5),()->{for(int n=0;n<100;n++)admitted.current();});
   }
+  /** The preserved 825cb0b7 failure: an FD closed between enumeration and its attribute
+   * read raised NoSuchFileException and was sanitized into Refused with the errno lost.
+   * The census must vanish-tolerate per entry under concurrent churn. */
+  @Test void descriptorCensusToleratesConcurrentDescriptorChurn()throws Exception {
+    org.junit.jupiter.api.Assumptions.assumeTrue(Files.isDirectory(Path.of("/proc/self/fd")));
+    var churn=new ArrayList<java.nio.channels.FileChannel>();
+    var closer=new Thread(()-> {
+      var rnd=new Random(4242);
+      while(!Thread.currentThread().isInterrupted()) {
+        try {
+          var channel=java.nio.channels.FileChannel.open(Path.of("/proc/self/environ"),
+              java.nio.file.StandardOpenOption.READ);
+          synchronized(churn) {churn.add(channel);if(churn.size()>32){churn.get(0).close();churn.remove(0);}}
+          if(rnd.nextInt(8)==0)try(var victim=java.nio.channels.FileChannel.open(Path.of("/proc/self/environ"),
+              java.nio.file.StandardOpenOption.READ)){Thread.sleep(0,100);}
+        }catch(InterruptedException interrupted){return;}
+        catch(Exception ignored){}
+      }
+    },"census-churn");
+    closer.setDaemon(true);closer.start();
+    try {assertTimeout(java.time.Duration.ofSeconds(10),()->{for(int n=0;n<200;n++)RuntimeObservationAdmission.descriptorCensus();});}
+    finally {
+      closer.interrupt();synchronized(churn){for(var channel:churn)try{channel.close();}catch(Exception ignored){}}
+    }
+  }
   @Test void terminalPureGuardHasNoHiddenFilesystemRead()throws Exception {
     var f=admissionFixture(java.time.Instant.now().plusSeconds(30));var admitted=f.admit();Files.delete(f.path());
     assertDoesNotThrow(admitted::timeOnly);assertThrows(Refused.class,admitted::current);

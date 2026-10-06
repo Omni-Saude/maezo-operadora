@@ -151,29 +151,32 @@ final class RuntimeObservationAdmission {
     require(descriptor.getParent().equals(FD_ROOT) && descriptor.getFileName().toString().matches("[0-9]+"));
     return Files.readAttributes(descriptor,FD_ATTRIBUTES);
   }
-  /** Full kernel census, including foreign descriptors. Remove only enumeration handles proven closed. */
+  /** Full kernel census, including foreign descriptors: exactly the FDs extant at their read. */
   static Map<Path,Map<String,Object>> descriptorCensus()throws IOException {
     require(Files.isDirectory(FD_ROOT));
-    Path directory=FD_ROOT.toRealPath();var attributes=new HashMap<Path,Map<String,Object>>();
-    var enumeration=new HashSet<Path>();
+    var attributes=new HashMap<Path,Map<String,Object>>();
     try(var entries=Files.newDirectoryStream(FD_ROOT)) {
       for(Path descriptor:entries) {
-        var row=fdAttributes(descriptor);attributes.put(descriptor,row);
-        if((((Number)row.get("mode")).intValue()&0170000)==0040000
-            && Files.readSymbolicLink(descriptor).equals(directory))enumeration.add(descriptor);
+        // Concurrent JDK activity (GC, logging) closes descriptors mid-census; a
+        // descriptor absent at its read instant is indistinguishable from one
+        // enumerated only after it closed. Vanish per entry; the custody diff
+        // stays exact for every descriptor actually read.
+        try {attributes.put(descriptor,fdAttributes(descriptor));}catch(NoSuchFileException vanished){}
       }
     }
-    // The JDK can use two descriptors for SecureDirectoryStream; both must already be closed.
-    for(Path descriptor:new ArrayList<>(attributes.keySet()))if(!Files.exists(descriptor)) {
-      require(enumeration.contains(descriptor));attributes.remove(descriptor);
-    }
+    // The enumeration stream's own descriptors closed with it; any other descriptor
+    // may also vanish between its read and this check under concurrent JDK activity.
+    for(Path descriptor:new ArrayList<>(attributes.keySet()))if(!Files.exists(descriptor))attributes.remove(descriptor);
     return attributes;
   }
   static Path openedDescriptor(Map<Path,Map<String,Object>> before,Map<Path,Map<String,Object>> after) {
-    require(after.keySet().containsAll(before.keySet()));
+    // Descriptors that only closed between the two censuses are legitimate concurrent
+    // JDK activity and are not attributable; survivors keep exact identity so a reused
+    // number with a different inode still refuses.
+    var survivors=new HashMap<>(before);survivors.keySet().retainAll(after.keySet());
     // Existing FDs can legitimately receive log/file writes while a protected file is opened.
     // Identity and custody changes still make attribution ambiguous; size/mtime belong to the new FD checks.
-    for(var old:before.entrySet())for(String key:List.of("dev","ino","mode","uid","nlink")) {
+    for(var old:survivors.entrySet())for(String key:List.of("dev","ino","mode","uid","nlink")) {
       require(old.getValue().get(key)!=null
           && Objects.equals(old.getValue().get(key),after.get(old.getKey()).get(key)));
     }
