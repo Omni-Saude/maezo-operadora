@@ -10,7 +10,7 @@ REFERENCE, never imported.
 import json
 import re
 import subprocess
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -38,7 +38,11 @@ from maezo.portal.contracts.models import HumanPrincipal
 REF = "a" * 32
 OTHER_CASE = "b" * 32
 DIGEST = "c" * 64
-DEADLINE = datetime.now(UTC) + timedelta(minutes=5)
+# Grant deadlines are FIXED dates, never wall-clock arithmetic: the CI shard imports this
+# module minutes before these tests execute, and an import-time `now() + delta` deadline is
+# already expired by then (run 37546016719: 2 denied flakes at 9k-test shard scale).
+DEADLINE = datetime(2126, 1, 1, tzinfo=UTC)
+EXPIRED = datetime(2020, 1, 1, tzinfo=UTC)
 OPAQUE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 FROZEN_MOLD_PATHS = (
     "src/maezo/gateway/communications/models.py",
@@ -207,9 +211,7 @@ def test_misdirected_or_unbound_grants_never_compose():
 
 def test_expired_authority_never_composes():
     with pytest.raises(ExternalCaseError):
-        compose_vendor_notice(
-            grant=vendor_grant(subject(), until=DEADLINE - timedelta(minutes=10)), subject=subject()
-        )
+        compose_vendor_notice(grant=vendor_grant(subject(), until=EXPIRED), subject=subject())
 
 
 def test_client_disclosure_refuses_by_construction():
