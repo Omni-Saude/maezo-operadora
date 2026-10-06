@@ -1239,3 +1239,76 @@ Custódia: `/Users/familia/.codex/private-evidence/v21-dur-successor-20261005/`.
 2026-10-05 — Finalização WIP646: CI1dd attempt3 SUCCESS (28156UNIT,958integrações; custódia145dccb6/3b6755aa), Security rejeitou SDK0.4.2 HIGH. Reparo terceiro784185bb, deltas originaisSEC04f18adb/ARCH0898163d: SDK0.4.4 pinado, exceção temporal somente desse pacote,125outras versões intactas; cinco markers redundantes admitidos por42casos. Main46be apenasdocs composta emaa9d91; checkpoint46b554bb aplica exatamente2arquivos. Ambiente frozen atualizado,1410focais semskip/xfail,lint1393/type557/artifacts0erros. ImagemAMD64c1cf5f4 construída; wheel/imagem em verificação independente. Pendente publicação final→CI+Security atuais→gates finais→merge646→sete etapas de manutenção. Nenhuma autoridade operacional inferida.
 
 2026-10-05 — Artefatos atuais46b554 qualificados independentemente: wheel3cf3fc50/81994c3d e imagemAMD64c1cf5f4/70c615b4;978project+48SDKbytes exatos,12controlesactions/18malformed/3legacy,2TISSprofiles/7carriers/numericFalse/net0. Documentação pré-publicação congelada sem promoverCI histórico. Próximo único WIP: push646→CI/Security frescos→final ARCH/SEC→merge→cleanup.
+
+
+
+<!-- PROVIDER-SPRINT-MULTI-ORCHESTRATOR-V1:BEGIN -->
+## Sprint prestador — plano canônico de execução e coordenação multi-orquestrador v1
+
+**Autoridade única:** `/Users/familia/code/maezo-operadora/PLANS.md`, este bloco v1 e concessões append-only emitidas por ROOT abaixo dele. A autorização do dono para implementar o sprint e separar orquestradores foi concedida em 2026-10-05. Esta seção incorpora o plano aprovado; os prompts são instruções de papel, nunca planos concorrentes. Cópias locais de PLANS.md são históricas e não autorizam despacho.
+
+### Entrada e estados
+
+- Etapa 0 permanece prioritária: fechar WIP B/D/nativo antes de abrir novas implementações. D5463070 tem dois gates de código; SourceC R5/8cb1903a tem dois gates de desenho; NativeV2/475114c4 foi preservado em 2bd7157 e seus re-gates são separados da instalação. Reconsultar os registros próprios: esta nota não é prova de gate.
+- B original d216:26PASS/1FAIL, diagnóstico preflight sem corpos e diagnóstico controlado43988:27PASS são resultados distintos. Causa histórica não determinada; disposição independente obrigatória, sem retry até verde ou classificação automática como benigno.
+- Estado de cada lote: decisão delegada, código/testes, publicação, integração em main, evidência externa e ativação separados. Preservação local, UNIT, compilação, coleta e desenho não encerram runtime.
+- Main muda: baseline e compatibilidade de CIB/Java/Tomcat/JAR/imagem/classpath são verificados no candidato atual. Resultados de bibliotecas/pins anteriores não são transferidos silenciosamente.
+
+### Sequência do plano aprovado
+
+1. **E0:** preservar NativeV2/handoff, obter dois re-gates originais, disposition B, CA genuína, medições/receipts preliminares independentes, owner/faseB e native não vazio. Qualificar D/C com casts reais, catálogo/pins e expiração durante espera do ACK; publicar incrementos coesos, CI SHA entregue e manutenção. SourceC antigo inseguro fica fora da entrega.
+2. **E1:** reconciliar adendos de ADRs/contratos B/CONTAS/PAGTO exigidos por R5; congelar interfaces, migração, preimages, autoria e prova de qualificação. CORE coordena SQL/Java/Python SourceC; CHANNEL fecha PW1 OP09/OP10/OP07/canal. Primeiro smoke prova mesma conexão/transação física CIB/source, não apenas DSN igual. PW2 exige fonte verificável e ≥2 consumidores reais; sem instrumento válido unknown/SOURCE_UNAVAILABLE, sem valores fabricados.
+3. **E2:** PW3 NETWORK e PW4 RECURSO em paralelo somente após PW2 e gates próprios PW1. CORE é único dono das projeções/núcleo compartilhados. PW3 prova produtor de rede/emissão administrativa/receipts/starts/correlação/routingDMN/due process. PW4 prova D3/PV13/simetria OP12/status factual/PV16, com RX4/atores/grupos/timers preservados.
+4. **E3:** CORE conduz PW5 após PW1+PW2+PW3+coreV2 qualificado, sem dependência artificial PW4. Mesmo código/versão em JR1/JR2/JR3, matriz replay/concurrency/tenant/currentness/purpose/actor/receipt. NETWORK pode receber GP4, RECURSO GP3 e PERFORMANCE coorte/OP06, um candidato PW6 por slot e admissão individual. Pacientes fora; sem ranking/veredito/consequência automática; fatos externos ausentes restringem apenas os efeitos dependentes.
+
+### Topologia e capacidade global
+
+| Fase | Orquestradores ativos | Autores ativos | Revisores independentes | Total máximo |
+|---|---|---|---|---|
+| E0 | ROOT | especialistas já atribuídos ao WIP, conforme slots reais | pool arquitetura/segurança | 9 global |
+| E1 | ROOT + CORE + CHANNEL | CORE: SQL/Java/Python; CHANNEL: canal | 2 no pool global | 9 |
+| E2 | ROOT + CORE + NETWORK + RECURSO | 1 especialista por satélite | 2 no pool global | 9 |
+| E3 | ROOT + CORE + um satélite PW6 admitido | conforme slots concedidos | 2 no pool global | ≤9 |
+
+Limites globais: quatro worksets de implementação, dois aprovados esperando composição, um candidato amplo e uma lane engine/instalação. Nove inclui ROOT, coordenadores, autores, reparadores e revisores em TODOS os chats; limites por chat não provam enforcement global. Cada spawn exige ticket reservado por ROOT; reparador substitui autor liberado. Quando dois aprovados aguardarem, interromper novos despachos e drenar integração. ROOT pode reduzir capacidade por recursos locais sem reduzir gates.
+
+### Plano único, concessões e worktrees
+
+- Somente ROOT escreve neste PLANS.md, RUNBOOK.md/CHECKPOINT.md/SESSION.log centrais, registro global de ownership, SQLite próprio central e fila de entrega. Satélites escrevem evidência/handoff de seu pacote no namespace exclusivo concedido, sem novos PROGRESS/STATUS/TODO/tracker.
+- ROOT inventaria checkouts existentes e provisiona/reutiliza managed worktree apenas quando um lote tem gate de entrada, baseline composto recuperável e motivo de isolamento. Nenhum checkout novo é criado só para representar um prompt; não iniciar chats nem implementação automaticamente por estes documentos.
+- Uma worktree e branch exclusiva por satélite ativo. Nome solicitado ao provisionador: provider-orch-core, provider-orch-channel, provider-orch-network, provider-orch-recurso ou provider-orch-performance. O caminho REAL retornado/registrado, não um caminho presumido, entra na concessão. Nenhum satélite usa ROOT sujo, PRIMARY misto ou runtime/tooling de outro papel como checkout de autoria.
+- Concessão ROOT append-only obrigatória: grant_id, dispatch_epoch, hash do trecho de despacho, snapshot_sha256 do PLANS lido; papel/pacote/destinatário; realpath/worktree/common_git_dir/branch; baseline SHA/tree/frontier; entradas SHA/digests e GVRs; paths EXATOS/autor por arquivo; efeitos/checks permitidos; namespace absoluto de evidência; tickets/worksets; expiryUTC/revogação; saída/nextgate/condição de liberação. Nenhuma concessão está emitida implicitamente por este plano.
+- O hash deste bloco imutável é registrado fora dele. Hash integral PLANS é proveniência; notas append-only de status não invalidam contrato. Mudança semântica/inputs/ownership/gates revoga concessões afetadas e gera epoch/contrato sucessor; não editar retroativamente o bloco ou a concessão. Hash operacional não é assinatura nem autoridade de negócio.
+- Antes de escrever/commitar, confirmar realpath/cwd/repo/branch/frontier e concessão vigente; rehash entradas. Commits próprios legítimos avançam frontier e são relatados; baseline não muda. Input unreadable/missing/hash divergente/discovery incompleto = INPUT_UNVERIFIED; parar apenas efeito dependente, não inventar cópia/actor/API.
+- Expiração/revogação não renova por silêncio/heartbeat: cessar novas mutações, levar operação já iniciada ao ponto seguro e preservar WIP/outputs/checkpoint. ROOT revalida e emite concessão nova. Não apagar WIP nem chamar o controle operacional de sandbox automático.
+
+### Ownership, Git, recursos e comunicação
+
+- Satélite coordena autores delimitados na própria worktree; SOMENTE ele faz commits locais de seus paths/branch. Autores filhos não disputam índice/HEAD. Sem push/PR/merge/rebase/cherry-pick/admin worktree/config Git comum/GC/prune/refs alheias. ROOT integra, atualiza base, publica e mergeia.
+- Paths candidatos de papéis NÃO são allowlist ativa: ROOT enumera arquivos por concessão, depois de discovery atual. Cada arquivo/contrato/ID BPMN/definição tem um dono. Sem permissão de pasta inteira por conveniência. Mudança fora do scope gera pedido de ownership, não correção silenciosa.
+- CORE recebe shared models/projeções/capabilities/worker consumers apenas por concessão serial explícita. Registry/topic/autonomy/notification_bridge/runtime service/Makefile/CI/runner/pom/loaders/shared helpers e contratos/DMNs/BPMNs comuns ficam ROOT ou autor nominal transferido; satélites de domínio entregam interface/testes para composição.
+- Docker/PG/CIB/ports/network/migrations/ownerAPI/deploy e testes amplos estão proibidos aos satélites por padrão. Worktrees não isolam esses recursos. Requisições entram na lane ROOT; exceção precisa concessão exclusiva com owner/process/token/endpoints/cleanup, sem segundo candidato amplo.
+- Venv/Node/Maven/target/dist não importam bytes de outro checkout sem qualificação explícita; registrar origem real dos módulos/classes/resources. Sem overlays/PYTHONPATH que burlem fence, engine mocks, fixtures de autoridade/receipts fabricados, skips/xfails para verde.
+- Relatórios ao ROOT: grant/frontier/delta, estado, comandos/exits, hash de freeze, dependências, findings, nextgate e recursos retidos. Não escrever coordenação central ou GVR alheio. Mensagem a outro chat somente com autorização humana direta conforme ferramenta; sem ela, handoff em evidência própria + resposta no chat atual para consumo ROOT. Não enviar comunicação externa.
+
+### Gates, delegação e entrega
+
+Autoria/reparo/revisão/integração são papéis distintos para o mesmo pacote. Pool global de dois reviewers, não dois pares; SourceC/desenhos estruturais mantêm dois novos reviewers quando exigido, separados dos autores. Re-gates usam originais elegíveis para reparos de código. GVR sobre mesmo digest define escopo de desenho/código/runtime; ROOT verifica/readback/inscreve SQLite. Satélite nunca aprova sua própria saída como independente.
+
+Decisões técnicas/produto/negócio já delegadas são exercidas dentro do grant, sem confirmação humana repetida; alteração de ADR/plano assinado passa por revisão admitida fora do bundle. Contrato/mandato/credencial/parecer profissional/clock/receipt/ativação inexistentes não são fabricados. Hard clínica/fraude/negativa/financeiro, allowlists, PHI/tenant/purpose, DMN noengine, AMHpin e trilha contrato→BPMN→worker→teste preservados.
+
+Cada lote: gates baratos aplicáveis + lint/type/unit/artifacts, positivo físico cedo, testes reais de races/expiry/revoke/replay/currentness/receipts/crash/rollback e revisão candidato. ROOT executa `make lint type test validate-artifacts` e fences vigentes noSHA composto, CI aplicável atual, ref remoto e revisão. Merge autorizado; CODEOWNER dispensável só como único restante. Sem inferir deploy/efeito externo de CI/merge.
+
+Após merge executar integralmente CONTRIBUTING: inventário/fetchno-prune/custódia/recuperação e prova de contenção/squash, remoção conservadora apenas recursos elegíveis e verificação final. Nunca prune/reset/clean/branch-D/forcedworktree removal. Temporário sólibera após ausência de consumidores/processos/locks/evidência única. Métricas por lote: freeze/review/rework/lane/aprovação→publicação→main e retenções semdisposição; agentes e contagens históricas não medem conclusão.
+<!-- PROVIDER-SPRINT-MULTI-ORCHESTRATOR-V1:END -->
+
+Registro ROOT: SHA-256 do bloco v1 44311ad5460cfc39517c68e5b750a70985e62e7b7d6c293f8627ca88ddfde060 (UTF-8 LF, marcadores inclusive, LF final). Nenhum grant satélite emitido. Quarta vaga de workset E2 não amplia nove agentes globais: PW6 adicional exige slots reais liberados/reorganizados por ROOT; sem eles aguardar E3. As notas de status ficam fora do bloco imutável.
+
+<!-- ROOT-SUCCESSOR-GRANTS:BEGIN (worktree .claude/worktrees/provider-implementation, branch provider/e0-native-vertical) -->
+## Grants sucessor ROOT — 2026-10-06 (após custódia WORKTREE-CUSTODY-HANDOFF, owner "ROOT sucessor")
+
+Referências: bloco canônico acima (sha 44311ad5460cfc39517c68e5b750a70985e62e7b7d6c293f8627ca88ddfde060 conforme commit a0b92544); 94 grants históricos vivem no snapshot sujo do checkout principal sha256-prefix c64bacbb7a88003c (preservados lá, não duplicados aqui). Ambiência: main a924a563; candidato vertical 0702030a importado por merge --no-ff em provider/e0-native-vertical; blob-identidade dos 46 arquivos provada (overlap 0/46 contra diff de 25 arquivos de commits vendor/promoção); lane livre (engine.lock ausente, socket colima OK); env isolado uv sync OK.
+
+- grant_id: ROOT-SUCCESSOR-20261006-P03 — Pacote: E0-R2 forensics. Destinatário: agente especialista (forense Maven/JAR). Entrada: pom.xml + scripts/ci/build_provider_native_observation.py no head de integração; JARs staged no audit tree (leitura in-place); diagnóstico MR-ENTRY-VS-DECLARED-CLASS-DIAGNOSTIC.json; build conhecido 73d88cba na worktree codex provider-native-manifest-name-repair (somente leitura). Efeito permitido: nenhum (analítico, read-only). Saída: relatório causa + config efetiva divergente + correção proposta. Expira: fim da sessão. Próximo gate: P1.1 reparo com nova compilação.
+- grant_id: ROOT-SUCCESSOR-20261006-P04 — Pacote: E0-B disposição documental. Destinatário: terceiro especialista (≠ autor original). Entrada: evidence/pw1-d-b-real-pg-d216, pw1-d-b-failure-diagnosis/{DIAGNOSIS.md,probe-v1}, junit/logs preservados (snapshot worktree). Efeito permitido: nenhum. Saída: comparação de digest de entradas d216 vs diagnóstico-27P + recomendação de disposição (repro única | atribuição ambiental | retenção delimitada) + asserção explícita se B é predecessor obrigatório de PW1/PW2. Expira: fim da sessão. Próximo gate: registro de disposição + eventual repro única em P4.2.
+<!-- ROOT-SUCCESSOR-GRANTS:END -->
