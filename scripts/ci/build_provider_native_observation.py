@@ -730,6 +730,82 @@ def require_multi_release_manifest(entries: dict[str, bytes]) -> None:
     require(attributes.get(b"multi-release", b"").lower() == b"true", "Multi-Release manifest required")
 
 
+def versioned_this_class(raw: bytes) -> str:
+    """Declared class name of a versioned entry without loading bytecode.
+
+    Any release is accepted: versioned classes may target majors older than
+    the main compilation, so unlike the census no release is asserted here.
+    """
+    cursor = 0
+
+    def take(size: int) -> bytes:
+        nonlocal cursor
+        require(size >= 0 and cursor + size <= len(raw), "Truncated versioned class")
+        value = raw[cursor : cursor + size]
+        cursor += size
+        return value
+
+    def number(size: int) -> int:
+        return int.from_bytes(take(size), "big")
+
+    require(take(4) == b"\xca\xfe\xba\xbe", "Actual classfile required")
+    number(2)  # Minor and major name a release, never the loader opt-in gate.
+    number(2)
+    pool: dict[int, tuple[int, Any]] = {}
+    count = number(2)
+    index = 1
+    while index < count:
+        tag = number(1)
+        if tag == 1:
+            pool[index] = (tag, take(number(2)))
+        elif tag in (7, 8, 16, 19, 20):
+            pool[index] = (tag, number(2))
+        elif tag in (3, 4, 9, 10, 11, 12, 17, 18):
+            take(4)
+        elif tag in (5, 6):
+            take(8)
+            index += 1
+        elif tag == 15:
+            take(3)
+        else:
+            raise NativeObservationBuildError("Class constant pool tag refused")
+        index += 1
+    number(2)  # access_flags never name the class.
+    item = pool.get(number(2))
+    require(item is not None and item[0] == 7, "Class type identity missing")
+    utf8 = pool.get(item[1])
+    require(
+        utf8 is not None and utf8[0] == 1 and isinstance(utf8[1], bytes),
+        "Class UTF identity missing",
+    )
+    try:
+        return utf8[1].decode("ascii")
+    except UnicodeDecodeError as error:
+        raise NativeObservationBuildError("Class identity must be ASCII") from error
+
+
+def require_multi_release_entry_classes(entries: dict[str, bytes]) -> None:
+    """A versioned entry must declare the class its relocated path names.
+
+    Shade rewrites constant-pool internal names on every relocation, but only
+    the rawString path relocation moves the versioned entry itself. A path
+    that disagrees with the declared class selects nothing on the MR loader
+    path. Module descriptors keep their original name by design and are
+    accounted by the dependency census instead.
+    """
+    for name, raw in entries.items():
+        if not name.startswith("META-INF/versions/") or not name.endswith(".class"):
+            continue
+        parts = name.split("/", 3)
+        require(len(parts) == 4 and parts[2].isdigit(), "Versioned entry path invalid")
+        if parts[3] == "module-info.class":
+            continue
+        require(
+            parts[3][:-6] == versioned_this_class(raw),
+            "Versioned entry path differs from declared class",
+        )
+
+
 def shade_snapshot(
     compilation: dict[str, str], reference: Path, dependencies: tuple[Path, ...]
 ) -> dict[str, Any]:
@@ -773,6 +849,7 @@ def shade_snapshot(
     entries = zip_bytes(raw)
     actual_classes = class_map(entries)
     require_multi_release_manifest(entries)
+    require_multi_release_entry_classes(entries)
     compiled_main = {
         name: digest
         for name, digest in compilation.items()
@@ -1314,6 +1391,7 @@ def verify_final(
     if support.get("shade") is not None:
         expected_main = support["shade"]["post_shade_classes"]
     require_multi_release_manifest(main)
+    require_multi_release_entry_classes(main)
     require(class_map(main) == expected_main, "MAIN complete class census differs")
     defaults = default_resource_pins(support["main_compilation"])
     for resource, digest in defaults.items():

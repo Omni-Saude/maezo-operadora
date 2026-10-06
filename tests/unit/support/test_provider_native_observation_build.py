@@ -36,6 +36,21 @@ def jar(root: Path, name: str, entries: dict[str, bytes]) -> Path:
     return root / name
 
 
+def versioned_class(name: str) -> bytes:
+    """UnitOnly classfile whose declared this_class is `name`; never JVM-loaded."""
+    utf = name.encode("ascii")
+    pool = bytes([1]) + len(utf).to_bytes(2, "big") + utf + bytes([7]) + (1).to_bytes(2, "big")
+    return (
+        b"\xca\xfe\xba\xbe"
+        + (0).to_bytes(2, "big")
+        + (61).to_bytes(2, "big")
+        + (3).to_bytes(2, "big")
+        + pool
+        + (0x20).to_bytes(2, "big")
+        + (2).to_bytes(2, "big")
+    )
+
+
 @pytest.fixture
 def inputs(tmp_path):
     """Plain UnitOnly placeholder bytes test data correspondence, no Java execution."""
@@ -633,7 +648,7 @@ def measured_shade_case(tmp_path, inputs, *, mr=False, module_descriptor=None):
     if mr:
         reference_entries[
             "META-INF/versions/11/br/com/maezo/human/internal/jackson/UnitOnlyVersioned.class"
-        ] = b"UnitOnly-postshade-MR-not-JVM"
+        ] = versioned_class("br/com/maezo/human/internal/jackson/UnitOnlyVersioned")
     if mr or module_descriptor is True:
         reference_entries["META-INF/MANIFEST.MF"] = b"Manifest-Version: 1.0\nMulti-Release: true\n\n"
     if module_descriptor is True:
@@ -704,6 +719,52 @@ def test_measured_shade_census_and_dependencies_cannot_be_claimed_or_mutated(tmp
         entries[name] = b"UnitOnly-unadmitted-not-JVM"
         jar(tmp_path, "main.jar", entries)
     with pytest.raises(build.NativeObservationBuildError):
+        build.verify_final(path, main, spi, tmp_path / "final.json")
+    assert not (tmp_path / "final.json").exists()
+
+
+def test_measured_shade_versioned_entry_declared_class_mismatch_refused(tmp_path, inputs):
+    """The stale 331f6707 failure shape: relocated bytecode under an unrelocated path."""
+    classes, tests, output = inputs
+    dependency_members = {
+        "com/fasterxml/jackson/core/UnitOnlyFactory.class": b"UnitOnly-not-real-dependency-bytecode",
+        "META-INF/versions/11/com/fasterxml/jackson/core/UnitOnlyVersioned.class": (
+            b"UnitOnly-not-real-MR-bytecode"
+        ),
+    }
+    dependency = jar(tmp_path, "UnitOnly-jackson.jar", dependency_members)
+    before = build.tree(classes)
+    reference_entries = {
+        name: (classes / name).read_bytes() for name in before if name not in build.spi_map(before)
+    }
+    reference_entries["br/com/maezo/human/internal/jackson/UnitOnlyFactory.class"] = (
+        b"UnitOnly-relocated-dependency-not-JVM"
+    )
+    reference_entries["META-INF/versions/11/com/fasterxml/jackson/core/UnitOnlyVersioned.class"] = (
+        versioned_class("br/com/maezo/human/internal/jackson/UnitOnlyVersioned")
+    )
+    reference_entries["META-INF/MANIFEST.MF"] = b"Manifest-Version: 1.0\nMulti-Release: true\n\n"
+    reference = jar(tmp_path, "mismatched-first-shade.jar", reference_entries)
+    with pytest.raises(
+        build.NativeObservationBuildError, match="Versioned entry path differs from declared class"
+    ):
+        build.build_support(
+            classes, tests, FIXTURES, output, shade_reference=reference, shade_dependencies=(dependency,)
+        )
+    assert not output.exists() and build.tree(classes) == before
+
+
+def test_final_versioned_entry_declared_class_mismatch_refused(tmp_path, inputs):
+    """A MAIN jar whose versioned path names a class it does not declare is refused."""
+    path, support, main, spi, reference, dependency = measured_shade_case(tmp_path, inputs, mr=True)
+    entries = build.zip_entries(main)
+    entries["META-INF/versions/11/br/com/maezo/human/internal/jackson/UnitOnlyVersioned.class"] = (
+        versioned_class("com/fasterxml/jackson/core/UnitOnlyVersioned")
+    )
+    jar(tmp_path, main.name, entries)
+    with pytest.raises(
+        build.NativeObservationBuildError, match="Versioned entry path differs from declared class"
+    ):
         build.verify_final(path, main, spi, tmp_path / "final.json")
     assert not (tmp_path / "final.json").exists()
 
@@ -880,7 +941,12 @@ def test_s3_staged_dependency_nested_resource_alias_refuses_before_vendor_effect
         else:
             file(phase, "webapps/docs/WEB-INF/classes/" + alias, b"UnitOnly-foreign-security-resource")
     output = tmp_path / "vendor-output"
-    with pytest.raises(build.NativeObservationBuildError, match="Phase security resource"):
+    # The nested alias reaches verify_owner_origins before the phase census:
+    # pin the earliest guard that actually refuses the foreign packaging.
+    refusal = "Competing security resource origin"
+    if origin != "jar":
+        refusal = "Competing loose security resource origin"
+    with pytest.raises(build.NativeObservationBuildError, match=refusal):
         build.stage_vendor(path, *phases, output)
     assert not output.exists()
 
