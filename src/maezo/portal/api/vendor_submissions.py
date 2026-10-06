@@ -78,9 +78,7 @@ class VendorSubmissionService:
         if not self._vendor_enabled():
             # The area is not enabled in THIS deployment; the session proves nothing about it.
             raise IntakeError("operation_forbidden")
-        if (
-            csrf is not None or origin is not None
-        ) and (
+        if (csrf is not None or origin is not None) and (
             origin != self.resolver.settings.public_origin
             or not csrf
             or not secrets.compare_digest(csrf, session.record.csrf_token)

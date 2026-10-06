@@ -107,9 +107,7 @@ class SubmissionStore:
 
     async def find(self, tenant: str, submission_ref: str) -> tuple[Any, ...]:
         return tuple(
-            row
-            for key, row in sorted(self._rows.items())
-            if key[0] == tenant and key[2] == submission_ref
+            row for key, row in sorted(self._rows.items()) if key[0] == tenant and key[2] == submission_ref
         )
 
     async def record(self, submission: Any) -> None:
@@ -250,7 +248,13 @@ def test_proxies_de_forma_sao_recusados_na_camada_wire() -> None:
     """The bounded class pattern is the FIRST firewall layer: uppercase, spacing and free-text
     shapes never reach the machine — they are wire refusals, not semantic ones."""
     for classe in (
-        "commercial ", "COMMERCIAL", "Declaracao_Saude", "1numeric", "-dash", "a" * 65, "com mercial"
+        "commercial ",
+        "COMMERCIAL",
+        "Declaracao_Saude",
+        "1numeric",
+        "-dash",
+        "a" * 65,
+        "com mercial",
     ):
         with pytest.raises(ValidationError):
             ChannelSubmissionPayload(content_class=classe)
@@ -275,9 +279,7 @@ def test_o_firewall_decide_antes_de_qualquer_escrita_mesmo_sem_canal() -> None:
 
 
 def test_canal_revogado_e_channel_status_ineligible() -> None:
-    built, store, _ = machine(
-        channels=ChannelDirectory({CHANNEL: (TENANT, "revoked")})
-    )
+    built, store, _ = machine(channels=ChannelDirectory({CHANNEL: (TENANT, "revoked")}))
     with pytest.raises(VendorSubmissionError) as exc:
         asyncio.run(built.submit(TENANT, vendor_membership(), command()))
     assert exc.value.reason is VendorSubmissionRefusal.CHANNEL_STATUS_INELIGIBLE
@@ -294,9 +296,7 @@ def test_canal_ausente_e_fonte_ausente_sao_source_unavailable() -> None:
 
 
 def test_canal_de_outro_tenant_e_contract_mismatch() -> None:
-    built, _, _ = machine(
-        channels=ChannelDirectory({CHANNEL: ("other-tenant", "active")})
-    )
+    built, _, _ = machine(channels=ChannelDirectory({CHANNEL: ("other-tenant", "active")}))
     with pytest.raises(VendorSubmissionError) as exc:
         asyncio.run(built.submit(TENANT, vendor_membership(), command()))
     assert exc.value.reason is VendorSubmissionRefusal.CONTRACT_MISMATCH
@@ -465,9 +465,12 @@ def test_receipt_exige_evidencia_nativa_por_estagio() -> None:
         receipt(lifecycle="refused", refusal_code="SOME_INVENTED_CODE")
     # the well-formed native bindings DO construct:
     assert receipt(lifecycle="responded", case_ref="case-ref-000000001").lifecycle == "responded"
-    assert receipt(
-        lifecycle="documents_pending", document_request_ref="request-ref-0000001"
-    ).document_request_ref == "request-ref-0000001"
+    assert (
+        receipt(
+            lifecycle="documents_pending", document_request_ref="request-ref-0000001"
+        ).document_request_ref
+        == "request-ref-0000001"
+    )
     assert receipt(lifecycle="refused", refusal_code="PHI_IN_COMMERCIAL_INPUT").refusal_code == (
         "PHI_IN_COMMERCIAL_INPUT"
     )
