@@ -45,6 +45,9 @@ from typing import Any, Final
 
 PROCESSO: Final[str] = "SP-OP-ESCALATION-001"
 TENANT: Final[str] = "amh"
+#: Sufixo da chave do caso clinico PARALELO (DL-0072, `maezo.runtime.caso_clinico`): com um caso
+#: aberto de outra classe na conversa, um alerta clinico grave abre `ESC-amh-<conversa>-clin`.
+SUFIXO_CASO_CLINICO: Final[str] = "-clin"
 FAIXA_TESTE: Final[re.Pattern[str]] = re.compile(r"^5511900000\d{3}$")
 #: `WHATSAPP_LIMITE_POR_CONVERSA_POR_MINUTO` e' 6: 10 s entre mensagens da mesma conversa deixa folga.
 INTERVALO_NA_CONVERSA_S: Final[float] = 10.0
@@ -138,11 +141,24 @@ class Bateria:
         self.canceladas: list[str] = []
 
     # ------------------------------------------------------------------ motor
-    def _instancias(self, conversation_id: str) -> list[dict[str, Any]]:
-        """As instancias VIVAS desta conversa — por `businessKey=`, o filtro que o motor respeita."""
-        chave = urllib.parse.quote(f"ESC-{TENANT}-{conversation_id}", safe="")
-        status, corpo = self._http("GET", f"{self._motor}/process-instance?businessKey={chave}", None, 20.0)
+    @staticmethod
+    def _chave(conversation_id: str, *, clinico: bool = False) -> str:
+        return f"ESC-{TENANT}-{conversation_id}" + (SUFIXO_CASO_CLINICO if clinico else "")
+
+    def _instancias_da_chave(self, chave: str) -> list[dict[str, Any]]:
+        """As instancias VIVAS de UMA chave — por `businessKey=`, o filtro que o motor respeita."""
+        codificada = urllib.parse.quote(chave, safe="")
+        status, corpo = self._http(
+            "GET", f"{self._motor}/process-instance?businessKey={codificada}", None, 20.0
+        )
         return list(corpo) if status == 200 and isinstance(corpo, list) else []
+
+    def _instancias(self, conversation_id: str) -> list[dict[str, Any]]:
+        """As instancias VIVAS desta conversa: o caso principal e, se houver, o clinico paralelo."""
+        return [
+            *self._instancias_da_chave(self._chave(conversation_id)),
+            *self._instancias_da_chave(self._chave(conversation_id, clinico=True)),
+        ]
 
     def _variaveis(self, instance_id: str) -> dict[str, Any]:
         status, corpo = self._http(
@@ -168,25 +184,36 @@ class Bateria:
         }
 
     def cancelar(self, conversation_id: str) -> str:
-        """Cancela a instancia desta conversa, SE e somente se houver exatamente uma e a chave bater."""
-        esperada = f"ESC-{TENANT}-{conversation_id}"
-        achadas = self._instancias(conversation_id)
-        if not achadas:
+        """Cancela o caso desta conversa e o clinico paralelo (`-clin`), se houver.
+
+        Para CADA chave: so' cancela se a consulta devolver exatamente uma instancia e a chave
+        bater. A validacao das duas vem ANTES de qualquer DELETE: se uma recusar, nada e' apagado.
+        """
+        alvos: list[tuple[str, str]] = []
+        for clinico in (False, True):
+            esperada = self._chave(conversation_id, clinico=clinico)
+            achadas = self._instancias_da_chave(esperada)
+            if not achadas:
+                continue
+            if len(achadas) != 1 or achadas[0].get("businessKey") != esperada:
+                raise RecusaDeSegurancaError(
+                    f"a consulta por {esperada!r} devolveu {len(achadas)} instancia(s); "
+                    "o script so' cancela quando devolve exatamente uma com a chave esperada"
+                )
+            alvos.append((achadas[0]["id"], "clin_" if clinico else ""))
+        if not alvos:
             return "nada_a_cancelar"
-        if len(achadas) != 1 or achadas[0].get("businessKey") != esperada:
-            raise RecusaDeSegurancaError(
-                f"a consulta por {esperada!r} devolveu {len(achadas)} instancia(s); "
-                "o script so' cancela quando devolve exatamente uma com a chave esperada"
+        resultados: list[str] = []
+        for iid, prefixo in alvos:
+            status, _ = self._http(
+                "DELETE",
+                f"{self._motor}/process-instance/{iid}?skipCustomListeners=true&skipIoMappings=true",
+                None,
+                30.0,
             )
-        iid = achadas[0]["id"]
-        status, _ = self._http(
-            "DELETE",
-            f"{self._motor}/process-instance/{iid}?skipCustomListeners=true&skipIoMappings=true",
-            None,
-            30.0,
-        )
-        self.canceladas.append(iid)
-        return f"cancelado_{status}"
+            self.canceladas.append(iid)
+            resultados.append(f"{prefixo}cancelado_{status}")
+        return "+".join(resultados)
 
     # ------------------------------------------------------------------ canal
     def _esperar_ritmo(self, numero: str) -> None:
@@ -240,6 +267,12 @@ class Bateria:
                     conversas.append(conv)
                 self._dormir(float(mensagem.get("espera_s", 1)))
                 instancias = self._instancias(conv) if conv else []
+                principais = [
+                    i for i in instancias if not str(i.get("businessKey", "")).endswith(SUFIXO_CASO_CLINICO)
+                ]
+                paralelas = [
+                    i for i in instancias if str(i.get("businessKey", "")).endswith(SUFIXO_CASO_CLINICO)
+                ]
                 linha = {
                     "caso": caso["id"],
                     "msg": posicao,
@@ -247,8 +280,10 @@ class Bateria:
                     "texto": mensagem["texto"][:80],
                     **envio,
                     "abriu": bool(instancias),
-                    "motor": self._variaveis(instancias[0]["id"]) if instancias else None,
+                    "motor": self._variaveis(principais[0]["id"]) if principais else None,
                 }
+                if paralelas:
+                    linha["motor_paralelo"] = self._variaveis(paralelas[0]["id"])
                 linha.pop("conversation_id")
                 linhas.append(linha)
         finally:
@@ -264,8 +299,13 @@ class Bateria:
 def veredito_de_rota(caso: Mapping[str, Any], linhas: list[dict[str, Any]]) -> dict[str, Any]:
     """Compara so' a ROTA do ultimo atendimento aberto com `espera` — nunca o texto da resposta."""
     espera = caso.get("espera") or {}
-    abertas = [linha for linha in linhas if linha.get("abriu") and linha.get("motor")]
-    observado = abertas[-1]["motor"] if abertas else None
+    # O caso clinico PARALELO (DL-0072) e' o alerta grave: quando existe, e' ele a rota observada.
+    abertas = [
+        linha
+        for linha in linhas
+        if linha.get("abriu") and (linha.get("motor_paralelo") or linha.get("motor"))
+    ]
+    observado = (abertas[-1].get("motor_paralelo") or abertas[-1]["motor"]) if abertas else None
     esperado_prioridade = espera.get("prioridade")
     esperado_grupo = espera.get("grupo")
     if esperado_prioridade is None:
