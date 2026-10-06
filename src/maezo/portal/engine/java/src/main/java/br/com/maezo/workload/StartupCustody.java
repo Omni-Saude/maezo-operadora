@@ -11,6 +11,7 @@ final class StartupCustody {
   final Path root, policyPath;
   final String policyDigest;
   final int port;
+  private final long binaryCeiling;
   final List<Map<String,Object>> files;
 
   private StartupCustody(Path root,Path policyPath,String digest) {
@@ -19,6 +20,7 @@ final class StartupCustody {
     Json.keys(document,"protocol","tenant","environment","engine_name","not_before","expires_at",
         "roots","peers","files","listener_port","max_tasks","max_lock_millis","max_poll_millis");
     if(!"maezo.engine-boundary.v1".equals(document.get("protocol")))throw Refused.unavailable();
+    binaryCeiling=BoundaryPolicy.binaryDeadline(document);
     long number=Json.number(document,"listener_port");
     if(number<1 || number>65535)throw Refused.unavailable();
     port=(int)number;
@@ -26,7 +28,7 @@ final class StartupCustody {
     for(Object item:Json.list(document.get("files"))) {
       var entry=Json.object(item);Json.keys(entry,"path","sha256");
       if(!paths.add(Json.string(entry,"path")))throw Refused.unavailable();
-      BoundaryPolicy.readFile(entry);entries.add(Map.copyOf(entry));
+      BoundaryPolicy.readFile(entry,root,binaryCeiling);entries.add(Map.copyOf(entry));
     }
     files=List.copyOf(entries);
     current();
@@ -48,7 +50,7 @@ final class StartupCustody {
 
   void current() {
     BoundaryPolicy.read(policyPath,policyDigest);
-    for(var entry:files)BoundaryPolicy.readFile(entry);
+    for(var entry:files)BoundaryPolicy.readFile(entry,root,binaryCeiling);
     SecureLayout.verifyArtifacts(files,port,root);
   }
 }

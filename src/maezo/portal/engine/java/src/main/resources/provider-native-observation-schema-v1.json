@@ -1,0 +1,1496 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://maezo.invalid/provider-native-runtime-observation-finite-emission-v4.schema.json",
+  "title": "Native protected observation finite emission stage successor v4",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Request"
+    },
+    {
+      "$ref": "#/$defs/Response"
+    },
+    {
+      "$ref": "#/$defs/ObservationAdmission"
+    }
+  ],
+  "$defs": {
+    "Request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "const": "maezo.engine-operation.v1"
+        },
+        "capability_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "operation": {
+          "const": "read_runtime_definition"
+        },
+        "process_key": {
+          "const": "SP-OP-AUTH-001"
+        },
+        "resource_ref": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "variables": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "correlation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "all_matching": {
+          "const": false
+        },
+        "error_code": {
+          "const": ""
+        },
+        "topic": {
+          "const": ""
+        },
+        "message": {
+          "const": ""
+        },
+        "worker_id": {
+          "const": ""
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "admission_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "nonce": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "original_deadline": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+            }
+          },
+          "required": [
+            "admission_sha256",
+            "nonce",
+            "original_deadline"
+          ]
+        },
+        "source_ref": {
+          "const": ""
+        }
+      },
+      "required": [
+        "protocol",
+        "capability_digest",
+        "operation",
+        "process_key",
+        "resource_ref",
+        "variables",
+        "correlation",
+        "all_matching",
+        "error_code",
+        "topic",
+        "message",
+        "worker_id",
+        "parameters",
+        "source_ref"
+      ]
+    },
+    "Response": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "const": "maezo.engine-result.v1"
+        },
+        "capability_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "provider-native-runtime-snapshot.v4"
+            },
+            "request_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "observation_admission_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "nonce": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "original_deadline": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+            },
+            "policy_digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "capability_digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "identity": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "tenant": {
+                  "type": "string",
+                  "pattern": "^[!-~]{1,256}$"
+                },
+                "environment": {
+                  "type": "string",
+                  "pattern": "^TestOnly-[A-Za-z0-9_.:-]{1,240}$"
+                },
+                "workload": {
+                  "const": "provider-native-observer"
+                },
+                "workload_version": {
+                  "type": "string",
+                  "pattern": "^[!-~]{1,256}$"
+                },
+                "issuer": {
+                  "type": "string",
+                  "pattern": "^[!-~]{1,256}$"
+                },
+                "subject": {
+                  "type": "string",
+                  "pattern": "^[!-~]{1,256}$"
+                },
+                "origin": {
+                  "const": "verified_mtls"
+                }
+              },
+              "required": [
+                "tenant",
+                "environment",
+                "workload",
+                "workload_version",
+                "issuer",
+                "subject",
+                "origin"
+              ]
+            },
+            "peer_certificate_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "peer_spki_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "engine_name": {
+              "type": "string",
+              "pattern": "^[!-~]{1,256}$"
+            },
+            "cibseven_version": {
+              "const": "2.1.0"
+            },
+            "authorization_enabled": {
+              "const": true
+            },
+            "tenant_check_enabled": {
+              "const": true
+            },
+            "schema_update": {
+              "const": "false"
+            },
+            "definition": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "definition_id": {
+                  "type": "string",
+                  "pattern": "^[!-~]{1,256}$"
+                },
+                "deployment_id": {
+                  "type": "string",
+                  "pattern": "^[!-~]{1,256}$"
+                },
+                "process_key": {
+                  "const": "SP-OP-AUTH-001"
+                },
+                "process_version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "tenant": {
+                  "type": "string",
+                  "pattern": "^[!-~]{1,256}$"
+                },
+                "resource_name": {
+                  "type": "string",
+                  "pattern": "^[!-~]{1,256}$"
+                },
+                "xml_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "xml_base64": {
+                  "type": "string",
+                  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                  "maxLength": 699052
+                },
+                "xml_size": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 524288
+                },
+                "suspended": {
+                  "const": false
+                }
+              },
+              "required": [
+                "definition_id",
+                "deployment_id",
+                "process_key",
+                "process_version",
+                "tenant",
+                "resource_name",
+                "xml_sha256",
+                "xml_base64",
+                "xml_size",
+                "suspended"
+              ]
+            },
+            "profile": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "input_profile": {
+                  "const": "portal-auth-intake.v1"
+                },
+                "origin": {
+                  "const": "admitted-profile-file"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "base64": {
+                  "type": "string",
+                  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                  "maxLength": 87384
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65536
+                }
+              },
+              "required": [
+                "input_profile",
+                "origin",
+                "sha256",
+                "base64",
+                "size"
+              ]
+            },
+            "jvm_process": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "boot_uuid": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
+                },
+                "pid_namespace": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "start_time_epoch_ms": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "engine_registry_size": {
+                  "const": 1
+                },
+                "engine_registry_name": {
+                  "type": "string",
+                  "pattern": "^[!-~]{1,256}$"
+                }
+              },
+              "required": [
+                "boot_uuid",
+                "pid_namespace",
+                "start_time_epoch_ms",
+                "engine_registry_size",
+                "engine_registry_name"
+              ]
+            },
+            "class_provenance": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "class_name": {
+                    "enum": [
+                      "br.com.maezo.workload.WorkloadPlugin",
+                      "org.cibseven.bpm.engine.impl.ProcessEngineImpl",
+                      "br.com.maezo.workload.RuntimeDefinitionObservation",
+                      "br.com.maezo.human.AuthValues"
+                    ]
+                  },
+                  "jar_relative_path": {
+                    "type": "string",
+                    "pattern": "^lib/[A-Za-z0-9._-]+\\.jar$"
+                  },
+                  "jar_sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "class_sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "loader_group": {
+                    "const": "engine-common"
+                  }
+                },
+                "required": [
+                  "class_name",
+                  "jar_relative_path",
+                  "jar_sha256",
+                  "class_sha256",
+                  "loader_group"
+                ]
+              },
+              "uniqueItems": true,
+              "allOf": [
+                {
+                  "contains": {
+                    "type": "object",
+                    "properties": {
+                      "class_name": {
+                        "const": "br.com.maezo.workload.WorkloadPlugin"
+                      }
+                    },
+                    "required": [
+                      "class_name"
+                    ]
+                  },
+                  "minContains": 1,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "type": "object",
+                    "properties": {
+                      "class_name": {
+                        "const": "org.cibseven.bpm.engine.impl.ProcessEngineImpl"
+                      }
+                    },
+                    "required": [
+                      "class_name"
+                    ]
+                  },
+                  "minContains": 1,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "type": "object",
+                    "properties": {
+                      "class_name": {
+                        "const": "br.com.maezo.workload.RuntimeDefinitionObservation"
+                      }
+                    },
+                    "required": [
+                      "class_name"
+                    ]
+                  },
+                  "minContains": 1,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "type": "object",
+                    "properties": {
+                      "class_name": {
+                        "const": "br.com.maezo.human.AuthValues"
+                      }
+                    },
+                    "required": [
+                      "class_name"
+                    ]
+                  },
+                  "minContains": 1,
+                  "maxContains": 1
+                }
+              ]
+            },
+            "mounted_pins": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "observation_schema_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "descriptor_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "native_jar_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "support_jar_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "startup_descriptor_inventory_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "startup_vendor_inventory_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "rest_spi_jar_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "observation_schema_sha256",
+                "descriptor_sha256",
+                "native_jar_sha256",
+                "support_jar_sha256",
+                "startup_descriptor_inventory_sha256",
+                "startup_vendor_inventory_sha256",
+                "rest_spi_jar_sha256"
+              ]
+            },
+            "candidate_expectations": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "candidate_sha": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "image_id": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "validation_origin": {
+                  "const": "root-crosslink-required"
+                }
+              },
+              "required": [
+                "candidate_sha",
+                "image_id",
+                "validation_origin"
+              ]
+            },
+            "clock": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "const": "jvm-system-currentTimeMillis"
+                },
+                "sample_started_at": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+                },
+                "sample_finished_at": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+                },
+                "engine_clock": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+                },
+                "monotonic_elapsed_ns": {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,20}$"
+                },
+                "resolution_nominal_ms": {
+                  "const": 1
+                },
+                "accuracy_status": {
+                  "const": "unqualified_wall_clock"
+                },
+                "absolute_utc_uncertainty_ms": {
+                  "const": null
+                },
+                "uncertainty_status": {
+                  "const": "not_independently_calibrated"
+                }
+              },
+              "required": [
+                "source",
+                "sample_started_at",
+                "sample_finished_at",
+                "engine_clock",
+                "monotonic_elapsed_ns",
+                "resolution_nominal_ms",
+                "accuracy_status",
+                "absolute_utc_uncertainty_ms",
+                "uncertainty_status"
+              ]
+            },
+            "cutoff": {
+              "const": "command-transaction-COMMITTING-as-of"
+            },
+            "authority_semantics": {
+              "const": "technical-observation-only-no-effect-authorization"
+            },
+            "database_witness": {
+              "$ref": "#/$defs/StageWitness"
+            },
+            "emission_recheck": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "boundary": {
+                  "const": "new-workloadcommand-read-context-after-capture-commit"
+                },
+                "observed_at": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+                },
+                "original_cutoff_preserved": {
+                  "const": true
+                },
+                "authority_semantics": {
+                  "const": "current-read-rechecked-not-future-lease"
+                },
+                "observed_at_source": {
+                  "const": "jvm-system-currentTimeMillis-after-new-read-commit"
+                },
+                "read_stages": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "items": {
+                    "$ref": "#/$defs/StageWitness"
+                  }
+                },
+                "validation_protocol": {
+                  "const": "finite-private-emission-stage.v1"
+                }
+              },
+              "required": [
+                "boundary",
+                "observed_at",
+                "original_cutoff_preserved",
+                "authority_semantics",
+                "observed_at_source",
+                "read_stages",
+                "validation_protocol"
+              ]
+            },
+            "cutoff_observed_at": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+            },
+            "capture_transaction_commit_confirmed": {
+              "const": true
+            }
+          },
+          "required": [
+            "schema",
+            "request_sha256",
+            "observation_admission_sha256",
+            "nonce",
+            "original_deadline",
+            "policy_digest",
+            "capability_digest",
+            "identity",
+            "peer_certificate_sha256",
+            "peer_spki_sha256",
+            "engine_name",
+            "cibseven_version",
+            "authorization_enabled",
+            "tenant_check_enabled",
+            "schema_update",
+            "definition",
+            "profile",
+            "jvm_process",
+            "class_provenance",
+            "mounted_pins",
+            "candidate_expectations",
+            "clock",
+            "cutoff",
+            "authority_semantics",
+            "database_witness",
+            "emission_recheck",
+            "cutoff_observed_at",
+            "capture_transaction_commit_confirmed"
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "capability_digest",
+        "result"
+      ]
+    },
+    "ObservationAdmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "provider-native-observation-admission.v4"
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tenant": {
+              "type": "string",
+              "pattern": "^[!-~]{1,256}$"
+            },
+            "environment": {
+              "type": "string",
+              "pattern": "^TestOnly-[A-Za-z0-9_.:-]{1,240}$"
+            },
+            "workload": {
+              "const": "provider-native-observer"
+            },
+            "workload_version": {
+              "type": "string",
+              "pattern": "^[!-~]{1,256}$"
+            },
+            "issuer": {
+              "type": "string",
+              "pattern": "^[!-~]{1,256}$"
+            },
+            "subject": {
+              "type": "string",
+              "pattern": "^[!-~]{1,256}$"
+            },
+            "origin": {
+              "const": "verified_mtls"
+            }
+          },
+          "required": [
+            "tenant",
+            "environment",
+            "workload",
+            "workload_version",
+            "issuer",
+            "subject",
+            "origin"
+          ]
+        },
+        "peer_certificate_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "peer_spki_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "engine_name": {
+          "type": "string",
+          "pattern": "^[!-~]{1,256}$"
+        },
+        "definition_id": {
+          "type": "string",
+          "pattern": "^[!-~]{1,256}$"
+        },
+        "deployment_id": {
+          "type": "string",
+          "pattern": "^[!-~]{1,256}$"
+        },
+        "process_key": {
+          "const": "SP-OP-AUTH-001"
+        },
+        "process_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "xml_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "profile_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "candidate_sha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "expected_image_id": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "native_jar_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "support_jar_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "descriptor_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "observation_schema_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "startup_variant": {
+          "enum": [
+            "phase-a",
+            "phase-b"
+          ]
+        },
+        "startup_descriptor_inventory_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "startup_vendor_inventory_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "issued_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+        },
+        "original_deadline": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+        },
+        "expected_database": {
+          "$ref": "#/$defs/ExpectedPhysicalDatabase"
+        },
+        "rest_spi_jar_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schema",
+        "identity",
+        "peer_certificate_sha256",
+        "peer_spki_sha256",
+        "engine_name",
+        "definition_id",
+        "deployment_id",
+        "process_key",
+        "process_version",
+        "xml_sha256",
+        "profile_sha256",
+        "candidate_sha",
+        "expected_image_id",
+        "native_jar_sha256",
+        "support_jar_sha256",
+        "descriptor_sha256",
+        "observation_schema_sha256",
+        "startup_variant",
+        "startup_descriptor_inventory_sha256",
+        "startup_vendor_inventory_sha256",
+        "nonce",
+        "issued_at",
+        "original_deadline",
+        "expected_database",
+        "rest_spi_jar_sha256"
+      ]
+    },
+    "TestOnlySchema": {
+      "const": {
+        "all_matching": false,
+        "audit_actor": "",
+        "correlation_fields": [],
+        "error_codes": [],
+        "fields": [],
+        "message": "",
+        "operation": "read_runtime_definition",
+        "process_key": "SP-OP-AUTH-001",
+        "read_projection": [],
+        "schema_id": "provider.native.definition.observe.v1",
+        "source_process_key": "",
+        "source_topic": "",
+        "sources": [
+          "PROVIDER-E0-NATIVE-RUNTIME-OBSERVATION-CONTRACT-001/DECISION-PROTOCOL.md"
+        ],
+        "topic": "",
+        "workload": "provider-native-observer"
+      }
+    },
+    "ExpectedPhysicalDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stable_projection": {
+          "$ref": "#/$defs/StableDatabaseProjection"
+        },
+        "root_pg_preboot_witness_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "stable_projection",
+        "root_pg_preboot_witness_sha256"
+      ]
+    },
+    "StableDatabaseProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "database_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,256}$"
+        },
+        "database_oid": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        },
+        "system_identifier": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        },
+        "engine_schema_name": {
+          "const": "cibseven"
+        },
+        "engine_schema_oid": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        },
+        "native_schema_name": {
+          "const": "maezo_native"
+        },
+        "native_schema_oid": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        },
+        "current_user": {
+          "const": "cibseven_app"
+        },
+        "session_user": {
+          "const": "cibseven_app"
+        },
+        "catalogue_projection_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "witness_projection": {
+          "const": "provider-native-physical-db-join.v2"
+        }
+      },
+      "required": [
+        "database_name",
+        "database_oid",
+        "system_identifier",
+        "engine_schema_name",
+        "engine_schema_oid",
+        "native_schema_name",
+        "native_schema_oid",
+        "current_user",
+        "session_user",
+        "catalogue_projection_sha256",
+        "witness_projection"
+      ]
+    },
+    "StageBindingProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "policy_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "observation_admission_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "capability_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "original_deadline": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+        },
+        "tenant": {
+          "type": "string",
+          "pattern": "^[!-~]{1,256}$"
+        },
+        "environment": {
+          "type": "string",
+          "pattern": "^TestOnly-[A-Za-z0-9_.:-]{1,240}$"
+        },
+        "engine_name": {
+          "type": "string",
+          "pattern": "^[!-~]{1,256}$"
+        },
+        "definition_id": {
+          "type": "string",
+          "pattern": "^[!-~]{1,256}$"
+        },
+        "deployment_id": {
+          "type": "string",
+          "pattern": "^[!-~]{1,256}$"
+        },
+        "process_key": {
+          "const": "SP-OP-AUTH-001"
+        },
+        "process_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "xml_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "profile_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "candidate_expectations": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "candidate_sha": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "image_id": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "validation_origin": {
+              "const": "root-crosslink-required"
+            }
+          },
+          "required": [
+            "candidate_sha",
+            "image_id",
+            "validation_origin"
+          ]
+        }
+      },
+      "required": [
+        "policy_digest",
+        "observation_admission_sha256",
+        "capability_digest",
+        "original_deadline",
+        "tenant",
+        "environment",
+        "engine_name",
+        "definition_id",
+        "deployment_id",
+        "process_key",
+        "process_version",
+        "xml_sha256",
+        "profile_sha256",
+        "candidate_expectations"
+      ]
+    },
+    "RuntimeInstallationProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "engine_name": {
+          "type": "string",
+          "pattern": "^[!-~]{1,256}$"
+        },
+        "authorization_enabled": {
+          "const": true
+        },
+        "tenant_check_enabled": {
+          "const": true
+        },
+        "schema_update": {
+          "const": "false"
+        },
+        "jvm_process": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "boot_uuid": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
+            },
+            "pid_namespace": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "start_time_epoch_ms": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "engine_registry_size": {
+              "const": 1
+            },
+            "engine_registry_name": {
+              "type": "string",
+              "pattern": "^[!-~]{1,256}$"
+            }
+          },
+          "required": [
+            "boot_uuid",
+            "pid_namespace",
+            "start_time_epoch_ms",
+            "engine_registry_size",
+            "engine_registry_name"
+          ]
+        },
+        "class_provenance": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "class_name": {
+                "enum": [
+                  "br.com.maezo.workload.WorkloadPlugin",
+                  "org.cibseven.bpm.engine.impl.ProcessEngineImpl",
+                  "br.com.maezo.workload.RuntimeDefinitionObservation",
+                  "br.com.maezo.human.AuthValues"
+                ]
+              },
+              "jar_relative_path": {
+                "type": "string",
+                "pattern": "^lib/[A-Za-z0-9._-]+\\.jar$"
+              },
+              "jar_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "class_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "loader_group": {
+                "const": "engine-common"
+              }
+            },
+            "required": [
+              "class_name",
+              "jar_relative_path",
+              "jar_sha256",
+              "class_sha256",
+              "loader_group"
+            ]
+          },
+          "uniqueItems": true,
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "class_name": {
+                    "const": "br.com.maezo.workload.WorkloadPlugin"
+                  }
+                },
+                "required": [
+                  "class_name"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "class_name": {
+                    "const": "org.cibseven.bpm.engine.impl.ProcessEngineImpl"
+                  }
+                },
+                "required": [
+                  "class_name"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "class_name": {
+                    "const": "br.com.maezo.workload.RuntimeDefinitionObservation"
+                  }
+                },
+                "required": [
+                  "class_name"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "class_name": {
+                    "const": "br.com.maezo.human.AuthValues"
+                  }
+                },
+                "required": [
+                  "class_name"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          ]
+        },
+        "mounted_pins": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "observation_schema_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "descriptor_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "native_jar_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "support_jar_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "startup_descriptor_inventory_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "startup_vendor_inventory_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "rest_spi_jar_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "observation_schema_sha256",
+            "descriptor_sha256",
+            "native_jar_sha256",
+            "support_jar_sha256",
+            "startup_descriptor_inventory_sha256",
+            "startup_vendor_inventory_sha256",
+            "rest_spi_jar_sha256"
+          ]
+        }
+      },
+      "required": [
+        "engine_name",
+        "authorization_enabled",
+        "tenant_check_enabled",
+        "schema_update",
+        "jvm_process",
+        "class_provenance",
+        "mounted_pins"
+      ]
+    },
+    "SessionTransactionWitness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend_pid": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        },
+        "backend_start": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+        },
+        "transaction_id_if_assigned": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,19}$"
+            }
+          ]
+        },
+        "transaction_id_source": {
+          "const": "pg_current_xact_id_if_assigned"
+        },
+        "connection_source": {
+          "const": "actual-commandcontext-dbsqlsession-connection"
+        },
+        "context_connection_identity": {
+          "const": "enlisted-object-identity-checked"
+        },
+        "auto_commit": {
+          "const": false
+        },
+        "transaction_isolation": {
+          "const": "READ_COMMITTED"
+        },
+        "backend_ssl": {
+          "const": true
+        },
+        "backend_tls_version": {
+          "type": "string",
+          "enum": [
+            "TLSv1.2",
+            "TLSv1.3"
+          ]
+        },
+        "observed_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+        },
+        "transaction_started_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+        },
+        "transaction_started_at_source": {
+          "const": "postgresql-transaction_timestamp-on-enlisted-connection"
+        },
+        "observed_at_source": {
+          "const": "postgresql-clock_timestamp-on-enlisted-connection"
+        }
+      },
+      "required": [
+        "backend_pid",
+        "backend_start",
+        "transaction_id_if_assigned",
+        "transaction_id_source",
+        "connection_source",
+        "context_connection_identity",
+        "auto_commit",
+        "transaction_isolation",
+        "backend_ssl",
+        "backend_tls_version",
+        "observed_at",
+        "transaction_started_at",
+        "transaction_started_at_source",
+        "observed_at_source"
+      ]
+    },
+    "StageSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stable_database_projection": {
+          "$ref": "#/$defs/StableDatabaseProjection"
+        },
+        "binding_projection": {
+          "$ref": "#/$defs/StageBindingProjection"
+        },
+        "runtime_installation_projection": {
+          "$ref": "#/$defs/RuntimeInstallationProjection"
+        },
+        "session_transaction": {
+          "$ref": "#/$defs/SessionTransactionWitness"
+        }
+      },
+      "required": [
+        "stable_database_projection",
+        "binding_projection",
+        "runtime_installation_projection",
+        "session_transaction"
+      ]
+    },
+    "StageWitness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stage": {
+          "enum": [
+            "CAPTURE",
+            "EMISSION_RECHECK"
+          ]
+        },
+        "stage_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "server_stage_execution_uuid": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
+        },
+        "entry": {
+          "$ref": "#/$defs/StageSample"
+        },
+        "committing": {
+          "$ref": "#/$defs/StageSample"
+        },
+        "native_commit_confirmed": {
+          "const": true
+        },
+        "jvm_after_commit_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+        }
+      },
+      "required": [
+        "stage",
+        "stage_sequence",
+        "server_stage_execution_uuid",
+        "entry",
+        "committing",
+        "native_commit_confirmed",
+        "jvm_after_commit_at"
+      ]
+    }
+  },
+  "x-cross-field-rules": [
+    "Strict parser: duplicate keys, depth>16, floats, malformed UTF8/surrogates, unknown keys refuse before capability lookup. All integer types reject bool.",
+    "Request.resource_ref == parameters.nonce == Admission.nonce == Response.result.nonce. parameters.original_deadline == Admission.original_deadline == Response.result.original_deadline. Admission issued_at < original_deadline <= issued_at+15min; no renewal.",
+    "Identity/environment/peer/target/pins all exact compare against same admitted BoundaryPolicy/capability; topic/message/source/worker empty, capability list singleton observation-only.",
+    "All hashes SHA256 raw actualbytes except cap digest existing Json.bytes canonical; request_sha256 raw received request. No response selfhash; root stores entirewire SHA separately.",
+    "Class_provenance exact four names once, actual common-loader identity checked before serialization; sorted by classname. uniqueItems alone insufficient.",
+    "Raw XML canonical base64 decode <=512KiB, exact reencode, sha and size; raw sourceXml==retrievedXml. Profile canonical pinned bytes <=64KiB; mounted file provenance is not engine extraction.",
+    "Final response UTF8 bytes <=1048576 including outer envelope; XML/profile/metadata bounds checked independently. No truncation/compression accepted.",
+    "Clock nominal1ms six-digit format does not prove absoluteaccuracy; null UTC uncertainty preserved. PG/TLS/CIB brackets <=5s oldR2b localcurrentness only; no SourceC clock claim.",
+    "Expected candidate/image are Root-mounted claims, crosslinked to actualDocker/PID/NSpid/JAR/descriptor/namespace observation before Measurements. No server selfattestation.",
+    "Snapshot evidence as_of cutoff, not revocation-safe future authority lease. Effects and phaseB require independent currentness/qualification.",
+    "Read-only observations create no business instance/audit/outbox/receipt/ACK, owneraction or deployment. nonce cache is ephemeral technicalmemory, not business record.",
+    "Schema is design only; source/pair/runtimes gates and explicit Root grants required.",
+    "A1: received request bytes bounded Json.LIMIT form the private Servlet carrier; fields and raw SHA256 derive from those exact bytes. No request field carries trusted hash; pretty/compact equal maps have distinct wire hashes.",
+    "A2: systemIdentifier must be actually readable by fixed pg_control_system() under legitimate separately admitted owner-granted EXECUTE; failure is unavailable, no fabricated/lookup-only fallback. Nullable xid uses only pg_current_xact_id_if_assigned; never allocate xid solely for witness.",
+    "C1: emission recheck is a NEW WorkloadCommand read stage with live authentication/tenant/definition/ACL/current policy/pins and own newctx/enlisted connection, no closed capture-context use. Original cutoff as_of remains unchanged.",
+    "C1: exact response bytes are server-buffered; guard after serialization/file/stream acquisition and before firstbyte, deadline/pins after blocked writes/flush/close and complete client close. Partial transmission never yields valid observation, no retry/renewal.",
+    "C2: support.jar includes finite descriptor maps only, never full vendor inventory containing its own SHA. Fullvendor map is generated after support bytes and packaged into final MAIN JAR; vendor excludes only exact main/restSPI paths, includes support and all other covered binaries/classes. Main/SPI hashes live in Root Admission/Boundary pins after packaging, never resources in themselves.",
+    "ARCH-A3/SEC-S1 P_DB exact keyset stable_database_projection: database_name,database_oid,system_identifier,engine_schema_name,engine_schema_oid,native_schema_name,native_schema_oid,current_user,session_user,catalogue_projection_sha256,witness_projection. All observed fresh on that stage connection, equal Admission.expected_database.stable_projection AND capture entry/committing. Root preboot witnessSHA is configref outside observed projection, no copy of expected facts.",
+    "ARCH-A3 P_BIND exact StageBindingProjection keyset equality with corresponding Admission/Boundary/cap/actualtarget/profilefile; dynamic observer actual target/catalogue not callerinput. candidate_expectations explicitly Root claims, not server actual image/source attestation; Root actual image/candidate crosslink mandatory.",
+    "ARCH-A3 P_INSTALL exact RuntimeInstallationProjection keyset equality within same RPC/boot: engine/config/JVM/class provenance/mounted file+JAR pins actual fresh each stage, equal capture and admitted expected pins. Explicit restSPI ownartifact pin is external afterfinalpackaging; no selfhash/cycle in main or SPI.",
+    "A2 actual StageSample uses live Context.getCommandContext()==ctx and connection object identical ctx.DbSqlSession.SqlSession.Connection. SQL facts+backend/TLS/clocks/XID are read in THIS stage connection; no constructor/copy from admission/previousStage, no DSN-only witness or surrogateSQL anotherDB.",
+    "C1 result.database_witness stage=CAPTURE sequence0; emission_recheck.read_stages ordered stage=EMISSION_RECHECK sequences1..N, contiguous, max8, each own entry/committing sample and true native COMMITTED listener+executor-success. All server_stage_execution_uuid unique ephemeral internal correlation only, no durable globalTXproof.",
+    "C1 within ONE stage ctx/connection object identity, backend_pid/backend_start/transaction_started_at/TLS version fixed; all projections exact same entry/committing. Nullable XID entryNULL permits commitNULL or actualassigned, entryassigned requires samecommitXID. Never invoke allocating xid helper for a witness.",
+    "C1 BETWEEN real NEWctx/TX stages pool backend may truthfully change or remain; backend/TLS/XID/time are NEVER required equal to oldStage and never copied. All stage projections+READ/auth/pins still independently validate; assigned XID if both stagesassigned must differ, NULL does not prove absence of transaction; NEWctx/private lifecycle required.",
+    "C1 PG timestamp sources: backend_start <= transaction_timestamp <= entry.clock_timestamp <= committing.clock_timestamp; transaction_timestamp fixed withinstage. Stage PG finalobserved <= nextstage PG entryobserved; equal time allowed resolution, backwardwall refuses. Only actual SQL clocks converted OffsetDateTime->Instant UTC6; no statement timezone change/inputfallback.",
+    "C1 JVM cutoff_observed_at is CAPTURE COMMITTING host sample, NOT PG clock/commit timestamp; immutable snapshot. JVM ordering sample_started<=cutoff<=capture.jvm_after_commit<=all fresh recheck.jvm_after_commit<originaldeadline. Differentclock PG vs JVM joins by bracket/skew<=5s, not equality or calibratedaccuracy. T original wall+monotonic neverrenewed; postwait guardmandatory.",
+    "C1 emission_recheck.observed_at equals LAST readstage.jvm_after_commit_at with explicit JVMsource; original_cutoff_preserved means capture StageWitness+cutoff/definition/XML/clock neverretagged, not futurelease. Full latest READ lifecycle successful before emit, no closed capturecontextcall; each recheck preserved notonlytime.",
+    "C1 Root join EACH capture/recheck entry+committing physical/session/TX facts, PGresource/incarnation/schema/catalogue/roles + CIBimages/JAR/descriptor/JVM/namespace/socket/mTLS/privatepins. Uncorroborated transientbackend is serverobserved, not independentRootproof; missing required corroboration retails Measurements, never copybackendfromotherstage.",
+    "Crossphase P_DB actualsame DBincarnation+ACTcatalogue/roles mustequal; candidate/native/support/restSPI/classbinarypins samecandidate. PhaseA/B descriptor+finitevariantinventory may differ only as admitted enum/pins; boot/PID/session/TX/time remain truthful independent, no wholeRuntimeProjection equality acrossboots. AUTH installation receipt/ref not present phaseA is not manufactured; owner5/phaseB gate separate.",
+    "Class provenance exactly EACH of four closed enumclassnames ONCE enforced contains min/max plus crossvalidation and sortedclassname; Jar/class bytes actual observed, classloaderidentity not name alone.",
+    "Replay nonce atomic reservation peer cert+SPKI+admissionHash+bootUUID+nonce beforelocks, max1024 no activeeviction/no retryrelease; same readstages neverconsume again. Restart loses cache but invalidates oldRootbootcarry, no globaldurability or authoritypromise. Newlegitimateadmission/boot needs T sameorlower, no expiryrenewal.",
+    "Request14key envelope remains exact original, no witness/session/TX/hash fields accepted fromcaller. Final closed response 1MiB, metadata64KiB, max8readstages; overbounds refuse beforefirstbyte, partialresponse nevervalid; no witnesstruncation.",
+    "V4 replaces literal allIO-sinceREAD trigger: fixed private selfvalidation FD/SQL/native/lock/commit/contextclose/pin/serialization guards form one finite stage, with every original before/afterwait time/custody/currentness/nativeCOMMITTING/auth guard mandatory. No selfrecursive NEWREAD for ownvalidation reads.",
+    "Outputstream acquired before final nativeREAD. COMPLETED_READY private point only after realcommit/executor/contextclose+selfvalidation+serialization+terminalguards. No callerflag/callback/indirect genericclassification of work; completedstate is source control-flow fact, not wireauthority.",
+    "External wait/action after completedstage before firstbyte invalidates readiness and requires actual NEW authenticated READctx/TX+witness1..N <=8 and T original; all records preserved. Disallowed resource/reentrancy/callercallbacks refuse rather than relabelinternal.",
+    "After FIRST_BYTE_HANDOFF entered, bytespossible includes unknownIOException. Write/flush/close guards unchanged; failure abortsUNKNOWN/partial without response overwrite/nonce release/retryrenewal. Client ownfullclose/rootjoins mandatory.",
+    "read_stages witnesses P_DB/P_BIND/P_INSTALL and perSession/TX/time rules remain exactly parent7104, capture cutoff immutable; completedready does not change aftercommit timestamp or confer continuousnativeREAD authority."
+  ],
+  "x-contract-revision": {
+    "status": "DOCUMENTARY_SUCCESSOR_V4_NOT_CODE_GATE",
+    "parent_digest": "710435fc43ecca3bcf032bba82c9ebcb5f65198a987d87b1b93c26e20a97a936",
+    "proposal_raw_sha256": "c05581e81f0bd2d68cb1098316ddf4a5bc6914cf01ddc3d694209c376bc1b762",
+    "dispatch_sha256": "6d791878a637256ba84b9659dcd087e2033df341e8e0426388b59f03b45a02e7",
+    "formal_pair": {
+      "architecture": {
+        "path": "/Users/familia/code/maezo-operadora/docs/audits/PROVIDER-IMPL-2026-10/20261005T024404Z/evidence/pw1-d-native-observation-emission-boundary-independent-architecture/GatewayVerificationRecord.json",
+        "sha256": "b9cc9da19ef208be2d6f83e067afa4cb4a08d6e4fc4f0eb034f5f2f61ebc276c",
+        "verdict": "PASS",
+        "scope": "clarification DESIGN_ONLY"
+      },
+      "security": {
+        "path": "/Users/familia/code/maezo-operadora/docs/audits/PROVIDER-IMPL-2026-10/20261005T024404Z/evidence/pw1-d-native-observation-emission-boundary-independent-security/GatewayVerificationRecord.json",
+        "sha256": "f422e49fd2bec0503063dd272953fcd72dea239b6594268af01cf71868a51818",
+        "verdict": "REVISE",
+        "scope": "admissible technical change requires successor"
+      },
+      "Root_disposition": {
+        "path": "/Users/familia/code/maezo-operadora/docs/audits/PROVIDER-IMPL-2026-10/20261005T024404Z/evidence/e0-native-observation-emission-boundary-ROOT-PAIR-DISPOSITION.json",
+        "sha256": "c53ffcf545783f638ef89744486f33a012b2d2b1cbda4c8744da0678edde3115",
+        "choice": "full frozen successor and same pair, stricter constraint"
+      }
+    },
+    "changes": "finite stage completion/externalinvalidator predicate; no waiver of guard/projection/sourceevidence"
+  },
+  "x-symbolic-comparison-cases": [
+    {
+      "case": "freshBackendSameDB",
+      "scope": "DOCUMENTARY SYMBOLIC RELATION ONLY; no runtime test/mock/probe",
+      "stable_projections": "capture==expected; recheck==expected",
+      "capture_session": "backend50/startB0; entryXIDnull->committing101; t0<=t1",
+      "recheck_session": "backend51/startB1; entryXIDnull->committing102; t2<=t3 andt1<=t2",
+      "requires": "new native ctx/TX afterreal capturecommit; allREADguards; eachRootjoin",
+      "relation_outcome": "ACCEPT_WHEN_REQUIREMENTS_ACTUALLY_PROVEN"
+    },
+    {
+      "case": "reusedBackendNewTX",
+      "scope": "DOCUMENTARY SYMBOLIC RELATION ONLY",
+      "capture_session": "backend50/startB0/XID101",
+      "recheck_session": "samebackend50/startB0/newXID102/freshtimes",
+      "relation_outcome": "ACCEPT_WHEN_NEW_CTX_COMMIT_PROVEN"
+    },
+    {
+      "case": "unassignedXIDs",
+      "scope": "DOCUMENTARY SYMBOLIC RELATION ONLY",
+      "sessions": "both xid=null, distinctstage/lifecycle/timefacts",
+      "relation_outcome": "ACCEPT_ONLY_WITH_NEW_NATIVE_CTX_TX_COMMIT; NEVER_ALLOCATE_XID_FOR_WITNESS"
+    },
+    {
+      "case": "copiedCaptureDynamicFactsOrChangedStableProjection",
+      "scope": "DOCUMENTARY SYMBOLIC RELATION ONLY",
+      "relation_outcome": "REFUSE"
+    }
+  ],
+  "x-finite-emission-state-machine": {
+    "private_source_only": true,
+    "wire_caller_controls": false,
+    "states": [
+      "CAPTURE_COMMITTED",
+      "STREAM_ACQUIRING",
+      "STREAM_BOUND_NEEDS_READ",
+      "VALIDATING_ENTRY_PINS",
+      "NEW_READ_CONTEXT",
+      "SQL_ENTRY_AND_NATIVE_READ",
+      "FIXED_LOCKS_AND_RESOURCE",
+      "COMMITTING_NATIVE_READ",
+      "COMMITTED_MARKED",
+      "READ_CONTEXT_CLOSED",
+      "POSTCOMMIT_SELF_VALIDATION",
+      "ASSEMBLING_IMMUTABLE_BYTES",
+      "TERMINAL_OWNED_GUARDS",
+      "COMPLETED_READY",
+      "FIRST_BYTE_HANDOFF",
+      "WRITING",
+      "FLUSHING",
+      "CLOSING",
+      "SERVER_COMPLETE",
+      "REFUSED_TERMINAL",
+      "UNKNOWN_TERMINAL"
+    ],
+    "completion_boundary": "COMPLETED_READY after all fixed validation work/guards; before unrelatedexternalwork/firstbyte",
+    "max_read_stages": 8,
+    "deadline_renewal": false,
+    "original_cutoff_preserved": true,
+    "internal_validation_self_reentry": false,
+    "unknown_wait_classification": "REFUSE_NOT_PUBLIC_CALLBACK",
+    "afterbytesfailure": "UNKNOWN_ABORT_NO_OVERWRITE_NONCE_RESERVED"
+  }
+}

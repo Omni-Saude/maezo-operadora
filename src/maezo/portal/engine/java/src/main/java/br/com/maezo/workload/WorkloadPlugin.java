@@ -116,8 +116,45 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
     if(!configuration.isAuthorizationEnabled() || !configuration.isTenantCheckEnabled() || auth==null || !peer.engineUser().equals(auth.getUserId())
         || !List.of(policy.tenant).equals(auth.getTenantIds()) || !auth.getGroupIds().isEmpty())throw Refused.denied();
   }
+  ProcessEngineConfigurationImpl observationConfiguration(){
+    if(configuration==null || engine==null)throw Refused.unavailable();return configuration;
+  }
+  RuntimeDefinitionObservation.ObservationEmission executeObservation(BoundaryPolicy.Peer peer,WorkloadServlet.VerifiedObservationRequest request) {
+    authenticated(peer);
+    if(org.cibseven.bpm.engine.impl.context.Context.getCommandContext()!=null)throw Refused.unavailable();
+    Capability cap=Capability.forRequest(peer.capabilities(),request.fields());cap.validate(request.fields());
+    if(!"read_runtime_definition".equals(cap.schema.get("operation")) || nativeV2!=null)throw Refused.denied();
+    var admission=RuntimeObservationAdmission.admit(policy,peer,cap,request);
+    return observationBoundary(()->{
+      admission.reserve();
+      var token=new RuntimeDefinitionObservation.StageToken(this,peer,cap,request,admission);
+      var command=new WorkloadCommand(this,peer,cap,request,token,WorkloadCommand.ObservationStage.CAPTURE,0);
+      configuration.getCommandExecutorTxRequired().execute(command);
+      return RuntimeDefinitionObservation.completed(command.observation(),token);
+    },()->{if(admission.measurement!=null)admission.measurement.abort();});
+  }
+  RuntimeDefinitionObservation.CapturedObservation recheckObservation(RuntimeDefinitionObservation.StageToken token,int sequence) {
+    return observationBoundary(()->{
+      if(token.plugin!=this || org.cibseven.bpm.engine.impl.context.Context.getCommandContext()!=null)throw Refused.unavailable();
+      var command=new WorkloadCommand(this,token.peer,token.capability,token.request,token,WorkloadCommand.ObservationStage.EMISSION_RECHECK,sequence);
+      configuration.getCommandExecutorTxRequired().execute(command);
+      return RuntimeDefinitionObservation.confirm(command.observation(),token);
+    },()->{if(token.admission.measurement!=null)token.admission.measurement.abort();});
+  }
+  /** Includes native executor/context close and confirmation; cleanup never renews admission or frees nonce. */
+  static <T>T observationBoundary(java.util.function.Supplier<T> operation,Runnable abort) {
+    try {return operation.get();}
+    catch(RuntimeException|Error primary) {
+      try {abort.run();}
+      catch(RuntimeException|Error cleanup) {if(cleanup!=primary)primary.addSuppressed(cleanup);}
+      // Keep the transport's fixed safe authorization refusal; never expose native exception text.
+      if(primary instanceof AuthorizationException)throw Refused.unavailable();
+      throw primary;
+    }
+  }
   byte[] execute(BoundaryPolicy.Peer peer,Map<String,Object> request) {
     authenticated(peer);
+    if("read_runtime_definition".equals(request.get("operation")))throw Refused.denied();
     Capability cap=Capability.forRequest(peer.capabilities(),request);
     cap.validate(request);
     if(nativeV2!=null && nativeV2.manages(cap))throw Refused.denied();
@@ -178,6 +215,7 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
         grants.require(Permissions.CREATE,Resources.PROCESS_INSTANCE,"*");break;
       case "fetch_lock", "external_complete", "external_failure", "external_bpmn_error", "external_unlock", "external_extend_lock", "correlate":
         permissions.add(Permissions.READ_INSTANCE);permissions.add(Permissions.UPDATE_INSTANCE);break;
+      case "read_runtime_definition": break;
       case "read_active": permissions.add(Permissions.READ_INSTANCE);break;
       case "read_history": permissions.add(Permissions.READ_HISTORY);break;
       default: throw Refused.unavailable();
@@ -221,8 +259,10 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
       if(peer!=null) {
         var context=org.cibseven.bpm.engine.impl.context.Context.getCommandContext();
         if(context==null)throw Refused.unavailable();
-        // Register AFTER D5's command listeners so mounted-policy loss after its enlisted receipt SQL rolls back too.
-        context.getTransactionContext().addTransactionListener(TransactionState.COMMITTING,ignored->policy.current(peer));
+        // A native READ during our COMMITTING observer is still checked now. Appending a listener
+        // while CIB iterates this same list would mutate the active iterator; no check is waived.
+        if(RuntimeDefinitionObservation.committingNativeRead(context,command))policy.current(peer);
+        else context.getTransactionContext().addTransactionListener(TransactionState.COMMITTING,ignored->policy.current(peer));
       }
       return result;
     }
