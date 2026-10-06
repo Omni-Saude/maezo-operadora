@@ -57,6 +57,10 @@ from maezo.portal.api.tasks import (
     read_error,
     task_router,
 )
+from maezo.portal.api.vendor_submissions import (
+    VendorSubmissionServiceFactory,
+    vendor_router,
+)
 
 _SESSION = "__Host-maezo-session"
 _BROWSER = "__Host-maezo-login"
@@ -218,6 +222,7 @@ def create_app(
     intake_recovery_factory: IntakeRecoveryFactory | None = None,
     document_service_factory: DocumentServiceFactory | None = None,
     communication_service_factory: CommunicationServiceFactory | None = None,
+    vendor_submission_service_factory: VendorSubmissionServiceFactory | None = None,
     web_root: Path | None = None,
 ) -> FastAPI:
     """Production factory has no in-memory fallback and no default or agent credentials."""
@@ -317,6 +322,11 @@ def create_app(
     app.include_router(document_router)
     app.state.communication_service_factory = communication_service_factory
     app.include_router(communication_router)
+    # OP16 (VW1-P4): the vendor submission route ships DOCUMENTED but unbound — no default
+    # deployment projects the `vendor` capability and no default factory exists, so the route
+    # refuses (403 capability / 503 unbound slot) until the vendor plane is adopted.
+    app.state.vendor_submission_service_factory = vendor_submission_service_factory
+    app.include_router(vendor_router)
 
     # Added BEFORE `deployment_host` on purpose. `add_middleware` inserts at position 0, so
     # the LAST call is the outermost: registering CORS first leaves it INSIDE the host check,

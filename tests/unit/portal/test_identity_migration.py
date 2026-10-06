@@ -32,7 +32,9 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # ADR-0062 moved it to 0017 (`conversa_agente_ativo`).
     # DUR0 adds the tenant-local journal as forward migration 0018 after 0017.
     # VW1-P0 adds the vendor channel authority store as forward migration 0019 after 0018.
-    assert heads == {"0019"}, f"expected 0019 to be the sole head, got {heads}"
+    # VW1-P4 adds the OP16 submission store as forward migration 0020 after 0019.
+    assert heads == {"0020"}, f"expected 0020 to be the sole head, got {heads}"
+    assert revisions["0020"] == "0019"
     assert revisions["0019"] == "0018"
     assert revisions["0018"] == "0017"
     assert revisions["0017"] == "0016"
@@ -42,7 +44,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0019"
+    current = "0020"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

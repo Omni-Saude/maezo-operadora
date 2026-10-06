@@ -173,9 +173,10 @@ async def read_intake(request: Request, intake_ref: str) -> Response:
 def is_product_request(request: Request) -> bool:
     from maezo.portal.api.cases import case_router
     from maezo.portal.api.documents import document_router
+    from maezo.portal.api.vendor_submissions import vendor_router
 
     return any(
         route.matches(request.scope)[0] != Match.NONE
-        for router in (intake_router, case_router, document_router)
+        for router in (intake_router, case_router, document_router, vendor_router)
         for route in router.routes
     )

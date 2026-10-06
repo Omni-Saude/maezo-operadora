@@ -63,6 +63,7 @@ const caseKindLabels: Readonly<Record<CaseSummaryView["kind"], string>> = {
   authorization: "Autorização",
   reimbursement: "Reembolso",
   account: "Conta assistencial",
+  channel_submission: "Submissão do canal",
 };
 
 const requestStatus: Readonly<Record<
@@ -93,7 +94,7 @@ function mapFailure(failure: ProductApiFailure): CaseExperienceFailure {
 
 function mapSummary(summary: Readonly<{
   case_ref: string;
-  kind: "authorization" | "reimbursement" | "account";
+  kind: "authorization" | "reimbursement" | "account" | "channel_submission";
   state: "active" | "ended";
   record_revision: string;
   state_observed_at: string;

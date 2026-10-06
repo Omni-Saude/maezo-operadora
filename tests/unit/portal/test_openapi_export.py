@@ -57,6 +57,10 @@ EXPECTED_PATHS = {
     "/api/v1/portal/tasks/{task_id}/assignments",
     "/api/v1/portal/tasks/{task_id}/decision-context",
     "/api/v1/portal/tasks/{task_id}/decisions",
+    # VW1-P4 (OP16): the vendor channel submission boundary ships DOCUMENTED and unbound —
+    # the route always publishes in the schema; the capability gate decides whether it ANSWERS.
+    "/api/v1/portal/vendor/submissions",
+    "/api/v1/portal/vendor/submissions/{submission_ref}",
 }
 
 
