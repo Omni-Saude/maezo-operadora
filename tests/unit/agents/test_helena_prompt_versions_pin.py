@@ -35,6 +35,15 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
         "7be276aeeeda3156065b67d1ed3e2e975bbb25529605d6f7e06d6c7771f726ec",
     ),
     "coleta": ("coleta-v1", "a825d71380d522a6cbfc89720739cd1712fe93ea197fc4bc2c86bddb07c73665"),
+    # DL-0080: os adendos do historico curto (so' com `MAEZO_HELENA_HISTORICO` ligada).
+    "classify_historico": (
+        "classify-historico-v1",
+        "61d528fda5be6b5cc93d95987e9b9ec0159b13a8e376fcfe49ac50d2d70ddb5c",
+    ),
+    "response_historico": (
+        "response-historico-v1",
+        "6767a86abf358a106e1680cde221c05ce0ac46d619dce02b141d919bf2ae3a6c",
+    ),
 }
 #: `(versao, sha256)` das listas e padroes das cercas de saida (o que decide se um texto sai).
 CERCAS_PINADAS: tuple[str, str] = (
@@ -57,6 +66,8 @@ def _texto_atual() -> dict[str, tuple[str, str]]:
         ),
         "response": (prompts.RESPONSE_PROMPT_VERSION, prompts.response_prompt()),
         "coleta": (prompts.COLETA_PROMPT_VERSION, prompts.coleta_prompt()),
+        "classify_historico": (prompts.CLASSIFY_HISTORICO_VERSION, prompts.classify_historico_adendo()),
+        "response_historico": (prompts.RESPONSE_HISTORICO_VERSION, prompts.response_historico_adendo()),
     }
 
 

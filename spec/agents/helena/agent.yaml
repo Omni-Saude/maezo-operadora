@@ -144,6 +144,8 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                       # `CANAIS_CONFIRMADOS` e' recusado em toda rota.
                                       # v3 (13/09/2026): negativa
                                      # clinica, promessa de humano e de capacidade (PR #395).
+  classify_historico: classify-historico-v1  # 07/10/2026 (DL-0080): adendo do historico curto, so' com MAEZO_HELENA_HISTORICO
+  response_historico: response-historico-v1  # 07/10/2026 (DL-0080): idem, so' na redacao do inform
 
 model:
   task_default: { tier: fast }        # triagem/classificacao
