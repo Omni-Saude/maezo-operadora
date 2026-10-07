@@ -93,6 +93,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 import structlog
 
 from maezo.agents.helena.graph import (
+    NOME_OPERADORA_PADRAO,
     HelenaGraph,
     HelenaState,
     WhatsAppSender,
@@ -384,6 +385,9 @@ class HelenaDispatcher:
     #: `IdentidadeHelena`) quem escreve e entrega SO' a identidade pseudonima ao estado — contexto,
     #: nunca insumo de decisao. Independe do roteador do Lucas.
     identidade: IdentidadeHelena | None = None
+    #: AVISO DE IDENTIDADE (DL-0078): o nome de exibicao da operadora nos textos fixos de identidade
+    #: (settings `helena_identidade_nome_operadora`). So' tem efeito com `identidade` presente.
+    identidade_nome_operadora: str = NOME_OPERADORA_PADRAO
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
     administrative_binding: JourneyBinding | None = None
@@ -706,6 +710,9 @@ class HelenaDispatcher:
                 # NUMERO UNICO (onda e): `classify-v6` + a passagem ao Lucas so' com o roteamento
                 # completo. Desligado, a chave vai `False` e o grafo e' o de antes no a no'.
                 "roteador_lucas_enabled": self._roteamento_completo,
+                # DL-0078: so' o NOME de exibicao da operadora; os textos de identidade so' saem com o
+                # desfecho que `dispatch` entrega no estado (flag desligada = nenhum texto).
+                "identidade_nome_operadora": self.identidade_nome_operadora,
             }
         )
         saver = self.checkpointer.saver if self.checkpointer is not None else None
@@ -843,14 +850,16 @@ class HelenaDispatcher:
         # is unreachable at the construction seam, not just neutralized inside `receive`.
         sinais = self._pre_rotear(message.text, conversation_id) if self.roteador is not None else None
         # DL-0077: o numero cru so' existe aqui (o hash `amh-phone-lookup-v1` nasce e morre dentro de
-        # `IdentidadeHelena.resolver`). Nunca levanta: sem identidade, a Helena de sempre.
-        identidade = (
-            await self.identidade.resolver(
+        # `IdentidadeHelena.resolver_com_desfecho`). Nunca levanta: sem identidade, a Helena de sempre.
+        # DL-0078: junto vem o desfecho FECHADO (`reconhecido`/`nao_encontrado`/`indeterminado`) que decide
+        # o aviso de identidade; desligada, `None` e nenhum texto de identidade.
+        identidade: dict[str, Any] | None = None
+        identidade_desfecho: str | None = None
+        if self.identidade is not None:
+            resolvida = await self.identidade.resolver_com_desfecho(
                 message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
             )
-            if self.identidade is not None
-            else None
-        )
+            identidade, identidade_desfecho = resolvida.identidade, resolvida.desfecho
         message_pseudonym = log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer)
         if self._roteamento_completo:
             # NUMERO UNICO (onda e): as entradas do roteador, todas TIPADAS e sem texto. Quem estava
@@ -870,6 +879,7 @@ class HelenaDispatcher:
                 sinal_saude_lexico=sinais is None or sinais.sinal_saude,
                 message_ref=message_pseudonym,
                 identidade_beneficiario=identidade,
+                identidade_desfecho=identidade_desfecho,
             )
         else:
             initial_state = new_helena_state(
@@ -879,6 +889,7 @@ class HelenaDispatcher:
                 beneficiario_pseudo_id=beneficiario_pseudo_id,
                 message_body=message.text,
                 identidade_beneficiario=identidade,
+                identidade_desfecho=identidade_desfecho,
             )
         logger.info(
             "helena_dispatch_turn_started",
@@ -890,6 +901,8 @@ class HelenaDispatcher:
             checkpointed=saver is not None,
             # DL-0077: so' o fato (booleano), nunca a referencia nem o perfil.
             identidade_presente=identidade is not None,
+            # DL-0078: token fechado (ou `None` desligada), nunca referencia, hash ou telefone.
+            identidade_desfecho=identidade_desfecho,
         )
         # `thread_config` scopes the checkpoint thread when a saver is attached; None (stateless
         # compile) is passed through as a no-op config, so this call site is single-path.

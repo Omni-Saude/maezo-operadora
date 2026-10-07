@@ -582,6 +582,8 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         return
     if state.helena_identidade is not None:
         state.dispatcher.identidade = state.helena_identidade
+        # DL-0078: o nome de exibicao da operadora nos textos fixos de identidade da Helena.
+        state.dispatcher.identidade_nome_operadora = state.settings.helena_identidade_nome_operadora
 
     # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
     # Isolated exactly like the construction above — a failure here must not crash bring-up.

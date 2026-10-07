@@ -78,7 +78,9 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: 04/10/2026: 32 — `HelenaGraph._caso_aberto_e_clinico` (DL-0072) le' o caso aberto da conversa no
 #: motor; a falha dessa LEITURA vira "nao e' clinico" (abre o caso clinico paralelo, o lado seguro),
 #: e erro de programacao sobe.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 32
+#: 07/10/2026: 33 — `HelenaGraph._aviso_de_identidade` (DL-0078) envia o aviso de identidade de primeiro
+#: contato pelo WhatsApp, best-effort e largo como o envio de `respond`; `PROGRAMMING_ERRORS` re-levanta.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 33
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:
@@ -230,6 +232,12 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
     "src/maezo/agents/helena/graph.py::HelenaGraph::respond": (
         1,
         "envio WhatsApp best-effort: idem; a falha ja' e' SUPERFICIADA em state['error'] (HEL-05)",
+    ),
+    "src/maezo/agents/helena/graph.py::HelenaGraph::_aviso_de_identidade": (
+        1,
+        "envio WhatsApp best-effort do aviso de identidade (DL-0078): cortesia que nunca pode custar a "
+        "resposta do turno; a falha vira log com token fechado e o aviso volta no proximo turno; "
+        "PROGRAMMING_ERRORS re-levanta antes",
     ),
     "src/maezo/agents/lucas/graph.py::LucasGraph::send_escalation_ack": (
         1,

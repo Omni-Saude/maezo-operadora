@@ -3,6 +3,8 @@
 `ResolvedorDeSujeitoAmh`: hash do telefone -> `portable_subject_ref`, SO' quando ha' exatamente UM candidato.
 Dois ou mais (titular e dependente no mesmo aparelho) e nenhum viram `None`: escolher o primeiro seria falar
 da cobranca de outra pessoa, e a pergunta "de quem?" pertence a conversa, nao a esta fonte.
+`portable_ref_com_desfecho` expoe tambem o desfecho fechado (`unico`/`nenhum`/`multiplos`/`indisponivel`),
+usado so' pelo aviso de identidade da Helena (DL-0078) para distinguir "nenhum candidato" das outras causas.
 
 `FonteDeConsentimentoAmh`: a decisao de consentimento mais recente, so' se `granted`. Sem decisao, revogada,
 expirada ou fonte fora: `None` (a cobranca nao e' lida). Fail-closed, nunca "na duvida, le".
@@ -34,9 +36,23 @@ class ResolvedorDeSujeitoAmh:
         self._purpose = purpose_of_use
 
     async def portable_ref(self, pseudo_id: str, *, phone_hash: str | None) -> str | None:
+        ref, _ = await self.portable_ref_com_desfecho(pseudo_id, phone_hash=phone_hash)
+        return ref
+
+    async def portable_ref_com_desfecho(
+        self, pseudo_id: str, *, phone_hash: str | None
+    ) -> tuple[str | None, str]:
+        """A referencia (so' com candidato UNICO) e o desfecho FECHADO da resolucao.
+
+        Desfecho: `unico` (a referencia vem junto), `nenhum` (a AMH respondeu, com sucesso, que NAO ha'
+        candidato: `resultado == "nenhum"` E conjunto vazio), `multiplos` (telefone compartilhado) ou
+        `indisponivel` (sem hash, recusa do port, ou resposta incoerente — `unico` com outro numero de
+        candidatos, `nenhum` com candidato). So' `nenhum` e' resposta DEFINITIVA de ausencia; o resto
+        nunca pode ser lido como "nao e' beneficiario" (DL-0078).
+        """
         del pseudo_id  # a AMH resolve pelo hash do telefone; o pseudonimo derivado nao e' chave dela
         if not phone_hash:
-            return None
+            return None, "indisponivel"
         resultado = await self._port.resolve_by_phone(
             phone_hash,
             amh_tenant=self._tenant,
@@ -44,11 +60,15 @@ class ResolvedorDeSujeitoAmh:
             purpose_of_use=self._purpose,
         )
         if not resultado.succeeded or resultado.value is None:
-            return None
+            return None, "indisponivel"
         resolucao = resultado.value
+        if resolucao.resultado == "nenhum" and len(resolucao.candidatos) == 0:
+            return None, "nenhum"
+        if resolucao.resultado == "multiplos" and len(resolucao.candidatos) > 1:
+            return None, "multiplos"
         if resolucao.resultado != "unico" or len(resolucao.candidatos) != 1:
-            return None
-        return resolucao.candidatos[0].portable_subject_ref
+            return None, "indisponivel"
+        return resolucao.candidatos[0].portable_subject_ref, "unico"
 
 
 #: Referencia fixa e auditavel da BASE LEGAL da leitura (LGPD art. 7o, V — execucao de contrato).

@@ -11,9 +11,10 @@ outside T1.6's scope; local dev sets these via `docker-compose.yml` env directly
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -299,6 +300,27 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_IDENTIDADE_AMH", "helena_identidade_amh"),
     )
+    # AVISO DE IDENTIDADE (DL-0078, decisao do dono 07/10/2026): o nome de EXIBICAO da operadora nos
+    # textos fixos de identidade da Helena ("Reconheci este numero no cadastro de beneficiarios da
+    # {nome}..."). So' tem efeito com `helena_identidade_amh` ligada. Texto curto e simples (letras,
+    # espaco, `.`, `'`, `&`, `-`): ele vai literal ao beneficiario, entao nada de chave, URL ou controle.
+    helena_identidade_nome_operadora: str = Field(
+        default="Austa Clínicas",
+        validation_alias=AliasChoices(
+            "MAEZO_HELENA_IDENTIDADE_NOME_OPERADORA", "helena_identidade_nome_operadora"
+        ),
+    )
+
+    @field_validator("helena_identidade_nome_operadora")
+    @classmethod
+    def _nome_operadora_valido(cls, valor: str) -> str:
+        nome = " ".join(valor.split())
+        if not 1 <= len(nome) <= 60 or not re.fullmatch(r"[^\W\d_]+(?:[ .'&-]+[^\W\d_]+)*\.?", nome):
+            raise ValueError(
+                "MAEZO_HELENA_IDENTIDADE_NOME_OPERADORA: nome de exibicao invalido "
+                "(1 a 60 caracteres; letras, espaco, `.`, `'`, `&`, `-`)"
+            )
+        return nome
 
     # --- Interop AMH (lidas com `lucas_fonte_cobranca == "amh"` OU `helena_identidade_amh`) ----
     # Origem do servico interop da AMH: ALB INTERNO, `http(s)://host[:porta]`, sem caminho.
