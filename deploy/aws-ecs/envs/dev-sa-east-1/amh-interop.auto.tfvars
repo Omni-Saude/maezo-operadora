@@ -26,3 +26,7 @@ amh_interop_client_id = "3n2cmh41eslj5mi2lf0b577teb"
 // Os bytes sao colocados no passo de pin (runbook, secao 2), com digest conferido contra o pin.
 amh_billing_status_openapi_path     = "/app/config/integrations/amh/openapi/billing-status.openapi.yaml"
 amh_subject_resolution_openapi_path = "/app/config/integrations/amh/openapi/subject-resolution.openapi.yaml"
+
+// Identidade do beneficiario na Helena pelos mesmos contratos (DL-0077, #677). So contexto: nao entra
+// no prompt nem decide triagem/escala. Ligada em 07/10/2026; voltar: false.
+helena_identidade_amh = true
