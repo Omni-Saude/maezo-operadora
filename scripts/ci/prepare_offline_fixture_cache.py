@@ -454,6 +454,10 @@ class Preparation:
             # A locked sync caches wheel URLs, not the index/metadata a fresh lock needs.
             # Prime only selected versions; online unconstrained resolution could download
             # newer transitive metadata and make the immutable offline fixture drift.
+            # The lock steps need the same constraint: the cache is shared across branch
+            # scopes, so an unconstrained offline lock can select a cached NEWER transitive
+            # version (packaging 26.3 vs root 26.2) and the closed-world check then rightly
+            # refuses. Constraints make the fixture lock deterministic in the root selection.
             self.command(
                 online,
                 "pip",
@@ -471,6 +475,8 @@ class Preparation:
             self.command(
                 online,
                 "lock",
+                "--constraint",
+                str(constraints),
                 "--offline",
                 "--no-config",
                 "--no-build",
@@ -485,6 +491,8 @@ class Preparation:
             self.command(
                 offline,
                 "lock",
+                "--constraint",
+                str(constraints),
                 "--offline",
                 "--no-config",
                 "--no-build",

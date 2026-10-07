@@ -86,10 +86,15 @@ def test_exact_default_cache_preparation_has_fresh_offline_resolution_and_sync(
     assert (tmp_path / "result.json").is_file()
     for name in ("tiny", "tiny-async"):
         calls = [(directory, argv) for directory, argv in runner.commands if directory.startswith(name)]
+        # Both lock steps are constrained: the cache is shared across branch scopes
+        # and an unconstrained offline lock may select a cached NEWER transitive
+        # version than the root lock pins (packaging 26.3 vs 26.2 refusal).
         assert (
             name + "-online",
             (
                 "lock",
+                "--constraint",
+                str(tmp_path / (name + "-constraints.txt")),
                 "--offline",
                 "--no-config",
                 "--no-build",
@@ -98,7 +103,10 @@ def test_exact_default_cache_preparation_has_fresh_offline_resolution_and_sync(
                 "/synthetic/python",
             ),
         ) in calls
-        assert any(d == name + "-offline" and a[0] == "lock" and "--offline" in a for d, a in calls)
+        assert any(
+            d == name + "-offline" and a[0] == "lock" and "--constraint" in a and "--offline" in a
+            for d, a in calls
+        )
         assert any(d == name + "-offline" and a[0] == "sync" and "--offline" in a for d, a in calls)
     for name in ("tiny", "tiny-async"):
         assert any(
