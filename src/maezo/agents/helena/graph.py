@@ -783,6 +783,60 @@ DESFECHO_PASSAGEM_COBRANCA: str = "passagem_cobranca"
 DESFECHO_PASSAGEM_SEM_FRASE: str = "passagem_cobranca_sem_frase"
 #: Quem esta' com a conversa, como o despachante le' da tabela `conversa_agente_ativo`.
 AGENTES_DA_CONVERSA: frozenset[str] = frozenset({"helena", "lucas"})
+
+#: IDENTIDADE DO BENEFICIARIO (DL-0077). Quem escreve, resolvido pela AMH a partir do telefone (hash) e
+#: entregue pelo despachante SO' com `MAEZO_HELENA_IDENTIDADE_AMH` ligada e SO' quando o telefone aponta
+#: para UMA pessoa. E' CONTEXTO, nunca insumo de decisao: nenhum no' da Helena le' este campo para
+#: classificar, tabelar, escalar ou redigir (nao entra no prompt nem na extracao); ele viaja no estado e
+#: na telemetria para personalizacao futura e roteamento correto. Vocabulario FECHADO (Zona Geral,
+#: ADR-0006): referencia opaca, faixa etaria grossa (nunca idade exata nem nascimento), e os fatos de
+#: plano do contrato. Nunca telefone, CPF ou nome. `None` = sem identidade = a Helena de sempre.
+IDENTIDADE_FAIXAS_ETARIAS: frozenset[str] = frozenset(
+    {"lactente", "crianca", "adolescente", "adulto", "idoso"}
+)
+IDENTIDADE_CHAVES: frozenset[str] = frozenset(
+    {
+        "portable_subject_ref",
+        "faixa_etaria",
+        "plano_ativo",
+        "vigencia_inicio",
+        "vigencia_fim",
+        "carencia_vigente",
+        "titular_ref",
+    }
+)
+_IDENTIDADE_REF: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._:~-]{1,256}$")
+_IDENTIDADE_DATA: re.Pattern[str] = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def normalizar_identidade(valor: object) -> dict[str, Any] | None:
+    """A identidade em forma canonica, ou `None` quando ela nao pode ser confiada.
+
+    Estrita e fail-closed: mapeamento com exatamente `IDENTIDADE_CHAVES`, referencia opaca no formato
+    esperado, faixa dentro do vocabulario, booleanos/`None` e datas ISO (`YYYY-MM-DD`). Qualquer desvio
+    devolve `None` — nunca uma identidade "parcial" ou corrigida. Nao levanta.
+    """
+    if not isinstance(valor, Mapping) or frozenset(valor) != IDENTIDADE_CHAVES:
+        return None
+    ref = valor["portable_subject_ref"]
+    titular = valor["titular_ref"]
+    faixa = valor["faixa_etaria"]
+    if not isinstance(ref, str) or not _IDENTIDADE_REF.fullmatch(ref):
+        return None
+    if titular is not None and (not isinstance(titular, str) or not _IDENTIDADE_REF.fullmatch(titular)):
+        return None
+    if faixa is not None and faixa not in IDENTIDADE_FAIXAS_ETARIAS:
+        return None
+    for chave in ("plano_ativo", "carencia_vigente"):
+        if valor[chave] is not None and not isinstance(valor[chave], bool):
+            return None
+    for chave in ("vigencia_inicio", "vigencia_fim"):
+        data = valor[chave]
+        if data is not None and (not isinstance(data, str) or not _IDENTIDADE_DATA.fullmatch(data)):
+            return None
+    return {chave: valor[chave] for chave in sorted(IDENTIDADE_CHAVES)}
+
+
 #: COLETA: desfecho de um turno que terminou em PERGUNTA. Declarado tambem em
 #: `runtime/turn_telemetry.py` (vocabulario da helena) — o teste de coleta impede a divergencia.
 DESFECHO_PERGUNTA_COLETA: str = "pergunta_coleta"
@@ -973,6 +1027,10 @@ class HelenaState(TypedDict, total=False):
     pedido_humano_lexico: bool
     sinal_saude_lexico: bool
     message_ref: str
+    #: IDENTIDADE DO BENEFICIARIO (DL-0077): contexto pseudonimo, ver `IDENTIDADE_CHAVES`. ENTRADA do
+    #: despachante, gravada em TODO turno (`None` quando a fonte esta' desligada ou nao resolveu uma
+    #: pessoa so'). Nenhum no' decide nada a partir dela.
+    identidade_beneficiario: dict[str, Any] | None
 
     # Filled by `classify`.
     intent: Intent
@@ -1093,6 +1151,7 @@ HELENA_INPUT_FIELDS: frozenset[str] = frozenset(
         "pedido_humano_lexico",
         "sinal_saude_lexico",
         "message_ref",
+        "identidade_beneficiario",
     }
 )
 
@@ -1916,6 +1975,7 @@ def new_helena_state(
     pedido_humano_lexico: bool = False,
     sinal_saude_lexico: bool = False,
     message_ref: str = "",
+    identidade_beneficiario: Mapping[str, Any] | None = None,
 ) -> HelenaState:
     """Typed input-boundary constructor for a fresh Helena turn (T1.11).
 
@@ -1937,6 +1997,11 @@ def new_helena_state(
         raise ValueError("new_helena_state: sinais lexicos devem ser booleanos")
     if not isinstance(message_ref, str):
         raise ValueError("new_helena_state: message_ref deve ser texto")
+    identidade = None
+    if identidade_beneficiario is not None:
+        identidade = normalizar_identidade(identidade_beneficiario)
+        if identidade is None:
+            raise ValueError("new_helena_state: identidade_beneficiario fora do vocabulario fechado")
     return {
         "tenant_id": tenant_id,
         "conversation_id": conversation_id,
@@ -1951,6 +2016,9 @@ def new_helena_state(
         "pedido_humano_lexico": pedido_humano_lexico,
         "sinal_saude_lexico": sinal_saude_lexico,
         "message_ref": message_ref,
+        # DL-0077: SEMPRE gravada (neutro `None`): com checkpoint a entrada e' mesclada sobre o estado
+        # salvo, e a identidade de um turno anterior nao pode sobreviver a um turno sem ela.
+        "identidade_beneficiario": identidade,
     }
 
 
@@ -2004,6 +2072,9 @@ def gate_inbound_state(raw: Mapping[str, Any]) -> HelenaState:
     gated["sinal_saude_lexico"] = raw.get("sinal_saude_lexico") is True
     ref = raw.get("message_ref")
     gated["message_ref"] = ref if isinstance(ref, str) else ""
+    # DL-0077: um mapeamento cru nao carrega identidade — so' o despachante, que a resolve pela AMH,
+    # chama `new_helena_state` com ela. Qualquer valor plantado aqui vira o neutro.
+    gated["identidade_beneficiario"] = None
     return cast(HelenaState, gated)
 
 

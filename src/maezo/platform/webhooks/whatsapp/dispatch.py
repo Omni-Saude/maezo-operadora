@@ -126,6 +126,7 @@ if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
     from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyDispatchOutcome
     from maezo.gateway.capabilities.models import CapabilityRefusalReason
 
+    from .helena_identidade import IdentidadeHelena
     from .lucas_turno import LucasTurno
     from .pre_roteamento import SinaisLexicos
     from .roteamento import ConversaRouter, PedidoDeHandoff
@@ -377,6 +378,12 @@ class HelenaDispatcher:
     #: (`classify-v6`, sinais lexicos, agente ativo) e executa o Lucas depois dela. Roteador sem
     #: Lucas e' a sombra da onda (c), intocada.
     lucas_turno: LucasTurno | None = None
+    #: IDENTIDADE DO BENEFICIARIO (DL-0077). `None` (o default, e o que `service.py` passa com
+    #: `MAEZO_HELENA_IDENTIDADE_AMH` desligada) = a Helena de sempre, sem nenhuma chamada a mais e sem
+    #: calcular hash algum. Ligada, o despachante resolve UMA vez por conversa (cache em
+    #: `IdentidadeHelena`) quem escreve e entrega SO' a identidade pseudonima ao estado — contexto,
+    #: nunca insumo de decisao. Independe do roteador do Lucas.
+    identidade: IdentidadeHelena | None = None
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
     administrative_binding: JourneyBinding | None = None
@@ -835,6 +842,15 @@ class HelenaDispatcher:
         # `dmn_decision_ref`) from here into `HelenaState` — the caller-planted read-through class
         # is unreachable at the construction seam, not just neutralized inside `receive`.
         sinais = self._pre_rotear(message.text, conversation_id) if self.roteador is not None else None
+        # DL-0077: o numero cru so' existe aqui (o hash `amh-phone-lookup-v1` nasce e morre dentro de
+        # `IdentidadeHelena.resolver`). Nunca levanta: sem identidade, a Helena de sempre.
+        identidade = (
+            await self.identidade.resolver(
+                message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
+            )
+            if self.identidade is not None
+            else None
+        )
         message_pseudonym = log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer)
         if self._roteamento_completo:
             # NUMERO UNICO (onda e): as entradas do roteador, todas TIPADAS e sem texto. Quem estava
@@ -853,6 +869,7 @@ class HelenaDispatcher:
                 # falha como "sem sinal" abriria o Lucas justamente quando a cerca nao rodou.
                 sinal_saude_lexico=sinais is None or sinais.sinal_saude,
                 message_ref=message_pseudonym,
+                identidade_beneficiario=identidade,
             )
         else:
             initial_state = new_helena_state(
@@ -861,6 +878,7 @@ class HelenaDispatcher:
                 canal="whatsapp",
                 beneficiario_pseudo_id=beneficiario_pseudo_id,
                 message_body=message.text,
+                identidade_beneficiario=identidade,
             )
         logger.info(
             "helena_dispatch_turn_started",
@@ -870,6 +888,8 @@ class HelenaDispatcher:
             # wamid bruto que embute o telefone da contraparte.
             message_pseudonym=message_pseudonym,
             checkpointed=saver is not None,
+            # DL-0077: so' o fato (booleano), nunca a referencia nem o perfil.
+            identidade_presente=identidade is not None,
         )
         # `thread_config` scopes the checkpoint thread when a saver is attached; None (stateless
         # compile) is passed through as a no-op config, so this call site is single-path.
