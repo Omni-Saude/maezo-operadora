@@ -25,6 +25,13 @@ telefone nunca e' guardado (so' o resultado).
 
 LOG. So' `conversation_id` (keyed), o motivo (token fechado) e booleanos. Nunca o hash, a referencia, o
 numero nem o perfil.
+
+DESFECHO (DL-0078, decisao do dono de 07/10/2026). `resolver_com_desfecho` devolve, alem da identidade, o
+desfecho FECHADO que decide o aviso de identidade da Helena: `reconhecido` (identidade montada),
+`nao_encontrado` (a AMH respondeu com SUCESSO que NAO ha' candidato — `resultado == "nenhum"` e conjunto
+vazio, via `ResolvedorDeSujeitoAmh.portable_ref_com_desfecho`) ou `indeterminado` (todo o resto: telefone
+compartilhado, falha, prazo, sem base legal, perfil fora do vocabulario, resolvedor sem desfecho). So'
+`nao_encontrado` autoriza dizer "nao encontrei"; o indeterminado nao diz nada.
 """
 
 from __future__ import annotations
@@ -34,11 +41,16 @@ import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Any, Final, Protocol, runtime_checkable
 
 import structlog
 
-from maezo.agents.helena.graph import normalizar_identidade
+from maezo.agents.helena.graph import (
+    IDENTIDADE_INDETERMINADA,
+    IDENTIDADE_NAO_ENCONTRADA,
+    IDENTIDADE_RECONHECIDA,
+    normalizar_identidade,
+)
 from maezo.agents.lucas.fonte_cobranca_amh import FonteDeConsentimento, ResolvedorDeSujeito
 from maezo.ports.subject_resolution import SubjectProfile, SubjectResolutionPort
 
@@ -49,6 +61,26 @@ PRAZO_TOTAL_S: Final[float] = 6.0
 TTL_POSITIVO_S: Final[float] = 600.0
 TTL_NEGATIVO_S: Final[float] = 60.0
 MAX_CONVERSAS_EM_CACHE: Final[int] = 4096
+
+
+@runtime_checkable
+class ResolvedorComDesfecho(Protocol):
+    """O resolvedor que tambem diz POR QUE nao resolveu (`ResolvedorDeSujeitoAmh`). DL-0078."""
+
+    async def portable_ref_com_desfecho(
+        self, pseudo_id: str, *, phone_hash: str | None
+    ) -> tuple[str | None, str]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ResultadoIdentidade:
+    """A identidade (ou `None`) e o desfecho fechado (`graph.IDENTIDADE_DESFECHOS`)."""
+
+    identidade: dict[str, Any] | None
+    desfecho: str
+
+
+_INDETERMINADO: Final[ResultadoIdentidade] = ResultadoIdentidade(None, IDENTIDADE_INDETERMINADA)
 
 
 def _inteiro(valor: object) -> int | None:
@@ -108,35 +140,47 @@ class IdentidadeHelena:
     #: Drenagem dos executores do gateway.
     aclose_fn: Callable[[], Awaitable[None]] | None = field(default=None, repr=False)
     relogio: Callable[[], float] = field(default=time.monotonic, repr=False)
-    _cache: OrderedDict[str, tuple[float, dict[str, Any] | None]] = field(
+    _cache: OrderedDict[str, tuple[float, ResultadoIdentidade]] = field(
         default_factory=OrderedDict, init=False, repr=False
     )
 
-    def _do_cache(self, conversation_id: str) -> tuple[bool, dict[str, Any] | None]:
+    def _do_cache(self, conversation_id: str) -> ResultadoIdentidade | None:
         entrada = self._cache.get(conversation_id)
         if entrada is None:
-            return False, None
-        validade, identidade = entrada
+            return None
+        validade, resultado = entrada
         if self.relogio() >= validade:
             del self._cache[conversation_id]
-            return False, None
+            return None
         self._cache.move_to_end(conversation_id)
-        return True, dict(identidade) if identidade is not None else None
+        return _copia(resultado)
 
-    def _guardar(self, conversation_id: str, identidade: dict[str, Any] | None) -> None:
-        ttl = TTL_POSITIVO_S if identidade is not None else TTL_NEGATIVO_S
-        self._cache[conversation_id] = (self.relogio() + ttl, identidade)
+    def _guardar(self, conversation_id: str, resultado: ResultadoIdentidade) -> None:
+        ttl = TTL_POSITIVO_S if resultado.identidade is not None else TTL_NEGATIVO_S
+        self._cache[conversation_id] = (self.relogio() + ttl, resultado)
         self._cache.move_to_end(conversation_id)
         while len(self._cache) > MAX_CONVERSAS_EM_CACHE:
             self._cache.popitem(last=False)
+
+    async def _referencia(self, pseudo_id: str, phone_hash: str) -> tuple[str | None, str]:
+        """A referencia e o motivo fechado. `sujeito_nao_encontrado` SO' com o `nenhum` definitivo da AMH."""
+        if isinstance(self.resolvedor, ResolvedorComDesfecho):
+            ref, desfecho = await self.resolvedor.portable_ref_com_desfecho(pseudo_id, phone_hash=phone_hash)
+            if ref is not None and desfecho == "unico":
+                return ref, "ok"
+            motivos = {"nenhum": "sujeito_nao_encontrado", "multiplos": "sujeito_ambiguo"}
+            return None, motivos.get(desfecho, "sujeito_nao_resolvido")
+        # Resolvedor sem desfecho: nao ha' como distinguir "nenhum" de "varios" — fica indeterminado.
+        ref = await self.resolvedor.portable_ref(pseudo_id, phone_hash=phone_hash)
+        return ref, "ok" if ref is not None else "sujeito_nao_resolvido"
 
     async def _resolver(self, numero_cru: str, pseudo_id: str) -> tuple[dict[str, Any] | None, str]:
         phone_hash = self.hash_telefone(numero_cru)
         if not phone_hash:
             return None, "hash_indisponivel"
-        ref = await self.resolvedor.portable_ref(pseudo_id, phone_hash=phone_hash)
+        ref, motivo = await self._referencia(pseudo_id, phone_hash)
         if ref is None:
-            return None, "sujeito_nao_resolvido"
+            return None, motivo
         base_legal = await self.consentimento.decisao(ref, self.purpose_of_use)
         if base_legal is None:
             return None, "sem_base_legal"
@@ -156,32 +200,54 @@ class IdentidadeHelena:
         self, numero_cru: str, *, conversation_id: str, pseudo_id: str
     ) -> dict[str, Any] | None:
         """A identidade da pessoa que escreve, ou `None`. NUNCA levanta."""
+        resultado = await self.resolver_com_desfecho(
+            numero_cru, conversation_id=conversation_id, pseudo_id=pseudo_id
+        )
+        return resultado.identidade
+
+    async def resolver_com_desfecho(
+        self, numero_cru: str, *, conversation_id: str, pseudo_id: str
+    ) -> ResultadoIdentidade:
+        """A identidade e o desfecho fechado (DL-0078). NUNCA levanta: qualquer falha e' `indeterminado`."""
         try:
-            achou, em_cache = self._do_cache(conversation_id)
-            if achou:
+            em_cache = self._do_cache(conversation_id)
+            if em_cache is not None:
                 return em_cache
             try:
                 async with asyncio.timeout(PRAZO_TOTAL_S):
                     identidade, motivo = await self._resolver(numero_cru, pseudo_id)
             except TimeoutError:
                 identidade, motivo = None, "prazo_estourado"
-            self._guardar(conversation_id, identidade)
+            if identidade is not None:
+                resultado = ResultadoIdentidade(identidade, IDENTIDADE_RECONHECIDA)
+            elif motivo == "sujeito_nao_encontrado":
+                resultado = ResultadoIdentidade(None, IDENTIDADE_NAO_ENCONTRADA)
+            else:
+                resultado = _INDETERMINADO
+            self._guardar(conversation_id, resultado)
             logger.info(
                 "helena_identidade_resolvida",
                 conversation_id=conversation_id,
                 resolvida=identidade is not None,
                 motivo=motivo,
+                desfecho=resultado.desfecho,
             )
-            return dict(identidade) if identidade is not None else None
+            return _copia(resultado)
         except Exception as exc:
             logger.warning(
                 "helena_identidade_falhou", conversation_id=conversation_id, error_type=type(exc).__name__
             )
-            return None
+            return _INDETERMINADO
 
     async def aclose(self) -> None:
         if self.aclose_fn is not None:
             await self.aclose_fn()
+
+
+def _copia(resultado: ResultadoIdentidade) -> ResultadoIdentidade:
+    """Copia rasa da identidade: quem recebe nunca altera o que esta' no cache."""
+    identidade = dict(resultado.identidade) if resultado.identidade is not None else None
+    return ResultadoIdentidade(identidade, resultado.desfecho)
 
 
 __all__ = [
@@ -190,6 +256,8 @@ __all__ = [
     "TTL_NEGATIVO_S",
     "TTL_POSITIVO_S",
     "IdentidadeHelena",
+    "ResolvedorComDesfecho",
+    "ResultadoIdentidade",
     "faixa_etaria",
     "identidade_do_perfil",
 ]

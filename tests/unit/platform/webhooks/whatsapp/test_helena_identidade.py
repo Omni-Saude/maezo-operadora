@@ -13,9 +13,15 @@ from typing import Any
 
 import pytest
 import structlog
+from langgraph.checkpoint.memory import InMemorySaver
+from pydantic import ValidationError
 
 from maezo.agents.helena.graph import (
     IDENTIDADE_CHAVES,
+    IDENTIDADE_INDETERMINADA,
+    IDENTIDADE_NAO_ENCONTRADA,
+    IDENTIDADE_RECONHECIDA,
+    NOME_OPERADORA_PADRAO,
     gate_inbound_state,
     new_helena_state,
     normalizar_identidade,
@@ -24,6 +30,7 @@ from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, Resol
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.platform.webhooks.whatsapp import helena_identidade as hi
 from maezo.platform.webhooks.whatsapp.dispatch import HelenaDispatcher, InboundMessage
+from maezo.platform.webhooks.whatsapp.settings import WhatsAppWebhookSettings
 from maezo.ports.errors import PortFailureReason as Reason
 from maezo.ports.errors import PortResult
 from maezo.ports.subject_resolution import (
@@ -32,6 +39,7 @@ from maezo.ports.subject_resolution import (
     SubjectProfile,
     SubjectResolution,
 )
+from maezo.runtime.checkpoint import Checkpointer
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -404,3 +412,251 @@ async def test_despachante_resolve_uma_vez_por_conversa() -> None:
     for n in range(3):
         await _turno(com, inf, n)
     assert port.chamadas_resolucao == 1
+
+
+# --- DL-0078: o desfecho fechado e o aviso de identidade ------------------------------------------
+
+_AVISO_RECONHECIDO = (
+    "Reconheci este número no cadastro de beneficiários da Austa Clínicas. "
+    "Por segurança, não mostro dados pessoais por aqui."
+)
+_NAO_ENCONTRADO = "Não encontrei este número no cadastro de beneficiários."
+
+
+async def _desfecho(ident: hi.IdentidadeHelena, conversa: str = "wa:amh:hk1_x") -> hi.ResultadoIdentidade:
+    return await ident.resolver_com_desfecho(_NUMERO, conversation_id=conversa, pseudo_id="pseudo")
+
+
+class _SemBaseLegal:
+    async def decisao(self, portable_ref: str, purpose_of_use: str) -> str | None:
+        return None
+
+
+class _ResolvedorSemDesfecho:
+    """Um `ResolvedorDeSujeito` que so' tem `portable_ref` (nao distingue nenhum de varios)."""
+
+    async def portable_ref(self, pseudo_id: str, *, phone_hash: str | None) -> str | None:
+        return None
+
+
+async def test_desfecho_reconhecido_so_com_candidato_unico_e_perfil_valido() -> None:
+    r = await _desfecho(_identidade(_Port()))
+    assert r.desfecho == IDENTIDADE_RECONHECIDA
+    assert r.identidade is not None and r.identidade["portable_subject_ref"] == _REF
+
+
+async def test_desfecho_nao_encontrado_so_com_o_nenhum_definitivo_da_amh() -> None:
+    port = _Port(resolucao=PortResult.ok(_resolucao()))
+    r = await _desfecho(_identidade(port))
+    assert (r.identidade, r.desfecho) == (None, IDENTIDADE_NAO_ENCONTRADA)
+    assert port.chamadas_perfil == 0
+
+
+@pytest.mark.parametrize(
+    "port",
+    [
+        _Port(resolucao=PortResult.ok(_resolucao("a", "b"))),  # telefone compartilhado
+        _Port(resolucao=PortResult.refused(Reason.UPSTREAM_UNAVAILABLE)),
+        _Port(perfil=PortResult.refused(Reason.UPSTREAM_UNAVAILABLE)),
+        _Port(perfil=PortResult.ok(_perfil(ref="subj-ref-outro"))),
+        _Port(levanta=True),
+        # incoerentes: `nenhum` com candidato, `unico` com dois
+        _Port(
+            resolucao=PortResult.ok(
+                SubjectResolution("nenhum", (SubjectCandidate("x", "titular", True),), frozenset())
+            )
+        ),
+        _Port(
+            resolucao=PortResult.ok(
+                SubjectResolution(
+                    "unico",
+                    (SubjectCandidate("x", "titular", True), SubjectCandidate("y", "titular", True)),
+                    frozenset(),
+                )
+            )
+        ),
+    ],
+)
+async def test_tudo_que_nao_e_unico_nem_nenhum_e_indeterminado(port: _Port) -> None:
+    r = await _desfecho(_identidade(port))
+    assert (r.identidade, r.desfecho) == (None, IDENTIDADE_INDETERMINADA)
+
+
+async def test_sem_base_legal_e_indeterminado() -> None:
+    ident = _identidade(_Port())
+    ident.consentimento = _SemBaseLegal()
+    r = await _desfecho(ident)
+    assert (r.identidade, r.desfecho) == (None, IDENTIDADE_INDETERMINADA)
+
+
+async def test_hash_indisponivel_e_prazo_estourado_sao_indeterminados(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert (await _desfecho(_identidade(_Port(), hash_fn=lambda numero: None))).desfecho == (
+        IDENTIDADE_INDETERMINADA
+    )
+    monkeypatch.setattr(hi, "PRAZO_TOTAL_S", 0.05)
+    port = _Port(resolucao=PortResult.ok(_resolucao()), espera_s=1.0)
+    assert (await _desfecho(_identidade(port))).desfecho == IDENTIDADE_INDETERMINADA
+
+
+async def test_resolvedor_sem_desfecho_nunca_diz_nao_encontrado() -> None:
+    ident = _identidade(_Port(resolucao=PortResult.ok(_resolucao())))
+    ident.resolvedor = _ResolvedorSemDesfecho()
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_INDETERMINADA
+
+
+async def test_o_cache_guarda_o_desfecho_e_o_negativo_expira() -> None:
+    port, relogio = _Port(resolucao=PortResult.ok(_resolucao())), _Relogio()
+    ident = _identidade(port, relogio=relogio)
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_NAO_ENCONTRADA
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_NAO_ENCONTRADA
+    assert port.chamadas_resolucao == 1
+    relogio.t += hi.TTL_NEGATIVO_S + 1
+    port.resolucao = PortResult.ok(_resolucao(_REF))
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_RECONHECIDA
+
+
+async def test_quem_recebe_do_cache_nao_altera_o_cache() -> None:
+    ident = _identidade(_Port())
+    r = await _desfecho(ident)
+    assert r.identidade is not None
+    r.identidade["plano_ativo"] = "adulterado"
+    de_novo = await _desfecho(ident)
+    assert de_novo.identidade is not None and de_novo.identidade["plano_ativo"] is True
+
+
+@pytest.mark.parametrize(
+    ("refs", "esperado"),
+    [((), (None, "nenhum")), ((_REF,), (_REF, "unico")), (("a", "b"), (None, "multiplos"))],
+)
+async def test_resolvedor_amh_expoe_o_desfecho(
+    refs: tuple[str, ...], esperado: tuple[str | None, str]
+) -> None:
+    resolvedor = ResolvedorDeSujeitoAmh(
+        port=_Port(resolucao=PortResult.ok(_resolucao(*refs))),  # type: ignore[arg-type]
+        amh_tenant="austa_operadora",
+        hash_scheme="amh-phone-lookup-v1",
+        purpose_of_use="sharing_amh_internal",
+    )
+    assert await resolvedor.portable_ref_com_desfecho("p", phone_hash=_HASH) == esperado
+    # `portable_ref` continua o de sempre: so' o candidato unico
+    assert await resolvedor.portable_ref("p", phone_hash=_HASH) == esperado[0]
+    assert await resolvedor.portable_ref_com_desfecho("p", phone_hash=None) == (None, "indisponivel")
+
+
+async def test_log_do_desfecho_so_tem_tokens_fechados() -> None:
+    with structlog.testing.capture_logs() as logs:
+        await _desfecho(_identidade(_Port(resolucao=PortResult.ok(_resolucao()))))
+    evento = next(e for e in logs if e["event"] == "helena_identidade_resolvida")
+    assert evento["desfecho"] == IDENTIDADE_NAO_ENCONTRADA
+    assert evento["motivo"] == "sujeito_nao_encontrado"
+    for proibido in (_HASH, _REF, _NUMERO):
+        assert proibido not in repr(logs)
+
+
+# --- o despachante entrega o aviso pelo caminho governado -----------------------------------------
+
+_SAUDACAO = '{"intent": "greeting", "population": "none", "psychosocial_risk": false}'
+
+
+def _despachante_com_checkpoint(
+    identidade: hi.IdentidadeHelena | None,
+) -> tuple[HelenaDispatcher, _FakeInference, _Cliente]:
+    dispatcher, inferencia = _despachante(identidade)
+    dispatcher.checkpointer = Checkpointer(saver=InMemorySaver())
+    cliente = dispatcher.whatsapp_client
+    assert isinstance(cliente, _Cliente)
+    return dispatcher, inferencia, cliente
+
+
+async def _turno_saudacao(d: HelenaDispatcher, inf: _FakeInference, n: int) -> dict[str, Any]:
+    inf._respostas = [_SAUDACAO]
+    return await d.dispatch(InboundMessage(from_number=_NUMERO, text="oi", message_id=f"wamid.s{n}"))
+
+
+async def test_despachante_avisa_reconhecido_uma_vez_por_conversa() -> None:
+    d, inf, cliente = _despachante_com_checkpoint(_identidade(_Port()))
+    r1 = await _turno_saudacao(d, inf, 1)
+    r2 = await _turno_saudacao(d, inf, 2)
+
+    textos = [texto for _, texto in cliente.sent]
+    assert textos[0] == _AVISO_RECONHECIDO
+    assert textos.count(_AVISO_RECONHECIDO) == 1
+    assert len(textos) == 3  # aviso + resposta, depois so' a resposta
+    assert r1["identidade_desfecho"] == IDENTIDADE_RECONHECIDA
+    assert r1["aviso_identidade_dado"] is True and r2["aviso_identidade_dado"] is True
+    # o envio vai ao numero cru deste turno, pelo mesmo remetente da resposta
+    assert {para for para, _ in cliente.sent} == {_NUMERO}
+
+
+async def test_despachante_avisa_nao_encontrado() -> None:
+    d, inf, cliente = _despachante_com_checkpoint(_identidade(_Port(resolucao=PortResult.ok(_resolucao()))))
+    r = await _turno_saudacao(d, inf, 1)
+    assert [texto for _, texto in cliente.sent][0] == _NAO_ENCONTRADO
+    assert r["identidade_desfecho"] == IDENTIDADE_NAO_ENCONTRADA
+    assert r["identidade_beneficiario"] is None
+
+
+@pytest.mark.parametrize(
+    "port",
+    [_Port(resolucao=PortResult.ok(_resolucao("a", "b"))), _Port(levanta=True)],
+)
+async def test_despachante_indeterminado_nao_fala_de_identidade(port: _Port) -> None:
+    d, inf, cliente = _despachante_com_checkpoint(_identidade(port))
+    r = await _turno_saudacao(d, inf, 1)
+    assert len(cliente.sent) == 1
+    assert cliente.sent[0][1] not in (_AVISO_RECONHECIDO, _NAO_ENCONTRADO)
+    assert r["identidade_desfecho"] == IDENTIDADE_INDETERMINADA
+
+
+async def test_despachante_desligado_e_o_de_sempre() -> None:
+    d, inf, cliente = _despachante_com_checkpoint(None)
+    r = await _turno_saudacao(d, inf, 1)
+    assert len(cliente.sent) == 1
+    assert r["identidade_desfecho"] is None
+    assert r["aviso_identidade_dado"] is False
+
+
+async def test_despachante_nome_da_operadora_configuravel() -> None:
+    d, inf, cliente = _despachante_com_checkpoint(_identidade(_Port()))
+    d.identidade_nome_operadora = "Operadora Exemplo"
+    await _turno_saudacao(d, inf, 1)
+    assert cliente.sent[0][1] == _AVISO_RECONHECIDO.replace("Austa Clínicas", "Operadora Exemplo")
+
+
+async def test_log_do_aviso_nao_carrega_referencia_hash_nem_numero() -> None:
+    d, inf, _ = _despachante_com_checkpoint(_identidade(_Port()))
+    with structlog.testing.capture_logs() as logs:
+        await _turno_saudacao(d, inf, 1)
+    avisos = [e for e in logs if e["event"] == "helena_aviso_identidade"]
+    assert [e["motivo"] for e in avisos] == ["enviado"]
+    assert avisos[0]["aviso_identidade"] == IDENTIDADE_RECONHECIDA
+    inicio = next(e for e in logs if e["event"] == "helena_dispatch_turn_started")
+    assert inicio["identidade_desfecho"] == IDENTIDADE_RECONHECIDA
+    for proibido in (_HASH, _REF, _NUMERO, "subj-ref-titular"):
+        assert proibido not in repr(logs)
+
+
+# --- a settings do nome --------------------------------------------------------------------------
+
+
+def _settings(**extra: object) -> WhatsAppWebhookSettings:
+    return WhatsAppWebhookSettings(app_secret="s", verify_token="v", **extra)  # type: ignore[arg-type]
+
+
+def test_nome_da_operadora_padrao_bate_com_o_do_grafo(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_HELENA_IDENTIDADE_NOME_OPERADORA", raising=False)
+    assert _settings().helena_identidade_nome_operadora == NOME_OPERADORA_PADRAO
+
+
+def test_nome_da_operadora_le_o_nome_canonico_do_ambiente(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MAEZO_HELENA_IDENTIDADE_NOME_OPERADORA", "  Operadora   Exemplo ")
+    assert _settings().helena_identidade_nome_operadora == "Operadora Exemplo"
+
+
+@pytest.mark.parametrize("nome", ["", "   ", "{operadora}", "https://x.y", "a" * 61, "Nome\x07sino", "123"])
+def test_nome_da_operadora_invalido_recusa_no_boot(nome: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_HELENA_IDENTIDADE_NOME_OPERADORA", raising=False)
+    with pytest.raises(ValidationError):
+        _settings(helena_identidade_nome_operadora=nome)

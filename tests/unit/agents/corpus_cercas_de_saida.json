@@ -1682,6 +1682,61 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Reconheci este número no cadastro de beneficiários da {operadora}. Por segurança, não mostro dados pessoais por aqui.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante RESPOSTA_AVISO_IDENTIDADE_RECONHECIDA_MODELO (DL-0078, 07/10/2026): o modelo do aviso de primeiro contato, numero reconhecido",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Reconheci este número no cadastro de beneficiários da Austa Clínicas. Por segurança, não mostro dados pessoais por aqui.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante RESPOSTA_AVISO_IDENTIDADE_RECONHECIDA_MODELO (DL-0078) renderizada com o nome padrao: o texto exato ditado pelo dono",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Este número está cadastrado para um beneficiário da {operadora}. Por segurança, não mostro nome nem dados pelo WhatsApp.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante RESPOSTA_PERGUNTA_IDENTIDADE_RECONHECIDA_MODELO (DL-0078, 07/10/2026): o modelo da resposta a 'sabe quem sou eu?', numero reconhecido",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Este número está cadastrado para um beneficiário da Austa Clínicas. Por segurança, não mostro nome nem dados pelo WhatsApp.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante RESPOSTA_PERGUNTA_IDENTIDADE_RECONHECIDA_MODELO (DL-0078) renderizada com o nome padrao: o texto exato ditado pelo dono",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não encontrei este número no cadastro de beneficiários.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante RESPOSTA_IDENTIDADE_NAO_ENCONTRADA (DL-0078, 07/10/2026): numero sem candidato na AMH, primeiro contato e pergunta",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }
