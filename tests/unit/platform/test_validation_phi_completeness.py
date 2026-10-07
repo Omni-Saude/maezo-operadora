@@ -134,10 +134,10 @@ class TestNonVacuity:
     def test_the_sweep_reads_the_whole_corpus(self, live_sweep: Sweep) -> None:
         """16 BPMN + 62 DMN + 8 YAML must all have been opened."""
         touched = {ref.path for ref in live_sweep.refs}
-        assert len({p for p in touched if p.suffix == ".bpmn"}) == 16
+        assert len({p for p in touched if p.suffix == ".bpmn"}) == 17  # VW4/GP11: +SP-OP-SUPP-001
         # 62 -> 63 com `triage_sufficiency.dmn` (Frente 2.2) — ver a entrada #407 do
         # CORPUS_DELTA_LOG, que nomeia o arquivo e os sete nomes que ele traz.
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 63
+        assert len({p for p in touched if p.suffix == ".dmn"}) == 64  # VW4/GP11: +suppression_routing
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -994,6 +994,98 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "ausente vira `ambiguidade`, o lado de nao acusar. Nao carrega dado do beneficiario. "
         ),
     ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="categoria_sujeito",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "VW4/GP11 envelope: SP-OP-SUPP-001 + suppression_routing.dmn pousam com a unica "
+            "row catch-all. `categoria_sujeito` (vendedor|lead|desconhecido — DECLARADA no "
+            "pedido, nunca inferida de dado clinico/comportamental, G-PHI) entra no corpus "
+            "como input da DMN; as particoes com a taxonomia C1-C6 chegam no wiring."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="grupo_decisao",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "mesmo envelope: output da DMN suppression_routing (1 ocorrencia) e "
+            "candidateGroups VALUE-DRIVEN da UT_RotearEncarregado (${grupo_decisao} — idioma "
+            "${roteamento_dsr.grupo_revisor}; conjunto fechado vem da tabela, hoje unica row "
+            "-> dpo; +1 pela referencia no atributo da UT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="decisao_encarregado",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "mesmo envelope: variavel humana da UT_RotearEncarregado (molde decisao_dsr do "
+            "SP-OP-LGPD-DSR-001 — inicializada '' na primeira service task, setada so pelo "
+            "humano; formulario DRAFT suppression_encarregado)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "os 5 publishes de evento do SP-OP-SUPP-001 (recorded/honored/complaint_routed/"
+            "completed×2) seguem o idioma inputParameter event_payload_vars do events worker "
+            "— payload minimizado art. 10 §1o."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "mesmos 5 publishes: um event_topic cada (agents.events.vendor.suppression.*)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="rota",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "variavel de processo do roteamento (output da DMN via worker; gateway GW_Rota; "
+            "inicializacao '' na primeira task — idioma ENGINE-16004)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="event_desfecho",
+        name_delta=0,
+        occurrence_delta=2,
+        reason=(
+            "os 2 publishes de recusa (completed: sujeito_irresolvivel / roteamento_indisponivel)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="canal",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "input da DMN suppression_routing (string fechada do contrato OP20) — nome ja "
+            "presente no corpus; +1 ocorrencia no fetch scope do topico vendor.suppression.route."
+        ),
+    ),
 )
 
 
@@ -1004,7 +1096,7 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
-        assert expected_clean == 326
+        assert expected_clean == 329  # VW4/GP11 (#691): +3 nomes CLEAN
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -1033,8 +1125,8 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 342
-        assert len(live_sweep.refs) == expected_refs == 1654
+        assert len(live_sweep.names) == expected_names == 345  # VW4/GP11 (#691): +3
+        assert len(live_sweep.refs) == expected_refs == 1674  # VW4/GP11 (#691): +20
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1160,8 +1252,8 @@ class TestBuckets:
         assert f"## {LISTED} (6)" in rendered
         assert f"## {SHAPE_SUSPECT} (10)" in rendered
         assert (
-            f"## {CLEAN} (326)" in rendered
-        )  # see CORPUS_DELTA_LOG — #339's two names, #345's `lastro_decisor_id`, and #407's seven
+            f"## {CLEAN} (329)" in rendered
+        )  # see CORPUS_DELTA_LOG — #339's two names, #345's `lastro_decisor_id`, #407's seven, #691's three
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

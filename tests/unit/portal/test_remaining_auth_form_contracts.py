@@ -260,5 +260,5 @@ def test_all_43_actual_bpmn_tasks_have_closed_source_shapes_only() -> None:
                 (process.attrib["id"], task.attrib["id"]) for task in process.findall(".//b:userTask", ns)
             )
     assert tasks == set(_BINDINGS)
-    assert len(tasks) == 43
-    assert len(_INPUTS_BY_FORM) == 31
+    assert len(tasks) == 44  # VW4/GP11: +UT_RotearEncarregado (SP-OP-SUPP-001)
+    assert len(_INPUTS_BY_FORM) == 32  # VW4/GP11: +suppression_encarregado

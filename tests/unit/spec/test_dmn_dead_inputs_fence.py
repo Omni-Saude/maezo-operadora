@@ -60,6 +60,12 @@ _STRING_LITERAL = re.compile(r'"[^"]*"')
 #: `frequency_zscore_threshold.in_encounter_class` and `unbundling_partial_bundles.in_tuss_codes`.
 KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
     {
+        # VW4/GP11 (2026-10-07): a DMN do envelope pousa com a UNICA row catch-all (admissao
+        # fail-closed) — ambos os inputs sao wildcard nessa row e lidos por nenhuma saida. As
+        # particoes com a taxonomia C1-C6 (insumos aceitos pelo dono, ANSWERS-V1 §GP11) chegam
+        # no pacote de wiring e DEVEM remover estas linhas (o ratchet forca a remocao).
+        ("suppression_routing.dmn", "in_canal", "canal"),
+        ("suppression_routing.dmn", "in_categoria", "categoria_sujeito"),
         ("ans_calendar.dmn", "in_competencia", "competencia"),
         ("auth_auto_approval.dmn", "in_carater", "carater_atendimento"),
         ("auth_criteria_contratual.dmn", "in_tenant", "tenant_id"),

@@ -69,6 +69,9 @@ def test_original_27_static_candidate_groups_are_preserved() -> None:
         "${pagto_alcada.grupo_aprovador}",
         "${roteamento.grupo_atendimento}",
         "${roteamento_dsr.grupo_revisor}",
+        # VW4/GP11 (2026-10-07): SP-OP-SUPP-001 UT_RotearEncarregado - grupo value-driven
+        # devolvido pela DMN suppression_routing (unica row hoje -> "dpo", literal vivo).
+        "${grupo_decisao}",
     }
 
 

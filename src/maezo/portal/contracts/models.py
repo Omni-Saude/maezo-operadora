@@ -1328,6 +1328,12 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ("SP-OP-LGPD-DSR-001", "UT_RevisaoDpo"): (
         "lgpd_decisao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),    # VW4/GP11: decisao de roteamento do encarregado (honrar / nao-honrar fundamentado /
+    # escalar) registrada no caso vendor; formulario DRAFT_VERIFY como o DSR (promocao a
+    # FINAL exige insumos DPO ratificados e o wiring do store).
+    ("SP-OP-SUPP-001", "UT_RotearEncarregado"): (
+        "suppression_encarregado",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
     # WP-J1-05: the BPMN now carries camunda:formData for this task (one enum field,
     # `decisao_pendencia`, exactly this form's allowed_inputs), so the binding is verifiable
@@ -1501,6 +1507,8 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "texto_resposta_nip",
     ),
     "lgpd_decisao": ("decisao_dsr", "fundamentacao_legal"),
+    # VW4/GP11 (2026-10-07): decisao humana do encarregado no SP-OP-SUPP-001 (DRAFT).
+    "suppression_encarregado": ("decisao_encarregado",),
     "auth_pendencia": ("decisao_pendencia",),
     "pagto_aprovacao": (
         "decisao_pagamento",

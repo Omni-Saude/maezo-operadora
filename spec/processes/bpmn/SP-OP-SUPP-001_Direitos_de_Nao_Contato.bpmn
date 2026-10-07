@@ -25,8 +25,9 @@
        SuppressionReceipt`; registro PREVENTIVO honrado na CONSTRUCAO de lista (antes do
        contato); minimizacao art. 10 §1o (identificador + data + canal, nada mais); base do
        registro de NAO-contato = art. 7o IX + art. 18 §2o (oposicao); oficial responsavel =
-       encarregado (art. 41 — grupo `dpo`, ja vivo para LGPD-DSR; percurso em
-       docs/review-queue.md).
+       encarregado (art. 41 — grupo VALUE-DRIVEN `${grupo_decisao}` devolvido pela DMN
+       `suppression_routing` (conjunto fechado; hoje unica row -> `dpo`, o mesmo literal
+       vivo em lgpd_dsr_routing/DSR); percurso em docs/review-queue.md).
 
        BUSINESS KEY (idempotente, correlacao POR NOME — GP-ADMISSION forma congelada):
        "SUPP-{tenant_id}-{suppression_ref}" onde `suppression_ref` e cunhado no plano de
@@ -202,7 +203,7 @@ fail-closed com as recusas tipadas acima ate eles chegarem.
          linha SP-OP-SUPP-001). `decisao_encarregado` fica no escopo para a promocao a FINAL
          (auditoria da decisao humana); nenhum caminho automatico sai daqui. -->
     <bpmn:userTask id="UT_RotearEncarregado" name="Rotear reclamacao/pedido ao encarregado (decisao humana)"
-                   camunda:candidateGroups="dpo">
+                   camunda:candidateGroups="${grupo_decisao}">
       <bpmn:documentation>VW0-D20: o SLA de honra e RATIFY-LATER — nenhum timer acompanha esta tarefa ("sem prazo que corre em silencio"). A decisao do encarregado (honrar / nao-honrar fundamentado / escalar) e registrada no caso vendor e alimenta o KPI de supressoes honradas no SLA (0/0 hoje — baseline honesto).</bpmn:documentation>
       <bpmn:incoming>Flow_GWRota_Humano</bpmn:incoming>
       <bpmn:outgoing>Flow_UT_PubRouted</bpmn:outgoing>
