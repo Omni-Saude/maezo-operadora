@@ -151,3 +151,22 @@ nao ficar saudavel.
 
 O roteador (`roteador_lucas_enabled`) nao muda: so' a fonte dos fatos. Com `simulada` o Lucas segue
 respondendo com fatos simulados, como hoje.
+
+## 6. Fatos do plano na Helena (`helena_consultas_amh`, DL-0081)
+
+Desligado por padrao. So' depois de TODOS estes passos:
+
+1. A AMH publicou o manifest aditivo **v1.2** (`schemas/contracts/maezo/v1.2/contract-manifest.yaml`, 1
+   artefato: `schemas/openapi/maezo/v1/tina.openapi.yaml`) — XRG-2 com atestacao humana. Hoje (07/10/2026)
+   ele e' DRAFT.
+2. Pin XRG-3 por PR: `python scripts/ci/gerar_pin_v1_1.py --manifest-version v1.2 --gh-ref <commit> --verified-by
+   "<pessoa>" --write`, depois `python scripts/ci/verify_amh_contract_pin.py --manifest <bytes> --manifest-version
+   v1.2`. Os bytes do OpenAPI vao para `config/integrations/amh/openapi/tina.openapi.yaml` (sha256 = o do pin).
+3. Base legal LGPD ratificada pelo DPO (DL-0081 a declara PENDENTE).
+4. `helena_identidade_amh = true` ja' ligado (a variavel nova recusa o plan sem ela) e o client
+   `maezo-operadora-interop` com o escopo `interop/tina.read` (ja' tem em dev).
+
+A troca: `helena_consultas_amh = true` em `amh-interop.auto.tfvars`. O Terraform acrescenta
+`interop/tina.read` a `MAEZO_AMH_INTEROP_SCOPES` e injeta `MAEZO_AMH_TINA_OPENAPI_PATH`. Sem o bloco
+`manifest_v1_2` no pin o receptor RECUSA servir (`tina_contract_invalid` no `dispatcher_error`). Rollback:
+`helena_consultas_amh = false`.

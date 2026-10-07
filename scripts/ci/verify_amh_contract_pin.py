@@ -211,6 +211,59 @@ V1_1_REQUIRED_STRING_FIELDS: tuple[str, ...] = (
     "xrg3_verification.verified_by",
 )
 
+#: Manifest ADITIVO v1.2 (TINA: elegibilidade, carencias e requisicoes). Mesmo desenho do v1.1: so
+#: OpenAPI, bloco OPCIONAL no lock e, presente, obrigatorio e completo, com a MESMA regra de
+#: imutabilidade sob o mesmo manifest (`candidate-v1-2-mutated`). Ainda DRAFT na AMH (07/10/2026):
+#: nenhum bloco existe no lock e o adaptador TINA recusa subir sem ele.
+V1_2_LOCK_KEY = "manifest_v1_2"
+V1_2_MANIFEST_PATH = "schemas/contracts/maezo/v1.2/contract-manifest.yaml"
+V1_2_ARTIFACT_PATHS: tuple[str, ...] = ("schemas/openapi/maezo/v1/tina.openapi.yaml",)
+#: Run de publicacao do v1.1 (XRG2-AMH-DEV-GHA-37555121279): o v1.2 so pode ser posterior a ele.
+V1_2_MIN_PUBLICATION_RUN_ID = 37555121279
+
+
+@dataclass(frozen=True)
+class AdditiveManifest:
+    """Um manifest ADITIVO (so OpenAPI) pinado num bloco proprio do lock. v1.1 e v1.2 sao instancias.
+
+    `code` prefixa os codigos de violacao (`v1-1-*`, `candidate-v1-1-*`), que ficam IGUAIS aos de
+    antes da generalizacao. `predecessors` sao as chaves dos manifests aditivos ANTERIORES: o bloco
+    exige que eles existam no lock e nunca reusa a evidencia, o digest ou um run anterior ao deles.
+    """
+
+    version: str
+    lock_key: str
+    manifest_path: str
+    manifest_version: str
+    artifact_paths: tuple[str, ...]
+    min_publication_run_id: int
+    code: str
+    predecessors: tuple[str, ...] = ()
+
+
+V1_1 = AdditiveManifest(
+    version="v1.1",
+    lock_key=V1_1_LOCK_KEY,
+    manifest_path=V1_1_MANIFEST_PATH,
+    manifest_version="1.1.0",
+    artifact_paths=V1_1_ARTIFACT_PATHS,
+    min_publication_run_id=V1_1_MIN_PUBLICATION_RUN_ID,
+    code="v1-1",
+)
+V1_2 = AdditiveManifest(
+    version="v1.2",
+    lock_key=V1_2_LOCK_KEY,
+    manifest_path=V1_2_MANIFEST_PATH,
+    manifest_version="1.2.0",
+    artifact_paths=V1_2_ARTIFACT_PATHS,
+    min_publication_run_id=V1_2_MIN_PUBLICATION_RUN_ID,
+    code="v1-2",
+    predecessors=(V1_1_LOCK_KEY,),
+)
+#: Em ordem de publicacao. O loader do adaptador (`maezo.adapters.amh.contract`) tem a copia dele.
+ADDITIVE_MANIFESTS: tuple[AdditiveManifest, ...] = (V1_1, V1_2)
+ADDITIVE_BY_VERSION: dict[str, AdditiveManifest] = {m.version: m for m in ADDITIVE_MANIFESTS}
+
 #: Glue schema-version IDs are keyed by the Avro schema basename (no extension).
 FROZEN_GLUE_SCHEMA_KEYS: tuple[str, ...] = (
     "amh_maezo_work_item",
@@ -669,35 +722,33 @@ def check_artifacts(lock: dict[str, Any]) -> list[Violation]:
     return violations
 
 
-def check_manifest_v1_1(lock: dict[str, Any]) -> list[Violation]:
-    """Bloco `manifest_v1_1` (opcional). Ausente -> sem violacoes. Presente -> completo e coerente."""
-    block = lock.get(V1_1_LOCK_KEY, _MISSING)
+def check_manifest_additive(lock: dict[str, Any], spec: AdditiveManifest) -> list[Violation]:
+    """Bloco aditivo `spec.lock_key` (opcional). Ausente -> sem violacoes. Presente -> completo e coerente."""
+    key = spec.lock_key
+    code = spec.code
+    block = lock.get(key, _MISSING)
     if block is _MISSING:
         return []
     if not isinstance(block, dict):
-        return [Violation("v1-1-shape", f"{V1_1_LOCK_KEY}: must be an object")]
+        return [Violation(f"{code}-shape", f"{key}: must be an object")]
 
     violations: list[Violation] = []
     for dotted in V1_1_REQUIRED_STRING_FIELDS:
         value = dig(block, dotted)
         if not isinstance(value, str) or not value.strip():
             violations.append(
-                Violation("v1-1-field", f"{V1_1_LOCK_KEY}.{dotted}: required non-empty string, got {value!r}")
+                Violation(f"{code}-field", f"{key}.{dotted}: required non-empty string, got {value!r}")
             )
     byte_size = dig(block, "manifest_pin.byte_size")
     if not isinstance(byte_size, int) or isinstance(byte_size, bool) or byte_size <= 0:
         violations.append(
-            Violation(
-                "v1-1-format", f"{V1_1_LOCK_KEY}.manifest_pin.byte_size: positive integer -> {byte_size!r}"
-            )
+            Violation(f"{code}-format", f"{key}.manifest_pin.byte_size: positive integer -> {byte_size!r}")
         )
 
     def pattern(dotted: str, regex: re.Pattern[str], what: str) -> None:
         value = dig(block, dotted)
         if isinstance(value, str) and regex.match(value) is None:
-            violations.append(
-                Violation("v1-1-format", f"{V1_1_LOCK_KEY}.{dotted}: not a valid {what} -> {value!r}")
-            )
+            violations.append(Violation(f"{code}-format", f"{key}.{dotted}: not a valid {what} -> {value!r}"))
 
     pattern("provenance.amh_commit_sha", _GIT_SHA_RE, "40-hex git commit sha")
     pattern("provenance.amh_manifest_commit_sha", _GIT_SHA_RE, "40-hex git commit sha")
@@ -712,77 +763,114 @@ def check_manifest_v1_1(lock: dict[str, Any]) -> list[Violation]:
 
     if dig(block, "provenance.status") not in (_MISSING, FROZEN_STATUS):
         violations.append(
-            Violation("v1-1-frozen-value", f"{V1_1_LOCK_KEY}.provenance.status: must be {FROZEN_STATUS!r}")
+            Violation(f"{code}-frozen-value", f"{key}.provenance.status: must be {FROZEN_STATUS!r}")
         )
     if dig(block, "compatibility_report.result") not in (_MISSING, "PASSED"):
         violations.append(
-            Violation("v1-1-frozen-value", f"{V1_1_LOCK_KEY}.compatibility_report.result: must be 'PASSED'")
+            Violation(f"{code}-frozen-value", f"{key}.compatibility_report.result: must be 'PASSED'")
         )
-    if dig(block, "manifest_pin.path") not in (_MISSING, V1_1_MANIFEST_PATH):
+    if dig(block, "manifest_pin.path") not in (_MISSING, spec.manifest_path):
         violations.append(
-            Violation(
-                "v1-1-frozen-value", f"{V1_1_LOCK_KEY}.manifest_pin.path: must be {V1_1_MANIFEST_PATH!r}"
-            )
+            Violation(f"{code}-frozen-value", f"{key}.manifest_pin.path: must be {spec.manifest_path!r}")
         )
 
     sha = dig(block, "manifest_pin.sha256")
     if isinstance(sha, str) and sha == dig(block, "manifest_pin.prepublication_sha256"):
         violations.append(
-            Violation("v1-1-digest-degenerate", f"{V1_1_LOCK_KEY}: sha256 equals prepublication_sha256")
+            Violation(f"{code}-digest-degenerate", f"{key}: sha256 equals prepublication_sha256")
         )
     if isinstance(sha, str) and sha == dig(lock, "manifest_pin.sha256"):
-        violations.append(
-            Violation("v1-1-digest-reuse", f"{V1_1_LOCK_KEY}: manifest sha256 equals the v1 manifest")
-        )
+        violations.append(Violation(f"{code}-digest-reuse", f"{key}: manifest sha256 equals the v1 manifest"))
 
     evidence = dig(block, "provenance.evidence_id")
     if isinstance(evidence, str) and evidence == dig(lock, "provenance.evidence_id"):
         violations.append(
             Violation(
-                "v1-1-evidence-reuse",
-                f"{V1_1_LOCK_KEY}: evidence_id reuses the v1 evidence id ({evidence!r})",
+                f"{code}-evidence-reuse", f"{key}: evidence_id reuses the v1 evidence id ({evidence!r})"
             )
         )
     run = dig(block, "publication.publication_run_id")
-    if isinstance(run, str) and _RUN_ID_RE.match(run) and int(run) <= V1_1_MIN_PUBLICATION_RUN_ID:
+    if isinstance(run, str) and _RUN_ID_RE.match(run) and int(run) <= spec.min_publication_run_id:
         violations.append(
             Violation(
-                "v1-1-run-regression",
-                f"{V1_1_LOCK_KEY}: publication_run_id {run} is not newer than the v1 run "
-                f"{V1_1_MIN_PUBLICATION_RUN_ID}",
+                f"{code}-run-regression",
+                f"{key}: publication_run_id {run} is not newer than the previous publication run "
+                f"{spec.min_publication_run_id}",
             )
         )
+
+    # Manifests aditivos ANTERIORES: tem de existir no lock e nada deles e' reaproveitado.
+    for anterior in spec.predecessors:
+        bloco_anterior = lock.get(anterior)
+        if not isinstance(bloco_anterior, dict):
+            violations.append(
+                Violation(
+                    f"{code}-predecessor-absent",
+                    f"{key}: requires the earlier additive block {anterior} in the lock",
+                )
+            )
+            continue
+        if isinstance(sha, str) and sha == dig(bloco_anterior, "manifest_pin.sha256"):
+            violations.append(
+                Violation(f"{code}-digest-reuse", f"{key}: manifest sha256 equals the {anterior} manifest")
+            )
+        if isinstance(evidence, str) and evidence == dig(bloco_anterior, "provenance.evidence_id"):
+            violations.append(
+                Violation(f"{code}-evidence-reuse", f"{key}: evidence_id reuses the {anterior} evidence id")
+            )
+        run_anterior = dig(bloco_anterior, "publication.publication_run_id")
+        if (
+            isinstance(run, str)
+            and isinstance(run_anterior, str)
+            and _RUN_ID_RE.match(run)
+            and _RUN_ID_RE.match(run_anterior)
+            and int(run) <= int(run_anterior)
+        ):
+            violations.append(
+                Violation(
+                    f"{code}-run-regression",
+                    f"{key}: publication_run_id {run} is not newer than the {anterior} run {run_anterior}",
+                )
+            )
 
     entries = block.get("artifacts")
     digests = _digest_map(entries)
     if (
         not isinstance(entries, list)
-        or len(entries) != len(V1_1_ARTIFACT_PATHS)
+        or len(entries) != len(spec.artifact_paths)
         or len(digests) != len(entries)
     ):
         violations.append(
             Violation(
-                "v1-1-artifact-count",
-                f"{V1_1_LOCK_KEY}.artifacts: expected exactly {len(V1_1_ARTIFACT_PATHS)} well-formed entries",
+                f"{code}-artifact-count",
+                f"{key}.artifacts: expected exactly {len(spec.artifact_paths)} well-formed entries",
             )
         )
-    for unexpected in sorted(set(digests) - set(V1_1_ARTIFACT_PATHS)):
+    for unexpected in sorted(set(digests) - set(spec.artifact_paths)):
         violations.append(
-            Violation("v1-1-artifact-unknown", f"{V1_1_LOCK_KEY}.artifacts: {unexpected!r} not allowed")
+            Violation(f"{code}-artifact-unknown", f"{key}.artifacts: {unexpected!r} not allowed")
         )
-    for path in V1_1_ARTIFACT_PATHS:
+    for path in spec.artifact_paths:
         if path not in digests:
-            violations.append(
-                Violation("v1-1-artifact-missing", f"{V1_1_LOCK_KEY}.artifacts: absent -> {path}")
-            )
+            violations.append(Violation(f"{code}-artifact-missing", f"{key}.artifacts: absent -> {path}"))
         elif not isinstance(digests[path], str) or _SHA256_RE.match(digests[path]) is None:
             violations.append(
                 Violation(
-                    "v1-1-artifact-digest",
-                    f"{V1_1_LOCK_KEY}.artifacts[{path}].sha256: not 64-hex -> {digests[path]!r}",
+                    f"{code}-artifact-digest",
+                    f"{key}.artifacts[{path}].sha256: not 64-hex -> {digests[path]!r}",
                 )
             )
     return violations
+
+
+def check_manifest_v1_1(lock: dict[str, Any]) -> list[Violation]:
+    """Bloco `manifest_v1_1` (opcional). Ausente -> sem violacoes. Presente -> completo e coerente."""
+    return check_manifest_additive(lock, V1_1)
+
+
+def check_manifest_v1_2(lock: dict[str, Any]) -> list[Violation]:
+    """Bloco `manifest_v1_2` (opcional, TINA): as regras do v1.1, mais o v1.1 como predecessor."""
+    return check_manifest_additive(lock, V1_2)
 
 
 def check_glue(lock: dict[str, Any]) -> list[Violation]:
@@ -1020,7 +1108,8 @@ def verify_lock(
     violations.extend(check_formats(lock))
     violations.extend(check_topics(lock))
     violations.extend(check_artifacts(lock))
-    violations.extend(check_manifest_v1_1(lock))
+    for additive in ADDITIVE_MANIFESTS:
+        violations.extend(check_manifest_additive(lock, additive))
     violations.extend(check_glue(lock))
     violations.extend(check_envelope(lock))
     violations.extend(check_fixture_entries(lock))
@@ -1193,78 +1282,92 @@ def verify_candidate(current: dict[str, Any], candidate: dict[str, Any]) -> list
                 )
             )
 
-    # -- manifest aditivo v1.1 ----------------------------------------------
-    cur_v11 = current.get(V1_1_LOCK_KEY)
-    new_v11 = candidate.get(V1_1_LOCK_KEY)
-    if isinstance(cur_v11, dict) and not isinstance(new_v11, dict):
+    # -- manifests aditivos (v1.1, v1.2) ------------------------------------
+    for additive in ADDITIVE_MANIFESTS:
+        violations.extend(_verify_candidate_additive(current, candidate, additive))
+
+    return violations
+
+
+def _verify_candidate_additive(
+    current: dict[str, Any], candidate: dict[str, Any], spec: AdditiveManifest
+) -> list[Violation]:
+    """Guarda de regressao de UM bloco aditivo. Codigos `candidate-<code>-*` (v1.1 inalterado)."""
+    violations: list[Violation] = []
+    key = spec.lock_key
+    code = spec.code
+    cur_block = current.get(key)
+    new_block = candidate.get(key)
+    if isinstance(cur_block, dict) and not isinstance(new_block, dict):
         violations.append(
             Violation(
-                "candidate-v1-1-removed",
-                f"the current pin carries {V1_1_LOCK_KEY} but the candidate dropped it — a pin never "
+                f"candidate-{code}-removed",
+                f"the current pin carries {key} but the candidate dropped it — a pin never "
                 "loses a published contract",
             )
         )
-    if isinstance(new_v11, dict):
-        new_evidence_v11 = dig(new_v11, "provenance.evidence_id")
-        spent = {dig(current, "provenance.evidence_id"), dig(candidate, "provenance.evidence_id")}
-        if new_evidence_v11 in spent:
+    if not isinstance(new_block, dict):
+        return violations
+    new_evidence = dig(new_block, "provenance.evidence_id")
+    spent = {dig(current, "provenance.evidence_id"), dig(candidate, "provenance.evidence_id")}
+    for anterior in spec.predecessors:
+        for lock in (current, candidate):
+            bloco_anterior = lock.get(anterior)
+            if isinstance(bloco_anterior, dict):
+                spent.add(dig(bloco_anterior, "provenance.evidence_id"))
+    if new_evidence in spent:
+        violations.append(
+            Violation(
+                f"candidate-{code}-evidence-reuse",
+                f"{key}.evidence_id {new_evidence!r} reuses a spent evidence id",
+            )
+        )
+    new_run = dig(new_block, "publication.publication_run_id")
+    if isinstance(new_run, str) and _RUN_ID_RE.match(new_run) and int(new_run) <= spec.min_publication_run_id:
+        violations.append(
+            Violation(
+                f"candidate-{code}-run-regression",
+                f"{key}.publication_run_id {new_run} is not newer than the previous publication run "
+                f"{spec.min_publication_run_id}",
+            )
+        )
+    if isinstance(cur_block, dict):
+        cur_sha = dig(cur_block, "manifest_pin.sha256")
+        new_sha = dig(new_block, "manifest_pin.sha256")
+        cur_ev = dig(cur_block, "provenance.evidence_id")
+        if cur_sha == new_sha and cur_block != new_block:
+            # Mesmo manifest pinado => o bloco inteiro e' imutavel. Trocar um digest de artefato,
+            # a proveniencia ou a evidencia sob o mesmo manifest publicaria outro OpenAPI sem nova
+            # publicacao: o loader passaria o digest novo aos adaptadores.
+            mudou = sorted(k for k in {*cur_block, *new_block} if cur_block.get(k) != new_block.get(k))
             violations.append(
                 Violation(
-                    "candidate-v1-1-evidence-reuse",
-                    f"{V1_1_LOCK_KEY}.evidence_id {new_evidence_v11!r} reuses the spent v1 evidence id",
+                    f"candidate-{code}-mutated",
+                    f"{key}: manifest_pin.sha256 is unchanged but {mudou} changed — the "
+                    "pinned block is immutable; a legitimate update needs a newly published manifest",
                 )
             )
-        new_run_v11 = dig(new_v11, "publication.publication_run_id")
+        if cur_sha != new_sha and cur_ev == new_evidence:
+            violations.append(
+                Violation(
+                    f"candidate-{code}-evidence-reuse",
+                    f"{key}: manifest digest changed but evidence_id is unchanged",
+                )
+            )
+        cur_run = dig(cur_block, "publication.publication_run_id")
         if (
-            isinstance(new_run_v11, str)
-            and _RUN_ID_RE.match(new_run_v11)
-            and int(new_run_v11) <= V1_1_MIN_PUBLICATION_RUN_ID
+            isinstance(cur_run, str)
+            and isinstance(new_run, str)
+            and _RUN_ID_RE.match(cur_run)
+            and _RUN_ID_RE.match(new_run)
+            and int(new_run) < int(cur_run)
         ):
             violations.append(
                 Violation(
-                    "candidate-v1-1-run-regression",
-                    f"{V1_1_LOCK_KEY}.publication_run_id {new_run_v11} is not newer than the v1 "
-                    f"publication run {V1_1_MIN_PUBLICATION_RUN_ID}",
+                    f"candidate-{code}-run-regression",
+                    f"{key}.publication_run_id regressed {cur_run} -> {new_run}",
                 )
             )
-        if isinstance(cur_v11, dict):
-            cur_sha = dig(cur_v11, "manifest_pin.sha256")
-            new_sha = dig(new_v11, "manifest_pin.sha256")
-            cur_ev = dig(cur_v11, "provenance.evidence_id")
-            if cur_sha == new_sha and cur_v11 != new_v11:
-                # Mesmo manifest pinado => o bloco inteiro e' imutavel. Trocar um digest de artefato,
-                # a proveniencia ou a evidencia sob o mesmo manifest publicaria outro OpenAPI sem nova
-                # publicacao: o loader passaria o digest novo aos adaptadores.
-                mudou = sorted(k for k in {*cur_v11, *new_v11} if cur_v11.get(k) != new_v11.get(k))
-                violations.append(
-                    Violation(
-                        "candidate-v1-1-mutated",
-                        f"{V1_1_LOCK_KEY}: manifest_pin.sha256 is unchanged but {mudou} changed — the "
-                        "pinned block is immutable; a legitimate update needs a newly published manifest",
-                    )
-                )
-            if cur_sha != new_sha and cur_ev == new_evidence_v11:
-                violations.append(
-                    Violation(
-                        "candidate-v1-1-evidence-reuse",
-                        f"{V1_1_LOCK_KEY}: manifest digest changed but evidence_id is unchanged",
-                    )
-                )
-            cur_run_v11 = dig(cur_v11, "publication.publication_run_id")
-            if (
-                isinstance(cur_run_v11, str)
-                and isinstance(new_run_v11, str)
-                and _RUN_ID_RE.match(cur_run_v11)
-                and _RUN_ID_RE.match(new_run_v11)
-                and int(new_run_v11) < int(cur_run_v11)
-            ):
-                violations.append(
-                    Violation(
-                        "candidate-v1-1-run-regression",
-                        f"{V1_1_LOCK_KEY}.publication_run_id regressed {cur_run_v11} -> {new_run_v11}",
-                    )
-                )
-
     return violations
 
 
@@ -1461,15 +1564,18 @@ def verify_manifest(lock: dict[str, Any], manifest_path: Path) -> list[Violation
     return violations
 
 
-def verify_manifest_v1_1(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
-    """Bytes do manifest v1.1 publicado contra o bloco `manifest_v1_1`. Sem Glue (OpenAPI apenas)."""
-    block = lock.get(V1_1_LOCK_KEY)
+def verify_manifest_additive(
+    lock: dict[str, Any], manifest_path: Path, spec: AdditiveManifest
+) -> list[Violation]:
+    """Bytes de um manifest ADITIVO publicado contra o bloco dele. Sem Glue (OpenAPI apenas)."""
+    key = spec.lock_key
+    block = lock.get(key)
     if not isinstance(block, dict):
         return [
             Violation(
-                "v1-1-pin-absent",
-                f"the lock has no {V1_1_LOCK_KEY} block yet — generate it with "
-                "scripts/ci/gerar_pin_v1_1.py before verifying the v1.1 manifest bytes",
+                f"{spec.code}-pin-absent",
+                f"the lock has no {key} block yet — generate it with scripts/ci/gerar_pin_v1_1.py "
+                f"--manifest-version {spec.version} before verifying the {spec.version} manifest bytes",
             )
         ]
     if not manifest_path.is_file():
@@ -1483,7 +1589,8 @@ def verify_manifest_v1_1(lock: dict[str, Any], manifest_path: Path) -> list[Viol
         violations.append(
             Violation(
                 "manifest-digest-mismatch",
-                f"{manifest_path}: sha256 {actual} != pinned {pinned!r} — NOT the published v1.1 bytes",
+                f"{manifest_path}: sha256 {actual} != pinned {pinned!r} — NOT the published "
+                f"{spec.version} bytes",
             )
         )
     size = dig(block, "manifest_pin.byte_size")
@@ -1497,7 +1604,7 @@ def verify_manifest_v1_1(lock: dict[str, Any], manifest_path: Path) -> list[Viol
         return [*violations, Violation("manifest-encoding", f"{manifest_path}: not valid UTF-8 ({exc})")]
 
     expectations: tuple[tuple[str, Any, str], ...] = (
-        ("manifest_version", "1.1.0", "manifest version"),
+        ("manifest_version", spec.manifest_version, "manifest version"),
         ("amh_commit_sha", dig(block, "provenance.amh_commit_sha"), "artifact source commit"),
         ("evidence_id", dig(block, "provenance.evidence_id"), "XRG-2 evidence id"),
         ("contract_name", dig(lock, "provenance.contract_name"), "contract name"),
@@ -1510,10 +1617,27 @@ def verify_manifest_v1_1(lock: dict[str, Any], manifest_path: Path) -> list[Viol
             dig(block, "manifest_pin.prepublication_sha256"),
             "pre-publication manifest digest",
         ),
-        ("base_pinned_sha256", dig(lock, "manifest_pin.sha256"), "v1 manifest digest (additive base)"),
     )
-    for key, expected, label in expectations:
-        _expect_single(violations, text, key, expected, label)
+    for name, expected, label in expectations:
+        _expect_single(violations, text, name, expected, label)
+    # A BASE do aditivo: o v1 (v1.1 declara so' ele) ou um aditivo anterior JA' pinado (o v1.2 pode
+    # declarar o v1 ou o v1.1). Um valor so', e tem de ser um digest que o lock pina.
+    bases = {dig(lock, "manifest_pin.sha256")}
+    for anterior in spec.predecessors:
+        bases.add(dig(lock, f"{anterior}.manifest_pin.sha256"))
+    declaradas = scan_manifest_scalars(text, "base_pinned_sha256")
+    if not declaradas:
+        violations.append(
+            Violation("manifest-key-missing", "manifest: no `base_pinned_sha256:` line found (additive base)")
+        )
+    elif len(set(declaradas)) != 1 or declaradas[0] not in bases:
+        violations.append(
+            Violation(
+                "manifest-mismatch",
+                f"manifest `base_pinned_sha256` = {sorted(set(declaradas))}, "
+                "not a manifest digest the lock pins",
+            )
+        )
 
     manifest_digests = scan_manifest_path_digests(text)
     pinned_pairs = _digest_map(block.get("artifacts"))
@@ -1548,6 +1672,16 @@ def verify_manifest_v1_1(lock: dict[str, Any], manifest_path: Path) -> list[Viol
     return violations
 
 
+def verify_manifest_v1_1(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
+    """Bytes do manifest v1.1 publicado contra o bloco `manifest_v1_1`. Sem Glue (OpenAPI apenas)."""
+    return verify_manifest_additive(lock, manifest_path, V1_1)
+
+
+def verify_manifest_v1_2(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
+    """Bytes do manifest v1.2 (TINA) publicado contra o bloco `manifest_v1_2`."""
+    return verify_manifest_additive(lock, manifest_path, V1_2)
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1573,8 +1707,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "                     status != PUBLISHED. The candidate also runs the full structural and\n"
             "                     frozen-catalog checks; the vendored-fixture digest gate is skipped,\n"
             "                     because a candidate legitimately precedes re-vendoring.\n"
-            "  --manifest-version v1.1  with --manifest: verify the additive v1.1 manifest against the\n"
-            "                     manifest_v1_1 block (no Glue ids; OpenAPI digests only).\n"
+            "  --manifest-version v1.1|v1.2  with --manifest: verify an additive manifest against its\n"
+            "                     manifest_v1_1 / manifest_v1_2 block (no Glue ids; OpenAPI digests only).\n"
             "  --manifest PATH    verify freshly fetched manifest BYTES: recompute sha256 against the\n"
             "                     pin, then require the manifest's amh_commit_sha, evidence_id, Glue\n"
             "                     schema-version ids and artifact/fixture digests to match the lock.\n"
@@ -1592,10 +1726,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--manifest-version",
-        choices=("v1", "v1.1"),
+        choices=("v1", *ADDITIVE_BY_VERSION),
         default="v1",
-        help="Which pinned manifest --manifest verifies: v1 (default) or the additive v1.1 "
-        "(OpenAPI only; no Glue ids; needs the manifest_v1_1 block in the lock).",
+        help="Which pinned manifest --manifest verifies: v1 (default) or an additive one (v1.1, v1.2: "
+        "OpenAPI only; no Glue ids; needs the matching manifest_v1_N block in the lock).",
     )
     parser.add_argument(
         "--vendor-dir",
@@ -1661,8 +1795,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         manifest_path = Path(args.manifest)
         if not manifest_path.is_absolute():
             manifest_path = repo_root / manifest_path
-        if args.manifest_version == "v1.1":
-            found = verify_manifest_v1_1(lock, manifest_path)
+        if args.manifest_version in ADDITIVE_BY_VERSION:
+            found = verify_manifest_additive(lock, manifest_path, ADDITIVE_BY_VERSION[args.manifest_version])
         else:
             found = verify_manifest(lock, manifest_path)
         result = GateResult(

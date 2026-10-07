@@ -776,6 +776,32 @@ variable "helena_historico" {
   nullable    = false
 }
 
+variable "helena_consultas_amh" {
+  description = <<-EOT
+    Fatos do plano na Helena pelo contrato TINA da AMH (decisao do dono de 07/10/2026):
+    `MAEZO_HELENA_CONSULTAS_AMH`. Default `false`. Ligada, a Helena responde elegibilidade,
+    carteirinha, carencia e autorizacao do PROPRIO beneficiario (identidade resolvida). Exige
+    `helena_identidade_amh = true` (validado aqui e no boot), acrescenta `interop/tina.read` aos escopos
+    pedidos ao Cognito e o caminho do OpenAPI TINA na task definition. O receptor RECUSA servir sem o
+    manifest v1.2 pinado (ainda DRAFT na AMH em 07/10/2026).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.helena_consultas_amh || var.helena_identidade_amh
+    error_message = "helena_consultas_amh exige helena_identidade_amh = true (sem identidade nao ha' de quem consultar)."
+  }
+}
+
+variable "amh_tina_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina` publicado (o digest tem de estar no bloco manifest_v1_2 do pin). Lido so' com helena_consultas_amh."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina.openapi.yaml"
+  nullable    = false
+}
+
 variable "lucas_fonte_cobranca" {
   description = <<-EOT
     Fonte dos fatos de cobranca do Lucas: `simulada` (default) ou `amh` — a fonte real pelos

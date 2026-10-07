@@ -520,9 +520,11 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
             total += 1
             if lidas & entradas:
                 com_entrada += 1
-    assert (total, com_entrada) == (16, 15), (
+    # 17/16 desde 07/10/2026: a Helena ganhou a redacao da consulta do plano
+    # (`graph.py::_redigir_consulta`, a mensagem demarcada como `message_body`).
+    assert (total, com_entrada) == (17, 16), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 16/15 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 17/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )
