@@ -24,12 +24,19 @@ locals {
   # DL-0077: a identidade da Helena reusa o MESMO interop (env, segredos, egress); liga com qualquer um.
   amh_interop_ligado = local.lucas_fonte_amh || var.helena_identidade_amh
 
+  # Fatos do plano na Helena (07/10/2026): SO' com as consultas ligadas o escopo `interop/tina.read`
+  # entra no pedido de token e o caminho do OpenAPI TINA entra na env. Desligadas, a env e' a de antes.
+  amh_interop_scopes_efetivos = var.helena_consultas_amh ? "${var.amh_interop_scopes} interop/tina.read" : var.amh_interop_scopes
+  amh_tina_env = local.amh_interop_ligado && var.helena_consultas_amh ? [
+    { name = "MAEZO_AMH_TINA_OPENAPI_PATH", value = var.amh_tina_openapi_path },
+  ] : []
+
   # Env do receptor so' com a fonte AMH ligada (lista vazia = task definition intacta).
   amh_interop_env = local.amh_interop_ligado ? [
     { name = "MAEZO_AMH_INTEROP_BASE_URL", value = var.amh_interop_base_url },
     { name = "MAEZO_AMH_INTEROP_TOKEN_URL", value = var.amh_interop_token_url },
     { name = "MAEZO_AMH_INTEROP_CLIENT_ID", value = var.amh_interop_client_id },
-    { name = "MAEZO_AMH_INTEROP_SCOPES", value = var.amh_interop_scopes },
+    { name = "MAEZO_AMH_INTEROP_SCOPES", value = local.amh_interop_scopes_efetivos },
     { name = "MAEZO_AMH_INTEROP_TENANT", value = var.amh_interop_tenant },
     { name = "MAEZO_AMH_INTEROP_PURPOSE_OF_USE", value = var.amh_interop_purpose_of_use },
     { name = "MAEZO_AMH_BILLING_STATUS_OPENAPI_PATH", value = var.amh_billing_status_openapi_path },

@@ -1737,6 +1737,17 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Não consegui confirmar seus dados por aqui, então não consigo consultar as informações do seu plano neste canal. Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante RESPOSTA_CONSULTA_SEM_IDENTIDADE (DL de fatos do plano, 07/10/2026): consulta do plano sem identidade resolvida ou com a AMH indisponivel",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

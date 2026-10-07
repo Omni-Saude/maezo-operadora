@@ -141,6 +141,7 @@ routing (`receive -> classify -> {...} -> respond`) is unaffected either way.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Hashable, Mapping
@@ -189,6 +190,20 @@ from .historico import (
     acrescentar_turno,
     historico_em_texto,
     historico_valido,
+from .consultas_plano import (
+    ADENDO_CLASSIFY_CONSULTAS,
+    CLASSIFY_CONSULTAS_ADENDO_VERSION,
+    CONSULTA_PLANO_PROMPT_VERSION,
+    CONSULTA_SUBTIPOS,
+    INTENT_CONSULTA_PLANO,
+    RESPOSTA_CONSULTA_SEM_IDENTIDADE,
+    FonteDeFatosDoPlano,
+    consulta_prompt,
+    fatos_da_consulta,
+    literais_dos_fatos,
+    motivo_de_recusa_da_consulta,
+    resposta_deterministica,
+    texto_para_cerca,
 )
 from .prompts import (
     ALLOWED_SINTOMA_CODIGOS,
@@ -235,6 +250,9 @@ Intent = Literal[
     # NUMERO UNICO (onda e, ADR-0062): so' existe no dominio VALIDADO com o roteador ligado
     # (`_intents_validos`). Desligado, um `cobranca` vindo do modelo e' `invalid_intent`.
     "cobranca",
+    # CONSULTA DO PLANO (DL de 07/10/2026): so' existe no dominio VALIDADO com as consultas da AMH
+    # ligadas (`MAEZO_HELENA_CONSULTAS_AMH`). Desligado, e' `invalid_intent` como sempre.
+    "consulta_plano",
 ]
 Population = Literal["adult", "pediatric", "gestante", "mental_health", "none"]
 #: `collect` (COLETA, 09/09/2026): o turno termina numa PERGUNTA ao beneficiario, nao numa
@@ -332,6 +350,7 @@ _VALID_INTENTS: frozenset[str] = frozenset(
         "greeting",
         "outside_channel",
         "cobranca",
+        "consulta_plano",
     },
 )
 #: A intencao de cobranca (onda e). Membro de `_VALID_INTENTS` (o espelho do `Literal`), mas so'
@@ -353,12 +372,16 @@ CobrancaSubtipo = Literal[
 _VALID_COBRANCA_SUBTIPOS: frozenset[str] = frozenset(get_args(CobrancaSubtipo))
 
 
-def _intents_validos(*, cobranca_habilitada: bool) -> frozenset[str]:
+def _intents_validos(*, cobranca_habilitada: bool, consultas_habilitadas: bool = False) -> frozenset[str]:
     """O dominio de `intent` que o validador aceita NESTE grafo. Sem o roteador, `cobranca` fica
-    fora — e o classify desligado continua byte a byte o de antes (`invalid_intent`)."""
-    if cobranca_habilitada:
-        return _VALID_INTENTS
-    return _VALID_INTENTS - {INTENT_COBRANCA}
+    fora; sem as consultas do plano, `consulta_plano` fica fora — e o classify desligado continua
+    byte a byte o de antes (`invalid_intent`)."""
+    fora: set[str] = set()
+    if not cobranca_habilitada:
+        fora.add(INTENT_COBRANCA)
+    if not consultas_habilitadas:
+        fora.add(INTENT_CONSULTA_PLANO)
+    return _VALID_INTENTS - fora
 
 
 _VALID_POPULATIONS: frozenset[str] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
@@ -776,6 +799,12 @@ DESFECHO_RESPOSTA_VAZIA: str = "resposta_vazia_nao_enviada"
 #: sufixo e' o TOKEN DE CLASSE da precondicao violada (`_inform_recusado`), nunca texto de
 #: terceiro — este `error` viaja para `resumo_contexto` e dali para variaveis de processo.
 ERRO_INFORM_RECUSADO: str = "inform recusado"
+#: CONSULTA DO PLANO: token de classe da recusa da precondicao de `consultar_plano` (vira `falha_tecnica`).
+ERRO_CONSULTA_RECUSADA: str = "consulta recusada"
+#: O `next_kind` (e o nome da aresta) da consulta do plano. So' existe com as consultas ligadas.
+NEXT_KIND_CONSULTA_PLANO: str = "consulta_plano"
+#: Teto do tempo que a consulta a AMH soma ao turno (cada leitura ja' e' limitada pelo port).
+CONSULTA_PRAZO_S: float = 6.0
 #: Onda (e): o prefixo do `error` quando `_handoff_recusado` barrou a passagem ao Lucas. Mesmo
 #: formato do de cima: o sufixo e' o TOKEN DE CLASSE da precondicao violada, nunca texto.
 ERRO_HANDOFF_RECUSADO: str = "handoff recusado"
@@ -803,6 +832,9 @@ AGENTES_DA_CONVERSA: frozenset[str] = frozenset({"helena", "lucas"})
 #: na telemetria para personalizacao futura e roteamento correto. Vocabulario FECHADO (Zona Geral,
 #: ADR-0006): referencia opaca, faixa etaria grossa (nunca idade exata nem nascimento), e os fatos de
 #: plano do contrato. Nunca telefone, CPF ou nome. `None` = sem identidade = a Helena de sempre.
+#: UNICA EXCECAO DECLARADA (DL de 07/10/2026): o no' `consultar_plano`, so' com
+#: `MAEZO_HELENA_CONSULTAS_AMH` ligada, le' a REFERENCIA OPACA para consultar os fatos do plano na AMH —
+#: a referencia nunca entra no prompt, e o resto da identidade continua sem leitor.
 IDENTIDADE_FAIXAS_ETARIAS: frozenset[str] = frozenset(
     {"lactente", "crianca", "adolescente", "adulto", "idoso"}
 )
@@ -1124,6 +1156,11 @@ class HelenaState(TypedDict, total=False):
     cobranca_competencia: str | None
     #: Onda (e): a passagem ao Lucas, escrita SO' pelo no' `handoff_cobranca`.
     handoff: HandoffCobranca | None
+    #: CONSULTA DO PLANO (DL de 07/10/2026): o subtipo validado (`None` fora de `consulta_plano`) e os
+    #: literais do cadastro que a resposta deste turno carrega — as cercas de saida os leem APAGADOS
+    #: (`consultas_plano.texto_para_cerca`): um status "em analise" do cadastro e' fato, nao invencao.
+    consulta_subtipo: str | None
+    consulta_literais: tuple[str, ...] | None
 
     # COLETA (passo 4). Os tres primeiros sao MEMORIA DE CONVERSA: sobrevivem ao `receive` do
     # turno seguinte (ver `_HELENA_MEMORIA_DE_CONVERSA`) porque a pergunta feita num turno so'
@@ -1257,6 +1294,8 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "cobranca_subtipo": None,
     "cobranca_competencia": None,
     "handoff": None,
+    "consulta_subtipo": None,
+    "consulta_literais": None,
     # COLETA — os tres de memoria tem default neutro aqui (para a particao de campos e para o
     # PRIMEIRO turno de uma conversa), mas `receive` os PRESERVA em vez de zerar; ver
     # `_HELENA_MEMORIA_DE_CONVERSA` logo abaixo.
@@ -2659,7 +2698,9 @@ def _is_explicitly_false(value: Any) -> bool:
     return False
 
 
-def _validate_extraction(data: dict[str, Any], *, cobranca_habilitada: bool = False) -> str | None:
+def _validate_extraction(
+    data: dict[str, Any], *, cobranca_habilitada: bool = False, consultas_habilitadas: bool = False
+) -> str | None:
     """Validate the classify LLM's parsed JSON against classify-v1's own schema.
 
     Returns a CLASS TOKEN failure reason (e.g. `invalid_intent`,
@@ -2708,7 +2749,10 @@ def _validate_extraction(data: dict[str, Any], *, cobranca_habilitada: bool = Fa
     `cobranca_habilitada=False` NADA disto e' lido: o validador e' o de antes, e `cobranca` e'
     `invalid_intent`.
     """
-    if not _em_dominio(data.get("intent"), _intents_validos(cobranca_habilitada=cobranca_habilitada)):
+    dominio = _intents_validos(
+        cobranca_habilitada=cobranca_habilitada, consultas_habilitadas=consultas_habilitadas
+    )
+    if not _em_dominio(data.get("intent"), dominio):
         return "invalid_intent"
     if not _em_dominio(data.get("population"), _VALID_POPULATIONS):
         return "invalid_population"
@@ -2745,6 +2789,15 @@ def _validate_extraction(data: dict[str, Any], *, cobranca_habilitada: bool = Fa
         competencia = data.get("competencia")
         if competencia is not None and not competencia_valida(competencia):
             return "invalid_competencia"
+    if consultas_habilitadas:
+        # CONSULTA DO PLANO: `consulta_subtipo` OBRIGATORIO e de dominio fechado em `consulta_plano`,
+        # nulo/ausente em qualquer outro intent — o mesmo desenho de `cobranca_subtipo`.
+        subtipo_consulta = data.get("consulta_subtipo")
+        if data.get("intent") == INTENT_CONSULTA_PLANO:
+            if not _em_dominio(subtipo_consulta, CONSULTA_SUBTIPOS):
+                return "invalid_consulta_subtipo"
+        elif subtipo_consulta is not None:
+            return "invalid_consulta_subtipo"
     return None
 
 
@@ -2779,6 +2832,14 @@ class HelenaGraph:
         # byte — `historico_conversa` fica `None` em todo turno e nenhum prompt muda. So' a composicao
         # do receptor com `MAEZO_HELENA_HISTORICO` ligada passa `True` (`dispatch.py`).
         self._historico_enabled = historico_enabled is True
+        consultas_plano: FonteDeFatosDoPlano | None = None,
+    ) -> None:
+        self._llm = inference
+        # CONSULTA DO PLANO (DL de 07/10/2026): DESLIGADA por default (`None`), e desligada e' o grafo
+        # de antes byte a byte — sem adendo no classify, `consulta_plano` fora do dominio validado e
+        # sem o no' `consultar_plano`. So' a composicao do receptor com `MAEZO_HELENA_CONSULTAS_AMH`
+        # ligada passa a fonte (`platform/webhooks/whatsapp/helena_consultas.py`).
+        self._consultas = consultas_plano if isinstance(consultas_plano, FonteDeFatosDoPlano) else None
         # DL-0078: o nome de exibicao da operadora nos textos fixos de identidade (settings
         # `helena_identidade_nome_operadora`). Vazio/nao-texto cai no padrao: o texto nunca sai sem nome.
         self._nome_operadora = (
@@ -2956,6 +3017,15 @@ class HelenaGraph:
             # e os dois valores ja' passaram pelo dominio fechado de `_validate_extraction`.
             update["cobranca_subtipo"] = extraction.get("cobranca_subtipo")
             update["cobranca_competencia"] = extraction.get("competencia")
+        if intent == INTENT_CONSULTA_PLANO:
+            # So' existe com as consultas ligadas (o validador recusa desligado); dominio ja' fechado.
+            update["consulta_subtipo"] = extraction.get("consulta_subtipo")
+            if extraction.get("sintoma_codigo"):
+                # CONSULTA COM SINTOMA NAO E' CONSULTA: o mesmo idioma da cobranca com sintoma.
+                logger.info("helena_consulta_com_sintoma", node="classify")
+                intent = "symptom"
+                update["intent"] = intent
+                update["consulta_subtipo"] = None
 
         # CRITICO 2 (22/09/2026): O CODIGO TEM DE EXISTIR NA TABELA QUE ESTE TURNO VAI CONSULTAR.
         #
@@ -3247,6 +3317,11 @@ class HelenaGraph:
         # nenhuma das cinco intencoes do prompt cabia numa saudacao, e a instrucao de
         # `human_request` exige pedido EXPLICITO. Sem lugar para por, o modelo escolheu o vizinho
         # mais proximo. Em operacao, todo "oi" podia virar trabalho numa fila humana.
+        # CONSULTA DO PLANO: chegar aqui ja' significa sem risco psicossocial, sem bandeira, sem
+        # pergunta clinica e sem pedido de pessoa. `_consulta_recusada` confere de novo (2 camadas).
+        if intent == INTENT_CONSULTA_PLANO:
+            return self._rota_de_consulta(update)
+
         # COBRANCA (onda e): passa ao Lucas SO' pela precondicao de 2 camadas. Chegar aqui ja'
         # significa sem risco psicossocial, sem bandeira da tabela, sem pergunta clinica e sem
         # pedido de pessoa; `_handoff_recusado` confere de novo, mais o sintoma e os lexicos.
@@ -3619,6 +3694,117 @@ class HelenaGraph:
                 "error": ERRO_RESPOSTA_RECUSADA,
             }
         return {"response_text": text, "response_kind": "inform"}
+
+    def _consulta_recusada(self, estado: Mapping[str, Any]) -> str | None:
+        """Precondicao DETERMINISTICA da rota `consultar_plano` (as duas camadas, como `inform`)."""
+        if estado.get("error"):
+            return "erro_do_turno"
+        if self._consultas is None:
+            return "consultas_desligadas"
+        if estado.get("intent") != INTENT_CONSULTA_PLANO:
+            return "intent_nao_e_consulta"
+        if estado.get("psychosocial_risk") is not False:
+            return "risco_psicossocial"
+        if estado.get("sintoma_codigo"):
+            return "sintoma_reportado"
+        if not _em_dominio(estado.get("consulta_subtipo"), CONSULTA_SUBTIPOS):
+            return "subtipo_fora_do_dominio"
+        return None
+
+    def _rota_de_consulta(self, update: dict[str, Any]) -> dict[str, Any]:
+        """Camada 1: `consultar_plano` so' com a precondicao; senao `falha_tecnica` (estado injustificado)."""
+        recusa = self._consulta_recusada(update)
+        if recusa is None:
+            update["next_kind"] = NEXT_KIND_CONSULTA_PLANO
+            return update
+        logger.warning("helena_consulta_recusada", motivo=recusa, node="classify")
+        update["next_kind"] = "escalate"
+        update["escalation_motivo"] = "falha_tecnica"
+        update["escalation_severidade"] = _severidade_de_intensidade(update.get("intensidade"))
+        update["error"] = f"{ERRO_CONSULTA_RECUSADA}: {recusa}"
+        return update
+
+    async def consultar_plano(self, state: HelenaState) -> dict[str, Any]:
+        """CONSULTA DO PLANO (DL de 07/10/2026): fatos do cadastro do PROPRIO beneficiario.
+
+        SO' com identidade resolvida (DL-0077: candidato unico, `portable_subject_ref` no estado). Sem
+        ela, ou com qualquer falha da AMH, o texto e' FIXO (`RESPOSTA_CONSULTA_SEM_IDENTIDADE`): nao
+        abre processo e oferece a pessoa — quem pedir cai no gatilho 3 no turno seguinte. Com fatos, o
+        modelo redige SO' a partir do bloco de fatos; a cerca propria
+        (`motivo_de_recusa_da_consulta`) troca qualquer rascunho recusado pela resposta
+        DETERMINISTICA, montada so' com os fatos — nunca por um segundo rascunho.
+
+        LOG: so' tokens (subtipo, desfecho). Nunca a referencia, os fatos nem o texto.
+        """
+        subtipo = str(state.get("consulta_subtipo") or "")
+        identidade = state.get("identidade_beneficiario")
+        ref = identidade.get("portable_subject_ref") if isinstance(identidade, Mapping) else None
+        fixo = {"response_text": RESPOSTA_CONSULTA_SEM_IDENTIDADE, "response_kind": "inform"}
+        if (
+            self._consultas is None
+            or subtipo not in CONSULTA_SUBTIPOS
+            or state.get("identidade_desfecho") != IDENTIDADE_RECONHECIDA
+            or not isinstance(ref, str)
+            or not ref
+        ):
+            logger.info(
+                "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="sem_identidade"
+            )
+            return fixo
+        try:
+            async with asyncio.timeout(CONSULTA_PRAZO_S):
+                view = await self._consultas.consultar(ref, subtipo)
+        except PROGRAMMING_ERRORS:
+            raise
+        except Exception:
+            view = None
+        fatos = fatos_da_consulta(subtipo, view)
+        if fatos is None:
+            logger.info(
+                "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="indisponivel"
+            )
+            return fixo
+        texto = await self._redigir_consulta(state, subtipo, fatos)
+        recusa = motivo_de_recusa_da_consulta(texto, fatos) if isinstance(texto, str) else "sem_rascunho"
+        if recusa is not None or not isinstance(texto, str):
+            texto = resposta_deterministica(subtipo, fatos)
+        logger.info(
+            "helena_consulta_plano",
+            node="consultar_plano",
+            subtipo=subtipo,
+            resultado="redigido" if recusa is None else "deterministico",
+            recusa=recusa,
+            prompt_version=CONSULTA_PLANO_PROMPT_VERSION,
+        )
+        return {
+            "response_text": texto.strip(),
+            "response_kind": "inform",
+            "consulta_literais": literais_dos_fatos(fatos),
+        }
+
+    async def _redigir_consulta(
+        self, state: HelenaState, subtipo: str, fatos: Mapping[str, Any]
+    ) -> str | None:
+        """O rascunho do modelo sobre os FATOS, ou `None` se o modelo falhou. SEM cerca (quem cerca e'
+        `consultar_plano`). Os fatos e a mensagem vao em blocos demarcados (HEL-06)."""
+        prompt = consulta_prompt(
+            subtipo=subtipo,
+            fatos=fatos,
+            bloco_mensagem=render_untrusted_block("message_body", state.get("message_body", "")),
+        )
+        try:
+            return await self._llm.generate(
+                prompt,
+                phi=True,
+                agent_id="helena",
+                tenant_id=state.get("tenant_id", ""),
+                # ADR-0009 §2 / CC-12: fraseia fatos ja' decididos -> task_default.
+                task_kind="task_default",
+            )
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            return None
 
     async def handoff_cobranca(self, state: HelenaState) -> dict[str, Any]:
         """NUMERO UNICO (onda e; plano §2.4): escreve a saida tipada `handoff` e a frase de
@@ -4235,6 +4421,33 @@ class HelenaGraph:
         response_kind = str(state.get("response_kind") or "")
         start_desfecho = str(state.get("start_desfecho") or START_DESFECHO_NAO_TENTADO)
         acionado = _humano_acionado(state)
+        # CONSULTA DO PLANO: as cercas leem o texto com os literais DO CADASTRO apagados (um status
+        # "em analise" que consta no cadastro e' fato). `None` em todo turno sem consulta = o texto
+        # de sempre, sem mudanca nenhuma. O que SAI continua sendo `texto`, inteiro.
+        literais = state.get("consulta_literais")
+        if literais:
+            texto_cercado = texto_para_cerca(texto, literais)
+            enviado, cerca = self._texto_bate_com_o_fato_cercado(
+                state, texto_cercado, response_kind, start_desfecho, acionado
+            )
+            # O texto cercado so' pode sair como ele mesmo (ou como sufixo do prefixo honesto do
+            # `ja_ativo`): nos dois casos volta o ORIGINAL. Uma constante de troca sai como esta'.
+            if enviado == texto_cercado:
+                return texto, cerca
+            if texto_cercado.strip() and texto_cercado.strip() in enviado:
+                enviado = enviado.replace(texto_cercado.strip(), texto.strip())
+            return enviado, cerca
+        return self._texto_bate_com_o_fato_cercado(state, texto, response_kind, start_desfecho, acionado)
+
+    def _texto_bate_com_o_fato_cercado(
+        self,
+        state: HelenaState,
+        texto: str,
+        response_kind: str,
+        start_desfecho: str,
+        acionado: bool,
+    ) -> tuple[str, dict[str, Any]]:
+        """O corpo de `_texto_bate_com_o_fato`, inalterado (a extracao so' separou o texto cercado)."""
 
         if start_desfecho == START_DESFECHO_JA_ATIVO:
             # 21/09/2026, SEGUNDA RODADA: a troca deixou de ser INCONDICIONAL. O que e' falso num
@@ -4615,6 +4828,21 @@ class HelenaGraph:
         # Literal, como os destinos de `_route`: e' o NOME de uma aresta, nao texto ao beneficiario.
         return "handoff"
 
+    def _route_com_consultas(self, state: HelenaState) -> str:
+        """CONSULTA DO PLANO, camada 2 (backstop ESTRUTURAL de `_rota_de_consulta`): a aresta so'
+        com as consultas ligadas. Recusado aqui, cai em `escalate` (humano). Todo outro `next_kind`
+        segue a aresta de antes (com ou sem o roteador do Lucas)."""
+        if state.get("next_kind") != NEXT_KIND_CONSULTA_PLANO:
+            if self._roteador_lucas_enabled:
+                return self._route_com_roteador(state)
+            return HelenaGraph._route(state)
+        recusa = self._consulta_recusada(state)
+        if recusa is not None:
+            logger.warning("helena_consulta_recusada", motivo=recusa, node="_route")
+            return "escalate"
+        # Literal, como os destinos de `_route`: e' o NOME de uma aresta, nao texto ao beneficiario.
+        return "consulta_plano"
+
     # -- DMN (ADR-0012/ADR-0028): the DMN decides red flag, never the LLM -------------------
 
     async def _evaluate_dmn(
@@ -4701,6 +4929,10 @@ class HelenaGraph:
         # NUMERO UNICO (onda e): `classify-v6` SO' com o roteador ligado; desligado, o texto e' o
         # `classify-v5` byte a byte (sha256 fixado em teste).
         instrucoes = classify_prompt(roteador_lucas=self._roteador_lucas_enabled)
+        if self._consultas is not None:
+            # CONSULTA DO PLANO: o adendo so' existe com as consultas ligadas; desligado, o texto e' o
+            # de antes byte a byte.
+            instrucoes = f"{instrucoes}{ADENDO_CLASSIFY_CONSULTAS}"
         # HISTORICO CURTO (DL-0080): com a flag ligada e historico a mostrar, o adendo vai depois das
         # instrucoes e o historico viaja num bloco NAO CONFIAVEL proprio, antes da mensagem atual. Ele
         # so' alimenta a EXTRACAO (anafora, quadro acumulado); a decisao continua na DMN. Sem
@@ -4754,7 +4986,11 @@ class HelenaGraph:
         data = _parse_json_object(raw)
         if data is None:
             return None, "classify LLM returned unparseable JSON"
-        schema_failure = _validate_extraction(data, cobranca_habilitada=self._roteador_lucas_enabled)
+        schema_failure = _validate_extraction(
+            data,
+            cobranca_habilitada=self._roteador_lucas_enabled,
+            consultas_habilitadas=self._consultas is not None,
+        )
         if schema_failure is not None:
             return None, f"classify LLM returned schema-invalid JSON: {schema_failure}"
         return data, None
@@ -4950,10 +5186,17 @@ class HelenaGraph:
             g.add_node("handoff_cobranca", self.handoff_cobranca)
             g.add_edge("handoff_cobranca", "respond")
             destinos[RESPONSE_KIND_HANDOFF] = "handoff_cobranca"
+        if self._consultas is not None:
+            # CONSULTA DO PLANO: o no' so' EXISTE com as consultas ligadas (mesmo desenho do Lucas).
+            g.add_node("consultar_plano", self.consultar_plano)
+            g.add_edge("consultar_plano", "respond")
+            destinos[NEXT_KIND_CONSULTA_PLANO] = "consultar_plano"
 
         g.add_conditional_edges(START, self._entrada, {"receive": "receive", "resume": "resume"})
         g.add_edge("receive", "classify")
         aresta = self._route_com_roteador if self._roteador_lucas_enabled else self._route
+        if self._consultas is not None:
+            aresta = self._route_com_consultas
         g.add_conditional_edges("classify", aresta, destinos)
         g.add_edge("inform", "respond")
         g.add_edge("collect", "respond")
@@ -5016,6 +5259,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     nome_operadora = cfg.get("identidade_nome_operadora")
     # DL-0080: como a coleta, `True` SO' quando a composicao disser explicitamente.
     historico_enabled = cfg.get("historico_enabled", False) is True
+    # CONSULTA DO PLANO: a fonte de fatos SO' quando a composicao a passar; ausente = desligada.
+    consultas = cfg.get("consultas_plano")
     return HelenaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
@@ -5028,6 +5273,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         roteador_lucas_enabled=roteador_lucas_enabled,
         nome_operadora=nome_operadora if isinstance(nome_operadora, str) else NOME_OPERADORA_PADRAO,
         historico_enabled=historico_enabled,
+        consultas_plano=consultas if isinstance(consultas, FonteDeFatosDoPlano) else None,
     ).compile_graph()
 
 
@@ -5046,4 +5292,8 @@ PROMPT_VERSIONS: dict[str, str] = {
     # DL-0080: os adendos do historico curto, usados SO' com `MAEZO_HELENA_HISTORICO` ligada.
     "classify_historico": CLASSIFY_HISTORICO_VERSION,
     "response_historico": RESPONSE_HISTORICO_VERSION,
+    # CONSULTA DO PLANO (DL de 07/10/2026): o adendo do classify e a redacao com fatos, SO' com
+    # `MAEZO_HELENA_CONSULTAS_AMH` ligada.
+    "classify_consultas": CLASSIFY_CONSULTAS_ADENDO_VERSION,
+    "consulta_plano": CONSULTA_PLANO_PROMPT_VERSION,
 }

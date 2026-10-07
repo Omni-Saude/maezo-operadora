@@ -118,11 +118,13 @@ from maezo.gateway.amh import AmhRuntime, AmhSubjectContextExecutor, GatedAmhCon
 from maezo.gateway.amh_interop import (
     HASH_SCHEME,
     SCOPE_BY_OPERATION,
+    SCOPE_TINA,
     AmhBillingStatusExecutor,
     AmhInteropComposition,
     AmhInteropCompositionError,
     AmhPhoneLookupHasher,
     AmhSubjectResolutionExecutor,
+    AmhTinaExecutor,
     CognitoClientCredentials,
 )
 from maezo.gateway.credential_vault import (
@@ -616,6 +618,7 @@ def build_amh_interop(
     audit: Any,
     agent_version: str,
     transport_factory: Any = None,
+    incluir_tina: bool = False,
 ) -> AmhInteropComposition:
     """A fonte REAL de cobranca/identidade do Lucas: executores do gateway -> adaptadores pinados.
 
@@ -629,9 +632,15 @@ def build_amh_interop(
 
     OS SEGREDOS chegam SO' pela visao de agente do cofre (ADR-0005 #3, AF-14): o principal do
     `seam` e' quem os recebe, e nenhum outro caminho le' esses campos de settings.
+
+    `incluir_tina=True` (SO' com `MAEZO_HELENA_CONSULTAS_AMH` ligada) acrescenta as tres leituras do
+    contrato TINA: exige tambem `amh_tina_openapi_path` e o escopo `interop/tina.read` em
+    `amh_interop_scopes` (`amh_interop_escopos_insuficientes` sem ele), e o adaptador TINA so' sobe com o
+    bloco `manifest_v1_2` no pin. `False` (o default) = a composicao de antes, sem nada da TINA.
     """
     from maezo.adapters.amh.billing_status import AmhBillingStatusAdapter
     from maezo.adapters.amh.subject_resolution import AmhSubjectResolutionAdapter
+    from maezo.adapters.amh.tina import AmhTinaAdapter
 
     credentials = build_agent_credential_view(settings=settings, agent_id=seam.principal)
     client_secret = agent_credential(credentials, "amh_interop_client_secret")
@@ -649,11 +658,15 @@ def build_amh_interop(
         "amh_subject_resolution_openapi_path": getattr(settings, "amh_subject_resolution_openapi_path", None),
         "audit_sink": audit,
     }
+    if incluir_tina is True:
+        exigidos["amh_tina_openapi_path"] = getattr(settings, "amh_tina_openapi_path", None)
     ausentes = sorted(nome for nome, valor in exigidos.items() if not valor)
     if ausentes:
         raise AmhInteropCompositionError("amh_interop_config_ausente: " + ",".join(ausentes))
     scopes = tuple(str(exigidos["amh_interop_scopes"]).split())
     if not {SCOPE_BY_OPERATION[OP_BILLING], SCOPE_BY_OPERATION[OP_RESOLVE]} <= set(scopes):
+        raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
+    if incluir_tina is True and SCOPE_TINA not in scopes:
         raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
     tokens = CognitoClientCredentials(
         token_url=exigidos["amh_interop_token_url"],
@@ -673,6 +686,14 @@ def build_amh_interop(
     }
     billing_executor = AmhBillingStatusExecutor(**comum)
     subjects_executor = AmhSubjectResolutionExecutor(amh_tenant=exigidos["amh_interop_tenant"], **comum)
+    executores: tuple[Any, ...] = (billing_executor, subjects_executor)
+    tina: AmhTinaAdapter | None = None
+    if incluir_tina is True:
+        tina_executor = AmhTinaExecutor(**comum)
+        # Sem o bloco `manifest_v1_2` no pin, o construtor LEVANTA `TinaContractError`: o receptor
+        # recusa servir (nunca sobe "sem consultas" em silencio quando o dono as ligou).
+        tina = AmhTinaAdapter(_ler_openapi(exigidos["amh_tina_openapi_path"]), executor=tina_executor)
+        executores = (*executores, tina_executor)
     return AmhInteropComposition(
         billing=AmhBillingStatusAdapter(
             _ler_openapi(exigidos["amh_billing_status_openapi_path"]), executor=billing_executor
@@ -684,8 +705,9 @@ def build_amh_interop(
         amh_tenant=exigidos["amh_interop_tenant"],
         purpose_of_use=exigidos["amh_interop_purpose_of_use"],
         hash_scheme=HASH_SCHEME,
-        _executors=(billing_executor, subjects_executor),
+        _executors=executores,
         _tokens=tokens,
+        tina=tina,
     )
 
 

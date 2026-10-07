@@ -365,6 +365,26 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_billing_identity",
     ),
+    # -- Fatos do plano na Helena pelo contrato TINA da AMH (manifest aditivo v1.2, DRAFT; executor
+    # `gateway/amh_interop.py::AmhTinaExecutor`; DL de 07/10/2026). Mesma classe e mesma postura das
+    # leituras acima (C2, `tool_id=None`), com acao PROPRIA (`read_member_plan_facts`, L3, declarada
+    # no `agent.yaml` da Helena): vinculos, carencias e requisicoes do PROPRIO beneficiario, so' com
+    # carteirinha/senha mascaradas e o sujeito pelo `portable_subject_ref` opaco.
+    OperationSpec(
+        operation="amh.tina_get_elegibilidade",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
+    OperationSpec(
+        operation="amh.tina_get_carencias",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
+    OperationSpec(
+        operation="amh.tina_get_requisicoes",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
     # -- WhatsApp send (C1). Leaf `tools/mcp_whatsapp/server.py:111`.
     OperationSpec(
         operation="whatsapp.send_message",

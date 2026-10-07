@@ -319,6 +319,26 @@ class WhatsAppWebhookSettings(BaseSettings):
         ),
     )
 
+    # FATOS DO PLANO NA HELENA (DL de 07/10/2026, decisao do dono). DESLIGADA por padrao. Ligada, a
+    # Helena responde elegibilidade, carteirinha, carencia e autorizacao do PROPRIO beneficiario com os
+    # fatos do contrato TINA da AMH (`interop/tina.read`). EXIGE `helena_identidade_amh` ligada (sem
+    # identidade nao ha' de quem consultar: recusado aqui, no boot), o interop configurado, o escopo
+    # `interop/tina.read` em `amh_interop_scopes`, `amh_tina_openapi_path` e o manifest v1.2 pinado —
+    # faltando qualquer peca o receptor RECUSA servir. Desligada = a Helena de sempre, byte a byte.
+    helena_consultas_amh: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_CONSULTAS_AMH", "helena_consultas_amh"),
+    )
+
+    @model_validator(mode="after")
+    def _consultas_exigem_identidade(self) -> WhatsAppWebhookSettings:
+        if self.helena_consultas_amh and not self.helena_identidade_amh:
+            raise ValueError(
+                "MAEZO_HELENA_CONSULTAS_AMH exige MAEZO_HELENA_IDENTIDADE_AMH ligada "
+                "(sem identidade resolvida nao ha' de quem consultar os fatos do plano)"
+            )
+        return self
+
     @field_validator("helena_identidade_nome_operadora")
     @classmethod
     def _nome_operadora_valido(cls, valor: str) -> str:
@@ -388,6 +408,12 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices(
             "MAEZO_AMH_SUBJECT_RESOLUTION_OPENAPI_PATH", "amh_subject_resolution_openapi_path"
         ),
+    )
+    # O OpenAPI TINA (fatos do plano), lido SO' com `helena_consultas_amh` ligada; os bytes so' valem
+    # com o digest no bloco `manifest_v1_2` do pin (ainda DRAFT na AMH em 07/10/2026).
+    amh_tina_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_TINA_OPENAPI_PATH", "amh_tina_openapi_path"),
     )
 
     @model_validator(mode="before")

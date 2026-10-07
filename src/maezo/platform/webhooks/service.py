@@ -76,6 +76,7 @@ if TYPE_CHECKING:
     from maezo.gateway.capabilities.journeys.driver import JourneyDriver
     from maezo.gateway.seams import SeamContext
 
+    from .whatsapp.helena_consultas import ConsultasPlanoAmh
     from .whatsapp.helena_identidade import IdentidadeHelena
     from .whatsapp.lucas_turno import LucasTurno
 
@@ -113,6 +114,9 @@ class WebhookState:
     #: IDENTIDADE DO BENEFICIARIO NA HELENA (DL-0077), SO' com `MAEZO_HELENA_IDENTIDADE_AMH` ligada
     #: (`_build_helena_identidade`); desligado fica `None` e nada da AMH existe para a Helena.
     helena_identidade: IdentidadeHelena | None = None
+    #: FATOS DO PLANO NA HELENA (DL de 07/10/2026), SO' com `MAEZO_HELENA_CONSULTAS_AMH` ligada (que
+    #: exige a identidade ligada). Reusa a composicao AMH da identidade; desligado fica `None`.
+    helena_consultas: ConsultasPlanoAmh | None = None
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
 
@@ -403,6 +407,13 @@ def _build_fonte_cobranca_amh(
 def _build_helena_identidade(
     settings: WhatsAppWebhookSettings, dispatcher: HelenaDispatcher
 ) -> IdentidadeHelena | None:
+    """A identidade (DL-0077). Ver `_build_helena_amh`, que tambem monta as consultas do plano."""
+    return _build_helena_amh(settings, dispatcher)[0]
+
+
+def _build_helena_amh(
+    settings: WhatsAppWebhookSettings, dispatcher: HelenaDispatcher
+) -> tuple[IdentidadeHelena | None, ConsultasPlanoAmh | None]:
     """DL-0077: a identidade do beneficiario na Helena, SO' com `MAEZO_HELENA_IDENTIDADE_AMH` ligada.
 
     Desligado devolve `None` sem importar nada da AMH. Ligado, REUSA a composicao da #662
@@ -412,11 +423,21 @@ def _build_helena_identidade(
     segredo, URL, OpenAPI ou seam de Helena, LEVANTA e `_bring_up_dependencies` recusa servir — nunca
     sobe "sem identidade" em silencio quando o dono a ligou. Hoje os contratos nao estao publicados
     (XRG-2/XRG-3), entao ligar esta flag recusa o boot por desenho.
+
+    FATOS DO PLANO (DL de 07/10/2026): com `helena_consultas_amh` ligada, a MESMA composicao inclui as
+    leituras TINA (`incluir_tina=True`) e devolve tambem `ConsultasPlanoAmh`. Consultas sem
+    identidade e' recusado (o settings ja' recusa; aqui de novo, defesa em profundidade); sem o pin
+    v1.2, o OpenAPI TINA ou o escopo `interop/tina.read`, `build_amh_interop` LEVANTA e o receptor
+    recusa servir.
     """
+    consultas_ligadas = settings.helena_consultas_amh is True
     if not settings.helena_identidade_amh:
-        return None
+        if consultas_ligadas:
+            raise ValueError("helena_consultas: exige MAEZO_HELENA_IDENTIDADE_AMH ligada")
+        return None, None
     from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, ResolvedorDeSujeitoAmh
     from maezo.gateway.tool_registry import build_amh_interop
+    from maezo.platform.webhooks.whatsapp.helena_consultas import ConsultasPlanoAmh
     from maezo.platform.webhooks.whatsapp.helena_identidade import IdentidadeHelena
 
     if dispatcher.seam_context is None or dispatcher.seam_context.principal != "helena":
@@ -426,7 +447,18 @@ def _build_helena_identidade(
         seam=dispatcher.seam_context,
         audit=dispatcher.audit_sink,
         agent_version=_HELENA_AGENT_VERSION,
+        incluir_tina=consultas_ligadas,
     )
+    consultas: ConsultasPlanoAmh | None = None
+    if consultas_ligadas:
+        if interop.tina is None:
+            raise ValueError("helena_consultas: a composicao AMH nao trouxe o adaptador TINA")
+        # A drenagem dos executores e' UMA so' (a da identidade): `aclose_fn` fica vazio aqui.
+        consultas = ConsultasPlanoAmh(
+            port=interop.tina,
+            consentimento=BaseLegalExecucaoDeContrato(),
+            purpose_of_use=interop.purpose_of_use,
+        )
     identidade = IdentidadeHelena(
         port=interop.subjects,
         resolvedor=ResolvedorDeSujeitoAmh(
@@ -446,8 +478,9 @@ def _build_helena_identidade(
         amh_tenant=interop.amh_tenant,
         purpose_of_use=interop.purpose_of_use,
         base_legal="execucao-de-contrato",
+        consultas_plano=consultas is not None,
     )
-    return identidade
+    return identidade, consultas
 
 
 async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
@@ -574,7 +607,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
     # DL-0077: identidade do beneficiario na Helena, so' com a flag ligada. Ligada e quebrada = recusa
     # servir (o mesmo formato do Lucas AMH); desligada, `None` e o despachante nao muda.
     try:
-        state.helena_identidade = _build_helena_identidade(state.settings, state.dispatcher)
+        state.helena_identidade, state.helena_consultas = _build_helena_amh(state.settings, state.dispatcher)
     except Exception as exc:  # isolated: liveness/readiness must stay up.
         state.dispatcher = None
         state.dispatcher_error = (
@@ -586,6 +619,9 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         state.dispatcher.identidade = state.helena_identidade
         # DL-0078: o nome de exibicao da operadora nos textos fixos de identidade da Helena.
         state.dispatcher.identidade_nome_operadora = state.settings.helena_identidade_nome_operadora
+    if state.helena_consultas is not None:
+        # DL de 07/10/2026: os fatos do plano na Helena (so' com a identidade, conferido acima).
+        state.dispatcher.consultas_plano = state.helena_consultas
 
     # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
     # Isolated exactly like the construction above — a failure here must not crash bring-up.
