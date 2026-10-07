@@ -1,0 +1,295 @@
+# subject-resolution.openapi.yaml — PROPOSTA (DRAFT) de contrato canônico AMH×Maezo v1 (artefato novo)
+# NÃO PUBLICADO: depende de aprovação dos data stewards, do DPO e do gate XRG-2 (ADR-042 §2).
+# Objetivo: o Maezo (Helena e Lucas) descobre COM QUEM está falando a partir do telefone do WhatsApp,
+# sem nunca receber telefone, CPF, nome ou matrícula crus. Só a AMH liga telefone a sujeito (XRD-05).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# REGRAS DE DESENHO:
+#  * a resolução devolve um CONJUNTO, nunca "uma pessoa": titular e dependentes dividem aparelho;
+#    mais de um candidato é caso de PERGUNTAR, nunca de escolher o primeiro;
+#  * "nenhum candidato" é resposta normal (200), é o caminho degradado: o consumidor segue sem
+#    identidade e escala a humano quando precisar;
+#  * campo ausente é estado válido (`null`); o consumidor nunca o completa;
+#  * minimização: idade em anos/meses, nunca data de nascimento; sem sexo, sem nome, sem CPF.
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH Subject Resolution API (SubjectResolutionPort)
+  version: 0.1.0
+  description: |
+    Resolução de sujeito por telefone (hash) e perfil mínimo do sujeito (idade, plano ativo),
+    keyed por `portable_subject_ref`.
+    BASE LEGAL (decisão do diretor de tecnologia, 06/10/2026; ratificação do DPO pendente):
+    para dados do PRÓPRIO beneficiário usados no atendimento e na cobrança do plano, a base é
+    execução de contrato (LGPD art. 7º, V), não consentimento. Enquanto o log de consentimento
+    não tiver produtor, a verificação de consentimento fica implementada e DESLIGADA; o `403`
+    continua valendo para propósito não permitido e para escopo não suportado.
+    A resolução por telefone é POST (o hash não vai em URL nem em log de acesso).
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/subject-resolution/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11);
+      este contrato não fixa host.
+security:
+  - bearerAuth: []
+tags:
+  - name: subject-resolution
+    description: Telefone -> conjunto de sujeitos candidatos; perfil mínimo do sujeito.
+paths:
+  /subjects/resolve-by-phone:
+    post:
+      tags: [subject-resolution]
+      operationId: resolveSubjectByPhone
+      summary: Candidatos a sujeito para um telefone (hash)
+      description: >-
+        Devolve o conjunto de sujeitos associados ao telefone no tenant informado. Resultado
+        `unico` (1 candidato), `multiplos` (2 ou mais; o consumidor pergunta) ou `nenhum`
+        (nenhum cadastro ou nenhum visível; segue sem identidade).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveByPhoneRequest'
+      responses:
+        '200':
+          description: Resultado da resolução (inclui o caso `nenhum`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveByPhoneResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ConsentDenied' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /subjects/{portable_subject_ref}/profile:
+    get:
+      tags: [subject-resolution]
+      operationId: getSubjectProfile
+      summary: Perfil mínimo do sujeito (idade, plano ativo, vigência)
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+      responses:
+        '200':
+          description: Perfil mínimo consentido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectProfile'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ConsentDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials), audience obrigatória, allow-list de algoritmos —
+        fail-closed. Sem token válido -> 401.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05).
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: >-
+        Propósito LGPD — OBRIGATÓRIO. DECISÃO PENDENTE (DPO): o vocabulário atual do DDL não tem
+        propósito de ATENDIMENTO AO BENEFICIÁRIO; `sharing_amh_internal` é marcador deste rascunho.
+      schema:
+        type: string
+        enum: [analytics, research, sharing_amh_internal, external_sharing]
+      example: sharing_amh_internal
+  schemas:
+    ResolveByPhoneRequest:
+      type: object
+      required: [amh_tenant, phone_hash, hash_scheme, purpose_of_use]
+      additionalProperties: false
+      properties:
+        amh_tenant:
+          type: string
+          description: 'Tenant AMH do beneficiário (por exemplo `austa_operadora`, a operadora).'
+          example: austa_operadora
+        phone_hash:
+          type: string
+          description: Telefone já em hash. NUNCA o número. O esquema é o de `hash_scheme`.
+          pattern: '^[A-Za-z0-9_\-]{8,128}$'
+        hash_scheme:
+          type: string
+          description: >-
+            Esquema do hash (decisão do diretor de tecnologia, 06/10/2026; ratificação da segurança
+            da AMH pendente — SP-3). `amh-phone-lookup-v1` = HMAC-SHA256 com uma chave DEDICADA só à
+            busca por telefone (`amh/interop/phone-lookup-key`, separada das chaves do MPI e do
+            pseudônimo de conversa do Maezo), sobre `"{amh_tenant}:{E.164 só dígitos}"`. A AMH
+            guarda a chave e indexa o cadastro; o receptor do Maezo recebe a mesma chave e calcula o
+            hash no momento em que a mensagem chega. O número nunca trafega.
+          enum: [amh-phone-lookup-v1]
+        purpose_of_use:
+          type: string
+          enum: [analytics, research, sharing_amh_internal, external_sharing]
+    ResolveByPhoneResponse:
+      type: object
+      required: [resultado, candidatos, qualidade]
+      additionalProperties: false
+      properties:
+        resultado:
+          type: string
+          enum: [unico, multiplos, nenhum]
+        candidatos:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/SubjectCandidate'
+        qualidade:
+          $ref: '#/components/schemas/DataQuality'
+      example:
+        resultado: multiplos
+        candidatos:
+          - portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+            relacao: titular
+            vigencia_ativa: true
+          - portable_subject_ref: 'amh:psr:v1:9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f'
+            relacao: dependente
+            vigencia_ativa: true
+        qualidade:
+          campos_ausentes: []
+    SubjectCandidate:
+      type: object
+      required: [portable_subject_ref, relacao, vigencia_ativa]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        relacao:
+          type: string
+          enum: [titular, dependente, desconhecida]
+        vigencia_ativa:
+          type: boolean
+          nullable: true
+    SubjectProfile:
+      type: object
+      required: [portable_subject_ref, idade_anos, idade_meses, plano, titular_ref, fonte_atualizada_em, qualidade]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        idade_anos:
+          type: integer
+          minimum: 0
+          maximum: 130
+          nullable: true
+          description: Idade em anos completos. Nunca data de nascimento.
+        idade_meses:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Idade em meses; só preenchida abaixo de 24 meses (tabela pediátrica).
+        plano:
+          $ref: '#/components/schemas/PlanSummary'
+        titular_ref:
+          type: string
+          nullable: true
+          pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          description: Referência do titular, quando o sujeito é dependente.
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+        qualidade:
+          $ref: '#/components/schemas/DataQuality'
+    PlanSummary:
+      type: object
+      required: [ativo, vigencia_inicio, vigencia_fim, carencia_vigente]
+      additionalProperties: false
+      properties:
+        ativo:
+          type: boolean
+          nullable: true
+        vigencia_inicio:
+          type: string
+          format: date
+          nullable: true
+        vigencia_fim:
+          type: string
+          format: date
+          nullable: true
+        carencia_vigente:
+          type: boolean
+          nullable: true
+    DataQuality:
+      type: object
+      required: [campos_ausentes]
+      additionalProperties: false
+      properties:
+        campos_ausentes:
+          type: array
+          description: >-
+            Campos que a fonte não tem para este sujeito (aparecem `null`/`desconhecido` acima).
+            O consumidor trata qualquer item como "não sei": a Helena pergunta, o Lucas escala.
+          items:
+            type: string
+            enum: [idade_anos, idade_meses, plano, titular_ref, relacao, vigencia_ativa]
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code:
+          type: string
+        message:
+          type: string
+          description: Mensagem operacional SEM PHI e sem identificador de fonte.
+        reason:
+          type: string
+          nullable: true
+        trace_id:
+          type: string
+  responses:
+    BadRequest:
+      description: Requisição malformada.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ConsentDenied:
+      description: FAIL-CLOSED — sem consent válido nenhum dado é retornado, nem parcial.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Sujeito desconhecido ou não visível (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

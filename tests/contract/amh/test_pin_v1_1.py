@@ -108,6 +108,13 @@ def lock_com_v1_1(**block_over: Any) -> dict[str, Any]:
     return lock
 
 
+def lock_so_v1() -> dict[str, Any]:
+    """O lock real sem o bloco v1.1: o estado de antes do pin, que segue valido."""
+    lock = copy.deepcopy(json.loads(LOCK_PATH.read_text(encoding="utf-8")))
+    lock.pop(V1_1_LOCK_KEY, None)
+    return lock
+
+
 def escreve(tmp_path: Path, lock: dict[str, Any], name: str = "lock.json") -> Path:
     path = tmp_path / name
     path.write_text(json.dumps(lock, indent=2), encoding="utf-8")
@@ -123,14 +130,26 @@ def codes(violations: list[Any]) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_lock_real_sem_bloco_v1_1_segue_valido_e_adaptadores_sem_digest() -> None:
-    lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
-    assert V1_1_LOCK_KEY not in lock
+def test_lock_so_v1_segue_valido_e_adaptadores_sem_digest(tmp_path: Path) -> None:
+    lock = lock_so_v1()
     assert verify_lock(lock, repo_root=REPO_ROOT, check_vendored=False) == []
-    pin = load_contract_pin(LOCK_PATH)
+    pin = load_contract_pin(escreve(tmp_path, lock))
     assert pin.manifest_v1_1_digest is None
     for path in V1_1_ARTIFACT_PATHS:
         assert path not in pin.artifact_digests  # billing_status/subject_resolution recusam
+
+
+def test_lock_real_tem_o_bloco_v1_1_publicado_e_adaptadores_com_digest() -> None:
+    lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+    assert verify_lock(lock, repo_root=REPO_ROOT, check_vendored=False) == []
+    pin = load_contract_pin(LOCK_PATH)
+    assert pin.manifest_v1_1_digest == lock[V1_1_LOCK_KEY]["manifest_pin"]["sha256"]
+    esperado = {a["path"]: a["sha256"] for a in lock[V1_1_LOCK_KEY]["artifacts"]}
+    assert set(esperado) == set(V1_1_ARTIFACT_PATHS)
+    for path, sha in esperado.items():
+        assert pin.artifact_digests[path] == sha
+        copia = REPO_ROOT / "config/integrations/amh/openapi" / Path(path).name  # vai na imagem
+        assert hashlib.sha256(copia.read_bytes()).hexdigest() == sha
 
 
 def test_caminhos_v1_1_iguais_no_loader_e_no_verificador() -> None:
@@ -216,8 +235,7 @@ def test_manifest_v1_1_adulterado_e_recusado(tmp_path: Path) -> None:
 def test_manifest_v1_1_sem_bloco_no_lock_explica_o_proximo_passo(tmp_path: Path) -> None:
     path = tmp_path / "m.yaml"
     path.write_bytes(manifest_publicado())
-    lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
-    assert codes(verify_manifest_v1_1(lock, path)) == {"v1-1-pin-absent"}
+    assert codes(verify_manifest_v1_1(lock_so_v1(), path)) == {"v1-1-pin-absent"}
 
 
 def test_verify_manifest_v1_continua_recusando_bytes_do_v1_1(tmp_path: Path) -> None:
@@ -242,7 +260,7 @@ def test_cli_manifest_version_v1_1(tmp_path: Path) -> None:
 
 
 def test_candidate_com_v1_1_valido_passa() -> None:
-    current = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+    current = lock_so_v1()
     assert verify_candidate(current, lock_com_v1_1()) == []
 
 
@@ -331,7 +349,7 @@ def test_gerador_recusa_manifest_nao_publicado_ou_malformado(raw: bytes) -> None
 
 def test_gerador_write_grava_valida_e_nao_sobrescreve(tmp_path: Path) -> None:
     lock_path = tmp_path / "lock.json"
-    lock_path.write_bytes(LOCK_PATH.read_bytes())
+    lock_path.write_text(json.dumps(lock_so_v1(), indent=2), encoding="utf-8")
     manifest = tmp_path / "m.yaml"
     manifest.write_bytes(manifest_publicado())
     argv = [
@@ -344,8 +362,7 @@ def test_gerador_write_grava_valida_e_nao_sobrescreve(tmp_path: Path) -> None:
         gravado[V1_1_LOCK_KEY]["manifest_pin"]["sha256"] == hashlib.sha256(manifest.read_bytes()).hexdigest()
     )
     # o resto do lock (v1) ficou intacto
-    original = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
-    assert {k: v for k, v in gravado.items() if k != V1_1_LOCK_KEY} == original
+    assert {k: v for k, v in gravado.items() if k != V1_1_LOCK_KEY} == lock_so_v1()
     assert verify_lock(gravado, repo_root=REPO_ROOT, check_vendored=False) == []
     assert main(["--lock", str(lock_path), "--manifest", str(manifest), "--manifest-version", "v1.1"]) == 0
     # segunda gravacao: recusada (pin imutavel)

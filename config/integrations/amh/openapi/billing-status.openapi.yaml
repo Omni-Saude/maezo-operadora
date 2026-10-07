@@ -1,0 +1,344 @@
+# billing-status.openapi.yaml — PROPOSTA (DRAFT) de contrato canônico AMH×Maezo v1 (artefato novo)
+# NÃO PUBLICADO: depende de aprovação dos data stewards e do gate XRG-2 (ADR-042 §2, XRD-03).
+# Objetivo: o agente Lucas (Maezo) lê a SITUAÇÃO DE COBRANÇA de um beneficiário, read-only, por
+# `portable_subject_ref`, e decide com tabelas DMN (responder / lembrete / escalar a humano).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04); o consumidor pina o digest
+# em config/integrations/amh/contracts.lock.json.
+# PROIBIDO: identificador cru de beneficiário/pessoa/MPI, CPF, nome, endereço, nosso número ou
+# código de barras completos. Só fatos derivados mínimos-necessários e rótulos mascarados.
+# CAMPO AUSENTE É ESTADO VÁLIDO: todo fato que a fonte não tem vem `null` e é listado em
+# `qualidade.campos_ausentes`. O consumidor NUNCA completa um fato ausente; ele escala a humano.
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH Billing Status API (BillingStatusPort)
+  version: 0.1.0
+  description: |
+    Situação de cobrança mínima-necessária de um beneficiário da operadora, por competência e em
+    resumo, derivada da camada gold do lago (`amh_austa_operadora_gold.mensalidade_beneficiario`).
+    READ-ONLY por contrato (somente GET). `403` com `reason` para propósito não permitido ou
+    escopo não suportado; nenhuma resposta parcial.
+    BASE LEGAL (decisão do diretor de tecnologia, 06/10/2026; ratificação do DPO pendente):
+    para dados do PRÓPRIO beneficiário usados no atendimento e na cobrança do plano, a base é
+    execução de contrato (LGPD art. 7º, V), não consentimento. Enquanto o log de consentimento
+    não tiver produtor, a verificação de consentimento fica implementada e DESLIGADA; o `403`
+    continua valendo para propósito não permitido e para escopo não suportado.
+    O contrato NÃO decide admissibilidade, atraso "suficiente" nem ação de cobrança: entrega
+    FATOS. A decisão é do consumidor (DMN do Lucas) e, no limite, de uma pessoa.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/billing-status/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11);
+      este contrato não fixa host.
+security:
+  - bearerAuth: []
+tags:
+  - name: billing-status
+    description: Situação de cobrança por sujeito (fatos derivados, sem identificador cru).
+paths:
+  /subjects/{portable_subject_ref}/billing/status:
+    get:
+      tags: [billing-status]
+      operationId: getBillingStatus
+      summary: Situação de cobrança do sujeito (resumo + competências da janela)
+      description: >-
+        Retorna o resumo de cobrança e as competências da janela pedida, já filtrados por consent
+        (fail-closed). `competencia` restringe a uma competência; sem ela, devolve a janela.
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - name: competencia
+          in: query
+          required: false
+          description: Competência de referência (AAAA-MM). Se informada, `competencias` traz só ela.
+          schema:
+            type: string
+            pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+          example: '2026-08'
+        - name: janela_meses
+          in: query
+          required: false
+          description: Quantas competências, contadas da mais recente para trás, entram no resumo.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 36
+            default: 12
+      responses:
+        '200':
+          description: Situação de cobrança consentida do sujeito.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingStatus'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ConsentDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials), audience obrigatória, allow-list de algoritmos —
+        fail-closed (padrão do amh-interop-coordinator). Sem token válido -> 401.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: >-
+        Referência portátil de sujeito mintada pela AMH (XRD-05): opaca, não-derivável, estável
+        dentro de {amh_tenant, legal_entity}. Único identificador de pessoa aceito nesta API.
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: >-
+        Propósito LGPD da consulta — OBRIGATÓRIO. DECISÃO PENDENTE (DPO): o vocabulário atual do
+        DDL (`mpi.consent_log`) não tem propósito de ATENDIMENTO AO BENEFICIÁRIO. Este rascunho
+        usa `sharing_amh_internal` como marcador; a publicação exige o propósito correto.
+      schema:
+        type: string
+        enum: [analytics, research, sharing_amh_internal, external_sharing]
+      example: sharing_amh_internal
+  schemas:
+    BillingStatus:
+      type: object
+      required: [portable_subject_ref, as_of, fonte_atualizada_em, resumo, competencias, qualidade]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        as_of:
+          type: string
+          format: date-time
+          description: Instante em que a AMH calculou esta resposta.
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+          description: >-
+            Última atualização da fonte (lago). O consumidor pode recusar fonte velha demais e
+            escalar a humano; este contrato não fixa o limite.
+        resumo:
+          $ref: '#/components/schemas/BillingSummary'
+        competencias:
+          type: array
+          maxItems: 36
+          description: Competências da janela, da mais recente para a mais antiga.
+          items:
+            $ref: '#/components/schemas/CompetenciaBilling'
+        qualidade:
+          $ref: '#/components/schemas/DataQuality'
+      example:
+        portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+        as_of: '2026-10-05T12:00:00Z'
+        fonte_atualizada_em: '2026-08-05T17:17:30Z'
+        resumo:
+          status_conciliado: false
+          ciclos_sem_conciliacao: 2
+          valor_em_aberto: '640.50'
+          moeda: BRL
+          dias_atraso_max: 61
+          pagador_tipo: pessoa_fisica
+          criterio_conciliacao: situacao_paga_ou_liquidada
+        competencias:
+          - competencia: '2026-08'
+            parcela: 8
+            vencimento: '2026-08-10'
+            situacao: vencida
+            valor_total: '320.25'
+            valor_coparticipacao: '0.00'
+            valor_saldo: '320.25'
+            liquidado_em: null
+            boleto:
+              numero_mascarado: '****4821'
+              disponivel_online: true
+          - competencia: '2026-07'
+            parcela: 7
+            vencimento: '2026-07-10'
+            situacao: vencida
+            valor_total: '320.25'
+            valor_coparticipacao: '0.00'
+            valor_saldo: '320.25'
+            liquidado_em: null
+            boleto:
+              numero_mascarado: '****4790'
+              disponivel_online: true
+        qualidade:
+          campos_ausentes: []
+    BillingSummary:
+      type: object
+      required: [status_conciliado, ciclos_sem_conciliacao, valor_em_aberto, moeda, dias_atraso_max, pagador_tipo, criterio_conciliacao]
+      additionalProperties: false
+      properties:
+        status_conciliado:
+          type: boolean
+          nullable: true
+          description: >-
+            Verdadeiro quando nenhuma competência da janela está vencida ou em aberto vencida.
+            `null` se a fonte não permite afirmar. DECISÃO PENDENTE (financeiro/PO): o lago não tem
+            retorno bancário (CNAB); o critério declarado em `criterio_conciliacao` é o equivalente.
+        ciclos_sem_conciliacao:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: >-
+            Número de COMPETÊNCIAS DISTINTAS da janela com situação `vencida`. Conta competência,
+            nunca linha: a fonte pode ter mais de uma linha por competência (parcela/item).
+        valor_em_aberto:
+          type: string
+          nullable: true
+          pattern: '^[0-9]+\.[0-9]{2}$'
+          description: Soma dos saldos das competências `vencida` e `em_aberto` da janela, em decimal com 2 casas.
+        moeda:
+          type: string
+          enum: [BRL]
+        dias_atraso_max:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Maior atraso, em dias, entre as competências vencidas da janela.
+        pagador_tipo:
+          type: string
+          enum: [pessoa_fisica, pessoa_juridica, desconhecido]
+          description: Quem paga. `desconhecido` enquanto a tabela de pagador não for ingerida.
+        criterio_conciliacao:
+          type: string
+          enum: [situacao_paga_ou_liquidada, retorno_bancario]
+          description: Como `status_conciliado` foi obtido. `retorno_bancario` só quando houver CNAB no lago.
+    CompetenciaBilling:
+      type: object
+      required: [competencia, parcela, vencimento, situacao, valor_total, valor_coparticipacao, valor_saldo, liquidado_em, boleto]
+      additionalProperties: false
+      properties:
+        competencia:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        parcela:
+          type: integer
+          nullable: true
+        vencimento:
+          type: string
+          format: date
+          nullable: true
+        situacao:
+          type: string
+          enum: [paga, em_aberto, vencida, cancelada, sem_titulo]
+        valor_total:
+          type: string
+          nullable: true
+          pattern: '^[0-9]+\.[0-9]{2}$'
+        valor_coparticipacao:
+          type: string
+          nullable: true
+          pattern: '^[0-9]+\.[0-9]{2}$'
+        valor_saldo:
+          type: string
+          nullable: true
+          pattern: '^[0-9]+\.[0-9]{2}$'
+        liquidado_em:
+          type: string
+          format: date
+          nullable: true
+        boleto:
+          $ref: '#/components/schemas/BoletoRef'
+    BoletoRef:
+      type: object
+      required: [numero_mascarado, disponivel_online]
+      additionalProperties: false
+      description: >-
+        Rótulo mascarado do boleto. NÃO traz nosso número, bloqueto, linha digitável, código de
+        barras nem link: o contrato não habilita entrega de 2ª via. Mascaramento e uso pelo modelo
+        de linguagem são DECISÃO PENDENTE (DPO).
+      properties:
+        numero_mascarado:
+          type: string
+          nullable: true
+          pattern: '^\*{4}[0-9]{4}$'
+        disponivel_online:
+          type: boolean
+          nullable: true
+    DataQuality:
+      type: object
+      required: [campos_ausentes]
+      additionalProperties: false
+      properties:
+        campos_ausentes:
+          type: array
+          description: >-
+            Nomes dos campos que a fonte não tem para este sujeito/janela (aparecem `null` acima).
+            Lista fechada; o consumidor trata qualquer item como "escalar a humano".
+          items:
+            type: string
+            enum:
+              - status_conciliado
+              - ciclos_sem_conciliacao
+              - valor_em_aberto
+              - dias_atraso_max
+              - pagador_tipo
+              - boleto
+              - valor_coparticipacao
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code:
+          type: string
+          description: Código estável de erro (snake_case).
+        message:
+          type: string
+          description: Mensagem operacional SEM PHI e sem identificador de fonte.
+        reason:
+          type: string
+          nullable: true
+          description: 'Razão fail-closed quando aplicável: consent_denied | purpose_not_permitted | scope_not_supported.'
+        trace_id:
+          type: string
+          description: Trace ID W3C (32 hex); nunca contém dado de pessoa.
+  responses:
+    BadRequest:
+      description: Requisição malformada.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido (Cognito M2M, fail-closed).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ConsentDenied:
+      description: >-
+        FAIL-CLOSED: sem consent válido para {sujeito, purpose_of_use} — nenhum dado, nem parcial.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Sujeito sem cobrança visível (resposta idêntica para inexistente e não-visível).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno (sem detalhe de implementação no corpo).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
