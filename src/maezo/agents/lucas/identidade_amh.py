@@ -17,7 +17,10 @@ Nenhuma levanta por falha da dependencia: recusa do port vira `None`.
 
 from __future__ import annotations
 
+import math
+
 from maezo.ports.consent import ConsentDecisionSource
+from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS
 from maezo.ports.subject_resolution import SubjectResolutionPort
 
 
@@ -29,11 +32,21 @@ class ResolvedorDeSujeitoAmh:
         amh_tenant: str,
         hash_scheme: str,
         purpose_of_use: str,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
     ) -> None:
+        # Teto da chamada de resolucao ao port. O Lucas fica no padrao do port (5 s); a Helena passa o
+        # prazo total da identidade (DL-0079), que o executor do gateway ainda limita a 30 s.
+        if (
+            type(timeout_seconds) not in (int, float)
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("ResolvedorDeSujeitoAmh: timeout_seconds invalido")
         self._port = port
         self._tenant = amh_tenant
         self._scheme = hash_scheme
         self._purpose = purpose_of_use
+        self._timeout = float(timeout_seconds)
 
     async def portable_ref(self, pseudo_id: str, *, phone_hash: str | None) -> str | None:
         ref, _ = await self.portable_ref_com_desfecho(pseudo_id, phone_hash=phone_hash)
@@ -58,6 +71,7 @@ class ResolvedorDeSujeitoAmh:
             amh_tenant=self._tenant,
             hash_scheme=self._scheme,
             purpose_of_use=self._purpose,
+            timeout_seconds=self._timeout,
         )
         if not resultado.succeeded or resultado.value is None:
             return None, "indisponivel"

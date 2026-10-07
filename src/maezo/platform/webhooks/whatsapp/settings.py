@@ -300,6 +300,17 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_IDENTIDADE_AMH", "helena_identidade_amh"),
     )
+    # PRAZO TOTAL da identidade (DL-0079): o teto, em segundos, que a resolucao (telefone ->
+    # referencia) MAIS o perfil podem somar ao turno. Tambem e' o teto de CADA chamada ao port (o
+    # executor do gateway aceita ate' 30 s), para o prazo por chamada nunca ser o limite que derruba
+    # uma resolucao que caberia no total. Medido em dev (07/10/2026): ~3 s + ~2-3 s; o antigo 6 s fixo
+    # estourava com a AMH tendo achado a pessoa. A faixa recusa no boot o que nao faz sentido.
+    helena_identidade_prazo_s: float = Field(
+        default=15.0,
+        ge=1.0,
+        le=30.0,
+        validation_alias=AliasChoices("MAEZO_HELENA_IDENTIDADE_PRAZO_S", "helena_identidade_prazo_s"),
+    )
     # AVISO DE IDENTIDADE (DL-0078, decisao do dono 07/10/2026): o nome de EXIBICAO da operadora nos
     # textos fixos de identidade da Helena ("Reconheci este numero no cadastro de beneficiarios da
     # {nome}..."). So' tem efeito com `helena_identidade_amh` ligada. Texto curto e simples (letras,

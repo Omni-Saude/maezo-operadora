@@ -16,12 +16,22 @@ a DMN e as red flags. Nunca telefone, CPF ou nome.
 FAIL-CLOSED. So' conta a resolucao de candidato UNICO (`ResolvedorDeSujeitoAmh`): telefone compartilhado,
 sem candidato, hash indisponivel, sem base legal, recusa do port, perfil de outro sujeito, resposta fora
 do vocabulario ou estouro de prazo viram `None` — a Helena de sempre. `resolver` NUNCA levanta e nunca
-bloqueia o turno alem de `PRAZO_TOTAL_S`.
+bloqueia o turno alem de `prazo_total_s`.
 
-CACHE. Por conversa (`conversation_id` keyed), em memoria do processo, com validade curta: um resultado
-positivo vale `TTL_POSITIVO_S`; um negativo, `TTL_NEGATIVO_S` (para uma indisponibilidade da AMH nao ser
-martelada a cada mensagem, mas se recuperar logo). Limitado em tamanho. Nada e' persistido e o hash do
-telefone nunca e' guardado (so' o resultado).
+PRAZO (DL-0079). `prazo_total_s` (padrao `PRAZO_TOTAL_S`, no receptor `helena_identidade_prazo_s` /
+`MAEZO_HELENA_IDENTIDADE_PRAZO_S`) limita a SOMA resolucao + perfil. O mesmo valor e' o teto de CADA
+chamada ao port (a resolucao pelo `ResolvedorDeSujeitoAmh(timeout_seconds=...)`, o perfil aqui): com o
+padrao de 5 s do port por chamada, duas chamadas de ~3 s cada estourariam por chamada antes do total, e o
+total configurado nao valeria nada. O executor do gateway segue limitando cada chamada a 30 s.
+
+CACHE. Por conversa (`conversation_id` keyed), em memoria do processo, SO' para desfecho DEFINITIVO da
+AMH: `reconhecido` vale `TTL_POSITIVO_S`; `nao_encontrado` (o `nenhum` da AMH), telefone compartilhado
+(`multiplos`, resposta definitiva da AMH que continua `indeterminado`) e perfil fora do vocabulario
+(resposta valida da AMH que nao fecha) valem `TTL_NEGATIVO_S`. Desfecho TRANSITORIO (prazo estourado,
+recusa/indisponibilidade do port, resposta incoerente, perfil de outro sujeito, sem base legal, hash
+indisponivel, excecao) NAO vira resposta da conversa: fica so' um recuo de `TTL_TRANSITORIO_S` para uma
+rajada de mensagens nao martelar a AMH, e a mensagem seguinte tenta de novo. Limitado em tamanho. Nada
+e' persistido e o hash do telefone nunca e' guardado (so' o resultado).
 
 LOG. So' `conversation_id` (keyed), o motivo (token fechado) e booleanos. Nunca o hash, a referencia, o
 numero nem o perfil.
@@ -37,6 +47,7 @@ compartilhado, falha, prazo, sem base legal, perfil fora do vocabulario, resolve
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
@@ -56,11 +67,24 @@ from maezo.ports.subject_resolution import SubjectProfile, SubjectResolutionPort
 
 logger = structlog.get_logger(__name__)
 
-#: Teto do tempo que a resolucao pode somar ao turno (resolucao + perfil, cada um limitado a 5s pelo port).
-PRAZO_TOTAL_S: Final[float] = 6.0
+#: Padrao do teto do tempo que a resolucao pode somar ao turno (resolucao + perfil). DL-0079: era 6 s
+#: fixo e estourava com a AMH respondendo (~3 s + ~2-3 s medidos em dev). O receptor passa o valor de
+#: `helena_identidade_prazo_s`; tambem e' o teto de cada chamada ao port.
+PRAZO_TOTAL_S: Final[float] = 15.0
+#: Teto tecnico do executor do gateway por chamada (`gateway/amh_interop.py::_MAX_TIMEOUT_SECONDS`).
+PRAZO_MAXIMO_S: Final[float] = 30.0
 TTL_POSITIVO_S: Final[float] = 600.0
+#: Desfecho negativo DEFINITIVO da AMH (`nenhum`, `multiplos`, perfil fora do vocabulario).
 TTL_NEGATIVO_S: Final[float] = 60.0
+#: Recuo curto apos falha TRANSITORIA: so' segura uma rajada; a mensagem seguinte tenta de novo.
+TTL_TRANSITORIO_S: Final[float] = 5.0
 MAX_CONVERSAS_EM_CACHE: Final[int] = 4096
+
+#: Motivos que sao RESPOSTA DEFINITIVA da AMH (cacheaveis por `TTL_NEGATIVO_S`). Todo o resto e'
+#: transitorio. `ok` (reconhecido) usa `TTL_POSITIVO_S`.
+MOTIVOS_DEFINITIVOS: Final[frozenset[str]] = frozenset(
+    {"sujeito_nao_encontrado", "sujeito_ambiguo", "perfil_fora_do_vocabulario"}
+)
 
 
 @runtime_checkable
@@ -140,9 +164,17 @@ class IdentidadeHelena:
     #: Drenagem dos executores do gateway.
     aclose_fn: Callable[[], Awaitable[None]] | None = field(default=None, repr=False)
     relogio: Callable[[], float] = field(default=time.monotonic, repr=False)
+    #: Teto da soma resolucao + perfil e de cada chamada ao port (DL-0079).
+    prazo_total_s: float = PRAZO_TOTAL_S
     _cache: OrderedDict[str, tuple[float, ResultadoIdentidade]] = field(
         default_factory=OrderedDict, init=False, repr=False
     )
+
+    def __post_init__(self) -> None:
+        prazo = self.prazo_total_s
+        if type(prazo) not in (int, float) or not math.isfinite(prazo) or not 0 < prazo <= PRAZO_MAXIMO_S:
+            raise ValueError("IdentidadeHelena: prazo_total_s fora de (0, 30]")
+        self.prazo_total_s = float(prazo)
 
     def _do_cache(self, conversation_id: str) -> ResultadoIdentidade | None:
         entrada = self._cache.get(conversation_id)
@@ -155,8 +187,14 @@ class IdentidadeHelena:
         self._cache.move_to_end(conversation_id)
         return _copia(resultado)
 
-    def _guardar(self, conversation_id: str, resultado: ResultadoIdentidade) -> None:
-        ttl = TTL_POSITIVO_S if resultado.identidade is not None else TTL_NEGATIVO_S
+    def _guardar(self, conversation_id: str, resultado: ResultadoIdentidade, motivo: str) -> None:
+        if resultado.identidade is not None:
+            ttl = TTL_POSITIVO_S
+        elif motivo in MOTIVOS_DEFINITIVOS:
+            ttl = TTL_NEGATIVO_S
+        else:
+            # Transitorio: so' o recuo curto contra rajada; nunca a resposta da conversa (DL-0079).
+            ttl = TTL_TRANSITORIO_S
         self._cache[conversation_id] = (self.relogio() + ttl, resultado)
         self._cache.move_to_end(conversation_id)
         while len(self._cache) > MAX_CONVERSAS_EM_CACHE:
@@ -185,7 +223,10 @@ class IdentidadeHelena:
         if base_legal is None:
             return None, "sem_base_legal"
         resultado = await self.port.get_profile(
-            ref, purpose_of_use=self.purpose_of_use, consent_decision_ref=base_legal
+            ref,
+            purpose_of_use=self.purpose_of_use,
+            consent_decision_ref=base_legal,
+            timeout_seconds=self.prazo_total_s,
         )
         if not resultado.succeeded or resultado.value is None:
             return None, "perfil_indisponivel"
@@ -214,7 +255,7 @@ class IdentidadeHelena:
             if em_cache is not None:
                 return em_cache
             try:
-                async with asyncio.timeout(PRAZO_TOTAL_S):
+                async with asyncio.timeout(self.prazo_total_s):
                     identidade, motivo = await self._resolver(numero_cru, pseudo_id)
             except TimeoutError:
                 identidade, motivo = None, "prazo_estourado"
@@ -224,13 +265,14 @@ class IdentidadeHelena:
                 resultado = ResultadoIdentidade(None, IDENTIDADE_NAO_ENCONTRADA)
             else:
                 resultado = _INDETERMINADO
-            self._guardar(conversation_id, resultado)
+            self._guardar(conversation_id, resultado, motivo)
             logger.info(
                 "helena_identidade_resolvida",
                 conversation_id=conversation_id,
                 resolvida=identidade is not None,
                 motivo=motivo,
                 desfecho=resultado.desfecho,
+                definitivo=identidade is not None or motivo in MOTIVOS_DEFINITIVOS,
             )
             return _copia(resultado)
         except Exception as exc:
@@ -252,9 +294,12 @@ def _copia(resultado: ResultadoIdentidade) -> ResultadoIdentidade:
 
 __all__ = [
     "MAX_CONVERSAS_EM_CACHE",
+    "MOTIVOS_DEFINITIVOS",
+    "PRAZO_MAXIMO_S",
     "PRAZO_TOTAL_S",
     "TTL_NEGATIVO_S",
     "TTL_POSITIVO_S",
+    "TTL_TRANSITORIO_S",
     "IdentidadeHelena",
     "ResolvedorComDesfecho",
     "ResultadoIdentidade",

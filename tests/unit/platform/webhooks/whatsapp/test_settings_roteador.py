@@ -156,3 +156,31 @@ def test_helena_identidade_amh_independe_da_fonte_do_lucas(_ambiente_amh_limpo: 
     assert s.helena_identidade_amh is True
     assert s.lucas_fonte_cobranca == "simulada"
     assert s.roteador_lucas_enabled is False
+
+
+# --- Prazo da identidade na Helena (DL-0079) ------------------------------------------------------
+
+
+def test_helena_identidade_prazo_default_15s(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_HELENA_IDENTIDADE_PRAZO_S", raising=False)
+    assert _settings().helena_identidade_prazo_s == 15.0
+
+
+def test_helena_identidade_prazo_le_o_nome_canonico_do_ambiente(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MAEZO_HELENA_IDENTIDADE_PRAZO_S", "12.5")
+    assert _settings().helena_identidade_prazo_s == 12.5
+
+
+@pytest.mark.parametrize("prazo", [0, 0.5, -1, 30.1, 600, float("nan"), float("inf")])
+def test_helena_identidade_prazo_fora_da_faixa_recusa_no_boot(
+    prazo: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MAEZO_HELENA_IDENTIDADE_PRAZO_S", raising=False)
+    with pytest.raises(ValidationError):
+        _settings(helena_identidade_prazo_s=prazo)
+
+
+@pytest.mark.parametrize("prazo", [1.0, 30.0])
+def test_helena_identidade_prazo_nas_bordas_da_faixa(prazo: float, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_HELENA_IDENTIDADE_PRAZO_S", raising=False)
+    assert _settings(helena_identidade_prazo_s=prazo).helena_identidade_prazo_s == prazo
