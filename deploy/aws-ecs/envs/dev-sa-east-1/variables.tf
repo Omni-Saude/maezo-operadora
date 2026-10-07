@@ -768,7 +768,7 @@ variable "helena_identidade_amh" {
 variable "helena_historico" {
   description = <<-EOT
     Historico curto da conversa na Helena (DL-0080, 07/10/2026): `MAEZO_HELENA_HISTORICO`. Default
-    `false` = a Helena de antes. Ligado, as ultimas 6 mensagens (so' texto, janela de 6 h) vao ao
+    `false` = a Helena de antes. Ligado, as ultimas 12 mensagens (so' texto, 300 caracteres, janela de 6 h) vao ao
     classificador e a redacao, e o modo coleta liga junto. Base LGPD PENDENTE de ratificacao do DPO.
   EOT
   type        = bool

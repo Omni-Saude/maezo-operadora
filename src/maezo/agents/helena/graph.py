@@ -182,7 +182,14 @@ from maezo.tools.workers.dmn_transport import (
 )
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
-from .historico import HISTORICO_JANELA_HORAS, acrescentar_turno, historico_em_texto, historico_valido
+from .historico import (
+    CHAVE_RESPOSTA_COM_DADOS_DO_PLANO,
+    HISTORICO_JANELA_HORAS,
+    MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO,
+    acrescentar_turno,
+    historico_em_texto,
+    historico_valido,
+)
 from .prompts import (
     ALLOWED_SINTOMA_CODIGOS,
     CLASSIFY_HISTORICO_VERSION,
@@ -3958,7 +3965,7 @@ class HelenaGraph:
                 motivo_categoria=None,
                 enviada=False,
             )
-            return {"desfecho": DESFECHO_PASSAGEM_SEM_FRASE}
+            return {"desfecho": DESFECHO_PASSAGEM_SEM_FRASE, **self._historico_do_turno(state, None)}
         # UM unico `send` e UM unico handler de falha de envio nos dois ramos — o que muda entre
         # eles e O QUE se diz e O QUE o turno declara, nunca o mecanismo de envio.
         if state.get("start_failed") is True:
@@ -3991,7 +3998,7 @@ class HelenaGraph:
                     motivo_categoria=state.get("escalation_motivo"),
                     enviada=False,
                 )
-            return saida
+            return {**saida, **self._historico_do_turno(state, None)}
         # DL-0078: o aviso de identidade de PRIMEIRO CONTATO, como mensagem SEPARADA e ANTES da resposta
         # do turno — nunca no lugar dela. Ver `_aviso_de_identidade` (quando sai, quando e' adiado).
         aviso_enviado, aviso_na_resposta = await self._aviso_de_identidade(state, text)
@@ -4006,19 +4013,10 @@ class HelenaGraph:
             # O desfecho de falha de start (quando ha um) NAO e apagado por uma falha de envio:
             # o caso continua marcado como start falho, que e o que a operacao precisa ver.
             saida = {**saida, "error": f"whatsapp send failed: {redact_error_message(exc)}"}
-        if self._historico_enabled:
-            # DL-0080: a mensagem da pessoa entra sempre; a da Helena SO' se SAIU, e e' o texto
-            # ENVIADO (`text`, ja' depois das cercas) — nunca o rascunho barrado. O aviso de identidade
-            # (mensagem separada) nao entra: e' texto fixo de identidade, nao conversa.
-            saida = {
-                **saida,
-                "historico_conversa": acrescentar_turno(
-                    state.get("historico_conversa"),
-                    mensagem=state.get("message_body"),
-                    resposta=text if enviada else None,
-                    agora=datetime.now(UTC),
-                ),
-            }
+        # DL-0080: a mensagem da pessoa entra sempre; a da Helena SO' se SAIU, e e' o texto ENVIADO
+        # (`text`, ja' depois das cercas) — nunca o rascunho barrado. O aviso de identidade (mensagem
+        # separada) nao entra: e' texto fixo de identidade, nao conversa.
+        saida = {**saida, **self._historico_do_turno(state, text if enviada else None)}
         if aviso_enviado or (aviso_na_resposta and enviada):
             # DL-0078: so' depois de a pessoa ter RECEBIDO o texto de identidade (separado ou como a
             # propria resposta do turno). Vai ao checkpoint: o aviso nao se repete nesta conversa.
@@ -4084,6 +4082,32 @@ class HelenaGraph:
                 if isinstance(memoria_do_turno, dict):
                     saida["memoria_clinica"] = {**memoria_do_turno, _MEMORIA_CONFIRMADA: True}
         return saida
+
+    def _historico_do_turno(self, state: HelenaState, resposta_enviada: str | None) -> dict[str, Any]:
+        """A atualizacao de `historico_conversa` deste turno (DL-0080), ou `{}` com a flag desligada.
+
+        Chamada por TODO retorno de `respond` — inclusive a passagem silenciosa ao Lucas e a resposta
+        vazia, em que nada sai mas a pessoa falou. A fala do beneficiario passa por `redact_free_text`
+        (CPF, telefone, e-mail digitados nao ficam guardados). A da Helena e' o texto ENVIADO, ou o
+        marcador `MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO` quando o turno respondeu com dados do plano
+        (gancho da onda 1: a chave `CHAVE_RESPOSTA_COM_DADOS_DO_PLANO` verdadeira no estado).
+        """
+        if not self._historico_enabled:
+            return {}
+        mensagem = state.get("message_body")
+        if isinstance(mensagem, str) and mensagem.strip():
+            mensagem = redact_free_text(mensagem, max_chars=len(mensagem) + 64)
+        resposta = resposta_enviada
+        if resposta and cast(Mapping[str, Any], state).get(CHAVE_RESPOSTA_COM_DADOS_DO_PLANO) is True:
+            resposta = MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
+        return {
+            "historico_conversa": acrescentar_turno(
+                state.get("historico_conversa"),
+                mensagem=mensagem,
+                resposta=resposta,
+                agora=datetime.now(UTC),
+            )
+        }
 
     async def _aviso_de_identidade(self, state: HelenaState, texto_do_turno: str) -> tuple[bool, bool]:
         """AVISO DE IDENTIDADE DE PRIMEIRO CONTATO (DL-0078). Devolve `(enviado, ja_na_resposta)`.

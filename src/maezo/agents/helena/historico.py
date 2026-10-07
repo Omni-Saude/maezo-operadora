@@ -25,17 +25,30 @@ nunca para um historico parcial.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Final
 
-#: Quantas mensagens (entradas `{papel, texto, em}`) ficam. Cada entrada e' UMA troca de vez
-#: (uma fala da pessoa ou da Helena). Seis cobrem as tres ultimas idas e voltas — o que a anafora
-#: ("ela", "isso", "tambem") precisa — e cabem inteiras num bloco nao confiavel (6 x 500 < 4000).
-HISTORICO_MAX_TROCAS: Final[int] = 6
+#: Quantas mensagens (entradas `{papel, texto, em}`) ficam: 12 = as seis ultimas idas e voltas
+#: (uma fala da pessoa + uma da Helena cada). E' o que a anafora ("ela", "isso", "tambem") precisa.
+HISTORICO_MAX_TROCAS: Final[int] = 12
 
-#: Teto de cada texto guardado. O beneficiario raramente passa disso; a Helena tambem nao.
-HISTORICO_TEXTO_MAX_CHARS: Final[int] = 500
+#: Teto de cada texto guardado. 300 caracteres: o beneficiario raramente passa disso, e 12 x 300 ainda
+#: precisa do corte por orcamento abaixo para caber no bloco nao confiavel (`UNTRUSTED_MAX_CHARS`).
+HISTORICO_TEXTO_MAX_CHARS: Final[int] = 300
+
+#: ORCAMENTO do miolo do bloco `historico_conversa`, ABAIXO de `UNTRUSTED_MAX_CHARS` (4000).
+#: `render_untrusted_block` corta pelo FIM — perderia justamente as mensagens mais recentes. Por isso
+#: `historico_em_texto` descarta as MAIS ANTIGAS ate' caber aqui, e o bloco nunca chega a ser cortado.
+#: A folga cobre a neutralizacao de delimitador, que expande o texto.
+HISTORICO_ORCAMENTO_CHARS: Final[int] = 3500
+
+#: GANCHO PARA A ONDA 1 (consultas com dados do plano): quando o estado do turno trouxer
+#: `CHAVE_RESPOSTA_COM_DADOS_DO_PLANO` verdadeira, a fala da Helena entra no historico como este
+#: marcador, NUNCA com o texto — dado do plano nao fica guardado na memoria da conversa.
+CHAVE_RESPOSTA_COM_DADOS_DO_PLANO: Final[str] = "resposta_com_dados_do_plano"
+MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO: Final[str] = "[resposta com dados do plano]"
 
 #: A mesma janela da memoria clinica (`graph.MEMORIA_CLINICA_JANELA_HORAS`, igualdade fixada em
 #: teste): a conversa de horas atras ainda e' a mesma conversa; a de ontem nao e'.
@@ -113,8 +126,20 @@ def acrescentar_turno(
 
 
 def historico_em_texto(historico: Sequence[dict[str, str]]) -> str:
-    """Uma linha por mensagem, em ordem cronologica: `beneficiario: ...` / `helena: ...`.
+    """A lista `[{papel, texto, em}]` em JSON (`ensure_ascii=False`), em ordem cronologica.
 
     E' o MIOLO do bloco nao confiavel `historico_conversa`; quem chama o embrulha.
+
+    JSON, E NAO UMA LINHA POR MENSAGEM: com `papel: texto` por linha, um beneficiario que digitasse
+    uma quebra de linha seguida de `helena: ...` FORJARIA uma fala da Helena. Em JSON a quebra vira
+    `\\n` dentro da string e o papel so' existe como chave estruturada.
+
+    Descarta as mensagens MAIS ANTIGAS ate' o resultado caber em `HISTORICO_ORCAMENTO_CHARS`: a mais
+    recente chega sempre inteira (uma entrada so' cabe com folga no orcamento).
     """
-    return "\n".join(f"{item['papel']}: {item['texto']}" for item in historico)
+    itens = [{"papel": i["papel"], "texto": i["texto"], "em": i["em"]} for i in historico]
+    while True:
+        texto = json.dumps(itens, ensure_ascii=False)
+        if len(texto) <= HISTORICO_ORCAMENTO_CHARS or len(itens) <= 1:
+            return texto
+        itens = itens[1:]

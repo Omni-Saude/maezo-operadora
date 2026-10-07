@@ -301,7 +301,7 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_HELENA_IDENTIDADE_AMH", "helena_identidade_amh"),
     )
     # HISTORICO CURTO DA CONVERSA NA HELENA (DL-0080, 07/10/2026). DESLIGADO por padrao, e desligado
-    # e' a Helena de antes byte a byte. Ligado: as ultimas 6 mensagens (so' texto, 500 caracteres,
+    # e' a Helena de antes byte a byte. Ligado: as ultimas 12 mensagens (so' texto, 300 caracteres,
     # janela de 6 h) vao ao classificador e a redacao do `inform` como bloco NAO CONFIAVEL, e o modo
     # coleta liga junto. Base LGPD PENDENTE de ratificacao do DPO — nao ligar fora de dev sem ela.
     helena_historico: bool = Field(
