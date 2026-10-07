@@ -1548,6 +1548,10 @@ def test_stale_base_sha_no_longer_produces_a_false_owned_hit_defect_254(
 #: rubber stamp — it would let the phantom come back unnoticed.
 _PRE_AUDIT_USER_OWNERS = frozenset({"rodrigotaquino"})
 _POST_AUDIT_USER_OWNERS = frozenset({"rodaquino-OMNI", "lucasreisEvah"})
+#: 2026-10-07 — `filipecarmo81` (Diretor de Tecnologia, dono da organizacao) entra SO' na linha `/deploy/`
+#: (handle conferido por GET /users/filipecarmo81). Nao toca nenhum flip path: o dono literal deles segue
+#: `rodaquino-OMNI`. O snapshot POST-AUDIT fica ate' este merge, como o PRE-AUDIT ficou.
+_DEPLOY_REVIEWER_USER_OWNERS = frozenset({"rodaquino-OMNI", "lucasreisEvah", "filipecarmo81"})
 
 #: Roster snapshot -> the literal login that must own the flip paths under it. Both sides hardcoded:
 #: WHICH account owns the ratification paths is a fact to be pinned, not derived from the file being
@@ -1555,6 +1559,7 @@ _POST_AUDIT_USER_OWNERS = frozenset({"rodaquino-OMNI", "lucasreisEvah"})
 _EXPECTED_FLIP_PATH_OWNER: dict[frozenset[str], str] = {
     _PRE_AUDIT_USER_OWNERS: "rodrigotaquino",
     _POST_AUDIT_USER_OWNERS: "rodaquino-OMNI",
+    _DEPLOY_REVIEWER_USER_OWNERS: "rodaquino-OMNI",
 }
 
 #: The paths whose ratification IS the enforcement flip Q-1 exists for.
