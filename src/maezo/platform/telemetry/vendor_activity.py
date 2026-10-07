@@ -145,7 +145,7 @@ class VendorActivityCounters:
         não é o membro do catálogo — e a string solta é exatamente o canal por onde conteúdo
         disfarçado entraria. Recusa com `ContentSmugglingError` (subtipo de `TypeError`).
         """
-        if type(signal) is not VendorActivitySignal:  # noqa: E721 - recusa de str solta É o objetivo
+        if type(signal) is not VendorActivitySignal:  # recusa de str solta É o objetivo
             raise ContentSmugglingError(
                 "contador presence-only aceita apenas um membro do catálogo fechado "
                 "VendorActivitySignal; nenhum payload, conteúdo ou string solta tem entrada aqui"

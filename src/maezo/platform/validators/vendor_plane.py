@@ -260,7 +260,7 @@ async def _probe_source_unavailable_async(*, tenant: str) -> tuple[bool, str]:
                 await job.run()
             except ReadRefusalError:
                 continue
-            except BaseException as exc:  # noqa: BLE03 - a sonda relata QUALQUER desfecho
+            except BaseException as exc:  # a sonda relata QUALQUER desfecho
                 return False, f"{label}: desfecho inesperado {type(exc).__name__}"
             return False, f"{label}: job respondeu sem recusar — zero fabricado ou publisher alcançado"
     return True, "store vazio e store ausente recusam com ReadRefusalError; publisher nunca alcançado"
@@ -290,7 +290,7 @@ def _check_vendor_flags_default_off(target: VendorPlaneTarget) -> VendorPlaneChe
     name = "vendor_flags_default_off"
     try:
         default = portal_capabilities_default()
-    except Exception as exc:  # noqa: BLE03 - fail-closed: default ilegível é FAIL, não exceção
+    except Exception as exc:  # fail-closed: default ilegível é FAIL, não exceção
         return VendorPlaneCheck(
             name=name, passed=False, detail=f"unknown: default de capabilities ilegível ({exc})", observed={}
         )
@@ -335,7 +335,7 @@ def _check_migrations_linear_head(target: VendorPlaneTarget) -> VendorPlaneCheck
     observed: dict[str, str | int | bool | None] = {}
     try:
         local_heads, edges = local_migration_chain()
-    except Exception as exc:  # noqa: BLE03 - fail-closed
+    except Exception as exc:  # fail-closed
         return VendorPlaneCheck(
             name=name, passed=False, detail=f"unknown: cadeia local ilegível ({exc})", observed=observed
         )
@@ -389,7 +389,7 @@ def _check_readiness_workers(target: VendorPlaneTarget) -> VendorPlaneCheck:
     observed: dict[str, str | int | bool | None] = {}
     try:
         local_count = local_worker_bootstrap_count()
-    except Exception as exc:  # noqa: BLE03 - fail-closed
+    except Exception as exc:  # fail-closed
         return VendorPlaneCheck(
             name=name, passed=False, detail=f"unknown: bootstraps locais ilegíveis ({exc})", observed=observed
         )
@@ -447,7 +447,7 @@ def _check_default_state_unpublished(target: VendorPlaneTarget) -> VendorPlaneCh
         )
     try:
         probe_ok, probe_detail = probe_source_unavailable_operative()
-    except Exception as exc:  # noqa: BLE03 - fail-closed
+    except Exception as exc:  # fail-closed
         return VendorPlaneCheck(
             name=name,
             passed=False,
@@ -496,7 +496,7 @@ def _check_evidence_ledger(target: VendorPlaneTarget) -> VendorPlaneCheck:
             for chunk in iter(lambda: handle.read(1 << 20), b""):
                 digest.update(chunk)
         observed["evidence_ledger_sha256"] = digest.hexdigest()
-    except Exception as exc:  # noqa: BLE03 - fail-closed
+    except Exception as exc:  # fail-closed
         return VendorPlaneCheck(
             name=name,
             passed=False,
