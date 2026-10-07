@@ -46,10 +46,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import tempfile
-from collections.abc import Awaitable, Mapping, Sequence
+from collections.abc import Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -253,7 +253,7 @@ async def _probe_source_unavailable_async(*, tenant: str) -> tuple[bool, str]:
             job = VendorMembershipPublicationJob(
                 channels=_FixedChannelReader(rows),  # type: ignore[arg-type]
                 memberships=_ProbeMustNotBeReached(),  # type: ignore[arg-type]
-                publisher=_ProbeMustNotBeReached(),  # type: ignore[arg-type]
+                publisher=_ProbeMustNotBeReached(),
                 ledger=ledger,
             )
             try:
@@ -277,7 +277,7 @@ def probe_source_unavailable_operative(*, tenant: str = "validator-probe-tenant"
     `asyncio.run` por contrato de superfície síncrona: chamado DENTRO de um loop em execução,
     levanta `RuntimeError` — e o item (d) converte isso em FAIL, nunca em PASS por omissão.
     """
-    probe: Awaitable[tuple[bool, str]] = _probe_source_unavailable_async(tenant=tenant)
+    probe: Coroutine[Any, Any, tuple[bool, str]] = _probe_source_unavailable_async(tenant=tenant)
     return asyncio.run(probe)
 
 
