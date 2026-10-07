@@ -1231,6 +1231,18 @@ def verify_candidate(current: dict[str, Any], candidate: dict[str, Any]) -> list
             cur_sha = dig(cur_v11, "manifest_pin.sha256")
             new_sha = dig(new_v11, "manifest_pin.sha256")
             cur_ev = dig(cur_v11, "provenance.evidence_id")
+            if cur_sha == new_sha and cur_v11 != new_v11:
+                # Mesmo manifest pinado => o bloco inteiro e' imutavel. Trocar um digest de artefato,
+                # a proveniencia ou a evidencia sob o mesmo manifest publicaria outro OpenAPI sem nova
+                # publicacao: o loader passaria o digest novo aos adaptadores.
+                mudou = sorted(k for k in {*cur_v11, *new_v11} if cur_v11.get(k) != new_v11.get(k))
+                violations.append(
+                    Violation(
+                        "candidate-v1-1-mutated",
+                        f"{V1_1_LOCK_KEY}: manifest_pin.sha256 is unchanged but {mudou} changed — the "
+                        "pinned block is immutable; a legitimate update needs a newly published manifest",
+                    )
+                )
             if cur_sha != new_sha and cur_ev == new_evidence_v11:
                 violations.append(
                     Violation(

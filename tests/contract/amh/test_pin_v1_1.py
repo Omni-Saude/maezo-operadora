@@ -254,6 +254,29 @@ def test_candidate_recusa_evidence_reutilizado_e_run_antigo() -> None:
     assert "candidate-v1-1-run-regression" in codes(verify_candidate(current, old))
 
 
+def test_candidate_recusa_trocar_artefato_sob_o_mesmo_manifest() -> None:
+    """Achado P1 do #676: mesmo manifest_pin.sha256, evidence_id e run; so' um digest de artefato muda."""
+    current = lock_com_v1_1()
+    trocado = copy.deepcopy(current)
+    trocado[V1_1_LOCK_KEY]["artifacts"][0]["sha256"] = "0" * 64
+    assert "candidate-v1-1-mutated" in codes(verify_candidate(current, trocado))
+
+
+def test_candidate_recusa_mudar_proveniencia_sob_o_mesmo_manifest() -> None:
+    current = lock_com_v1_1()
+    for campo in ("provenance", "publication", "xrg3_verification"):
+        mexido = copy.deepcopy(current)
+        bloco_v11 = mexido[V1_1_LOCK_KEY]
+        chave = next(iter(bloco_v11[campo]))
+        bloco_v11[campo][chave] = str(bloco_v11[campo][chave]) + "x"
+        assert "candidate-v1-1-mutated" in codes(verify_candidate(current, mexido)), campo
+
+
+def test_candidate_com_o_mesmo_bloco_passa() -> None:
+    current = lock_com_v1_1()
+    assert verify_candidate(current, copy.deepcopy(current)) == []
+
+
 def test_candidate_recusa_remover_ou_regredir_o_bloco() -> None:
     current = lock_com_v1_1()
     stripped = copy.deepcopy(current)
