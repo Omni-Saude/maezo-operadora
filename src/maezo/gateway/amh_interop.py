@@ -413,6 +413,11 @@ class AmhPhoneLookupHasher:
             digitos = digitos[1:]
         if not digitos.isascii() or not _E164_BR.fullmatch(digitos):
             return None
+        if len(digitos) == 12 and digitos[4] in "6789":
+            # Celular sem o nono digito: e' assim que o WhatsApp entrega muitos numeros brasileiros
+            # (`wa_id` de conta antiga), e o indice da AMH guarda o celular SEMPRE com o 9
+            # (`build_phone_lookup.normalizar_e164`). Sem esta forma canonica o hash nunca bate.
+            digitos = digitos[:4] + "9" + digitos[4:]
         mensagem = f"{self._amh_tenant}:{digitos}".encode("ascii")
         return hmac.new(self._key, mensagem, hashlib.sha256).hexdigest()
 
