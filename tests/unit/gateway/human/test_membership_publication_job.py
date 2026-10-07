@@ -272,14 +272,19 @@ class RowStore:
 
 
 def _job(rows: RowStore, publisher: FakePublisher, ledger_path: Path) -> MembershipPublicationJob:
+    # The record under test carries the vector's `reviewed_until` (a fixed date). Pin the whole
+    # job to the same fixed clock, or `principal_body` reads the real wall clock and, once that
+    # date passes, every row turns `active=false` and the principal is (rightly) never created.
+    clock = Clock()
     job = MembershipPublicationJob(
         publisher=publisher,
         ledger=PublicationLedger(ledger_path, "amh"),
-        catalog=StaffCatalogPublicationSource(config=_catalog_config(), publisher_ref=PUBLISHER),
-        handshake=_handshake(rows.store, clock=lambda: datetime.now(UTC)),
+        catalog=StaffCatalogPublicationSource(config=_catalog_config(), publisher_ref=PUBLISHER, clock=clock),
+        handshake=_handshake(rows.store, clock=clock),
         store=rows.store,
         engine=None,  # type: ignore[arg-type]
         workload_ref=PUBLISHER,
+        clock=clock,
     )
     job._principals = AsyncMock(side_effect=lambda: sorted(rows.rows))  # type: ignore[method-assign]
     return job
