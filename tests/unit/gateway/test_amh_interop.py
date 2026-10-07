@@ -489,6 +489,25 @@ def test_hash_amh_phone_lookup_v1_e_hmac_do_tenant_e_digitos() -> None:
     assert PHONE_KEY not in repr(hasher)
 
 
+def test_celular_sem_o_nono_digito_tem_o_mesmo_hash_do_indice_da_amh() -> None:
+    """O WhatsApp entrega muitos celulares sem o 9 (`551187654321`); o indice da AMH so' tem a forma com
+    o 9. As duas formas precisam dar o MESMO hash, senao a pessoa nunca e' reconhecida."""
+    hasher = AmhPhoneLookupHasher(key=PHONE_KEY, amh_tenant="austa_operadora")
+    com_9 = hmac.new(PHONE_KEY.encode(), b"austa_operadora:5511987654321", hashlib.sha256).hexdigest()
+    assert hasher("551187654321") == com_9
+    assert hasher("+551187654321") == com_9
+    assert hasher("5511987654321") == com_9
+    for inicio in "6789":
+        assert hasher(f"5511{inicio}7654321") == hasher(f"55119{inicio}7654321")
+
+
+def test_fixo_de_8_digitos_nao_ganha_o_nono_digito() -> None:
+    hasher = AmhPhoneLookupHasher(key=PHONE_KEY, amh_tenant="austa_operadora")
+    fixo = hmac.new(PHONE_KEY.encode(), b"austa_operadora:551133334444", hashlib.sha256).hexdigest()
+    assert hasher("551133334444") == fixo
+    assert hasher("551133334444") != hasher("5511933334444")
+
+
 @pytest.mark.parametrize(
     "numero", ["14155550100", "5511", "55011987654321", "55 11 98765-4321", "", "５５11987654321"]
 )
