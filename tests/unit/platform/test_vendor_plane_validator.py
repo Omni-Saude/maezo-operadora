@@ -57,11 +57,12 @@ def test_a_base_tem_exatamente_18_bootstraps_e_o_contrato_e_18() -> None:
     assert len(ALL_WORKER_BOOTSTRAPS) == EXPECTED_WORKER_BOOTSTRAP_COUNT
 
 
-def test_a_cadeia_local_e_head_linear_0020_revisando_0019() -> None:
-    """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0020 revisa 0019."""
+def test_a_cadeia_local_e_head_linear_0021_revisando_0020() -> None:
+    """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0021 revisa 0020
+    (0021 = store de supressão GP11 — VW4 wiring, insumos aceitos sha ab262f7b…)."""
     heads, edges = local_migration_chain()
-    assert heads == ("0020",)
-    assert edges["0020"] == "0019"
+    assert heads == ("0021",)
+    assert edges["0021"] == "0020"
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ def _estado_default_off(tmp_path: Path, **overrides: object) -> VendorPlaneTarge
     ledger.write_text("# VW5-METRICS — dashboard de contagens (baseline→pós-VW3)\n", encoding="utf-8")
     values: dict[str, object] = {
         "capabilities_deployed": "identity",
-        "migration_heads": ("0020",),
+        "migration_heads": ("0021",),
         "applied_migrations": _applied_chain(),
         "worker_bootstrap_count": EXPECTED_WORKER_BOOTSTRAP_COUNT,
         "published_vendor_memberships": 0,
@@ -154,13 +155,13 @@ def test_a_perfil_com_forma_invalida_fica_vermelho(tmp_path: Path) -> None:
 def test_b_heads_bifurcadas_ficam_vermelhas(tmp_path: Path) -> None:
     _apenas_este_item_falha(
         tmp_path,
-        _estado_default_off(tmp_path, migration_heads=("0019", "0020")),
+        _estado_default_off(tmp_path, migration_heads=("0019", "0021")),
         "migrations_linear_head",
     )
 
 
 def test_b_0019_faltando_na_aplicacao_fica_vermelho(tmp_path: Path) -> None:
-    """0020 aplicada sem 0019 não é head linear vendor — é cadeia quebrada no banco do alvo."""
+    """0020/0021 aplicadas sem 0019 não é head linear vendor — cadeia quebrada no banco."""
     sem_0019 = tuple(rev for rev in _applied_chain() if rev != "0019")
     _apenas_este_item_falha(
         tmp_path,
@@ -298,7 +299,7 @@ def _cli_fatos(tmp_path: Path) -> list[str]:
         "--capabilities",
         "identity",
         "--migration-heads",
-        "0020",
+        "0021",
         "--applied-migrations",
         ",".join(edges),
         "--worker-count",

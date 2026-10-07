@@ -18,8 +18,16 @@
 
        DI (diagrama) sera adicionado na promocao a FINAL (precedente SP-OP-LGPD-DSR-001:30).
        Requer revisao do DPO antes de qualquer deploy — docs/review-queue.md (linha
-       SP-OP-SUPP-001 desta onda). NENHUM historyTimeToLive: retencao = RATIFY-LATER DPO
-       (VW0-D12) — nada de prazo que corre em silencio. NENHUM timer/SLA (VW0-D20).
+       SP-OP-SUPP-001 desta onda). TTL de LIMPEZA DE HISTÓRICO DO ENGINE (historyTimeToLive
+       1825 = precedente LGPD-DSR/SP-OP; o engine local roda enforceTTL — ENGINE-12018, prova
+       live no wiring GP11 — e RECUSA deploy sem TTL; NÃO é o prazo de retenção de negócio,
+       que segue RATIFY-LATER DPO VW0-D12 — a disposição do registro vivo é do dono, o
+       downgrade da 0021 recusa store populado). O RELÓGIO POR REGISTRO (VW4 wiring, insumos
+       ACEITOS pelo dono 2026-10-07, sha ab262f7b…): t_deadline/t_lembrete/t_escalonado nascem
+       COMPUTADOS no registro (calendário own-code seg–sex SEM feriados — limite documentado;
+       §4c do ANSWERS-V1) e os timers `timeDate` abaixo leem essas variáveis — a âncora é o
+       FATO GERADOR (idioma CONTAS GAP-4), nunca o attach da User Task. NENHUM outro timer de
+       SLA existe (nenhum relógio de instância/global).
 
        CONTRATO (registry OP20, OP-REGISTRY-VENDOR-V1.md): `SuppressionCommand →
        SuppressionReceipt`; registro PREVENTIVO honrado na CONSTRUCAO de lista (antes do
@@ -75,15 +83,20 @@
   <bpmn:error id="Error_SuppRoteamentoIndisponivel" name="Roteamento indisponivel (insumos DPO pendentes / DMN nao servida)" errorCode="ERR_SUPP_ROUTING_UNAVAILABLE"/>
 
   <bpmn:process id="SP-OP-SUPP-001" name="SP-OP-SUPP-001 Direitos de Nao Contato (supressao vendor)"
-                isExecutable="true">
+                isExecutable="true" camunda:historyTimeToLive="1825">
 
     <bpmn:documentation><![CDATA[
-SP-OP-SUPP-001 — Supressao/opt-out por individuo (GP11/PAT-20, OP20). Status: DRAFT (v0.1.0).
+SP-OP-SUPP-001 — Supressao/opt-out por individuo (GP11/PAT-20, OP20). Status: DRAFT (v1.0.0-wiring).
 DI na promocao a FINAL. Revisao DPO obrigatoria antes de qualquer deploy (docs/review-queue.md).
 Contrato: docs/processes/contracts/SP-OP-SUPP-001.md; fonte canonical do contrato: OP20 no
-OP-REGISTRY-VENDOR-V1.md (sha 2a5a92c8). Nenhum prazo, nenhum numero, nenhuma cifra: os tres
-insumos pendentes (taxonomia VW0-D11, piso k-anon, SLA VW0-D20) sao DPO e o processo opera
-fail-closed com as recusas tipadas acima ate eles chegarem.
+OP-REGISTRY-VENDOR-V1.md (sha 2a5a92c8). Insumos DPO ACEITOS PELO DONO (2026-10-07, sha
+ab262f7b — VW0-DECISION-REGISTER §"INCORPORACAO VW4-ANSWERS"): taxonomia C1–C6 como particoes
+da DMN suppression_routing (k_piso = parametro; a cifra vive na constante aceita
+gateway/vendor_suppression.py#K_ANON_FLOOR), SLA de 15 dias uteis com RELÓGIO POR REGISTRO
+(t_deadline/t_lembrete/t_escalonado computados no nascimento pela camada de aplicacao,
+calendário seg–sex SEM feriados — limite documentado; timers timeDate de escalonamento
+50/80/100% sobre UT_RotearEncarregado, visíveis e nunca silenciosos), KPI phi_egress_violations
+presence-only (gateway/vendor_suppression.py#SuppressionEgressTelemetry).
 ]]></bpmn:documentation>
 
     <bpmn:startEvent id="Start_RequisicaoSupressao" name="Pedido de nao-contato recebido (titular = vendedor ou lead)">
@@ -174,12 +187,14 @@ fail-closed com as recusas tipadas acima ate eles chegarem.
     </bpmn:endEvent>
 
     <!-- FAIL-CLOSED (espelha GAP-LGPD-4): `REGISTRO_HONRADO` EXPLICITO e o unico caminho de
-         honra; ausente/em branco/desconhecido => humano (UT), nunca honra por omissao. -->
+         honra; ausente/em branco/desconhecido => humano (UT), nunca honra por omissao.
+         WIRING GP11 (prova live CIB Seven local): a condicao vive NA SEQUENCE FLOW (idioma
+         DSR Flow_GWId_Ok) — como filho do gateway o engine recusa o deploy (ENGINE-09005:
+         "outgoing sequence flow without condition which is not the default flow"). -->
     <bpmn:exclusiveGateway id="GW_Rota" name="Rota definida pela DMN?" default="Flow_GWRota_Humano">
       <bpmn:incoming>Flow_Route_GW</bpmn:incoming>
       <bpmn:outgoing>Flow_GWRota_Honrar</bpmn:outgoing>
       <bpmn:outgoing>Flow_GWRota_Humano</bpmn:outgoing>
-      <bpmn:conditionExpression id="Cond_GWRota_Honrar" xsi:type="bpmn:tFormalExpression"><text>${rota == "REGISTRO_HONRADO"}</text></bpmn:conditionExpression>
     </bpmn:exclusiveGateway>
 
     <bpmn:serviceTask id="ST_PublishHonored" name="Publicar evento: vendor.suppression.honored_in_list"
@@ -201,13 +216,89 @@ fail-closed com as recusas tipadas acima ate eles chegarem.
     <!-- Rota humana: ENCARGADO (LGPD art. 41; grupo `dpo` — conjunto fechado ja vivo em
          lgpd_dsr_routing/DSR; percurso PO/IdP+financas registrado em docs/review-queue.md,
          linha SP-OP-SUPP-001). `decisao_encarregado` fica no escopo para a promocao a FINAL
-         (auditoria da decisao humana); nenhum caminho automatico sai daqui. -->
+         (auditoria da decisao humana); nenhum caminho automatico sai daqui.
+         RELÓGIO POR REGISTRO (§4c, insumos ACEITOS 2026-10-07 — sha ab262f7b): os tres
+         boundaries abaixo sao timers timeDate ABSOLUTOS lendo as variaveis do registro
+         (t_lembrete_iso/t_escalonado_iso/t_deadline_iso, devolvidas por vendor.suppression.
+         verify_subject a partir do store 0021 — computadas NO NASCIMENTO, idioma CONTAS
+         GAP-4: a ancora e o fato gerador, nunca o attach desta UT). 50% => lembrete; 80% =>
+         escala ao encarregado; 100% => timeout para ANALISE_HUMANA (catch-all da §4c — o
+         registro permanece visivel e ATRASADO por design, nunca silencioso). Nenhum outro
+         timer existe no processo; nenhum historyTimeToLive (VW0-D12 RATIFY-LATER DPO). -->
     <bpmn:userTask id="UT_RotearEncarregado" name="Rotear reclamacao/pedido ao encarregado (decisao humana)"
                    camunda:candidateGroups="${grupo_decisao}">
-      <bpmn:documentation>VW0-D20: o SLA de honra e RATIFY-LATER — nenhum timer acompanha esta tarefa ("sem prazo que corre em silencio"). A decisao do encarregado (honrar / nao-honrar fundamentado / escalar) e registrada no caso vendor e alimenta o KPI de supressoes honradas no SLA (0/0 hoje — baseline honesto).</bpmn:documentation>
+      <bpmn:documentation>Decisao do encarregado (honrar / nao-honrar fundamentado / escalar) registrada no caso vendor e alimenta o KPI de supressoes honradas no SLA. Grupo VALUE-DRIVEN ${grupo_decisao} (conjunto fechado vem da DMN suppression_routing — todas as rows devolvem 'dpo'; reparo F da base). Relógio do registro (§4c): lembrete no 7o dia util (piso de 50% — nunca depois da metade), escalonamento ao encarregado no 12o (80% exato) e timeout ANALISE_HUMANA no 15o (100% = t_deadline).</bpmn:documentation>
       <bpmn:incoming>Flow_GWRota_Humano</bpmn:incoming>
       <bpmn:outgoing>Flow_UT_PubRouted</bpmn:outgoing>
     </bpmn:userTask>
+
+    <bpmn:boundaryEvent id="BT_Lembrete50" name="Lembrete 50% do SLA (7o dia util — piso)" cancelActivity="false" attachedToRef="UT_RotearEncarregado">
+      <bpmn:documentation>§4c: "em 50% do SLA => lembrete (evento de dominio)". Nao-interrupting: a decisao humana CONTINUA — o lembrete nunca substitui decisao. t_lembrete_iso nasce computado no registro (7o dia util = piso de 7,5; nunca depois da metade do prazo).</bpmn:documentation>
+      <bpmn:outgoing>Flow_BT50_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TED_Lembrete50">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${t_lembrete_iso}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSlaLembrete" name="Publicar evento: vendor.suppression.sla_lembrete"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.vendor.suppression.sla_lembrete</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,suppression_ref,t_deadline_iso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_BT50_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_BT50_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_LembreteEmitido" name="Lembrete emitido — decisao humana continua (registro visivel)">
+      <bpmn:incoming>Flow_BT50_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:boundaryEvent id="BT_Escala80" name="Escalonamento 80% do SLA (12o dia util — encarregado)" cancelActivity="false" attachedToRef="UT_RotearEncarregado">
+      <bpmn:documentation>§4c: "em 80% => escala ao encarregado". Nao-interrupting: a perna humana permanece; a escalada e o evento que o grupo `dpo` consume (art. 41 §2o I).</bpmn:documentation>
+      <bpmn:outgoing>Flow_BT80_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TED_Escala80">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${t_escalonado_iso}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSlaEscalonado" name="Publicar evento: vendor.suppression.sla_escalonado"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.vendor.suppression.sla_escalonado</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,suppression_ref,t_deadline_iso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_BT80_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_BT80_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_EscaladoEncarregado" name="Escalado ao encarregado — registro atrasado e visivel (nunca silencioso)">
+      <bpmn:incoming>Flow_BT80_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:boundaryEvent id="BT_Timeout100" name="Timeout 100% do SLA (15o dia util = t_deadline — ANALISE_HUMANA)" attachedToRef="UT_RotearEncarregado">
+      <bpmn:documentation>§4c: "em 100% => timeout escalado para ANALISE_HUMANA (catch-all)". INTERRUPTING: o SLA estourou — o registro permanece VISIVEL e ATRASADO por design, nunca silencioso; o evento porta o incidente ao ciclo do encarregado (art. 41 §2o I). Ancora = t_deadline do registro (nunca o attach da UT).</bpmn:documentation>
+      <bpmn:outgoing>Flow_BT100_Pub</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TED_Timeout100">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${t_deadline_iso}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSlaEstourado" name="Publicar evento: vendor.suppression.sla_estourado (ANALISE_HUMANA)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.vendor.suppression.sla_estourado</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">analise_humana</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,suppression_ref,t_deadline_iso</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_BT100_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_BT100_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_AnaliseHumanaSlaEstourado" name="SLA estourado — ANALISE_HUMANA (catch-all da §4c; registro atrasado e visivel)">
+      <bpmn:incoming>Flow_BT100_End</bpmn:incoming>
+    </bpmn:endEvent>
+
     <bpmn:serviceTask id="ST_PublishComplaintRouted" name="Publicar evento: vendor.suppression.complaint_routed"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
@@ -231,12 +322,70 @@ fail-closed com as recusas tipadas acima ate eles chegarem.
     <bpmn:sequenceFlow id="Flow_Route_GW" sourceRef="ST_AvaliarRoteamento" targetRef="GW_Rota"/>
     <bpmn:sequenceFlow id="Flow_RoteamentoIndisponivel_Pub" sourceRef="BE_RoteamentoIndisponivel" targetRef="ST_PublishRoteamentoIndisponivel"/>
     <bpmn:sequenceFlow id="Flow_PubRoteamentoIndisponivel_End" sourceRef="ST_PublishRoteamentoIndisponivel" targetRef="End_RoteamentoIndisponivel"/>
-    <bpmn:sequenceFlow id="Flow_GWRota_Honrar" name="rota == REGISTRO_HONRADO (explicito)" sourceRef="GW_Rota" targetRef="ST_PublishHonored"/>
+    <bpmn:sequenceFlow id="Flow_GWRota_Honrar" name="rota == REGISTRO_HONRADO (explicito)" sourceRef="GW_Rota" targetRef="ST_PublishHonored">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${rota == "REGISTRO_HONRADO"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_GWRota_Humano" name="default — ausente/branco/desconhecido vai ao humano" sourceRef="GW_Rota" targetRef="UT_RotearEncarregado"/>
     <bpmn:sequenceFlow id="Flow_PubHonored_End" sourceRef="ST_PublishHonored" targetRef="End_Honrado"/>
     <bpmn:sequenceFlow id="Flow_UT_PubRouted" sourceRef="UT_RotearEncarregado" targetRef="ST_PublishComplaintRouted"/>
     <bpmn:sequenceFlow id="Flow_PubRouted_End" sourceRef="ST_PublishComplaintRouted" targetRef="End_ReclamacaoRoteada"/>
+    <bpmn:sequenceFlow id="Flow_BT50_Pub" sourceRef="BT_Lembrete50" targetRef="ST_PublishSlaLembrete"/>
+    <bpmn:sequenceFlow id="Flow_BT50_End" sourceRef="ST_PublishSlaLembrete" targetRef="End_LembreteEmitido"/>
+    <bpmn:sequenceFlow id="Flow_BT80_Pub" sourceRef="BT_Escala80" targetRef="ST_PublishSlaEscalonado"/>
+    <bpmn:sequenceFlow id="Flow_BT80_End" sourceRef="ST_PublishSlaEscalonado" targetRef="End_EscaladoEncarregado"/>
+    <bpmn:sequenceFlow id="Flow_BT100_Pub" sourceRef="BT_Timeout100" targetRef="ST_PublishSlaEstourado"/>
+    <bpmn:sequenceFlow id="Flow_BT100_End" sourceRef="ST_PublishSlaEstourado" targetRef="End_AnaliseHumanaSlaEstourado"/>
 
   </bpmn:process>
+
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_SP_OP_SUPP_001">
+    <bpmndi:BPMNPlane id="BPMNPlane_SP_OP_SUPP_001" bpmnElement="SP-OP-SUPP-001">
+      <bpmndi:BPMNShape id="Shape_Start_RequisicaoSupressao" bpmnElement="Start_RequisicaoSupressao"><dc:Bounds x="60" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishRecorded" bpmnElement="ST_PublishRecorded"><dc:Bounds x="160" y="160" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_VerificarSujeito" bpmnElement="ST_VerificarSujeito"><dc:Bounds x="320" y="160" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_SujeitoIrresolvivel" bpmnElement="BE_SujeitoIrresolvivel"><dc:Bounds x="352" y="272" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSujeitoIrresolvivel" bpmnElement="ST_PublishSujeitoIrresolvivel"><dc:Bounds x="300" y="400" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_SujeitoIrresolvivel" bpmnElement="End_SujeitoIrresolvivel"><dc:Bounds x="460" y="417" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_AvaliarRoteamento" bpmnElement="ST_AvaliarRoteamento"><dc:Bounds x="480" y="160" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_RoteamentoIndisponivel" bpmnElement="BE_RoteamentoIndisponivel"><dc:Bounds x="512" y="272" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishRoteamentoIndisponivel" bpmnElement="ST_PublishRoteamentoIndisponivel"><dc:Bounds x="460" y="520" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_RoteamentoIndisponivel" bpmnElement="End_RoteamentoIndisponivel"><dc:Bounds x="620" y="537" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GW_Rota" bpmnElement="GW_Rota"><dc:Bounds x="640" y="175" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishHonored" bpmnElement="ST_PublishHonored"><dc:Bounds x="760" y="160" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Honrado" bpmnElement="End_Honrado"><dc:Bounds x="920" y="177" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_UT_RotearEncarregado" bpmnElement="UT_RotearEncarregado"><dc:Bounds x="640" y="320" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_Lembrete50" bpmnElement="BT_Lembrete50"><dc:Bounds x="620" y="432" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaLembrete" bpmnElement="ST_PublishSlaLembrete"><dc:Bounds x="540" y="540" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_LembreteEmitido" bpmnElement="End_LembreteEmitido"><dc:Bounds x="560" y="660" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_Escala80" bpmnElement="BT_Escala80"><dc:Bounds x="670" y="432" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaEscalonado" bpmnElement="ST_PublishSlaEscalonado"><dc:Bounds x="680" y="540" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EscaladoEncarregado" bpmnElement="End_EscaladoEncarregado"><dc:Bounds x="700" y="660" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BT_Timeout100" bpmnElement="BT_Timeout100"><dc:Bounds x="720" y="432" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishSlaEstourado" bpmnElement="ST_PublishSlaEstourado"><dc:Bounds x="820" y="540" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_AnaliseHumanaSlaEstourado" bpmnElement="End_AnaliseHumanaSlaEstourado"><dc:Bounds x="840" y="660" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_PublishComplaintRouted" bpmnElement="ST_PublishComplaintRouted"><dc:Bounds x="800" y="320" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_ReclamacaoRoteada" bpmnElement="End_ReclamacaoRoteada"><dc:Bounds x="960" y="337" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_Start_PubRecorded" bpmnElement="Flow_Start_PubRecorded"><di:waypoint x="96" y="200"/><di:waypoint x="160" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubRecorded_Verify" bpmnElement="Flow_PubRecorded_Verify"><di:waypoint x="260" y="200"/><di:waypoint x="320" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Verify_GW" bpmnElement="Flow_Verify_GW"><di:waypoint x="420" y="200"/><di:waypoint x="480" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SujeitoIrresolvivel_Pub" bpmnElement="Flow_SujeitoIrresolvivel_Pub"><di:waypoint x="370" y="308"/><di:waypoint x="350" y="400"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubSujeitoIrresolvivel_End" bpmnElement="Flow_PubSujeitoIrresolvivel_End"><di:waypoint x="400" y="440"/><di:waypoint x="460" y="435"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_Route_GW" bpmnElement="Flow_Route_GW"><di:waypoint x="580" y="200"/><di:waypoint x="640" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_RoteamentoIndisponivel_Pub" bpmnElement="Flow_RoteamentoIndisponivel_Pub"><di:waypoint x="530" y="308"/><di:waypoint x="510" y="520"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubRoteamentoIndisponivel_End" bpmnElement="Flow_PubRoteamentoIndisponivel_End"><di:waypoint x="560" y="560"/><di:waypoint x="620" y="555"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWRota_Honrar" bpmnElement="Flow_GWRota_Honrar"><di:waypoint x="690" y="200"/><di:waypoint x="760" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_GWRota_Humano" bpmnElement="Flow_GWRota_Humano"><di:waypoint x="665" y="225"/><di:waypoint x="690" y="320"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubHonored_End" bpmnElement="Flow_PubHonored_End"><di:waypoint x="860" y="200"/><di:waypoint x="920" y="195"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_UT_PubRouted" bpmnElement="Flow_UT_PubRouted"><di:waypoint x="740" y="360"/><di:waypoint x="800" y="360"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PubRouted_End" bpmnElement="Flow_PubRouted_End"><di:waypoint x="900" y="360"/><di:waypoint x="960" y="355"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BT50_Pub" bpmnElement="Flow_BT50_Pub"><di:waypoint x="638" y="468"/><di:waypoint x="590" y="540"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BT50_End" bpmnElement="Flow_BT50_End"><di:waypoint x="590" y="620"/><di:waypoint x="578" y="660"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BT80_Pub" bpmnElement="Flow_BT80_Pub"><di:waypoint x="688" y="468"/><di:waypoint x="730" y="540"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BT80_End" bpmnElement="Flow_BT80_End"><di:waypoint x="730" y="620"/><di:waypoint x="718" y="660"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BT100_Pub" bpmnElement="Flow_BT100_Pub"><di:waypoint x="756" y="450"/><di:waypoint x="820" y="580"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_BT100_End" bpmnElement="Flow_BT100_End"><di:waypoint x="870" y="620"/><di:waypoint x="858" y="660"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
 
 </bpmn:definitions>

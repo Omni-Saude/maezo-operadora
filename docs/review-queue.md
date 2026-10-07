@@ -2449,7 +2449,16 @@ da admissao GP-ADMISSION): (1) titularidade do grupo `dpo` = ENCARGADO nomeado (
 41 — papel estatutario; ratificacao de quem ocupa = DPO/juridico, VW0-D20); (2) orcamento
 e cargo = estrutura existente que ja serve os fluxos LGPD-DSR (nenhum custeio novo);
 (3) revisao desta atribuicao = mesma cadencia semestral da matriz produto×canal (Q14) +
-re-visao ad hoc a cada mudanca normativa. A promocao do SP-OP-SUPP-001 a FINAL exige
-revisao DPO, os insumos RATIFY (taxonomia VW0-D11, piso k-anon, SLA VW0-D20) e o pacote
-de wiring (store + CibSevenDmnTransport). Enquanto isso, o processo opera fail-closed:
-handlers recusam com os erros modelados e TODO pedido vai ao humano.
+re-visao ad hoc a cada mudanca normativa. ATUALIZACAO VW4-WIRING (2026-10-07): os insumos
+DPO foram ACEITOS PELO DONO (VW0-DECISION-REGISTER §"INCORPORACAO VW4-ANSWERS", sha
+ab262f7b — k=100 sobre tupla C2/C6, taxonomia C1–C6, SLA 15 dias uteis com relógio por
+registro, KPI phi_egress_violations) e o pacote de wiring materializou: store 0021 com
+relógio computado no nascimento, resolucao de sujeito real no store, DMN suppression_routing
+com particoes da taxonomia (k_piso = input/param; evaluator local proibido), boundaries de
+escalonamento 50/80/100 (timers timeDate absolutos, idioma CONTAS GAP-4), honra na
+construcao de lista + egresso k-anon (gateway/vendor_suppression.py) e KPI presence-only.
+A promocao do SP-OP-SUPP-001 a FINAL segue exigindo REVISAO DPO (formalizacao administrativa
+do encarregado art. 41 §4d e o conteudo desta DMN seguem sob revisao; §4o do art. 41 e
+VETADO e nao integra). Enquanto nao promovido, o processo opera com as recusas tipadas
+preservadas: seam ausente/ilegivel = UNKNOWN (nunca zero) e rota fora do vocabulario fechado
+= incidente CONTRACT_MISMATCH (nunca honra por omissao).

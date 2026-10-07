@@ -33,7 +33,9 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # DUR0 adds the tenant-local journal as forward migration 0018 after 0017.
     # VW1-P0 adds the vendor channel authority store as forward migration 0019 after 0018.
     # VW1-P4 adds the OP16 submission store as forward migration 0020 after 0019.
-    assert heads == {"0020"}, f"expected 0020 to be the sole head, got {heads}"
+    # VW4/GP11 wiring adds the OP20 suppression store as forward migration 0021 after 0020.
+    assert heads == {"0021"}, f"expected 0021 to be the sole head, got {heads}"
+    assert revisions["0021"] == "0020"
     assert revisions["0020"] == "0019"
     assert revisions["0019"] == "0018"
     assert revisions["0018"] == "0017"
@@ -44,7 +46,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0020"
+    current = "0021"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)
