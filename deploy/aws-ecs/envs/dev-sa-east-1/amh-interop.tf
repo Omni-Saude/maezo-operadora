@@ -21,8 +21,11 @@
 locals {
   lucas_fonte_amh = var.lucas_fonte_cobranca == "amh"
 
+  # DL-0077: a identidade da Helena reusa o MESMO interop (env, segredos, egress); liga com qualquer um.
+  amh_interop_ligado = local.lucas_fonte_amh || var.helena_identidade_amh
+
   # Env do receptor so' com a fonte AMH ligada (lista vazia = task definition intacta).
-  amh_interop_env = local.lucas_fonte_amh ? [
+  amh_interop_env = local.amh_interop_ligado ? [
     { name = "MAEZO_AMH_INTEROP_BASE_URL", value = var.amh_interop_base_url },
     { name = "MAEZO_AMH_INTEROP_TOKEN_URL", value = var.amh_interop_token_url },
     { name = "MAEZO_AMH_INTEROP_CLIENT_ID", value = var.amh_interop_client_id },
@@ -33,31 +36,31 @@ locals {
     { name = "MAEZO_AMH_SUBJECT_RESOLUTION_OPENAPI_PATH", value = var.amh_subject_resolution_openapi_path },
   ] : []
 
-  amh_interop_secrets = local.lucas_fonte_amh ? [
+  amh_interop_secrets = local.amh_interop_ligado ? [
     { name = "MAEZO_AMH_INTEROP_CLIENT_SECRET", valueFrom = data.aws_secretsmanager_secret.amh_interop_cognito[0].arn },
     { name = "MAEZO_AMH_PHONE_LOOKUP_KEY", valueFrom = data.aws_secretsmanager_secret.amh_phone_lookup_key[0].arn },
   ] : []
 
-  amh_interop_secret_arns = local.lucas_fonte_amh ? [
+  amh_interop_secret_arns = local.amh_interop_ligado ? [
     data.aws_secretsmanager_secret.amh_interop_cognito[0].arn,
     data.aws_secretsmanager_secret.amh_phone_lookup_key[0].arn,
   ] : []
 
   # Os segredos da AMH podem estar sob a CMK compartilhada do env de dados (como o do Cognito FHIR):
   # sem `kms:Decrypt` o GetSecretValue falha com AccessDenied. Vazio com a chave padrao.
-  amh_interop_secret_kms_key_ids = local.lucas_fonte_amh ? [
+  amh_interop_secret_kms_key_ids = local.amh_interop_ligado ? [
     data.aws_secretsmanager_secret.amh_interop_cognito[0].kms_key_id,
     data.aws_secretsmanager_secret.amh_phone_lookup_key[0].kms_key_id,
   ] : []
 }
 
 data "aws_secretsmanager_secret" "amh_interop_cognito" {
-  count = local.lucas_fonte_amh ? 1 : 0
+  count = local.amh_interop_ligado ? 1 : 0
   name  = var.amh_interop_cognito_secret_name
 }
 
 data "aws_secretsmanager_secret" "amh_phone_lookup_key" {
-  count = local.lucas_fonte_amh ? 1 : 0
+  count = local.amh_interop_ligado ? 1 : 0
   name  = var.amh_phone_lookup_secret_name
 }
 
@@ -68,7 +71,7 @@ data "aws_secretsmanager_secret" "amh_phone_lookup_key" {
 # cobre o trafego; esta existe para o dia em que a regra larga sair, e para o destino ficar legivel.
 # So' e' criada com a fonte AMH ligada E o SG do ALB informado.
 resource "aws_vpc_security_group_egress_rule" "amh_interop_alb" {
-  count = local.lucas_fonte_amh && var.amh_interop_alb_security_group_id != "" ? 1 : 0
+  count = local.amh_interop_ligado && var.amh_interop_alb_security_group_id != "" ? 1 : 0
 
   security_group_id            = aws_security_group.tasks.id
   description                  = "Servico interop da AMH (billing-status/subject-resolution) pelo ALB interno"

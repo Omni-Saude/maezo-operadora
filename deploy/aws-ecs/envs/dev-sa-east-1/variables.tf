@@ -754,6 +754,17 @@ variable "lucas_inatividade_minutos" {
   }
 }
 
+variable "helena_identidade_amh" {
+  description = <<-EOT
+    Identidade do beneficiario na Helena pelos contratos da AMH (DL-0077, decisao do dono de
+    06/10/2026): `MAEZO_HELENA_IDENTIDADE_AMH`. Default `false`. Ligada, reusa o interop da AMH
+    (`amh-interop.tf`) e exige os contratos publicados e pinados; sem isso o receptor recusa servir.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "lucas_fonte_cobranca" {
   description = <<-EOT
     Fonte dos fatos de cobranca do Lucas: `simulada` (default) ou `amh` — a fonte real pelos

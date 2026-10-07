@@ -279,3 +279,138 @@ async def test_amh_com_contratos_pinados_compoe_a_fonte_real_e_drena(
         "pseudo", None, phone_hash=turno.hash_telefone_para_amh("5511987654321")
     )
     assert not hasattr(resultado, "status_conciliado")
+
+
+# --- Identidade do beneficiario na Helena (DL-0077) ------------------------------------------------
+
+
+def test_helena_identidade_desligada_por_padrao_nao_constroi_nada() -> None:
+    settings = _settings()
+    assert settings.helena_identidade_amh is False
+    dispatcher, _ = svc._build_dispatcher(settings)
+    assert svc._build_helena_identidade(settings, dispatcher) is None
+    assert dispatcher.identidade is None
+
+
+async def test_bring_up_helena_identidade_desligada_deixa_o_despachante_como_estava(
+    _checkpointer_ok: None,
+) -> None:
+    state = svc.WebhookState(settings=_settings(runtime_mode="kubernetes"))
+    await svc._bring_up_dependencies(state)
+    assert state.dispatcher is not None
+    assert state.helena_identidade is None
+    assert state.dispatcher.identidade is None
+
+
+async def test_bring_up_helena_identidade_sem_configuracao_recusa_servir(_checkpointer_ok: None) -> None:
+    """Ligada e sem a configuracao da AMH: recusa servir, nunca sobe silenciosamente sem identidade."""
+    state = svc.WebhookState(settings=_settings(helena_identidade_amh=True, runtime_mode="kubernetes"))
+    await svc._bring_up_dependencies(state)
+    assert state.dispatcher is None
+    assert state.helena_identidade is None
+    erro = state.dispatcher_error or ""
+    assert "helena identity build failed" in erro
+    assert "amh_interop_config_ausente" in erro
+    assert "amh_interop_base_url" in erro and "amh_interop_client_secret" in erro
+
+
+async def test_bring_up_helena_identidade_sem_contrato_pinado_recusa_servir(
+    tmp_path: object, _checkpointer_ok: None
+) -> None:
+    """Hoje os contratos nao estao publicados nem pinados (XRG-2/XRG-3): ligar recusa o boot."""
+    state = svc.WebhookState(
+        settings=_settings(
+            runtime_mode="kubernetes",
+            **{**_amh(tmp_path), "roteador_lucas_enabled": False},
+            helena_identidade_amh=True,
+        )
+    )
+    await svc._bring_up_dependencies(state)
+    assert state.dispatcher is None
+    assert "helena identity build failed" in (state.dispatcher_error or "")
+    assert "segredo-SINTETICO" not in (state.dispatcher_error or "")
+
+
+async def test_helena_identidade_com_contratos_pinados_compoe_sob_o_principal_helena_e_drena(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+    from dataclasses import replace
+    from pathlib import Path
+
+    import yaml
+
+    from maezo.adapters.amh import billing_status as bs
+    from maezo.adapters.amh import subject_resolution as sr
+    from maezo.adapters.amh.contract import load_contract_pin
+    from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, ResolvedorDeSujeitoAmh
+    from maezo.gateway.amh_interop import AmhPhoneLookupHasher
+    from tests.unit.adapters.amh.test_subject_resolution import _contrato as contrato_sr
+
+    billing_raw = yaml.safe_dump(
+        {
+            "openapi": "3.0.3",
+            "servers": [{"url": "/interop/billing-status/v1"}],
+            "paths": {
+                "/subjects/{portable_subject_ref}/billing/status": {
+                    "get": {
+                        "parameters": [],
+                        "responses": {
+                            "200": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {"$ref": "#/components/schemas/BillingStatus"}
+                                    }
+                                }
+                            }
+                        },
+                    }
+                }
+            },
+            "components": {"schemas": {"BillingStatus": {"type": "object"}}},
+        }
+    ).encode()
+    sr_raw = contrato_sr()
+    base = Path(str(tmp_path))
+    (base / "b.yaml").write_bytes(billing_raw)
+    (base / "s.yaml").write_bytes(sr_raw)
+    real_pin = load_contract_pin()
+    monkeypatch.setattr(
+        bs,
+        "load_contract_pin",
+        lambda path=None: replace(
+            real_pin, artifact_digests={bs.ARTIFACT: hashlib.sha256(billing_raw).hexdigest()}
+        ),
+    )
+    monkeypatch.setattr(
+        sr,
+        "load_contract_pin",
+        lambda path=None: replace(
+            real_pin, artifact_digests={sr.ARTIFACT: hashlib.sha256(sr_raw).hexdigest()}
+        ),
+    )
+    settings = _settings(
+        **{
+            **_amh(
+                tmp_path,
+                amh_billing_status_openapi_path=str(base / "b.yaml"),
+                amh_subject_resolution_openapi_path=str(base / "s.yaml"),
+            ),
+            "roteador_lucas_enabled": False,
+            "lucas_fonte_cobranca": "simulada",
+        },
+        helena_identidade_amh=True,
+    )
+    dispatcher, _ = svc._build_dispatcher(settings)
+    identidade = svc._build_helena_identidade(settings, dispatcher)
+    assert identidade is not None
+    assert isinstance(identidade.consentimento, BaseLegalExecucaoDeContrato)
+    assert isinstance(identidade.resolvedor, ResolvedorDeSujeitoAmh)
+    assert isinstance(identidade.hash_telefone, AmhPhoneLookupHasher)
+    # o executor decide e audita sob o principal da Helena, nunca sob o do Lucas
+    executor = identidade.port._executor  # type: ignore[attr-defined]
+    assert executor._seam.principal == "helena"
+    assert executor._version == "helena@v0"
+    assert len(identidade.hash_telefone("5511987654321") or "") == 64
+    assert "segredo-SINTETICO" not in repr(identidade) and "chave-dedicada-SINTETICA" not in repr(identidade)
+    await identidade.aclose()

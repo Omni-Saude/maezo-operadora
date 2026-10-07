@@ -200,6 +200,9 @@ autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas 
   # test_pinned_declaration_never_coexists_with_a_built_seam}` ficam VERMELHAS no dia em que
   # alguem acrescentar a chave de helena ao mapa.
   - send_beneficiary_message          # resposta WhatsApp (mcp-whatsapp.send_message) — L3
+  - read_member_billing_identity      # identidade do beneficiario (so' ref opaca + perfil minimo) pelo contrato
+                                       # AMH `subject-resolution`; sem tool MCP; DESLIGADA por padrao
+                                       # (MAEZO_HELENA_IDENTIDADE_AMH, DL-0077); contexto, nunca decisao
   - read_write_memory                 # memoria episodica/semantica (mcp-memory.read_write) — L3;
                                        # excecao disclosed (fence §8.5 item 2), sem no vivo hoje
   # query_process_status removido: nenhum no exerce mcp-cibseven.get_process_status hoje

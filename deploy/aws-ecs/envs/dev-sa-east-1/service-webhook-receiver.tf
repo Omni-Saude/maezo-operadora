@@ -130,6 +130,7 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       { name = "MAEZO_ROTEADOR_LUCAS", value = tostring(var.roteador_lucas_enabled) },
       { name = "MAEZO_LUCAS_INATIVIDADE_MINUTOS", value = tostring(var.lucas_inatividade_minutos) },
       { name = "MAEZO_LUCAS_FONTE_COBRANCA", value = var.lucas_fonte_cobranca },
+      { name = "MAEZO_HELENA_IDENTIDADE_AMH", value = tostring(var.helena_identidade_amh) },
 
       # DEVOLVE O TURNO NO CORPO DO ACK (12/09/2026). Com isto, a resposta 200 de `/webhook`
       # ganha `resposta` (o texto que a Helena redigiu) e `conversation_id`. Sem isto o corpo

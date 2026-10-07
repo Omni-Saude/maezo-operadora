@@ -289,7 +289,18 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_LUCAS_FONTE_COBRANCA", "lucas_fonte_cobranca"),
     )
 
-    # --- Fonte AMH do Lucas (so' lidas com `lucas_fonte_cobranca == "amh"`) -------------------
+    # IDENTIDADE DO BENEFICIARIO NA HELENA (DL-0077, decisao do dono 06/10/2026). DESLIGADA por padrao.
+    # Ligada, o despachante resolve QUEM escreve (telefone -> `portable_subject_ref` -> perfil minimo)
+    # pelos MESMOS contratos/executores da AMH do Lucas, sob o principal `helena`, e entrega ao
+    # estado da Helena so' a identidade pseudonima. Exige TODA a configuracao `amh_*` abaixo e os dois
+    # OpenAPI pinados: faltando qualquer peca o receptor RECUSA servir (nunca cai em "sem identidade"
+    # em silencio). Independe do roteador do Lucas e de `lucas_fonte_cobranca`.
+    helena_identidade_amh: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_IDENTIDADE_AMH", "helena_identidade_amh"),
+    )
+
+    # --- Interop AMH (lidas com `lucas_fonte_cobranca == "amh"` OU `helena_identidade_amh`) ----
     # Origem do servico interop da AMH: ALB INTERNO, `http(s)://host[:porta]`, sem caminho.
     amh_interop_base_url: str | None = Field(
         default=None,

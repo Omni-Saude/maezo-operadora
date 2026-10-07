@@ -76,6 +76,7 @@ if TYPE_CHECKING:
     from maezo.gateway.capabilities.journeys.driver import JourneyDriver
     from maezo.gateway.seams import SeamContext
 
+    from .whatsapp.helena_identidade import IdentidadeHelena
     from .whatsapp.lucas_turno import LucasTurno
 
 #: F2 mode discriminator — the ONLY non-production `runtime_mode`. Anything else (Helm injects
@@ -85,6 +86,8 @@ _LOCAL_RUNTIME_MODE = "local"
 
 #: A versao do Lucas que o executor da fonte AMH grava no elo de auditoria (a mesma do `LucasTurno`).
 _LUCAS_AGENT_VERSION = "lucas@v0"
+#: Idem para a identidade da Helena (DL-0077): a leitura AMH dela e' auditada sob o principal `helena`.
+_HELENA_AGENT_VERSION = "helena@v0"
 
 logger = structlog.get_logger(__name__)
 
@@ -107,6 +110,9 @@ class WebhookState:
     #: ligado (`_build_lucas_turno`); desligado fica `None` e nada do Lucas existe no processo.
     #: Nesta onda ninguem o chama: o despachante passa a chamar na onda (e).
     lucas_turno: LucasTurno | None = None
+    #: IDENTIDADE DO BENEFICIARIO NA HELENA (DL-0077), SO' com `MAEZO_HELENA_IDENTIDADE_AMH` ligada
+    #: (`_build_helena_identidade`); desligado fica `None` e nada da AMH existe para a Helena.
+    helena_identidade: IdentidadeHelena | None = None
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
 
@@ -392,6 +398,56 @@ def _build_fonte_cobranca_amh(
     return fonte, interop
 
 
+def _build_helena_identidade(
+    settings: WhatsAppWebhookSettings, dispatcher: HelenaDispatcher
+) -> IdentidadeHelena | None:
+    """DL-0077: a identidade do beneficiario na Helena, SO' com `MAEZO_HELENA_IDENTIDADE_AMH` ligada.
+
+    Desligado devolve `None` sem importar nada da AMH. Ligado, REUSA a composicao da #662
+    (`tool_registry.build_amh_interop`: executores do gateway -> adaptadores pinados) sob o principal
+    `helena` (o `SeamContext` e a trilha de auditoria sao os do proprio despachante, nunca os do Lucas) e
+    o MESMO `ResolvedorDeSujeitoAmh` + base legal fixa de execucao de contrato. FAIL-CLOSED: sem pin,
+    segredo, URL, OpenAPI ou seam de Helena, LEVANTA e `_bring_up_dependencies` recusa servir — nunca
+    sobe "sem identidade" em silencio quando o dono a ligou. Hoje os contratos nao estao publicados
+    (XRG-2/XRG-3), entao ligar esta flag recusa o boot por desenho.
+    """
+    if not settings.helena_identidade_amh:
+        return None
+    from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, ResolvedorDeSujeitoAmh
+    from maezo.gateway.tool_registry import build_amh_interop
+    from maezo.platform.webhooks.whatsapp.helena_identidade import IdentidadeHelena
+
+    if dispatcher.seam_context is None or dispatcher.seam_context.principal != "helena":
+        raise ValueError("helena_identidade: o despachante nao tem o SeamContext do principal helena")
+    interop = build_amh_interop(
+        settings=settings,
+        seam=dispatcher.seam_context,
+        audit=dispatcher.audit_sink,
+        agent_version=_HELENA_AGENT_VERSION,
+    )
+    identidade = IdentidadeHelena(
+        port=interop.subjects,
+        resolvedor=ResolvedorDeSujeitoAmh(
+            port=interop.subjects,
+            amh_tenant=interop.amh_tenant,
+            hash_scheme=interop.hash_scheme,
+            purpose_of_use=interop.purpose_of_use,
+        ),
+        consentimento=BaseLegalExecucaoDeContrato(),
+        purpose_of_use=interop.purpose_of_use,
+        hash_telefone=interop.phone_hasher,
+        aclose_fn=interop.aclose,
+    )
+    logger.warning(
+        "helena_identidade_amh_construida",
+        tenant_id=settings.tenant_id,
+        amh_tenant=interop.amh_tenant,
+        purpose_of_use=interop.purpose_of_use,
+        base_legal="execucao-de-contrato",
+    )
+    return identidade
+
+
 async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
     """T4b: attach the durable LangGraph checkpointer to the just-built dispatcher, with F2
     fail-closed discipline (shared `runtime.checkpoint.provision_checkpointer` — the SAME policy
@@ -513,6 +569,20 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         # Lucas — e com ele a passagem de cobranca (`HelenaDispatcher._roteamento_completo`).
         state.dispatcher.lucas_turno = state.lucas_turno
 
+    # DL-0077: identidade do beneficiario na Helena, so' com a flag ligada. Ligada e quebrada = recusa
+    # servir (o mesmo formato do Lucas AMH); desligada, `None` e o despachante nao muda.
+    try:
+        state.helena_identidade = _build_helena_identidade(state.settings, state.dispatcher)
+    except Exception as exc:  # isolated: liveness/readiness must stay up.
+        state.dispatcher = None
+        state.dispatcher_error = (
+            f"helena identity build failed — refusing to serve: {type(exc).__name__}: {exc}"
+        )
+        logger.error("webhook_helena_identidade_build_failed", exc_info=True)
+        return
+    if state.helena_identidade is not None:
+        state.dispatcher.identidade = state.helena_identidade
+
     # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
     # Isolated exactly like the construction above — a failure here must not crash bring-up.
     try:
@@ -574,6 +644,9 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     if state.lucas_turno is not None:
         with contextlib.suppress(Exception):
             await state.lucas_turno.aclose()
+    if state.helena_identidade is not None:
+        with contextlib.suppress(Exception):
+            await state.helena_identidade.aclose()
 
     # T4b: release the checkpointer's connection pool (idempotent; no-op for the in-memory
     # fallback / when never provisioned). Non-fatal — a close failure must not mask shutdown.
