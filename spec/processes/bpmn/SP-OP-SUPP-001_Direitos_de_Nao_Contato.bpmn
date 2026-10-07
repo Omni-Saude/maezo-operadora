@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SP_OP_SUPP_001"
+                  targetNamespace="http://maezo.health/operadora/supp"
+                  exporter="Maezo VW4-GP11"
+                  exporterVersion="0.1.0-draft">
+
+  <!-- =====================================================================================
+       SP-OP-SUPP-001 — Registro de supressao/opt-out por individuo (GP11 / PAT-20, OP20
+       `suppression.record`). Status: DRAFT v0.1.0 — ADMITIDO pelo dono em 2026-10-07
+       (docs/audits/VENDOR-XP-2026-10/VW0-DECISION-REGISTER.md §"Decisoes de Fechamento",
+       item 1: ratificacao SOMENTE GP11; GP5-GP10 permanecem candidate_not_live).
+
+       DI (diagrama) sera adicionado na promocao a FINAL (precedente SP-OP-LGPD-DSR-001:30).
+       Requer revisao do DPO antes de qualquer deploy — docs/review-queue.md (linha
+       SP-OP-SUPP-001 desta onda). NENHUM historyTimeToLive: retencao = RATIFY-LATER DPO
+       (VW0-D12) — nada de prazo que corre em silencio. NENHUM timer/SLA (VW0-D20).
+
+       CONTRATO (registry OP20, OP-REGISTRY-VENDOR-V1.md): `SuppressionCommand →
+       SuppressionReceipt`; registro PREVENTIVO honrado na CONSTRUCAO de lista (antes do
+       contato); minimizacao art. 10 §1o (identificador + data + canal, nada mais); base do
+       registro de NAO-contato = art. 7o IX + art. 18 §2o (oposicao); oficial responsavel =
+       encarregado (art. 41 — grupo `dpo`, ja vivo para LGPD-DSR; percurso em
+       docs/review-queue.md).
+
+       BUSINESS KEY (idempotente, correlacao POR NOME — GP-ADMISSION forma congelada):
+       "SUPP-{tenant_id}-{suppression_ref}" onde `suppression_ref` e cunhado no plano de
+       aplicacao como digest canonico de (subject_ref + contact_channel) — a chave de
+       negocio do registry `tenant + suppression + subject_ref + contact_channel` colapsa
+       para o par (tenant, suppression_ref) sem perder um so componente (o digest E a
+       projecao dos dois ultimos). Reenvio do mesmo pedido retorna a instancia ativa
+       (NO-DUPLICATE-INSTANCE); nunca uma segunda instancia = segunda trilha.
+
+       EVENTOS DE DOMINIO (worker generico `operadora.events.publish`):
+         inicio -> agents.events.vendor.suppression.recorded
+         honra  -> agents.events.vendor.suppression.honored_in_list
+         rota   -> agents.events.vendor.suppression.complaint_routed
+         recusa -> agents.events.vendor.suppression.completed (desfecho = sujeito_irresolvivel |
+                   roteamento_indisponivel)
+
+       FAIL-CLOSED DE ADMISSAO (a essencia deste envelope): a taxonomia de classes de campo,
+       o piso k-anon do egresso (VW0-D11) e o SLA de honra (VW0-D20) sao insumos DPO
+       PENDENTES — o dono admitiu o candidato, NAO os valores. Enquanto os insumos nao
+       chegam, o desenho opera com RECUSAS TIPADAS que sao os proprios erros modelados:
+         ERR_SUPP_SUBJECT_UNRESOLVED   — store/identidade ausente = UNKNOWN, nunca zero
+                                         (molde erasure_plan.py#IdentityResolution L193:
+                                         recusar != reportar zero).
+         ERR_SUPP_ROUTING_UNAVAILABLE  — roteamento por DMN indisponivel sem insumos; a DMN
+                                         `suppression_routing` embarca com UMA row catch-all
+                                         → rota humana e so ganha particoes com a taxonomia
+                                         ratificada.
+       Ambos os codigos sao levantados pelo worker `suppression.py` (consumption-covered
+       ADR-0030 desde o nascimento — zero dead models). NENHUM desfecho de merito ocorre
+       por automacao: honrar registro e DECISAO do plano de lista, nunca automatica.
+
+       GW_Rota fail-closed (espelha GAP-LGPD-4): so avanca para `End_Honrado` com o valor
+       EXPLICITO `REGISTRO_HONRADO` de `rota` (devolvido pela DMN engine-side via
+       CibSevenDmnTransport — evaluator local PROIBIDO, dmn_transport.py:1-8); ausente/
+       em branco/desconhecido vai SEMPRE para `UT_RotearEncarregado` (humano) — nunca
+       honra por omissao.
+
+       SEM PHI: `subject_ref` e referencia OPACA (ADR-0006 Zona Geral); nenhum campo
+       clinico existe neste processo (G-PHI transversal; OP20 e a superficie de teste da
+       invariante — dado de beneficiario/paciente nunca e input de targeting em
+       nenhuma granularidade).
+       ===================================================================================== -->
+
+  <bpmn:error id="Error_SuppSujeitoIrresolvivel" name="Sujeito da supressao irresolvivel (store ausente/identidade nao resolvivel)" errorCode="ERR_SUPP_SUBJECT_UNRESOLVED"/>
+  <bpmn:error id="Error_SuppRoteamentoIndisponivel" name="Roteamento indisponivel (insumos DPO pendentes / DMN nao servida)" errorCode="ERR_SUPP_ROUTING_UNAVAILABLE"/>
+
+  <bpmn:process id="SP-OP-SUPP-001" name="SP-OP-SUPP-001 Direitos de Nao Contato (supressao vendor)"
+                isExecutable="true">
+
+    <bpmn:documentation><![CDATA[
+SP-OP-SUPP-001 — Supressao/opt-out por individuo (GP11/PAT-20, OP20). Status: DRAFT (v0.1.0).
+DI na promocao a FINAL. Revisao DPO obrigatoria antes de qualquer deploy (docs/review-queue.md).
+Contrato: docs/processes/contracts/SP-OP-SUPP-001.md; fonte canonical do contrato: OP20 no
+OP-REGISTRY-VENDOR-V1.md (sha 2a5a92c8). Nenhum prazo, nenhum numero, nenhuma cifra: os tres
+insumos pendentes (taxonomia VW0-D11, piso k-anon, SLA VW0-D20) sao DPO e o processo opera
+fail-closed com as recusas tipadas acima ate eles chegarem.
+]]></bpmn:documentation>
+
+    <bpmn:startEvent id="Start_RequisicaoSupressao" name="Pedido de nao-contato recebido (titular = vendedor ou lead)">
+      <bpmn:outgoing>Flow_Start_PubRecorded</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <!-- Inicializa `rota=""` e `decisao_encarregado=""` na PRIMEIRA service task do caminho
+         (idioma ENGINE-16004 espelhado de SP-OP-LGPD-DSR-001: variaveis humanas/DMN so sao
+         setadas de fato por ST_AvaliarRoteamento / UT_RotearEncarregado; o default "" preserva
+         o fail-closed de GW_Rota intacto — ${rota} sempre resolvivel no engine). -->
+    <bpmn:serviceTask id="ST_PublishRecorded" name="Publicar evento: vendor.suppression.recorded"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.vendor.suppression.recorded</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,suppression_ref,subject_ref,contact_channel,canal</camunda:inputParameter>
+          <camunda:outputParameter name="rota">${""}</camunda:outputParameter>
+          <camunda:outputParameter name="decisao_encarregado">${""}</camunda:outputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_PubRecorded</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubRecorded_Verify</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Resolucao do sujeito (fail-closed, molde erasure_plan.py#IdentityResolution L193):
+         recusar != reportar zero. Store de supressao ausente/ilegivel OU identidade nao
+         resolvivel = UNKNOWN => ERR_SUPP_SUBJECT_UNRESOLVED (worker suppression.py). NUNCA
+         um "zero supressoes" fabricado, nunca acusacao de fraude (L0 hard). -->
+    <bpmn:serviceTask id="ST_VerificarSujeito" name="Resolver sujeito da supressao (referencia opaca)"
+                      camunda:type="external" camunda:topic="vendor.suppression.verify_subject">
+      <bpmn:documentation>Minimizacao art. 10 §1o: identificador + data + canal, nada mais. A referencia e OPACA (ADR-0006); nenhum conteudo clinico/comercial chega aqui (G-PHI).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubRecorded_Verify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Verify_GW</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:boundaryEvent id="BE_SujeitoIrresolvivel" name="Sujeito irresolvivel (ERR_SUPP_SUBJECT_UNRESOLVED)" attachedToRef="ST_VerificarSujeito">
+      <bpmn:outgoing>Flow_SujeitoIrresolvivel_Pub</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_SujeitoIrresolvivel" errorRef="Error_SuppSujeitoIrresolvivel"/>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishSujeitoIrresolvivel" name="Publicar evento: vendor.suppression.completed (sujeito_irresolvivel)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.vendor.suppression.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">sujeito_irresolvivel</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,suppression_ref,subject_ref,contact_channel</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_SujeitoIrresolvivel_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubSujeitoIrresolvivel_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_SujeitoIrresolvivel" name="Sujeito irresolvivel — store UNKNOWN, recusa tipada (fail-safe, nao adverso)">
+      <bpmn:documentation>Terminal NEUTRO (molde GAP-LGPD-6): a resolucao RECUSOU prosseguir por impossibilidade mecanica (store ausente/ilegivel = UNKNOWN) — nenhum desfecho de merito. O caso permanece visivel a DPO via `vendor.suppression.completed`; revisao manual e a rota segura (nunca drop silencioso, nunca prosa automatica).</bpmn:documentation>
+      <bpmn:incoming>Flow_PubSujeitoIrresolvivel_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Roteamento engine-side: a decisao e da DMN `suppression_routing` via CibSevenDmnTransport
+         (evaluator local PROIBIDO — dmn_transport.py:1-8; correlacao/inputs por NOME). Sem os
+         insumos DPO (taxonomia/piso/SLA), o handler RECUSA com ERR_SUPP_ROUTING_UNAVAILABLE —
+         a DMN embarcada tem so a row catch-all → rota humana e particiona so com taxonomia
+         ratificada. -->
+    <bpmn:serviceTask id="ST_AvaliarRoteamento" name="Avaliar roteamento (DMN suppression_routing, engine-side)"
+                      camunda:type="external" camunda:topic="vendor.suppression.route">
+      <bpmn:documentation>Devolve `rota` (valor fechado: REGISTRO_HONRADO | RECLAMACAO_ENCARREGADO). A honra de um registro e DECISAO do plano de lista — nunca automatica, nunca por omissao.</bpmn:documentation>
+      <bpmn:incoming>Flow_Verify_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_Route_GW</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:boundaryEvent id="BE_RoteamentoIndisponivel" name="Roteamento indisponivel (ERR_SUPP_ROUTING_UNAVAILABLE)" attachedToRef="ST_AvaliarRoteamento">
+      <bpmn:outgoing>Flow_RoteamentoIndisponivel_Pub</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="EED_RoteamentoIndisponivel" errorRef="Error_SuppRoteamentoIndisponivel"/>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ST_PublishRoteamentoIndisponivel" name="Publicar evento: vendor.suppression.completed (roteamento_indisponivel)"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.vendor.suppression.completed</camunda:inputParameter>
+          <camunda:inputParameter name="event_desfecho">roteamento_indisponivel</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,suppression_ref,subject_ref,contact_channel</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_RoteamentoIndisponivel_Pub</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubRoteamentoIndisponivel_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_RoteamentoIndisponivel" name="Roteamento indisponivel — insumos DPO pendentes (fail-closed de admissao)">
+      <bpmn:documentation>Terminal NEUTRO: sem taxonomia/piso/SLA ratificados (VW0-D11/VW0-D20) NAO ha roteamento automatico — o registro permanece pendente de decisao humana e o caso fica visivel a DPO. Nunca honra por omissao, nunca prazo fabricado.</bpmn:documentation>
+      <bpmn:incoming>Flow_PubRoteamentoIndisponivel_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- FAIL-CLOSED (espelha GAP-LGPD-4): `REGISTRO_HONRADO` EXPLICITO e o unico caminho de
+         honra; ausente/em branco/desconhecido => humano (UT), nunca honra por omissao. -->
+    <bpmn:exclusiveGateway id="GW_Rota" name="Rota definida pela DMN?" default="Flow_GWRota_Humano">
+      <bpmn:incoming>Flow_Route_GW</bpmn:incoming>
+      <bpmn:outgoing>Flow_GWRota_Honrar</bpmn:outgoing>
+      <bpmn:outgoing>Flow_GWRota_Humano</bpmn:outgoing>
+      <bpmn:conditionExpression id="Cond_GWRota_Honrar" xsi:type="bpmn:tFormalExpression"><text>${rota == "REGISTRO_HONRADO"}</text></bpmn:conditionExpression>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="ST_PublishHonored" name="Publicar evento: vendor.suppression.honored_in_list"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:documentation>Honra na CONSTRUCAO de lista (antes do contato — OP20 binding). A integracao com o construtor de listas vendor e o egresso k-anon-only do chokepoint vivem no pacote de wiring (PR-2); este evento e o fato que o construtor consulta.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.vendor.suppression.honored_in_list</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,suppression_ref,subject_ref,contact_channel</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_GWRota_Honrar</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubHonored_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_Honrado" name="Supressao honrada na construcao de lista">
+      <bpmn:incoming>Flow_PubHonored_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Rota humana: ENCARGADO (LGPD art. 41; grupo `dpo` — conjunto fechado ja vivo em
+         lgpd_dsr_routing/DSR; percurso PO/IdP+financas registrado em docs/review-queue.md,
+         linha SP-OP-SUPP-001). `decisao_encarregado` fica no escopo para a promocao a FINAL
+         (auditoria da decisao humana); nenhum caminho automatico sai daqui. -->
+    <bpmn:userTask id="UT_RotearEncarregado" name="Rotear reclamacao/pedido ao encarregado (decisao humana)"
+                   camunda:candidateGroups="dpo">
+      <bpmn:documentation>VW0-D20: o SLA de honra e RATIFY-LATER — nenhum timer acompanha esta tarefa ("sem prazo que corre em silencio"). A decisao do encarregado (honrar / nao-honrar fundamentado / escalar) e registrada no caso vendor e alimenta o KPI de supressoes honradas no SLA (0/0 hoje — baseline honesto).</bpmn:documentation>
+      <bpmn:incoming>Flow_GWRota_Humano</bpmn:incoming>
+      <bpmn:outgoing>Flow_UT_PubRouted</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="ST_PublishComplaintRouted" name="Publicar evento: vendor.suppression.complaint_routed"
+                      camunda:type="external" camunda:topic="operadora.events.publish">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="event_topic">agents.events.vendor.suppression.complaint_routed</camunda:inputParameter>
+          <camunda:inputParameter name="event_payload_vars">tenant_id,suppression_ref,subject_ref,contact_channel,decisao_encarregado</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_UT_PubRouted</bpmn:incoming>
+      <bpmn:outgoing>Flow_PubRouted_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_ReclamacaoRoteada" name="Pedido roteado ao encarregado — decisao humana registrada">
+      <bpmn:incoming>Flow_PubRouted_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start_PubRecorded" sourceRef="Start_RequisicaoSupressao" targetRef="ST_PublishRecorded"/>
+    <bpmn:sequenceFlow id="Flow_PubRecorded_Verify" sourceRef="ST_PublishRecorded" targetRef="ST_VerificarSujeito"/>
+    <bpmn:sequenceFlow id="Flow_Verify_GW" sourceRef="ST_VerificarSujeito" targetRef="ST_AvaliarRoteamento"/>
+    <bpmn:sequenceFlow id="Flow_SujeitoIrresolvivel_Pub" sourceRef="BE_SujeitoIrresolvivel" targetRef="ST_PublishSujeitoIrresolvivel"/>
+    <bpmn:sequenceFlow id="Flow_PubSujeitoIrresolvivel_End" sourceRef="ST_PublishSujeitoIrresolvivel" targetRef="End_SujeitoIrresolvivel"/>
+    <bpmn:sequenceFlow id="Flow_Route_GW" sourceRef="ST_AvaliarRoteamento" targetRef="GW_Rota"/>
+    <bpmn:sequenceFlow id="Flow_RoteamentoIndisponivel_Pub" sourceRef="BE_RoteamentoIndisponivel" targetRef="ST_PublishRoteamentoIndisponivel"/>
+    <bpmn:sequenceFlow id="Flow_PubRoteamentoIndisponivel_End" sourceRef="ST_PublishRoteamentoIndisponivel" targetRef="End_RoteamentoIndisponivel"/>
+    <bpmn:sequenceFlow id="Flow_GWRota_Honrar" name="rota == REGISTRO_HONRADO (explicito)" sourceRef="GW_Rota" targetRef="ST_PublishHonored"/>
+    <bpmn:sequenceFlow id="Flow_GWRota_Humano" name="default — ausente/branco/desconhecido vai ao humano" sourceRef="GW_Rota" targetRef="UT_RotearEncarregado"/>
+    <bpmn:sequenceFlow id="Flow_PubHonored_End" sourceRef="ST_PublishHonored" targetRef="End_Honrado"/>
+    <bpmn:sequenceFlow id="Flow_UT_PubRouted" sourceRef="UT_RotearEncarregado" targetRef="ST_PublishComplaintRouted"/>
+    <bpmn:sequenceFlow id="Flow_PubRouted_End" sourceRef="ST_PublishComplaintRouted" targetRef="End_ReclamacaoRoteada"/>
+
+  </bpmn:process>
+
+</bpmn:definitions>

@@ -1,6 +1,6 @@
 """Composition root — `register_all_workers` (T1.2/ADR-0026 Decisao §4).
 
-Composes all 18 `register_<domain>_workers(harness, kafka=None, **seams)` bootstraps (the
+Composes all 19 `register_<domain>_workers(harness, kafka=None, **seams)` bootstraps (the
 donor's `_register_all_workers` shape, T1.1 design §16) into a single call the worker-runtime
 daemon makes at boot (`worker_runtime/service.py` STEP B). This is the ONLY place that imports
 every domain worker module — the modules themselves stay independent of each other.
@@ -18,6 +18,14 @@ every domain worker module — the modules themselves stay independent of each o
     NOT `FunctionWorker`-wrapped) because it needs `task.business_key`/`task.process_instance_id`,
     metadata the dict-first `FunctionWorker` boundary does not expose — see `events.py`'s module
     docstring for the full rationale.
+1 raw-handler module (VW4/GP11, admitido pelo dono 2026-10-07 — VW0-DECISION-REGISTER §"Decisoes
+    de Fechamento" item 1): `suppression` — serves the two SP-OP-SUPP-001 external topics
+    (`vendor.suppression.verify_subject`/`vendor.suppression.route`) in the ADMITTED fail-closed
+    state: both handlers raise their modeled boundary errors (`ERR_SUPP_SUBJECT_UNRESOLVED`/
+    `ERR_SUPP_ROUTING_UNAVAILABLE` — consumption-covered from birth, zero dead models) until the
+    suppression store and the `CibSevenDmnTransport` wiring land in the wiring package. Explicit
+    per-topic fetch scopes (`variables=(...)` — the OP20 minimization contract: identificador +
+    data + canal, nada mais). `suppression.py`'s module docstring carries the full rationale.
 1 raw-handler module (VW1-P0-FENCES, grant OWNER-FENCE-DISPATCH-001): `vendor_admin` — serves the
     `vendor.membership.publication` cadence topic of the vendor membership-to-access publication
     job (`gateway/human/vendor_membership_publication_job.py`, whose own code is UNCHANGED: its
@@ -51,6 +59,7 @@ from maezo.tools.workers.pagto import register_pagto_workers
 from maezo.tools.workers.programa import register_programa_workers
 from maezo.tools.workers.recurso import register_recurso_workers
 from maezo.tools.workers.reembolso import register_reembolso_workers
+from maezo.tools.workers.suppression import register_suppression_workers
 from maezo.tools.workers.vendor_admin import register_vendor_workers
 
 if TYPE_CHECKING:
@@ -77,6 +86,7 @@ ALL_WORKER_BOOTSTRAPS: tuple[Any, ...] = (
     register_recurso_workers,
     register_reembolso_workers,
     register_vendor_workers,
+    register_suppression_workers,
 )
 
 
@@ -85,7 +95,7 @@ def register_all_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register all 18 worker modules on `harness` (donor's `_register_all_workers`).
+    """Register all 19 worker modules on `harness` (donor's `_register_all_workers`).
 
     Idempotent (`WorkerHarness.register_worker`/`.register` replace on re-registration, same
     topic) — safe to call more than once against the same harness.

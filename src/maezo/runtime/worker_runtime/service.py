@@ -89,6 +89,7 @@ from maezo.tools.workers.pagto import PAGTO_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.programa import PROGRAMA_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.recurso import RECURSO_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.reembolso import REEMBOLSO_BPMN_ERROR_ALLOWLIST
+from maezo.tools.workers.suppression import SUPPRESSION_BPMN_ERROR_ALLOWLIST
 
 from .settings import WorkerRuntimeSettings
 
@@ -238,6 +239,7 @@ _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
     | PROGRAMA_BPMN_ERROR_ALLOWLIST
     | RECURSO_BPMN_ERROR_ALLOWLIST
     | REEMBOLSO_BPMN_ERROR_ALLOWLIST
+    | SUPPRESSION_BPMN_ERROR_ALLOWLIST  # VW4/GP11 (2026-10-07) — fail-closed de admissao
 )
 
 #: The production allowlist wired into the harness: gate-proven codes MINUS the T-E-gated

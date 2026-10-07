@@ -219,12 +219,22 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
     dmns = {p.name for p in artifacts if p.suffix == ".dmn"}
-    assert len(dmns) == 63
+    assert len(dmns) == 64
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
     )
-    assert len([p for p in artifacts if p.suffix == ".bpmn"]) == 16
+    assert "suppression_routing.dmn" in dmns, (
+        "o censo subiu para 64 por causa de `suppression_routing.dmn` (VW4/GP11 admitido pelo "
+        "dono em 2026-10-07 — SP-OP-SUPP-001, catch-all unico → rota humana; VW0-DECISION-"
+        "REGISTER §Decisoes de Fechamento item 1) — se ele nao esta mais ai, quem subiu o "
+        "numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
+    )
+    bpmn_names = {p.name for p in artifacts if p.suffix == ".bpmn"}
+    assert len(bpmn_names) == 17
+    assert "SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn" in bpmn_names, (
+        "o censo de BPMN subiu para 17 por causa de SP-OP-SUPP-001 (VW4/GP11) — nomeie a mudanca"
+    )
 
 
 def test_no_src_consumer_of_the_candidate_manifests() -> None:
