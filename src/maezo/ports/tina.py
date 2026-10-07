@@ -70,13 +70,12 @@ class CarenciasView:
 
 @dataclass(frozen=True, slots=True)
 class RequisicaoPlano:
-    """Uma solicitacao de autorizacao. A senha vem SO' mascarada; o medico solicitante e' do contrato,
-    mas quem consome decide se o expoe (a Helena nao o expoe)."""
+    """Uma solicitacao de autorizacao. A senha vem SO' mascarada. Sem nome de terceiro: o medico
+    solicitante saiu do contrato (revisao do #690)."""
 
     solicitacao: int | None
     solicitada_em: str | None
     status: str | None
-    medico_solicitante: str | None
     senha_mascarada: str | None
     senha_validade: str | None
     senha_vigente: bool | None

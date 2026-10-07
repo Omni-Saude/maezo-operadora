@@ -71,7 +71,6 @@ def _requisicoes():
                 "solicitacao": 123456,
                 "solicitada_em": "2026-10-01T09:00:00Z",
                 "status": "Em análise",
-                "medico_solicitante": "DR SINTETICO",
                 "senha_mascarada": "********42",
                 "senha_validade": None,
                 "senha_vigente": None,
@@ -185,7 +184,6 @@ def _openapi() -> bytes:
                             "solicitacao": {"type": "integer", "nullable": True},
                             "solicitada_em": {"type": "string", "format": "date-time", "nullable": True},
                             "status": _NS,
-                            "medico_solicitante": _NS,
                             "senha_mascarada": _NS,
                             "senha_validade": _ND,
                             "senha_vigente": {"type": "boolean", "nullable": True},
@@ -384,6 +382,16 @@ async def test_operacao_nao_registrada_no_executor_e_recusada(consumer):
     executor.registered_operations = frozenset({tina.OP_ELEGIBILIDADE})
     result = await adapter.get_carencias(REF, **_ARGS)
     assert result.failure.reason is Reason.SCOPE_NOT_SUPPORTED
+
+
+async def test_resposta_sem_medico_solicitante_e_valida_e_o_port_nao_tem_o_campo(consumer):
+    """A AMH removeu o nome do medico solicitante do contrato (terceiro): nem o adaptador o exige nem o
+    port o carrega."""
+    adapter, executor, _ = consumer
+    assert "medico_solicitante" not in executor.bodies[tina.OP_REQUISICOES]["requisicoes"][0]
+    result = await adapter.get_requisicoes(REF, **_ARGS)
+    assert result.succeeded, result.failure
+    assert not hasattr(result.value.requisicoes[0], "medico_solicitante")
 
 
 def test_sem_pin_v1_2_o_construtor_recusa():

@@ -197,6 +197,7 @@ from .consultas_plano import (
     CONSULTA_SUBTIPOS,
     INTENT_CONSULTA_PLANO,
     RESPOSTA_CONSULTA_SEM_IDENTIDADE,
+    SUBTIPOS_REDIGIDOS,
     FonteDeFatosDoPlano,
     consulta_prompt,
     fatos_da_consulta,
@@ -1161,6 +1162,8 @@ class HelenaState(TypedDict, total=False):
     #: (`consultas_plano.texto_para_cerca`): um status "em analise" do cadastro e' fato, nao invencao.
     consulta_subtipo: str | None
     consulta_literais: tuple[str, ...] | None
+    #: `True` so' no turno cuja resposta carrega fatos do plano (o historico da onda 0 grava um marcador).
+    resposta_com_dados_do_plano: bool
 
     # COLETA (passo 4). Os tres primeiros sao MEMORIA DE CONVERSA: sobrevivem ao `receive` do
     # turno seguinte (ver `_HELENA_MEMORIA_DE_CONVERSA`) porque a pergunta feita num turno so'
@@ -1296,6 +1299,7 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "handoff": None,
     "consulta_subtipo": None,
     "consulta_literais": None,
+    "resposta_com_dados_do_plano": False,
     # COLETA — os tres de memoria tem default neutro aqui (para a particao de campos e para o
     # PRIMEIRO turno de uma conversa), mas `receive` os PRESERVA em vez de zerar; ver
     # `_HELENA_MEMORIA_DE_CONVERSA` logo abaixo.
@@ -3764,8 +3768,13 @@ class HelenaGraph:
                 "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="indisponivel"
             )
             return fixo
-        texto = await self._redigir_consulta(state, subtipo, fatos)
-        recusa = motivo_de_recusa_da_consulta(texto, fatos) if isinstance(texto, str) else "sem_rascunho"
+        texto: str | None = None
+        if subtipo in SUBTIPOS_REDIGIDOS:
+            texto = await self._redigir_consulta(state, subtipo, fatos)
+            recusa = motivo_de_recusa_da_consulta(texto, fatos) if isinstance(texto, str) else "sem_rascunho"
+        else:
+            # Autorizacao e carencia (revisao do #690): SEMPRE a resposta deterministica, sem modelo.
+            recusa = "subtipo_deterministico"
         if recusa is not None or not isinstance(texto, str):
             texto = resposta_deterministica(subtipo, fatos)
         logger.info(
@@ -3780,6 +3789,8 @@ class HelenaGraph:
             "response_text": texto.strip(),
             "response_kind": "inform",
             "consulta_literais": literais_dos_fatos(fatos),
+            # Onda 0 (historico): a resposta carrega dados do plano -> o historico grava so' um marcador.
+            "resposta_com_dados_do_plano": True,
         }
 
     async def _redigir_consulta(

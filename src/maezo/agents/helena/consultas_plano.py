@@ -39,6 +39,9 @@ from .prompts import SYSTEM_PROMPT, motivo_de_canal_nao_confirmado, motivo_de_re
 INTENT_CONSULTA_PLANO: Final[str] = "consulta_plano"
 ConsultaSubtipo = Literal["elegibilidade", "carteirinha", "carencia", "autorizacao"]
 CONSULTA_SUBTIPOS: Final[frozenset[str]] = frozenset(get_args(ConsultaSubtipo))
+#: Os UNICOS subtipos que o modelo redige (revisao do #690). Autorizacao e carencia sao sempre a
+#: resposta deterministica: status e prazo sao exatamente o que um rascunho poderia transformar em promessa.
+SUBTIPOS_REDIGIDOS: Final[frozenset[str]] = frozenset({"elegibilidade", "carteirinha"})
 
 #: Versao do ADENDO do classify (anexado ao classify v5/v6 SO' com as consultas ligadas) e do prompt
 #: de redacao da resposta com fatos. As duas entram em `graph.PROMPT_VERSIONS` e no `agent.yaml`.
@@ -261,10 +264,20 @@ def literais_dos_fatos(fatos: Mapping[str, Any]) -> tuple[str, ...]:
     inventado quando o modelo o escreve, e e' fato quando e' o status que consta no cadastro. As duas
     cercas leem o texto com estes literais APAGADOS (`texto_para_cerca`), e o resto do texto continua
     passando por elas inteiro. Literal com menos de 3 caracteres nao entra (apagaria demais).
+
+    NUNCA E' APAGADO (revisao do #690): literal que case com a cerca de PROMESSA ou com a cerca de CANAL.
+    Um status "Autorizada" de requisicao antiga apagado deixaria passar "sua solicitacao esta' autorizada"
+    — o literal do cadastro nao pode virar salvo-conduto para a frase que a cerca existe para barrar.
     """
     vistos: dict[str, None] = {}
     for folha in _folhas(fatos):
-        if isinstance(folha, str) and len(folha) >= 3 and not _MASCARADO.fullmatch(folha):
+        if (
+            isinstance(folha, str)
+            and len(folha) >= 3
+            and not _MASCARADO.fullmatch(folha)
+            and not _PROMESSA.search(_sem_acento(folha))
+            and motivo_de_canal_nao_confirmado(folha) is None
+        ):
             vistos.setdefault(folha, None)
     return tuple(sorted(vistos, key=len, reverse=True))
 
@@ -394,7 +407,10 @@ def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
 _PROMESSA: Final[re.Pattern[str]] = re.compile(
     r"\b(?:cobert[oa]s?|cobre|cobrem|garant\w*|"
     r"(?:esta|estao|foi|foram|sera|serao|vai ser|vao ser)\s+(?:autorizad[oa]s?|liberad[oa]s?|aprovad[oa]s?)|"
-    r"pode\s+(?:fazer|realizar|marcar|usar)|podera\s+(?:fazer|realizar|usar))\b",
+    r"pode\s+(?:fazer|realizar|marcar|usar)|podera\s+(?:fazer|realizar|usar)|"
+    # Prazo inventado (revisao do #690): "deve ser liberado", "sai em", "prazo de".
+    r"devem?\s+ser\s+liberad\w*|(?:vai|vao|sera|serao)\s+ser\s+liberad\w*|sera\s+liberad\w*|"
+    r"sai\s+em|prazo\s+de)\b",
     re.IGNORECASE,
 )
 _ONZE_DIGITOS: Final[re.Pattern[str]] = re.compile(r"\d{3}\.?\d{3}\.?\d{3}-?\d{2}")
@@ -425,15 +441,36 @@ def motivo_de_recusa_da_consulta(texto: str, fatos: Mapping[str, Any]) -> str | 
         return recusa[0]
     if _ONZE_DIGITOS.search(cercado):
         return "documento"
-    if _PROMESSA.search(_sem_acento(cercado)):
+    # A promessa e' lida no texto ORIGINAL: nenhum literal do cadastro a esconde.
+    if _PROMESSA.search(_sem_acento(texto)):
         return "promessa_de_cobertura"
-    digitos_dos_fatos = "".join(
-        str(folha) for folha in _folhas(fatos) if isinstance(folha, int | str) and not isinstance(folha, bool)
-    )
+    tokens = _tokens_numericos(fatos)
     for numero in _DIGITOS.findall(cercado):
-        if numero not in digitos_dos_fatos:
+        if _sem_zero(numero) not in tokens:
             return "numero_fora_dos_fatos"
     return None
+
+
+def _sem_zero(numero: str) -> str:
+    return numero.lstrip("0") or "0"
+
+
+def _tokens_numericos(fatos: Mapping[str, Any]) -> frozenset[str]:
+    """O CONJUNTO de numeros que os fatos contem (revisao do #690), sem zeros a esquerda.
+
+    Um token por inteiro e por sequencia de digitos de cada texto; uma data ISO entra como dia, mes e ano
+    separados (o texto pode escrever 01/03/2024). Comparar por CONJUNTO, e nao por substring da
+    concatenacao: "3 dias" ou "ate' 20/10" nao passam so' porque a solicitacao e' 12345.
+    """
+    tokens: set[str] = set()
+    for folha in _folhas(fatos):
+        if isinstance(folha, bool):
+            continue
+        if isinstance(folha, int):
+            tokens.add(_sem_zero(str(folha)))
+        elif isinstance(folha, str):
+            tokens.update(_sem_zero(d) for d in _DIGITOS.findall(folha))
+    return frozenset(tokens)
 
 
 __all__ = [
@@ -446,6 +483,7 @@ __all__ = [
     "LIMITE_REQUISICOES",
     "MAX_CHARS_RESPOSTA",
     "RESPOSTA_CONSULTA_SEM_IDENTIDADE",
+    "SUBTIPOS_REDIGIDOS",
     "ConsultaSubtipo",
     "FonteDeFatosDoPlano",
     "consulta_prompt",

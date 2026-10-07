@@ -129,7 +129,6 @@ REQUISICOES = RequisicoesView(
             solicitacao=123456,
             solicitada_em="2026-10-01T09:00:00Z",
             status="Em análise",
-            medico_solicitante="DR NOME SINTETICO",
             senha_mascarada="********42",
             senha_validade=None,
             senha_vigente=None,
@@ -270,7 +269,6 @@ async def test_ligada_com_identidade_consulta_a_fonte_e_responde_o_rascunho_sobr
     prompt_redacao = inferencia.prompts[1]
     assert "fatos_do_plano" in prompt_redacao and "PLANO SINTETICO ENFERMARIA" in prompt_redacao
     assert REF not in prompt_redacao
-    assert "DR NOME SINTETICO" not in prompt_redacao
 
 
 @pytest.mark.parametrize(
@@ -306,8 +304,9 @@ async def test_autorizacao_com_status_do_cadastro_em_analise_sai_inteiro() -> No
     enviado = sender.sent[-1]
     assert fonte.chamadas == [(REF, "autorizacao")]
     assert "Em análise" in enviado and "********42" in enviado and "123456" in enviado
-    assert "DR NOME SINTETICO" not in enviado
+    assert "aprovada" not in enviado  # o rascunho nem foi pedido
     assert not out.get("error")
+    assert out["resposta_com_dados_do_plano"] is True
 
 
 async def test_carencia_responde_o_que_consta_no_cadastro() -> None:
@@ -424,3 +423,73 @@ def test_literal_do_cadastro_nunca_e_apagado_dentro_de_outra_palavra() -> None:
     cercado = texto_para_cerca(texto, ("Ativo",))
     assert "aplicativo" in cercado and "[fato]" in cercado
     assert motivo_de_canal_nao_confirmado(cercado) is not None
+
+
+@pytest.mark.parametrize("subtipo", ["autorizacao", "carencia"])
+async def test_autorizacao_e_carencia_nunca_passam_pelo_modelo(subtipo: str) -> None:
+    """Revisao do #690: status e prazo sao o que um rascunho transformaria em promessa — sempre a
+    resposta deterministica, e a redacao nem e' chamada."""
+    inferencia = _FakeInference(
+        [_classify(consulta_subtipo=subtipo), "Sua solicitação 123456 está autorizada."]
+    )
+    compilado, sender, _ = _grafo(inferencia, _Fonte())
+    await compilado.ainvoke(_entrada())
+    assert len(inferencia.prompts) == 1  # so' o classify
+    assert sender.sent[-1] == resposta_deterministica(subtipo, fatos_da_consulta(subtipo, _VIEWS[subtipo]))
+
+
+async def test_resposta_sem_fatos_nao_marca_dados_do_plano() -> None:
+    compilado, _, _ = _grafo(_FakeInference([_classify()]), _Fonte())
+    out = await compilado.ainvoke(_entrada(identidade=False))
+    assert out.get("resposta_com_dados_do_plano") is False
+
+
+# --- revisao do #690: cerca de numeros por CONJUNTO, prazo inventado, literal que e' promessa ----------
+
+_FATOS_SOLICITACAO = {
+    "requisicoes": [{"solicitacao": 12345, "status": "Em análise"}],
+    "fonte_atualizada_em": None,
+}
+
+
+@pytest.mark.parametrize(
+    "rascunho",
+    [
+        "A solicitação 12345 leva 3 dias.",  # "3" e' substring de 12345, mas nao e' um fato
+        "A solicitação 12345 fica pronta até 20/10.",
+    ],
+)
+def test_numero_que_e_so_pedaco_de_outro_fato_e_recusado(rascunho: str) -> None:
+    assert motivo_de_recusa_da_consulta(rascunho, _FATOS_SOLICITACAO) == "numero_fora_dos_fatos"
+
+
+def test_data_dos_fatos_em_formato_brasileiro_passa() -> None:
+    fatos = fatos_da_consulta("elegibilidade", ELEGIBILIDADE)
+    assert fatos is not None
+    assert motivo_de_recusa_da_consulta("Seu plano está ativo desde 01/03/2024.", fatos) is None
+    assert motivo_de_recusa_da_consulta("Vigência desde 1/3/2024.", fatos) is None
+
+
+@pytest.mark.parametrize(
+    "rascunho",
+    [
+        "A solicitação 12345 deve ser liberada logo.",
+        "A solicitação 12345 sai em breve.",
+        "O prazo de análise é curto.",
+        "A solicitação 12345 vai ser liberada.",
+        "A solicitação 12345 será liberada.",
+    ],
+)
+def test_prazo_inventado_e_promessa(rascunho: str) -> None:
+    assert motivo_de_recusa_da_consulta(rascunho, _FATOS_SOLICITACAO) == "promessa_de_cobertura"
+
+
+def test_literal_do_cadastro_que_e_promessa_nao_vira_salvo_conduto() -> None:
+    """Status "Autorizada" antigo nao pode liberar "sua solicitacao esta' autorizada"."""
+    fatos = {"requisicoes": [{"solicitacao": 123, "status": "está autorizada"}], "fonte_atualizada_em": None}
+    assert "está autorizada" not in literais_dos_fatos(fatos)
+    assert (
+        motivo_de_recusa_da_consulta("Sua solicitação 123 está autorizada.", fatos) == "promessa_de_cobertura"
+    )
+    fatos_canal = {"vinculos": [{"plano": "aplicativo do plano"}], "fonte_atualizada_em": None}
+    assert literais_dos_fatos(fatos_canal) == ()

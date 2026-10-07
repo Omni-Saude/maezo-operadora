@@ -360,7 +360,6 @@ def _requisicoes(body: dict[str, Any]) -> RequisicoesView:
                 solicitacao=r["solicitacao"],
                 solicitada_em=r["solicitada_em"],
                 status=r["status"],
-                medico_solicitante=r.get("medico_solicitante"),
                 senha_mascarada=r.get("senha_mascarada"),
                 senha_validade=r.get("senha_validade"),
                 senha_vigente=r.get("senha_vigente"),
