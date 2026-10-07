@@ -277,7 +277,7 @@ def test_bloco_gerado_usa_o_esquema_do_pin_v1() -> None:
     assert b["manifest_pin"]["sha256"] == hashlib.sha256(raw).hexdigest()
     assert b["manifest_pin"]["byte_size"] == len(raw)
     assert b["manifest_pin"]["prepublication_sha256"] == PREPUB_SHA
-    assert b["manifest_pin"]["git_blob_sha"] == hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest()  # noqa: S324
+    assert b["manifest_pin"]["git_blob_sha"] == hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest()
     assert b["provenance"]["amh_manifest_commit_sha"] == COMMIT_MANIFEST
     assert b["compatibility_report"]["dry_run_run_id"] == "31499999999"
     assert b["publication"]["publication_run_id"] == RUN_PUB
