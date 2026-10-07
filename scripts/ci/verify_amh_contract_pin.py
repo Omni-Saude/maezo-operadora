@@ -176,6 +176,41 @@ FROZEN_ARTIFACT_PATHS: tuple[str, ...] = (
     "schemas/openapi/maezo/v1/population-features.openapi.yaml",
 )
 
+#: Manifest ADITIVO v1.1 (billing-status + subject-resolution). So OpenAPI: Glue nao se aplica, entao
+#: o bloco v1.1 do pin NAO carrega ids Glue nem `schema_version_status`. O bloco e' OPCIONAL: se a
+#: chave `manifest_v1_1` nao existe no lock, nada do v1.1 e' exigido (o pin so-v1 continua valido).
+#: Se existe, fica obrigatorio e completo. `FROZEN_ARTIFACT_PATHS` (v1) nao muda.
+V1_1_LOCK_KEY = "manifest_v1_1"
+V1_1_MANIFEST_PATH = "schemas/contracts/maezo/v1.1/contract-manifest.yaml"
+V1_1_ARTIFACT_PATHS: tuple[str, ...] = (
+    "schemas/openapi/maezo/v1/billing-status.openapi.yaml",
+    "schemas/openapi/maezo/v1/subject-resolution.openapi.yaml",
+)
+#: Run de publicacao do v1 (XRG2-AMH-DEV-GHA-30991849241): o v1.1 so pode ser de um run posterior.
+V1_1_MIN_PUBLICATION_RUN_ID = 30991849241
+
+#: Campos string obrigatorios DENTRO do bloco v1.1 (quando o bloco existe).
+V1_1_REQUIRED_STRING_FIELDS: tuple[str, ...] = (
+    "provenance.amh_commit_sha",
+    "provenance.amh_manifest_commit_sha",
+    "provenance.status",
+    "provenance.evidence_id",
+    "manifest_pin.path",
+    "manifest_pin.sha256",
+    "manifest_pin.git_blob_sha",
+    "manifest_pin.prepublication_sha256",
+    "compatibility_report.result",
+    "compatibility_report.provider_contract_tests",
+    "compatibility_report.dry_run_id",
+    "compatibility_report.dry_run_run_id",
+    "compatibility_report.evidence_artifact_id",
+    "publication.environment",
+    "publication.publication_run_id",
+    "publication.published_at_utc",
+    "xrg3_verification.verified_at_utc",
+    "xrg3_verification.verified_by",
+)
+
 #: Glue schema-version IDs are keyed by the Avro schema basename (no extension).
 FROZEN_GLUE_SCHEMA_KEYS: tuple[str, ...] = (
     "amh_maezo_work_item",
@@ -634,6 +669,122 @@ def check_artifacts(lock: dict[str, Any]) -> list[Violation]:
     return violations
 
 
+def check_manifest_v1_1(lock: dict[str, Any]) -> list[Violation]:
+    """Bloco `manifest_v1_1` (opcional). Ausente -> sem violacoes. Presente -> completo e coerente."""
+    block = lock.get(V1_1_LOCK_KEY, _MISSING)
+    if block is _MISSING:
+        return []
+    if not isinstance(block, dict):
+        return [Violation("v1-1-shape", f"{V1_1_LOCK_KEY}: must be an object")]
+
+    violations: list[Violation] = []
+    for dotted in V1_1_REQUIRED_STRING_FIELDS:
+        value = dig(block, dotted)
+        if not isinstance(value, str) or not value.strip():
+            violations.append(
+                Violation("v1-1-field", f"{V1_1_LOCK_KEY}.{dotted}: required non-empty string, got {value!r}")
+            )
+    byte_size = dig(block, "manifest_pin.byte_size")
+    if not isinstance(byte_size, int) or isinstance(byte_size, bool) or byte_size <= 0:
+        violations.append(
+            Violation(
+                "v1-1-format", f"{V1_1_LOCK_KEY}.manifest_pin.byte_size: positive integer -> {byte_size!r}"
+            )
+        )
+
+    def pattern(dotted: str, regex: re.Pattern[str], what: str) -> None:
+        value = dig(block, dotted)
+        if isinstance(value, str) and regex.match(value) is None:
+            violations.append(
+                Violation("v1-1-format", f"{V1_1_LOCK_KEY}.{dotted}: not a valid {what} -> {value!r}")
+            )
+
+    pattern("provenance.amh_commit_sha", _GIT_SHA_RE, "40-hex git commit sha")
+    pattern("provenance.amh_manifest_commit_sha", _GIT_SHA_RE, "40-hex git commit sha")
+    pattern("manifest_pin.git_blob_sha", _GIT_SHA_RE, "40-hex git blob sha")
+    pattern("manifest_pin.sha256", _SHA256_RE, "64-hex sha256")
+    pattern("manifest_pin.prepublication_sha256", _SHA256_RE, "64-hex sha256")
+    pattern("compatibility_report.dry_run_run_id", _RUN_ID_RE, "numeric run id")
+    pattern("compatibility_report.evidence_artifact_id", _RUN_ID_RE, "numeric artifact id")
+    pattern("publication.publication_run_id", _RUN_ID_RE, "numeric run id")
+    pattern("publication.published_at_utc", _ISO_UTC_RE, "ISO-8601 UTC timestamp")
+    pattern("xrg3_verification.verified_at_utc", _ISO_UTC_RE, "ISO-8601 UTC timestamp")
+
+    if dig(block, "provenance.status") not in (_MISSING, FROZEN_STATUS):
+        violations.append(
+            Violation("v1-1-frozen-value", f"{V1_1_LOCK_KEY}.provenance.status: must be {FROZEN_STATUS!r}")
+        )
+    if dig(block, "compatibility_report.result") not in (_MISSING, "PASSED"):
+        violations.append(
+            Violation("v1-1-frozen-value", f"{V1_1_LOCK_KEY}.compatibility_report.result: must be 'PASSED'")
+        )
+    if dig(block, "manifest_pin.path") not in (_MISSING, V1_1_MANIFEST_PATH):
+        violations.append(
+            Violation(
+                "v1-1-frozen-value", f"{V1_1_LOCK_KEY}.manifest_pin.path: must be {V1_1_MANIFEST_PATH!r}"
+            )
+        )
+
+    sha = dig(block, "manifest_pin.sha256")
+    if isinstance(sha, str) and sha == dig(block, "manifest_pin.prepublication_sha256"):
+        violations.append(
+            Violation("v1-1-digest-degenerate", f"{V1_1_LOCK_KEY}: sha256 equals prepublication_sha256")
+        )
+    if isinstance(sha, str) and sha == dig(lock, "manifest_pin.sha256"):
+        violations.append(
+            Violation("v1-1-digest-reuse", f"{V1_1_LOCK_KEY}: manifest sha256 equals the v1 manifest")
+        )
+
+    evidence = dig(block, "provenance.evidence_id")
+    if isinstance(evidence, str) and evidence == dig(lock, "provenance.evidence_id"):
+        violations.append(
+            Violation(
+                "v1-1-evidence-reuse",
+                f"{V1_1_LOCK_KEY}: evidence_id reuses the v1 evidence id ({evidence!r})",
+            )
+        )
+    run = dig(block, "publication.publication_run_id")
+    if isinstance(run, str) and _RUN_ID_RE.match(run) and int(run) <= V1_1_MIN_PUBLICATION_RUN_ID:
+        violations.append(
+            Violation(
+                "v1-1-run-regression",
+                f"{V1_1_LOCK_KEY}: publication_run_id {run} is not newer than the v1 run "
+                f"{V1_1_MIN_PUBLICATION_RUN_ID}",
+            )
+        )
+
+    entries = block.get("artifacts")
+    digests = _digest_map(entries)
+    if (
+        not isinstance(entries, list)
+        or len(entries) != len(V1_1_ARTIFACT_PATHS)
+        or len(digests) != len(entries)
+    ):
+        violations.append(
+            Violation(
+                "v1-1-artifact-count",
+                f"{V1_1_LOCK_KEY}.artifacts: expected exactly {len(V1_1_ARTIFACT_PATHS)} well-formed entries",
+            )
+        )
+    for unexpected in sorted(set(digests) - set(V1_1_ARTIFACT_PATHS)):
+        violations.append(
+            Violation("v1-1-artifact-unknown", f"{V1_1_LOCK_KEY}.artifacts: {unexpected!r} not allowed")
+        )
+    for path in V1_1_ARTIFACT_PATHS:
+        if path not in digests:
+            violations.append(
+                Violation("v1-1-artifact-missing", f"{V1_1_LOCK_KEY}.artifacts: absent -> {path}")
+            )
+        elif not isinstance(digests[path], str) or _SHA256_RE.match(digests[path]) is None:
+            violations.append(
+                Violation(
+                    "v1-1-artifact-digest",
+                    f"{V1_1_LOCK_KEY}.artifacts[{path}].sha256: not 64-hex -> {digests[path]!r}",
+                )
+            )
+    return violations
+
+
 def check_glue(lock: dict[str, Any]) -> list[Violation]:
     violations: list[Violation] = []
     ids = dig(lock, "glue_registration.schema_version_ids")
@@ -869,6 +1020,7 @@ def verify_lock(
     violations.extend(check_formats(lock))
     violations.extend(check_topics(lock))
     violations.extend(check_artifacts(lock))
+    violations.extend(check_manifest_v1_1(lock))
     violations.extend(check_glue(lock))
     violations.extend(check_envelope(lock))
     violations.extend(check_fixture_entries(lock))
@@ -1040,6 +1192,78 @@ def verify_candidate(current: dict[str, Any], candidate: dict[str, Any]) -> list
                     "manifest/commit moved: one publication run cannot produce two different pins",
                 )
             )
+
+    # -- manifest aditivo v1.1 ----------------------------------------------
+    cur_v11 = current.get(V1_1_LOCK_KEY)
+    new_v11 = candidate.get(V1_1_LOCK_KEY)
+    if isinstance(cur_v11, dict) and not isinstance(new_v11, dict):
+        violations.append(
+            Violation(
+                "candidate-v1-1-removed",
+                f"the current pin carries {V1_1_LOCK_KEY} but the candidate dropped it — a pin never "
+                "loses a published contract",
+            )
+        )
+    if isinstance(new_v11, dict):
+        new_evidence_v11 = dig(new_v11, "provenance.evidence_id")
+        spent = {dig(current, "provenance.evidence_id"), dig(candidate, "provenance.evidence_id")}
+        if new_evidence_v11 in spent:
+            violations.append(
+                Violation(
+                    "candidate-v1-1-evidence-reuse",
+                    f"{V1_1_LOCK_KEY}.evidence_id {new_evidence_v11!r} reuses the spent v1 evidence id",
+                )
+            )
+        new_run_v11 = dig(new_v11, "publication.publication_run_id")
+        if (
+            isinstance(new_run_v11, str)
+            and _RUN_ID_RE.match(new_run_v11)
+            and int(new_run_v11) <= V1_1_MIN_PUBLICATION_RUN_ID
+        ):
+            violations.append(
+                Violation(
+                    "candidate-v1-1-run-regression",
+                    f"{V1_1_LOCK_KEY}.publication_run_id {new_run_v11} is not newer than the v1 "
+                    f"publication run {V1_1_MIN_PUBLICATION_RUN_ID}",
+                )
+            )
+        if isinstance(cur_v11, dict):
+            cur_sha = dig(cur_v11, "manifest_pin.sha256")
+            new_sha = dig(new_v11, "manifest_pin.sha256")
+            cur_ev = dig(cur_v11, "provenance.evidence_id")
+            if cur_sha == new_sha and cur_v11 != new_v11:
+                # Mesmo manifest pinado => o bloco inteiro e' imutavel. Trocar um digest de artefato,
+                # a proveniencia ou a evidencia sob o mesmo manifest publicaria outro OpenAPI sem nova
+                # publicacao: o loader passaria o digest novo aos adaptadores.
+                mudou = sorted(k for k in {*cur_v11, *new_v11} if cur_v11.get(k) != new_v11.get(k))
+                violations.append(
+                    Violation(
+                        "candidate-v1-1-mutated",
+                        f"{V1_1_LOCK_KEY}: manifest_pin.sha256 is unchanged but {mudou} changed — the "
+                        "pinned block is immutable; a legitimate update needs a newly published manifest",
+                    )
+                )
+            if cur_sha != new_sha and cur_ev == new_evidence_v11:
+                violations.append(
+                    Violation(
+                        "candidate-v1-1-evidence-reuse",
+                        f"{V1_1_LOCK_KEY}: manifest digest changed but evidence_id is unchanged",
+                    )
+                )
+            cur_run_v11 = dig(cur_v11, "publication.publication_run_id")
+            if (
+                isinstance(cur_run_v11, str)
+                and isinstance(new_run_v11, str)
+                and _RUN_ID_RE.match(cur_run_v11)
+                and _RUN_ID_RE.match(new_run_v11)
+                and int(new_run_v11) < int(cur_run_v11)
+            ):
+                violations.append(
+                    Violation(
+                        "candidate-v1-1-run-regression",
+                        f"{V1_1_LOCK_KEY}.publication_run_id regressed {cur_run_v11} -> {new_run_v11}",
+                    )
+                )
 
     return violations
 
@@ -1237,6 +1461,93 @@ def verify_manifest(lock: dict[str, Any], manifest_path: Path) -> list[Violation
     return violations
 
 
+def verify_manifest_v1_1(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
+    """Bytes do manifest v1.1 publicado contra o bloco `manifest_v1_1`. Sem Glue (OpenAPI apenas)."""
+    block = lock.get(V1_1_LOCK_KEY)
+    if not isinstance(block, dict):
+        return [
+            Violation(
+                "v1-1-pin-absent",
+                f"the lock has no {V1_1_LOCK_KEY} block yet — generate it with "
+                "scripts/ci/gerar_pin_v1_1.py before verifying the v1.1 manifest bytes",
+            )
+        ]
+    if not manifest_path.is_file():
+        return [Violation("manifest-missing", f"manifest file not found: {manifest_path}")]
+    raw = manifest_path.read_bytes()
+    violations: list[Violation] = []
+
+    actual = hashlib.sha256(raw).hexdigest()
+    pinned = dig(block, "manifest_pin.sha256")
+    if actual != pinned:
+        violations.append(
+            Violation(
+                "manifest-digest-mismatch",
+                f"{manifest_path}: sha256 {actual} != pinned {pinned!r} — NOT the published v1.1 bytes",
+            )
+        )
+    size = dig(block, "manifest_pin.byte_size")
+    if isinstance(size, int) and not isinstance(size, bool) and len(raw) != size:
+        violations.append(
+            Violation("manifest-size-mismatch", f"{manifest_path}: {len(raw)} bytes != pinned {size}")
+        )
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return [*violations, Violation("manifest-encoding", f"{manifest_path}: not valid UTF-8 ({exc})")]
+
+    expectations: tuple[tuple[str, Any, str], ...] = (
+        ("manifest_version", "1.1.0", "manifest version"),
+        ("amh_commit_sha", dig(block, "provenance.amh_commit_sha"), "artifact source commit"),
+        ("evidence_id", dig(block, "provenance.evidence_id"), "XRG-2 evidence id"),
+        ("contract_name", dig(lock, "provenance.contract_name"), "contract name"),
+        ("compatibility_mode", dig(lock, "provenance.compatibility_mode"), "compatibility mode"),
+        ("status", FROZEN_STATUS, "publication status"),
+        ("publication_run_id", dig(block, "publication.publication_run_id"), "publication run"),
+        ("published_at_utc", dig(block, "publication.published_at_utc"), "publication time"),
+        (
+            "prepublication_manifest_sha256",
+            dig(block, "manifest_pin.prepublication_sha256"),
+            "pre-publication manifest digest",
+        ),
+        ("base_pinned_sha256", dig(lock, "manifest_pin.sha256"), "v1 manifest digest (additive base)"),
+    )
+    for key, expected, label in expectations:
+        _expect_single(violations, text, key, expected, label)
+
+    manifest_digests = scan_manifest_path_digests(text)
+    pinned_pairs = _digest_map(block.get("artifacts"))
+    for path, expected in sorted(pinned_pairs.items()):
+        found = manifest_digests.get(path)
+        if found is None:
+            violations.append(Violation("manifest-artifact-missing", f"manifest: no digest entry for {path}"))
+        elif found != expected:
+            violations.append(
+                Violation(
+                    "manifest-artifact-mismatch", f"manifest {path}: sha256 {found!r}, lock pins {expected!r}"
+                )
+            )
+    self_path = dig(block, "manifest_pin.path")
+    for path, found in sorted(manifest_digests.items()):
+        if path in pinned_pairs:
+            continue
+        if path == self_path:
+            if _SHA256_RE.match(found):
+                violations.append(
+                    Violation(
+                        "manifest-self-digest", f"manifest declares a concrete sha256 for itself ({path})"
+                    )
+                )
+            continue
+        violations.append(
+            Violation(
+                "manifest-artifact-unpinned",
+                f"manifest declares digest-bearing path {path} the lock does not pin",
+            )
+        )
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1262,6 +1573,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "                     status != PUBLISHED. The candidate also runs the full structural and\n"
             "                     frozen-catalog checks; the vendored-fixture digest gate is skipped,\n"
             "                     because a candidate legitimately precedes re-vendoring.\n"
+            "  --manifest-version v1.1  with --manifest: verify the additive v1.1 manifest against the\n"
+            "                     manifest_v1_1 block (no Glue ids; OpenAPI digests only).\n"
             "  --manifest PATH    verify freshly fetched manifest BYTES: recompute sha256 against the\n"
             "                     pin, then require the manifest's amh_commit_sha, evidence_id, Glue\n"
             "                     schema-version ids and artifact/fixture digests to match the lock.\n"
@@ -1276,6 +1589,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--manifest", default=None, help="Path to freshly fetched contract-manifest.yaml bytes."
+    )
+    parser.add_argument(
+        "--manifest-version",
+        choices=("v1", "v1.1"),
+        default="v1",
+        help="Which pinned manifest --manifest verifies: v1 (default) or the additive v1.1 "
+        "(OpenAPI only; no Glue ids; needs the manifest_v1_1 block in the lock).",
     )
     parser.add_argument(
         "--vendor-dir",
@@ -1341,7 +1661,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         manifest_path = Path(args.manifest)
         if not manifest_path.is_absolute():
             manifest_path = repo_root / manifest_path
-        found = verify_manifest(lock, manifest_path)
+        if args.manifest_version == "v1.1":
+            found = verify_manifest_v1_1(lock, manifest_path)
+        else:
+            found = verify_manifest(lock, manifest_path)
         result = GateResult(
             ok=not found,
             mode="manifest",
