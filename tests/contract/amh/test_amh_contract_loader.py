@@ -267,7 +267,8 @@ def test_loaded_glue_ids_match_the_pin_file_verbatim() -> None:
 def test_loaded_digests_match_the_pin_file_verbatim() -> None:
     pin = loader.load_contract_pin(LOCK_PATH)
     lock = _lock()
-    assert dict(pin.artifact_digests) == {a["path"]: a["sha256"] for a in lock["artifacts"]}
+    v1_1 = lock.get("manifest_v1_1", {}).get("artifacts", [])
+    assert dict(pin.artifact_digests) == {a["path"]: a["sha256"] for a in [*lock["artifacts"], *v1_1]}
     assert dict(pin.fixture_digests) == {f["vendored_path"]: f["sha256"] for f in lock["fixtures"]}
     assert pin.manifest_digest == lock["manifest_pin"]["sha256"]
 

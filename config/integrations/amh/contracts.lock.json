@@ -220,5 +220,51 @@
     ],
     "verified_at_utc": "2026-08-05T09:31:00Z",
     "verified_by": "maezo-orchestrator (Claude Fable 5) — independent XRG-2 preflight, session 2026-08-05"
+  },
+  "manifest_v1_1": {
+    "provenance": {
+      "amh_commit_sha": "1630861039185867cae64afe1cd6e3e6c8fa7019",
+      "amh_manifest_commit_sha": "014ee4ae285ef235023f79a769251e02522dee74",
+      "evidence_id": "XRG2-AMH-DEV-GHA-37555121279",
+      "status": "PUBLISHED"
+    },
+    "manifest_pin": {
+      "byte_size": 6521,
+      "git_blob_sha": "b5708f0e328e23ee8e91608ba5df6c7d3bb025c4",
+      "path": "schemas/contracts/maezo/v1.1/contract-manifest.yaml",
+      "prepublication_sha256": "aa303fdb38266cce8fe30ab93792e3b9a5a497f8f701061dd91c5cb74ba5ac5a",
+      "sha256": "c4abd5d57b6a00b88ccec0cbdeeed5337a5595ee33d56d4444f352b9cfbcbe93"
+    },
+    "compatibility_report": {
+      "dry_run_id": "github-actions-run-37555121279",
+      "dry_run_run_id": "37555121279",
+      "evidence_artifact_id": "11453449153",
+      "provider_contract_tests": "100 passed",
+      "result": "PASSED"
+    },
+    "publication": {
+      "environment": "dev",
+      "publication_run_id": "37555121279",
+      "published_at_utc": "2026-10-07T01:03:46Z"
+    },
+    "artifacts": [
+      {
+        "path": "schemas/openapi/maezo/v1/billing-status.openapi.yaml",
+        "sha256": "c8064be55f722fe2db1c62de512fe97877911e35e8a9e8660e99fda74adb48fe"
+      },
+      {
+        "path": "schemas/openapi/maezo/v1/subject-resolution.openapi.yaml",
+        "sha256": "d31716cee7ad64d870a97c259cd6d1fda90d370198e60c0fc6405acd8762a3d1"
+      }
+    ],
+    "xrg3_verification": {
+      "verification_method": [
+        "manifest v1.1 + digests recalculados pelo script scripts/ci/gerar_pin_v1_1.py",
+        "sha256, git blob sha e tamanho calculados sobre os bytes publicados",
+        "2 digests OpenAPI conferidos contra o manifest publicado"
+      ],
+      "verified_at_utc": "2026-10-07T02:10:59Z",
+      "verified_by": "lsilva@austa.com.br (Claude Code, a pedido do Leonardo)"
+    }
   }
 }
