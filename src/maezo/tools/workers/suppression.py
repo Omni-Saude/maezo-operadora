@@ -114,10 +114,11 @@ def register_suppression_workers(
     """Register both SP-OP-SUPP-001 external-task handlers on `harness`.
 
     Raw-handler registration (`harness.register`) com fetch scope EXPLICITO por topico —
-    as variaveis declaradas sao EXATAMENTE as do contrato OP20 (minimizacao: identificador
-    + data + canal, nada mais; `subject_ref` opaco). `suppression_ref` nao e fetchado:
-    e variavel de negocio da instancia usada pela business key, nao input dos handlers
-    neste estado.
+    as variaveis fetchadas sao as estritamente necessarias ao handler neste estado
+    (minimizacao art. 10 §1o: identificador + canal); a DATA do registro nao e variavel
+    de processo e portanto nao e fetchada — o timestamp nasce no store (wiring), nao no
+    engine. `suppression_ref` tambem nao e fetchado: e variavel de negocio da instancia
+    usada pela business key, nao input dos handlers neste estado.
 
     Seams reservados para o pacote de wiring (PR-2): `suppression_store` (fonte de
     resolucao de sujeito) e `suppression_dmn_transport` (`CibSevenDmnTransport`). Nenhum

@@ -85,8 +85,8 @@ ALL_WORKER_BOOTSTRAPS: tuple[Any, ...] = (
     register_programa_workers,
     register_recurso_workers,
     register_reembolso_workers,
-    register_vendor_workers,
     register_suppression_workers,
+    register_vendor_workers,
 )
 
 

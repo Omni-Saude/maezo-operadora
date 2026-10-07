@@ -60,26 +60,26 @@ def test_both_suppression_topics_are_registered_with_declared_fetch_scopes() -> 
     assert subscriptions[SUPPRESSION_ROUTE_TOPIC].variables == ("tenant_id", "canal", "categoria_sujeito")
 
 
-def test_verify_subject_in_admission_state_raises_the_modeled_error() -> None:
+async def test_verify_subject_in_admission_state_raises_the_modeled_error() -> None:
     handler = make_verify_subject_handler(None)
     with pytest.raises(WorkerBpmnError) as exc:
-        handler(_FakeTask())
+        await handler(_FakeTask())
     assert _admission_error(exc.value) == ERR_SUPP_SUBJECT_UNRESOLVED
 
 
-def test_route_in_admission_state_raises_the_modeled_error() -> None:
+async def test_route_in_admission_state_raises_the_modeled_error() -> None:
     handler = make_route_handler(None)
     with pytest.raises(WorkerBpmnError) as exc:
-        handler(_FakeTask())
+        await handler(_FakeTask())
     assert _admission_error(exc.value) == ERR_SUPP_ROUTING_UNAVAILABLE
 
 
-def test_wired_store_does_not_change_the_admission_refusal_without_real_source() -> None:
+async def test_wired_store_does_not_change_the_admission_refusal_without_real_source() -> None:
     # Um seam placeholder (nao-None) NAO autoriza resposta: a fonte real vem do pacote de
     # wiring; o handler de admissao continua levantando o erro modelado (nunca fabrica).
     handler = make_verify_subject_handler(object())
     with pytest.raises(WorkerBpmnError) as exc:
-        handler(_FakeTask())
+        await handler(_FakeTask())
     assert _admission_error(exc.value) == ERR_SUPP_SUBJECT_UNRESOLVED
 
 

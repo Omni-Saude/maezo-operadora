@@ -91,7 +91,7 @@ def test_production_allowlist_is_exactly_the_non_adverse_failsafes() -> None:
                 # unica condicao do gate. Antes disso a negativa sem fundamentacao parava como
                 # incident — nada transmitido, mas sem volta a mesa do auditor, e cada
                 # ocorrencia virava chamado de suporte.
-                # E' o UNICO codigo adverso nesta lista; os outros doze sao nao-adversos.
+                # E' o UNICO codigo adverso nesta lista; os outros treze sao nao-adversos.
                 "ERR_AUTH_DENIAL_INCOMPLETE",
                 # VW4/GP11 (2026-10-07): os dois fail-safes tecnicos de admissao do envelope
                 # SP-OP-SUPP-001 (worker suppression.py no estado fail-closed — recusas tipadas,

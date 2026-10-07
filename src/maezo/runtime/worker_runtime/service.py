@@ -247,7 +247,8 @@ _GATE_PROVEN_BPMN_ERROR_CODES: frozenset[str] = (
 #: ERR_RECURSO_INVALID_GLOSA, ERR_ESC_NOTIFY_FAILED, ERR_NIP_PROTOCOLO_INVALIDO,
 #: ERR_PROGRAMA_NO_CONSENT, ERR_CRED_INVALID_PRESTADOR, ERR_ANS_PROTOCOLO_NACK,
 #: ERR_ANS_DATASET_INCOMPLETO, ERR_AUTH_DENIAL_INCOMPLETE, ERR_PAGTO_ORDEM_INVALIDA,
-#: ERR_REEMBOLSO_INVALID_PROTOCOLO}` today (Tier-0 pair + T3.1 P2b's Tier-2 addition +
+#: ERR_REEMBOLSO_INVALID_PROTOCOLO, ERR_SUPP_SUBJECT_UNRESOLVED, ERR_SUPP_ROUTING_UNAVAILABLE}`
+#: today (Tier-0 pair + T3.1 P2b's Tier-2 addition +
 #: t8-escalation-boundary's Tier-1 addition + item-9 bucket-3's three Tier-2 G2-val origin/consent
 #: guards + t2-ans-submit's two + the T-E-enabled denial-block code +
 #: WP-ADR-0030-COMPLETION's two Tier-2 G2-val origin/consistency guards).
