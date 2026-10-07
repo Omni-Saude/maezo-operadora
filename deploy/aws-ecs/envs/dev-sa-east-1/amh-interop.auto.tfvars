@@ -30,3 +30,8 @@ amh_subject_resolution_openapi_path = "/app/config/integrations/amh/openapi/subj
 // Identidade do beneficiario na Helena pelos mesmos contratos (DL-0077, #677). So contexto: nao entra
 // no prompt nem decide triagem/escala. Ligada em 07/10/2026; voltar: false.
 helena_identidade_amh = true
+
+// Historico curto da conversa da Helena (DL-0080, #689): ultimas 12 mensagens, 6 h, so' como dado no
+// classificador e na redacao; liga tambem o modo coleta (triage_sufficiency, ainda nao ratificada).
+// So' dev. Base LGPD PENDENTE do DPO; a varredura dos checkpoints antigos ainda nao existe. Voltar: false.
+helena_historico = true
