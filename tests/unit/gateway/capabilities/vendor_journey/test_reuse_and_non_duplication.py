@@ -79,12 +79,23 @@ def test_no_second_topology_cursor_map_or_driver_exists() -> None:
     }
 
 
-def test_motor_types_have_zero_subclasses_anywhere() -> None:
-    assert JourneyDriver.__subclasses__() == []
-    assert JourneyStage.__subclasses__() == []
-    assert JourneyBinding.__subclasses__() == []
-    assert ExistingDomainEffectBoundary.__subclasses__() == []
-    assert JourneyReplyBoundary.__subclasses__() == []
+def test_motor_types_have_zero_production_subclasses_anywhere() -> None:
+    """No PRODUCTION (``maezo.*``) subclass of any motor type exists.
+
+    ``__subclasses__()`` is process-global, so in a full-suite process the
+    ``tests.*`` contract doubles (e.g. the runtime RecordingDriver spy) appear
+    here by import order; the diluted-reuse invariant this census pins is about
+    the shipped package, so the count is scoped to the ``maezo`` namespace.
+    """
+
+    def production_subclasses(cls: type) -> list[type]:
+        return [c for c in cls.__subclasses__() if c.__module__.split(".")[0] == "maezo"]
+
+    assert production_subclasses(JourneyDriver) == []
+    assert production_subclasses(JourneyStage) == []
+    assert production_subclasses(JourneyBinding) == []
+    assert production_subclasses(ExistingDomainEffectBoundary) == []
+    assert production_subclasses(JourneyReplyBoundary) == []
 
 
 def test_vendor_package_never_couples_to_op16_or_submissions() -> None:
