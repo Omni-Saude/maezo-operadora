@@ -182,8 +182,17 @@ from maezo.tools.workers.dmn_transport import (
 )
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
+from .historico import (
+    CHAVE_RESPOSTA_COM_DADOS_DO_PLANO,
+    HISTORICO_JANELA_HORAS,
+    MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO,
+    acrescentar_turno,
+    historico_em_texto,
+    historico_valido,
+)
 from .prompts import (
     ALLOWED_SINTOMA_CODIGOS,
+    CLASSIFY_HISTORICO_VERSION,
     CLASSIFY_PROMPT_VERSION,
     CLASSIFY_PROMPT_VERSION_ROTEADOR,
     COLETA_PROMPT_VERSION,
@@ -191,16 +200,19 @@ from .prompts import (
     RECUSA_ESCALONAMENTO_JA_ABERTO,
     RECUSA_HANDOFF_SEM_MENCAO,
     RECUSA_NEGATIVA_CLINICA,
+    RESPONSE_HISTORICO_VERSION,
     RESPONSE_PROMPT_VERSION,
     RESPOSTA_NAO_CONSIGO_IDENTIFICAR,
     RESPOSTA_SOU_ASSISTENTE_VIRTUAL,
     SINTOMA_CODIGOS_BY_POPULATION,
     SYSTEM_PROMPT_VERSION,
+    classify_historico_adendo,
     classify_prompt,
     coleta_prompt,
     menciona_encaminhamento,
     motivo_de_canal_nao_confirmado,
     motivo_de_recusa,
+    response_historico_adendo,
     response_prompt,
     sintoma_em_palavras,
 )
@@ -1162,6 +1174,11 @@ class HelenaState(TypedDict, total=False):
     #: conversa. Memoria de conversa: `receive` o preserva (so' `True` literal atravessa), e so' `respond`
     #: o acende, depois de um envio bem-sucedido. Vale para a conversa inteira (o thread do checkpoint).
     aviso_identidade_dado: bool
+    #: HISTORICO CURTO DA CONVERSA (DL-0080, `MAEZO_HELENA_HISTORICO`, default off): as ultimas
+    #: `HISTORICO_MAX_TROCAS` mensagens `{papel, texto, em}` (ver `historico.py`). Memoria de conversa:
+    #: `receive` o preserva SO' com a flag ligada e dentro da janela de 6 h desde `ultima_mensagem_em`;
+    #: so' `respond` o estende, com a mensagem do turno e o texto que SAIU. Nunca telefone/identidade.
+    historico_conversa: list[dict[str, str]] | None
 
     # Turn output.
     response_text: str
@@ -1282,6 +1299,8 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "ultima_mensagem_em": None,
     # DL-0078: memoria de conversa, como `apresentacao_ja_feita` (ver `_HELENA_MEMORIA_DE_CONVERSA`).
     "aviso_identidade_dado": False,
+    # DL-0080: memoria de conversa com portao proprio (a flag do historico) — ver `receive`.
+    "historico_conversa": None,
     "response_text": None,
     "response_kind": None,
     "desfecho": "",
@@ -1460,6 +1479,8 @@ _HELENA_MEMORIA_DE_CONVERSA: frozenset[str] = frozenset(
         "ultima_mensagem_em",
         # DL-0078: o aviso de identidade e' uma vez por conversa; preservado sem portao, como o cartao.
         "aviso_identidade_dado",
+        # DL-0080: preservado SO' com `historico_enabled` e dentro da janela (`historico_valido`).
+        "historico_conversa",
     }
 )
 
@@ -1494,6 +1515,8 @@ _MEMORIA_CLINICA_CAMPOS: tuple[str, ...] = (
 #: cobrem a volta na mesma parte do dia; alem disso o quadro clinico pode ter mudado o bastante
 #: para que lembrar seja pior que perguntar de novo.
 MEMORIA_CLINICA_JANELA_HORAS: float = 6.0
+# DL-0080: o historico curto expira junto com a memoria clinica — uma janela so'.
+assert HISTORICO_JANELA_HORAS == MEMORIA_CLINICA_JANELA_HORAS
 
 #: O carimbo de quando a memoria foi gravada. Chave separada dos campos clinicos de proposito: a
 #: validacao rejeita a memoria inteira quando ele falta ou nao parseia, e uma memoria sem relogio
@@ -2749,8 +2772,13 @@ class HelenaGraph:
         memoria_clinica_enabled: bool = True,
         roteador_lucas_enabled: bool = False,
         nome_operadora: str = NOME_OPERADORA_PADRAO,
+        historico_enabled: bool = False,
     ) -> None:
         self._llm = inference
+        # HISTORICO CURTO (DL-0080): DESLIGADO por default, e desligado e' o grafo de antes byte a
+        # byte — `historico_conversa` fica `None` em todo turno e nenhum prompt muda. So' a composicao
+        # do receptor com `MAEZO_HELENA_HISTORICO` ligada passa `True` (`dispatch.py`).
+        self._historico_enabled = historico_enabled is True
         # DL-0078: o nome de exibicao da operadora nos textos fixos de identidade (settings
         # `helena_identidade_nome_operadora`). Vazio/nao-texto cai no padrao: o texto nunca sai sem nome.
         self._nome_operadora = (
@@ -2822,6 +2850,15 @@ class HelenaGraph:
             state.get("ultima_mensagem_em"), agora=agora
         ):
             reset["apresentacao_ja_feita"] = True
+        # DL-0080: o historico vale pela janela da memoria clinica desde a ULTIMA mensagem da pessoa —
+        # o carimbo lido aqui e' o do turno anterior (o deste turno e' gravado logo abaixo). Flag
+        # desligada, expirado ou malformado = `None` (o neutro).
+        if self._historico_enabled:
+            reset["historico_conversa"] = historico_valido(
+                state.get("historico_conversa"),
+                ultima_mensagem_em=state.get("ultima_mensagem_em"),
+                agora=agora,
+            )
         reset["ultima_mensagem_em"] = agora.isoformat()
         # DL-0078: o aviso de identidade e' uma vez por CONVERSA, sem validade (ao contrario do cartao):
         # so' `True` literal atravessa, e so' `respond` o acende depois de um envio bem-sucedido.
@@ -3928,7 +3965,7 @@ class HelenaGraph:
                 motivo_categoria=None,
                 enviada=False,
             )
-            return {"desfecho": DESFECHO_PASSAGEM_SEM_FRASE}
+            return {"desfecho": DESFECHO_PASSAGEM_SEM_FRASE, **self._historico_do_turno(state, None)}
         # UM unico `send` e UM unico handler de falha de envio nos dois ramos — o que muda entre
         # eles e O QUE se diz e O QUE o turno declara, nunca o mecanismo de envio.
         if state.get("start_failed") is True:
@@ -3961,7 +3998,7 @@ class HelenaGraph:
                     motivo_categoria=state.get("escalation_motivo"),
                     enviada=False,
                 )
-            return saida
+            return {**saida, **self._historico_do_turno(state, None)}
         # DL-0078: o aviso de identidade de PRIMEIRO CONTATO, como mensagem SEPARADA e ANTES da resposta
         # do turno — nunca no lugar dela. Ver `_aviso_de_identidade` (quando sai, quando e' adiado).
         aviso_enviado, aviso_na_resposta = await self._aviso_de_identidade(state, text)
@@ -3976,6 +4013,10 @@ class HelenaGraph:
             # O desfecho de falha de start (quando ha um) NAO e apagado por uma falha de envio:
             # o caso continua marcado como start falho, que e o que a operacao precisa ver.
             saida = {**saida, "error": f"whatsapp send failed: {redact_error_message(exc)}"}
+        # DL-0080: a mensagem da pessoa entra sempre; a da Helena SO' se SAIU, e e' o texto ENVIADO
+        # (`text`, ja' depois das cercas) — nunca o rascunho barrado. O aviso de identidade (mensagem
+        # separada) nao entra: e' texto fixo de identidade, nao conversa.
+        saida = {**saida, **self._historico_do_turno(state, text if enviada else None)}
         if aviso_enviado or (aviso_na_resposta and enviada):
             # DL-0078: so' depois de a pessoa ter RECEBIDO o texto de identidade (separado ou como a
             # propria resposta do turno). Vai ao checkpoint: o aviso nao se repete nesta conversa.
@@ -4041,6 +4082,32 @@ class HelenaGraph:
                 if isinstance(memoria_do_turno, dict):
                     saida["memoria_clinica"] = {**memoria_do_turno, _MEMORIA_CONFIRMADA: True}
         return saida
+
+    def _historico_do_turno(self, state: HelenaState, resposta_enviada: str | None) -> dict[str, Any]:
+        """A atualizacao de `historico_conversa` deste turno (DL-0080), ou `{}` com a flag desligada.
+
+        Chamada por TODO retorno de `respond` — inclusive a passagem silenciosa ao Lucas e a resposta
+        vazia, em que nada sai mas a pessoa falou. A fala do beneficiario passa por `redact_free_text`
+        (CPF, telefone, e-mail digitados nao ficam guardados). A da Helena e' o texto ENVIADO, ou o
+        marcador `MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO` quando o turno respondeu com dados do plano
+        (gancho da onda 1: a chave `CHAVE_RESPOSTA_COM_DADOS_DO_PLANO` verdadeira no estado).
+        """
+        if not self._historico_enabled:
+            return {}
+        mensagem = state.get("message_body")
+        if isinstance(mensagem, str) and mensagem.strip():
+            mensagem = redact_free_text(mensagem, max_chars=len(mensagem) + 64)
+        resposta = resposta_enviada
+        if resposta and cast(Mapping[str, Any], state).get(CHAVE_RESPOSTA_COM_DADOS_DO_PLANO) is True:
+            resposta = MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
+        return {
+            "historico_conversa": acrescentar_turno(
+                state.get("historico_conversa"),
+                mensagem=mensagem,
+                resposta=resposta,
+                agora=datetime.now(UTC),
+            )
+        }
 
     async def _aviso_de_identidade(self, state: HelenaState, texto_do_turno: str) -> tuple[bool, bool]:
         """AVISO DE IDENTIDADE DE PRIMEIRO CONTATO (DL-0078). Devolve `(enviado, ja_na_resposta)`.
@@ -4390,6 +4457,13 @@ class HelenaGraph:
             state.get("ultima_mensagem_em"), agora=datetime.now(UTC)
         ):
             reset["apresentacao_ja_feita"] = True
+        # DL-0080: a conversa continua sendo a mesma depois do humano; o texto do atendente nao entra.
+        if self._historico_enabled:
+            reset["historico_conversa"] = historico_valido(
+                state.get("historico_conversa"),
+                ultima_mensagem_em=state.get("ultima_mensagem_em"),
+                agora=datetime.now(UTC),
+            )
         if self._memoria_clinica_enabled and "memoria_clinica" in state:
             reset["memoria_clinica"] = _memoria_clinica_valida(
                 state["memoria_clinica"], agora=datetime.now(UTC)
@@ -4627,7 +4701,19 @@ class HelenaGraph:
         # NUMERO UNICO (onda e): `classify-v6` SO' com o roteador ligado; desligado, o texto e' o
         # `classify-v5` byte a byte (sha256 fixado em teste).
         instrucoes = classify_prompt(roteador_lucas=self._roteador_lucas_enabled)
-        prompt = f"{instrucoes}\n\n{render_untrusted_block('message_body', corpo)}"
+        # HISTORICO CURTO (DL-0080): com a flag ligada e historico a mostrar, o adendo vai depois das
+        # instrucoes e o historico viaja num bloco NAO CONFIAVEL proprio, antes da mensagem atual. Ele
+        # so' alimenta a EXTRACAO (anafora, quadro acumulado); a decisao continua na DMN. Sem
+        # historico o prompt e' o de antes byte a byte.
+        historico = state.get("historico_conversa") if self._historico_enabled else None
+        if historico:
+            prompt = (
+                f"{instrucoes}\n\n{classify_historico_adendo()}\n\n"
+                f"{render_untrusted_block('historico_conversa', historico_em_texto(historico))}\n"
+                f"{render_untrusted_block('message_body', corpo)}"
+            )
+        else:
+            prompt = f"{instrucoes}\n\n{render_untrusted_block('message_body', corpo)}"
         falha: str | None = None
         for tentativa in range(1, CLASSIFY_TENTATIVAS + 1):
             try:
@@ -4727,6 +4813,15 @@ class HelenaGraph:
             f"{response_prompt()}\n\ncontexto={context}\n"
             f"{render_untrusted_block('message_body', state.get('message_body', ''))}"
         )
+        # HISTORICO CURTO (DL-0080): SO' na redacao do `inform` — responder em continuidade. As rotas de
+        # escalonamento e os textos fixos (DL-0061/0062) nao mudam. Sem historico, o prompt de antes.
+        historico = state.get("historico_conversa") if self._historico_enabled else None
+        if historico and response_kind == "inform":
+            prompt = (
+                f"{response_prompt()}\n\n{response_historico_adendo()}\n\ncontexto={context}\n"
+                f"{render_untrusted_block('historico_conversa', historico_em_texto(historico))}\n"
+                f"{render_untrusted_block('message_body', state.get('message_body', ''))}"
+            )
         try:
             texto = await self._llm.generate(
                 prompt,
@@ -4919,6 +5014,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     roteador_lucas_enabled = cfg.get("roteador_lucas_enabled", False) is True
     # DL-0078: o nome da operadora nos textos de identidade; ausente = `NOME_OPERADORA_PADRAO`.
     nome_operadora = cfg.get("identidade_nome_operadora")
+    # DL-0080: como a coleta, `True` SO' quando a composicao disser explicitamente.
+    historico_enabled = cfg.get("historico_enabled", False) is True
     return HelenaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
@@ -4930,6 +5027,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         memoria_clinica_enabled=memoria_clinica_enabled,
         roteador_lucas_enabled=roteador_lucas_enabled,
         nome_operadora=nome_operadora if isinstance(nome_operadora, str) else NOME_OPERADORA_PADRAO,
+        historico_enabled=historico_enabled,
     ).compile_graph()
 
 
@@ -4945,4 +5043,7 @@ PROMPT_VERSIONS: dict[str, str] = {
     # beneficiario — exatamente o que este mapa existe para tornar auditavel. Deixa-la de fora
     # significaria um texto barrado sem registro de QUAL cerca o barrou.
     "recusa_de_saida": RECUSA_DE_SAIDA_VERSION,
+    # DL-0080: os adendos do historico curto, usados SO' com `MAEZO_HELENA_HISTORICO` ligada.
+    "classify_historico": CLASSIFY_HISTORICO_VERSION,
+    "response_historico": RESPONSE_HISTORICO_VERSION,
 }
