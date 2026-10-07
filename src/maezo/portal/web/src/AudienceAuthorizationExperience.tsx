@@ -52,6 +52,7 @@ const caseKindLabels: Record<CaseSummaryView["kind"], string> = {
   authorization: "Autorização",
   reimbursement: "Reembolso",
   account: "Conta",
+  channel_submission: "Submissão do canal",
 };
 
 function isAccessFailure(failure: CaseExperienceFailure) {

@@ -810,9 +810,10 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     artifact's own header says so)."""
     camadas = _shipped_raw()["camadas"]
     # VW1-P0 grew the enumeration by one (`portal_vendor_channels`, migration 0019).
-    assert len(camadas) == 35, [entry["tabela"] for entry in camadas]
+    # VW1-P4 grew it by one (`portal_vendor_submissions`, migration 0020, OP16).
+    assert len(camadas) == 36, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 35, pendentes
+    assert len(pendentes) == 36, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

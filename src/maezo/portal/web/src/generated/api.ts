@@ -586,6 +586,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/vendor/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit */
+        post: operations["submit_api_v1_portal_vendor_submissions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/vendor/submissions/{submission_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read */
+        get: operations["read_api_v1_portal_vendor_submissions__submission_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1086,7 +1120,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "authorization" | "reimbursement" | "account";
+            kind: "authorization" | "reimbursement" | "account" | "channel_submission";
             /** Record Revision */
             record_revision: string;
             /**
@@ -1106,6 +1140,110 @@ export interface components {
          *     direct from the canonical decimal string and never passes through float/JavaScript Number.
          */
         Centavos: string;
+        /** ChannelSubmissionCommand */
+        ChannelSubmissionCommand: {
+            /** Business Revision */
+            business_revision: string;
+            /** Channel Ref */
+            channel_ref: string;
+            /** Command Id */
+            command_id: string;
+            /** Contract Ref */
+            contract_ref: string;
+            payload: components["schemas"]["ChannelSubmissionPayload"];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Submission Ref */
+            submission_ref: string;
+        };
+        /**
+         * ChannelSubmissionPayload
+         * @description The closed submission envelope: a declared class token and nothing else.
+         *
+         *     `content_class` is a bounded DECLARATION slot, deliberately not a `Literal`: the firewall
+         *     must be able to NAME an undeclared (clinical or unknown) class in a typed, audited refusal
+         *     instead of dropping it as a shape error. Everything beyond the token — form content,
+         *     attachments, clinical statements — is structurally absent from this contract.
+         */
+        ChannelSubmissionPayload: {
+            /** Content Class */
+            content_class: string;
+        };
+        /**
+         * ChannelSubmissionReceipt
+         * @description What the machine PROVES back: stage, instance identity, refusal — never a verdict.
+         *
+         *     `case_ref`/`document_request_ref` bind the response leg to NATIVE objects only: `responded`
+         *     is unconstructible without a native case object an existing authority produced, and
+         *     `documents_pending` without a native document request. `received` binds nothing — staging a
+         *     submission creates no case and asserts no acceptance (C-10).
+         */
+        ChannelSubmissionReceipt: {
+            /** Business Revision */
+            business_revision: string;
+            /** Case Ref */
+            case_ref?: string | null;
+            /** Channel Ref */
+            channel_ref: string;
+            /** Command Id */
+            command_id: string;
+            /** Document Request Ref */
+            document_request_ref?: string | null;
+            /**
+             * Lifecycle
+             * @enum {string}
+             */
+            lifecycle: "received" | "documents_pending" | "responded" | "refused";
+            /** Refusal Code */
+            refusal_code?: ("AUTHORITY_UNPROVEN" | "CHANNEL_STATUS_INELIGIBLE" | "CONTRACT_MISMATCH" | "SOURCE_UNAVAILABLE" | "PHI_IN_COMMERCIAL_INPUT" | "STALE_REVISION" | "AUDIT_UNAVAILABLE") | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Submission Id */
+            submission_id: string;
+            /** Submission Ref */
+            submission_ref: string;
+        };
+        /**
+         * ChannelSubmissionStatus
+         * @description Read projection of one stored instance; the formalization answer is not a field here.
+         */
+        ChannelSubmissionStatus: {
+            /** Business Revision */
+            business_revision: string;
+            /** Case Ref */
+            case_ref?: string | null;
+            /** Channel Ref */
+            channel_ref: string;
+            /** Contract Ref */
+            contract_ref: string;
+            /** Document Request Ref */
+            document_request_ref?: string | null;
+            /**
+             * Lifecycle
+             * @enum {string}
+             */
+            lifecycle: "received" | "documents_pending" | "responded" | "refused";
+            /** Refusal Code */
+            refusal_code?: ("AUTHORITY_UNPROVEN" | "CHANNEL_STATUS_INELIGIBLE" | "CONTRACT_MISMATCH" | "SOURCE_UNAVAILABLE" | "PHI_IN_COMMERCIAL_INPUT" | "STALE_REVISION" | "AUDIT_UNAVAILABLE") | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Submission Id */
+            submission_id: string;
+            /** Submission Ref */
+            submission_ref: string;
+        };
         /** ClaimAssignment */
         ClaimAssignment: {
             /** Command Id */
@@ -1805,7 +1943,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "authorization" | "reimbursement" | "account";
+            kind: "authorization" | "reimbursement" | "account" | "channel_submission";
             /** Process Definition Digest */
             process_definition_digest: string;
             /** Process Definition Id */
@@ -2298,6 +2436,17 @@ export interface components {
              * @constant
              */
             schema: "portal-read-error.v1";
+        };
+        /**
+         * PortalVendorSubmissionError
+         * @description Closed wire error; codes are transport (lowercase) or registry refusals (verbatim).
+         */
+        PortalVendorSubmissionError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "resource_unavailable" | "AUTHORITY_UNPROVEN" | "CHANNEL_STATUS_INELIGIBLE" | "CONTRACT_MISMATCH" | "SOURCE_UNAVAILABLE" | "PHI_IN_COMMERCIAL_INPUT" | "STALE_REVISION" | "AUDIT_UNAVAILABLE";
         };
         /**
          * ProgramaDecisionInputs
@@ -5651,6 +5800,178 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+        };
+    };
+    submit_api_v1_portal_vendor_submissions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelSubmissionCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelSubmissionReceipt"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+        };
+    };
+    read_api_v1_portal_vendor_submissions__submission_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelSubmissionStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalVendorSubmissionError"];
                 };
             };
         };

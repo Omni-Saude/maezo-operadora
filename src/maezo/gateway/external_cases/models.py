@@ -20,7 +20,7 @@ Ref = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0
 Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 CaseRef = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{16,128}$")]
 Revision = Annotated[str, StringConstraints(pattern=r"^(0|[1-9][0-9]*)$")]
-Kind = Literal["authorization", "reimbursement", "account"]
+Kind = Literal["authorization", "reimbursement", "account", "channel_submission"]
 Audience = Literal["beneficiary", "provider", "vendor"]
 FIELDS = frozenset({"case_ref", "kind", "state", "record_revision", "state_observed_at"})
 # BPMN SP-OP-AUTH-001: apenas estes dois desfechos declaram `numero_autorizacao` em
@@ -29,10 +29,11 @@ ISSUING_DESFECHOS = frozenset({"aprovada_automatica", "aprovada_auditor"})
 KINDS = {
     "beneficiary": frozenset({"authorization", "reimbursement"}),
     "provider": frozenset({"authorization", "account"}),
-    # VW1-P0 spine: the vendor audience enters the closed literal, but this plane still declares
-    # NO case kind for it — every vendor aggregate here is refused (`invalid`), typed, never a
-    # KeyError. A vendor case kind belongs to a later wave.
-    "vendor": frozenset(),
+    # VW1-P4 (OP16): the vendor audience declares exactly ONE case kind — the operadora's
+    # formalization case over a channel submission. This is vocabulary only: NO producer emits
+    # it yet (the answer leg is native-case-by-construction, never a notice), so a vendor
+    # CasePage still carries only what a published source actually committed.
+    "vendor": frozenset({"channel_submission"}),
 }
 MAX = 65536
 

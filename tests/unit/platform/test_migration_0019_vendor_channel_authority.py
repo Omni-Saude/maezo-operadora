@@ -63,13 +63,13 @@ def test_a_cadeia_nao_bifurca() -> None:
 
 
 def test_0019_e_revisada_so_pela_proxima_quando_ela_existir() -> None:
-    """While 0019 is head nothing may claim it; a later migration must be its ONLY child."""
+    """A later migration must be 0019's ONLY child — VW1-P4's submission store (OP16)."""
     revising = [
         path.name
         for path in sorted(_VERSIONS_DIR.glob("0*.py"))
         if re.search(r'^down_revision: str \| None = "0019"$', path.read_text(encoding="utf-8"), re.MULTILINE)
     ]
-    assert revising == []
+    assert revising == ["0020_vendor_channel_submissions.py"]
 
 
 def test_o_canal_e_unico_por_tenant_e_enderecado_de_forma_opaca() -> None:
