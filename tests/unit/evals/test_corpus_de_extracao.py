@@ -65,6 +65,12 @@ _INTENTS: Final[frozenset[str]] = frozenset(
 #: prompt que de fato produz aquela intencao (`test_extracao_live.py::_grafo`).
 _INTENTS_SO_COM_O_ROTEADOR: Final[frozenset[str]] = frozenset({"cobranca"})
 _PROMPT_DO_ROTEADOR: Final[str] = "classify-v6.2"
+#: Fatos do plano (DL-0081): a intencao que so' existe com `MAEZO_HELENA_CONSULTAS_AMH` ligada (adendo
+#: `classify-consultas-v1`, junto com uma fonte de fatos da AMH). FORA de `_INTENTS` de proposito: este
+#: corpus mede o classify de producao com a flag DESLIGADA, em que `consulta_plano` e' `invalid_intent`;
+#: um caso rotulado com ela nao teria prompt que a produza. Os subtipos e a rota sao cobertos por
+#: `tests/unit/agents/test_helena_consultas_plano.py`.
+_INTENTS_SO_COM_AS_CONSULTAS: Final[frozenset[str]] = frozenset({"consulta_plano"})
 _POPULACOES: Final[frozenset[str]] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
 _INTENSIDADES: Final[frozenset[str]] = frozenset({"leve", "moderada", "grave", "desconhecida"})
 _REGRAS_DA_REGUA: Final[frozenset[str]] = frozenset({"R1", "R2", "R3", "R4", "R5"})
@@ -109,7 +115,9 @@ def test_os_vocabularios_deste_arquivo_batem_com_os_do_grafo() -> None:
 
     assert helena_graph._VALID_POPULATIONS == _POPULACOES
     assert helena_graph._VALID_INTENSIDADES == _INTENSIDADES
-    assert helena_graph._VALID_INTENTS == _INTENTS
+    assert helena_graph._VALID_INTENTS == _INTENTS | _INTENTS_SO_COM_AS_CONSULTAS
+    assert helena_graph.INTENT_CONSULTA_PLANO in _INTENTS_SO_COM_AS_CONSULTAS
+    assert not _INTENTS & _INTENTS_SO_COM_AS_CONSULTAS
 
 
 def test_so_a_intencao_do_roteador_declara_o_prompt_do_roteador() -> None:

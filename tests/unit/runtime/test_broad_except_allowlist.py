@@ -80,7 +80,10 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: e erro de programacao sobe.
 #: 07/10/2026: 33 — `HelenaGraph._aviso_de_identidade` (DL-0078) envia o aviso de identidade de primeiro
 #: contato pelo WhatsApp, best-effort e largo como o envio de `respond`; `PROGRAMMING_ERRORS` re-levanta.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 33
+#: 07/10/2026: 35 — fatos do plano (DL-0081): `HelenaGraph.consultar_plano` chama a fonte de fatos da AMH
+#: e `HelenaGraph._redigir_consulta` chama o LLM, os dois ESTREITADOS (`PROGRAMMING_ERRORS` re-levanta;
+#: `EXTERNAL_DEPENDENCY_FAILURES` vira o texto fixo / a resposta deterministica so' com os fatos).
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 35
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:

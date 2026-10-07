@@ -3759,7 +3759,8 @@ class HelenaGraph:
                 view = await self._consultas.consultar(ref, subtipo)
         except PROGRAMMING_ERRORS:
             raise
-        except Exception:
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            # Prazo (`TimeoutError` <: `OSError`) e falha de rede/servico viram o texto fixo; bug sobe.
             view = None
         fatos = fatos_da_consulta(subtipo, view)
         if fatos is None:
