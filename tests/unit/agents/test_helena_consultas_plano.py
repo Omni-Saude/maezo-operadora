@@ -493,3 +493,32 @@ def test_literal_do_cadastro_que_e_promessa_nao_vira_salvo_conduto() -> None:
     )
     fatos_canal = {"vinculos": [{"plano": "aplicativo do plano"}], "fonte_atualizada_em": None}
     assert literais_dos_fatos(fatos_canal) == ()
+
+
+# --- integracao com a onda 0 (historico curto, DL-0080) -------------------------------------------
+
+
+async def test_com_historico_e_consultas_ligados_a_resposta_com_fatos_vira_marcador_no_historico() -> None:
+    """As DUAS flags ligadas: o turno que respondeu com fatos do plano entra no `historico_conversa` so'
+    como o marcador — nenhum fato do cadastro fica guardado na memoria da conversa."""
+    from maezo.agents.helena.historico import MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
+
+    inferencia = _FakeInference([_classify(consulta_subtipo="carencia")])
+    sender = _Sender()
+    g = HelenaGraph(
+        inference=inferencia,
+        dmn=FakeDmnTransport(),
+        cibseven=FakeCibSevenTransport(),
+        audit_sink=FakeStartAuditSink(),
+        whatsapp=sender,
+        consultas_plano=_Fonte(),
+        historico_enabled=True,
+    )
+    out = await g.compile_graph().compile().ainvoke(_entrada(message_body="ja cumpri a carencia?"))
+    assert "PARTO" in sender.sent[-1]  # a pessoa recebeu os fatos
+    historico = out["historico_conversa"]
+    falas = [
+        str(item) for item in (historico if isinstance(historico, list) else historico.get("mensagens", []))
+    ]
+    assert any(MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO in fala for fala in falas), historico
+    assert not any("PARTO" in fala for fala in falas)

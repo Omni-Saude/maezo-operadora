@@ -183,13 +183,6 @@ from maezo.tools.workers.dmn_transport import (
 )
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
-from .historico import (
-    CHAVE_RESPOSTA_COM_DADOS_DO_PLANO,
-    HISTORICO_JANELA_HORAS,
-    MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO,
-    acrescentar_turno,
-    historico_em_texto,
-    historico_valido,
 from .consultas_plano import (
     ADENDO_CLASSIFY_CONSULTAS,
     CLASSIFY_CONSULTAS_ADENDO_VERSION,
@@ -205,6 +198,14 @@ from .consultas_plano import (
     motivo_de_recusa_da_consulta,
     resposta_deterministica,
     texto_para_cerca,
+)
+from .historico import (
+    CHAVE_RESPOSTA_COM_DADOS_DO_PLANO,
+    HISTORICO_JANELA_HORAS,
+    MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO,
+    acrescentar_turno,
+    historico_em_texto,
+    historico_valido,
 )
 from .prompts import (
     ALLOWED_SINTOMA_CODIGOS,
@@ -2830,15 +2831,13 @@ class HelenaGraph:
         roteador_lucas_enabled: bool = False,
         nome_operadora: str = NOME_OPERADORA_PADRAO,
         historico_enabled: bool = False,
+        consultas_plano: FonteDeFatosDoPlano | None = None,
     ) -> None:
         self._llm = inference
         # HISTORICO CURTO (DL-0080): DESLIGADO por default, e desligado e' o grafo de antes byte a
         # byte — `historico_conversa` fica `None` em todo turno e nenhum prompt muda. So' a composicao
         # do receptor com `MAEZO_HELENA_HISTORICO` ligada passa `True` (`dispatch.py`).
         self._historico_enabled = historico_enabled is True
-        consultas_plano: FonteDeFatosDoPlano | None = None,
-    ) -> None:
-        self._llm = inference
         # CONSULTA DO PLANO (DL de 07/10/2026): DESLIGADA por default (`None`), e desligada e' o grafo
         # de antes byte a byte — sem adendo no classify, `consulta_plano` fora do dominio validado e
         # sem o no' `consultar_plano`. So' a composicao do receptor com `MAEZO_HELENA_CONSULTAS_AMH`
