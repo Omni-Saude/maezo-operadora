@@ -77,7 +77,6 @@ dev = [
     "pytest-cov>=5.0,<8.0",
     "ruff>=0.5,<1.0",
     "mypy>=1.10,<3.0",
-    "asyncpg-stubs==0.31.3",     # DEV-only; actual asyncpg 0.31.x types, runtime remains locked at 0.31.0
     "types-PyYAML>=6.0,<7.0",     # stubs p/ mypy --strict (pyyaml nao tem tipos inline)
     "testcontainers>=4.0,<5.0",
     "types-jsonschema>=4.26.0.20260518",

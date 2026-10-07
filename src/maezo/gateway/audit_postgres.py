@@ -56,7 +56,7 @@ import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import asyncpg
+import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
 import structlog
 
 from maezo.gateway.audit import GENESIS_PREV_HASH, AuditRecord, EmitOnceOutcome
@@ -64,7 +64,7 @@ from maezo.gateway.audit import GENESIS_PREV_HASH, AuditRecord, EmitOnceOutcome
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from asyncpg.pool import PoolConnectionProxy
+    from asyncpg.pool import PoolConnectionProxy  # type: ignore[import-untyped]
 
 logger = structlog.get_logger(__name__)
 
