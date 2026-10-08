@@ -639,6 +639,26 @@ class AcessoBeneficiario:
             # O REVOGAR ja' vale (nenhum agente roda) e a gravacao segue pendente: texto fixo, sem prender a
             # pessoa em INDISPONIVEL; no teto, o atendente conclui.
             return self._responder(atual, REVOGACAO_EM_PROCESSAMENTO, emergencia=emergencia)
+        if atual.estado not in (SEM_CONSENTIMENTO, REVOGADO) and atual.consentido_em is None:
+            # O ACEITO vem ANTES de qualquer pedido de CPF, em TODO caminho (DL-0084: a AMH documentou que nao
+            # confere isso). Um estado que pede/usa documento sem consentimento registrado volta ao texto de
+            # consentimento; o prazo de um bloqueio em curso fica (o ACEITO seguinte o respeita).
+            self._pendentes.descartar(conversation_id)
+            novo = replace(
+                atual,
+                estado=SEM_CONSENTIMENTO,
+                texto_versao=VERSAO_TEXTO_CONSENTIMENTO,
+                texto_sha256=SHA256_TEXTO_CONSENTIMENTO,
+                portable_subject_ref=None,
+                consent_ref=None,
+                consentimento_pendente_gravacao=False,
+                verificado_em=None,
+                expira_em=None,
+            )
+            self._log_transicao(
+                conversation_id, atual.estado, SEM_CONSENTIMENTO, "sem_consentimento_registrado"
+            )
+            return self._responder(novo, TEXTO_CONSENTIMENTO, emergencia=emergencia)
 
         if atual.estado == VERIFICADO:
             return DecisaoAcesso(respostas=(), prosseguir=True, novo=atual)

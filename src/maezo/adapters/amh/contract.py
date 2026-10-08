@@ -141,15 +141,18 @@ V1_2_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina.op
 # Run de publicacao do v1.1 (XRG2-AMH-DEV-GHA-37555121279): o v1.2 so pode ser posterior.
 V1_2_MIN_PUBLICATION_RUN_ID: Final[int] = 37555121279
 
-# --- Manifest ADITIVO v1.3 (ACESSO DO BENEFICIARIO: subject-verification + consent-record; so OpenAPI) ---
+# --- Manifest ADITIVO v1.3 (ACESSO: subject-verification + subject-document-resolution + consent-record) ---
 # DL-0083 (08/10/2026). Mesmo desenho do v1.1/v1.2: bloco `manifest_v1_3` OPCIONAL (ausente = os dois
 # adaptadores do acesso recusam subir, sem digest); presente = obrigatorio e completo, com evidencia
 # propria e run de publicacao posterior ao do v1.2. NAO exige o v1.2 (TINA) pinado: sao entregas
 # independentes. Os contratos estao sendo escritos na AMH e NAO estao pinados: o bloco NAO existe no lock.
 V1_3_LOCK_KEY: Final[str] = "manifest_v1_3"
 V1_3_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.3/contract-manifest.yaml"
+#: TRES artefatos (DL-0084, AMH #214): a resolucao pelo documento do telefone sem cadastro mora em arquivo
+#: proprio. O carregador e' generico sobre esta tupla: o bloco so' vale com os tres digests.
 V1_3_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
     "schemas/openapi/maezo/v1/subject-verification.openapi.yaml",
+    "schemas/openapi/maezo/v1/subject-document-resolution.openapi.yaml",
     "schemas/openapi/maezo/v1/consent-record.openapi.yaml",
 )
 # Mesmo piso do v1.2 (run do v1.1): o v1.3 so' pode ser posterior a ele.

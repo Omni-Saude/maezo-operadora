@@ -4,9 +4,11 @@ So' para o TELEFONE SEM CANDIDATO (decisao do dono, risco aceito contra o alerta
 #700): `POST /interop/identity/v1/resolve-by-document` com `{cpf_hash, cpfdob_hash, hash_scheme,
 purpose_of_use, amh_tenant}` -> `{resultado: "unico"|"nenhum", portable_subject_ref?, fonte_atualizada_em}`.
 
-O CONTRATO AINDA NAO ESTA PUBLICADO (em construcao na AMH, empilhado sobre o #212). Ele mora no MESMO artefato
-da conferencia (`subject-verification.openapi.yaml`: mesmo servidor `/interop/identity/v1`, mesmo esquema de
-hash, mesma chave). Se a AMH o publicar num arquivo proprio, muda `ARTIFACT` e entra em `V1_3_ARTIFACT_PATHS`.
+Contrato da AMH #214 (`schemas/openapi/maezo/v1/subject-document-resolution.openapi.yaml`, 3o artefato do
+manifest v1.3, AINDA DRAFT/nao publicado): mesmo servidor `/interop/identity/v1`, mesmo esquema de hash e
+mesma chave da conferencia, escopo `interop/subject.verify`. Todo nao-achado da AMH e' o mesmo 200 `nenhum`
+(sem oraculo); 5 falhas por `cpf_hash` em 24 h bloqueiam o CPF na AMH;
+60/min por cliente -> 429 `rate_limited`.
 
 Mesma postura do `subject_verification.py`: fail-closed por construcao (so' sobe com os BYTES do OpenAPI cujo
 sha256 esta' no bloco `manifest_v1_3` do pin imutavel), nenhum cliente HTTP aqui, E/S por um executor do
@@ -37,11 +39,10 @@ from jsonschema import Draft4Validator
 
 from maezo.adapters.amh.contract import load_contract_pin
 from maezo.adapters.amh.subject_context import _FORMATS, _MAX_BYTES, _json, _json_schema
-from maezo.adapters.amh.subject_verification import ARTIFACT as ARTIFACT_VERIFICACAO
 from maezo.ports.document_resolution import DocumentResolution
 from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS, PortFailure, PortFailureReason, PortResult
 
-ARTIFACT: Final[str] = ARTIFACT_VERIFICACAO
+ARTIFACT: Final[str] = "schemas/openapi/maezo/v1/subject-document-resolution.openapi.yaml"
 OP_RESOLVE_DOCUMENT: Final[str] = "amh.resolve_by_document"
 SERVER: Final[str] = "/interop/identity/v1"
 ROTA: Final[str] = "/resolve-by-document"

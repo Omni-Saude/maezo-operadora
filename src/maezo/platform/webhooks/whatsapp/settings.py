@@ -459,6 +459,13 @@ class WhatsAppWebhookSettings(BaseSettings):
             "MAEZO_AMH_SUBJECT_VERIFICATION_OPENAPI_PATH", "amh_subject_verification_openapi_path"
         ),
     )
+    #: DL-0084 (AMH #214): o OpenAPI da resolucao pelo documento (telefone sem cadastro), 3o artefato do v1.3.
+    amh_document_resolution_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_DOCUMENT_RESOLUTION_OPENAPI_PATH", "amh_document_resolution_openapi_path"
+        ),
+    )
     amh_consent_record_openapi_path: str | None = Field(
         default=None,
         validation_alias=AliasChoices(

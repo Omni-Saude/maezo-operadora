@@ -652,8 +652,8 @@ def build_amh_interop(
     de OpenAPI (`amh_subject_verification_openapi_path`, `amh_consent_record_openapi_path`) e os escopos
     `interop/subject.verify` e `interop/consent.write` em `amh_interop_scopes`; os adaptadores so' sobem com
     o bloco `manifest_v1_3` no pin. `False` (o default) = a composicao de antes, sem nada do acesso. Junto
-    vem a resolucao pelo DOCUMENTO do telefone sem candidato (DL-0084): mesma rota-base, mesmo OpenAPI e
-    mesmo escopo da conferencia.
+    vem a resolucao pelo DOCUMENTO do telefone sem candidato (DL-0084): exige
+    `amh_document_resolution_openapi_path`; mesmo escopo da conferencia.
     """
     from maezo.adapters.amh.billing_status import AmhBillingStatusAdapter
     from maezo.adapters.amh.consent_record import AmhConsentRecordAdapter
@@ -688,6 +688,9 @@ def build_amh_interop(
         )
         exigidos["amh_consent_record_openapi_path"] = getattr(
             settings, "amh_consent_record_openapi_path", None
+        )
+        exigidos["amh_document_resolution_openapi_path"] = getattr(
+            settings, "amh_document_resolution_openapi_path", None
         )
     ausentes = sorted(nome for nome, valor in exigidos.items() if not valor)
     if ausentes:
@@ -744,11 +747,11 @@ def build_amh_interop(
         consents = AmhConsentRecordAdapter(
             _ler_openapi(exigidos["amh_consent_record_openapi_path"]), executor=consent_executor
         )
-        # DL-0084: o telefone SEM candidato se identifica pelo documento. A rota mora no MESMO OpenAPI da
-        # conferencia (pin v1.3); sem ela no artefato pinado o construtor LEVANTA e o receptor recusa servir.
+        # DL-0084: o telefone SEM candidato se identifica pelo documento (OpenAPI proprio, AMH #214, 3o
+        # artefato do pin v1.3); sem o digest no pin o construtor LEVANTA e o receptor recusa servir.
         document_executor = AmhDocumentResolutionExecutor(amh_tenant=exigidos["amh_interop_tenant"], **comum)
         documents = AmhDocumentResolutionAdapter(
-            _ler_openapi(exigidos["amh_subject_verification_openapi_path"]), executor=document_executor
+            _ler_openapi(exigidos["amh_document_resolution_openapi_path"]), executor=document_executor
         )
         verify_hasher = AmhSubjectVerifyHasher(key=str(verify_key), amh_tenant=exigidos["amh_interop_tenant"])
         executores = (*executores, verification_executor, consent_executor, document_executor)

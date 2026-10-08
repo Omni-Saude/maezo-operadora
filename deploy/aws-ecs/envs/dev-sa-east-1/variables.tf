@@ -842,6 +842,13 @@ variable "amh_subject_verification_openapi_path" {
   nullable    = false
 }
 
+variable "amh_document_resolution_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `subject-document-resolution` (AMH #214; digest no bloco manifest_v1_3 do pin). Lido so' com `acesso_beneficiario` (DL-0084)."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/subject-document-resolution.openapi.yaml"
+  nullable    = false
+}
+
 variable "amh_consent_record_openapi_path" {
   description = "Caminho, DENTRO da imagem, do OpenAPI `consent-record` publicado (digest no bloco manifest_v1_3 do pin). Lido so' com `acesso_beneficiario`."
   type        = string

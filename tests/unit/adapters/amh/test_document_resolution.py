@@ -1,7 +1,7 @@
 """Adaptador da resolucao pelo DOCUMENTO (DL-0084) com schema SINTETICO minusculo (nao e' copia).
 
-A rota mora no mesmo artefato da conferencia (`subject-verification.openapi.yaml`, pin v1.3, AINDA NAO
-pinado): sem o bloco no lock o construtor recusa. A forma e' a pedida a AMH: `{cpf_hash, cpfdob_hash,
+A rota mora no artefato proprio da AMH #214 (`subject-document-resolution.openapi.yaml`, 3o do pin v1.3,
+AINDA NAO pinado): sem o bloco no lock o construtor recusa. Forma da AMH: `{cpf_hash, cpfdob_hash,
 hash_scheme, purpose_of_use, amh_tenant}` -> `{resultado, portable_subject_ref?, fonte_atualizada_em}`.
 """
 
@@ -132,7 +132,10 @@ def documento(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
 
 
 def test_sem_pin_v1_3_recusa_e_mora_no_artefato_da_conferencia() -> None:
-    assert dr.ARTIFACT == "schemas/openapi/maezo/v1/subject-verification.openapi.yaml"
+    assert dr.ARTIFACT == "schemas/openapi/maezo/v1/subject-document-resolution.openapi.yaml"
+    from maezo.adapters.amh.contract import V1_3_ARTIFACT_PATHS
+
+    assert dr.ARTIFACT in V1_3_ARTIFACT_PATHS and len(V1_3_ARTIFACT_PATHS) == 3
     assert dr.ARTIFACT not in load_contract_pin().artifact_digests
     with pytest.raises(dr.DocumentResolutionContractError):
         dr.AmhDocumentResolutionAdapter(_openapi(), executor=Exec())

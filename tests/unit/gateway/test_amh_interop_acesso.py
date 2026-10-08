@@ -265,11 +265,13 @@ _ESCOPOS = (
 def _settings_acesso(tmp_path: Path, **sobre: Any) -> Any:
     (tmp_path / "ver.yaml").write_bytes(b"v")
     (tmp_path / "con.yaml").write_bytes(b"c")
+    (tmp_path / "doc.yaml").write_bytes(b"d")
     base = {
         "amh_interop_scopes": _ESCOPOS,
         "amh_subject_verify_key": CHAVE,
         "amh_subject_verification_openapi_path": str(tmp_path / "ver.yaml"),
         "amh_consent_record_openapi_path": str(tmp_path / "con.yaml"),
+        "amh_document_resolution_openapi_path": str(tmp_path / "doc.yaml"),
     }
     base.update(sobre)
     return _settings(tmp_path, **base)
@@ -281,6 +283,7 @@ def _settings_acesso(tmp_path: Path, **sobre: Any) -> Any:
         ({"amh_subject_verify_key": None}, "amh_subject_verify_key"),
         ({"amh_subject_verification_openapi_path": None}, "amh_subject_verification_openapi_path"),
         ({"amh_consent_record_openapi_path": None}, "amh_consent_record_openapi_path"),
+        ({"amh_document_resolution_openapi_path": None}, "amh_document_resolution_openapi_path"),
         (
             {"amh_interop_scopes": "interop/billing.read interop/subject.resolve interop/profile.read"},
             "escopos",

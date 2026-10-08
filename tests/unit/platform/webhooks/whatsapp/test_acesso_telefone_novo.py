@@ -215,6 +215,48 @@ async def test_cpf_e_nascimento_nunca_em_log_estado_repr_ou_chamada(amb: Ambient
     )
 
 
+# --------------------------------------------------------------------------- ACEITO antes do CPF, sempre
+async def test_aceito_e_colhido_antes_de_pedir_o_cpf_em_todos_os_caminhos(amb: AmbienteDocumento) -> None:
+    """A AMH #214 documentou que NAO confere o consentimento: o Maezo garante. Nenhum caminho pede ou usa o
+    CPF sem ACEITO; um estado de documento sem consentimento registrado volta ao texto de consentimento."""
+    _docs(amb).cadastrar(CPF, NASC, REF_NOVA)
+    amb.verif.cadastrar_cpf(CPF, REF)
+    # 1a mensagem ja' com o CPF (telefone novo, unico e compartilhado): so' o texto de consentimento.
+    for desfecho in ("nenhum", "unico", "multiplos"):
+        outro = AmbienteDocumento()
+        outro.resolvedor.desfecho = desfecho
+        d = await outro.msg(CPF)
+        assert d.respostas == (ac.TEXTO_CONSENTIMENTO,) and d.novo.estado == ac.SEM_CONSENTIMENTO
+        d = await outro.msg(f"{CPF} {NASC_TXT}")
+        assert d.respostas == (ac.TEXTO_CONSENTIMENTO,)
+        assert _docs(outro).chamadas == [] and outro.verif.chamadas == []
+    # REVOGAR no meio do passo do nascimento: CPF/nascimento seguintes nao sao lidos ate' novo ACEITO.
+    await amb.ate_cpf()
+    await amb.msg(CPF)
+    await amb.msg("REVOGAR")
+    for texto in (NASC_TXT, CPF, f"{CPF} {NASC_TXT}"):
+        assert (await amb.msg(texto)).respostas == (ac.TEXTO_CONSENTIMENTO,)
+    assert _docs(amb).chamadas == []
+    # Estado gravado sem consentimento (qualquer passo de documento, ou bloqueio vencido): texto de
+    # consentimento, nunca o pedido de CPF nem chamada a AMH.
+    agora = amb.relogio.agora
+    for estado, extra in (
+        (ac.AGUARDANDO_CPF, {}),
+        (ac.AGUARDANDO_NASCIMENTO, {}),
+        (ac.BLOQUEADO_HUMANO, {"bloqueado_ate": agora - timedelta(minutes=1), "tentativas": 3}),
+    ):
+        await amb.store.gravar(
+            ac.EstadoAcesso(conversation_id=CONV, estado=estado, ultima_mensagem_em=agora, **extra)
+        )
+        d = await amb.msg(f"{CPF} {NASC_TXT}")
+        assert d.respostas == (ac.TEXTO_CONSENTIMENTO,) and d.novo.estado == ac.SEM_CONSENTIMENTO, estado
+        assert not d.prosseguir
+    assert _docs(amb).chamadas == [] and amb.verif.chamadas == []
+    # So' depois do ACEITO o CPF e' pedido.
+    d = await amb.msg("ACEITO")
+    assert d.respostas == (ac.PEDIDO_CPF,) and d.novo.consentido_em is not None
+
+
 # --------------------------------------------------------------------------- (b) retencao de 90 dias
 def _estado(cid: str, ultima: datetime, **kw: Any) -> ac.EstadoAcesso:
     return ac.EstadoAcesso(conversation_id=cid, estado=ac.SEM_CONSENTIMENTO, ultima_mensagem_em=ultima, **kw)
