@@ -272,17 +272,21 @@ class RowStore:
 
 
 def _job(rows: RowStore, publisher: FakePublisher, ledger_path: Path) -> MembershipPublicationJob:
-    job = MembershipPublicationJob(
-        publisher=publisher,
-        ledger=PublicationLedger(ledger_path, "amh"),
-        catalog=StaffCatalogPublicationSource(config=_catalog_config(), publisher_ref=PUBLISHER),
-        handshake=_handshake(rows.store, clock=lambda: datetime.now(UTC)),
-        store=rows.store,
-        engine=None,  # type: ignore[arg-type]
-        workload_ref=PUBLISHER,
-    )
-    job._principals = AsyncMock(side_effect=lambda: sorted(rows.rows))  # type: ignore[method-assign]
-    return job
+    """Legacy no-clock helper (H2-H4 kept these tests on it and they went red on main:
+    `run()` now consults the shared tenant `counter` seam before the authority leg).
+
+    Delegates to `_clocked_job` with a frozen clock at NOW and a counter that follows
+    `publisher.revision` — the same seam contract the D13 regression test uses — so the
+    authority/membership legs are actually reached and each test's invariant (transport
+    error => ReadRefusalError, receipt mismatch => fail-closed, second run => no-op...)
+    is exercised under the CURRENT job shape instead of silently skipping.
+    """
+    # Frozen clock only, NO counter seam: the stale-ledger/rebase invariants below assert
+    # the shared-counter-ABSENT fail-closed behaviour (D13's test proves the with-counter
+    # renewal separately) — reaching the authority/membership legs needs only the clock.
+    frozen = Clock()
+    frozen.now = NOW
+    return _clocked_job(rows, publisher, ledger_path, frozen)
 
 
 def _record(name: str, **changes) -> MembershipRecord:
