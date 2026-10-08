@@ -1,0 +1,35 @@
+name: staff-material-validade
+
+# ---------------------------------------------------------------------------
+# Aviso de vencimento do material staff/human do portal nativo em DEV (N2: 14 dias, lembrete 3 dias
+# antes). Incidente de 08/10/2026: a janela venceu de madrugada, o alarme do job T1.5 foi para um
+# topico SNS sem assinante e o motor (cibseven) caiu no primeiro restart, ~13 h depois.
+#
+# O run AGENDADO vermelho e o aviso (notificacao do GitHub para quem mantem o cron, o mesmo mecanismo
+# do red-main-alarm). Nao bloqueia PR nenhum: em pull_request roda so quando o arquivo da validade, o
+# script ou este workflow mudam, para conferir a forma do que a renovacao versionou.
+# Renovacao: docs/runbooks/renovar-material-staff-dev.md.
+# ---------------------------------------------------------------------------
+
+on:
+  schedule:
+    - cron: "23 11 * * *"   # 08:23 BRT, todo dia
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - deploy/aws-ecs/envs/dev-sa-east-1/staff-material-validade.json
+      - scripts/ci/check_staff_material_validity.py
+      - .github/workflows/staff-material-validade.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validade:
+    name: staff-material-validade
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Faltam mais de 3 dias para o material vencer?
+        run: python3 scripts/ci/check_staff_material_validity.py
