@@ -39,7 +39,14 @@ locals {
 
   # Fatos do plano na Helena (07/10/2026): SO' com as consultas ligadas o escopo `interop/tina.read`
   # entra no pedido de token e o caminho do OpenAPI TINA entra na env. Desligadas, a env e' a de antes.
-  amh_interop_scopes_efetivos = var.helena_consultas_amh ? "${var.amh_interop_scopes} interop/tina.read" : var.amh_interop_scopes
+  # Acesso do beneficiario (DL-0083, revisao do #700 P1-a): `interop/subject.verify` e `interop/consent.write`
+  # SO' com `acesso_beneficiario` — o Cognito recusa o token INTEIRO se o client nao tiver um escopo pedido, e
+  # pedi-los sempre derrubaria identidade, cobranca e TINA. Desligadas as duas flags, o valor e' o de antes.
+  amh_interop_scopes_efetivos = join(" ", concat(
+    [var.amh_interop_scopes],
+    var.helena_consultas_amh ? ["interop/tina.read"] : [],
+    var.acesso_beneficiario ? ["interop/subject.verify", "interop/consent.write"] : [],
+  ))
   amh_tina_env = local.amh_interop_ligado && var.helena_consultas_amh ? [
     { name = "MAEZO_AMH_TINA_OPENAPI_PATH", value = var.amh_tina_openapi_path },
   ] : []

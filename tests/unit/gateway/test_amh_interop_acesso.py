@@ -43,7 +43,8 @@ from tests.unit.gateway.test_amh_interop import tokens as tokens  # noqa: F401  
 
 pytestmark = pytest.mark.anyio
 
-VERIFY_PATH = "/interop/subject-verification/v1/subjects/verify"
+#: CONFERE, NAO RESOLVE (AMH #212): a referencia candidata vai na rota.
+VERIFY_PATH = "/interop/identity/v1/subjects/s1/verify"
 CONSENT_PATH = "/interop/consent/v1/consents"
 HASH = "a" * 64
 CHAVE = "chave-de-verificacao-sintetica"
@@ -51,9 +52,8 @@ CHAVE = "chave-de-verificacao-sintetica"
 
 def _corpo_verificacao(**sobre: Any) -> dict[str, Any]:
     corpo: dict[str, Any] = {
-        "amh_tenant": "omni",
         "hash_scheme": HASH_SCHEME_VERIFICACAO,
-        "factor": "cpf",
+        "fator": "cpf",
         "verification_hash": HASH,
         "purpose_of_use": PURPOSE,
     }
@@ -129,7 +129,7 @@ async def test_verificacao_despacha_post_na_rota_fixa_audita_antes_e_nao_audita_
     audit = Audit(servidor)
     executor = AmhSubjectVerificationExecutor(amh_tenant="omni", **_comum(servidor, tokens, audit))
     servidor.respostas[VERIFY_PATH] = httpx.Response(
-        200, json={"verificado": True, "portable_subject_ref": "s1"}
+        200, json={"confere": True, "portable_subject_ref": "s1"}
     )
     resultado = await executor.execute(_pedido_verificacao())
     assert resultado.succeeded, resultado.failure
@@ -144,7 +144,8 @@ async def test_verificacao_despacha_post_na_rota_fixa_audita_antes_e_nao_audita_
 @pytest.mark.parametrize(
     "corpo",
     [
-        {"factor": "nome"},
+        {"fator": "nome"},
+        {"fator": "cpf_nascimento"},
         {"hash_scheme": "amh-phone-lookup-v1"},
         {"verification_hash": "ZZ"},
         {"verification_hash": "A" * 64},
@@ -166,7 +167,11 @@ async def test_verificacao_fora_da_forma_nunca_e_despachada(
 @pytest.mark.parametrize(
     "sobre",
     [
-        {"path": "/interop/subject-verification/v1/subjects/verify/x"},
+        {"path": "/interop/identity/v1/subjects/s1/verify/x"},
+        {"path": "/interop/subject-verification/v1/subjects/verify"},
+        {"path": "/interop/identity/v1/subjects//verify"},
+        {"path": "/interop/identity/v1/subjects/s1%2F..%2Fx/verify"},
+        {"path": "/interop/identity/v1/subjects/../verify"},
         {"method": "GET"},
         {"operation": "amh.x"},
         {"timeout_seconds": 999.0},

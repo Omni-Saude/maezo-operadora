@@ -45,34 +45,38 @@ class Relogio:
 
 @dataclass
 class FakeVerificacao:
+    """A AMH do contrato CONFERE (#212): recebe a ref candidata e diz so' se o fator e' DELA."""
+
     hasher: AmhSubjectVerifyHasher
-    base: dict[tuple[str, str], str] = field(default_factory=dict)
+    #: (fator, hash) -> as referencias cujo cadastro tem esse fator.
+    base: dict[tuple[str, str], set[str]] = field(default_factory=dict)
     fora: bool = False
-    chamadas: list[tuple[str, str]] = field(default_factory=list)
+    #: (fator, hash, ref perguntada)
+    chamadas: list[tuple[str, str, str]] = field(default_factory=list)
 
     def cadastrar_cpf(self, cpf: str, ref: str) -> None:
-        self.base[("cpf", self.hasher.hash_cpf(cpf) or "")] = ref
+        self.base.setdefault(("cpf", self.hasher.hash_cpf(cpf) or ""), set()).add(ref)
 
     def cadastrar_cpf_nasc(self, cpf: str, nasc: date, ref: str) -> None:
         h = self.hasher.hash_cpf_nascimento(cpf, nasc.strftime("%Y%m%d")) or ""
-        self.base[("cpf_nascimento", h)] = ref
+        self.base.setdefault(("cpfdob", h), set()).add(ref)
 
     async def verify(
         self,
-        verification_hash: str,
+        portable_subject_ref: str,
         *,
-        amh_tenant: str,
+        fator: str,
+        verification_hash: str,
         hash_scheme: str,
-        factor: str,
         purpose_of_use: str,
         timeout_seconds: float = 5.0,
     ) -> PortResult[SubjectVerification]:
-        self.chamadas.append((factor, verification_hash))
-        assert hash_scheme == "amh-subject-verify-v1" and amh_tenant == TENANT_AMH
+        self.chamadas.append((fator, verification_hash, portable_subject_ref))
+        assert hash_scheme == "amh-subject-verify-v1"
         if self.fora:
             return PortResult.refused(PortFailureReason.UPSTREAM_UNAVAILABLE)
-        ref = self.base.get((factor, verification_hash))
-        return PortResult.ok(SubjectVerification(verificado=ref is not None, portable_subject_ref=ref))
+        confere = portable_subject_ref in self.base.get((fator, verification_hash), set())
+        return PortResult.ok(SubjectVerification(portable_subject_ref=portable_subject_ref, confere=confere))
 
 
 @dataclass
@@ -91,11 +95,17 @@ class FakeConsentimentos:
 class FakeResolvedor:
     ref: str | None = REF
     desfecho: str = "unico"
+    #: Os candidatos de um telefone compartilhado (titular + dependente).
+    multiplos: tuple[str, ...] = (REF, OUTRA_REF)
 
-    async def portable_ref_com_desfecho(
+    async def candidatos_com_desfecho(
         self, pseudo_id: str, *, phone_hash: str | None
-    ) -> tuple[str | None, str]:
-        return (self.ref, self.desfecho) if self.desfecho == "unico" else (None, self.desfecho)
+    ) -> tuple[tuple[str, ...], str]:
+        if self.desfecho == "unico":
+            return ((self.ref,) if self.ref else ()), "unico"
+        if self.desfecho == "multiplos":
+            return self.multiplos, "multiplos"
+        return (), self.desfecho
 
 
 class Ambiente:
@@ -255,7 +265,7 @@ async def test_telefone_unico_e_cpf_confere_verifica_e_registra_consentimento(am
     d = await amb.verificar_pelo_telefone()
     assert d.respostas == (ac.RESPOSTA_VERIFICADO,) and not d.prosseguir and d.nova_verificacao
     assert d.novo.estado == ac.VERIFICADO and d.novo.portable_subject_ref == REF
-    assert amb.verif.chamadas[0][0] == "cpf"
+    assert amb.verif.chamadas == [("cpf", amb.hasher.hash_cpf(CPF), REF)]  # SO' contra a ref do telefone
     assert len(amb.consent.chamadas) == 1
     c = amb.consent.chamadas[0]
     assert c["ref"] == REF and c["decision"] == "granted" and c["scope"] == "atendimento_whatsapp"
@@ -295,23 +305,23 @@ async def test_cpf_nao_cadastrado_falha(amb: Ambiente) -> None:
     assert d.respostas == (ac.FALHA_CONFERENCIA,) and d.novo.tentativas == 1
 
 
-@pytest.mark.parametrize("desfecho", ["multiplos", "nenhum", "indisponivel"])
-async def test_telefone_nao_unico_pede_nascimento(amb: Ambiente, desfecho: str) -> None:
-    amb.resolvedor.desfecho = desfecho
+async def test_telefone_compartilhado_pede_nascimento(amb: Ambiente) -> None:
+    amb.resolvedor.desfecho = "multiplos"
     await amb.ate_cpf()
     d = await amb.msg(CPF)
     assert d.respostas == (ac.PEDIDO_NASCIMENTO,) and d.novo.estado == ac.AGUARDANDO_NASCIMENTO
     assert d.novo.tentativas == 0 and amb.verif.chamadas == []
 
 
-async def test_nascimento_verifica_com_cpf_nascimento_e_ref_vem_da_amh(amb: Ambiente) -> None:
+async def test_nascimento_confere_cpfdob_contra_cada_candidato_do_telefone(amb: Ambiente) -> None:
     amb.resolvedor.desfecho = "multiplos"
     amb.verif.cadastrar_cpf_nasc(CPF, NASC, OUTRA_REF)
     await amb.ate_cpf()
     await amb.msg(CPF_PONTUADO)
     d = await amb.msg(NASC_TXT)
     assert d.novo.estado == ac.VERIFICADO and d.novo.portable_subject_ref == OUTRA_REF
-    assert amb.verif.chamadas[0][0] == "cpf_nascimento"
+    assert [c[0] for c in amb.verif.chamadas] == ["cpfdob", "cpfdob"]
+    assert {c[2] for c in amb.verif.chamadas} == {REF, OUTRA_REF}  # SO' os candidatos do telefone
     import hashlib
     import hmac
 
@@ -390,7 +400,7 @@ async def test_amh_fora_na_verificacao_nao_conta_tentativa(amb: Ambiente) -> Non
 
 
 async def test_amh_fora_no_passo_do_nascimento_mantem_estado_e_cpf(amb: Ambiente) -> None:
-    amb.resolvedor.desfecho = "indisponivel"
+    amb.resolvedor.desfecho = "multiplos"
     amb.verif.fora = True
     await amb.ate_cpf()
     await amb.msg(CPF)
@@ -544,7 +554,7 @@ async def test_cpf_e_nascimento_nao_aparecem_em_log_estado_nem_repr(amb: Ambient
         "conversation_id", "estado", "ultima_mensagem_em", "tentativas", "texto_versao", "texto_sha256",
         "consentido_em", "revogado_em", "portable_subject_ref", "consent_ref",
         "consentimento_pendente_gravacao", "revogacao_pendente", "verificado_em", "expira_em",
-        "bloqueado_ate",
+        "bloqueado_ate", "regravacoes_falhas",
     }  # fmt: skip
 
 

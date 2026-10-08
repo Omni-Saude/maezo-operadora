@@ -83,6 +83,8 @@ _SEAM_CHOKED_SURFACES: dict[str, tuple[str, ...]] = {
     "src/maezo/tools/workers/dmn_transport.py:345": ("dmn.evaluate",),
     "src/maezo/runtime/inference/__init__.py:624": ("inference.generate", "inference.generate_phi"),
     "src/maezo/a2a/dispatcher.py:277": ("a2a.delegate",),
+    # DL-0083 (revisao do #700): a ESCRITA do consentimento no lago, gate de sombra no `_rodar` comum.
+    "src/maezo/gateway/amh_interop.py:1065": ("amh.record_consent",),
 }
 
 #: The surfaces that deliberately stayed `false`, each with the reason recorded HERE as well as in

@@ -30,14 +30,19 @@ from maezo.ports.subject_verification import SubjectVerificationPort
 HASH = "a" * 64
 
 
-def _openapi_verificacao() -> bytes:
+def _openapi_verificacao(parametro: str = "ref") -> bytes:
+    """A forma CONFERE do #212: `POST /interop/identity/v1/subjects/{ref}/verify` -> `{portable_subject_ref,
+    confere}`. O nome do parametro da rota nao e' assumido pelo adaptador (`parametro`)."""
     return yaml.safe_dump(
         {
             "openapi": "3.0.3",
-            "servers": [{"url": "/interop/subject-verification/v1"}],
+            "servers": [{"url": "/interop/identity/v1"}],
             "paths": {
-                "/subjects/verify": {
+                "/subjects/{" + parametro + "}/verify": {
                     "post": {
+                        "parameters": [
+                            {"name": parametro, "in": "path", "required": True, "schema": {"type": "string"}}
+                        ],
                         "requestBody": {
                             "content": {
                                 "application/json": {"schema": {"$ref": "#/components/schemas/Pedido"}}
@@ -58,28 +63,26 @@ def _openapi_verificacao() -> bytes:
                     "Pedido": {
                         "type": "object",
                         "additionalProperties": False,
-                        "required": [
-                            "amh_tenant",
-                            "hash_scheme",
-                            "factor",
-                            "verification_hash",
-                            "purpose_of_use",
-                        ],
+                        "required": ["fator", "verification_hash", "hash_scheme", "purpose_of_use"],
                         "properties": {
-                            "amh_tenant": {"type": "string"},
-                            "hash_scheme": {"type": "string", "enum": ["amh-subject-verify-v1"]},
-                            "factor": {"type": "string", "enum": ["cpf", "cpf_nascimento"]},
+                            "fator": {"type": "string", "enum": ["cpf", "cpfdob"]},
                             "verification_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                            "hash_scheme": {"type": "string", "enum": ["amh-subject-verify-v1"]},
                             "purpose_of_use": {"type": "string"},
                         },
                     },
                     "Resposta": {
                         "type": "object",
                         "additionalProperties": False,
-                        "required": ["verificado"],
+                        "required": ["portable_subject_ref", "confere", "fonte_atualizada_em"],
                         "properties": {
-                            "verificado": {"type": "boolean"},
-                            "portable_subject_ref": {"type": "string", "nullable": True},
+                            "portable_subject_ref": {"type": "string"},
+                            "confere": {"type": "boolean"},
+                            "fonte_atualizada_em": {
+                                "type": "string",
+                                "format": "date-time",
+                                "nullable": True,
+                            },
                         },
                     },
                 }
@@ -144,7 +147,7 @@ class ExecVerificacao(sv.GovernedSubjectVerificationExecutor):
     def __init__(self) -> None:
         self.calls: list[sv.GovernedSubjectVerificationRequest] = []
         self.status = 200
-        self.corpo: object = {"verificado": True, "portable_subject_ref": "subject1"}
+        self.corpo: object = {**_RESP, "confere": True}
         self.refusal: Reason | None = None
 
     async def execute(self, request):  # type: ignore[no-untyped-def]
@@ -195,10 +198,12 @@ def consentimento(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-d
     return cr.AmhConsentRecordAdapter(raw, executor=ex), ex, raw
 
 
+REF = "subject1"
+_RESP: dict[str, object] = {"portable_subject_ref": REF, "fonte_atualizada_em": "2026-10-05T03:12:00Z"}
 _V = {
-    "amh_tenant": "austa",
+    "fator": "cpf",
+    "verification_hash": HASH,
     "hash_scheme": "amh-subject-verify-v1",
-    "factor": "cpf",
     "purpose_of_use": "sharing_amh_internal",
 }
 _C = {
@@ -234,47 +239,66 @@ def test_bytes_adulterados_sao_recusados(verificacao, consentimento) -> None:  #
         cr.AmhConsentRecordAdapter(raw2 + b"\n#x", executor=ex2)
 
 
-async def test_verificacao_ok_manda_o_hash_no_corpo_e_nunca_na_url(verificacao) -> None:  # type: ignore[no-untyped-def]
+async def test_verificacao_confere_manda_a_ref_na_rota_e_o_hash_no_corpo(verificacao) -> None:  # type: ignore[no-untyped-def]
     adapter, ex, _ = verificacao
     assert isinstance(adapter, SubjectVerificationPort)
-    r = await adapter.verify(HASH, **_V)
-    assert (
-        r.succeeded
-        and r.value is not None
-        and r.value.verificado
-        and r.value.portable_subject_ref == "subject1"
-    )
+    r = await adapter.verify(REF, **_V)
+    assert r.succeeded and r.value is not None and r.value.confere and r.value.portable_subject_ref == REF
     [req] = ex.calls
-    assert req.method == "POST" and req.path == "/interop/subject-verification/v1/subjects/verify"
-    assert json.loads(req.body)["verification_hash"] == HASH and HASH not in req.path
-    assert HASH not in repr(req)
+    assert req.method == "POST" and req.path == "/interop/identity/v1/subjects/subject1/verify"
+    corpo = json.loads(req.body)
+    assert corpo == {**_V}  # so' fator, hash, esquema e proposito: nenhum tenant, nenhuma ref no corpo
+    assert HASH not in req.path and HASH not in repr(req)
 
 
-async def test_verificacao_nao_verificado_nao_traz_referencia(verificacao) -> None:  # type: ignore[no-untyped-def]
+async def test_verificacao_nao_confere(verificacao) -> None:  # type: ignore[no-untyped-def]
     adapter, ex, _ = verificacao
-    ex.corpo = {"verificado": False, "portable_subject_ref": "subject9"}
-    r = await adapter.verify(HASH, **_V)
-    assert (
-        r.succeeded
-        and r.value is not None
-        and not r.value.verificado
-        and r.value.portable_subject_ref is None
+    ex.corpo = {**_RESP, "confere": False}
+    r = await adapter.verify(REF, **{**_V, "fator": "cpfdob"})
+    assert r.succeeded and r.value is not None and not r.value.confere
+    assert json.loads(ex.calls[0].body)["fator"] == "cpfdob"
+
+
+@pytest.mark.parametrize("confere", [True, False])
+async def test_indice_da_amh_nao_carregado_e_indisponivel_nunca_nao_confere(verificacao, confere) -> None:  # type: ignore[no-untyped-def]
+    """#212: `fonte_atualizada_em: null` = indice fora; o `confere` dai' nao vale (nao gasta tentativa)."""
+    adapter, ex, _ = verificacao
+    ex.corpo = {**_RESP, "confere": confere, "fonte_atualizada_em": None}
+    r = await adapter.verify(REF, **_V)
+    assert r.failure is not None and r.failure.reason is Reason.UPSTREAM_UNAVAILABLE
+
+
+async def test_verificacao_nome_do_parametro_da_rota_nao_e_assumido(monkeypatch: pytest.MonkeyPatch) -> None:
+    raw = _openapi_verificacao("portable_subject_ref")
+    real = load_contract_pin()
+    monkeypatch.setattr(
+        sv,
+        "load_contract_pin",
+        lambda path=None: replace(real, artifact_digests={sv.ARTIFACT: hashlib.sha256(raw).hexdigest()}),
     )
+    ex = ExecVerificacao()
+    r = await sv.AmhSubjectVerificationAdapter(raw, executor=ex).verify(REF, **_V)
+    assert r.succeeded and ex.calls[0].path == "/interop/identity/v1/subjects/subject1/verify"
 
 
 @pytest.mark.parametrize(
     "corpo",
     [
-        {"verificado": True},
-        {"verificado": "sim"},
-        {"portable_subject_ref": "x"},
-        {"verificado": True, "extra": 1},
+        # CONFERE, NAO RESOLVE: o eco de OUTRA referencia nunca vira "e' outra pessoa".
+        {**_RESP, "confere": True, "portable_subject_ref": "subject2"},
+        {**_RESP, "confere": False, "portable_subject_ref": "subject2"},
+        {"confere": True, "fonte_atualizada_em": None},
+        {**_RESP, "confere": "sim"},
+        {**_RESP},
+        {**_RESP, "confere": True, "extra": 1},
+        {"confere": True, "portable_subject_ref": REF},
+        {**_RESP, "verificado": True},
     ],
 )
 async def test_verificacao_resposta_fora_do_contrato(verificacao, corpo) -> None:  # type: ignore[no-untyped-def]
     adapter, ex, _ = verificacao
     ex.corpo = corpo
-    r = await adapter.verify(HASH, **_V)
+    r = await adapter.verify(REF, **_V)
     assert r.failure is not None and r.failure.reason is Reason.CONTRACT_VIOLATION
 
 
@@ -292,22 +316,34 @@ async def test_verificacao_status_vira_recusa_fechada(verificacao, status, reaso
     adapter, ex, _ = verificacao
     ex.status = status
     ex.corpo = {"detalhe": "nao vaza"}
-    r = await adapter.verify(HASH, **_V)
+    r = await adapter.verify(REF, **_V)
     assert r.failure is not None and r.failure.reason is reason
 
 
-async def test_verificacao_entrada_invalida_nao_chega_ao_executor(verificacao) -> None:  # type: ignore[no-untyped-def]
+@pytest.mark.parametrize(
+    ("ref", "sobre"),
+    [
+        (REF, {"verification_hash": "nao-e-hash"}),
+        (REF, {"fator": "nome"}),
+        (REF, {"fator": "cpf_nascimento"}),
+        (REF, {"timeout_seconds": 0}),
+        ("", {}),
+        ("../x", {}),
+        ("a/b", {}),
+        ("ref com espaco", {}),
+    ],
+)
+async def test_verificacao_entrada_invalida_nao_chega_ao_executor(verificacao, ref, sobre) -> None:  # type: ignore[no-untyped-def]
     adapter, ex, _ = verificacao
-    assert (await adapter.verify("nao-e-hash", **_V)).failure.reason is Reason.INVALID_REQUEST  # type: ignore[union-attr]
-    assert (await adapter.verify(HASH, **{**_V, "factor": "nome"})).failure.reason is Reason.INVALID_REQUEST  # type: ignore[union-attr]
-    assert (await adapter.verify(HASH, timeout_seconds=0, **_V)).failure.reason is Reason.INVALID_REQUEST  # type: ignore[union-attr]
+    r = await adapter.verify(ref, **{**_V, **sobre})
+    assert r.failure is not None and r.failure.reason is Reason.INVALID_REQUEST
     assert ex.calls == []
 
 
 async def test_verificacao_recusa_do_executor_e_propagada(verificacao) -> None:  # type: ignore[no-untyped-def]
     adapter, ex, _ = verificacao
     ex.refusal = Reason.TIMEOUT
-    assert (await adapter.verify(HASH, **_V)).failure.reason is Reason.TIMEOUT  # type: ignore[union-attr]
+    assert (await adapter.verify(REF, **_V)).failure.reason is Reason.TIMEOUT  # type: ignore[union-attr]
 
 
 async def test_consentimento_ok_e_idempotente(consentimento) -> None:  # type: ignore[no-untyped-def]

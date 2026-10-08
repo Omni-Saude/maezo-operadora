@@ -395,12 +395,12 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("MAEZO_AMH_INTEROP_CLIENT_ID", "amh_interop_client_id"),
     )
-    # Escopos pedidos no `client_credentials`, separados por espaco.
+    # Escopos pedidos no `client_credentials`, separados por espaco. O default e' o de SEMPRE: o Cognito
+    # recusa o token INTEIRO se o client nao tiver um escopo pedido, entao `interop/tina.read` e os do acesso
+    # (`interop/subject.verify`, `interop/consent.write`) so' entram pelo deploy junto com a flag de cada um
+    # (`amh_interop_scopes_efetivos` no Terraform) — nunca por default (revisao do #700, P1-a).
     amh_interop_scopes: str = Field(
-        default=(
-            "interop/billing.read interop/subject.resolve interop/profile.read "
-            "interop/subject.verify interop/consent.write"
-        ),
+        default="interop/billing.read interop/subject.resolve interop/profile.read",
         validation_alias=AliasChoices("MAEZO_AMH_INTEROP_SCOPES", "amh_interop_scopes"),
     )
     # Segredo do cliente Cognito. Nunca renderizado; chega ao executor SO' pelo cofre

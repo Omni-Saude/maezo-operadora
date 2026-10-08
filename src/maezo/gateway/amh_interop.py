@@ -16,7 +16,7 @@ pedido — nunca uma URL vinda do chamador:
 e, SO' com `MAEZO_ACESSO_BENEFICIARIO` ligada (DL-0083, acesso do beneficiario; manifest aditivo v1.3, ainda
 nao publicado — sem o bloco `manifest_v1_3` no pin os adaptadores recusam subir):
 
-  * `POST /interop/subject-verification/v1/subjects/verify`              (`interop/subject.verify`)
+  * `POST /interop/identity/v1/subjects/{ref}/verify` (CONFERE)         (`interop/subject.verify`)
   * `POST /interop/consent/v1/consents`                                  (`interop/consent.write`)
 
 e, SO' com `MAEZO_HELENA_CONSULTAS_AMH` ligada (DL de 07/10/2026, fatos do plano na Helena), mais tres
@@ -158,7 +158,9 @@ _BILLING_SUFFIX: Final[str] = "/billing/status"
 _RESOLVE_PATH: Final[str] = "/interop/subject-resolution/v1/subjects/resolve-by-phone"
 _PROFILE_PREFIX: Final[str] = "/interop/subject-resolution/v1/subjects/"
 _PROFILE_SUFFIX: Final[str] = "/profile"
-_VERIFY_PATH: Final[str] = "/interop/subject-verification/v1/subjects/verify"
+#: CONFERE, NAO RESOLVE (DL-0083, AMH #212): a referencia candidata vai entre o prefixo e o sufixo.
+_VERIFY_PREFIX: Final[str] = "/interop/identity/v1/subjects/"
+_VERIFY_SUFFIX: Final[str] = "/verify"
 _CONSENT_PATH: Final[str] = "/interop/consent/v1/consents"
 _TINA_PREFIX: Final[str] = "/interop/tina/v1/subjects/"
 #: Operacao TINA -> sufixo FIXO da rota (o sujeito vem entre o prefixo e o sufixo, sempre conferido).
@@ -942,7 +944,11 @@ class AmhTinaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
 
 
 class AmhSubjectVerificationExecutor(_ExecutorInteropAmh, GovernedSubjectVerificationExecutor):
-    """`GovernedSubjectVerificationExecutor` real: `POST .../subjects/verify` (hash do fator no CORPO)."""
+    """`GovernedSubjectVerificationExecutor` real: `POST .../subjects/{ref}/verify` (hash do fator no CORPO).
+
+    A referencia candidata vai na ROTA (conferida aqui de novo, como nas leituras por sujeito); o tenant sai
+    do cliente do token (o corpo nao o carrega). `amh_tenant` segue no construtor so' para a composicao
+    recusar um tenant fora do formato, como nos outros executores com sujeito."""
 
     registered_operations = frozenset({OP_VERIFY})
 
@@ -957,19 +963,19 @@ class AmhSubjectVerificationExecutor(_ExecutorInteropAmh, GovernedSubjectVerific
             type(request) is not GovernedSubjectVerificationRequest
             or request.operation != OP_VERIFY
             or request.method != "POST"
-            or request.path != _VERIFY_PATH
+            or type(request.path) is not str
             or type(request.body) is not bytes
             or len(request.body) > _MAX_REQUEST_BODY_BYTES
             or not _prazo_valido(request.timeout_seconds)
         ):
             raise ValueError
+        self._sujeito(request.path, _VERIFY_PREFIX, _VERIFY_SUFFIX)
         corpo = json.loads(request.body)
         if (
             type(corpo) is not dict
-            or set(corpo) != {"amh_tenant", "hash_scheme", "factor", "verification_hash", "purpose_of_use"}
-            or corpo["amh_tenant"] != self._amh_tenant
+            or set(corpo) != {"fator", "verification_hash", "hash_scheme", "purpose_of_use"}
             or corpo["hash_scheme"] != HASH_SCHEME_VERIFICACAO
-            or corpo["factor"] not in FATORES_VERIFICACAO
+            or corpo["fator"] not in FATORES_VERIFICACAO
             or corpo["purpose_of_use"] != self._purpose
             or type(corpo["verification_hash"]) is not str
             or not _SHA256_HEX.fullmatch(corpo["verification_hash"])

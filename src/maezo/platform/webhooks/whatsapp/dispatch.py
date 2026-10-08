@@ -98,6 +98,7 @@ from maezo.agents.helena.graph import (
     HelenaState,
     WhatsAppSender,
     build,
+    memoria_de_conversa_neutra,
     new_helena_resume_state,
     new_helena_state,
 )
@@ -876,6 +877,10 @@ class HelenaDispatcher:
     ) -> dict[str, Any]:
         """Escalona (3a falha), envia as respostas fixas e so' entao grava o estado. Nenhum agente roda."""
         assert self.acesso is not None
+        if decisao.esquecer_memoria:
+            # Revisao do #700 (P2): a pessoa verificada mudou (ou revogou). ANTES de enviar e de gravar o
+            # estado: se apagar falha, o turno falha e a reentrega tenta de novo, sem estado novo gravado.
+            await self._esquecer_memoria_da_conversa(conversation_id, sender)
         if decisao.escalar:
             await self._escalar_identidade(
                 conversation_id=conversation_id,
@@ -903,6 +908,23 @@ class HelenaDispatcher:
             "acesso_estado": decisao.novo.estado,
             "escalation_started": decisao.escalar,
         }
+
+    async def _esquecer_memoria_da_conversa(self, conversation_id: str, sender: WhatsAppSender) -> None:
+        """Grava a memoria de conversa NEUTRA (historico DL-0080, memoria clinica, coleta, cartao) sobre o
+        checkpoint da conversa (DL-0083). O checkpoint e' indexado pelo telefone; sem isto a pessoa nova
+        herdaria a memoria da anterior. Sem checkpointer (ou sem checkpoint ainda) nao ha' o que apagar."""
+        compiled, saver = self._compile_turn_graph(sender)
+        if saver is None:
+            return
+        config = checkpoint_thread_config(conversation_id)
+        atual = await compiled.aget_state(config)
+        if not getattr(atual, "values", None):
+            return
+        # `respond` -> END: o checkpoint gravado nao deixa no' pendente; o proximo turno recomeca em START.
+        await compiled.aupdate_state(config, memoria_de_conversa_neutra(), as_node="respond")
+        logger.info(
+            "acesso_memoria_da_conversa_apagada", tenant_id=self.tenant_id, conversation_id=conversation_id
+        )
 
     async def _escalar_identidade(
         self, *, conversation_id: str, beneficiario_pseudo_id: str, sender: WhatsAppSender

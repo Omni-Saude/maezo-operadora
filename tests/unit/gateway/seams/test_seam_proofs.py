@@ -669,12 +669,11 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             GovernedSubjectVerificationRequest(
                 operation="amh.verify_subject",
                 method="POST",
-                path="/interop/subject-verification/v1/subjects/verify",
+                path="/interop/identity/v1/subjects/subject1/verify",
                 body=json.dumps(
                     {
-                        "amh_tenant": "omni",
                         "hash_scheme": "amh-subject-verify-v1",
-                        "factor": "cpf",
+                        "fator": "cpf",
                         "verification_hash": "b" * 64,
                         "purpose_of_use": "sharing_amh_internal",
                     }
@@ -1094,7 +1093,7 @@ _QUOTED_MANIFEST_CITATIONS: tuple[tuple[str, str, str], ...] = (
     # Same designed outcome.
     # Re-derived 2026-09-25 (GAP-XHITL-4): the `read_historic_variables` surface (+6) and the
     # wrapped surface-count line (+1) moved the unmapped-topics passage by +7. Same outcome.
-    ("gateway/effect_classes.py", "653-656", "decisão humana, não inferência de agente"),
+    ("gateway/effect_classes.py", "672-675", "decisão humana, não inferência de agente"),
     ("gateway/effect_classes.py", "175-177", "no class was invented to round out a taxonomy"),
 )
 

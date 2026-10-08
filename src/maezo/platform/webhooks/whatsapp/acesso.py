@@ -12,13 +12,16 @@ A MAQUINA (cada estado, e o que ela responde; os agentes NUNCA rodam fora de `ve
   (sem linha)             qualquer 1a mensagem            -> `sem_consentimento` + TEXTO_CONSENTIMENTO
   sem_consentimento       ACEITO                          -> `aguardando_cpf`      + PEDIDO_CPF
   sem_consentimento       outra coisa                     -> igual + TEXTO_CONSENTIMENTO de novo
+  aguardando_cpf          telefone DESCONHECIDO (nenhum   -> `bloqueado_humano` + TELEFONE_NAO_IDENTIFICADO +
+                          candidato na AMH)                  escalonamento humano. NUNCA entra pelo caminho do
+                                                             documento: o CPF digitado nem e' lido
+  aguardando_cpf          AMH fora no passo do telefone   -> INDISPONIVEL; estado e tentativas INTACTOS
   aguardando_cpf          CPF invalido                    -> igual (tentativa+1)   + CPF_INVALIDO
-  aguardando_cpf          CPF valido, telefone = 1 pessoa -> verifica `cpf`; a referencia devolvida TEM de ser
-                                                             a do telefone
-  aguardando_cpf          CPF valido, telefone nao unico  -> `aguardando_nascimento` + PEDIDO_NASCIMENTO
-                          (compartilhado, desconhecido ou AMH fora no passo do telefone)
-  aguardando_nascimento   nascimento valido               -> verifica `cpf_nascimento`; ref vem da AMH
-  qualquer verificacao    verificado                      -> `verificado` + VERIFICADO (a mensagem seguinte
+  aguardando_cpf          CPF valido, telefone = 1 pessoa -> CONFERE `cpf` contra a referencia do telefone
+  aguardando_cpf          CPF valido, telefone de >1      -> `aguardando_nascimento` + PEDIDO_NASCIMENTO
+  aguardando_nascimento   nascimento valido               -> CONFERE `cpfdob` contra CADA candidato do
+                                                             telefone; vale so' se EXATAMENTE um conferir
+  qualquer verificacao    confere                         -> `verificado` + VERIFICADO (a mensagem seguinte
                                                              segue para o fluxo de sempre)
   qualquer verificacao    nao confere / formato invalido  -> tentativa+1 + FALHA_CONFERENCIA
   3a tentativa falha      --                              -> `bloqueado_humano` + BLOQUEADO + escalonamento
@@ -26,9 +29,20 @@ A MAQUINA (cada estado, e o que ela responde; os agentes NUNCA rodam fora de `ve
   bloqueado_humano        qualquer                        -> BLOQUEADO_CURTO, ate' a validade passar
   AMH fora na verificacao --                              -> INDISPONIVEL; estado e tentativas INTACTOS
   verificado              validade vencida                -> `aguardando_cpf` + PEDIDO_CPF (consent. fica)
-  qualquer estado         REVOGAR                         -> `revogado` + REVOGADO; ACEITO recomeca em CPF
+  qualquer estado         REVOGAR                         -> `revogado` + REVOGADO + memoria da conversa
+                                                             APAGADA; ACEITO recomeca em CPF
+  verificacao concluida   pessoa DIFERENTE da ultima      -> `sem_consentimento` + TEXTO_CONSENTIMENTO: o
+                          verificada (telefone de >1)        ACEITO anterior era de OUTRA pessoa; memoria da
+                                                             conversa APAGADA
   fora de `verificado`    sinal lexical de emergencia     -> EMERGENCIA ANTES da resposta do estado (nunca no
                                                              lugar dela), sem dado de beneficiario nenhum
+
+TENTATIVAS E BLOQUEIO SOBREVIVEM A REVOGAR/ACEITO (revisao do PR #700, P0): so' o vencimento do prazo do
+bloqueio (ou uma verificacao bem-sucedida) zera o contador. Senao REVOGAR + ACEITO seria um "tente de novo"
+ilimitado contra um CPF de 11 digitos.
+
+CONFERE, NAO RESOLVE: a AMH so' responde se o fator confere com uma referencia que o MAEZO mandou (as do
+telefone). Um documento digitado nunca descobre quem e' a pessoa.
 
 CONSENTIMENTO NO LAGO. Logo apos a PRIMEIRA verificacao (a referencia passa a ser conhecida) o
 consentimento e'
@@ -77,7 +91,6 @@ from maezo.ports.consent_record import ConsentRecordPort
 from maezo.ports.subject_verification import SubjectVerificationPort
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
-from .helena_identidade import ResolvedorComDesfecho
 from .pre_roteamento import PreRoteamento, normalizar
 
 logger = structlog.get_logger(__name__)
@@ -120,6 +133,11 @@ FALHA_CONFERENCIA: Final[str] = "Não consegui confirmar seus dados. Confira e t
 BLOQUEADO: Final[str] = "Não consegui confirmar a sua identidade. Vou encaminhar você para um atendente."
 BLOQUEADO_CURTO: Final[str] = "Seu atendimento foi encaminhado a um atendente."
 INDISPONIVEL: Final[str] = "No momento não consegui confirmar seus dados. Tente novamente em alguns minutos."
+#: Telefone SEM candidato na AMH: texto neutro (nao diz nada sobre CPF nenhum) + atendente humano.
+TELEFONE_NAO_IDENTIFICADO: Final[str] = (
+    "Não consegui confirmar seu cadastro por este número. Para sua segurança, vou encaminhar você para um "
+    "atendente."
+)
 RESPOSTA_REVOGADO: Final[str] = (
     "Consentimento revogado. Não vou mais usar seus dados neste atendimento. "
     "Se quiser voltar a conversar, escreva ACEITO."
@@ -134,10 +152,23 @@ CANAL_CONSENTIMENTO: Final[str] = "whatsapp"
 DECISAO_CONCEDIDA: Final[str] = "granted"
 DECISAO_REVOGADA: Final[str] = "revoked"
 
+#: Fatores do contrato `subject-verification` (AMH #212).
+FATOR_CPF: Final[str] = "cpf"
+FATOR_CPF_NASCIMENTO: Final[str] = "cpfdob"
+
 MAX_TENTATIVAS: Final[int] = 3
 PRAZO_CPF_PENDENTE_S: Final[float] = 300.0
 MAX_CPF_PENDENTES: Final[int] = 1024
 PRAZO_AMH_S: Final[float] = 8.0
+#: Prazo PROPRIO da escrita do consentimento (`consent-record`): uma escrita no lago, mais lenta que a
+#: conferencia, e cuja falha nao nega o acesso (fica pendente e e' repetida).
+PRAZO_CONSENTIMENTO_S: Final[float] = 20.0
+#: Teto de tentativas FALHAS de gravar (ou regravar) uma decisao de consentimento. Atingido, a regravacao
+#: para (cada tentativa custa ate' `PRAZO_CONSENTIMENTO_S` no turno da pessoa) e um log de ALARME pede a
+#: intervencao humana. A pendencia continua visivel no estado; uma revogacao pendente segue barrando ACEITO.
+MAX_REGRAVACOES: Final[int] = 5
+#: Mais candidatos que isto num telefone nao e' "titular e dependentes": nao entra pelo caminho do documento.
+MAX_CANDIDATOS: Final[int] = 10
 VALIDADE_HORAS_PADRAO: Final[int] = 24
 ANO_MINIMO_NASCIMENTO: Final[int] = 1900
 
@@ -266,12 +297,16 @@ class EstadoAcesso:
     verificado_em: datetime | None = None
     expira_em: datetime | None = None
     bloqueado_ate: datetime | None = None
+    #: Tentativas FALHAS de gravar a decisao pendente no lago (0..MAX_REGRAVACOES).
+    regravacoes_falhas: int = 0
 
     def __post_init__(self) -> None:
         if self.estado not in ESTADOS:
             raise ValueError("acesso: estado fora do dominio")
         if not 0 <= self.tentativas <= MAX_TENTATIVAS:
             raise ValueError("acesso: tentativas fora de 0..3")
+        if not 0 <= self.regravacoes_falhas <= MAX_REGRAVACOES:
+            raise ValueError("acesso: regravacoes_falhas fora do dominio")
 
 
 class AcessoStore(Protocol):
@@ -340,6 +375,15 @@ class HasherDeVerificacao(Protocol):
     def hash_cpf_nascimento(self, cpf_digitos: str, nascimento_aaaammdd: str) -> str | None: ...
 
 
+class CandidatosDoTelefone(Protocol):
+    """`agents.lucas.identidade_amh.ResolvedorDeSujeitoAmh.candidatos_com_desfecho`: TODAS as referencias
+    candidatas do telefone e o desfecho fechado (`unico`/`multiplos`/`nenhum`/`indisponivel`)."""
+
+    async def candidatos_com_desfecho(
+        self, pseudo_id: str, *, phone_hash: str | None
+    ) -> tuple[tuple[str, ...], str]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class DecisaoAcesso:
     """O que `avaliar` decidiu para ESTA mensagem. Nada foi gravado ainda (`persistir` grava)."""
@@ -353,6 +397,9 @@ class DecisaoAcesso:
     escalar: bool = False
     #: Uma verificacao acabou de ser concluida (o cache de identidade do despachante deve ser invalidado).
     nova_verificacao: bool = False
+    #: A memoria da conversa (historico curto DL-0080, memoria clinica, coleta) e' de OUTRA pessoa ou de um
+    #: consentimento revogado: o despachante a apaga ANTES de gravar o estado (DL-0083, revisao do #700).
+    esquecer_memoria: bool = False
 
     @property
     def portable_subject_ref(self) -> str | None:
@@ -396,7 +443,7 @@ class AcessoBeneficiario:
         store: AcessoStore,
         verification: SubjectVerificationPort,
         consents: ConsentRecordPort,
-        resolvedor: ResolvedorComDesfecho,
+        resolvedor: CandidatosDoTelefone,
         hash_telefone: Callable[[str], str | None],
         hasher: HasherDeVerificacao,
         lexicos: PreRoteamento,
@@ -406,6 +453,7 @@ class AcessoBeneficiario:
         validade: timedelta = timedelta(hours=VALIDADE_HORAS_PADRAO),
         relogio: Callable[[], datetime] = _agora_padrao,
         prazo_amh_s: float = PRAZO_AMH_S,
+        prazo_consentimento_s: float = PRAZO_CONSENTIMENTO_S,
         cpfs_pendentes: _CpfsPendentes | None = None,
         aclose_fn: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
@@ -413,6 +461,9 @@ class AcessoBeneficiario:
             raise ValueError("acesso: validade deve ser positiva")
         if not 0 < prazo_amh_s <= 30:
             raise ValueError("acesso: prazo_amh_s fora de (0, 30]")
+        if not 0 < prazo_consentimento_s <= 30:
+            raise ValueError("acesso: prazo_consentimento_s fora de (0, 30]")
+        self._prazo_consentimento = float(prazo_consentimento_s)
         self._store = store
         self._verification = verification
         self._consents = consents
@@ -475,10 +526,12 @@ class AcessoBeneficiario:
 
         atual = replace(atual, ultima_mensagem_em=agora)
         atual, reiniciou = self._vencimentos(atual, agora)
-        atual = await self._regravar_pendencias(atual, agora)
+        atual = await self._regravar_pendencias(atual)
 
         comando = normalizar(texto)
         if comando in _REVOGAR:
+            # REVOGAR vale em QUALQUER estado (inclusive bloqueado): e' direito do titular. Nao zera nada
+            # do que conta tentativas (ver `_revogar`).
             return await self._revogar(atual, agora, emergencia=emergencia)
 
         if atual.estado == VERIFICADO:
@@ -496,7 +549,7 @@ class AcessoBeneficiario:
             return await self._aceitar(atual, agora, emergencia=emergencia)
         if atual.estado == AGUARDANDO_CPF:
             return await self._passo_cpf(atual, agora, texto, numero_cru, emergencia=emergencia)
-        return await self._passo_nascimento(atual, agora, texto, emergencia=emergencia)
+        return await self._passo_nascimento(atual, agora, texto, numero_cru, emergencia=emergencia)
 
     # -- helpers de decisao -----------------------------------------------------------------------
     def _responder(
@@ -507,6 +560,7 @@ class AcessoBeneficiario:
         emergencia: bool,
         escalar: bool = False,
         nova_verificacao: bool = False,
+        esquecer_memoria: bool = False,
     ) -> DecisaoAcesso:
         respostas = (TEXTO_EMERGENCIA, texto) if emergencia and novo.estado != VERIFICADO else (texto,)
         return DecisaoAcesso(
@@ -515,10 +569,14 @@ class AcessoBeneficiario:
             novo=novo,
             escalar=escalar,
             nova_verificacao=nova_verificacao,
+            esquecer_memoria=esquecer_memoria,
         )
 
     def _vencimentos(self, atual: EstadoAcesso, agora: datetime) -> tuple[EstadoAcesso, bool]:
-        """Verificacao vencida ou bloqueio cumprido -> `aguardando_cpf` (o consentimento persiste)."""
+        """Verificacao vencida ou bloqueio cumprido -> `aguardando_cpf` (o consentimento persiste).
+
+        O bloqueio e' um PRAZO, nao um estado: ele sobrevive a REVOGAR e a ACEITO (a conversa pode estar
+        `revogado`/`sem_consentimento` com o prazo correndo). So' o vencimento dele zera as tentativas."""
         if atual.estado == VERIFICADO:
             vencida = atual.expira_em is None or agora >= atual.expira_em
             if vencida:
@@ -527,7 +585,12 @@ class AcessoBeneficiario:
                 ), True
         if atual.estado == BLOQUEADO_HUMANO and (atual.bloqueado_ate is None or agora >= atual.bloqueado_ate):
             return replace(atual, estado=AGUARDANDO_CPF, tentativas=0, bloqueado_ate=None), True
+        if atual.bloqueado_ate is not None and agora >= atual.bloqueado_ate:
+            return replace(atual, tentativas=0, bloqueado_ate=None), False
         return atual, False
+
+    def _bloqueio_vigente(self, atual: EstadoAcesso, agora: datetime) -> bool:
+        return atual.bloqueado_ate is not None and agora < atual.bloqueado_ate
 
     def _log_transicao(self, conversation_id: str, de: str | None, para: str, motivo: str) -> None:
         logger.info("acesso_transicao", conversation_id=conversation_id, de=de, para=para, motivo=motivo)
@@ -535,11 +598,12 @@ class AcessoBeneficiario:
     async def _gravar_consentimento(
         self, ref: str, estado: EstadoAcesso, decisao: str, decidido_em: datetime
     ) -> str | None:
-        """Grava a decisao na AMH. Devolve o `consent_ref` ou `None` (falha: repete depois)."""
+        """Grava a decisao na AMH, com prazo PROPRIO. Devolve o `consent_ref` ou `None` (falha: repete
+        depois, ate' `MAX_REGRAVACOES`)."""
         versao = estado.texto_versao or VERSAO_TEXTO_CONSENTIMENTO
         sha = estado.texto_sha256 or SHA256_TEXTO_CONSENTIMENTO
         try:
-            async with asyncio.timeout(self._prazo):
+            async with asyncio.timeout(self._prazo_consentimento):
                 resultado = await self._consents.record(
                     ref,
                     amh_tenant=self._tenant_amh,
@@ -553,7 +617,7 @@ class AcessoBeneficiario:
                         estado.conversation_id, versao, decisao, decidido_em
                     ),
                     purpose_of_use=self._purpose,
-                    timeout_seconds=self._prazo,
+                    timeout_seconds=self._prazo_consentimento,
                 )
         except PROGRAMMING_ERRORS:
             raise
@@ -569,53 +633,78 @@ class AcessoBeneficiario:
             return None
         return resultado.value.consent_ref
 
-    async def _regravar_pendencias(self, atual: EstadoAcesso, agora: datetime) -> EstadoAcesso:
-        """Repete, a cada turno, a gravacao que falhou antes (consentimento concedido ou revogado)."""
+    def _contar_falha_de_gravacao(self, estado: EstadoAcesso, decisao: str) -> EstadoAcesso:
+        """Mais uma gravacao falha. No teto, ALARME (uma vez) e a regravacao automatica para."""
+        falhas = min(estado.regravacoes_falhas + 1, MAX_REGRAVACOES)
+        if falhas >= MAX_REGRAVACOES and estado.regravacoes_falhas < MAX_REGRAVACOES:
+            logger.error(
+                "acesso_consentimento_regravacao_esgotada",
+                conversation_id=estado.conversation_id,
+                decisao=decisao,
+                tentativas=falhas,
+                alarme=True,
+            )
+        return replace(estado, regravacoes_falhas=falhas)
+
+    async def _regravar_pendencias(self, atual: EstadoAcesso) -> EstadoAcesso:
+        """Repete, a cada turno, a gravacao que falhou antes (consentimento concedido ou revogado), ate' o
+        teto `MAX_REGRAVACOES`; depois disso so' um humano destrava (alarme ja' emitido)."""
         ref = atual.portable_subject_ref
-        if ref is None:
+        if ref is None or atual.regravacoes_falhas >= MAX_REGRAVACOES:
             return atual
         if atual.revogacao_pendente and atual.revogado_em is not None:
             consent_ref = await self._gravar_consentimento(ref, atual, DECISAO_REVOGADA, atual.revogado_em)
-            if consent_ref is not None:
-                atual = replace(atual, revogacao_pendente=False, portable_subject_ref=None, consent_ref=None)
-                ref = None
+            if consent_ref is None:
+                return self._contar_falha_de_gravacao(atual, DECISAO_REVOGADA)
+            return replace(
+                atual,
+                revogacao_pendente=False,
+                portable_subject_ref=None,
+                consent_ref=None,
+                regravacoes_falhas=0,
+            )
         if (
-            ref is not None
-            and atual.consentimento_pendente_gravacao
+            atual.consentimento_pendente_gravacao
             and atual.estado == VERIFICADO
             and atual.consentido_em is not None
         ):
             consent_ref = await self._gravar_consentimento(ref, atual, DECISAO_CONCEDIDA, atual.consentido_em)
-            if consent_ref is not None:
-                atual = replace(atual, consentimento_pendente_gravacao=False, consent_ref=consent_ref)
+            if consent_ref is None:
+                return self._contar_falha_de_gravacao(atual, DECISAO_CONCEDIDA)
+            return replace(
+                atual, consentimento_pendente_gravacao=False, consent_ref=consent_ref, regravacoes_falhas=0
+            )
         return atual
 
     # -- REVOGAR ----------------------------------------------------------------------------------
     async def _revogar(self, atual: EstadoAcesso, agora: datetime, *, emergencia: bool) -> DecisaoAcesso:
+        """REVOGAR: o consentimento acaba aqui e a memoria da conversa e' apagada. As TENTATIVAS e o PRAZO DO
+        BLOQUEIO ficam como estao (revisao do #700, P0): REVOGAR + ACEITO nao pode zerar o contador."""
         self._pendentes.descartar(atual.conversation_id)
         ref = atual.portable_subject_ref
         novo = replace(
             atual,
             estado=REVOGADO,
-            tentativas=0,
             consentido_em=None,
             revogado_em=agora,
             consent_ref=None,
             consentimento_pendente_gravacao=False,
             verificado_em=None,
             expira_em=None,
-            bloqueado_ate=None,
+            regravacoes_falhas=0,
         )
         if ref is not None:
             consent_ref = await self._gravar_consentimento(ref, novo, DECISAO_REVOGADA, agora)
             if consent_ref is None:
-                novo = replace(novo, revogacao_pendente=True)
+                novo = self._contar_falha_de_gravacao(
+                    replace(novo, revogacao_pendente=True), DECISAO_REVOGADA
+                )
             else:
                 novo = replace(novo, revogacao_pendente=False, portable_subject_ref=None)
         else:
             novo = replace(novo, revogacao_pendente=False, portable_subject_ref=None)
         self._log_transicao(atual.conversation_id, atual.estado, REVOGADO, "revogar")
-        return self._responder(novo, RESPOSTA_REVOGADO, emergencia=emergencia)
+        return self._responder(novo, RESPOSTA_REVOGADO, emergencia=emergencia, esquecer_memoria=True)
 
     # -- ACEITO -----------------------------------------------------------------------------------
     async def _aceitar(self, atual: EstadoAcesso, agora: datetime, *, emergencia: bool) -> DecisaoAcesso:
@@ -625,81 +714,123 @@ class AcessoBeneficiario:
         novo = replace(
             atual,
             estado=AGUARDANDO_CPF,
-            tentativas=0,
             texto_versao=VERSAO_TEXTO_CONSENTIMENTO,
             texto_sha256=SHA256_TEXTO_CONSENTIMENTO,
             consentido_em=agora,
             revogado_em=None,
             consent_ref=None,
             consentimento_pendente_gravacao=False,
+            regravacoes_falhas=0,
         )
+        if self._bloqueio_vigente(atual, agora):
+            # O consentimento vale, mas o bloqueio tambem: so' o vencimento do prazo libera o CPF de novo.
+            novo = replace(novo, estado=BLOQUEADO_HUMANO)
+            self._log_transicao(atual.conversation_id, atual.estado, BLOQUEADO_HUMANO, "aceito_com_bloqueio")
+            return self._responder(novo, BLOQUEADO_CURTO, emergencia=emergencia)
         self._log_transicao(atual.conversation_id, atual.estado, AGUARDANDO_CPF, "aceito")
         return self._responder(novo, PEDIDO_CPF, emergencia=emergencia)
 
     # -- CPF --------------------------------------------------------------------------------------
-    async def _referencia_do_telefone(self, numero_cru: str) -> str | None:
-        """A referencia SO' quando o telefone identifica UMA pessoa; qualquer outra coisa (compartilhado,
-        desconhecido, AMH fora, numero fora do padrao) e' `None` e leva ao passo do nascimento."""
+    async def _candidatos(self, numero_cru: str) -> tuple[tuple[str, ...], str]:
+        """As referencias candidatas do telefone e o desfecho fechado. `indisponivel` = nao se sabe (AMH fora,
+        numero fora do padrao, resposta incoerente); `nenhum` = a AMH disse que o telefone nao e' de ninguem
+        (ou de gente demais para ser uma familia)."""
         try:
             phone_hash = self._hash_telefone(numero_cru)
             if not phone_hash:
-                return None
+                return (), "indisponivel"
             async with asyncio.timeout(self._prazo):
-                ref, desfecho = await self._resolvedor.portable_ref_com_desfecho("", phone_hash=phone_hash)
+                refs, desfecho = await self._resolvedor.candidatos_com_desfecho("", phone_hash=phone_hash)
         except PROGRAMMING_ERRORS:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:
-            return None
-        return ref if desfecho == "unico" and ref else None
+            return (), "indisponivel"
+        if desfecho == "nenhum" and not refs:
+            return (), "nenhum"
+        if desfecho == "unico" and len(refs) == 1:
+            return tuple(refs), "unico"
+        if desfecho == "multiplos" and len(refs) > 1:
+            if len(refs) > MAX_CANDIDATOS:
+                return (), "nenhum"
+            return tuple(refs), "multiplos"
+        return (), "indisponivel"
 
-    async def _verificar(self, hash_fator: str, fator: str) -> tuple[_ResultadoVerificacao, str | None]:
-        try:
-            async with asyncio.timeout(self._prazo):
-                resultado = await self._verification.verify(
-                    hash_fator,
-                    amh_tenant=self._tenant_amh,
-                    hash_scheme=self._hash_scheme,
-                    factor=fator,
-                    purpose_of_use=self._purpose,
-                    timeout_seconds=self._prazo,
-                )
-        except PROGRAMMING_ERRORS:
-            raise
-        except EXTERNAL_DEPENDENCY_FAILURES:
-            return "indisponivel", None
-        if not resultado.succeeded or resultado.value is None:
-            return "indisponivel", None
-        if resultado.value.verificado and resultado.value.portable_subject_ref:
-            return "verificado", resultado.value.portable_subject_ref
+    async def _conferir(
+        self, refs: tuple[str, ...], hash_fator: str, fator: str
+    ) -> tuple[_ResultadoVerificacao, str | None]:
+        """CONFERE o fator contra CADA referencia candidata (e so' contra elas). Verificado so' se EXATAMENTE
+        uma conferir e nenhuma ficar sem resposta; qualquer AMH fora = `indisponivel` (nada e' concluido)."""
+        conferem: list[str] = []
+        for ref in refs:
+            try:
+                async with asyncio.timeout(self._prazo):
+                    resultado = await self._verification.verify(
+                        ref,
+                        fator=fator,
+                        verification_hash=hash_fator,
+                        hash_scheme=self._hash_scheme,
+                        purpose_of_use=self._purpose,
+                        timeout_seconds=self._prazo,
+                    )
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES:
+                return "indisponivel", None
+            if not resultado.succeeded or resultado.value is None:
+                return "indisponivel", None
+            if resultado.value.portable_subject_ref != ref:
+                # Eco de outra referencia: resposta fora do contrato, nunca "e' outra pessoa".
+                return "indisponivel", None
+            if resultado.value.confere is True:
+                conferem.append(ref)
+        if len(conferem) == 1:
+            return "verificado", conferem[0]
         return "nao_verificado", None
+
+    def _telefone_nao_identificado(
+        self, atual: EstadoAcesso, agora: datetime, *, emergencia: bool
+    ) -> DecisaoAcesso:
+        """Telefone sem candidato: NAO entra pelo caminho do documento (decisao do dono, lado seguro; o DPO
+        pode relaxar). Texto neutro, que nao diz nada sobre CPF nenhum, e atendente humano. As tentativas nao
+        mudam; o prazo do bloqueio e' o mesmo da 3a falha e, vencido, o telefone e' consultado de novo."""
+        self._pendentes.descartar(atual.conversation_id)
+        novo = replace(atual, estado=BLOQUEADO_HUMANO, bloqueado_ate=agora + self._validade)
+        self._log_transicao(
+            atual.conversation_id, atual.estado, BLOQUEADO_HUMANO, "telefone_nao_identificado"
+        )
+        return self._responder(novo, TELEFONE_NAO_IDENTIFICADO, emergencia=emergencia, escalar=True)
 
     async def _passo_cpf(
         self, atual: EstadoAcesso, agora: datetime, texto: str, numero_cru: str, *, emergencia: bool
     ) -> DecisaoAcesso:
+        refs, desfecho = await self._candidatos(numero_cru)
+        if desfecho == "indisponivel":
+            return self._responder(atual, INDISPONIVEL, emergencia=emergencia)
+        if desfecho == "nenhum":
+            return self._telefone_nao_identificado(atual, agora, emergencia=emergencia)
         cpf = extrair_cpf(texto)
         if cpf is None:
             return self._falha(atual, agora, CPF_INVALIDO, emergencia=emergencia)
-        ref_telefone = await self._referencia_do_telefone(numero_cru)
-        if ref_telefone is None:
-            # O telefone nao identifica uma pessoa so': pede tambem o nascimento (o CPF espera em memoria).
+        if desfecho == "multiplos":
+            # Telefone de mais de uma pessoa: pede tambem o nascimento (o CPF espera em memoria).
             self._pendentes.guardar(atual.conversation_id, cpf)
             novo = replace(atual, estado=AGUARDANDO_NASCIMENTO)
             self._log_transicao(
-                atual.conversation_id, atual.estado, AGUARDANDO_NASCIMENTO, "telefone_nao_unico"
+                atual.conversation_id, atual.estado, AGUARDANDO_NASCIMENTO, "telefone_multiplo"
             )
             return self._responder(novo, PEDIDO_NASCIMENTO, emergencia=emergencia)
         hash_fator = self._hasher.hash_cpf(cpf)
         if hash_fator is None:
             return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
-        veredito, ref = await self._verificar(hash_fator, "cpf")
+        veredito, ref = await self._conferir(refs, hash_fator, FATOR_CPF)
         if veredito == "indisponivel":
             return self._responder(atual, INDISPONIVEL, emergencia=emergencia)
-        if veredito == "verificado" and ref == ref_telefone:
+        if veredito == "verificado" and ref is not None:
             return await self._sucesso(atual, agora, ref)
         return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
 
     async def _passo_nascimento(
-        self, atual: EstadoAcesso, agora: datetime, texto: str, *, emergencia: bool
+        self, atual: EstadoAcesso, agora: datetime, texto: str, numero_cru: str, *, emergencia: bool
     ) -> DecisaoAcesso:
         leitura = ler_nascimento(texto, hoje=agora.date())
         if not leitura.encontrou or leitura.nascimento is None or leitura.sobra_invalida:
@@ -711,21 +842,28 @@ class AcessoBeneficiario:
             # A memoria do CPF se perdeu (outra replica, reinicio, prazo): pede os dois juntos, sem gastar
             # tentativa.
             return self._responder(atual, PEDIDO_CPF_E_NASCIMENTO, emergencia=emergencia)
+        refs, desfecho = await self._candidatos(numero_cru)
+        if desfecho == "indisponivel":
+            if leitura.cpf is not None:
+                self._pendentes.guardar(atual.conversation_id, leitura.cpf)
+            return self._responder(atual, INDISPONIVEL, emergencia=emergencia)
+        if desfecho == "nenhum":
+            return self._telefone_nao_identificado(atual, agora, emergencia=emergencia)
         hash_fator = self._hasher.hash_cpf_nascimento(cpf, leitura.nascimento.strftime("%Y%m%d"))
         if hash_fator is None:
             return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
-        veredito, ref = await self._verificar(hash_fator, "cpf_nascimento")
+        veredito, ref = await self._conferir(refs, hash_fator, FATOR_CPF_NASCIMENTO)
         if veredito == "indisponivel":
             if leitura.cpf is not None:
                 self._pendentes.guardar(atual.conversation_id, leitura.cpf)
             return self._responder(atual, INDISPONIVEL, emergencia=emergencia)
         self._pendentes.descartar(atual.conversation_id)
-        if veredito == "verificado" and ref:
+        if veredito == "verificado" and ref is not None:
             return await self._sucesso(atual, agora, ref)
         return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
 
     def _falha(self, atual: EstadoAcesso, agora: datetime, texto: str, *, emergencia: bool) -> DecisaoAcesso:
-        """Uma tentativa gasta (formato invalido, nao confere ou ref diferente da do telefone)."""
+        """Uma tentativa gasta (formato invalido ou nao confere)."""
         tentativas = atual.tentativas + 1
         if tentativas >= MAX_TENTATIVAS:
             self._pendentes.descartar(atual.conversation_id)
@@ -738,8 +876,7 @@ class AcessoBeneficiario:
             self._log_transicao(atual.conversation_id, atual.estado, BLOQUEADO_HUMANO, "tentativas_esgotadas")
             return self._responder(novo, BLOQUEADO, emergencia=emergencia, escalar=True)
         # Depois de uma falha na verificacao o CPF ja' foi consumido: volta a pedir do comeco. Formato
-        # invalido
-        # do nascimento mantem o passo (o CPF segue pendente).
+        # invalido do nascimento mantem o passo (o CPF segue pendente).
         proximo = atual.estado
         if atual.estado == AGUARDANDO_NASCIMENTO and self._pendentes.ver(atual.conversation_id) is None:
             proximo = AGUARDANDO_CPF
@@ -748,7 +885,34 @@ class AcessoBeneficiario:
         return self._responder(novo, texto, emergencia=emergencia)
 
     async def _sucesso(self, atual: EstadoAcesso, agora: datetime, ref: str) -> DecisaoAcesso:
-        mudou_de_pessoa = atual.portable_subject_ref is not None and atual.portable_subject_ref != ref
+        if atual.portable_subject_ref is not None and atual.portable_subject_ref != ref:
+            # Telefone de mais de uma pessoa e quem se verificou agora NAO e' quem se verificou antes. O
+            # ACEITO guardado e' da pessoa ANTERIOR: nada de consentimento em nome desta (revisao do #700,
+            # P1-b), e a memoria da conversa (historico, memoria clinica) e' da outra pessoa (P2). Volta ao
+            # consentimento.
+            novo = replace(
+                atual,
+                estado=SEM_CONSENTIMENTO,
+                tentativas=0,
+                texto_versao=VERSAO_TEXTO_CONSENTIMENTO,
+                texto_sha256=SHA256_TEXTO_CONSENTIMENTO,
+                consentido_em=None,
+                portable_subject_ref=None,
+                consent_ref=None,
+                consentimento_pendente_gravacao=False,
+                verificado_em=None,
+                expira_em=None,
+                bloqueado_ate=None,
+                regravacoes_falhas=0,
+            )
+            self._log_transicao(atual.conversation_id, atual.estado, SEM_CONSENTIMENTO, "pessoa_mudou")
+            return DecisaoAcesso(
+                respostas=(TEXTO_CONSENTIMENTO,),
+                prosseguir=False,
+                novo=novo,
+                nova_verificacao=True,
+                esquecer_memoria=True,
+            )
         novo = replace(
             atual,
             estado=VERIFICADO,
@@ -758,15 +922,21 @@ class AcessoBeneficiario:
             expira_em=agora + self._validade,
             bloqueado_ate=None,
         )
-        if mudou_de_pessoa:
-            novo = replace(novo, consent_ref=None, consentimento_pendente_gravacao=False)
-        if novo.consent_ref is None and novo.consentido_em is not None:
-            # Primeira verificacao da conversa (a referencia agora e' conhecida): registra no lago.
+        if (
+            novo.consent_ref is None
+            and novo.consentido_em is not None
+            and not novo.consentimento_pendente_gravacao
+        ):
+            # Primeira verificacao desde o ACEITO (a referencia agora e' conhecida): registra no lago.
             consent_ref = await self._gravar_consentimento(ref, novo, DECISAO_CONCEDIDA, novo.consentido_em)
             if consent_ref is None:
-                novo = replace(novo, consentimento_pendente_gravacao=True)
+                novo = self._contar_falha_de_gravacao(
+                    replace(novo, consentimento_pendente_gravacao=True), DECISAO_CONCEDIDA
+                )
             else:
-                novo = replace(novo, consent_ref=consent_ref, consentimento_pendente_gravacao=False)
+                novo = replace(
+                    novo, consent_ref=consent_ref, consentimento_pendente_gravacao=False, regravacoes_falhas=0
+                )
         self._log_transicao(atual.conversation_id, atual.estado, VERIFICADO, "verificado")
         return DecisaoAcesso(
             respostas=(RESPOSTA_VERIFICADO,), prosseguir=False, novo=novo, nova_verificacao=True
@@ -786,6 +956,7 @@ def textos_fixos() -> dict[str, str]:
         "bloqueado": BLOQUEADO,
         "bloqueado_curto": BLOQUEADO_CURTO,
         "indisponivel": INDISPONIVEL,
+        "telefone_nao_identificado": TELEFONE_NAO_IDENTIFICADO,
         "revogado": RESPOSTA_REVOGADO,
         "emergencia": TEXTO_EMERGENCIA,
     }
@@ -795,6 +966,9 @@ __all__ = [
     "AGUARDANDO_CPF",
     "AGUARDANDO_NASCIMENTO",
     "BLOQUEADO_HUMANO",
+    "FATOR_CPF",
+    "FATOR_CPF_NASCIMENTO",
+    "MAX_REGRAVACOES",
     "ESTADOS",
     "MAX_TENTATIVAS",
     "MOTIVO_ESCALONAMENTO_BLOQUEIO",
@@ -808,6 +982,7 @@ __all__ = [
     "AcessoBeneficiario",
     "AcessoStore",
     "AcessoStoreEmMemoria",
+    "CandidatosDoTelefone",
     "DecisaoAcesso",
     "EstadoAcesso",
     "HasherDeVerificacao",

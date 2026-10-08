@@ -27,15 +27,15 @@ TABELA: Final[str] = "conversa_acesso_beneficiario"
 _COLUNAS: Final[str] = (
     "conversation_id, estado, tentativas, texto_versao, texto_sha256, consentido_em, revogado_em, "
     "portable_subject_ref, consent_ref, consentimento_pendente_gravacao, revogacao_pendente, "
-    "verificado_em, expira_em, bloqueado_ate, ultima_mensagem_em"
+    "verificado_em, expira_em, bloqueado_ate, ultima_mensagem_em, regravacoes_falhas"
 )
 _SELECT_SQL: Final[str] = f"SELECT {_COLUNAS} FROM {TABELA} WHERE tenant = $1 AND conversation_id = $2"
 _UPSERT_SQL: Final[str] = f"""
 INSERT INTO {TABELA} (
     tenant, conversation_id, estado, tentativas, texto_versao, texto_sha256, consentido_em, revogado_em,
     portable_subject_ref, consent_ref, consentimento_pendente_gravacao, revogacao_pendente,
-    verificado_em, expira_em, bloqueado_ate, ultima_mensagem_em
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    verificado_em, expira_em, bloqueado_ate, ultima_mensagem_em, regravacoes_falhas
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 ON CONFLICT (tenant, conversation_id) DO UPDATE SET
     estado = EXCLUDED.estado,
     tentativas = EXCLUDED.tentativas,
@@ -50,7 +50,8 @@ ON CONFLICT (tenant, conversation_id) DO UPDATE SET
     verificado_em = EXCLUDED.verificado_em,
     expira_em = EXCLUDED.expira_em,
     bloqueado_ate = EXCLUDED.bloqueado_ate,
-    ultima_mensagem_em = EXCLUDED.ultima_mensagem_em
+    ultima_mensagem_em = EXCLUDED.ultima_mensagem_em,
+    regravacoes_falhas = EXCLUDED.regravacoes_falhas
 """
 
 
@@ -112,6 +113,7 @@ class PostgresAcessoStore:
             expira_em=_opcional(row["expira_em"]),
             bloqueado_ate=_opcional(row["bloqueado_ate"]),
             ultima_mensagem_em=row["ultima_mensagem_em"],
+            regravacoes_falhas=int(row["regravacoes_falhas"]),
         )
 
     async def gravar(self, estado: EstadoAcesso) -> None:
@@ -136,6 +138,7 @@ class PostgresAcessoStore:
                 estado.expira_em,
                 estado.bloqueado_ate,
                 estado.ultima_mensagem_em,
+                estado.regravacoes_falhas,
             )
 
     async def aclose(self) -> None:

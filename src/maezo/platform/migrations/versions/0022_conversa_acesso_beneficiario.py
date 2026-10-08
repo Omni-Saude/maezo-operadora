@@ -17,7 +17,8 @@ existem so' em memoria, pelo instante da chamada a AMH.
 **Colunas de pendencia de gravacao.** `consentimento_pendente_gravacao` e `revogacao_pendente` marcam que a
 decisao ja' vale AQUI mas ainda nao foi gravada no lago da AMH (`consent-record`); a gravacao e' repetida nos
 turnos seguintes ate' dar certo (fail-safe: o acesso nao fica refem da gravacao, o registro fica pendente e
-visivel). `consent_ref` e' a referencia opaca que a AMH devolve.
+visivel). `consent_ref` e' a referencia opaca que a AMH devolve. `regravacoes_falhas` conta as gravacoes que
+falharam (teto 5): no teto a regravacao automatica para e um log de alarme pede intervencao humana.
 
 **Escrita.** Upsert simples por `(tenant, conversation_id)`: o canal serializa as mensagens de uma conversa
 e o
@@ -33,7 +34,10 @@ conversa a faria pedir o consentimento de novo. O prazo e' do DPO (`erasure-plan
 
 **Seguro com a versao anterior do codigo no ar.** A tabela e' nova e so' o acesso do beneficiario (desligado
 por
-padrao, `MAEZO_ACESSO_BENEFICIARIO`) a le' e escreve; o `downgrade` e' `DROP TABLE`.
+padrao, `MAEZO_ACESSO_BENEFICIARIO`) a le' e escreve. O `downgrade` RECUSA com a tabela populada (mesmo
+padrao da 0021): ela guarda consentimentos e REVOGACOES pendentes de gravacao no lago
+(`revogacao_pendente`), e apagar uma revogacao que a AMH ainda nao recebeu e' perder o pedido do titular.
+Disposicao e' do dono, nao da migration.
 
 Revision ID: 0022
 Revises: 0021
@@ -74,6 +78,7 @@ def upgrade() -> None:
             expira_em timestamptz NULL,
             bloqueado_ate timestamptz NULL,
             ultima_mensagem_em timestamptz NOT NULL,
+            regravacoes_falhas smallint NOT NULL DEFAULT 0 CHECK (regravacoes_falhas BETWEEN 0 AND 5),
             PRIMARY KEY (tenant, conversation_id),
             CONSTRAINT conversa_acesso_prefixo_do_tenant
                 CHECK (starts_with(conversation_id, 'wa:' || tenant || ':')),
@@ -104,4 +109,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Reversao estrutural NUNCA apaga consentimento vivo nem revogacao pendente de gravacao no lago:
+    # disposicao e' do dono qualificado, nao da migration (padrao da 0021).
+    op.execute("""DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM conversa_acesso_beneficiario) THEN
+            RAISE EXCEPTION 'populated conversa_acesso_beneficiario requires qualified lifecycle disposition';
+        END IF;
+    END $$""")
     op.execute("DROP TABLE conversa_acesso_beneficiario")

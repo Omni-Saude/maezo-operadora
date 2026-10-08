@@ -1544,6 +1544,16 @@ _HELENA_MEMORIA_DE_CONVERSA: frozenset[str] = frozenset(
 #: portao da coleta.
 _MEMORIA_DE_COLETA: frozenset[str] = frozenset({"coleta_rodadas", "coleta_pendente", "coleta_contexto"})
 
+
+def memoria_de_conversa_neutra() -> dict[str, Any]:
+    """Todos os campos de `_HELENA_MEMORIA_DE_CONVERSA` no valor NEUTRO (o de uma conversa nova).
+
+    DL-0083 (revisao do PR #700): o checkpoint e' indexado pelo TELEFONE, e num telefone de mais de uma
+    pessoa (ou depois de um REVOGAR) o historico curto (DL-0080), a memoria clinica e a coleta sao de OUTRA
+    pessoa. O despachante grava estes valores sobre o checkpoint antes de a nova pessoa falar com a Helena."""
+    return {campo: _HELENA_NEUTRAL_OUTPUTS[campo] for campo in sorted(_HELENA_MEMORIA_DE_CONVERSA)}
+
+
 #: MEMORIA CLINICA ENTRE TURNOS (Frente 2.1) — os campos que dizem QUEM E' O PACIENTE.
 #:
 #: O DEFEITO QUE ISTO CORRIGE, reproduzido tres vezes em 13/09/2026: um bebe de 11 meses foi

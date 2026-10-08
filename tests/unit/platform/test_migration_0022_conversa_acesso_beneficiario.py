@@ -24,6 +24,7 @@ _REQUIRED_COLUMNS = frozenset(
         "tenant", "conversation_id", "estado", "tentativas", "texto_versao", "texto_sha256", "consentido_em",
         "revogado_em", "portable_subject_ref", "consent_ref", "consentimento_pendente_gravacao",
         "revogacao_pendente", "verificado_em", "expira_em", "bloqueado_ate", "ultima_mensagem_em",
+        "regravacoes_falhas",
     }
 )  # fmt: skip
 
@@ -86,9 +87,22 @@ def test_nenhum_bind_parameter_acidental_no_sql() -> None:
         assert text(sql)._bindparams == {}, sql[:80]
 
 
-def test_revoke_e_downgrade() -> None:
+def test_revoke_e_downgrade_recusa_tabela_populada() -> None:
+    """Revisao do #700 (P1-c): o downgrade NUNCA apaga consentimento vivo nem `revogacao_pendente` (um REVOGAR
+    que o lago ainda nao recebeu). Com a tabela populada ele RECUSA, antes do DROP (padrao da 0021)."""
     assert 'op.execute("REVOKE ALL ON TABLE conversa_acesso_beneficiario FROM PUBLIC")' in _CODE
     downgrade = _CODE.split("def downgrade() -> None:", 1)[1]
+    trava = downgrade.index("IF EXISTS (SELECT 1 FROM conversa_acesso_beneficiario) THEN")
+    recusa = downgrade.index("RAISE EXCEPTION 'populated conversa_acesso_beneficiario")
+    drop = downgrade.index('op.execute("DROP TABLE conversa_acesso_beneficiario")')
+    assert trava < recusa < drop
     assert re.findall(r"op\.execute\(\"([^\"]+)\"\)", downgrade) == [
         "DROP TABLE conversa_acesso_beneficiario"
     ]
+
+
+def test_regravacoes_tem_teto_igual_ao_do_codigo() -> None:
+    from maezo.platform.webhooks.whatsapp.acesso import MAX_REGRAVACOES
+
+    esperado = "regravacoes_falhas smallint NOT NULL DEFAULT 0 CHECK (regravacoes_falhas BETWEEN 0 AND {})"
+    assert esperado.format(MAX_REGRAVACOES) in _create_table()

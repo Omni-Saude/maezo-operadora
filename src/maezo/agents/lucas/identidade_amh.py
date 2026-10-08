@@ -84,6 +84,39 @@ class ResolvedorDeSujeitoAmh:
             return None, "indisponivel"
         return resolucao.candidatos[0].portable_subject_ref, "unico"
 
+    async def candidatos_com_desfecho(
+        self, pseudo_id: str, *, phone_hash: str | None
+    ) -> tuple[tuple[str, ...], str]:
+        """TODAS as referencias candidatas do telefone e o desfecho fechado (acesso do beneficiario, DL-0083).
+
+        Mesmo desfecho de `portable_ref_com_desfecho`; a diferenca e' que `multiplos` devolve o CONJUNTO, para
+        o acesso conferir o documento digitado contra cada candidato (e so' contra eles). Fora de `unico` e
+        `multiplos` o conjunto e' vazio.
+        """
+        del pseudo_id
+        if not phone_hash:
+            return (), "indisponivel"
+        resultado = await self._port.resolve_by_phone(
+            phone_hash,
+            amh_tenant=self._tenant,
+            hash_scheme=self._scheme,
+            purpose_of_use=self._purpose,
+            timeout_seconds=self._timeout,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return (), "indisponivel"
+        resolucao = resultado.value
+        refs = tuple(c.portable_subject_ref for c in resolucao.candidatos)
+        if resolucao.resultado == "nenhum" and not refs:
+            return (), "nenhum"
+        if any(not isinstance(r, str) or not r for r in refs) or len(set(refs)) != len(refs):
+            return (), "indisponivel"
+        if resolucao.resultado == "multiplos" and len(refs) > 1:
+            return refs, "multiplos"
+        if resolucao.resultado == "unico" and len(refs) == 1:
+            return refs, "unico"
+        return (), "indisponivel"
+
 
 #: Referencia fixa e auditavel da BASE LEGAL da leitura (LGPD art. 7o, V — execucao de contrato).
 BASE_LEGAL_EXECUCAO_DE_CONTRATO: str = "base-legal:execucao-de-contrato"

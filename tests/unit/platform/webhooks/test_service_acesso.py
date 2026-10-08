@@ -24,8 +24,9 @@ def test_defaults_desligado_e_validade_24h(monkeypatch: pytest.MonkeyPatch) -> N
     s = _settings()
     assert s.acesso_beneficiario is False and s.acesso_validade_horas == 24
     assert s.amh_subject_verify_key is None
-    assert "interop/subject.verify" in s.amh_interop_scopes.split()
-    assert "interop/consent.write" in s.amh_interop_scopes.split()
+    # Revisao do #700 (P1-a): o default NAO pede os escopos do acesso — o Cognito recusaria o token inteiro e
+    # derrubaria identidade/cobranca/TINA. Eles so' entram pelo deploy, junto com a flag.
+    assert s.amh_interop_scopes == "interop/billing.read interop/subject.resolve interop/profile.read"
 
 
 def test_le_os_nomes_canonicos_e_a_chave_nao_aparece_no_repr(monkeypatch: pytest.MonkeyPatch) -> None:
