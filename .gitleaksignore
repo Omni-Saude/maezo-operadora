@@ -213,3 +213,6 @@ cd4b0ed4aaa1751ad6aec83eb92f8b5c2b946fa1:docs/gates/v21-durability-successor-202
 # The literal was already rewritten at c2a26d97 (helper `_key(...)`); this fingerprint covers only the
 # immutable historical commit (rebased copy of 514df11f). Removable once the branch is deleted post-merge.
 335e143018bd4367a928e521dbd1738e8047688d:tests/unit/gateway/test_vendor_suppression.py:generic-api-key:308
+# Historical commit of THIS branch: the pre-repair .gitleaksignore comment itself quoted
+# the literal (fixed at 06634dc5); history-scan still sees it. Removable post-merge.
+99d3d15634729820b34eafd209d92eb11f86329e:.gitleaksignore:generic-api-key:211
