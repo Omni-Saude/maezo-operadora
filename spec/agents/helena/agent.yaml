@@ -144,6 +144,16 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                       # `CANAIS_CONFIRMADOS` e' recusado em toda rota.
                                       # v3 (13/09/2026): negativa
                                      # clinica, promessa de humano e de capacidade (PR #395).
+  classify_historico: classify-historico-v1  # 07/10/2026 (DL-0080): adendo do historico curto, so' com MAEZO_HELENA_HISTORICO
+  response_historico: response-historico-v1  # 07/10/2026 (DL-0080): idem, so' na redacao do inform
+  classify_consultas: classify-consultas-v1  # 07/10/2026 (DL de fatos do plano): ADENDO ao classify,
+                                     # SO' com MAEZO_HELENA_CONSULTAS_AMH ligada: intent
+                                     # `consulta_plano` + `consulta_subtipo` (elegibilidade,
+                                     # carteirinha, carencia, autorizacao). Desligada, o classify
+                                     # e' o de antes byte a byte.
+  consulta_plano: consulta-plano-v1  # 07/10/2026: redacao da resposta com os FATOS do cadastro
+                                     # (contrato TINA da AMH) num bloco delimitado; recusa da
+                                     # cerca propria = resposta deterministica so' com os fatos.
 
 model:
   task_default: { tier: fast }        # triagem/classificacao
@@ -203,6 +213,10 @@ autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas 
   - read_member_billing_identity      # identidade do beneficiario (so' ref opaca + perfil minimo) pelo contrato
                                        # AMH `subject-resolution`; sem tool MCP; DESLIGADA por padrao
                                        # (MAEZO_HELENA_IDENTIDADE_AMH, DL-0077); contexto, nunca decisao
+  - read_member_plan_facts            # fatos do plano do PROPRIO beneficiario (vinculos, carencias,
+                                       # requisicoes) pelo contrato AMH `tina` (manifest v1.2, DRAFT);
+                                       # L3 leitura, mesma classe/governanca da acao acima; sem tool MCP;
+                                       # DESLIGADA por padrao (MAEZO_HELENA_CONSULTAS_AMH, DL de 07/10/2026)
   - read_write_memory                 # memoria episodica/semantica (mcp-memory.read_write) — L3;
                                        # excecao disclosed (fence §8.5 item 2), sem no vivo hoje
   # query_process_status removido: nenhum no exerce mcp-cibseven.get_process_status hoje

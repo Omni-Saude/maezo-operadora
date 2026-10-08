@@ -185,6 +185,9 @@ _ACTION_NOT_TOOL_SHAPED: Final[frozenset[str]] = frozenset(
         # catalogo (`amh.get_billing_status` / `amh.resolve_subject_by_phone`), entao nao existe
         # id `mcp-*` para esta sonda procurar no grafo. Decisao do dono 06/10/2026 (decisions-log).
         "read_member_billing_identity",
+        # Helena: fatos do plano pelo contrato TINA da AMH (DL de 07/10/2026). Mesma forma da acao
+        # acima: a superficie e' o executor do gateway (`AmhTinaExecutor`, `tool_id=None`).
+        "read_member_plan_facts",
     }
 )
 

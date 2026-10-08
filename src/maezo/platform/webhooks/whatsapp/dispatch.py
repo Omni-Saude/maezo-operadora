@@ -123,6 +123,7 @@ from .limite import LimitadorDeVolume, Veredito
 from .security import hash_phone, log_safe_message_id
 
 if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
+    from maezo.agents.helena.consultas_plano import FonteDeFatosDoPlano
     from maezo.agents.lucas.administrative.runtime import AdministrativeJourneyRuntime, RuntimeTurnStimulus
     from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyDispatchOutcome
     from maezo.gateway.capabilities.models import CapabilityRefusalReason
@@ -360,6 +361,10 @@ class HelenaDispatcher:
     #: (`webhooks/service.py`) passa o valor das settings; os testes que nao o passam recebem a
     #: Helena que lembra, que e' a de producao.
     memoria_clinica_enabled: bool = True
+    #: HISTORICO CURTO DA CONVERSA (DL-0080, settings `helena_historico` / `MAEZO_HELENA_HISTORICO`).
+    #: Default `False` = a Helena de antes byte a byte. Ligado, liga TAMBEM o modo coleta
+    #: (`coleta_enabled`), para a Helena poder fazer a pergunta de esclarecimento que ja' existe.
+    historico_enabled: bool = False
     #: TETO DE VOLUME (Frente 7.1). `None` = sem teto, que e' o comportamento anterior e continua
     #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
     #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
@@ -388,6 +393,12 @@ class HelenaDispatcher:
     #: AVISO DE IDENTIDADE (DL-0078): o nome de exibicao da operadora nos textos fixos de identidade
     #: (settings `helena_identidade_nome_operadora`). So' tem efeito com `identidade` presente.
     identidade_nome_operadora: str = NOME_OPERADORA_PADRAO
+    #: FATOS DO PLANO (DL de 07/10/2026): a fonte que consulta a AMH pelo contrato TINA
+    #: (`helena_consultas.ConsultasPlanoAmh`). `None` (o default, e o que `service.py` passa com
+    #: `MAEZO_HELENA_CONSULTAS_AMH` desligada) = o grafo de sempre, sem adendo no classify e sem o no'
+    #: `consultar_plano`. So' tem efeito junto com `identidade`: sem referencia resolvida a Helena
+    #: responde o texto fixo de "nao consegui confirmar seus dados".
+    consultas_plano: FonteDeFatosDoPlano | None = None
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
     administrative_binding: JourneyBinding | None = None
@@ -713,6 +724,11 @@ class HelenaDispatcher:
                 # DL-0078: so' o NOME de exibicao da operadora; os textos de identidade so' saem com o
                 # desfecho que `dispatch` entrega no estado (flag desligada = nenhum texto).
                 "identidade_nome_operadora": self.identidade_nome_operadora,
+                # DL-0080: o historico curto e, com ele, o modo coleta — os dois so' com a flag.
+                "historico_enabled": self.historico_enabled,
+                "coleta_enabled": self.historico_enabled,
+                # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
+                "consultas_plano": self.consultas_plano,
             }
         )
         saver = self.checkpointer.saver if self.checkpointer is not None else None
@@ -1104,6 +1120,7 @@ class HelenaDispatcher:
             agent_version="helena@v0",
             memoria_clinica_enabled=self.memoria_clinica_enabled,
             roteador_lucas_enabled=True,
+            historico_enabled=self.historico_enabled,
         )
         estado: dict[str, Any] = {
             **resultado_helena,

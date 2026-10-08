@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Gera o bloco `manifest_v1_1` do pin `config/integrations/amh/contracts.lock.json` (XRG-3).
+"""Gera o bloco de um manifest ADITIVO (`manifest_v1_1`, `manifest_v1_2`) do pin `contracts.lock.json`.
+
+GENERALIZADO EM 07/10/2026 para o v1.2 (TINA: `schemas/contracts/maezo/v1.2/contract-manifest.yaml`, 1
+artefato OpenAPI `schemas/openapi/maezo/v1/tina.openapi.yaml`): `--manifest-version v1.2` escolhe o
+bloco, o caminho do manifest, o `manifest_version` exigido e a lista de artefatos. O padrao continua
+v1.1, entao toda invocacao antiga faz exatamente o que fazia. O rigor e' o MESMO para os dois: o bloco
+so' e' gravado se o verificador (`check_manifest_additive`) aceitar, e um bloco ja' existente nunca e'
+sobrescrito (pin imutavel). O nome do arquivo ficou por compatibilidade com runbooks e testes.
 
 Quando o manifest ADITIVO v1.1 da AMH (`schemas/contracts/maezo/v1.1/contract-manifest.yaml`) for
 PUBLICADO, o pin vira um passo mecanico: este script le os bytes publicados, calcula os digests com
@@ -40,15 +47,21 @@ if str(REPO_ROOT) not in sys.path:  # execucao direta: `python scripts/ci/gerar_
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.ci.verify_amh_contract_pin import (  # noqa: E402
+    ADDITIVE_BY_VERSION,
     DEFAULT_LOCK_PATH,
     FROZEN_STATUS,
+    V1_1,
     V1_1_ARTIFACT_PATHS,
     V1_1_LOCK_KEY,
     V1_1_MANIFEST_PATH,
-    check_manifest_v1_1,
+    AdditiveManifest,
+    check_manifest_additive,
     scan_manifest_path_digests,
     scan_manifest_scalars,
 )
+
+# Reexportados: os nomes do v1.1 continuam importaveis daqui como antes da generalizacao.
+__all__ = ["V1_1_ARTIFACT_PATHS", "V1_1_LOCK_KEY", "V1_1_MANIFEST_PATH"]
 
 DEFAULT_AMH_REPO = "Omni-Saude/amh-data-platform"
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -74,9 +87,14 @@ def _unico(text: str, key: str) -> str:
 
 
 def montar_bloco(
-    raw: bytes, *, manifest_commit_sha: str, verified_by: str, verified_at_utc: str
+    raw: bytes,
+    *,
+    manifest_commit_sha: str,
+    verified_by: str,
+    verified_at_utc: str,
+    spec: AdditiveManifest = V1_1,
 ) -> dict[str, Any]:
-    """Monta o bloco `manifest_v1_1` a partir dos bytes publicados. Nao toca disco nem rede."""
+    """Monta o bloco `spec.lock_key` a partir dos bytes publicados. Nao toca disco nem rede."""
     if _GIT_SHA_RE.match(manifest_commit_sha) is None:
         raise GerarPinError(f"commit do manifest invalido (40 hex esperados): {manifest_commit_sha!r}")
     try:
@@ -89,8 +107,8 @@ def montar_bloco(
     status = _unico(text, "status")
     if status != FROZEN_STATUS:
         raise GerarPinError(f"manifest status={status!r}: so se pina manifest {FROZEN_STATUS}")
-    if _unico(text, "manifest_version") != "1.1.0":
-        raise GerarPinError("manifest_version precisa ser 1.1.0")
+    if _unico(text, "manifest_version") != spec.manifest_version:
+        raise GerarPinError(f"manifest_version precisa ser {spec.manifest_version}")
 
     dry_run_id = _unico(text, "dry_run_id")
     tail = _RUN_TAIL_RE.search(dry_run_id)
@@ -99,7 +117,7 @@ def montar_bloco(
 
     pares = scan_manifest_path_digests(text)
     artefatos: list[dict[str, str]] = []
-    for caminho in V1_1_ARTIFACT_PATHS:
+    for caminho in spec.artifact_paths:
         digest = pares.get(caminho)
         if digest is None:
             raise GerarPinError(f"manifest sem digest para {caminho}")
@@ -115,7 +133,7 @@ def montar_bloco(
         "manifest_pin": {
             "byte_size": len(raw),
             "git_blob_sha": git_blob_sha(raw),
-            "path": V1_1_MANIFEST_PATH,
+            "path": spec.manifest_path,
             "prepublication_sha256": _unico(text, "prepublication_manifest_sha256"),
             "sha256": hashlib.sha256(raw).hexdigest(),
         },
@@ -134,9 +152,9 @@ def montar_bloco(
         "artifacts": artefatos,
         "xrg3_verification": {
             "verification_method": [
-                "manifest v1.1 + digests recalculados pelo script scripts/ci/gerar_pin_v1_1.py",
+                f"manifest {spec.version} + digests recalculados pelo script scripts/ci/gerar_pin_v1_1.py",
                 "sha256, git blob sha e tamanho calculados sobre os bytes publicados",
-                "2 digests OpenAPI conferidos contra o manifest publicado",
+                f"{len(spec.artifact_paths)} digests OpenAPI conferidos contra o manifest publicado",
             ],
             "verified_at_utc": verified_at_utc,
             "verified_by": verified_by,
@@ -155,18 +173,20 @@ def _gh(args: Sequence[str], runner: Callable[..., Any] = subprocess.run) -> byt
     return bytes(done.stdout)
 
 
-def baixar_do_github(repo: str, ref: str, runner: Callable[..., Any] = subprocess.run) -> tuple[bytes, str]:
-    """Bytes crus do manifest v1.1 no commit `ref` + o commit resolvido (40 hex)."""
+def baixar_do_github(
+    repo: str, ref: str, runner: Callable[..., Any] = subprocess.run, *, spec: AdditiveManifest = V1_1
+) -> tuple[bytes, str]:
+    """Bytes crus do manifest `spec` no commit `ref` + o commit resolvido (40 hex)."""
     commit = _gh([f"repos/{repo}/commits/{ref}", "--jq", ".sha"], runner).decode().strip()
     raw = _gh(
         [
-            f"repos/{repo}/contents/{V1_1_MANIFEST_PATH}?ref={commit}",
+            f"repos/{repo}/contents/{spec.manifest_path}?ref={commit}",
             "-H",
             "Accept: application/vnd.github.raw+json",
         ],
         runner,
     )
-    meta = json.loads(_gh([f"repos/{repo}/contents/{V1_1_MANIFEST_PATH}?ref={commit}"], runner))
+    meta = json.loads(_gh([f"repos/{repo}/contents/{spec.manifest_path}?ref={commit}"], runner))
     if meta.get("sha") != git_blob_sha(raw):
         raise GerarPinError(
             f"blob sha informado pelo GitHub ({meta.get('sha')}) difere do calculado ({git_blob_sha(raw)})"
@@ -178,14 +198,14 @@ def _detectar_eol(raw: bytes) -> str:
     return "\r\n" if b"\r\n" in raw else "\n"
 
 
-def gravar_no_lock(lock_path: Path, bloco: dict[str, Any]) -> None:
-    """Insere `manifest_v1_1` no lock (so se ausente) e so grava se o verificador aceitar."""
+def gravar_no_lock(lock_path: Path, bloco: dict[str, Any], *, spec: AdditiveManifest = V1_1) -> None:
+    """Insere `spec.lock_key` no lock (so se ausente) e so grava se o verificador aceitar."""
     raw = lock_path.read_bytes()
     lock = json.loads(raw.decode("utf-8"))
-    if V1_1_LOCK_KEY in lock:
-        raise GerarPinError(f"o lock ja tem `{V1_1_LOCK_KEY}`: pin imutavel, nao sobrescrevo")
-    lock[V1_1_LOCK_KEY] = bloco
-    violacoes = check_manifest_v1_1(lock)
+    if spec.lock_key in lock:
+        raise GerarPinError(f"o lock ja tem `{spec.lock_key}`: pin imutavel, nao sobrescrevo")
+    lock[spec.lock_key] = bloco
+    violacoes = check_manifest_additive(lock, spec)
     if violacoes:
         raise GerarPinError(
             "bloco recusado pelo verificador:\n" + "\n".join(f"  - {v.render()}" for v in violacoes)
@@ -208,7 +228,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--verified-at-utc", default=None, help="ISO-8601 UTC (padrao: agora).")
     parser.add_argument("--lock", default=DEFAULT_LOCK_PATH)
     parser.add_argument("--write", action="store_true", help="Grava o bloco no lock (padrao: so imprime).")
+    parser.add_argument(
+        "--manifest-version",
+        choices=tuple(ADDITIVE_BY_VERSION),
+        default=V1_1.version,
+        help="Qual manifest aditivo pinar (padrao: v1.1).",
+    )
     args = parser.parse_args(argv)
+    spec = ADDITIVE_BY_VERSION[args.manifest_version]
 
     try:
         if args.manifest is not None:
@@ -217,18 +244,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             raw = Path(args.manifest).read_bytes()
             commit = args.manifest_commit_sha
         else:
-            raw, commit = baixar_do_github(args.amh_repo, args.gh_ref)
+            raw, commit = baixar_do_github(args.amh_repo, args.gh_ref, spec=spec)
         verified_at = args.verified_at_utc or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         bloco = montar_bloco(
-            raw, manifest_commit_sha=commit, verified_by=args.verified_by, verified_at_utc=verified_at
+            raw,
+            manifest_commit_sha=commit,
+            verified_by=args.verified_by,
+            verified_at_utc=verified_at,
+            spec=spec,
         )
         if args.write:
             lock_path = Path(args.lock)
             if not lock_path.is_absolute():
                 lock_path = REPO_ROOT / lock_path
-            gravar_no_lock(lock_path, bloco)
+            gravar_no_lock(lock_path, bloco, spec=spec)
             print(f"[gerar-pin-v1-1] bloco gravado em {lock_path}", file=sys.stderr)
-        print(json.dumps({V1_1_LOCK_KEY: bloco}, indent=2, ensure_ascii=False))
+        print(json.dumps({spec.lock_key: bloco}, indent=2, ensure_ascii=False))
     except (GerarPinError, OSError) as exc:
         print(f"[gerar-pin-v1-1] ERRO: {exc}", file=sys.stderr)
         return 1
