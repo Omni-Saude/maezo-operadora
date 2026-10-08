@@ -176,6 +176,11 @@ portal = {
     "18.228.162.125/32",
     "54.232.187.39/32",
     "56.126.32.115/32",
+    // [08/10/2026] enderecos atuais medidos (callback "Nao foi possivel validar a sessao": /oauth2/token
+    // inalcancavel a partir do SG — 4a rotacao). TLS ok em cada um com *.auth.sa-east-1.amazoncognito.com.
+    "18.229.179.240/32",
+    "18.229.54.212/32",
+    "18.231.13.66/32",
     // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.ecr.api (vpce-0f200a15dbd1824ec).
     "10.40.40.27/32",
     "10.40.41.104/32",
