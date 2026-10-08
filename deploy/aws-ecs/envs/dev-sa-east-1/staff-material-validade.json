@@ -1,0 +1,9 @@
+{
+  "schema": "maezo-staff-material-validity.v1",
+  "valid_until": "2026-10-22T18:19:46Z",
+  "renovado_em": "2026-10-08T18:20:46Z",
+  "designation_revision": "3",
+  "admission_revision": "6",
+  "aviso_dias": 3,
+  "runbook": "docs/runbooks/renovar-material-staff-dev.md"
+}

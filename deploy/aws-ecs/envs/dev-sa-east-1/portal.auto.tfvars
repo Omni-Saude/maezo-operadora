@@ -195,6 +195,10 @@ portal = {
     "10.40.41.76/32",
   ]
 
+  // 08/10/2026 (Onda 11, renovacao): a janela de 14 dias (N2) do material staff/human venceu em
+  // 2026-10-08T04:44:25Z e o motor parou de subir. Material renovado SEM mudar o desenho: designacao r3,
+  // admissao Q2 rev6, chaves humanas novas (CA nova), mesmo root/leitura/witness. Vence em
+  // 2026-10-22T18:20:46Z. Receita: docs/runbooks/renovar-material-staff-dev.md.
   // Perfil `staff` (Onda 6, 25/09/2026, plano portal-autoridade-nativa-dev). Proveniencia por campo:
   staff = {
     // Segredo D-G criado pela OrganizationAccountAccessRole (file://), sob a CMK portal-staff
@@ -203,7 +207,7 @@ portal = {
     material_secret_arn = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/staff-materials-R8JeAL"
     // O VersionId do segredo E o `material_version_id` do pacote (vira MAEZO_PORTAL_STAFF_MATERIAL_VERSION_ID):
     // publicado com ClientRequestToken = material_version_id. Um VersionId aleatorio derruba o init.
-    material_secret_version_id = "amh-dev-staff-712901cc567620d5601262e6dd"
+    material_secret_version_id = "amh-dev-staff-a734b48205220138f538815c28"
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
     // deploy/portal.Dockerfile sobre o app 8c3a2938 (branch ops/staff-onda4-runtime), CodeBuild
     // `8229e2ca-portal-staff`; assinado + SBOM pelo supply-chain.yml (run 36182463891).
@@ -224,13 +228,13 @@ portal = {
     // f7026a7e: portal-human sobre a main f7026a7e, assinada pelo supply-chain.yml run 37489994010.
     portal_image_digest = "sha256:2887ba81f6b6e397eb329526e4072bc422b21e7a751c9573d40ebe7eb485c4ce"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
-    public_manifest_sha256 = "fcc2e9fa4b831edf759119a80c49a4b257d6c21a2b499ba38df3a3bf7e80b1be"
+    public_manifest_sha256 = "f8387af8bb4909adf1e3ccd4c51ad0479c915f65601292ab5198805128349c5a"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
     root_key_sha256 = "de41c7a0ebac65b3a90a2405002e5118f18ca76dfd38b7ef52161fb44865942c"
     // Designacao assinada e instalada (tools.staff_ops rows, releitura byte a byte).
-    designation_sha256 = "4f8cf21c9309dc4d41aae1a5527c7fc73beb2dce32da37f0e0731725e479dcda"
+    designation_sha256 = "ef548c55ae18829c866e6ad56d48dae4231fb3522f8487a5bb8313653a67ae2c"
     // Log do boot do engine vivo: staff_native_configuration_digest=
-    native_configuration_sha256 = "4fa5d916f7fb1e50fe6a1182d2c8bdf3a32af8b22ee3460ebd65c076f0c4cd5c"
+    native_configuration_sha256 = "c7eb48c04011db1d4fa68b185c969acdf8fa853b4adb3c8aa38d25dad262fb9f"
     scope = {
       tenant               = "amh"
       environment          = "dev"
@@ -260,9 +264,9 @@ portal = {
   // com `portal_assignment_source.state='active'` (staff-assignment, 25/09: active -> ja-ativa).
   human = {
     material_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/human-materials-FAErGt"
-    material_secret_version_id = "amh-dev-human-4e6bf3d2958c7296cd33d4577e"
+    material_secret_version_id = "amh-dev-human-1dced1fcdb361e47e278952fef"
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
-    public_manifest_sha256     = "dcdb3f1536513957dabc1c862470cba5799203c62ff225ed9a856d4a6baeb826"
+    public_manifest_sha256     = "96f43b71f3b91907b0e50cd356f1ce740ca7bad39e2d6d2ecf1621727a99d2de"
     // Imagem de operacao (tools.staff_ops human-init). Era `4bd50928-staff-ops` (sha256:01eb1771...),
     // EXPIRADA do ECR pela lifecycle policy (27/09/2026: task nova recusava com
     // CannotPullContainerError). Trocada pela `6bd559ec-staff-ops` — a MESMA que o staff_job ja
