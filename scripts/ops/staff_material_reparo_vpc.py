@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import json
 import os
+from datetime import UTC, datetime
 
 import asyncpg
 import boto3
@@ -26,6 +27,24 @@ from maezo.portal.engine.profile import canonicalize
 
 MODO = os.environ.get("MODO", "medir")
 ATE = os.environ.get("RENOVAR_ATE", "")
+FORMATO = "%Y-%m-%dT%H:%M:%S.%fZ"  # o instante do perfil (models.instant): AAAA-MM-DDTHH:MM:SS.ffffffZ
+
+
+def instante(valor: str) -> datetime:
+    """ISO-8601 UTC no formato exato do perfil; outra forma = recusa (nunca comparar como string)."""
+    momento = datetime.strptime(valor, FORMATO).replace(tzinfo=UTC)
+    if momento.strftime(FORMATO) != valor:
+        raise SystemExit(f"instante fora do formato {FORMATO}")
+    return momento
+
+
+if MODO not in ("medir", "aplicar"):
+    raise SystemExit("MODO: medir ou aplicar")
+if MODO == "aplicar":
+    if not ATE:
+        raise SystemExit("MODO=aplicar exige RENOVAR_ATE")
+    if instante(ATE) <= datetime.now(UTC):
+        raise SystemExit("RENOVAR_ATE no passado")
 SEGREDO = os.environ["STAFF_OWNER_SECRET_ARN"]
 
 
@@ -91,7 +110,8 @@ async def main() -> None:
             if q is not None:
                 qual = json.loads(q["qualification_"])
                 out["auth_valid_until"] = qual["valid_until"]
-                if MODO == "aplicar" and ATE and qual["valid_until"] < ATE:
+                if MODO == "aplicar" and instante(qual["valid_until"]) < instante(ATE):
+                    out["auth_valid_until_antes"] = qual["valid_until"]
                     qual["valid_until"] = ATE
                     out["auth_acao"] = await c.execute(
                         "UPDATE mzo_auth_installation SET qualification_=$1 WHERE tenant_='amh'",

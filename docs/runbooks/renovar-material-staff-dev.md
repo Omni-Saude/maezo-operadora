@@ -66,22 +66,26 @@ MSYS_NO_PATHCONV=1 docker run --rm --user 0 --network none \
 ```
 
 `--anterior` e SEMPRE o `estado/` da renovacao anterior (a de 08/10 e a primeira com esse layout).
+Trava: o `gerar` aborta antes de abrir a chave da raiz se o escopo da designacao nao for `dev`/`amh`
+ou se o SHA-256 da raiz do volume nao for o `root_key_sha256` de `portal.auto.tfvars` (`de41c7a0...`).
+Com `estado/syn-fixture.json` presente, a fixture SYN sai renovada (certificado do AUTH novo).
 A saida e um diretorio NOVO; nada anterior e tocado. O pacote staff passa pelo `decode_bundle` do
 portal e o humano pelo `verify_materials` do job antes de gravar. Imprime so digests: guarde o
 JSON (`public/resumo.json` no volume).
 
 ## 5. Publicar os segredos (OAAR; o SSO adm-dev nao cria versao por causa da SCP)
 
+A credencial da `OrganizationAccountAccessRole` NUNCA vai para arquivo: fica em variaveis de um
+subshell e entra no container por `-e NOME` (sem valor na linha de comando). O `tr -d ''` e
+obrigatorio no Git Bash: a aws.exe termina a linha com CR e o token com CR quebra o header do boto3
+(que ecoa o header no traceback). O container monta SO `ops-secrets/` e `public/` da saida
+(`volume-subpath`, Docker 29): a raiz e a senha dela nao ficam visiveis para o processo que fala com a AWS.
+
 ```bash
-aws sts assume-role --profile adm-mgmt --role-arn arn:aws:iam::203312548462:role/OrganizationAccountAccessRole \
-  --role-session-name renovacao-staff --duration-seconds 3600 \
-  --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text > "$S/oaar.raw"
-read A B C < "$S/oaar.raw"; rm -f "$S/oaar.raw"
-printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nAWS_SESSION_TOKEN=%s\nAWS_REGION=sa-east-1\n' "$A" "$B" "$C" > "$S/oaar.env"
-MSYS_NO_PATHCONV=1 docker run --rm --user 0 --env-file "$S/oaar.env" \
-  -v $REPO:/repo:ro -v maezo-onda2b-materials:/m:ro maezo-staff-runner:AAAAMMDD \
-  python /repo/scripts/ops/staff_material_renovar_dev.py publicar --out /m/ondaNN-renovacao-AAAAMMDD \
-  native-materials.json staff-materials.json portal-human.json job.json rows.json
+O=ondaNN-renovacao-AAAAMMDD
+( read A B C < <(aws sts assume-role --profile adm-mgmt     --role-arn arn:aws:iam::203312548462:role/OrganizationAccountAccessRole --role-session-name renovacao-staff     --duration-seconds 900 --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text | tr -d '')
+  export AWS_ACCESS_KEY_ID=$A AWS_SECRET_ACCESS_KEY=$B AWS_SESSION_TOKEN=$C MSYS_NO_PATHCONV=1
+  docker run --rm --user 0 -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION=sa-east-1     -v $REPO:/repo:ro     --mount type=volume,src=maezo-onda2b-materials,dst=/out/ops-secrets,volume-subpath=$O/ops-secrets,readonly     --mount type=volume,src=maezo-onda2b-materials,dst=/out/public,volume-subpath=$O/public,readonly     maezo-staff-runner:AAAAMMDD python /repo/scripts/ops/staff_material_renovar_dev.py publicar --out /out     native-materials.json staff-materials.json portal-human.json job.json rows.json syn-fixture.json )
 ```
 
 `put_secret_value` com boto3, byte a byte (nunca `--output text` + `file://`: ja gerou quebra de
@@ -146,14 +150,16 @@ em silencio). `ecs wait services-stable`: o motor leva ~3 min (boot de 63 s + he
 cd $REPO && AWS_PROFILE=adm-dev bash scripts/ops/staff_vpc_run.sh scripts/ops/staff_material_reparo_vpc.py \
   maezo-operadora-dev-staff-syn staff-syn staff-syn MODO=medir
 AWS_PROFILE=adm-dev bash scripts/ops/staff_vpc_run.sh scripts/ops/staff_material_reparo_vpc.py \
-  maezo-operadora-dev-staff-syn staff-syn staff-syn MODO=aplicar RENOVAR_ATE=<fim da janela, AAAA-MM-DDTHH:MM:SS.000000Z>
+  maezo-operadora-dev-staff-syn staff-syn staff-syn MODO=aplicar RENOVAR_ATE=<fim da janela, AAAA-MM-DDTHH:MM:SS.ffffffZ>
 ```
 
 Por que: (a) o sidecar `staff-case-issuer` so semeia a politica `@dN+1` sem publicacao pendente nas
 outras (`case_issuer_sources._seed`), e a rodada da politica antiga nunca mais acontece; o script so
 descarta a pendencia que o engine NUNCA viu (sem recibo e sem source_event) e registra o SHA-256 dela.
 (b) a qualificacao AUTH sintetica (`mzo_auth_installation.valid_until`) vence sozinha e nenhuma
-ferramenta a renova. Depois do `aplicar`, o sidecar loga `staff_case_issuer_round` com
+ferramenta a renova. `RENOVAR_ATE` tem de estar no formato exato do perfil e no futuro (o script recusa
+outra forma e compara como instante). A saida registra `sha256` da pendencia descartada e
+`auth_valid_until_antes`: copie os dois para o Historico. Depois do `aplicar`, o sidecar loga `staff_case_issuer_round` com
 `policy_ref ...@dN+1` e `refused: 0` em ate ~1 min.
 
 ## 9. Verificacao
@@ -190,11 +196,19 @@ curl -s -o /dev/null -w '%{http_code}\n' https://portal-maezo-dev.austa.com.br/a
   `disable` + nova ativacao (`PostgresStaffAssignmentAdministration.prepare_change` a partir de
   `active` congela um disable), que a ferramenta nao faz. O segredo de ativacao novo (recibo do dono
   N+1) ja sai do `gerar` (`assignment-activate.json`), sem publicar.
-- **Fixture SYN** (`staff-install/syn-fixture`): o `result_certificate` e o do AUTH antigo; regerar
-  antes de rodar `staff_ops syn`.
-- **Topico SNS `maezo-operadora-dev-staff-alerts` sem assinante** (medido em 08/10): o alarme
-  `staff-job-2-falhas-seguidas` foi para ALARM as 04:52Z e nao avisou ninguem. Defina
-  `staff_alerts_email` (o destinatario confirma a assinatura).
+- **Assinatura do topico SNS `maezo-operadora-dev-staff-alerts`:** `staff_alerts_email` esta em
+  `staff-alerts.auto.tfvars` (decisao do dono, 08/10). Ela so passa a valer depois de confirmada pelo
+  link que a AWS manda por e-mail (estado `PendingConfirmation` ate la).
+
+O que falta para renovar a geracao de atribuicao (NAO executado):
+1. ferramenta/modo `assignment-renew` na task `staff-assignment`: `prepare_change` a partir de `active`
+   (congela um `disable` com o `active_generation_digest`), publicar e esperar o ACK do engine
+   (fonte `disabled`);
+2. em seguida o caminho que ja existe (`assignment-activate` a partir de `disabled`) com o segredo
+   `assignment-activate.json` da renovacao (recibo do dono N+1; publicar antes), que gera a geracao nova
+   com `valid_until` = agora + `valid_days`;
+3. entre 1 e 2 o BFF fica sem o plano humano (o portal so liga com a fonte `active`): janela curta e
+   avisada. Pausar o schedule do job T1.5 durante os dois passos evita o `revision_conflict`.
 
 ## Historico
 
@@ -206,7 +220,12 @@ curl -s -o /dev/null -w '%{http_code}\n' https://portal-maezo-dev.austa.com.br/a
   native-materials `d3c6dc4f-9ada-4f0f-b8f4-f9ae95aac8c9`, job `0660dd69-f333-4df9-82f5-5123a1c5e682`,
   rows `7c5cc2b8-0e7e-4d9f-97dd-aef61bc64228`; cibseven :17, portal :35. Emissor: pendencia
   `staff-cases-amh@3336` (de 07/10 10:11Z, nunca vista pelo engine) descartada; AUTH renovada.
-  Snapshot `pre-onda11-renovacao-20261008`. Os arquivos foram gerados com o prototipo deste script; o
+  Snapshot `pre-onda11-renovacao-20261008`. Pendencia descartada no emissor: `staff-cases-amh@3336`,
+  SHA-256 `26c7b106426cc3f3d440575f123b8485179016ad8fd8dd0626cb93a78ecbe7da`. Qualificacao AUTH:
+  `valid_until` anterior `2026-10-07T19:09:08.321975Z` -> `2026-10-22T18:20:46.000000Z`.
+  Continuacao (PR seguinte ao #704): fixture SYN com o certificado do AUTH novo
+  (`staff-install/syn-fixture` versao `f81fa3d2-bbf9-4c7f-bc60-d624a9693845`, so `result_certificate`
+  mudou) e assinatura de e-mail no topico de alertas criada (`PendingConfirmation`). Os arquivos foram gerados com o prototipo deste script; o
   `estado/` dessa saida foi montado a partir de `onda8c`/`onda10` e o `gerar` versionado foi ensaiado
   de ponta a ponta sobre ele (saida descartada). A entrada do native-secret derivada pelo script
   reproduz byte a byte a do segredo vivo v5 e a usada na v6.
