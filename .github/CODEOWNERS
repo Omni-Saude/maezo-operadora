@@ -321,7 +321,10 @@
 # entre eles, logo, pelo mesmo raciocinio do achado 8 desta rodada, um check fora do conjunto exigido
 # nao bloqueia merge algum. Torna-lo REQUIRED e ato PENDENTE do dono (R-051, linha (3) de
 # `docs/review-queue.md`). Nao leia esta linha como "deploy/ esta gateado por revisao obrigatoria".
-/deploy/                   @rodaquino-OMNI @Omni-Saude/security-team
+# 07/10/2026: `@filipecarmo81` (Diretor de Tecnologia, dono da organizacao) passa a revisor
+# qualificado de `deploy/` por decisao propria; a entrada foi aprovada por um dono pre-existente
+# (security-team). Como qualquer dono, ele NAO aprova o PR de que e autor (o gate exclui o autor).
+/deploy/                   @rodaquino-OMNI @Omni-Saude/security-team @filipecarmo81
 #
 # NAO GATEADO, DELIBERADAMENTE — registrado aqui para nao ser confundido com esquecimento:
 #   - `/pyproject.toml` (25 commits/6sem — o maior churn de qualquer candidato ja considerado

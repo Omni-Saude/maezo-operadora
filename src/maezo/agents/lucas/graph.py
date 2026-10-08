@@ -17,9 +17,11 @@ ONE agent, THREE journeys — distinguished by `intencao` in state, NEVER by a m
      conciliation status PRE-RESOLVED by a worker upstream (`status_conciliado`,
      `ciclos_sem_conciliacao`) — he NEVER computes or invents it (ADR-0012) — and reports what
      conciliation says via `lucas_billing_admissibility`. A non-conciliated / inadimplencia
-     signal routes to `escalate_human`.
+     signal routes to `escalate_human`. A intencao `inadimplencia` ("minha mensalidade esta em
+     aberto?") segue este MESMO caminho desde DL-0082 (08/10/2026): ela e' dica de jornada, e
+     quem decide sao os fatos via DMN — conciliado responde "em dia" com texto fixo, atraso escala.
 
-  J3 (inadimplencia | cancelamento | contestacao_cobranca | pedido de cancelamento sinalizado):
+  J3 (cancelamento | contestacao_cobranca | pedido de cancelamento sinalizado):
      ALWAYS escalates to a human (SP-OP-ESCALATION-001; SP-OP-CANCEL-001 is where the human
      decides RESCINDIR/MANTER/SUSPENDER). Lucas NEVER suspends, cancels, or communicates any
      adverse outcome himself — this journey never even reaches the billing DMN.
@@ -99,8 +101,9 @@ DIVERGENCES FROM THE v1 DONOR (disclosed, not hidden — `spec/` wins per this t
 - Model-tier routing (`task_default`/`reasoning`) — DISCLOSURE CORRECTED, AF-12 (2026-09-03).
   WAS: "v2's `InferenceProvider.generate(prompt, phi=True)` has no `task_kind` parameter
   (ADR-0009's tiering is not wired to agents yet)". The parameter now exists and this graph
-  passes it: `_build_message`/`_build_escalation_ack` are `task_default` (phrasing already-known
-  facts), `_build_dossier` is `reasoning` (it narrates over the assembled facts for a human).
+  passes it: `_build_message` is `task_default` (phrasing already-known facts; o ACK de escalacao
+  e' texto fixo desde DL-0082, sem modelo), `_build_dossier` is `reasoning` (it narrates over
+  the assembled facts for a human).
   WHAT THAT DOES AND DOES NOT BUY, precisely: `lucas/agent.yaml`'s declared tiers now reach the
   provider, are validated fail-closed against the ADR-0009 vocabulary at construction, and are
   counted per call on `maezo_llm_tier_resolution_total`. It does NOT change which model runs —
@@ -128,7 +131,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
+from datetime import date
 from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 import structlog
@@ -167,11 +172,11 @@ from maezo.tools.workers.dmn_transport import (
 from .prompts import (
     DOSSIER_PROMPT_VERSION,
     ESCALATION_ACK_PROMPT_VERSION,
+    MENSAGEM_EM_DIA_VERSION,
     MESSAGE_PROMPT_VERSION,
     RECUSA_DE_SAIDA_VERSION,
     SYSTEM_PROMPT_VERSION,
     dossier_prompt,
-    escalation_ack_prompt,
     message_prompt,
     motivo_de_recusa,
 )
@@ -622,11 +627,20 @@ def _entrega_de(resultado: Any) -> str:
 def _is_escalation_intent(state: LucasState) -> bool:
     """True when the case is, by nature, a J3 escalation path.
 
-    `inadimplencia`/`cancelamento` intencao ALWAYS escalates — never an auto-response. A
-    beneficiary contesting a charge or a signaled cancellation request also always escalates,
-    regardless of `intencao`."""
+    `cancelamento` intencao ALWAYS escalates — never an auto-response. A beneficiary contesting a
+    charge or a signaled cancellation request also always escalates, regardless of `intencao`.
+
+    `inadimplencia` NAO esta' mais aqui (decisao do dono de 08/10/2026, DL-0082). Ela e' a LEITURA
+    da pergunta ("minha mensalidade esta em aberto?", "estou devendo?"), nao um fato: no teste real
+    de 08/10/2026 a fonte AMH disse "conciliado, zero ciclos" e mesmo assim o Lucas pulou a DMN,
+    gravou `inadimplencia_detectada`, abriu SP-OP-ESCALATION-001 e disse ao beneficiario que havia
+    "inadimplencia detectada". Agora a intencao `inadimplencia` passa pela
+    `lucas_billing_admissibility` com os fatos de conciliacao, como a confirmacao de pagamento: a
+    DMN decide (conciliado -> RESPONDER; nao conciliado por >= 1 ciclo -> ESCALAR_HUMANO com
+    `categoria=inadimplencia`; sem fato -> catch-all, humano). A pergunta continua sendo dica de
+    jornada (vai para o log e para a DMN de roteamento da escalacao), nunca veredito."""
     return (
-        state.get("intencao") in {"inadimplencia", "cancelamento"}
+        state.get("intencao") == "cancelamento"
         or bool(state.get("contesta_cobranca", False))
         or bool(state.get("pedido_cancelamento", False))
     )
@@ -660,7 +674,10 @@ def _escalation_motivo(state: LucasState) -> MotivoHumano:
         return "pedido_cancelamento"
     if state.get("contesta_cobranca"):
         return "contestacao_cobranca"
-    return "inadimplencia_detectada"
+    # Inalcancavel hoje (`_is_escalation_intent` so' admite os dois casos acima). Se um dia for
+    # alcancado, o motivo e' `ambiguidade`: `inadimplencia_detectada` so' nasce da regra de atraso
+    # da DMN (`categoria=inadimplencia`), nunca da intencao (DL-0082).
+    return "ambiguidade"
 
 
 def _motivo_categoria(motivo: MotivoHumano) -> MotivoCategoria:
@@ -764,6 +781,112 @@ ACK_ESCALACAO_RECUSADO: str = (
     "o atendimento por aqui. Nenhuma decisao sobre seu plano foi tomada."
 )
 
+# --- Textos FIXOS ao beneficiario decididos pelos FATOS (DL-0082, decisao do dono 08/10/2026) -----
+#
+# INCIDENTE (dev, 08/10/2026 01:13 UTC): "minha mensalidade esta em aberto?" -> fonte AMH disse
+# conciliado com zero ciclos -> o Lucas escalou por `inadimplencia` e o ACK REDIGIDO PELO MODELO
+# (o prompt carregava `motivo_humano=inadimplencia_detectada`) disse "Recebemos a informacao sobre a
+# inadimplencia detectada". Dois consertos: (1) a rota sai dos fatos (`_is_escalation_intent`), e
+# (2) o que o beneficiario le' nestes dois pontos e' TEXTO FIXO montado so' com fatos, nunca
+# rascunho de modelo. Os textos ainda passam por `_cercar_saida` (defesa em profundidade; os testes
+# provam que nenhum deles cai na cerca).
+
+#: ACK de escalacao, neutro. Nao diz por que escalou (o dossie diz isso ao humano), nao nomeia
+#: inadimplencia e nao promete prazo. A promessa de humano e' verdadeira: `send_escalation_ack` so'
+#: roda com `process_started is True`.
+ACK_ESCALACAO: Final[str] = (
+    "Vou encaminhar sua solicitação de cobrança para um atendente, que vai entrar em contato. "
+    "Nenhuma decisão sobre seu plano foi tomada."
+)
+
+#: Prefixo do ACK quando a fonte NAO respondeu (`Indisponivel` -> fatos de conciliacao ausentes).
+#: Diz o que aconteceu — nao deu para consultar — e nao inventa situacao nenhuma.
+_PREFIXO_FONTE_INDISPONIVEL: Final[str] = "No momento não consegui consultar a situação da sua mensalidade."
+
+#: Referencia de origem que a fonte AMH escreve (`fonte_cobranca_amh.py`: `amh-billing:{AAAA-MM-DD}`).
+#: So' esta forma vira data no texto; a da fonte simulada (`cnab-sim-...`) nao tem data e e' omitida.
+_CNAB_REF_DATADA: Final[re.Pattern[str]] = re.compile(r"^amh-billing:(\d{4})-(\d{2})-(\d{2})$")
+
+#: Rotulo MASCARADO do boleto que a fonte AMH entrega (`****1234`). So' ele vai ao texto: o rotulo
+#: sintetico da simulada (`SIM-...`) e qualquer coisa fora desta forma sao omitidos.
+_BOLETO_MASCARADO: Final[re.Pattern[str]] = re.compile(r"^\*{2,}\d{2,6}$")
+
+
+def _data_dos_fatos(state: LucasState) -> str | None:
+    """`DD/MM/AAAA` da data da fonte (`cnab_ref`), ou `None` quando nao ha' data valida."""
+    achado = _CNAB_REF_DATADA.match(str(state.get("cnab_ref") or ""))
+    if achado is None:
+        return None
+    ano, mes, dia = (int(parte) for parte in achado.groups())
+    try:
+        data = date(ano, mes, dia)
+    except ValueError:
+        return None
+    return data.strftime("%d/%m/%Y")
+
+
+def _rotulo_boleto(state: LucasState) -> str | None:
+    rotulo = str(state.get("numero_boleto") or "")
+    return rotulo if _BOLETO_MASCARADO.match(rotulo) else None
+
+
+def _complemento_dos_fatos(state: LucasState) -> str:
+    """O boleto mascarado e a data da fonte, quando existem — para a pessoa saber de qual boleto e
+    de QUANDO e' a informacao (a fonte pode estar alguns dias atras do pagamento)."""
+    partes: list[str] = []
+    rotulo = _rotulo_boleto(state)
+    if rotulo:
+        partes.append(f"Boleto de referência: {rotulo}.")
+    data = _data_dos_fatos(state)
+    if data:
+        partes.append(f"Essa informação é conforme os dados de {data}.")
+    return " ".join(partes)
+
+
+def _mensalidade_em_dia(state: LucasState) -> bool:
+    """Os fatos dizem "em dia": a DMN mandou RESPONDER a uma pergunta de status de pagamento, a
+    fonte disse conciliado e nao ha' ciclo sem conciliacao. Fatos contraditorios (conciliado com
+    ciclos > 0) NAO entram aqui: seguem a redacao de antes, sem afirmar "em dia"."""
+    return (
+        state.get("admissibilidade") == "RESPONDER"
+        and state.get("tipo_solicitacao") == "status_pagamento"
+        and state.get("status_conciliado") is True
+        and _ciclos_sem_conciliacao(state) == 0
+    )
+
+
+def texto_mensalidade_em_dia(state: LucasState) -> str:
+    """Resposta FIXA quando os fatos dizem que o pagamento esta' conciliado. Nunca nomeia
+    inadimplencia, nunca abre processo (esta' na rota `respond_member`)."""
+    base = "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia."
+    complemento = _complemento_dos_fatos(state)
+    return f"{base} {complemento}" if complemento else base
+
+
+def texto_ack_escalacao(state: LucasState) -> str:
+    """ACK FIXO da escalacao, escolhido pelos FATOS e pelo motivo ja' decidido pela DMN.
+
+    - `inadimplencia_detectada` (so' a regra de atraso da DMN produz): informa, sem acusar, que
+      consta mensalidade em aberto, com boleto mascarado e data da fonte quando houver;
+    - fatos de conciliacao AUSENTES (fonte `Indisponivel`) fora de contestacao/cancelamento: diz
+      que nao deu para consultar agora;
+    - qualquer outro caso: so' o ACK neutro.
+    """
+    motivo = state.get("motivo_humano")
+    if motivo == "inadimplencia_detectada":
+        partes = ["Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado."]
+        complemento = _complemento_dos_fatos(state)
+        if complemento:
+            partes.append(complemento)
+        partes.append(ACK_ESCALACAO)
+        return " ".join(partes)
+    if state.get("status_conciliado") is None and motivo not in {
+        "pedido_cancelamento",
+        "contestacao_cobranca",
+    }:
+        return f"{_PREFIXO_FONTE_INDISPONIVEL} {ACK_ESCALACAO}"
+    return ACK_ESCALACAO
+
 
 class RespostaRecusadaError(RuntimeError):
     """O texto redigido violou `motivo_de_recusa` e NAO vai ser enviado.
@@ -864,8 +987,9 @@ class LucasGraph:
         """Evaluate the deterministic DMN tables and decide the ROUTE (respond vs escalate).
 
         ADR-0012: the DMN decides; the LLM never does. J3 (escalation-intent) NEVER even reaches
-        the billing DMN — `inadimplencia`/`cancelamento`/contestation/signaled cancellation
-        ALWAYS escalates (L0 hard).
+        the billing DMN — `cancelamento`/contestation/signaled cancellation ALWAYS escalates (L0
+        hard). A intencao `inadimplencia` NAO e' J3 desde DL-0082: ela passa pela DMN com os fatos
+        de conciliacao, e so' a regra de atraso da DMN escala como `inadimplencia_detectada`.
 
         FAIL-SAFE FECHADO: DMN unavailable or a `roteamento` value outside its recognized
         allowlist ALWAYS escalates — NEVER a silent default, NEVER treated as "admissible" by
@@ -1166,7 +1290,7 @@ class LucasGraph:
         if (state.get("process_ref") or {}).get("already_existed") is True:
             ack_text = ACK_ATENDIMENTO_JA_ABERTO
         else:
-            ack_text = await self._build_escalation_ack(state)
+            ack_text = self._build_escalation_ack(state)
         try:
             resultado = await self._whatsapp.send(
                 to_hash, ack_text, idempotency_key=_idempotency_key(state, node="send_escalation_ack")
@@ -1324,6 +1448,10 @@ class LucasGraph:
             "admissibilidade": state.get("admissibilidade"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
+        if _mensalidade_em_dia(state):
+            # DL-0082: com os fatos dizendo "conciliado, zero ciclos" a resposta e' FIXA — nenhum
+            # modelo redige sobre a situacao financeira de alguem quando o fato ja' diz tudo.
+            return self._mensagem(texto_mensalidade_em_dia(state), facts, MENSAGEM_EM_DIA_VERSION)
         prompt = (
             f"{message_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
         )
@@ -1341,7 +1469,10 @@ class LucasGraph:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
             texto = "Recebemos sua solicitacao. Em breve enviaremos os detalhes por aqui."
+        return self._mensagem(texto, facts, MESSAGE_PROMPT_VERSION)
 
+    def _mensagem(self, texto: str, facts: dict[str, Any], prompt_version: str) -> dict[str, Any]:
+        """Passa `texto` pela cerca de saida e monta o dicionario da mensagem informativa."""
         # CERCA DE SAIDA (18/09/2026). Os `fatos` vao junto porque o grupo `valor_sem_fato` e' uma
         # comparacao com eles — e' o que separa "o valor em aberto e' R$ 450,00" inventado de um
         # valor que um dia venha da conciliacao.
@@ -1354,7 +1485,7 @@ class LucasGraph:
             texto = RESPOSTA_INFORMATIVA_RECUSADA
             recusado = True
         return {
-            "prompt_version": MESSAGE_PROMPT_VERSION,
+            "prompt_version": prompt_version,
             "recusa_de_saida": recusado,
             "tipo": "mensagem_beneficiario",
             "fatos": facts,
@@ -1423,27 +1554,19 @@ class LucasGraph:
             "decisao_cancelamento": None,  # rescindir/manter/suspender — always human (CANCEL-001)
         }
 
-    async def _build_escalation_ack(self, state: LucasState) -> str:
+    def _build_escalation_ack(self, state: LucasState) -> str:
         """Short WhatsApp acknowledgement sent on the escalation path (module docstring's
-        disclosed improvement over the donor). NEVER reveals the pending adverse outcome."""
-        prompt = f"{escalation_ack_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}"
-        try:
-            texto = await self._llm.generate(
-                prompt,
-                phi=True,
-                agent_id="lucas",
-                tenant_id=state.get("tenant_id", ""),
-                task_kind="task_default",  # AF-12: a short fixed-shape acknowledgement.
-            )
-        except PROGRAMMING_ERRORS:
-            raise
-        except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
-            return "Recebemos sua solicitacao. Um atendente humano vai continuar por aqui em breve."
+        disclosed improvement over the donor). NEVER reveals the pending adverse outcome.
 
-        # CERCA DE SAIDA (18/09/2026). ESTE e' o texto mais exposto do Lucas: ele chega a alguem
-        # cujo caso acabou de ser encaminhado por inadimplencia, contestacao ou pedido de
-        # cancelamento — exatamente a pessoa a quem um desfecho adverso revelado cedo faria o pior
-        # estrago. A rota `ack_escalacao` e' a UNICA em que prometer humano e' verdadeiro.
+        TEXTO FIXO desde DL-0082 (08/10/2026): ate' ali o modelo redigia este ACK com
+        `motivo_humano` no prompt, e no teste real escreveu "inadimplencia detectada" para quem
+        estava em dia. Agora o texto sai de `texto_ack_escalacao` (fatos + motivo ja' decidido pela
+        DMN), sem chamada de modelo."""
+        texto = texto_ack_escalacao(state)
+        # CERCA DE SAIDA (18/09/2026), mantida sobre o texto fixo como defesa em profundidade. ESTE
+        # e' o texto mais exposto do Lucas: ele chega a alguem cujo caso acabou de ser encaminhado
+        # por atraso, contestacao ou pedido de cancelamento. A rota `ack_escalacao` e' a UNICA em
+        # que prometer humano e' verdadeiro.
         try:
             return self._cercar_saida(texto, "ack_escalacao")
         except RespostaRecusadaError:
@@ -1545,4 +1668,6 @@ PROMPT_VERSIONS: dict[str, str] = {
     # beneficiario le', entao ela e' versao de prompt para todo efeito de auditoria.
     "escalation_ack": ESCALATION_ACK_PROMPT_VERSION,
     "recusa_de_saida": RECUSA_DE_SAIDA_VERSION,
+    # DL-0082: a resposta FIXA de "mensalidade em dia" tambem fala com o beneficiario.
+    "mensagem_em_dia": MENSAGEM_EM_DIA_VERSION,
 }

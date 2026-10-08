@@ -1,6 +1,6 @@
 """Registration coverage tests for `register_all_workers` (T1.2/ADR-0026 Decisao §4).
 
-Fail-closed registry-coverage test (ADR-0026 "Test strategy"): asserts 18/18 module bootstraps
+Fail-closed registry-coverage test (ADR-0026 "Test strategy"): asserts 19/19 module bootstraps
 run (16 + T3.1 R2's `events` module + VW1-P0-FENCES' `vendor_admin` module, grant
 OWNER-FENCE-DISPATCH-001), produce a non-empty, collision-free topic set, and —
 spot-checked against the real BPMN `camunda:topic` declarations under `spec/processes/bpmn/`
@@ -35,8 +35,8 @@ def _fresh_harness() -> WorkerHarness:
 # ---------------------------------------------------------------------------
 
 
-def test_all_18_bootstraps_are_composed() -> None:
-    assert len(ALL_WORKER_BOOTSTRAPS) == 18
+def test_all_19_bootstraps_are_composed() -> None:
+    assert len(ALL_WORKER_BOOTSTRAPS) == 19
 
 
 def test_register_all_workers_registers_every_module_without_collision() -> None:
@@ -52,8 +52,8 @@ def test_register_all_workers_registers_every_module_without_collision() -> None
     assert len(topics) > 90, f"expected ~99 topics across 16 modules, got {len(topics)}"
 
 
-def test_register_all_workers_covers_all_18_module_topic_prefixes() -> None:
-    """Every one of the 18 modules contributed at least one topic — the literal "18/18 modules
+def test_register_all_workers_covers_all_19_module_topic_prefixes() -> None:
+    """Every one of the 19 modules contributed at least one topic — the literal "19/19 modules
     registered" acceptance criterion."""
     harness = _fresh_harness()
     register_all_workers(harness)
@@ -78,8 +78,9 @@ def test_register_all_workers_covers_all_18_module_topic_prefixes() -> None:
         "operadora.recurso.",
         "operadora.reembolso.",
         "vendor.membership.",
+        "vendor.suppression.",
     }
-    assert len(expected_prefixes) == 18
+    assert len(expected_prefixes) == 19
 
     for prefix in expected_prefixes:
         matching = [t for t in topics if t.startswith(prefix)]
@@ -219,6 +220,12 @@ def test_function_based_module_bootstraps_register_function_workers() -> None:
         # (channels/memberships/publisher/ledger), never process variables, and its run() is
         # async; vendor_admin.py's module docstring carries the full rationale.
         "vendor.membership.publication",
+        # VW4/GP11 (admissao 2026-10-07): the two SP-OP-SUPP-001 envelope handlers — raw
+        # registrations under DECLARED fetch scopes (the OP20 minimization contract) whose
+        # admission state raises the modeled boundary errors; suppression.py's module
+        # docstring carries the full rationale (DMN engine-side coupling for `route`).
+        "vendor.suppression.verify_subject",
+        "vendor.suppression.route",
     }
     function_topics = [
         t

@@ -587,6 +587,10 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     # VW1-P0 (0019) adds `identidade_portal`/`portal_vendor_channels` (vendor channel
     # accreditation: CAS revision + closed status, no cipher, no retention), also NOT
     # covered — 35 total, 24 uncovered; the prior 34 stay intact.
+    # VW1-P4 (0020) adds `identidade_portal`/`portal_vendor_submissions` (OP16 submission
+    # instance: named business key + declared payload class + closed stage, no payload
+    # content, no cipher, no retention), also NOT covered — 36 total, 25 uncovered; the
+    # prior 35 stay intact.
     journal = {
         ("durabilidade_capacidade", "v21_journey_journal"),
         ("durabilidade_capacidade", "v21_capability_command"),
@@ -598,10 +602,10 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     assert journal <= uncovered
     assert journal.isdisjoint(covered)
     assert journal.isdisjoint(retired)
-    assert len(covered | uncovered) == 35
-    assert len(uncovered) == 24
-    assert len((covered | uncovered) - journal) == 29
-    assert len(uncovered - journal) == 18
+    assert len(covered | uncovered) == 37  # 36 + portal_vendor_suppressions (0021, VW4/GP11 wiring)
+    assert len(uncovered) == 26  # 25 + portal_vendor_suppressions (SEM_COLUNA_DE_TITULAR, sem probe)
+    assert len((covered | uncovered) - journal) == 31
+    assert len(uncovered - journal) == 20
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in journal)
     assert {key: by_key[key].resolucao for key in journal} == {

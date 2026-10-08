@@ -13,6 +13,14 @@ pedido — nunca uma URL vinda do chamador:
   * `POST /interop/subject-resolution/v1/subjects/resolve-by-phone`      (`interop/subject.resolve`)
   * `GET  /interop/subject-resolution/v1/subjects/{ref}/profile`         (`interop/profile.read`)
 
+e, SO' com `MAEZO_HELENA_CONSULTAS_AMH` ligada (DL de 07/10/2026, fatos do plano na Helena), mais tres
+leituras do contrato TINA (manifest aditivo v1.2, ainda DRAFT — sem o bloco `manifest_v1_2` no pin o
+adaptador recusa subir):
+
+  * `GET  /interop/tina/v1/subjects/{ref}/elegibilidade`                 (`interop/tina.read`)
+  * `GET  /interop/tina/v1/subjects/{ref}/carencias`                     (`interop/tina.read`)
+  * `GET  /interop/tina/v1/subjects/{ref}/requisicoes`                   (`interop/tina.read`)
+
 DECISOES DO DONO (06/10/2026, `docs/decisions-log.md`), cada uma diferente de `gateway/amh.py`:
 
   A. SOMBRA. Cada chamada passa por `gate(seam, operacao)` com a semantica ORDINARIA de
@@ -73,6 +81,15 @@ from maezo.adapters.amh.subject_resolution import (
     GovernedSubjectResolutionRequest,
     GovernedSubjectResolutionResponse,
 )
+from maezo.adapters.amh.tina import (
+    OP_CARENCIAS,
+    OP_ELEGIBILIDADE,
+    OP_REQUISICOES,
+    AmhTinaAdapter,
+    GovernedTinaExecutor,
+    GovernedTinaRequest,
+    GovernedTinaResponse,
+)
 from maezo.gateway.audit import AuditRecord, hash_input
 from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
 from maezo.gateway.rate_limit import REASON_RATE_LIMITED
@@ -84,11 +101,16 @@ logger = structlog.get_logger(__name__)
 
 #: Esquema do hash do telefone que a AMH resolve (decisao D). Nome do contrato, nao nosso.
 HASH_SCHEME: Final[str] = "amh-phone-lookup-v1"
+#: Escopo das tres leituras TINA (fatos do plano). Pedido SO' com as consultas da Helena ligadas.
+SCOPE_TINA: Final[str] = "interop/tina.read"
 #: Escopos OAuth2 de cada operacao (servidor de recursos `interop` no Cognito da AMH).
 SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_BILLING: "interop/billing.read",
     OP_RESOLVE: "interop/subject.resolve",
     OP_PROFILE: "interop/profile.read",
+    OP_ELEGIBILIDADE: SCOPE_TINA,
+    OP_CARENCIAS: SCOPE_TINA,
+    OP_REQUISICOES: SCOPE_TINA,
 }
 
 _MAX_RESPONSE_BYTES: Final[int] = 1_048_576
@@ -103,6 +125,19 @@ _BILLING_SUFFIX: Final[str] = "/billing/status"
 _RESOLVE_PATH: Final[str] = "/interop/subject-resolution/v1/subjects/resolve-by-phone"
 _PROFILE_PREFIX: Final[str] = "/interop/subject-resolution/v1/subjects/"
 _PROFILE_SUFFIX: Final[str] = "/profile"
+_TINA_PREFIX: Final[str] = "/interop/tina/v1/subjects/"
+#: Operacao TINA -> sufixo FIXO da rota (o sujeito vem entre o prefixo e o sufixo, sempre conferido).
+_TINA_SUFFIX: Final[dict[str, str]] = {
+    OP_ELEGIBILIDADE: "/elegibilidade",
+    OP_CARENCIAS: "/carencias",
+    OP_REQUISICOES: "/requisicoes",
+}
+#: Query permitida por operacao TINA (`purpose_of_use` sempre obrigatorio e igual ao da composicao).
+_TINA_QUERY: Final[dict[str, frozenset[str]]] = {
+    OP_ELEGIBILIDADE: frozenset({"purpose_of_use"}),
+    OP_CARENCIAS: frozenset({"purpose_of_use", "limite", "pendentes"}),
+    OP_REQUISICOES: frozenset({"purpose_of_use", "limite"}),
+}
 
 _SUBJECT: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 _TOKEN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
@@ -413,6 +448,11 @@ class AmhPhoneLookupHasher:
             digitos = digitos[1:]
         if not digitos.isascii() or not _E164_BR.fullmatch(digitos):
             return None
+        if len(digitos) == 12 and digitos[4] in "6789":
+            # Celular sem o nono digito: e' assim que o WhatsApp entrega muitos numeros brasileiros
+            # (`wa_id` de conta antiga), e o indice da AMH guarda o celular SEMPRE com o 9
+            # (`build_phone_lookup.normalizar_e164`). Sem esta forma canonica o hash nunca bate.
+            digitos = digitos[:4] + "9" + digitos[4:]
         mensagem = f"{self._amh_tenant}:{digitos}".encode("ascii")
         return hmac.new(self._key, mensagem, hashlib.sha256).hexdigest()
 
@@ -752,6 +792,59 @@ class AmhSubjectResolutionExecutor(_ExecutorInteropAmh, GovernedSubjectResolutio
         return PortResult.ok(GovernedSubjectResolutionResponse(status, raw))
 
 
+class AmhTinaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
+    """`GovernedTinaExecutor` real: as tres leituras GET do contrato TINA no servico interop da AMH.
+
+    Mesmo caminho comum (zona geral, gate em sombra, token, auditoria duravel ANTES do despacho,
+    transporte sem proxy/retry/redirect, corpo limitado, recusa fechada). Rota, query e base legal sao
+    conferidas aqui de novo, a cada chamada: o adaptador monta o pedido, o executor nao confia nele.
+    """
+
+    registered_operations = frozenset({OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES})
+
+    def _validar(self, request: GovernedTinaRequest) -> None:
+        if (
+            type(request) is not GovernedTinaRequest
+            or request.method != "GET"
+            or request.operation not in self.registered_operations
+        ):
+            raise ValueError
+        self._sujeito(request.path, _TINA_PREFIX, _TINA_SUFFIX[request.operation])
+        query = self._query(request.query, _TINA_QUERY[request.operation])
+        limite = query.get("limite")
+        if limite is not None and (type(limite) is not int or not 1 <= limite <= 50):
+            raise ValueError
+        pendentes = query.get("pendentes")
+        if pendentes is not None and pendentes not in ("true", "false"):
+            raise ValueError
+        ref = request.consent_decision_ref
+        if type(ref) is not str or not ref.strip() or len(ref) > 4096:
+            raise ValueError
+        if not _prazo_valido(request.timeout_seconds):
+            raise ValueError
+
+    async def execute(self, request: GovernedTinaRequest) -> PortResult[GovernedTinaResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="GET",
+            path=request.path,
+            query=request.query,
+            body=None,
+            consent_ref=request.consent_decision_ref,
+            timeout_seconds=request.timeout_seconds,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedTinaResponse(status, raw))
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class AmhInteropComposition:
     """O que a raiz de composicao recebe: os dois ports da AMH ja' sobre os executores reais, o hasher
@@ -765,6 +858,9 @@ class AmhInteropComposition:
     hash_scheme: str
     _executors: tuple[_ExecutorInteropAmh, ...]
     _tokens: CognitoClientCredentials
+    #: As leituras TINA (fatos do plano), SO' quando a composicao as pediu (`incluir_tina=True` em
+    #: `tool_registry.build_amh_interop`, com `MAEZO_HELENA_CONSULTAS_AMH` ligada). Senao `None`.
+    tina: AmhTinaAdapter | None = None
 
     async def aclose(self) -> None:
         for executor in self._executors:
@@ -782,6 +878,8 @@ __all__ = [
     "AmhInteropCompositionError",
     "AmhPhoneLookupHasher",
     "AmhSubjectResolutionExecutor",
+    "AmhTinaExecutor",
+    "SCOPE_TINA",
     "CognitoClientCredentials",
     "InteropAuditSink",
     "validar_origem",

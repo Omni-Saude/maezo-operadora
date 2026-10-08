@@ -11,9 +11,10 @@ outside T1.6's scope; local dev sets these via `docker-compose.yml` env directly
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -289,7 +290,78 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_LUCAS_FONTE_COBRANCA", "lucas_fonte_cobranca"),
     )
 
-    # --- Fonte AMH do Lucas (so' lidas com `lucas_fonte_cobranca == "amh"`) -------------------
+    # IDENTIDADE DO BENEFICIARIO NA HELENA (DL-0077, decisao do dono 06/10/2026). DESLIGADA por padrao.
+    # Ligada, o despachante resolve QUEM escreve (telefone -> `portable_subject_ref` -> perfil minimo)
+    # pelos MESMOS contratos/executores da AMH do Lucas, sob o principal `helena`, e entrega ao
+    # estado da Helena so' a identidade pseudonima. Exige TODA a configuracao `amh_*` abaixo e os dois
+    # OpenAPI pinados: faltando qualquer peca o receptor RECUSA servir (nunca cai em "sem identidade"
+    # em silencio). Independe do roteador do Lucas e de `lucas_fonte_cobranca`.
+    helena_identidade_amh: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_IDENTIDADE_AMH", "helena_identidade_amh"),
+    )
+    # PRAZO TOTAL da identidade (DL-0079): o teto, em segundos, que a resolucao (telefone ->
+    # referencia) MAIS o perfil podem somar ao turno. Tambem e' o teto de CADA chamada ao port (o
+    # executor do gateway aceita ate' 30 s), para o prazo por chamada nunca ser o limite que derruba
+    # uma resolucao que caberia no total. Medido em dev (07/10/2026): ~3 s + ~2-3 s; o antigo 6 s fixo
+    # estourava com a AMH tendo achado a pessoa. A faixa recusa no boot o que nao faz sentido.
+    helena_identidade_prazo_s: float = Field(
+        default=15.0,
+        ge=1.0,
+        le=30.0,
+        validation_alias=AliasChoices("MAEZO_HELENA_IDENTIDADE_PRAZO_S", "helena_identidade_prazo_s"),
+    )
+    # HISTORICO CURTO DA CONVERSA NA HELENA (DL-0080, 07/10/2026). DESLIGADO por padrao, e desligado
+    # e' a Helena de antes byte a byte. Ligado: as ultimas 12 mensagens (so' texto, 300 caracteres,
+    # janela de 6 h) vao ao classificador e a redacao do `inform` como bloco NAO CONFIAVEL, e o modo
+    # coleta liga junto. Base LGPD PENDENTE de ratificacao do DPO — nao ligar fora de dev sem ela.
+    helena_historico: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_HISTORICO", "helena_historico"),
+    )
+    # AVISO DE IDENTIDADE (DL-0078, decisao do dono 07/10/2026): o nome de EXIBICAO da operadora nos
+    # textos fixos de identidade da Helena ("Reconheci este numero no cadastro de beneficiarios da
+    # {nome}..."). So' tem efeito com `helena_identidade_amh` ligada. Texto curto e simples (letras,
+    # espaco, `.`, `'`, `&`, `-`): ele vai literal ao beneficiario, entao nada de chave, URL ou controle.
+    helena_identidade_nome_operadora: str = Field(
+        default="Austa Clínicas",
+        validation_alias=AliasChoices(
+            "MAEZO_HELENA_IDENTIDADE_NOME_OPERADORA", "helena_identidade_nome_operadora"
+        ),
+    )
+
+    # FATOS DO PLANO NA HELENA (DL de 07/10/2026, decisao do dono). DESLIGADA por padrao. Ligada, a
+    # Helena responde elegibilidade, carteirinha, carencia e autorizacao do PROPRIO beneficiario com os
+    # fatos do contrato TINA da AMH (`interop/tina.read`). EXIGE `helena_identidade_amh` ligada (sem
+    # identidade nao ha' de quem consultar: recusado aqui, no boot), o interop configurado, o escopo
+    # `interop/tina.read` em `amh_interop_scopes`, `amh_tina_openapi_path` e o manifest v1.2 pinado —
+    # faltando qualquer peca o receptor RECUSA servir. Desligada = a Helena de sempre, byte a byte.
+    helena_consultas_amh: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_CONSULTAS_AMH", "helena_consultas_amh"),
+    )
+
+    @model_validator(mode="after")
+    def _consultas_exigem_identidade(self) -> WhatsAppWebhookSettings:
+        if self.helena_consultas_amh and not self.helena_identidade_amh:
+            raise ValueError(
+                "MAEZO_HELENA_CONSULTAS_AMH exige MAEZO_HELENA_IDENTIDADE_AMH ligada "
+                "(sem identidade resolvida nao ha' de quem consultar os fatos do plano)"
+            )
+        return self
+
+    @field_validator("helena_identidade_nome_operadora")
+    @classmethod
+    def _nome_operadora_valido(cls, valor: str) -> str:
+        nome = " ".join(valor.split())
+        if not 1 <= len(nome) <= 60 or not re.fullmatch(r"[^\W\d_]+(?:[ .'&-]+[^\W\d_]+)*\.?", nome):
+            raise ValueError(
+                "MAEZO_HELENA_IDENTIDADE_NOME_OPERADORA: nome de exibicao invalido "
+                "(1 a 60 caracteres; letras, espaco, `.`, `'`, `&`, `-`)"
+            )
+        return nome
+
+    # --- Interop AMH (lidas com `lucas_fonte_cobranca == "amh"` OU `helena_identidade_amh`) ----
     # Origem do servico interop da AMH: ALB INTERNO, `http(s)://host[:porta]`, sem caminho.
     amh_interop_base_url: str | None = Field(
         default=None,
@@ -328,7 +400,7 @@ class WhatsAppWebhookSettings(BaseSettings):
     )
     # Tenant da operadora no vocabulario da AMH (entra no HMAC do telefone e no corpo da resolucao).
     amh_interop_tenant: str = Field(
-        default="omni",
+        default="austa_operadora",  # AMH ADR-046 (06/10/2026): era "omni"; o dado e' da Austa Clinicas
         validation_alias=AliasChoices("MAEZO_AMH_INTEROP_TENANT", "amh_interop_tenant"),
     )
     amh_interop_purpose_of_use: str = Field(
@@ -347,6 +419,12 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices(
             "MAEZO_AMH_SUBJECT_RESOLUTION_OPENAPI_PATH", "amh_subject_resolution_openapi_path"
         ),
+    )
+    # O OpenAPI TINA (fatos do plano), lido SO' com `helena_consultas_amh` ligada; os bytes so' valem
+    # com o digest no bloco `manifest_v1_2` do pin (ainda DRAFT na AMH em 07/10/2026).
+    amh_tina_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_TINA_OPENAPI_PATH", "amh_tina_openapi_path"),
     )
 
     @model_validator(mode="before")

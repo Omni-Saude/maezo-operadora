@@ -179,6 +179,9 @@ FormKey = Literal[
     "ans_coordenacao",
     "ans_pendencia",
     "ans_nack",
+    # VW4/GP11 (2026-10-07): decisao humana do encarregado no SP-OP-SUPP-001 (reparo F7
+    # do gate Tier-2 — a chave entra no catalogo fechado, nao ao lado dele).
+    "suppression_encarregado",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision", "reassign"]
@@ -233,6 +236,7 @@ AllowedInput = Literal[
     "referencia_negativa_original",
     "decisao_dsr",
     "fundamentacao_legal",
+    "decisao_encarregado",
     "decisao_pagamento",
     "valor_aprovado_cents",
     "justificativa_aprovacao",
@@ -996,6 +1000,29 @@ class LgpdDsrDecisionInputs(_FrozenContract):
         return self
 
 
+class SuppressionEncarregadoDecisionInputs(_FrozenContract):
+    """Human encarregado routing decision for the vendor suppression request, SP-OP-SUPP-001.
+
+    Closed DRAFT shape (VW4/GP11, admitted 2026-10-07; repair F7 of the Tier-2 gate): the
+    UT_RotearEncarregado outcome is a human act — honor the suppression register, refuse it
+    with mandatory grounding, or escalate. It cannot prove encarregado identity (art. 41
+    formalization is an administrative act), SLA honoring, or list-construction effects;
+    those live in the wiring package + the ratified insumos.
+    """
+
+    kind: Literal["suppression_encarregado"]
+    decisao_encarregado: Literal["HONRAR", "NAO_HONRAR_FUNDAMENTADO", "ESCALAR"]
+    fundamentacao: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _refusal_has_grounding(self) -> Self:
+        if self.decisao_encarregado == "NAO_HONRAR_FUNDAMENTADO" and (
+            self.fundamentacao is None or not self.fundamentacao.strip()
+        ):
+            raise ValueError("NAO_HONRAR_FUNDAMENTADO requires fundamentacao")
+        return self
+
+
 class AuthPendingInputs(_FrozenContract):
     """AUTH expired-document decision, SP-OP-AUTH-001 output/GW_PendenciaExpirada.
 
@@ -1202,6 +1229,7 @@ DecisionInputs = Annotated[
     | NipDraftInputs
     | NipDecisionInputs
     | LgpdDsrDecisionInputs
+    | SuppressionEncarregadoDecisionInputs
     | AuthPendingInputs
     | PagtoApprovalInputs
     | PagtoCoordinationInputs
@@ -1327,6 +1355,12 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-LGPD-DSR-001", "UT_RevisaoDpo"): (
         "lgpd_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),  # VW4/GP11: decisao de roteamento do encarregado (honrar / nao-honrar fundamentado /
+    # escalar) registrada no caso vendor; formulario DRAFT_VERIFY como o DSR (promocao a
+    # FINAL exige insumos DPO ratificados e o wiring do store).
+    ("SP-OP-SUPP-001", "UT_RotearEncarregado"): (
+        "suppression_encarregado",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
     # WP-J1-05: the BPMN now carries camunda:formData for this task (one enum field,
@@ -1501,6 +1535,8 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "texto_resposta_nip",
     ),
     "lgpd_decisao": ("decisao_dsr", "fundamentacao_legal"),
+    # VW4/GP11 (2026-10-07): decisao humana do encarregado no SP-OP-SUPP-001 (DRAFT).
+    "suppression_encarregado": ("decisao_encarregado",),
     "auth_pendencia": ("decisao_pendencia",),
     "pagto_aprovacao": (
         "decisao_pagamento",

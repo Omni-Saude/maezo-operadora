@@ -552,7 +552,14 @@ async def test_no_payload_prompt_recipient_or_patient_id_ever_reaches_a_telemetr
 
 
 _AMH_INTEROP_OPERATIONS = frozenset(
-    {"amh.get_billing_status", "amh.resolve_subject_by_phone", "amh.get_subject_profile"}
+    {
+        "amh.get_billing_status",
+        "amh.resolve_subject_by_phone",
+        "amh.get_subject_profile",
+        "amh.tina_get_elegibilidade",
+        "amh.tina_get_carencias",
+        "amh.tina_get_requisicoes",
+    }
 )
 
 
@@ -565,6 +572,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
 
     from maezo.adapters.amh.billing_status import GovernedBillingStatusRequest
     from maezo.adapters.amh.subject_resolution import GovernedSubjectResolutionRequest
+    from maezo.adapters.amh.tina import GovernedTinaRequest
     from maezo.gateway import amh_interop
 
     def _transport() -> httpx.AsyncBaseTransport:
@@ -592,6 +600,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
     }
     billing = amh_interop.AmhBillingStatusExecutor(**comum)
     subjects = amh_interop.AmhSubjectResolutionExecutor(amh_tenant="omni", **comum)
+    tina = amh_interop.AmhTinaExecutor(**comum)
     purpose = (("purpose_of_use", "sharing_amh_internal"),)
     results = [
         await billing.execute(
@@ -633,7 +642,23 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         ),
     ]
-    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 3
+    for operation, sufixo in (
+        ("amh.tina_get_elegibilidade", "elegibilidade"),
+        ("amh.tina_get_carencias", "carencias"),
+        ("amh.tina_get_requisicoes", "requisicoes"),
+    ):
+        results.append(
+            await tina.execute(
+                GovernedTinaRequest(
+                    operation=operation,
+                    path=f"/interop/tina/v1/subjects/subject1/{sufixo}",
+                    query=purpose,
+                    consent_decision_ref="base-legal:execucao-de-contrato",
+                    timeout_seconds=5.0,
+                )
+            )
+        )
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 6
 
 
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811

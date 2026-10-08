@@ -93,6 +93,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 import structlog
 
 from maezo.agents.helena.graph import (
+    NOME_OPERADORA_PADRAO,
     HelenaGraph,
     HelenaState,
     WhatsAppSender,
@@ -122,10 +123,12 @@ from .limite import LimitadorDeVolume, Veredito
 from .security import hash_phone, log_safe_message_id
 
 if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
+    from maezo.agents.helena.consultas_plano import FonteDeFatosDoPlano
     from maezo.agents.lucas.administrative.runtime import AdministrativeJourneyRuntime, RuntimeTurnStimulus
     from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyDispatchOutcome
     from maezo.gateway.capabilities.models import CapabilityRefusalReason
 
+    from .helena_identidade import IdentidadeHelena
     from .lucas_turno import LucasTurno
     from .pre_roteamento import SinaisLexicos
     from .roteamento import ConversaRouter, PedidoDeHandoff
@@ -358,6 +361,10 @@ class HelenaDispatcher:
     #: (`webhooks/service.py`) passa o valor das settings; os testes que nao o passam recebem a
     #: Helena que lembra, que e' a de producao.
     memoria_clinica_enabled: bool = True
+    #: HISTORICO CURTO DA CONVERSA (DL-0080, settings `helena_historico` / `MAEZO_HELENA_HISTORICO`).
+    #: Default `False` = a Helena de antes byte a byte. Ligado, liga TAMBEM o modo coleta
+    #: (`coleta_enabled`), para a Helena poder fazer a pergunta de esclarecimento que ja' existe.
+    historico_enabled: bool = False
     #: TETO DE VOLUME (Frente 7.1). `None` = sem teto, que e' o comportamento anterior e continua
     #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
     #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
@@ -377,6 +384,21 @@ class HelenaDispatcher:
     #: (`classify-v6`, sinais lexicos, agente ativo) e executa o Lucas depois dela. Roteador sem
     #: Lucas e' a sombra da onda (c), intocada.
     lucas_turno: LucasTurno | None = None
+    #: IDENTIDADE DO BENEFICIARIO (DL-0077). `None` (o default, e o que `service.py` passa com
+    #: `MAEZO_HELENA_IDENTIDADE_AMH` desligada) = a Helena de sempre, sem nenhuma chamada a mais e sem
+    #: calcular hash algum. Ligada, o despachante resolve UMA vez por conversa (cache em
+    #: `IdentidadeHelena`) quem escreve e entrega SO' a identidade pseudonima ao estado — contexto,
+    #: nunca insumo de decisao. Independe do roteador do Lucas.
+    identidade: IdentidadeHelena | None = None
+    #: AVISO DE IDENTIDADE (DL-0078): o nome de exibicao da operadora nos textos fixos de identidade
+    #: (settings `helena_identidade_nome_operadora`). So' tem efeito com `identidade` presente.
+    identidade_nome_operadora: str = NOME_OPERADORA_PADRAO
+    #: FATOS DO PLANO (DL de 07/10/2026): a fonte que consulta a AMH pelo contrato TINA
+    #: (`helena_consultas.ConsultasPlanoAmh`). `None` (o default, e o que `service.py` passa com
+    #: `MAEZO_HELENA_CONSULTAS_AMH` desligada) = o grafo de sempre, sem adendo no classify e sem o no'
+    #: `consultar_plano`. So' tem efeito junto com `identidade`: sem referencia resolvida a Helena
+    #: responde o texto fixo de "nao consegui confirmar seus dados".
+    consultas_plano: FonteDeFatosDoPlano | None = None
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
     administrative_binding: JourneyBinding | None = None
@@ -699,6 +721,14 @@ class HelenaDispatcher:
                 # NUMERO UNICO (onda e): `classify-v6` + a passagem ao Lucas so' com o roteamento
                 # completo. Desligado, a chave vai `False` e o grafo e' o de antes no a no'.
                 "roteador_lucas_enabled": self._roteamento_completo,
+                # DL-0078: so' o NOME de exibicao da operadora; os textos de identidade so' saem com o
+                # desfecho que `dispatch` entrega no estado (flag desligada = nenhum texto).
+                "identidade_nome_operadora": self.identidade_nome_operadora,
+                # DL-0080: o historico curto e, com ele, o modo coleta — os dois so' com a flag.
+                "historico_enabled": self.historico_enabled,
+                "coleta_enabled": self.historico_enabled,
+                # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
+                "consultas_plano": self.consultas_plano,
             }
         )
         saver = self.checkpointer.saver if self.checkpointer is not None else None
@@ -835,6 +865,17 @@ class HelenaDispatcher:
         # `dmn_decision_ref`) from here into `HelenaState` — the caller-planted read-through class
         # is unreachable at the construction seam, not just neutralized inside `receive`.
         sinais = self._pre_rotear(message.text, conversation_id) if self.roteador is not None else None
+        # DL-0077: o numero cru so' existe aqui (o hash `amh-phone-lookup-v1` nasce e morre dentro de
+        # `IdentidadeHelena.resolver_com_desfecho`). Nunca levanta: sem identidade, a Helena de sempre.
+        # DL-0078: junto vem o desfecho FECHADO (`reconhecido`/`nao_encontrado`/`indeterminado`) que decide
+        # o aviso de identidade; desligada, `None` e nenhum texto de identidade.
+        identidade: dict[str, Any] | None = None
+        identidade_desfecho: str | None = None
+        if self.identidade is not None:
+            resolvida = await self.identidade.resolver_com_desfecho(
+                message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
+            )
+            identidade, identidade_desfecho = resolvida.identidade, resolvida.desfecho
         message_pseudonym = log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer)
         if self._roteamento_completo:
             # NUMERO UNICO (onda e): as entradas do roteador, todas TIPADAS e sem texto. Quem estava
@@ -853,6 +894,8 @@ class HelenaDispatcher:
                 # falha como "sem sinal" abriria o Lucas justamente quando a cerca nao rodou.
                 sinal_saude_lexico=sinais is None or sinais.sinal_saude,
                 message_ref=message_pseudonym,
+                identidade_beneficiario=identidade,
+                identidade_desfecho=identidade_desfecho,
             )
         else:
             initial_state = new_helena_state(
@@ -861,6 +904,8 @@ class HelenaDispatcher:
                 canal="whatsapp",
                 beneficiario_pseudo_id=beneficiario_pseudo_id,
                 message_body=message.text,
+                identidade_beneficiario=identidade,
+                identidade_desfecho=identidade_desfecho,
             )
         logger.info(
             "helena_dispatch_turn_started",
@@ -870,6 +915,10 @@ class HelenaDispatcher:
             # wamid bruto que embute o telefone da contraparte.
             message_pseudonym=message_pseudonym,
             checkpointed=saver is not None,
+            # DL-0077: so' o fato (booleano), nunca a referencia nem o perfil.
+            identidade_presente=identidade is not None,
+            # DL-0078: token fechado (ou `None` desligada), nunca referencia, hash ou telefone.
+            identidade_desfecho=identidade_desfecho,
         )
         # `thread_config` scopes the checkpoint thread when a saver is attached; None (stateless
         # compile) is passed through as a no-op config, so this call site is single-path.
@@ -1071,6 +1120,7 @@ class HelenaDispatcher:
             agent_version="helena@v0",
             memoria_clinica_enabled=self.memoria_clinica_enabled,
             roteador_lucas_enabled=True,
+            historico_enabled=self.historico_enabled,
         )
         estado: dict[str, Any] = {
             **resultado_helena,

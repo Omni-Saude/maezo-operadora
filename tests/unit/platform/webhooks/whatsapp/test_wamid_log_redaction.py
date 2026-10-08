@@ -474,6 +474,17 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
         "app.py",
         "dedup.py",
         "dispatch.py",
+        # `helena_consultas.py` (fatos do plano, 07/10/2026): revisado ao entrar nesta lista. Ele NAO
+        # recebe wamid nem telefone: recebe so' a referencia opaca e o subtipo. Os logs dele carregam o
+        # subtipo, o motivo (token fechado), um booleano e `error_type` — nunca a referencia nem os
+        # fatos. Varrido abaixo como os demais.
+        "helena_consultas.py",
+        # `helena_identidade.py` (DL-0077, 06/10/2026): revisado ao entrar nesta lista. Ele NAO recebe
+        # wamid nenhum: recebe o numero cru so' para derivar o hash `amh-phone-lookup-v1`, que nasce e
+        # morre dentro de `resolver` (nunca guardado nem logado). Os logs dele carregam o
+        # `conversation_id` keyed, o motivo (token fechado), um booleano e `error_type` — nunca o
+        # telefone, o hash, a referencia nem o perfil. Varrido abaixo como os demais.
+        "helena_identidade.py",
         # `limite.py` (Frente 7.1, 14/09/2026): revisado ao entrar nesta lista, que e' o que esta
         # cerca cobra. Ele NAO tem chamada de logger nenhuma — o teto decide e devolve um veredito;
         # quem loga a recusa e' `dispatch.py`, com `message_pseudonym`, dentro da varredura abaixo.

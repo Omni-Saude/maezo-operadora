@@ -760,6 +760,37 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         subject_column=None,
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="identidade_portal",
+        tabela="portal_vendor_submissions",
+        migracao="0020_vendor_channel_submissions.py::upgrade (portal_vendor_submissions)",
+        identificacao=(
+            "tenant + operation + submission_ref + business_revision (the OP16 named business key, "
+            "migration 0020 VW1-P4); instance identity, declared payload class and closed stage "
+            "only. No subject column, no payload content and no DSR/FHIR reference: the vendor "
+            "principal lives in portal_memberships records, never here"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=36,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="identidade_portal",
+        tabela="portal_vendor_suppressions",
+        migracao="0021_vendor_suppression_records.py::upgrade (portal_vendor_suppressions)",
+        identificacao=(
+            "tenant + suppression_ref (the OP20 named business key — digest of subject_ref + "
+            "contact_channel, migration 0021 VW4/GP11 wiring); minimized art. 10 §1 record "
+            "(opaque identifier + dates + channel), closed clock status and motivo only. No "
+            "subject column and no DSR/FHIR reference: the OPACO subject_ref is the "
+            "minimization itself (art. 10 §1) and the erasure bridge never resolves it here"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=37,
+        subject_column=None,
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)

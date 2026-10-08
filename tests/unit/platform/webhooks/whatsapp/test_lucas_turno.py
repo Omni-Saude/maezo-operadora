@@ -17,7 +17,7 @@ import dataclasses
 import hashlib
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -166,7 +166,9 @@ def test_tabela_cobre_exatamente_o_dominio_do_subtipo() -> None:
 
 
 def test_jornada_por_subtipo_e_a_do_plano() -> None:
-    """§2.5 linha a linha: J3 sempre leva a flag (ou a intencao) que o grafo escala sem DMN."""
+    """§2.5 linha a linha: J3 sempre leva a flag (ou a intencao) que o grafo escala sem DMN.
+    `cobranca_recebida` (DL-0082) nao e' J3: a intencao `inadimplencia` e' so' dica e o
+    `tipo_solicitacao` e' `status_pagamento`, para a DMN decidir pelos fatos."""
     t = lt.ENTRADA_POR_SUBTIPO
     assert {s for s, linha in t.items() if linha["intencao"] == "cobranca_info"} == {
         "boleto_2via",
@@ -176,7 +178,7 @@ def test_jornada_por_subtipo_e_a_do_plano() -> None:
     }
     assert t["confirmacao_pagamento"]["intencao"] == "confirmacao_pagamento"
     assert t["contestacao"]["contesta_cobranca"] is True
-    assert t["cobranca_recebida"]["intencao"] == "inadimplencia"
+    assert t["cobranca_recebida"] == {"intencao": "inadimplencia", "tipo_solicitacao": "status_pagamento"}
     assert t["cancelamento"] == {
         "intencao": "cancelamento",
         "tipo_solicitacao": "",
@@ -452,6 +454,106 @@ async def test_competencia_ausente_chega_como_ausente(seam_lucas: SeamContext) -
     final = await _rodar(turno, _conversa("sem"), _handoff("outro", None), _ClienteComDedup(registry))
     assert fonte.pedidos == [("pseudo-sintetico", None)]
     assert final["billing_facts"]["competencia"] == ""
+
+
+# --- DL-0082: o Lucas decide pelos FATOS, nunca pela pergunta ---------------------------------------
+#
+# Reproducao do teste real de 08/10/2026 01:13 UTC: "minha mensalidade esta em aberto?" ->
+# `cobranca_recebida` -> a fonte AMH disse conciliado com zero ciclos -> o Lucas escalou por
+# inadimplencia e o ACK do modelo falou em "inadimplencia detectada". O rascunho do modelo abaixo e'
+# a frase daquele dia: ele nao pode chegar ao beneficiario em nenhum dos tres casos.
+
+_RASCUNHO_DO_INCIDENTE = (
+    "Olá! Recebemos a informação sobre a inadimplência detectada e um de nossos atendentes "
+    "especializados entrará em contato."
+)
+
+
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+
+    decomposto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
+
+
+async def test_cobranca_recebida_com_fato_conciliado_responde_em_dia_sem_processo(
+    seam_lucas: SeamContext,
+) -> None:
+    from maezo.agents.lucas.graph import texto_mensalidade_em_dia
+
+    fonte = _FonteFixa(
+        FatosCobranca(
+            status_conciliado=True,
+            ciclos_sem_conciliacao=0,
+            numero_boleto="****7869",
+            cnab_ref="amh-billing:2026-07-28",
+        )
+    )
+    turno, registry, _ = _turno(
+        seam_lucas, fonte=fonte, rascunho=_RASCUNHO_DO_INCIDENTE, rota_padrao="escalate_human"
+    )
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(turno, _conversa("dl82-ok"), _handoff("cobranca_recebida"), cliente)
+
+    assert final["route"] == "respond_member"
+    assert final["admissibilidade"] == "RESPONDER"
+    assert final["process_started"] is False
+    assert final["motivo_humano"] == ""
+    assert final["desfecho"] == "resposta_informativa_enviada"
+    assert [texto for _, texto, _ in cliente.enviados] == [
+        "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia. "
+        "Boleto de referência: ****7869. Essa informação é conforme os dados de 28/07/2026."
+    ]
+    assert cliente.enviados[0][1] == texto_mensalidade_em_dia(cast(LucasState, final))
+    assert "inadimpl" not in _sem_acento(cliente.enviados[0][1])
+
+
+async def test_cobranca_recebida_com_ciclos_em_aberto_segue_a_escalacao_de_sempre(
+    seam_lucas: SeamContext,
+) -> None:
+    from maezo.agents.lucas.graph import ACK_ESCALACAO
+
+    fonte = _FonteFixa(
+        FatosCobranca(
+            status_conciliado=False,
+            ciclos_sem_conciliacao=2,
+            numero_boleto="****7869",
+            cnab_ref="amh-billing:2026-07-28",
+        )
+    )
+    turno, registry, _ = _turno(
+        seam_lucas, fonte=fonte, rascunho=_RASCUNHO_DO_INCIDENTE, rota_padrao="escalate_human"
+    )
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(turno, _conversa("dl82-atraso"), _handoff("cobranca_recebida"), cliente)
+
+    assert final["route"] == "escalate_human"
+    assert final["motivo_humano"] == "inadimplencia_detectada"  # nome interno, so' para o humano
+    assert final["roteamento_escalacao"] == "COBRANCA_HUMANO"
+    assert final["process_started"] is True
+    assert [texto for _, texto, _ in cliente.enviados] == [
+        "Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado. "
+        "Boleto de referência: ****7869. Essa informação é conforme os dados de 28/07/2026. " + ACK_ESCALACAO
+    ]
+    assert "inadimpl" not in _sem_acento(cliente.enviados[0][1])
+
+
+async def test_cobranca_recebida_sem_fato_diz_que_nao_conseguiu_consultar(seam_lucas: SeamContext) -> None:
+    from maezo.agents.lucas.graph import ACK_ESCALACAO
+
+    fonte = _FonteFixa(Indisponivel("sujeito_nao_resolvido"))
+    turno, registry, _ = _turno(
+        seam_lucas, fonte=fonte, rascunho=_RASCUNHO_DO_INCIDENTE, rota_padrao="escalate_human"
+    )
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(turno, _conversa("dl82-ind"), _handoff("cobranca_recebida"), cliente)
+
+    assert final["route"] == "escalate_human"
+    assert final["motivo_humano"] == "ambiguidade"  # nunca `inadimplencia_detectada` sem fato
+    assert final["process_started"] is True
+    assert [texto for _, texto, _ in cliente.enviados] == [
+        "No momento não consegui consultar a situação da sua mensalidade. " + ACK_ESCALACAO
+    ]
 
 
 # --- Gate, checkpointer, metricas ------------------------------------------------------------------

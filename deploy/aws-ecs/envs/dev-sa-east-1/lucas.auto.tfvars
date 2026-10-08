@@ -17,3 +17,8 @@
 //
 // A janela (60 min) e a fonte (`simulada`) ficam nos defaults de `variables.tf`.
 roteador_lucas_enabled = true
+
+// Fonte dos fatos de cobranca. `simulada` = o que roda hoje. Ligar a fonte real da AMH e' trocar ESTA
+// linha para "amh" (so' com o manifest v1.1 publicado e pinado; ver docs/runbooks/ligar-fonte-amh-dev.md).
+// Os valores nao secretos da fonte AMH estao em `amh-interop.auto.tfvars`.
+lucas_fonte_cobranca = "amh" // ligada em 07/10/2026 (pin v1.1 #679); voltar: "simulada"

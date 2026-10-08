@@ -118,6 +118,29 @@ FROZEN_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
     "schemas/openapi/maezo/v1/population-features.openapi.yaml",
 )
 
+# --- Manifest ADITIVO v1.1 (billing-status + subject-resolution; so OpenAPI, Glue nao se aplica) ---
+# O bloco `manifest_v1_1` do pin e' OPCIONAL: enquanto o manifest v1.1 nao for publicado e pinado ele
+# nao existe e os adaptadores billing_status/subject_resolution seguem fail-closed (sem digest). Quando
+# existe, vira obrigatorio e completo. `FROZEN_ARTIFACT_PATHS` (v1) nao muda.
+V1_1_LOCK_KEY: Final[str] = "manifest_v1_1"
+V1_1_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.1/contract-manifest.yaml"
+V1_1_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
+    "schemas/openapi/maezo/v1/billing-status.openapi.yaml",
+    "schemas/openapi/maezo/v1/subject-resolution.openapi.yaml",
+)
+# Run de publicacao do v1 (XRG2-AMH-DEV-GHA-30991849241): o v1.1 so pode ser posterior.
+V1_1_MIN_PUBLICATION_RUN_ID: Final[int] = 30991849241
+
+# --- Manifest ADITIVO v1.2 (TINA: elegibilidade, carencias, requisicoes; so OpenAPI) ---
+# Mesmo desenho do v1.1: bloco `manifest_v1_2` OPCIONAL (ausente = o adaptador TINA recusa subir, sem
+# digest); presente = obrigatorio, completo, com o v1.1 ja' pinado e um run de publicacao posterior ao
+# dele. Em 07/10/2026 o manifest v1.2 ainda e' DRAFT na AMH: o bloco NAO existe no lock.
+V1_2_LOCK_KEY: Final[str] = "manifest_v1_2"
+V1_2_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.2/contract-manifest.yaml"
+V1_2_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina.openapi.yaml",)
+# Run de publicacao do v1.1 (XRG2-AMH-DEV-GHA-37555121279): o v1.2 so pode ser posterior.
+V1_2_MIN_PUBLICATION_RUN_ID: Final[int] = 37555121279
+
 FROZEN_GLUE_SCHEMA_KEYS: Final[tuple[str, ...]] = (
     "amh_maezo_work_item",
     "amh_maezo_consent",
@@ -350,6 +373,12 @@ class AmhContractPin:
     artifact_digests: Mapping[str, str]
     fixture_digests: Mapping[str, str]
     source_path: Path
+    # Digest do manifest v1.1 (None enquanto nao pinado). Os digests dos 2 OpenAPI do v1.1 entram
+    # em `artifact_digests`, entao os adaptadores os acham pelo caminho, como os do v1.
+    manifest_v1_1_digest: str | None = None
+    # Digest do manifest v1.2 (TINA), None enquanto nao pinado. O digest do OpenAPI dele tambem entra
+    # em `artifact_digests`; sem ele `artifact_digests[tina]` levanta e o adaptador recusa.
+    manifest_v1_2_digest: str | None = None
 
     @property
     def canonical_schema_major(self) -> int:
@@ -879,6 +908,106 @@ def _check_artifacts(violations: list[str], raw: object) -> dict[str, str]:
     return digests
 
 
+def _run_id_newer_than_v1(run_id: str, floor_run_id: int = V1_1_MIN_PUBLICATION_RUN_ID) -> bool:
+    """`run_id` e' numerico ASCII (sem zeros a esquerda) e MAIOR que `floor_run_id` (o run do v1, por
+    padrao). Sem `int()` sobre o dado: comparacao por tamanho e depois lexicografica, entao nenhum
+    dado do pin pode levantar excecao."""
+    if re.fullmatch(r"[1-9][0-9]*", run_id) is None:
+        return False
+    floor = str(floor_run_id)
+    return (len(run_id), run_id) > (len(floor), floor)
+
+
+def _check_manifest_v1_1(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.1. Ausente = sem digests (adaptadores recusam).
+
+    Presente = completo: OpenAPI apenas, entao NAO exige ids Glue nem `schema_version_status`.
+    """
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_1_LOCK_KEY,
+        manifest_path=V1_1_MANIFEST_PATH,
+        artifact_paths=V1_1_ARTIFACT_PATHS,
+        min_run_id=V1_1_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
+def _check_manifest_v1_2(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.2 (TINA). Mesmo rigor do v1.1, com o v1.1 como predecessor:
+    o bloco v1.2 so' vale com o v1.1 pinado, run de publicacao posterior ao dele e evidencia nova."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_2_LOCK_KEY,
+        manifest_path=V1_2_MANIFEST_PATH,
+        artifact_paths=V1_2_ARTIFACT_PATHS,
+        min_run_id=V1_2_MIN_PUBLICATION_RUN_ID,
+        predecessors=(V1_1_LOCK_KEY,),
+    )
+
+
+def _check_additive_manifest(
+    violations: list[str],
+    raw: object,
+    *,
+    lock_key: str,
+    manifest_path: str,
+    artifact_paths: tuple[str, ...],
+    min_run_id: int,
+    predecessors: tuple[str, ...],
+) -> dict[str, str]:
+    block = _get(raw, lock_key)
+    if block is None:
+        return {}
+    if not isinstance(block, dict):
+        violations.append(f"{lock_key}: must be an object")
+        return {}
+    prefix = lock_key
+    for anterior in predecessors:
+        if not isinstance(_get(raw, anterior), dict):
+            violations.append(f"{prefix}: requires the earlier additive block {anterior}")
+            continue
+        if _get(raw, f"{prefix}.provenance.evidence_id") == _get(raw, f"{anterior}.provenance.evidence_id"):
+            violations.append(f"{prefix}.provenance.evidence_id: reuses the {anterior} evidence id (spent)")
+        if _get(raw, f"{prefix}.manifest_pin.sha256") == _get(raw, f"{anterior}.manifest_pin.sha256"):
+            violations.append(f"{prefix}.manifest_pin.sha256: equals the {anterior} manifest digest")
+    status = _require_str(violations, raw, f"{prefix}.provenance.status")
+    if status and status != FROZEN_STATUS:
+        violations.append(f"{prefix}.provenance.status: must be {FROZEN_STATUS!r}, got {_echo(status)}")
+    _require_str(violations, raw, f"{prefix}.provenance.amh_commit_sha")
+    evidence = _require_str(violations, raw, f"{prefix}.provenance.evidence_id")
+    if evidence and evidence == _get(raw, "provenance.evidence_id"):
+        violations.append(f"{prefix}.provenance.evidence_id: reuses the v1 evidence id (spent)")
+    path = _require_str(violations, raw, f"{prefix}.manifest_pin.path")
+    if path and path != manifest_path:
+        violations.append(f"{prefix}.manifest_pin.path: must be {manifest_path!r}, got {_echo(path)}")
+    digest = _require_str(violations, raw, f"{prefix}.manifest_pin.sha256")
+    if digest and _SHA256_RE.match(digest) is None:
+        violations.append(f"{prefix}.manifest_pin.sha256: not a 64-hex sha256, got {_echo(digest)}")
+    run_id = _require_str(violations, raw, f"{prefix}.publication.publication_run_id")
+    if run_id and not _run_id_newer_than_v1(run_id, min_run_id):
+        violations.append(
+            f"{prefix}.publication.publication_run_id: must be numeric and newer than the previous run "
+            f"{min_run_id}, got {_echo(run_id)}"
+        )
+    result = _get(raw, f"{prefix}.compatibility_report.result")
+    if result != FROZEN_COMPATIBILITY_RESULT:
+        violations.append(
+            f"{prefix}.compatibility_report.result: must be {FROZEN_COMPATIBILITY_RESULT!r}, "
+            f"got {_echo(result)}"
+        )
+    _require_str(violations, raw, f"{prefix}.xrg3_verification.verified_by")
+
+    digests = _digest_map(violations, raw, f"{prefix}.artifacts", key="path")
+    if set(digests) != set(artifact_paths):
+        violations.append(
+            f"{prefix}.artifacts: must be exactly {list(artifact_paths)}, got {sorted(map(_echo, digests))}"
+        )
+    return digests
+
+
 # ---------------------------------------------------------------------------
 # Public loader
 # ---------------------------------------------------------------------------
@@ -945,6 +1074,8 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
     glue = _check_glue(violations, raw)
     artifacts = _check_artifacts(violations, raw)
     fixtures = _digest_map(violations, raw, "fixtures", key="vendored_path")
+    artifacts_v1_1 = _check_manifest_v1_1(violations, raw)
+    artifacts_v1_2 = _check_manifest_v1_2(violations, raw)
 
     if violations:
         raise AmhContractPinError(violations)
@@ -966,9 +1097,11 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
         payload_hash_canonicalization=envelope["payload_hash_canonicalization"],
         topics=tuple(topics),
         glue=glue,
-        artifact_digests=MappingProxyType(artifacts),
+        artifact_digests=MappingProxyType({**artifacts, **artifacts_v1_1, **artifacts_v1_2}),
         fixture_digests=MappingProxyType(fixtures),
         source_path=pin_path,
+        manifest_v1_1_digest=raw[V1_1_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_1 else None,
+        manifest_v1_2_digest=raw[V1_2_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_2 else None,
     )
 
 
@@ -991,6 +1124,14 @@ __all__ = [
     "MINIMUM_CANONICAL_SCHEMA_VERSION",
     "PLACEHOLDER_SUBSTRINGS",
     "REQUIRED_EVIDENCE_SECTIONS",
+    "V1_1_ARTIFACT_PATHS",
+    "V1_1_LOCK_KEY",
+    "V1_1_MANIFEST_PATH",
+    "V1_1_MIN_PUBLICATION_RUN_ID",
+    "V1_2_ARTIFACT_PATHS",
+    "V1_2_LOCK_KEY",
+    "V1_2_MANIFEST_PATH",
+    "V1_2_MIN_PUBLICATION_RUN_ID",
     "AmhAdapterError",
     "AmhContractPin",
     "AmhContractPinError",

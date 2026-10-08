@@ -60,6 +60,15 @@ _STRING_LITERAL = re.compile(r'"[^"]*"')
 #: `frequency_zscore_threshold.in_encounter_class` and `unbundling_partial_bundles.in_tuss_codes`.
 KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
     {
+        # VW4-WIRING (2026-10-07): `canal` é coluna DECLARADA do contrato OP20 (string fechada
+        # do canal de contato) sem partição nesta versão — o particionamento vendedor/lead ×
+        # canal exigiria política própria e ninguém a inventa aqui (a rota depende da
+        # DISCIPLINA DE CLASSE C1–C6 e da célula vs k_piso, não do canal). A categoria do
+        # sujeito (`categoria_sujeito`) e a classe (`classe_campo`) SÃO lidas pelo wiring
+        # (r_desconhecido / rows C1–C6 de suppression_routing.dmn — as duas disclosures de
+        # admissão da base foram REMOVIDAS pelo ratchet, como ela prometeu) — a ratchet
+        # abaixo força a remoção desta linha no dia em que `canal` passar a discriminar.
+        ("suppression_routing.dmn", "in_canal", "canal"),
         ("ans_calendar.dmn", "in_competencia", "competencia"),
         ("auth_auto_approval.dmn", "in_carater", "carater_atendimento"),
         ("auth_criteria_contratual.dmn", "in_tenant", "tenant_id"),
@@ -81,6 +90,14 @@ KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
         ("recurso_eligibility.dmn", "in_reason_code", "glosa_reason_code"),
         ("recurso_eligibility.dmn", "in_valor", "valor_glosado_brl"),
         ("reembolso_calculo.dmn", "in_tipo", "tipo_reembolso"),
+        # VW4-WIRING (2026-10-07): `k_piso` é PARAMETRO (a cifra ratificada K_ANON_FLOOR=100
+        # vive na constante do código, nunca na tabela) — a própria coluna é wildcard e quem a
+        # LÊ são as unary tests das OUTRAS colunas (`< k_piso` / `>= k_piso` nas rows C2/C6),
+        # forma que esta fence não enxerga (sua CLASS A é só leitura em outputEntry).
+        # Prova live no CIB Seven 2.1.0 local (wiring GP11): deployment aceita a referência
+        # cross-input e o matching responde pela tupla classe×célula — célula null não casa
+        # (fail-closed para a catch-all). Nova classe legítima, disclosure como as demais.
+        ("suppression_routing.dmn", "in_k_piso", "k_piso"),
     }
 )
 

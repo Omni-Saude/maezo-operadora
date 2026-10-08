@@ -80,8 +80,13 @@ da conversa no número único, só enums e `YYYY-MM`, purga proposta de 30 dias 
 (migração `0018`, metadados técnicos de coordenação, recibos e refs/digests protegidos; §8.5); e
 `identidade_portal`/`portal_vendor_channels` (migração `0019`, VW1-P0/ADR-0063 — credenciamento
 de canal vendor: revisão CAS e status fechado, ZERO cifras e ZERO prazo de retenção — RATIFY-LATER
-DPO; revogar é gravar o novo estado, a linha nunca é apagada pelo application plane).
-Essas vinte e quatro relações continuam sem decisão de
+DPO; revogar é gravar o novo estado, a linha nunca é apagada pelo application plane); e
+`identidade_portal`/`portal_vendor_submissions` (migração `0020`, VW1-P4/OP16 — instâncias de
+submissão do canal: business key nomeada, classe de payload DECLARADA e estágio fechado do ciclo
+próprio, ZERO conteúdo de payload — a perna de declaração de saúde é RATIFY-LATER DPO (VW0-D16) —
+ZERO cifras e ZERO prazo de retenção; revisões superadas permanecem como histórico e a linha nunca
+é apagada pelo application plane).
+Essas vinte e cinco relações continuam sem decisão de
 retenção — e sem mecanismo de lifecycle produtivo qualificado que as toque.
 As seis relações de `identidade_portal` e `comando_humano` foram introduzidas pelas
 migrações `src/maezo/platform/migrations/versions/0012_portal_identity_session.py` e
@@ -211,13 +216,20 @@ escopo_b:
       tabelas: [a2a_fact_outbox]
       motivo: "fora do escopo B; sem decisao de retencao ratificada"
     - camada: identidade_portal
-      tabelas: [portal_login_transactions, portal_code_claims, portal_sessions, portal_memberships, portal_vendor_channels]
+      tabelas: [portal_login_transactions, portal_code_claims, portal_sessions, portal_memberships, portal_vendor_channels, portal_vendor_submissions, portal_vendor_suppressions]
       motivo: >-
         fora do escopo B; 0012 autentica atores humanos do portal, mas nao cria ponte entre sujeito
         DSR/FHIR e principal_ref do portal; 0019 (VW1-P0, ADR-0063) guarda o credenciamento do canal
-        vendor (tenant + channel_ref opaco, revisao CAS, status fechado active/revoked) como
-        SEM_COLUNA_DE_TITULAR — sem coluna de titular e sem referencia DSR/FHIR (o principal vendor
-        vive nos records de portal_memberships, nunca aqui); ZERO cifras e ZERO prazo de retencao
+        vendor (tenant + channel_ref opaco, revisao CAS, status fechado active/revoked), 0020
+        (VW1-P4, OP16) guarda a instancia de submissao do canal (business key nomeada
+        tenant + channel_submission + submission_ref + business_revision, classe de payload
+        DECLARADA, estagio fechado do ciclo proprio) e 0021 (VW4/GP11 wiring — insumos aceitos
+        pelo dono 2026-10-07, sha ab262f7b) guarda o registro preventivo de nao-contato OP20
+        (business key nomeada tenant + suppression_ref — digest de subject_ref + contact_channel —
+        relogio do registro NOT NULL computado pela camada de aplicacao, status fechado e motivo)
+        como SEM_COLUNA_DE_TITULAR — sem coluna de titular e sem referencia DSR/FHIR: o subject_ref
+        OPACO E a minimizacao do art. 10 §1 e a ponte de erasure nunca o resolve aqui; ZERO
+        conteudo de payload, ZERO cifras e ZERO prazo de retencao
         (RATIFY-LATER DPO); sem decisao de retencao ratificada
     - camada: comando_humano
       tabelas: [human_command_delivery, human_command_outbox]

@@ -191,7 +191,7 @@
       "id": "LUC-PRG-J2-02",
       "jornada": "J2",
       "subtipo_handoff": "confirmacao_pagamento",
-      "descricao": "Rascunho cita valor ausente dos fatos: a cerca (valor_sem_fato) barra e o texto enviado e' a constante.",
+      "descricao": "Rascunho do modelo citaria valor ausente dos fatos, mas com o fato conciliado a resposta e' o texto FIXO 'em dia' (DL-0082): o modelo nem e' chamado e o rascunho nunca sai.",
       "pseudo_id": "pseudo-lucas-021",
       "perfil_fonte": "conciliado",
       "entrada": {
@@ -203,10 +203,10 @@
       "esperado": {
         "route": "respond_member",
         "admissibilidade": "RESPONDER",
-        "desfecho": "resposta_recusada_na_saida",
+        "desfecho": "resposta_informativa_enviada",
         "process_started": false,
         "envios": 1,
-        "recusa_de_saida": true,
+        "recusa_de_saida": false,
         "ack_recusado": false,
         "dmn_avaliadas": [
           "lucas_billing_admissibility"
@@ -330,16 +330,42 @@
       }
     },
     {
-      "id": "LUC-PRG-J3-01",
-      "jornada": "J3",
-      "subjornada": "inadimplencia",
+      "id": "LUC-PRG-CR-01",
+      "jornada": "J2",
+      "subjornada": "cobranca_recebida",
       "subtipo_handoff": "cobranca_recebida",
-      "descricao": "'Estou sendo cobrado' com 1 ciclo em aberto: J3, escala sem passar pela DMN de admissibilidade.",
+      "descricao": "DL-0082 (incidente de 08/10/2026): 'minha mensalidade esta em aberto?' com o fato CONCILIADO e zero ciclos: responde 'em dia' com texto fixo, sem processo e sem falar em inadimplencia (lba_r_status_conciliado).",
+      "pseudo_id": "pseudo-lucas-042",
+      "perfil_fonte": "conciliado",
+      "entrada": {
+        "intencao": "inadimplencia",
+        "tipo_solicitacao": "status_pagamento",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-CR-02",
+      "jornada": "J2",
+      "subjornada": "cobranca_recebida",
+      "subtipo_handoff": "cobranca_recebida",
+      "descricao": "'Estou sendo cobrado' com 1 ciclo sem conciliacao: a regra de atraso da DMN escala como inadimplencia_detectada (lba_r_atraso_escala).",
       "pseudo_id": "pseudo-lucas-018",
       "perfil_fonte": "atraso_1_ciclo",
       "entrada": {
         "intencao": "inadimplencia",
-        "tipo_solicitacao": "",
+        "tipo_solicitacao": "status_pagamento",
         "competencia": "2026-09"
       },
       "esperado": {
@@ -354,21 +380,22 @@
         "recusa_de_saida": false,
         "ack_recusado": false,
         "dmn_avaliadas": [
+          "lucas_billing_admissibility",
           "lucas_escalation_routing"
         ]
       }
     },
     {
-      "id": "LUC-PRG-J3-02",
-      "jornada": "J3",
-      "subjornada": "inadimplencia",
+      "id": "LUC-PRG-CR-03",
+      "jornada": "J2",
+      "subjornada": "cobranca_recebida",
       "subtipo_handoff": "cobranca_recebida",
-      "descricao": "'Estou sendo cobrado' com 2 ciclos em aberto: J3, escala.",
+      "descricao": "'Estou sendo cobrado' com 2 ciclos sem conciliacao: escala pela regra de atraso.",
       "pseudo_id": "pseudo-lucas-006",
       "perfil_fonte": "atraso_2_ciclos",
       "entrada": {
         "intencao": "inadimplencia",
-        "tipo_solicitacao": "",
+        "tipo_solicitacao": "status_pagamento",
         "competencia": "2026-09"
       },
       "esperado": {
@@ -383,28 +410,29 @@
         "recusa_de_saida": false,
         "ack_recusado": false,
         "dmn_avaliadas": [
+          "lucas_billing_admissibility",
           "lucas_escalation_routing"
         ]
       }
     },
     {
-      "id": "LUC-PRG-J3-03",
-      "jornada": "J3",
-      "subjornada": "inadimplencia",
+      "id": "LUC-PRG-CR-04",
+      "jornada": "J2",
+      "subjornada": "cobranca_recebida",
       "subtipo_handoff": "cobranca_recebida",
-      "descricao": "'Estou sendo cobrado' sem atraso registrado: J3 escala do mesmo jeito; o fato nao muda a jornada.",
+      "descricao": "'Estou sendo cobrado' em aberto SEM ciclo vencido: nao ha indicio de atraso, entao o catch-all leva ao humano como ambiguidade — nunca como inadimplencia (DL-0082).",
       "pseudo_id": "pseudo-lucas-007",
       "perfil_fonte": "em_aberto",
       "entrada": {
         "intencao": "inadimplencia",
-        "tipo_solicitacao": "",
+        "tipo_solicitacao": "status_pagamento",
         "competencia": "2026-09"
       },
       "esperado": {
         "route": "escalate_human",
         "admissibilidade": "",
-        "motivo_humano": "inadimplencia_detectada",
-        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "motivo_humano": "ambiguidade",
+        "roteamento_escalacao": "ATENDIMENTO_HUMANO",
         "grupo_humano": "atendimento-humano",
         "desfecho": "escalado_humano",
         "process_started": true,
@@ -412,6 +440,37 @@
         "recusa_de_saida": false,
         "ack_recusado": false,
         "dmn_avaliadas": [
+          "lucas_billing_admissibility",
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-CR-05",
+      "jornada": "J2",
+      "subjornada": "cobranca_recebida",
+      "subtipo_handoff": "cobranca_recebida",
+      "descricao": "Fonte indisponivel: sem fato, o catch-all leva ao humano como ambiguidade e o ACK diz que nao deu para consultar — nunca afirma atraso nem pagamento.",
+      "pseudo_id": "pseudo-lucas-016",
+      "perfil_fonte": "indisponivel",
+      "entrada": {
+        "intencao": "inadimplencia",
+        "tipo_solicitacao": "status_pagamento",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "ambiguidade",
+        "roteamento_escalacao": "ATENDIMENTO_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility",
           "lucas_escalation_routing"
         ]
       }
@@ -481,7 +540,7 @@
       "jornada": "J3",
       "subjornada": "contestacao",
       "subtipo_handoff": "contestacao",
-      "descricao": "Contestacao com fonte indisponivel, e o rascunho do ACK ameaca cancelar o contrato: a cerca barra e sai ACK_ESCALACAO_RECUSADO.",
+      "descricao": "Contestacao com fonte indisponivel, e o rascunho do ACK ameacaria cancelar o contrato: desde DL-0082 o ACK e' texto fixo, o rascunho nunca e' pedido nem sai.",
       "pseudo_id": "pseudo-lucas-014",
       "perfil_fonte": "indisponivel",
       "entrada": {
@@ -501,7 +560,7 @@
         "process_started": true,
         "envios": 1,
         "recusa_de_saida": false,
-        "ack_recusado": true,
+        "ack_recusado": false,
         "dmn_avaliadas": [
           "lucas_escalation_routing"
         ]
@@ -542,7 +601,7 @@
       "jornada": "J3",
       "subjornada": "cancelamento",
       "subtipo_handoff": "cancelamento",
-      "descricao": "Pedido de cancelamento com 2 ciclos em aberto, e o rascunho do ACK afirma o cancelamento: a cerca barra.",
+      "descricao": "Pedido de cancelamento com 2 ciclos em aberto, e o rascunho do ACK afirmaria o cancelamento: desde DL-0082 o ACK e' texto fixo, o rascunho nunca sai.",
       "pseudo_id": "pseudo-lucas-024",
       "perfil_fonte": "atraso_2_ciclos",
       "entrada": {
@@ -562,7 +621,7 @@
         "process_started": true,
         "envios": 1,
         "recusa_de_saida": false,
-        "ack_recusado": true,
+        "ack_recusado": false,
         "dmn_avaliadas": [
           "lucas_escalation_routing"
         ]

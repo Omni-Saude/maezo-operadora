@@ -4,8 +4,8 @@ No engine — exercises the bootstrap (`register_default_workers`), the readines
 (fail-closed on partial topic coverage), and `WorkerState`. The full `run()` lifecycle against a
 real engine is covered by `tests/integration/`.
 
-T1.2/ADR-0026 (+ T3.1 R2 + VW1-P0-FENCES): `register_default_workers` now delegates to the FULL
-18-module `bootstrap.register_all_workers` composition (16 + T3.1 R2's `events` module +
+T1.2/ADR-0026 (+ T3.1 R2 + VW1-P0-FENCES + VW4/GP11): `register_default_workers` now delegates to the FULL
+19-module `bootstrap.register_all_workers` composition (16 + T3.1 R2's `events` module +
 VW1-P0-FENCES' `vendor_admin` module, closing the
 `operadora.events.publish` gap) — closing the T1.1 verifier's interim-scope note (T1.1 shipped
 only the 3 `WorkerBase` modules — auth/escalation/lgpd, 15 topics). The exact topic count is
@@ -32,12 +32,12 @@ from maezo.tools.workers.bootstrap import ALL_WORKER_BOOTSTRAPS
 from maezo.tools.workers.harness import FakeWorkerTransport, WorkerHarness
 
 
-def test_register_default_workers_registers_all_18_modules() -> None:
+def test_register_default_workers_registers_all_19_modules() -> None:
     """T1.2/ADR-0026 + T3.1 R2 + VW1-P0-FENCES: the daemon's bootstrap now covers all 18 worker
     modules (the 3 `WorkerBase` modules T1.1 shipped + the 13 `FunctionWorker`-wrapped modules
     T1.2 adds + T3.1 R2's raw-handler `events` module + VW1-P0-FENCES' raw-handler `vendor_admin`
     module), closing the interim-scope note. `registry.count()` ==
-    `len(registered_topics) - 22` because TWENTY-TWO topics use the raw `harness.register()` path
+    `len(registered_topics) - 24` because TWENTY-FOUR topics use the raw `harness.register()` path
     (which populates `_handlers` but NOT the `WorkerRegistry`) — MERGE RECONCILIATION (T3.1 P2b
     recurso × origin/main LGPD batch-1 × t5 escalation/ans-notify × DL-0033 dossier A2A ×
     item-9 wave-5 programa): `operadora.events.publish` (T3.1 R2); the three LGPD raw handlers
@@ -60,12 +60,13 @@ def test_register_default_workers_registers_all_18_modules() -> None:
     not expose. Delta breakdown (re-derived, the running total had drifted from the list above):
     1 events + 3 lgpd + 3 recurso + 1 ans-notify + 1 ans-retransmit (t9-nack-vars) + 2 escalation
     + 4 dossier (DL-0033 + the item9-w3 pagto edge + the R-081 inadimplencia edge) + 4 programa
-    + 1 adequacao update_monitoring_plan = 20. Every other module/topic goes through
+    + 1 adequacao update_monitoring_plan + 2 vendor.suppression (VW4/GP11 envelope — raw handlers
+    with declared fetch scopes, module docstring) = 22. Every other module/topic goes through
     `WorkerHarness.register_worker` -> `WorkerRegistry.register`."""
     harness = WorkerHarness(FakeWorkerTransport(), worker_id="probe")
     register_default_workers(harness)
 
-    assert len(ALL_WORKER_BOOTSTRAPS) == 18
+    assert len(ALL_WORKER_BOOTSTRAPS) == 19
     assert len(harness.registered_topics) > 90
     # DL-0033 real A2A wiring (dossier branch): `operadora.cred.prepare_dossier`,
     # `operadora.adequacao.prepare_remediation_dossier` and (item9-w3) the pagto edge
@@ -98,7 +99,7 @@ def test_register_default_workers_registers_all_18_modules() -> None:
     # + 1 ans-retransmit + 2 escalation + 4 dossier + 4 programa + 1 adequacao + 1 auth
     # + 1 vendor (VW1-P0-FENCES: the publication cadence is a raw async handler over injected
     # source seams — vendor_admin.py's module docstring) = 22.
-    assert harness.registry.count() == len(harness.registered_topics) - 22
+    assert harness.registry.count() == len(harness.registered_topics) - 24
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:
@@ -202,7 +203,7 @@ async def test_workers_registered_healthy_payload_carries_the_full_scope_detail(
 
     assert result.healthy is True
     assert result.detail is not None
-    assert "18/18" in result.detail
+    assert "19/19" in result.detail
     assert "topics" in result.detail
 
 

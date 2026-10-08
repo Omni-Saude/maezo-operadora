@@ -235,3 +235,13 @@ orphans:
     already-inverted table: outputs indicador_score:integer/indicador_label/
     motivo, no verdict column. Synthetic scores/thresholds still flagged for
     SME (medico-auditor/financas) review — docs/review-queue.md.
+  suppression_routing: >-
+    Worker-consumed via the ADR-0028 dmn= seam (CibSevenDmnTransport): evaluated
+    engine-side by the `vendor.suppression.route` external handler of SP-OP-SUPP-001
+    (tools/workers/suppression.py, VW4/GP11 — insumos DPO ACCEPTED by the owner
+    2026-10-07, sha ab262f7b…, landed by the wiring package), never via a BPMN
+    businessRuleTask decisionRef — same shape as the auth-criteria tables above.
+    The table carries the C1-C6 taxonomy partitions (ANSWERS-V1 §4b) with k_piso as
+    an INPUT/param (the ratified constant lives in gateway/vendor_suppression.py),
+    catch-all LAST row -> RECLAMACAO_ENCARREGADO/dpo. PERMANENT orphan from
+    crossref's decisionRef-only perspective (docs/review-queue.md SP-OP-SUPP-001).

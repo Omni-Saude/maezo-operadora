@@ -53,13 +53,18 @@ def timer_bindings():
 def test_publication_sources_equal_exact_canonical_engine_ids():
     processes = canonical_processes()
     canonical_ids = {process.attrib["id"] for process in processes}
-    assert len(processes) == len(canonical_ids) == 20
+    # 15 SP-OP agent-plane + 5 timer definitions do ANS-CRON + SP-OP-SUPP-001 (VW4/GP11).
+    assert len(processes) == len(canonical_ids) == 21
     assert canonical_ids == program_publication._PUBLICATION_PROCESS_KEYS
     timers = {source for source, _, _ in timer_bindings()}
     assert len(timers) == 5
-    assert canonical_ids - KNOWN_PROCESS_KEYS == timers
+    # Fontes de publicação NÃO agent-startable: os timers do ANS-CRON (iniciados por timer)
+    # e SP-OP-SUPP-001 (iniciado pelo plano de aplicação sobre pedido EXTERNO do titular,
+    # art. 7º IX + 18 §2º — nunca por agente; KNOWN_PROCESS_KEYS/ADR-0016 segue em 15).
+    assert canonical_ids - KNOWN_PROCESS_KEYS == timers | {"SP-OP-SUPP-001"}
     assert not timers & KNOWN_PROCESS_KEYS
     assert "SP-OP-ANS-CRON-001" not in canonical_ids
+    assert "SP-OP-SUPP-001" not in KNOWN_PROCESS_KEYS
 
 
 @pytest.mark.parametrize("source,activity,params", timer_bindings())

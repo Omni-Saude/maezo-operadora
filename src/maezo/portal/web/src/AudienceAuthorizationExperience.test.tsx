@@ -431,7 +431,11 @@ it.each([["authorization", "Autorização"], ["reimbursement", "Reembolso"], ["a
 
 
 it("mantém o vocabulário e os cinco campos W6 no tipo público", () => {
-  expectTypeOf<CaseSummaryView["kind"]>().toEqualTypeOf<"authorization" | "reimbursement" | "account">();
+  // VW1-P4 (OP16): the vendor formalization case joined the closed vocabulary — widened
+  // deliberately with the API contract; beneficiary/provider pages never render it today.
+  expectTypeOf<CaseSummaryView["kind"]>().toEqualTypeOf<
+    "authorization" | "reimbursement" | "account" | "channel_submission"
+  >();
   expectTypeOf<keyof CaseSummaryView>().toEqualTypeOf<"caseRef" | "kind" | "state" | "recordRevision" | "stateObservedAt">();
   expect(Object.keys(casePageFixture.items[0]).sort()).toEqual(["caseRef", "kind", "recordRevision", "state", "stateObservedAt"]);
 });

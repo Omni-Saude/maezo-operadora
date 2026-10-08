@@ -463,7 +463,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -1045,7 +1046,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -1088,7 +1090,8 @@
                 "recurso_decisao": "#/components/schemas/RecursoDecisionInputs",
                 "reembolso_auditor": "#/components/schemas/ReembolsoAuditorInputs",
                 "reembolso_decisao": "#/components/schemas/ReembolsoDecisionInputs",
-                "reembolso_pendencia": "#/components/schemas/ReembolsoPendingInputs"
+                "reembolso_pendencia": "#/components/schemas/ReembolsoPendingInputs",
+                "suppression_encarregado": "#/components/schemas/SuppressionEncarregadoDecisionInputs"
               },
               "propertyName": "kind"
             },
@@ -1158,6 +1161,9 @@
               },
               {
                 "$ref": "#/components/schemas/LgpdDsrDecisionInputs"
+              },
+              {
+                "$ref": "#/components/schemas/SuppressionEncarregadoDecisionInputs"
               },
               {
                 "$ref": "#/components/schemas/AuthPendingInputs"
@@ -1465,7 +1471,8 @@
             "enum": [
               "authorization",
               "reimbursement",
-              "account"
+              "account",
+              "channel_submission"
             ],
             "title": "Kind",
             "type": "string"
@@ -1503,6 +1510,273 @@
         "pattern": "^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$",
         "title": "Centavos",
         "type": "string"
+      },
+      "ChannelSubmissionCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "business_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Business Revision",
+            "type": "string"
+          },
+          "channel_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Channel Ref",
+            "type": "string"
+          },
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "contract_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Contract Ref",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/ChannelSubmissionPayload"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "submission_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Submission Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "channel_ref",
+          "submission_ref",
+          "business_revision",
+          "contract_ref",
+          "payload"
+        ],
+        "title": "ChannelSubmissionCommand",
+        "type": "object"
+      },
+      "ChannelSubmissionPayload": {
+        "additionalProperties": false,
+        "description": "The closed submission envelope: a declared class token and nothing else.\n\n`content_class` is a bounded DECLARATION slot, deliberately not a `Literal`: the firewall\nmust be able to NAME an undeclared (clinical or unknown) class in a typed, audited refusal\ninstead of dropping it as a shape error. Everything beyond the token — form content,\nattachments, clinical statements — is structurally absent from this contract.",
+        "properties": {
+          "content_class": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Content Class",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_class"
+        ],
+        "title": "ChannelSubmissionPayload",
+        "type": "object"
+      },
+      "ChannelSubmissionReceipt": {
+        "additionalProperties": false,
+        "description": "What the machine PROVES back: stage, instance identity, refusal — never a verdict.\n\n`case_ref`/`document_request_ref` bind the response leg to NATIVE objects only: `responded`\nis unconstructible without a native case object an existing authority produced, and\n`documents_pending` without a native document request. `received` binds nothing — staging a\nsubmission creates no case and asserts no acceptance (C-10).",
+        "properties": {
+          "business_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Business Revision",
+            "type": "string"
+          },
+          "case_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Ref"
+          },
+          "channel_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Channel Ref",
+            "type": "string"
+          },
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "document_request_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Request Ref"
+          },
+          "lifecycle": {
+            "enum": [
+              "received",
+              "documents_pending",
+              "responded",
+              "refused"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "refusal_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "AUTHORITY_UNPROVEN",
+                  "CHANNEL_STATUS_INELIGIBLE",
+                  "CONTRACT_MISMATCH",
+                  "SOURCE_UNAVAILABLE",
+                  "PHI_IN_COMMERCIAL_INPUT",
+                  "STALE_REVISION",
+                  "AUDIT_UNAVAILABLE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusal Code"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "submission_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "submission_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Submission Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "channel_ref",
+          "submission_ref",
+          "business_revision",
+          "submission_id",
+          "lifecycle"
+        ],
+        "title": "ChannelSubmissionReceipt",
+        "type": "object"
+      },
+      "ChannelSubmissionStatus": {
+        "additionalProperties": false,
+        "description": "Read projection of one stored instance; the formalization answer is not a field here.",
+        "properties": {
+          "business_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Business Revision",
+            "type": "string"
+          },
+          "case_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Ref"
+          },
+          "channel_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Channel Ref",
+            "type": "string"
+          },
+          "contract_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Contract Ref",
+            "type": "string"
+          },
+          "document_request_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Request Ref"
+          },
+          "lifecycle": {
+            "enum": [
+              "received",
+              "documents_pending",
+              "responded",
+              "refused"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "refusal_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "AUTHORITY_UNPROVEN",
+                  "CHANNEL_STATUS_INELIGIBLE",
+                  "CONTRACT_MISMATCH",
+                  "SOURCE_UNAVAILABLE",
+                  "PHI_IN_COMMERCIAL_INPUT",
+                  "STALE_REVISION",
+                  "AUDIT_UNAVAILABLE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusal Code"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "submission_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "submission_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Submission Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "channel_ref",
+          "submission_ref",
+          "business_revision",
+          "contract_ref",
+          "lifecycle"
+        ],
+        "title": "ChannelSubmissionStatus",
+        "type": "object"
       },
       "ClaimAssignment": {
         "additionalProperties": false,
@@ -1576,7 +1850,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -2447,6 +2722,7 @@
                 "referencia_negativa_original",
                 "decisao_dsr",
                 "fundamentacao_legal",
+                "decisao_encarregado",
                 "decisao_pagamento",
                 "valor_aprovado_cents",
                 "justificativa_aprovacao",
@@ -2550,7 +2826,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -3171,7 +3448,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -3445,7 +3723,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -3732,7 +4011,8 @@
             "enum": [
               "authorization",
               "reimbursement",
-              "account"
+              "account",
+              "channel_submission"
             ],
             "title": "Kind",
             "type": "string"
@@ -4923,6 +5203,34 @@
         "title": "PortalReadError",
         "type": "object"
       },
+      "PortalVendorSubmissionError": {
+        "additionalProperties": false,
+        "description": "Closed wire error; codes are transport (lowercase) or registry refusals (verbatim).",
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "authentication_unavailable",
+              "operation_forbidden",
+              "resource_unavailable",
+              "AUTHORITY_UNPROVEN",
+              "CHANNEL_STATUS_INELIGIBLE",
+              "CONTRACT_MISMATCH",
+              "SOURCE_UNAVAILABLE",
+              "PHI_IN_COMMERCIAL_INPUT",
+              "STALE_REVISION",
+              "AUDIT_UNAVAILABLE"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PortalVendorSubmissionError",
+        "type": "object"
+      },
       "ProgramaDecisionInputs": {
         "additionalProperties": false,
         "description": "Human PROGRAMA decision shared by the clinical and SLA-takeover tasks.\n\nSP-OP-PROGRAMA-001 lines 105-108 and the two BPMN task descriptions define this narrow\nbrowser-writable shape. ``responsavel_clinico_id`` is injected later from trusted human-task\ncontext. Consent, eligibility, enrollment gaps, timers, tenant and autonomy tier are likewise\nauthoritative context, never browser claims. Constructing this DRAFT DTO does not authenticate\na clinician, establish consent or clinical merit, or execute an engine/clinical decision.\n\nThe contract separately lists ``decisao_coordenacao``, but the current BPMN has no gateway,\nworker or other decision consumer for it. It remains an explicit unbound obligation instead of\nbecoming an arbitrary browser control in this slice.",
@@ -5486,6 +5794,7 @@
                 "referencia_negativa_original",
                 "decisao_dsr",
                 "fundamentacao_legal",
+                "decisao_encarregado",
                 "decisao_pagamento",
                 "valor_aprovado_cents",
                 "justificativa_aprovacao",
@@ -5589,7 +5898,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -6212,7 +6522,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -6629,6 +6940,44 @@
         "title": "StaffSummary",
         "type": "object"
       },
+      "SuppressionEncarregadoDecisionInputs": {
+        "additionalProperties": false,
+        "description": "Human encarregado routing decision for the vendor suppression request, SP-OP-SUPP-001.\n\nClosed DRAFT shape (VW4/GP11, admitted 2026-10-07; repair F7 of the Tier-2 gate): the\nUT_RotearEncarregado outcome is a human act — honor the suppression register, refuse it\nwith mandatory grounding, or escalate. It cannot prove encarregado identity (art. 41\nformalization is an administrative act), SLA honoring, or list-construction effects;\nthose live in the wiring package + the ratified insumos.",
+        "properties": {
+          "decisao_encarregado": {
+            "enum": [
+              "HONRAR",
+              "NAO_HONRAR_FUNDAMENTADO",
+              "ESCALAR"
+            ],
+            "title": "Decisao Encarregado",
+            "type": "string"
+          },
+          "fundamentacao": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fundamentacao"
+          },
+          "kind": {
+            "const": "suppression_encarregado",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "decisao_encarregado"
+        ],
+        "title": "SuppressionEncarregadoDecisionInputs",
+        "type": "object"
+      },
       "TaskCompletionResponse": {
         "additionalProperties": false,
         "description": "The final state of the task, plus the trail refs that let the two paths be compared.\n\nNo note, no narrative and no beneficiary reference travel back: the browser already has the\ntext it typed, and the pseudonymized note belongs to the engine's PHI zone. The two audit\nrefs are chain-link hashes in the tenant's existing audit chain — the same chain\n`human_command.intent`/`.result` writes to — so \"conclusão pelo portal e pelo motor\nproduzem rastro idêntico\" is something a reader can actually check.",
@@ -6700,7 +7049,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -10347,6 +10697,203 @@
           }
         },
         "summary": "Submit Decision"
+      }
+    },
+    "/api/v1/portal/vendor/submissions": {
+      "post": {
+        "operationId": "submit_api_v1_portal_vendor_submissions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelSubmissionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelSubmissionReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Submit"
+      }
+    },
+    "/api/v1/portal/vendor/submissions/{submission_ref}": {
+      "get": {
+        "operationId": "read_api_v1_portal_vendor_submissions__submission_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_ref",
+            "required": true,
+            "schema": {
+              "title": "Submission Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelSubmissionStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalVendorSubmissionError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read"
       }
     }
   }

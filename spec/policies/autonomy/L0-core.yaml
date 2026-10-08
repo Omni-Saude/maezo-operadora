@@ -47,6 +47,10 @@ actions:
   # contrato da AMH (billing-status / subject-resolution, ADR-0037), sem identificador cru — so'
   # `portable_subject_ref` opaco e boleto mascarado. NAO e' hard. Decisao do dono 06/10/2026 (DL).
   read_member_billing_identity: { level: L3 }
+  # Helena (Zona Geral): leitura dos fatos do plano do PROPRIO beneficiario (vinculos, carencias,
+  # requisicoes) pelo contrato TINA da AMH (manifest v1.2, DRAFT), so' com carteirinha/senha
+  # mascaradas. Mesma classe e governanca da acao acima. NAO e' hard. Decisao do dono 07/10/2026 (DL).
+  read_member_plan_facts:       { level: L3 }
   # mcp_whatsapp: envio de mensagem ao beneficiário — L3 informativo; template = L2 (efeito externo)
   send_beneficiary_message:     { level: L3 }
   send_beneficiary_template:    { level: L2 }

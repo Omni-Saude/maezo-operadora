@@ -12,7 +12,9 @@ export type ResourceState =
 
 export type CaseSummaryView = Readonly<{
   caseRef: string;
-  kind: "authorization" | "reimbursement" | "account";
+  // Mirrors the closed `external_cases` Kind: the vendor audience's formalization case
+  // (OP16/VW1-P4) joined the vocabulary; no producer emits it to beneficiary/provider pages.
+  kind: "authorization" | "reimbursement" | "account" | "channel_submission";
   state: "active" | "ended";
   recordRevision: string;
   stateObservedAt: string;

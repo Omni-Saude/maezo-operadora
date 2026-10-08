@@ -778,3 +778,41 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+  - camada: identidade_portal
+    tabela: portal_vendor_submissions
+    migracao: "0020_vendor_channel_submissions.py::upgrade (portal_vendor_submissions)"
+    identificacao: "tenant + operation + submission_ref + business_revision (business key nomeada OP16, migration 0020 VW1-P4); identidade de instancia, classe de payload DECLARADA e estagio fechado apenas. Sem coluna de titular, sem conteudo de payload e sem referencia DSR/FHIR: o principal vendor vive nos records de portal_memberships, nunca aqui"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 36
+    tensao: null
+    notas: >-
+      VW1-P4 (OP16 channel.submission.submit): uma linha por instancia de submissao do
+      canal — a business key nomeada do registry e a PRIMARY KEY (NO-DUPLICATE-INSTANCE).
+      A tabela guarda identidade de instancia e estagio do ciclo proprio; ZERO conteudo de
+      payload (a perna de declaracao de saude e VW0-D16, RATIFY-LATER DPO), ZERO cifras e
+      ZERO prazo de retencao. Instancias de revisoes superadas permanecem como historico
+      e nunca sao apagadas pelo application plane. Downgrade da migration recusa store
+      populado: disposicao de submissao viva e do dono qualificado.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+  - camada: identidade_portal
+    tabela: portal_vendor_suppressions
+    migracao: "0021_vendor_suppression_records.py::upgrade (portal_vendor_suppressions)"
+    identificacao: "tenant + suppression_ref (business key nomeada OP20 — digest de subject_ref + contact_channel, migration 0021 VW4/GP11 wiring); registro minimizado art. 10 §1 (identificador opaco + datas + canal), status fechado do relogio e motivo apenas. Sem coluna de titular e sem referencia DSR/FHIR: o subject_ref OPACO E a minimizacao (art. 10 §1) e a ponte de erasure nunca o resolve aqui"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 37
+    tensao: null
+    notas: >-
+      VW4/GP11 (OP20 suppression.record, insumos ACEITOS pelo dono 2026-10-07 — sha
+      ab262f7b): uma linha por registro preventivo de nao-contato (art. 7o IX + 18 §2o) —
+      a oposicao EFEITIVA nasce com o registro. Relogio visivel (t_deadline/t_lembrete/
+      t_escalonado NOT NULL computados pela camada de aplicacao, calendario own-code
+      seg-sex SEM feriados — limite documentado); registro sem deadline e recusado.
+      ZERO conteudo de payload, ZERO cifras e ZERO prazo de RETENCAO (o TTL de historico
+      do engine e limpeza tecnica, nao negocio — retencao = VW0-D12 RATIFY-LATER DPO).
+      Downgrade da migration recusa store populado: disposicao de oposicao viva e do
+      dono qualificado.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO

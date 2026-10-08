@@ -70,6 +70,7 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "__init__",  # public surface (re-exports only) + the "why no consumer" record
         "billing_status",  # BillingStatusPort adapter (contrato AMH ainda nao publicado): fail-closed sem pin
         "subject_resolution",  # SubjectResolutionPort adapter (idem): fail-closed sem pin
+        "tina",  # TinaPort adapter (fatos do plano, manifest v1.2 DRAFT): fail-closed sem pin
         "contract",  # fail-closed runtime loader for the immutable pin
         "mapping",  # decoded wire event <-> canonical port value types
         "settings",  # env-driven configuration, declared not wired
@@ -196,7 +197,7 @@ def _phase_a_offenders(tree: ast.AST) -> set[str]:
 def _non_stdlib_offenders(tree: ast.AST, *, module: str = "") -> set[str]:
     """The POSITIVE form — the failure mode a blocklist alone always has: an unlisted third party."""
     allowed = _ALLOWED_NON_STDLIB_ROOTS
-    if module in ("subject_context", "billing_status", "subject_resolution"):
+    if module in ("subject_context", "billing_status", "subject_resolution", "tina"):
         # E02 parses the immutable upstream artifact with existing libraries.
         # This does not admit HTTP, broker, cloud or SQL clients.
         allowed = allowed | {"yaml", "jsonschema"}
@@ -227,8 +228,9 @@ def test_adapter_modules_discovered() -> None:
         f"{sorted(_EXPECTED_MODULES)}. Adding a module changes the adapter's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 8, (
-        f"expected exactly 8 modules (phase A + MZO-050b + E02 + billing + resolution), found {sorted(mods)}"
+    assert len(mods) == 9, (
+        "expected exactly 9 modules (phase A + MZO-050b + E02 + billing + resolution + tina), "
+        f"found {sorted(mods)}"
     )
     assert "consumer" not in mods, (
         "consumer.py exists — phase A must NOT ship a consumer: WorkItemSource.ack may only report "

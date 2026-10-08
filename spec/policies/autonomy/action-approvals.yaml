@@ -730,6 +730,9 @@ mapeamento_acoes:
   agente.amh.get_billing_status: leitura_phi_clinica
   agente.amh.resolve_subject_by_phone: leitura_phi_clinica
   agente.amh.get_subject_profile: leitura_phi_clinica
+  agente.amh.tina_get_elegibilidade: leitura_phi_clinica
+  agente.amh.tina_get_carencias: leitura_phi_clinica
+  agente.amh.tina_get_requisicoes: leitura_phi_clinica
 
   agente.whatsapp.send_message: comunicacao_beneficiario
 

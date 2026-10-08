@@ -24,6 +24,7 @@ import pytest
 import yaml
 
 from maezo.agents.lucas.graph import (
+    ACK_ESCALACAO,
     AdmissibilidadeCobranca,
     Intencao,
     LucasGraph,
@@ -418,7 +419,7 @@ async def test_j2_status_unresolved_by_worker_never_assumed_inadimplente() -> No
 
 
 # ---------------------------------------------------------------------------
-# J3 — inadimplencia | cancelamento | contestacao_cobranca | pedido_cancelamento: ALWAYS escalates
+# J3 — cancelamento | contestacao_cobranca | pedido_cancelamento: ALWAYS escalates
 # ---------------------------------------------------------------------------
 
 
@@ -426,14 +427,39 @@ async def test_j3_intencao_always_escalates_never_calls_billing_dmn() -> None:
     """L0 guard: J3 always escalates, and never even reaches the billing DMN (no adverse
     desfecho can originate from a billing-admissibility read for this journey)."""
     dmn = FakeDmnTransport()
-    dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
+    dmn.register("lucas_escalation_routing", [{"roteamento": "CONTRATOS_HUMANO"}])
     graph = _graph(dmn=dmn)
 
-    result = await graph.assess(_base_state(intencao="inadimplencia", tipo_solicitacao="boleto"))
+    result = await graph.assess(_base_state(intencao="cancelamento", tipo_solicitacao="boleto"))
 
     assert result["route"] == "escalate_human"
-    assert result["motivo_humano"] == "inadimplencia_detectada"
+    assert result["motivo_humano"] == "pedido_cancelamento"
     assert [call[0] for call in dmn.calls] == ["lucas_escalation_routing"]
+
+
+async def test_intencao_inadimplencia_passa_pela_dmn_com_os_fatos() -> None:
+    """DL-0082: a intencao `inadimplencia` e' dica, nao veredito. Ela consulta a DMN de
+    admissibilidade com os fatos de conciliacao — nunca escala direto como J3."""
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_billing_admissibility", [{"roteamento": "RESPONDER"}])
+    graph = _graph(dmn=dmn)
+
+    result = await graph.assess(
+        _base_state(
+            intencao="inadimplencia",
+            tipo_solicitacao="status_pagamento",
+            status_conciliado=True,
+            ciclos_sem_conciliacao=0,
+        )
+    )
+
+    assert result["route"] == "respond_member"
+    assert [call[0] for call in dmn.calls] == ["lucas_billing_admissibility"]
+    assert dmn.calls[0][1] == {
+        "tipo_solicitacao": "status_pagamento",
+        "status_conciliado": True,
+        "ciclos_sem_conciliacao": 0,
+    }
 
 
 async def test_j3_cancelamento_escalates_pedido_cancelamento_to_contratos_humano() -> None:
@@ -473,22 +499,22 @@ async def test_j3_pedido_cancelamento_flag_escalates_even_under_cobranca_info_in
 
 async def test_j3_full_turn_starts_process_and_sends_ack_never_the_adverse_text() -> None:
     dmn = FakeDmnTransport()
-    dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
+    dmn.register("lucas_escalation_routing", [{"roteamento": "CONTRATOS_HUMANO"}])
     cibseven = FakeCibSevenTransport()
     sender = _FakeWhatsAppSender()
-    inference = _FakeInference(["Resumo factual do caso.", "Um atendente humano vai continuar."])
+    # O segundo rascunho NUNCA e' usado (DL-0082: o ACK e' texto fixo) — so' o dossie chama o modelo.
+    inference = _FakeInference(["Resumo factual do caso.", "Seu plano foi cancelado."])
     compiled = (
         _graph(inference=inference, dmn=dmn, cibseven=cibseven, whatsapp=sender).compile_graph().compile()
     )
 
-    result = await compiled.ainvoke(_base_state(intencao="inadimplencia"))
+    result = await compiled.ainvoke(_base_state(intencao="cancelamento", pedido_cancelamento=True))
 
     assert result["route"] == "escalate_human"
     assert result["process_started"] is True
     assert result["business_key"] == "ESC-amh-wa:amh:deadbeef"
-    assert [(to_hash, text) for to_hash, text, _key in sender.sent] == [
-        ("deadbeef", "Um atendente humano vai continuar.")
-    ]
+    assert [(to_hash, text) for to_hash, text, _key in sender.sent] == [("deadbeef", ACK_ESCALACAO)]
+    assert len(inference.calls) == 1
     assert sender.sent[0][2].startswith("ESC-amh-wa:amh:deadbeef:send_escalation_ack:")
     for _to_hash, text, _idempotency_key in sender.sent:
         assert "suspens" not in text.lower()
@@ -765,13 +791,26 @@ async def test_planted_error_j3_full_turn_still_starts_real_escalation() -> None
     `escalate_human` stamps `route` authoritatively (F1a), and `start_process` fails CLOSED on
     any non-respond route (F1b) — three independent layers, each sufficient alone."""
     dmn = FakeDmnTransport()
+    # DL-0082: a intencao `inadimplencia` passa pela DMN de admissibilidade; a regra de atraso
+    # (fato: nao conciliado por >= 1 ciclo) e' o que a torna `inadimplencia_detectada`.
+    dmn.register(
+        "lucas_billing_admissibility",
+        [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"}],
+    )
     dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
     cibseven = FakeCibSevenTransport()
     recording = _record_start(cibseven)
     sender = _FakeWhatsAppSender()
     compiled = _graph(dmn=dmn, cibseven=cibseven, whatsapp=sender).compile_graph().compile()
 
-    result = await compiled.ainvoke(_base_state(intencao="inadimplencia", error="caller planted error"))
+    result = await compiled.ainvoke(
+        _base_state(
+            intencao="inadimplencia",
+            status_conciliado=False,
+            ciclos_sem_conciliacao=2,
+            error="caller planted error",
+        )
+    )
 
     assert result["route"] == "escalate_human"
     assert result["process_started"] is True

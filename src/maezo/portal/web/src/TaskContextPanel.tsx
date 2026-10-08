@@ -198,8 +198,7 @@ function ContextBody({ value, now }: { value: TaskContext; now: number }) {
       </div>
 
       <p className="read-only-note">
-        Nome, telefone e a conversa não aparecem aqui: a Helena não identifica quem escreve e o portal
-        não recebe esses dados.
+        Nome, telefone e a conversa não aparecem aqui: o portal não recebe esses dados.
       </p>
     </>
   );

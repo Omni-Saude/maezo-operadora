@@ -46,7 +46,11 @@ class PortalSettings(BaseSettings):
     #: The deployed capability profile, the same `MAEZO_PORTAL_CAPABILITIES` the production
     #: bootstrap reads. Projected on the session so the browser can tell "this area is not
     #: enabled here" from a real 503. It grants nothing: every route still refuses on its own.
-    capabilities: Literal["identity", "identity,staff_cases", "identity,staff_cases,human"] = "identity"
+    #: The fourth profile exists since VW1-P4 (OP16 vendor submission route); the DEFAULT is
+    #: untouched, so no deployment projects `vendor` without naming this exact string.
+    capabilities: Literal[
+        "identity", "identity,staff_cases", "identity,staff_cases,human", "identity,staff_cases,human,vendor"
+    ] = "identity"
 
     @model_validator(mode="after")
     def _deployment_boundaries(self) -> Self:

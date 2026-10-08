@@ -84,9 +84,9 @@ _SENDER_ONLY_CANARY = "canary-outbound-only-c1a2b3"
 
 def _escalate_case() -> dict[str, Any]:
     """`EVL-LUCAS-02`: `route=escalate_human`, `process_started` defaults `True` (unmodified
-    `FakeCibSevenTransport`), so `send_escalation_ack` runs and its `recorded_llm[-1]` IS the
-    `_build_escalation_ack` draft that `mutate_plant_canary` plants the canary into -- the exact
-    call site NEW-07 names."""
+    `FakeCibSevenTransport`), so `send_escalation_ack` runs. Ate' DL-0082 o `recorded_llm[-1]` era
+    o rascunho do ACK (`_build_escalation_ack`); desde DL-0082 o ACK e' texto fixo e o ultimo
+    `recorded_llm` e' a narrativa do dossie."""
     return next(c for c in LUCAS_CASES if c["id"] == "EVL-LUCAS-02")
 
 
@@ -96,7 +96,11 @@ async def test_evl_lucas_02_mutation_check_sender_leak_is_non_vacuous() -> None:
     check even though it NEVER reaches `result.state` -- the exact NEW-07 scenario. Pre-fix,
     `run_mutation_check` itself raises `MUTATION CHECK FAILED ... vacuous` here (the corrupted
     golden silently PASSED its own check); post-fix it returns normally (the corruption IS
-    caught, proving the ABS check non-vacuous against a sender-only leak)."""
+    caught, proving the ABS check non-vacuous against a sender-only leak).
+
+    DL-0082: com o ACK fixo, o canario plantado no ultimo `recorded_llm` cai na narrativa do dossie
+    (estado), entao este teste agora prova a nao-vacuidade do caminho geral; a prova SO'-sender e'
+    `test_assert_no_leak_sees_sender_output_only_when_given_sender`, logo abaixo."""
     await run_mutation_check(
         build_lucas,
         _escalate_case(),
@@ -111,10 +115,18 @@ async def test_assert_no_leak_sees_sender_output_only_when_given_sender() -> Non
     truly never reaches `result.state` (the defect's own premise) yet (b) it WAS actually sent;
     (c) the base two-argument `assert_no_leak(state, canaries)` call -- every pre-existing call
     site's shape -- stays silent (backward-compatible, unchanged behaviour); (d) passing
-    `sender=` is what actually catches it."""
-    mutated = mutate_plant_canary(_escalate_case(), _SENDER_ONLY_CANARY)
+    `sender=` is what actually catches it.
+
+    DL-0082 (08/10/2026): o ACK de escalacao do Lucas virou TEXTO FIXO, sem modelo — o rascunho de
+    LLM que antes chegava SO' ao sender nao existe mais, e o ultimo `recorded_llm` do golden agora e'
+    a narrativa do dossie (que vai para o estado). O vazamento so'-no-sender e' entao SIMULADO no
+    proprio texto gravado pelo sender, a mesma tecnica de `test_r6_journey_checks_actual_run_result_sender`;
+    o que este teste prova — o harness so' ve' o sender quando recebe `sender=` — continua o mesmo."""
     sender = FakeWhatsAppSender()
-    result = await run_case(build_lucas, mutated, extra_config={"whatsapp": sender})
+    result = await run_case(build_lucas, _escalate_case(), extra_config={"whatsapp": sender})
+    assert sender.sent, "test setup invalid: send_escalation_ack never called the sender"
+    recipient, texto_enviado = sender.sent[-1]
+    sender.sent[-1] = (recipient, f"{texto_enviado} {_SENDER_ONLY_CANARY}")
 
     serialized_state = json.dumps(result.state, ensure_ascii=False, default=str)
     assert _SENDER_ONLY_CANARY not in serialized_state, (

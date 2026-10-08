@@ -11,6 +11,7 @@
 !deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars
 !deploy/aws-ecs/envs/dev-sa-east-1/retomada.auto.tfvars
 !deploy/aws-ecs/envs/dev-sa-east-1/lucas.auto.tfvars
+!deploy/aws-ecs/envs/dev-sa-east-1/amh-interop.auto.tfvars
 
 # Python
 __pycache__/

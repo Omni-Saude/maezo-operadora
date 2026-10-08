@@ -151,7 +151,12 @@ it("o resumo é texto: marcação HTML digitada nele nunca vira elemento", async
 it("avisa, sem rodeios, que nome, telefone e conversa não estão aqui", async () => {
   vi.mocked(fetch).mockResolvedValueOnce(json(context()));
   render(panel());
-  expect(await screen.findByText(/Nome, telefone e a conversa não aparecem aqui/)).toBeInTheDocument();
+  expect(
+    await screen.findByText("Nome, telefone e a conversa não aparecem aqui: o portal não recebe esses dados."),
+  ).toBeInTheDocument();
+  // DL-0077/DL-0078: a Helena reconhece o numero (pseudonimizado) desde 07/10/2026; o aviso nao pode
+  // mais dizer que ela nao identifica quem escreve.
+  expect(screen.queryByText(/não identifica quem escreve/)).toBeNull();
 });
 
 it.each([

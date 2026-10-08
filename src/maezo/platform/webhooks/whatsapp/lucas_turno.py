@@ -95,14 +95,19 @@ CHAVES_DO_HANDOFF: Final[frozenset[str]] = frozenset(
 _CONVERSATION_ID: Final[re.Pattern[str]] = re.compile(r"^wa:[^:]+:hk1_[0-9a-f]+$")
 
 #: §2.5: subtipo do handoff -> entrada do Lucas. J1 = `cobranca_info` sem flag, J2 =
-#: `confirmacao_pagamento`, J3 = contestacao/inadimplencia/cancelamento (sempre humano).
+#: `confirmacao_pagamento`, J3 = contestacao/cancelamento (sempre humano).
+#:
+#: `cobranca_recebida` (DL-0082, 08/10/2026): a intencao `inadimplencia` fica como DICA de jornada,
+#: mas o `tipo_solicitacao` e' `status_pagamento` — "minha mensalidade esta em aberto?" e', para a
+#: DMN, uma pergunta de status de pagamento. Com `""` a DMN so' teria o catch-all (humano) mesmo com
+#: o fato "conciliado"; com `status_pagamento` conciliado responde "em dia" e atraso escala.
 ENTRADA_POR_SUBTIPO: Final[Mapping[str, Mapping[str, Any]]] = {
     "boleto_2via": {"intencao": "cobranca_info", "tipo_solicitacao": "2a_via"},
     "vencimento": {"intencao": "cobranca_info", "tipo_solicitacao": "vencimento"},
     "outro": {"intencao": "cobranca_info", "tipo_solicitacao": ""},
     "confirmacao_pagamento": {"intencao": "confirmacao_pagamento", "tipo_solicitacao": "status_pagamento"},
     "contestacao": {"intencao": "cobranca_info", "tipo_solicitacao": "", "contesta_cobranca": True},
-    "cobranca_recebida": {"intencao": "inadimplencia", "tipo_solicitacao": ""},
+    "cobranca_recebida": {"intencao": "inadimplencia", "tipo_solicitacao": "status_pagamento"},
     "cancelamento": {"intencao": "cancelamento", "tipo_solicitacao": "", "pedido_cancelamento": True},
 }
 if frozenset(ENTRADA_POR_SUBTIPO) != frozenset(COBRANCA_SUBTIPOS):

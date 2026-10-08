@@ -67,6 +67,8 @@ _WORKERS_DIR = _REPO_ROOT / "src" / "maezo" / "tools" / "workers"
 _G1_COVERED = frozenset(
     {
         "ERR_AUTH_DENIAL_INCOMPLETE",
+        "ERR_SUPP_SUBJECT_UNRESOLVED",
+        "ERR_SUPP_ROUTING_UNAVAILABLE",
         "ERR_CANCEL_MANTER_NOT_HUMAN",
         "ERR_EVENT_PUBLISH_FAILED",
         "ERR_DSR_IDENTITY_UNVERIFIED",
@@ -112,6 +114,11 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
             # WP-ADR-0030-COMPLETION (D3-01): dois G2-val novos, nenhum `*_NOT_HUMAN`.
             "ERR_PAGTO_ORDEM_INVALIDA",
             "ERR_REEMBOLSO_INVALID_PROTOCOLO",
+            # VW4/GP11 (admissao 2026-10-07): os dois erros modelados de SP-OP-SUPP-001,
+            # consumption-covered desde o nascimento pelo worker `suppression.py` no estado
+            # fail-closed de admissao (recusas tipadas — nunca dead models, nunca fabricacao).
+            "ERR_SUPP_SUBJECT_UNRESOLVED",
+            "ERR_SUPP_ROUTING_UNAVAILABLE",
         }
     )
     # `ERR_AUTH_DENIAL_INCOMPLETE` SAIU do deferido em 25/08/2026 — habilitado, e por isso
@@ -131,8 +138,11 @@ def test_real_tree_passes_and_reproduces_adr_census() -> None:
     # (pagto validate_pagto), ERR_REEMBOLSO_INVALID_PROTOCOLO (reembolso check_coverage — moved to
     # the CORRECT boundary-carrying task, not just re-typed) and ERR_CONTRACT_SUSPENSION_NOT_HUMAN
     # (inadimplencia register_contract_suspension) — 13 -> 16 covered, 3 -> 0 dead models.
+    # VW4/GP11 (2026-10-07): 16 -> 18 covered (ERR_SUPP_SUBJECT_UNRESOLVED /
+    # ERR_SUPP_ROUTING_UNAVAILABLE — SP-OP-SUPP-001, worker suppression.py fail-closed de
+    # admissao); dead models PERMANECEM 0 (o worker levanta os dois desde o primeiro commit).
     assert len(result.dead_models) == 0
-    assert len(result.consumption_covered | result.dead_models) == 16
+    assert len(result.consumption_covered | result.dead_models) == 18
 
 
 def test_real_tree_dead_models_are_warn_only_at_tier0() -> None:

@@ -89,7 +89,7 @@ def test_fonte_amh_e_aceita_e_os_defaults_ficam_desligados(_ambiente_amh_limpo: 
     assert s.amh_interop_token_url is None
     assert s.amh_interop_client_secret is None
     assert s.amh_phone_lookup_key is None
-    assert s.amh_interop_tenant == "omni"
+    assert s.amh_interop_tenant == "austa_operadora"
     assert s.amh_interop_purpose_of_use == "sharing_amh_internal"
     assert s.amh_interop_scopes.split() == [
         "interop/billing.read",
@@ -130,3 +130,57 @@ def test_segredos_amh_nao_abrem_nome_sem_prefixo_no_ambiente(
     assert s.amh_phone_lookup_key is None
     # mas o kwarg de construcao pelo nome do campo continua funcionando
     assert _settings(amh_interop_client_secret="x").amh_interop_client_secret == "x"
+
+
+# --- Identidade do beneficiario na Helena (DL-0077) ------------------------------------------------
+
+
+def test_helena_identidade_amh_default_desligado(
+    _ambiente_amh_limpo: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MAEZO_HELENA_IDENTIDADE_AMH", raising=False)
+    assert _settings().helena_identidade_amh is False
+
+
+def test_helena_identidade_amh_le_o_nome_canonico_do_ambiente(
+    monkeypatch: pytest.MonkeyPatch, _ambiente_amh_limpo: None
+) -> None:
+    monkeypatch.setenv("MAEZO_HELENA_IDENTIDADE_AMH", "true")
+    assert _settings().helena_identidade_amh is True
+    monkeypatch.setenv("MAEZO_HELENA_IDENTIDADE_AMH", "false")
+    assert _settings().helena_identidade_amh is False
+
+
+def test_helena_identidade_amh_independe_da_fonte_do_lucas(_ambiente_amh_limpo: None) -> None:
+    s = _settings(helena_identidade_amh=True)
+    assert s.helena_identidade_amh is True
+    assert s.lucas_fonte_cobranca == "simulada"
+    assert s.roteador_lucas_enabled is False
+
+
+# --- Prazo da identidade na Helena (DL-0079) ------------------------------------------------------
+
+
+def test_helena_identidade_prazo_default_15s(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_HELENA_IDENTIDADE_PRAZO_S", raising=False)
+    assert _settings().helena_identidade_prazo_s == 15.0
+
+
+def test_helena_identidade_prazo_le_o_nome_canonico_do_ambiente(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MAEZO_HELENA_IDENTIDADE_PRAZO_S", "12.5")
+    assert _settings().helena_identidade_prazo_s == 12.5
+
+
+@pytest.mark.parametrize("prazo", [0, 0.5, -1, 30.1, 600, float("nan"), float("inf")])
+def test_helena_identidade_prazo_fora_da_faixa_recusa_no_boot(
+    prazo: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MAEZO_HELENA_IDENTIDADE_PRAZO_S", raising=False)
+    with pytest.raises(ValidationError):
+        _settings(helena_identidade_prazo_s=prazo)
+
+
+@pytest.mark.parametrize("prazo", [1.0, 30.0])
+def test_helena_identidade_prazo_nas_bordas_da_faixa(prazo: float, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_HELENA_IDENTIDADE_PRAZO_S", raising=False)
+    assert _settings(helena_identidade_prazo_s=prazo).helena_identidade_prazo_s == prazo
