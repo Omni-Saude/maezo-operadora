@@ -51,9 +51,9 @@ def test_o_default_de_capabilities_na_base_e_identity() -> None:
     assert portal_capabilities_default() == "identity"
 
 
-def test_a_base_tem_exatamente_18_bootstraps_e_o_contrato_e_18() -> None:
+def test_a_base_tem_exatamente_19_bootstraps_e_o_contrato_e_19() -> None:
     """(c) — a constante é contrato; se a base crescer, o diverge conscientemente (vermelho)."""
-    assert EXPECTED_WORKER_BOOTSTRAP_COUNT == 18
+    assert EXPECTED_WORKER_BOOTSTRAP_COUNT == 19  # VW4/GP11 envelope: +suppression workers
     assert len(ALL_WORKER_BOOTSTRAPS) == EXPECTED_WORKER_BOOTSTRAP_COUNT
 
 
@@ -96,7 +96,7 @@ def test_validador_verde_no_estado_default_off(tmp_path: Path) -> None:
     assert {check.name for check in report.checks} == {
         "vendor_flags_default_off",
         "migrations_linear_head",
-        "readiness_workers_18_18",
+        "readiness_workers_19_19",
         "vendor_memberships_unpublished_default",
         "evidence_ledger_green",
     }
@@ -173,14 +173,14 @@ def test_c_readiness_degradada_fica_vermelha(tmp_path: Path) -> None:
     _apenas_este_item_falha(
         tmp_path,
         _estado_default_off(tmp_path, worker_bootstrap_count=17),
-        "readiness_workers_18_18",
+        "readiness_workers_19_19",
     )
 
 
-def test_c_bootstrap_19_na_base_fica_vermelho(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_c_bootstrap_20_na_base_fica_vermelho(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Um 19º bootstrap na base diverge do CONTRATO 18 — vermelho até re-aprovação consciente."""
-    monkeypatch.setattr(vendor_plane, "local_worker_bootstrap_count", lambda: 19)
-    _apenas_este_item_falha(tmp_path, _estado_default_off(tmp_path), "readiness_workers_18_18")
+    monkeypatch.setattr(vendor_plane, "local_worker_bootstrap_count", lambda: 20)
+    _apenas_este_item_falha(tmp_path, _estado_default_off(tmp_path), "readiness_workers_19_19")
 
 
 def test_d_store_populado_no_default_fica_vermelho(tmp_path: Path) -> None:
@@ -230,7 +230,7 @@ def test_e_ledger_ausente_ou_vazio_fica_vermelho(tmp_path: Path) -> None:
         ("capabilities_deployed", "vendor_flags_default_off"),
         ("migration_heads", "migrations_linear_head"),
         ("applied_migrations", "migrations_linear_head"),
-        ("worker_bootstrap_count", "readiness_workers_18_18"),
+        ("worker_bootstrap_count", "readiness_workers_19_19"),
         ("published_vendor_memberships", "vendor_memberships_unpublished_default"),
         ("evidence_ledger_path", "evidence_ledger_green"),
     ],
