@@ -221,6 +221,18 @@ V1_2_ARTIFACT_PATHS: tuple[str, ...] = ("schemas/openapi/maezo/v1/tina.openapi.y
 #: Run de publicacao do v1.1 (XRG2-AMH-DEV-GHA-37555121279): o v1.2 so pode ser posterior a ele.
 V1_2_MIN_PUBLICATION_RUN_ID = 37555121279
 
+#: Manifest ADITIVO v1.3 (ACESSO do beneficiario: subject-verification, subject-document-resolution e
+#: consent-record; DL-0083/DL-0084). So OpenAPI, bloco opcional e, presente, completo. NAO exige o v1.2
+#: (TINA) pinado: sao entregas independentes; o piso do run de publicacao e' o mesmo do v1.2 (run do v1.1).
+V1_3_LOCK_KEY = "manifest_v1_3"
+V1_3_MANIFEST_PATH = "schemas/contracts/maezo/v1.3/contract-manifest.yaml"
+V1_3_ARTIFACT_PATHS: tuple[str, ...] = (
+    "schemas/openapi/maezo/v1/subject-verification.openapi.yaml",
+    "schemas/openapi/maezo/v1/subject-document-resolution.openapi.yaml",
+    "schemas/openapi/maezo/v1/consent-record.openapi.yaml",
+)
+V1_3_MIN_PUBLICATION_RUN_ID = V1_2_MIN_PUBLICATION_RUN_ID
+
 
 @dataclass(frozen=True)
 class AdditiveManifest:
@@ -260,8 +272,17 @@ V1_2 = AdditiveManifest(
     code="v1-2",
     predecessors=(V1_1_LOCK_KEY,),
 )
+V1_3 = AdditiveManifest(
+    version="v1.3",
+    lock_key=V1_3_LOCK_KEY,
+    manifest_path=V1_3_MANIFEST_PATH,
+    manifest_version="1.3.0",
+    artifact_paths=V1_3_ARTIFACT_PATHS,
+    min_publication_run_id=V1_3_MIN_PUBLICATION_RUN_ID,
+    code="v1-3",
+)
 #: Em ordem de publicacao. O loader do adaptador (`maezo.adapters.amh.contract`) tem a copia dele.
-ADDITIVE_MANIFESTS: tuple[AdditiveManifest, ...] = (V1_1, V1_2)
+ADDITIVE_MANIFESTS: tuple[AdditiveManifest, ...] = (V1_1, V1_2, V1_3)
 ADDITIVE_BY_VERSION: dict[str, AdditiveManifest] = {m.version: m for m in ADDITIVE_MANIFESTS}
 
 #: Glue schema-version IDs are keyed by the Avro schema basename (no extension).
@@ -866,6 +887,11 @@ def check_manifest_additive(lock: dict[str, Any], spec: AdditiveManifest) -> lis
 def check_manifest_v1_1(lock: dict[str, Any]) -> list[Violation]:
     """Bloco `manifest_v1_1` (opcional). Ausente -> sem violacoes. Presente -> completo e coerente."""
     return check_manifest_additive(lock, V1_1)
+
+
+def check_manifest_v1_3(lock: dict[str, Any]) -> list[Violation]:
+    """Bloco `manifest_v1_3` (opcional, acesso do beneficiario): as regras do aditivo, sem predecessor."""
+    return check_manifest_additive(lock, V1_3)
 
 
 def check_manifest_v1_2(lock: dict[str, Any]) -> list[Violation]:
@@ -1677,6 +1703,11 @@ def verify_manifest_v1_1(lock: dict[str, Any], manifest_path: Path) -> list[Viol
     return verify_manifest_additive(lock, manifest_path, V1_1)
 
 
+def verify_manifest_v1_3(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
+    """Bytes do manifest v1.3 (acesso do beneficiario) publicado contra o bloco `manifest_v1_3`."""
+    return verify_manifest_additive(lock, manifest_path, V1_3)
+
+
 def verify_manifest_v1_2(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
     """Bytes do manifest v1.2 (TINA) publicado contra o bloco `manifest_v1_2`."""
     return verify_manifest_additive(lock, manifest_path, V1_2)
@@ -1707,8 +1738,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "                     status != PUBLISHED. The candidate also runs the full structural and\n"
             "                     frozen-catalog checks; the vendored-fixture digest gate is skipped,\n"
             "                     because a candidate legitimately precedes re-vendoring.\n"
-            "  --manifest-version v1.1|v1.2  with --manifest: verify an additive manifest against its\n"
-            "                     manifest_v1_1 / manifest_v1_2 block (no Glue ids; OpenAPI digests only).\n"
+            "  --manifest-version v1.1|v1.2|v1.3  with --manifest: verify an additive manifest against its\n"
+            "                     manifest_v1_1 / manifest_v1_2 / manifest_v1_3 block (no Glue ids; OpenAPI digests only).\n"
             "  --manifest PATH    verify freshly fetched manifest BYTES: recompute sha256 against the\n"
             "                     pin, then require the manifest's amh_commit_sha, evidence_id, Glue\n"
             "                     schema-version ids and artifact/fixture digests to match the lock.\n"
