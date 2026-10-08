@@ -79,3 +79,22 @@ def test_memoria_neutra_cobre_toda_a_memoria_de_conversa() -> None:
 
     assert set(memoria_de_conversa_neutra()) == set(graph._HELENA_MEMORIA_DE_CONVERSA)
     assert {"historico_conversa", "memoria_clinica"} <= set(memoria_de_conversa_neutra())
+
+
+async def test_revogacao_pendente_no_teto_abre_escalonamento_com_o_resumo_da_revogacao() -> None:
+    """Re-revisao do #700 (1): no teto de regravacoes da revogacao o despachante abre SP-OP-ESCALATION-001
+    pelo caminho de atendente do acesso, com o resumo FIXO do motivo `revogacao_consentimento_pendente`."""
+    from maezo.agents.helena.graph import RESUMO_REVOGACAO_PENDENTE
+
+    d, cliente, ctx = _montar()
+    await _verificar(d)
+    ctx["consent"].falhar = True
+    await d.dispatch(_m("REVOGAR", 9))
+    abertos = []
+    for n in range(10, 10 + 6):
+        r = await d.dispatch(_m("ACEITO", n))
+        assert r["response_text"] == ac.REVOGACAO_EM_PROCESSAMENTO and r["acesso_estado"] == ac.REVOGADO
+        abertos.append(r["escalation_started"])
+    assert abertos.count(True) == 1
+    variaveis = repr(ctx["cib"]._variables)
+    assert RESUMO_REVOGACAO_PENDENTE in variaveis and "solicitacao_humano" in variaveis

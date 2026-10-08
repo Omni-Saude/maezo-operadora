@@ -24,7 +24,7 @@ _REQUIRED_COLUMNS = frozenset(
         "tenant", "conversation_id", "estado", "tentativas", "texto_versao", "texto_sha256", "consentido_em",
         "revogado_em", "portable_subject_ref", "consent_ref", "consentimento_pendente_gravacao",
         "revogacao_pendente", "verificado_em", "expira_em", "bloqueado_ate", "ultima_mensagem_em",
-        "regravacoes_falhas",
+        "regravacoes_falhas", "falhas_janela", "janela_inicio",
     }
 )  # fmt: skip
 

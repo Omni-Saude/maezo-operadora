@@ -886,6 +886,7 @@ class HelenaDispatcher:
                 conversation_id=conversation_id,
                 beneficiario_pseudo_id=beneficiario_pseudo_id,
                 sender=sender,
+                motivo=decisao.motivo_escalonamento,
             )
         for texto in decisao.respostas:
             await sender.send(phone_hash, texto)
@@ -927,7 +928,12 @@ class HelenaDispatcher:
         )
 
     async def _escalar_identidade(
-        self, *, conversation_id: str, beneficiario_pseudo_id: str, sender: WhatsAppSender
+        self,
+        *,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        sender: WhatsAppSender,
+        motivo: str = "identidade_nao_verificada",
     ) -> None:
         """Abre SP-OP-ESCALATION-001 (`solicitacao_humano`) pelo MESMO caminho da Helena, sem modelo e sem
         texto
@@ -951,7 +957,10 @@ class HelenaDispatcher:
             "canal": "whatsapp",
             "message_body": "",
         }
-        resultado = await helena.escalar_identidade_nao_verificada(cast(HelenaState, estado))
+        if motivo == "revogacao_consentimento_pendente":
+            resultado = await helena.escalar_revogacao_pendente(cast(HelenaState, estado))
+        else:
+            resultado = await helena.escalar_identidade_nao_verificada(cast(HelenaState, estado))
         if resultado.get("escalation_started") is not True:
             logger.error(
                 "acesso_escalonamento_nao_aberto", tenant_id=self.tenant_id, conversation_id=conversation_id
@@ -961,7 +970,8 @@ class HelenaDispatcher:
             "acesso_escalonamento_aberto",
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
-            motivo="solicitacao_humano",
+            motivo=motivo,
+            categoria="solicitacao_humano",
             start_desfecho=resultado.get("start_desfecho"),
         )
 

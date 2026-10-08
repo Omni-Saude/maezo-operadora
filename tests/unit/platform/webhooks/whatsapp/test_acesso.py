@@ -493,7 +493,8 @@ async def test_revogacao_pendente_repete_e_bloqueia_novo_aceito_ate_gravar(amb: 
     d = await amb.msg("REVOGAR")
     assert d.novo.revogacao_pendente and d.novo.portable_subject_ref == REF
     d = await amb.msg("ACEITO")
-    assert d.respostas == (ac.INDISPONIVEL,) and d.novo.estado == ac.REVOGADO
+    assert d.respostas == (ac.REVOGACAO_EM_PROCESSAMENTO,) and d.novo.estado == ac.REVOGADO
+    assert not d.prosseguir
     amb.consent.falhar = False
     d = await amb.msg("ACEITO")
     assert d.novo.estado == ac.AGUARDANDO_CPF and not d.novo.revogacao_pendente
@@ -554,7 +555,7 @@ async def test_cpf_e_nascimento_nao_aparecem_em_log_estado_nem_repr(amb: Ambient
         "conversation_id", "estado", "ultima_mensagem_em", "tentativas", "texto_versao", "texto_sha256",
         "consentido_em", "revogado_em", "portable_subject_ref", "consent_ref",
         "consentimento_pendente_gravacao", "revogacao_pendente", "verificado_em", "expira_em",
-        "bloqueado_ate", "regravacoes_falhas",
+        "bloqueado_ate", "regravacoes_falhas", "falhas_janela", "janela_inicio",
     }  # fmt: skip
 
 

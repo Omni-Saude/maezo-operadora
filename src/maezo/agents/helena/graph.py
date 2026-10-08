@@ -430,6 +430,15 @@ RESUMO_IDENTIDADE_NAO_VERIFICADA = (
     "o atendimento por este canal foi bloqueado e aguarda um atendente."
 )
 
+#: DL-0083 (revisao do #700): o resumo FIXO quando a REVOGACAO do consentimento nao foi gravada no lago da
+#: AMH depois de todas as tentativas automaticas. O atendente conclui pelo runbook
+#: `docs/runbooks/acesso-beneficiario-revogacao-pendente.md`. Sem dado pessoal.
+RESUMO_REVOGACAO_PENDENTE = (
+    "Revogacao de consentimento recebida por WhatsApp e ainda NAO registrada no lago da AMH apos as "
+    "tentativas automaticas (motivo revogacao_consentimento_pendente). Concluir pelo runbook "
+    "acesso-beneficiario-revogacao-pendente; o atendimento automatico segue bloqueado."
+)
+
 #: CC-01: a resposta HONESTA quando a escalacao nao pode ser aberta. Constante, nunca um draft de
 #: LLM (ver `_respond_start_failure`). Nao promete atendente, nao promete prazo, nao cita
 #: identificador nenhum — diz o que houve e o que o beneficiario pode fazer agora.
@@ -3898,6 +3907,19 @@ class HelenaGraph:
             motivo="solicitacao_humano",
             severidade="leve",
             response_kind="schedule",
+        )
+
+    async def escalar_revogacao_pendente(self, state: HelenaState) -> dict[str, Any]:
+        """ACESSO DO BENEFICIARIO (DL-0083, revisao do #700): a revogacao do consentimento nao foi gravada no
+        lago apos o teto de regravacoes. MESMO caminho de `escalar_identidade_nao_verificada` (categoria
+        `solicitacao_humano`, a que o roteamento DMN ja' conhece; severidade `leve`), com o resumo FIXO que
+        diz ao atendente o motivo operacional (`revogacao_consentimento_pendente`) e o runbook."""
+        return await self._start_escalation(
+            state,
+            motivo="solicitacao_humano",
+            severidade="leve",
+            response_kind="escalate",
+            resumo_fixo=RESUMO_REVOGACAO_PENDENTE,
         )
 
     async def escalar_identidade_nao_verificada(self, state: HelenaState) -> dict[str, Any]:

@@ -215,18 +215,61 @@ async def test_regravacao_tem_teto_e_alarme_unico(amb: Ambiente) -> None:
     assert len(alarmes) == 1 and alarmes[0]["log_level"] == "error" and alarmes[0]["alarme"] is True
 
 
-async def test_revogacao_pendente_esgotada_continua_barrando_aceito(amb: Ambiente) -> None:
+async def test_revogacao_pendente_no_teto_escala_uma_vez_e_nao_prende_em_indisponivel(amb: Ambiente) -> None:
+    """Re-revisao do #700 (1): com a revogacao pendente o titular recebe o texto FIXO de "recebida, em
+    processamento" (nunca INDISPONIVEL), os agentes seguem bloqueados, e no TETO de regravacoes abre-se UM
+    escalonamento humano com o motivo operacional `revogacao_consentimento_pendente`."""
+    await amb.verificar_pelo_telefone()
+    amb.consent.falhar = True
+    revogou = await amb.msg("REVOGAR")
+    revogado_em = revogou.novo.revogado_em
+    escalonamentos = []
+    for texto in ("ACEITO", "oi", "ACEITO", "quero ajuda", "ACEITO", "oi", "ACEITO"):
+        amb.relogio.avancar(minutes=7)
+        d = await amb.msg(texto)
+        assert d.respostas == (ac.REVOGACAO_EM_PROCESSAMENTO,) and not d.prosseguir
+        assert d.novo.estado == ac.REVOGADO and d.novo.revogacao_pendente
+        if d.escalar:
+            escalonamentos.append(d.motivo_escalonamento)
+    assert escalonamentos == [ac.ESCALONAMENTO_REVOGACAO_PENDENTE]
+    revogacoes = [c for c in amb.consent.chamadas if c["decision"] == "revoked"]
+    assert len(revogacoes) == ac.MAX_REGRAVACOES
+    # Toda regravacao com o `revogado_em` ORIGINAL (a AMH #212 aceita decided_at no passado).
+    assert {c["decided_at"] for c in revogacoes} == {"2026-10-08T12:00:00Z"} and revogado_em is not None
+    assert len({c["idempotency_key"] for c in revogacoes}) == 1
+
+
+async def test_revogar_de_novo_com_pendencia_mantem_o_revogado_em_original(amb: Ambiente) -> None:
+    await amb.verificar_pelo_telefone()
+    amb.consent.falhar = True
+    original = (await amb.msg("REVOGAR")).novo.revogado_em
+    amb.relogio.avancar(hours=1)
+    d = await amb.msg("REVOGAR")
+    assert d.novo.revogado_em == original and d.novo.revogacao_pendente and d.esquecer_memoria
+    assert {c["decided_at"] for c in amb.consent.chamadas if c["decision"] == "revoked"} == {
+        "2026-10-08T12:00:00Z"
+    }
+
+
+async def test_runbook_atendente_zera_o_contador_e_a_proxima_mensagem_conclui(amb: Ambiente) -> None:
+    """O passo do runbook: com a AMH de volta, o atendente zera `regravacoes_falhas`; a proxima mensagem do
+    titular regrava `revoked` com o `revogado_em` original e a conversa volta ao consentimento normal."""
+    from dataclasses import replace
+
     await amb.verificar_pelo_telefone()
     amb.consent.falhar = True
     await amb.msg("REVOGAR")
-    for _ in range(ac.MAX_REGRAVACOES + 2):
-        d = await amb.msg("ACEITO")
-        assert d.respostas == (ac.INDISPONIVEL,) and d.novo.estado == ac.REVOGADO
-    revogacoes = [c for c in amb.consent.chamadas if c["decision"] == "revoked"]
-    assert len(revogacoes) == ac.MAX_REGRAVACOES
+    for _ in range(ac.MAX_REGRAVACOES):
+        await amb.msg("oi")
+    [linha] = amb.store._linhas.values()
+    assert linha.regravacoes_falhas == ac.MAX_REGRAVACOES
     amb.consent.falhar = False
+    amb.relogio.avancar(days=2)
+    await amb.store.gravar(replace(linha, regravacoes_falhas=0))  # UPDATE ... SET regravacoes_falhas = 0
     d = await amb.msg("ACEITO")
-    assert d.respostas == (ac.INDISPONIVEL,)  # no teto so' um humano destrava (o alarme ja' foi emitido)
+    assert not d.novo.revogacao_pendente and d.novo.estado == ac.AGUARDANDO_CPF
+    assert amb.consent.chamadas[-1]["decision"] == "revoked"
+    assert amb.consent.chamadas[-1]["decided_at"] == "2026-10-08T12:00:00Z"
 
 
 async def test_sucesso_na_regravacao_zera_o_contador(amb: Ambiente) -> None:
@@ -236,3 +279,49 @@ async def test_sucesso_na_regravacao_zera_o_contador(amb: Ambiente) -> None:
     amb.consent.falhar = False
     d = await amb.msg("oi")
     assert not d.novo.consentimento_pendente_gravacao and d.novo.regravacoes_falhas == 0
+
+
+# --------------------------------------------------------------------------- re-revisao (2): janela de 24 h
+async def test_janela_de_24h_nao_e_zerada_por_sucesso_em_telefone_compartilhado(amb: Ambiente) -> None:
+    """REVOGAR -> ACEITO -> 2 erros -> acerto PROPRIO -> repete: o acerto zera as tentativas seguidas, mas
+    NAO a janela; na 7a falha da janela, bloqueio ate' o fim dela + atendente."""
+    amb.verif.cadastrar_cpf(CPF, REF)
+    await amb.ate_cpf()
+    assert (await amb.msg(CPF)).novo.estado == ac.VERIFICADO
+    for ciclo in range(3):
+        await amb.msg("REVOGAR")
+        await amb.msg("ACEITO")
+        for _ in range(2):
+            d = await amb.msg(OUTRO_CPF)
+            assert d.novo.estado == ac.AGUARDANDO_CPF and not d.escalar, ciclo
+        d = await amb.msg(CPF)  # o proprio acerto
+        assert d.novo.estado == ac.VERIFICADO and d.novo.tentativas == 0
+        assert d.novo.falhas_janela == 2 * (ciclo + 1)
+        amb.relogio.avancar(minutes=30)
+    await amb.msg("REVOGAR")
+    await amb.msg("ACEITO")
+    d = await amb.msg(OUTRO_CPF)
+    assert d.escalar and d.novo.estado == ac.BLOQUEADO_HUMANO and d.respostas == (ac.BLOQUEADO,)
+    assert d.novo.bloqueado_ate == d.novo.janela_inicio + ac.JANELA_FALHAS  # ate' o FIM da janela
+    assert d.novo.falhas_janela == ac.MAX_FALHAS_JANELA + 1
+    assert (await amb.msg(CPF)).respostas == (ac.BLOQUEADO_CURTO,)
+
+
+async def test_janela_vencida_recomeca_a_contagem(amb: Ambiente) -> None:
+    amb.verif.cadastrar_cpf(CPF, REF)
+    await amb.ate_cpf()
+    await amb.msg(OUTRO_CPF)
+    await amb.msg(OUTRO_CPF)
+    assert (await amb.msg(CPF)).novo.falhas_janela == 2
+    amb.relogio.avancar(hours=25)
+    await amb.msg("oi")  # verificacao vencida: volta ao CPF
+    d = await amb.msg(OUTRO_CPF)
+    assert d.novo.falhas_janela == 1 and d.novo.janela_inicio == amb.relogio.agora
+
+
+async def test_tres_falhas_seguidas_continuam_bloqueando_dentro_da_janela(amb: Ambiente) -> None:
+    await amb.ate_cpf()
+    for _ in range(2):
+        assert not (await amb.msg("123")).escalar
+    d = await amb.msg("123")
+    assert d.escalar and d.novo.estado == ac.BLOQUEADO_HUMANO and d.novo.falhas_janela == 3

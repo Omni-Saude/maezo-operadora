@@ -133,6 +133,12 @@ FALHA_CONFERENCIA: Final[str] = "Não consegui confirmar seus dados. Confira e t
 BLOQUEADO: Final[str] = "Não consegui confirmar a sua identidade. Vou encaminhar você para um atendente."
 BLOQUEADO_CURTO: Final[str] = "Seu atendimento foi encaminhado a um atendente."
 INDISPONIVEL: Final[str] = "No momento não consegui confirmar seus dados. Tente novamente em alguns minutos."
+#: REVOGAR recebido, mas o lago da AMH ainda nao o registrou (revisao do #700): a decisao JA' vale aqui (os
+#: agentes nao rodam e nenhum dado e' usado) e a gravacao segue sendo repetida; no teto, um atendente conclui.
+REVOGACAO_EM_PROCESSAMENTO: Final[str] = (
+    "Recebemos seu pedido de revogação e ele está sendo processado. Enquanto isso, não vou usar seus dados "
+    "neste atendimento. Se precisar, um atendente vai falar com você."
+)
 #: Telefone SEM candidato na AMH: texto neutro (nao diz nada sobre CPF nenhum) + atendente humano.
 TELEFONE_NAO_IDENTIFICADO: Final[str] = (
     "Não consegui confirmar seu cadastro por este número. Para sua segurança, vou encaminhar você para um "
@@ -169,6 +175,18 @@ PRAZO_CONSENTIMENTO_S: Final[float] = 20.0
 MAX_REGRAVACOES: Final[int] = 5
 #: Mais candidatos que isto num telefone nao e' "titular e dependentes": nao entra pelo caminho do documento.
 MAX_CANDIDATOS: Final[int] = 10
+#: JANELA DE FALHAS (revisao do #700): as falhas de verificacao contam numa janela de 24 h por conversa que
+#: um SUCESSO NAO zera. Num telefone compartilhado, quem acerta o proprio documento nao pode "limpar" as
+#: tentativas contra o documento de outra pessoa. Acima de `MAX_FALHAS_JANELA` na janela: bloqueio ate' o
+#: fim dela + atendente. O bloqueio de 3 falhas seguidas (`MAX_TENTATIVAS`) continua valendo por cima.
+JANELA_FALHAS: Final[timedelta] = timedelta(hours=24)
+MAX_FALHAS_JANELA: Final[int] = 6
+
+#: Motivos OPERACIONAIS do escalonamento (o que o atendente le' no resumo fixo e o que vai ao log). A
+#: categoria do SP-OP-ESCALATION-001 e' sempre `MOTIVO_ESCALONAMENTO_BLOQUEIO` (a existente que o roteamento
+#: DMN ja' conhece); o motivo operacional escolhe o RESUMO FIXO.
+ESCALONAMENTO_IDENTIDADE: Final[str] = "identidade_nao_verificada"
+ESCALONAMENTO_REVOGACAO_PENDENTE: Final[str] = "revogacao_consentimento_pendente"
 VALIDADE_HORAS_PADRAO: Final[int] = 24
 ANO_MINIMO_NASCIMENTO: Final[int] = 1900
 
@@ -299,6 +317,10 @@ class EstadoAcesso:
     bloqueado_ate: datetime | None = None
     #: Tentativas FALHAS de gravar a decisao pendente no lago (0..MAX_REGRAVACOES).
     regravacoes_falhas: int = 0
+    #: Falhas de verificacao na janela de 24 h corrente (0..MAX_FALHAS_JANELA+1) e o inicio dela. Um sucesso
+    #: NAO zera; so' o fim da janela.
+    falhas_janela: int = 0
+    janela_inicio: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.estado not in ESTADOS:
@@ -307,6 +329,8 @@ class EstadoAcesso:
             raise ValueError("acesso: tentativas fora de 0..3")
         if not 0 <= self.regravacoes_falhas <= MAX_REGRAVACOES:
             raise ValueError("acesso: regravacoes_falhas fora do dominio")
+        if not 0 <= self.falhas_janela <= MAX_FALHAS_JANELA + 1:
+            raise ValueError("acesso: falhas_janela fora do dominio")
 
 
 class AcessoStore(Protocol):
@@ -400,6 +424,8 @@ class DecisaoAcesso:
     #: A memoria da conversa (historico curto DL-0080, memoria clinica, coleta) e' de OUTRA pessoa ou de um
     #: consentimento revogado: o despachante a apaga ANTES de gravar o estado (DL-0083, revisao do #700).
     esquecer_memoria: bool = False
+    #: Motivo OPERACIONAL do escalonamento (so' com `escalar`): escolhe o resumo fixo do atendente.
+    motivo_escalonamento: str = ESCALONAMENTO_IDENTIDADE
 
     @property
     def portable_subject_ref(self) -> str | None:
@@ -526,13 +552,39 @@ class AcessoBeneficiario:
 
         atual = replace(atual, ultima_mensagem_em=agora)
         atual, reiniciou = self._vencimentos(atual, agora)
-        atual = await self._regravar_pendencias(atual)
+        atual, escalar_revogacao = await self._regravar_pendencias(atual)
+        decisao = await self._decidir(atual, agora, texto, numero_cru, reiniciou, emergencia=emergencia)
+        if escalar_revogacao:
+            # Teto de regravacao da revogacao atingido NESTE turno: um atendente conclui (runbook).
+            logger.error(
+                "acesso_escalonamento_revogacao_pendente",
+                conversation_id=conversation_id,
+                motivo=ESCALONAMENTO_REVOGACAO_PENDENTE,
+                alarme=True,
+            )
+            decisao = replace(decisao, escalar=True, motivo_escalonamento=ESCALONAMENTO_REVOGACAO_PENDENTE)
+        return decisao
 
+    async def _decidir(
+        self,
+        atual: EstadoAcesso,
+        agora: datetime,
+        texto: str,
+        numero_cru: str,
+        reiniciou: bool,
+        *,
+        emergencia: bool,
+    ) -> DecisaoAcesso:
+        conversation_id = atual.conversation_id
         comando = normalizar(texto)
         if comando in _REVOGAR:
             # REVOGAR vale em QUALQUER estado (inclusive bloqueado): e' direito do titular. Nao zera nada
             # do que conta tentativas (ver `_revogar`).
             return await self._revogar(atual, agora, emergencia=emergencia)
+        if atual.revogacao_pendente:
+            # O REVOGAR ja' vale (nenhum agente roda) e a gravacao segue pendente: texto fixo, sem prender a
+            # pessoa em INDISPONIVEL; no teto, o atendente conclui.
+            return self._responder(atual, REVOGACAO_EM_PROCESSAMENTO, emergencia=emergencia)
 
         if atual.estado == VERIFICADO:
             return DecisaoAcesso(respostas=(), prosseguir=True, novo=atual)
@@ -646,23 +698,26 @@ class AcessoBeneficiario:
             )
         return replace(estado, regravacoes_falhas=falhas)
 
-    async def _regravar_pendencias(self, atual: EstadoAcesso) -> EstadoAcesso:
+    async def _regravar_pendencias(self, atual: EstadoAcesso) -> tuple[EstadoAcesso, bool]:
         """Repete, a cada turno, a gravacao que falhou antes (consentimento concedido ou revogado), ate' o
-        teto `MAX_REGRAVACOES`; depois disso so' um humano destrava (alarme ja' emitido)."""
+        teto `MAX_REGRAVACOES`; depois disso so' um humano destrava (alarme ja' emitido). A revogacao e'
+        regravada SEMPRE com o `revogado_em` ORIGINAL (a AMH #212 aceita `decided_at` no passado). O segundo
+        valor e' `True` so' no turno em que a REVOGACAO atinge o teto: o atendente e' acionado."""
         ref = atual.portable_subject_ref
         if ref is None or atual.regravacoes_falhas >= MAX_REGRAVACOES:
-            return atual
+            return atual, False
         if atual.revogacao_pendente and atual.revogado_em is not None:
             consent_ref = await self._gravar_consentimento(ref, atual, DECISAO_REVOGADA, atual.revogado_em)
             if consent_ref is None:
-                return self._contar_falha_de_gravacao(atual, DECISAO_REVOGADA)
+                novo = self._contar_falha_de_gravacao(atual, DECISAO_REVOGADA)
+                return novo, novo.regravacoes_falhas >= MAX_REGRAVACOES
             return replace(
                 atual,
                 revogacao_pendente=False,
                 portable_subject_ref=None,
                 consent_ref=None,
                 regravacoes_falhas=0,
-            )
+            ), False
         if (
             atual.consentimento_pendente_gravacao
             and atual.estado == VERIFICADO
@@ -670,17 +725,27 @@ class AcessoBeneficiario:
         ):
             consent_ref = await self._gravar_consentimento(ref, atual, DECISAO_CONCEDIDA, atual.consentido_em)
             if consent_ref is None:
-                return self._contar_falha_de_gravacao(atual, DECISAO_CONCEDIDA)
+                return self._contar_falha_de_gravacao(atual, DECISAO_CONCEDIDA), False
             return replace(
                 atual, consentimento_pendente_gravacao=False, consent_ref=consent_ref, regravacoes_falhas=0
-            )
-        return atual
+            ), False
+        return atual, False
 
     # -- REVOGAR ----------------------------------------------------------------------------------
     async def _revogar(self, atual: EstadoAcesso, agora: datetime, *, emergencia: bool) -> DecisaoAcesso:
         """REVOGAR: o consentimento acaba aqui e a memoria da conversa e' apagada. As TENTATIVAS e o PRAZO DO
         BLOQUEIO ficam como estao (revisao do #700, P0): REVOGAR + ACEITO nao pode zerar o contador."""
         self._pendentes.descartar(atual.conversation_id)
+        if atual.revogacao_pendente:
+            # Ja' revogado e a gravacao segue pendente: nada de nova decisao (o `revogado_em` ORIGINAL e o
+            # contador de regravacoes ficam; a regravacao deste turno ja' foi tentada).
+            self._log_transicao(atual.conversation_id, atual.estado, REVOGADO, "revogar_ja_pendente")
+            return self._responder(
+                replace(atual, estado=REVOGADO),
+                RESPOSTA_REVOGADO,
+                emergencia=emergencia,
+                esquecer_memoria=True,
+            )
         ref = atual.portable_subject_ref
         novo = replace(
             atual,
@@ -708,9 +773,6 @@ class AcessoBeneficiario:
 
     # -- ACEITO -----------------------------------------------------------------------------------
     async def _aceitar(self, atual: EstadoAcesso, agora: datetime, *, emergencia: bool) -> DecisaoAcesso:
-        if atual.revogacao_pendente:
-            # O lago ainda nao reflete o REVOGAR anterior (a regravacao acima falhou): nao se aceita de novo.
-            return self._responder(atual, INDISPONIVEL, emergencia=emergencia)
         novo = replace(
             atual,
             estado=AGUARDANDO_CPF,
@@ -863,7 +925,26 @@ class AcessoBeneficiario:
         return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
 
     def _falha(self, atual: EstadoAcesso, agora: datetime, texto: str, *, emergencia: bool) -> DecisaoAcesso:
-        """Uma tentativa gasta (formato invalido ou nao confere)."""
+        """Uma tentativa gasta (formato invalido ou nao confere). Conta em DOIS lugares: as tentativas
+        seguidas (zeradas por um sucesso) e a janela de 24 h (que um sucesso NAO zera)."""
+        if atual.janela_inicio is None or agora >= atual.janela_inicio + JANELA_FALHAS:
+            atual = replace(atual, falhas_janela=0, janela_inicio=agora)
+        atual = replace(atual, falhas_janela=atual.falhas_janela + 1)
+        if atual.falhas_janela > MAX_FALHAS_JANELA:
+            # Falhas demais na janela (ex.: telefone compartilhado alternando o proprio acerto com tentativas
+            # contra outra pessoa): bloqueio ate' o FIM da janela + atendente.
+            assert atual.janela_inicio is not None
+            self._pendentes.descartar(atual.conversation_id)
+            novo = replace(
+                atual,
+                estado=BLOQUEADO_HUMANO,
+                tentativas=min(atual.tentativas + 1, MAX_TENTATIVAS),
+                bloqueado_ate=atual.janela_inicio + JANELA_FALHAS,
+            )
+            self._log_transicao(
+                atual.conversation_id, atual.estado, BLOQUEADO_HUMANO, "janela_de_falhas_esgotada"
+            )
+            return self._responder(novo, BLOQUEADO, emergencia=emergencia, escalar=True)
         tentativas = atual.tentativas + 1
         if tentativas >= MAX_TENTATIVAS:
             self._pendentes.descartar(atual.conversation_id)

@@ -18,7 +18,10 @@ existem so' em memoria, pelo instante da chamada a AMH.
 decisao ja' vale AQUI mas ainda nao foi gravada no lago da AMH (`consent-record`); a gravacao e' repetida nos
 turnos seguintes ate' dar certo (fail-safe: o acesso nao fica refem da gravacao, o registro fica pendente e
 visivel). `consent_ref` e' a referencia opaca que a AMH devolve. `regravacoes_falhas` conta as gravacoes que
-falharam (teto 5): no teto a regravacao automatica para e um log de alarme pede intervencao humana.
+falharam (teto 5): no teto a regravacao automatica para, um log de alarme e um escalonamento humano pedem
+a conclusao manual (runbook `acesso-beneficiario-revogacao-pendente`). `falhas_janela`/`janela_inicio`
+contam as falhas de verificacao numa janela de 24 h que um sucesso NAO zera (acima de 6: bloqueio ate' o fim
+da janela + atendente).
 
 **Escrita.** Upsert simples por `(tenant, conversation_id)`: o canal serializa as mensagens de uma conversa
 e o
@@ -79,6 +82,8 @@ def upgrade() -> None:
             bloqueado_ate timestamptz NULL,
             ultima_mensagem_em timestamptz NOT NULL,
             regravacoes_falhas smallint NOT NULL DEFAULT 0 CHECK (regravacoes_falhas BETWEEN 0 AND 5),
+            falhas_janela smallint NOT NULL DEFAULT 0 CHECK (falhas_janela BETWEEN 0 AND 7),
+            janela_inicio timestamptz NULL,
             PRIMARY KEY (tenant, conversation_id),
             CONSTRAINT conversa_acesso_prefixo_do_tenant
                 CHECK (starts_with(conversation_id, 'wa:' || tenant || ':')),
