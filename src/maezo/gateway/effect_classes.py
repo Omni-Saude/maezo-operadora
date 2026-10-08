@@ -404,6 +404,13 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_billing_identity",
     ),
+    # Resolucao pelo DOCUMENTO do telefone SEM candidato (DL-0084, risco aceito pelo dono): consulta da
+    # mesma classe da conferencia; so' hashes (CPF e CPF + nascimento) vao a AMH, que devolve uma referencia.
+    OperationSpec(
+        operation="amh.resolve_by_document",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_billing_identity",
+    ),
     OperationSpec(
         operation="amh.record_consent",
         action_class="registro_consentimento",

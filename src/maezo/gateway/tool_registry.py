@@ -123,6 +123,7 @@ from maezo.gateway.amh_interop import (
     SCOPE_TINA,
     AmhBillingStatusExecutor,
     AmhConsentRecordExecutor,
+    AmhDocumentResolutionExecutor,
     AmhInteropComposition,
     AmhInteropCompositionError,
     AmhPhoneLookupHasher,
@@ -650,10 +651,13 @@ def build_amh_interop(
     sujeito por fator e o registro de consentimento: exige tambem `amh_subject_verify_key`, os dois caminhos
     de OpenAPI (`amh_subject_verification_openapi_path`, `amh_consent_record_openapi_path`) e os escopos
     `interop/subject.verify` e `interop/consent.write` em `amh_interop_scopes`; os adaptadores so' sobem com
-    o bloco `manifest_v1_3` no pin. `False` (o default) = a composicao de antes, sem nada do acesso.
+    o bloco `manifest_v1_3` no pin. `False` (o default) = a composicao de antes, sem nada do acesso. Junto
+    vem a resolucao pelo DOCUMENTO do telefone sem candidato (DL-0084): mesma rota-base, mesmo OpenAPI e
+    mesmo escopo da conferencia.
     """
     from maezo.adapters.amh.billing_status import AmhBillingStatusAdapter
     from maezo.adapters.amh.consent_record import AmhConsentRecordAdapter
+    from maezo.adapters.amh.document_resolution import AmhDocumentResolutionAdapter
     from maezo.adapters.amh.subject_resolution import AmhSubjectResolutionAdapter
     from maezo.adapters.amh.subject_verification import AmhSubjectVerificationAdapter
     from maezo.adapters.amh.tina import AmhTinaAdapter
@@ -726,6 +730,7 @@ def build_amh_interop(
     verification: AmhSubjectVerificationAdapter | None = None
     consents: AmhConsentRecordAdapter | None = None
     verify_hasher: AmhSubjectVerifyHasher | None = None
+    documents: AmhDocumentResolutionAdapter | None = None
     if incluir_acesso is True:
         verification_executor = AmhSubjectVerificationExecutor(
             amh_tenant=exigidos["amh_interop_tenant"], **comum
@@ -739,8 +744,14 @@ def build_amh_interop(
         consents = AmhConsentRecordAdapter(
             _ler_openapi(exigidos["amh_consent_record_openapi_path"]), executor=consent_executor
         )
+        # DL-0084: o telefone SEM candidato se identifica pelo documento. A rota mora no MESMO OpenAPI da
+        # conferencia (pin v1.3); sem ela no artefato pinado o construtor LEVANTA e o receptor recusa servir.
+        document_executor = AmhDocumentResolutionExecutor(amh_tenant=exigidos["amh_interop_tenant"], **comum)
+        documents = AmhDocumentResolutionAdapter(
+            _ler_openapi(exigidos["amh_subject_verification_openapi_path"]), executor=document_executor
+        )
         verify_hasher = AmhSubjectVerifyHasher(key=str(verify_key), amh_tenant=exigidos["amh_interop_tenant"])
-        executores = (*executores, verification_executor, consent_executor)
+        executores = (*executores, verification_executor, consent_executor, document_executor)
     return AmhInteropComposition(
         billing=AmhBillingStatusAdapter(
             _ler_openapi(exigidos["amh_billing_status_openapi_path"]), executor=billing_executor
@@ -758,6 +769,7 @@ def build_amh_interop(
         verification=verification,
         consents=consents,
         verify_hasher=verify_hasher,
+        documents=documents,
     )
 
 

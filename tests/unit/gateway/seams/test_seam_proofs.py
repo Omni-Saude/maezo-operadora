@@ -561,6 +561,7 @@ _AMH_INTEROP_OPERATIONS = frozenset(
         "amh.tina_get_requisicoes",
         "amh.verify_subject",
         "amh.record_consent",
+        "amh.resolve_by_document",
     }
 )
 
@@ -574,6 +575,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
 
     from maezo.adapters.amh.billing_status import GovernedBillingStatusRequest
     from maezo.adapters.amh.consent_record import GovernedConsentRecordRequest
+    from maezo.adapters.amh.document_resolution import GovernedDocumentResolutionRequest
     from maezo.adapters.amh.subject_resolution import GovernedSubjectResolutionRequest
     from maezo.adapters.amh.subject_verification import GovernedSubjectVerificationRequest
     from maezo.adapters.amh.tina import GovernedTinaRequest
@@ -607,6 +609,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
     tina = amh_interop.AmhTinaExecutor(**comum)
     verificacao = amh_interop.AmhSubjectVerificationExecutor(amh_tenant="omni", **comum)
     consentimentos = amh_interop.AmhConsentRecordExecutor(amh_tenant="omni", **comum)
+    documentos = amh_interop.AmhDocumentResolutionExecutor(amh_tenant="omni", **comum)
     purpose = (("purpose_of_use", "sharing_amh_internal"),)
     results = [
         await billing.execute(
@@ -706,7 +709,26 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         )
     )
-    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 8
+    results.append(
+        await documentos.execute(
+            GovernedDocumentResolutionRequest(
+                operation="amh.resolve_by_document",
+                method="POST",
+                path="/interop/identity/v1/resolve-by-document",
+                body=json.dumps(
+                    {
+                        "cpf_hash": "e" * 64,
+                        "cpfdob_hash": "f" * 64,
+                        "hash_scheme": "amh-subject-verify-v1",
+                        "purpose_of_use": "sharing_amh_internal",
+                        "amh_tenant": "omni",
+                    }
+                ).encode(),
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 9
 
 
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811

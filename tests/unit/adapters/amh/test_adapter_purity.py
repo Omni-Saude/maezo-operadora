@@ -73,6 +73,7 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "tina",  # TinaPort adapter (fatos do plano, manifest v1.2 DRAFT): fail-closed sem pin
         "subject_verification",  # SubjectVerificationPort adapter (acesso, DL-0083; v1.3): fail-closed
         "consent_record",  # ConsentRecordPort adapter (acesso, DL-0083; manifest v1.3): fail-closed sem pin
+        "document_resolution",  # DocumentResolutionPort adapter (telefone sem cadastro, DL-0084; v1.3)
         "contract",  # fail-closed runtime loader for the immutable pin
         "mapping",  # decoded wire event <-> canonical port value types
         "settings",  # env-driven configuration, declared not wired
@@ -206,6 +207,7 @@ def _non_stdlib_offenders(tree: ast.AST, *, module: str = "") -> set[str]:
         "tina",
         "subject_verification",
         "consent_record",
+        "document_resolution",
     ):
         # E02 parses the immutable upstream artifact with existing libraries.
         # This does not admit HTTP, broker, cloud or SQL clients.
@@ -237,8 +239,8 @@ def test_adapter_modules_discovered() -> None:
         f"{sorted(_EXPECTED_MODULES)}. Adding a module changes the adapter's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 11, (
-        "expected exactly 11 modules (phase A + MZO-050b + E02 + billing + resolution + tina + acesso), "
+    assert len(mods) == 12, (
+        "expected exactly 12 modules (phase A + MZO-050b + E02 + billing + resolution + tina + acesso), "
         f"found {sorted(mods)}"
     )
     assert "consumer" not in mods, (

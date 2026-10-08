@@ -76,8 +76,9 @@ async def test_prazo_do_bloqueio_vencido_em_revogado_zera_o_contador(amb: Ambien
 # --------------------------------------------------------------------------- ALTO: telefone desconhecido
 @pytest.mark.parametrize("cpf", [CPF, OUTRO_CPF, "123"])
 async def test_telefone_desconhecido_nao_entra_pelo_documento(amb: Ambiente, cpf: str) -> None:
-    """Sem candidato: texto neutro + atendente, IGUAL para CPF cadastrado, nao cadastrado ou invalido; a AMH
-    nem e' perguntada (nada revela se o CPF existe)."""
+    """Sem candidato e SEM a porta de documento (composicao parcial; o lado seguro do #700): texto neutro +
+    atendente, IGUAL para CPF cadastrado, nao cadastrado ou invalido; a AMH nem e' perguntada. Com a porta
+    (producao, DL-0084) o telefone fora do cadastro vai ao documento: `test_acesso_telefone_novo.py`."""
     amb.verif.cadastrar_cpf(CPF, REF)
     amb.resolvedor.desfecho = "nenhum"
     await amb.ate_cpf()

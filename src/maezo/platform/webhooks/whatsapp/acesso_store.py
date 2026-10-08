@@ -59,6 +59,20 @@ ON CONFLICT (tenant, conversation_id) DO UPDATE SET
 """
 
 
+#: Retencao (DL-0084): apaga em LOTES (sem lock longo na tabela quente), so' o que nao tem atividade desde
+#: antes do limite e NUNCA uma revogacao pendente de gravacao no lago. Usa o indice de `ultima_mensagem_em`.
+_EXPURGO_SQL: Final[str] = f"""
+DELETE FROM {TABELA}
+WHERE tenant = $1 AND conversation_id IN (
+    SELECT conversation_id FROM {TABELA}
+    WHERE tenant = $1 AND ultima_mensagem_em < $2 AND NOT revogacao_pendente
+    ORDER BY ultima_mensagem_em
+    LIMIT $3
+)
+"""
+LOTE_EXPURGO: Final[int] = 500
+
+
 class AcessoStoreError(RuntimeError):
     """Falha do store. A mensagem e' sempre um token de classe, nunca dado de beneficiario."""
 
@@ -148,6 +162,21 @@ class PostgresAcessoStore:
                 estado.falhas_janela,
                 estado.janela_inicio,
             )
+
+    async def expurgar_inativos(self, limite: datetime, *, lote: int = LOTE_EXPURGO) -> int:
+        """Retencao de 90 dias (DL-0084): apaga, em lotes, as linhas DESTE tenant sem atividade desde antes de
+        `limite`, exceto `revogacao_pendente`. Idempotente; devolve quantas apagou. Falha de banco PROPAGA."""
+        if not 0 < lote <= 10_000:
+            raise ValueError("acesso: lote fora de (0, 10000]")
+        pool = await self._ensure_pool()
+        total = 0
+        while True:
+            async with pool.acquire() as conn:
+                status = await conn.execute(_EXPURGO_SQL, self._tenant, limite, lote)
+            apagadas = int(str(status).rsplit(" ", 1)[-1])
+            total += apagadas
+            if apagadas < lote:
+                return total
 
     async def aclose(self) -> None:
         if self._pool is not None:
