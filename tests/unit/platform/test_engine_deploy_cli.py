@@ -265,7 +265,7 @@ class TestMainEndToEnd:
         _, name = fake.deploy_calls[0]
         assert name == DEFAULT_DEPLOYMENT_NAME
         # 54 DMN (T1.3) + 7 fraude_scoring (T2.7) + auth_criteria_contratual (GAP-AUTH-4) = 62
-        assert "16 BPMN, 63 DMN" in out
+        assert "17 BPMN, 64 DMN" in out  # VW4/GP11
 
     def test_deploy_mode_engine_rejection_is_nonzero_exit(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

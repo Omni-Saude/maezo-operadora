@@ -80,7 +80,7 @@ __all__ = [
 
 #: (c) — o 18/18 é CONTRATO (docstring do composition root e readiness do worker-runtime), não
 #: um valor a re-derivar do tuple do alvo: derivar do mesmo tuple que se audita é auto-certificação.
-EXPECTED_WORKER_BOOTSTRAP_COUNT: Final = 18
+EXPECTED_WORKER_BOOTSTRAP_COUNT: Final = 19  # VW4/GP11 envelope+wiring: +suppression workers
 
 #: (a) — o default de capabilities que nenhuma onda vendor tocou (VW1-P4 adicionou o quarto
 #: literal; o DEFAULT permaneceu este).
@@ -392,7 +392,7 @@ def _check_migrations_linear_head(target: VendorPlaneTarget) -> VendorPlaneCheck
 
 
 def _check_readiness_workers(target: VendorPlaneTarget) -> VendorPlaneCheck:
-    name = "readiness_workers_18_18"
+    name = "readiness_workers_19_19"
     observed: dict[str, str | int | bool | None] = {}
     try:
         local_count = local_worker_bootstrap_count()
