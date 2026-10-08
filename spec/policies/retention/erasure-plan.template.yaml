@@ -816,3 +816,17 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+  - camada: acesso_beneficiario
+    tabela: conversa_acesso_beneficiario
+    migracao: "0022_conversa_acesso_beneficiario.py::upgrade (conversa_acesso_beneficiario)"
+    identificacao: "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row holds only the closed access state, an attempts counter, the consent text version and sha256, timestamps and the AMH `portable_subject_ref` (pseudonymous, once known) - no phone, no CPF, no birth date, no name, no typed text (DL-0083). The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so the bridge is absent"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 38
+    tensao: null
+    notas: >-
+      DL-0083 (acesso do beneficiario, MAEZO_ACESSO_BENEFICIARIO). Uma linha por conversa: estado do
+      consentimento/verificacao. Sem purga automatica (o consentimento vale ate' ser revogado; apagar a
+      linha faria a pessoa consentir de novo). Prazo de retencao pertence ao DPO.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO

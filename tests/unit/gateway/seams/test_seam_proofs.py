@@ -559,6 +559,8 @@ _AMH_INTEROP_OPERATIONS = frozenset(
         "amh.tina_get_elegibilidade",
         "amh.tina_get_carencias",
         "amh.tina_get_requisicoes",
+        "amh.verify_subject",
+        "amh.record_consent",
     }
 )
 
@@ -571,7 +573,9 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
     import httpx
 
     from maezo.adapters.amh.billing_status import GovernedBillingStatusRequest
+    from maezo.adapters.amh.consent_record import GovernedConsentRecordRequest
     from maezo.adapters.amh.subject_resolution import GovernedSubjectResolutionRequest
+    from maezo.adapters.amh.subject_verification import GovernedSubjectVerificationRequest
     from maezo.adapters.amh.tina import GovernedTinaRequest
     from maezo.gateway import amh_interop
 
@@ -601,6 +605,8 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
     billing = amh_interop.AmhBillingStatusExecutor(**comum)
     subjects = amh_interop.AmhSubjectResolutionExecutor(amh_tenant="omni", **comum)
     tina = amh_interop.AmhTinaExecutor(**comum)
+    verificacao = amh_interop.AmhSubjectVerificationExecutor(amh_tenant="omni", **comum)
+    consentimentos = amh_interop.AmhConsentRecordExecutor(amh_tenant="omni", **comum)
     purpose = (("purpose_of_use", "sharing_amh_internal"),)
     results = [
         await billing.execute(
@@ -658,7 +664,50 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
                 )
             )
         )
-    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 6
+    results.append(
+        await verificacao.execute(
+            GovernedSubjectVerificationRequest(
+                operation="amh.verify_subject",
+                method="POST",
+                path="/interop/subject-verification/v1/subjects/verify",
+                body=json.dumps(
+                    {
+                        "amh_tenant": "omni",
+                        "hash_scheme": "amh-subject-verify-v1",
+                        "factor": "cpf",
+                        "verification_hash": "b" * 64,
+                        "purpose_of_use": "sharing_amh_internal",
+                    }
+                ).encode(),
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    results.append(
+        await consentimentos.execute(
+            GovernedConsentRecordRequest(
+                operation="amh.record_consent",
+                method="POST",
+                path="/interop/consent/v1/consents",
+                body=json.dumps(
+                    {
+                        "amh_tenant": "omni",
+                        "portable_subject_ref": "subject1",
+                        "scope": "atendimento_whatsapp",
+                        "decision": "granted",
+                        "consent_text_version": "wa-consent-v1",
+                        "consent_text_sha256": "c" * 64,
+                        "decided_at": "2026-10-08T12:00:00Z",
+                        "channel": "whatsapp",
+                        "idempotency_key": "d" * 64,
+                        "purpose_of_use": "sharing_amh_internal",
+                    }
+                ).encode(),
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 8
 
 
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811

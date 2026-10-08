@@ -13,6 +13,12 @@ pedido — nunca uma URL vinda do chamador:
   * `POST /interop/subject-resolution/v1/subjects/resolve-by-phone`      (`interop/subject.resolve`)
   * `GET  /interop/subject-resolution/v1/subjects/{ref}/profile`         (`interop/profile.read`)
 
+e, SO' com `MAEZO_ACESSO_BENEFICIARIO` ligada (DL-0083, acesso do beneficiario; manifest aditivo v1.3, ainda
+nao publicado — sem o bloco `manifest_v1_3` no pin os adaptadores recusam subir):
+
+  * `POST /interop/subject-verification/v1/subjects/verify`              (`interop/subject.verify`)
+  * `POST /interop/consent/v1/consents`                                  (`interop/consent.write`)
+
 e, SO' com `MAEZO_HELENA_CONSULTAS_AMH` ligada (DL de 07/10/2026, fatos do plano na Helena), mais tres
 leituras do contrato TINA (manifest aditivo v1.2, ainda DRAFT — sem o bloco `manifest_v1_2` no pin o
 adaptador recusa subir):
@@ -73,6 +79,16 @@ from maezo.adapters.amh.billing_status import (
     GovernedBillingStatusRequest,
     GovernedBillingStatusResponse,
 )
+from maezo.adapters.amh.consent_record import (
+    DECISOES as CONSENT_DECISOES,
+)
+from maezo.adapters.amh.consent_record import (
+    OP_RECORD,
+    AmhConsentRecordAdapter,
+    GovernedConsentRecordExecutor,
+    GovernedConsentRecordRequest,
+    GovernedConsentRecordResponse,
+)
 from maezo.adapters.amh.subject_resolution import (
     OP_PROFILE,
     OP_RESOLVE,
@@ -80,6 +96,16 @@ from maezo.adapters.amh.subject_resolution import (
     GovernedSubjectResolutionExecutor,
     GovernedSubjectResolutionRequest,
     GovernedSubjectResolutionResponse,
+)
+from maezo.adapters.amh.subject_verification import (
+    FATORES as FATORES_VERIFICACAO,
+)
+from maezo.adapters.amh.subject_verification import (
+    OP_VERIFY,
+    AmhSubjectVerificationAdapter,
+    GovernedSubjectVerificationExecutor,
+    GovernedSubjectVerificationRequest,
+    GovernedSubjectVerificationResponse,
 )
 from maezo.adapters.amh.tina import (
     OP_CARENCIAS,
@@ -103,6 +129,11 @@ logger = structlog.get_logger(__name__)
 HASH_SCHEME: Final[str] = "amh-phone-lookup-v1"
 #: Escopo das tres leituras TINA (fatos do plano). Pedido SO' com as consultas da Helena ligadas.
 SCOPE_TINA: Final[str] = "interop/tina.read"
+#: Esquema do hash de VERIFICACAO do acesso do beneficiario (DL-0083). Nome do contrato da AMH.
+HASH_SCHEME_VERIFICACAO: Final[str] = "amh-subject-verify-v1"
+#: Escopos do acesso do beneficiario (DL-0083): verificacao por fator e registro de consentimento.
+SCOPE_VERIFY: Final[str] = "interop/subject.verify"
+SCOPE_CONSENT_WRITE: Final[str] = "interop/consent.write"
 #: Escopos OAuth2 de cada operacao (servidor de recursos `interop` no Cognito da AMH).
 SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_BILLING: "interop/billing.read",
@@ -111,6 +142,8 @@ SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_ELEGIBILIDADE: SCOPE_TINA,
     OP_CARENCIAS: SCOPE_TINA,
     OP_REQUISICOES: SCOPE_TINA,
+    OP_VERIFY: SCOPE_VERIFY,
+    OP_RECORD: SCOPE_CONSENT_WRITE,
 }
 
 _MAX_RESPONSE_BYTES: Final[int] = 1_048_576
@@ -125,6 +158,8 @@ _BILLING_SUFFIX: Final[str] = "/billing/status"
 _RESOLVE_PATH: Final[str] = "/interop/subject-resolution/v1/subjects/resolve-by-phone"
 _PROFILE_PREFIX: Final[str] = "/interop/subject-resolution/v1/subjects/"
 _PROFILE_SUFFIX: Final[str] = "/profile"
+_VERIFY_PATH: Final[str] = "/interop/subject-verification/v1/subjects/verify"
+_CONSENT_PATH: Final[str] = "/interop/consent/v1/consents"
 _TINA_PREFIX: Final[str] = "/interop/tina/v1/subjects/"
 #: Operacao TINA -> sufixo FIXO da rota (o sujeito vem entre o prefixo e o sufixo, sempre conferido).
 _TINA_SUFFIX: Final[dict[str, str]] = {
@@ -146,6 +181,10 @@ _CLIENT_ID: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,12
 _SCOPE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}\Z")
 _COMPETENCIA: Final[re.Pattern[str]] = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])\Z")
 _PHONE_HASH: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}\Z")
+_SHA256_HEX: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}\Z")
+_ISO_INSTANTE: Final[re.Pattern[str]] = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})\Z"
+)
 _RECEIPT: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}\Z")
 _HTTPCORE_LOGGERS: Final[tuple[str, ...]] = (
     "httpcore.connection",
@@ -156,6 +195,12 @@ _HTTPCORE_LOGGERS: Final[tuple[str, ...]] = (
 #: Telefone BR em E.164 so' com digitos: 55 + DDD (sem zero a esquerda) + 8 ou 9 digitos.
 _E164_BR: Final[re.Pattern[str]] = re.compile(r"55[1-9][0-9][0-9]{8,9}\Z")
 _MIN_PHONE_KEY_CHARS: Final[int] = 16
+#: CPF (so' os 11 digitos) e nascimento (AAAAMMDD) so' chegam ao hasher de verificacao ja' normalizados.
+_CPF_DIGITOS: Final[re.Pattern[str]] = re.compile(r"[0-9]{11}\Z")
+_DATA_AAAAMMDD: Final[re.Pattern[str]] = re.compile(r"[0-9]{8}\Z")
+#: Vocabulario fixo do registro de consentimento do atendimento por WhatsApp (DL-0083).
+CONSENT_SCOPE: Final[str] = "atendimento_whatsapp"
+CONSENT_CHANNEL: Final[str] = "whatsapp"
 
 TransportFactory = Callable[[], httpx.AsyncBaseTransport]
 
@@ -457,6 +502,54 @@ class AmhPhoneLookupHasher:
         return hmac.new(self._key, mensagem, hashlib.sha256).hexdigest()
 
 
+class AmhSubjectVerifyHasher:
+    """`amh-subject-verify-v1`: HMAC-SHA256(chave, "{amh_tenant}:cpf:{11 digitos}") em hex, ou, com o
+    nascimento, HMAC-SHA256(chave, "{amh_tenant}:cpfdob:{11 digitos}:{AAAAMMDD}") (DL-0083).
+
+    A chave e' DEDICADA (segredo `amh/interop/subject-verify-key`), distinta do `PHI_HMAC_KEY` e da chave do
+    telefone. O CPF e a data de nascimento existem em memoria so' pelo instante do calculo: os metodos
+    recebem os digitos, devolvem o hash e nao guardam nada. Entrada fora do formato (nao sao 11 digitos
+    ASCII; data que nao e' AAAAMMDD de 8 digitos) devolve `None`. Nunca levanta, nunca loga; `repr` nao
+    mostra a chave.
+    """
+
+    __slots__ = ("_amh_tenant", "_key")
+
+    def __init__(self, *, key: str, amh_tenant: str) -> None:
+        if not _token_valido(key) or len(key) < _MIN_PHONE_KEY_CHARS:
+            raise AmhInteropCompositionError()
+        if type(amh_tenant) is not str or not _TOKEN.fullmatch(amh_tenant):
+            raise AmhInteropCompositionError()
+        self._key = key.encode("ascii")
+        self._amh_tenant = amh_tenant
+
+    def __repr__(self) -> str:
+        return "AmhSubjectVerifyHasher(<redacted>)"
+
+    @property
+    def amh_tenant(self) -> str:
+        return self._amh_tenant
+
+    def _hmac(self, mensagem: str) -> str:
+        corpo = f"{self._amh_tenant}:{mensagem}".encode("ascii")
+        return hmac.new(self._key, corpo, hashlib.sha256).hexdigest()
+
+    def hash_cpf(self, cpf_digitos: str) -> str | None:
+        if type(cpf_digitos) is not str or not _CPF_DIGITOS.fullmatch(cpf_digitos):
+            return None
+        return self._hmac(f"cpf:{cpf_digitos}")
+
+    def hash_cpf_nascimento(self, cpf_digitos: str, nascimento_aaaammdd: str) -> str | None:
+        if (
+            type(cpf_digitos) is not str
+            or type(nascimento_aaaammdd) is not str
+            or not _CPF_DIGITOS.fullmatch(cpf_digitos)
+            or not _DATA_AAAAMMDD.fullmatch(nascimento_aaaammdd)
+        ):
+            return None
+        return self._hmac(f"cpfdob:{cpf_digitos}:{nascimento_aaaammdd}")
+
+
 class _ExecutorInteropAmh:
     """O caminho comum: zona, gate (sombra), token, auditoria duravel, despacho fixo e recusa fechada."""
 
@@ -539,6 +632,7 @@ class _ExecutorInteropAmh:
         body: bytes | None,
         consent_ref: str | None,
         timeout_seconds: float,
+        fase: str = "READ_DISPATCHED_UNDER_SHADOW_GATE",
     ) -> PortResult[tuple[int, bytes]]:
         if self._closed:
             return PortResult.refused(Reason.UPSTREAM_UNAVAILABLE)
@@ -555,6 +649,7 @@ class _ExecutorInteropAmh:
                 body=body,
                 consent_ref=consent_ref,
                 timeout_seconds=timeout_seconds,
+                fase=fase,
             )
         finally:
             self._active.discard(task)
@@ -569,6 +664,7 @@ class _ExecutorInteropAmh:
         body: bytes | None,
         consent_ref: str | None,
         timeout_seconds: float,
+        fase: str,
     ) -> PortResult[tuple[int, bytes]]:
         try:
             async with asyncio.timeout(timeout_seconds):
@@ -585,7 +681,7 @@ class _ExecutorInteropAmh:
                     action=operation,
                     decision="ALLOW",
                     details={
-                        "phase": "READ_DISPATCHED_UNDER_SHADOW_GATE",
+                        "phase": fase,
                         "purpose_of_use": self._purpose,
                         "pep_allow": decision.allow,
                         "pep_reason": decision.reason,
@@ -845,6 +941,146 @@ class AmhTinaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
         return PortResult.ok(GovernedTinaResponse(status, raw))
 
 
+class AmhSubjectVerificationExecutor(_ExecutorInteropAmh, GovernedSubjectVerificationExecutor):
+    """`GovernedSubjectVerificationExecutor` real: `POST .../subjects/verify` (hash do fator no CORPO)."""
+
+    registered_operations = frozenset({OP_VERIFY})
+
+    def __init__(self, *, amh_tenant: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if type(amh_tenant) is not str or not _TOKEN.fullmatch(amh_tenant):
+            raise AmhInteropCompositionError()
+        self._amh_tenant = amh_tenant
+
+    def _validar(self, request: GovernedSubjectVerificationRequest) -> None:
+        if (
+            type(request) is not GovernedSubjectVerificationRequest
+            or request.operation != OP_VERIFY
+            or request.method != "POST"
+            or request.path != _VERIFY_PATH
+            or type(request.body) is not bytes
+            or len(request.body) > _MAX_REQUEST_BODY_BYTES
+            or not _prazo_valido(request.timeout_seconds)
+        ):
+            raise ValueError
+        corpo = json.loads(request.body)
+        if (
+            type(corpo) is not dict
+            or set(corpo) != {"amh_tenant", "hash_scheme", "factor", "verification_hash", "purpose_of_use"}
+            or corpo["amh_tenant"] != self._amh_tenant
+            or corpo["hash_scheme"] != HASH_SCHEME_VERIFICACAO
+            or corpo["factor"] not in FATORES_VERIFICACAO
+            or corpo["purpose_of_use"] != self._purpose
+            or type(corpo["verification_hash"]) is not str
+            or not _SHA256_HEX.fullmatch(corpo["verification_hash"])
+        ):
+            raise ValueError
+
+    async def execute(
+        self, request: GovernedSubjectVerificationRequest
+    ) -> PortResult[GovernedSubjectVerificationResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="POST",
+            path=request.path,
+            query=(),
+            body=request.body,
+            consent_ref=None,
+            timeout_seconds=request.timeout_seconds,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedSubjectVerificationResponse(status, raw))
+
+
+class AmhConsentRecordExecutor(_ExecutorInteropAmh, GovernedConsentRecordExecutor):
+    """`GovernedConsentRecordExecutor` real: `POST .../consents` (escrita idempotente por chave no corpo)."""
+
+    registered_operations = frozenset({OP_RECORD})
+
+    def __init__(self, *, amh_tenant: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if type(amh_tenant) is not str or not _TOKEN.fullmatch(amh_tenant):
+            raise AmhInteropCompositionError()
+        self._amh_tenant = amh_tenant
+
+    def _validar(self, request: GovernedConsentRecordRequest) -> None:
+        if (
+            type(request) is not GovernedConsentRecordRequest
+            or request.operation != OP_RECORD
+            or request.method != "POST"
+            or request.path != _CONSENT_PATH
+            or type(request.body) is not bytes
+            or len(request.body) > _MAX_REQUEST_BODY_BYTES
+            or not _prazo_valido(request.timeout_seconds)
+        ):
+            raise ValueError
+        corpo = json.loads(request.body)
+        if (
+            type(corpo) is not dict
+            or set(corpo)
+            != {
+                "amh_tenant",
+                "portable_subject_ref",
+                "scope",
+                "decision",
+                "consent_text_version",
+                "consent_text_sha256",
+                "decided_at",
+                "channel",
+                "idempotency_key",
+                "purpose_of_use",
+            }
+            or corpo["amh_tenant"] != self._amh_tenant
+            or corpo["purpose_of_use"] != self._purpose
+            or corpo["scope"] != CONSENT_SCOPE
+            or corpo["channel"] != CONSENT_CHANNEL
+            or corpo["decision"] not in CONSENT_DECISOES
+            or type(corpo["portable_subject_ref"]) is not str
+            or not _SUBJECT.fullmatch(corpo["portable_subject_ref"])
+            or type(corpo["consent_text_version"]) is not str
+            or not _TOKEN.fullmatch(corpo["consent_text_version"])
+            or type(corpo["consent_text_sha256"]) is not str
+            or not _SHA256_HEX.fullmatch(corpo["consent_text_sha256"])
+            or type(corpo["idempotency_key"]) is not str
+            or not _SHA256_HEX.fullmatch(corpo["idempotency_key"])
+            or type(corpo["decided_at"]) is not str
+            or not _ISO_INSTANTE.fullmatch(corpo["decided_at"])
+        ):
+            raise ValueError
+
+    async def execute(
+        self, request: GovernedConsentRecordRequest
+    ) -> PortResult[GovernedConsentRecordResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="POST",
+            path=request.path,
+            query=(),
+            body=request.body,
+            consent_ref=None,
+            timeout_seconds=request.timeout_seconds,
+            fase="WRITE_DISPATCHED_UNDER_SHADOW_GATE",
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedConsentRecordResponse(status, raw))
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class AmhInteropComposition:
     """O que a raiz de composicao recebe: os dois ports da AMH ja' sobre os executores reais, o hasher
@@ -861,6 +1097,11 @@ class AmhInteropComposition:
     #: As leituras TINA (fatos do plano), SO' quando a composicao as pediu (`incluir_tina=True` em
     #: `tool_registry.build_amh_interop`, com `MAEZO_HELENA_CONSULTAS_AMH` ligada). Senao `None`.
     tina: AmhTinaAdapter | None = None
+    #: O ACESSO DO BENEFICIARIO (DL-0083), SO' quando a composicao o pediu (`incluir_acesso=True` em
+    #: `tool_registry.build_amh_interop`, com `MAEZO_ACESSO_BENEFICIARIO` ligada). Senao `None`.
+    verification: AmhSubjectVerificationAdapter | None = None
+    consents: AmhConsentRecordAdapter | None = None
+    verify_hasher: AmhSubjectVerifyHasher | None = None
 
     async def aclose(self) -> None:
         for executor in self._executors:
@@ -871,9 +1112,17 @@ class AmhInteropComposition:
 
 
 __all__ = [
+    "CONSENT_CHANNEL",
+    "CONSENT_SCOPE",
     "HASH_SCHEME",
+    "HASH_SCHEME_VERIFICACAO",
     "SCOPE_BY_OPERATION",
+    "SCOPE_CONSENT_WRITE",
+    "SCOPE_VERIFY",
     "AmhBillingStatusExecutor",
+    "AmhConsentRecordExecutor",
+    "AmhSubjectVerificationExecutor",
+    "AmhSubjectVerifyHasher",
     "AmhInteropComposition",
     "AmhInteropCompositionError",
     "AmhPhoneLookupHasher",

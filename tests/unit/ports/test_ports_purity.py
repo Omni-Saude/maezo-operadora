@@ -78,6 +78,8 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "billing_status",  # BillingStatusPort (cobranca; contrato AMH proposto, ainda nao publicado)
         "subject_resolution",  # SubjectResolutionPort (identidade; contrato AMH proposto, nao publicado)
         "tina",  # TinaPort (fatos do plano; contrato AMH TINA, manifest v1.2 DRAFT)
+        "subject_verification",  # SubjectVerificationPort (acesso do beneficiario, DL-0083; manifest v1.3)
+        "consent_record",  # ConsentRecordPort (registro do consentimento, DL-0083; manifest v1.3)
         "population_features",  # PopulationFeaturePort (XRD-07)
         "outcomes",  # OutcomePublisherPort
     }
@@ -305,7 +307,7 @@ def test_port_modules_discovered() -> None:
         "Adding/removing a port module is a deliberate change to the boundary's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 11, f"expected exactly 11 port modules, found {sorted(mods)}"
+    assert len(mods) == 13, f"expected exactly 13 port modules, found {sorted(mods)}"
 
 
 def test_import_extraction_is_not_vacuous() -> None:
@@ -483,7 +485,7 @@ def test_no_port_value_type_has_a_phi_shaped_field() -> None:
     """Fence (iv), value types: the ports are OPAQUE (they parse nothing), so the only structural
     guarantee against PHI crossing the boundary is that no PHI-shaped SLOT exists at all."""
     value_types = _value_types()
-    assert len(value_types) == 32, (
+    assert len(value_types) == 34, (
         f"expected 32 port value types, found {sorted(value_types)} — update this non-vacuity pin "
         "when a value type is deliberately added or removed"
     )
@@ -506,7 +508,7 @@ def test_no_port_method_has_a_phi_shaped_parameter() -> None:
     ARGUMENT would let a caller push identifying data across the boundary even though no value
     type holds it."""
     protocols = _protocol_types()
-    assert len(protocols) == 8, f"expected exactly 8 port Protocols, found {sorted(protocols)}"
+    assert len(protocols) == 10, f"expected exactly 10 port Protocols, found {sorted(protocols)}"
     offenders: dict[str, list[str]] = {}
     for qualname, proto in protocols.items():
         for method_name, member in inspect.getmembers(proto, callable):

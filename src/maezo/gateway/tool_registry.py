@@ -113,17 +113,22 @@ if TYPE_CHECKING:
     from maezo.gateway.pseudonymizer import Pseudonymizer
 
 from maezo.adapters.amh.billing_status import OPERATION as OP_BILLING
+from maezo.adapters.amh.consent_record import OP_RECORD
 from maezo.adapters.amh.subject_resolution import OP_RESOLVE
+from maezo.adapters.amh.subject_verification import OP_VERIFY
 from maezo.gateway.amh import AmhRuntime, AmhSubjectContextExecutor, GatedAmhContext
 from maezo.gateway.amh_interop import (
     HASH_SCHEME,
     SCOPE_BY_OPERATION,
     SCOPE_TINA,
     AmhBillingStatusExecutor,
+    AmhConsentRecordExecutor,
     AmhInteropComposition,
     AmhInteropCompositionError,
     AmhPhoneLookupHasher,
     AmhSubjectResolutionExecutor,
+    AmhSubjectVerificationExecutor,
+    AmhSubjectVerifyHasher,
     AmhTinaExecutor,
     CognitoClientCredentials,
 )
@@ -226,6 +231,8 @@ AGENT_CREDENTIAL_FIELDS: Final[dict[str, str]] = {
     "whatsapp_token": "whatsapp_token",
     "amh_interop_client_secret": "amh_interop_client_secret",
     "amh_phone_lookup_key": "amh_phone_lookup_key",
+    # DL-0083 (acesso do beneficiario): chave DEDICADA do hash `amh-subject-verify-v1` (CPF e CPF+nascimento).
+    "amh_subject_verify_key": "amh_subject_verify_key",
 }
 
 #: Settings fields that carry a HUMAN-RESTRICTED credential, and the ADR-0005 partition each one
@@ -619,6 +626,7 @@ def build_amh_interop(
     agent_version: str,
     transport_factory: Any = None,
     incluir_tina: bool = False,
+    incluir_acesso: bool = False,
 ) -> AmhInteropComposition:
     """A fonte REAL de cobranca/identidade do Lucas: executores do gateway -> adaptadores pinados.
 
@@ -637,14 +645,23 @@ def build_amh_interop(
     contrato TINA: exige tambem `amh_tina_openapi_path` e o escopo `interop/tina.read` em
     `amh_interop_scopes` (`amh_interop_escopos_insuficientes` sem ele), e o adaptador TINA so' sobe com o
     bloco `manifest_v1_2` no pin. `False` (o default) = a composicao de antes, sem nada da TINA.
+
+    `incluir_acesso=True` (SO' com `MAEZO_ACESSO_BENEFICIARIO` ligada, DL-0083) acrescenta a verificacao do
+    sujeito por fator e o registro de consentimento: exige tambem `amh_subject_verify_key`, os dois caminhos
+    de OpenAPI (`amh_subject_verification_openapi_path`, `amh_consent_record_openapi_path`) e os escopos
+    `interop/subject.verify` e `interop/consent.write` em `amh_interop_scopes`; os adaptadores so' sobem com
+    o bloco `manifest_v1_3` no pin. `False` (o default) = a composicao de antes, sem nada do acesso.
     """
     from maezo.adapters.amh.billing_status import AmhBillingStatusAdapter
+    from maezo.adapters.amh.consent_record import AmhConsentRecordAdapter
     from maezo.adapters.amh.subject_resolution import AmhSubjectResolutionAdapter
+    from maezo.adapters.amh.subject_verification import AmhSubjectVerificationAdapter
     from maezo.adapters.amh.tina import AmhTinaAdapter
 
     credentials = build_agent_credential_view(settings=settings, agent_id=seam.principal)
     client_secret = agent_credential(credentials, "amh_interop_client_secret")
     phone_key = agent_credential(credentials, "amh_phone_lookup_key")
+    verify_key = agent_credential(credentials, "amh_subject_verify_key") if incluir_acesso is True else None
     exigidos: dict[str, Any] = {
         "amh_interop_base_url": getattr(settings, "amh_interop_base_url", None),
         "amh_interop_token_url": getattr(settings, "amh_interop_token_url", None),
@@ -660,6 +677,14 @@ def build_amh_interop(
     }
     if incluir_tina is True:
         exigidos["amh_tina_openapi_path"] = getattr(settings, "amh_tina_openapi_path", None)
+    if incluir_acesso is True:
+        exigidos["amh_subject_verify_key"] = verify_key
+        exigidos["amh_subject_verification_openapi_path"] = getattr(
+            settings, "amh_subject_verification_openapi_path", None
+        )
+        exigidos["amh_consent_record_openapi_path"] = getattr(
+            settings, "amh_consent_record_openapi_path", None
+        )
     ausentes = sorted(nome for nome, valor in exigidos.items() if not valor)
     if ausentes:
         raise AmhInteropCompositionError("amh_interop_config_ausente: " + ",".join(ausentes))
@@ -667,6 +692,10 @@ def build_amh_interop(
     if not {SCOPE_BY_OPERATION[OP_BILLING], SCOPE_BY_OPERATION[OP_RESOLVE]} <= set(scopes):
         raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
     if incluir_tina is True and SCOPE_TINA not in scopes:
+        raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
+    if incluir_acesso is True and not {SCOPE_BY_OPERATION[OP_VERIFY], SCOPE_BY_OPERATION[OP_RECORD]} <= set(
+        scopes
+    ):
         raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
     tokens = CognitoClientCredentials(
         token_url=exigidos["amh_interop_token_url"],
@@ -694,6 +723,24 @@ def build_amh_interop(
         # recusa servir (nunca sobe "sem consultas" em silencio quando o dono as ligou).
         tina = AmhTinaAdapter(_ler_openapi(exigidos["amh_tina_openapi_path"]), executor=tina_executor)
         executores = (*executores, tina_executor)
+    verification: AmhSubjectVerificationAdapter | None = None
+    consents: AmhConsentRecordAdapter | None = None
+    verify_hasher: AmhSubjectVerifyHasher | None = None
+    if incluir_acesso is True:
+        verification_executor = AmhSubjectVerificationExecutor(
+            amh_tenant=exigidos["amh_interop_tenant"], **comum
+        )
+        consent_executor = AmhConsentRecordExecutor(amh_tenant=exigidos["amh_interop_tenant"], **comum)
+        # Sem o bloco `manifest_v1_3` no pin, os construtores LEVANTAM: o receptor recusa servir (nunca
+        # sobe "sem acesso" em silencio quando o dono o ligou).
+        verification = AmhSubjectVerificationAdapter(
+            _ler_openapi(exigidos["amh_subject_verification_openapi_path"]), executor=verification_executor
+        )
+        consents = AmhConsentRecordAdapter(
+            _ler_openapi(exigidos["amh_consent_record_openapi_path"]), executor=consent_executor
+        )
+        verify_hasher = AmhSubjectVerifyHasher(key=str(verify_key), amh_tenant=exigidos["amh_interop_tenant"])
+        executores = (*executores, verification_executor, consent_executor)
     return AmhInteropComposition(
         billing=AmhBillingStatusAdapter(
             _ler_openapi(exigidos["amh_billing_status_openapi_path"]), executor=billing_executor
@@ -708,6 +755,9 @@ def build_amh_interop(
         _executors=executores,
         _tokens=tokens,
         tina=tina,
+        verification=verification,
+        consents=consents,
+        verify_hasher=verify_hasher,
     )
 
 

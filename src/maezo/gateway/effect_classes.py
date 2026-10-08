@@ -385,6 +385,22 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_plan_facts",
     ),
+    # -- Acesso do beneficiario (DL-0083, 08/10/2026; manifest aditivo v1.3, DRAFT; executores em
+    # `gateway/amh_interop.py`). Mesma classe e mesma postura das leituras acima (C2, `tool_id=None`):
+    # a verificacao so' manda o HASH do fator (nunca CPF/nascimento) e a AMH devolve a referencia opaca.
+    # O REGISTRO de consentimento e' uma escrita no lago da AMH, com acao PROPRIA
+    # (`record_member_consent`, L3, declarada no `agent.yaml` da Helena), e nao a reutilizacao de uma
+    # acao de leitura: o que a governanca le' no rotulo tem de ser o que a chamada faz.
+    OperationSpec(
+        operation="amh.verify_subject",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_billing_identity",
+    ),
+    OperationSpec(
+        operation="amh.record_consent",
+        action_class="leitura_phi_clinica",
+        autonomy_action="record_member_consent",
+    ),
     # -- WhatsApp send (C1). Leaf `tools/mcp_whatsapp/server.py:111`.
     OperationSpec(
         operation="whatsapp.send_message",

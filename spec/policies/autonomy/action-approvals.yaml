@@ -733,6 +733,8 @@ mapeamento_acoes:
   agente.amh.tina_get_elegibilidade: leitura_phi_clinica
   agente.amh.tina_get_carencias: leitura_phi_clinica
   agente.amh.tina_get_requisicoes: leitura_phi_clinica
+  agente.amh.verify_subject: leitura_phi_clinica
+  agente.amh.record_consent: leitura_phi_clinica
 
   agente.whatsapp.send_message: comunicacao_beneficiario
 
