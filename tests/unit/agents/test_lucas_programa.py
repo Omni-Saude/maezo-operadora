@@ -1,8 +1,9 @@
 """Programa de teste do Lucas isolado — onda (a) de `docs/plans/lucas-numero-unico.md` §6(a).
 
 O que este arquivo prova, contra o grafo REAL do Lucas e as DMN DRAFT lidas do XML em `spec/`:
-  - o corpus `tests/evals/lucas/casos.json` tem a composicao do plano (J1x6, J2x6, J3x9 com 3 de
-    inadimplencia, 3 de contestacao e 3 de cancelamento, fail-safe x3) e cada caso entrega o esperado;
+  - o corpus `tests/evals/lucas/casos.json` tem a composicao do plano (J1x6, J2x6, J3x6 com 3 de
+    contestacao e 3 de cancelamento, fail-safe x3) mais os casos de `cobranca_recebida` (J2, decididos
+    pelos fatos desde DL-0082 — antes eram os 3 J3 de inadimplencia) e cada caso entrega o esperado;
   - as provas obrigatorias: 100% dos J3 com `route=escalate_human`; `decisao_cancelamento is None` em
     todos; nenhum texto enviado com cancelar/suspender; um envio por turno; DMN indisponivel escala
     (em TODO caso do corpus, nao so' no caso fail-safe que a declara);
@@ -37,13 +38,16 @@ from maezo.agents.lucas.fonte_cobranca import (
 )
 from maezo.agents.lucas.graph import (
     _CALLER_INPUT_FIELDS,
+    ACK_ESCALACAO,
     ACK_ESCALACAO_RECUSADO,
     RESPOSTA_INFORMATIVA_RECUSADA,
     LucasState,
     new_lucas_state,
+    texto_mensalidade_em_dia,
 )
 from tests.evals.lucas.programa import (
     JORNADAS,
+    SUBJORNADA_COBRANCA_RECEBIDA,
     SUBJORNADAS_J3,
     DmnDraftLocal,
     DmnIndisponivel,
@@ -51,6 +55,7 @@ from tests.evals.lucas.programa import (
     divergencias,
     executar_caso,
     executar_programa,
+    normalizar,
     tem_radical_proibido,
 )
 
@@ -79,7 +84,14 @@ def test_corpus_tem_a_composicao_do_plano() -> None:
     por_sub = Counter(c.get("subjornada") for c in CASOS if c["jornada"] == "J3")
     assert set(por_sub) == set(SUBJORNADAS_J3)
     assert all(por_sub[s] >= 3 for s in SUBJORNADAS_J3)
-    assert por_jornada["J3"] >= 9
+    assert por_jornada["J3"] >= 6
+    # DL-0082: `cobranca_recebida` cobre os quatro desfechos dos fatos (conciliado, atraso, em aberto
+    # sem atraso, fonte indisponivel), todos pela DMN.
+    recebida = [c for c in CASOS if c.get("subjornada") == SUBJORNADA_COBRANCA_RECEBIDA]
+    assert all(c["jornada"] == "J2" for c in recebida)
+    assert {"conciliado", "atraso_1_ciclo", "em_aberto", "indisponivel"} <= {
+        c["perfil_fonte"] for c in recebida
+    }
 
 
 def test_ids_do_corpus_sao_unicos() -> None:
@@ -129,7 +141,7 @@ async def test_caso_entrega_o_esperado_com_a_dmn_draft(caso: dict[str, Any]) -> 
 
 def test_prova_todo_j3_escala_para_humano(registros: list[dict[str, Any]]) -> None:
     j3 = [r for r in registros if r["jornada"] == "J3"]
-    assert len(j3) >= 9
+    assert len(j3) >= 6  # DL-0082: os 3 de inadimplencia viraram `cobranca_recebida` (J2, pelos fatos)
     assert all(r["route"] == "escalate_human" for r in j3)
     assert all(r["process_started"] is True for r in j3)
     # J3 nunca chega a DMN de admissibilidade: a jornada escala por natureza (graph.py::assess).
@@ -151,6 +163,27 @@ def test_prova_nenhum_texto_enviado_fala_em_cancelar_ou_suspender(registros: lis
     assert [t for t in enviados if tem_radical_proibido(t)] == []
 
 
+def test_prova_nenhum_texto_enviado_fala_em_inadimplencia(registros: list[dict[str, Any]]) -> None:
+    """DL-0082: o beneficiario nunca le' "inadimplencia" — nem quando o fato e' atraso (o texto diz
+    que consta mensalidade em aberto), nem, muito menos, quando o fato e' "conciliado"."""
+    enviados = [t for r in registros for t in r["textos_enviados"]]
+    assert enviados
+    assert [t for t in enviados if "inadimpl" in normalizar(t)] == []
+
+
+def test_cobranca_recebida_conciliada_responde_em_dia_sem_processo(registros: list[dict[str, Any]]) -> None:
+    """DL-0082, o incidente de 08/10/2026 no corpus: fato conciliado -> resposta, nunca escalacao."""
+    caso = next(
+        c
+        for c in CASOS
+        if c.get("subjornada") == SUBJORNADA_COBRANCA_RECEBIDA and c["perfil_fonte"] == "conciliado"
+    )
+    r = next(r for r in registros if r["caso"] == caso["id"])
+    assert r["route"] == "respond_member"
+    assert r["process_started"] is False
+    assert r["textos_enviados"] == [texto_mensalidade_em_dia(new_lucas_state({}))]
+
+
 def test_prova_um_envio_por_turno(registros: list[dict[str, Any]]) -> None:
     assert [r["caso"] for r in registros if r["envios"] != 1] == []
 
@@ -160,12 +193,23 @@ def test_rascunhos_barrados_sairam_como_a_constante(registros: list[dict[str, An
     for caso in (c for c in CASOS if c.get("rascunho_llm")):
         r = por_caso[caso["id"]]
         assert caso["rascunho_llm"] not in r["textos_enviados"], caso["id"]
-        assert r["textos_enviados"][0] in {RESPOSTA_INFORMATIVA_RECUSADA, ACK_ESCALACAO_RECUSADO}, caso["id"]
+        # DL-0082: alem das duas constantes da cerca, o que sai pode ser um TEXTO FIXO decidido pelos
+        # fatos (ACK de escalacao, "mensalidade em dia") — o rascunho nem e' pedido ao modelo.
+        seguros = {
+            RESPOSTA_INFORMATIVA_RECUSADA,
+            ACK_ESCALACAO_RECUSADO,
+            ACK_ESCALACAO,
+            texto_mensalidade_em_dia(new_lucas_state({})),
+        }
+        assert r["textos_enviados"][0] in seguros, caso["id"]
 
 
 def test_toda_chamada_de_llm_do_programa_e_phi(registros: list[dict[str, Any]]) -> None:
     assert all(r["llm_todas_phi"] for r in registros)
-    assert all(r["llm_chamadas"] >= 1 for r in registros)
+    # Toda escalacao chama o modelo (a narrativa do dossie). A resposta informativa pode ser texto
+    # fixo sem modelo nenhum (DL-0082: "mensalidade em dia").
+    assert all(r["llm_chamadas"] >= 1 for r in registros if r["route"] == "escalate_human")
+    assert any(r["llm_chamadas"] >= 1 for r in registros if r["route"] == "respond_member")
 
 
 @pytest.mark.parametrize("caso", CASOS, ids=lambda c: c["id"])

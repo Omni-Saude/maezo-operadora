@@ -126,7 +126,8 @@ O texto do beneficiário vai **só** para o classify da Helena. O dispatcher tra
 para entrada de `new_lucas_state` (estrito) com uma tabela fixa: `boleto_2via`/`vencimento`/`outro`
 -> `cobranca_info` (`tipo_solicitacao` = subtipo, ou `""`); `confirmacao_pagamento` ->
 `confirmacao_pagamento`; `contestacao` -> `cobranca_info` + `contesta_cobranca=True` (J3);
-`cobranca_recebida` -> `inadimplencia` (J3); `cancelamento` -> `cancelamento` +
+`cobranca_recebida` -> `inadimplencia` + `tipo_solicitacao=status_pagamento` (desde DL-0082 NAO e' J3:
+a intencao e' dica e a DMN decide pelos fatos — conciliado responde "em dia", atraso escala); `cancelamento` -> `cancelamento` +
 `pedido_cancelamento=True` (J3). Os fatos de conciliação vêm da porta `FonteCobranca`; até existir
 a fonte real, é a `FonteCobrancaSimulada`. Um classificador próprio do Lucas foi descartado: ele
 teria de ver o texto (PHI, §3) e duplicaria a triagem que precisa rodar antes de qualquer forma.
@@ -208,7 +209,8 @@ comportamento em dev.
 - Arquivos: `agents/lucas/fonte_cobranca.py` (porta `FonteCobranca.fatos(pseudo_id, competencia)
   -> FatosCobranca | Indisponivel` + `FonteCobrancaSimulada` determinística por hash do pseudo_id);
   `tests/evals/lucas/casos.json` (>= 24 casos: J1x6, J2x6, J3x9 = 3 de inadimplência, 3 de
-  contestação e 3 de cancelamento, fail-safe x3); `tests/unit/agents/test_lucas_programa.py`;
+  contestação e 3 de cancelamento, fail-safe x3 — desde DL-0082 os 3 de inadimplência viraram 5 casos
+  J2 `cobranca_recebida`, decididos pelos fatos, e o J3 ficou com 6); `tests/unit/agents/test_lucas_programa.py`;
   `tests/integration/agents/test_lucas_dmn_real.py` (marker `integration`, DMN real no motor);
   `tools/scripts/programa_lucas.py` (roda os casos e grava JSONL, que alimenta o Excel de (g)).
 - Provas: 100% dos J3 com `route=escalate_human`; `decisao_cancelamento is None` em todos; zero

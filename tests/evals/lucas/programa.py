@@ -63,7 +63,11 @@ NARRATIVA_PADRAO: Final[str] = "Narrativa sintetica do dossie para o atendente."
 _RADICAIS_PROIBIDOS: Final[re.Pattern[str]] = re.compile(r"cancel|suspen")
 
 JORNADAS: Final[tuple[str, ...]] = ("J1", "J2", "J3", "failsafe")
-SUBJORNADAS_J3: Final[tuple[str, ...]] = ("inadimplencia", "contestacao", "cancelamento")
+#: DL-0082 (08/10/2026): `inadimplencia` saiu do J3. "Estou sendo cobrado"/"minha mensalidade esta em
+#: aberto?" (subtipo `cobranca_recebida`) e' decidido pelos FATOS via DMN, como a confirmacao de
+#: pagamento, e por isso esses casos vivem em J2 com `subjornada="cobranca_recebida"`.
+SUBJORNADAS_J3: Final[tuple[str, ...]] = ("contestacao", "cancelamento")
+SUBJORNADA_COBRANCA_RECEBIDA: Final[str] = "cobranca_recebida"
 
 
 def normalizar(texto: str) -> str:

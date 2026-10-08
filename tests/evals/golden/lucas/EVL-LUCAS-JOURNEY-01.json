@@ -16,8 +16,7 @@
     }
   },
   "recorded_llm": [
-    "Pedido de cancelamento identificado; dossie encaminhado para gestao de contratos.",
-    "Um atendente humano vai continuar seu atendimento sobre o pedido de cancelamento."
+    "Pedido de cancelamento identificado; dossie encaminhado para gestao de contratos."
   ],
   "dmn_fixture": {
     "lucas_escalation_routing": { "roteamento": "CONTRATOS_HUMANO" }
