@@ -424,6 +424,9 @@ class SuppressionEgressAttempt(StrEnum):
 
     #: Linha/registro removido da construção de lista por supressão vigente.
     LIST_ROW_REMOVED = "list_row_removed"
+    #: Egresso recusado por classe de TUPLA (C2/C6) declarada SEM tuple_value — o
+    #: quase-identificador escaparia da contagem de célula (§4b: k aplica-se à TUPLA).
+    EGRESS_REFUSED_TUPLE_CLASS_WITHOUT_TUPLE = "egress_refused_tuple_class_without_tuple"
     #: Egresso recusado por classe proibida (C1/C3/C4) no payload.
     EGRESS_REFUSED_PROHIBITED_CLASS = "egress_refused_prohibited_class"
     #: Egresso recusado por classe fora do catálogo fechado.
@@ -584,7 +587,18 @@ def prepare_egress_export(
                 telemetry.record_attempt(SuppressionEgressAttempt.EGRESS_REFUSED_PROHIBITED_CLASS)
                 raise SuppressionError(SuppressionRefusalReason.PHI_IN_COMMERCIAL_INPUT)
 
-    # (2) k-anon sobre a TUPLA C2/C6: célula = contagem de linhas com o mesmo tuple_value.
+    # (2a) consistência classe×tupla (§4b): campo declarado C2/C6 SEM tuple_value deixaria o
+    # quase-identificador FORA da contagem de célula (a linha viraria "campo livre" e nunca
+    # seria suprimida) — recusa tipada do egresso INTEIRO, loud, nunca silêncio (achado do
+    # guard-test-engineer, fechado no ato).
+    for line in lines:
+        if not line.tuple_value and any(
+            field.field_class in TUPLE_K_ANON_FIELD_CLASSES for field in line.fields
+        ):
+            telemetry.record_attempt(SuppressionEgressAttempt.EGRESS_REFUSED_TUPLE_CLASS_WITHOUT_TUPLE)
+            raise SuppressionError(SuppressionRefusalReason.CONTRACT_MISMATCH)
+
+    # (2b) k-anon sobre a TUPLA C2/C6: célula = contagem de linhas com o mesmo tuple_value.
     cell_sizes: dict[tuple[str, ...], int] = {}
     for line in lines:
         if line.tuple_value:

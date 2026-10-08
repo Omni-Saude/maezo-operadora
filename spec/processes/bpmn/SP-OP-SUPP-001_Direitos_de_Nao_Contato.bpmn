@@ -224,7 +224,9 @@ presence-only (gateway/vendor_suppression.py#SuppressionEgressTelemetry).
          GAP-4: a ancora e o fato gerador, nunca o attach desta UT). 50% => lembrete; 80% =>
          escala ao encarregado; 100% => timeout para ANALISE_HUMANA (catch-all da §4c — o
          registro permanece visivel e ATRASADO por design, nunca silencioso). Nenhum outro
-         timer existe no processo; nenhum historyTimeToLive (VW0-D12 RATIFY-LATER DPO). -->
+         timer existe no processo; o historyTimeToLive=1825 do elemento <process> e limpeza de
+         historico do ENGINE (enforceTTL, ENGINE-12018), nao prazo de negocio (VW0-D12
+         RATIFY-LATER DPO). -->
     <bpmn:userTask id="UT_RotearEncarregado" name="Rotear reclamacao/pedido ao encarregado (decisao humana)"
                    camunda:candidateGroups="${grupo_decisao}">
       <bpmn:documentation>Decisao do encarregado (honrar / nao-honrar fundamentado / escalar) registrada no caso vendor e alimenta o KPI de supressoes honradas no SLA. Grupo VALUE-DRIVEN ${grupo_decisao} (conjunto fechado vem da DMN suppression_routing — todas as rows devolvem 'dpo'; reparo F da base). Relógio do registro (§4c): lembrete no 7o dia util (piso de 50% — nunca depois da metade), escalonamento ao encarregado no 12o (80% exato) e timeout ANALISE_HUMANA no 15o (100% = t_deadline).</bpmn:documentation>

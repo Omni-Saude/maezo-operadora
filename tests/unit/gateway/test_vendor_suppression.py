@@ -282,3 +282,37 @@ async def test_a_remocao_na_construcao_e_contada_presence_only() -> None:
     )
     assert telemetry.window()[SuppressionEgressAttempt.LIST_ROW_REMOVED.value] == 1
     assert telemetry.phi_egress_violations == 0
+
+
+# --- Achado do guard-test-engineer: classe de TUPLA declarada sem tuple_value ---------------
+
+
+def test_c2_declared_without_tuple_refuses_the_whole_egress_fail_closed() -> None:
+    """§4b: k aplica-se à TUPLA — uma linha declarada C2/C6 SEM tupla deixaria o
+    quase-identificador fora da contagem de célula (nunca suprimida). Recusa tipada
+    CONTRACT_MISMATCH do egresso inteiro, com a tentativa contada no catálogo presence-only
+    (contenção, nunca violação). Zero linhas exportadas."""
+    from maezo.gateway.vendor_suppression import (
+        DeclaredField,
+        EgressLine,
+        FieldClass,
+        SuppressionEgressAttempt,
+        SuppressionEgressTelemetry,
+        SuppressionError,
+        SuppressionRefusalReason,
+        prepare_egress_export,
+    )
+
+    telemetry = SuppressionEgressTelemetry()
+    line = EgressLine(
+        key="subject-opaco-1",
+        tuple_value=(),  # inconsistente: o campo declara C2 mas a tupla não veio
+        fields=(DeclaredField("matricula", FieldClass.C2_QUASE_IDENTIFICADOR),),
+    )
+    with pytest.raises(SuppressionError) as exc:
+        prepare_egress_export(
+            (line,), audience_size=500, telemetry=telemetry
+        )
+    assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH
+    assert telemetry._attempts[SuppressionEgressAttempt.EGRESS_REFUSED_TUPLE_CLASS_WITHOUT_TUPLE] == 1
+    assert telemetry.phi_egress_violations == 0  # contenção ≠ violação (§4e critério 4)
