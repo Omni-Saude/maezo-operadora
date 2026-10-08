@@ -75,8 +75,8 @@ def test_avaliacao_real_da_expressao(tmp_path: Path, consultas: bool, acesso: bo
         f"locals {{\n  amh_interop_scopes_efetivos = {_expressao_efetiva()}\n}}\n",
         encoding="utf-8",
     )
-    saida = subprocess.run(  # noqa: S603 - binario local, entrada fixa do teste
-        ["terraform", "console"],  # noqa: S607
+    saida = subprocess.run(
+        ["terraform", "console"],
         input="local.amh_interop_scopes_efetivos\n",
         capture_output=True,
         text=True,
