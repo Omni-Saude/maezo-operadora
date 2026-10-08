@@ -45,7 +45,10 @@ SEGREDOS = {
     "job.json": ARN + "staff-job/materials-glnOol",
     "rows.json": ARN + "staff-install/rows-R8q4LK",
     "assignment-activate.json": ARN + "staff-install/assignment-EJgSnC",
+    "syn-fixture.json": ARN + "staff-install/syn-fixture-wt3sOm",
 }
+#: Onde a raiz instalada esta pinada (versionado). A trava do `gerar` compara a raiz do volume com ela.
+PINS_PORTAL = Path("deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars")
 JANELA = timedelta(days=14)  # N2 (dono, 23/09/2026): designacao, admissao e chaves
 
 
@@ -145,6 +148,35 @@ def entrada_nativa(nativo: dict[str, str], *, inicio: str, fim: str, politica: s
     return canonicalize(valor)
 
 
+def trava_dev(designacao: dict[str, Any], raiz_der: bytes, pins_portal: str) -> None:
+    """Fail-closed: a delegacao N1 (o agente assina com a raiz) so vale em DEV, tenant amh, com a raiz
+    que o portal de dev pina (`root_key_sha256` de `portal.auto.tfvars`). Qualquer outra coisa aborta
+    ANTES de abrir a chave privada."""
+    import re
+
+    escopo = designacao.get("scope") or {}
+    if escopo.get("environment") != "dev" or escopo.get("tenant") != "amh":
+        raise SystemExit("recusado: a renovacao delegada (N1) so roda em dev/amh")
+    pins = re.findall(r'^\s*root_key_sha256\s*=\s*"([0-9a-f]{64})"', pins_portal, re.MULTILINE)
+    if len(pins) != 1:
+        raise SystemExit("recusado: portal.auto.tfvars sem exatamente um root_key_sha256")
+    if sha(raiz_der) != pins[0]:
+        raise SystemExit("recusado: a raiz do volume nao e a que o portal de dev pina")
+
+
+def renovar_syn(syn: dict[str, Any], nativo: dict[str, str]) -> dict[str, Any]:
+    """Fixture SYN: troca SO o `result_certificate` pelo certificado AUTH do segredo nativo novo."""
+    from cryptography.hazmat.primitives.serialization import Encoding, pkcs12
+
+    p12 = base64.b64decode(nativo["engine-run/staff/auth-signing.p12"])
+    senha = base64.b64decode(nativo["engine-run/staff/auth-signing.password"])
+    _, cert, _ = pkcs12.load_key_and_certificates(p12, senha)
+    if cert is None or "result_certificate" not in syn["files"]:
+        raise SystemExit("segredo SYN ou PKCS12 do AUTH sem certificado")
+    files = dict(syn["files"], result_certificate=b64(cert.public_bytes(Encoding.PEM)))
+    return dict(syn, files=files)
+
+
 def gerar(args: argparse.Namespace) -> int:
     from tools.staff_materials import approver
     from tools.staff_materials import assignment_trust as at
@@ -182,12 +214,13 @@ def gerar(args: argparse.Namespace) -> int:
     inicio, fim = instant(inicio_dt), instant(fim_dt)
     resumo: dict[str, Any] = {"janela": [inicio, fim]}
 
+    raiz_der = (args.approver / "root/installation-root.der").read_bytes()
+    trava_dev(ler("designation.json"), raiz_der, (args.repo / PINS_PORTAL).read_text(encoding="utf-8"))
+    resumo["root_key_sha256"] = sha(raiz_der)
     raiz = approver.load_root(
         args.approver / "root/installation-root-key.pem",
         approver._passphrase(args.approver / "root-passphrase.txt"),
     )
-    raiz_der = (args.approver / "root/installation-root.der").read_bytes()
-    resumo["root_key_sha256"] = sha(raiz_der)
 
     out = new_private_directory(args.out)
     pub, sec = subdirectory(out, "public"), subdirectory(out, "ops-secrets")
@@ -432,6 +465,10 @@ def gerar(args: argparse.Namespace) -> int:
     ativ["owner_receipt"] = dict(artifact_ref=f"{ref[0]}:{int(ref[1]) + 1}", digest=recibo)
     privado("assignment-activate.json", ativ)
 
+    # 14. fixture SYN (opcional): certificado do AUTH novo
+    if (ant / "syn-fixture.json").is_file():
+        privado("syn-fixture.json", renovar_syn(segredo("syn-fixture.json"), nativo))
+
     publico("resumo.json", canonicalize(resumo))
     print(json.dumps(resumo, indent=1, sort_keys=True))
     return 0
@@ -477,8 +514,9 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--assignment-source", type=Path, required=True, help="assignment-source.json publico")
     g.add_argument("--sufixo", required=True, help="AAAAMMDD dos key_id humanos novos")
     g.add_argument("--out", type=Path, required=True, help="diretorio NOVO no volume")
+    g.add_argument("--repo", type=Path, default=Path("/repo"), help="checkout (le o pin da raiz)")
     s = cmds.add_parser("publicar")
-    s.add_argument("--out", type=Path, required=True)
+    s.add_argument("--out", type=Path, required=True, help="monte SO ops-secrets/ e public/ da saida")
     s.add_argument("nomes", nargs="+", choices=sorted(SEGREDOS))
     args = p.parse_args(argv)
     return gerar(args) if args.cmd == "gerar" else publicar(args)
