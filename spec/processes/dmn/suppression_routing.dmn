@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_suppression_routing"
+             name="Roteamento de supressao/opt-out vendor (GP11)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    suppression_routing v0.1.0 — status: DRAFT (revisao DPO obrigatoria — docs/review-queue.md).
+    Consumida por SP-OP-SUPP-001 (`vendor.suppression.route`) EXCLUSIVAMENTE engine-side via
+    CibSevenDmnTransport — evaluator local PROIBIDO (dmn_transport.py:1-8); inputs/outputs por
+    NOME (forma congelada da admissao GP-ADMISSION).
+
+    FAIL-CLOSED DE ADMISSAO (registro do dono, 2026-10-07 — VW0-DECISION-REGISTER §"Decisoes de
+    Fechamento" item 1): a taxonomia de classes de campo (VW0-D11), o piso k-anon do egresso
+    (VW0-D11) e o SLA de honra (VW0-D20) sao insumos DPO PENDENTES. Esta tabela embarca com
+    UMA UNICA row — o catch-all → rota HUMANA (`RECLAMACAO_ENCARREGADO`, grupo `dpo`) — e so
+    ganha particoes (vendedor/lead × canal) quando a taxonomia for ratificada. NENHUM numero:
+    sem threshold, sem prazo, sem piso (tudo RATIFY-LATER; "sem prazo que corre em silencio").
+    Saidas NUNCA sao os verbos proibidos (LIBERAR/AUTORIZAR/PAGAR/CALCULAR) — roteamento de
+    estado bloqueante, molde pagto_alcada (classificar-rotear-nunca-decidir), conteudo anti-
+    candidato (a decisao de honrar e do plano de lista + encarregado, nunca da tabela).
+
+    hitPolicy FIRST (molde pagto_alcada): a ordem das rows e semantica; a catch-all e a ULTIMA.
+    Inputs simbolicos (sem cifra): `canal` (string fechada do contrato OP20) e
+    `categoria_sujeito` (vendedor | lead | desconhecido — categoria declarada no pedido, NUNCA
+    inferida de dado clinico/comportamental; G-PHI: dado de beneficiario/paciente nunca e
+    input de targeting em nenhuma granularidade).
+  </description>
+  <decision id="suppression_routing" name="Roteamento de supressao vendor">
+    <decisionTable id="dt_suppression_routing" hitPolicy="FIRST">
+      <input id="in_canal" label="Canal de contato (contact_channel)">
+        <inputExpression id="ie_canal" typeRef="string"><text>canal</text></inputExpression>
+      </input>
+      <input id="in_categoria" label="Categoria do sujeito (categoria_sujeito, declarada no pedido)">
+        <inputExpression id="ie_categoria" typeRef="string"><text>categoria_sujeito</text></inputExpression>
+      </input>
+      <output id="out_rota" label="rota" name="rota" typeRef="string"/>
+      <output id="out_grupo" label="grupo_decisao" name="grupo_decisao" typeRef="string"/>
+      <rule id="r_catchall">
+        <description>
+          Catch-all FAIL-SAFE (UNICA row da versao): sem insumos DPO ratificados, TODO pedido de
+          supressao vai ao ENCARGADO como decisao humana (fail-closed operante — precedente D-07).
+          `REGISTRO_HONRADO` so entra como row nova, NOMEADA, quando a taxonomia (VW0-D11) e o
+          SLA (VW0-D20) forem ratificados — e a honra operacional permanece no plano de lista
+          (egresso k-anon-only no chokepoint), nunca nesta tabela.
+        </description>
+        <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <outputEntry id="r_catchall_o1"><text>"RECLAMACAO_ENCARREGADO"</text></outputEntry>
+        <outputEntry id="r_catchall_o2"><text>"dpo"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

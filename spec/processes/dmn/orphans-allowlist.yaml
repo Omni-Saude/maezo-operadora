@@ -235,3 +235,15 @@ orphans:
     already-inverted table: outputs indicador_score:integer/indicador_label/
     motivo, no verdict column. Synthetic scores/thresholds still flagged for
     SME (medico-auditor/financas) review — docs/review-queue.md.
+  suppression_routing: >-
+    Worker-consumed (planned via ADR-0028 dmn= seam): evaluated engine-side by
+    the `vendor.suppression.route` external handler of SP-OP-SUPP-001
+    (tools/workers/suppression.py, VW4/GP11 admitted by the owner 2026-10-07),
+    never via a BPMN businessRuleTask decisionRef — same shape as the
+    auth-criteria tables above. In the ENVELOPE commit the handler is in the
+    fail-closed admission state (raises ERR_SUPP_ROUTING_UNAVAILABLE) and the
+    table carries only its catch-all row -> RECLAMACAO_ENCARREGADO/dpo; the
+    CibSevenDmnTransport wiring and the taxonomy/k=100 partitions (insumos
+    DPO accepted by the owner, VW4-RATIFICATION-ANSWERS-V1 GP11) land in the
+    wiring package. PERMANENT orphan from crossref's decisionRef-only
+    perspective (docs/review-queue.md SP-OP-SUPP-001).

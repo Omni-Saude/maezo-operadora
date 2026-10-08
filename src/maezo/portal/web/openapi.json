@@ -463,7 +463,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -1045,7 +1046,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -1088,7 +1090,8 @@
                 "recurso_decisao": "#/components/schemas/RecursoDecisionInputs",
                 "reembolso_auditor": "#/components/schemas/ReembolsoAuditorInputs",
                 "reembolso_decisao": "#/components/schemas/ReembolsoDecisionInputs",
-                "reembolso_pendencia": "#/components/schemas/ReembolsoPendingInputs"
+                "reembolso_pendencia": "#/components/schemas/ReembolsoPendingInputs",
+                "suppression_encarregado": "#/components/schemas/SuppressionEncarregadoDecisionInputs"
               },
               "propertyName": "kind"
             },
@@ -1158,6 +1161,9 @@
               },
               {
                 "$ref": "#/components/schemas/LgpdDsrDecisionInputs"
+              },
+              {
+                "$ref": "#/components/schemas/SuppressionEncarregadoDecisionInputs"
               },
               {
                 "$ref": "#/components/schemas/AuthPendingInputs"
@@ -1844,7 +1850,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -2715,6 +2722,7 @@
                 "referencia_negativa_original",
                 "decisao_dsr",
                 "fundamentacao_legal",
+                "decisao_encarregado",
                 "decisao_pagamento",
                 "valor_aprovado_cents",
                 "justificativa_aprovacao",
@@ -2818,7 +2826,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -3439,7 +3448,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -3713,7 +3723,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -5783,6 +5794,7 @@
                 "referencia_negativa_original",
                 "decisao_dsr",
                 "fundamentacao_legal",
+                "decisao_encarregado",
                 "decisao_pagamento",
                 "valor_aprovado_cents",
                 "justificativa_aprovacao",
@@ -5886,7 +5898,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -6509,7 +6522,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"
@@ -6926,6 +6940,44 @@
         "title": "StaffSummary",
         "type": "object"
       },
+      "SuppressionEncarregadoDecisionInputs": {
+        "additionalProperties": false,
+        "description": "Human encarregado routing decision for the vendor suppression request, SP-OP-SUPP-001.\n\nClosed DRAFT shape (VW4/GP11, admitted 2026-10-07; repair F7 of the Tier-2 gate): the\nUT_RotearEncarregado outcome is a human act — honor the suppression register, refuse it\nwith mandatory grounding, or escalate. It cannot prove encarregado identity (art. 41\nformalization is an administrative act), SLA honoring, or list-construction effects;\nthose live in the wiring package + the ratified insumos.",
+        "properties": {
+          "decisao_encarregado": {
+            "enum": [
+              "HONRAR",
+              "NAO_HONRAR_FUNDAMENTADO",
+              "ESCALAR"
+            ],
+            "title": "Decisao Encarregado",
+            "type": "string"
+          },
+          "fundamentacao": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fundamentacao"
+          },
+          "kind": {
+            "const": "suppression_encarregado",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "decisao_encarregado"
+        ],
+        "title": "SuppressionEncarregadoDecisionInputs",
+        "type": "object"
+      },
       "TaskCompletionResponse": {
         "additionalProperties": false,
         "description": "The final state of the task, plus the trail refs that let the two paths be compared.\n\nNo note, no narrative and no beneficiary reference travel back: the browser already has the\ntext it typed, and the pseudonymized note belongs to the engine's PHI zone. The two audit\nrefs are chain-link hashes in the tenant's existing audit chain — the same chain\n`human_command.intent`/`.result` writes to — so \"conclusão pelo portal e pelo motor\nproduzem rastro idêntico\" is something a reader can actually check.",
@@ -6997,7 +7049,8 @@
               "ans_revisao",
               "ans_coordenacao",
               "ans_pendencia",
-              "ans_nack"
+              "ans_nack",
+              "suppression_encarregado"
             ],
             "title": "Form Key",
             "type": "string"

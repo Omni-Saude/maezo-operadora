@@ -815,7 +815,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado";
             /** Form Version */
             form_version: string;
             /** Process Definition Digest */
@@ -1012,11 +1012,11 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado";
             /** Form Version */
             form_version: string;
             /** Inputs */
-            inputs: components["schemas"]["AuthDecisionInputs"] | components["schemas"]["AuthJuntaInputs"] | components["schemas"]["EscalationDecisionInputs"] | components["schemas"]["PagtoAdmissibilityInputs"] | components["schemas"]["ContasDecisionInputs"] | components["schemas"]["ContasCoordinationInputs"] | components["schemas"]["RecursoDecisionInputs"] | components["schemas"]["RecursoCoordinationInputs"] | components["schemas"]["RecursoAuditorInputs"] | components["schemas"]["ReembolsoPendingInputs"] | components["schemas"]["ReembolsoDecisionInputs"] | components["schemas"]["ReembolsoAuditorInputs"] | components["schemas"]["CancelDecisionInputs"] | components["schemas"]["InadDecisionInputs"] | components["schemas"]["ProgramaDecisionInputs"] | components["schemas"]["CredDecredentialingInputs"] | components["schemas"]["CredCredentialingInputs"] | components["schemas"]["AdequacaoDecisionInputs"] | components["schemas"]["AdequacaoCoordinationInputs"] | components["schemas"]["NipDraftInputs"] | components["schemas"]["NipDecisionInputs"] | components["schemas"]["LgpdDsrDecisionInputs"] | components["schemas"]["AuthPendingInputs"] | components["schemas"]["PagtoApprovalInputs"] | components["schemas"]["PagtoCoordinationInputs"] | components["schemas"]["FraudDecisionInputs"] | components["schemas"]["FraudReferralInputs"] | components["schemas"]["AnsSubmissionReviewInputs"] | components["schemas"]["AnsSubmissionCoordinationInputs"] | components["schemas"]["AnsSubmissionCorrectionInputs"] | components["schemas"]["AnsNackInputs"];
+            inputs: components["schemas"]["AuthDecisionInputs"] | components["schemas"]["AuthJuntaInputs"] | components["schemas"]["EscalationDecisionInputs"] | components["schemas"]["PagtoAdmissibilityInputs"] | components["schemas"]["ContasDecisionInputs"] | components["schemas"]["ContasCoordinationInputs"] | components["schemas"]["RecursoDecisionInputs"] | components["schemas"]["RecursoCoordinationInputs"] | components["schemas"]["RecursoAuditorInputs"] | components["schemas"]["ReembolsoPendingInputs"] | components["schemas"]["ReembolsoDecisionInputs"] | components["schemas"]["ReembolsoAuditorInputs"] | components["schemas"]["CancelDecisionInputs"] | components["schemas"]["InadDecisionInputs"] | components["schemas"]["ProgramaDecisionInputs"] | components["schemas"]["CredDecredentialingInputs"] | components["schemas"]["CredCredentialingInputs"] | components["schemas"]["AdequacaoDecisionInputs"] | components["schemas"]["AdequacaoCoordinationInputs"] | components["schemas"]["NipDraftInputs"] | components["schemas"]["NipDecisionInputs"] | components["schemas"]["LgpdDsrDecisionInputs"] | components["schemas"]["SuppressionEncarregadoDecisionInputs"] | components["schemas"]["AuthPendingInputs"] | components["schemas"]["PagtoApprovalInputs"] | components["schemas"]["PagtoCoordinationInputs"] | components["schemas"]["FraudDecisionInputs"] | components["schemas"]["FraudReferralInputs"] | components["schemas"]["AnsSubmissionReviewInputs"] | components["schemas"]["AnsSubmissionCoordinationInputs"] | components["schemas"]["AnsSubmissionCorrectionInputs"] | components["schemas"]["AnsNackInputs"];
             /** Process Definition Digest */
             process_definition_digest: string;
             /** Process Definition Id */
@@ -1264,7 +1264,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado";
             /** Form Version */
             form_version: string;
             /**
@@ -1537,7 +1537,7 @@ export interface components {
                 "decision"
             ];
             /** Allowed Inputs */
-            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack")[];
+            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_encarregado" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack")[];
             /** Assignee Ref */
             assignee_ref: string | null;
             /** Eligible Candidate Groups */
@@ -1554,7 +1554,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado";
             /**
              * Form Source Status
              * @enum {string}
@@ -1778,7 +1778,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado";
             /** Form Version */
             form_version: string;
             /** Generation Digest */
@@ -1863,7 +1863,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado";
             /** Form Version */
             form_version: string;
             /**
@@ -2624,7 +2624,7 @@ export interface components {
              */
             allowed_actions: unknown[];
             /** Allowed Inputs */
-            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack")[];
+            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal" | "decisao_encarregado" | "decisao_pagamento" | "valor_aprovado_cents" | "justificativa_aprovacao" | "decisao_fraude" | "fundamentacao_investigacao" | "indicadores_fundamentantes" | "referencia_normativa" | "destino_referral" | "decisao_envio" | "justificativa_adiamento" | "dataset_complete" | "schema_valid" | "lgpd_anonimizado" | "decisao_nack")[];
             /** Assignee Ref */
             assignee_ref: string | null;
             /** Eligible Candidate Groups */
@@ -2641,7 +2641,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado";
             /**
              * Form Source Status
              * @enum {string}
@@ -2854,7 +2854,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado";
             /** Form Version */
             form_version: string;
             /**
@@ -3000,6 +3000,30 @@ export interface components {
             state_observed_at: string;
         };
         /**
+         * SuppressionEncarregadoDecisionInputs
+         * @description Human encarregado routing decision for the vendor suppression request, SP-OP-SUPP-001.
+         *
+         *     Closed DRAFT shape (VW4/GP11, admitted 2026-10-07; repair F7 of the Tier-2 gate): the
+         *     UT_RotearEncarregado outcome is a human act — honor the suppression register, refuse it
+         *     with mandatory grounding, or escalate. It cannot prove encarregado identity (art. 41
+         *     formalization is an administrative act), SLA honoring, or list-construction effects;
+         *     those live in the wiring package + the ratified insumos.
+         */
+        SuppressionEncarregadoDecisionInputs: {
+            /**
+             * Decisao Encarregado
+             * @enum {string}
+             */
+            decisao_encarregado: "HONRAR" | "NAO_HONRAR_FUNDAMENTADO" | "ESCALAR";
+            /** Fundamentacao */
+            fundamentacao?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "suppression_encarregado";
+        };
+        /**
          * TaskCompletionResponse
          * @description The final state of the task, plus the trail refs that let the two paths be compared.
          *
@@ -3031,7 +3055,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack" | "suppression_encarregado";
             /** Process Definition Key */
             process_definition_key: string;
             /** Process Definition Version */

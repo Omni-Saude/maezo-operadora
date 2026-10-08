@@ -260,5 +260,19 @@ def test_all_43_actual_bpmn_tasks_have_closed_source_shapes_only() -> None:
                 (process.attrib["id"], task.attrib["id"]) for task in process.findall(".//b:userTask", ns)
             )
     assert tasks == set(_BINDINGS)
-    assert len(tasks) == 43
-    assert len(_INPUTS_BY_FORM) == 31
+    assert len(tasks) == 44  # VW4/GP11: +UT_RotearEncarregado (SP-OP-SUPP-001)
+    assert len(_INPUTS_BY_FORM) == 32  # VW4/GP11: +suppression_encarregado
+    # Ratchet F7 (gate Tier-2 #691, re-gate #2): o catalogo FECHADO manda - nenhuma
+    # forma/input pode existir fora de FormKey/AllowedInput (a evasao de catalogo que
+    # este PR introduziu e o reparo F7 fecha, com guarda para nunca mais voltar).
+    from typing import get_args
+
+    from maezo.portal.contracts.models import AllowedInput, FormKey
+
+    assert set(_INPUTS_BY_FORM) <= set(get_args(FormKey)), (
+        f"formas fora do catalogo fechado: {set(_INPUTS_BY_FORM) - set(get_args(FormKey))}"
+    )
+    all_inputs = {i for vals in _INPUTS_BY_FORM.values() for i in vals}
+    assert all_inputs <= set(get_args(AllowedInput)), (
+        f"inputs fora do catalogo fechado: {all_inputs - set(get_args(AllowedInput))}"
+    )
