@@ -135,6 +135,9 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       { name = "MAEZO_HELENA_HISTORICO", value = tostring(var.helena_historico) },
       # Fatos do plano na Helena (07/10/2026): desligado por default; ver `helena_consultas_amh`.
       { name = "MAEZO_HELENA_CONSULTAS_AMH", value = tostring(var.helena_consultas_amh) },
+      # Acesso do beneficiario (08/10/2026, DL-0083): desligado por default; ver `acesso_beneficiario`.
+      { name = "MAEZO_ACESSO_BENEFICIARIO", value = tostring(var.acesso_beneficiario) },
+      { name = "MAEZO_ACESSO_VALIDADE_HORAS", value = tostring(var.acesso_validade_horas) },
 
       # DEVOLVE O TURNO NO CORPO DO ACK (12/09/2026). Com isto, a resposta 200 de `/webhook`
       # ganha `resposta` (o texto que a Helena redigiu) e `conversation_id`. Sem isto o corpo
@@ -149,7 +152,7 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
       # Fonte AMH do Lucas: `local.amh_interop_env` (amh-interop.tf) e' vazia com a fonte
       # `simulada`, entao esta task definition fica byte a byte igual enquanto ela nao for ligada.
-    ], local.recipient_vault_env, local.amh_interop_env, local.amh_tina_env)
+    ], local.recipient_vault_env, local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env)
 
     secrets = concat(local.db_secrets_maezo, [
       # Sem esta o Pseudonymizer falha FECHADO (ADR-0035) — e o receptor e' quem pseudonimiza

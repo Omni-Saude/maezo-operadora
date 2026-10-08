@@ -27,6 +27,12 @@ amh_interop_client_id = "3n2cmh41eslj5mi2lf0b577teb"
 amh_billing_status_openapi_path     = "/app/config/integrations/amh/openapi/billing-status.openapi.yaml"
 amh_subject_resolution_openapi_path = "/app/config/integrations/amh/openapi/subject-resolution.openapi.yaml"
 
+// Escopos pedidos ao Cognito (decisao do dono de 08/10/2026, DL-0083): os tres de sempre mais
+// `interop/subject.verify` (verificacao por fator) e `interop/consent.write` (registro do consentimento).
+// ATENCAO: o Cognito recusa o token INTEIRO se o app client nao tiver um dos escopos; o resource server e o
+// client `maezo-operadora-interop` precisam ter os dois novos ANTES deste valor ser aplicado.
+amh_interop_scopes = "interop/billing.read interop/subject.resolve interop/profile.read interop/subject.verify interop/consent.write"
+
 // Identidade do beneficiario na Helena pelos mesmos contratos (DL-0077, #677). So contexto: nao entra
 // no prompt nem decide triagem/escala. Ligada em 07/10/2026; voltar: false.
 helena_identidade_amh = true
