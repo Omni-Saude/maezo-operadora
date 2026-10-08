@@ -30,6 +30,7 @@ locals {
   amh_acesso_env = local.amh_interop_ligado && var.acesso_beneficiario ? [
     { name = "MAEZO_AMH_SUBJECT_VERIFICATION_OPENAPI_PATH", value = var.amh_subject_verification_openapi_path },
     { name = "MAEZO_AMH_CONSENT_RECORD_OPENAPI_PATH", value = var.amh_consent_record_openapi_path },
+    { name = "MAEZO_AMH_DOCUMENT_RESOLUTION_OPENAPI_PATH", value = var.amh_document_resolution_openapi_path },
   ] : []
   amh_acesso_secrets = var.acesso_beneficiario ? [
     { name = "MAEZO_AMH_SUBJECT_VERIFY_KEY", valueFrom = data.aws_secretsmanager_secret.amh_subject_verify_key[0].arn },

@@ -77,6 +77,7 @@ async def test_ligado_com_tudo_mas_sem_pin_v1_3_recusa_servir(
     base = Path(str(tmp_path))
     (base / "ver.yaml").write_bytes(b"v")
     (base / "con.yaml").write_bytes(b"c")
+    (base / "doc.yaml").write_bytes(b"d")
     valores = _amh(
         tmp_path,
         roteador_lucas_enabled=False,
@@ -86,6 +87,7 @@ async def test_ligado_com_tudo_mas_sem_pin_v1_3_recusa_servir(
         amh_subject_verify_key="chave-SINTETICA-de-verificacao",
         amh_subject_verification_openapi_path=str(base / "ver.yaml"),
         amh_consent_record_openapi_path=str(base / "con.yaml"),
+        amh_document_resolution_openapi_path=str(base / "doc.yaml"),
     )
     state = svc.WebhookState(settings=_settings(runtime_mode="kubernetes", **valores))
     await svc._bring_up_dependencies(state)

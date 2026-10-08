@@ -825,8 +825,13 @@ camadas:
     tensao: null
     notas: >-
       DL-0083 (acesso do beneficiario, MAEZO_ACESSO_BENEFICIARIO). Uma linha por conversa: estado do
-      consentimento/verificacao. Sem purga automatica (o consentimento vale ate' ser revogado; apagar a
-      linha faria a pessoa consentir de novo). Prazo de retencao pertence ao DPO.
+      consentimento/verificacao. DL-0084 (decisao do dono, 08/10/2026): a linha e' ELIMINADA apos 90 dias
+      sem atividade, pelo varredor idempotente `whatsapp/acesso_retencao.py` (no receptor, a cada 6 h, e
+      por linha de comando); quem volta depois consente e se verifica de novo. Excecao: revogacao_pendente
+      nunca e' apagada antes de gravada no lago (runbook acesso-beneficiario-revogacao-pendente). A
+      verificacao em si vale 24 h. O registro do consentimento no lago e' da AMH, fora desta camada.
+      Os valores abaixo sao a decisao do DONO ja' implementada; seguem marcados PENDENTE porque este
+      artefato e' o DRAFT do DPO e so' a ratificacao dele (o arquivo inteiro) os torna o plano formal.
     decisao_dpo: PENDENTE
-    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
-    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+    base_legal: "PENDENTE-RATIFICACAO-DPO: consentimento explicito do titular (LGPD art. 7o, I, e art. 11, I), texto wa-consent-v1 com sha256 registrado, revogavel por REVOGAR (DL-0083/DL-0084)"
+    retencao: "PENDENTE-RATIFICACAO-DPO: 90 dias sem atividade (ultima_mensagem_em), apagada pelo varredor; linha com revogacao_pendente nunca e' apagada antes de a revogacao ser gravada no lago (DL-0084)"

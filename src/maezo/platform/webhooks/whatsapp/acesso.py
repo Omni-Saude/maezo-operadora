@@ -12,9 +12,14 @@ A MAQUINA (cada estado, e o que ela responde; os agentes NUNCA rodam fora de `ve
   (sem linha)             qualquer 1a mensagem            -> `sem_consentimento` + TEXTO_CONSENTIMENTO
   sem_consentimento       ACEITO                          -> `aguardando_cpf`      + PEDIDO_CPF
   sem_consentimento       outra coisa                     -> igual + TEXTO_CONSENTIMENTO de novo
-  aguardando_cpf          telefone DESCONHECIDO (nenhum   -> `bloqueado_humano` + TELEFONE_NAO_IDENTIFICADO +
-                          candidato na AMH)                  escalonamento humano. NUNCA entra pelo caminho do
-                                                             documento: o CPF digitado nem e' lido
+  aguardando_cpf          telefone FORA DO CADASTRO       -> (DL-0084, risco aceito pelo dono) CPF valido ->
+                          (nenhum candidato na AMH)          `aguardando_nascimento` + PEDIDO_NASCIMENTO; com
+                                                             o nascimento, RESOLVE pelo documento (hashes
+                                                             `cpf` e `cpfdob`): `unico` -> verificado com a
+                                                             ref (so' nesta conversa); `nenhum` = tentativa+1.
+                                                             Sem a porta de documento: atendente, como antes
+  aguardando_cpf          telefone de gente demais (> 10) -> `bloqueado_humano` + TELEFONE_NAO_IDENTIFICADO +
+                                                             escalonamento humano (nao e' "uma familia")
   aguardando_cpf          AMH fora no passo do telefone   -> INDISPONIVEL; estado e tentativas INTACTOS
   aguardando_cpf          CPF invalido                    -> igual (tentativa+1)   + CPF_INVALIDO
   aguardando_cpf          CPF valido, telefone = 1 pessoa -> CONFERE `cpf` contra a referencia do telefone
@@ -41,8 +46,13 @@ TENTATIVAS E BLOQUEIO SOBREVIVEM A REVOGAR/ACEITO (revisao do PR #700, P0): so' 
 bloqueio (ou uma verificacao bem-sucedida) zera o contador. Senao REVOGAR + ACEITO seria um "tente de novo"
 ilimitado contra um CPF de 11 digitos.
 
-CONFERE, NAO RESOLVE: a AMH so' responde se o fator confere com uma referencia que o MAEZO mandou (as do
-telefone). Um documento digitado nunca descobre quem e' a pessoa.
+CONFERE, NAO RESOLVE, para o telefone CONHECIDO: a AMH so' responde se o fator confere com uma referencia que
+o MAEZO mandou (as do telefone). A UNICA excecao e' o telefone FORA DO CADASTRO (DL-0084, decisao do dono
+contra o alerta da revisao de seguranca do #700): ai' o documento (CPF + nascimento, os DOIS hashes) RESOLVE
+a pessoa na AMH (`resolve-by-document`), que conta tentativas por CPF e tem limite global; aqui valem as
+mesmas tentativas, bloqueio e janela de 24 h. A referencia resolvida vale so' para ESTA conversa (o estado e'
+por `conversation_id`, derivado deste telefone) e pela validade da verificacao; nada a vincula ao telefone na
+AMH. Indice da AMH fora (`fonte_atualizada_em: null`) ou 429 = INDISPONIVEL sem gastar tentativa.
 
 CONSENTIMENTO NO LAGO. Logo apos a PRIMEIRA verificacao (a referencia passa a ser conhecida) o
 consentimento e'
@@ -67,6 +77,10 @@ resposta
 e SO' ENTAO `persistir` grava o estado. Se o envio cai, o estado nao mudou e a reentrega recalcula (a AMH
 repete a mesma pergunta, e a chave de saida e' a mesma).
 
+RETENCAO (DL-0084): a linha do estado e' apagada apos `RETENCAO_ESTADO` (90 dias) sem atividade, exceto com
+revogacao pendente (`expurgar_inativos`, rodado por `acesso_retencao.py`). BASE LEGAL: consentimento explicito
+(`wa-consent-v1`), o proprio fluxo.
+
 LOG: so' `conversation_id` (keyed), tokens fechados de estado/motivo e contadores. Nunca texto, CPF,
 nascimento,
 hash, telefone ou referencia.
@@ -88,6 +102,7 @@ from typing import Final, Literal, Protocol
 import structlog
 
 from maezo.ports.consent_record import ConsentRecordPort
+from maezo.ports.document_resolution import DocumentResolutionPort
 from maezo.ports.subject_verification import SubjectVerificationPort
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
@@ -188,6 +203,11 @@ MAX_FALHAS_JANELA: Final[int] = 6
 ESCALONAMENTO_IDENTIDADE: Final[str] = "identidade_nao_verificada"
 ESCALONAMENTO_REVOGACAO_PENDENTE: Final[str] = "revogacao_consentimento_pendente"
 VALIDADE_HORAS_PADRAO: Final[int] = 24
+#: RETENCAO DO ESTADO (DL-0084, decisao do dono): a linha de `conversa_acesso_beneficiario` e' apagada apos
+#: 90 DIAS sem atividade (`ultima_mensagem_em`). Excecao: `revogacao_pendente` NUNCA e' apagada antes de a
+#: revogacao ser gravada no lago (apagar seria perder o pedido do titular). Quem volta depois disso consente
+#: e se verifica de novo. Varredor: `acesso_retencao.py` (no receptor e por linha de comando).
+RETENCAO_ESTADO: Final[timedelta] = timedelta(days=90)
 ANO_MINIMO_NASCIMENTO: Final[int] = 1900
 
 #: Motivo de escalonamento do bloqueio: a categoria EXISTENTE mais proxima de "uma pessoa precisa assumir" na
@@ -339,6 +359,17 @@ class AcessoStore(Protocol):
     async def gravar(self, estado: EstadoAcesso) -> None: ...
 
 
+class AcessoStoreComExpurgo(AcessoStore, Protocol):
+    """Store que sabe apagar o estado INATIVO (retencao de 90 dias, DL-0084). Idempotente."""
+
+    async def expurgar_inativos(self, limite: datetime) -> int: ...
+
+
+def expurgavel(estado: EstadoAcesso, limite: datetime) -> bool:
+    """A regra de retencao, num lugar so': sem atividade desde ANTES de `limite` e sem revogacao pendente."""
+    return estado.ultima_mensagem_em < limite and not estado.revogacao_pendente
+
+
 class AcessoStoreEmMemoria:
     """Store de processo, para testes e para a composicao sem Postgres. NAO sobrevive a reinicio."""
 
@@ -350,6 +381,12 @@ class AcessoStoreEmMemoria:
 
     async def gravar(self, estado: EstadoAcesso) -> None:
         self._linhas[estado.conversation_id] = estado
+
+    async def expurgar_inativos(self, limite: datetime) -> int:
+        apagar = [cid for cid, estado in self._linhas.items() if expurgavel(estado, limite)]
+        for cid in apagar:
+            del self._linhas[cid]
+        return len(apagar)
 
 
 # ==========================================================================================
@@ -482,6 +519,7 @@ class AcessoBeneficiario:
         prazo_consentimento_s: float = PRAZO_CONSENTIMENTO_S,
         cpfs_pendentes: _CpfsPendentes | None = None,
         aclose_fn: Callable[[], Awaitable[None]] | None = None,
+        documentos: DocumentResolutionPort | None = None,
     ) -> None:
         if validade <= timedelta(0):
             raise ValueError("acesso: validade deve ser positiva")
@@ -492,6 +530,9 @@ class AcessoBeneficiario:
         self._prazo_consentimento = float(prazo_consentimento_s)
         self._store = store
         self._verification = verification
+        #: DL-0084: resolucao pelo documento do telefone FORA DO CADASTRO. `None` = o lado seguro do #700
+        #: (telefone sem candidato vai ao atendente); a composicao de producao sempre a passa.
+        self._documentos = documentos
         self._consents = consents
         self._resolvedor = resolvedor
         self._hash_telefone = hash_telefone
@@ -531,6 +572,19 @@ class AcessoBeneficiario:
 
     async def persistir(self, decisao: DecisaoAcesso) -> None:
         await self._store.gravar(decisao.novo)
+
+    async def expurgar_inativos(self, retencao: timedelta = RETENCAO_ESTADO) -> int:
+        """Apaga o estado sem atividade ha' mais de `retencao` (DL-0084), exceto revogacao pendente.
+
+        Idempotente (rodar de novo nao apaga nada a mais). Store sem expurgo = 0 (nada a fazer)."""
+        if retencao <= timedelta(0):
+            raise ValueError("acesso: retencao deve ser positiva")
+        expurgar = getattr(self._store, "expurgar_inativos", None)
+        if expurgar is None:
+            return 0
+        apagadas = int(await expurgar(_segundos(self._relogio()) - retencao))
+        logger.info("acesso_retencao_expurgo", apagadas=apagadas, dias=retencao.days)
+        return apagadas
 
     # -- entrada ----------------------------------------------------------------------------------
     async def avaliar(self, *, conversation_id: str, texto: str, numero_cru: str) -> DecisaoAcesso:
@@ -585,6 +639,26 @@ class AcessoBeneficiario:
             # O REVOGAR ja' vale (nenhum agente roda) e a gravacao segue pendente: texto fixo, sem prender a
             # pessoa em INDISPONIVEL; no teto, o atendente conclui.
             return self._responder(atual, REVOGACAO_EM_PROCESSAMENTO, emergencia=emergencia)
+        if atual.estado not in (SEM_CONSENTIMENTO, REVOGADO) and atual.consentido_em is None:
+            # O ACEITO vem ANTES de qualquer pedido de CPF, em TODO caminho (DL-0084: a AMH documentou que nao
+            # confere isso). Um estado que pede/usa documento sem consentimento registrado volta ao texto de
+            # consentimento; o prazo de um bloqueio em curso fica (o ACEITO seguinte o respeita).
+            self._pendentes.descartar(conversation_id)
+            novo = replace(
+                atual,
+                estado=SEM_CONSENTIMENTO,
+                texto_versao=VERSAO_TEXTO_CONSENTIMENTO,
+                texto_sha256=SHA256_TEXTO_CONSENTIMENTO,
+                portable_subject_ref=None,
+                consent_ref=None,
+                consentimento_pendente_gravacao=False,
+                verificado_em=None,
+                expira_em=None,
+            )
+            self._log_transicao(
+                conversation_id, atual.estado, SEM_CONSENTIMENTO, "sem_consentimento_registrado"
+            )
+            return self._responder(novo, TEXTO_CONSENTIMENTO, emergencia=emergencia)
 
         if atual.estado == VERIFICADO:
             return DecisaoAcesso(respostas=(), prosseguir=True, novo=atual)
@@ -796,7 +870,7 @@ class AcessoBeneficiario:
     async def _candidatos(self, numero_cru: str) -> tuple[tuple[str, ...], str]:
         """As referencias candidatas do telefone e o desfecho fechado. `indisponivel` = nao se sabe (AMH fora,
         numero fora do padrao, resposta incoerente); `nenhum` = a AMH disse que o telefone nao e' de ninguem
-        (ou de gente demais para ser uma familia)."""
+        (fora do cadastro: caminho do documento, DL-0084); `excessivo` = gente demais para ser uma familia."""
         try:
             phone_hash = self._hash_telefone(numero_cru)
             if not phone_hash:
@@ -813,7 +887,8 @@ class AcessoBeneficiario:
             return tuple(refs), "unico"
         if desfecho == "multiplos" and len(refs) > 1:
             if len(refs) > MAX_CANDIDATOS:
-                return (), "nenhum"
+                # Gente demais para ser "titular e dependentes": nem documento, nem conferencia (atendente).
+                return (), "excessivo"
             return tuple(refs), "multiplos"
         return (), "indisponivel"
 
@@ -849,12 +924,50 @@ class AcessoBeneficiario:
             return "verificado", conferem[0]
         return "nao_verificado", None
 
+    def _caminho_do_documento(self, desfecho: str) -> bool:
+        """DL-0084: o telefone FORA DO CADASTRO se identifica pelo documento (so' com a porta composta)."""
+        return desfecho == "nenhum" and self._documentos is not None
+
+    async def _resolver_documento(
+        self, hash_cpf: str, hash_cpf_nascimento: str
+    ) -> tuple[_ResultadoVerificacao, str | None]:
+        """RESOLVE pelo documento (DL-0084). `unico` -> verificado com a ref devolvida; `nenhum` -> nao
+        verificado (gasta tentativa); qualquer recusa (indice fora, 429, AMH fora, contrato) -> indisponivel,
+        sem gastar tentativa. O log leva so' o motivo fechado da recusa."""
+        assert self._documentos is not None
+        try:
+            async with asyncio.timeout(self._prazo):
+                resultado = await self._documentos.resolve_by_document(
+                    document_hash=hash_cpf,
+                    document_dob_hash=hash_cpf_nascimento,
+                    hash_scheme=self._hash_scheme,
+                    purpose_of_use=self._purpose,
+                    amh_tenant=self._tenant_amh,
+                    timeout_seconds=self._prazo,
+                )
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            return "indisponivel", None
+        if not resultado.succeeded or resultado.value is None:
+            logger.warning(
+                "acesso_documento_indisponivel",
+                motivo=resultado.failure.reason.value if resultado.failure else "sem_valor",
+            )
+            return "indisponivel", None
+        valor = resultado.value
+        if valor.resultado == "unico" and valor.portable_subject_ref:
+            return "verificado", valor.portable_subject_ref
+        if valor.resultado == "nenhum" and valor.portable_subject_ref is None:
+            return "nao_verificado", None
+        return "indisponivel", None
+
     def _telefone_nao_identificado(
         self, atual: EstadoAcesso, agora: datetime, *, emergencia: bool
     ) -> DecisaoAcesso:
-        """Telefone sem candidato: NAO entra pelo caminho do documento (decisao do dono, lado seguro; o DPO
-        pode relaxar). Texto neutro, que nao diz nada sobre CPF nenhum, e atendente humano. As tentativas nao
-        mudam; o prazo do bloqueio e' o mesmo da 3a falha e, vencido, o telefone e' consultado de novo."""
+        """Telefone de gente demais (ou sem candidato e SEM a porta de documento): texto neutro, que nao diz
+        nada sobre CPF nenhum, e atendente humano. As tentativas nao mudam; o prazo do bloqueio e' o mesmo da
+        3a falha e, vencido, o telefone e' consultado de novo."""
         self._pendentes.descartar(atual.conversation_id)
         novo = replace(atual, estado=BLOQUEADO_HUMANO, bloqueado_ate=agora + self._validade)
         self._log_transicao(
@@ -868,18 +981,19 @@ class AcessoBeneficiario:
         refs, desfecho = await self._candidatos(numero_cru)
         if desfecho == "indisponivel":
             return self._responder(atual, INDISPONIVEL, emergencia=emergencia)
-        if desfecho == "nenhum":
+        documento = self._caminho_do_documento(desfecho)
+        if desfecho in ("nenhum", "excessivo") and not documento:
             return self._telefone_nao_identificado(atual, agora, emergencia=emergencia)
         cpf = extrair_cpf(texto)
         if cpf is None:
             return self._falha(atual, agora, CPF_INVALIDO, emergencia=emergencia)
-        if desfecho == "multiplos":
-            # Telefone de mais de uma pessoa: pede tambem o nascimento (o CPF espera em memoria).
+        if desfecho == "multiplos" or documento:
+            # Telefone de mais de uma pessoa, ou FORA DO CADASTRO (DL-0084): pede tambem o nascimento (o CPF
+            # espera em memoria).
             self._pendentes.guardar(atual.conversation_id, cpf)
             novo = replace(atual, estado=AGUARDANDO_NASCIMENTO)
-            self._log_transicao(
-                atual.conversation_id, atual.estado, AGUARDANDO_NASCIMENTO, "telefone_multiplo"
-            )
+            motivo = "telefone_sem_cadastro" if documento else "telefone_multiplo"
+            self._log_transicao(atual.conversation_id, atual.estado, AGUARDANDO_NASCIMENTO, motivo)
             return self._responder(novo, PEDIDO_NASCIMENTO, emergencia=emergencia)
         hash_fator = self._hasher.hash_cpf(cpf)
         if hash_fator is None:
@@ -909,19 +1023,27 @@ class AcessoBeneficiario:
             if leitura.cpf is not None:
                 self._pendentes.guardar(atual.conversation_id, leitura.cpf)
             return self._responder(atual, INDISPONIVEL, emergencia=emergencia)
-        if desfecho == "nenhum":
+        documento = self._caminho_do_documento(desfecho)
+        if desfecho in ("nenhum", "excessivo") and not documento:
             return self._telefone_nao_identificado(atual, agora, emergencia=emergencia)
         hash_fator = self._hasher.hash_cpf_nascimento(cpf, leitura.nascimento.strftime("%Y%m%d"))
-        if hash_fator is None:
+        hash_so_cpf = self._hasher.hash_cpf(cpf) if documento else None
+        if hash_fator is None or (documento and hash_so_cpf is None):
             return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
-        veredito, ref = await self._conferir(refs, hash_fator, FATOR_CPF_NASCIMENTO)
+        if documento and hash_so_cpf is not None:
+            # DL-0084: telefone FORA DO CADASTRO -> o documento RESOLVE (os dois hashes, nunca o CPF).
+            veredito, ref = await self._resolver_documento(hash_so_cpf, hash_fator)
+        else:
+            veredito, ref = await self._conferir(refs, hash_fator, FATOR_CPF_NASCIMENTO)
         if veredito == "indisponivel":
             if leitura.cpf is not None:
                 self._pendentes.guardar(atual.conversation_id, leitura.cpf)
             return self._responder(atual, INDISPONIVEL, emergencia=emergencia)
         self._pendentes.descartar(atual.conversation_id)
         if veredito == "verificado" and ref is not None:
-            return await self._sucesso(atual, agora, ref)
+            return await self._sucesso(
+                atual, agora, ref, motivo="verificado_por_documento" if documento else "verificado"
+            )
         return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
 
     def _falha(self, atual: EstadoAcesso, agora: datetime, texto: str, *, emergencia: bool) -> DecisaoAcesso:
@@ -965,7 +1087,9 @@ class AcessoBeneficiario:
         self._log_transicao(atual.conversation_id, atual.estado, proximo, "tentativa_falha")
         return self._responder(novo, texto, emergencia=emergencia)
 
-    async def _sucesso(self, atual: EstadoAcesso, agora: datetime, ref: str) -> DecisaoAcesso:
+    async def _sucesso(
+        self, atual: EstadoAcesso, agora: datetime, ref: str, *, motivo: str = "verificado"
+    ) -> DecisaoAcesso:
         if atual.portable_subject_ref is not None and atual.portable_subject_ref != ref:
             # Telefone de mais de uma pessoa e quem se verificou agora NAO e' quem se verificou antes. O
             # ACEITO guardado e' da pessoa ANTERIOR: nada de consentimento em nome desta (revisao do #700,
@@ -1018,7 +1142,7 @@ class AcessoBeneficiario:
                 novo = replace(
                     novo, consent_ref=consent_ref, consentimento_pendente_gravacao=False, regravacoes_falhas=0
                 )
-        self._log_transicao(atual.conversation_id, atual.estado, VERIFICADO, "verificado")
+        self._log_transicao(atual.conversation_id, atual.estado, VERIFICADO, motivo)
         return DecisaoAcesso(
             respostas=(RESPOSTA_VERIFICADO,), prosseguir=False, novo=novo, nova_verificacao=True
         )
@@ -1061,7 +1185,9 @@ __all__ = [
     "VERIFICADO",
     "VERSAO_TEXTO_CONSENTIMENTO",
     "AcessoBeneficiario",
+    "RETENCAO_ESTADO",
     "AcessoStore",
+    "AcessoStoreComExpurgo",
     "AcessoStoreEmMemoria",
     "CandidatosDoTelefone",
     "DecisaoAcesso",
@@ -1071,6 +1197,7 @@ __all__ = [
     "cpf_valido",
     "eh_aceito",
     "eh_revogar",
+    "expurgavel",
     "extrair_cpf",
     "ler_nascimento",
     "textos_fixos",

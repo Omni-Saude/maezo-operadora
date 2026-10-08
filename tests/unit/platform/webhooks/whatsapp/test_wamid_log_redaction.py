@@ -481,6 +481,9 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
         "acesso.py",
         "acesso_cadastro.py",
         "acesso_ponte.py",
+        # `acesso_retencao.py` (DL-0084): revisado ao entrar nesta lista. Nao recebe wamid nem texto; os logs
+        # carregam so' contagens, o prazo em dias e o nome da classe do erro. Varrido abaixo como os demais.
+        "acesso_retencao.py",
         "acesso_store.py",
         "app.py",
         "dedup.py",

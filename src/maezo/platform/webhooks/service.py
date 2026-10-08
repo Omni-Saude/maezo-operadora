@@ -557,8 +557,13 @@ def _build_acesso(
         agent_version=_HELENA_AGENT_VERSION,
         incluir_acesso=True,
     )
-    if interop.verification is None or interop.consents is None or interop.verify_hasher is None:
-        raise ValueError("acesso: a composicao AMH nao trouxe verificacao, consentimento e hasher")
+    if (
+        interop.verification is None
+        or interop.consents is None
+        or interop.verify_hasher is None
+        or interop.documents is None
+    ):
+        raise ValueError("acesso: a composicao AMH nao trouxe verificacao, consentimento, documento e hasher")
     acesso = AcessoBeneficiario(
         store=PostgresAcessoStore(dsn=settings.database_url, tenant=settings.tenant_id),
         verification=interop.verification,
@@ -578,6 +583,8 @@ def _build_acesso(
         purpose_of_use=interop.purpose_of_use,
         validade=timedelta(hours=settings.acesso_validade_horas),
         aclose_fn=interop.aclose,
+        # DL-0084: o telefone FORA DO CADASTRO se identifica pelo documento (risco aceito pelo dono).
+        documentos=interop.documents,
     )
     logger.warning(
         "acesso_beneficiario_ligado",
@@ -795,8 +802,19 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(_sig, _request_shutdown, _sig)
 
+    # DL-0084: retencao de 90 dias do estado do acesso (so' com o acesso ligado), no boot e a cada 6 h.
+    retencao_task: asyncio.Task[None] | None = None
+    if state.acesso is not None:
+        from .whatsapp.acesso_retencao import laco_de_retencao
+
+        retencao_task = asyncio.create_task(laco_de_retencao(state.acesso, shutdown), name="acesso-retencao")
+
     logger.info("webhook_receiver_running")
     await shutdown.wait()
+    if retencao_task is not None:
+        retencao_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await retencao_task
 
     server.should_exit = True
     with contextlib.suppress(asyncio.CancelledError, SystemExit):

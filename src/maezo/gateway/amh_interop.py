@@ -18,6 +18,7 @@ nao publicado — sem o bloco `manifest_v1_3` no pin os adaptadores recusam subi
 
   * `POST /interop/identity/v1/subjects/{ref}/verify` (CONFERE)         (`interop/subject.verify`)
   * `POST /interop/consent/v1/consents`                                  (`interop/consent.write`)
+  * `POST /interop/identity/v1/resolve-by-document` (sem cadastro, DL-0084)   (`interop/subject.verify`)
 
 e, SO' com `MAEZO_HELENA_CONSULTAS_AMH` ligada (DL de 07/10/2026, fatos do plano na Helena), mais tres
 leituras do contrato TINA (manifest aditivo v1.2, ainda DRAFT — sem o bloco `manifest_v1_2` no pin o
@@ -89,6 +90,16 @@ from maezo.adapters.amh.consent_record import (
     GovernedConsentRecordRequest,
     GovernedConsentRecordResponse,
 )
+from maezo.adapters.amh.document_resolution import (
+    OP_RESOLVE_DOCUMENT,
+    AmhDocumentResolutionAdapter,
+    GovernedDocumentResolutionExecutor,
+    GovernedDocumentResolutionRequest,
+    GovernedDocumentResolutionResponse,
+)
+from maezo.adapters.amh.document_resolution import (
+    PATH as _RESOLVE_DOCUMENT_PATH,
+)
 from maezo.adapters.amh.subject_resolution import (
     OP_PROFILE,
     OP_RESOLVE,
@@ -134,6 +145,10 @@ HASH_SCHEME_VERIFICACAO: Final[str] = "amh-subject-verify-v1"
 #: Escopos do acesso do beneficiario (DL-0083): verificacao por fator e registro de consentimento.
 SCOPE_VERIFY: Final[str] = "interop/subject.verify"
 SCOPE_CONSENT_WRITE: Final[str] = "interop/consent.write"
+#: Resolucao pelo documento (telefone sem candidato, DL-0084): mesmo servidor de identidade, mesmo esquema
+#: e chave de hash da conferencia; o escopo PEDIDO a AMH e' o mesmo da conferencia (a alinhar com o OpenAPI
+#: publicado: se a AMH criar um escopo proprio, so' esta constante muda).
+SCOPE_RESOLVE_DOCUMENT: Final[str] = SCOPE_VERIFY
 #: Escopos OAuth2 de cada operacao (servidor de recursos `interop` no Cognito da AMH).
 SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_BILLING: "interop/billing.read",
@@ -144,6 +159,7 @@ SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_REQUISICOES: SCOPE_TINA,
     OP_VERIFY: SCOPE_VERIFY,
     OP_RECORD: SCOPE_CONSENT_WRITE,
+    OP_RESOLVE_DOCUMENT: SCOPE_RESOLVE_DOCUMENT,
 }
 
 _MAX_RESPONSE_BYTES: Final[int] = 1_048_576
@@ -1006,6 +1022,70 @@ class AmhSubjectVerificationExecutor(_ExecutorInteropAmh, GovernedSubjectVerific
         return PortResult.ok(GovernedSubjectVerificationResponse(status, raw))
 
 
+class AmhDocumentResolutionExecutor(_ExecutorInteropAmh, GovernedDocumentResolutionExecutor):
+    """`GovernedDocumentResolutionExecutor` real: `POST /interop/identity/v1/resolve-by-document` (DL-0084).
+
+    Rota FIXA (nenhum sujeito na URL); os dois hashes vao no CORPO, junto do tenant, que tem de ser o da
+    composicao. So' para o telefone SEM candidato: o acesso nunca chama isto para um telefone conhecido."""
+
+    registered_operations = frozenset({OP_RESOLVE_DOCUMENT})
+
+    def __init__(self, *, amh_tenant: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if type(amh_tenant) is not str or not _TOKEN.fullmatch(amh_tenant):
+            raise AmhInteropCompositionError()
+        self._amh_tenant = amh_tenant
+
+    def _validar(self, request: GovernedDocumentResolutionRequest) -> None:
+        if (
+            type(request) is not GovernedDocumentResolutionRequest
+            or request.operation != OP_RESOLVE_DOCUMENT
+            or request.method != "POST"
+            or request.path != _RESOLVE_DOCUMENT_PATH
+            or type(request.body) is not bytes
+            or len(request.body) > _MAX_REQUEST_BODY_BYTES
+            or not _prazo_valido(request.timeout_seconds)
+        ):
+            raise ValueError
+        corpo = json.loads(request.body)
+        if (
+            type(corpo) is not dict
+            or set(corpo) != {"cpf_hash", "cpfdob_hash", "hash_scheme", "purpose_of_use", "amh_tenant"}
+            or corpo["hash_scheme"] != HASH_SCHEME_VERIFICACAO
+            or corpo["purpose_of_use"] != self._purpose
+            or corpo["amh_tenant"] != self._amh_tenant
+            or type(corpo["cpf_hash"]) is not str
+            or not _SHA256_HEX.fullmatch(corpo["cpf_hash"])
+            or type(corpo["cpfdob_hash"]) is not str
+            or not _SHA256_HEX.fullmatch(corpo["cpfdob_hash"])
+            or corpo["cpf_hash"] == corpo["cpfdob_hash"]
+        ):
+            raise ValueError
+
+    async def execute(
+        self, request: GovernedDocumentResolutionRequest
+    ) -> PortResult[GovernedDocumentResolutionResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="POST",
+            path=request.path,
+            query=(),
+            body=request.body,
+            consent_ref=None,
+            timeout_seconds=request.timeout_seconds,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedDocumentResolutionResponse(status, raw))
+
+
 class AmhConsentRecordExecutor(_ExecutorInteropAmh, GovernedConsentRecordExecutor):
     """`GovernedConsentRecordExecutor` real: `POST .../consents` (escrita idempotente por chave no corpo)."""
 
@@ -1108,6 +1188,8 @@ class AmhInteropComposition:
     verification: AmhSubjectVerificationAdapter | None = None
     consents: AmhConsentRecordAdapter | None = None
     verify_hasher: AmhSubjectVerifyHasher | None = None
+    #: Resolucao pelo documento do telefone SEM candidato (DL-0084), junto com o acesso. Senao `None`.
+    documents: AmhDocumentResolutionAdapter | None = None
 
     async def aclose(self) -> None:
         for executor in self._executors:
@@ -1124,9 +1206,11 @@ __all__ = [
     "HASH_SCHEME_VERIFICACAO",
     "SCOPE_BY_OPERATION",
     "SCOPE_CONSENT_WRITE",
+    "SCOPE_RESOLVE_DOCUMENT",
     "SCOPE_VERIFY",
     "AmhBillingStatusExecutor",
     "AmhConsentRecordExecutor",
+    "AmhDocumentResolutionExecutor",
     "AmhSubjectVerificationExecutor",
     "AmhSubjectVerifyHasher",
     "AmhInteropComposition",
