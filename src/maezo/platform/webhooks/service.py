@@ -466,11 +466,14 @@ def _build_helena_amh(
             amh_tenant=interop.amh_tenant,
             hash_scheme=interop.hash_scheme,
             purpose_of_use=interop.purpose_of_use,
+            # DL-0079: o teto da chamada de resolucao e' o prazo total, nao os 5 s do port.
+            timeout_seconds=settings.helena_identidade_prazo_s,
         ),
         consentimento=BaseLegalExecucaoDeContrato(),
         purpose_of_use=interop.purpose_of_use,
         hash_telefone=interop.phone_hasher,
         aclose_fn=interop.aclose,
+        prazo_total_s=settings.helena_identidade_prazo_s,
     )
     logger.warning(
         "helena_identidade_amh_construida",
@@ -478,6 +481,7 @@ def _build_helena_amh(
         amh_tenant=interop.amh_tenant,
         purpose_of_use=interop.purpose_of_use,
         base_legal="execucao-de-contrato",
+        prazo_s=settings.helena_identidade_prazo_s,
         consultas_plano=consultas is not None,
     )
     return identidade, consultas

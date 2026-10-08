@@ -90,9 +90,11 @@ class _Port:
         self.chamadas_resolucao = 0
         self.chamadas_perfil = 0
         self.bases_legais: list[str] = []
+        self.prazos: list[tuple[str, Any]] = []
 
-    async def resolve_by_phone(self, contact_pseudonym: str, **_: Any) -> PortResult[SubjectResolution]:
+    async def resolve_by_phone(self, contact_pseudonym: str, **kw: Any) -> PortResult[SubjectResolution]:
         self.chamadas_resolucao += 1
+        self.prazos.append(("resolucao", kw.get("timeout_seconds")))
         if self.levanta:
             raise RuntimeError("amh fora")
         if self.espera_s:
@@ -100,9 +102,10 @@ class _Port:
         return self.resolucao
 
     async def get_profile(
-        self, portable_subject_ref: str, *, consent_decision_ref: str, **_: Any
+        self, portable_subject_ref: str, *, consent_decision_ref: str, **kw: Any
     ) -> PortResult[SubjectProfile]:
         self.chamadas_perfil += 1
+        self.prazos.append(("perfil", kw.get("timeout_seconds")))
         self.bases_legais.append(consent_decision_ref)
         return self.perfil
 
@@ -115,10 +118,14 @@ class _Relogio:
         return self.t
 
 
-def _identidade(port: _Port, *, hash_fn: Any = None, relogio: Any = None) -> hi.IdentidadeHelena:
+def _identidade(
+    port: _Port, *, hash_fn: Any = None, relogio: Any = None, prazo: float | None = None
+) -> hi.IdentidadeHelena:
     kwargs: dict[str, Any] = {}
     if relogio is not None:
         kwargs["relogio"] = relogio
+    if prazo is not None:
+        kwargs["prazo_total_s"] = prazo
     return hi.IdentidadeHelena(
         port=port,  # type: ignore[arg-type]
         resolvedor=ResolvedorDeSujeitoAmh(
@@ -126,6 +133,7 @@ def _identidade(port: _Port, *, hash_fn: Any = None, relogio: Any = None) -> hi.
             amh_tenant="austa_operadora",
             hash_scheme="amh-phone-lookup-v1",
             purpose_of_use="sharing_amh_internal",
+            timeout_seconds=prazo if prazo is not None else hi.PRAZO_TOTAL_S,
         ),
         consentimento=BaseLegalExecucaoDeContrato(),
         purpose_of_use="sharing_amh_internal",
@@ -238,9 +246,8 @@ async def test_excecao_nunca_sobe_e_vira_none() -> None:
     assert await _resolver(_identidade(_Port(), hash_fn=_quebra)) is None
 
 
-async def test_estouro_de_prazo_vira_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(hi, "PRAZO_TOTAL_S", 0.05)
-    assert await _resolver(_identidade(_Port(espera_s=1.0))) is None
+async def test_estouro_de_prazo_vira_none() -> None:
+    assert await _resolver(_identidade(_Port(espera_s=1.0), prazo=0.05)) is None
 
 
 # --- cache por conversa ---------------------------------------------------------------------------
@@ -259,15 +266,27 @@ async def test_cache_positivo_evita_nova_chamada_e_expira() -> None:
     assert port.chamadas_resolucao == 3
 
 
-async def test_cache_negativo_e_curto() -> None:
+async def test_falha_transitoria_so_segura_o_recuo_curto() -> None:
+    """DL-0079: indisponibilidade da AMH nao vira resposta da conversa; so' segura uma rajada."""
     port, relogio = _Port(resolucao=PortResult.refused(Reason.UPSTREAM_UNAVAILABLE)), _Relogio()
     ident = _identidade(port, relogio=relogio)
     assert await _resolver(ident) is None
-    assert await _resolver(ident) is None
+    assert await _resolver(ident) is None  # dentro do recuo: nao martela a AMH
     assert port.chamadas_resolucao == 1
-    relogio.t += hi.TTL_NEGATIVO_S + 1
+    relogio.t += hi.TTL_TRANSITORIO_S + 0.1  # muito antes do TTL negativo
     port.resolucao = PortResult.ok(_resolucao(_REF))
     assert await _resolver(ident) is not None
+    assert port.chamadas_resolucao == 2
+
+
+def test_politica_de_ttl() -> None:
+    assert hi.TTL_TRANSITORIO_S < hi.TTL_NEGATIVO_S < hi.TTL_POSITIVO_S
+    assert hi.PRAZO_TOTAL_S == 15.0
+    assert {
+        "sujeito_nao_encontrado",
+        "sujeito_ambiguo",
+        "perfil_fora_do_vocabulario",
+    } == hi.MOTIVOS_DEFINITIVOS
 
 
 async def test_cache_e_limitado(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -489,15 +508,135 @@ async def test_sem_base_legal_e_indeterminado() -> None:
     assert (r.identidade, r.desfecho) == (None, IDENTIDADE_INDETERMINADA)
 
 
-async def test_hash_indisponivel_e_prazo_estourado_sao_indeterminados(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_hash_indisponivel_e_prazo_estourado_sao_indeterminados() -> None:
     assert (await _desfecho(_identidade(_Port(), hash_fn=lambda numero: None))).desfecho == (
         IDENTIDADE_INDETERMINADA
     )
-    monkeypatch.setattr(hi, "PRAZO_TOTAL_S", 0.05)
     port = _Port(resolucao=PortResult.ok(_resolucao()), espera_s=1.0)
-    assert (await _desfecho(_identidade(port))).desfecho == IDENTIDADE_INDETERMINADA
+    assert (await _desfecho(_identidade(port, prazo=0.05))).desfecho == IDENTIDADE_INDETERMINADA
+
+
+# --- prazo configuravel e cache so' do definitivo (DL-0079) ----------------------------------------
+
+
+async def test_prazo_estourado_nao_fica_em_cache_e_a_proxima_mensagem_tenta_de_novo() -> None:
+    """O caso medido em dev: a AMH achou a pessoa, o prazo estourou, e a mensagem seguinte herdava o
+    `indeterminado` por 60 s. Agora a seguinte (depois do recuo curto) resolve."""
+    port, relogio = _Port(espera_s=1.0), _Relogio()
+    ident = _identidade(port, relogio=relogio, prazo=0.05)
+    with structlog.testing.capture_logs() as logs:
+        assert (await _desfecho(ident)).desfecho == IDENTIDADE_INDETERMINADA
+    evento = next(e for e in logs if e["event"] == "helena_identidade_resolvida")
+    assert (evento["motivo"], evento["definitivo"]) == ("prazo_estourado", False)
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_INDETERMINADA  # recuo: sem nova chamada
+    assert port.chamadas_resolucao == 1
+    relogio.t += hi.TTL_TRANSITORIO_S + 0.1
+    port.espera_s = 0.0
+    r = await _desfecho(ident)
+    assert r.desfecho == IDENTIDADE_RECONHECIDA and r.identidade is not None
+    assert port.chamadas_resolucao == 2
+
+
+@pytest.mark.parametrize(
+    "port",
+    [
+        _Port(perfil=PortResult.refused(Reason.UPSTREAM_UNAVAILABLE)),  # perfil_indisponivel
+        _Port(perfil=PortResult.refused(Reason.TIMEOUT)),
+        _Port(perfil=PortResult.ok(_perfil(ref="subj-ref-outro"))),  # perfil_de_outro_sujeito
+        _Port(resolucao=PortResult.refused(Reason.NOT_AUTHENTICATED)),  # recusa do port
+        _Port(levanta=True),  # excecao: nem o recuo
+    ],
+)
+async def test_transitorios_nao_viram_resposta_da_conversa(port: _Port) -> None:
+    relogio = _Relogio()
+    ident = _identidade(port, relogio=relogio)
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_INDETERMINADA
+    antes = port.chamadas_resolucao
+    relogio.t += hi.TTL_TRANSITORIO_S + 0.1
+    await _desfecho(ident)
+    assert port.chamadas_resolucao == antes + 1
+
+
+async def test_sem_base_legal_e_transitorio() -> None:
+    port, relogio = _Port(), _Relogio()
+    ident = _identidade(port, relogio=relogio)
+    ident.consentimento = _SemBaseLegal()
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_INDETERMINADA
+    relogio.t += hi.TTL_TRANSITORIO_S + 0.1
+    ident.consentimento = BaseLegalExecucaoDeContrato()
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_RECONHECIDA
+
+
+@pytest.mark.parametrize(
+    ("port", "desfecho"),
+    [
+        (_Port(resolucao=PortResult.ok(_resolucao())), IDENTIDADE_NAO_ENCONTRADA),
+        (_Port(resolucao=PortResult.ok(_resolucao("a", "b"))), IDENTIDADE_INDETERMINADA),  # compartilhado
+        (
+            _Port(perfil=PortResult.ok(_perfil(titular_ref="x" * 300))),
+            IDENTIDADE_INDETERMINADA,
+        ),  # fora do vocab.
+    ],
+)
+async def test_definitivos_da_amh_ficam_em_cache_pelo_ttl_negativo(port: _Port, desfecho: str) -> None:
+    relogio = _Relogio()
+    ident = _identidade(port, relogio=relogio)
+    assert (await _desfecho(ident)).desfecho == desfecho
+    relogio.t += hi.TTL_TRANSITORIO_S + 1  # passou o recuo, nao o TTL negativo
+    assert (await _desfecho(ident)).desfecho == desfecho
+    assert port.chamadas_resolucao == 1
+    relogio.t += hi.TTL_NEGATIVO_S
+    await _desfecho(ident)
+    assert port.chamadas_resolucao == 2
+
+
+async def test_reconhecido_fica_em_cache_pelo_ttl_positivo() -> None:
+    port, relogio = _Port(), _Relogio()
+    ident = _identidade(port, relogio=relogio)
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_RECONHECIDA
+    relogio.t += hi.TTL_NEGATIVO_S + 1
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_RECONHECIDA
+    assert port.chamadas_resolucao == 1
+
+
+async def test_prazo_configurado_e_o_teto_de_cada_chamada_e_da_soma() -> None:
+    port = _Port(espera_s=0.05)
+    ident = _identidade(port, prazo=2.5)
+    assert (await _desfecho(ident)).desfecho == IDENTIDADE_RECONHECIDA
+    assert port.prazos == [("resolucao", 2.5), ("perfil", 2.5)]
+
+
+async def test_prazo_configurado_maior_deixa_passar_o_que_o_menor_derrubaria() -> None:
+    # Mesma AMH lenta (0.2 s), dois prazos: o curto estoura, o longo reconhece.
+    assert (await _desfecho(_identidade(_Port(espera_s=0.2), prazo=0.1))).desfecho == (
+        IDENTIDADE_INDETERMINADA
+    )
+    assert (await _desfecho(_identidade(_Port(espera_s=0.2), prazo=1.0))).desfecho == (IDENTIDADE_RECONHECIDA)
+
+
+def test_prazo_padrao_e_15s() -> None:
+    assert _identidade(_Port()).prazo_total_s == 15.0
+    ident = hi.IdentidadeHelena(
+        port=_Port(),  # type: ignore[arg-type]
+        resolvedor=_ResolvedorSemDesfecho(),
+        consentimento=BaseLegalExecucaoDeContrato(),
+        purpose_of_use="sharing_amh_internal",
+        hash_telefone=lambda numero: _HASH,
+    )
+    assert ident.prazo_total_s == hi.PRAZO_TOTAL_S == 15.0
+
+
+@pytest.mark.parametrize("prazo", [0, -1.0, 30.5, float("nan"), float("inf"), True, "15"])
+def test_prazo_invalido_recusa_na_construcao(prazo: Any) -> None:
+    with pytest.raises(ValueError):
+        hi.IdentidadeHelena(
+            port=_Port(),  # type: ignore[arg-type]
+            resolvedor=_ResolvedorSemDesfecho(),
+            consentimento=BaseLegalExecucaoDeContrato(),
+            purpose_of_use="sharing_amh_internal",
+            hash_telefone=lambda numero: _HASH,
+            prazo_total_s=prazo,
+        )
 
 
 async def test_resolvedor_sem_desfecho_nunca_diz_nao_encontrado() -> None:

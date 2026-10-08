@@ -9,7 +9,7 @@ import pytest
 
 from maezo.agents.lucas.identidade_amh import FonteDeConsentimentoAmh, ResolvedorDeSujeitoAmh
 from maezo.ports.consent import ConsentDecision
-from maezo.ports.errors import PortFailureReason, PortResult
+from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS, PortFailureReason, PortResult
 from maezo.ports.subject_resolution import SubjectCandidate, SubjectResolution
 
 REF = "amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"
@@ -48,7 +48,38 @@ async def test_um_unico_candidato_resolve() -> None:
     assert await _resolvedor(port).portable_ref("pseudo", phone_hash="hk1_abc") == REF
     hash_enviado, kw = port.chamadas[0]
     assert hash_enviado == "hk1_abc"
-    assert kw == {"amh_tenant": "omni", "hash_scheme": "maezo-hk1", "purpose_of_use": "purpose1"}
+    assert kw == {
+        "amh_tenant": "omni",
+        "hash_scheme": "maezo-hk1",
+        "purpose_of_use": "purpose1",
+        "timeout_seconds": DEFAULT_PORT_TIMEOUT_SECONDS,  # o Lucas fica no padrao do port
+    }
+
+
+async def test_prazo_da_chamada_configuravel_chega_ao_port() -> None:
+    """DL-0079: a Helena passa o prazo total da identidade como teto da chamada de resolucao."""
+    port = _Port(PortResult.ok(_resolucao(REF)))
+    resolvedor = ResolvedorDeSujeitoAmh(
+        port=port,
+        amh_tenant="omni",
+        hash_scheme="maezo-hk1",
+        purpose_of_use="purpose1",
+        timeout_seconds=15.0,
+    )
+    assert await resolvedor.portable_ref("pseudo", phone_hash="hk1_abc") == REF
+    assert port.chamadas[0][1]["timeout_seconds"] == 15.0
+
+
+@pytest.mark.parametrize("prazo", [0, -1.0, float("nan"), float("inf"), True, "5"])
+def test_prazo_da_chamada_invalido_recusa_na_construcao(prazo: Any) -> None:
+    with pytest.raises(ValueError):
+        ResolvedorDeSujeitoAmh(
+            port=_Port(PortResult.ok(_resolucao(REF))),
+            amh_tenant="omni",
+            hash_scheme="maezo-hk1",
+            purpose_of_use="purpose1",
+            timeout_seconds=prazo,
+        )
 
 
 async def test_titular_e_dependente_no_mesmo_aparelho_nao_resolve_ninguem() -> None:
