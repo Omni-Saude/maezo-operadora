@@ -24,6 +24,7 @@ _REPO = Path(__file__).resolve().parents[3]
 _DMN = _REPO / "spec/processes/dmn/suppression_routing.dmn"
 _BPMN = _REPO / "spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn"
 
+
 def _local(tag: str) -> str:
     return tag.rpartition("}")[2]
 

@@ -738,11 +738,15 @@ class PostgresSuppressionStore:
                     },
                 )
                 row = (
-                    await db.execute(
-                        _SELECT_SQL,
-                        {"tenant": command.tenant, "suppression_ref": command.suppression_ref},
+                    (
+                        await db.execute(
+                            _SELECT_SQL,
+                            {"tenant": command.tenant, "suppression_ref": command.suppression_ref},
+                        )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
             return _record_from_row(row)
         except SuppressionError:
             raise
@@ -754,10 +758,10 @@ class PostgresSuppressionStore:
         try:
             async with self._engine.connect() as db:
                 row = (
-                    await db.execute(
-                        _SELECT_SQL, {"tenant": tenant, "suppression_ref": suppression_ref}
-                    )
-                ).mappings().one_or_none()
+                    (await db.execute(_SELECT_SQL, {"tenant": tenant, "suppression_ref": suppression_ref}))
+                    .mappings()
+                    .one_or_none()
+                )
             return None if row is None else _record_from_row(row)
         except SuppressionError:
             raise
@@ -767,9 +771,7 @@ class PostgresSuppressionStore:
     async def active_suppressions(self, tenant: str) -> frozenset[SuppressionKey]:
         try:
             async with self._engine.connect() as db:
-                rows = (
-                    await db.execute(_ACTIVE_SQL, {"tenant": tenant})
-                ).mappings().all()
+                rows = (await db.execute(_ACTIVE_SQL, {"tenant": tenant})).mappings().all()
             return frozenset(
                 SuppressionKey(subject_ref=row["subject_ref"], contact_channel=row["contact_channel"])
                 for row in rows
@@ -796,10 +798,10 @@ class PostgresSuppressionStore:
                 )
                 require(result.rowcount == 1, SuppressionRefusalReason.CONTRACT_MISMATCH)
                 row = (
-                    await db.execute(
-                        _SELECT_SQL, {"tenant": tenant, "suppression_ref": suppression_ref}
-                    )
-                ).mappings().one()
+                    (await db.execute(_SELECT_SQL, {"tenant": tenant, "suppression_ref": suppression_ref}))
+                    .mappings()
+                    .one()
+                )
             return _record_from_row(row)
         except SuppressionError:
             raise

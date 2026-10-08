@@ -127,8 +127,14 @@ def make_verify_subject_handler(store: Any | None) -> TaskHandler:
         tenant = variables.get("tenant_id")
         subject_ref = variables.get("subject_ref")
         contact_channel = variables.get("contact_channel")
-        if not (isinstance(tenant, str) and tenant and isinstance(subject_ref, str) and subject_ref
-                and isinstance(contact_channel, str) and contact_channel):
+        if not (
+            isinstance(tenant, str)
+            and tenant
+            and isinstance(subject_ref, str)
+            and subject_ref
+            and isinstance(contact_channel, str)
+            and contact_channel
+        ):
             # Identificador ausente/vazio = sujeito irresolvível — nunca um "zero supressões".
             raise WorkerBpmnError(
                 ERR_SUPP_SUBJECT_UNRESOLVED,
@@ -148,8 +154,7 @@ def make_verify_subject_handler(store: Any | None) -> TaskHandler:
         if record is None:
             raise WorkerBpmnError(
                 ERR_SUPP_SUBJECT_UNRESOLVED,
-                "verify_subject: registro de supressao inexistente para o par opaco — UNKNOWN, "
-                "nunca zero.",
+                "verify_subject: registro de supressao inexistente para o par opaco — UNKNOWN, nunca zero.",
             )
         # Relógio visível (§4c): as datas computadas NO NASCIMENTO alimentam os timers
         # timeDate de escalonamento do processo (idioma CONTAS GAP-4 — âncora = o fato

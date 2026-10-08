@@ -1050,9 +1050,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="event_topic",
         name_delta=0,
         occurrence_delta=5,
-        reason=(
-            "mesmos 5 publishes: um event_topic cada (agents.events.vendor.suppression.*)."
-        ),
+        reason=("mesmos 5 publishes: um event_topic cada (agents.events.vendor.suppression.*)."),
     ),
     CorpusDelta(
         date="2026-10-07",
@@ -1071,9 +1069,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="event_desfecho",
         name_delta=0,
         occurrence_delta=2,
-        reason=(
-            "os 2 publishes de recusa (completed: sujeito_irresolvivel / roteamento_indisponivel)."
-        ),
+        reason=("os 2 publishes de recusa (completed: sujeito_irresolvivel / roteamento_indisponivel)."),
     ),
     CorpusDelta(
         date="2026-10-07",

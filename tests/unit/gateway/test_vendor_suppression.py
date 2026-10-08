@@ -167,9 +167,7 @@ def test_celula_sub_k_suprime_a_linha_e_a_celula_cheia_passa() -> None:
     telemetry = SuppressionEgressTelemetry()
     below = [_line(f"b{i}", ("celula-pequena",)) for i in range(99)]  # 99 < k=100
     at_k = [_line(f"o{i}", (f"celula-cheia-{i % 4}",)) for i in range(4 * K_ANON_FLOOR)]  # 4x k
-    export = prepare_egress_export(
-        [*below, *at_k], audience_size=4 * K_ANON_FLOOR, telemetry=telemetry
-    )
+    export = prepare_egress_export([*below, *at_k], audience_size=4 * K_ANON_FLOOR, telemetry=telemetry)
     assert export.suppressed_lines == 99
     assert all(line.key != _key("b0") for line in export.exported)
     assert len(export.exported) == 4 * K_ANON_FLOOR
@@ -310,9 +308,7 @@ def test_c2_declared_without_tuple_refuses_the_whole_egress_fail_closed() -> Non
         fields=(DeclaredField("matricula", FieldClass.C2_QUASE_IDENTIFICADOR),),
     )
     with pytest.raises(SuppressionError) as exc:
-        prepare_egress_export(
-            (line,), audience_size=500, telemetry=telemetry
-        )
+        prepare_egress_export((line,), audience_size=500, telemetry=telemetry)
     assert exc.value.reason is SuppressionRefusalReason.CONTRACT_MISMATCH
     assert telemetry._attempts[SuppressionEgressAttempt.EGRESS_REFUSED_TUPLE_CLASS_WITHOUT_TUPLE] == 1
     assert telemetry.phi_egress_violations == 0  # contenção ≠ violação (§4e critério 4)
