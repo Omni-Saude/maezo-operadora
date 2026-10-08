@@ -1050,9 +1050,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="event_topic",
         name_delta=0,
         occurrence_delta=5,
-        reason=(
-            "mesmos 5 publishes: um event_topic cada (agents.events.vendor.suppression.*)."
-        ),
+        reason=("mesmos 5 publishes: um event_topic cada (agents.events.vendor.suppression.*)."),
     ),
     CorpusDelta(
         date="2026-10-07",
@@ -1071,9 +1069,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         name="event_desfecho",
         name_delta=0,
         occurrence_delta=2,
-        reason=(
-            "os 2 publishes de recusa (completed: sujeito_irresolvivel / roteamento_indisponivel)."
-        ),
+        reason=("os 2 publishes de recusa (completed: sujeito_irresolvivel / roteamento_indisponivel)."),
     ),
     CorpusDelta(
         date="2026-10-07",
@@ -1086,6 +1082,118 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "presente no corpus; +1 ocorrencia no fetch scope do topico vendor.suppression.route."
         ),
     ),
+    # ---- VW4-WIRING (PR gp11-wiring; insumos aceitos sha ab262f7b) -----------------
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="classe_campo",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "input da DMN suppression_routing (taxonomia C1-C6 §4b, wiring GP11) — token "
+            "declarado da classe do campo em escopo; lido nas rows r_desconhecido/r_c1../r_c5."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="celula_tamanho",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "input da DMN suppression_routing (cardinalidade AGREGADA da celula da tupla "
+            "C2/C6; nunca conteudo) — comparado contra k_piso nas rows r_c2_*/r_c6_*."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="k_piso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "INPUT/PARAM da DMN suppression_routing (a cifra K_ANON_FLOOR=100 vive na "
+            "constante aceita do codigo, nunca na tabela); o worker injeta a cada avaliacao."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="t_lembrete_iso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "relogio do registro §4c (50% do SLA — 7o dia util, piso): variavel devolvida "
+            "por vendor.suppression.verify_subject a partir do store 0021; lida pelo timer "
+            "timeDate BT_Lembrete50 (idioma CONTAS GAP-4 — ancora e o fato gerador)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="t_escalonado_iso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "relogio do registro §4c (80% — 12o dia util, exato): lida pelo timer timeDate "
+            "BT_Escala80 (escalonamento ao encarregado, grupo dpo)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="t_deadline_iso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "relogio do registro §4c (100% = t_deadline — 15o dia util): lida pelo timer "
+            "timeDate INTERRUPTING BT_Timeout100 (ANALISE_HUMANA) e pelos 3 payloads sla_*."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "+3 publishes do relogio (sla_lembrete / sla_escalonado / sla_estourado) na "
+            "familia agents.events.vendor.suppression.*."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "+3 publishes do relogio; payload minimizado (tenant_id, suppression_ref, "
+            "t_deadline_iso — o prazo e parte da triade art. 10 §1)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="event_desfecho",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "+1: o publish do timeout leva desfecho=analise_humana (catch-all §4c — registro "
+            "visivel e atrasado, nunca silencioso)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-07",
+        pr="#691",
+        name="grupo_decisao",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "+1: UT_RotearEncarregado virou VALUE-DRIVEN ${grupo_decisao} (reparo F da base, "
+            "mantido no rebase do wiring — o conjunto fechado vem da DMN)."
+        ),
+    ),
 )
 
 
@@ -1096,7 +1204,7 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
-        assert expected_clean == 329  # VW4/GP11 (#691): +3 nomes CLEAN
+        assert expected_clean == 335  # VW4/GP11: +3 (#691) + 6 nomes CLEAN do wiring
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -1125,8 +1233,8 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 345  # VW4/GP11 (#691): +3
-        assert len(live_sweep.refs) == expected_refs == 1674  # VW4/GP11 (#691): +20
+        assert len(live_sweep.names) == expected_names == 351  # GP11: +3 (#691) + 6 (wiring)
+        assert len(live_sweep.refs) == expected_refs == 1688  # GP11: +20 (#691) + 14 (wiring)
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1251,9 +1359,9 @@ class TestBuckets:
         rendered = render_buckets(live_sweep)
         assert f"## {LISTED} (6)" in rendered
         assert f"## {SHAPE_SUSPECT} (10)" in rendered
-        assert (
-            f"## {CLEAN} (329)" in rendered
-        )  # see CORPUS_DELTA_LOG — #339's two names, #345's `lastro_decisor_id`, #407's seven, #691's three
+        # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
+        # #691's three + as seis do wiring GP11
+        assert f"## {CLEAN} (335)" in rendered
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

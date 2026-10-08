@@ -61,13 +61,13 @@ def test_a_cadeia_nao_bifurca() -> None:
 
 
 def test_0020_e_revisada_so_pela_proxima_quando_ela_existir() -> None:
-    """While 0020 is head nothing may claim it; a later migration must be its ONLY child."""
+    """0020 has exactly ONE child — the GP11 wiring store (0021, VW4); nothing else claims it."""
     revising = [
         path.name
         for path in sorted(_VERSIONS_DIR.glob("0*.py"))
         if re.search(r'^down_revision: str \| None = "0020"$', path.read_text(encoding="utf-8"), re.MULTILINE)
     ]
-    assert revising == []
+    assert revising == ["0021_vendor_suppression_records.py"]
 
 
 def test_a_business_key_nomeada_e_a_primary_key() -> None:

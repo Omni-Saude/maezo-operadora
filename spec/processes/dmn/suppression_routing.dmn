@@ -6,28 +6,44 @@
              name="Roteamento de supressao/opt-out vendor (GP11)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    suppression_routing v0.1.0 — status: DRAFT (revisao DPO obrigatoria — docs/review-queue.md).
-    Consumida por SP-OP-SUPP-001 (`vendor.suppression.route`) EXCLUSIVAMENTE engine-side via
-    CibSevenDmnTransport — evaluator local PROIBIDO (dmn_transport.py:1-8); inputs/outputs por
-    NOME (forma congelada da admissao GP-ADMISSION).
+    suppression_routing v1.0.0 — insumos DPO ACEITOS PELO DONO (2026-10-07 — VW0-DECISION-REGISTER
+    §"INCORPORACAO VW4-ANSWERS", sha ab262f7b…; conteudo VW4-RATIFICATION-ANSWERS-V1.md §GP11:
+    taxonomia C1–C6 §4b, piso k-anon §4a, SLA §4c). Consumida por SP-OP-SUPP-001
+    (`vendor.suppression.route`) EXCLUSIVAMENTE engine-side via CibSevenDmnTransport (seam `dmn=`,
+    ADR-0028) — evaluator local PROIBIDO (dmn_transport.py:1-8); inputs/outputs por NOME (forma
+    congelada da admissao GP-ADMISSION).
 
-    FAIL-CLOSED DE ADMISSAO (registro do dono, 2026-10-07 — VW0-DECISION-REGISTER §"Decisoes de
-    Fechamento" item 1): a taxonomia de classes de campo (VW0-D11), o piso k-anon do egresso
-    (VW0-D11) e o SLA de honra (VW0-D20) sao insumos DPO PENDENTES. Esta tabela embarca com
-    UMA UNICA row — o catch-all → rota HUMANA (`RECLAMACAO_ENCARREGADO`, grupo `dpo`) — e so
-    ganha particoes (vendedor/lead × canal) quando a taxonomia for ratificada. NENHUM numero:
-    sem threshold, sem prazo, sem piso (tudo RATIFY-LATER; "sem prazo que corre em silencio").
-    Saidas NUNCA sao os verbos proibidos (LIBERAR/AUTORIZAR/PAGAR/CALCULAR) — roteamento de
-    estado bloqueante, molde pagto_alcada (classificar-rotear-nunca-decidir), conteudo anti-
-    candidato (a decisao de honrar e do plano de lista + encarregado, nunca da tabela).
+    FAIL-CLOSED PRESERVADO: hitPolicy FIRST (molde pagto_alcada) — a ordem das rows e semantica;
+    a catch-all segue sendo a ULTIMA row e TODO desfecho nao-honrado vai ao ENCARGADO
+    (`RECLAMACAO_ENCARREGADO`, grupo `dpo` — art. 41). `REGISTRO_HONRADO` so existe EXPLICITO
+    nas rows nomeadas abaixo (GW_Rota: ausente/branco/desconhecido => humano — nunca honra por
+    omissao); a honra OPERACIONAL permanece no plano de lista (consulta do store 0021 +
+    egresso k-anon-only no chokepoint, `gateway/vendor_suppression.py`), nunca nesta tabela.
 
-    hitPolicy FIRST (molde pagto_alcada): a ordem das rows e semantica; a catch-all e a ULTIMA.
-    Inputs simbolicos (sem cifra): `canal` (string fechada do contrato OP20) e
-    `categoria_sujeito` (vendedor | lead | desconhecido — categoria declarada no pedido, NUNCA
-    inferida de dado clinico/comportamental; G-PHI: dado de beneficiario/paciente nunca e
-    input de targeting em nenhuma granularidade).
+    PARTICOES DA TAXONOMIA (§4b, mecanicas — nenhuma depende de julgamento em runtime):
+      r_desconhecido  categoria declarada `desconhecido` => humano (nunca inferida de dado
+                      clinico/comportamental; G-PHI).
+      r_c1/r_c3/r_c4  classe PROIBIDA no egresso/targeting na v1 => humano (o chokepoint da
+                      camada 3 RECUSA o egresso e conta; a rota humana decide o registro —
+                      art. 11 §5o + G-PHI absoluto; C4 trata-se como C3).
+      r_c2_subk/r_c6_subk  tupla C2/C6 com celula &lt; k_piso => humano (linha suprimida no
+                      egresso; k-anon sobre a TUPLA, nunca campo isolado — efeito de
+                      composicao, §4a).
+      r_c2_ok/r_c6_ok tupla C2/C6 com celula >= k_piso => REGISTRO_HONRADO (prevention art. 7o
+                      IX + 18 §2o efetiva na construcao de lista).
+      r_c5            classe livre com base declarada, presence-only (G-CADE: nenhuma RATE
+                      atravessa payload) => REGISTRO_HONRADO.
+      r_catchall      ultima row, tudo `-` => humano (fail-closed operante — precedente D-07).
+
+    K = INPUT/PARAM (`k_piso`): a cifra ratificada (K_ANON_FLOOR=100, §4a/§6.1 — 2x o piso ADH)
+    vive na constante ACEITA do codigo (`gateway/vendor_suppression.py`), nunca nesta tabela —
+    o worker a injeta a cada avaliacao. Saidas NUNCA sao os verbos proibidos
+    (LIBERAR/AUTORIZAR/PAGAR/CALCULAR) — roteamento de estado, molde pagto_alcada
+    (classificar-rotear-nunca-decidir). `canal` permanece coluna declarada SEM particao nesta
+    versao (particionamento por canal exige contrato proprio — disclosure na fence de colunas
+    mortas), `categoria_sujeito` e `classe_campo` sao tokens FECHADOS.
   </description>
-  <decision id="suppression_routing" name="Roteamento de supressao vendor">
+  <decision id="suppression_routing" name="Roteamento de supressao vendor" camunda:historyTimeToLive="P180D">
     <decisionTable id="dt_suppression_routing" hitPolicy="FIRST">
       <input id="in_canal" label="Canal de contato (contact_channel)">
         <inputExpression id="ie_canal" typeRef="string"><text>canal</text></inputExpression>
@@ -35,18 +51,145 @@
       <input id="in_categoria" label="Categoria do sujeito (categoria_sujeito, declarada no pedido)">
         <inputExpression id="ie_categoria" typeRef="string"><text>categoria_sujeito</text></inputExpression>
       </input>
+      <input id="in_classe_campo" label="Classe do campo em escopo (taxonomia §4b, C1–C6)">
+        <inputExpression id="ie_classe_campo" typeRef="string"><text>classe_campo</text></inputExpression>
+      </input>
+      <input id="in_celula_tamanho" label="Tamanho da celula da tupla C2/C6 (cardinal agregado)">
+        <inputExpression id="ie_celula_tamanho" typeRef="integer"><text>celula_tamanho</text></inputExpression>
+      </input>
+      <input id="in_k_piso" label="Piso k-anon ratificado (parametro K_ANON_FLOOR)">
+        <inputExpression id="ie_k_piso" typeRef="integer"><text>k_piso</text></inputExpression>
+      </input>
       <output id="out_rota" label="rota" name="rota" typeRef="string"/>
       <output id="out_grupo" label="grupo_decisao" name="grupo_decisao" typeRef="string"/>
+      <rule id="r_desconhecido">
+        <description>
+          Categoria declarada `desconhecido` => humano, SEMPRE (primeira row: categoria nao
+          declarada nunca auto-honra, qualquer que seja a classe em escopo — fail-closed).
+        </description>
+        <inputEntry id="r_desconhecido_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_desconhecido_i2"><text>"desconhecido"</text></inputEntry>
+        <inputEntry id="r_desconhecido_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_desconhecido_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_desconhecido_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_desconhecido_o1"><text>"RECLAMACAO_ENCARREGADO"</text></outputEntry>
+        <outputEntry id="r_desconhecido_o2"><text>"dpo"</text></outputEntry>
+      </rule>
+      <rule id="r_c1">
+        <description>
+          C1 identificativo direto => humano (PROIBIDO no egresso em qualquer granularidade;
+          permitido APENAS dentro do registro minimizado art. 10 §1o — §4b).
+        </description>
+        <inputEntry id="r_c1_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_c1_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_c1_i3"><text>"C1"</text></inputEntry>
+        <inputEntry id="r_c1_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_c1_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_c1_o1"><text>"RECLAMACAO_ENCARREGADO"</text></outputEntry>
+        <outputEntry id="r_c1_o2"><text>"dpo"</text></outputEntry>
+      </rule>
+      <rule id="r_c3">
+        <description>
+          C3 clinico-protegido => humano (G-PHI ABSOLUTO; art. 11 §5o — selecao de riscos
+          vedada; sem excecao "com consentimento" na v1 — §4b).
+        </description>
+        <inputEntry id="r_c3_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_c3_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_c3_i3"><text>"C3"</text></inputEntry>
+        <inputEntry id="r_c3_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_c3_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_c3_o1"><text>"RECLAMACAO_ENCARREGADO"</text></outputEntry>
+        <outputEntry id="r_c3_o2"><text>"dpo"</text></outputEntry>
+      </rule>
+      <rule id="r_c4">
+        <description>
+          C4 clinico-agregado => humano (PROIBIDO na v1; celula-minima e extensao FUTURA com
+          contrato proprio — presenca trata-se como C3 no chokepoint — §4b).
+        </description>
+        <inputEntry id="r_c4_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_c4_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_c4_i3"><text>"C4"</text></inputEntry>
+        <inputEntry id="r_c4_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_c4_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_c4_o1"><text>"RECLAMACAO_ENCARREGADO"</text></outputEntry>
+        <outputEntry id="r_c4_o2"><text>"dpo"</text></outputEntry>
+      </rule>
+      <rule id="r_c2_subk">
+        <description>
+          C2 quasi-identificador com celula da TUPLA abaixo do piso => humano (linha suprimida
+          no egresso; k-anon OBRIGATORIO sobre a tupla — §4a efeito de composicao).
+        </description>
+        <inputEntry id="r_c2_subk_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_c2_subk_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_c2_subk_i3"><text>"C2"</text></inputEntry>
+        <inputEntry id="r_c2_subk_i4"><text>&lt; k_piso</text></inputEntry>
+        <inputEntry id="r_c2_subk_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_c2_subk_o1"><text>"RECLAMACAO_ENCARREGADO"</text></outputEntry>
+        <outputEntry id="r_c2_subk_o2"><text>"dpo"</text></outputEntry>
+      </rule>
+      <rule id="r_c2_ok">
+        <description>
+          C2 com celula da tupla >= piso => REGISTRO_HONRADO (explicito — prevention efetiva na
+          construcao de lista; a honra operacional segue no plano de lista).
+        </description>
+        <inputEntry id="r_c2_ok_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_c2_ok_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_c2_ok_i3"><text>"C2"</text></inputEntry>
+        <inputEntry id="r_c2_ok_i4"><text>&gt;= k_piso</text></inputEntry>
+        <inputEntry id="r_c2_ok_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_c2_ok_o1"><text>"REGISTRO_HONRADO"</text></outputEntry>
+        <outputEntry id="r_c2_ok_o2"><text>"dpo"</text></outputEntry>
+      </rule>
+      <rule id="r_c6_subk">
+        <description>
+          C6 contratual-administrativo com celula POR CARTEIRA abaixo do piso => humano (o mesmo
+          guard do "livro minimo" do GP6: celula com &lt; k sujeitos nao e publicavel nem
+          mensuravel — §4b/§4a; nunca per-contrato).
+        </description>
+        <inputEntry id="r_c6_subk_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_c6_subk_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_c6_subk_i3"><text>"C6"</text></inputEntry>
+        <inputEntry id="r_c6_subk_i4"><text>&lt; k_piso</text></inputEntry>
+        <inputEntry id="r_c6_subk_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_c6_subk_o1"><text>"RECLAMACAO_ENCARREGADO"</text></outputEntry>
+        <outputEntry id="r_c6_subk_o2"><text>"dpo"</text></outputEntry>
+      </rule>
+      <rule id="r_c6_ok">
+        <description>
+          C6 com celula por carteira >= piso => REGISTRO_HONRADO (explicito — §4b).
+        </description>
+        <inputEntry id="r_c6_ok_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_c6_ok_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_c6_ok_i3"><text>"C6"</text></inputEntry>
+        <inputEntry id="r_c6_ok_i4"><text>&gt;= k_piso</text></inputEntry>
+        <inputEntry id="r_c6_ok_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_c6_ok_o1"><text>"REGISTRO_HONRADO"</text></outputEntry>
+        <outputEntry id="r_c6_ok_o2"><text>"dpo"</text></outputEntry>
+      </rule>
+      <rule id="r_c5">
+        <description>
+          C5 comportamental-comercial => REGISTRO_HONRADO (livre com base declarada; presence-
+          only; nenhuma RATE atravessa payload — G-CADE, VW0-D23 — §4b).
+        </description>
+        <inputEntry id="r_c5_i1"><text>-</text></inputEntry>
+        <inputEntry id="r_c5_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_c5_i3"><text>"C5"</text></inputEntry>
+        <inputEntry id="r_c5_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_c5_i5"><text>-</text></inputEntry>
+        <outputEntry id="r_c5_o1"><text>"REGISTRO_HONRADO"</text></outputEntry>
+        <outputEntry id="r_c5_o2"><text>"dpo"</text></outputEntry>
+      </rule>
       <rule id="r_catchall">
         <description>
-          Catch-all FAIL-SAFE (UNICA row da versao): sem insumos DPO ratificados, TODO pedido de
-          supressao vai ao ENCARGADO como decisao humana (fail-closed operante — precedente D-07).
-          `REGISTRO_HONRADO` so entra como row nova, NOMEADA, quando a taxonomia (VW0-D11) e o
-          SLA (VW0-D20) forem ratificados — e a honra operacional permanece no plano de lista
-          (egresso k-anon-only no chokepoint), nunca nesta tabela.
+          Catch-all FAIL-SAFE (ULTIMA row): classe ausente/desconhecida, celula ausente
+          (comparacao FEEL contra null nao casa) ou qualquer forma nao prevista => ENCARGADO
+          (fail-closed operante — precedente D-07; UNKNOWN nunca vira honra por omissao).
         </description>
         <inputEntry id="r_catchall_i1"><text>-</text></inputEntry>
         <inputEntry id="r_catchall_i2"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i4"><text>-</text></inputEntry>
+        <inputEntry id="r_catchall_i5"><text>-</text></inputEntry>
         <outputEntry id="r_catchall_o1"><text>"RECLAMACAO_ENCARREGADO"</text></outputEntry>
         <outputEntry id="r_catchall_o2"><text>"dpo"</text></outputEntry>
       </rule>

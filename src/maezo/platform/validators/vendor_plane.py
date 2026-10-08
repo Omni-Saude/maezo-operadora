@@ -12,14 +12,18 @@ item. Ele é o INQUÉRITO legível que o go/no-go humano lê — não é o go/no
   exatamente `"identity"` (o default que nenhuma onda vendor tocou) E o perfil deployado não
   concede a audiência `vendor`. Perfil deployado desconhecido = FAIL (fail-closed), nunca
   "assume-se que está default".
-- **(b) migrations 0019+0020 head linear** — a base de código tem UMA head (`0020`), `0020`
-  revisa `0019` (leitura estrutural local, via `ScriptDirectory` do alembic) E o alvo reporta
-  essa head com `0019` e `0020` aplicados. Heads bifurcadas, revisão faltando ou estado
+- **(b) migrations 0019+0020+0021 head linear** — a base de código tem UMA head (`0021`), `0021`
+  revisa `0020` (leitura estrutural local, via `ScriptDirectory` do alembic) E o alvo reporta
+  essa head com `0019`, `0020` e `0021` aplicados. Heads bifurcadas, revisão faltando ou estado
   desconhecido = FAIL.
-- **(c) readiness 18/18** — o alvo reporta `len(ALL_WORKER_BOOTSTRAPS) == 18` (o número é
+- **(c) readiness 19/19** — o alvo reporta `len(ALL_WORKER_BOOTSTRAPS) == 19` (o número é
   CONTRATO, constante nomeada aqui — derivá-lo do mesmo tuple que o alvo importou anularia a
-  checagem) E a base de código local ainda tem exatamente 18. Um 19º bootstrap é uma mudança de
+  checagem) E a base de código local ainda tem exatamente 19. Um 20º bootstrap é uma mudança de
   contrato que passa por aqui DE NOVO, consciente — nunca por um `>=` complacente.
+  RE-APROVAÇÃO CONSCIENTE 18→19 (VW4 wiring GP11, 2026-10-07): o 19º bootstrap é
+  `register_suppression_workers` (OP20, insumos DPO ACEITOS pelo dono — VW0-DECISION-REGISTER
+  §"INCORPORAÇÃO VW4-ANSWERS", sha ab262f7b…); a head 0020→0021 é o store de supressão
+  `portal_vendor_suppressions` do mesmo pacote.
 - **(d) zero memberships vendor publicadas no estado default, com `SOURCE_UNAVAILABLE`
   operante** — o store de autoridade (migration `0019`) tem ZERO linhas no alvo, e a sonda
   comportamental prova que a inércia é HONESTA: o job de publicação VW1-P0 (`VendorMembershipPublicationJob`),
@@ -76,7 +80,7 @@ __all__ = [
 
 #: (c) — o 18/18 é CONTRATO (docstring do composition root e readiness do worker-runtime), não
 #: um valor a re-derivar do tuple do alvo: derivar do mesmo tuple que se audita é auto-certificação.
-EXPECTED_WORKER_BOOTSTRAP_COUNT: Final = 18
+EXPECTED_WORKER_BOOTSTRAP_COUNT: Final = 19  # VW4/GP11 envelope+wiring: +suppression workers
 
 #: (a) — o default de capabilities que nenhuma onda vendor tocou (VW1-P4 adicionou o quarto
 #: literal; o DEFAULT permaneceu este).
@@ -88,9 +92,12 @@ VENDOR_AUDIENCE_TOKEN: Final = "vendor"
 #: (d) — a razão tipada cuja operância a sonda comporta mais abaixo.
 SOURCE_UNAVAILABLE_REASON: Final = "SOURCE_UNAVAILABLE"
 
-#: (b) — a head linear esperada e o par de revisões vendor cuja aplicação o alvo deve reportar.
-EXPECTED_HEAD: Final = "0020"
-VENDOR_MIGRATIONS: Final = ("0019", "0020")
+#: (b) — a head linear esperada e as revisões vendor cuja aplicação o alvo deve reportar
+#: (0021 = store de supressão GP11 — VW4 wiring, insumos aceitos sha ab262f7b…).
+EXPECTED_HEAD: Final = "0021"
+#: O pai IMEDIATO da head (o par de revisão que o item (b) prova estruturalmente).
+EXPECTED_HEAD_PARENT: Final = "0020"
+VENDOR_MIGRATIONS: Final = ("0019", "0020", "0021")
 
 #: (e) — quantos bytes bastam para probar decodabilidade SEM parse de conteúdo.
 _LEDGER_PROBE_BYTES: Final = 4096
@@ -339,10 +346,10 @@ def _check_migrations_linear_head(target: VendorPlaneTarget) -> VendorPlaneCheck
         return VendorPlaneCheck(
             name=name, passed=False, detail=f"unknown: cadeia local ilegível ({exc})", observed=observed
         )
-    chain_ok = local_heads == (EXPECTED_HEAD,) and edges.get(EXPECTED_HEAD) == VENDOR_MIGRATIONS[0]
+    chain_ok = local_heads == (EXPECTED_HEAD,) and edges.get(EXPECTED_HEAD) == EXPECTED_HEAD_PARENT
     observed.update(
         local_heads=",".join(local_heads),
-        edge_0020_revises_0019=edges.get(EXPECTED_HEAD),
+        edge_head_revises_previous=edges.get(EXPECTED_HEAD),
         chain_linear_local=chain_ok,
     )
     if not chain_ok:
@@ -385,7 +392,7 @@ def _check_migrations_linear_head(target: VendorPlaneTarget) -> VendorPlaneCheck
 
 
 def _check_readiness_workers(target: VendorPlaneTarget) -> VendorPlaneCheck:
-    name = "readiness_workers_18_18"
+    name = "readiness_workers_19_19"
     observed: dict[str, str | int | bool | None] = {}
     try:
         local_count = local_worker_bootstrap_count()

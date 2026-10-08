@@ -137,7 +137,8 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     # DUR0 appends the separate tenant journal; every historical edge remains exact.
     # VW1-P0 appends 0019 (`vendor_channel_authority`); still linear.
     # VW1-P4 appends 0020 (`vendor_channel_submissions`, OP16); still linear.
-    assert script.get_heads() == ["0020"]
+    # VW4/GP11 wiring appends 0021 (`vendor_suppression_records`, OP20); still linear.
+    assert script.get_heads() == ["0021"]
     assert script.get_revision("0020").down_revision == "0019"
     assert script.get_revision("0019").down_revision == "0018"
     assert script.get_revision("0018").down_revision == "0017"

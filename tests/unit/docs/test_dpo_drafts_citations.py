@@ -602,10 +602,10 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     assert journal <= uncovered
     assert journal.isdisjoint(covered)
     assert journal.isdisjoint(retired)
-    assert len(covered | uncovered) == 36
-    assert len(uncovered) == 25
-    assert len((covered | uncovered) - journal) == 30
-    assert len(uncovered - journal) == 19
+    assert len(covered | uncovered) == 37  # 36 + portal_vendor_suppressions (0021, VW4/GP11 wiring)
+    assert len(uncovered) == 26  # 25 + portal_vendor_suppressions (SEM_COLUNA_DE_TITULAR, sem probe)
+    assert len((covered | uncovered) - journal) == 31
+    assert len(uncovered - journal) == 20
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in journal)
     assert {key: by_key[key].resolucao for key in journal} == {

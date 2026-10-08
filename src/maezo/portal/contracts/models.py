@@ -1356,7 +1356,7 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ("SP-OP-LGPD-DSR-001", "UT_RevisaoDpo"): (
         "lgpd_decisao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
-    ),    # VW4/GP11: decisao de roteamento do encarregado (honrar / nao-honrar fundamentado /
+    ),  # VW4/GP11: decisao de roteamento do encarregado (honrar / nao-honrar fundamentado /
     # escalar) registrada no caso vendor; formulario DRAFT_VERIFY como o DSR (promocao a
     # FINAL exige insumos DPO ratificados e o wiring do store).
     ("SP-OP-SUPP-001", "UT_RotearEncarregado"): (
