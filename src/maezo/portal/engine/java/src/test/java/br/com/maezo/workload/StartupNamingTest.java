@@ -23,6 +23,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 class StartupNamingTest {
   @TempDir Path root;
   private static final AtomicInteger connections=new AtomicInteger(), closes=new AtomicInteger();
+  private static final String PROPERTY_SOURCE="org.apache.tomcat.util.digester.PROPERTY_SOURCE";
   private static boolean failDriver;
   public static final class Driver implements java.sql.Driver {
     public Connection connect(String url,Properties props)throws SQLException {
@@ -46,13 +47,15 @@ class StartupNamingTest {
       try {server.stop();}finally {server.destroy();field(SecuredBpmPlatformBootstrap.class,null,"active",null);}
     }
   }
-  private Run prepare(boolean refused,String attack)throws Exception {
+  private Run prepare(boolean refused,String attack)throws Exception {return prepare(refused,attack,null,null);}
+  private Run prepare(boolean refused,String attack,String username)throws Exception {return prepare(refused,attack,username,new org.apache.tomcat.util.digester.EnvironmentPropertySource());}
+  private Run prepare(boolean refused,String attack,String username,IntrospectionUtils.PropertySource parseSource)throws Exception {
     connections.set(0);closes.set(0);failDriver="delegate".equals(attack);
     System.setProperty("catalina.useNaming","true");
     var layout=new LayoutTest();layout.temp=root;var files=layout.files();
     String catalog="<GlobalNamingResources>"
         +"<Resource name=\"UserDatabase\" auth=\"Container\" type=\"org.apache.catalina.UserDatabase\" factory=\"org.apache.catalina.users.MemoryUserDatabaseFactory\" pathname=\"conf/tomcat-users.xml\"/>"
-        +"<Resource name=\"jdbc/ProcessEngine\" auth=\"Container\" type=\"javax.sql.DataSource\" factory=\""+StartupNaming.FACTORY+"\" uniqueResourceName=\"process-engine\" driverClassName=\""+Driver.class.getName()+"\" url=\"jdbc:startup-unit\" defaultTransactionIsolation=\"READ_COMMITTED\" username=\"unit\" password=\"unit\" maxActive=\"20\" minIdle=\"5\" maxIdle=\"20\"/>";
+        +"<Resource name=\"jdbc/ProcessEngine\" auth=\"Container\" type=\"javax.sql.DataSource\" factory=\""+StartupNaming.FACTORY+"\" uniqueResourceName=\"process-engine\" driverClassName=\""+Driver.class.getName()+"\" url=\"jdbc:startup-unit\" defaultTransactionIsolation=\"READ_COMMITTED\" username=\""+(username==null?"unit":username)+"\" password=\"unit\" maxActive=\"20\" minIdle=\"5\" maxIdle=\"20\"/>";
     for(String type:List.of("ProcessEngineService","ProcessApplicationService"))catalog+="<Resource name=\"global/camunda-bpm-platform/process-engine/"+type+"!org.cibseven.bpm."+type+"\" auth=\"Container\" type=\"org.cibseven.bpm."+type+"\" factory=\"org.cibseven.bpm.container.impl.jndi."+type+"ObjectFactory\"/>";
     catalog+="</GlobalNamingResources>";
     files.compute("conf/server.xml",(key,value)->value.replace("<Server>","<Server>PLACEHOLDER"));
@@ -61,9 +64,12 @@ class StartupNamingTest {
     Files.writeString(root.resolve("conf/tomcat-users.xml"),"<tomcat-users/>");
     var server=new StandardServer();server.setPort(-1);server.setCatalinaBase(root.toFile());server.setCatalinaHome(root.toFile());
     var resources=SecureLayout.parse(root.resolve("conf/server.xml")).getElementsByTagName("Resource");
+    // The real digester leaves every attribute ${}-resolved; reproduce it with the real source class.
+    IntrospectionUtils.PropertySource[] parse=parseSource==null?null:new IntrospectionUtils.PropertySource[]{parseSource};
     for(int i=0;i<resources.getLength();i++) {
       var resource=new ContextResource();var attrs=resources.item(i).getAttributes();
-      for(int j=0;j<attrs.getLength();j++){var a=attrs.item(j);assertTrue(IntrospectionUtils.setProperty(resource,a.getNodeName(),a.getNodeValue()));}
+      for(int j=0;j<attrs.getLength();j++){var a=attrs.item(j);assertTrue(IntrospectionUtils.setProperty(resource,a.getNodeName(),
+          parse==null?a.getNodeValue():IntrospectionUtils.replaceProperties(a.getNodeValue(),null,parse,StandardServer.class.getClassLoader())));}
       server.getGlobalNamingResources().addResource(resource);
     }
     var state=new StartupLifecycle(new StandardHost(),Set.of());var naming=new StartupNaming[1];var events=new ArrayList<String>();
@@ -72,7 +78,8 @@ class StartupNamingTest {
       events.add(event.getType());
       try {
         if(Lifecycle.BEFORE_START_EVENT.equals(event.getType())) {
-          naming[0]=new StartupNaming(server,custody,state);
+          try {naming[0]=new StartupNaming(server,custody,state);}
+          catch(Refused preflight) {state.fatal();throw preflight;} // SecuredBpmPlatformBootstrap marks preflight refusal fatal
           field(SecuredBpmPlatformBootstrap.class,facade,"naming",naming[0]);
           field(SecuredBpmPlatformBootstrap.class,facade,"preflightSeen",true);
           field(SecuredBpmPlatformBootstrap.class,null,"active",facade);
@@ -127,6 +134,30 @@ class StartupNamingTest {
       if(owned!=null)owned.close(true);
     }
     assertEquals(connections.get(),closes.get());
+  }
+  @Test void envSubstitutedServerXmlMatchesAdmissionAndReachesTheVendorPool()throws Exception {
+    System.setProperty(PROPERTY_SOURCE,"org.apache.tomcat.util.digester.EnvironmentPropertySource");
+    org.apache.tomcat.jdbc.pool.DataSource owned=null;
+    try(var run=prepare(false,null,"${MAEZO_P25_DB_USER:-unit}")) {
+      run.server.start();run.naming[0].verifyPositive();assertTrue(connections.get()>0);
+      owned=(org.apache.tomcat.jdbc.pool.DataSource)run.server.getGlobalNamingContext().lookup(StartupNaming.JDBC);
+      assertEquals("unit",owned.getUsername());
+    } finally {
+      System.clearProperty(PROPERTY_SOURCE);
+      if(owned!=null)owned.close(true);
+    }
+    assertEquals(connections.get(),closes.get());
+  }
+  @Test void unresolvedAdmissionExpectationRefusesTheResolvedServerXml()throws Exception {
+    // Preflight refusal fires before any binding, so even the stop path refuses afterwards;
+    // the boot started nothing (no pool, no JNDI bind) and the server stays FAILED, never closed.
+    Run run=prepare(false,null,"${MAEZO_P25_DB_USER}",key->"unit");
+    var failure=assertThrows(LifecycleException.class,run.server::start);
+    assertEquals("br.com.maezo.workload.Refused",failure.getCause().getClass().getName());
+    assertFalse(run.events.contains(Lifecycle.START_EVENT));
+    assertEquals(StartupLifecycle.Stage.FATAL,run.state.stage());
+    assertEquals(LifecycleState.FAILED,run.server.getState());
+    assertEquals(0,connections.get());
   }
   @Test void escapingOwnerErrorBeforeServerStartRetainsFatalCleanupProvenance()throws Exception {
     Run run=prepare(true,"fatal-error");
