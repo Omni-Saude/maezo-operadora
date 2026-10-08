@@ -19,7 +19,8 @@ Leitura da resposta (fechada):
   * `unico` exige `portable_subject_ref` bem formada; `nenhum` exige a referencia AUSENTE ou nula.
   * `fonte_atualizada_em: null` = o indice da AMH nao esta' carregado: recusa `UPSTREAM_UNAVAILABLE` (a
     pessoa nao gasta tentativa por uma falha da AMH), qualquer que seja o `resultado`.
-  * 429 (limite por CPF ou global da AMH) = `RATE_LIMITED`; o acesso o le' como indisponivel.
+  * 429 (`rate_limited`: teto de 60/min por cliente M2M, nunca por CPF) = `RATE_LIMITED`; o acesso o le'
+    como indisponivel. CPF bloqueado na AMH responde 200 `nenhum` (gasta tentativa no acesso).
 """
 
 from __future__ import annotations

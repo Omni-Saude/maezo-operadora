@@ -131,7 +131,7 @@ def documento(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
     return dr.AmhDocumentResolutionAdapter(raw, executor=ex), ex
 
 
-def test_sem_pin_v1_3_recusa_e_mora_no_artefato_da_conferencia() -> None:
+def test_sem_pin_v1_3_recusa_e_mora_no_artefato_proprio_subject_document_resolution() -> None:
     assert dr.ARTIFACT == "schemas/openapi/maezo/v1/subject-document-resolution.openapi.yaml"
     from maezo.adapters.amh.contract import V1_3_ARTIFACT_PATHS
 
