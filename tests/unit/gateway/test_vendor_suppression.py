@@ -305,7 +305,7 @@ def test_c2_declared_without_tuple_refuses_the_whole_egress_fail_closed() -> Non
 
     telemetry = SuppressionEgressTelemetry()
     line = EgressLine(
-        key="subject-opaco-1",
+        key=_key("regressao-f1"),
         tuple_value=(),  # inconsistente: o campo declara C2 mas a tupla não veio
         fields=(DeclaredField("matricula", FieldClass.C2_QUASE_IDENTIFICADOR),),
     )
