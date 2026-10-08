@@ -281,6 +281,10 @@ class IdentidadeHelena:
             )
             return _INDETERMINADO
 
+    def invalidar(self, conversation_id: str) -> None:
+        """Descarta o cache da conversa (DL-0083: uma nova verificacao pode ter outra referencia)."""
+        self._cache.pop(conversation_id, None)
+
     async def aclose(self) -> None:
         if self.aclose_fn is not None:
             await self.aclose_fn()

@@ -341,6 +341,25 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_HELENA_CONSULTAS_AMH", "helena_consultas_amh"),
     )
 
+    # ACESSO DO BENEFICIARIO (DL-0083, decisao do dono 08/10/2026). DESLIGADO por padrao; desligado, o
+    # receptor e' o de sempre byte a byte. Ligado, TODA conversa passa antes por uma maquina de estados
+    # deterministica (consentimento -> CPF [-> nascimento] -> verificado), sem LLM, antes de qualquer
+    # agente. EXIGE o interop configurado, os escopos `interop/subject.verify` e `interop/consent.write`,
+    # a chave do hash de verificacao e os dois OpenAPI pinados: faltando qualquer peca o receptor
+    # RECUSA servir (nunca sobe "sem acesso" em silencio).
+    acesso_beneficiario: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_ACESSO_BENEFICIARIO", "acesso_beneficiario"),
+    )
+    # Validade da verificacao (CPF/nascimento) em horas. Passado esse prazo desde a verificacao, a
+    # proxima mensagem recomeca em `aguardando_cpf` (o consentimento vale ate' ser revogado).
+    acesso_validade_horas: int = Field(
+        default=24,
+        ge=1,
+        le=168,
+        validation_alias=AliasChoices("MAEZO_ACESSO_VALIDADE_HORAS", "acesso_validade_horas"),
+    )
+
     @model_validator(mode="after")
     def _consultas_exigem_identidade(self) -> WhatsAppWebhookSettings:
         if self.helena_consultas_amh and not self.helena_identidade_amh:
@@ -378,7 +397,10 @@ class WhatsAppWebhookSettings(BaseSettings):
     )
     # Escopos pedidos no `client_credentials`, separados por espaco.
     amh_interop_scopes: str = Field(
-        default="interop/billing.read interop/subject.resolve interop/profile.read",
+        default=(
+            "interop/billing.read interop/subject.resolve interop/profile.read "
+            "interop/subject.verify interop/consent.write"
+        ),
         validation_alias=AliasChoices("MAEZO_AMH_INTEROP_SCOPES", "amh_interop_scopes"),
     )
     # Segredo do cliente Cognito. Nunca renderizado; chega ao executor SO' pelo cofre
@@ -395,6 +417,15 @@ class WhatsAppWebhookSettings(BaseSettings):
     amh_phone_lookup_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("MAEZO_AMH_PHONE_LOOKUP_KEY"),
+        repr=False,
+        exclude=True,
+    )
+    # Chave DEDICADA do hash `amh-subject-verify-v1` (segredo `amh/interop/subject-verify-key`), que cobre
+    # CPF e CPF+nascimento na verificacao do acesso (DL-0083). Lida SO' com `acesso_beneficiario` ligada.
+    # Nao e' o `PHI_HMAC_KEY` nem a chave do telefone. Mesmo tratamento dos segredos acima.
+    amh_subject_verify_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_SUBJECT_VERIFY_KEY"),
         repr=False,
         exclude=True,
     )
@@ -418,6 +449,20 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=None,
         validation_alias=AliasChoices(
             "MAEZO_AMH_SUBJECT_RESOLUTION_OPENAPI_PATH", "amh_subject_resolution_openapi_path"
+        ),
+    )
+    # Os dois OpenAPI do acesso do beneficiario (DL-0083), lidos SO' com `acesso_beneficiario` ligada; os
+    # bytes so' valem com o digest no pin (ainda NAO publicados na AMH em 08/10/2026: inerte ate' la').
+    amh_subject_verification_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_SUBJECT_VERIFICATION_OPENAPI_PATH", "amh_subject_verification_openapi_path"
+        ),
+    )
+    amh_consent_record_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_CONSENT_RECORD_OPENAPI_PATH", "amh_consent_record_openapi_path"
         ),
     )
     # O OpenAPI TINA (fatos do plano), lido SO' com `helena_consultas_amh` ligada; os bytes so' valem
@@ -445,6 +490,7 @@ class WhatsAppWebhookSettings(BaseSettings):
                 ("verify_token", "WHATSAPP_VERIFY_TOKEN"),
                 ("amh_interop_client_secret", "MAEZO_AMH_INTEROP_CLIENT_SECRET"),
                 ("amh_phone_lookup_key", "MAEZO_AMH_PHONE_LOOKUP_KEY"),
+                ("amh_subject_verify_key", "MAEZO_AMH_SUBJECT_VERIFY_KEY"),
             ):
                 if field_name in data:
                     data[canonical] = data.pop(field_name)

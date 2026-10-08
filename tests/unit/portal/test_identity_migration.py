@@ -34,7 +34,9 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # VW1-P0 adds the vendor channel authority store as forward migration 0019 after 0018.
     # VW1-P4 adds the OP16 submission store as forward migration 0020 after 0019.
     # VW4/GP11 wiring adds the OP20 suppression store as forward migration 0021 after 0020.
-    assert heads == {"0021"}, f"expected 0021 to be the sole head, got {heads}"
+    # DL-0083 adds the per-conversation access state (consent + identity verification) as 0022 after 0021.
+    assert heads == {"0022"}, f"expected 0022 to be the sole head, got {heads}"
+    assert revisions["0022"] == "0021"
     assert revisions["0021"] == "0020"
     assert revisions["0020"] == "0019"
     assert revisions["0019"] == "0018"
@@ -46,7 +48,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0021"
+    current = "0022"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

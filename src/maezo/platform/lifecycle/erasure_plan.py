@@ -791,6 +791,23 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         subject_column=None,
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="acesso_beneficiario",
+        tabela="conversa_acesso_beneficiario",
+        migracao="0022_conversa_acesso_beneficiario.py::upgrade (conversa_acesso_beneficiario)",
+        identificacao=(
+            "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row "
+            "holds only the closed access state, an attempts counter, the consent text version and sha256, "
+            "timestamps and the AMH `portable_subject_ref` (pseudonymous, once known) - no phone, no CPF, no "
+            "birth date, no name, no typed text (DL-0083). The DSR reference (`beneficiario_pseudo_id`) is a "
+            "second keyed derivation and cannot reach `conversation_id`, so the bridge is absent"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=38,
+        subject_column="conversation_id",
+        # No probe, same reason as `conversa_agente_ativo`: a count would be a fabricated zero.
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)

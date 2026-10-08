@@ -471,6 +471,17 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
     modules = _package_modules()
     assert [path.name for path in modules] == [
         "__init__.py",
+        # `acesso.py`, `acesso_cadastro.py`, `acesso_ponte.py`, `acesso_store.py` (DL-0083): revisados ao
+        # entrar nesta lista. NENHUM recebe wamid. `acesso.py` recebe o TEXTO da mensagem (que pode ser CPF ou
+        # nascimento) e o numero cru, mas so' para hash/validacao em memoria: os logs dele carregam o
+        # `conversation_id` keyed, tokens de estado/motivo/decisao e contadores — nunca texto, CPF,
+        # nascimento,
+        # hash, telefone nem referencia. `acesso_cadastro.py` e `acesso_ponte.py` nao tem chamada de logger;
+        # `acesso_store.py` tambem nao (so' SQL parametrizado). Varridos abaixo como os demais.
+        "acesso.py",
+        "acesso_cadastro.py",
+        "acesso_ponte.py",
+        "acesso_store.py",
         "app.py",
         "dedup.py",
         "dispatch.py",

@@ -44,7 +44,7 @@ import asyncio
 import contextlib
 import signal
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -76,6 +76,8 @@ if TYPE_CHECKING:
     from maezo.gateway.capabilities.journeys.driver import JourneyDriver
     from maezo.gateway.seams import SeamContext
 
+    from .whatsapp.acesso import AcessoBeneficiario
+    from .whatsapp.acesso_ponte import RefsVerificadas
     from .whatsapp.helena_consultas import ConsultasPlanoAmh
     from .whatsapp.helena_identidade import IdentidadeHelena
     from .whatsapp.lucas_turno import LucasTurno
@@ -117,6 +119,8 @@ class WebhookState:
     #: FATOS DO PLANO NA HELENA (DL de 07/10/2026), SO' com `MAEZO_HELENA_CONSULTAS_AMH` ligada (que
     #: exige a identidade ligada). Reusa a composicao AMH da identidade; desligado fica `None`.
     helena_consultas: ConsultasPlanoAmh | None = None
+    #: ACESSO DO BENEFICIARIO (DL-0083), SO' com `MAEZO_ACESSO_BENEFICIARIO` ligada (`_build_acesso`).
+    acesso: AcessoBeneficiario | None = None
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
 
@@ -341,7 +345,10 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
         amh_interop: AmhInteropComposition | None = None
         if settings.lucas_fonte_cobranca == "amh":
             fonte, amh_interop = _build_fonte_cobranca_amh(
-                settings, seam_context=seam_context, audit=seams.get("audit_sink")
+                settings,
+                seam_context=seam_context,
+                audit=seams.get("audit_sink"),
+                refs=dispatcher.refs_verificadas,
             )
         lucas_turno = LucasTurno(
             tenant_id=settings.tenant_id,
@@ -365,7 +372,11 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
 
 
 def _build_fonte_cobranca_amh(
-    settings: WhatsAppWebhookSettings, *, seam_context: SeamContext, audit: object
+    settings: WhatsAppWebhookSettings,
+    *,
+    seam_context: SeamContext,
+    audit: object,
+    refs: RefsVerificadas | None = None,
 ) -> tuple[FonteCobrancaAmh, AmhInteropComposition]:
     """A fonte REAL de cobranca do Lucas (`MAEZO_LUCAS_FONTE_COBRANCA=amh`, decisao do dono 06/10/2026).
 
@@ -376,22 +387,35 @@ def _build_fonte_cobranca_amh(
     LEVANTA e o receptor recusa servir — nunca cai de volta na simulada em silencio. Hoje os contratos
     nao estao publicados (XRG-2/XRG-3), entao `amh` recusa o boot por desenho.
     """
-    from maezo.agents.lucas.fonte_cobranca_amh import FonteCobrancaAmh
+    from maezo.agents.lucas.fonte_cobranca_amh import (
+        FonteCobrancaAmh,
+        FonteDeConsentimento,
+        ResolvedorDeSujeito,
+    )
     from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, ResolvedorDeSujeitoAmh
     from maezo.gateway.tool_registry import build_amh_interop
 
     interop = build_amh_interop(
         settings=settings, seam=seam_context, audit=audit, agent_version=_LUCAS_AGENT_VERSION
     )
+    resolvedor: ResolvedorDeSujeito = ResolvedorDeSujeitoAmh(
+        port=interop.subjects,
+        amh_tenant=interop.amh_tenant,
+        hash_scheme=interop.hash_scheme,
+        purpose_of_use=interop.purpose_of_use,
+    )
+    consentimento: FonteDeConsentimento = BaseLegalExecucaoDeContrato()
+    if refs is not None:
+        # DL-0083: com o acesso ligado a cobranca so' le' a referencia VERIFICADA do turno (nunca resolve pelo
+        # telefone) e a chamada carrega o `consent_ref` do registro; sem ele, a base legal de sempre.
+        from maezo.platform.webhooks.whatsapp.acesso_ponte import ConsentimentoDoAcesso, ResolvedorVerificado
+
+        resolvedor = ResolvedorVerificado(refs)
+        consentimento = ConsentimentoDoAcesso(refs, consentimento)
     fonte = FonteCobrancaAmh(
         billing=interop.billing,
-        resolvedor=ResolvedorDeSujeitoAmh(
-            port=interop.subjects,
-            amh_tenant=interop.amh_tenant,
-            hash_scheme=interop.hash_scheme,
-            purpose_of_use=interop.purpose_of_use,
-        ),
-        consentimento=BaseLegalExecucaoDeContrato(),
+        resolvedor=resolvedor,
+        consentimento=consentimento,
         purpose_of_use=interop.purpose_of_use,
     )
     logger.warning(
@@ -431,7 +455,9 @@ def _build_helena_amh(
     recusa servir.
     """
     consultas_ligadas = settings.helena_consultas_amh is True
-    if not settings.helena_identidade_amh:
+    # DL-0083: o acesso do beneficiario tambem precisa do perfil (plano ativo, vigencia, carencia, faixa) da
+    # conversa verificada, entao a identidade e' construida com qualquer uma das duas flags.
+    if not (settings.helena_identidade_amh or settings.acesso_beneficiario):
         if consultas_ligadas:
             raise ValueError("helena_consultas: exige MAEZO_HELENA_IDENTIDADE_AMH ligada")
         return None, None
@@ -459,17 +485,24 @@ def _build_helena_amh(
             consentimento=BaseLegalExecucaoDeContrato(),
             purpose_of_use=interop.purpose_of_use,
         )
+    resolvedor_helena: Any = ResolvedorDeSujeitoAmh(
+        port=interop.subjects,
+        amh_tenant=interop.amh_tenant,
+        hash_scheme=interop.hash_scheme,
+        purpose_of_use=interop.purpose_of_use,
+        # DL-0079: o teto da chamada de resolucao e' o prazo total, nao os 5 s do port.
+        timeout_seconds=settings.helena_identidade_prazo_s,
+    )
+    consentimento_helena: Any = BaseLegalExecucaoDeContrato()
+    if dispatcher.refs_verificadas is not None:
+        from maezo.platform.webhooks.whatsapp.acesso_ponte import ConsentimentoDoAcesso, ResolvedorVerificado
+
+        resolvedor_helena = ResolvedorVerificado(dispatcher.refs_verificadas)
+        consentimento_helena = ConsentimentoDoAcesso(dispatcher.refs_verificadas, consentimento_helena)
     identidade = IdentidadeHelena(
         port=interop.subjects,
-        resolvedor=ResolvedorDeSujeitoAmh(
-            port=interop.subjects,
-            amh_tenant=interop.amh_tenant,
-            hash_scheme=interop.hash_scheme,
-            purpose_of_use=interop.purpose_of_use,
-            # DL-0079: o teto da chamada de resolucao e' o prazo total, nao os 5 s do port.
-            timeout_seconds=settings.helena_identidade_prazo_s,
-        ),
-        consentimento=BaseLegalExecucaoDeContrato(),
+        resolvedor=resolvedor_helena,
+        consentimento=consentimento_helena,
         purpose_of_use=interop.purpose_of_use,
         hash_telefone=interop.phone_hasher,
         aclose_fn=interop.aclose,
@@ -485,6 +518,74 @@ def _build_helena_amh(
         consultas_plano=consultas is not None,
     )
     return identidade, consultas
+
+
+def _build_acesso(
+    settings: WhatsAppWebhookSettings, dispatcher: HelenaDispatcher
+) -> AcessoBeneficiario | None:
+    """DL-0083: o acesso do beneficiario (consentimento + verificacao), SO' com `MAEZO_ACESSO_BENEFICIARIO`.
+
+    Desligado devolve `None` sem importar nada do acesso. Ligado, REUSA a composicao AMH
+    (`tool_registry.build_amh_interop(incluir_acesso=True)`) sob o principal `helena` e exige TODA a
+    configuracao
+    nova: chave do hash de verificacao, os dois OpenAPI, os escopos `interop/subject.verify` e
+    `interop/consent.write` e o bloco `manifest_v1_3` no pin. FAIL-CLOSED: faltando qualquer peca (e hoje os
+    contratos NAO estao pinados) LEVANTA e `_bring_up_dependencies` recusa servir — nunca sobe "sem acesso" em
+    silencio quando o dono o ligou, e nunca serve sem ele.
+    """
+    if not settings.acesso_beneficiario:
+        return None
+    from datetime import timedelta
+
+    from maezo.agents.lucas.identidade_amh import ResolvedorDeSujeitoAmh
+    from maezo.gateway.amh_interop import HASH_SCHEME_VERIFICACAO
+    from maezo.gateway.tool_registry import build_amh_interop
+    from maezo.platform.webhooks.whatsapp import pre_roteamento
+    from maezo.platform.webhooks.whatsapp.acesso import AcessoBeneficiario
+    from maezo.platform.webhooks.whatsapp.acesso_store import PostgresAcessoStore
+
+    if dispatcher.seam_context is None or dispatcher.seam_context.principal != "helena":
+        raise ValueError("acesso: o despachante nao tem o SeamContext do principal helena")
+    if dispatcher.refs_verificadas is None:
+        raise ValueError("acesso: o despachante nao tem a ponte de referencias verificadas")
+    if not settings.database_url:
+        raise ValueError("acesso: DATABASE_URL ausente (o estado do acesso e' persistido no Postgres)")
+    interop = build_amh_interop(
+        settings=settings,
+        seam=dispatcher.seam_context,
+        audit=dispatcher.audit_sink,
+        agent_version=_HELENA_AGENT_VERSION,
+        incluir_acesso=True,
+    )
+    if interop.verification is None or interop.consents is None or interop.verify_hasher is None:
+        raise ValueError("acesso: a composicao AMH nao trouxe verificacao, consentimento e hasher")
+    acesso = AcessoBeneficiario(
+        store=PostgresAcessoStore(dsn=settings.database_url, tenant=settings.tenant_id),
+        verification=interop.verification,
+        consents=interop.consents,
+        resolvedor=ResolvedorDeSujeitoAmh(
+            port=interop.subjects,
+            amh_tenant=interop.amh_tenant,
+            hash_scheme=interop.hash_scheme,
+            purpose_of_use=interop.purpose_of_use,
+        ),
+        hash_telefone=interop.phone_hasher,
+        hasher=interop.verify_hasher,
+        # Fail-closed: lexico invalido recusa aqui, no boot (`pre_roteamento.carregar`).
+        lexicos=pre_roteamento.carregar(),
+        amh_tenant=interop.amh_tenant,
+        hash_scheme=HASH_SCHEME_VERIFICACAO,
+        purpose_of_use=interop.purpose_of_use,
+        validade=timedelta(hours=settings.acesso_validade_horas),
+        aclose_fn=interop.aclose,
+    )
+    logger.warning(
+        "acesso_beneficiario_ligado",
+        tenant_id=settings.tenant_id,
+        amh_tenant=interop.amh_tenant,
+        validade_horas=settings.acesso_validade_horas,
+    )
+    return acesso
 
 
 async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
@@ -576,6 +677,13 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         return
     logger.info("webhook_effect_seams_gated", tenant=state.settings.tenant_id, detail=detail)
 
+    if state.settings.acesso_beneficiario:
+        # DL-0083: a ponte com os agentes existe ANTES de o Lucas e a identidade serem construidos, para que
+        # os dois resolvam pela referencia verificada e nunca pelo telefone.
+        from .whatsapp.acesso_ponte import RefsVerificadas
+
+        state.dispatcher.refs_verificadas = RefsVerificadas()
+
     # NUMERO UNICO, onda (d): o turno do Lucas, so' com o roteador ligado, sob a MESMA assercao de
     # boot. Ligado e quebrado = recusa servir (o mesmo formato de um lexico invalido).
     try:
@@ -626,6 +734,18 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
     if state.helena_consultas is not None:
         # DL de 07/10/2026: os fatos do plano na Helena (so' com a identidade, conferido acima).
         state.dispatcher.consultas_plano = state.helena_consultas
+
+    # DL-0083: o acesso do beneficiario. Ligado e quebrado (contrato nao pinado, chave ausente...) = recusa
+    # servir.
+    try:
+        state.acesso = _build_acesso(state.settings, state.dispatcher)
+    except Exception as exc:  # isolated: liveness/readiness must stay up.
+        state.dispatcher = None
+        state.dispatcher_error = f"access build failed — refusing to serve: {type(exc).__name__}: {exc}"
+        logger.error("webhook_acesso_build_failed", exc_info=True)
+        return
+    if state.acesso is not None:
+        state.dispatcher.acesso = state.acesso
 
     # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
     # Isolated exactly like the construction above — a failure here must not crash bring-up.
@@ -691,6 +811,9 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     if state.helena_identidade is not None:
         with contextlib.suppress(Exception):
             await state.helena_identidade.aclose()
+    if state.acesso is not None:
+        with contextlib.suppress(Exception):
+            await state.acesso.aclose()
 
     # T4b: release the checkpointer's connection pool (idempotent; no-op for the in-memory
     # fallback / when never provisioned). Non-fatal — a close failure must not mask shutdown.

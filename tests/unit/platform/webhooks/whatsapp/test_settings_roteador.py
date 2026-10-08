@@ -95,6 +95,8 @@ def test_fonte_amh_e_aceita_e_os_defaults_ficam_desligados(_ambiente_amh_limpo: 
         "interop/billing.read",
         "interop/subject.resolve",
         "interop/profile.read",
+        "interop/subject.verify",
+        "interop/consent.write",
     ]
 
 
