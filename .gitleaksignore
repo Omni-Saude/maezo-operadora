@@ -208,8 +208,8 @@ cd4b0ed4aaa1751ad6aec83eb92f8b5c2b946fa1:docs/gates/v21-durability-successor-202
 05e9e9f63a26c683106d88334444007461b9e9d9:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:162
 05e9e9f63a26c683106d88334444007461b9e9d9:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:164
 
-# Same false-positive class (PR #694, vendor GP11 wiring): `key="subject-opaco-1"` is a synthetic
-# opaque-subject fixture key in a unit test; 'generic-api-key' fires on the `key=` parameter name.
+# Same false-positive class (PR #694, vendor GP11 wiring): a synthetic opaque-subject
+# fixture literal in a unit test; 'generic-api-key' fires on the key= parameter name.
 # The literal was already rewritten at c2a26d97 (helper `_key(...)`); this fingerprint covers only the
 # immutable historical commit 514df11f. Removable once the branch is deleted post-merge.
 514df11f0063fd766d0738918a74bd551b0f4eb4:tests/unit/gateway/test_vendor_suppression.py:generic-api-key:308
