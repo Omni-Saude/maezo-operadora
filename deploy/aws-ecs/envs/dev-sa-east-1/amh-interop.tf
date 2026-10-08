@@ -22,11 +22,31 @@ locals {
   lucas_fonte_amh = var.lucas_fonte_cobranca == "amh"
 
   # DL-0077: a identidade da Helena reusa o MESMO interop (env, segredos, egress); liga com qualquer um.
-  amh_interop_ligado = local.lucas_fonte_amh || var.helena_identidade_amh
+  # DL-0083: o acesso do beneficiario tambem usa o mesmo interop (env, segredos, egress).
+  amh_interop_ligado = local.lucas_fonte_amh || var.helena_identidade_amh || var.acesso_beneficiario
+
+  # Acesso do beneficiario (08/10/2026, DL-0083): SO' com `acesso_beneficiario` o caminho dos dois OpenAPI e a
+  # chave do hash de verificacao entram na task definition. Desligado, a env e' a de antes (listas vazias).
+  amh_acesso_env = local.amh_interop_ligado && var.acesso_beneficiario ? [
+    { name = "MAEZO_AMH_SUBJECT_VERIFICATION_OPENAPI_PATH", value = var.amh_subject_verification_openapi_path },
+    { name = "MAEZO_AMH_CONSENT_RECORD_OPENAPI_PATH", value = var.amh_consent_record_openapi_path },
+  ] : []
+  amh_acesso_secrets = var.acesso_beneficiario ? [
+    { name = "MAEZO_AMH_SUBJECT_VERIFY_KEY", valueFrom = data.aws_secretsmanager_secret.amh_subject_verify_key[0].arn },
+  ] : []
+  amh_acesso_secret_arns = var.acesso_beneficiario ? [data.aws_secretsmanager_secret.amh_subject_verify_key[0].arn] : []
+  amh_acesso_kms_key_ids = var.acesso_beneficiario ? [data.aws_secretsmanager_secret.amh_subject_verify_key[0].kms_key_id] : []
 
   # Fatos do plano na Helena (07/10/2026): SO' com as consultas ligadas o escopo `interop/tina.read`
   # entra no pedido de token e o caminho do OpenAPI TINA entra na env. Desligadas, a env e' a de antes.
-  amh_interop_scopes_efetivos = var.helena_consultas_amh ? "${var.amh_interop_scopes} interop/tina.read" : var.amh_interop_scopes
+  # Acesso do beneficiario (DL-0083, revisao do #700 P1-a): `interop/subject.verify` e `interop/consent.write`
+  # SO' com `acesso_beneficiario` — o Cognito recusa o token INTEIRO se o client nao tiver um escopo pedido, e
+  # pedi-los sempre derrubaria identidade, cobranca e TINA. Desligadas as duas flags, o valor e' o de antes.
+  amh_interop_scopes_efetivos = join(" ", concat(
+    [var.amh_interop_scopes],
+    var.helena_consultas_amh ? ["interop/tina.read"] : [],
+    var.acesso_beneficiario ? ["interop/subject.verify", "interop/consent.write"] : [],
+  ))
   amh_tina_env = local.amh_interop_ligado && var.helena_consultas_amh ? [
     { name = "MAEZO_AMH_TINA_OPENAPI_PATH", value = var.amh_tina_openapi_path },
   ] : []
@@ -43,22 +63,22 @@ locals {
     { name = "MAEZO_AMH_SUBJECT_RESOLUTION_OPENAPI_PATH", value = var.amh_subject_resolution_openapi_path },
   ] : []
 
-  amh_interop_secrets = local.amh_interop_ligado ? [
+  amh_interop_secrets = concat(local.amh_interop_ligado ? [
     { name = "MAEZO_AMH_INTEROP_CLIENT_SECRET", valueFrom = data.aws_secretsmanager_secret.amh_interop_cognito[0].arn },
     { name = "MAEZO_AMH_PHONE_LOOKUP_KEY", valueFrom = data.aws_secretsmanager_secret.amh_phone_lookup_key[0].arn },
-  ] : []
+  ] : [], local.amh_acesso_secrets)
 
-  amh_interop_secret_arns = local.amh_interop_ligado ? [
+  amh_interop_secret_arns = concat(local.amh_interop_ligado ? [
     data.aws_secretsmanager_secret.amh_interop_cognito[0].arn,
     data.aws_secretsmanager_secret.amh_phone_lookup_key[0].arn,
-  ] : []
+  ] : [], local.amh_acesso_secret_arns)
 
   # Os segredos da AMH podem estar sob a CMK compartilhada do env de dados (como o do Cognito FHIR):
   # sem `kms:Decrypt` o GetSecretValue falha com AccessDenied. Vazio com a chave padrao.
-  amh_interop_secret_kms_key_ids = local.amh_interop_ligado ? [
+  amh_interop_secret_kms_key_ids = concat(local.amh_interop_ligado ? [
     data.aws_secretsmanager_secret.amh_interop_cognito[0].kms_key_id,
     data.aws_secretsmanager_secret.amh_phone_lookup_key[0].kms_key_id,
-  ] : []
+  ] : [], local.amh_acesso_kms_key_ids)
 }
 
 data "aws_secretsmanager_secret" "amh_interop_cognito" {
@@ -69,6 +89,15 @@ data "aws_secretsmanager_secret" "amh_interop_cognito" {
 data "aws_secretsmanager_secret" "amh_phone_lookup_key" {
   count = local.amh_interop_ligado ? 1 : 0
   name  = var.amh_phone_lookup_secret_name
+}
+
+# Chave DEDICADA do hash `amh-subject-verify-v1` (acesso do beneficiario, DL-0083): segredo criado pela AMH
+# (`amh/interop/subject-verify-key`), LIDO aqui so' com `acesso_beneficiario`; injetado inteiro como
+# `MAEZO_AMH_SUBJECT_VERIFY_KEY`. Leitura IAM e `kms:Decrypt` entram pelas listas `amh_interop_secret_arns` /
+# `amh_interop_secret_kms_key_ids` acima.
+data "aws_secretsmanager_secret" "amh_subject_verify_key" {
+  count = var.acesso_beneficiario ? 1 : 0
+  name  = var.amh_subject_verify_secret_name
 }
 
 # Saida 80 do SG das tasks para o ALB INTERNO do servico interop da AMH (`http://` dentro da VPC,

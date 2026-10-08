@@ -268,6 +268,16 @@ escopo_b:
         uma vez a cada 10 minutos por processo (PROPOSTA de engenharia, nao decisao); PONTE_AUSENTE
         (conversation_id e' pseudonimo keyed, a referencia DSR nao o alcanca); sem decisao de
         retencao ratificada
+    - camada: acesso_beneficiario
+      tabelas: [conversa_acesso_beneficiario]
+      motivo: >-
+        fora do escopo B; 0022 (DL-0083, acesso do beneficiario no WhatsApp, flag
+        MAEZO_ACESSO_BENEFICIARIO desligada por padrao) guarda so' o estado fechado do
+        consentimento/verificacao da conversa, o contador de tentativas, a versao e o sha256 do
+        texto de consentimento, carimbos de tempo e o portable_subject_ref PSEUDONIMO da AMH, uma
+        linha por conversa — nenhum telefone, CPF, nascimento, nome ou texto digitado; SEM purga
+        automatica (o consentimento vale ate' ser revogado); PONTE_AUSENTE (conversation_id e'
+        pseudonimo keyed, a referencia DSR nao o alcanca); sem decisao de retencao ratificada
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

@@ -51,6 +51,11 @@ actions:
   # requisicoes) pelo contrato TINA da AMH (manifest v1.2, DRAFT), so' com carteirinha/senha
   # mascaradas. Mesma classe e governanca da acao acima. NAO e' hard. Decisao do dono 07/10/2026 (DL).
   read_member_plan_facts:       { level: L3 }
+  # Helena (Zona Geral): REGISTRO do consentimento do beneficiario (ACEITO/REVOGAR no WhatsApp) no lago da
+  # AMH pelo contrato `consent-record` (manifest v1.3, DRAFT). Escrita idempotente, so' ref opaca + hash do
+  # texto exato; NAO e' hard. Decisao do dono 08/10/2026 (DL-0083). A verificacao por fator reusa
+  # `read_member_billing_identity`.
+  record_member_consent:        { level: L3 }
   # mcp_whatsapp: envio de mensagem ao beneficiário — L3 informativo; template = L2 (efeito externo)
   send_beneficiary_message:     { level: L3 }
   send_beneficiary_template:    { level: L2 }

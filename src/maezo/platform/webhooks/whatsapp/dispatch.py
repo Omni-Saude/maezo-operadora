@@ -86,7 +86,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -98,6 +98,7 @@ from maezo.agents.helena.graph import (
     HelenaState,
     WhatsAppSender,
     build,
+    memoria_de_conversa_neutra,
     new_helena_resume_state,
     new_helena_state,
 )
@@ -128,6 +129,8 @@ if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
     from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyDispatchOutcome
     from maezo.gateway.capabilities.models import CapabilityRefusalReason
 
+    from .acesso import AcessoBeneficiario, DecisaoAcesso
+    from .acesso_ponte import RefsVerificadas
     from .helena_identidade import IdentidadeHelena
     from .lucas_turno import LucasTurno
     from .pre_roteamento import SinaisLexicos
@@ -172,8 +175,10 @@ LIMITE_EXCEDIDO_TEXT: Final[str] = (
 class InboundMessage:
     """One inbound WhatsApp TEXT message, extracted from the Cloud API webhook envelope."""
 
-    from_number: str
-    text: str
+    # `repr=False` (DL-0083): com o acesso do beneficiario, o texto pode ser um CPF ou uma data de nascimento
+    # e o numero e' o telefone. Nenhum `repr` de uma excecao, traceback ou log pode renderiza-los.
+    from_number: str = field(repr=False)
+    text: str = field(repr=False)
     message_id: str
 
 
@@ -399,6 +404,16 @@ class HelenaDispatcher:
     #: `consultar_plano`. So' tem efeito junto com `identidade`: sem referencia resolvida a Helena
     #: responde o texto fixo de "nao consegui confirmar seus dados".
     consultas_plano: FonteDeFatosDoPlano | None = None
+    #: ACESSO DO BENEFICIARIO (DL-0083, `MAEZO_ACESSO_BENEFICIARIO`). `None` (o default, e o que `service.py`
+    #: passa com a flag desligada) = o despachante de sempre, byte a byte. Ligado, TODA mensagem de texto
+    #: passa
+    #: antes pela maquina de estados (consentimento -> CPF [-> nascimento] -> verificado) e os agentes so'
+    #: rodam em `verificado`. O texto digitado e' consumido ali e NUNCA chega ao grafo.
+    acesso: AcessoBeneficiario | None = None
+    #: A ponte com os agentes (so' com `acesso`): a referencia verificada do turno em curso, para que a
+    #: fonte de
+    #: cobranca do Lucas e a identidade da Helena nao resolvam pelo telefone de novo.
+    refs_verificadas: RefsVerificadas | None = None
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
     administrative_binding: JourneyBinding | None = None
@@ -805,7 +820,211 @@ class HelenaDispatcher:
         )
         return dict(result)
 
-    async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
+    async def _dispatch_com_acesso(
+        self,
+        message: InboundMessage,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        sender: WhatsAppSender,
+    ) -> dict[str, Any]:
+        """O gate do acesso do beneficiario. Uma mensagem por vez por conversa (le' -> envia -> grava).
+
+        ORDEM: `avaliar` (chama a AMH) -> escalonamento humano, se a decisao o pede -> ENVIO das respostas ->
+        `persistir`. Se o envio ou o escalonamento caem, o estado nao mudou e a reentrega recalcula; as chaves
+        de saida sao as mesmas, entao nada e' enviado em dobro.
+        """
+        assert self.acesso is not None
+        acesso = self.acesso
+        async with acesso.trava(conversation_id):
+            decisao = await acesso.avaliar(
+                conversation_id=conversation_id, texto=message.text, numero_cru=message.from_number
+            )
+            if not decisao.prosseguir:
+                return await self._responder_acesso(
+                    decisao,
+                    phone_hash=phone_hash,
+                    conversation_id=conversation_id,
+                    beneficiario_pseudo_id=beneficiario_pseudo_id,
+                    sender=sender,
+                )
+            ref = decisao.portable_subject_ref
+            if not ref or self.refs_verificadas is None:
+                # Defesa em profundidade: `prosseguir` sem referencia (ou sem a ponte) nunca roda agente.
+                raise RuntimeError("acesso: conversa verificada sem referencia ou sem ponte para os agentes")
+            await acesso.persistir(decisao)
+            with self.refs_verificadas.do_turno(beneficiario_pseudo_id, ref, decisao.consent_ref):
+                respondida = await self._responder_cadastro(
+                    message,
+                    phone_hash=phone_hash,
+                    conversation_id=conversation_id,
+                    beneficiario_pseudo_id=beneficiario_pseudo_id,
+                    sender=sender,
+                )
+                if respondida is not None:
+                    return respondida
+                return await self.dispatch(message, _ja_no_gate=True)
+
+    async def _responder_acesso(
+        self,
+        decisao: DecisaoAcesso,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        sender: WhatsAppSender,
+    ) -> dict[str, Any]:
+        """Escalona (3a falha), envia as respostas fixas e so' entao grava o estado. Nenhum agente roda."""
+        assert self.acesso is not None
+        if decisao.esquecer_memoria:
+            # Revisao do #700 (P2): a pessoa verificada mudou (ou revogou). ANTES de enviar e de gravar o
+            # estado: se apagar falha, o turno falha e a reentrega tenta de novo, sem estado novo gravado.
+            await self._esquecer_memoria_da_conversa(conversation_id, sender)
+        if decisao.escalar:
+            await self._escalar_identidade(
+                conversation_id=conversation_id,
+                beneficiario_pseudo_id=beneficiario_pseudo_id,
+                sender=sender,
+                motivo=decisao.motivo_escalonamento,
+            )
+        for texto in decisao.respostas:
+            await sender.send(phone_hash, texto)
+        await self.acesso.persistir(decisao)
+        if decisao.nova_verificacao and self.identidade is not None:
+            # Uma verificacao nova pode ter outra referencia: o cache de identidade da conversa nao vale mais.
+            self.identidade.invalidar(conversation_id)
+        logger.info(
+            "acesso_turno_respondido",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            estado=decisao.novo.estado,
+            tentativas=decisao.novo.tentativas,
+            respostas=len(decisao.respostas),
+            escalou=decisao.escalar,
+        )
+        return {
+            "conversation_id": conversation_id,
+            "response_text": decisao.respostas[-1] if decisao.respostas else "",
+            "acesso_estado": decisao.novo.estado,
+            "escalation_started": decisao.escalar,
+        }
+
+    async def _esquecer_memoria_da_conversa(self, conversation_id: str, sender: WhatsAppSender) -> None:
+        """Grava a memoria de conversa NEUTRA (historico DL-0080, memoria clinica, coleta, cartao) sobre o
+        checkpoint da conversa (DL-0083). O checkpoint e' indexado pelo telefone; sem isto a pessoa nova
+        herdaria a memoria da anterior. Sem checkpointer (ou sem checkpoint ainda) nao ha' o que apagar."""
+        compiled, saver = self._compile_turn_graph(sender)
+        if saver is None:
+            return
+        config = checkpoint_thread_config(conversation_id)
+        atual = await compiled.aget_state(config)
+        if not getattr(atual, "values", None):
+            return
+        # `respond` -> END: o checkpoint gravado nao deixa no' pendente; o proximo turno recomeca em START.
+        await compiled.aupdate_state(config, memoria_de_conversa_neutra(), as_node="respond")
+        logger.info(
+            "acesso_memoria_da_conversa_apagada", tenant_id=self.tenant_id, conversation_id=conversation_id
+        )
+
+    async def _escalar_identidade(
+        self,
+        *,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        sender: WhatsAppSender,
+        motivo: str = "identidade_nao_verificada",
+    ) -> None:
+        """Abre SP-OP-ESCALATION-001 (`solicitacao_humano`) pelo MESMO caminho da Helena, sem modelo e sem
+        texto
+        da pessoa. Levanta se o processo nao abriu: o turno falha e a reentrega tenta de novo, em vez de
+        prometer um atendente que ninguem acionou."""
+        helena = HelenaGraph(
+            inference=self.inference,
+            dmn=self.dmn,
+            cibseven=self.cibseven,
+            audit_sink=self.audit_sink,
+            whatsapp=sender,
+            agent_version="helena@v0",
+            memoria_clinica_enabled=self.memoria_clinica_enabled,
+            roteador_lucas_enabled=self._roteamento_completo,
+            historico_enabled=self.historico_enabled,
+        )
+        estado: dict[str, Any] = {
+            "tenant_id": self.tenant_id,
+            "conversation_id": conversation_id,
+            "beneficiario_pseudo_id": beneficiario_pseudo_id,
+            "canal": "whatsapp",
+            "message_body": "",
+        }
+        if motivo == "revogacao_consentimento_pendente":
+            resultado = await helena.escalar_revogacao_pendente(cast(HelenaState, estado))
+        else:
+            resultado = await helena.escalar_identidade_nao_verificada(cast(HelenaState, estado))
+        if resultado.get("escalation_started") is not True:
+            logger.error(
+                "acesso_escalonamento_nao_aberto", tenant_id=self.tenant_id, conversation_id=conversation_id
+            )
+            raise RuntimeError("acesso: o escalonamento humano nao foi aberto")
+        logger.info(
+            "acesso_escalonamento_aberto",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            motivo=motivo,
+            categoria="solicitacao_humano",
+            start_desfecho=resultado.get("start_desfecho"),
+        )
+
+    async def _responder_cadastro(
+        self,
+        message: InboundMessage,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        sender: WhatsAppSender,
+    ) -> dict[str, Any] | None:
+        """Pergunta EXPLICITA sobre o cadastro, conversa VERIFICADA: texto fixo, sem agente e sem modelo
+        (item 8).
+
+        So' vale com sinal de saude AUSENTE (saude e emergencia vencem e seguem para o grafo). O dado vem do
+        perfil que a identidade da Helena ja' le' da AMH pela referencia verificada; nome, CPF, telefone e
+        idade
+        exata nunca entram. `None` = nao e' pergunta de cadastro: o fluxo de sempre.
+        """
+        from .acesso_cadastro import resposta_de_cadastro, tipo_de_pergunta
+
+        tipo = tipo_de_pergunta(message.text)
+        if tipo is None:
+            return None
+        assert self.acesso is not None
+        if self.acesso.sinal_de_emergencia(message.text):
+            return None
+        from .acesso_cadastro import TIPO_QUEM_SOU_EU
+
+        identidade: dict[str, Any] | None = None
+        if tipo != TIPO_QUEM_SOU_EU and self.identidade is not None:
+            resolvida = await self.identidade.resolver_com_desfecho(
+                message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
+            )
+            identidade = resolvida.identidade
+        texto = resposta_de_cadastro(tipo, identidade)
+        await sender.send(phone_hash, texto)
+        logger.info(
+            "acesso_cadastro_respondido",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            tipo=tipo,
+            com_dados=identidade is not None,
+        )
+        return {
+            "conversation_id": conversation_id,
+            "response_text": texto,
+            "acesso_estado": "verificado",
+            "acesso_cadastro": tipo,
+        }
+
+    async def dispatch(self, message: InboundMessage, *, _ja_no_gate: bool = False) -> dict[str, Any]:
         """Run ONE complete Helena turn (receive..respond) for `message`.
 
         When a durable `checkpointer` is wired (production), the graph is compiled
@@ -838,13 +1057,14 @@ class HelenaDispatcher:
         # O ENVIO USA A MESMA COSTURA CERCADA do resto: e' um efeito
         # (`comunicacao_beneficiario`), e um caminho de saida paralelo seria exatamente a segunda
         # porta que o gate existe para impedir.
-        if self.limitador is not None:
+        if self.limitador is not None and not _ja_no_gate:
             veredito = self.limitador.registrar(tenant_id=self.tenant_id, conversation_id=conversation_id)
             if not veredito.permitido:
                 return await self._recusar_por_limite(message, phone_hash, conversation_id, veredito)
 
         beneficiario_pseudo_id = self.pseudonymizer.pseudonymize({"telefone": phone_hash})["telefone"]
-        await self._custodiar_destinatario(message.from_number, conversation_id)
+        if not _ja_no_gate:
+            await self._custodiar_destinatario(message.from_number, conversation_id)
 
         sender = self._gated_scoped_sender(
             raw_to=message.from_number,
@@ -852,6 +1072,18 @@ class HelenaDispatcher:
             conversation_id=conversation_id,
             idempotency_key_for=self._outbound_key_factory(message.message_id),
         )
+        if self.acesso is not None and not _ja_no_gate:
+            # ACESSO DO BENEFICIARIO (DL-0083): ANTES de qualquer agente, deterministico, sem LLM. A mensagem
+            # so' segue para o fluxo de sempre com a conversa `verificado` (o gate chama `dispatch` de novo,
+            # com `_ja_no_gate=True`); senao e' consumida AQUI e o CPF/nascimento nunca chegam ao grafo, ao
+            # checkpoint, a prompt, a metrica ou a log.
+            return await self._dispatch_com_acesso(
+                message,
+                phone_hash=phone_hash,
+                conversation_id=conversation_id,
+                beneficiario_pseudo_id=beneficiario_pseudo_id,
+                sender=sender,
+            )
         # `conversation_id` (a KEYED `wa:{tenant}:hk1_{hmac}`) IS the checkpoint thread id — it
         # carries no raw phone/CPF AND no reversible unkeyed hash, so `checkpoint_thread_config`
         # (which fail-closes unless the id embeds the `hk1_` keyed-pseudonym marker) accepts it and
@@ -876,6 +1108,10 @@ class HelenaDispatcher:
                 message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
             )
             identidade, identidade_desfecho = resolvida.identidade, resolvida.desfecho
+            if self.acesso is not None:
+                # DL-0083: com o acesso ligado o aviso de identidade do DL-0078 ("Reconheci este numero...")
+                # fica DESLIGADO: quem diz quem e' a pessoa e' a verificacao, nao o telefone.
+                identidade_desfecho = None
         message_pseudonym = log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer)
         if self._roteamento_completo:
             # NUMERO UNICO (onda e): as entradas do roteador, todas TIPADAS e sem texto. Quem estava

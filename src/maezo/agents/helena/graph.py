@@ -422,6 +422,23 @@ Severidade = Literal["grave", "moderada", "leve"]
 
 PROCESS_KEY = "SP-OP-ESCALATION-001"
 
+#: DL-0083: o resumo FIXO que o atendente le' quando o acesso do beneficiario bloqueia a conversa por
+#: tentativas
+#: de verificacao esgotadas. Escrito aqui (nunca derivado da fala da pessoa); sem dado pessoal.
+RESUMO_IDENTIDADE_NAO_VERIFICADA = (
+    "Beneficiario nao conseguiu confirmar a identidade (CPF/nascimento) por WhatsApp em 3 tentativas; "
+    "o atendimento por este canal foi bloqueado e aguarda um atendente."
+)
+
+#: DL-0083 (revisao do #700): o resumo FIXO quando a REVOGACAO do consentimento nao foi gravada no lago da
+#: AMH depois de todas as tentativas automaticas. O atendente conclui pelo runbook
+#: `docs/runbooks/acesso-beneficiario-revogacao-pendente.md`. Sem dado pessoal.
+RESUMO_REVOGACAO_PENDENTE = (
+    "Revogacao de consentimento recebida por WhatsApp e ainda NAO registrada no lago da AMH apos as "
+    "tentativas automaticas (motivo revogacao_consentimento_pendente). Concluir pelo runbook "
+    "acesso-beneficiario-revogacao-pendente; o atendimento automatico segue bloqueado."
+)
+
 #: CC-01: a resposta HONESTA quando a escalacao nao pode ser aberta. Constante, nunca um draft de
 #: LLM (ver `_respond_start_failure`). Nao promete atendente, nao promete prazo, nao cita
 #: identificador nenhum — diz o que houve e o que o beneficiario pode fazer agora.
@@ -1536,6 +1553,16 @@ _HELENA_MEMORIA_DE_CONVERSA: frozenset[str] = frozenset(
 #: portao da coleta.
 _MEMORIA_DE_COLETA: frozenset[str] = frozenset({"coleta_rodadas", "coleta_pendente", "coleta_contexto"})
 
+
+def memoria_de_conversa_neutra() -> dict[str, Any]:
+    """Todos os campos de `_HELENA_MEMORIA_DE_CONVERSA` no valor NEUTRO (o de uma conversa nova).
+
+    DL-0083 (revisao do PR #700): o checkpoint e' indexado pelo TELEFONE, e num telefone de mais de uma
+    pessoa (ou depois de um REVOGAR) o historico curto (DL-0080), a memoria clinica e a coleta sao de OUTRA
+    pessoa. O despachante grava estes valores sobre o checkpoint antes de a nova pessoa falar com a Helena."""
+    return {campo: _HELENA_NEUTRAL_OUTPUTS[campo] for campo in sorted(_HELENA_MEMORIA_DE_CONVERSA)}
+
+
 #: MEMORIA CLINICA ENTRE TURNOS (Frente 2.1) — os campos que dizem QUEM E' O PACIENTE.
 #:
 #: O DEFEITO QUE ISTO CORRIGE, reproduzido tres vezes em 13/09/2026: um bebe de 11 meses foi
@@ -2389,6 +2416,15 @@ def _pergunta_quem_sou_eu(plano: str) -> bool:
     if _NAO_SEI_QUEM_SOU.search(limpo):
         return False
     return bool(_PERGUNTA_SOBRE_O_BENEFICIARIO.search(plano) or _PERGUNTA_QUEM_SOU_EU.search(limpo))
+
+
+def eh_pergunta_quem_sou_eu(texto: str) -> bool:
+    """`True` quando o texto pergunta se a Helena sabe QUEM ESCREVE ("sabe quem sou eu?", "me reconhece?").
+
+    Entrada publica da mesma deteccao lexical do DL-0078 para o ACESSO DO BENEFICIARIO (DL-0083): la' a
+    pergunta, com a conversa VERIFICADA, recebe um texto fixo proprio, sem passar pelo grafo.
+    """
+    return _pergunta_quem_sou_eu(_normalizar_texto(texto or ""))
 
 
 def _desfecho_determinado(estado: Mapping[str, Any]) -> bool:
@@ -3873,6 +3909,40 @@ class HelenaGraph:
             response_kind="schedule",
         )
 
+    async def escalar_revogacao_pendente(self, state: HelenaState) -> dict[str, Any]:
+        """ACESSO DO BENEFICIARIO (DL-0083, revisao do #700): a revogacao do consentimento nao foi gravada no
+        lago apos o teto de regravacoes. MESMO caminho de `escalar_identidade_nao_verificada` (categoria
+        `solicitacao_humano`, a que o roteamento DMN ja' conhece; severidade `leve`), com o resumo FIXO que
+        diz ao atendente o motivo operacional (`revogacao_consentimento_pendente`) e o runbook."""
+        return await self._start_escalation(
+            state,
+            motivo="solicitacao_humano",
+            severidade="leve",
+            response_kind="escalate",
+            resumo_fixo=RESUMO_REVOGACAO_PENDENTE,
+        )
+
+    async def escalar_identidade_nao_verificada(self, state: HelenaState) -> dict[str, Any]:
+        """ACESSO DO BENEFICIARIO (DL-0083): a pessoa esgotou as tentativas de verificar a identidade.
+
+        Abre SP-OP-ESCALATION-001 pelo MESMO caminho de `escalate`/`schedule` (chave de negocio idempotente
+        `ESC-{tenant}-{conversation_id}`, auditoria antes do efeito, start idempotente), com
+        `motivo_categoria="solicitacao_humano"` (a categoria EXISTENTE mais proxima de "uma pessoa precisa
+        assumir"; nao ha' uma propria para falha de verificacao) e `severidade="leve"` (a mesma do
+        agendamento, valor de negocio explicito, nao um chute). O resumo para o atendente e' FIXO e nenhum
+        modelo e' chamado: a mensagem que levou aqui pode ser um CPF, e ela nem entra no estado recebido.
+
+        O `response_text` devolvido e' o do escalonamento generico e NAO e' enviado por quem chama (o
+        despachante envia o texto fixo do acesso).
+        """
+        return await self._start_escalation(
+            state,
+            motivo="solicitacao_humano",
+            severidade="leve",
+            response_kind="escalate",
+            resumo_fixo=RESUMO_IDENTIDADE_NAO_VERIFICADA,
+        )
+
     async def escalate(self, state: HelenaState) -> dict[str, Any]:
         """Start SP-OP-ESCALATION-001 idempotently and draft the handoff response.
 
@@ -3932,6 +4002,7 @@ class HelenaGraph:
         severidade: Severidade | None,
         response_kind: ResponseKind,
         error: str | None = None,
+        resumo_fixo: str | None = None,
     ) -> dict[str, Any]:
         """Shared SP-OP-ESCALATION-001 start, factored out of `escalate` (GAP 9.2) so `schedule`
         can hand off to a human through the EXACT SAME audited/idempotent path instead of a
@@ -3957,7 +4028,13 @@ class HelenaGraph:
         # "pseudonimizado"), so the identifier net is applied HERE, at the producer, and again at
         # `start_process_idempotent` (CC-06). Scrubbing twice is idempotent: `redact_free_text`
         # replaces identifier substrings with class tokens, and the class tokens match no pattern.
-        resumo = redact_free_text(await self._resumo_contexto(state, motivo))
+        # DL-0083: o chamador pode trazer um resumo FIXO (texto escrito pelo codigo, nunca da pessoa) e
+        # entao o
+        # modelo nao e' chamado. E' o caso do bloqueio do acesso do beneficiario, em que a mensagem pode ser
+        # um CPF e NUNCA pode chegar a um prompt.
+        resumo = redact_free_text(
+            resumo_fixo if resumo_fixo is not None else await self._resumo_contexto(state, motivo)
+        )
         motivo_tecnico = error or state.get("error")
         if motivo == "falha_tecnica" and motivo_tecnico:
             # R1 cycle-1 fix: carry the technical-failure reason into the human handoff so the

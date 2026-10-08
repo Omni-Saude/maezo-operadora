@@ -42,7 +42,7 @@ KNOWN GAP, DISCLOSED (not a silent omission). `mcp-memory.read_write` is declare
 `spec/agents/*/agent.yaml` files and maps to the ratified `read_write_memory` (L3), but design
 §6.1's rung table declares NO action class for memory. Classifying it is the same kind of human
 act the manifest already reserves for the ~80 unmapped worker topics
-(`spec/policies/autonomy/action-approvals.yaml:653-656`: "decisão humana, não inferência de
+(`spec/policies/autonomy/action-approvals.yaml:672-675`: "decisão humana, não inferência de
 agente"), so no `memory.*` operation is catalogued here. Consequence, stated plainly: a memory
 seam routed through the chokepoint would DENY with `OPERACAO_DESCONHECIDA` — fail-closed, and
 inert today because nothing enforces. Design §8.5 item 2 (every declared `mcp-<server>.<action>`
@@ -188,6 +188,14 @@ ACTION_CLASSES: Final[MappingProxyType[str, ActionClassSpec]] = _classes(
         novo=True,
     ),
     # -- C3: engine mutation ---------------------------------------------------------------------
+    # ESCRITA no lago da AMH (DL-0083, revisao do #700): o registro do consentimento (ACEITO/REVOGAR) muda
+    # um fato FORA do Maezo, entao nao pode viver sob uma classe de LEITURA. Negado, degrada para o que o
+    # acesso ja' declara: a decisao vale aqui e o registro fica PENDENTE e visivel (lacuna declarada).
+    ActionClassSpec(
+        name="registro_consentimento",
+        rung=RUNG_C3_MUTACAO_ENGINE,
+        denial_shape=SHAPE_LACUNA_DECLARADA,
+    ),
     ActionClassSpec(
         name="inicio_processo_regulatorio",
         rung=RUNG_C3_MUTACAO_ENGINE,
@@ -384,6 +392,22 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         operation="amh.tina_get_requisicoes",
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_plan_facts",
+    ),
+    # -- Acesso do beneficiario (DL-0083, 08/10/2026; manifest aditivo v1.3, DRAFT; executores em
+    # `gateway/amh_interop.py`). A CONFERENCIA tem a mesma classe e postura das leituras acima (C2,
+    # `tool_id=None`): so' manda o HASH do fator (nunca CPF/nascimento) contra uma referencia candidata e a
+    # AMH devolve um booleano. O REGISTRO de consentimento e' uma ESCRITA no lago da AMH: classe PROPRIA
+    # (`registro_consentimento`, C3) e acao propria (`record_member_consent`, L3, declarada no `agent.yaml`
+    # da Helena) — o que a governanca le' no rotulo tem de ser o que a chamada faz.
+    OperationSpec(
+        operation="amh.verify_subject",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_billing_identity",
+    ),
+    OperationSpec(
+        operation="amh.record_consent",
+        action_class="registro_consentimento",
+        autonomy_action="record_member_consent",
     ),
     # -- WhatsApp send (C1). Leaf `tools/mcp_whatsapp/server.py:111`.
     OperationSpec(

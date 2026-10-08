@@ -802,6 +802,53 @@ variable "amh_tina_openapi_path" {
   nullable    = false
 }
 
+variable "acesso_beneficiario" {
+  description = <<-EOT
+    Acesso do beneficiario no WhatsApp (decisao do dono de 08/10/2026, DL-0083): `MAEZO_ACESSO_BENEFICIARIO`.
+    Default `false` (task definition intacta). Ligado, TODA conversa passa antes por consentimento (ACEITO) e
+    verificacao de identidade (CPF [+ nascimento]), sem LLM, e so' entao chega a Helena/Lucas. Exige o interop
+    da AMH (mesma composicao da identidade), a chave `amh/interop/subject-verify-key`, os dois OpenAPI
+    (`subject-verification`, `consent-record`) e os escopos `interop/subject.verify` + `interop/consent.write`
+    no client Cognito. O receptor RECUSA servir sem o manifest v1.3 pinado (contratos ainda nao publicados).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "acesso_validade_horas" {
+  description = "Validade, em horas, da verificacao de identidade do acesso (`MAEZO_ACESSO_VALIDADE_HORAS`, 1..168). Vencida, a proxima mensagem recomeca no CPF (o consentimento fica)."
+  type        = number
+  default     = 24
+  nullable    = false
+
+  validation {
+    condition     = var.acesso_validade_horas >= 1 && var.acesso_validade_horas <= 168 && floor(var.acesso_validade_horas) == var.acesso_validade_horas
+    error_message = "acesso_validade_horas deve ser um inteiro entre 1 e 168."
+  }
+}
+
+variable "amh_subject_verify_secret_name" {
+  description = "Segredo (criado pela AMH) com a chave dedicada do hash amh-subject-verify-v1 (CPF e CPF+nascimento). Lido so' com `acesso_beneficiario`."
+  type        = string
+  default     = "amh/interop/subject-verify-key"
+  nullable    = false
+}
+
+variable "amh_subject_verification_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `subject-verification` publicado (digest no bloco manifest_v1_3 do pin). Lido so' com `acesso_beneficiario`."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/subject-verification.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_consent_record_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `consent-record` publicado (digest no bloco manifest_v1_3 do pin). Lido so' com `acesso_beneficiario`."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/consent-record.openapi.yaml"
+  nullable    = false
+}
+
 variable "lucas_fonte_cobranca" {
   description = <<-EOT
     Fonte dos fatos de cobranca do Lucas: `simulada` (default) ou `amh` — a fonte real pelos

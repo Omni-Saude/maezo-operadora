@@ -93,10 +93,11 @@ VENDOR_AUDIENCE_TOKEN: Final = "vendor"
 SOURCE_UNAVAILABLE_REASON: Final = "SOURCE_UNAVAILABLE"
 
 #: (b) — a head linear esperada e as revisões vendor cuja aplicação o alvo deve reportar
-#: (0021 = store de supressão GP11 — VW4 wiring, insumos aceitos sha ab262f7b…).
-EXPECTED_HEAD: Final = "0021"
+#: (0021 = store de supressão GP11 — VW4 wiring, insumos aceitos sha ab262f7b…; 0022 = estado do acesso do
+#: beneficiario por conversa, DL-0083 — nao e' do plano vendor, so' empurrou a head linear).
+EXPECTED_HEAD: Final = "0022"
 #: O pai IMEDIATO da head (o par de revisão que o item (b) prova estruturalmente).
-EXPECTED_HEAD_PARENT: Final = "0020"
+EXPECTED_HEAD_PARENT: Final = "0021"
 VENDOR_MIGRATIONS: Final = ("0019", "0020", "0021")
 
 #: (e) — quantos bytes bastam para probar decodabilidade SEM parse de conteúdo.

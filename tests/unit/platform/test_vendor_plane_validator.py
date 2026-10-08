@@ -57,11 +57,12 @@ def test_a_base_tem_exatamente_19_bootstraps_e_o_contrato_e_19() -> None:
     assert len(ALL_WORKER_BOOTSTRAPS) == EXPECTED_WORKER_BOOTSTRAP_COUNT
 
 
-def test_a_cadeia_local_e_head_linear_0021_revisando_0020() -> None:
-    """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0021 revisa 0020
-    (0021 = store de supressão GP11 — VW4 wiring, insumos aceitos sha ab262f7b…)."""
+def test_a_cadeia_local_e_head_linear_0022_revisando_0021() -> None:
+    """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0022 revisa 0021
+    (0021 = store de supressão GP11 — VW4 wiring; 0022 = acesso do beneficiario, DL-0083)."""
     heads, edges = local_migration_chain()
-    assert heads == ("0021",)
+    assert heads == ("0022",)
+    assert edges["0022"] == "0021"
     assert edges["0021"] == "0020"
 
 
@@ -81,7 +82,7 @@ def _estado_default_off(tmp_path: Path, **overrides: object) -> VendorPlaneTarge
     ledger.write_text("# VW5-METRICS — dashboard de contagens (baseline→pós-VW3)\n", encoding="utf-8")
     values: dict[str, object] = {
         "capabilities_deployed": "identity",
-        "migration_heads": ("0021",),
+        "migration_heads": ("0022",),
         "applied_migrations": _applied_chain(),
         "worker_bootstrap_count": EXPECTED_WORKER_BOOTSTRAP_COUNT,
         "published_vendor_memberships": 0,
@@ -299,7 +300,7 @@ def _cli_fatos(tmp_path: Path) -> list[str]:
         "--capabilities",
         "identity",
         "--migration-heads",
-        "0021",
+        "0022",
         "--applied-migrations",
         ",".join(edges),
         "--worker-count",

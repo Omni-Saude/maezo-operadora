@@ -577,6 +577,25 @@ acoes:
       ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
+  registro_consentimento:
+    enforcement: shadow
+    descricao: >-
+      ESCRITA do consentimento do beneficiário (ACEITO/REVOGAR no WhatsApp) no lago da AMH pelo contrato
+      `consent-record` (manifest v1.3, DRAFT) — `record_member_consent` (L0-core.yaml, L3). Muda um fato
+      FORA do Maezo, por isso não é leitura (revisão do PR #700, DL-0083). Escrita idempotente por chave
+      determinística, só referência opaca + sha256 do texto exato; negada, a decisão vale localmente e o
+      registro fica PENDENTE e visível (lacuna declarada), nunca fabricado.
+    superficies:
+      - referencia: "src/maezo/gateway/amh_interop.py:1065"
+        detalhe: "AmhConsentRecordExecutor.execute — gate de sombra no caminho comum
+          `_ExecutorInteropAmh._rodar` (fase WRITE_DISPATCHED_UNDER_SHADOW_GATE)"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
   correlacao_processo:
     enforcement: shadow
     descricao: >-
@@ -733,6 +752,8 @@ mapeamento_acoes:
   agente.amh.tina_get_elegibilidade: leitura_phi_clinica
   agente.amh.tina_get_carencias: leitura_phi_clinica
   agente.amh.tina_get_requisicoes: leitura_phi_clinica
+  agente.amh.verify_subject: leitura_phi_clinica
+  agente.amh.record_consent: registro_consentimento
 
   agente.whatsapp.send_message: comunicacao_beneficiario
 

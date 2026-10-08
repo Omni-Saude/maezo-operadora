@@ -188,6 +188,11 @@ _ACTION_NOT_TOOL_SHAPED: Final[frozenset[str]] = frozenset(
         # Helena: fatos do plano pelo contrato TINA da AMH (DL de 07/10/2026). Mesma forma da acao
         # acima: a superficie e' o executor do gateway (`AmhTinaExecutor`, `tool_id=None`).
         "read_member_plan_facts",
+        # Helena: REGISTRO do consentimento do acesso do beneficiario pelo contrato `consent-record` da AMH
+        # (DL-0083, 08/10/2026). Mesma forma: a superficie e' o executor do gateway
+        # (`AmhConsentRecordExecutor`,
+        # `tool_id=None`); nao ha' id `mcp-*` para a sonda procurar.
+        "record_member_consent",
     }
 )
 
