@@ -1,0 +1,213 @@
+# subject-document-resolution.openapi.yaml — PROPOSTA (DRAFT) de contrato canônico AMH×Maezo v1 (artefato novo)
+# NÃO PUBLICADO: depende dos 4 aprovadores humanos e do gate XRG-2 (ADR-042 §2); manifest v1.3 em rascunho.
+# Objetivo: quem escreve ao Maezo de um número FORA do cadastro (resolve-by-phone não acha ninguém) se identifica
+# digitando CPF + data de nascimento; o receptor do Maezo transforma os dois em HMAC e a AMH devolve a ref SÓ quando o
+# par casa exatamente uma pessoa ativa.
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# DECISÃO DO DONO (Leonardo Silva, 08/10/2026), registrada como RISCO ACEITO contra o alerta da revisão de segurança
+# (esta rota é, por desenho, um caminho CPF+nascimento -> ref): ver
+# docs/governance/atestacao-manifest-v1-3-2026-10-08.md. Mitigações obrigatórias, todas neste contrato:
+#  * exige os DOIS fatores (cpf_hash E cpfdob_hash, do mesmo CPF); só CPF nunca resolve;
+#  * SEM ORÁCULO DE EXISTÊNCIA: CPF desconhecido, nascimento errado, ambíguo, inativo, bloqueado e índice indisponível
+#    respondem o MESMO 200 `resultado=nenhum`;
+#  * 5 falhas do mesmo cpf_hash em 24 h (de qualquer chamada, telefone ou conversa) bloqueiam aquele cpf_hash por 24 h;
+#    teto de 60 resoluções por minuto por cliente (429);
+#  * só o índice em memória do serviço: o hash nunca vira parâmetro de consulta no Athena;
+#  * o `tenant` vem do cliente do token.
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH Subject Document Resolution API (SubjectDocumentResolutionPort)
+  version: 0.1.0
+  description: |
+    Resolução da `portable_subject_ref` por CPF + data de nascimento, ambos como hash com chave, para o
+    beneficiário que escreve de um telefone que não está no cadastro. Escopo Cognito exigido:
+    `interop/subject.verify` (o mesmo da conferência `subject-verification`).
+
+    HASH: o MESMO esquema e a MESMA chave da conferência (`amh-subject-verify-v1`, chave dedicada
+    `amh/interop/subject-verify-key`):
+      * `cpf_hash    = HMAC-SHA256(chave, "<amh_tenant>:cpf:<11 dígitos>")`
+      * `cpfdob_hash = HMAC-SHA256(chave, "<amh_tenant>:cpfdob:<11 dígitos>:<AAAAMMDD>")`
+    em hex minúsculo (64 caracteres), calculados do MESMO CPF digitado. CPF e data de nascimento crus NUNCA trafegam,
+    nunca vão para log e nunca são guardados pelo Maezo além do cálculo.
+
+    SEMÂNTICA: `resultado=unico` (com `portable_subject_ref`) só quando o `cpfdob_hash` pertence, no cadastro da
+    operadora, a uma linha com ESTE `cpf_hash` e, entre as pessoas com esse par, exatamente UMA tem plano ativo.
+    Qualquer outro caso é `resultado=nenhum`, sem `portable_subject_ref` e com a mesma forma: CPF desconhecido,
+    nascimento que não casa, par em mais de uma pessoa ativa (ambíguo), pessoa sem plano ativo, cpf_hash bloqueado,
+    hash fora do formato, índice não carregado. `fonte_atualizada_em` é o instante da carga da tabela de verificação
+    inteira (não o da pessoa); `null` quando o índice não está carregado.
+
+    LIMITES (defesa da AMH, em memória por instância do serviço — com N instâncias o teto efetivo é N vezes):
+      * FALHA = `cpf_hash` informado e `cpfdob_hash` que não casa com ele. 5 falhas do MESMO `cpf_hash` em 24 h,
+        vindas de qualquer chamada, bloqueiam aquele `cpf_hash` por 24 h: a resposta é `nenhum` sem consultar o
+        índice. O alarme é registrado sem o hash.
+      * 60 resoluções por minuto por cliente M2M -> 429 `rate_limited`.
+    O Maezo DEVE, além disso, limitar as tentativas por conversa e NUNCA dizer ao beneficiário qual dado errou.
+
+    BASE LEGAL (decisão (c) do dono de 08/10/2026): consentimento explícito do titular (`wa-consent-v1`), colhido
+    pelo Maezo antes de pedir o CPF, registrado no `consent_log` por `consent-record` e revogável; ver
+    docs/governance/atestacao-manifest-v1-3-2026-10-08.md.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/identity/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11);
+      este contrato não fixa host.
+security:
+  - bearerAuth: []
+tags:
+  - name: subject-document-resolution
+    description: Resolve a ref por CPF + nascimento (hash com chave), só com casamento único e com limite.
+paths:
+  /resolve-by-document:
+    post:
+      tags: [subject-document-resolution]
+      operationId: resolveSubjectByDocument
+      summary: Resolve a ref pelo par CPF + nascimento, em hash com chave
+      description: >-
+        Compara o par com os hashes do cadastro da operadora no tenant do cliente. Devolve ref só com casamento
+        único em pessoa ativa. Escopo `interop/subject.verify`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentResolutionRequest'
+      responses:
+        '200':
+          description: >-
+            Resultado da resolução. Mesmo status para `unico` e para todos os casos sem resultado (`nenhum` não
+            revela se o CPF existe, se o nascimento errou, se é ambíguo ou se o cpf_hash está bloqueado).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentResolutionResponse'
+              examples:
+                unico:
+                  value:
+                    resultado: unico
+                    portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+                    fonte_atualizada_em: '2026-10-05T03:12:00Z'
+                nenhum:
+                  value:
+                    resultado: nenhum
+                    fonte_atualizada_em: '2026-10-05T03:12:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com o escopo `interop/subject.verify`; o tenant sai do
+        `client_id`. Fail-closed. Sem token válido -> 401; sem o escopo -> 403.
+  schemas:
+    DocumentResolutionRequest:
+      type: object
+      required: [cpf_hash, cpfdob_hash, hash_scheme, purpose_of_use, amh_tenant]
+      additionalProperties: false
+      properties:
+        cpf_hash:
+          type: string
+          description: >-
+            HMAC-SHA256 do CPF (`<amh_tenant>:cpf:<11 dígitos>`), 64 hex minúsculos. NUNCA o CPF. É a chave do
+            contador de falhas. Valor fora do formato não é erro: responde `nenhum`.
+          pattern: '^[0-9a-f]{64}$'
+          minLength: 1
+          maxLength: 256
+          example: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+        cpfdob_hash:
+          type: string
+          description: >-
+            HMAC-SHA256 do CPF + nascimento (`<amh_tenant>:cpfdob:<11 dígitos>:<AAAAMMDD>`), 64 hex minúsculos,
+            do MESMO CPF de `cpf_hash`. NUNCA o CPF nem a data.
+          pattern: '^[0-9a-f]{64}$'
+          minLength: 1
+          maxLength: 256
+          example: 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210'
+        hash_scheme:
+          type: string
+          description: Mesmo esquema da conferência (`subject-verification`).
+          enum: [amh-subject-verify-v1]
+        purpose_of_use:
+          type: string
+          description: >-
+            Propósito LGPD (obrigatório). O vocabulário atual não tem propósito de ATENDIMENTO AO BENEFICIÁRIO;
+            `sharing_amh_internal` é marcador deste rascunho, como nos outros contratos.
+          enum: [analytics, research, sharing_amh_internal, external_sharing]
+        amh_tenant:
+          type: string
+          description: Tenant AMH; tem de ser o do cliente do token (diferente -> 403).
+          example: austa_operadora
+    DocumentResolutionResponse:
+      type: object
+      required: [resultado, fonte_atualizada_em]
+      additionalProperties: false
+      properties:
+        resultado:
+          type: string
+          description: >-
+            `unico` = o par casou exatamente uma pessoa ativa (vem `portable_subject_ref`). `nenhum` = todo o resto,
+            sem distinção.
+          enum: [unico, nenhum]
+        portable_subject_ref:
+          type: string
+          description: Presente SÓ quando `resultado=unico`.
+          pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          minLength: 47
+          maxLength: 47
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Instante (UTC) da carga da tabela de verificação inteira — o mesmo para qualquer pedido. `null` quando o
+            índice de verificação não está carregado (nesse caso o resultado é sempre `nenhum`).
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code:
+          type: string
+        message:
+          type: string
+          description: Mensagem operacional SEM PHI e sem identificador de fonte.
+        reason:
+          type: string
+          nullable: true
+        trace_id:
+          type: string
+  responses:
+    BadRequest:
+      description: Corpo fora do esquema (campo faltando/extra ou de tipo errado, `hash_scheme` desconhecido, propósito inválido).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Cliente sem o escopo `interop/subject.verify`, cliente não mapeado, tenant não servido ou `amh_tenant` diferente do cliente.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Mais de 60 resoluções por minuto do mesmo cliente (por instância). `error_code=rate_limited`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno. Nunca significa `nenhum`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

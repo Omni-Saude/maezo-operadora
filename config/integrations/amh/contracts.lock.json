@@ -266,5 +266,55 @@
       "verified_at_utc": "2026-10-07T02:10:59Z",
       "verified_by": "lsilva@austa.com.br (Claude Code, a pedido do Leonardo)"
     }
+  },
+  "manifest_v1_3": {
+    "provenance": {
+      "amh_commit_sha": "6c16834f0a77bc63d121bc978394fad59089ed6d",
+      "amh_manifest_commit_sha": "be470f8dfdba2320da98b4e6243cbf9cd285ede4",
+      "evidence_id": "XRG2-AMH-DEV-GHA-37843212443",
+      "status": "PUBLISHED"
+    },
+    "manifest_pin": {
+      "byte_size": 9260,
+      "git_blob_sha": "5ef899a11ff876cf0a38804c4d2c63c12e5f71c5",
+      "path": "schemas/contracts/maezo/v1.3/contract-manifest.yaml",
+      "prepublication_sha256": "3c90c0d453531f00500ca6189837fdaaf9e4b8cb30dff5d72de1312f64accec5",
+      "sha256": "569d89f052ad33c38836b72aad9db3e207ca4a40d289bf1af671dda52ba9a026"
+    },
+    "compatibility_report": {
+      "dry_run_id": "github-actions-run-37843212443",
+      "dry_run_run_id": "37843212443",
+      "evidence_artifact_id": "11578806130",
+      "provider_contract_tests": "13 passed",
+      "result": "PASSED"
+    },
+    "publication": {
+      "environment": "dev",
+      "publication_run_id": "37843212443",
+      "published_at_utc": "2026-10-08T20:57:37Z"
+    },
+    "artifacts": [
+      {
+        "path": "schemas/openapi/maezo/v1/subject-verification.openapi.yaml",
+        "sha256": "d2f90e087fdbce1a31d9ecd1d5c4f82e755c62c370bf719def7cd11eeed05d76"
+      },
+      {
+        "path": "schemas/openapi/maezo/v1/subject-document-resolution.openapi.yaml",
+        "sha256": "a87a67a73038bab6def06cb76acd22d2b8fa2566a95940db8efdad094562b0b9"
+      },
+      {
+        "path": "schemas/openapi/maezo/v1/consent-record.openapi.yaml",
+        "sha256": "157d403c47cc14a9e3e096a6654567a51508ad7b3bf8ed1c7dc66c7c78319590"
+      }
+    ],
+    "xrg3_verification": {
+      "verification_method": [
+        "manifest v1.3 + digests recalculados pelo script scripts/ci/gerar_pin_v1_1.py",
+        "sha256, git blob sha e tamanho calculados sobre os bytes publicados",
+        "3 digests OpenAPI conferidos contra o manifest publicado"
+      ],
+      "verified_at_utc": "2026-10-08T21:05:19Z",
+      "verified_by": "Claude Code, a pedido do Márcio Filipe Filó do Carmo (CTO e owner)"
+    }
   }
 }

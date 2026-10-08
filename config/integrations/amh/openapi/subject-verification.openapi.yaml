@@ -1,0 +1,224 @@
+# subject-verification.openapi.yaml — PROPOSTA (DRAFT) de contrato canônico AMH×Maezo v1 (artefato novo)
+# NÃO PUBLICADO: depende dos 4 aprovadores humanos e do gate XRG-2 (ADR-042 §2); manifest v1.3 em rascunho.
+# Objetivo: depois de resolver o beneficiário pelo telefone (`subject-resolution`), o Maezo (Helena e Lucas) CONFERE
+# que quem está na conversa é aquela pessoa, pelo CPF (ou CPF + data de nascimento) digitado, SEM que CPF ou
+# nascimento cru jamais saiam do receptor do Maezo.
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# REGRAS DE DESENHO (decisão do dono, 08/10/2026):
+#  * a rota só CONFERE uma ref que o Maezo JÁ TEM; ela NUNCA devolve uma ref a partir de CPF (sem oráculo CPF->ref
+#    nesta rota). A ÚNICA resolução por documento é o contrato separado `subject-document-resolution` (exige CPF E
+#    nascimento, com limite por cpf_hash; decisão do dono de 08/10/2026, risco aceito — ver
+#    docs/governance/atestacao-manifest-v1-3-2026-10-08.md);
+#  * o CPF e o nascimento existem crus SÓ no receptor do Maezo; ali viram um HMAC-SHA256 com chave dedicada e é o
+#    hash que trafega. A AMH guarda os mesmos hashes (calculados do cadastro da operadora) e só compara;
+#  * SEM ORÁCULO DE EXISTÊNCIA: ref desconhecida, ref sem dados, hash ambíguo/malformado e índice indisponível
+#    respondem o MESMO 200 com `confere=false`;
+#  * a comparação usa só o índice em memória do serviço: o hash nunca vira parâmetro de consulta no Athena
+#    (ficaria no histórico de consultas do workgroup);
+#  * o `tenant` vem do cliente do token.
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH Subject Verification API (SubjectVerificationPort)
+  version: 0.2.0
+  description: |
+    Conferência de identidade do beneficiário por fator de conhecimento (CPF; CPF + data de nascimento),
+    sempre por hash com chave, contra uma `portable_subject_ref` que o chamador já tem. Escopo Cognito
+    exigido: `interop/subject.verify`.
+
+    HASH (esquema `amh-subject-verify-v1`; chave dedicada `amh/interop/subject-verify-key`, separada das
+    chaves do MPI, do telefone e do pseudônimo de conversa; a AMH a guarda e o receptor do Maezo recebe a mesma):
+      * `fator = cpf`    -> `verification_hash = HMAC-SHA256(chave, "<amh_tenant>:cpf:<11 dígitos>")`
+      * `fator = cpfdob` -> `verification_hash = HMAC-SHA256(chave, "<amh_tenant>:cpfdob:<11 dígitos>:<AAAAMMDD>")`
+    `<amh_tenant>` é o tenant do cliente do token (por exemplo `austa_operadora`). O CPF entra só com os 11 dígitos
+    (sem pontos nem traço) e a data como AAAAMMDD; o resultado vai em hex minúsculo (64 caracteres). O CPF e a data
+    de nascimento crus NUNCA trafegam, nunca são registrados em log e nunca são guardados pelo Maezo além do cálculo.
+
+    SEMÂNTICA: `confere=true` só quando o hash do fator pertence à ref do caminho e a NENHUMA outra ref do tenant
+    (hash repartido entre pessoas — cadastro duplicado, dependente com o CPF do titular — nunca confere; o Maezo
+    pede então `cpfdob`). Todo o resto é `confere=false` com a mesma forma: ref desconhecida, ref sem CPF no
+    cadastro, hash de outra pessoa, hash fora do formato, índice ainda não carregado. `fonte_atualizada_em` é o
+    instante da carga da tabela de verificação INTEIRA (não o da pessoa), igual para refs conhecidas e
+    desconhecidas; `null` quando o índice não está carregado.
+
+    LIMITE DE TENTATIVAS: o HMAC com chave impede que quem não tem a chave teste CPFs; quem a tem (o receptor do
+    Maezo) é confiável, mas o CPF tem só 11 dígitos: por isso o Maezo DEVE limitar as tentativas por conversa
+    (recomendado: 3 erros e escalar a humano) e NUNCA dizer ao beneficiário qual dado errou. Defesa adicional
+    da AMH: acima de 10 conferências da MESMA ref em 10 minutos (por instância do serviço), a resposta é
+    `confere=false` sem comparar o hash, até a janela passar.
+
+    BASE LEGAL (decisão (c) do dono de 08/10/2026; ver docs/governance/atestacao-manifest-v1-3-2026-10-08.md):
+    CONSENTIMENTO EXPLÍCITO do titular para o atendimento por WhatsApp, texto `wa-consent-v1`, registrado no
+    `consent_log` (ADR-045) por `consent-record` e revogável a qualquer momento (`decision=revoked`). O Maezo colhe
+    o aceite ANTES de pedir o CPF/nascimento; sem aceite (ou depois de revogado) não pede nem confere. O
+    CPF/nascimento digitado é só o fator de conferência e não é guardado pelo Maezo. Esta rota não lê o
+    `consent_log`: a ordem aceite -> conferência é obrigação do chamador.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/identity/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11);
+      este contrato não fixa host.
+security:
+  - bearerAuth: []
+tags:
+  - name: subject-verification
+    description: Confere um fator de conhecimento (hash com chave) contra uma ref já conhecida.
+paths:
+  /subjects/{ref}/verify:
+    post:
+      tags: [subject-verification]
+      operationId: verifySubject
+      summary: Confere o CPF (ou CPF + nascimento), em hash com chave, contra a ref informada
+      description: >-
+        Compara o hash com os hashes do cadastro da operadora para a ref do caminho, no tenant do cliente.
+        Nunca devolve outra ref. Escopo `interop/subject.verify`.
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: '`portable_subject_ref` já resolvida pelo chamador (por exemplo, por `resolve-by-phone`).'
+          schema:
+            type: string
+            pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+            minLength: 47
+            maxLength: 47
+          example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectVerificationRequest'
+      responses:
+        '200':
+          description: >-
+            Resultado da conferência. Mesma forma e mesmo status para "confere" e para todos os casos que não
+            conferem (ref desconhecida ou sem dados, hash de outra pessoa, ambíguo ou malformado, índice indisponível).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectVerificationResponse'
+              examples:
+                confere:
+                  value:
+                    portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+                    confere: true
+                    fonte_atualizada_em: '2026-10-05T03:12:00Z'
+                nao_confere:
+                  value:
+                    portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+                    confere: false
+                    fonte_atualizada_em: '2026-10-05T03:12:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com o escopo `interop/subject.verify`; o tenant sai do
+        `client_id`. Fail-closed. Sem token válido -> 401; sem o escopo -> 403.
+  schemas:
+    SubjectVerificationRequest:
+      type: object
+      required: [fator, verification_hash, hash_scheme, purpose_of_use]
+      additionalProperties: false
+      properties:
+        fator:
+          type: string
+          description: >-
+            Fator conferido. `cpf` = só o CPF. `cpfdob` = CPF + data de nascimento (telefone compartilhado,
+            ou CPF repartido entre pessoas do cadastro).
+          enum: [cpf, cpfdob]
+        verification_hash:
+          type: string
+          description: >-
+            HMAC-SHA256 do fator, 64 caracteres hex minúsculos. NUNCA o CPF nem a data. Um valor fora deste
+            formato NÃO é erro: responde `confere=false` como qualquer outro caso que não confere.
+          pattern: '^[0-9a-f]{64}$'
+          minLength: 1
+          maxLength: 256
+          example: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+        hash_scheme:
+          type: string
+          description: >-
+            Esquema do hash. `amh-subject-verify-v1` = HMAC-SHA256 com a chave dedicada
+            `amh/interop/subject-verify-key`, em hex minúsculo; as mensagens estão na descrição da API.
+          enum: [amh-subject-verify-v1]
+        purpose_of_use:
+          type: string
+          description: >-
+            Propósito LGPD (obrigatório). DECISÃO PENDENTE (DPO): o vocabulário atual não tem propósito de
+            ATENDIMENTO AO BENEFICIÁRIO; `sharing_amh_internal` é marcador deste rascunho, como nos outros contratos.
+          enum: [analytics, research, sharing_amh_internal, external_sharing]
+    SubjectVerificationResponse:
+      type: object
+      required: [portable_subject_ref, confere, fonte_atualizada_em]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          description: A MESMA ref do caminho (eco); nunca outra.
+          pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          minLength: 47
+          maxLength: 47
+        confere:
+          type: boolean
+          description: >-
+            `true` só quando o hash do fator é o desta ref e de nenhuma outra do tenant. `false` em todos os
+            outros casos, sem distinção (não revela se a ref existe ou tem dados).
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Instante (UTC) da carga da tabela de verificação inteira — o mesmo para qualquer ref. `null` quando
+            o índice de verificação não está carregado (nesse caso `confere` é sempre `false`).
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code:
+          type: string
+        message:
+          type: string
+          description: Mensagem operacional SEM PHI e sem identificador de fonte.
+        reason:
+          type: string
+          nullable: true
+        trace_id:
+          type: string
+  responses:
+    BadRequest:
+      description: Ref fora do padrão ou corpo fora do esquema (campo faltando/extra ou de tipo errado, `fator`/`hash_scheme` desconhecidos, propósito inválido).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Cliente sem o escopo `interop/subject.verify`, cliente não mapeado ou tenant não servido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno. Nunca significa "não confere".
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

@@ -1,8 +1,8 @@
 """Testes do pin ADITIVO v1.1 (billing-status + subject-resolution) e do gerador do bloco.
 
 Hermeticos: o manifest "publicado" e' SINTETICO (montado aqui), o lock real e' copiado para tmp_path.
-O lock real NAO tem o bloco `manifest_v1_1` (manifest ainda UNPUBLISHED na AMH): o pin so-v1 tem de
-continuar valido e os adaptadores de cobranca/identidade seguem fail-closed.
+O lock real ja tem o bloco `manifest_v1_1`; o pin so-v1 (bloco removido em memoria) tem de continuar
+valido e os adaptadores de cobranca/identidade seguem fail-closed sem ele.
 """
 
 from __future__ import annotations
@@ -112,6 +112,8 @@ def lock_so_v1() -> dict[str, Any]:
     """O lock real sem o bloco v1.1: o estado de antes do pin, que segue valido."""
     lock = copy.deepcopy(json.loads(LOCK_PATH.read_text(encoding="utf-8")))
     lock.pop(V1_1_LOCK_KEY, None)
+    lock.pop("manifest_v1_2", None)
+    lock.pop("manifest_v1_3", None)
     return lock
 
 
@@ -149,7 +151,7 @@ def test_lock_real_tem_o_bloco_v1_1_publicado_e_adaptadores_com_digest() -> None
     for path, sha in esperado.items():
         assert pin.artifact_digests[path] == sha
         copia = REPO_ROOT / "config/integrations/amh/openapi" / Path(path).name  # vai na imagem
-        assert hashlib.sha256(copia.read_bytes()).hexdigest() == sha
+        assert hashlib.sha256(copia.read_bytes().replace(b"\r\n", b"\n")).hexdigest() == sha
 
 
 def test_caminhos_v1_1_iguais_no_loader_e_no_verificador() -> None:
@@ -171,8 +173,8 @@ def test_lock_com_bloco_v1_1_passa_sem_ids_glue(tmp_path: Path) -> None:
     assert pin.artifact_digests[V1_1_ARTIFACT_PATHS[0]] == BILLING_SHA
     assert pin.artifact_digests[V1_1_ARTIFACT_PATHS[1]] == SUBJECT_SHA
     assert pin.manifest_v1_1_digest == lock[V1_1_LOCK_KEY]["manifest_pin"]["sha256"]
-    # os 5 do v1 continuam ali
-    assert len(pin.artifact_digests) == 7
+    # os 5 do v1 + os 2 do v1.1 + os 3 do v1.3 (o lock real ja tem o bloco v1.3 pinado)
+    assert len(pin.artifact_digests) == 10
 
 
 @pytest.mark.parametrize(

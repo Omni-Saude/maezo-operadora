@@ -1,7 +1,7 @@
 """Adaptador da resolucao pelo DOCUMENTO (DL-0084) com schema SINTETICO minusculo (nao e' copia).
 
 A rota mora no artefato proprio da AMH #214 (`subject-document-resolution.openapi.yaml`, 3o do pin v1.3,
-AINDA NAO pinado): sem o bloco no lock o construtor recusa. Forma da AMH: `{cpf_hash, cpfdob_hash,
+pinado no lock real): sem o bloco no lock o construtor recusa. Forma da AMH: `{cpf_hash, cpfdob_hash,
 hash_scheme, purpose_of_use, amh_tenant}` -> `{resultado, portable_subject_ref?, fonte_atualizada_em}`.
 """
 
@@ -10,16 +10,22 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import yaml
 
 from maezo.adapters.amh import document_resolution as dr
-from maezo.adapters.amh.contract import load_contract_pin
+from maezo.adapters.amh.contract import (
+    CONTRACT_PIN_RELATIVE_PATH,
+    V1_3_LOCK_KEY,
+    load_contract_pin,
+)
 from maezo.ports.document_resolution import DocumentResolutionPort
 from maezo.ports.errors import PortFailureReason as Reason
 from maezo.ports.errors import PortResult
 
+REPO_ROOT = Path(__file__).resolve().parents[4]
 H_CPF = "a" * 64
 H_DOB = "b" * 64
 ARGS = {
@@ -131,14 +137,35 @@ def documento(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
     return dr.AmhDocumentResolutionAdapter(raw, executor=ex), ex
 
 
-def test_sem_pin_v1_3_recusa_e_mora_no_artefato_proprio_subject_document_resolution() -> None:
+def test_lock_real_pina_o_artefato_proprio_subject_document_resolution() -> None:
     assert dr.ARTIFACT == "schemas/openapi/maezo/v1/subject-document-resolution.openapi.yaml"
     from maezo.adapters.amh.contract import V1_3_ARTIFACT_PATHS
 
     assert dr.ARTIFACT in V1_3_ARTIFACT_PATHS and len(V1_3_ARTIFACT_PATHS) == 3
-    assert dr.ARTIFACT not in load_contract_pin().artifact_digests
+    pin = load_contract_pin()
+    assert dr.ARTIFACT in pin.artifact_digests
+    raw = (
+        REPO_ROOT / "config/integrations/amh/openapi/subject-document-resolution.openapi.yaml"
+    ).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == pin.artifact_digests[dr.ARTIFACT]
+    # bytes que nao sao os pinados seguem recusados
     with pytest.raises(dr.DocumentResolutionContractError):
         dr.AmhDocumentResolutionAdapter(_openapi(), executor=Exec())
+
+
+def test_lock_sem_o_bloco_v1_3_recusa(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    lock = json.loads((REPO_ROOT / CONTRACT_PIN_RELATIVE_PATH).read_text(encoding="utf-8"))
+    lock.pop(V1_3_LOCK_KEY)
+    sem_v1_3 = tmp_path / "contracts.lock.json"
+    sem_v1_3.write_text(json.dumps(lock), encoding="utf-8")
+    pin = load_contract_pin(sem_v1_3)
+    assert dr.ARTIFACT not in pin.artifact_digests
+    monkeypatch.setattr(dr, "load_contract_pin", lambda path=None: pin)
+    raw = (
+        REPO_ROOT / "config/integrations/amh/openapi/subject-document-resolution.openapi.yaml"
+    ).read_bytes()
+    with pytest.raises(dr.DocumentResolutionContractError):
+        dr.AmhDocumentResolutionAdapter(raw, executor=Exec())
 
 
 def test_artefato_pinado_sem_a_rota_recusa(monkeypatch: pytest.MonkeyPatch) -> None:

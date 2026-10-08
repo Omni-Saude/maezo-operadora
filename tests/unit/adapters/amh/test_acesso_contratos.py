@@ -1,8 +1,8 @@
 """Adaptadores do acesso do beneficiario (DL-0083) com schemas SINTETICOS minusculos (nao e' copia).
 
-Os contratos reais (`subject-verification` e `consent-record`, manifest v1.3) estao sendo escritos na AMH
-e NAO estao pinados: `test_sem_pin_v1_3_os_construtores_recusam` fecha isso, e `test_pin_v1_3_*` prova que o
-carregador do pin sabe ler o bloco quando ele existir (sem tocar o lock real).
+Os contratos reais (`subject-verification` e `consent-record`, manifest v1.3) estao pinados no lock real e
+vendorizados: o primeiro teste prova que os bytes vendorizados constroem o adaptador;
+`test_lock_sem_o_bloco_v1_3_os_construtores_recusam` prova o fail-closed num lock SEM o bloco (tmp_path).
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import yaml
@@ -17,6 +18,7 @@ import yaml
 from maezo.adapters.amh import consent_record as cr
 from maezo.adapters.amh import subject_verification as sv
 from maezo.adapters.amh.contract import (
+    CONTRACT_PIN_RELATIVE_PATH,
     V1_3_ARTIFACT_PATHS,
     V1_3_LOCK_KEY,
     AmhContractPinError,
@@ -28,6 +30,7 @@ from maezo.ports.errors import PortResult
 from maezo.ports.subject_verification import SubjectVerificationPort
 
 HASH = "a" * 64
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _openapi_verificacao(parametro: str = "ref") -> bytes:
@@ -219,11 +222,46 @@ _C = {
 }
 
 
-def test_sem_pin_v1_3_os_construtores_recusam() -> None:
-    """O lock real NAO tem `manifest_v1_3`: nenhum byte e' aceito (fail-closed por construcao)."""
+def test_lock_real_pina_o_v1_3_e_os_construtores_aceitam_os_bytes_vendorizados() -> None:
     pin = load_contract_pin()
+    assert sv.ARTIFACT in pin.artifact_digests and cr.ARTIFACT in pin.artifact_digests
+    assert pin.manifest_v1_3_digest is not None
+    openapi = REPO_ROOT / "config/integrations/amh/openapi"
+    raw_sv = (openapi / "subject-verification.openapi.yaml").read_bytes()
+    raw_cr = (openapi / "consent-record.openapi.yaml").read_bytes()
+    assert hashlib.sha256(raw_sv).hexdigest() == pin.artifact_digests[sv.ARTIFACT]
+    assert hashlib.sha256(raw_cr).hexdigest() == pin.artifact_digests[cr.ARTIFACT]
+    sv.AmhSubjectVerificationAdapter(raw_sv, executor=ExecVerificacao())
+    cr.AmhConsentRecordAdapter(raw_cr, executor=ExecConsentimento())
+    # bytes que nao sao os pinados seguem recusados
+    with pytest.raises(sv.SubjectVerificationContractError):
+        sv.AmhSubjectVerificationAdapter(_openapi_verificacao(), executor=ExecVerificacao())
+    with pytest.raises(cr.ConsentRecordContractError):
+        cr.AmhConsentRecordAdapter(_openapi_consentimento(), executor=ExecConsentimento())
+
+
+def test_lock_sem_o_bloco_v1_3_os_construtores_recusam(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Sem `manifest_v1_3` no lock nenhum byte e' aceito (fail-closed por construcao)."""
+    lock = json.loads((REPO_ROOT / CONTRACT_PIN_RELATIVE_PATH).read_text(encoding="utf-8"))
+    lock.pop(V1_3_LOCK_KEY)
+    sem_v1_3 = tmp_path / "contracts.lock.json"
+    sem_v1_3.write_text(json.dumps(lock), encoding="utf-8")
+    pin = load_contract_pin(sem_v1_3)
+    monkeypatch.setattr(sv, "load_contract_pin", lambda path=None: pin)
+    monkeypatch.setattr(cr, "load_contract_pin", lambda path=None: pin)
     assert sv.ARTIFACT not in pin.artifact_digests and cr.ARTIFACT not in pin.artifact_digests
     assert pin.manifest_v1_3_digest is None
+    openapi = REPO_ROOT / "config/integrations/amh/openapi"
+    with pytest.raises(sv.SubjectVerificationContractError):
+        sv.AmhSubjectVerificationAdapter(
+            (openapi / "subject-verification.openapi.yaml").read_bytes(), executor=ExecVerificacao()
+        )
+    with pytest.raises(cr.ConsentRecordContractError):
+        cr.AmhConsentRecordAdapter(
+            (openapi / "consent-record.openapi.yaml").read_bytes(), executor=ExecConsentimento()
+        )
     with pytest.raises(sv.SubjectVerificationContractError):
         sv.AmhSubjectVerificationAdapter(_openapi_verificacao(), executor=ExecVerificacao())
     with pytest.raises(cr.ConsentRecordContractError):
