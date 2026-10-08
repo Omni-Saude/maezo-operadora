@@ -553,7 +553,7 @@ def test_hasher_nao_expoe_a_chave_nem_aceita_formato_ruim() -> None:
     assert CHAVE not in repr(h)
     assert h.hash_cpf("123") is None and h.hash_cpf_nascimento(CPF, "1985-03-07") is None
     assert h.hash_cpf(CPF) != h.hash_cpf_nascimento(CPF, "19850307")
-    with pytest.raises(Exception):  # noqa: B017,PT011 - chave curta recusa
+    with pytest.raises(Exception):  # noqa: B017 - chave curta recusa
         AmhSubjectVerifyHasher(key="curta", amh_tenant=TENANT_AMH)
 
 

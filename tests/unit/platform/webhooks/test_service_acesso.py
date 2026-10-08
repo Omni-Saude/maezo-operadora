@@ -40,7 +40,7 @@ def test_le_os_nomes_canonicos_e_a_chave_nao_aparece_no_repr(monkeypatch: pytest
 
 @pytest.mark.parametrize("valor", [0, -1, 169])
 def test_validade_fora_da_faixa_recusa_no_boot(valor: int) -> None:
-    with pytest.raises(ValueError):  # noqa: PT011
+    with pytest.raises(ValueError):
         _settings(acesso_validade_horas=valor)
 
 
