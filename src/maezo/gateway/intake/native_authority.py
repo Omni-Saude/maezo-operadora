@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import re
 import ssl
 import stat
 from dataclasses import dataclass, field
@@ -829,7 +830,52 @@ class AuthLifecycleConfiguration(Closed):
     intake_key_digest: str = Field(pattern=r"^[a-f0-9]{64}$", repr=False)
 
 
-def _engine(url: SecretStr) -> AsyncEngine:
+class ProtectedDatabaseTlsRoot(Closed):
+    """Protected composition-owner input; not a caller or lifecycle-v1 field."""
+
+    path: Path = Field(repr=False)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+def _database_tls(root: ProtectedDatabaseTlsRoot) -> ssl.SSLContext:
+    """Admit exactly one pinned, current CA without hidden system trust roots."""
+    if type(root) is not ProtectedDatabaseTlsRoot:
+        raise AuthUnavailableError()
+    try:
+        raw = protected_bytes(root.path, root.sha256)
+        if (
+            re.fullmatch(
+                rb"-----BEGIN CERTIFICATE-----\r?\n[A-Za-z0-9+/=\r\n]+"
+                rb"-----END CERTIFICATE-----\r?\n?",
+                raw,
+            )
+            is None
+        ):
+            raise AuthUnavailableError()
+        cert = x509.load_pem_x509_certificate(raw)
+        constraints = cert.extensions.get_extension_for_class(x509.BasicConstraints).value
+        usage = cert.extensions.get_extension_for_class(x509.KeyUsage).value
+        now = datetime.now(UTC)
+        if (
+            not constraints.ca
+            or not usage.key_cert_sign
+            or not cert.not_valid_before_utc <= now < cert.not_valid_after_utc
+        ):
+            raise AuthUnavailableError()
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cadata=raw.decode("ascii"))
+        if (
+            context.verify_mode != ssl.CERT_REQUIRED
+            or not context.check_hostname
+            or context.get_ca_certs(binary_form=True) != [cert.public_bytes(serialization.Encoding.DER)]
+        ):
+            raise AuthUnavailableError()
+        return context
+    except (OSError, ValueError, x509.ExtensionNotFound, ssl.SSLError):
+        raise AuthUnavailableError() from None
+
+
+def _engine(url: SecretStr, *, _database_ssl: ssl.SSLContext | None = None) -> AsyncEngine:
     parsed = make_url(url.get_secret_value())
     if parsed.drivername != "postgresql+asyncpg" or not parsed.host or not parsed.database or parsed.query:
         raise AuthUnavailableError()
@@ -839,7 +885,10 @@ def _engine(url: SecretStr) -> AsyncEngine:
         echo=False,
         pool_size=1,
         max_overflow=0,
-        connect_args={"ssl": ssl.create_default_context(), "command_timeout": 5},
+        connect_args={
+            "ssl": ssl.create_default_context() if _database_ssl is None else _database_ssl,
+            "command_timeout": 5,
+        },
     )
 
 
@@ -988,7 +1037,11 @@ class AuthProductionComposition:
 
 
 def load_auth_lifecycle(
-    path: Path, *, tenant: str, identity_writer: AsyncEngine
+    path: Path,
+    *,
+    tenant: str,
+    identity_writer: AsyncEngine,
+    database_tls_root: ProtectedDatabaseTlsRoot | None = None,
 ) -> AuthProductionComposition:
     """Gateway-only protected loader; actual DB qualification occurs before use."""
     from maezo.gateway.human.auth_publisher import PostgresAuthPublicationJournal
@@ -998,6 +1051,7 @@ def load_auth_lifecycle(
     config = AuthLifecycleConfiguration.model_validate_json(protected_bytes(path), strict=True)
     if config.identity.tenant != tenant or config.native.scope not in config.identity.scopes:
         raise AuthUnavailableError()
+    database_ssl = None if database_tls_root is None else _database_tls(database_tls_root)
     cert_bytes = protected_bytes(
         config.client.client_certificate_path, config.client.client_certificate_digest
     )
@@ -1017,7 +1071,7 @@ def load_auth_lifecycle(
     tls.load_cert_chain(
         str(config.client.client_certificate_path), str(config.client.client_private_key_path)
     )
-    reader = NativeAuthReader(_engine(config.native_reader_url), config.native)
+    reader = NativeAuthReader(_engine(config.native_reader_url, _database_ssl=database_ssl), config.native)
     credentials = PostgresAuthCredentialProvider(reader, config.client)
     client = AuthNativeClient(
         origin=config.client.origin,
@@ -1030,15 +1084,18 @@ def load_auth_lifecycle(
     if len(journal_key) != 32 or len(intake_key) != 32 or journal_key == intake_key:
         raise AuthUnavailableError()
     store = PostgresAuthDispatchStore(
-        _engine(config.protected_url), tenant=tenant, key_id=config.journal_key_id, key=journal_key
+        _engine(config.protected_url, _database_ssl=database_ssl),
+        tenant=tenant,
+        key_id=config.journal_key_id,
+        key=journal_key,
     )
     journal = PostgresAuthPublicationJournal(store)
     source = PostgresAuthSourceLifecycle(
         binding=config.identity,
-        reader=_engine(config.identity_reader_url),
+        reader=_engine(config.identity_reader_url, _database_ssl=database_ssl),
         writer=identity_writer,
-        control=_engine(config.identity_control_url),
-        receipts=_engine(config.identity_receipt_url),
+        control=_engine(config.identity_control_url, _database_ssl=database_ssl),
+        receipts=_engine(config.identity_receipt_url, _database_ssl=database_ssl),
         native=client,
         publication_journal=journal,
         protected_store=store,

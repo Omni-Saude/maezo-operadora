@@ -19,10 +19,24 @@ final class StartupAdmission {
   private final Path root;
   private final Map<String,String> vendor;
   private final Set<String> pinned;
+  private final Map<String,Object> observation;
+  private final List<Map<String,Object>> admittedFiles;
   StartupAdmission(StartupCustody custody) {
-    root=custody.root;pinned=new HashSet<>();
+    root=custody.root;pinned=new HashSet<>();admittedFiles=custody.files;
+    var candidates=custody.files.stream().filter(f->Path.of(Json.string(f,"path")).getFileName().toString().equals(RuntimeObservationAdmission.ADMISSION_FILE)).toList();
+    if(candidates.isEmpty())observation=null;
+    else {
+      require(candidates.size()==1);var ref=candidates.get(0);
+      observation=Json.parse(RuntimeObservationAdmission.readProtected(Path.of(Json.string(ref,"path")),Json.string(ref,"sha256"),65536));
+      RuntimeObservationAdmission.validate("ObservationAdmission",observation);
+      var boundary=Json.parse(BoundaryPolicy.read(custody.policyPath,custody.policyDigest));
+      require(observation.get("engine_name").equals(boundary.get("engine_name"))
+          && Json.object(observation.get("identity")).get("tenant").equals(boundary.get("tenant"))
+          && Json.object(observation.get("identity")).get("environment").equals(boundary.get("environment")));
+    }
     custody.files.forEach(f->pinned.add(Json.string(f,"path")));
-    vendor=readInventory("/secured-startup-vendor.sha256");current();
+    vendor=inventory("vendor");current();
+    NativeMeasurementBinding.startup(custody,Json.parse(BoundaryPolicy.read(custody.policyPath,custody.policyDigest)));
   }
   void current() {
     try {
@@ -33,7 +47,8 @@ final class StartupAdmission {
         }
       }
       require(apps.equals(APPS));
-      for(var entry:readInventory("/secured-startup-descriptors.sha256").entrySet()) {
+      if(observation!=null)currentObservation();
+      for(var entry:inventory("descriptors").entrySet()) {
         requirePinned(entry.getKey());require(entry.getValue().equals(digest(root.resolve(entry.getKey()))));
       }
       verifyOwnArtifacts();
@@ -70,6 +85,35 @@ final class StartupAdmission {
         require(stream.noneMatch(p->Files.isRegularFile(p) && p.toString().endsWith(".xml")));
       }
     } catch(IOException e) {throw Refused.unavailable();}
+  }
+  private void currentObservation() {
+    var ref=RuntimeObservationAdmission.named(admittedFiles,RuntimeObservationAdmission.ADMISSION_FILE);
+    require(observation.equals(Json.parse(RuntimeObservationAdmission.readProtected(Path.of(Json.string(ref,"path")),Json.string(ref,"sha256"),65536))));
+    var now=java.time.Instant.now();require(!now.isBefore(java.time.Instant.parse(Json.string(observation,"issued_at")))
+        && now.isBefore(java.time.Instant.parse(Json.string(observation,"original_deadline"))));
+    for(var binding:Map.of("native_jar_sha256","lib/maezo-human-command.jar","support_jar_sha256","lib/provider-auth-test-support.jar",
+        "rest_spi_jar_sha256","webapps/engine-rest/WEB-INF/lib/maezo-rest-spi.jar","descriptor_sha256","conf/bpm-platform.xml").entrySet()) {
+      String path=root.resolve(binding.getValue()).toString(),sha=Json.string(observation,binding.getKey());
+      require(admittedFiles.stream().filter(f->path.equals(f.get("path")) && sha.equals(f.get("sha256"))).count()==1
+          && sha.equals(RuntimeDefinitionObservation.binaryDigest(Path.of(path))));
+    }
+  }
+  private Map<String,String> inventory(String kind) {
+    if(observation==null)return readInventory("/secured-startup-"+kind+".sha256");
+    currentObservation();String variant=Json.string(observation,"startup_variant");
+    require(Set.of("phase-a","phase-b").contains(variant));
+    Path jar=root.resolve(kind.equals("descriptors")?"lib/provider-auth-test-support.jar":"lib/maezo-human-command.jar");
+    String entry="provider-native/"+variant+"/secured-startup-"+kind+".sha256";
+    String key=kind.equals("descriptors")?"startup_descriptor_inventory_sha256":"startup_vendor_inventory_sha256";
+    require(RuntimeDefinitionObservation.jarResource(jar,entry).equals(observation.get(key)));
+    try {
+      var resources=Collections.list(StartupAdmission.class.getClassLoader().getResources(entry));require(resources.size()==1);
+      var connection=(java.net.JarURLConnection)resources.get(0).openConnection();
+      require(Path.of(connection.getJarFileURL().toURI()).equals(jar));
+      try(var file=new java.util.jar.JarFile(jar.toFile());var stream=file.getInputStream(file.getJarEntry(entry))) {
+        return parseInventory(stream.readNBytes(Json.LIMIT+1));
+      }
+    }catch(Exception e){throw Refused.unavailable();}
   }
   /** AFTER_INIT/BEFORE_START: ContextConfig.init has already parsed context defaults. */
   void beforeContextStart(StandardContext context) {
@@ -121,13 +165,16 @@ final class StartupAdmission {
   }
   private static Map<String,String> readInventory(String resource) {
     try(var bytes=StartupAdmission.class.getResourceAsStream(resource)) {
-      require(bytes!=null);var result=new TreeMap<String,String>();
-      for(String line:new String(bytes.readAllBytes(),StandardCharsets.UTF_8).split("\n")) {
+      require(bytes!=null);return parseInventory(bytes.readNBytes(Json.LIMIT+1));
+    } catch(IOException e) {throw Refused.unavailable();}
+  }
+  private static Map<String,String> parseInventory(byte[] bytes) {
+      require(bytes.length>0 && bytes.length<=Json.LIMIT);var result=new TreeMap<String,String>();
+      for(String line:new String(bytes,StandardCharsets.UTF_8).split("\n")) {
         require(line.matches("[0-9a-f]{64} [A-Za-z0-9_./$@-]+") && !line.contains(".."));
         require(result.put(line.substring(65),line.substring(0,64))==null);
       }
       require(!result.isEmpty());return Map.copyOf(result);
-    } catch(IOException e) {throw Refused.unavailable();}
   }
   private static String digest(Path path) {
     try(var stream=Files.newInputStream(path)) {

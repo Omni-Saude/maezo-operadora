@@ -1003,6 +1003,15 @@ _DUPLOS_CONSTRUIDOS_DECLARADOS: dict[tuple[str, str], tuple[frozenset[str], str]
         "(test_native_owner_qualification.py:118/126/138) — `close` async quebraria as assercoes. "
         "Nao e' DmnTransport: o unico nome em comum e' `close`.",
     ),
+    ("tests/unit/support/test_provider_auth_native_runtime.py", "UnitOnlyWriter"): (
+        frozenset({"close"}),
+        "duplo SINCRONO de asyncio.StreamWriter (write/drain/close/wait_closed, close "
+        "sincrono por contrato do StreamWriter) construido a mao em dois testes do "
+        "observer nativo; o teste assera `state.closed is True` apos o full-close do "
+        "harness — `close` async deixaria o flag False (o printStackTrace de "
+        "full-close e' consumido dentro do finally). Nao e' DmnTransport: o unico "
+        "nome em comum e' `close`.",
+    ),
 }
 for _chave, (_metodos, _razao) in _DUPLOS_CONSTRUIDOS_DECLARADOS.items():
     assert _metodos and _razao.strip(), f"entrada sem metodos ou sem razao: {_chave}"

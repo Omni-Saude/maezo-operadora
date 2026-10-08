@@ -86,6 +86,11 @@ def test_exact_default_cache_preparation_has_fresh_offline_resolution_and_sync(
     assert (tmp_path / "result.json").is_file()
     for name in ("tiny", "tiny-async"):
         calls = [(directory, argv) for directory, argv in runner.commands if directory.startswith(name)]
+        # Both lock steps resolve under the project-level constraint-dependencies
+        # embedded in the fixture pyproject (uv lock has no --constraint flag):
+        # the cache is shared across branch scopes and an unconstrained offline
+        # lock may select a cached NEWER transitive version than the root lock
+        # pins (packaging 26.3 vs 26.2 refusal).
         assert (
             name + "-online",
             (

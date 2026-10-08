@@ -64,6 +64,8 @@ from maezo.gateway.audit import GENESIS_PREV_HASH, AuditRecord, EmitOnceOutcome
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from asyncpg.pool import PoolConnectionProxy  # type: ignore[import-untyped]
+
 logger = structlog.get_logger(__name__)
 
 # Postgres schema identifiers here are always the raw tenant id (env.py: `SEARCH_PATH =
@@ -198,11 +200,11 @@ class PostgresAuditSink:
         self._owns_pool = pool is None
         logger.info("postgres_audit_sink_initialized", tenant_id=tenant_id)
 
-    async def _configure_connection(self, conn: asyncpg.Connection) -> None:
+    async def _configure_connection(self, conn: asyncpg.Connection | PoolConnectionProxy) -> None:
         # `self._schema` was validated by schema_for_tenant() in __init__ (anti-injection).
         await conn.execute(f'SET search_path TO "{self._schema}"')
 
-    async def _bind_schema(self, conn: asyncpg.Connection) -> None:
+    async def _bind_schema(self, conn: asyncpg.Connection | PoolConnectionProxy) -> None:
         """Pin this transaction to the tenant schema when the pool is SOMEONE ELSE'S.
 
         DL-0049 review (rodaquino, 21/09/2026), P1: `setup=` in `_ensure_pool` is the only place
@@ -426,7 +428,7 @@ class PostgresAuditSink:
         return outcome
 
     async def emit_once_on(
-        self, conn: asyncpg.Connection, record: AuditRecord, *, dedup_key: str
+        self, conn: asyncpg.Connection | PoolConnectionProxy, record: AuditRecord, *, dedup_key: str
     ) -> EmitOnceOutcome:
         """Enlist the original chain operation in the caller's tenant transaction.
 
@@ -459,7 +461,7 @@ class PostgresAuditSink:
         return await self._emit_once_chained(conn, record, dedup_key=dedup_key)
 
     async def _emit_once_chained(
-        self, conn: asyncpg.Connection, record: AuditRecord, *, dedup_key: str
+        self, conn: asyncpg.Connection | PoolConnectionProxy, record: AuditRecord, *, dedup_key: str
     ) -> EmitOnceOutcome:
         """The claim+chain body shared by `emit_once_status` (standalone) and `emit_once_on`
         (enlisted). Caller owns the advisory-locked transaction's lifetime; this issues the lock,
@@ -501,7 +503,9 @@ class PostgresAuditSink:
         await self._insert_chain_row(conn, record)
         return EmitOnceOutcome(record_hash=record.record_hash, deduped=False)
 
-    async def _insert_chain_row(self, conn: asyncpg.Connection, record: AuditRecord) -> None:
+    async def _insert_chain_row(
+        self, conn: asyncpg.Connection | PoolConnectionProxy, record: AuditRecord
+    ) -> None:
         """Insert `record` as a chain row on `conn`. Caller owns the advisory-locked transaction.
 
         Shared by `emit()` and `emit_once()` — the single place the `audit_chain` INSERT is issued,
@@ -525,7 +529,7 @@ class PostgresAuditSink:
             record.prev_hash,
         )
 
-    async def _fetch_tail(self, conn: asyncpg.Connection) -> str:
+    async def _fetch_tail(self, conn: asyncpg.Connection | PoolConnectionProxy) -> str:
         """Return the current chain tail, or GENESIS_PREV_HASH if the chain is empty.
 
         Must be called while holding the per-tenant advisory lock (see `emit`) — otherwise two

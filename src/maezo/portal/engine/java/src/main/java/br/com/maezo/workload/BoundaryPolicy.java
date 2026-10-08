@@ -11,6 +11,8 @@ import java.util.*;
 /** Pinned mounted configuration; reread on every request and again at transaction COMMITTING. */
 public final class BoundaryPolicy {
   final Path path;
+  private final Path installedRoot;
+  private final long binaryCeiling;
   final String digest, tenant, environment, engine;
   final long notBefore, expires;
   final Map<String,Object> document;
@@ -38,7 +40,8 @@ public final class BoundaryPolicy {
     return new BoundaryPolicy(path,digest,transport);
   }
   private BoundaryPolicy(Path path,String digest,Map<String,Object> m) {
-    this.path=path; this.digest=digest; this.document=m;
+    this.path=path; this.digest=digest; this.document=m;installedRoot=actualInstalledRoot();
+    binaryCeiling=binaryDeadline(m);
     Json.keys(m,"protocol","tenant","environment","engine_name","not_before","expires_at","roots","peers","files","listener_port","max_tasks","max_lock_millis","max_poll_millis");
     if (!"maezo.engine-boundary.v1".equals(m.get("protocol"))) throw Refused.unavailable();
     tenant=Json.token(m,"tenant"); environment=Json.token(m,"environment"); engine=Json.token(m,"engine_name");
@@ -51,14 +54,14 @@ public final class BoundaryPolicy {
     for (Object item : Json.list(m.get("roots"))) {
       var file=Json.object(item); Json.keys(file,"path","sha256"); files.add(file);
       try {
-        var cert=(X509Certificate)CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(readFile(file)));
+        var cert=(X509Certificate)CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(readFile(file,installedRoot,binaryCeiling)));
         cert.checkValidity(); if (cert.getBasicConstraints() < 0) throw Refused.unavailable();
         roots.add(new TrustAnchor(cert,null));
       } catch (CertificateException e) { throw Refused.unavailable(); }
     }
     if (roots.isEmpty()) throw Refused.unavailable();
     for (Object item : Json.list(m.get("files"))) {
-      var file=Json.object(item); Json.keys(file,"path","sha256"); readFile(file); files.add(file);
+      var file=Json.object(item); Json.keys(file,"path","sha256"); readFile(file,installedRoot,binaryCeiling); files.add(file);
     }
     List<Peer> loaded=new ArrayList<>(); Set<String> certs=new HashSet<>(),users=new HashSet<>();
     for (Object item : Json.list(m.get("peers"))) {
@@ -88,6 +91,99 @@ public final class BoundaryPolicy {
     current(null);
   }
   static byte[] readFile(Map<String,Object> file) { return read(Path.of(Json.string(file,"path")),Json.token(file,"sha256")); }
+  static Path actualInstalledRoot() {
+    String value=System.getProperty("catalina.base");if(value==null)return null;
+    try {Path root=Path.of(value);if(!root.isAbsolute() || !root.equals(root.toRealPath()))throw Refused.unavailable();return root;}
+    catch(IOException e){throw Refused.unavailable();}
+  }
+  static long binaryDeadline(Map<String,Object> document) {
+    try {
+      long ceiling=Math.multiplyExact(Json.number(document,"expires_at"),1000L);
+      var refs=Json.list(document.get("files")).stream().map(Json::object)
+          .filter(f->Path.of(Json.string(f,"path")).getFileName().toString().equals(RuntimeObservationAdmission.ADMISSION_FILE)).toList();
+      if(refs.size()>1)throw Refused.unavailable();
+      if(!refs.isEmpty()) {
+        var ref=refs.get(0);var admission=Json.parse(RuntimeObservationAdmission.readProtected(Path.of(Json.string(ref,"path")),Json.string(ref,"sha256"),65536));
+        RuntimeObservationAdmission.validate("ObservationAdmission",admission);
+        ceiling=Math.min(ceiling,Instant.parse(Json.string(admission,"original_deadline")).toEpochMilli());
+      }
+      return ceiling;
+    }catch(ArithmeticException e){throw Refused.unavailable();}
+  }
+  /** Only the three own installed artifacts use a binary budget; all other readers stay 1MiB. */
+  static byte[] readFile(Map<String,Object> file,Path root,long originalDeadline) {
+    Path path=Path.of(Json.string(file,"path"));String hash=Json.token(file,"sha256");
+    if(root==null || !Set.of(root.resolve("lib/maezo-human-command.jar"),root.resolve("lib/provider-auth-test-support.jar"),
+        root.resolve("webapps/engine-rest/WEB-INF/lib/maezo-rest-spi.jar")).contains(path))return read(path,hash);
+    if(!root.equals(actualInstalledRoot()))throw Refused.unavailable();
+    return readOwnBinary(path,hash,originalDeadline);
+  }
+  private static final String[] FD_ATTRIBUTES={"dev","ino","mode","uid","nlink","size","lastModifiedTime"};
+  private static Map<String,Object> fdAttributes(Path path)throws IOException {
+    return java.nio.file.Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES));
+  }
+  private static Set<Path> matchingDescriptors(Map<String,Object> attributes)throws IOException {
+    Path directory=Path.of("/proc/self/fd");if(!Files.isDirectory(directory))throw Refused.unavailable();
+    var matches=new HashSet<Path>();
+    try(var listing=Files.list(directory)) {
+      for(Path descriptor:listing.toList())try {
+        if(!descriptor.getFileName().toString().matches("[0-9]+"))continue;
+        var current=fdAttributes(descriptor);
+        if(attributes.get("dev").equals(current.get("dev")) && attributes.get("ino").equals(current.get("ino")))matches.add(descriptor);
+      }catch(java.nio.file.NoSuchFileException closedDuringListing) {/* No fact is inferred about a disappeared descriptor. */}
+    }
+    return matches;
+  }
+  private static byte[] readOwnBinary(Path path,String hash,long deadline) {
+    long started=System.currentTimeMillis(),nano=System.nanoTime();long remaining=deadline-started;
+    if(remaining<=0 || remaining>Long.MAX_VALUE/1000000L)throw Refused.unavailable();
+    long budget=remaining*1000000L;var clock=new BinaryClock(started,nano,budget,deadline);
+    try {
+      clock.current();
+      if(!path.isAbsolute() || !path.equals(path.toRealPath()) || !hash.matches("[a-f0-9]{64}"))throw Refused.unavailable();
+      for(Path ancestor=path;ancestor!=null;ancestor=ancestor.getParent())if(Files.isSymbolicLink(ancestor))throw Refused.unavailable();
+      var before=Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS);
+      long owner=((Number)before.get("uid")).longValue();long own=((Number)Files.getAttribute(Path.of(System.getProperty("user.home")),"unix:uid")).longValue();
+      long size=((Number)before.get("size")).longValue();int mode=((Number)before.get("mode")).intValue();
+      if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS) || (mode&0022)!=0 || (owner!=0 && owner!=own)
+          || ((Number)before.get("nlink")).longValue()!=1 || size<=0 || size>33_554_432L)throw Refused.unavailable();
+      var previous=matchingDescriptors(before);clock.current();
+      byte[] bytes;
+      try(var channel=java.nio.channels.FileChannel.open(path,StandardOpenOption.READ,LinkOption.NOFOLLOW_LINKS)) {
+        var matching=matchingDescriptors(before);matching.removeAll(previous);
+        if(matching.size()!=1)throw Refused.unavailable();Path descriptor=matching.iterator().next();
+        var opened=fdAttributes(descriptor);
+        if(!before.equals(opened) || channel.size()!=size || !channel.isOpen())throw Refused.unavailable();
+        clock.current();var output=new ByteArrayOutputStream((int)size);
+        var digest=java.security.MessageDigest.getInstance("SHA-256");var buffer=java.nio.ByteBuffer.allocate(65536);long count=0;
+        while(true) {
+          clock.current();int read=channel.read(buffer);clock.current();
+          if(read==-1)break;count+=read;if(count>size)throw Refused.unavailable();
+          digest.update(buffer.array(),0,read);output.write(buffer.array(),0,read);buffer.clear();
+        }
+        if(count!=size || channel.size()!=size || !channel.isOpen() || !opened.equals(fdAttributes(descriptor))
+            || !before.equals(Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS))
+            || !hash.equals(java.util.HexFormat.of().formatHex(digest.digest())))throw Refused.unavailable();
+        bytes=output.toByteArray();clock.current();
+      }
+      clock.current();
+      if(!before.equals(Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS)))throw Refused.unavailable();
+      return bytes;
+    }catch(Exception e){throw Refused.unavailable();}
+    finally{clock.current();}
+  }
+  private static final class BinaryClock {
+    private final long wall,nano,budget,deadline;private long lastWall,lastNano;
+    private BinaryClock(long wall,long nano,long budget,long deadline) {
+      this.wall=wall;this.nano=nano;this.budget=budget;this.deadline=deadline;lastWall=wall;lastNano=nano;
+    }
+    private void current() {
+      long now=System.currentTimeMillis(),currentNano=System.nanoTime(),elapsed=currentNano-nano;
+      if(Thread.currentThread().isInterrupted() || now<lastWall || currentNano<lastNano || elapsed<0 || elapsed>=budget || now>=deadline
+          || Math.abs((now-wall)-elapsed/1000000L)>5000)throw Refused.unavailable();
+      lastWall=now;lastNano=currentNano;
+    }
+  }
   static byte[] read(Path path,String hash) {
     try {
       if (!path.isAbsolute() || !path.equals(path.toRealPath()) || !Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS)
@@ -101,7 +197,7 @@ public final class BoundaryPolicy {
   void current(Peer peer) {
     long now=Instant.now().getEpochSecond();
     if (now < notBefore || now >= expires || expires <= notBefore) throw Refused.unavailable();
-    read(path,digest); for (var file:files) readFile(file);
+    read(path,digest); for (var file:files) readFile(file,installedRoot,binaryCeiling);
     for(var root:roots)try {root.getTrustedCert().checkValidity();}catch(CertificateException e){throw Refused.unavailable();}
     if (peer != null && (now < peer.notBefore() || now >= peer.expires() || peer.expires() <= peer.notBefore())) throw Refused.denied();
   }

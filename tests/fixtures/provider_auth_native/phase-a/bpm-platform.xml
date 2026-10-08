@@ -1,0 +1,37 @@
+<?xml version='1.0' encoding='utf-8'?>
+<bpm-platform xmlns="http://www.camunda.org/schema/1.0/BpmPlatform">
+  <job-executor>
+    <job-acquisition name="default" />
+  </job-executor>
+  <process-engine name="default">
+    <job-acquisition>default</job-acquisition>
+    <configuration>org.cibseven.bpm.engine.impl.cfg.StandaloneProcessEngineConfiguration</configuration>
+    <datasource>java:jdbc/ProcessEngine</datasource>
+    <properties>
+      <property name="history">full</property>
+      <property name="databaseSchemaUpdate">false</property>
+      <property name="authorizationEnabled">true</property>
+      <property name="tenantCheckEnabled">true</property>
+      <property name="jobExecutorDeploymentAware">false</property>
+      <property name="useCibSevenNamespaceInScripting">false</property>
+      <property name="useCibSevenNamespaceInReflection">false</property>
+    </properties>
+    <plugins>
+      <plugin>
+        <class>br.com.maezo.human.HumanCommandPlugin</class>
+      </plugin>
+      <plugin>
+        <class>org.cibseven.bpm.application.impl.event.ProcessApplicationEventListenerPlugin</class>
+      </plugin>
+      <plugin>
+        <class>org.cibseven.spin.plugin.impl.SpinProcessEnginePlugin</class>
+      </plugin>
+      <plugin>
+        <class>org.cibseven.connect.plugin.impl.ConnectProcessEnginePlugin</class>
+      </plugin>
+      <plugin>
+        <class>br.com.maezo.workload.WorkloadPlugin</class>
+      </plugin>
+    </plugins>
+  </process-engine>
+</bpm-platform>

@@ -22,7 +22,10 @@ public final class Capability {
     if (!"maezo.engine-capability.v1".equals(document.get("protocol")) || !Json.digest(document).equals(digest)) throw Refused.unavailable();
     schema = Json.object(document.get("schema")); target = target(document.get("target"));
     identity = identity(document.get("identity"));
-    if (!schema.equals(SCHEMAS.get(Json.token(schema,"schema_id")))) throw Refused.unavailable();
+    if (!schema.equals(SCHEMAS.get(Json.token(schema,"schema_id")))
+        && !RuntimeObservationAdmission.schemaRow().equals(schema)) throw Refused.unavailable();
+    if ("read_runtime_definition".equals(schema.get("operation"))
+        && !Json.string(identity,"environment").matches("TestOnly-[A-Za-z0-9_.:-]{1,240}")) throw Refused.unavailable();
     worker = Json.string(document,"worker_id");
     sourceTarget = document.get("source_target") == null ? Map.of() : target(document.get("source_target"));
     sourceKind = Json.string(binding,"source_kind"); sourceWorker=Json.string(binding,"source_worker_id"); attestations = Json.list(binding.get("attestations"));
@@ -158,6 +161,11 @@ public final class Capability {
   }
   private void parameters(Map<String,Object> p) {
     switch (Json.token(schema,"operation")) {
+      case "read_runtime_definition":
+        Json.keys(p,"admission_sha256","nonce","original_deadline");
+        if(!Json.string(p,"admission_sha256").matches("[a-f0-9]{64}") || !Json.string(p,"nonce").matches("[a-f0-9]{32}")
+            || !Json.string(p,"original_deadline").matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z"))throw Refused.body();
+        break;
       case "fetch_lock":
         Json.keys(p,"maxTasks","lockDuration","asyncResponseTimeout","variables");
         positive(p,"maxTasks"); positive(p,"lockDuration"); positive(p,"asyncResponseTimeout");

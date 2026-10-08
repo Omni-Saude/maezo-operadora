@@ -173,12 +173,17 @@ def fixture_constraints(root_lock: bytes, dependencies: tuple[str, ...]) -> byte
     return "".join(f"{name}=={version}\n" for name, version in sorted(selected.items())).encode()
 
 
-def fixture_config(name: str, dependencies: tuple[str, ...]) -> bytes:
+def fixture_config(name: str, dependencies: tuple[str, ...], constraints: tuple[str, ...] = ()) -> bytes:
     return (
         "[project]\nname=" + json.dumps(name) + '\nversion="0.0.0"\n'
         'requires-python=">=3.12,<3.13"\n[project.optional-dependencies]\ndev='
         + json.dumps(list(dependencies))
-        + "\n[tool.uv]\npackage=false\n"
+        # uv lock has no --constraint flag; project-level constraint-dependencies
+        # pins the transitive closure to the root-selected versions so the shared
+        # offline cache cannot drift the fixture lock (packaging 26.3 vs 26.2).
+        + "\n[tool.uv]\npackage=false\nconstraint-dependencies="
+        + json.dumps(list(constraints))
+        + "\n"
     ).encode()
 
 
@@ -445,15 +450,24 @@ class Preparation:
             package_cutoffs=package_cutoffs,
         )
         for name, dependencies in FIXTURES:
-            config = fixture_config(name, dependencies)
-            online = self.project(name + "-online", config)
             constraints = self.output / (name + "-constraints.txt")
-            constraints.write_bytes(fixture_constraints(root_lock, dependencies))
+            constraints_bytes = fixture_constraints(root_lock, dependencies)
+            constraints.write_bytes(constraints_bytes)
+            constraint_pins = tuple(
+                line.decode() for line in constraints_bytes.splitlines()
+            )
+            config = fixture_config(name, dependencies, constraint_pins)
+            online = self.project(name + "-online", config)
             requirements = self.output / (name + "-requirements.txt")
             requirements.write_text("\n".join(dependencies) + "\n")
             # A locked sync caches wheel URLs, not the index/metadata a fresh lock needs.
             # Prime only selected versions; online unconstrained resolution could download
             # newer transitive metadata and make the immutable offline fixture drift.
+            # The lock steps need the same closure: the cache is shared across branch
+            # scopes, so an unconstrained offline lock can select a cached NEWER transitive
+            # version (packaging 26.3 vs root 26.2) and the closed-world check then rightly
+            # refuses. pip compile takes --constraint; uv lock takes the project-level
+            # constraint-dependencies embedded in fixture_config.
             self.command(
                 online,
                 "pip",
