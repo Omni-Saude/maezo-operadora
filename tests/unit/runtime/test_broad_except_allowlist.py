@@ -83,7 +83,9 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: 07/10/2026: 35 — fatos do plano (DL-0081): `HelenaGraph.consultar_plano` chama a fonte de fatos da AMH
 #: e `HelenaGraph._redigir_consulta` chama o LLM, os dois ESTREITADOS (`PROGRAMMING_ERRORS` re-levanta;
 #: `EXTERNAL_DEPENDENCY_FAILURES` vira o texto fixo / a resposta deterministica so' com os fatos).
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 35
+#: 08/10/2026: 34 — `LucasGraph._build_escalation_ack` (DL-0082) deixou de chamar o LLM: o ACK de
+#: escalacao virou texto fixo montado com os fatos, e o `try` estreitado em volta do modelo saiu junto.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 34
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:

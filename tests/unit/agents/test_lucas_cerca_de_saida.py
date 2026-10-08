@@ -63,7 +63,7 @@ from maezo.agents.lucas.prompts import (
     RECUSA_PROMESSA_DE_HUMANO,
     RECUSA_VALOR_SEM_FATO,
     SYSTEM_PROMPT,
-    escalation_ack_prompt,
+    dossier_prompt,
     message_prompt,
     motivo_de_recusa,
 )
@@ -130,12 +130,9 @@ PAREAMENTO: list[tuple[str, str, str, str]] = [
         RECUSA_DESFECHO_ADVERSO,
         "mensagem",
     ),
-    (
-        "NUNCA revele um desfecho adverso",
-        "Seu caso esta com um atendente. Seu plano foi suspenso enquanto isso.",
-        RECUSA_DESFECHO_ADVERSO,
-        "ack_escalacao",
-    ),
+    # "NUNCA revele um desfecho adverso" saiu com o `escalation_ack_prompt` (DL-0082): o ACK virou
+    # texto fixo. A cerca continua ligada nele — ver
+    # `test_o_ack_de_escalacao_barrado_vira_a_constante_segura`.
     (
         "NUNCA afirme um status que nao esteja no fato fornecido",
         "Ja dei baixa no seu pagamento, esta tudo certo.",
@@ -162,7 +159,7 @@ def test_cada_proibicao_do_prompt_tem_cerca_atras(proibicao: str, texto: str, gr
     # ESPACO COLAPSADO de proposito: os prompts sao triple-quoted e quebram linha no meio das
     # frases ("NUNCA ameace\n  suspensao ou cancelamento"). Comparar cru faria este teste falhar
     # por formatacao — um vermelho que nao e' sobre a cerca ensina a gente a ignora-lo.
-    prompts_juntos = " ".join(f"{SYSTEM_PROMPT}\n{message_prompt()}\n{escalation_ack_prompt()}".split())
+    prompts_juntos = " ".join(f"{SYSTEM_PROMPT}\n{message_prompt()}\n{dossier_prompt()}".split())
     assert proibicao in prompts_juntos, (
         f"a proibicao {proibicao!r} nao esta mais escrita nos prompts — se ela foi removida de "
         "proposito, o padrao correspondente da cerca sai junto; se foi so' reescrita, este "
@@ -328,11 +325,27 @@ async def test_a_mensagem_barrada_nao_e_contada_como_resposta_enviada() -> None:
     assert sender.enviados and sender.enviados[0][1] == RESPOSTA_INFORMATIVA_RECUSADA
 
 
-@pytest.mark.asyncio
-async def test_o_ack_de_escalacao_barrado_vira_a_constante_segura() -> None:
-    g = _graph("Recebemos seu caso. Seu plano foi suspenso enquanto analisamos.")
-    state: LucasState = {"tenant_id": "t1", "motivo_humano": "inadimplencia"}  # type: ignore[typeddict-item]
-    assert await g._build_escalation_ack(state) == ACK_ESCALACAO_RECUSADO
+def test_o_ack_de_escalacao_barrado_vira_a_constante_segura(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DL-0082: o ACK e' texto fixo, mas a cerca continua ligada nele. Se um dia o texto fixo
+    violar a cerca, sai a constante segura — nunca o texto violador."""
+    from maezo.agents.lucas import graph as lucas_graph
+
+    monkeypatch.setattr(
+        lucas_graph, "texto_ack_escalacao", lambda _state: "Recebemos seu caso. Seu plano foi suspenso."
+    )
+    g = _graph("texto do modelo que o ACK nao usa")
+    state: LucasState = {"tenant_id": "t1", "motivo_humano": "ambiguidade"}  # type: ignore[typeddict-item]
+    assert g._build_escalation_ack(state) == ACK_ESCALACAO_RECUSADO
+
+
+def test_o_ack_de_escalacao_nao_usa_o_modelo() -> None:
+    """DL-0082: o modelo redigia o ACK com `motivo_humano` no prompt e escreveu "inadimplencia
+    detectada" para quem estava em dia. Agora o texto do modelo nunca chega ao ACK."""
+    g = _graph("Recebemos a informacao sobre a inadimplencia detectada.")
+    state: LucasState = {"tenant_id": "t1", "motivo_humano": "inadimplencia_detectada"}
+    texto = g._build_escalation_ack(state)
+    assert "inadimpl" not in texto.lower()
+    assert "detectada" not in texto.lower()
 
 
 @pytest.mark.asyncio

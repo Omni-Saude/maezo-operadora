@@ -19,8 +19,9 @@ prompt_versions:
   system: system-v1
   message: message-v1
   dossier: dossier-v1
-  escalation_ack: escalation-ack-v1
-  recusa_de_saida: recusa-lucas-v2
+  escalation_ack: escalation-ack-v2-texto-fixo
+  recusa_de_saida: recusa-lucas-v3
+  mensagem_em_dia: mensagem-em-dia-v1
 model:
   task_default: { tier: fast }
   reasoning:    { tier: frontier }

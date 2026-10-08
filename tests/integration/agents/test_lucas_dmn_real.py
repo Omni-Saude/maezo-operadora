@@ -69,7 +69,9 @@ async def test_caso_no_motor_real(caso: dict[str, Any], dmn: CibSevenDmnTranspor
 
 async def test_todo_j3_escala_no_motor_real(dmn: CibSevenDmnTransport) -> None:
     j3 = [await executar_caso(c, dmn=dmn) for c in CASOS if c["jornada"] == "J3"]
-    assert len(j3) >= 9
+    # 6 desde DL-0082 (08/10/2026): os 3 casos de `inadimplencia` sairam da J3 para a J2 — a pergunta
+    # passa pela DMN de admissibilidade com os fatos, e so' a regra de atraso escala.
+    assert len(j3) >= 6
     assert all(r["route"] == "escalate_human" for r in j3)
     assert all(r["decisao_cancelamento"] is None for r in j3)
     # Nao-vacuidade: a DMN de roteamento da escalacao RODOU no motor em todo J3.

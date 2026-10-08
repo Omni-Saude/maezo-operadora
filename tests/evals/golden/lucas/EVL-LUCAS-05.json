@@ -18,8 +18,7 @@
     }
   },
   "recorded_llm": [
-    "Resumo factual do caso de nao-conciliacao para avaliacao humana.",
-    "Um atendente humano vai continuar seu atendimento em breve."
+    "Resumo factual do caso de nao-conciliacao para avaliacao humana."
   ],
   "dmn_fixture": {
     "lucas_billing_admissibility": {"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"},

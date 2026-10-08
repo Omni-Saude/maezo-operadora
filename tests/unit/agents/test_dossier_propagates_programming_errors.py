@@ -215,12 +215,6 @@ async def _lucas_dossier(fake: object) -> Any:
     return await graph._build_dossier(state)
 
 
-async def _lucas_ack(fake: object) -> Any:
-    graph = LucasGraph(inference=_llm(fake), whatsapp=cast(Any, object()), **_seams())
-    state: Any = {"tenant_id": "amh", "message_body": "ola"}
-    return await graph._build_escalation_ack(state)
-
-
 async def _marina_dossier(fake: object) -> Any:
     graph = MarinaGraph(inference=_llm(fake), **_seams())
     state: Any = {"tenant_id": "amh", "fluxo": "contas"}
@@ -251,7 +245,7 @@ _LLM_SITES: dict[str, Callable[[object], Awaitable[Any]]] = {
     "helena::_resumo_contexto": _helena_resumo,
     "lucas::_build_message": _lucas_message,
     "lucas::_build_dossier": _lucas_dossier,
-    "lucas::_build_escalation_ack": _lucas_ack,
+    # `lucas::_build_escalation_ack` saiu (DL-0082): o ACK virou texto fixo, sem chamada de modelo.
     "marina::_build_dossier": _marina_dossier,
     "rafael::_build_dossier": _rafael_dossier,
     "valentina::_build_dossier": _valentina_dossier,

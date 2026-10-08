@@ -275,11 +275,12 @@ async def test_lucas_routes_the_dossier_narrative_to_reasoning_and_the_message_t
     that the graph names its kinds — otherwise removing the disclosure would be the fabrication."""
     from tests.unit.agents.test_lucas import _FakeInference, _graph
 
-    inference = _FakeInference(["texto", "narrativa", "ack"])
+    inference = _FakeInference(["texto", "narrativa"])
     graph = _graph(inference=inference)
     state: Any = {"tenant_id": "amh", "tipo_solicitacao": "boleto", "motivo_humano": "outro"}
     await graph._build_message(state)
     await graph._build_dossier(state)
-    await graph._build_escalation_ack(state)
+    # DL-0082: o ACK de escalacao e' texto fixo — nenhuma chamada de modelo, nenhum tier.
+    graph._build_escalation_ack(state)
 
-    assert inference.task_kinds == ["task_default", "reasoning", "task_default"]
+    assert inference.task_kinds == ["task_default", "reasoning"]

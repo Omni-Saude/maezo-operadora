@@ -18,8 +18,7 @@
     }
   },
   "recorded_llm": [
-    "Encaminhamento automatico por indisponibilidade da tabela de admissibilidade de cobranca.",
-    "Um atendente humano vai continuar seu atendimento em breve."
+    "Encaminhamento automatico por indisponibilidade da tabela de admissibilidade de cobranca."
   ],
   "dmn_fixture": {
     "lucas_escalation_routing": { "roteamento": "ATENDIMENTO_HUMANO" }
