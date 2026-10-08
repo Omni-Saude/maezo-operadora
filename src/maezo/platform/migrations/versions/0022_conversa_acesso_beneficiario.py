@@ -31,9 +31,10 @@ processo guarda um lock por conversa; nao ha' CAS (diferente de `conversa_agente
 coluna `tenant` na PK e em todo `WHERE`, e um CHECK amarrando o prefixo do `conversation_id` ao proprio
 `tenant`. O repo nao usa RLS em migration nenhuma.
 
-**Retencao.** NENHUMA purga automatica: o consentimento persiste ate' ser revogado, e apagar a linha de uma
-conversa a faria pedir o consentimento de novo. O prazo e' do DPO (`erasure-plan.template.yaml`, camada
-`acesso_beneficiario`, `PENDENTE`).
+**Retencao (DL-0084, decisao do dono).** A linha e' apagada apos 90 DIAS sem atividade (`ultima_mensagem_em`,
+indexada abaixo) pelo varredor idempotente `whatsapp/acesso_retencao.py`; quem volta depois consente e se
+verifica de novo. Excecao: `revogacao_pendente` nunca e' apagada antes de gravada no lago. A ratificacao
+formal segue com o DPO (`erasure-plan.template.yaml`, camada `acesso_beneficiario`).
 
 **Seguro com a versao anterior do codigo no ar.** A tabela e' nova e so' o acesso do beneficiario (desligado
 por
