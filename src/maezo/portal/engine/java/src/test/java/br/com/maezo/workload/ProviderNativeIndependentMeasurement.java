@@ -626,7 +626,18 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
     try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
       clockGuard(); Map<Path, Map<String, Object>> fresh = descriptorCensus();
       List<Path> matches = fresh.keySet().stream().filter(p -> !old.containsKey(p) && fresh.get(p).equals(before)).toList();
-      require(matches.size() == 1); descriptor = matches.get(0);
+      // Concurrent same-inode opens (classloader reading the very jar under
+      // verification) are legitimate JDK activity; attribution is by FD-POSITION
+      // CHALLENGE, not census uniqueness. The challenge offset is end-of-file,
+      // which no parallel sequential reader holds at the probe instant.
+      require(!matches.isEmpty());
+      channel.position(Math.max(1, channel.size() - 1));
+      for (Path candidate : matches) {
+        try { if (descriptorPosition(candidate) == channel.position()) { require(descriptor == null); descriptor = candidate; } }
+        catch (IOException raced) { /* candidate closed between census and probe */ }
+      }
+      require(descriptor != null);
+      channel.position(0);
       require(before.equals(fileAttributes(descriptor, true)) && channel.size() == number(before.get("size")));
       require(channel.position() == 0 && descriptorPosition(descriptor) == 0);
       channel.position(1); require(descriptorPosition(descriptor) == 1);
