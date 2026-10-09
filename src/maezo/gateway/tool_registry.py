@@ -119,6 +119,7 @@ from maezo.adapters.amh.subject_verification import OP_VERIFY
 from maezo.gateway.amh import AmhRuntime, AmhSubjectContextExecutor, GatedAmhContext
 from maezo.gateway.amh_interop import (
     HASH_SCHEME,
+    PURPOSE_ATENDIMENTO_WHATSAPP,
     SCOPE_BY_OPERATION,
     SCOPE_TINA,
     AmhBillingStatusExecutor,
@@ -628,6 +629,7 @@ def build_amh_interop(
     transport_factory: Any = None,
     incluir_tina: bool = False,
     incluir_acesso: bool = False,
+    billing_atendimento: bool = False,
 ) -> AmhInteropComposition:
     """A fonte REAL de cobranca/identidade do Lucas: executores do gateway -> adaptadores pinados.
 
@@ -654,7 +656,15 @@ def build_amh_interop(
     o bloco `manifest_v1_3` no pin. `False` (o default) = a composicao de antes, sem nada do acesso. Junto
     vem a resolucao pelo DOCUMENTO do telefone sem candidato (DL-0084): exige
     `amh_document_resolution_openapi_path`; mesmo escopo da conferencia.
+
+    `billing_atendimento=True` (a fonte de cobranca do Lucas com o acesso ligado, decisao do DPO de
+    08/10/2026) troca SO' a leitura de cobranca para a revisao 0.2.0 do billing-status (manifest v1.4): exige
+    `amh_billing_status_atendimento_openapi_path` (o 0.1.0 nao e' lido) e o executor de cobranca declara
+    `purpose_of_use=atendimento_whatsapp`; os outros executores seguem com `amh_interop_purpose_of_use`. Sem o
+    bloco `manifest_v1_4` no pin o adaptador LEVANTA e o receptor recusa servir. `False` = a de sempre.
     """
+    from maezo.adapters.amh.billing_status import ARTIFACT as ARTIFACT_BILLING
+    from maezo.adapters.amh.billing_status import ARTIFACT_ATENDIMENTO as ARTIFACT_BILLING_ATENDIMENTO
     from maezo.adapters.amh.billing_status import AmhBillingStatusAdapter
     from maezo.adapters.amh.consent_record import AmhConsentRecordAdapter
     from maezo.adapters.amh.document_resolution import AmhDocumentResolutionAdapter
@@ -675,10 +685,17 @@ def build_amh_interop(
         "amh_phone_lookup_key": phone_key,
         "amh_interop_tenant": getattr(settings, "amh_interop_tenant", None),
         "amh_interop_purpose_of_use": getattr(settings, "amh_interop_purpose_of_use", None),
-        "amh_billing_status_openapi_path": getattr(settings, "amh_billing_status_openapi_path", None),
         "amh_subject_resolution_openapi_path": getattr(settings, "amh_subject_resolution_openapi_path", None),
         "audit_sink": audit,
     }
+    # A leitura de cobranca le' UM dos dois OpenAPI do billing-status: o 0.1.0 de sempre ou, no atendimento
+    # do WhatsApp verificado, o 0.2.0 (finalidade `atendimento_whatsapp`). Exigido so' o que sera' lido.
+    chave_billing = (
+        "amh_billing_status_atendimento_openapi_path"
+        if billing_atendimento is True
+        else "amh_billing_status_openapi_path"
+    )
+    exigidos[chave_billing] = getattr(settings, chave_billing, None)
     if incluir_tina is True:
         exigidos["amh_tina_openapi_path"] = getattr(settings, "amh_tina_openapi_path", None)
     if incluir_acesso is True:
@@ -720,7 +737,12 @@ def build_amh_interop(
         "agent_version": agent_version,
         "transport_factory": transport_factory,
     }
-    billing_executor = AmhBillingStatusExecutor(**comum)
+    billing_purpose = (
+        PURPOSE_ATENDIMENTO_WHATSAPP
+        if billing_atendimento is True
+        else exigidos["amh_interop_purpose_of_use"]
+    )
+    billing_executor = AmhBillingStatusExecutor(**{**comum, "purpose_of_use": billing_purpose})
     subjects_executor = AmhSubjectResolutionExecutor(amh_tenant=exigidos["amh_interop_tenant"], **comum)
     executores: tuple[Any, ...] = (billing_executor, subjects_executor)
     tina: AmhTinaAdapter | None = None
@@ -757,7 +779,9 @@ def build_amh_interop(
         executores = (*executores, verification_executor, consent_executor, document_executor)
     return AmhInteropComposition(
         billing=AmhBillingStatusAdapter(
-            _ler_openapi(exigidos["amh_billing_status_openapi_path"]), executor=billing_executor
+            _ler_openapi(exigidos[chave_billing]),
+            executor=billing_executor,
+            artifact=ARTIFACT_BILLING_ATENDIMENTO if billing_atendimento is True else ARTIFACT_BILLING,
         ),
         subjects=AmhSubjectResolutionAdapter(
             _ler_openapi(exigidos["amh_subject_resolution_openapi_path"]), executor=subjects_executor
@@ -773,6 +797,7 @@ def build_amh_interop(
         consents=consents,
         verify_hasher=verify_hasher,
         documents=documents,
+        billing_purpose_of_use=billing_purpose,
     )
 
 

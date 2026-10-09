@@ -316,5 +316,47 @@
       "verified_at_utc": "2026-10-08T21:05:19Z",
       "verified_by": "Claude Code, a pedido do Márcio Filipe Filó do Carmo (CTO e owner)"
     }
+  },
+  "manifest_v1_4": {
+    "provenance": {
+      "amh_commit_sha": "2df5612615dcdf349f073ea04662631e63b29f00",
+      "amh_manifest_commit_sha": "f94292fcf453a1480d045d8aec7a5b50b36c9617",
+      "evidence_id": "XRG2-AMH-DEV-GHA-37929182045",
+      "status": "PUBLISHED"
+    },
+    "manifest_pin": {
+      "byte_size": 8202,
+      "git_blob_sha": "ce1955b36cd63c141548204d3c585a6b757f1b54",
+      "path": "schemas/contracts/maezo/v1.4/contract-manifest.yaml",
+      "prepublication_sha256": "78af8197bfb21425cdeb2b531887aaae5c9bc575293a98e3a9cfad1e0770bac6",
+      "sha256": "0e8cb441b8cc8e2fe82a124cc20cd139a192c634254904287f9031144ebf7701"
+    },
+    "compatibility_report": {
+      "dry_run_id": "github-actions-run-37929182045",
+      "dry_run_run_id": "37929182045",
+      "evidence_artifact_id": "11615666348",
+      "provider_contract_tests": "13 passed",
+      "result": "PASSED"
+    },
+    "publication": {
+      "environment": "dev",
+      "publication_run_id": "37929182045",
+      "published_at_utc": "2026-10-09T12:19:32Z"
+    },
+    "artifacts": [
+      {
+        "path": "schemas/openapi/maezo/v1/billing-status-atendimento.openapi.yaml",
+        "sha256": "8ffe1cee82bd2cd72ee4cb40a9a6bf83a8367b49afeb358f4fac5154ef88130b"
+      }
+    ],
+    "xrg3_verification": {
+      "verification_method": [
+        "manifest v1.4 + digests recalculados pelo script scripts/ci/gerar_pin_v1_1.py",
+        "sha256, git blob sha e tamanho calculados sobre os bytes publicados",
+        "1 digests OpenAPI conferidos contra o manifest publicado"
+      ],
+      "verified_at_utc": "2026-10-09T13:58:27Z",
+      "verified_by": "Claude Code, a pedido do Márcio Filipe Filó do Carmo (CTO e owner)"
+    }
   }
 }

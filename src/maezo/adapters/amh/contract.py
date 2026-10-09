@@ -158,6 +158,19 @@ V1_3_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
 # Mesmo piso do v1.2 (run do v1.1): o v1.3 so' pode ser posterior a ele.
 V1_3_MIN_PUBLICATION_RUN_ID: Final[int] = V1_2_MIN_PUBLICATION_RUN_ID
 
+# --- Manifest ADITIVO v1.4 (billing-status 0.2.0: finalidade `atendimento_whatsapp`; so OpenAPI) ---
+# Decisao do DPO de 08/10/2026 (AMH #223/#225, run XRG-2 37929182045). UM artefato NOVO, a revisao 0.2.0 do
+# contrato billing-status (mesma rota; `purpose_of_use` aceita tambem `atendimento_whatsapp`). O manifest
+# declara `supersedes` do billing-status 0.1.0 publicado no v1.1, que fica INTACTO e pinado: por isso o v1.1
+# e' PREDECESSOR obrigatorio (o bloco v1.4 so' vale com o v1.1 no lock, evidencia e digest proprios).
+V1_4_LOCK_KEY: Final[str] = "manifest_v1_4"
+V1_4_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.4/contract-manifest.yaml"
+V1_4_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
+    "schemas/openapi/maezo/v1/billing-status-atendimento.openapi.yaml",
+)
+# Run de publicacao do v1.3 (XRG2-AMH-DEV-GHA-37843212443): o v1.4 so' pode ser posterior a ele.
+V1_4_MIN_PUBLICATION_RUN_ID: Final[int] = 37843212443
+
 FROZEN_GLUE_SCHEMA_KEYS: Final[tuple[str, ...]] = (
     "amh_maezo_work_item",
     "amh_maezo_consent",
@@ -398,6 +411,8 @@ class AmhContractPin:
     manifest_v1_2_digest: str | None = None
     # Digest do manifest v1.3 (acesso do beneficiario), None enquanto nao pinado (DL-0083).
     manifest_v1_3_digest: str | None = None
+    # Digest do manifest v1.4 (billing-status 0.2.0, finalidade `atendimento_whatsapp`), None sem o bloco.
+    manifest_v1_4_digest: str | None = None
 
     @property
     def canonical_schema_major(self) -> int:
@@ -981,6 +996,20 @@ def _check_manifest_v1_3(violations: list[str], raw: object) -> dict[str, str]:
     )
 
 
+def _check_manifest_v1_4(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.4 (billing-status 0.2.0). O v1.1 e' predecessor: o artefato
+    sucede (`supersedes`) o billing-status 0.1.0 pinado la', que continua pinado e intocado."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_4_LOCK_KEY,
+        manifest_path=V1_4_MANIFEST_PATH,
+        artifact_paths=V1_4_ARTIFACT_PATHS,
+        min_run_id=V1_4_MIN_PUBLICATION_RUN_ID,
+        predecessors=(V1_1_LOCK_KEY,),
+    )
+
+
 def _check_additive_manifest(
     violations: list[str],
     raw: object,
@@ -1110,6 +1139,7 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
     artifacts_v1_1 = _check_manifest_v1_1(violations, raw)
     artifacts_v1_2 = _check_manifest_v1_2(violations, raw)
     artifacts_v1_3 = _check_manifest_v1_3(violations, raw)
+    artifacts_v1_4 = _check_manifest_v1_4(violations, raw)
 
     if violations:
         raise AmhContractPinError(violations)
@@ -1132,13 +1162,14 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
         topics=tuple(topics),
         glue=glue,
         artifact_digests=MappingProxyType(
-            {**artifacts, **artifacts_v1_1, **artifacts_v1_2, **artifacts_v1_3}
+            {**artifacts, **artifacts_v1_1, **artifacts_v1_2, **artifacts_v1_3, **artifacts_v1_4}
         ),
         fixture_digests=MappingProxyType(fixtures),
         source_path=pin_path,
         manifest_v1_1_digest=raw[V1_1_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_1 else None,
         manifest_v1_2_digest=raw[V1_2_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_2 else None,
         manifest_v1_3_digest=raw[V1_3_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_3 else None,
+        manifest_v1_4_digest=raw[V1_4_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_4 else None,
     )
 
 
@@ -1173,6 +1204,10 @@ __all__ = [
     "V1_3_LOCK_KEY",
     "V1_3_MANIFEST_PATH",
     "V1_3_MIN_PUBLICATION_RUN_ID",
+    "V1_4_ARTIFACT_PATHS",
+    "V1_4_LOCK_KEY",
+    "V1_4_MANIFEST_PATH",
+    "V1_4_MIN_PUBLICATION_RUN_ID",
     "AmhAdapterError",
     "AmhContractPin",
     "AmhContractPinError",

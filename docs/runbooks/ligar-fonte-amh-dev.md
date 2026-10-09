@@ -170,3 +170,17 @@ A troca: `helena_consultas_amh = true` em `amh-interop.auto.tfvars`. O Terraform
 `interop/tina.read` a `MAEZO_AMH_INTEROP_SCOPES` e injeta `MAEZO_AMH_TINA_OPENAPI_PATH`. Sem o bloco
 `manifest_v1_2` no pin o receptor RECUSA servir (`tina_contract_invalid` no `dispatcher_error`). Rollback:
 `helena_consultas_amh = false`.
+
+## 7. Cobranca com a finalidade do atendimento (`atendimento_whatsapp`, manifest v1.4)
+
+Decisao do DPO de 08/10/2026 (AMH #223/#225, run XRG-2 37929182045): com `acesso_beneficiario = true` e a fonte
+`amh`, a leitura de cobranca do Lucas usa o billing-status 0.2.0
+(`config/integrations/amh/openapi/billing-status-atendimento.openapi.yaml`, digest no bloco `manifest_v1_4` do pin)
+e declara `purpose_of_use=atendimento_whatsapp`, a mesma finalidade do consentimento do WhatsApp; o `consent_ref`
+do registro do acesso vai como referencia de consentimento (enquanto a gravacao estiver pendente, a base legal de
+execucao de contrato de sempre). O Terraform injeta `MAEZO_AMH_BILLING_STATUS_ATENDIMENTO_OPENAPI_PATH` (variavel
+`amh_billing_status_atendimento_openapi_path`, default `/app/config/integrations/amh/openapi/billing-status-atendimento.openapi.yaml`)
+SO' com o acesso ligado; sem o caminho, ou sem o bloco `manifest_v1_4` no pin, o receptor RECUSA servir
+(`amh_interop_config_ausente: amh_billing_status_atendimento_openapi_path` / `billing_status_contract_invalid` no
+`dispatcher_error`). Com o acesso desligado nada muda: billing-status 0.1.0 e `MAEZO_AMH_INTEROP_PURPOSE_OF_USE`.
+O servico interop da AMH aceita as duas finalidades na mesma rota. Rollback: `acesso_beneficiario = false`.

@@ -395,8 +395,18 @@ def _build_fonte_cobranca_amh(
     from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, ResolvedorDeSujeitoAmh
     from maezo.gateway.tool_registry import build_amh_interop
 
+    # Decisao do DPO de 08/10/2026 (billing-status 0.2.0, manifest v1.4): com o acesso ligado (refs
+    # verificadas) a leitura de cobranca e' a do atendimento do WhatsApp e declara a finalidade do
+    # consentimento, `atendimento_whatsapp`. Sem o acesso, a composicao de sempre (0.1.0 + a finalidade de
+    # `amh_interop_purpose_of_use`), para nao quebrar ambiente nenhum. Sem o OpenAPI novo ou sem o bloco
+    # `manifest_v1_4` no pin, `build_amh_interop` LEVANTA e o receptor recusa servir.
+    billing_atendimento = refs is not None
     interop = build_amh_interop(
-        settings=settings, seam=seam_context, audit=audit, agent_version=_LUCAS_AGENT_VERSION
+        settings=settings,
+        seam=seam_context,
+        audit=audit,
+        agent_version=_LUCAS_AGENT_VERSION,
+        billing_atendimento=billing_atendimento,
     )
     resolvedor: ResolvedorDeSujeito = ResolvedorDeSujeitoAmh(
         port=interop.subjects,
@@ -422,14 +432,17 @@ def _build_fonte_cobranca_amh(
         billing=interop.billing,
         resolvedor=resolvedor,
         consentimento=consentimento,
-        purpose_of_use=interop.purpose_of_use,
+        # A finalidade da LEITURA DE COBRANCA (a que o executor de cobranca aceita); com o acesso ligado,
+        # `atendimento_whatsapp`, e a fonte de consentimento devolve o `consent_ref` do acesso (mesmo escopo).
+        purpose_of_use=interop.billing_purpose_of_use,
         fatos_de_valor=fatos_de_valor,
     )
     logger.warning(
         "lucas_fonte_cobranca_amh_construida",
         tenant_id=settings.tenant_id,
         amh_tenant=interop.amh_tenant,
-        purpose_of_use=interop.purpose_of_use,
+        purpose_of_use=interop.billing_purpose_of_use,
+        billing_atendimento=billing_atendimento,
         base_legal="execucao-de-contrato",
         fatos_de_valor=fatos_de_valor,
     )

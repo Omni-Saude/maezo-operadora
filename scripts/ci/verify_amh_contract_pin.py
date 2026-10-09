@@ -233,6 +233,16 @@ V1_3_ARTIFACT_PATHS: tuple[str, ...] = (
 )
 V1_3_MIN_PUBLICATION_RUN_ID = V1_2_MIN_PUBLICATION_RUN_ID
 
+#: Manifest ADITIVO v1.4 (billing-status 0.2.0, finalidade `atendimento_whatsapp`; decisao do DPO de
+#: 08/10/2026, AMH #223/#225, run XRG-2 37929182045). Um OpenAPI NOVO; o manifest declara `supersedes` do
+#: billing-status 0.1.0 do v1.1, que continua pinado e intocado. Por isso o v1.1 e' PREDECESSOR e a
+#: verificacao dos bytes confere que o `superseded_artifact_sha256` e' exatamente o digest que o v1.1 pina.
+V1_4_LOCK_KEY = "manifest_v1_4"
+V1_4_MANIFEST_PATH = "schemas/contracts/maezo/v1.4/contract-manifest.yaml"
+V1_4_ARTIFACT_PATHS: tuple[str, ...] = ("schemas/openapi/maezo/v1/billing-status-atendimento.openapi.yaml",)
+#: Run de publicacao do v1.3 (XRG2-AMH-DEV-GHA-37843212443): o v1.4 so pode ser posterior a ele.
+V1_4_MIN_PUBLICATION_RUN_ID = 37843212443
+
 
 @dataclass(frozen=True)
 class AdditiveManifest:
@@ -251,6 +261,9 @@ class AdditiveManifest:
     min_publication_run_id: int
     code: str
     predecessors: tuple[str, ...] = ()
+    #: `(artefato sucedido, bloco que o pina)`: o manifest declara `supersedes` desse artefato, e os bytes
+    #: so' passam se o `superseded_artifact`/`superseded_artifact_sha256` forem exatamente os do pin.
+    supersedes: tuple[tuple[str, str], ...] = ()
 
 
 V1_1 = AdditiveManifest(
@@ -281,8 +294,19 @@ V1_3 = AdditiveManifest(
     min_publication_run_id=V1_3_MIN_PUBLICATION_RUN_ID,
     code="v1-3",
 )
+V1_4 = AdditiveManifest(
+    version="v1.4",
+    lock_key=V1_4_LOCK_KEY,
+    manifest_path=V1_4_MANIFEST_PATH,
+    manifest_version="1.4.0",
+    artifact_paths=V1_4_ARTIFACT_PATHS,
+    min_publication_run_id=V1_4_MIN_PUBLICATION_RUN_ID,
+    code="v1-4",
+    predecessors=(V1_1_LOCK_KEY,),
+    supersedes=(("schemas/openapi/maezo/v1/billing-status.openapi.yaml", V1_1_LOCK_KEY),),
+)
 #: Em ordem de publicacao. O loader do adaptador (`maezo.adapters.amh.contract`) tem a copia dele.
-ADDITIVE_MANIFESTS: tuple[AdditiveManifest, ...] = (V1_1, V1_2, V1_3)
+ADDITIVE_MANIFESTS: tuple[AdditiveManifest, ...] = (V1_1, V1_2, V1_3, V1_4)
 ADDITIVE_BY_VERSION: dict[str, AdditiveManifest] = {m.version: m for m in ADDITIVE_MANIFESTS}
 
 #: Glue schema-version IDs are keyed by the Avro schema basename (no extension).
@@ -892,6 +916,11 @@ def check_manifest_v1_1(lock: dict[str, Any]) -> list[Violation]:
 def check_manifest_v1_3(lock: dict[str, Any]) -> list[Violation]:
     """Bloco `manifest_v1_3` (opcional, acesso do beneficiario): as regras do aditivo, sem predecessor."""
     return check_manifest_additive(lock, V1_3)
+
+
+def check_manifest_v1_4(lock: dict[str, Any]) -> list[Violation]:
+    """Bloco `manifest_v1_4` (opcional, billing-status 0.2.0): regras do aditivo, v1.1 como predecessor."""
+    return check_manifest_additive(lock, V1_4)
 
 
 def check_manifest_v1_2(lock: dict[str, Any]) -> list[Violation]:
@@ -1665,6 +1694,28 @@ def verify_manifest_additive(
             )
         )
 
+    # SUCESSAO (v1.4): o artefato sucedido tem de ser exatamente o que o bloco predecessor pina, com o
+    # mesmo digest — prova de que a revisao anterior continua intacta e de que o manifest fala dela.
+    for sucedido, bloco_que_pina in spec.supersedes:
+        pinado = _digest_map(dig(lock, f"{bloco_que_pina}.artifacts")).get(sucedido)
+        for nome, esperado in (
+            ("superseded_artifact", sucedido),
+            ("superseded_artifact_sha256", pinado),
+        ):
+            achados = scan_manifest_scalars(text, nome)
+            if not achados:
+                violations.append(
+                    Violation("manifest-key-missing", f"manifest: no `{nome}:` line found (supersedes)")
+                )
+            elif len(set(achados)) != 1 or achados[0] != esperado:
+                violations.append(
+                    Violation(
+                        "manifest-supersedes-mismatch",
+                        f"manifest `{nome}` = {sorted(set(achados))}, "
+                        f"lock {bloco_que_pina} pins {esperado!r}",
+                    )
+                )
+
     manifest_digests = scan_manifest_path_digests(text)
     pinned_pairs = _digest_map(block.get("artifacts"))
     for path, expected in sorted(pinned_pairs.items()):
@@ -1708,6 +1759,11 @@ def verify_manifest_v1_3(lock: dict[str, Any], manifest_path: Path) -> list[Viol
     return verify_manifest_additive(lock, manifest_path, V1_3)
 
 
+def verify_manifest_v1_4(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
+    """Bytes do manifest v1.4 (billing-status 0.2.0) publicado contra o bloco `manifest_v1_4`."""
+    return verify_manifest_additive(lock, manifest_path, V1_4)
+
+
 def verify_manifest_v1_2(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
     """Bytes do manifest v1.2 (TINA) publicado contra o bloco `manifest_v1_2`."""
     return verify_manifest_additive(lock, manifest_path, V1_2)
@@ -1738,8 +1794,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "                     status != PUBLISHED. The candidate also runs the full structural and\n"
             "                     frozen-catalog checks; the vendored-fixture digest gate is skipped,\n"
             "                     because a candidate legitimately precedes re-vendoring.\n"
-            "  --manifest-version v1.1|v1.2|v1.3  with --manifest: verify an additive manifest against its\n"
-            "                     manifest_v1_1 / manifest_v1_2 / manifest_v1_3 block (no Glue ids; OpenAPI digests only).\n"
+            "  --manifest-version v1.1|v1.2|v1.3|v1.4  with --manifest: verify an additive manifest\n"
+            "                     against its manifest_v1_1 / _v1_2 / _v1_3 / _v1_4 block (no Glue ids;\n"
+            "                     OpenAPI digests only).\n"
             "  --manifest PATH    verify freshly fetched manifest BYTES: recompute sha256 against the\n"
             "                     pin, then require the manifest's amh_commit_sha, evidence_id, Glue\n"
             "                     schema-version ids and artifact/fixture digests to match the lock.\n"
