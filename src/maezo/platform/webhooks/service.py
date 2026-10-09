@@ -412,11 +412,18 @@ def _build_fonte_cobranca_amh(
 
         resolvedor = ResolvedorVerificado(refs)
         consentimento = ConsentimentoDoAcesso(refs, consentimento)
+    # DL-0086 (revisao de seguranca do #709): FATOS DE VALOR so' com a flag propria E a ref. verificada.
+    # Sem o acesso (refs `None`) o resolvedor e' o do telefone, que identifica mas nao verifica: valor de
+    # mensalidade, coparticipacao, saldo e boletos nunca saem para quem apenas segura o celular.
+    fatos_de_valor = settings.lucas_consulta_valores is True
+    if fatos_de_valor and refs is None:
+        raise ValueError("lucas_consulta_valores: exige o acesso do beneficiario (ref. verificada)")
     fonte = FonteCobrancaAmh(
         billing=interop.billing,
         resolvedor=resolvedor,
         consentimento=consentimento,
         purpose_of_use=interop.purpose_of_use,
+        fatos_de_valor=fatos_de_valor,
     )
     logger.warning(
         "lucas_fonte_cobranca_amh_construida",
@@ -424,6 +431,7 @@ def _build_fonte_cobranca_amh(
         amh_tenant=interop.amh_tenant,
         purpose_of_use=interop.purpose_of_use,
         base_legal="execucao-de-contrato",
+        fatos_de_valor=fatos_de_valor,
     )
     return fonte, interop
 

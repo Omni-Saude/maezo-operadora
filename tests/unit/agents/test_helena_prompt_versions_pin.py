@@ -30,9 +30,10 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
     "system": ("system-v1", "16660021eca9f853c45a191286a3e7a0f3c96ea985333bc6f008748306f958c1"),
     "classify": ("classify-v5.3", "34cc3a8888da3550963859a6e99976653a5271bdb991564fa50c266e5780c00e"),
     "response": ("response-v10", "2af3650c30b558f3d68c65af3e9d260ebdd29e17fab3fad7167f7a82bfd5d7f8"),
+    # DL-0086 (08/10/2026): subtipo `consulta_valores`.
     "classify_roteador": (
-        "classify-v6.2",
-        "7be276aeeeda3156065b67d1ed3e2e975bbb25529605d6f7e06d6c7771f726ec",
+        "classify-v7",
+        "7f2dfcc6ffaac94f3f72609cbebd8c9017e6e02b721e1da240e4a70a2abd3a28",
     ),
     "coleta": ("coleta-v1", "a825d71380d522a6cbfc89720739cd1712fe93ea197fc4bc2c86bddb07c73665"),
     # DL-0080: os adendos do historico curto (so' com `MAEZO_HELENA_HISTORICO` ligada).

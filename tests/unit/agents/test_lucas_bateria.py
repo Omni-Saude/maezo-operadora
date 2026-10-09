@@ -99,6 +99,25 @@ async def test_veredito_offline_contra_as_tabelas_vivas() -> None:
     assert divergentes == _ACHADOS_ABERTOS
 
 
+def test_r_cifrao_so_e_aceito_nos_casos_de_valor() -> None:
+    """DL-0086: nos casos `valores_permitidos` o R$ vem dos fatos (a cerca do grafo confere); nos
+    demais ele continua apontado como divergencia."""
+    resultado = {
+        "rejeitado": False,
+        "final": {
+            "route": "respond_member",
+            "desfecho": "resposta_informativa_enviada",
+            "process_started": False,
+        },
+        "mensagem": "Sua mensalidade foi de R$ 8.389,53.",
+        "enviados": [],
+    }
+    de_valor = next(c for c in CASOS if c["id"] == "L25")
+    de_boleto = next(c for c in CASOS if c["id"] == "L01")
+    assert veredito(de_valor, resultado)[1] == []
+    assert any("r$" in d for d in veredito(de_boleto, resultado)[1])
+
+
 async def test_ciclos_ilegiveis_escalam_para_humano_em_vez_de_derrubar_o_turno() -> None:
     caso = next(c for c in CASOS if c["id"] == "L24")
     grafo, gravador = _grafo()

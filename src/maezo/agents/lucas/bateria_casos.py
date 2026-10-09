@@ -15,6 +15,8 @@ Chaves de `esperado` (todas opcionais):
   motivo       motivo_humano
   processo     True/False  -> SP-OP-ESCALATION-001 iniciado?
   rejeitado    True        -> a borda de entrada recusa o estado (ValueError em `new_lucas_state`)
+  valores_permitidos True  -> (DL-0086) o texto pode citar R$: o valor vem dos fatos e a cerca do grafo
+                              confere que e' o deles
 """
 
 from __future__ import annotations
@@ -52,6 +54,41 @@ INFO = "A. Informativo (J1): boleto, 2a via, vencimento"
 PAGTO = "B. Confirmacao de pagamento (J2)"
 HUMANO = "C. Sempre humano (J3): inadimplencia, cancelamento, contestacao"
 BORDA = "D. Borda de entrada e robustez"
+VALORES = "E. Pergunta de valor respondida pelos fatos do billing-status (DL-0086)"
+
+#: Fatos de valor SINTETICOS na forma do contrato `billing-status` (o que `FatosCobranca` entrega).
+_COMPETENCIAS_SINTETICAS: list[dict[str, str]] = [
+    {
+        "competencia": "2026-09",
+        "situacao": "paga",
+        "vencimento": "2026-09-10",
+        "valor_total": "8389.53",
+        "valor_coparticipacao": "120.00",
+        "valor_saldo": "0.00",
+        "liquidado_em": "2026-09-08",
+        "boleto": "****4821",
+    },
+    {
+        "competencia": "2026-08",
+        "situacao": "paga",
+        "vencimento": "2026-08-10",
+        "valor_total": "8269.53",
+        "valor_coparticipacao": "0.00",
+        "valor_saldo": "0.00",
+        "liquidado_em": "2026-08-09",
+        "boleto": "****4790",
+    },
+]
+_FATOS_DE_VALOR: dict[str, Any] = {
+    "status_conciliado": True,
+    "ciclos_sem_conciliacao": 0,
+    "numero_boleto": "****4821",
+    "cnab_ref": "amh-billing:2026-09-30",
+    "valor_em_aberto": "0.00",
+    "dias_atraso_max": 0,
+    "vencimento_referencia": "2026-09-10",
+    "competencias_cobranca": _COMPETENCIAS_SINTETICAS,
+}
 
 CASOS: list[dict[str, Any]] = [
     # --- A. J1 ---------------------------------------------------------------------------------
@@ -302,5 +339,88 @@ CASOS: list[dict[str, Any]] = [
         ),
         dict(route="escalate_human", processo=True),
         "Tipo invalido num fato numerico: nao pode derrubar o turno em silencio.",
+    ),
+    # --- E. Valores (DL-0086) --------------------------------------------------------------------
+    _c(
+        "L25",
+        VALORES,
+        "Quanto foi a mensalidade? Fatos de valor presentes, em dia",
+        dict(intencao="cobranca_info", tipo_solicitacao="consulta_valores", **_FATOS_DE_VALOR),
+        dict(
+            route="respond_member",
+            desfecho="resposta_informativa_enviada",
+            processo=False,
+            valores_permitidos=True,
+        ),
+        "So' os valores/datas dos fatos podem aparecer; fecha com 'conforme os dados de 30/09/2026'.",
+    ),
+    _c(
+        "L26",
+        VALORES,
+        "Coparticipacao de agosto (competencia pedida)",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            competencia="2026-08",
+            **_FATOS_DE_VALOR,
+        ),
+        dict(route="respond_member", processo=False, valores_permitidos=True),
+        "A resposta (texto fixo dos fatos) mostra so' a competencia 2026-08.",
+    ),
+    _c(
+        "L27",
+        VALORES,
+        "Quanto devo? Sem fatos de valor (fonte indisponivel ou simulada)",
+        dict(intencao="cobranca_info", tipo_solicitacao="consulta_valores"),
+        dict(route="escalate_human", motivo="ambiguidade", processo=True),
+        "Nunca responde valor sem dado: o catch-all da DMN escala.",
+    ),
+    _c(
+        "L28",
+        VALORES,
+        "Quanto devo? Fatos de valor presentes, mas 2 ciclos sem conciliar",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            **{**_FATOS_DE_VALOR, "status_conciliado": False, "ciclos_sem_conciliacao": 2},
+        ),
+        dict(route="escalate_human", motivo="inadimplencia_detectada", processo=True),
+        "A regra de atraso vem antes da de valores: inadimplente continua com o humano.",
+    ),
+    _c(
+        "L29",
+        VALORES,
+        "Quando vence? Vencimento real da competencia de referencia nos fatos",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="vencimento",
+            status_conciliado=False,
+            ciclos_sem_conciliacao=0,
+            numero_boleto="****4821",
+            cnab_ref="amh-billing:2026-09-30",
+            vencimento_referencia="2026-09-10",
+        ),
+        dict(route="respond_member", desfecho="lembrete_enviado", processo=False),
+        "O lembrete pode citar 10/09/2026, e so' essa data.",
+    ),
+    _c(
+        "L30",
+        VALORES,
+        "Quanto devo? Vencida ontem: nao conciliado, zero ciclos, 1 dia de atraso",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            **{
+                **_FATOS_DE_VALOR,
+                "status_conciliado": False,
+                "ciclos_sem_conciliacao": 0,
+                "dias_atraso_max": 1,
+                "competencias_cobranca": [
+                    {**_COMPETENCIAS_SINTETICAS[0], "situacao": "vencida", "liquidado_em": None}
+                ],
+            },
+        ),
+        dict(route="escalate_human", motivo="ambiguidade", processo=True),
+        "DL-0082 (revisao do #709): atraso sem ciclo escala sem afirmar inadimplencia nem citar valor.",
     ),
 ]

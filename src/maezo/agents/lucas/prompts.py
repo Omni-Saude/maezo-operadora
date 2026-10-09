@@ -19,12 +19,19 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterator, Mapping
+from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from maezo.gateway.required_text import ZERO_WIDTH_TRANSLATION
 
 SYSTEM_PROMPT_VERSION = "system-v1"
 MESSAGE_PROMPT_VERSION = "message-v1"
 DOSSIER_PROMPT_VERSION = "dossier-v1"
+#: DL-0086 (08/10/2026): a resposta a pergunta de VALOR. v2 (revisao de seguranca do #709): TEXTO FIXO
+#: montado dos fatos (`graph.py::texto_valores`) — nenhum modelo redige valor; a v1 era um rascunho do
+#: modelo e a cerca so' conferia se cada quantia PERTENCIA aos fatos, nao a que campo/competencia.
+VALORES_PROMPT_VERSION = "valores-v2-texto-fixo"
 
 SYSTEM_PROMPT = """Voce e Lucas, um navegador de atendimento e cobranca ao beneficiario de um
 plano de saude brasileiro. Seu papel e responder duvidas de boleto/2a via/vencimento, informar o
@@ -112,7 +119,11 @@ Responda APENAS com o texto do resumo, sem JSON, sem markdown."""
 #: Versao da cerca. Sobe quando um grupo ou um padrao muda — e' o que deixa "a cerca de 18/09"
 #: ser um objeto citavel num incidente, em vez de "o codigo que estava la' naquele dia".
 #: v3 (08/10/2026, DL-0082): grupo `rotulo_de_inadimplencia` — a palavra nunca chega ao beneficiario.
-RECUSA_DE_SAIDA_VERSION = "recusa-lucas-v3"
+#: v4 (08/10/2026, DL-0086): os fatos de valor do contrato `billing-status` entram nos fatos do turno.
+#: `valor_sem_fato` passa a aceitar os QUATRO campos monetarios (tambem dentro das competencias) e
+#: compara VALOR (8389.53 == "R$ 8.389,53"), nao digitos; nascem `data_sem_fato` (data que nao esta'
+#: nos fatos) e `boleto_sem_fato` (rotulo mascarado que nao esta' nos fatos), fora do ACK de escalacao.
+RECUSA_DE_SAIDA_VERSION = "recusa-lucas-v4"
 
 #: Versao do ACK de escalacao. ELE NAO TINHA UMA ate 18/09/2026 — o unico texto do Lucas que
 #: chega ao beneficiario no caminho ADVERSO era tambem o unico sem numero, o que tornava
@@ -276,6 +287,9 @@ _ROTAS_QUE_PODEM_PROMETER_HUMANO: frozenset[str] = frozenset({"ack_escalacao"})
 #: CONSTRUCAO, nao por suspeita. A comparacao com os fatos fica escrita assim mesmo, em vez de uma
 #: proibicao cega da string "R$": no dia em que um campo de valor entrar nos fatos, a cerca passa a
 #: aceitar AQUELE valor e continua recusando os outros, sem ninguem ter de lembrar de edita-la.
+#: ESSE DIA CHEGOU (DL-0086, 08/10/2026): a resposta a `consulta_valores` leva os valores do contrato
+#: `billing-status` nos fatos. Nas outras rotas os fatos continuam sem campo monetario, e o paragrafo
+#: acima continua valendo para elas.
 #:
 #: SO' MOEDA, nunca digito solto: data, competencia (2026-09) e numero de boleto sao digitos
 #: legitimos e abundantes no texto certo, e casar digito reprovaria toda mensagem correta.
@@ -286,21 +300,155 @@ _MOEDA: re.Pattern[str] = re.compile(
     r"(?:r\s*\$|brl)\s*([\d][\d.,]*)|([\d][\d.,]*)\s*reais\b"
 )
 
-#: Os fatos que PODEM justificar uma quantia no texto. So' `valor_em_aberto` — que NENHUM `_build_message`
-#: produz hoje, entao na pratica toda quantia e' inventada; o nome esta' aqui para o dia em que ele entrar:
-#: o dicionario de fatos de `_build_message` nao tem campo monetario, entao toda quantia e'
-#: inventada. A v1 comparava a quantia com os digitos de TODOS os fatos — e `numero_boleto="45000"`
-#: LAVAVA "R$ 450,00", `competencia="2026-09"` lavava "R$ 2.026,09" (medido). Quando um campo de
-#: valor entrar nos fatos (ex.: `valor_em_aberto`), ele entra AQUI, nominalmente, e so' ele passa a
-#: justificar quantias.
-_FATOS_MONETARIOS: frozenset[str] = frozenset({"valor_em_aberto"})
+#: Os fatos que PODEM justificar uma quantia no texto, NOMINALMENTE. A v1 comparava a quantia com os
+#: digitos de TODOS os fatos — e `numero_boleto="45000"` LAVAVA "R$ 450,00", `competencia="2026-09"`
+#: lavava "R$ 2.026,09" (medido). So' estas chaves justificam quantia, em qualquer nivel do dicionario
+#: de fatos (as competencias do contrato `billing-status` chegam como lista de dicionarios, DL-0086).
+_FATOS_MONETARIOS: frozenset[str] = frozenset(
+    {"valor_em_aberto", "valor_total", "valor_coparticipacao", "valor_saldo"}
+)
+
+#: DATA SEM FATO (grupo 6, DL-0086). As chaves de fato que PODEM justificar uma data no texto (ISO
+#: `AAAA-MM-DD`). `dados_de` e' a data da fonte, que o grafo poe na frase de fechamento.
+_FATOS_DE_DATA: frozenset[str] = frozenset(
+    {"vencimento", "liquidado_em", "vencimento_referencia", "dados_de"}
+)
+
+#: BOLETO SEM FATO (grupo 7, DL-0086). As chaves de fato que PODEM justificar um rotulo mascarado de
+#: boleto no texto. O DPO autorizou o rotulo mascarado (`****1234`) para beneficiario verificado; um
+#: rotulo que nao veio da fonte e' inventado — e e' sobre o boleto de alguem.
+_FATOS_DE_BOLETO: frozenset[str] = frozenset({"numero_boleto", "boleto"})
+
+#: As rotas em que datas e rotulos de boleto sao conferidos com os fatos: todas, menos o ACK de
+#: escalacao, que e' TEXTO FIXO montado pelo grafo a partir dos proprios fatos (DL-0082) e nao recebe
+#: dicionario de fatos. A quantia, essa, e' conferida em toda rota (sem fato, nenhuma e' justificavel).
+_ROTAS_SEM_CONFERENCIA_DE_DATA: frozenset[str] = frozenset({"ack_escalacao"})
+
+_DATA_BARRA: re.Pattern[str] = re.compile(r"(?<![\d/])(\d{1,2})/(\d{1,2})/(\d{4})(?![\d/])")
+_DATA_ISO: re.Pattern[str] = re.compile(r"(?<![\d-])(\d{4})-(\d{1,2})-(\d{1,2})(?![\d-])")
+_DIA_MES_BARRA: re.Pattern[str] = re.compile(r"(?<![\d/])(\d{1,2})/(\d{1,2})(?![\d/])")
+_MESES: dict[str, int] = {
+    "janeiro": 1,
+    "fevereiro": 2,
+    "marco": 3,
+    "abril": 4,
+    "maio": 5,
+    "junho": 6,
+    "julho": 7,
+    "agosto": 8,
+    "setembro": 9,
+    "outubro": 10,
+    "novembro": 11,
+    "dezembro": 12,
+}
+_DATA_EXTENSO: re.Pattern[str] = re.compile(r"\b(\d{1,2})o? de (" + "|".join(_MESES) + r")(?: de (\d{4}))?\b")
+_BOLETO_MASCARADO_NO_TEXTO: re.Pattern[str] = re.compile(r"\*{2,}\s?(\d{2,6})(?!\d)")
+_BOLETO_MASCARADO_FATO: re.Pattern[str] = re.compile(r"^\*{2,}(\d{2,6})$")
 
 
 def _quantias(plano: str) -> list[str]:
     return [g1 or g2 for g1, g2 in _MOEDA.findall(plano) if (g1 or g2)]
 
 
-#: Rotulos dos cinco grupos. FECHADOS, porque viram rotulo de metrica: o padrao exato vai para o
+def _quantia_decimal(bruto: str) -> Decimal | None:
+    """A quantia escrita no texto como VALOR: "8.389,53", "8,389.53", "8389.53" e "8389,53" valem
+    8389.53; "1.234" vale 1234. O separador decimal e' o ULTIMO quando ha' dois tipos; com um tipo so',
+    ele e' decimal so' quando seguido de uma ou duas casas. Grafia que nao vira numero -> `None` (o
+    chamador recusa)."""
+    texto = bruto.strip().rstrip(".,")
+    if not texto:
+        return None
+    if "," in texto and "." in texto:
+        if texto.rfind(",") > texto.rfind("."):
+            texto = texto.replace(".", "").replace(",", ".")
+        else:
+            texto = texto.replace(",", "")
+    elif "," in texto:
+        texto = texto.replace(",", ".") if re.fullmatch(r"\d+,\d{1,2}", texto) else texto.replace(",", "")
+    elif "." in texto and not re.fullmatch(r"\d+\.\d{1,2}", texto):
+        texto = texto.replace(".", "")
+    try:
+        return Decimal(texto)
+    except InvalidOperation:
+        return None
+
+
+def _fatos_das_chaves(fatos: Mapping[str, object] | None, chaves: frozenset[str]) -> Iterator[object]:
+    """Os valores ESCALARES de `fatos` guardados sob uma das `chaves`, em qualquer nivel (dicionarios
+    dentro de listas, como as competencias). Valor que e' conteiner nunca conta como fato."""
+    pilha: list[object] = [fatos or {}]
+    while pilha:
+        no = pilha.pop()
+        if isinstance(no, Mapping):
+            for chave, valor in no.items():
+                if isinstance(valor, Mapping | list | tuple):
+                    pilha.append(valor)
+                elif chave in chaves:
+                    yield valor
+        elif isinstance(no, list | tuple):
+            pilha.extend(no)
+
+
+def _valores_permitidos(fatos: Mapping[str, object] | None) -> set[Decimal]:
+    permitidos: set[Decimal] = set()
+    for valor in _fatos_das_chaves(fatos, _FATOS_MONETARIOS):
+        if isinstance(valor, bool) or not isinstance(valor, str | int | float):
+            continue
+        quantia = _quantia_decimal(str(valor))
+        if quantia is not None:
+            permitidos.add(quantia)
+    return permitidos
+
+
+def _datas_permitidas(fatos: Mapping[str, object] | None) -> set[date]:
+    permitidas: set[date] = set()
+    for valor in _fatos_das_chaves(fatos, _FATOS_DE_DATA):
+        if isinstance(valor, str):
+            try:
+                permitidas.add(date.fromisoformat(valor.strip()[:10]))
+            except ValueError:
+                continue
+    return permitidas
+
+
+def _data_ou_none(ano: int, mes: int, dia: int) -> date | None:
+    try:
+        return date(ano, mes, dia)
+    except ValueError:
+        return None
+
+
+def _data_sem_fato(plano: str, fatos: Mapping[str, object] | None) -> bool:
+    """Alguma data do texto (DD/MM/AAAA, AAAA-MM-DD, "10 de agosto de 2026", DD/MM) que NAO esta' nos
+    fatos? Data invalida ("31/02/2026") tambem e' sem fato. Sem ano, compara dia e mes."""
+    permitidas = _datas_permitidas(fatos)
+    dias_meses = {(d.day, d.month) for d in permitidas}
+    completas: list[date | None] = []
+    for dia, mes, ano in _DATA_BARRA.findall(plano):
+        completas.append(_data_ou_none(int(ano), int(mes), int(dia)))
+    for ano, mes, dia in _DATA_ISO.findall(plano):
+        completas.append(_data_ou_none(int(ano), int(mes), int(dia)))
+    for dia, nome_mes, ano in _DATA_EXTENSO.findall(plano):
+        if ano:
+            completas.append(_data_ou_none(int(ano), _MESES[nome_mes], int(dia)))
+        elif (int(dia), _MESES[nome_mes]) not in dias_meses:
+            return True
+    if any(data is None or data not in permitidas for data in completas):
+        return True
+    sem_ano = _DIA_MES_BARRA.findall(_DATA_BARRA.sub(" ", plano))
+    return any((int(dia), int(mes)) not in dias_meses for dia, mes in sem_ano)
+
+
+def _boleto_sem_fato(plano: str, fatos: Mapping[str, object] | None) -> bool:
+    permitidos = {
+        achado.group(1)
+        for valor in _fatos_das_chaves(fatos, _FATOS_DE_BOLETO)
+        if isinstance(valor, str) and (achado := _BOLETO_MASCARADO_FATO.match(valor.strip()))
+    }
+    return any(digitos not in permitidos for digitos in _BOLETO_MASCARADO_NO_TEXTO.findall(plano))
+
+
+#: Rotulos dos sete grupos. FECHADOS, porque viram rotulo de metrica: o padrao exato vai para o
 #: log (onde alguem depura) e o GRUPO vai para o contador (onde alguem conta), de modo que a
 #: cardinalidade nao cresce quando a lista de padroes cresce.
 RECUSA_DESFECHO_ADVERSO: str = "desfecho_adverso"
@@ -308,6 +456,8 @@ RECUSA_PROMESSA_DE_CAPACIDADE: str = "promessa_de_capacidade"
 RECUSA_PROMESSA_DE_HUMANO: str = "promessa_de_humano"
 RECUSA_VALOR_SEM_FATO: str = "valor_sem_fato"
 RECUSA_ROTULO_DE_INADIMPLENCIA: str = "rotulo_de_inadimplencia"
+RECUSA_DATA_SEM_FATO: str = "data_sem_fato"
+RECUSA_BOLETO_SEM_FATO: str = "boleto_sem_fato"
 
 #: ROTULO DE INADIMPLENCIA (grupo 5, DL-0082, 08/10/2026). PROIBIDO EM TODA ROTA que chega ao
 #: beneficiario. No teste real de 08/10 o ACK do modelo disse "inadimplencia detectada" a quem a fonte
@@ -382,7 +532,8 @@ def motivo_de_recusa(
     permite testa-la com os textos REAIS — inclusive os que um dia vazarem — sem subir grafo,
     engine nem modelo nenhum.
 
-    ORDEM: desfecho adverso, capacidade, rotulo de inadimplencia, valor, promessa de humano.
+    ORDEM: desfecho adverso, capacidade, rotulo de inadimplencia, valor, data, boleto, promessa de
+    humano.
     Quando um texto viola mais de uma, o achado reportado e' o mais grave — e o desfecho adverso
     e' o unico que fala sobre o CONTRATO de alguem, que e' o acesso dessa pessoa a saude.
 
@@ -402,17 +553,21 @@ def motivo_de_recusa(
             return (RECUSA_PROMESSA_DE_CAPACIDADE, padrao)
     if _ROTULO_DE_INADIMPLENCIA.search(plano):
         return (RECUSA_ROTULO_DE_INADIMPLENCIA, _ROTULO_DE_INADIMPLENCIA.pattern)
-    permitidos = {
-        _so_digitos(str(v))
-        for k, v in (fatos or {}).items()
-        if k in _FATOS_MONETARIOS and isinstance(v, (str, int, float))
-    }
+    permitidos = _valores_permitidos(fatos)
     for achado in _quantias(plano):
-        digitos = _so_digitos(achado)
-        if digitos and digitos not in permitidos:
+        if not _so_digitos(achado):
+            continue
+        quantia = _quantia_decimal(achado)
+        if quantia is None or quantia not in permitidos:
             # O PADRAO reportado e' a forma generica, nunca a quantia: ela e' saida de modelo sobre
             # a cobranca de uma pessoa, e vai para o contador de metrica como rotulo.
             return (RECUSA_VALOR_SEM_FATO, "valor monetario ausente dos fatos")
+    if response_kind not in _ROTAS_SEM_CONFERENCIA_DE_DATA:
+        # DL-0086: com valores nos fatos, a resposta cita datas e boleto — so' os DESTE turno passam.
+        if _data_sem_fato(plano, fatos):
+            return (RECUSA_DATA_SEM_FATO, "data ausente dos fatos")
+        if _boleto_sem_fato(plano, fatos):
+            return (RECUSA_BOLETO_SEM_FATO, "rotulo de boleto ausente dos fatos")
     if response_kind not in _ROTAS_QUE_PODEM_PROMETER_HUMANO:
         for padrao in PROMESSA_DE_HUMANO_PROIBIDA:
             if padrao in plano:
@@ -426,4 +581,5 @@ PROMPT_VERSIONS: dict[str, str] = {
     "dossier": DOSSIER_PROMPT_VERSION,
     "escalation_ack": ESCALATION_ACK_PROMPT_VERSION,
     "recusa_de_saida": RECUSA_DE_SAIDA_VERSION,
+    "valores": VALORES_PROMPT_VERSION,
 }

@@ -41,10 +41,11 @@ from tests.support.roteamento_fakes import FakeAgenteAtivoStore
 
 _AGORA = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 _CONVERSA = "wa:amh:hk1_0123abcd"
-_MIGRATION = (
-    Path(__file__).resolve().parents[5]
-    / "src/maezo/platform/migrations/versions/0017_conversa_agente_ativo.py"
-)
+_VERSIONS = Path(__file__).resolve().parents[5] / "src/maezo/platform/migrations/versions"
+_MIGRATION = _VERSIONS / "0017_conversa_agente_ativo.py"
+#: DL-0086: a 0023 substituiu o CHECK de `lucas_cobranca_subtipo` da 0017 (acrescentou `consulta_valores`).
+#: O dominio vigente e' o do `upgrade()` da 0023.
+_MIGRATION_SUBTIPO = _VERSIONS / "0024_cobranca_subtipo_consulta_valores.py"
 
 
 def _linha(agente: str, motivo: str, *, vencida: bool = False, revisao: int = 3) -> LinhaAgenteAtivo:
@@ -349,7 +350,8 @@ def test_a_frase_de_passagem_so_sai_quando_a_conversa_entra_no_lucas() -> None:
 def test_os_dominios_do_codigo_sao_os_mesmos_dos_checks_da_migration() -> None:
     fonte = _MIGRATION.read_text(encoding="utf-8")
     bloco_transicao = re.search(r"transicao_motivo IN \((.*?)\)\)", fonte, re.DOTALL)
-    bloco_subtipo = re.search(r"lucas_cobranca_subtipo IN \((.*?)\)\)", fonte, re.DOTALL)
+    upgrade_0023 = _MIGRATION_SUBTIPO.read_text(encoding="utf-8").split("def downgrade")[0]
+    bloco_subtipo = re.search(r"lucas_cobranca_subtipo IN \((.*?)\)\)", upgrade_0023, re.DOTALL)
     assert bloco_transicao and bloco_subtipo
     assert tuple(re.findall(r"'([a-z_0-9]+)'", bloco_transicao.group(1))) == TRANSICOES
     assert tuple(re.findall(r"'([a-z_0-9]+)'", bloco_subtipo.group(1))) == COBRANCA_SUBTIPOS

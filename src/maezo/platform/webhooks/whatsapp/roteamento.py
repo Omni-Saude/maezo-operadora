@@ -65,13 +65,15 @@ TransicaoMotivo = Literal[
     "retorno_fora_do_canal",
     "lucas_encerrou",
 ]
-#: Dominio fechado de `cobranca_subtipo` (§2.4), o mesmo do CHECK da coluna.
+#: Dominio fechado de `cobranca_subtipo` (§2.4), o mesmo do CHECK da coluna (migration 0024, que
+#: acrescentou `consulta_valores` — DL-0086 — ao CHECK original da 0017).
 CobrancaSubtipo = Literal[
     "boleto_2via",
     "vencimento",
     "confirmacao_pagamento",
     "contestacao",
     "cobranca_recebida",
+    "consulta_valores",
     "cancelamento",
     "outro",
 ]

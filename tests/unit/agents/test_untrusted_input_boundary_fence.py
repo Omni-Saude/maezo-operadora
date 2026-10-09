@@ -524,6 +524,8 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     # (`graph.py::_redigir_consulta`, a mensagem demarcada como `message_body`).
     # 16/16 desde 08/10/2026 (DL-0082): o ACK de escalacao do Lucas virou texto fixo — o sitio
     # `_build_escalation_ack` (que so' lia `motivo_humano`, campo de SAIDA) deixou de chamar o modelo.
+    # Continua 16/16 com o DL-0086 (PR #709): a resposta a pergunta de VALOR e' TEXTO FIXO montado dos
+    # fatos (`graph.py::texto_valores`, revisao de seguranca do #709) — nenhuma chamada LLM nova.
     assert (total, com_entrada) == (16, 16), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
         "entrada), nao os 16/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "

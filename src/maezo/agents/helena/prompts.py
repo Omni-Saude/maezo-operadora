@@ -63,12 +63,15 @@ CLASSIFY_PROMPT_VERSION = "classify-v5.3"  # 04/10/2026: pedido vago ("preciso d
 #: `outside_channel`. Usado SO' quando `MAEZO_ROTEADOR_LUCAS` esta' ligado: desligado, o texto
 #: enviado ao modelo e' o `classify-v5` byte a byte (o sha256 dele esta' fixado em
 #: `tests/unit/agents/test_helena_passagem_cobranca.py`).
-CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v6.2"  # 04/10/2026: as mesmas duas regras do v5.3 e, so' no v6,
-# reajuste e "mensalidade atrasada"/"vou ser suspenso" sao cobranca, forma de pagamento/nota fiscal sao
-# `outro`, e "passando mal"/tontura num texto de cobranca e' `symptom` (LU043, LU055, LU059, LU075, LU077,
-# LU081 da bateria do Lucas de 02/10). v6.1 — 02/10/2026: o paragrafo de `outside_channel` do v6
-# ganhou autorizacao NEGADA e privacidade/LGPD (as mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026:
-# a onda (e).
+CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v7"  # 08/10/2026 (DL-0086): subtipo novo `consulta_valores`
+# no dominio de `cobranca_subtipo` — valor da mensalidade, coparticipacao, saldo/"quanto devo", historico de
+# valores e data de pagamento deixam de ser `outro` (o Lucas passa a responde-los pelos fatos do contrato
+# `billing-status`); pix, cartao, nota fiscal e informe de IR continuam `outro`. v6.2 — 04/10/2026: as
+# mesmas duas regras do v5.3 e, so' no v6, reajuste e "mensalidade atrasada"/"vou ser suspenso" sao
+# cobranca, forma de pagamento/nota fiscal sao `outro`, e "passando mal"/tontura num texto de cobranca
+# e' `symptom` (LU043, LU055, LU059, LU075, LU077, LU081 da bateria do Lucas de 02/10). v6.1 —
+# 02/10/2026: o paragrafo de `outside_channel` do v6 ganhou autorizacao NEGADA e privacidade/LGPD (as
+# mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026: a onda (e).
 RESPONSE_PROMPT_VERSION = "response-v10"  # 01/10/2026: o contexto da resposta deixa de levar o `motivo`
 # da tabela de red flag (graph.py::_redigir_resposta). Ele era o texto de engenharia que o modelo
 # repetia ao beneficiario — "nao ha sinais de alerta" (barrado pela cerca e convertido em P3
@@ -364,7 +367,8 @@ def system_prompt() -> str:
 #: o validador recusa qualquer outro valor como JSON invalido (`falha_tecnica`).
 _CAMPOS_DE_COBRANCA = """
   "cobranca_subtipo": SOMENTE quando intent="cobranca", um de ["boleto_2via", "vencimento",
-    "confirmacao_pagamento", "contestacao", "cobranca_recebida", "cancelamento", "outro"]; em
+    "confirmacao_pagamento", "contestacao", "cobranca_recebida", "consulta_valores", "cancelamento",
+    "outro"]; em
     qualquer outro intent, null,
   "competencia": o mes de referencia da cobranca no formato "AAAA-MM", SOMENTE se a mensagem
     disser o mes E o ano; nunca suponha o ano; senao null."""
@@ -391,8 +395,11 @@ barras), "vencimento" (data de vencimento), "confirmacao_pagamento" (se um pagam
 recebido), "contestacao" (discorda do valor, do reajuste ou do aumento da mensalidade, ou nao
 reconhece a cobranca), "cobranca_recebida" (recebeu cobranca, aviso de atraso ou de debito, diz que
 esta com mensalidade atrasada ou pergunta se o plano sera suspenso ou cortado por falta de
-pagamento), "cancelamento" (quer cancelar o plano) e "outro" (qualquer outra duvida de cobranca:
-forma de pagamento como pix ou cartao, valor da mensalidade, nota fiscal, informe de rendimentos).
+pagamento), "consulta_valores" (pergunta de VALOR ou de DATA DE PAGAMENTO: quanto e' a mensalidade,
+valor da coparticipacao, saldo ou quanto deve, historico de valores pagos, quando a mensalidade foi
+paga ou em que data foi paga), "cancelamento" (quer cancelar o plano) e "outro" (qualquer outra
+duvida de cobranca: forma de pagamento como pix ou cartao, nota fiscal, informe de rendimentos ou de
+imposto de renda).
 Uma mensagem de cobranca com QUALQUER sinal de saude (sintoma, dor, mal-estar, sofrimento, risco)
 preenche os campos de saude normalmente — o sinal de saude e' sempre avaliado, e o sintoma vence o
 assunto: "estou passando mal", "tontura", "visao escura" e "desmaio" sao sinal de saude, entao

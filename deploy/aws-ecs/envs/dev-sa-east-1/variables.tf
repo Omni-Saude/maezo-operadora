@@ -816,6 +816,24 @@ variable "acesso_beneficiario" {
   nullable    = false
 }
 
+variable "lucas_consulta_valores" {
+  description = <<-EOT
+    Valores na resposta do Lucas (DL-0086, revisao de seguranca do PR #709): `MAEZO_LUCAS_CONSULTA_VALORES`.
+    Default `false`: a fonte AMH entrega so' os quatro fatos de conciliacao e a pergunta de valor escala.
+    Ligada, a fonte AMH entrega tambem valores, coparticipacao, saldo, datas de pagamento e boleto
+    mascarado — SO' para a ref. verificada pelo acesso do beneficiario (DL-0083). Exige
+    `acesso_beneficiario = true` e `lucas_fonte_cobranca = "amh"` (validado aqui e no boot).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.lucas_consulta_valores || (var.acesso_beneficiario && var.lucas_fonte_cobranca == "amh")
+    error_message = "lucas_consulta_valores exige acesso_beneficiario = true e lucas_fonte_cobranca = \"amh\" (valor so' para beneficiario verificado)."
+  }
+}
+
 variable "acesso_validade_horas" {
   description = "Validade, em horas, da verificacao de identidade do acesso (`MAEZO_ACESSO_VALIDADE_HORAS`, 1..168). Vencida, a proxima mensagem recomeca no CPF (o consentimento fica)."
   type        = number

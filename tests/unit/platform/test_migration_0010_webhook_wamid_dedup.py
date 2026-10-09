@@ -139,7 +139,9 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     # VW1-P4 appends 0020 (`vendor_channel_submissions`, OP16); still linear.
     # VW4/GP11 wiring appends 0021 (`vendor_suppression_records`, OP20); still linear.
     # DL-0083 appends 0022 (`conversa_acesso_beneficiario`); 0023 fixes its ref CHECKs; still linear.
-    assert script.get_heads() == ["0023"]
+    # DL-0086 appends 0024 (`consulta_valores` no CHECK de `conversa_agente_ativo`); still linear.
+    assert script.get_heads() == ["0024"]
+    assert script.get_revision("0024").down_revision == "0023"
     assert script.get_revision("0023").down_revision == "0022"
     assert script.get_revision("0022").down_revision == "0021"
     assert script.get_revision("0021").down_revision == "0020"
