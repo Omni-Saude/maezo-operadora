@@ -305,6 +305,14 @@ class WhatsAppWebhookSettings(BaseSettings):
     # executor do gateway aceita ate' 30 s), para o prazo por chamada nunca ser o limite que derruba
     # uma resolucao que caberia no total. Medido em dev (07/10/2026): ~3 s + ~2-3 s; o antigo 6 s fixo
     # estourava com a AMH tendo achado a pessoa. A faixa recusa no boot o que nao faz sentido.
+    # Prazo (s) da leitura de cobranca do Lucas na AMH (`FonteCobrancaAmh`). Tem de ser MAIOR que o prazo do
+    # interop para o Athena (`athena_timeout_s`, 10 s em dev, AMH #230), senao o Maezo desiste antes.
+    lucas_cobranca_prazo_s: float = Field(
+        default=15.0,
+        ge=1.0,
+        le=30.0,
+        validation_alias=AliasChoices("MAEZO_LUCAS_COBRANCA_PRAZO_S", "lucas_cobranca_prazo_s"),
+    )
     helena_identidade_prazo_s: float = Field(
         default=15.0,
         ge=1.0,

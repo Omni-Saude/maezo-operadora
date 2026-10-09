@@ -436,6 +436,7 @@ def _build_fonte_cobranca_amh(
         # `atendimento_whatsapp`, e a fonte de consentimento devolve o `consent_ref` do acesso (mesmo escopo).
         purpose_of_use=interop.billing_purpose_of_use,
         fatos_de_valor=fatos_de_valor,
+        timeout_seconds=settings.lucas_cobranca_prazo_s,
     )
     logger.warning(
         "lucas_fonte_cobranca_amh_construida",
