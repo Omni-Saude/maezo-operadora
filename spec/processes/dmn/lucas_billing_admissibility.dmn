@@ -52,6 +52,10 @@
     ou `dias_atraso_max > 0` nos fatos (apurado pelo grafo, nunca pelo modelo), a pergunta de valor
     ESCALA com categoria `ambiguidade`: o humano confirma, e o beneficiario nunca le' "vencida"/atraso
     como afirmacao. A linha `consulta_valores` exige `valores_com_atraso=false`. As demais ignoram (`-`).
+    REGRA `vencimento_atraso` (09/10/2026, teste real do dono): "quando vence?" passou a ter resposta em
+    TEXTO FIXO montada dos fatos por competencia; com `valores_com_atraso=true` (vencida ontem, ciclos=0) a
+    duvida de vencimento ESCALA com categoria `ambiguidade`, pela mesma razao da linha acima. Fica antes de
+    `vencimento`; sem fatos de valor a entrada e' false e o lembrete de sempre continua.
 
     NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — uma row catch-all (`-`) sob
     UNIQUE colidiria com qualquer row especifica no engine (violacao em runtime); FIRST preserva o
@@ -88,6 +92,17 @@
         <outputEntry id="lba_r_atraso_escala_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
         <outputEntry id="lba_r_atraso_escala_o2"><text>"Indicio de inadimplencia (nao conciliado por >=1 ciclo) — humano confirma antes de qualquer acao de cobranca; NUNCA suspende/cobra por suposicao (limiar DRAFT/verify — sign-off financeiro/PO)"</text></outputEntry>
         <outputEntry id="lba_r_atraso_escala_o3"><text>"inadimplencia"</text></outputEntry>
+      </rule>
+      <rule id="lba_r_vencimento_atraso">
+        <description>Duvida de vencimento com competencia vencida ou dias de atraso nos fatos de valor, sem ciclo sem conciliacao (vencida ontem) -> humano confirma; o texto fixo de vencimento nunca afirma atraso (09/10/2026, mesma regra da consulta de valores, DL-0082 sobre DL-0086). Sem fatos de valor a entrada e' false e a linha nao casa.</description>
+        <inputEntry id="lba_r_vencimento_atraso_i1"><text>"vencimento"</text></inputEntry>
+        <inputEntry id="lba_r_vencimento_atraso_i2"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_vencimento_atraso_i3"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_vencimento_atraso_i4"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_vencimento_atraso_i5"><text>true</text></inputEntry>
+        <outputEntry id="lba_r_vencimento_atraso_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
+        <outputEntry id="lba_r_vencimento_atraso_o2"><text>"Duvida de vencimento com competencia vencida ou dias de atraso nos fatos (sem ciclo sem conciliacao) — humano confirma; nunca se afirma atraso ao beneficiario (DL-0082) — DRAFT/verify"</text></outputEntry>
+        <outputEntry id="lba_r_vencimento_atraso_o3"><text>"ambiguidade"</text></outputEntry>
       </rule>
       <rule id="lba_r_vencimento">
         <description>Duvida de vencimento sem indicio de inadimplencia -> lembrete informativo (nunca ameaca suspensao)</description>
