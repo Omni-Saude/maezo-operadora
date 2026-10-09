@@ -87,7 +87,10 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: escalacao virou texto fixo montado com os fatos, e o `try` estreitado em volta do modelo saiu junto.
 #: Continua 34 com o DL-0086 (PR #709): a resposta a pergunta de VALOR e' texto fixo dos fatos (revisao de
 #: seguranca do #709), sem `try` em volta de modelo.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 34
+#: 09/10/2026: 33 — `LucasGraph._build_dossier` deixou de chamar o LLM: a narrativa do dossie de
+#: escalacao virou texto fixo montado com os fatos (`texto_dossie`), e o `try` estreitado em volta do
+#: modelo saiu junto (o modelo lia `contesta_cobranca=False` como contestacao registrada).
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 33
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:

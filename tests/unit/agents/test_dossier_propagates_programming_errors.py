@@ -145,7 +145,8 @@ def _seams() -> dict[str, Any]:
 
 
 # =================================================================================================
-# (A) Os 15 sitios que chamam `self._llm.generate`
+# (A) Os 13 sitios que chamam `self._llm.generate` (eram 15: o ACK do Lucas saiu no DL-0082 e o dossie
+# do Lucas em 09/10/2026, os dois viraram texto fixo)
 # =================================================================================================
 
 
@@ -209,12 +210,6 @@ async def _lucas_message(fake: object) -> Any:
     return await graph._build_message(state)
 
 
-async def _lucas_dossier(fake: object) -> Any:
-    graph = LucasGraph(inference=_llm(fake), whatsapp=cast(Any, object()), **_seams())
-    state: Any = {"tenant_id": "amh", "message_body": "ola"}
-    return await graph._build_dossier(state)
-
-
 async def _marina_dossier(fake: object) -> Any:
     graph = MarinaGraph(inference=_llm(fake), **_seams())
     state: Any = {"tenant_id": "amh", "fluxo": "contas"}
@@ -244,8 +239,8 @@ _LLM_SITES: dict[str, Callable[[object], Awaitable[Any]]] = {
     "helena::_respond_llm": _helena_respond,
     "helena::_resumo_contexto": _helena_resumo,
     "lucas::_build_message": _lucas_message,
-    "lucas::_build_dossier": _lucas_dossier,
     # `lucas::_build_escalation_ack` saiu (DL-0082): o ACK virou texto fixo, sem chamada de modelo.
+    # `lucas::_build_dossier` saiu (09/10/2026): a narrativa do dossie virou texto fixo dos fatos.
     "marina::_build_dossier": _marina_dossier,
     "rafael::_build_dossier": _rafael_dossier,
     "valentina::_build_dossier": _valentina_dossier,
@@ -548,7 +543,7 @@ async def test_corpo_do_provedor_de_llm_ilegivel_volta_a_degradar(
     `json.JSONDecodeError`; o provedor converte para `InferenceProviderError`, e o no volta a
     devolver o dossie minimo em vez de estourar.
 
-    POR QUE RAFAEL, E POR QUE A VARIAVEL DE AMBIENTE. Os outros 14 sitios de LLM passam
+    POR QUE RAFAEL, E POR QUE A VARIAVEL DE AMBIENTE. Os outros 12 sitios de LLM passam
     `phi=True` fixo, e a fachada RECUSA antes de discar quando o provedor ativo nao e' PHI-capaz
     (`PhiZoneRoutingError`, I-6) — um teste ali seria VACUO: a narrativa ficaria vazia pela
     recusa de zona, sem nunca alcancar o corpo ilegivel. So' `rafael::_build_dossier` deriva o

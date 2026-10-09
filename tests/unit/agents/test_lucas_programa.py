@@ -206,9 +206,9 @@ def test_rascunhos_barrados_sairam_como_a_constante(registros: list[dict[str, An
 
 def test_toda_chamada_de_llm_do_programa_e_phi(registros: list[dict[str, Any]]) -> None:
     assert all(r["llm_todas_phi"] for r in registros)
-    # Toda escalacao chama o modelo (a narrativa do dossie). A resposta informativa pode ser texto
-    # fixo sem modelo nenhum (DL-0082: "mensalidade em dia").
-    assert all(r["llm_chamadas"] >= 1 for r in registros if r["route"] == "escalate_human")
+    # Nenhuma escalacao chama o modelo: o ACK (DL-0082) e a narrativa do dossie (09/10/2026) sao texto
+    # fixo dos fatos. A resposta informativa pode ser texto fixo sem modelo nenhum ("mensalidade em dia").
+    assert all(r["llm_chamadas"] == 0 for r in registros if r["route"] == "escalate_human")
     assert any(r["llm_chamadas"] >= 1 for r in registros if r["route"] == "respond_member")
 
 

@@ -144,6 +144,8 @@ async def executar_caso(
             "decisao_cancelamento": dossie.get("decisao_cancelamento"),
             "chaves": sorted(str(k) for k in dossie),
         }
+        # O texto que o atendente le' no portal (texto fixo desde 09/10/2026), para conferir no ambiente.
+        saida["dossie_narrativa"] = str(dossie.get("narrativa") or "")[:600] or None
     mensagem = final.get("mensagem")
     if isinstance(mensagem, Mapping):
         saida["mensagem"] = str(mensagem.get("texto") or "")[:1500] or None

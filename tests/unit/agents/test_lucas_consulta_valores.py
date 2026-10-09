@@ -467,7 +467,8 @@ async def test_sem_fatos_de_valor_escala_e_nenhum_modelo_redige_valor() -> None:
     assert final["route"] == "escalate_human"
     assert final["motivo_humano"] == "ambiguidade"
     assert final["process_started"] is True
-    assert [kind for kind, _ in inferencia.prompts] == ["reasoning"]  # so' o dossie do humano
+    # Nenhum modelo: nem resposta de valor nem dossie (texto fixo dos fatos desde 09/10/2026).
+    assert inferencia.prompts == []
     assert all("R$" not in texto for texto in envio.textos)
 
 
@@ -504,13 +505,15 @@ _VENCIDA_ONTEM: dict[str, Any] = {
 )
 async def test_vencida_ontem_sem_ciclo_escala_e_nao_afirma_atraso(fatos: dict[str, Any]) -> None:
     """DL-0082 (revisao do #709): `status_conciliado=false`, `ciclos=0`, vencida ontem. Nenhum texto ao
-    beneficiario fala de atraso/vencida/inadimplencia nem cita valor; o modelo so' redige o dossie."""
+    beneficiario fala de atraso/vencida/inadimplencia nem cita valor; nenhum modelo redige nada (o dossie
+    e' texto fixo dos fatos desde 09/10/2026)."""
     estado = _estado(**fatos)
     assert valores_com_atraso(estado) is True
     final, envio, inferencia = await _turno(estado, "Sua mensalidade de R$ 320,25 esta' vencida ha' 1 dia.")
     assert final["route"] == "escalate_human"
     assert final["motivo_humano"] == "ambiguidade"
-    assert [kind for kind, _ in inferencia.prompts] == ["reasoning"]  # so' o dossie do humano
+    # Nenhum modelo: nem resposta de valor nem dossie (texto fixo dos fatos desde 09/10/2026).
+    assert inferencia.prompts == []
     for texto in envio.textos:
         baixo = texto.lower()
         assert "R$" not in texto and "320" not in texto
@@ -524,7 +527,8 @@ async def test_vencimento_com_atraso_nos_fatos_escala_e_nao_cita_data_nem_valor(
     final, envio, inferencia = await _turno(estado, "Lembrete: sua mensalidade venceu em 07/10/2026.")
     assert final["route"] == "escalate_human"
     assert final["motivo_humano"] == "ambiguidade"
-    assert [kind for kind, _ in inferencia.prompts] == ["reasoning"]  # so' o dossie do humano
+    # Nenhum modelo: nem resposta de valor nem dossie (texto fixo dos fatos desde 09/10/2026).
+    assert inferencia.prompts == []
     for texto in envio.textos:
         assert "07/10/2026" not in texto and "R$" not in texto and "vencid" not in texto.lower()
 

@@ -144,8 +144,14 @@ async def test_ciclos_em_aberto_seguem_a_escalacao_de_sempre_com_ack_fixo_sem_ac
     ]
     assert "*" not in envio.textos[0]
     assert "inadimpl" not in _sem_acento(envio.textos[0])
-    # So' a narrativa do dossie (lida pelo humano) chama o modelo; o ACK nao.
-    assert inferencia.task_kinds == ["reasoning"]
+    # Nem o ACK nem a narrativa do dossie chamam o modelo (texto fixo desde DL-0082 / 09/10/2026).
+    assert inferencia.task_kinds == []
+    assert final["dossier"]["narrativa"] == (
+        "Encaminhado ao atendente porque há mensalidade em aberto sem pagamento conciliado. "
+        "Pedido do beneficiário: confirmação de pagamento, competência 07/2026. Situação na fonte: há 1 mês "
+        "sem pagamento conciliado. Dados de 28/07/2026. Nenhuma decisão sobre o plano foi tomada pelo "
+        "atendimento automático."
+    )
 
 
 async def test_fonte_indisponivel_diz_que_nao_conseguiu_consultar_e_escala_sem_afirmar_nada() -> None:

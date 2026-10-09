@@ -15,9 +15,7 @@
       "tipo_solicitacao": "status_pagamento"
     }
   },
-  "recorded_llm": [
-    "Resumo factual do pedido de cancelamento para avaliacao humana."
-  ],
+  "recorded_llm": [],
   "dmn_fixture": {
     "lucas_escalation_routing": {"roteamento": "CONTRATOS_HUMANO"}
   },

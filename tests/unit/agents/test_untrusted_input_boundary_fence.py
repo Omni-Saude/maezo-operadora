@@ -157,15 +157,13 @@ _CAMPOS_ESTRUTURADOS_POR_AGENTE: dict[str, frozenset[str]] = {
     #: helena so' tem UM campo de entrada que alcanca prompt (`message_body`) e ele e' o proprio
     #: texto cru do WhatsApp — nada estruturado para permitir.
     "helena": frozenset(),
+    #: lucas: desde 09/10/2026 so' `_build_message` monta prompt. `ciclos_sem_conciliacao`, `cnab_ref`,
+    #: `contesta_cobranca`, `intencao` e `pedido_cancelamento` sairam com o prompt do dossie (a narrativa
+    #: virou texto fixo dos fatos, `texto_dossie`).
     "lucas": frozenset(
         {
-            "ciclos_sem_conciliacao",
-            "cnab_ref",
             "competencia",
-            "contesta_cobranca",
-            "intencao",
             "numero_boleto",
-            "pedido_cancelamento",
             "status_conciliado",
             "tipo_solicitacao",
         }
@@ -526,9 +524,11 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     # `_build_escalation_ack` (que so' lia `motivo_humano`, campo de SAIDA) deixou de chamar o modelo.
     # Continua 16/16 com o DL-0086 (PR #709): a resposta a pergunta de VALOR e' TEXTO FIXO montado dos
     # fatos (`graph.py::texto_valores`, revisao de seguranca do #709) — nenhuma chamada LLM nova.
-    assert (total, com_entrada) == (16, 16), (
+    # 15/15 desde 09/10/2026: a narrativa do dossie do Lucas virou texto fixo dos fatos
+    # (`graph.py::texto_dossie`) — o sitio `_build_dossier` deixou de chamar o modelo.
+    assert (total, com_entrada) == (15, 15), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 16/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 15/15 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )
