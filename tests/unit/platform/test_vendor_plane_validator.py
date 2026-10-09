@@ -59,7 +59,8 @@ def test_a_base_tem_exatamente_19_bootstraps_e_o_contrato_e_19() -> None:
 
 def test_a_cadeia_local_e_head_linear_0023_revisando_0022() -> None:
     """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0023 revisa 0022
-    (0021 = store de supressão GP11 — VW4 wiring; 0022 = acesso do beneficiario, DL-0083; 0023 = CHECKs da 0022)."""
+    (0021 = store de supressão GP11 — VW4 wiring; 0022 = acesso do beneficiario, DL-0083;
+    0023 = CHECKs da 0022)."""
     heads, edges = local_migration_chain()
     assert heads == ("0023",)
     assert edges["0023"] == "0022"
