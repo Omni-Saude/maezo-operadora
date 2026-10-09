@@ -63,7 +63,6 @@ from maezo.agents.lucas.prompts import (
     RECUSA_PROMESSA_DE_HUMANO,
     RECUSA_VALOR_SEM_FATO,
     SYSTEM_PROMPT,
-    dossier_prompt,
     message_prompt,
     motivo_de_recusa,
 )
@@ -145,12 +144,9 @@ PAREAMENTO: list[tuple[str, str, str, str]] = [
         RECUSA_VALOR_SEM_FATO,
         "mensagem",
     ),
-    (
-        "NAO prometa um prazo que voce nao controla",
-        "Um atendente vai entrar em contato com voce ainda hoje.",
-        RECUSA_PROMESSA_DE_HUMANO,
-        "mensagem",
-    ),
+    # "NAO prometa um prazo que voce nao controla" saiu com o `dossier_prompt` (09/10/2026): a
+    # narrativa do dossie virou texto fixo dos fatos. A cerca da promessa de humano continua ligada
+    # na mensagem — ver `test_a_promessa_de_humano_com_prazo_continua_cercada_na_mensagem`.
 ]
 
 
@@ -159,7 +155,7 @@ def test_cada_proibicao_do_prompt_tem_cerca_atras(proibicao: str, texto: str, gr
     # ESPACO COLAPSADO de proposito: os prompts sao triple-quoted e quebram linha no meio das
     # frases ("NUNCA ameace\n  suspensao ou cancelamento"). Comparar cru faria este teste falhar
     # por formatacao — um vermelho que nao e' sobre a cerca ensina a gente a ignora-lo.
-    prompts_juntos = " ".join(f"{SYSTEM_PROMPT}\n{message_prompt()}\n{dossier_prompt()}".split())
+    prompts_juntos = " ".join(f"{SYSTEM_PROMPT}\n{message_prompt()}".split())
     assert proibicao in prompts_juntos, (
         f"a proibicao {proibicao!r} nao esta mais escrita nos prompts — se ela foi removida de "
         "proposito, o padrao correspondente da cerca sai junto; se foi so' reescrita, este "
@@ -170,6 +166,13 @@ def test_cada_proibicao_do_prompt_tem_cerca_atras(proibicao: str, texto: str, gr
     recusa = motivo_de_recusa(texto, rota, {})
     assert recusa is not None, f"texto que viola {proibicao!r} PASSOU pela cerca"
     assert recusa[0] == grupo
+
+
+def test_a_promessa_de_humano_com_prazo_continua_cercada_na_mensagem() -> None:
+    """O pareamento desta frase saiu com o `dossier_prompt` (09/10/2026); a cerca, nao."""
+    recusa = motivo_de_recusa("Um atendente vai entrar em contato com voce ainda hoje.", "mensagem", {})
+    assert recusa is not None
+    assert recusa[0] == RECUSA_PROMESSA_DE_HUMANO
 
 
 # =============================================================================================
@@ -356,12 +359,22 @@ async def test_o_dossie_do_humano_nao_e_cercado() -> None:
     pedido de cancelamento NOMEADOS para decidir. Aplicar a cerca do beneficiario ali apagaria
     exatamente o que ele tem de saber. O que protege o humano de receber uma DECISAO pronta e'
     outra cerca, estrutural e ja' existente: `decisao_cancelamento` e' sempre `None`.
+
+    09/10/2026: a narrativa virou TEXTO FIXO dos fatos (`texto_dossie`), sem modelo — o texto do
+    modelo nunca chega a ela, e o pedido de cancelamento aparece NOMEADO, sem passar pela cerca.
     """
-    narrativa = "Beneficiario inadimplente ha 3 ciclos; pediu cancelamento do contrato."
-    g = _graph(narrativa)
-    state: LucasState = {"tenant_id": "t1", "motivo_humano": "inadimplencia"}  # type: ignore[typeddict-item]
+    g = _graph("Beneficiario inadimplente ha 3 ciclos; pediu cancelamento do contrato.")
+    state: LucasState = {
+        "tenant_id": "t1",
+        "motivo_humano": "inadimplencia_detectada",
+        "status_conciliado": False,
+        "ciclos_sem_conciliacao": 3,
+        "pedido_cancelamento": True,
+    }
     dossie = await g._build_dossier(state)
-    assert dossie["narrativa"] == narrativa
+    assert "inadimplente" not in dossie["narrativa"]
+    assert "há 3 meses sem pagamento conciliado" in dossie["narrativa"]
+    assert "O beneficiário pediu cancelamento." in dossie["narrativa"]
     assert dossie["decisao_cancelamento"] is None
 
 

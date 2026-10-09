@@ -125,3 +125,13 @@ async def test_ciclos_ilegiveis_escalam_para_humano_em_vez_de_derrubar_o_turno()
     assert resultado["final"]["route"] == "escalate_human"
     assert resultado["final"]["motivo_humano"] == "ambiguidade"
     assert resultado["final"]["process_started"] is True
+
+
+async def test_a_saida_traz_a_narrativa_do_dossie_truncada() -> None:
+    """09/10/2026: a narrativa do dossie (texto fixo) vai na saida do caso, para conferir no ambiente."""
+    caso = next(c for c in CASOS if c["id"] == "L24")
+    grafo, gravador = _grafo()
+    resultado = await executar_caso(grafo, gravador, caso, indice=0, execucao="offline")
+    narrativa = resultado["dossie_narrativa"]
+    assert narrativa.startswith("Encaminhado ao atendente porque ")
+    assert len(narrativa) <= 600

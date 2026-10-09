@@ -17,9 +17,7 @@
       "ciclos_sem_conciliacao": 2
     }
   },
-  "recorded_llm": [
-    "Resumo factual do caso de nao-conciliacao para avaliacao humana."
-  ],
+  "recorded_llm": [],
   "dmn_fixture": {
     "lucas_billing_admissibility": {"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"},
     "lucas_escalation_routing": {"roteamento": "COBRANCA_HUMANO"}

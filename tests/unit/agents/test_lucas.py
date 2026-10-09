@@ -507,7 +507,7 @@ async def test_j3_full_turn_starts_process_and_sends_ack_never_the_adverse_text(
     dmn.register("lucas_escalation_routing", [{"roteamento": "CONTRATOS_HUMANO"}])
     cibseven = FakeCibSevenTransport()
     sender = _FakeWhatsAppSender()
-    # O segundo rascunho NUNCA e' usado (DL-0082: o ACK e' texto fixo) — so' o dossie chama o modelo.
+    # Nenhum rascunho e' usado: o ACK e' texto fixo (DL-0082) e a narrativa do dossie tambem (09/10/2026).
     inference = _FakeInference(["Resumo factual do caso.", "Seu plano foi cancelado."])
     compiled = (
         _graph(inference=inference, dmn=dmn, cibseven=cibseven, whatsapp=sender).compile_graph().compile()
@@ -519,7 +519,8 @@ async def test_j3_full_turn_starts_process_and_sends_ack_never_the_adverse_text(
     assert result["process_started"] is True
     assert result["business_key"] == "ESC-amh-wa:amh:deadbeef"
     assert [(to_hash, text) for to_hash, text, _key in sender.sent] == [("deadbeef", ACK_ESCALACAO)]
-    assert len(inference.calls) == 1
+    assert len(inference.calls) == 0
+    assert "Seu plano foi cancelado." not in result["dossier"]["narrativa"]
     assert sender.sent[0][2].startswith("ESC-amh-wa:amh:deadbeef:send_escalation_ack:")
     for _to_hash, text, _idempotency_key in sender.sent:
         assert "suspens" not in text.lower()

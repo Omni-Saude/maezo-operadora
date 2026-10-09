@@ -107,8 +107,8 @@ DIVERGENCES FROM THE v1 DONOR (disclosed, not hidden — `spec/` wins per this t
   WAS: "v2's `InferenceProvider.generate(prompt, phi=True)` has no `task_kind` parameter
   (ADR-0009's tiering is not wired to agents yet)". The parameter now exists and this graph
   passes it: `_build_message` is `task_default` (phrasing already-known facts; o ACK de escalacao
-  e' texto fixo desde DL-0082, sem modelo), `_build_dossier` is `reasoning` (it narrates over
-  the assembled facts for a human).
+  e' texto fixo desde DL-0082, sem modelo). A narrativa do dossie (`_build_dossier`) era
+  `reasoning` ate' 09/10/2026; desde entao e' TEXTO FIXO dos fatos (`texto_dossie`), sem modelo.
   WHAT THAT DOES AND DOES NOT BUY, precisely: `lucas/agent.yaml`'s declared tiers now reach the
   provider, are validated fail-closed against the ADR-0009 vocabulary at construction, and are
   counted per call on `maezo_llm_tier_resolution_total`. It does NOT change which model runs —
@@ -176,7 +176,7 @@ from maezo.tools.workers.dmn_transport import (
 )
 
 from .prompts import (
-    DOSSIER_PROMPT_VERSION,
+    DOSSIE_TEXTO_VERSION,
     ESCALATION_ACK_PROMPT_VERSION,
     MENSAGEM_EM_DIA_VERSION,
     MESSAGE_PROMPT_VERSION,
@@ -184,7 +184,6 @@ from .prompts import (
     SYSTEM_PROMPT_VERSION,
     VALORES_PROMPT_VERSION,
     VENCIMENTO_PROMPT_VERSION,
-    dossier_prompt,
     message_prompt,
     motivo_de_recusa,
 )
@@ -745,13 +744,8 @@ _FATOS_BOOLEANOS_MENSAGEM: Final[dict[str, str]] = {
     "status_conciliado": "pagamento conciliado no CNAB",
 }
 
-#: O dossie de escalacao (J3) acrescenta os dois sinais de contestacao/cancelamento — a
-#: mensagem ao beneficiario nao os menciona.
-_FATOS_BOOLEANOS_DOSSIE: Final[dict[str, str]] = {
-    "status_conciliado": "pagamento conciliado no CNAB",
-    "contesta_cobranca": "beneficiario contesta a cobranca",
-    "pedido_cancelamento": "ha pedido de cancelamento",
-}
+#: O dossie de escalacao (J3) nao tem mais mapa de booleanos para o modelo: desde 09/10/2026 a
+#: narrativa e' TEXTO FIXO (`texto_dossie`), e cada booleano vira frase so' quando e' `True`.
 
 
 #: CERCA DE SAIDA (18/09/2026): o `error` do turno em que o texto redigido pelo modelo foi BARRADO
@@ -1204,6 +1198,121 @@ def texto_ack_escalacao(state: LucasState) -> str:
     }:
         return f"{_PREFIXO_FONTE_INDISPONIVEL} {ACK_ESCALACAO}"
     return ACK_ESCALACAO
+
+
+# --- Narrativa FIXA do dossie de escalacao (decisao do dono de 09/10/2026) ------------------------
+#
+# INCIDENTE (dev, 09/10/2026): o "resumo escrito pelo agente para o atendente" de um caso de
+# `ambiguidade` disse "nao ha dados de pagamento conciliado no CNAB" e "contestacao da cobranca e
+# pedido de cancelamento registrado". Os fatos tinham `contesta_cobranca=False`,
+# `pedido_cancelamento=False` e a fonte AMH INDISPONIVEL (consulta cancelada por tempo): o modelo leu
+# os booleanos falsos como presenca e a ausencia de dado como "sem pagamento". Mesmo conserto do ACK
+# (DL-0082) e das respostas de valores (#709/#712): o texto sai montado dos fatos, sem modelo.
+# Portugues simples, sem jargao (nada de CNAB/DMN, nome de campo ou id). Contestacao e cancelamento
+# so' aparecem quando o fato e' `True`. Nunca recomenda suspender/cancelar/negar e nunca promete prazo.
+
+#: `motivo_humano` -> o motivo do encaminhamento em linguagem humana. TODOS os valores de
+#: `MotivoHumano`; `inadimplencia_detectada` diz o FATO (mensalidade em aberto sem pagamento
+#: conciliado), nunca o veredito.
+_MOTIVO_NO_DOSSIE: Final[dict[str, str]] = {
+    "ambiguidade": "a pergunta não se encaixa nas respostas automáticas",
+    "inadimplencia_detectada": "há mensalidade em aberto sem pagamento conciliado",
+    "contestacao_cobranca": "o beneficiário contesta uma cobrança",
+    "pedido_cancelamento": "o beneficiário pediu cancelamento",
+    "falha_tecnica": "houve falha técnica no atendimento automático",
+    "dmn_indisponivel": "as regras automáticas de atendimento não estavam disponíveis",
+}
+#: Motivo ausente ou fora do dominio: texto neutro, sem ecoar o valor cru.
+_MOTIVO_NO_DOSSIE_DESCONHECIDO: Final[str] = "o caso precisa da análise de um atendente"
+
+#: `tipo_solicitacao` (vocabulario da DMN `lucas_billing_admissibility`) -> o que foi perguntado.
+#: Valor fora do mapa nao e' ecoado (entrada do chamador).
+_PEDIDO_POR_TIPO: Final[dict[str, str]] = {
+    "boleto": "dúvida sobre boleto",
+    "2a_via": "segunda via do boleto",
+    "vencimento": "data de vencimento",
+    "status_pagamento": "confirmação de pagamento",
+    TIPO_CONSULTA_VALORES: "consulta de valores",
+    "inadimplencia": "situação de mensalidade em aberto",
+}
+#: `intencao` (so' as validas) -> o que foi perguntado, quando o tipo nao diz.
+_PEDIDO_POR_INTENCAO: Final[dict[str, str]] = {
+    "cobranca_info": "informação de cobrança",
+    "confirmacao_pagamento": "confirmação de pagamento",
+    "inadimplencia": "situação de mensalidade em aberto",
+    "cancelamento": "cancelamento do plano",
+}
+
+#: Fecho fixo: o atendente le' que nada foi decidido pelo automatico — sem recomendar nada.
+_DOSSIE_SEM_DECISAO: Final[str] = "Nenhuma decisão sobre o plano foi tomada pelo atendimento automático."
+
+
+def _meses(n: int) -> str:
+    return "1 mês" if n == 1 else f"{n} meses"
+
+
+def _situacao_da_fonte_no_dossie(state: LucasState) -> str:
+    """A situacao de cobranca na fonte, so' com o que veio. `status_conciliado` nao-booleano (ausente,
+    `None`: fonte indisponivel ou sem dado) -> "nao foi possivel consultar", nunca "sem pagamento"."""
+    status = state.get("status_conciliado")
+    if not isinstance(status, bool):
+        return "Não foi possível consultar a situação de cobrança na fonte."
+    ciclos = _ciclos_sem_conciliacao(state)
+    if ciclos is not None and ciclos > 0:
+        sem = f"há {_meses(ciclos)} sem pagamento conciliado"
+        if status:
+            # Fatos contraditorios: os dois lados vao ao humano, sem escolher um.
+            return f"Situação na fonte: consta pagamento conciliado, mas também {sem}."
+        return f"Situação na fonte: {sem}."
+    if status:
+        return "Situação na fonte: pagamento conciliado."
+    return "Situação na fonte: pagamento ainda não conciliado."
+
+
+def _pedido_no_dossie(state: LucasState) -> str | None:
+    tipo = state.get("tipo_solicitacao")
+    if isinstance(tipo, str) and tipo in _PEDIDO_POR_TIPO:
+        return _PEDIDO_POR_TIPO[tipo]
+    intencao = state.get("intencao")
+    if isinstance(intencao, str) and intencao in _PEDIDO_POR_INTENCAO:
+        return _PEDIDO_POR_INTENCAO[intencao]
+    return None
+
+
+def texto_dossie(state: LucasState) -> str:
+    """A narrativa do dossie de escalacao em TEXTO FIXO montado dos fatos (09/10/2026, sem modelo).
+
+    Ordem: motivo do encaminhamento; o que foi perguntado (e a competencia, MM/AAAA); a situacao na
+    fonte (e a data dela); contestacao e pedido de cancelamento SO' quando `True` (e sem repetir o
+    motivo); o fecho fixo. Nada de jargao, nome de campo ou valor cru de entrada."""
+    motivo = state.get("motivo_humano")
+    motivo_texto = (
+        _MOTIVO_NO_DOSSIE.get(motivo, _MOTIVO_NO_DOSSIE_DESCONHECIDO)
+        if isinstance(motivo, str)
+        else _MOTIVO_NO_DOSSIE_DESCONHECIDO
+    )
+    partes = [f"Encaminhado ao atendente porque {motivo_texto}."]
+
+    pedido = _pedido_no_dossie(state)
+    competencia = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
+    if pedido and competencia:
+        partes.append(f"Pedido do beneficiário: {pedido}, competência {_mes_ano(competencia)}.")
+    elif pedido:
+        partes.append(f"Pedido do beneficiário: {pedido}.")
+    elif competencia:
+        partes.append(f"Competência citada: {_mes_ano(competencia)}.")
+
+    partes.append(_situacao_da_fonte_no_dossie(state))
+    data = _data_dos_fatos(state)
+    if data:
+        partes.append(f"Dados de {data}.")
+
+    if state.get("contesta_cobranca") is True and motivo != "contestacao_cobranca":
+        partes.append("O beneficiário contesta a cobrança.")
+    if state.get("pedido_cancelamento") is True and motivo != "pedido_cancelamento":
+        partes.append("O beneficiário pediu cancelamento.")
+    partes.append(_DOSSIE_SEM_DECISAO)
+    return " ".join(partes)
 
 
 #: America/Sao_Paulo sem horario de verao desde 2019: UTC-3 fixo (mesma escolha de
@@ -1926,9 +2035,12 @@ class LucasGraph:
         }
 
     async def _build_dossier(self, state: LucasState) -> dict[str, Any]:
-        """Drafts the escalation dossier narrative (J3 / fail-safe). The LLM reasons over the
-        FACTS only — `decisao_cancelamento` is ALWAYS `None` (mirrors Rafael's
-        `decisao_cobertura` guardrail): the decision belongs exclusively to the human.
+        """Monta o dossie da escalacao (J3 / fail-safe). `decisao_cancelamento` e' SEMPRE `None`
+        (espelha a guarda `decisao_cobertura` do Rafael): a decisao e' exclusivamente do humano.
+
+        A NARRATIVA E' TEXTO FIXO desde 09/10/2026 (`texto_dossie`, sem chamada de modelo): o modelo
+        lia `contesta_cobranca=False` como contestacao registrada e a fonte indisponivel como "sem
+        pagamento conciliado". Continua `async` porque `escalate_human` e os testes a aguardam.
 
         `intencao` is ALLOWLIST-GATED (engine-variable hygiene, R1 cycle-1): on the
         `ambiguidade` path the raw value is by definition UNRECOGNIZED — echoing it into the
@@ -1952,33 +2064,14 @@ class LucasGraph:
             "dmn_refs": state.get("dmn_refs", {}),
             "lacunas_enriquecimento": state.get("gather_notes", []),
         }
-        prompt = (
-            f"{dossier_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}\n"
-            f"{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_DOSSIE)}"
-        )
-        try:
-            narrativa = await self._llm.generate(
-                prompt,
-                phi=True,
-                agent_id="lucas",
-                tenant_id=state.get("tenant_id", ""),
-                # AF-12: the escalation narrative is what a human reads before deciding —
-                # `reasoning` (ADR-0009 §2 "raciocinio critico -> fronteira").
-                task_kind="reasoning",
-            )
-        except PROGRAMMING_ERRORS:
-            raise
-        except EXTERNAL_DEPENDENCY_FAILURES:  # LLM failure never blocks the escalation.
-            narrativa = ""
         return {
-            "prompt_version": DOSSIER_PROMPT_VERSION,
+            "prompt_version": DOSSIE_TEXTO_VERSION,
             "tipo": "dossie_escalacao",
             "motivo_humano": state.get("motivo_humano"),
             "grupo_humano": state.get("grupo_humano"),
             "fatos": facts,
             "dmn_decision_refs": state.get("dmn_refs", {}),
-            "narrativa": narrativa
-            or f"Encaminhamento automatico ({state.get('motivo_humano') or _MOTIVO_HUMANO_NAO_RESOLVIDO}).",
+            "narrativa": texto_dossie(state),
             # STRUCTURAL GUARDRAIL (L0 hard): the dossier NEVER carries the adverse decision.
             "decisao_cancelamento": None,  # rescindir/manter/suspender — always human (CANCEL-001)
         }
@@ -2090,7 +2183,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[LucasState]:
 PROMPT_VERSIONS: dict[str, str] = {
     "system": SYSTEM_PROMPT_VERSION,
     "message": MESSAGE_PROMPT_VERSION,
-    "dossier": DOSSIER_PROMPT_VERSION,
+    "dossier": DOSSIE_TEXTO_VERSION,
     # 18/09/2026: os dois que faltavam. O ACK de escalacao e' o texto do caminho ADVERSO e era o
     # unico sem numero — olhando uma mensagem que vazou, nao dava para dizer qual redacao a
     # produziu. A cerca entra aqui pelo mesmo motivo que na Helena: ela decide o que o

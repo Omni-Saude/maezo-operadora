@@ -18,7 +18,7 @@ prompt_versions:
   # `test_lucas_dono_declarado.py` e o que impede a deriva de voltar.
   system: system-v1
   message: message-v2                # 09/10/2026: boleto como "final NNNN" (o WhatsApp come asterisco)
-  dossier: dossier-v1
+  dossier: dossie-texto-fixo-v1      # 09/10/2026: narrativa do dossie em texto fixo dos fatos (sem modelo)
   escalation_ack: escalation-ack-v3-texto-fixo
   recusa_de_saida: recusa-lucas-v5   # 09/10/2026: boleto_sem_fato confere tambem "boleto final NNNN"
   mensagem_em_dia: mensagem-em-dia-v2
