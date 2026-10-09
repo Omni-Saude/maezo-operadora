@@ -31,6 +31,7 @@ enum): o que nao tem a forma vira AUSENTE, nunca corrigido nem completado — e'
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Final, Protocol, runtime_checkable
 
@@ -38,6 +39,13 @@ from maezo.agents.lucas.fonte_cobranca import CompetenciaCobranca, FatosCobranca
 from maezo.ports.billing_status import BillingStatusPort, BillingStatusView, CompetenciaBilling
 from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
+
+#: Prazo da LEITURA DE COBRANCA na AMH. Era o padrao das portas (5 s). Medido em 09/10/2026: o servico
+#: interop consulta o Athena a cada pergunta (mediana 2,7 s, max 4,2 s) e passou a esperar ate' 10 s
+#: (AMH #230); com 5 s aqui o Maezo desistiria antes da AMH responder e o beneficiario ouviria "nao
+#: consegui consultar". Configuravel por `MAEZO_LUCAS_COBRANCA_PRAZO_S`; o teto e' o tecnico das portas.
+PRAZO_COBRANCA_PADRAO_S: Final[float] = 15.0
+PRAZO_COBRANCA_MAX_S: Final[float] = 30.0
 
 #: Janela de competencias pedida a AMH. O contrato aceita 1 a 36; 12 e' o padrao do contrato.
 JANELA_MESES: int = 12
@@ -114,6 +122,7 @@ class FonteCobrancaAmh:
         consentimento: FonteDeConsentimento,
         purpose_of_use: str,
         fatos_de_valor: bool = False,
+        timeout_seconds: float = PRAZO_COBRANCA_PADRAO_S,
     ) -> None:
         # DL-0086 + DL-0083 (revisao de seguranca do #709): os FATOS DE VALOR (valores, coparticipacao,
         # saldo, datas de pagamento, boletos da janela) so' saem para beneficiario VERIFICADO
@@ -124,7 +133,14 @@ class FonteCobrancaAmh:
             raise ValueError(
                 "fonte_cobranca_amh: fatos de valor exigem o resolvedor da identidade verificada"
             )
+        if (
+            type(timeout_seconds) not in (int, float)
+            or not math.isfinite(timeout_seconds)
+            or not 0 < timeout_seconds <= PRAZO_COBRANCA_MAX_S
+        ):
+            raise ValueError("fonte_cobranca_amh: timeout_seconds invalido")
         self._billing = billing
+        self._timeout = float(timeout_seconds)
         self._resolvedor = resolvedor
         self._consentimento = consentimento
         self._purpose = purpose_of_use
@@ -150,6 +166,7 @@ class FonteCobrancaAmh:
                 consent_decision_ref=consentimento,
                 competencia=competencia,
                 janela_meses=JANELA_MESES,
+                timeout_seconds=self._timeout,
             )
         except PROGRAMMING_ERRORS:
             raise

@@ -364,3 +364,36 @@ async def test_o_numero_do_boleto_nunca_e_mais_que_o_rotulo_mascarado() -> None:
     fatos = await fonte.fatos("p", None)
     assert isinstance(fatos, FatosCobranca)
     assert fatos.numero_boleto.startswith("****") and len(fatos.numero_boleto) == 8
+
+
+async def test_prazo_da_leitura_de_cobranca_chega_ao_contrato() -> None:
+    """O prazo padrao (15 s) e um prazo configurado chegam a `get_billing_status` — com 5 s (o padrao das
+    portas) o Maezo desistia antes do interop, que espera ate' 10 s pelo Athena (medido em 09/10/2026)."""
+    from maezo.agents.lucas.fonte_cobranca_amh import PRAZO_COBRANCA_PADRAO_S
+
+    billing = _Billing(PortResult.ok(_view()))
+    await _fonte(billing).fatos("pseudo-1", None)
+    assert billing.chamadas[-1]["timeout_seconds"] == PRAZO_COBRANCA_PADRAO_S == 15.0
+
+    billing = _Billing(PortResult.ok(_view()))
+    fonte = FonteCobrancaAmh(
+        billing=billing,
+        resolvedor=_Resolvedor(),
+        consentimento=_Consentimento(),
+        purpose_of_use="purpose1",
+        timeout_seconds=12,
+    )
+    await fonte.fatos("pseudo-1", "2026-09")
+    assert billing.chamadas[-1]["timeout_seconds"] == 12.0
+
+
+@pytest.mark.parametrize("prazo", [0, -1, 31, float("nan"), float("inf"), "15", True])
+def test_prazo_invalido_recusa_na_composicao(prazo: Any) -> None:
+    with pytest.raises(ValueError, match="timeout_seconds"):
+        FonteCobrancaAmh(
+            billing=_Billing(PortResult.ok(_view())),
+            resolvedor=_Resolvedor(),
+            consentimento=_Consentimento(),
+            purpose_of_use="purpose1",
+            timeout_seconds=prazo,
+        )
