@@ -22,7 +22,7 @@ prompt_versions:
   escalation_ack: escalation-ack-v2-texto-fixo
   recusa_de_saida: recusa-lucas-v4   # 08/10/2026 (DL-0086): valor, data e boleto conferidos com os fatos do turno
   mensagem_em_dia: mensagem-em-dia-v1
-  valores: valores-v1                # 08/10/2026 (DL-0086): resposta a pergunta de valor pelos fatos do billing-status
+  valores: valores-v2-texto-fixo     # 08/10/2026 (DL-0086): resposta FIXA a pergunta de valor, montada dos fatos do billing-status
 model:
   task_default: { tier: fast }
   reasoning:    { tier: frontier }

@@ -85,10 +85,9 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: `EXTERNAL_DEPENDENCY_FAILURES` vira o texto fixo / a resposta deterministica so' com os fatos).
 #: 08/10/2026: 34 — `LucasGraph._build_escalation_ack` (DL-0082) deixou de chamar o LLM: o ACK de
 #: escalacao virou texto fixo montado com os fatos, e o `try` estreitado em volta do modelo saiu junto.
-#: 08/10/2026: 35 — `LucasGraph` responde perguntas de VALOR pelos fatos do billing-status (DL-0086): o
-#: rascunho do LLM tem o `try` ESTREITADO (`PROGRAMMING_ERRORS` re-levanta;
-#: `EXTERNAL_DEPENDENCY_FAILURES` vira a constante honesta `RESPOSTA_INFORMATIVA_RECUSADA`, nunca promessa).
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 35
+#: Continua 34 com o DL-0086 (PR #709): a resposta a pergunta de VALOR e' texto fixo dos fatos (revisao de
+#: seguranca do #709), sem `try` em volta de modelo.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 34
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:

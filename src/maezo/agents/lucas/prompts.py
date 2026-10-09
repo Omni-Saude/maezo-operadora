@@ -28,8 +28,10 @@ from maezo.gateway.required_text import ZERO_WIDTH_TRANSLATION
 SYSTEM_PROMPT_VERSION = "system-v1"
 MESSAGE_PROMPT_VERSION = "message-v1"
 DOSSIER_PROMPT_VERSION = "dossier-v1"
-#: DL-0086 (08/10/2026): o rascunho da resposta a pergunta de VALOR, restrito aos fatos do turno.
-VALORES_PROMPT_VERSION = "valores-v1"
+#: DL-0086 (08/10/2026): a resposta a pergunta de VALOR. v2 (revisao de seguranca do #709): TEXTO FIXO
+#: montado dos fatos (`graph.py::texto_valores`) — nenhum modelo redige valor; a v1 era um rascunho do
+#: modelo e a cerca so' conferia se cada quantia PERTENCIA aos fatos, nao a que campo/competencia.
+VALORES_PROMPT_VERSION = "valores-v2-texto-fixo"
 
 SYSTEM_PROMPT = """Voce e Lucas, um navegador de atendimento e cobranca ao beneficiario de um
 plano de saude brasileiro. Seu papel e responder duvidas de boleto/2a via/vencimento, informar o
@@ -66,37 +68,6 @@ status de conciliacao, admissibilidade). Regras:
   identificado/conciliado, usando exatamente o que os fatos dizem — NUNCA afirme um status que
   nao esteja no fato fornecido.
 - NUNCA comunique uma negativa, suspensao ou cancelamento — isso e sempre de um humano.
-Responda APENAS com o texto da mensagem, sem JSON, sem markdown."""
-
-
-def valores_prompt() -> str:
-    """Instrucoes do rascunho da resposta a pergunta de VALOR (DL-0086, `tipo_solicitacao=consulta_valores`).
-
-    So' roda quando a DMN ja' decidiu RESPONDER com os fatos de valor presentes no turno. O modelo nao
-    ve' a pergunta do beneficiario (o Lucas nunca recebe texto, plano §3): ve' so' os fatos. A cerca de
-    saida (`motivo_de_recusa`) aceita apenas os valores em R$, as datas e o boleto mascarado que estao
-    nesses fatos; a frase com a data da fonte e' acrescentada pelo grafo depois do rascunho.
-    """
-    return f"""{SYSTEM_PROMPT}
-
-Tarefa: o beneficiario perguntou sobre VALORES da cobranca do plano (mensalidade, coparticipacao,
-saldo em aberto, historico de valores ou data de pagamento). Redija uma mensagem breve, cordial e em
-portugues para o WhatsApp respondendo SOMENTE com os fatos estruturados fornecidos. Regras:
-- Use APENAS os valores e as datas que aparecem nos fatos: valor em reais no formato "R$ 1.234,56" e
-  data no formato "DD/MM/AAAA". NUNCA some, subtraia, arredonde, estime ou calcule um valor ou uma data
-  que nao esteja nos fatos.
-- Se a competencia pedida (competencia_pedida) estiver entre as competencias dos fatos, fale dela;
-  senao, resuma as competencias fornecidas, da mais recente para a mais antiga, e o valor em aberto,
-  se ele estiver nos fatos.
-- Para cada competencia citada, diga o que houver nos fatos: valor total, coparticipacao, saldo,
-  vencimento, situacao (paga, em aberto, vencida, cancelada, sem titulo) e data de pagamento
-  (liquidado_em). Fato ausente e' ausente: diga que a informacao nao consta, nunca a suponha.
-- Boleto: cite no maximo o rotulo mascarado que esta nos fatos (ex.: ****1234); NUNCA codigo de
-  barras, linha digitavel ou numero completo.
-- NAO prometa nenhuma acao (emitir segunda via, gerar boleto, negociar, parcelar, dar baixa, alterar
-  vencimento) e NAO diga que alguem vai entrar em contato.
-- NAO cite a data de atualizacao dos dados: ela e' acrescentada depois, automaticamente.
-- NUNCA ameace suspensao ou cancelamento e NUNCA comunique uma negativa.
 Responda APENAS com o texto da mensagem, sem JSON, sem markdown."""
 
 

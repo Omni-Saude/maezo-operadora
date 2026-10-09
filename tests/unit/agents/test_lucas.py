@@ -462,6 +462,8 @@ async def test_intencao_inadimplencia_passa_pela_dmn_com_os_fatos() -> None:
         # DL-0086: sem fato de valor no estado, a entrada nova da DMN e' falsa (a linha
         # `consulta_valores` nao casa; as demais a ignoram).
         "valores_disponiveis": False,
+        # Revisao do #709 (DL-0082): sem fato de valor, nada de atraso nos valores.
+        "valores_com_atraso": False,
     }
 
 

@@ -138,6 +138,8 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # Acesso do beneficiario (08/10/2026, DL-0083): desligado por default; ver `acesso_beneficiario`.
       { name = "MAEZO_ACESSO_BENEFICIARIO", value = tostring(var.acesso_beneficiario) },
       { name = "MAEZO_ACESSO_VALIDADE_HORAS", value = tostring(var.acesso_validade_horas) },
+      # Valores na resposta do Lucas (DL-0086): desligado por default; exige o acesso ligado e a fonte `amh`.
+      { name = "MAEZO_LUCAS_CONSULTA_VALORES", value = tostring(var.lucas_consulta_valores) },
 
       # DEVOLVE O TURNO NO CORPO DO ACK (12/09/2026). Com isto, a resposta 200 de `/webhook`
       # ganha `resposta` (o texto que a Helena redigiu) e `conversation_id`. Sem isto o corpo

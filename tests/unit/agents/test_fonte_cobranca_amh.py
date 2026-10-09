@@ -92,12 +92,21 @@ class _Consentimento:
         return self.valor
 
 
-def _fonte(billing: Any, resolvedor: Any = None, consentimento: Any = None) -> FonteCobrancaAmh:
+class _ResolvedorVerificado(_Resolvedor):
+    """Faz o papel do `acesso_ponte.ResolvedorVerificado` (ref. do fluxo de acesso, DL-0083)."""
+
+    identidade_verificada = True
+
+
+def _fonte(
+    billing: Any, resolvedor: Any = None, consentimento: Any = None, *, valores: bool = False
+) -> FonteCobrancaAmh:
     return FonteCobrancaAmh(
         billing=billing,
-        resolvedor=resolvedor or _Resolvedor(),
+        resolvedor=resolvedor or (_ResolvedorVerificado() if valores else _Resolvedor()),
         consentimento=consentimento or _Consentimento(),
         purpose_of_use="purpose1",
+        fatos_de_valor=valores,
     )
 
 
@@ -200,7 +209,7 @@ async def test_erro_de_programacao_nao_e_engolido() -> None:
 
 
 async def test_fatos_de_valor_do_resumo_e_de_cada_competencia() -> None:
-    fatos = await _fonte(_Billing(PortResult.ok(_view()))).fatos("p", None)
+    fatos = await _fonte(_Billing(PortResult.ok(_view())), valores=True).fatos("p", None)
     assert isinstance(fatos, FatosCobranca)
     assert fatos.valor_em_aberto == "200.00"
     assert fatos.dias_atraso_max == 61
@@ -219,7 +228,7 @@ async def test_fatos_de_valor_do_resumo_e_de_cada_competencia() -> None:
 
 
 async def test_como_entrada_lucas_leva_os_fatos_de_valor_sem_chave_vazia() -> None:
-    fatos = await _fonte(_Billing(PortResult.ok(_view()))).fatos("p", None)
+    fatos = await _fonte(_Billing(PortResult.ok(_view())), valores=True).fatos("p", None)
     assert isinstance(fatos, FatosCobranca)
     entrada = fatos.como_entrada_lucas()
     assert entrada["valor_em_aberto"] == "200.00"
@@ -255,7 +264,7 @@ async def test_fato_de_valor_ausente_fica_ausente_e_os_quatro_de_sempre_seguem()
         competencias=(),
         campos_ausentes=frozenset({"valor_em_aberto", "dias_atraso_max"}),
     )
-    fatos = await _fonte(_Billing(PortResult.ok(sem_valores))).fatos("p", None)
+    fatos = await _fonte(_Billing(PortResult.ok(sem_valores)), valores=True).fatos("p", None)
     assert isinstance(fatos, FatosCobranca)
     assert fatos.como_entrada_lucas() == {
         "status_conciliado": True,
@@ -290,13 +299,50 @@ async def test_valor_fora_da_forma_do_contrato_vira_ausente_nunca_corrigido() ->
         boleto_numero_mascarado=None,
         boleto_disponivel_online=None,
     )
-    fonte = _fonte(_Billing(PortResult.ok(_view(competencias=[torta, estranha]))))
+    fonte = _fonte(_Billing(PortResult.ok(_view(competencias=[torta, estranha]))), valores=True)
     fatos = await fonte.fatos("p", None)
     assert isinstance(fatos, FatosCobranca)
     assert fatos.competencias == (
         CompetenciaCobranca(competencia="2026-09", situacao="em_aberto", valor_saldo="320.25"),
     )
     assert fatos.vencimento_referencia is None
+
+
+async def test_sem_verificacao_nem_flag_a_fonte_entrega_so_os_quatro_fatos_de_sempre() -> None:
+    """Revisao de seguranca do #709 (CRITICO): o default (acesso desligado ou
+    `MAEZO_LUCAS_CONSULTA_VALORES` desligada) e' o de antes do DL-0086 — a AMH devolveu valores, mas
+    nenhum sai da fonte."""
+    fatos = await _fonte(_Billing(PortResult.ok(_view()))).fatos("p", None)
+    assert isinstance(fatos, FatosCobranca)
+    assert fatos == FatosCobranca(
+        status_conciliado=False,
+        ciclos_sem_conciliacao=2,
+        numero_boleto="****0002",
+        cnab_ref="amh-billing:2026-08-05",
+    )
+    assert set(fatos.como_entrada_lucas()) == {
+        "status_conciliado",
+        "ciclos_sem_conciliacao",
+        "numero_boleto",
+        "cnab_ref",
+    }
+
+
+def test_fatos_de_valor_exigem_o_resolvedor_verificado() -> None:
+    with pytest.raises(ValueError, match="identidade verificada"):
+        _fonte(_Billing(PortResult.ok(_view())), _Resolvedor(), valores=True)
+    falso = _Resolvedor()
+    falso.identidade_verificada = "sim"  # type: ignore[attr-defined]  # so' `True` vale
+    with pytest.raises(ValueError, match="identidade verificada"):
+        _fonte(_Billing(PortResult.ok(_view())), falso, valores=True)
+
+
+def test_o_resolvedor_do_acesso_e_o_unico_que_se_declara_verificado() -> None:
+    from maezo.agents.lucas.identidade_amh import ResolvedorDeSujeitoAmh
+    from maezo.platform.webhooks.whatsapp.acesso_ponte import RefsVerificadas, ResolvedorVerificado
+
+    assert ResolvedorVerificado(RefsVerificadas()).identidade_verificada is True
+    assert getattr(ResolvedorDeSujeitoAmh, "identidade_verificada", False) is False
 
 
 async def test_a_fonte_simulada_continua_sem_fatos_de_valor() -> None:

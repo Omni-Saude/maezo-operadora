@@ -113,11 +113,22 @@ class FonteCobrancaAmh:
         resolvedor: ResolvedorDeSujeito,
         consentimento: FonteDeConsentimento,
         purpose_of_use: str,
+        fatos_de_valor: bool = False,
     ) -> None:
+        # DL-0086 + DL-0083 (revisao de seguranca do #709): os FATOS DE VALOR (valores, coparticipacao,
+        # saldo, datas de pagamento, boletos da janela) so' saem para beneficiario VERIFICADO
+        # (consentimento + CPF [+ nascimento]). O resolvedor pelo telefone identifica, mas nao verifica:
+        # quem segura o celular nao e' necessariamente o titular. Pedir os fatos de valor com um
+        # resolvedor que nao se declara verificado e' erro de composicao -> recusa no boot.
+        if fatos_de_valor and getattr(resolvedor, "identidade_verificada", False) is not True:
+            raise ValueError(
+                "fonte_cobranca_amh: fatos de valor exigem o resolvedor da identidade verificada"
+            )
         self._billing = billing
         self._resolvedor = resolvedor
         self._consentimento = consentimento
         self._purpose = purpose_of_use
+        self._fatos_de_valor = fatos_de_valor
 
     async def fatos(
         self, pseudo_id: str, competencia: str | None, *, phone_hash: str | None = None
@@ -153,6 +164,15 @@ class FonteCobrancaAmh:
         if resumo.status_conciliado is None or resumo.ciclos_sem_conciliacao is None:
             return Indisponivel("fato_ausente")
         referencia = _competencia_de_referencia(view, competencia)
+        if not self._fatos_de_valor:
+            # Sem a verificacao (ou com `MAEZO_LUCAS_CONSULTA_VALORES` desligada): os quatro fatos de
+            # sempre e nada mais — o comportamento de antes do DL-0086, byte a byte.
+            return FatosCobranca(
+                status_conciliado=resumo.status_conciliado,
+                ciclos_sem_conciliacao=resumo.ciclos_sem_conciliacao,
+                numero_boleto=(referencia.boleto_numero_mascarado or "") if referencia else "",
+                cnab_ref=f"amh-billing:{view.fonte_atualizada_em[:10]}",
+            )
         competencias = tuple(
             fato
             for fato in (_competencia_como_fato(c) for c in view.competencias[:JANELA_MESES])

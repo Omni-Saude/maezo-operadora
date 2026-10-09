@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import ClassVar
 
 from maezo.agents.lucas.fonte_cobranca_amh import FonteDeConsentimento
 
@@ -64,6 +65,10 @@ class RefsVerificadas:
 
 class ResolvedorVerificado:
     """`ResolvedorDeSujeito` (+ `ResolvedorComDesfecho`) que so' conhece a ref. da conversa verificada."""
+
+    #: DL-0086: a marca que a `FonteCobrancaAmh` exige para entregar os FATOS DE VALOR. So' este
+    #: resolvedor a tem: a ref. dele vem do fluxo de acesso (consentimento + CPF [+ nascimento]).
+    identidade_verificada: ClassVar[bool] = True
 
     def __init__(self, refs: RefsVerificadas) -> None:
         self._refs = refs

@@ -15,9 +15,12 @@ divergem). O nome e' o que o Postgres deu ao CHECK em linha da 0017
 **Seguro com a versao anterior do codigo no ar.** O CHECK so' ALARGA: toda linha que a versao anterior
 grava continua valida, e a versao anterior nunca grava `consulta_valores`.
 
-**Downgrade.** Volta ao CHECK da 0017, e RECUSA se alguma linha ja' guarda `consulta_valores`: apagar ou
-reescrever o subtipo de uma conversa viva e' decisao de quem opera, nao da migration (mesmo padrao da
-0021/0022). A linha vence sozinha em 30 dias (purga do roteador).
+**Downgrade.** Volta ao CHECK da 0017. Revisao de seguranca do #709: o downgrade NAO pode ficar preso ate'
+a purga de 30 dias do roteador (um rollback urgente da versao seria bloqueado por uma conversa viva).
+Entao ele APAGA as linhas `consulta_valores` de `conversa_agente_ativo` e registra a contagem (`RAISE
+NOTICE`, no log do Job da migration). E' seguro: a linha so' diz "o Lucas esta' ativo nesta conversa"
+(nenhum dado do beneficiario); sem ela a proxima mensagem volta a Helena, que classifica de novo — o
+mesmo desfecho da purga por inatividade. Nenhuma outra linha e' tocada.
 
 Revision ID: 0024
 Revises: 0023
@@ -49,12 +52,13 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("""DO $$
+    DECLARE
+        apagadas integer;
     BEGIN
-        IF EXISTS (
-            SELECT 1 FROM conversa_agente_ativo WHERE lucas_cobranca_subtipo = 'consulta_valores'
-        ) THEN
-            RAISE EXCEPTION 'conversa_agente_ativo with consulta_valores requires operator disposition';
-        END IF;
+        DELETE FROM conversa_agente_ativo WHERE lucas_cobranca_subtipo = 'consulta_valores';
+        GET DIAGNOSTICS apagadas = ROW_COUNT;
+        RAISE NOTICE 'migration 0024 downgrade: % conversa_agente_ativo row(s) with consulta_valores deleted',
+            apagadas;
     END $$""")
     op.execute(f"ALTER TABLE conversa_agente_ativo DROP CONSTRAINT IF EXISTS {_CONSTRAINT}")
     op.execute(f"""

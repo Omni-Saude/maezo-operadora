@@ -14,8 +14,9 @@ ONE agent, THREE journeys — distinguished by `intencao` in state, NEVER by a m
      message. No adverse outcome ever originates here. Desde DL-0086 (08/10/2026) a J1 tambem
      responde pergunta de VALOR (`tipo_solicitacao=consulta_valores`: mensalidade, coparticipacao,
      saldo, historico, data de pagamento) com os fatos do contrato `billing-status` — so' quando os
-     fatos chegaram (`valores_disponiveis`, entrada da DMN) e com a cerca de saida aceitando apenas
-     os valores e datas daquele turno.
+     fatos chegaram (`valores_disponiveis`, entrada da DMN), sem atraso neles (`valores_com_atraso`
+     escala) e em TEXTO FIXO montado dos fatos (`texto_valores`, nenhum modelo redige valor). Os
+     fatos de valor so' existem para beneficiario VERIFICADO com `MAEZO_LUCAS_CONSULTA_VALORES`.
 
   J2 (confirmacao_pagamento): "was this payment conciliated?" -> Lucas READS the CNAB
      conciliation status PRE-RESOLVED by a worker upstream (`status_conciliado`,
@@ -184,7 +185,6 @@ from .prompts import (
     dossier_prompt,
     message_prompt,
     motivo_de_recusa,
-    valores_prompt,
 )
 
 logger = structlog.get_logger(__name__)
@@ -889,7 +889,7 @@ _CAMPOS_DA_COMPETENCIA: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ("liquidado_em", _DATA_DO_FATO),
     ("boleto", _MASCARA_DO_FATO),
 )
-#: Quantas competencias o rascunho de valores ve' quando a pergunta nao nomeia uma que veio nos fatos:
+#: Quantas competencias a resposta de valores mostra quando a pergunta nao nomeia uma que veio nos fatos:
 #: as mais recentes. Uma mensagem de WhatsApp, nao um extrato.
 COMPETENCIAS_NO_RASCUNHO: Final[int] = 3
 
@@ -937,6 +937,91 @@ def valores_disponiveis(state: LucasState) -> bool:
     """Ha' fato de VALOR neste turno? E' a entrada `valores_disponiveis` da DMN: sem ele a linha
     `consulta_valores` nao casa e o catch-all escala — nunca se responde valor sem dado."""
     return bool(_competencias_dos_fatos(state)) or _valor_em_aberto(state) is not None
+
+
+def valores_com_atraso(state: LucasState) -> bool:
+    """Os fatos de valor mostram ATRASO (alguma competencia `vencida` ou `dias_atraso_max > 0`)?
+
+    E' a entrada `valores_com_atraso` da DMN (DL-0082 sobre DL-0086, revisao de seguranca do #709):
+    "vencida ontem" ainda nao e' ciclo sem conciliacao (`ciclos=0`), e a fonte pode estar dias atras
+    do pagamento. Com atraso a pergunta de valor ESCALA sem afirmar inadimplencia (`ambiguidade`) — a
+    situacao `vencida` e o `dias_atraso_max` nunca chegam a um texto ao beneficiario."""
+    dias = _dias_atraso_max(state)
+    if dias is not None and dias > 0:
+        return True
+    return any(c["situacao"] == "vencida" for c in _competencias_dos_fatos(state))
+
+
+def _reais(decimal_texto: str) -> str:
+    """`"8389.53"` -> `"R$ 8.389,53"` (o texto ja' tem a forma decimal do contrato, `0.00`)."""
+    inteiro, centavos = decimal_texto.split(".")
+    grupos: list[str] = []
+    while len(inteiro) > 3:
+        grupos.insert(0, inteiro[-3:])
+        inteiro = inteiro[:-3]
+    grupos.insert(0, inteiro)
+    return f"R$ {'.'.join(grupos)},{centavos}"
+
+
+def _data_br(iso: str | None) -> str | None:
+    if iso is None:
+        return None
+    try:
+        return date.fromisoformat(iso).strftime("%d/%m/%Y")
+    except ValueError:
+        return None
+
+
+def _linha_da_competencia(c: Mapping[str, str]) -> str:
+    """UMA competencia em texto FIXO, so' com os campos presentes. Nunca cita `vencida` (com atraso a
+    DMN ja' escalou) e nunca calcula nada: cada numero e cada data e' o campo do fato, copiado."""
+    ano, mes = c["competencia"].split("-")
+    partes: list[str] = []
+    if "valor_total" in c:
+        partes.append(f"mensalidade de {_reais(c['valor_total'])}")
+    if "valor_coparticipacao" in c:
+        partes.append(f"coparticipação de {_reais(c['valor_coparticipacao'])}")
+    if "valor_saldo" in c:
+        partes.append(f"saldo de {_reais(c['valor_saldo'])}")
+    vencimento = _data_br(c.get("vencimento"))
+    if vencimento:
+        partes.append(f"vencimento em {vencimento}")
+    situacao = c["situacao"]
+    if situacao == "paga":
+        liquidado = _data_br(c.get("liquidado_em"))
+        partes.append(f"paga em {liquidado}" if liquidado else "paga")
+    elif situacao == "em_aberto":
+        partes.append("em aberto")
+    elif situacao == "cancelada":
+        partes.append("título cancelado")
+    elif situacao == "sem_titulo":
+        partes.append("sem boleto emitido")
+    if "boleto" in c:
+        partes.append(f"boleto {c['boleto']}")
+    return f"Competência {mes}/{ano}: {', '.join(partes)}."
+
+
+def texto_valores(state: LucasState, facts: Mapping[str, Any]) -> str:
+    """DL-0086: a resposta a `consulta_valores` em TEXTO FIXO montado dos fatos (revisao do #709).
+
+    Nenhum modelo redige valor: cada quantia, data e boleto citado e' o campo da competencia a que ele
+    pertence, entao "o valor certo no mes errado" nao e' possivel por construcao. Fecha com o
+    `_complemento_dos_fatos` (boleto de referencia e data da fonte)."""
+    competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
+    pedida = facts.get("competencia_pedida")
+    partes: list[str] = []
+    if pedida and not any(c["competencia"] == pedida for c in competencias):
+        partes.append("Não encontrei a competência pedida nos dados disponíveis; seguem as mais recentes.")
+    else:
+        partes.append("Consultei aqui os valores do seu plano.")
+    partes.extend(_linha_da_competencia(c) for c in competencias)
+    valor_em_aberto = facts.get("valor_em_aberto")
+    if isinstance(valor_em_aberto, str):
+        partes.append(f"Valor em aberto na consulta: {_reais(valor_em_aberto)}.")
+    complemento = _complemento_dos_fatos(state)
+    if complemento:
+        partes.append(complemento)
+    return " ".join(partes)
 
 
 def _data_iso_da_fonte(state: LucasState) -> str | None:
@@ -1117,6 +1202,9 @@ class LucasGraph:
             # DL-0086: so' a linha `consulta_valores` le' esta entrada; sem fato de valor ela nao
             # casa e o catch-all escala. Apurada dos fatos presentes, nunca por modelo.
             "valores_disponiveis": valores_disponiveis(state),
+            # DL-0082 sobre DL-0086 (revisao do #709): competencia vencida ou `dias_atraso_max > 0`
+            # com a pergunta de valor ESCALA (sem afirmar inadimplencia), mesmo com `ciclos=0`.
+            "valores_com_atraso": valores_com_atraso(state),
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
@@ -1562,8 +1650,10 @@ class LucasGraph:
         if state.get("admissibilidade") == "LEMBRETE":
             # DL-0086: o lembrete recebe o vencimento REAL da competencia de referencia, quando a
             # fonte o trouxe. Sem ele a chave nem existe (o prompt fica o de antes).
+            # Com atraso nos fatos (vencida, `dias_atraso_max > 0`) a data NAO vai: um vencimento no
+            # passado num lembrete vira "venceu" — afirmacao de atraso que a DMN nao fez (DL-0082).
             vencimento = _vencimento_referencia(state)
-            if vencimento is not None:
+            if vencimento is not None and not valores_com_atraso(state):
                 facts["vencimento"] = vencimento
         prompt = (
             f"{message_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
@@ -1601,46 +1691,24 @@ class LucasGraph:
         valor_em_aberto = _valor_em_aberto(state)
         if valor_em_aberto is not None:
             facts["valor_em_aberto"] = valor_em_aberto
-        dias = _dias_atraso_max(state)
-        if dias is not None:
-            facts["dias_atraso_max"] = dias
+        # `dias_atraso_max` e `situacao=vencida` decidem na DMN (`valores_com_atraso`), nunca no texto.
         facts["competencias"] = da_pedida or competencias[:COMPETENCIAS_NO_RASCUNHO]
         facts["admissibilidade"] = state.get("admissibilidade")
         facts["dmn_refs"] = state.get("dmn_refs", {})
         return facts
 
     async def _build_valores(self, state: LucasState) -> dict[str, Any]:
-        """DL-0086: a resposta a pergunta de VALOR, redigida pelo modelo SO' com os fatos do turno.
+        """DL-0086: a resposta a pergunta de VALOR, em TEXTO FIXO montado dos fatos do turno.
 
-        A cerca de saida aceita apenas os valores em R$, as datas e o rotulo mascarado de boleto que
-        estao nesses fatos (qualquer outro -> `RESPOSTA_INFORMATIVA_RECUSADA`), e a promessa de acao
-        continua barrada. O texto SEMPRE fecha com `_complemento_dos_fatos` (boleto de referencia e
-        "conforme os dados de ..."), escrito pelo grafo, nunca pelo modelo.
-
-        Defesa em profundidade: sem fato de valor (a DMN ja' teria escalado) nenhum modelo e' chamado.
+        Revisao de seguranca do #709: nenhum modelo redige valor (`texto_valores` copia cada campo da
+        sua competencia). O texto passa assim mesmo pela cerca de saida (defesa em profundidade).
+        Defesa em profundidade tambem na entrada: sem fato de valor, ou com atraso nos fatos (a DMN ja'
+        teria escalado), sai a constante honesta.
         """
         facts = self._fatos_de_valores(state)
-        if not valores_disponiveis(state):
+        if not valores_disponiveis(state) or valores_com_atraso(state):
             return self._mensagem(RESPOSTA_INFORMATIVA_RECUSADA, facts, VALORES_PROMPT_VERSION, state)
-        prompt = (
-            f"{valores_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
-        )
-        try:
-            rascunho = await self._llm.generate(
-                prompt,
-                phi=True,
-                agent_id="lucas",
-                tenant_id=state.get("tenant_id", ""),
-                task_kind="task_default",
-            )
-        except PROGRAMMING_ERRORS:
-            raise
-        except EXTERNAL_DEPENDENCY_FAILURES:
-            # Sem rascunho, a constante honesta (canal oficial) — nunca uma promessa de "enviaremos".
-            return self._mensagem(RESPOSTA_INFORMATIVA_RECUSADA, facts, VALORES_PROMPT_VERSION, state)
-        complemento = _complemento_dos_fatos(state)
-        texto = f"{str(rascunho).strip()} {complemento}".strip()
-        return self._mensagem(texto, facts, VALORES_PROMPT_VERSION, state)
+        return self._mensagem(texto_valores(state, facts), facts, VALORES_PROMPT_VERSION, state)
 
     def _mensagem(
         self, texto: str, facts: dict[str, Any], prompt_version: str, state: LucasState | None = None
@@ -1849,6 +1917,6 @@ PROMPT_VERSIONS: dict[str, str] = {
     "recusa_de_saida": RECUSA_DE_SAIDA_VERSION,
     # DL-0082: a resposta FIXA de "mensalidade em dia" tambem fala com o beneficiario.
     "mensagem_em_dia": MENSAGEM_EM_DIA_VERSION,
-    # DL-0086: o rascunho da resposta a pergunta de VALOR (`consulta_valores`).
+    # DL-0086: a resposta FIXA a pergunta de VALOR (`consulta_valores`), montada dos fatos.
     "valores": VALORES_PROMPT_VERSION,
 }

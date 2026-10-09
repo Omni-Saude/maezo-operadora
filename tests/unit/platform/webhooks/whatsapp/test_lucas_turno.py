@@ -589,11 +589,15 @@ def _fatos_com_valores(*, conciliado: bool = True, ciclos: int = 0) -> FatosCobr
 
 
 async def test_consulta_valores_com_fatos_responde_pelos_fatos_sem_processo(seam_lucas: SeamContext) -> None:
-    rascunho = (
-        "A mensalidade de 09/2026 foi de R$ 8.389,53, com coparticipação de R$ 120,00, "
-        "e foi paga em 08/09/2026."
+    # Revisao de seguranca do #709: TEXTO FIXO montado dos fatos; o rascunho do modelo nao e' usado.
+    texto_fixo = (
+        "Consultei aqui os valores do seu plano. Competência 09/2026: mensalidade de R$ 8.389,53, "
+        "coparticipação de R$ 120,00, saldo de R$ 0,00, vencimento em 10/09/2026, paga em 08/09/2026, "
+        "boleto ****4821. Valor em aberto na consulta: R$ 0,00."
     )
-    turno, registry, _ = _turno(seam_lucas, fonte=_FonteFixa(_fatos_com_valores()), rascunho=rascunho)
+    turno, registry, _ = _turno(
+        seam_lucas, fonte=_FonteFixa(_fatos_com_valores()), rascunho="Sua mensalidade e' de R$ 1,00."
+    )
     cliente = _ClienteComDedup(registry)
     final = await _rodar(turno, _conversa("dl86-ok"), _handoff("consulta_valores"), cliente)
 
@@ -602,7 +606,7 @@ async def test_consulta_valores_com_fatos_responde_pelos_fatos_sem_processo(seam
     assert final["process_started"] is False
     assert final["mensagem"]["recusa_de_saida"] is False
     assert [texto for _, texto, _ in cliente.enviados] == [
-        f"{rascunho} Boleto de referência: ****4821. Essa informação é conforme os dados de 30/09/2026."
+        f"{texto_fixo} Boleto de referência: ****4821. Essa informação é conforme os dados de 30/09/2026."
     ]
 
 

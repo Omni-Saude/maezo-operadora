@@ -365,7 +365,7 @@ CASOS: list[dict[str, Any]] = [
             **_FATOS_DE_VALOR,
         ),
         dict(route="respond_member", processo=False, valores_permitidos=True),
-        "O modelo ve' so' a competencia 2026-08.",
+        "A resposta (texto fixo dos fatos) mostra so' a competencia 2026-08.",
     ),
     _c(
         "L27",
@@ -402,5 +402,25 @@ CASOS: list[dict[str, Any]] = [
         ),
         dict(route="respond_member", desfecho="lembrete_enviado", processo=False),
         "O lembrete pode citar 10/09/2026, e so' essa data.",
+    ),
+    _c(
+        "L30",
+        VALORES,
+        "Quanto devo? Vencida ontem: nao conciliado, zero ciclos, 1 dia de atraso",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            **{
+                **_FATOS_DE_VALOR,
+                "status_conciliado": False,
+                "ciclos_sem_conciliacao": 0,
+                "dias_atraso_max": 1,
+                "competencias_cobranca": [
+                    {**_COMPETENCIAS_SINTETICAS[0], "situacao": "vencida", "liquidado_em": None}
+                ],
+            },
+        ),
+        dict(route="escalate_human", motivo="ambiguidade", processo=True),
+        "DL-0082 (revisao do #709): atraso sem ciclo escala sem afirmar inadimplencia nem citar valor.",
     ),
 ]

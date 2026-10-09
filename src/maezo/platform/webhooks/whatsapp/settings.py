@@ -360,12 +360,35 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_ACESSO_VALIDADE_HORAS", "acesso_validade_horas"),
     )
 
+    # VALORES NA RESPOSTA DO LUCAS (DL-0086, revisao de seguranca do PR #709). DESLIGADA por padrao, e
+    # desligada e' o Lucas de antes: a fonte AMH entrega so' os quatro fatos de conciliacao e a pergunta
+    # de valor (`consulta_valores`) escala. Ligada, a fonte AMH entrega tambem os FATOS DE VALOR
+    # (valores, coparticipacao, saldo, datas de pagamento, boleto mascarado) — e SO' para a ref. que veio
+    # da verificacao do acesso (DL-0083). EXIGE `acesso_beneficiario` ligada e `lucas_fonte_cobranca=amh`:
+    # sem verificacao quem segura o celular receberia os valores de outra pessoa (recusado aqui, no boot).
+    # A Helena classifica `consulta_valores` com a flag ligada ou nao (classify-v7 nao depende dela).
+    lucas_consulta_valores: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_LUCAS_CONSULTA_VALORES", "lucas_consulta_valores"),
+    )
+
     @model_validator(mode="after")
     def _consultas_exigem_identidade(self) -> WhatsAppWebhookSettings:
         if self.helena_consultas_amh and not self.helena_identidade_amh:
             raise ValueError(
                 "MAEZO_HELENA_CONSULTAS_AMH exige MAEZO_HELENA_IDENTIDADE_AMH ligada "
                 "(sem identidade resolvida nao ha' de quem consultar os fatos do plano)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _valores_exigem_verificacao(self) -> WhatsAppWebhookSettings:
+        if self.lucas_consulta_valores and not (
+            self.acesso_beneficiario and self.lucas_fonte_cobranca == "amh"
+        ):
+            raise ValueError(
+                "MAEZO_LUCAS_CONSULTA_VALORES exige MAEZO_ACESSO_BENEFICIARIO ligada e "
+                "MAEZO_LUCAS_FONTE_COBRANCA=amh (valor so' para beneficiario verificado, DL-0086)"
             )
         return self
 
