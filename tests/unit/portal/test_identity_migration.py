@@ -36,7 +36,9 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # VW4/GP11 wiring adds the OP20 suppression store as forward migration 0021 after 0020.
     # DL-0083 adds the per-conversation access state (consent + identity verification) as 0022 after 0021.
     # 0023 fixes 0022's ref CHECKs (Postgres caps regex repetition at 255).
-    assert heads == {"0023"}, f"expected 0023 to be the sole head, got {heads}"
+    # DL-0086 widens the router's `lucas_cobranca_subtipo` CHECK (`consulta_valores`) as 0024 after 0023.
+    assert heads == {"0024"}, f"expected 0024 to be the sole head, got {heads}"
+    assert revisions["0024"] == "0023"
     assert revisions["0023"] == "0022"
     assert revisions["0022"] == "0021"
     assert revisions["0021"] == "0020"
@@ -50,7 +52,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0023"
+    current = "0024"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

@@ -359,15 +359,18 @@ _VALID_INTENTS: frozenset[str] = frozenset(
 #: aceita pelo validador com o roteador ligado — `_intents_validos` decide, por chamada.
 INTENT_COBRANCA: str = "cobranca"
 #: Dominio FECHADO de `cobranca_subtipo` (§2.4 do plano). O MESMO de
-#: `platform/webhooks/whatsapp/roteamento.py::COBRANCA_SUBTIPOS` e do CHECK da migration 0017; o
-#: grafo nao importa a plataforma, entao a copia e' conferida por
-#: `tests/unit/agents/test_helena_passagem_cobranca.py`.
+#: `platform/webhooks/whatsapp/roteamento.py::COBRANCA_SUBTIPOS` e do CHECK da migration 0023 (que
+#: substituiu o da 0017); o grafo nao importa a plataforma, entao a copia e' conferida por
+#: `tests/unit/agents/test_helena_passagem_cobranca.py`. `consulta_valores` (DL-0086, 08/10/2026):
+#: pergunta de VALOR (mensalidade, coparticipacao, saldo, historico, data de pagamento), que o Lucas
+#: responde pelos fatos do contrato `billing-status`.
 CobrancaSubtipo = Literal[
     "boleto_2via",
     "vencimento",
     "confirmacao_pagamento",
     "contestacao",
     "cobranca_recebida",
+    "consulta_valores",
     "cancelamento",
     "outro",
 ]

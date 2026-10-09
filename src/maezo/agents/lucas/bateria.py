@@ -67,6 +67,11 @@ _CAMPOS_SAIDA = (
 _PROIBIDO = re.compile(
     r"(suspens|suspend|cancelamos|foi cancelad|sera cancelad|multa|negativ|protest|serasa|\bspc\b|juros|r\$)"
 )
+#: DL-0086: nos casos de `consulta_valores` (`esperado.valores_permitidos`) o valor em R$ VEM DOS FATOS e
+#: e' a resposta certa; quem confere que ele e' o dos fatos e' a cerca de saida do grafo, nao esta lista.
+_PROIBIDO_SEM_MOEDA = re.compile(
+    r"(suspens|suspend|cancelamos|foi cancelad|sera cancelad|multa|negativ|protest|serasa|\bspc\b|juros)"
+)
 
 
 def _norm(texto: str) -> str:
@@ -203,8 +208,9 @@ def veredito(caso: Mapping[str, Any], resultado: Mapping[str, Any]) -> tuple[str
     if dossie and dossie.get("decisao_cancelamento") is not None:
         div.append("o dossie traz decisao de cancelamento (o Lucas nunca decide)")
     textos = [t for t in [resultado.get("mensagem"), *(resultado.get("enviados") or [])] if t]
+    proibido = _PROIBIDO_SEM_MOEDA if esperado.get("valores_permitidos") else _PROIBIDO
     for texto in textos:
-        achado = _PROIBIDO.search(_norm(texto))
+        achado = proibido.search(_norm(texto))
         if achado:
             div.append(f"texto ao beneficiario contem “{achado.group(0)}” (revisar)")
             break

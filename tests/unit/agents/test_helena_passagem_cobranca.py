@@ -138,8 +138,9 @@ def test_desligado_o_prompt_e_o_classify_v5_byte_a_byte() -> None:
 def test_ligado_o_prompt_e_o_v6_e_so_ele_conhece_cobranca() -> None:
     v6 = classify_prompt(roteador_lucas=True)
     assert v6 != classify_prompt()
-    assert CLASSIFY_PROMPT_VERSION_ROTEADOR == "classify-v6.2"
-    assert PROMPT_VERSIONS["classify_roteador"] == "classify-v6.2"
+    # DL-0086: o v7 acrescentou `consulta_valores` ao dominio de `cobranca_subtipo`.
+    assert CLASSIFY_PROMPT_VERSION_ROTEADOR == "classify-v7"
+    assert PROMPT_VERSIONS["classify_roteador"] == "classify-v7"
     assert '"cobranca"]' in v6
     for subtipo in _VALID_COBRANCA_SUBTIPOS:
         assert f'"{subtipo}"' in v6
@@ -434,6 +435,31 @@ def test_gate_inbound_nao_deixa_um_mapeamento_cru_escolher_o_lucas() -> None:
     assert gated["pedido_humano_lexico"] is False
     assert gated["sinal_saude_lexico"] is True
     assert "handoff" not in gated
+
+
+def test_classify_v7_manda_pergunta_de_valor_para_consulta_valores() -> None:
+    """DL-0086: valor, coparticipacao, saldo, historico e data de pagamento sao `consulta_valores`;
+    pix, cartao, nota fiscal e informe de IR continuam `outro`. O texto do v7 diz isso ao modelo."""
+    v7 = " ".join(classify_prompt(roteador_lucas=True).split())
+    trecho_valores = v7.split('"consulta_valores" (')[1].split(")")[0]
+    for termo in ("mensalidade", "coparticipacao", "saldo", "historico", "foi paga"):
+        assert termo in trecho_valores, termo
+    trecho_outro = v7.split('"outro" (qualquer outra duvida de cobranca:')[1].split(")")[0]
+    for termo in ("pix", "cartao", "nota fiscal", "imposto de renda"):
+        assert termo in trecho_outro, termo
+    assert "valor da mensalidade" not in trecho_outro
+
+
+@pytest.mark.parametrize("subtipo", ["consulta_valores", "outro"])
+def test_ligado_consulta_valores_e_subtipo_valido(subtipo: str) -> None:
+    dados = json.loads(_json(cobranca_subtipo=subtipo))
+    assert _validate_extraction(dados, cobranca_habilitada=True) is None
+
+
+async def test_ligado_consulta_valores_passa_ao_lucas() -> None:
+    compilado, _, _ = _grafo(_FakeInference([_json(cobranca_subtipo="consulta_valores")]))
+    resultado = await compilado.ainvoke(_entrada(message_body="quanto foi minha mensalidade de setembro?"))
+    assert resultado["handoff"]["cobranca_subtipo"] == "consulta_valores"
 
 
 def test_os_subtipos_sao_os_do_roteador() -> None:

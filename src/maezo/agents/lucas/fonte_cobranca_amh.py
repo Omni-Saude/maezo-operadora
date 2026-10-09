@@ -11,7 +11,8 @@ O CAMINHO, em quatro passos, cada um com a sua saida fechada:
   1. pseudonimo do Maezo -> `portable_subject_ref` (so' a AMH liga telefone a pessoa, XRD-05);
   2. consentimento para o proposito de atendimento ao beneficiario;
   3. leitura da situacao de cobranca pelo `BillingStatusPort`;
-  4. traducao para os quatro fatos que a DMN do Lucas consome.
+  4. traducao para os quatro fatos que a DMN do Lucas consome e, desde DL-0086 (08/10/2026), para os
+     FATOS DE VALOR da janela (resumo e competencias), com que o Lucas responde sozinho.
 
 NENHUM passo inventa fato. Se a pessoa nao e' resolvida, se nao ha' consentimento, se a leitura falha ou se
 a fonte nao tem `status_conciliado`/`ciclos_sem_conciliacao`, o retorno e' `Indisponivel` com um motivo de
@@ -20,19 +21,58 @@ catch-all dela escala a um humano). O Lucas nunca afirma pagamento nem atraso se
 
 O que o Lucas recebe do boleto e' o rotulo MASCARADO (`****1234`) e a referencia de ORIGEM do dado
 (`amh-billing:{data da fonte}`), nunca nosso numero, bloqueto, linha digitavel ou link.
+
+FATOS DE VALOR (DL-0086, decisao do dono/DPO de 08/10/2026). Por competencia: competencia, vencimento,
+situacao, valor total, coparticipacao, saldo, data de liquidacao e o boleto MASCARADO; do resumo: valor em
+aberto e maior atraso em dias. No maximo a janela que o contrato devolveu (`JANELA_MESES`). Cada valor e'
+conferido contra a forma do contrato (decimal `0.00`, data `AAAA-MM-DD`, mascara `****NNNN`, situacao do
+enum): o que nao tem a forma vira AUSENTE, nunca corrigido nem completado — e' texto que vai ao modelo.
 """
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+import re
+from typing import Final, Protocol, runtime_checkable
 
-from maezo.agents.lucas.fonte_cobranca import FatosCobranca, Indisponivel
+from maezo.agents.lucas.fonte_cobranca import CompetenciaCobranca, FatosCobranca, Indisponivel
 from maezo.ports.billing_status import BillingStatusPort, BillingStatusView, CompetenciaBilling
 from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
 #: Janela de competencias pedida a AMH. O contrato aceita 1 a 36; 12 e' o padrao do contrato.
 JANELA_MESES: int = 12
+
+#: As formas do contrato (`billing-status.openapi.yaml`). Valor fora delas e' AUSENTE (nunca corrigido).
+_DECIMAL: Final[re.Pattern[str]] = re.compile(r"^[0-9]+\.[0-9]{2}$")
+_DATA: Final[re.Pattern[str]] = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$")
+_MASCARA: Final[re.Pattern[str]] = re.compile(r"^\*{4}[0-9]{4}$")
+_COMPETENCIA: Final[re.Pattern[str]] = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+_SITUACOES: Final[frozenset[str]] = frozenset({"paga", "em_aberto", "vencida", "cancelada", "sem_titulo"})
+
+
+def _na_forma(valor: object, forma: re.Pattern[str]) -> str | None:
+    return valor if isinstance(valor, str) and forma.match(valor) else None
+
+
+def _competencia_como_fato(c: CompetenciaBilling) -> CompetenciaCobranca | None:
+    """Uma competencia do contrato -> fato do Lucas, campo a campo na forma do contrato. `None` quando
+    nem a competencia nem a situacao tem forma valida: sem elas o resto nao diz de que mes se trata."""
+    if not _na_forma(c.competencia, _COMPETENCIA) or c.situacao not in _SITUACOES:
+        return None
+    return CompetenciaCobranca(
+        competencia=c.competencia,
+        situacao=c.situacao,
+        vencimento=_na_forma(c.vencimento, _DATA),
+        valor_total=_na_forma(c.valor_total, _DECIMAL),
+        valor_coparticipacao=_na_forma(c.valor_coparticipacao, _DECIMAL),
+        valor_saldo=_na_forma(c.valor_saldo, _DECIMAL),
+        liquidado_em=_na_forma(c.liquidado_em, _DATA),
+        boleto=_na_forma(c.boleto_numero_mascarado, _MASCARA),
+    )
+
+
+def _dias_validos(dias: object) -> int | None:
+    return dias if isinstance(dias, int) and not isinstance(dias, bool) and dias >= 0 else None
 
 
 @runtime_checkable
@@ -113,9 +153,18 @@ class FonteCobrancaAmh:
         if resumo.status_conciliado is None or resumo.ciclos_sem_conciliacao is None:
             return Indisponivel("fato_ausente")
         referencia = _competencia_de_referencia(view, competencia)
+        competencias = tuple(
+            fato
+            for fato in (_competencia_como_fato(c) for c in view.competencias[:JANELA_MESES])
+            if fato is not None
+        )
         return FatosCobranca(
             status_conciliado=resumo.status_conciliado,
             ciclos_sem_conciliacao=resumo.ciclos_sem_conciliacao,
             numero_boleto=(referencia.boleto_numero_mascarado or "") if referencia else "",
             cnab_ref=f"amh-billing:{view.fonte_atualizada_em[:10]}",
+            valor_em_aberto=_na_forma(resumo.valor_em_aberto, _DECIMAL),
+            dias_atraso_max=_dias_validos(resumo.dias_atraso_max),
+            vencimento_referencia=_na_forma(referencia.vencimento, _DATA) if referencia else None,
+            competencias=competencias,
         )

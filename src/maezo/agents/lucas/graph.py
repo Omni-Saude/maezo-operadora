@@ -11,7 +11,11 @@ ONE agent, THREE journeys — distinguished by `intencao` in state, NEVER by a m
 
   J1 (cobranca_info): boleto/2a via/vencimento doubt -> `assess` evaluates
      `lucas_billing_admissibility` -> `respond_member` drafts/sends an informational WhatsApp
-     message. No adverse outcome ever originates here.
+     message. No adverse outcome ever originates here. Desde DL-0086 (08/10/2026) a J1 tambem
+     responde pergunta de VALOR (`tipo_solicitacao=consulta_valores`: mensalidade, coparticipacao,
+     saldo, historico, data de pagamento) com os fatos do contrato `billing-status` — so' quando os
+     fatos chegaram (`valores_disponiveis`, entrada da DMN) e com a cerca de saida aceitando apenas
+     os valores e datas daquele turno.
 
   J2 (confirmacao_pagamento): "was this payment conciliated?" -> Lucas READS the CNAB
      conciliation status PRE-RESOLVED by a worker upstream (`status_conciliado`,
@@ -176,9 +180,11 @@ from .prompts import (
     MESSAGE_PROMPT_VERSION,
     RECUSA_DE_SAIDA_VERSION,
     SYSTEM_PROMPT_VERSION,
+    VALORES_PROMPT_VERSION,
     dossier_prompt,
     message_prompt,
     motivo_de_recusa,
+    valores_prompt,
 )
 
 logger = structlog.get_logger(__name__)
@@ -362,7 +368,7 @@ class LucasState(TypedDict, total=False):
 
     # Turn input — `intencao` selects the JOURNEY, never a merit Lucas decides.
     intencao: Intencao
-    tipo_solicitacao: str  # boleto | 2a_via | vencimento | status_pagamento
+    tipo_solicitacao: str  # boleto | 2a_via | vencimento | status_pagamento | consulta_valores
     numero_boleto: str
     competencia: str  # YYYY-MM
 
@@ -373,6 +379,14 @@ class LucasState(TypedDict, total=False):
     contesta_cobranca: bool
     pedido_cancelamento: bool
     cnab_ref: str
+
+    # FATOS DE VALOR (DL-0086): o que a fonte (`FatosCobranca.como_entrada_lucas`) entregou do
+    # contrato `billing-status`. AUSENTES quando a fonte nao os tem (a simulada nunca os tem).
+    # Consumidos como vieram — o grafo nao soma, nao subtrai e nao completa nenhum.
+    valor_em_aberto: str  # decimal em texto, "640.50"
+    dias_atraso_max: int
+    vencimento_referencia: str  # AAAA-MM-DD
+    competencias_cobranca: list[dict[str, Any]]
 
     # Filled by `gather`.
     gathered: bool
@@ -472,6 +486,11 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "contesta_cobranca",
         "pedido_cancelamento",
         "cnab_ref",
+        # FATOS DE VALOR do contrato `billing-status` (DL-0086) — fatos, nunca veredito.
+        "valor_em_aberto",
+        "dias_atraso_max",
+        "vencimento_referencia",
+        "competencias_cobranca",
     }
 )
 
@@ -843,6 +862,89 @@ def _complemento_dos_fatos(state: LucasState) -> str:
     return " ".join(partes)
 
 
+# --- FATOS DE VALOR (DL-0086, decisao do dono/DPO de 08/10/2026) ---------------------------------
+#
+# O Lucas responde sozinho o que os fatos do contrato `billing-status` sustentam: valor da mensalidade,
+# coparticipacao, saldo/valor em aberto, historico e data de pagamento. Os fatos chegam como entrada
+# do chamador (`FatosCobranca.como_entrada_lucas`); aqui eles so' sao LIDOS e conferidos contra a forma
+# do contrato — o que nao tem a forma e' descartado (vira ausente), nunca corrigido. E' texto que vai
+# ao modelo, e o estado pode ter sido montado por qualquer chamador de `new_lucas_state`.
+
+#: `tipo_solicitacao` da pergunta de valor (vocabulario da DMN `lucas_billing_admissibility`).
+TIPO_CONSULTA_VALORES: Final[str] = "consulta_valores"
+
+_DECIMAL_DO_FATO: Final[re.Pattern[str]] = re.compile(r"^[0-9]+\.[0-9]{2}$")
+_DATA_DO_FATO: Final[re.Pattern[str]] = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_COMPETENCIA_DO_FATO: Final[re.Pattern[str]] = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+_MASCARA_DO_FATO: Final[re.Pattern[str]] = re.compile(r"^\*{4}\d{4}$")
+_SITUACOES_DO_FATO: Final[frozenset[str]] = frozenset(
+    {"paga", "em_aberto", "vencida", "cancelada", "sem_titulo"}
+)
+#: Campo da competencia -> forma aceita. A ORDEM e' a das chaves no fato que vai ao modelo.
+_CAMPOS_DA_COMPETENCIA: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
+    ("vencimento", _DATA_DO_FATO),
+    ("valor_total", _DECIMAL_DO_FATO),
+    ("valor_coparticipacao", _DECIMAL_DO_FATO),
+    ("valor_saldo", _DECIMAL_DO_FATO),
+    ("liquidado_em", _DATA_DO_FATO),
+    ("boleto", _MASCARA_DO_FATO),
+)
+#: Quantas competencias o rascunho de valores ve' quando a pergunta nao nomeia uma que veio nos fatos:
+#: as mais recentes. Uma mensagem de WhatsApp, nao um extrato.
+COMPETENCIAS_NO_RASCUNHO: Final[int] = 3
+
+
+def _na_forma(valor: object, forma: re.Pattern[str]) -> str | None:
+    return valor if isinstance(valor, str) and forma.match(valor) else None
+
+
+def _competencias_dos_fatos(state: LucasState) -> list[dict[str, str]]:
+    """As competencias do estado que tem a forma do contrato, da mais recente para a mais antiga."""
+    bruto = state.get("competencias_cobranca")
+    if not isinstance(bruto, list):
+        return []
+    saida: list[dict[str, str]] = []
+    for item in bruto:
+        if not isinstance(item, Mapping):
+            continue
+        competencia = _na_forma(item.get("competencia"), _COMPETENCIA_DO_FATO)
+        situacao = item.get("situacao")
+        if competencia is None or not isinstance(situacao, str) or situacao not in _SITUACOES_DO_FATO:
+            continue
+        limpo = {"competencia": competencia, "situacao": situacao}
+        for campo, forma in _CAMPOS_DA_COMPETENCIA:
+            valor = _na_forma(item.get(campo), forma)
+            if valor is not None:
+                limpo[campo] = valor
+        saida.append(limpo)
+    return sorted(saida, key=lambda c: c["competencia"], reverse=True)
+
+
+def _valor_em_aberto(state: LucasState) -> str | None:
+    return _na_forma(state.get("valor_em_aberto"), _DECIMAL_DO_FATO)
+
+
+def _dias_atraso_max(state: LucasState) -> int | None:
+    dias = state.get("dias_atraso_max")
+    return dias if isinstance(dias, int) and not isinstance(dias, bool) and dias >= 0 else None
+
+
+def _vencimento_referencia(state: LucasState) -> str | None:
+    return _na_forma(state.get("vencimento_referencia"), _DATA_DO_FATO)
+
+
+def valores_disponiveis(state: LucasState) -> bool:
+    """Ha' fato de VALOR neste turno? E' a entrada `valores_disponiveis` da DMN: sem ele a linha
+    `consulta_valores` nao casa e o catch-all escala — nunca se responde valor sem dado."""
+    return bool(_competencias_dos_fatos(state)) or _valor_em_aberto(state) is not None
+
+
+def _data_iso_da_fonte(state: LucasState) -> str | None:
+    """`AAAA-MM-DD` da fonte (`cnab_ref`), para a cerca aceitar a data da frase de fechamento."""
+    achado = _CNAB_REF_DATADA.match(str(state.get("cnab_ref") or ""))
+    return "-".join(achado.groups()) if achado else None
+
+
 def _mensalidade_em_dia(state: LucasState) -> bool:
     """Os fatos dizem "em dia": a DMN mandou RESPONDER a uma pergunta de status de pagamento, a
     fonte disse conciliado e nao ha' ciclo sem conciliacao. Fatos contraditorios (conciliado com
@@ -1012,6 +1114,9 @@ class LucasGraph:
             "tipo_solicitacao": str(state.get("tipo_solicitacao", "")),
             "status_conciliado": bool(state.get("status_conciliado", False)),
             "ciclos_sem_conciliacao": ciclos,
+            # DL-0086: so' a linha `consulta_valores` le' esta entrada; sem fato de valor ela nao
+            # casa e o catch-all escala. Apurada dos fatos presentes, nunca por modelo.
+            "valores_disponiveis": valores_disponiveis(state),
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
@@ -1451,7 +1556,15 @@ class LucasGraph:
         if _mensalidade_em_dia(state):
             # DL-0082: com os fatos dizendo "conciliado, zero ciclos" a resposta e' FIXA — nenhum
             # modelo redige sobre a situacao financeira de alguem quando o fato ja' diz tudo.
-            return self._mensagem(texto_mensalidade_em_dia(state), facts, MENSAGEM_EM_DIA_VERSION)
+            return self._mensagem(texto_mensalidade_em_dia(state), facts, MENSAGEM_EM_DIA_VERSION, state)
+        if state.get("tipo_solicitacao") == TIPO_CONSULTA_VALORES:
+            return await self._build_valores(state)
+        if state.get("admissibilidade") == "LEMBRETE":
+            # DL-0086: o lembrete recebe o vencimento REAL da competencia de referencia, quando a
+            # fonte o trouxe. Sem ele a chave nem existe (o prompt fica o de antes).
+            vencimento = _vencimento_referencia(state)
+            if vencimento is not None:
+                facts["vencimento"] = vencimento
         prompt = (
             f"{message_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
         )
@@ -1469,16 +1582,82 @@ class LucasGraph:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
             texto = "Recebemos sua solicitacao. Em breve enviaremos os detalhes por aqui."
-        return self._mensagem(texto, facts, MESSAGE_PROMPT_VERSION)
+        return self._mensagem(texto, facts, MESSAGE_PROMPT_VERSION, state)
 
-    def _mensagem(self, texto: str, facts: dict[str, Any], prompt_version: str) -> dict[str, Any]:
+    def _fatos_de_valores(self, state: LucasState) -> dict[str, Any]:
+        """Os fatos da resposta a `consulta_valores`: o que a fonte entregou, mais nada.
+
+        A competencia pedida, quando veio nos fatos, e' a unica competencia mostrada; senao, as
+        `COMPETENCIAS_NO_RASCUNHO` mais recentes. Chave AUSENTE quando o fato nao veio."""
+        competencias = _competencias_dos_fatos(state)
+        pedida = state.get("competencia")
+        da_pedida = [c for c in competencias if c["competencia"] == pedida]
+        facts: dict[str, Any] = {
+            "tipo_solicitacao": TIPO_CONSULTA_VALORES,
+            "competencia_pedida": pedida or None,
+            "numero_boleto": _rotulo_boleto(state),
+            "status_conciliado": state.get("status_conciliado"),
+        }
+        valor_em_aberto = _valor_em_aberto(state)
+        if valor_em_aberto is not None:
+            facts["valor_em_aberto"] = valor_em_aberto
+        dias = _dias_atraso_max(state)
+        if dias is not None:
+            facts["dias_atraso_max"] = dias
+        facts["competencias"] = da_pedida or competencias[:COMPETENCIAS_NO_RASCUNHO]
+        facts["admissibilidade"] = state.get("admissibilidade")
+        facts["dmn_refs"] = state.get("dmn_refs", {})
+        return facts
+
+    async def _build_valores(self, state: LucasState) -> dict[str, Any]:
+        """DL-0086: a resposta a pergunta de VALOR, redigida pelo modelo SO' com os fatos do turno.
+
+        A cerca de saida aceita apenas os valores em R$, as datas e o rotulo mascarado de boleto que
+        estao nesses fatos (qualquer outro -> `RESPOSTA_INFORMATIVA_RECUSADA`), e a promessa de acao
+        continua barrada. O texto SEMPRE fecha com `_complemento_dos_fatos` (boleto de referencia e
+        "conforme os dados de ..."), escrito pelo grafo, nunca pelo modelo.
+
+        Defesa em profundidade: sem fato de valor (a DMN ja' teria escalado) nenhum modelo e' chamado.
+        """
+        facts = self._fatos_de_valores(state)
+        if not valores_disponiveis(state):
+            return self._mensagem(RESPOSTA_INFORMATIVA_RECUSADA, facts, VALORES_PROMPT_VERSION, state)
+        prompt = (
+            f"{valores_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
+        )
+        try:
+            rascunho = await self._llm.generate(
+                prompt,
+                phi=True,
+                agent_id="lucas",
+                tenant_id=state.get("tenant_id", ""),
+                task_kind="task_default",
+            )
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            # Sem rascunho, a constante honesta (canal oficial) — nunca uma promessa de "enviaremos".
+            return self._mensagem(RESPOSTA_INFORMATIVA_RECUSADA, facts, VALORES_PROMPT_VERSION, state)
+        complemento = _complemento_dos_fatos(state)
+        texto = f"{str(rascunho).strip()} {complemento}".strip()
+        return self._mensagem(texto, facts, VALORES_PROMPT_VERSION, state)
+
+    def _mensagem(
+        self, texto: str, facts: dict[str, Any], prompt_version: str, state: LucasState | None = None
+    ) -> dict[str, Any]:
         """Passa `texto` pela cerca de saida e monta o dicionario da mensagem informativa."""
         # CERCA DE SAIDA (18/09/2026). Os `fatos` vao junto porque o grupo `valor_sem_fato` e' uma
         # comparacao com eles — e' o que separa "o valor em aberto e' R$ 450,00" inventado de um
-        # valor que um dia venha da conciliacao.
+        # valor que veio da fonte (DL-0086). A cerca tambem recebe a data da fonte (`dados_de`), que
+        # a frase de fechamento `_complemento_dos_fatos` cita, para conferir datas (`data_sem_fato`).
+        fatos_da_cerca: dict[str, Any] = dict(facts)
+        if state is not None:
+            dados_de = _data_iso_da_fonte(state)
+            if dados_de is not None:
+                fatos_da_cerca["dados_de"] = dados_de
         recusado = False
         try:
-            texto = self._cercar_saida(texto, "mensagem", facts)
+            texto = self._cercar_saida(texto, "mensagem", fatos_da_cerca)
         except RespostaRecusadaError:
             # NAO ha segunda tentativa, pelo mesmo motivo que na Helena: o mesmo prompt com os
             # mesmos fatos tende ao mesmo texto. A constante e' honesta para esta rota.
@@ -1670,4 +1849,6 @@ PROMPT_VERSIONS: dict[str, str] = {
     "recusa_de_saida": RECUSA_DE_SAIDA_VERSION,
     # DL-0082: a resposta FIXA de "mensalidade em dia" tambem fala com o beneficiario.
     "mensagem_em_dia": MENSAGEM_EM_DIA_VERSION,
+    # DL-0086: o rascunho da resposta a pergunta de VALOR (`consulta_valores`).
+    "valores": VALORES_PROMPT_VERSION,
 }

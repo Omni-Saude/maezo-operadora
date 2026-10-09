@@ -56,7 +56,9 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # ("estou com dor de cabeca" nao e'
                                      # cefaleia_subita_intensa), e `intensidade` nunca e'
                                      # inferida do sintoma.
-  classify_roteador: classify-v6.2   # 02/10/2026: paragrafo de outside_channel com
+  classify_roteador: classify-v7     # 08/10/2026 (DL-0086): subtipo `consulta_valores` (valor, coparticipacao,
+                                     # saldo, historico, data de pagamento); pix/cartao/nota fiscal/IR seguem `outro`.
+                                     # v6.2 — 02/10/2026: paragrafo de outside_channel com
                                      # autorizacao negada e privacidade (DL-0063/0059). v6: onda (e) do numero unico (ADR-0062): usado SO' com o
                                      # roteador Helena -> Lucas ligado. Acrescenta a intencao
                                      # `cobranca` + `cobranca_subtipo`/`competencia` e tira

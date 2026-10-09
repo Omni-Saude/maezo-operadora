@@ -175,7 +175,10 @@ def test_jornada_por_subtipo_e_a_do_plano() -> None:
         "vencimento",
         "outro",
         "contestacao",
+        "consulta_valores",
     }
+    # DL-0086: pergunta de valor e' J1 com o `tipo_solicitacao` da linha nova da DMN.
+    assert t["consulta_valores"] == {"intencao": "cobranca_info", "tipo_solicitacao": "consulta_valores"}
     assert t["confirmacao_pagamento"]["intencao"] == "confirmacao_pagamento"
     assert t["contestacao"]["contesta_cobranca"] is True
     assert t["cobranca_recebida"] == {"intencao": "inadimplencia", "tipo_solicitacao": "status_pagamento"}
@@ -554,6 +557,89 @@ async def test_cobranca_recebida_sem_fato_diz_que_nao_conseguiu_consultar(seam_l
     assert [texto for _, texto, _ in cliente.enviados] == [
         "No momento não consegui consultar a situação da sua mensalidade. " + ACK_ESCALACAO
     ]
+
+
+# --- DL-0086: pergunta de VALOR, respondida pelos fatos do `billing-status` ---------------------------
+
+
+def _fatos_com_valores(*, conciliado: bool = True, ciclos: int = 0) -> FatosCobranca:
+    from maezo.agents.lucas.fonte_cobranca import CompetenciaCobranca
+
+    return FatosCobranca(
+        status_conciliado=conciliado,
+        ciclos_sem_conciliacao=ciclos,
+        numero_boleto="****4821",
+        cnab_ref="amh-billing:2026-09-30",
+        valor_em_aberto="0.00",
+        dias_atraso_max=0,
+        vencimento_referencia="2026-09-10",
+        competencias=(
+            CompetenciaCobranca(
+                competencia="2026-09",
+                situacao="paga",
+                vencimento="2026-09-10",
+                valor_total="8389.53",
+                valor_coparticipacao="120.00",
+                valor_saldo="0.00",
+                liquidado_em="2026-09-08",
+                boleto="****4821",
+            ),
+        ),
+    )
+
+
+async def test_consulta_valores_com_fatos_responde_pelos_fatos_sem_processo(seam_lucas: SeamContext) -> None:
+    rascunho = (
+        "A mensalidade de 09/2026 foi de R$ 8.389,53, com coparticipação de R$ 120,00, "
+        "e foi paga em 08/09/2026."
+    )
+    turno, registry, _ = _turno(seam_lucas, fonte=_FonteFixa(_fatos_com_valores()), rascunho=rascunho)
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(turno, _conversa("dl86-ok"), _handoff("consulta_valores"), cliente)
+
+    assert final["route"] == "respond_member"
+    assert final["admissibilidade"] == "RESPONDER"
+    assert final["process_started"] is False
+    assert final["mensagem"]["recusa_de_saida"] is False
+    assert [texto for _, texto, _ in cliente.enviados] == [
+        f"{rascunho} Boleto de referência: ****4821. Essa informação é conforme os dados de 30/09/2026."
+    ]
+
+
+async def test_consulta_valores_sem_fatos_escala_e_nao_responde_valor(seam_lucas: SeamContext) -> None:
+    turno, registry, _ = _turno(
+        seam_lucas, fonte=_FonteFixa(Indisponivel("fonte_indisponivel")), rota_padrao="escalate_human"
+    )
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(turno, _conversa("dl86-ind"), _handoff("consulta_valores"), cliente)
+
+    assert final["route"] == "escalate_human"
+    assert final["motivo_humano"] == "ambiguidade"
+    assert final["process_started"] is True
+    assert all("R$" not in texto for _, texto, _ in cliente.enviados)
+
+
+async def test_consulta_valores_da_fonte_simulada_escala_porque_ela_nao_tem_valores(
+    seam_lucas: SeamContext,
+) -> None:
+    turno, registry, _ = _turno(seam_lucas, rota_padrao="escalate_human")
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(turno, _conversa("dl86-sim"), _handoff("consulta_valores"), cliente)
+    assert final["route"] == "escalate_human"
+
+
+async def test_consulta_valores_com_atraso_continua_escalando_para_cobranca_humano(
+    seam_lucas: SeamContext,
+) -> None:
+    fonte = _FonteFixa(_fatos_com_valores(conciliado=False, ciclos=1))
+    turno, registry, _ = _turno(seam_lucas, fonte=fonte, rota_padrao="escalate_human")
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(turno, _conversa("dl86-atraso"), _handoff("consulta_valores"), cliente)
+
+    assert final["route"] == "escalate_human"
+    assert final["motivo_humano"] == "inadimplencia_detectada"
+    assert final["roteamento_escalacao"] == "COBRANCA_HUMANO"
+    assert final["process_started"] is True
 
 
 # --- Gate, checkpointer, metricas ------------------------------------------------------------------

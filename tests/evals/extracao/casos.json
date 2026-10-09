@@ -2538,7 +2538,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v6.2"
+      "prompt": "classify-v7"
     },
     {
       "id": "onda-e-cobranca-indevida",
@@ -2558,7 +2558,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v6.2"
+      "prompt": "classify-v7"
     },
     {
       "id": "dl0052-autorizacao-negada",
@@ -2711,7 +2711,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v6.2"
+      "prompt": "classify-v7"
     },
     {
       "id": "lu055-mensalidade-atrasada",
@@ -2731,7 +2731,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v6.2"
+      "prompt": "classify-v7"
     },
     {
       "id": "lu059-plano-suspenso",
@@ -2751,7 +2751,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v6.2"
+      "prompt": "classify-v7"
     },
     {
       "id": "lu075-nota-fiscal-ir",
@@ -2771,7 +2771,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v6.2"
+      "prompt": "classify-v7"
     },
     {
       "id": "lu077-cartao-de-credito",
@@ -2791,7 +2791,27 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v6.2"
+      "prompt": "classify-v7"
+    },
+    {
+      "id": "dl0086-valor-da-mensalidade",
+      "mensagem": "quanto foi minha mensalidade de setembro e quando ela foi paga?",
+      "esperado": {
+        "intent": "cobranca",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "DL-0086 (08/10/2026): pergunta de VALOR e de data de pagamento e' cobranca (subtipo `consulta_valores` no classify-v7), que o Lucas responde pelos fatos do contrato billing-status. Antes era `outro`.",
+      "origem": "dl-0086",
+      "regras": [
+        "R5"
+      ],
+      "prompt": "classify-v7"
     }
   ]
 }

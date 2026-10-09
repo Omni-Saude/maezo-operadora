@@ -64,7 +64,7 @@ _INTENTS: Final[frozenset[str]] = frozenset(
 #: rotulado com ela declara `"prompt": "classify-v6"` — e so' eles —, para a medicao ao vivo usar o
 #: prompt que de fato produz aquela intencao (`test_extracao_live.py::_grafo`).
 _INTENTS_SO_COM_O_ROTEADOR: Final[frozenset[str]] = frozenset({"cobranca"})
-_PROMPT_DO_ROTEADOR: Final[str] = "classify-v6.2"
+_PROMPT_DO_ROTEADOR: Final[str] = "classify-v7"  # DL-0086: subtipo `consulta_valores`
 #: Fatos do plano (DL-0081): a intencao que so' existe com `MAEZO_HELENA_CONSULTAS_AMH` ligada (adendo
 #: `classify-consultas-v1`, junto com uma fonte de fatos da AMH). FORA de `_INTENTS` de proposito: este
 #: corpus mede o classify de producao com a flag DESLIGADA, em que `consulta_plano` e' `invalid_intent`;

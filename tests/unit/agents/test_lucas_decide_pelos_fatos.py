@@ -204,8 +204,13 @@ def test_todo_ack_fixo_passa_na_cerca_e_nao_fala_em_inadimplencia(estado: dict[s
 @pytest.mark.parametrize("fatos", [_FATOS_AMH, {}, {"numero_boleto": "SIM-ABC", "cnab_ref": "cnab-sim-1"}])
 def test_a_resposta_em_dia_passa_na_cerca_da_rota_informativa(fatos: dict[str, Any]) -> None:
     texto = texto_mensalidade_em_dia(_estado(status_conciliado=True, **fatos))
-    # Rota `mensagem`: nenhuma promessa de humano e nenhum valor monetario.
-    assert motivo_de_recusa(texto, "mensagem", {}) is None
+    # Rota `mensagem`: nenhuma promessa de humano e nenhum valor monetario. Desde DL-0086 a cerca
+    # tambem confere data e boleto com os fatos: o grafo entrega a ela o boleto e a data da fonte
+    # (`dados_de`, de `cnab_ref`) que a frase de fechamento cita — os mesmos fatos daqui.
+    fatos_da_cerca: dict[str, Any] = {"numero_boleto": fatos.get("numero_boleto")}
+    if str(fatos.get("cnab_ref", "")).startswith("amh-billing:"):
+        fatos_da_cerca["dados_de"] = fatos["cnab_ref"].split(":", 1)[1]
+    assert motivo_de_recusa(texto, "mensagem", fatos_da_cerca) is None
     assert "inadimpl" not in _sem_acento(texto)
 
 

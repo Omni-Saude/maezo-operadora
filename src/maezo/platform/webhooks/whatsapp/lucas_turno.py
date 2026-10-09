@@ -18,8 +18,8 @@ O QUE ENTRA. Tres coisas, nenhuma com texto:
 
 A TABELA DE §2.5 (`ENTRADA_POR_SUBTIPO`) traduz o subtipo para a entrada estrita do Lucas
 (`new_lucas_state`). `tipo_solicitacao` usa o vocabulario da DMN `lucas_billing_admissibility`
-(`boleto`/`2a_via`/`vencimento`/`status_pagamento`, ou `""`), o MESMO que o corpus da onda (a)
-(`tests/evals/lucas/casos.json`, campo `subtipo_handoff`) ja' fixa caso a caso. Passar o subtipo
+(`boleto`/`2a_via`/`vencimento`/`status_pagamento`/`consulta_valores`, ou `""`), o MESMO que o corpus
+da onda (a) (`tests/evals/lucas/casos.json`, campo `subtipo_handoff`) ja' fixa caso a caso. Passar o subtipo
 cru (`boleto_2via`) mandaria toda 2a via para o catch-all da DMN, que escala: o teste
 `test_lucas_turno.py::test_tabela_do_subtipo_e_a_do_corpus_da_onda_a` prende as duas pontas.
 
@@ -101,6 +101,10 @@ _CONVERSATION_ID: Final[re.Pattern[str]] = re.compile(r"^wa:[^:]+:hk1_[0-9a-f]+$
 #: mas o `tipo_solicitacao` e' `status_pagamento` — "minha mensalidade esta em aberto?" e', para a
 #: DMN, uma pergunta de status de pagamento. Com `""` a DMN so' teria o catch-all (humano) mesmo com
 #: o fato "conciliado"; com `status_pagamento` conciliado responde "em dia" e atraso escala.
+#:
+#: `consulta_valores` (DL-0086, 08/10/2026): pergunta de VALOR (mensalidade, coparticipacao, saldo,
+#: historico, data de pagamento) e' J1 (`cobranca_info`) com `tipo_solicitacao=consulta_valores`: a DMN
+#: responde pelos fatos do `billing-status` quando eles vieram e escala quando nao vieram ou ha' atraso.
 ENTRADA_POR_SUBTIPO: Final[Mapping[str, Mapping[str, Any]]] = {
     "boleto_2via": {"intencao": "cobranca_info", "tipo_solicitacao": "2a_via"},
     "vencimento": {"intencao": "cobranca_info", "tipo_solicitacao": "vencimento"},
@@ -108,6 +112,7 @@ ENTRADA_POR_SUBTIPO: Final[Mapping[str, Mapping[str, Any]]] = {
     "confirmacao_pagamento": {"intencao": "confirmacao_pagamento", "tipo_solicitacao": "status_pagamento"},
     "contestacao": {"intencao": "cobranca_info", "tipo_solicitacao": "", "contesta_cobranca": True},
     "cobranca_recebida": {"intencao": "inadimplencia", "tipo_solicitacao": "status_pagamento"},
+    "consulta_valores": {"intencao": "cobranca_info", "tipo_solicitacao": "consulta_valores"},
     "cancelamento": {"intencao": "cancelamento", "tipo_solicitacao": "", "pedido_cancelamento": True},
 }
 if frozenset(ENTRADA_POR_SUBTIPO) != frozenset(COBRANCA_SUBTIPOS):

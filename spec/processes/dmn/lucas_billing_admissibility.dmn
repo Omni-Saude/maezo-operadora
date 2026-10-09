@@ -37,6 +37,15 @@
     o beneficiario lia "inadimplencia detectada" sem haver indicio de atraso. Para RESPONDER/LEMBRETE vale
     "-". Alteracao de conteudo DRAFT: carece do mesmo sign-off financeiro/PO da tabela.
 
+    REGRA `consulta_valores` + ENTRADA `valores_disponiveis` (08/10/2026, DL-0086, decisao do dono Marcio
+    Filipe Filo do Carmo): pergunta de VALOR (mensalidade, coparticipacao, saldo, historico, data de
+    pagamento) e' RESPONDIDA pelo Lucas com os fatos do contrato `billing-status` — mas SO' quando esses
+    fatos chegaram no turno (`valores_disponiveis=true`, apurado pelo grafo a partir dos fatos presentes,
+    nunca pelo modelo). Sem os fatos (fonte indisponivel, simulada, campo ausente) a linha nao casa e o
+    catch-all escala: nunca se responde valor sem dado. A linha fica DEPOIS da regra de atraso, entao
+    quem tem ciclo sem conciliacao continua indo ao humano (COBRANCA_HUMANO), mesmo perguntando valor.
+    As demais linhas ignoram a entrada nova (`-`): o comportamento delas nao muda.
+
     NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — uma row catch-all (`-`) sob
     UNIQUE colidiria com qualquer row especifica no engine (violacao em runtime); FIRST preserva o
     catch-all ESCALAR_HUMANO mantendo a tabela ENGINE-DEPLOYAVEL. Espelha cancel_admissibility /
@@ -53,6 +62,9 @@
       <input id="lba_in_ciclos" label="Ciclos sem conciliacao (ciclos_sem_conciliacao)">
         <inputExpression id="lba_ie_ciclos" typeRef="integer"><text>ciclos_sem_conciliacao</text></inputExpression>
       </input>
+      <input id="lba_in_valores_disponiveis" label="Fatos de valor presentes no turno (valores_disponiveis)">
+        <inputExpression id="lba_ie_valores_disponiveis" typeRef="boolean"><text>valores_disponiveis</text></inputExpression>
+      </input>
       <output id="lba_out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
       <output id="lba_out_motivo" label="motivo" name="motivo" typeRef="string"/>
       <output id="lba_out_categoria" label="categoria" name="categoria" typeRef="string"/>
@@ -61,6 +73,7 @@
         <inputEntry id="lba_r_atraso_escala_i1"><text>-</text></inputEntry>
         <inputEntry id="lba_r_atraso_escala_i2"><text>false</text></inputEntry>
         <inputEntry id="lba_r_atraso_escala_i3"><text>&gt;= 1</text></inputEntry>
+        <inputEntry id="lba_r_atraso_escala_i4"><text>-</text></inputEntry>
         <outputEntry id="lba_r_atraso_escala_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
         <outputEntry id="lba_r_atraso_escala_o2"><text>"Indicio de inadimplencia (nao conciliado por >=1 ciclo) — humano confirma antes de qualquer acao de cobranca; NUNCA suspende/cobra por suposicao (limiar DRAFT/verify — sign-off financeiro/PO)"</text></outputEntry>
         <outputEntry id="lba_r_atraso_escala_o3"><text>"inadimplencia"</text></outputEntry>
@@ -70,6 +83,7 @@
         <inputEntry id="lba_r_vencimento_i1"><text>"vencimento"</text></inputEntry>
         <inputEntry id="lba_r_vencimento_i2"><text>-</text></inputEntry>
         <inputEntry id="lba_r_vencimento_i3"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_vencimento_i4"><text>-</text></inputEntry>
         <outputEntry id="lba_r_vencimento_o1"><text>"LEMBRETE"</text></outputEntry>
         <outputEntry id="lba_r_vencimento_o2"><text>"Lembrete de vencimento (informativo; NUNCA ameaca suspensao/cancelamento) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_vencimento_o3"><text>"-"</text></outputEntry>
@@ -79,6 +93,7 @@
         <inputEntry id="lba_r_boleto_2via_i1"><text>"boleto","2a_via"</text></inputEntry>
         <inputEntry id="lba_r_boleto_2via_i2"><text>-</text></inputEntry>
         <inputEntry id="lba_r_boleto_2via_i3"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_boleto_2via_i4"><text>-</text></inputEntry>
         <outputEntry id="lba_r_boleto_2via_o1"><text>"RESPONDER"</text></outputEntry>
         <outputEntry id="lba_r_boleto_2via_o2"><text>"Duvida informacional de boleto/2a via — resposta informativa (caminho neutro; nunca adverso) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_boleto_2via_o3"><text>"-"</text></outputEntry>
@@ -88,15 +103,27 @@
         <inputEntry id="lba_r_status_conciliado_i1"><text>"status_pagamento"</text></inputEntry>
         <inputEntry id="lba_r_status_conciliado_i2"><text>true</text></inputEntry>
         <inputEntry id="lba_r_status_conciliado_i3"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_status_conciliado_i4"><text>-</text></inputEntry>
         <outputEntry id="lba_r_status_conciliado_o1"><text>"RESPONDER"</text></outputEntry>
         <outputEntry id="lba_r_status_conciliado_o2"><text>"Pagamento conciliado (pre-resolvido por worker CNAB) — reporta o status ao beneficiario; Lucas LE, nunca calcula/inventa (ADR-0012) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_status_conciliado_o3"><text>"-"</text></outputEntry>
       </rule>
+      <rule id="lba_r_consulta_valores">
+        <description>Pergunta de valor (mensalidade, coparticipacao, saldo, historico, data de pagamento) COM os fatos de valor no turno e sem indicio de atraso (a regra de atraso vem antes) -> resposta pelos fatos (DL-0086). Sem os fatos: nao casa, o catch-all escala.</description>
+        <inputEntry id="lba_r_consulta_valores_i1"><text>"consulta_valores"</text></inputEntry>
+        <inputEntry id="lba_r_consulta_valores_i2"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_consulta_valores_i3"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_consulta_valores_i4"><text>true</text></inputEntry>
+        <outputEntry id="lba_r_consulta_valores_o1"><text>"RESPONDER"</text></outputEntry>
+        <outputEntry id="lba_r_consulta_valores_o2"><text>"Consulta de valores com fatos do contrato billing-status presentes — resposta restrita aos fatos (DL-0086); sem fato o catch-all escala — DRAFT/verify"</text></outputEntry>
+        <outputEntry id="lba_r_consulta_valores_o3"><text>"-"</text></outputEntry>
+      </rule>
       <rule id="lba_r_catchall">
-        <description>Catch-all FAIL-SAFE: ambiguidade de cobranca / combinacao nao mapeada (ex.: status_pagamento nao conciliado sem ciclo, cancelamento) -> humano. NUNCA cobra/suspende/nega.</description>
+        <description>Catch-all FAIL-SAFE: ambiguidade de cobranca / combinacao nao mapeada (ex.: status_pagamento nao conciliado sem ciclo, cancelamento, consulta de valores sem os fatos) -> humano. NUNCA cobra/suspende/nega.</description>
         <inputEntry id="lba_r_catchall_i1"><text>-</text></inputEntry>
         <inputEntry id="lba_r_catchall_i2"><text>-</text></inputEntry>
         <inputEntry id="lba_r_catchall_i3"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_catchall_i4"><text>-</text></inputEntry>
         <outputEntry id="lba_r_catchall_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
         <outputEntry id="lba_r_catchall_o2"><text>"Ambiguidade de cobranca / combinacao nao mapeada — humano confirma antes de qualquer acao (fail-safe fechado; NUNCA cobra/suspende/nega por suposicao) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_catchall_o3"><text>"ambiguidade"</text></outputEntry>
