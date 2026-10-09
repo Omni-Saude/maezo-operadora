@@ -22,3 +22,8 @@ roteador_lucas_enabled = true
 // linha para "amh" (so' com o manifest v1.1 publicado e pinado; ver docs/runbooks/ligar-fonte-amh-dev.md).
 // Os valores nao secretos da fonte AMH estao em `amh-interop.auto.tfvars`.
 lucas_fonte_cobranca = "amh" // ligada em 07/10/2026 (pin v1.1 #679); voltar: "simulada"
+
+// Valores, vencimentos e boleto mascarado ao beneficiario VERIFICADO (DL-0086, #709). Exige
+// acesso_beneficiario=true e fonte amh (validacao no Terraform). Ligado em dev em 09/10/2026 pelo
+// diretor; registrado aqui para uma promocao da main nao desligar. Voltar: false.
+lucas_consulta_valores = true
