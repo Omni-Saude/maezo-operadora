@@ -423,4 +423,63 @@ CASOS: list[dict[str, Any]] = [
         dict(route="escalate_human", motivo="ambiguidade", processo=True),
         "DL-0082 (revisao do #709): atraso sem ciclo escala sem afirmar inadimplencia nem citar valor.",
     ),
+    # --- 09/10/2026 (teste real do dono): vencimento em texto fixo dos fatos por competencia --------
+    _c(
+        "L31",
+        VALORES,
+        "Quando vence a proxima? Fatos por competencia com uma em aberto",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="vencimento",
+            **{
+                **_FATOS_DE_VALOR,
+                "status_conciliado": False,
+                "valor_em_aberto": "8389.53",
+                "competencias_cobranca": [
+                    {
+                        **_COMPETENCIAS_SINTETICAS[0],
+                        "competencia": "2026-11",
+                        "situacao": "em_aberto",
+                        "vencimento": "2026-11-25",
+                        "valor_saldo": "8389.53",
+                        "liquidado_em": None,
+                        "boleto": "****4830",
+                    },
+                    *_COMPETENCIAS_SINTETICAS,
+                ],
+            },
+        ),
+        dict(route="respond_member", desfecho="lembrete_enviado", processo=False, valores_permitidos=True),
+        "Texto fixo, sem modelo: 'A mensalidade de 11/2026 vence em 25/11/2026, no valor de R$ 8.389,53.' "
+        "(depois de 25/11/2026 a data ja' passou e sai o 'nao encontrei', sem afirmar atraso).",
+    ),
+    _c(
+        "L32",
+        VALORES,
+        "Quando vence? Tudo pago: a mais recente e 'a proxima ainda nao consta'",
+        dict(intencao="cobranca_info", tipo_solicitacao="vencimento", **_FATOS_DE_VALOR),
+        dict(route="respond_member", desfecho="lembrete_enviado", processo=False),
+        "Texto fixo: 'A mensalidade de 09/2026 venceu em 10/09/2026 e ja' esta' paga (pagamento em "
+        "08/09/2026). A proxima ainda nao consta nos nossos dados.'",
+    ),
+    _c(
+        "L33",
+        VALORES,
+        "Quando vence? Vencida ontem nos fatos (zero ciclos)",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="vencimento",
+            **{
+                **_FATOS_DE_VALOR,
+                "status_conciliado": False,
+                "ciclos_sem_conciliacao": 0,
+                "dias_atraso_max": 1,
+                "competencias_cobranca": [
+                    {**_COMPETENCIAS_SINTETICAS[0], "situacao": "vencida", "liquidado_em": None}
+                ],
+            },
+        ),
+        dict(route="escalate_human", motivo="ambiguidade", processo=True),
+        "DMN lba_r_vencimento_atraso: atraso sem ciclo escala; a data vencida nunca chega ao beneficiario.",
+    ),
 ]

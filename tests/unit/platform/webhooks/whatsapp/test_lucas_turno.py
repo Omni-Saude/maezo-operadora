@@ -504,8 +504,8 @@ async def test_cobranca_recebida_com_fato_conciliado_responde_em_dia_sem_process
     assert final["motivo_humano"] == ""
     assert final["desfecho"] == "resposta_informativa_enviada"
     assert [texto for _, texto, _ in cliente.enviados] == [
-        "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia. "
-        "Boleto de referência: ****7869. Essa informação é conforme os dados de 28/07/2026."
+        "Consultei aqui: o pagamento da sua mensalidade (boleto final 7869) consta como conciliado, então "
+        "ela está em dia. Essa informação é conforme os dados de 28/07/2026."
     ]
     assert cliente.enviados[0][1] == texto_mensalidade_em_dia(cast(LucasState, final))
     assert "inadimpl" not in _sem_acento(cliente.enviados[0][1])
@@ -535,8 +535,8 @@ async def test_cobranca_recebida_com_ciclos_em_aberto_segue_a_escalacao_de_sempr
     assert final["roteamento_escalacao"] == "COBRANCA_HUMANO"
     assert final["process_started"] is True
     assert [texto for _, texto, _ in cliente.enviados] == [
-        "Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado. "
-        "Boleto de referência: ****7869. Essa informação é conforme os dados de 28/07/2026. " + ACK_ESCALACAO
+        "Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado (boleto final "
+        "7869). Essa informação é conforme os dados de 28/07/2026. " + ACK_ESCALACAO
     ]
     assert "inadimpl" not in _sem_acento(cliente.enviados[0][1])
 
@@ -590,10 +590,11 @@ def _fatos_com_valores(*, conciliado: bool = True, ciclos: int = 0) -> FatosCobr
 
 async def test_consulta_valores_com_fatos_responde_pelos_fatos_sem_processo(seam_lucas: SeamContext) -> None:
     # Revisao de seguranca do #709: TEXTO FIXO montado dos fatos; o rascunho do modelo nao e' usado.
+    # 09/10/2026: boleto como "final NNNN", sem total zerado e sem o "Boleto de referencia" repetido.
     texto_fixo = (
         "Consultei aqui os valores do seu plano. Competência 09/2026: mensalidade de R$ 8.389,53, "
         "coparticipação de R$ 120,00, saldo de R$ 0,00, vencimento em 10/09/2026, paga em 08/09/2026, "
-        "boleto ****4821. Valor em aberto na consulta: R$ 0,00."
+        "boleto final 4821."
     )
     turno, registry, _ = _turno(
         seam_lucas, fonte=_FonteFixa(_fatos_com_valores()), rascunho="Sua mensalidade e' de R$ 1,00."
@@ -606,7 +607,7 @@ async def test_consulta_valores_com_fatos_responde_pelos_fatos_sem_processo(seam
     assert final["process_started"] is False
     assert final["mensagem"]["recusa_de_saida"] is False
     assert [texto for _, texto, _ in cliente.enviados] == [
-        f"{texto_fixo} Boleto de referência: ****4821. Essa informação é conforme os dados de 30/09/2026."
+        f"{texto_fixo} Essa informação é conforme os dados de 30/09/2026."
     ]
 
 

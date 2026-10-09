@@ -137,8 +137,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Mapping
-from datetime import date
+from collections.abc import Callable, Mapping
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Final, Literal, Protocol, TypedDict, cast
 
 import structlog
@@ -182,6 +183,7 @@ from .prompts import (
     RECUSA_DE_SAIDA_VERSION,
     SYSTEM_PROMPT_VERSION,
     VALORES_PROMPT_VERSION,
+    VENCIMENTO_PROMPT_VERSION,
     dossier_prompt,
     message_prompt,
     motivo_de_recusa,
@@ -828,7 +830,16 @@ _CNAB_REF_DATADA: Final[re.Pattern[str]] = re.compile(r"^amh-billing:(\d{4})-(\d
 
 #: Rotulo MASCARADO do boleto que a fonte AMH entrega (`****1234`). So' ele vai ao texto: o rotulo
 #: sintetico da simulada (`SIM-...`) e qualquer coisa fora desta forma sao omitidos.
-_BOLETO_MASCARADO: Final[re.Pattern[str]] = re.compile(r"^\*{2,}\d{2,6}$")
+#:
+#: APRESENTACAO (decisao do dono de 09/10/2026, teste real): o WhatsApp le' asterisco como negrito e
+#: comia parte do rotulo (`****0037` chegava `**0037`). Os fatos continuam guardando o rotulo mascarado;
+#: o texto ao beneficiario diz "boleto final 0037" — so' os digitos do rotulo, nunca asterisco.
+_BOLETO_MASCARADO: Final[re.Pattern[str]] = re.compile(r"^\*{2,}(\d{2,6})$")
+#: Rotulo mascarado escrito pelo MODELO (rota de rascunho), com ou sem o "final" na frente: vira a forma
+#: de apresentacao antes da cerca, que confere os digitos com os fatos.
+_BOLETO_MASCARADO_NO_RASCUNHO: Final[re.Pattern[str]] = re.compile(
+    r"(?:\bfinal\s+)?\*{2,}\s?(\d{2,6})(?!\d)", re.IGNORECASE
+)
 
 
 def _data_dos_fatos(state: LucasState) -> str | None:
@@ -849,17 +860,23 @@ def _rotulo_boleto(state: LucasState) -> str | None:
     return rotulo if _BOLETO_MASCARADO.match(rotulo) else None
 
 
-def _complemento_dos_fatos(state: LucasState) -> str:
-    """O boleto mascarado e a data da fonte, quando existem — para a pessoa saber de qual boleto e
-    de QUANDO e' a informacao (a fonte pode estar alguns dias atras do pagamento)."""
-    partes: list[str] = []
-    rotulo = _rotulo_boleto(state)
-    if rotulo:
-        partes.append(f"Boleto de referência: {rotulo}.")
+def boleto_no_texto(rotulo: object) -> str | None:
+    """`"****0037"` -> `"boleto final 0037"`; `None` para o que nao e' rotulo mascarado (o `SIM-...` da
+    simulada, vazio, lixo). E' a UNICA forma em que um boleto chega ao beneficiario."""
+    achado = _BOLETO_MASCARADO.match(rotulo) if isinstance(rotulo, str) else None
+    return f"boleto final {achado.group(1)}" if achado else None
+
+
+def _boleto_do_rascunho_sem_asterisco(texto: str) -> str:
+    """O rotulo mascarado que o MODELO escreveu (`**0037`, `****0037`) na forma de apresentacao."""
+    return _BOLETO_MASCARADO_NO_RASCUNHO.sub(lambda achado: f"final {achado.group(1)}", texto)
+
+
+def _frase_da_fonte(state: LucasState) -> str | None:
+    """A data da fonte, quando existe — para a pessoa saber de QUANDO e' a informacao (a fonte pode
+    estar alguns dias atras do pagamento). O boleto, quando cabe, vai na propria frase do fato."""
     data = _data_dos_fatos(state)
-    if data:
-        partes.append(f"Essa informação é conforme os dados de {data}.")
-    return " ".join(partes)
+    return f"Essa informação é conforme os dados de {data}." if data else None
 
 
 # --- FATOS DE VALOR (DL-0086, decisao do dono/DPO de 08/10/2026) ---------------------------------
@@ -890,8 +907,33 @@ _CAMPOS_DA_COMPETENCIA: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ("boleto", _MASCARA_DO_FATO),
 )
 #: Quantas competencias a resposta de valores mostra quando a pergunta nao nomeia uma que veio nos fatos:
-#: as mais recentes. Uma mensagem de WhatsApp, nao um extrato.
-COMPETENCIAS_NO_RASCUNHO: Final[int] = 3
+#: SO' a mais recente (decisao do dono de 09/10/2026 — no teste real "quanto paguei de coparticipacao este
+#: mes?" despejou tres meses). Uma mensagem de WhatsApp, nao um extrato: outro mes, a pessoa pede.
+COMPETENCIAS_NO_RASCUNHO: Final[int] = 1
+
+#: Nome do mes por numero, para a frase "Se quiser outro mes, e' so' dizer qual (por exemplo, agosto)".
+_NOME_DO_MES: Final[tuple[str, ...]] = (
+    "janeiro",
+    "fevereiro",
+    "março",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+)
+
+#: "Quando vence?" com fatos por competencia, mas sem uma competencia de que se possa afirmar o vencimento
+#: (sem data, so' titulo cancelado/sem boleto, ou em aberto com a data ja' passada — atraso quem trata e' a
+#: DMN, nunca o texto). Diz que nao achou; nao inventa data nem afirma atraso.
+VENCIMENTO_NAO_ENCONTRADO: Final[str] = (
+    "Não encontrei a data de vencimento nos dados disponíveis. Você pode consultá-la no portal do "
+    "beneficiário ou na central de atendimento da operadora."
+)
 
 
 def _na_forma(valor: object, forma: re.Pattern[str]) -> str | None:
@@ -996,31 +1038,114 @@ def _linha_da_competencia(c: Mapping[str, str]) -> str:
         partes.append("título cancelado")
     elif situacao == "sem_titulo":
         partes.append("sem boleto emitido")
-    if "boleto" in c:
-        partes.append(f"boleto {c['boleto']}")
+    boleto = boleto_no_texto(c.get("boleto"))
+    if boleto:
+        partes.append(boleto)
     return f"Competência {mes}/{ano}: {', '.join(partes)}."
+
+
+def _mes_ano(competencia: str) -> str:
+    ano, mes = competencia.split("-")
+    return f"{mes}/{ano}"
 
 
 def texto_valores(state: LucasState, facts: Mapping[str, Any]) -> str:
     """DL-0086: a resposta a `consulta_valores` em TEXTO FIXO montado dos fatos (revisao do #709).
 
     Nenhum modelo redige valor: cada quantia, data e boleto citado e' o campo da competencia a que ele
-    pertence, entao "o valor certo no mes errado" nao e' possivel por construcao. Fecha com o
-    `_complemento_dos_fatos` (boleto de referencia e data da fonte)."""
+    pertence, entao "o valor certo no mes errado" nao e' possivel por construcao.
+
+    Decisao do dono de 09/10/2026 (teste real): COM mes citado, so' aquele mes. SEM mes citado (ou citado
+    e ausente), so' a competencia mais recente, o total em aberto quando ha' (> 0) e o convite para pedir
+    outro mes. O boleto aparece uma vez, na linha da competencia ("boleto final NNNN"); fecha com a data
+    da fonte."""
     competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
     pedida = facts.get("competencia_pedida")
+    achou_a_pedida = bool(pedida) and any(c["competencia"] == pedida for c in competencias)
     partes: list[str] = []
-    if pedida and not any(c["competencia"] == pedida for c in competencias):
-        partes.append("Não encontrei a competência pedida nos dados disponíveis; seguem as mais recentes.")
+    if pedida and not achou_a_pedida:
+        partes.append("Não encontrei a competência pedida nos dados disponíveis; segue a mais recente.")
     else:
         partes.append("Consultei aqui os valores do seu plano.")
     partes.extend(_linha_da_competencia(c) for c in competencias)
-    valor_em_aberto = facts.get("valor_em_aberto")
-    if isinstance(valor_em_aberto, str):
-        partes.append(f"Valor em aberto na consulta: {_reais(valor_em_aberto)}.")
-    complemento = _complemento_dos_fatos(state)
-    if complemento:
-        partes.append(complemento)
+    if not achou_a_pedida:
+        valor_em_aberto = facts.get("valor_em_aberto")
+        # Zero em aberto nao e' noticia quando a competencia ja' esta' na tela; sem competencia nenhuma,
+        # o total e' a unica coisa que os fatos dizem, entao ele vai mesmo zerado.
+        if isinstance(valor_em_aberto, str) and (Decimal(valor_em_aberto) > 0 or not competencias):
+            partes.append(f"Valor em aberto na consulta: {_reais(valor_em_aberto)}.")
+        exemplo = facts.get("mes_de_exemplo")
+        if isinstance(exemplo, str) and exemplo:
+            partes.append(f"Se quiser outro mês, é só dizer qual (por exemplo, {exemplo}).")
+    fonte = _frase_da_fonte(state)
+    if fonte:
+        partes.append(fonte)
+    return " ".join(partes)
+
+
+def _competencia_do_vencimento(competencias: list[dict[str, str]], pedida: object) -> dict[str, str] | None:
+    """De que competencia a resposta a "quando vence?" fala. A pedida, quando veio nos fatos; senao a
+    em aberto mais antiga (a proxima a vencer); senao, tudo pago, a paga mais recente. `None` quando nao
+    ha' nenhuma das tres (so' cancelada/sem titulo/vencida — vencida, a DMN ja' escalou)."""
+    if pedida:
+        da_pedida = next((c for c in competencias if c["competencia"] == pedida), None)
+        if da_pedida is not None:
+            return da_pedida
+    abertas = [c for c in competencias if c["situacao"] == "em_aberto"]
+    if abertas:
+        return min(abertas, key=lambda c: c["competencia"])
+    pagas = [c for c in competencias if c["situacao"] == "paga"]
+    if pagas:
+        return max(pagas, key=lambda c: c["competencia"])
+    return None
+
+
+def _frase_do_vencimento(c: Mapping[str, str], hoje: date, *, e_a_proxima: bool) -> str | None:
+    """A frase FIXA do vencimento de UMA competencia, ou `None` quando nao da' para afirma-la sem
+    inventar ou sem afirmar atraso (sem data; em aberto com a data ja' passada; situacao que nao e' nem
+    paga nem em aberto). Cada data e valor e' o campo do fato, copiado; `hoje` so' escolhe vence/venceu."""
+    vencimento_iso = c.get("vencimento")
+    vencimento = _data_br(vencimento_iso)
+    if vencimento_iso is None or vencimento is None:
+        return None
+    ja_passou = date.fromisoformat(vencimento_iso) < hoje
+    mes = _mes_ano(c["competencia"])
+    if c["situacao"] == "em_aberto":
+        if ja_passou:
+            # Em aberto com a data passada e' atraso pela data — e atraso e' da DMN (escala), nunca do texto.
+            return None
+        valor = f", no valor de {_reais(c['valor_total'])}" if "valor_total" in c else ""
+        return f"A mensalidade de {mes} vence em {vencimento}{valor}."
+    if c["situacao"] == "paga":
+        liquidado = _data_br(c.get("liquidado_em"))
+        pagamento = f" (pagamento em {liquidado})" if liquidado else ""
+        verbo = "venceu" if ja_passou else "vence"
+        frase = f"A mensalidade de {mes} {verbo} em {vencimento} e já está paga{pagamento}."
+        if e_a_proxima:
+            frase += " A próxima ainda não consta nos nossos dados."
+        return frase
+    return None
+
+
+def texto_vencimento(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
+    """A resposta a "quando vence?" em TEXTO FIXO montado dos fatos por competencia (09/10/2026).
+
+    No teste real do dono o lembrete redigido pelo modelo respondeu "seu pagamento foi conciliado" a
+    "quando vence a proxima mensalidade?". Com os fatos do billing-status nenhum modelo redige: em aberto
+    (nao vencida) -> "vence em ..., no valor de ..."; tudo pago -> a mais recente, "vence/venceu em ... e
+    ja' esta' paga (pagamento em ...)" e que a proxima ainda nao consta. Fecha com a data da fonte."""
+    competencias: list[dict[str, str]] = list(facts.get("competencias") or [])
+    pedida = facts.get("competencia_pedida")
+    escolhida = competencias[0] if competencias else None
+    e_a_pedida = escolhida is not None and bool(pedida) and escolhida["competencia"] == pedida
+    partes: list[str] = []
+    if pedida and not e_a_pedida:
+        partes.append("Não encontrei a competência pedida nos dados disponíveis.")
+    frase = _frase_do_vencimento(escolhida, hoje, e_a_proxima=not e_a_pedida) if escolhida else None
+    partes.append(frase or VENCIMENTO_NAO_ENCONTRADO)
+    fonte = _frase_da_fonte(state)
+    if fonte:
+        partes.append(fonte)
     return " ".join(partes)
 
 
@@ -1045,9 +1170,11 @@ def _mensalidade_em_dia(state: LucasState) -> bool:
 def texto_mensalidade_em_dia(state: LucasState) -> str:
     """Resposta FIXA quando os fatos dizem que o pagamento esta' conciliado. Nunca nomeia
     inadimplencia, nunca abre processo (esta' na rota `respond_member`)."""
-    base = "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia."
-    complemento = _complemento_dos_fatos(state)
-    return f"{base} {complemento}" if complemento else base
+    boleto = boleto_no_texto(state.get("numero_boleto"))
+    sujeito = f"o pagamento da sua mensalidade ({boleto})" if boleto else "o pagamento da sua mensalidade"
+    base = f"Consultei aqui: {sujeito} consta como conciliado, então ela está em dia."
+    fonte = _frase_da_fonte(state)
+    return f"{base} {fonte}" if fonte else base
 
 
 def texto_ack_escalacao(state: LucasState) -> str:
@@ -1061,10 +1188,14 @@ def texto_ack_escalacao(state: LucasState) -> str:
     """
     motivo = state.get("motivo_humano")
     if motivo == "inadimplencia_detectada":
-        partes = ["Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado."]
-        complemento = _complemento_dos_fatos(state)
-        if complemento:
-            partes.append(complemento)
+        boleto = boleto_no_texto(state.get("numero_boleto"))
+        detalhe = f" ({boleto})" if boleto else ""
+        partes = [
+            f"Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado{detalhe}."
+        ]
+        fonte = _frase_da_fonte(state)
+        if fonte:
+            partes.append(fonte)
         partes.append(ACK_ESCALACAO)
         return " ".join(partes)
     if state.get("status_conciliado") is None and motivo not in {
@@ -1073,6 +1204,16 @@ def texto_ack_escalacao(state: LucasState) -> str:
     }:
         return f"{_PREFIXO_FONTE_INDISPONIVEL} {ACK_ESCALACAO}"
     return ACK_ESCALACAO
+
+
+#: America/Sao_Paulo sem horario de verao desde 2019: UTC-3 fixo (mesma escolha de
+#: `platform/testchannel/resultados.py`), sem depender de `tzdata` na imagem.
+_FUSO_BRASILIA: Final[timezone] = timezone(timedelta(hours=-3))
+
+
+def _hoje_em_brasilia() -> date:
+    """A data de hoje no fuso do beneficiario. So' escolhe "vence" ou "venceu" no texto de vencimento."""
+    return datetime.now(_FUSO_BRASILIA).date()
 
 
 class RespostaRecusadaError(RuntimeError):
@@ -1102,8 +1243,11 @@ class LucasGraph:
         audit_sink: AuditStartSink,
         whatsapp: WhatsAppSender,
         agent_version: str = "lucas@v0",
+        hoje: Callable[[], date] | None = None,
     ) -> None:
         self._llm = inference
+        # Relogio injetavel (testes): so' o texto de vencimento o le' ("vence" x "venceu").
+        self._hoje = hoje or _hoje_em_brasilia
         self._dmn = dmn
         self._cibseven = cibseven
         # T-C2 fence: required durable ADR-0007 sink for the SP-OP-ESCALATION-001 start.
@@ -1647,6 +1791,10 @@ class LucasGraph:
             return self._mensagem(texto_mensalidade_em_dia(state), facts, MENSAGEM_EM_DIA_VERSION, state)
         if state.get("tipo_solicitacao") == TIPO_CONSULTA_VALORES:
             return await self._build_valores(state)
+        if state.get("admissibilidade") == "LEMBRETE" and valores_disponiveis(state):
+            # 09/10/2026 (teste real do dono): com os fatos por competencia, "quando vence?" tem resposta
+            # FIXA montada deles — o rascunho do modelo respondeu "pagamento conciliado" a essa pergunta.
+            return self._build_vencimento(state)
         if state.get("admissibilidade") == "LEMBRETE":
             # DL-0086: o lembrete recebe o vencimento REAL da competencia de referencia, quando a
             # fonte o trouxe. Sem ele a chave nem existe (o prompt fica o de antes).
@@ -1655,8 +1803,14 @@ class LucasGraph:
             vencimento = _vencimento_referencia(state)
             if vencimento is not None and not valores_com_atraso(state):
                 facts["vencimento"] = vencimento
+        # O modelo ve' o boleto na forma de apresentacao ("final 0037"): asterisco no rascunho vira negrito
+        # no WhatsApp. A cerca continua recebendo o rotulo mascarado dos fatos (`facts`).
+        fatos_do_prompt = dict(facts)
+        if isinstance(facts.get("numero_boleto"), str):
+            fatos_do_prompt["numero_boleto"] = _boleto_do_rascunho_sem_asterisco(facts["numero_boleto"])
         prompt = (
-            f"{message_prompt()}\n\n{render_fatos_para_prompt(facts, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
+            f"{message_prompt()}\n\n"
+            f"{render_fatos_para_prompt(fatos_do_prompt, booleanos=_FATOS_BOOLEANOS_MENSAGEM)}"
         )
         try:
             texto = await self._llm.generate(
@@ -1672,13 +1826,17 @@ class LucasGraph:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
             texto = "Recebemos sua solicitacao. Em breve enviaremos os detalhes por aqui."
+        # Defesa em profundidade da apresentacao: rotulo mascarado que o modelo ainda escreva vira
+        # "final NNNN" ANTES da cerca, que confere os digitos com os fatos.
+        texto = _boleto_do_rascunho_sem_asterisco(texto)
         return self._mensagem(texto, facts, MESSAGE_PROMPT_VERSION, state)
 
     def _fatos_de_valores(self, state: LucasState) -> dict[str, Any]:
         """Os fatos da resposta a `consulta_valores`: o que a fonte entregou, mais nada.
 
         A competencia pedida, quando veio nos fatos, e' a unica competencia mostrada; senao, as
-        `COMPETENCIAS_NO_RASCUNHO` mais recentes. Chave AUSENTE quando o fato nao veio."""
+        `COMPETENCIAS_NO_RASCUNHO` mais recentes (uma, desde 09/10/2026) e, havendo outra na janela, o nome
+        do mes dela para o convite "por exemplo, agosto". Chave AUSENTE quando o fato nao veio."""
         competencias = _competencias_dos_fatos(state)
         pedida = state.get("competencia")
         da_pedida = [c for c in competencias if c["competencia"] == pedida]
@@ -1693,9 +1851,33 @@ class LucasGraph:
             facts["valor_em_aberto"] = valor_em_aberto
         # `dias_atraso_max` e `situacao=vencida` decidem na DMN (`valores_com_atraso`), nunca no texto.
         facts["competencias"] = da_pedida or competencias[:COMPETENCIAS_NO_RASCUNHO]
+        if not da_pedida and len(competencias) > COMPETENCIAS_NO_RASCUNHO:
+            mes = int(competencias[COMPETENCIAS_NO_RASCUNHO]["competencia"].split("-")[1])
+            facts["mes_de_exemplo"] = _NOME_DO_MES[mes - 1]
         facts["admissibilidade"] = state.get("admissibilidade")
         facts["dmn_refs"] = state.get("dmn_refs", {})
         return facts
+
+    def _build_vencimento(self, state: LucasState) -> dict[str, Any]:
+        """A resposta a "quando vence?" em TEXTO FIXO dos fatos por competencia (`texto_vencimento`).
+
+        So' com os fatos de valor no turno (`valores_disponiveis`); sem eles, o lembrete de antes. Atraso
+        nos fatos nao chega aqui com a DMN atual (`lba_r_vencimento_atraso` escala); se chegar (tabela
+        antiga no motor), sai a constante honesta, sem data nem valor."""
+        competencias = _competencias_dos_fatos(state)
+        pedida = state.get("competencia") or None
+        escolhida = _competencia_do_vencimento(competencias, pedida)
+        facts: dict[str, Any] = {
+            "tipo_solicitacao": state.get("tipo_solicitacao"),
+            "competencia_pedida": pedida,
+            "competencias": [escolhida] if escolhida is not None else [],
+            "admissibilidade": state.get("admissibilidade"),
+            "dmn_refs": state.get("dmn_refs", {}),
+        }
+        if valores_com_atraso(state):
+            return self._mensagem(RESPOSTA_INFORMATIVA_RECUSADA, facts, VENCIMENTO_PROMPT_VERSION, state)
+        texto = texto_vencimento(state, facts, self._hoje())
+        return self._mensagem(texto, facts, VENCIMENTO_PROMPT_VERSION, state)
 
     async def _build_valores(self, state: LucasState) -> dict[str, Any]:
         """DL-0086: a resposta a pergunta de VALOR, em TEXTO FIXO montado dos fatos do turno.
@@ -1717,7 +1899,7 @@ class LucasGraph:
         # CERCA DE SAIDA (18/09/2026). Os `fatos` vao junto porque o grupo `valor_sem_fato` e' uma
         # comparacao com eles — e' o que separa "o valor em aberto e' R$ 450,00" inventado de um
         # valor que veio da fonte (DL-0086). A cerca tambem recebe a data da fonte (`dados_de`), que
-        # a frase de fechamento `_complemento_dos_fatos` cita, para conferir datas (`data_sem_fato`).
+        # a frase de fechamento `_frase_da_fonte` cita, para conferir datas (`data_sem_fato`).
         fatos_da_cerca: dict[str, Any] = dict(facts)
         if state is not None:
             dados_de = _data_iso_da_fonte(state)
@@ -1919,4 +2101,6 @@ PROMPT_VERSIONS: dict[str, str] = {
     "mensagem_em_dia": MENSAGEM_EM_DIA_VERSION,
     # DL-0086: a resposta FIXA a pergunta de VALOR (`consulta_valores`), montada dos fatos.
     "valores": VALORES_PROMPT_VERSION,
+    # 09/10/2026: a resposta FIXA a "quando vence?", montada dos fatos por competencia.
+    "vencimento": VENCIMENTO_PROMPT_VERSION,
 }

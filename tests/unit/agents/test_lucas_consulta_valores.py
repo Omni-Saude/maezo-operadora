@@ -13,6 +13,11 @@ O que este arquivo prova, contra o grafo REAL e a DMN DRAFT lida do XML (`DmnDra
   - atraso sem ciclo (DL-0082, revisao do #709): competencia `vencida`/`dias_atraso_max > 0` com
     `ciclos=0` escala como `ambiguidade` e nada de atraso chega ao beneficiario;
   - vencimento: o lembrete recebe a data de vencimento real nos fatos (sem atraso nos fatos).
+
+09/10/2026 (teste real do dono): boleto como "boleto final NNNN" (o WhatsApp come asterisco), sem mes
+citado SO' a competencia mais recente, e "quando vence?" com atraso nos fatos escala pela DMN
+(`lba_r_vencimento_atraso`). O texto fixo de vencimento tem arquivo proprio
+(`test_lucas_respostas_vencimento_e_boleto.py`).
 """
 
 from __future__ import annotations
@@ -81,7 +86,7 @@ _FATOS_DE_VALOR: dict[str, Any] = {
     "competencias_cobranca": _COMPETENCIAS,
 }
 
-_FECHO = "Boleto de referência: ****4821. Essa informação é conforme os dados de 30/09/2026."
+_FECHO = "Essa informação é conforme os dados de 30/09/2026."
 
 
 class _Inferencia:
@@ -208,12 +213,38 @@ async def test_dmn_consulta_valores_com_atraso_escala_sem_afirmar_inadimplencia(
     assert (linha["roteamento"], linha["categoria"]) == ("ESCALAR_HUMANO", esperado)
 
 
+@pytest.mark.parametrize("ciclos", [0, 1])
+async def test_dmn_vencimento_com_atraso_escala_sem_afirmar_inadimplencia(ciclos: int) -> None:
+    """09/10/2026: "quando vence?" ganhou texto fixo dos fatos; com atraso nos fatos (vencida ontem,
+    `ciclos=0`) a linha `lba_r_vencimento_atraso` escala como `ambiguidade`. Com ciclo, a regra de atraso."""
+    linha = await _dmn(
+        tipo_solicitacao="vencimento",
+        status_conciliado=False,
+        ciclos_sem_conciliacao=ciclos,
+        valores_disponiveis=True,
+        valores_com_atraso=True,
+    )
+    esperado = "ambiguidade" if ciclos == 0 else "inadimplencia"
+    assert (linha["roteamento"], linha["categoria"]) == ("ESCALAR_HUMANO", esperado)
+
+
+@pytest.mark.parametrize("valores", [True, False])
+async def test_dmn_vencimento_sem_atraso_continua_lembrete(valores: bool) -> None:
+    linha = await _dmn(
+        tipo_solicitacao="vencimento",
+        status_conciliado=False,
+        ciclos_sem_conciliacao=0,
+        valores_disponiveis=valores,
+        valores_com_atraso=False,
+    )
+    assert linha["roteamento"] == "LEMBRETE"
+
+
 @pytest.mark.parametrize("atraso", [True, False])
 @pytest.mark.parametrize("valores", [True, False])
 @pytest.mark.parametrize(
     ("tipo", "conciliado", "ciclos", "esperado"),
     [
-        ("vencimento", False, 0, "LEMBRETE"),
         ("2a_via", False, 0, "RESPONDER"),
         ("boleto", True, 0, "RESPONDER"),
         ("status_pagamento", True, 0, "RESPONDER"),
@@ -256,6 +287,8 @@ _FATOS_CERCA: dict[str, Any] = {
         "Foi paga em 8 de setembro de 2026.",
         "Venceu em 10/09.",
         "Boleto ****4821 e boleto ****4790.",
+        "Boleto final 4821 e boleto final 4790.",
+        "O pagamento (boleto final: 4821) consta como conciliado.",
         f"Os valores estão acima. {_FECHO}",
     ],
 )
@@ -276,6 +309,8 @@ def test_cerca_aceita_o_que_esta_nos_fatos(texto: str) -> None:
         ("Vence dia 15 de outubro.", RECUSA_DATA_SEM_FATO),
         ("Vence em 15/10.", RECUSA_DATA_SEM_FATO),
         ("Seu boleto e' o ****9999.", RECUSA_BOLETO_SEM_FATO),
+        ("Seu boleto final 9999 ja' esta' disponivel.", RECUSA_BOLETO_SEM_FATO),  # forma nova, outro numero
+        ("Boleto final 4821 e boleto com final 4822.", RECUSA_BOLETO_SEM_FATO),
         ("Posso emitir a segunda via de R$ 8.389,53 para voce.", RECUSA_PROMESSA_DE_CAPACIDADE),
     ],
 )
@@ -324,13 +359,13 @@ def test_fatos_fora_da_forma_sao_descartados_antes_do_modelo() -> None:
 # --- Resposta ponta a ponta -----------------------------------------------------------------------
 
 
+#: 09/10/2026: sem mes citado, SO' a competencia mais recente; total em aberto zerado nao aparece; o
+#: boleto vai uma vez, "boleto final NNNN"; convite para outro mes com o mes anterior da janela.
 _TEXTO_FIXO = (
     "Consultei aqui os valores do seu plano. "
     "Competência 09/2026: mensalidade de R$ 8.389,53, coparticipação de R$ 120,00, saldo de R$ 0,00, "
-    "vencimento em 10/09/2026, paga em 08/09/2026, boleto ****4821. "
-    "Competência 08/2026: mensalidade de R$ 8.269,53, coparticipação de R$ 0,00, saldo de R$ 0,00, "
-    "vencimento em 10/08/2026, paga em 09/08/2026, boleto ****4790. "
-    "Valor em aberto na consulta: R$ 0,00. "
+    "vencimento em 10/09/2026, paga em 08/09/2026, boleto final 4821. "
+    "Se quiser outro mês, é só dizer qual (por exemplo, agosto). "
     f"{_FECHO}"
 )
 
@@ -345,7 +380,8 @@ async def test_consulta_valores_responde_em_texto_fixo_montado_dos_fatos() -> No
     assert final["process_started"] is False
     assert final["desfecho"] == "resposta_informativa_enviada"
     assert envio.textos == [_TEXTO_FIXO]
-    assert final["mensagem"]["prompt_version"] == VALORES_PROMPT_VERSION == "valores-v2-texto-fixo"
+    assert final["mensagem"]["prompt_version"] == VALORES_PROMPT_VERSION == "valores-v3-texto-fixo"
+    assert "*" not in _TEXTO_FIXO and "Boleto de referência" not in _TEXTO_FIXO
     assert final["mensagem"]["recusa_de_saida"] is False
     assert inferencia.prompts == []
     fatos_da_cerca = final["mensagem"]["fatos"] | {"dados_de": "2026-09-30"}
@@ -365,7 +401,11 @@ async def test_campo_ausente_nao_aparece_e_nada_e_calculado() -> None:
 async def test_competencia_pedida_restringe_a_resposta_ao_mes_pedido() -> None:
     _, envio, _ = await _turno(_estado(competencia="2026-08", **_FATOS_DE_VALOR), "Ok.")
     [texto] = envio.textos
-    assert "Competência 08/2026" in texto and "R$ 8.269,53" in texto
+    assert texto == (
+        "Consultei aqui os valores do seu plano. Competência 08/2026: mensalidade de R$ 8.269,53, "
+        "coparticipação de R$ 0,00, saldo de R$ 0,00, vencimento em 10/08/2026, paga em 09/08/2026, "
+        f"boleto final 4790. {_FECHO}"
+    )
     assert "Competência 09/2026" not in texto and "8.389,53" not in texto
 
 
@@ -373,18 +413,50 @@ async def test_competencia_pedida_ausente_diz_que_nao_achou_e_mostra_as_recentes
     _, envio, _ = await _turno(_estado(competencia="2025-01", **_FATOS_DE_VALOR), "Ok.")
     [texto] = envio.textos
     assert texto.startswith("Não encontrei a competência pedida nos dados disponíveis")
-    assert "Competência 09/2026" in texto
+    assert "Competência 09/2026" in texto and "Competência 08/2026" not in texto
 
 
-async def test_sem_competencia_pedida_vao_no_maximo_as_mais_recentes() -> None:
+async def test_sem_competencia_pedida_vai_so_a_mais_recente() -> None:
+    """Teste real do dono (09/10/2026): "quanto paguei de coparticipacao este mes?" despejou tres meses."""
     muitas = [
         {"competencia": f"2026-0{m}", "situacao": "paga", "valor_total": f"{m}00.00"} for m in range(1, 8)
     ]
     _, envio, _ = await _turno(_estado(**{**_FATOS_DE_VALOR, "competencias_cobranca": muitas}), "Ok.")
     [texto] = envio.textos
-    assert COMPETENCIAS_NO_RASCUNHO == 3
-    assert all(f"R$ {m}00,00" in texto for m in (7, 6, 5))
-    assert all(f"R$ {m}00,00" not in texto for m in (1, 2, 3, 4))
+    assert COMPETENCIAS_NO_RASCUNHO == 1
+    assert texto == (
+        "Consultei aqui os valores do seu plano. Competência 07/2026: mensalidade de R$ 700,00, paga. "
+        f"Se quiser outro mês, é só dizer qual (por exemplo, junho). {_FECHO}"
+    )
+
+
+async def test_sem_competencia_pedida_com_valor_em_aberto_mostra_o_total() -> None:
+    aberta = {
+        "competencia": "2026-10",
+        "situacao": "em_aberto",
+        "vencimento": "2026-10-25",
+        "valor_total": "8389.53",
+        "boleto": "****0037",
+    }
+    fatos = {
+        **_FATOS_DE_VALOR,
+        "status_conciliado": False,
+        "valor_em_aberto": "8389.53",
+        "competencias_cobranca": [aberta, *_COMPETENCIAS],
+    }
+    _, envio, _ = await _turno(_estado(**fatos), "Ok.")
+    assert envio.textos == [
+        "Consultei aqui os valores do seu plano. Competência 10/2026: mensalidade de R$ 8.389,53, "
+        "vencimento em 25/10/2026, em aberto, boleto final 0037. Valor em aberto na consulta: R$ 8.389,53. "
+        f"Se quiser outro mês, é só dizer qual (por exemplo, setembro). {_FECHO}"
+    ]
+
+
+async def test_uma_competencia_so_na_janela_nao_convida_para_outro_mes() -> None:
+    fatos = {**_FATOS_DE_VALOR, "competencias_cobranca": _COMPETENCIAS[:1]}
+    _, envio, _ = await _turno(_estado(**fatos), "Ok.")
+    [texto] = envio.textos
+    assert "outro mês" not in texto and texto.endswith(_FECHO)
 
 
 async def test_sem_fatos_de_valor_escala_e_nenhum_modelo_redige_valor() -> None:
@@ -445,12 +517,16 @@ async def test_vencida_ontem_sem_ciclo_escala_e_nao_afirma_atraso(fatos: dict[st
         assert "vencid" not in baixo and "atras" not in baixo and "inadimpl" not in baixo
 
 
-async def test_lembrete_com_atraso_nos_fatos_nao_recebe_a_data_vencida() -> None:
+async def test_vencimento_com_atraso_nos_fatos_escala_e_nao_cita_data_nem_valor() -> None:
+    """09/10/2026: com os fatos por competencia "quando vence?" tem texto fixo; com atraso nos fatos a DMN
+    (`lba_r_vencimento_atraso`) escala como `ambiguidade` — a data vencida nunca chega ao beneficiario."""
     estado = _estado("vencimento", **_VENCIDA_ONTEM)
-    final, _, inferencia = await _turno(estado, "Lembrete: confira o seu boleto.")
-    assert final["admissibilidade"] == "LEMBRETE"
-    assert "vencimento" not in final["mensagem"]["fatos"]
-    assert all("2026-10-07" not in prompt for _, prompt in inferencia.prompts)
+    final, envio, inferencia = await _turno(estado, "Lembrete: sua mensalidade venceu em 07/10/2026.")
+    assert final["route"] == "escalate_human"
+    assert final["motivo_humano"] == "ambiguidade"
+    assert [kind for kind, _ in inferencia.prompts] == ["reasoning"]  # so' o dossie do humano
+    for texto in envio.textos:
+        assert "07/10/2026" not in texto and "R$" not in texto and "vencid" not in texto.lower()
 
 
 # --- Verificacao obrigatoria (revisao de seguranca do #709) ------------------------------------------
@@ -595,4 +671,5 @@ async def test_lembrete_sem_vencimento_nos_fatos_nao_ganha_a_chave_e_recusa_data
 def test_a_versao_do_prompt_de_valores_esta_exportada() -> None:
     from maezo.agents.lucas.graph import PROMPT_VERSIONS as VERSOES_DO_GRAFO
 
-    assert PROMPT_VERSIONS["valores"] == VERSOES_DO_GRAFO["valores"] == "valores-v2-texto-fixo"
+    assert PROMPT_VERSIONS["valores"] == VERSOES_DO_GRAFO["valores"] == "valores-v3-texto-fixo"
+    assert PROMPT_VERSIONS["vencimento"] == VERSOES_DO_GRAFO["vencimento"] == "vencimento-v1-texto-fixo"

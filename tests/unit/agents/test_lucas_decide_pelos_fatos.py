@@ -118,9 +118,11 @@ async def test_fato_conciliado_responde_em_dia_sem_processo_sem_modelo_e_sem_ina
     assert final["motivo_humano"] == ""
     assert final["dossier"] == {}
     assert envio.textos == [
-        "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia. "
-        "Boleto de referência: ****7869. Essa informação é conforme os dados de 28/07/2026."
+        "Consultei aqui: o pagamento da sua mensalidade (boleto final 7869) consta como conciliado, então "
+        "ela está em dia. Essa informação é conforme os dados de 28/07/2026."
     ]
+    # 09/10/2026: o WhatsApp come asterisco (negrito) — o boleto vai uma vez so', sem asterisco.
+    assert "*" not in envio.textos[0] and envio.textos[0].count("boleto") == 1
     assert "inadimpl" not in _sem_acento(envio.textos[0])
     assert inferencia.task_kinds == [], "com o fato dizendo tudo, nenhum modelo redige a resposta"
     assert final["mensagem"]["recusa_de_saida"] is False
@@ -137,9 +139,10 @@ async def test_ciclos_em_aberto_seguem_a_escalacao_de_sempre_com_ack_fixo_sem_ac
     assert final["process_started"] is True
     assert list(final["dmn_refs"]) == ["lucas_billing_admissibility", "lucas_escalation_routing"]
     assert envio.textos == [
-        "Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado. "
-        "Boleto de referência: ****7869. Essa informação é conforme os dados de 28/07/2026. " + ACK_ESCALACAO
+        "Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado (boleto final "
+        "7869). Essa informação é conforme os dados de 28/07/2026. " + ACK_ESCALACAO
     ]
+    assert "*" not in envio.textos[0]
     assert "inadimpl" not in _sem_acento(envio.textos[0])
     # So' a narrativa do dossie (lida pelo humano) chama o modelo; o ACK nao.
     assert inferencia.task_kinds == ["reasoning"]
@@ -222,8 +225,16 @@ def test_a_resposta_em_dia_passa_na_cerca_da_rota_informativa(fatos: dict[str, A
             {"numero_boleto": "1234567890", "cnab_ref": "amh-billing:2026-13-40"},
             "",
         ),  # nao mascarado / data invalida
-        ({"numero_boleto": "****1234", "cnab_ref": ""}, "Boleto de referência: ****1234."),
-        ({"cnab_ref": "amh-billing:2026-07-28"}, "Essa informação é conforme os dados de 28/07/2026."),
+        (
+            {"numero_boleto": "****1234", "cnab_ref": ""},
+            "Consultei aqui: o pagamento da sua mensalidade (boleto final 1234) consta como conciliado, "
+            "então ela está em dia.",
+        ),
+        (
+            {"cnab_ref": "amh-billing:2026-07-28"},
+            "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia. "
+            "Essa informação é conforme os dados de 28/07/2026.",
+        ),
     ],
 )
 def test_so_boleto_mascarado_e_data_valida_da_fonte_entram_no_texto(
@@ -231,7 +242,7 @@ def test_so_boleto_mascarado_e_data_valida_da_fonte_entram_no_texto(
 ) -> None:
     base = "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia."
     texto = texto_mensalidade_em_dia(_estado(status_conciliado=True, **fatos))
-    assert texto == (f"{base} {esperado}" if esperado else base)
+    assert texto == (esperado or base)
 
 
 async def test_fato_contraditorio_conciliado_com_ciclos_nao_afirma_em_dia() -> None:

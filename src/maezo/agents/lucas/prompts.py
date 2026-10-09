@@ -26,12 +26,19 @@ from decimal import Decimal, InvalidOperation
 from maezo.gateway.required_text import ZERO_WIDTH_TRANSLATION
 
 SYSTEM_PROMPT_VERSION = "system-v1"
-MESSAGE_PROMPT_VERSION = "message-v1"
+#: v2 (09/10/2026, teste real do dono): o boleto vai ao texto como "boleto final NNNN" — o WhatsApp le'
+#: asteriscos como negrito e comia parte do rotulo mascarado (`****0037` chegava como `**0037`).
+MESSAGE_PROMPT_VERSION = "message-v2"
 DOSSIER_PROMPT_VERSION = "dossier-v1"
 #: DL-0086 (08/10/2026): a resposta a pergunta de VALOR. v2 (revisao de seguranca do #709): TEXTO FIXO
 #: montado dos fatos (`graph.py::texto_valores`) — nenhum modelo redige valor; a v1 era um rascunho do
 #: modelo e a cerca so' conferia se cada quantia PERTENCIA aos fatos, nao a que campo/competencia.
-VALORES_PROMPT_VERSION = "valores-v2-texto-fixo"
+#: v3 (09/10/2026, teste real do dono): sem mes citado mostra SO' a competencia mais recente (mais o total em
+#: aberto quando ha'), o boleto vira "boleto final NNNN" e sai o "Boleto de referencia" duplicado no fim.
+VALORES_PROMPT_VERSION = "valores-v3-texto-fixo"
+#: Resposta FIXA a "quando vence?" (`graph.py::texto_vencimento`, 09/10/2026): com os fatos por competencia
+#: do billing-status, nenhum modelo redige o vencimento. Sem os fatos, o lembrete de antes (`message`).
+VENCIMENTO_PROMPT_VERSION = "vencimento-v1-texto-fixo"
 
 SYSTEM_PROMPT = """Voce e Lucas, um navegador de atendimento e cobranca ao beneficiario de um
 plano de saude brasileiro. Seu papel e responder duvidas de boleto/2a via/vencimento, informar o
@@ -64,6 +71,8 @@ status de conciliacao, admissibilidade). Regras:
   fornecido — NAO invente numero de boleto/valor que nao esteja nos fatos.
 - Se for um lembrete de vencimento: apenas lembre a data/competencia informada — NUNCA ameace
   suspensao ou cancelamento.
+- Ao citar o boleto, escreva exatamente como ele vem nos fatos ("final NNNN") — NUNCA use
+  asteriscos, que o WhatsApp transforma em negrito.
 - Se for confirmacao de pagamento com status_conciliado=true: informe que o pagamento foi
   identificado/conciliado, usando exatamente o que os fatos dizem — NUNCA afirme um status que
   nao esteja no fato fornecido.
@@ -123,7 +132,9 @@ Responda APENAS com o texto do resumo, sem JSON, sem markdown."""
 #: `valor_sem_fato` passa a aceitar os QUATRO campos monetarios (tambem dentro das competencias) e
 #: compara VALOR (8389.53 == "R$ 8.389,53"), nao digitos; nascem `data_sem_fato` (data que nao esta'
 #: nos fatos) e `boleto_sem_fato` (rotulo mascarado que nao esta' nos fatos), fora do ACK de escalacao.
-RECUSA_DE_SAIDA_VERSION = "recusa-lucas-v4"
+#: v5 (09/10/2026): o boleto chega ao beneficiario como "boleto final NNNN" (o WhatsApp come asterisco).
+#: `boleto_sem_fato` confere tambem essa forma: os digitos tem de ser os de um rotulo mascarado dos fatos.
+RECUSA_DE_SAIDA_VERSION = "recusa-lucas-v5"
 
 #: Versao do ACK de escalacao. ELE NAO TINHA UMA ate 18/09/2026 — o unico texto do Lucas que
 #: chega ao beneficiario no caminho ADVERSO era tambem o unico sem numero, o que tornava
@@ -133,11 +144,14 @@ RECUSA_DE_SAIDA_VERSION = "recusa-lucas-v4"
 #: `escalation_ack_prompt` foi removido. O modelo redigia com `motivo_humano` no prompt e, no teste
 #: real de 08/10, escreveu "inadimplencia detectada" para quem estava em dia. A versao continua
 #: existindo porque o texto continua falando com o beneficiario.
-ESCALATION_ACK_PROMPT_VERSION = "escalation-ack-v2-texto-fixo"
+#:
+#: v3 (09/10/2026): o boleto do ACK de atraso vira "boleto final NNNN" (o WhatsApp come asterisco).
+ESCALATION_ACK_PROMPT_VERSION = "escalation-ack-v3-texto-fixo"
 
 #: Versao da resposta FIXA de "mensalidade em dia" (`graph.py::texto_mensalidade_em_dia`, DL-0082):
 #: com os fatos dizendo conciliado e zero ciclos, nenhum modelo redige a resposta.
-MENSAGEM_EM_DIA_VERSION = "mensagem-em-dia-v1"
+#: v2 (09/10/2026): uma unica mencao ao boleto, como "boleto final NNNN" (o WhatsApp come asterisco).
+MENSAGEM_EM_DIA_VERSION = "mensagem-em-dia-v2"
 
 #: DESFECHO ADVERSO REVELADO (grupo 1, e o mais grave). PROIBIDO EM TODA ROTA — nao existe rota do
 #: Lucas em que comunicar suspensao, cancelamento, rescisao ou negativa seja legitimo, porque em
@@ -343,6 +357,8 @@ _MESES: dict[str, int] = {
 }
 _DATA_EXTENSO: re.Pattern[str] = re.compile(r"\b(\d{1,2})o? de (" + "|".join(_MESES) + r")(?: de (\d{4}))?\b")
 _BOLETO_MASCARADO_NO_TEXTO: re.Pattern[str] = re.compile(r"\*{2,}\s?(\d{2,6})(?!\d)")
+#: v5: a forma que vai ao WhatsApp ("boleto final 0037"). Confere os digitos com os rotulos dos fatos.
+_BOLETO_FINAL_NO_TEXTO: re.Pattern[str] = re.compile(r"\bfinal:?\s+(\d{2,6})(?!\d)")
 _BOLETO_MASCARADO_FATO: re.Pattern[str] = re.compile(r"^\*{2,}(\d{2,6})$")
 
 
@@ -445,7 +461,8 @@ def _boleto_sem_fato(plano: str, fatos: Mapping[str, object] | None) -> bool:
         for valor in _fatos_das_chaves(fatos, _FATOS_DE_BOLETO)
         if isinstance(valor, str) and (achado := _BOLETO_MASCARADO_FATO.match(valor.strip()))
     }
-    return any(digitos not in permitidos for digitos in _BOLETO_MASCARADO_NO_TEXTO.findall(plano))
+    citados = _BOLETO_MASCARADO_NO_TEXTO.findall(plano) + _BOLETO_FINAL_NO_TEXTO.findall(plano)
+    return any(digitos not in permitidos for digitos in citados)
 
 
 #: Rotulos dos sete grupos. FECHADOS, porque viram rotulo de metrica: o padrao exato vai para o
@@ -582,4 +599,5 @@ PROMPT_VERSIONS: dict[str, str] = {
     "escalation_ack": ESCALATION_ACK_PROMPT_VERSION,
     "recusa_de_saida": RECUSA_DE_SAIDA_VERSION,
     "valores": VALORES_PROMPT_VERSION,
+    "vencimento": VENCIMENTO_PROMPT_VERSION,
 }
