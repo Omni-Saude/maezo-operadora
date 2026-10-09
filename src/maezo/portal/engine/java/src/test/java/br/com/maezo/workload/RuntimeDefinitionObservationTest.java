@@ -302,7 +302,11 @@ class RuntimeDefinitionObservationTest {
       Files.setPosixFilePermissions(jar,PosixFilePermissions.fromString("rw-r--r--"));Files.createLink(root.resolve("hardlink.jar"),jar);
       assertThrows(Refused.class,()->BoundaryPolicy.readFile(ref,root,System.currentTimeMillis()+30000));
       Path other=root.resolve("lib/vendor-other.jar");Files.copy(jar,other);var otherRef=Map.<String,Object>of("path",other.toString(),"sha256",Jcs.digest(Files.readAllBytes(other)));
-      assertThrows(Refused.class,()->BoundaryPolicy.readFile(otherRef,root,System.currentTimeMillis()+30000));
+      // Contract evolution (instrument verifyInventory/type-jar pins): ANY pinned
+      // binary inside the installed root reads under the binary budget with full
+      // custody; alien roots, hardlinks, loose modes and expiry still refuse above.
+      if(Files.isDirectory(Path.of("/proc/self/fd")))assertArrayEquals(Files.readAllBytes(other),BoundaryPolicy.readFile(otherRef,root,System.currentTimeMillis()+30000));
+      else assertThrows(Refused.class,()->BoundaryPolicy.readFile(otherRef,root,System.currentTimeMillis()+30000));
     }finally{if(previous==null)System.clearProperty("catalina.base");else System.setProperty("catalina.base",previous);}
   }
   @Test void binaryGuardRejectsSymlinkAndDigestMismatchOnLinux()throws Exception {
