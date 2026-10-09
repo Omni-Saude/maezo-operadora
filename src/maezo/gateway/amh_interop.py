@@ -219,6 +219,10 @@ _DATA_AAAAMMDD: Final[re.Pattern[str]] = re.compile(r"[0-9]{8}\Z")
 #: Vocabulario fixo do registro de consentimento do atendimento por WhatsApp (DL-0083).
 CONSENT_SCOPE: Final[str] = "atendimento_whatsapp"
 CONSENT_CHANNEL: Final[str] = "whatsapp"
+#: Finalidade da leitura de cobranca no atendimento do WhatsApp (decisao do DPO de 08/10/2026, billing-status
+#: 0.2.0 do manifest v1.4): a MESMA finalidade do consentimento que o titular da' no acesso (`CONSENT_SCOPE`).
+#: So' a cobranca do Lucas com o acesso ligado a declara; o resto da composicao segue com a de sempre.
+PURPOSE_ATENDIMENTO_WHATSAPP: Final[str] = CONSENT_SCOPE
 
 TransportFactory = Callable[[], httpx.AsyncBaseTransport]
 
@@ -1190,6 +1194,9 @@ class AmhInteropComposition:
     verify_hasher: AmhSubjectVerifyHasher | None = None
     #: Resolucao pelo documento do telefone SEM candidato (DL-0084), junto com o acesso. Senao `None`.
     documents: AmhDocumentResolutionAdapter | None = None
+    #: A finalidade que a leitura de COBRANCA declara (`billing`). Igual a `purpose_of_use` na composicao de
+    #: sempre; `atendimento_whatsapp` com `billing_atendimento=True` (billing-status 0.2.0, manifest v1.4).
+    billing_purpose_of_use: str = ""
 
     async def aclose(self) -> None:
         for executor in self._executors:
@@ -1203,6 +1210,7 @@ __all__ = [
     "CONSENT_CHANNEL",
     "CONSENT_SCOPE",
     "HASH_SCHEME",
+    "PURPOSE_ATENDIMENTO_WHATSAPP",
     "HASH_SCHEME_VERIFICACAO",
     "SCOPE_BY_OPERATION",
     "SCOPE_CONSENT_WRITE",

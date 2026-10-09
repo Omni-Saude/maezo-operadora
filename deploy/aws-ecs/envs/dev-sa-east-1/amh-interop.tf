@@ -31,6 +31,9 @@ locals {
     { name = "MAEZO_AMH_SUBJECT_VERIFICATION_OPENAPI_PATH", value = var.amh_subject_verification_openapi_path },
     { name = "MAEZO_AMH_CONSENT_RECORD_OPENAPI_PATH", value = var.amh_consent_record_openapi_path },
     { name = "MAEZO_AMH_DOCUMENT_RESOLUTION_OPENAPI_PATH", value = var.amh_document_resolution_openapi_path },
+    # Billing-status 0.2.0 (manifest v1.4, DPO 08/10/2026): a cobranca do Lucas no WhatsApp verificado declara
+    # `purpose_of_use=atendimento_whatsapp`. Sem acesso ligado a env nao entra e a cobranca segue no 0.1.0.
+    { name = "MAEZO_AMH_BILLING_STATUS_ATENDIMENTO_OPENAPI_PATH", value = var.amh_billing_status_atendimento_openapi_path },
   ] : []
   amh_acesso_secrets = var.acesso_beneficiario ? [
     { name = "MAEZO_AMH_SUBJECT_VERIFY_KEY", valueFrom = data.aws_secretsmanager_secret.amh_subject_verify_key[0].arn },

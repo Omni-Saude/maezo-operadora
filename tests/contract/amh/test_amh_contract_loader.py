@@ -269,7 +269,7 @@ def test_loaded_digests_match_the_pin_file_verbatim() -> None:
     lock = _lock()
     aditivos = [
         a
-        for key in ("manifest_v1_1", "manifest_v1_2", "manifest_v1_3")
+        for key in ("manifest_v1_1", "manifest_v1_2", "manifest_v1_3", "manifest_v1_4")
         for a in lock.get(key, {}).get("artifacts", [])
     ]
     assert dict(pin.artifact_digests) == {a["path"]: a["sha256"] for a in [*lock["artifacts"], *aditivos]}

@@ -107,12 +107,13 @@ def test_real_pin_exposes_the_three_glue_schema_version_ids_and_registry() -> No
 
 def test_real_pin_exposes_artifact_fixture_and_manifest_digests() -> None:
     pin = load_contract_pin(REAL_PIN)
-    # 5 do v1 + 2 OpenAPI do manifest_v1_1 + 3 OpenAPI do manifest_v1_3
-    assert len(pin.artifact_digests) == 10
+    # 5 do v1 + 2 OpenAPI do manifest_v1_1 + 3 OpenAPI do manifest_v1_3 + 1 do manifest_v1_4
+    assert len(pin.artifact_digests) == 11
     assert len(pin.fixture_digests) == 10
     assert pin.manifest_digest == "946266fb9ab10d27c01768e78fb3b673cba3db71680f652b10ccd0798065b126"
     assert pin.manifest_v1_1_digest == "c4abd5d57b6a00b88ccec0cbdeeed5337a5595ee33d56d4444f352b9cfbcbe93"
     assert pin.manifest_v1_3_digest == "569d89f052ad33c38836b72aad9db3e207ca4a40d289bf1af671dda52ba9a026"
+    assert pin.manifest_v1_4_digest == "0e8cb441b8cc8e2fe82a124cc20cd139a192c634254904287f9031144ebf7701"
     assert pin.manifest_path == "schemas/contracts/maezo/v1/contract-manifest.yaml"
     assert all(len(d) == 64 for d in pin.artifact_digests.values())
 

@@ -32,6 +32,11 @@ from maezo.ports.billing_status import BillingStatusView, BillingSummary, Compet
 from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS, PortFailure, PortFailureReason, PortResult
 
 ARTIFACT = "schemas/openapi/maezo/v1/billing-status.openapi.yaml"
+#: Revisao 0.2.0 do MESMO contrato (manifest v1.4, decisao do DPO de 08/10/2026): mesma rota e mesmo corpo,
+#: `purpose_of_use` aceita tambem `atendimento_whatsapp`. Sucede o 0.1.0 sem substitui-lo: os dois seguem
+#: pinados e o construtor escolhe qual, pelo caminho do artefato (cada um com o digest do proprio bloco).
+ARTIFACT_ATENDIMENTO = "schemas/openapi/maezo/v1/billing-status-atendimento.openapi.yaml"
+ARTIFACTS: frozenset[str] = frozenset({ARTIFACT, ARTIFACT_ATENDIMENTO})
 OPERATION = "amh.get_billing_status"
 _SERVER = "/interop/billing-status/v1"
 _PATH = "/subjects/{portable_subject_ref}/billing/status"
@@ -86,14 +91,17 @@ class AmhBillingStatusAdapter:
         *,
         executor: GovernedBillingStatusExecutor,
         pin_path: Path | None = None,
+        artifact: str = ARTIFACT,
     ) -> None:
         try:
-            if not isinstance(executor, GovernedBillingStatusExecutor):
+            if not isinstance(executor, GovernedBillingStatusExecutor) or artifact not in ARTIFACTS:
                 raise ValueError
             pin = load_contract_pin(pin_path)
+            # Sem o bloco que pina `artifact` (v1.1 para o 0.1.0, v1.4 para o 0.2.0) a chave nao existe e o
+            # construtor recusa: fail-closed por construcao, como sempre.
             if (
                 len(openapi_bytes) > _MAX_BYTES
-                or hashlib.sha256(openapi_bytes).hexdigest() != pin.artifact_digests[ARTIFACT]
+                or hashlib.sha256(openapi_bytes).hexdigest() != pin.artifact_digests[artifact]
             ):
                 raise ValueError
             document = yaml.safe_load(openapi_bytes)
@@ -117,6 +125,7 @@ class AmhBillingStatusAdapter:
                     item = document["components"]["parameters"][pointer.rsplit("/", 1)[1]]
                 self._parameters.append(item)
             self._executor = executor
+            self.artifact = artifact
         except Exception:
             raise BillingStatusContractError() from None
 

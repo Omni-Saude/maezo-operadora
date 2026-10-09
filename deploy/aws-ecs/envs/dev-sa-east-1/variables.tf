@@ -874,6 +874,13 @@ variable "amh_consent_record_openapi_path" {
   nullable    = false
 }
 
+variable "amh_billing_status_atendimento_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-atendimento` (billing-status 0.2.0; digest no bloco manifest_v1_4 do pin). Lido so' com `acesso_beneficiario`: a cobranca do Lucas declara `purpose_of_use=atendimento_whatsapp`."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/billing-status-atendimento.openapi.yaml"
+  nullable    = false
+}
+
 variable "lucas_fonte_cobranca" {
   description = <<-EOT
     Fonte dos fatos de cobranca do Lucas: `simulada` (default) ou `amh` — a fonte real pelos
