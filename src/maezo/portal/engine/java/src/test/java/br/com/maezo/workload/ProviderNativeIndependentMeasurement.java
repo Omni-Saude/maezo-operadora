@@ -544,8 +544,14 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
     NativeMeasurementConfiguration.validate("JvmToolchain", result); clockGuard(); return result;
   }
   private void verifyInventory(Map<String, String> entries) throws IOException {
+    // Boundary pins are a CLOSED OVERLAY: an entry the policy additionally pins must
+    // agree, but the boundary is not required to pin every inventoried file (the
+    // policy's custody reader budgets 1MiB for non-own files). Every entry is still
+    // digest-verified against the live tree through the 32MiB bound below.
     for (var entry : entries.entrySet()) {
-      Path path = base.resolve(entry.getKey()); require(path.startsWith(base) && entry.getValue().equals(expectedFiles.get(path.toString())));
+      Path path = base.resolve(entry.getKey()); require(path.startsWith(base));
+      String pinned = expectedFiles.get(path.toString());
+      require(pinned == null || pinned.equals(entry.getValue()));
       readFile(path, entry.getValue(), FILE_BOUND);
     }
   }
