@@ -35,3 +35,7 @@ helena_identidade_amh = true
 // classificador e na redacao; liga tambem o modo coleta (triage_sufficiency, ainda nao ratificada).
 // So' dev. Base LGPD PENDENTE do DPO; a varredura dos checkpoints antigos ainda nao existe. Voltar: false.
 helena_historico = true
+
+# Acesso do beneficiario (DL-0083/DL-0084) LIGADO no dev em 08/10/2026 23:10 UTC, decisao do dono; testado
+# ponta a ponta no mesmo dia (aceite, CPF, Helena -> Lucas, revogacao, consentimento gravado no lago).
+acesso_beneficiario = true
