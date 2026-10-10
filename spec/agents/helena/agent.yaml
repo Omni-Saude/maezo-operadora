@@ -64,7 +64,11 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # `cobranca` + `cobranca_subtipo`/`competencia` e tira
                                      # cobranca da lista de `outside_channel`. Desligado, o
                                      # classify e' o v5 byte a byte (sha256 fixado em teste).
-  response: response-v10              # 01/10/2026: o contexto deixa de levar o `motivo` da tabela de red flag
+  response: response-v11              # 10/10/2026 (DL-0087): bloco TOM DA CONVERSA (curto, cordial,
+                                     # segunda pessoa, so' o perguntado, no maximo um emoji leve e nunca
+                                     # em tema clinico/risco/emergencia/negativa/encaminhamento); nenhuma
+                                     # cerca saiu. Guia: docs/guia-de-tom-dos-agentes.md.
+                                     # v10 — 01/10/2026: o contexto deixa de levar o `motivo` da tabela de red flag
                                      # (era repetido ao beneficiario como "nao ha sinais de alerta" e como
                                      # diagnostico). v9 — 21/09/2026, QUARTA RODADA: UMA instrucao nova — REPITA
                                      # O NOME DO CANAL EM CADA MENCAO ("o portal do plano
@@ -153,7 +157,8 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # `consulta_plano` + `consulta_subtipo` (elegibilidade,
                                      # carteirinha, carencia, autorizacao). Desligada, o classify
                                      # e' o de antes byte a byte.
-  consulta_plano: consulta-plano-v1  # 07/10/2026: redacao da resposta com os FATOS do cadastro
+  consulta_plano: consulta-plano-v2  # 10/10/2026 (DL-0087): regra 7, tom humanizado (sem emoji).
+                                     # v1 — 07/10/2026: redacao da resposta com os FATOS do cadastro
                                      # (contrato TINA da AMH) num bloco delimitado; recusa da
                                      # cerca propria = resposta deterministica so' com os fatos.
 

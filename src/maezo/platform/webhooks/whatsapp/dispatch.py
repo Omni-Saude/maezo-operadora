@@ -152,8 +152,9 @@ ERRO_LUCAS_FALHOU: Final[str] = "lucas turno falhou"
 #: those are owner decisions 9.6/10.2, and none of them is wired. If a human follow-up is ever
 #: wired through Helena's audited escalation start, this string changes IN THE SAME commit as the
 #: wiring and its tests, never before.
+#: DL-0087 (10/10/2026): tom humanizado, mesma promessa (so' texto; nada de humano/transcricao).
 NON_TEXT_ACK_TEXT: Final[str] = (
-    "Este canal aceita apenas mensagens de texto. Por favor, envie sua mensagem em texto."
+    "Por aqui eu só consigo ler mensagens de texto. Pode me escrever o que precisa, por favor?"
 )
 
 #: A resposta de quem bateu no teto de volume (Frente 7.1). CONSTANTE e sem modelo no meio: o
@@ -164,10 +165,12 @@ NON_TEXT_ACK_TEXT: Final[str] = (
 #: limite NAO pode descartar em silencio. Uma pessoa que escreve e nao recebe nada conclui que
 #: ninguem leu. Entao ela diz que a mensagem nao foi atendida AGORA, que e' verdade, e aponta o
 #: caminho de emergencia, porque quem esta' em laco pode estar em panico.
+#: DL-0087 (10/10/2026): tom humanizado; a substancia (nao atendida agora, tente de novo, caminho de
+#: emergencia) fica, e a orientacao de emergencia passa a ser a mesma do acesso (192/SAMU).
 LIMITE_EXCEDIDO_TEXT: Final[str] = (
-    "Recebemos muitas mensagens suas em pouco tempo e nao conseguimos atender esta agora. "
-    "Aguarde um minuto e envie novamente. Se voce estiver passando por uma emergencia, procure "
-    "o servico de emergencia mais proximo ou ligue para a central de atendimento do seu plano."
+    "Recebi muitas mensagens suas em pouco tempo e não consegui responder esta agora. "
+    "Espere um minutinho e envie de novo, por favor. Se for uma emergência, ligue agora para o "
+    "192 (SAMU) ou vá ao pronto-socorro mais próximo."
 )
 
 

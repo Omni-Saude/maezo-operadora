@@ -385,7 +385,7 @@ async def test_camada_dois_a_aresta_barra_um_handoff_injustificado() -> None:
 
 
 def test_a_frase_e_a_do_plano() -> None:
-    assert FRASE_PASSAGEM_COBRANCA == "Vou te passar para o atendimento de cobrança."
+    assert FRASE_PASSAGEM_COBRANCA == "Vou chamar quem cuida da parte financeira."  # DL-0087
 
 
 @pytest.mark.parametrize("rota", ["handoff", "inform"])

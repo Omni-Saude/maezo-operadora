@@ -29,7 +29,8 @@ from maezo.agents.helena import prompts
 PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
     "system": ("system-v1", "16660021eca9f853c45a191286a3e7a0f3c96ea985333bc6f008748306f958c1"),
     "classify": ("classify-v5.3", "34cc3a8888da3550963859a6e99976653a5271bdb991564fa50c266e5780c00e"),
-    "response": ("response-v10", "2af3650c30b558f3d68c65af3e9d260ebdd29e17fab3fad7167f7a82bfd5d7f8"),
+    # DL-0087 (10/10/2026): bloco TOM DA CONVERSA.
+    "response": ("response-v11", "0da16ae4a371d94c423d3f48646ee5afa7af9e7f308a44cd54f8196de9a21e44"),
     # DL-0086 (08/10/2026): subtipo `consulta_valores`.
     "classify_roteador": (
         "classify-v7",

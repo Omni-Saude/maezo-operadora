@@ -79,7 +79,7 @@ repete a mesma pergunta, e a chave de saida e' a mesma).
 
 RETENCAO (DL-0084): a linha do estado e' apagada apos `RETENCAO_ESTADO` (90 dias) sem atividade, exceto com
 revogacao pendente (`expurgar_inativos`, rodado por `acesso_retencao.py`). BASE LEGAL: consentimento explicito
-(`wa-consent-v1`), o proprio fluxo.
+(`wa-consent-v1`; `wa-consent-v2` desde o DL-0087, mesma substancia), o proprio fluxo.
 
 LOG: so' `conversation_id` (keyed), tokens fechados de estado/motivo e contadores. Nunca texto, CPF,
 nascimento,
@@ -126,46 +126,57 @@ ESTADOS: Final[tuple[str, ...]] = (
     REVOGADO,
 )
 
-# --- Textos FIXOS (decisao do dono, 08/10/2026) -----------------------------------------------------
-VERSAO_TEXTO_CONSENTIMENTO: Final[str] = "wa-consent-v1"
+# --- Textos FIXOS (decisao do dono, 08/10/2026; tom humanizado do DL-0087, 10/10/2026) -------------
+#: DL-0087: o texto do consentimento foi reescrito no tom humanizado com a MESMA substancia (o que e' usado,
+#: ACEITO para continuar, REVOGAR a qualquer momento, alternativa de nao aceitar pelos canais permitidos).
+#: Texto novo = versao nova: o registro na AMH carrega `wa-consent-v2` e o sha256 deste texto; quem aceitou o
+#: v1 continua com o v1 gravado no proprio estado (`texto_versao`/`texto_sha256`).
+VERSAO_TEXTO_CONSENTIMENTO: Final[str] = "wa-consent-v2"
 TEXTO_CONSENTIMENTO: Final[str] = (
-    "Olá! Sou a assistente da Austa Clínicas. Para atender você por aqui, preciso do seu consentimento "
-    "para usar seus dados de beneficiário (cadastro, plano e cobrança) neste atendimento. Você pode "
-    "revogar quando quiser, escrevendo REVOGAR. Para continuar, responda ACEITO. Se preferir não aceitar, "
-    "procure a central de atendimento pelo aplicativo ou pelo portal do plano."
+    "Olá! Sou a assistente da Austa Clínicas. Para te atender, preciso do seu consentimento "
+    "para usar seus dados de beneficiário (cadastro, plano e cobrança) nesta conversa. Se concordar, "
+    "responda ACEITO. Você pode revogar quando quiser, é só escrever REVOGAR. Se preferir não aceitar, "
+    "fale com a central de atendimento pelo aplicativo Austa Clínicas ou pelo portal do plano."
 )
 #: sha256 do texto EXATO mostrado (e enviado a AMH no registro do consentimento).
 SHA256_TEXTO_CONSENTIMENTO: Final[str] = hashlib.sha256(TEXTO_CONSENTIMENTO.encode("utf-8")).hexdigest()
-PEDIDO_CPF: Final[str] = "Obrigada! Agora, para confirmar que é você, digite o seu CPF (apenas números)."
-CPF_INVALIDO: Final[str] = "Esse CPF não parece válido. Confira e digite de novo."
-PEDIDO_NASCIMENTO: Final[str] = "Para sua segurança, digite também sua data de nascimento (dd/mm/aaaa)."
+PEDIDO_CPF: Final[str] = "Obrigada! Para confirmar que é você, me envie seu CPF (só os números)."
+CPF_INVALIDO: Final[str] = "Esse CPF não parece válido. Pode conferir e enviar de novo?"
+PEDIDO_NASCIMENTO: Final[str] = "Por segurança, me envie também sua data de nascimento (dd/mm/aaaa)."
 #: Caminho sem o CPF pendente em memoria (outra replica ou reinicio): a pessoa manda os dois juntos.
 PEDIDO_CPF_E_NASCIMENTO: Final[str] = (
-    "Para sua segurança, digite seu CPF e sua data de nascimento (dd/mm/aaaa) na mesma mensagem."
+    "Por segurança, me envie seu CPF e sua data de nascimento (dd/mm/aaaa) na mesma mensagem."
 )
-RESPOSTA_VERIFICADO: Final[str] = "Tudo certo, identificamos você. Como posso ajudar?"
-FALHA_CONFERENCIA: Final[str] = "Não consegui confirmar seus dados. Confira e tente de novo."
-BLOQUEADO: Final[str] = "Não consegui confirmar a sua identidade. Vou encaminhar você para um atendente."
-BLOQUEADO_CURTO: Final[str] = "Seu atendimento foi encaminhado a um atendente."
-INDISPONIVEL: Final[str] = "No momento não consegui confirmar seus dados. Tente novamente em alguns minutos."
+RESPOSTA_VERIFICADO: Final[str] = "Pronto, já confirmei que é você 😊 Em que posso ajudar?"
+FALHA_CONFERENCIA: Final[str] = "Não consegui confirmar seus dados. Pode conferir e tentar de novo?"
+BLOQUEADO: Final[str] = (
+    "Não consegui confirmar que é você. Vou passar seu atendimento para alguém da nossa equipe."
+)
+BLOQUEADO_CURTO: Final[str] = "Seu atendimento já foi passado para alguém da nossa equipe."
+INDISPONIVEL: Final[str] = (
+    "Não consegui confirmar seus dados agora. Tente de novo em alguns minutos, por favor."
+)
 #: REVOGAR recebido, mas o lago da AMH ainda nao o registrou (revisao do #700): a decisao JA' vale aqui (os
 #: agentes nao rodam e nenhum dado e' usado) e a gravacao segue sendo repetida; no teto, um atendente conclui.
 REVOGACAO_EM_PROCESSAMENTO: Final[str] = (
-    "Recebemos seu pedido de revogação e ele está sendo processado. Enquanto isso, não vou usar seus dados "
-    "neste atendimento. Se precisar, um atendente vai falar com você."
+    "Recebi seu pedido de revogação e ele está sendo processado. Enquanto isso, não vou usar seus dados "
+    "nesta conversa. Se precisar, alguém da nossa equipe vai falar com você."
 )
 #: Telefone SEM candidato na AMH: texto neutro (nao diz nada sobre CPF nenhum) + atendente humano.
 TELEFONE_NAO_IDENTIFICADO: Final[str] = (
-    "Não consegui confirmar seu cadastro por este número. Para sua segurança, vou encaminhar você para um "
-    "atendente."
+    "Não consegui confirmar seu cadastro por este número. Por segurança, vou passar seu atendimento para "
+    "alguém da nossa equipe."
 )
 RESPOSTA_REVOGADO: Final[str] = (
-    "Consentimento revogado. Não vou mais usar seus dados neste atendimento. "
-    "Se quiser voltar a conversar, escreva ACEITO."
+    "Pronto, consentimento revogado. Não vou mais usar seus dados nesta conversa. "
+    "Se quiser voltar a conversar, é só escrever ACEITO."
 )
 #: Orientacao FIXA de emergencia (nenhum texto puramente fixo de red flag existe na Helena: o dela e' o do
 #: encaminhamento a equipe, que aqui seria falso porque nenhum caso e' aberto). Nunca usa dado de pessoa.
-TEXTO_EMERGENCIA: Final[str] = "Se for uma emergência, ligue 192 (SAMU) ou vá ao pronto-socorro mais próximo."
+#: DL-0087: continua inequivoca (192, SAMU, pronto-socorro), sem emoji.
+TEXTO_EMERGENCIA: Final[str] = (
+    "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
+)
 
 # --- Vocabulario do registro de consentimento ------------------------------------------------------
 ESCOPO_CONSENTIMENTO: Final[str] = "atendimento_whatsapp"
