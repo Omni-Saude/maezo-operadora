@@ -144,7 +144,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from collections.abc import Hashable, Mapping
+from collections.abc import Callable, Hashable, Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, TypedDict, cast, get_args
 
@@ -157,7 +157,11 @@ from maezo.runtime.caso_clinico import (
     SUFIXO_CASO_CLINICO,
     chave_do_escalonamento,
 )
-from maezo.runtime.competencia import competencia_valida
+from maezo.runtime.competencia import (
+    competencia_valida,
+    hoje_em_brasilia,
+    resolver_ano_da_competencia,
+)
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -2871,8 +2875,12 @@ class HelenaGraph:
         nome_operadora: str = NOME_OPERADORA_PADRAO,
         historico_enabled: bool = False,
         consultas_plano: FonteDeFatosDoPlano | None = None,
+        relogio: Callable[[], datetime] | None = None,
     ) -> None:
         self._llm = inference
+        # RELOGIO (10/10/2026): so' decide o ANO de uma competencia de cobranca sem ano no texto
+        # (`resolver_ano_da_competencia`). Injetavel para teste; default, o relogio do sistema em UTC.
+        self._relogio: Callable[[], datetime] = relogio or (lambda: datetime.now(UTC))
         # HISTORICO CURTO (DL-0080): DESLIGADO por default, e desligado e' o grafo de antes byte a
         # byte — `historico_conversa` fica `None` em todo turno e nenhum prompt muda. So' a composicao
         # do receptor com `MAEZO_HELENA_HISTORICO` ligada passa `True` (`dispatch.py`).
@@ -3058,7 +3066,19 @@ class HelenaGraph:
             # Onda (e): so' existe com o roteador ligado (o validador recusa `cobranca` desligado),
             # e os dois valores ja' passaram pelo dominio fechado de `_validate_extraction`.
             update["cobranca_subtipo"] = extraction.get("cobranca_subtipo")
-            update["cobranca_competencia"] = extraction.get("competencia")
+            # ANO DETERMINISTICO (10/10/2026, teste real do dono): "valor da mensalidade de julho?"
+            # saiu `2024-07` — o modelo inventou o ano que a pessoa nao disse. O MES e' do modelo (ja'
+            # validado `AAAA-MM`); o ANO sai do texto da pessoa ou, sem ano no texto, da ocorrencia
+            # mais recente do mes que nao esta' no futuro (fuso de Brasilia).
+            competencia_do_modelo = extraction.get("competencia")
+            competencia = resolver_ano_da_competencia(
+                competencia_do_modelo,
+                state.get("message_body", ""),
+                hoje_em_brasilia(self._relogio()),
+            )
+            if competencia != competencia_do_modelo:
+                logger.info("helena_competencia_ano_resolvido", node="classify")
+            update["cobranca_competencia"] = competencia
         if intent == INTENT_CONSULTA_PLANO:
             # So' existe com as consultas ligadas (o validador recusa desligado); dominio ja' fechado.
             update["consulta_subtipo"] = extraction.get("consulta_subtipo")

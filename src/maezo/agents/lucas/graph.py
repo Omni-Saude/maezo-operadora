@@ -181,6 +181,7 @@ from .prompts import (
     MENSAGEM_EM_DIA_VERSION,
     MESSAGE_PROMPT_VERSION,
     RECUSA_DE_SAIDA_VERSION,
+    SEGUNDA_VIA_TEXTO_VERSION,
     SYSTEM_PROMPT_VERSION,
     VALORES_PROMPT_VERSION,
     VENCIMENTO_PROMPT_VERSION,
@@ -1143,6 +1144,76 @@ def texto_vencimento(state: LucasState, facts: Mapping[str, Any], hoje: date) ->
     return " ".join(partes)
 
 
+# --- 2a VIA em TEXTO FIXO (decisao do dono de 10/10/2026) ----------------------------------------
+#
+# Teste real do dono: "Preciso da segunda via do boleto" -> o rascunho do MODELO disse "Ola! Seu pagamento do
+# boleto final 0037 foi identificado e conciliado [...] Caso precise da 2a via, voce pode obte-la pelo nosso
+# portal ou aplicativo do plano." — "Ola!" no meio da conversa, conciliacao misturada com a 2a via e um canal
+# que nao existe ("aplicativo do plano"). Era o ultimo caminho do Lucas redigido pelo modelo com os fatos na
+# mao. Agora: os canais CONFIRMADOS (os mesmos nomes de `agents/helena/prompts.py::CANAIS_CONFIRMADOS`), a
+# situacao da mensalidade de referencia quando os fatos por competencia existem e a data da fonte. Nunca
+# promete enviar boleto ou linha digitavel (o Lucas nao emite nada: TASY write DROP, ADR-0013).
+
+#: `tipo_solicitacao` que recebem a resposta de 2a via (vocabulario da DMN `lucas_billing_admissibility`).
+_TIPOS_DE_SEGUNDA_VIA: Final[frozenset[str]] = frozenset({"boleto", "2a_via"})
+
+#: Os canais da 2a via. "Portal do beneficiario" e "aplicativo do plano" sao canais NAO confirmados.
+SEGUNDA_VIA_CANAIS: Final[str] = (
+    "Para a 2ª via do boleto, use o aplicativo Austa Clínicas, o portal do plano ou a central de "
+    "atendimento do plano."
+)
+
+
+def _competencia_da_segunda_via(competencias: list[dict[str, str]], pedida: object) -> dict[str, str] | None:
+    """A mensalidade de referencia da 2a via: a pedida, quando veio nos fatos; senao a mais recente."""
+    if pedida:
+        da_pedida = next((c for c in competencias if c["competencia"] == pedida), None)
+        if da_pedida is not None:
+            return da_pedida
+    return competencias[0] if competencias else None
+
+
+def _frase_da_segunda_via(c: Mapping[str, str], hoje: date, *, e_a_pedida: bool) -> str | None:
+    """A situacao FIXA da mensalidade de referencia, ou `None` quando nao da' para afirma-la sem afirmar
+    atraso (em aberto com a data ja' passada, vencida) ou sem inventar (sem data; cancelada; sem titulo)."""
+    mes = _mes_ano(c["competencia"])
+    boleto = boleto_no_texto(c.get("boleto"))
+    if c["situacao"] == "paga":
+        if e_a_pedida:
+            sujeito = f"A mensalidade de {mes} ({boleto})" if boleto else f"A mensalidade de {mes}"
+        else:
+            detalhe = f"{mes}, {boleto}" if boleto else mes
+            sujeito = f"A mensalidade mais recente ({detalhe})"
+        return f"{sujeito} já está paga."
+    if c["situacao"] == "em_aberto":
+        vencimento_iso = c.get("vencimento")
+        vencimento = _data_br(vencimento_iso)
+        if vencimento_iso is None or vencimento is None or date.fromisoformat(vencimento_iso) < hoje:
+            return None
+        sujeito = f"A mensalidade de {mes} ({boleto})" if boleto else f"A mensalidade de {mes}"
+        return f"{sujeito} vence em {vencimento}."
+    return None
+
+
+def texto_segunda_via(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
+    """A resposta a boleto/2a via em TEXTO FIXO: os canais confirmados e, quando os fatos por competencia
+    sustentam, uma linha com a situacao da mensalidade de referencia (paga, ou em aberto e nao vencida) e
+    a data da fonte. Atraso nos fatos nao vira texto (e' da DMN): sai so' a linha dos canais."""
+    partes = [SEGUNDA_VIA_CANAIS]
+    competencias: list[dict[str, str]] = list(facts.get("competencias") or [])
+    if competencias and not valores_com_atraso(state):
+        escolhida = competencias[0]
+        pedida = facts.get("competencia_pedida")
+        e_a_pedida = bool(pedida) and escolhida["competencia"] == pedida
+        frase = _frase_da_segunda_via(escolhida, hoje, e_a_pedida=e_a_pedida)
+        if frase:
+            partes.append(frase)
+            fonte = _frase_da_fonte(state)
+            if fonte:
+                partes.append(fonte)
+    return " ".join(partes)
+
+
 def _data_iso_da_fonte(state: LucasState) -> str | None:
     """`AAAA-MM-DD` da fonte (`cnab_ref`), para a cerca aceitar a data da frase de fechamento."""
     achado = _CNAB_REF_DATADA.match(str(state.get("cnab_ref") or ""))
@@ -1898,6 +1969,12 @@ class LucasGraph:
             # DL-0082: com os fatos dizendo "conciliado, zero ciclos" a resposta e' FIXA — nenhum
             # modelo redige sobre a situacao financeira de alguem quando o fato ja' diz tudo.
             return self._mensagem(texto_mensalidade_em_dia(state), facts, MENSAGEM_EM_DIA_VERSION, state)
+        if (
+            state.get("admissibilidade") == "RESPONDER"
+            and state.get("tipo_solicitacao") in _TIPOS_DE_SEGUNDA_VIA
+        ):
+            # 10/10/2026 (teste real do dono): boleto/2a via em TEXTO FIXO, com ou sem fatos.
+            return self._build_segunda_via(state)
         if state.get("tipo_solicitacao") == TIPO_CONSULTA_VALORES:
             return await self._build_valores(state)
         if state.get("admissibilidade") == "LEMBRETE" and valores_disponiveis(state):
@@ -1987,6 +2064,24 @@ class LucasGraph:
             return self._mensagem(RESPOSTA_INFORMATIVA_RECUSADA, facts, VENCIMENTO_PROMPT_VERSION, state)
         texto = texto_vencimento(state, facts, self._hoje())
         return self._mensagem(texto, facts, VENCIMENTO_PROMPT_VERSION, state)
+
+    def _build_segunda_via(self, state: LucasState) -> dict[str, Any]:
+        """A resposta a boleto/2a via (`RESPONDER`) em TEXTO FIXO (`texto_segunda_via`), sem modelo.
+
+        Os fatos levam SO' a competencia de referencia (a que a frase cita), para a cerca de saida conferir
+        a data e o boleto contra ela. Sem fatos por competencia, so' os canais."""
+        competencias = _competencias_dos_fatos(state)
+        pedida = state.get("competencia") or None
+        escolhida = _competencia_da_segunda_via(competencias, pedida)
+        facts: dict[str, Any] = {
+            "tipo_solicitacao": state.get("tipo_solicitacao"),
+            "competencia_pedida": pedida,
+            "competencias": [escolhida] if escolhida is not None else [],
+            "admissibilidade": state.get("admissibilidade"),
+            "dmn_refs": state.get("dmn_refs", {}),
+        }
+        texto = texto_segunda_via(state, facts, self._hoje())
+        return self._mensagem(texto, facts, SEGUNDA_VIA_TEXTO_VERSION, state)
 
     async def _build_valores(self, state: LucasState) -> dict[str, Any]:
         """DL-0086: a resposta a pergunta de VALOR, em TEXTO FIXO montado dos fatos do turno.
@@ -2196,4 +2291,6 @@ PROMPT_VERSIONS: dict[str, str] = {
     "valores": VALORES_PROMPT_VERSION,
     # 09/10/2026: a resposta FIXA a "quando vence?", montada dos fatos por competencia.
     "vencimento": VENCIMENTO_PROMPT_VERSION,
+    # 10/10/2026: a resposta FIXA a boleto/2a via (canais confirmados + situacao dos fatos).
+    "segunda_via": SEGUNDA_VIA_TEXTO_VERSION,
 }

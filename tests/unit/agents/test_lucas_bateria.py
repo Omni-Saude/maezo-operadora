@@ -127,6 +127,19 @@ async def test_ciclos_ilegiveis_escalam_para_humano_em_vez_de_derrubar_o_turno()
     assert resultado["final"]["process_started"] is True
 
 
+@pytest.mark.parametrize("caso_id", ["L02", "L34"])
+async def test_a_segunda_via_sai_em_texto_fixo_sem_o_rascunho_do_modelo(caso_id: str) -> None:
+    """10/10/2026 (teste real do dono): a 2a via e' texto fixo — o rascunho de `_Modelo` nunca sai."""
+    caso = next(c for c in CASOS if c["id"] == caso_id)
+    grafo, gravador = _grafo()
+    resultado = await executar_caso(grafo, gravador, caso, indice=0, execucao="offline")
+    texto = resultado["mensagem"]
+    assert texto.startswith("Para a 2ª via do boleto, use o aplicativo Austa Clínicas, o portal do plano")
+    assert "Recebemos sua mensagem" not in texto and not texto.startswith("Olá")
+    if caso_id == "L34":
+        assert "A mensalidade mais recente (09/2026, boleto final 4821) já está paga." in texto
+
+
 async def test_a_saida_traz_a_narrativa_do_dossie_truncada() -> None:
     """09/10/2026: a narrativa do dossie (texto fixo) vai na saida do caso, para conferir no ambiente."""
     caso = next(c for c in CASOS if c["id"] == "L24")
