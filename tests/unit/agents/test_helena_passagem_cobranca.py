@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -107,6 +108,9 @@ def _grafo(
         audit_sink=FakeStartAuditSink(),
         whatsapp=sender,
         roteador_lucas_enabled=ligado,
+        # 10/10/2026: o ANO de uma competencia sem ano no texto depende de hoje
+        # (`resolver_ano_da_competencia`); relogio fixo para o `2026-09` dos asserts nao envelhecer.
+        relogio=lambda: datetime(2026, 10, 10, 15, 0, tzinfo=UTC),
     )
     return g.compile_graph().compile(), sender, cib
 

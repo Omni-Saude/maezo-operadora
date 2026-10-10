@@ -24,6 +24,7 @@ prompt_versions:
   mensagem_em_dia: mensagem-em-dia-v2
   valores: valores-v3-texto-fixo     # 09/10/2026: sem mes citado, so' a competencia mais recente; boleto "final NNNN"
   vencimento: vencimento-v1-texto-fixo  # 09/10/2026: "quando vence?" em texto fixo dos fatos por competencia
+  segunda_via: segunda-via-v1-texto-fixo  # 10/10/2026: boleto/2a via em texto fixo (canais confirmados + situacao)
 model:
   task_default: { tier: fast }
   reasoning:    { tier: frontier }

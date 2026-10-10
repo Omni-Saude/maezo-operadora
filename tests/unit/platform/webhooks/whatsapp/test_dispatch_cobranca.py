@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 
 from maezo.agents.helena.graph import FRASE_PASSAGEM_COBRANCA
+from maezo.agents.lucas.graph import SEGUNDA_VIA_CANAIS
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.tool_registry import build_agent_seam_context
 from maezo.platform.webhooks.whatsapp import lucas_turno as lt
@@ -314,8 +315,10 @@ async def test_reentrega_depois_da_falha_do_lucas_prova_o_dedup_de_saida() -> No
 
     todos = c1.textos + c2.textos
     assert todos.count(FRASE_PASSAGEM_COBRANCA) == 1
-    assert todos.count(_RESPOSTA_DO_LUCAS) == 1
-    assert c2.textos == [_RESPOSTA_DO_LUCAS]
+    # 10/10/2026: a 2a via do Lucas e' TEXTO FIXO (sem fatos por competencia na fonte simulada, so' os
+    # canais), nao mais o rascunho do modelo.
+    assert todos.count(SEGUNDA_VIA_CANAIS) == 1
+    assert c2.textos == [SEGUNDA_VIA_CANAIS]
     assert espiao2 is not None and len(espiao2.handoffs) == 1
     assert _linha(store).agente_ativo == "lucas"
 

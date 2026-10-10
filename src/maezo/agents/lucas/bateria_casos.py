@@ -482,4 +482,16 @@ CASOS: list[dict[str, Any]] = [
         dict(route="escalate_human", motivo="ambiguidade", processo=True),
         "DMN lba_r_vencimento_atraso: atraso sem ciclo escala; a data vencida nunca chega ao beneficiario.",
     ),
+    # --- 10/10/2026 (teste real do dono): 2a via em texto fixo, sem modelo -------------------------
+    _c(
+        "L34",
+        INFO,
+        "Pedido de 2a via com fatos por competencia (tudo pago)",
+        dict(intencao="cobranca_info", tipo_solicitacao="2a_via", **_FATOS_DE_VALOR),
+        dict(route="respond_member", desfecho="resposta_informativa_enviada", processo=False),
+        "Texto fixo, sem modelo: 'Para a 2ª via do boleto, use o aplicativo Austa Clínicas, o portal do "
+        "plano ou a central de atendimento do plano. A mensalidade mais recente (09/2026, boleto final "
+        "4821) ja' esta' paga. Essa informação é conforme os dados de 30/09/2026.' Sem 'Ola!', sem "
+        "conciliacao.",
+    ),
 ]
