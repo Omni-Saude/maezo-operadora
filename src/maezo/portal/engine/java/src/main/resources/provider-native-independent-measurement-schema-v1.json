@@ -1,518 +1,161 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:maezo:provider-native-independent-measurement:2",
-  "title": "Closed TestOnly independent JVM/PG measurement protocol successor",
-  "oneOf": [
-    {
-      "$ref": "#/$defs/Config"
-    },
-    {
-      "$ref": "#/$defs/Frame"
-    },
-    {
-      "$ref": "#/$defs/RootProvenance"
-    },
-    {
-      "$ref": "#/$defs/FinalOutcome"
-    }
-  ],
   "$defs": {
-    "StableDatabaseProjection": {
-      "type": "object",
+    "ArtifactRef": {
       "additionalProperties": false,
       "properties": {
-        "database_name": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9_.:-]{1,256}$"
+        "path": {
+          "$ref": "#/$defs/PrivatePath"
         },
-        "database_oid": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,19}$"
+        "sha256": {
+          "$ref": "#/$defs/Sha256"
         },
-        "system_identifier": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,19}$"
-        },
-        "engine_schema_name": {
-          "const": "cibseven"
-        },
-        "engine_schema_oid": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,19}$"
-        },
-        "native_schema_name": {
-          "const": "maezo_native"
-        },
-        "native_schema_oid": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,19}$"
-        },
-        "current_user": {
-          "const": "cibseven_app"
-        },
-        "session_user": {
-          "const": "cibseven_app"
-        },
-        "catalogue_projection_sha256": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
-        },
-        "witness_projection": {
-          "const": "provider-native-physical-db-join.v2"
+        "size_bytes": {
+          "maximum": 2097152,
+          "minimum": 1,
+          "type": "integer"
         }
       },
       "required": [
-        "database_name",
-        "database_oid",
-        "system_identifier",
-        "engine_schema_name",
-        "engine_schema_oid",
-        "native_schema_name",
-        "native_schema_oid",
-        "current_user",
-        "session_user",
-        "catalogue_projection_sha256",
-        "witness_projection"
-      ]
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "type": "object"
     },
-    "RuntimeInstallationProjection": {
-      "type": "object",
+    "ClosedRawCensus": {
       "additionalProperties": false,
       "properties": {
-        "engine_name": {
-          "type": "string",
-          "pattern": "^[!-~]{1,256}$"
-        },
-        "authorization_enabled": {
-          "const": true
-        },
-        "tenant_check_enabled": {
-          "const": true
-        },
-        "schema_update": {
-          "const": "false"
-        },
-        "jvm_process": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "boot_uuid": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
-            },
-            "pid_namespace": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "start_time_epoch_ms": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "engine_registry_size": {
-              "const": 1
-            },
-            "engine_registry_name": {
-              "type": "string",
-              "pattern": "^[!-~]{1,256}$"
-            }
-          },
-          "required": [
-            "boot_uuid",
-            "pid_namespace",
-            "start_time_epoch_ms",
-            "engine_registry_size",
-            "engine_registry_name"
-          ]
-        },
-        "class_provenance": {
-          "type": "array",
-          "minItems": 4,
-          "maxItems": 4,
+        "entries": {
           "items": {
-            "type": "object",
             "additionalProperties": false,
             "properties": {
-              "class_name": {
-                "enum": [
-                  "br.com.maezo.workload.WorkloadPlugin",
-                  "org.cibseven.bpm.engine.impl.ProcessEngineImpl",
-                  "br.com.maezo.workload.RuntimeDefinitionObservation",
-                  "br.com.maezo.human.AuthValues"
-                ]
+              "entry_name": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "pattern": "^[!-~]+$",
+                "type": "string"
               },
               "jar_relative_path": {
-                "type": "string",
-                "pattern": "^lib/[A-Za-z0-9._-]+\\.jar$"
+                "maxLength": 4096,
+                "minLength": 1,
+                "pattern": "^[!-~]+$",
+                "type": "string"
               },
-              "jar_sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
+              "raw_sha256": {
+                "$ref": "#/$defs/Sha256"
               },
-              "class_sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
-              },
-              "loader_group": {
-                "const": "engine-common"
+              "size_bytes": {
+                "maximum": 33554432,
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
-              "class_name",
               "jar_relative_path",
-              "jar_sha256",
-              "class_sha256",
-              "loader_group"
-            ]
+              "entry_name",
+              "raw_sha256",
+              "size_bytes"
+            ],
+            "type": "object"
           },
-          "uniqueItems": true,
-          "allOf": [
-            {
-              "contains": {
-                "type": "object",
-                "properties": {
-                  "class_name": {
-                    "const": "br.com.maezo.workload.WorkloadPlugin"
-                  }
-                },
-                "required": [
-                  "class_name"
-                ]
-              },
-              "minContains": 1,
-              "maxContains": 1
-            },
-            {
-              "contains": {
-                "type": "object",
-                "properties": {
-                  "class_name": {
-                    "const": "org.cibseven.bpm.engine.impl.ProcessEngineImpl"
-                  }
-                },
-                "required": [
-                  "class_name"
-                ]
-              },
-              "minContains": 1,
-              "maxContains": 1
-            },
-            {
-              "contains": {
-                "type": "object",
-                "properties": {
-                  "class_name": {
-                    "const": "br.com.maezo.workload.RuntimeDefinitionObservation"
-                  }
-                },
-                "required": [
-                  "class_name"
-                ]
-              },
-              "minContains": 1,
-              "maxContains": 1
-            },
-            {
-              "contains": {
-                "type": "object",
-                "properties": {
-                  "class_name": {
-                    "const": "br.com.maezo.human.AuthValues"
-                  }
-                },
-                "required": [
-                  "class_name"
-                ]
-              },
-              "minContains": 1,
-              "maxContains": 1
-            }
-          ]
-        },
-        "mounted_pins": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "observation_schema_sha256": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{64}$"
-            },
-            "descriptor_sha256": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{64}$"
-            },
-            "native_jar_sha256": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{64}$"
-            },
-            "support_jar_sha256": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{64}$"
-            },
-            "startup_descriptor_inventory_sha256": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{64}$"
-            },
-            "startup_vendor_inventory_sha256": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{64}$"
-            },
-            "rest_spi_jar_sha256": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{64}$"
-            }
-          },
-          "required": [
-            "observation_schema_sha256",
-            "descriptor_sha256",
-            "native_jar_sha256",
-            "support_jar_sha256",
-            "startup_descriptor_inventory_sha256",
-            "startup_vendor_inventory_sha256",
-            "rest_spi_jar_sha256"
-          ]
-        }
-      },
-      "required": [
-        "engine_name",
-        "authorization_enabled",
-        "tenant_check_enabled",
-        "schema_update",
-        "jvm_process",
-        "class_provenance",
-        "mounted_pins"
-      ]
-    },
-    "SessionTransactionWitness": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "backend_pid": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,19}$"
-        },
-        "backend_start": {
-          "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
-        },
-        "transaction_id_if_assigned": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": "^[1-9][0-9]{0,19}$"
-            }
-          ]
-        },
-        "transaction_id_source": {
-          "const": "pg_current_xact_id_if_assigned"
-        },
-        "connection_source": {
-          "const": "actual-commandcontext-dbsqlsession-connection"
-        },
-        "context_connection_identity": {
-          "const": "enlisted-object-identity-checked"
-        },
-        "auto_commit": {
-          "const": false
-        },
-        "transaction_isolation": {
-          "const": "READ_COMMITTED"
-        },
-        "backend_ssl": {
-          "const": true
-        },
-        "backend_tls_version": {
-          "type": "string",
-          "enum": [
-            "TLSv1.2",
-            "TLSv1.3"
-          ]
+          "maxItems": 20000,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
         },
         "observed_at": {
-          "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+          "$ref": "#/$defs/Time"
         },
-        "transaction_started_at": {
-          "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+        "schema": {
+          "const": "provider-native-independent-measurement-class-resource-census.v1"
         },
-        "transaction_started_at_source": {
-          "const": "postgresql-transaction_timestamp-on-enlisted-connection"
-        },
-        "observed_at_source": {
-          "const": "postgresql-clock_timestamp-on-enlisted-connection"
+        "source": {
+          "const": "root-exact-installed-jar-resource-census"
         }
       },
       "required": [
-        "backend_pid",
-        "backend_start",
-        "transaction_id_if_assigned",
-        "transaction_id_source",
-        "connection_source",
-        "context_connection_identity",
-        "auto_commit",
-        "transaction_isolation",
-        "backend_ssl",
-        "backend_tls_version",
+        "schema",
+        "source",
         "observed_at",
-        "transaction_started_at",
-        "transaction_started_at_source",
-        "observed_at_source"
-      ]
-    },
-    "Sha256": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
-    },
-    "Nonce": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{32}$"
-    },
-    "Uuid": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
-    },
-    "Time": {
-      "type": "string",
-      "format": "date-time",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
-    },
-    "PrivatePath": {
-      "type": "string",
-      "minLength": 2,
-      "maxLength": 4096,
-      "pattern": "^/[A-Za-z0-9_./@-]+$"
+        "entries"
+      ],
+      "type": "object"
     },
     "Config": {
-      "type": "object",
       "additionalProperties": false,
       "properties": {
-        "schema": {
-          "const": "provider-native-independent-measurement-config.v2"
-        },
-        "protocol": {
-          "const": "closed-jvm-pg-rendezvous-terminal-readback.v2"
-        },
-        "environment": {
-          "type": "string",
-          "pattern": "^TestOnly-[A-Za-z0-9._-]{1,128}$"
-        },
-        "tenant": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[!-~]+$"
+        "candidate_sha": {
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
         },
         "engine_name": {
-          "type": "string",
-          "minLength": 1,
           "maxLength": 256,
-          "pattern": "^[!-~]+$"
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
         },
-        "candidate_sha": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
+        "environment": {
+          "pattern": "^TestOnly-[A-Za-z0-9._-]{1,128}$",
+          "type": "string"
         },
         "expected_image_id": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "support_jar_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "instrument_class_sha256": {
-          "$ref": "#/$defs/Sha256"
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
         },
         "instrument_class": {
           "const": "br.com.maezo.workload.ProviderNativeIndependentMeasurement"
         },
+        "instrument_class_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
         "instrument_jar_relative_path": {
           "const": "lib/provider-auth-test-support.jar"
         },
-        "protocol_schema_sha256": {
+        "issued_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "jvm_gid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "jvm_uid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maximum_connections": {
+          "const": 2
+        },
+        "maximum_endpoints": {
+          "const": 18
+        },
+        "maximum_frame_bytes": {
+          "const": 32768
+        },
+        "maximum_stage_sequence": {
+          "const": 8
+        },
+        "maximum_terminal_records": {
+          "const": 1
+        },
+        "maximum_total_bytes": {
+          "const": 2097152
+        },
+        "maximum_total_frames": {
+          "const": 65
+        },
+        "observation_admission_sha256": {
           "$ref": "#/$defs/Sha256"
         },
         "observation_schema_sha256": {
           "const": "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
         },
-        "observation_admission_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "root_pg_preboot_witness_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "socket_path": {
-          "$ref": "#/$defs/SocketPath"
-        },
-        "root_peer_user": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "pattern": "^[!-~]+$"
-        },
-        "root_peer_group": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "pattern": "^[!-~]+$"
-        },
-        "root_peer_uid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "root_peer_gid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "jvm_uid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "jvm_gid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "issued_at": {
-          "$ref": "#/$defs/Time"
-        },
         "original_deadline": {
           "$ref": "#/$defs/Time"
         },
-        "session_nonce": {
-          "$ref": "#/$defs/Nonce"
-        },
-        "request_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "maximum_stage_sequence": {
-          "const": 8
-        },
-        "maximum_endpoints": {
-          "const": 18
-        },
-        "maximum_total_frames": {
-          "const": 65
-        },
-        "maximum_frame_bytes": {
-          "const": 32768
-        },
-        "maximum_total_bytes": {
-          "const": 2097152
-        },
-        "root_evidence_directory": {
-          "$ref": "#/$defs/PrivatePath"
-        },
-        "maximum_connections": {
-          "const": 2
-        },
-        "maximum_terminal_records": {
-          "const": 1
+        "outcome_channel_id": {
+          "const": "SEALED_PRIMARY_OUTCOME_READBACK"
         },
         "outcome_socket_path": {
           "$ref": "#/$defs/OutcomeSocketPath"
@@ -520,8 +163,60 @@
         "primary_channel_id": {
           "const": "PRIMARY_RENDEZVOUS"
         },
-        "outcome_channel_id": {
-          "const": "SEALED_PRIMARY_OUTCOME_READBACK"
+        "protocol": {
+          "const": "closed-jvm-pg-rendezvous-terminal-readback.v2"
+        },
+        "protocol_schema_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "root_evidence_directory": {
+          "$ref": "#/$defs/PrivatePath"
+        },
+        "root_peer_gid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "root_peer_group": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
+        },
+        "root_peer_uid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "root_peer_user": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
+        },
+        "root_pg_preboot_witness_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-config.v2"
+        },
+        "session_nonce": {
+          "$ref": "#/$defs/Nonce"
+        },
+        "socket_path": {
+          "$ref": "#/$defs/SocketPath"
+        },
+        "support_jar_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "tenant": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
         }
       },
       "required": [
@@ -562,136 +257,37 @@
         "primary_channel_id",
         "outcome_channel_id",
         "outcome_socket_path"
-      ]
-    },
-    "InstrumentOrigin": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "source": {
-          "const": "independent-fixed-jvm-jdbc-acquisition.v1"
-        },
-        "instrument_class": {
-          "const": "br.com.maezo.workload.ProviderNativeIndependentMeasurement"
-        },
-        "jar_relative_path": {
-          "const": "lib/provider-auth-test-support.jar"
-        },
-        "jar_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "class_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "loader_relation": {
-          "const": "same-actual-engine-common-loader"
-        },
-        "major_class_version": {
-          "const": 61
-        }
-      },
-      "required": [
-        "source",
-        "instrument_class",
-        "jar_relative_path",
-        "jar_sha256",
-        "class_sha256",
-        "loader_relation",
-        "major_class_version"
-      ]
-    },
-    "JvmToolchain": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "source": {
-          "const": "live-jvm-management-and-class-readback"
-        },
-        "java_runtime_version": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[ -~]+(?![\\s\\S])"
-        },
-        "java_vm_name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[ -~]+(?![\\s\\S])"
-        },
-        "java_vm_vendor": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[ -~]+(?![\\s\\S])"
-        },
-        "java_vm_version": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[ -~]+(?![\\s\\S])"
-        },
-        "runtime_feature": {
-          "type": "integer",
-          "minimum": 17,
-          "maximum": 100
-        },
-        "process_pid_namespace": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "runtime_mxbean_start_epoch_ms": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9223372036854775807
-        },
-        "boot_uuid": {
-          "$ref": "#/$defs/Uuid"
-        },
-        "class_major": {
-          "const": 61
-        }
-      },
-      "required": [
-        "source",
-        "java_runtime_version",
-        "java_vm_name",
-        "java_vm_vendor",
-        "java_vm_version",
-        "runtime_feature",
-        "process_pid_namespace",
-        "runtime_mxbean_start_epoch_ms",
-        "boot_uuid",
-        "class_major"
-      ]
+      ],
+      "type": "object"
     },
     "DirectMeasurement": {
-      "type": "object",
       "additionalProperties": false,
       "properties": {
-        "source": {
-          "const": "independent-fixed-jvm-jdbc-acquisition.v1"
+        "connection_reference_ordinal": {
+          "maximum": 9,
+          "minimum": 1,
+          "type": "integer"
         },
-        "started_at": {
-          "$ref": "#/$defs/Time"
+        "ctx_reference_ordinal": {
+          "maximum": 9,
+          "minimum": 1,
+          "type": "integer"
         },
         "finished_at": {
           "$ref": "#/$defs/Time"
         },
+        "instrument_origin": {
+          "$ref": "#/$defs/InstrumentOrigin"
+        },
+        "jvm_toolchain": {
+          "$ref": "#/$defs/JvmToolchain"
+        },
         "monotonic_elapsed_ns": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]{0,18})$"
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "type": "string"
         },
-        "ctx_reference_ordinal": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9
-        },
-        "connection_reference_ordinal": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9
+        "runtime_installation_projection": {
+          "$ref": "#/$defs/RuntimeInstallationProjection"
         },
         "same_actual_context": {
           "const": true
@@ -702,20 +298,17 @@
         "same_registry_engine_config": {
           "const": true
         },
-        "stable_database_projection": {
-          "$ref": "#/$defs/StableDatabaseProjection"
-        },
-        "runtime_installation_projection": {
-          "$ref": "#/$defs/RuntimeInstallationProjection"
-        },
         "session_transaction": {
           "$ref": "#/$defs/SessionTransactionWitness"
         },
-        "jvm_toolchain": {
-          "$ref": "#/$defs/JvmToolchain"
+        "source": {
+          "const": "independent-fixed-jvm-jdbc-acquisition.v1"
         },
-        "instrument_origin": {
-          "$ref": "#/$defs/InstrumentOrigin"
+        "stable_database_projection": {
+          "$ref": "#/$defs/StableDatabaseProjection"
+        },
+        "started_at": {
+          "$ref": "#/$defs/Time"
         }
       },
       "required": [
@@ -733,426 +326,139 @@
         "session_transaction",
         "jvm_toolchain",
         "instrument_origin"
-      ]
+      ],
+      "type": "object"
     },
-    "HELLO": {
-      "type": "object",
+    "EventRef": {
       "additionalProperties": false,
       "properties": {
-        "schema": {
-          "const": "provider-native-independent-measurement-frame.v2"
-        },
-        "event_ordinal": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65
-        },
-        "session_nonce": {
-          "$ref": "#/$defs/Nonce"
-        },
-        "request_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "config_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "emitted_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "original_deadline": {
-          "$ref": "#/$defs/Time"
-        },
-        "kind": {
-          "const": "HELLO"
-        },
-        "instrument_origin": {
-          "$ref": "#/$defs/InstrumentOrigin"
-        },
-        "jvm_toolchain": {
-          "$ref": "#/$defs/JvmToolchain"
-        }
-      },
-      "required": [
-        "schema",
-        "event_ordinal",
-        "session_nonce",
-        "request_sha256",
-        "config_sha256",
-        "emitted_at",
-        "original_deadline",
-        "kind",
-        "instrument_origin",
-        "jvm_toolchain"
-      ]
-    },
-    "HOLD": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "provider-native-independent-measurement-frame.v2"
-        },
-        "event_ordinal": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65
-        },
-        "session_nonce": {
-          "$ref": "#/$defs/Nonce"
-        },
-        "request_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "config_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "emitted_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "original_deadline": {
-          "$ref": "#/$defs/Time"
-        },
-        "kind": {
-          "const": "HOLD"
-        },
-        "stage_sequence": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 8
-        },
-        "server_stage_execution_uuid": {
-          "$ref": "#/$defs/Uuid"
-        },
-        "endpoint": {
+        "direction": {
           "enum": [
-            "ENTRY",
-            "COMMITTING"
+            "JVM_TO_ROOT",
+            "ROOT_TO_JVM"
           ]
         },
-        "measurement": {
-          "$ref": "#/$defs/DirectMeasurement"
-        }
-      },
-      "required": [
-        "schema",
-        "event_ordinal",
-        "session_nonce",
-        "request_sha256",
-        "config_sha256",
-        "emitted_at",
-        "original_deadline",
-        "kind",
-        "stage_sequence",
-        "server_stage_execution_uuid",
-        "endpoint",
-        "measurement"
-      ]
-    },
-    "RELEASE": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "provider-native-independent-measurement-frame.v2"
-        },
         "event_ordinal": {
-          "type": "integer",
+          "maximum": 65,
           "minimum": 1,
-          "maximum": 65
-        },
-        "session_nonce": {
-          "$ref": "#/$defs/Nonce"
-        },
-        "request_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "config_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "emitted_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "original_deadline": {
-          "$ref": "#/$defs/Time"
+          "type": "integer"
         },
         "kind": {
-          "const": "RELEASE"
-        },
-        "stage_sequence": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 8
-        },
-        "server_stage_execution_uuid": {
-          "$ref": "#/$defs/Uuid"
-        },
-        "endpoint": {
           "enum": [
-            "ENTRY",
-            "COMMITTING"
+            "HELLO",
+            "HOLD",
+            "RELEASE",
+            "SEAL",
+            "STAGE_CLOSED",
+            "TERMINAL"
           ]
         },
-        "hold_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "root_capture_before_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "root_capture_after_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
+        "raw_artifact": {
+          "$ref": "#/$defs/ArtifactRef"
         }
       },
       "required": [
-        "schema",
         "event_ordinal",
-        "session_nonce",
-        "request_sha256",
-        "config_sha256",
-        "emitted_at",
-        "original_deadline",
         "kind",
-        "stage_sequence",
-        "server_stage_execution_uuid",
-        "endpoint",
-        "hold_raw_sha256",
-        "root_capture_before_raw_sha256",
-        "root_capture_after_raw_sha256"
-      ]
+        "direction",
+        "raw_artifact"
+      ],
+      "type": "object"
     },
-    "SEAL": {
-      "type": "object",
+    "FinalOutcome": {
       "additionalProperties": false,
       "properties": {
-        "schema": {
-          "const": "provider-native-independent-measurement-frame.v2"
-        },
-        "event_ordinal": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65
-        },
-        "session_nonce": {
-          "$ref": "#/$defs/Nonce"
-        },
-        "request_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "config_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "emitted_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "original_deadline": {
-          "$ref": "#/$defs/Time"
-        },
-        "kind": {
-          "const": "SEAL"
-        },
-        "stage_sequence": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 8
-        },
-        "server_stage_execution_uuid": {
+        "boot_uuid": {
           "$ref": "#/$defs/Uuid"
         },
-        "endpoint": {
-          "enum": [
-            "ENTRY",
-            "COMMITTING"
-          ]
+        "candidate_sha": {
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
         },
-        "hold_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "release_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "measurement": {
-          "$ref": "#/$defs/DirectMeasurement"
-        },
-        "stable_tuple_equal_after_wait": {
-          "const": true
-        },
-        "same_ctx_connection_after_wait": {
-          "const": true
-        }
-      },
-      "required": [
-        "schema",
-        "event_ordinal",
-        "session_nonce",
-        "request_sha256",
-        "config_sha256",
-        "emitted_at",
-        "original_deadline",
-        "kind",
-        "stage_sequence",
-        "server_stage_execution_uuid",
-        "endpoint",
-        "hold_raw_sha256",
-        "release_raw_sha256",
-        "measurement",
-        "stable_tuple_equal_after_wait",
-        "same_ctx_connection_after_wait"
-      ]
-    },
-    "STAGE_CLOSED": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "provider-native-independent-measurement-frame.v2"
-        },
-        "event_ordinal": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65
-        },
-        "session_nonce": {
-          "$ref": "#/$defs/Nonce"
-        },
-        "request_sha256": {
-          "$ref": "#/$defs/Sha256"
+        "certainty": {
+          "const": "TRUSTED_JVM_PRIMARY_OPERATION_AS_OF_ONLY_NO_FUTURE_READBACK_CLEANUP_CLAIM"
         },
         "config_sha256": {
           "$ref": "#/$defs/Sha256"
         },
-        "emitted_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "original_deadline": {
-          "$ref": "#/$defs/Time"
-        },
-        "kind": {
-          "const": "STAGE_CLOSED"
-        },
-        "stage_sequence": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 8
-        },
-        "server_stage_execution_uuid": {
-          "$ref": "#/$defs/Uuid"
-        },
-        "source": {
-          "const": "independent-transaction-listener-and-executor-close-acquisition"
-        },
-        "committed_callback_seen": {
-          "const": true
-        },
-        "executor_returned_successfully": {
-          "const": true
-        },
-        "context_closed": {
-          "const": true
-        },
-        "committed_marker_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "executor_return_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "context_closed_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "ctx_reference_ordinal": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9
-        },
-        "connection_reference_ordinal": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9
-        }
-      },
-      "required": [
-        "schema",
-        "event_ordinal",
-        "session_nonce",
-        "request_sha256",
-        "config_sha256",
-        "emitted_at",
-        "original_deadline",
-        "kind",
-        "stage_sequence",
-        "server_stage_execution_uuid",
-        "source",
-        "committed_callback_seen",
-        "executor_returned_successfully",
-        "context_closed",
-        "committed_marker_at",
-        "executor_return_at",
-        "context_closed_at",
-        "ctx_reference_ordinal",
-        "connection_reference_ordinal"
-      ]
-    },
-    "TERMINAL": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "provider-native-independent-measurement-frame.v2"
-        },
-        "event_ordinal": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65
-        },
-        "session_nonce": {
-          "$ref": "#/$defs/Nonce"
-        },
-        "request_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "config_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "emitted_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "original_deadline": {
-          "$ref": "#/$defs/Time"
-        },
-        "kind": {
-          "const": "TERMINAL"
-        },
-        "technical_result": {
-          "const": "PRIMARY_HTTP_COMPLETE_PENDING_UDS_CLOSE_GUARD"
-        },
-        "stages_completed": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9
-        },
-        "response_sha256": {
+        "instrument_class_sha256": {
           "$ref": "#/$defs/Sha256"
         },
         "last_stage_closed_raw_sha256": {
           "$ref": "#/$defs/Sha256"
         },
-        "http_body_write_flush_close_completed": {
-          "const": true
+        "original_deadline": {
+          "$ref": "#/$defs/Time"
+        },
+        "outcome_channel_id": {
+          "const": "SEALED_PRIMARY_OUTCOME_READBACK"
+        },
+        "primary_channel_id": {
+          "const": "PRIMARY_RENDEZVOUS"
+        },
+        "primary_http_closed_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "primary_postclose_guard_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "primary_uds_closed_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "response_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "result": {
+          "const": "PRIMARY_COMPLETE_AS_OF_SEAL"
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-final-outcome.v2"
+        },
+        "sealed_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "session_nonce": {
+          "$ref": "#/$defs/Nonce"
+        },
+        "source": {
+          "const": "pinned-instrument-sealed-primary-session-outcome"
+        },
+        "stages_completed": {
+          "maximum": 9,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "terminal_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
         }
       },
       "required": [
         "schema",
-        "event_ordinal",
+        "source",
         "session_nonce",
-        "request_sha256",
         "config_sha256",
-        "emitted_at",
-        "original_deadline",
-        "kind",
-        "technical_result",
-        "stages_completed",
+        "request_sha256",
         "response_sha256",
+        "terminal_raw_sha256",
         "last_stage_closed_raw_sha256",
-        "http_body_write_flush_close_completed"
-      ]
+        "boot_uuid",
+        "instrument_class_sha256",
+        "candidate_sha",
+        "stages_completed",
+        "primary_http_closed_at",
+        "primary_uds_closed_at",
+        "primary_postclose_guard_at",
+        "sealed_at",
+        "original_deadline",
+        "result",
+        "certainty",
+        "primary_channel_id",
+        "outcome_channel_id"
+      ],
+      "type": "object"
     },
     "Frame": {
       "oneOf": [
@@ -1176,76 +482,459 @@
         }
       ]
     },
-    "ArtifactRef": {
-      "type": "object",
+    "HELLO": {
       "additionalProperties": false,
       "properties": {
-        "path": {
-          "$ref": "#/$defs/PrivatePath"
-        },
-        "sha256": {
+        "config_sha256": {
           "$ref": "#/$defs/Sha256"
         },
-        "size_bytes": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2097152
-        }
-      },
-      "required": [
-        "path",
-        "sha256",
-        "size_bytes"
-      ]
-    },
-    "EventRef": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
+        "emitted_at": {
+          "$ref": "#/$defs/Time"
+        },
         "event_ordinal": {
-          "type": "integer",
+          "maximum": 65,
           "minimum": 1,
-          "maximum": 65
+          "type": "integer"
+        },
+        "instrument_origin": {
+          "$ref": "#/$defs/InstrumentOrigin"
+        },
+        "jvm_toolchain": {
+          "$ref": "#/$defs/JvmToolchain"
         },
         "kind": {
-          "enum": [
-            "HELLO",
-            "HOLD",
-            "RELEASE",
-            "SEAL",
-            "STAGE_CLOSED",
-            "TERMINAL"
-          ]
+          "const": "HELLO"
         },
-        "direction": {
-          "enum": [
-            "JVM_TO_ROOT",
-            "ROOT_TO_JVM"
-          ]
+        "original_deadline": {
+          "$ref": "#/$defs/Time"
         },
-        "raw_artifact": {
-          "$ref": "#/$defs/ArtifactRef"
+        "request_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-frame.v2"
+        },
+        "session_nonce": {
+          "$ref": "#/$defs/Nonce"
         }
       },
       "required": [
+        "schema",
         "event_ordinal",
+        "session_nonce",
+        "request_sha256",
+        "config_sha256",
+        "emitted_at",
+        "original_deadline",
         "kind",
-        "direction",
-        "raw_artifact"
-      ]
+        "instrument_origin",
+        "jvm_toolchain"
+      ],
+      "type": "object"
     },
-    "RootPgCaptureRef": {
-      "type": "object",
+    "HOLD": {
       "additionalProperties": false,
       "properties": {
-        "stage_sequence": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 8
+        "config_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "emitted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "endpoint": {
+          "enum": [
+            "ENTRY",
+            "COMMITTING"
+          ]
+        },
+        "event_ordinal": {
+          "maximum": 65,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "HOLD"
+        },
+        "measurement": {
+          "$ref": "#/$defs/DirectMeasurement"
+        },
+        "original_deadline": {
+          "$ref": "#/$defs/Time"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-frame.v2"
         },
         "server_stage_execution_uuid": {
           "$ref": "#/$defs/Uuid"
         },
+        "session_nonce": {
+          "$ref": "#/$defs/Nonce"
+        },
+        "stage_sequence": {
+          "maximum": 8,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "event_ordinal",
+        "session_nonce",
+        "request_sha256",
+        "config_sha256",
+        "emitted_at",
+        "original_deadline",
+        "kind",
+        "stage_sequence",
+        "server_stage_execution_uuid",
+        "endpoint",
+        "measurement"
+      ],
+      "type": "object"
+    },
+    "HostUnitRawEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_limit": {
+          "const": "unit-host-only-not-image-runtime-qualification"
+        },
+        "class_major": {
+          "const": 61
+        },
+        "java_runtime_version": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[ -~]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "original_raw_evidence_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "schema": {
+          "const": "provider-native-root-host-unit-toolchain.v1"
+        },
+        "source": {
+          "const": "root-preserved-host-unit-execution-and-class-readback"
+        }
+      },
+      "required": [
+        "schema",
+        "source",
+        "java_runtime_version",
+        "class_major",
+        "original_raw_evidence_sha256",
+        "claim_limit"
+      ],
+      "type": "object"
+    },
+    "HostUnitToolchain": {
+      "additionalProperties": false,
+      "properties": {
+        "class_major": {
+          "const": 61
+        },
+        "java_runtime_version": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[ -~]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "raw_artifact": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "source": {
+          "const": "root-retained-unit-toolchain-evidence"
+        }
+      },
+      "required": [
+        "source",
+        "java_runtime_version",
+        "class_major",
+        "raw_artifact"
+      ],
+      "type": "object"
+    },
+    "InstrumentOrigin": {
+      "additionalProperties": false,
+      "properties": {
+        "class_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "instrument_class": {
+          "const": "br.com.maezo.workload.ProviderNativeIndependentMeasurement"
+        },
+        "jar_relative_path": {
+          "const": "lib/provider-auth-test-support.jar"
+        },
+        "jar_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "loader_relation": {
+          "const": "same-actual-engine-common-loader"
+        },
+        "major_class_version": {
+          "const": 61
+        },
+        "source": {
+          "const": "independent-fixed-jvm-jdbc-acquisition.v1"
+        }
+      },
+      "required": [
+        "source",
+        "instrument_class",
+        "jar_relative_path",
+        "jar_sha256",
+        "class_sha256",
+        "loader_relation",
+        "major_class_version"
+      ],
+      "type": "object"
+    },
+    "JvmToolchain": {
+      "additionalProperties": false,
+      "properties": {
+        "boot_uuid": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "class_major": {
+          "const": 61
+        },
+        "java_runtime_version": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[ -~]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "java_vm_name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[ -~]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "java_vm_vendor": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[ -~]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "java_vm_version": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[ -~]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "process_pid_namespace": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "runtime_feature": {
+          "maximum": 100,
+          "minimum": 17,
+          "type": "integer"
+        },
+        "runtime_mxbean_start_epoch_ms": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "source": {
+          "const": "live-jvm-management-and-class-readback"
+        }
+      },
+      "required": [
+        "source",
+        "java_runtime_version",
+        "java_vm_name",
+        "java_vm_vendor",
+        "java_vm_version",
+        "runtime_feature",
+        "process_pid_namespace",
+        "runtime_mxbean_start_epoch_ms",
+        "boot_uuid",
+        "class_major"
+      ],
+      "type": "object"
+    },
+    "Nonce": {
+      "pattern": "^[a-f0-9]{32}$",
+      "type": "string"
+    },
+    "OutcomeSocketPath": {
+      "maxLength": 90,
+      "pattern": "^/run/maezo-native-qualify/[a-f0-9]{32}/outcome\\.sock$",
+      "type": "string"
+    },
+    "PrivatePath": {
+      "maxLength": 4096,
+      "minLength": 2,
+      "pattern": "^/[A-Za-z0-9_./@-]+$",
+      "type": "string"
+    },
+    "RELEASE": {
+      "additionalProperties": false,
+      "properties": {
+        "config_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "emitted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "endpoint": {
+          "enum": [
+            "ENTRY",
+            "COMMITTING"
+          ]
+        },
+        "event_ordinal": {
+          "maximum": 65,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "hold_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "kind": {
+          "const": "RELEASE"
+        },
+        "original_deadline": {
+          "$ref": "#/$defs/Time"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "root_capture_after_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "root_capture_before_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-frame.v2"
+        },
+        "server_stage_execution_uuid": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_nonce": {
+          "$ref": "#/$defs/Nonce"
+        },
+        "stage_sequence": {
+          "maximum": 8,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "event_ordinal",
+        "session_nonce",
+        "request_sha256",
+        "config_sha256",
+        "emitted_at",
+        "original_deadline",
+        "kind",
+        "stage_sequence",
+        "server_stage_execution_uuid",
+        "endpoint",
+        "hold_raw_sha256",
+        "root_capture_before_raw_sha256",
+        "root_capture_after_raw_sha256"
+      ],
+      "type": "object"
+    },
+    "RootInstallationRawCapture": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_container_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "actual_image_id": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "admitted_instrument_class_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "after": {
+          "$ref": "#/$defs/Time"
+        },
+        "before": {
+          "$ref": "#/$defs/Time"
+        },
+        "build_source_freeze_artifact": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "candidate_sha": {
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
+        },
+        "class_and_resource_census_artifact": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "descriptor_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "instrument_exclusive_origin": {
+          "const": "lib/provider-auth-test-support.jar"
+        },
+        "native_jar_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "observation_schema_raw_sha256": {
+          "const": "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
+        },
+        "protocol_schema_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "rest_spi_jar_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "schema": {
+          "const": "provider-native-root-installation-material-capture.v1"
+        },
+        "source": {
+          "const": "root-owned-process-container-file-and-jar-readback"
+        },
+        "startup_descriptor_inventory_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "startup_vendor_inventory_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "support_jar_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        }
+      },
+      "required": [
+        "schema",
+        "source",
+        "before",
+        "after",
+        "actual_container_id",
+        "actual_image_id",
+        "candidate_sha",
+        "native_jar_raw_sha256",
+        "support_jar_raw_sha256",
+        "rest_spi_jar_raw_sha256",
+        "descriptor_raw_sha256",
+        "protocol_schema_raw_sha256",
+        "observation_schema_raw_sha256",
+        "startup_descriptor_inventory_raw_sha256",
+        "startup_vendor_inventory_raw_sha256",
+        "admitted_instrument_class_raw_sha256",
+        "instrument_exclusive_origin",
+        "class_and_resource_census_artifact",
+        "build_source_freeze_artifact"
+      ],
+      "type": "object"
+    },
+    "RootPgCaptureRef": {
+      "additionalProperties": false,
+      "properties": {
         "endpoint": {
           "enum": [
             "ENTRY",
@@ -1260,6 +949,14 @@
         },
         "raw_artifact": {
           "$ref": "#/$defs/ArtifactRef"
+        },
+        "server_stage_execution_uuid": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "stage_sequence": {
+          "maximum": 8,
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
@@ -1268,361 +965,30 @@
         "endpoint",
         "phase",
         "raw_artifact"
-      ]
-    },
-    "HostUnitToolchain": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "source": {
-          "const": "root-retained-unit-toolchain-evidence"
-        },
-        "java_runtime_version": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[ -~]+(?![\\s\\S])"
-        },
-        "class_major": {
-          "const": 61
-        },
-        "raw_artifact": {
-          "$ref": "#/$defs/ArtifactRef"
-        }
-      },
-      "required": [
-        "source",
-        "java_runtime_version",
-        "class_major",
-        "raw_artifact"
-      ]
-    },
-    "RootProcessSocketRef": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "source": {
-          "const": "root-kernel-process-socket-container-readback"
-        },
-        "raw_artifact": {
-          "$ref": "#/$defs/ArtifactRef"
-        },
-        "jvm_uid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "jvm_gid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "jvm_pid_host": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "jvm_pid_namespace": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "root_uid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "root_gid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "root_pid_host": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "socket_inode": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,19}$"
-        },
-        "parent_mode": {
-          "const": "0750"
-        },
-        "socket_mode": {
-          "const": "0660"
-        },
-        "actual_peer_credentials_checked": {
-          "const": true
-        },
-        "same_actual_jvm_process_checked": {
-          "const": true
-        }
-      },
-      "required": [
-        "source",
-        "raw_artifact",
-        "jvm_uid",
-        "jvm_gid",
-        "jvm_pid_host",
-        "jvm_pid_namespace",
-        "root_uid",
-        "root_gid",
-        "root_pid_host",
-        "socket_inode",
-        "parent_mode",
-        "socket_mode",
-        "actual_peer_credentials_checked",
-        "same_actual_jvm_process_checked"
-      ]
-    },
-    "RootProvenance": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "provider-native-root-measurement-provenance.v2"
-        },
-        "source": {
-          "const": "root-owned-independent-instrument-and-physical-readback"
-        },
-        "protocol": {
-          "const": "closed-jvm-pg-rendezvous-terminal-readback.v2"
-        },
-        "protocol_schema_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "observation_schema_sha256": {
-          "const": "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
-        },
-        "config_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "candidate_sha": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
-        },
-        "actual_image_id": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "request_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "response_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "crosslink_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "root_pg_preboot_witness_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "before": {
-          "$ref": "#/$defs/Time"
-        },
-        "after": {
-          "$ref": "#/$defs/Time"
-        },
-        "stages_completed": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9
-        },
-        "instrument_origin": {
-          "$ref": "#/$defs/InstrumentOrigin"
-        },
-        "live_jvm_toolchain": {
-          "$ref": "#/$defs/JvmToolchain"
-        },
-        "host_unit_toolchain": {
-          "$ref": "#/$defs/HostUnitToolchain"
-        },
-        "process_socket": {
-          "$ref": "#/$defs/RootProcessSocketRef"
-        },
-        "installation_material_readback": {
-          "$ref": "#/$defs/ArtifactRef"
-        },
-        "events": {
-          "type": "array",
-          "minItems": 9,
-          "maxItems": 65,
-          "items": {
-            "$ref": "#/$defs/EventRef"
-          },
-          "uniqueItems": true
-        },
-        "pg_captures": {
-          "type": "array",
-          "minItems": 4,
-          "maxItems": 36,
-          "items": {
-            "$ref": "#/$defs/RootPgCaptureRef"
-          },
-          "uniqueItems": true
-        },
-        "trusted_candidate_integrity_evidence": {
-          "$ref": "#/$defs/ArtifactRef"
-        },
-        "status": {
-          "const": "ALL_REQUIRED_ORIGINS_AND_PRIMARY_FINAL_OUTCOME_OBSERVED_AND_JOINED"
-        },
-        "terminal_readback": {
-          "$ref": "#/$defs/ArtifactRef"
-        }
-      },
-      "required": [
-        "schema",
-        "source",
-        "protocol",
-        "protocol_schema_sha256",
-        "observation_schema_sha256",
-        "config_sha256",
-        "candidate_sha",
-        "actual_image_id",
-        "request_sha256",
-        "response_sha256",
-        "crosslink_raw_sha256",
-        "root_pg_preboot_witness_sha256",
-        "before",
-        "after",
-        "stages_completed",
-        "instrument_origin",
-        "live_jvm_toolchain",
-        "host_unit_toolchain",
-        "process_socket",
-        "installation_material_readback",
-        "events",
-        "pg_captures",
-        "trusted_candidate_integrity_evidence",
-        "status",
-        "terminal_readback"
-      ]
+      ],
+      "type": "object"
     },
     "RootPgRawCapture": {
-      "type": "object",
       "additionalProperties": false,
       "properties": {
-        "schema": {
-          "const": "provider-native-root-pg-checkpoint-capture.v1"
-        },
-        "source": {
-          "const": "root-independent-pg-stat-snapshot-and-ssl-query"
-        },
-        "root_observed_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "collector_uid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "collector_pid_namespace": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "observer_session_user": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[!-~]+$"
-        },
-        "server_version": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[!-~]+$"
-        },
-        "stats_visibility_qualified": {
-          "const": true
-        },
-        "track_activities_observed_on": {
-          "const": true
-        },
-        "stage_sequence": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 8
-        },
-        "server_stage_execution_uuid": {
-          "$ref": "#/$defs/Uuid"
-        },
-        "endpoint": {
-          "enum": [
-            "ENTRY",
-            "COMMITTING"
-          ]
-        },
-        "phase": {
-          "enum": [
-            "ROOT_FIRST",
-            "ROOT_SECOND"
-          ]
-        },
-        "hold_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "database_name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[!-~]+$"
-        },
-        "database_oid": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,9}$"
-        },
-        "system_identifier": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,19}$"
-        },
-        "backend_pid": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,9}$"
-        },
-        "backend_start": {
-          "$ref": "#/$defs/Time"
-        },
-        "transaction_started_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "backend_xid32": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[1-9][0-9]{0,9}$"
-        },
         "active_full_xids": {
-          "type": "array",
-          "maxItems": 4096,
           "items": {
-            "type": "string",
-            "pattern": "^[1-9][0-9]{0,19}$"
+            "pattern": "^[1-9][0-9]{0,19}$",
+            "type": "string"
           },
+          "maxItems": 4096,
+          "type": "array",
           "uniqueItems": true
         },
-        "session_login": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[!-~]+$"
-        },
-        "client_address": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[!-~]+$"
-        },
-        "client_port": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
+        "backend_pid": {
+          "pattern": "^[1-9][0-9]{0,9}$",
+          "type": "string"
         },
         "backend_ssl": {
           "const": true
+        },
+        "backend_start": {
+          "$ref": "#/$defs/Time"
         },
         "backend_tls_version": {
           "enum": [
@@ -1630,11 +996,113 @@
             "TLSv1.3"
           ]
         },
+        "backend_xid32": {
+          "pattern": "^[1-9][0-9]{0,9}$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_address": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
+        },
+        "client_port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "collector_pid_namespace": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "collector_uid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "database_name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
+        },
+        "database_oid": {
+          "pattern": "^[1-9][0-9]{0,9}$",
+          "type": "string"
+        },
+        "endpoint": {
+          "enum": [
+            "ENTRY",
+            "COMMITTING"
+          ]
+        },
+        "hold_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "observer_session_user": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "ROOT_FIRST",
+            "ROOT_SECOND"
+          ]
+        },
         "query_schema": {
           "const": "fixed-root-pg-checkpoint-query.v1"
         },
         "query_source_sha256": {
           "$ref": "#/$defs/Sha256"
+        },
+        "root_observed_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "schema": {
+          "const": "provider-native-root-pg-checkpoint-capture.v1"
+        },
+        "server_stage_execution_uuid": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "server_version": {
+          "description": "PostgreSQL server_version may carry distribution suffixes with internal spaces (e.g. Debian); no leading/trailing/embedded control or whitespace runs.",
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[!-~]+([ ][!-~]+)*$",
+          "type": "string"
+        },
+        "session_login": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
+        },
+        "source": {
+          "const": "root-independent-pg-stat-snapshot-and-ssl-query"
+        },
+        "stage_sequence": {
+          "maximum": 8,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stats_visibility_qualified": {
+          "const": true
+        },
+        "system_identifier": {
+          "pattern": "^[1-9][0-9]{0,19}$",
+          "type": "string"
+        },
+        "track_activities_observed_on": {
+          "const": true
+        },
+        "transaction_started_at": {
+          "$ref": "#/$defs/Time"
         }
       },
       "required": [
@@ -1667,140 +1135,140 @@
         "backend_tls_version",
         "query_schema",
         "query_source_sha256"
-      ]
+      ],
+      "type": "object"
     },
     "RootProcessSocketRawCapture": {
-      "type": "object",
       "additionalProperties": false,
       "properties": {
-        "schema": {
-          "const": "provider-native-root-process-socket-capture.v1"
-        },
-        "source": {
-          "const": "root-kernel-procfs-unix-peercred-container-readback"
-        },
-        "observed_at": {
-          "$ref": "#/$defs/Time"
-        },
         "actual_container_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
         },
         "actual_image_id": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
         },
         "candidate_sha": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
-        },
-        "jvm_pid_host": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "jvm_pid_namespace": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "jvm_uid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "jvm_gid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "root_pid_host": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "root_uid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "root_gid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "peercred_pid_host": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "peercred_uid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "peercred_gid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "pid_namespace_inode": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "pattern": "^[!-~]+$"
-        },
-        "mount_namespace_inode": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "pattern": "^[!-~]+$"
-        },
-        "network_namespace_inode": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "pattern": "^[!-~]+$"
-        },
-        "socket_path": {
-          "$ref": "#/$defs/SocketPath"
-        },
-        "socket_inode": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,19}$"
-        },
-        "parent_owner_uid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "parent_group_gid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
-        },
-        "parent_mode": {
-          "const": "0750"
-        },
-        "socket_mode": {
-          "const": "0660"
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
         },
         "exclusive_group_member_uids": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
           "items": {
-            "type": "integer",
+            "maximum": 4294967294,
             "minimum": 1,
-            "maximum": 4294967294
+            "type": "integer"
           },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array",
           "uniqueItems": true
+        },
+        "jvm_gid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "jvm_pid_host": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "jvm_pid_namespace": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "jvm_uid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "mount_namespace_inode": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
+        },
+        "network_namespace_inode": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
         },
         "no_symlink_or_parent_write_by_jvm": {
           "const": true
         },
+        "observed_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "parent_group_gid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "parent_mode": {
+          "const": "0750"
+        },
+        "parent_owner_uid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "peercred_gid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "peercred_pid_host": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "peercred_uid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "pid_namespace_inode": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[!-~]+$",
+          "type": "string"
+        },
         "raw_query_source_sha256": {
           "$ref": "#/$defs/Sha256"
+        },
+        "root_gid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "root_pid_host": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "root_uid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "schema": {
+          "const": "provider-native-root-process-socket-capture.v1"
+        },
+        "socket_inode": {
+          "pattern": "^[1-9][0-9]{0,19}$",
+          "type": "string"
+        },
+        "socket_mode": {
+          "const": "0660"
+        },
+        "socket_path": {
+          "$ref": "#/$defs/SocketPath"
+        },
+        "source": {
+          "const": "root-kernel-procfs-unix-peercred-container-readback"
         }
       },
       "required": [
@@ -1832,335 +1300,151 @@
         "exclusive_group_member_uids",
         "no_symlink_or_parent_write_by_jvm",
         "raw_query_source_sha256"
-      ]
+      ],
+      "type": "object"
     },
-    "RootInstallationRawCapture": {
-      "type": "object",
+    "RootProcessSocketRef": {
       "additionalProperties": false,
       "properties": {
-        "schema": {
-          "const": "provider-native-root-installation-material-capture.v1"
+        "actual_peer_credentials_checked": {
+          "const": true
+        },
+        "jvm_gid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "jvm_pid_host": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "jvm_pid_namespace": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "jvm_uid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "parent_mode": {
+          "const": "0750"
+        },
+        "raw_artifact": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "root_gid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "root_pid_host": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "root_uid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "same_actual_jvm_process_checked": {
+          "const": true
+        },
+        "socket_inode": {
+          "pattern": "^[1-9][0-9]{0,19}$",
+          "type": "string"
+        },
+        "socket_mode": {
+          "const": "0660"
         },
         "source": {
-          "const": "root-owned-process-container-file-and-jar-readback"
-        },
-        "before": {
-          "$ref": "#/$defs/Time"
+          "const": "root-kernel-process-socket-container-readback"
+        }
+      },
+      "required": [
+        "source",
+        "raw_artifact",
+        "jvm_uid",
+        "jvm_gid",
+        "jvm_pid_host",
+        "jvm_pid_namespace",
+        "root_uid",
+        "root_gid",
+        "root_pid_host",
+        "socket_inode",
+        "parent_mode",
+        "socket_mode",
+        "actual_peer_credentials_checked",
+        "same_actual_jvm_process_checked"
+      ],
+      "type": "object"
+    },
+    "RootProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_image_id": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
         },
         "after": {
           "$ref": "#/$defs/Time"
         },
-        "actual_container_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
-        },
-        "actual_image_id": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "candidate_sha": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
-        },
-        "native_jar_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "support_jar_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "rest_spi_jar_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "descriptor_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "protocol_schema_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "observation_schema_raw_sha256": {
-          "const": "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
-        },
-        "startup_descriptor_inventory_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "startup_vendor_inventory_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "admitted_instrument_class_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "instrument_exclusive_origin": {
-          "const": "lib/provider-auth-test-support.jar"
-        },
-        "class_and_resource_census_artifact": {
-          "$ref": "#/$defs/ArtifactRef"
-        },
-        "build_source_freeze_artifact": {
-          "$ref": "#/$defs/ArtifactRef"
-        }
-      },
-      "required": [
-        "schema",
-        "source",
-        "before",
-        "after",
-        "actual_container_id",
-        "actual_image_id",
-        "candidate_sha",
-        "native_jar_raw_sha256",
-        "support_jar_raw_sha256",
-        "rest_spi_jar_raw_sha256",
-        "descriptor_raw_sha256",
-        "protocol_schema_raw_sha256",
-        "observation_schema_raw_sha256",
-        "startup_descriptor_inventory_raw_sha256",
-        "startup_vendor_inventory_raw_sha256",
-        "admitted_instrument_class_raw_sha256",
-        "instrument_exclusive_origin",
-        "class_and_resource_census_artifact",
-        "build_source_freeze_artifact"
-      ]
-    },
-    "TrustedCandidateIntegrityRawCapture": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "provider-native-root-trusted-candidate-integrity.v1"
-        },
-        "source": {
-          "const": "root-actual-launch-material-and-classloader-census"
-        },
-        "observed_at": {
+        "before": {
           "$ref": "#/$defs/Time"
         },
-        "actual_image_id": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
         "candidate_sha": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
-        },
-        "process_launch_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "actual_no_javaagent_or_native_agent_launch_options": {
-          "const": true
-        },
-        "actual_attach_disabled": {
-          "const": true
-        },
-        "actual_no_admitted_class_transformers": {
-          "const": true
-        },
-        "exact_admitted_classloader_resource_origins": {
-          "const": true
-        },
-        "root_process_socket_capture_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "root_installation_capture_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "claim_limit": {
-          "const": "trusted-candidate-integrity-not-malicious-jvm-attestation"
-        }
-      },
-      "required": [
-        "schema",
-        "source",
-        "observed_at",
-        "actual_image_id",
-        "candidate_sha",
-        "process_launch_raw_sha256",
-        "actual_no_javaagent_or_native_agent_launch_options",
-        "actual_attach_disabled",
-        "actual_no_admitted_class_transformers",
-        "exact_admitted_classloader_resource_origins",
-        "root_process_socket_capture_raw_sha256",
-        "root_installation_capture_raw_sha256",
-        "claim_limit"
-      ]
-    },
-    "ClosedRawCensus": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "provider-native-independent-measurement-class-resource-census.v1"
-        },
-        "source": {
-          "const": "root-exact-installed-jar-resource-census"
-        },
-        "observed_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "entries": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 20000,
-          "uniqueItems": true,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "jar_relative_path": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4096,
-                "pattern": "^[!-~]+$"
-              },
-              "entry_name": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4096,
-                "pattern": "^[!-~]+$"
-              },
-              "raw_sha256": {
-                "$ref": "#/$defs/Sha256"
-              },
-              "size_bytes": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 33554432
-              }
-            },
-            "required": [
-              "jar_relative_path",
-              "entry_name",
-              "raw_sha256",
-              "size_bytes"
-            ]
-          }
-        }
-      },
-      "required": [
-        "schema",
-        "source",
-        "observed_at",
-        "entries"
-      ]
-    },
-    "SourceBuildFreezeLink": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "provider-native-independent-measurement-source-build-link.v1"
-        },
-        "source": {
-          "const": "root-readback-of-independent-source-freezes-and-single-compilation"
-        },
-        "candidate_sha": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
-        },
-        "source_freeze_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "independent_architecture_gvr_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "independent_security_gvr_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "compilation_artifact_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "main_compile_count": {
-          "const": 1
-        },
-        "test_compile_count": {
-          "const": 1
-        },
-        "class_major": {
-          "const": 61
-        },
-        "support_owners": {
-          "const": [
-            "br/com/maezo/human/ProviderAuthTestOwner",
-            "br/com/maezo/human/ProviderAuthTestComposition",
-            "br/com/maezo/workload/ProviderNativeIndependentMeasurement"
-          ]
-        },
-        "host_unit_java_runtime_version": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[ -~]+(?![\\s\\S])"
-        }
-      },
-      "required": [
-        "schema",
-        "source",
-        "candidate_sha",
-        "source_freeze_raw_sha256",
-        "independent_architecture_gvr_raw_sha256",
-        "independent_security_gvr_raw_sha256",
-        "compilation_artifact_raw_sha256",
-        "main_compile_count",
-        "test_compile_count",
-        "class_major",
-        "support_owners",
-        "host_unit_java_runtime_version"
-      ]
-    },
-    "HostUnitRawEvidence": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "provider-native-root-host-unit-toolchain.v1"
-        },
-        "source": {
-          "const": "root-preserved-host-unit-execution-and-class-readback"
-        },
-        "java_runtime_version": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[ -~]+(?![\\s\\S])"
-        },
-        "class_major": {
-          "const": 61
-        },
-        "original_raw_evidence_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "claim_limit": {
-          "const": "unit-host-only-not-image-runtime-qualification"
-        }
-      },
-      "required": [
-        "schema",
-        "source",
-        "java_runtime_version",
-        "class_major",
-        "original_raw_evidence_sha256",
-        "claim_limit"
-      ]
-    },
-    "SocketPath": {
-      "type": "string",
-      "minLength": 2,
-      "maxLength": 90,
-      "pattern": "^/run/maezo-native-qualify/[a-f0-9]{32}/root[.]sock$"
-    },
-    "FinalOutcome": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "provider-native-independent-measurement-final-outcome.v2"
-        },
-        "source": {
-          "const": "pinned-instrument-sealed-primary-session-outcome"
-        },
-        "session_nonce": {
-          "$ref": "#/$defs/Nonce"
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
         },
         "config_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "crosslink_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/EventRef"
+          },
+          "maxItems": 65,
+          "minItems": 9,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "host_unit_toolchain": {
+          "$ref": "#/$defs/HostUnitToolchain"
+        },
+        "installation_material_readback": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "instrument_origin": {
+          "$ref": "#/$defs/InstrumentOrigin"
+        },
+        "live_jvm_toolchain": {
+          "$ref": "#/$defs/JvmToolchain"
+        },
+        "observation_schema_sha256": {
+          "const": "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
+        },
+        "pg_captures": {
+          "items": {
+            "$ref": "#/$defs/RootPgCaptureRef"
+          },
+          "maxItems": 36,
+          "minItems": 4,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "process_socket": {
+          "$ref": "#/$defs/RootProcessSocketRef"
+        },
+        "protocol": {
+          "const": "closed-jvm-pg-rendezvous-terminal-readback.v2"
+        },
+        "protocol_schema_sha256": {
           "$ref": "#/$defs/Sha256"
         },
         "request_sha256": {
@@ -2169,128 +1453,94 @@
         "response_sha256": {
           "$ref": "#/$defs/Sha256"
         },
-        "terminal_raw_sha256": {
+        "root_pg_preboot_witness_sha256": {
           "$ref": "#/$defs/Sha256"
         },
-        "last_stage_closed_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
+        "schema": {
+          "const": "provider-native-root-measurement-provenance.v2"
         },
-        "boot_uuid": {
-          "$ref": "#/$defs/Uuid"
-        },
-        "instrument_class_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "candidate_sha": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
+        "source": {
+          "const": "root-owned-independent-instrument-and-physical-readback"
         },
         "stages_completed": {
-          "type": "integer",
+          "maximum": 9,
           "minimum": 1,
-          "maximum": 9
+          "type": "integer"
         },
-        "primary_http_closed_at": {
-          "$ref": "#/$defs/Time"
+        "status": {
+          "const": "ALL_REQUIRED_ORIGINS_AND_PRIMARY_FINAL_OUTCOME_OBSERVED_AND_JOINED"
         },
-        "primary_uds_closed_at": {
-          "$ref": "#/$defs/Time"
+        "terminal_readback": {
+          "$ref": "#/$defs/ArtifactRef"
         },
-        "primary_postclose_guard_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "sealed_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "original_deadline": {
-          "$ref": "#/$defs/Time"
-        },
-        "result": {
-          "const": "PRIMARY_COMPLETE_AS_OF_SEAL"
-        },
-        "certainty": {
-          "const": "TRUSTED_JVM_PRIMARY_OPERATION_AS_OF_ONLY_NO_FUTURE_READBACK_CLEANUP_CLAIM"
-        },
-        "primary_channel_id": {
-          "const": "PRIMARY_RENDEZVOUS"
-        },
-        "outcome_channel_id": {
-          "const": "SEALED_PRIMARY_OUTCOME_READBACK"
+        "trusted_candidate_integrity_evidence": {
+          "$ref": "#/$defs/ArtifactRef"
         }
       },
       "required": [
         "schema",
         "source",
-        "session_nonce",
+        "protocol",
+        "protocol_schema_sha256",
+        "observation_schema_sha256",
         "config_sha256",
+        "candidate_sha",
+        "actual_image_id",
         "request_sha256",
         "response_sha256",
-        "terminal_raw_sha256",
-        "last_stage_closed_raw_sha256",
-        "boot_uuid",
-        "instrument_class_sha256",
-        "candidate_sha",
+        "crosslink_raw_sha256",
+        "root_pg_preboot_witness_sha256",
+        "before",
+        "after",
         "stages_completed",
-        "primary_http_closed_at",
-        "primary_uds_closed_at",
-        "primary_postclose_guard_at",
-        "sealed_at",
-        "original_deadline",
-        "result",
-        "certainty",
-        "primary_channel_id",
-        "outcome_channel_id"
-      ]
+        "instrument_origin",
+        "live_jvm_toolchain",
+        "host_unit_toolchain",
+        "process_socket",
+        "installation_material_readback",
+        "events",
+        "pg_captures",
+        "trusted_candidate_integrity_evidence",
+        "status",
+        "terminal_readback"
+      ],
+      "type": "object"
     },
     "RootTerminalReadbackRawCapture": {
-      "type": "object",
       "additionalProperties": false,
       "properties": {
-        "schema": {
-          "const": "provider-native-root-terminal-readback-capture.v2"
-        },
-        "source": {
-          "const": "root-owned-second-unix-peer-bound-sealed-outcome-readback"
+        "after": {
+          "$ref": "#/$defs/Time"
         },
         "before": {
           "$ref": "#/$defs/Time"
         },
-        "after": {
-          "$ref": "#/$defs/Time"
-        },
-        "primary_terminal_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
-        },
-        "outcome_raw_sha256": {
-          "$ref": "#/$defs/Sha256"
+        "jvm_pid_host": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
         },
         "outcome": {
           "$ref": "#/$defs/FinalOutcome"
         },
-        "jvm_pid_host": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
+        "outcome_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
         },
-        "peercred_uid": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967294
+        "outcome_socket_path": {
+          "$ref": "#/$defs/OutcomeSocketPath"
         },
         "peercred_gid": {
-          "type": "integer",
+          "maximum": 4294967294,
           "minimum": 1,
-          "maximum": 4294967294
+          "type": "integer"
         },
-        "socket_inode": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]{0,19}$"
+        "peercred_uid": {
+          "maximum": 4294967294,
+          "minimum": 1,
+          "type": "integer"
         },
-        "root_local_closed_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "root_local_postclose_guard_at": {
-          "$ref": "#/$defs/Time"
+        "primary_terminal_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
         },
         "raw_query_source_sha256": {
           "$ref": "#/$defs/Sha256"
@@ -2301,8 +1551,21 @@
         "result": {
           "const": "PRIMARY_COMPLETE_AS_OF_SEAL_OBSERVED"
         },
-        "outcome_socket_path": {
-          "$ref": "#/$defs/OutcomeSocketPath"
+        "root_local_closed_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "root_local_postclose_guard_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "schema": {
+          "const": "provider-native-root-terminal-readback-capture.v2"
+        },
+        "socket_inode": {
+          "pattern": "^[1-9][0-9]{0,19}$",
+          "type": "string"
+        },
+        "source": {
+          "const": "root-owned-second-unix-peer-bound-sealed-outcome-readback"
         }
       },
       "required": [
@@ -2323,12 +1586,750 @@
         "remote_readback_cleanup_certainty",
         "result",
         "outcome_socket_path"
-      ]
+      ],
+      "type": "object"
     },
-    "OutcomeSocketPath": {
-      "type": "string",
+    "RuntimeInstallationProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_enabled": {
+          "const": true
+        },
+        "class_provenance": {
+          "allOf": [
+            {
+              "contains": {
+                "properties": {
+                  "class_name": {
+                    "const": "br.com.maezo.workload.WorkloadPlugin"
+                  }
+                },
+                "required": [
+                  "class_name"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "class_name": {
+                    "const": "org.cibseven.bpm.engine.impl.ProcessEngineImpl"
+                  }
+                },
+                "required": [
+                  "class_name"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "class_name": {
+                    "const": "br.com.maezo.workload.RuntimeDefinitionObservation"
+                  }
+                },
+                "required": [
+                  "class_name"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "class_name": {
+                    "const": "br.com.maezo.human.AuthValues"
+                  }
+                },
+                "required": [
+                  "class_name"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            }
+          ],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "class_name": {
+                "enum": [
+                  "br.com.maezo.workload.WorkloadPlugin",
+                  "org.cibseven.bpm.engine.impl.ProcessEngineImpl",
+                  "br.com.maezo.workload.RuntimeDefinitionObservation",
+                  "br.com.maezo.human.AuthValues"
+                ]
+              },
+              "class_sha256": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "jar_relative_path": {
+                "pattern": "^lib/[A-Za-z0-9._-]+\\.jar$",
+                "type": "string"
+              },
+              "jar_sha256": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "loader_group": {
+                "const": "engine-common"
+              }
+            },
+            "required": [
+              "class_name",
+              "jar_relative_path",
+              "jar_sha256",
+              "class_sha256",
+              "loader_group"
+            ],
+            "type": "object"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "engine_name": {
+          "pattern": "^[!-~]{1,256}$",
+          "type": "string"
+        },
+        "jvm_process": {
+          "additionalProperties": false,
+          "properties": {
+            "boot_uuid": {
+              "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",
+              "type": "string"
+            },
+            "engine_registry_name": {
+              "pattern": "^[!-~]{1,256}$",
+              "type": "string"
+            },
+            "engine_registry_size": {
+              "const": 1
+            },
+            "pid_namespace": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "start_time_epoch_ms": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "boot_uuid",
+            "pid_namespace",
+            "start_time_epoch_ms",
+            "engine_registry_size",
+            "engine_registry_name"
+          ],
+          "type": "object"
+        },
+        "mounted_pins": {
+          "additionalProperties": false,
+          "properties": {
+            "descriptor_sha256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "native_jar_sha256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "observation_schema_sha256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "rest_spi_jar_sha256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "startup_descriptor_inventory_sha256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "startup_vendor_inventory_sha256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "support_jar_sha256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "observation_schema_sha256",
+            "descriptor_sha256",
+            "native_jar_sha256",
+            "support_jar_sha256",
+            "startup_descriptor_inventory_sha256",
+            "startup_vendor_inventory_sha256",
+            "rest_spi_jar_sha256"
+          ],
+          "type": "object"
+        },
+        "schema_update": {
+          "const": "false"
+        },
+        "tenant_check_enabled": {
+          "const": true
+        }
+      },
+      "required": [
+        "engine_name",
+        "authorization_enabled",
+        "tenant_check_enabled",
+        "schema_update",
+        "jvm_process",
+        "class_provenance",
+        "mounted_pins"
+      ],
+      "type": "object"
+    },
+    "SEAL": {
+      "additionalProperties": false,
+      "properties": {
+        "config_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "emitted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "endpoint": {
+          "enum": [
+            "ENTRY",
+            "COMMITTING"
+          ]
+        },
+        "event_ordinal": {
+          "maximum": 65,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "hold_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "kind": {
+          "const": "SEAL"
+        },
+        "measurement": {
+          "$ref": "#/$defs/DirectMeasurement"
+        },
+        "original_deadline": {
+          "$ref": "#/$defs/Time"
+        },
+        "release_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "same_ctx_connection_after_wait": {
+          "const": true
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-frame.v2"
+        },
+        "server_stage_execution_uuid": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_nonce": {
+          "$ref": "#/$defs/Nonce"
+        },
+        "stable_tuple_equal_after_wait": {
+          "const": true
+        },
+        "stage_sequence": {
+          "maximum": 8,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "event_ordinal",
+        "session_nonce",
+        "request_sha256",
+        "config_sha256",
+        "emitted_at",
+        "original_deadline",
+        "kind",
+        "stage_sequence",
+        "server_stage_execution_uuid",
+        "endpoint",
+        "hold_raw_sha256",
+        "release_raw_sha256",
+        "measurement",
+        "stable_tuple_equal_after_wait",
+        "same_ctx_connection_after_wait"
+      ],
+      "type": "object"
+    },
+    "STAGE_CLOSED": {
+      "additionalProperties": false,
+      "properties": {
+        "committed_callback_seen": {
+          "const": true
+        },
+        "committed_marker_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "config_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "connection_reference_ordinal": {
+          "maximum": 9,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "context_closed": {
+          "const": true
+        },
+        "context_closed_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "ctx_reference_ordinal": {
+          "maximum": 9,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "emitted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "event_ordinal": {
+          "maximum": 65,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "executor_return_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "executor_returned_successfully": {
+          "const": true
+        },
+        "kind": {
+          "const": "STAGE_CLOSED"
+        },
+        "original_deadline": {
+          "$ref": "#/$defs/Time"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-frame.v2"
+        },
+        "server_stage_execution_uuid": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_nonce": {
+          "$ref": "#/$defs/Nonce"
+        },
+        "source": {
+          "const": "independent-transaction-listener-and-executor-close-acquisition"
+        },
+        "stage_sequence": {
+          "maximum": 8,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "event_ordinal",
+        "session_nonce",
+        "request_sha256",
+        "config_sha256",
+        "emitted_at",
+        "original_deadline",
+        "kind",
+        "stage_sequence",
+        "server_stage_execution_uuid",
+        "source",
+        "committed_callback_seen",
+        "executor_returned_successfully",
+        "context_closed",
+        "committed_marker_at",
+        "executor_return_at",
+        "context_closed_at",
+        "ctx_reference_ordinal",
+        "connection_reference_ordinal"
+      ],
+      "type": "object"
+    },
+    "SessionTransactionWitness": {
+      "additionalProperties": false,
+      "properties": {
+        "auto_commit": {
+          "const": false
+        },
+        "backend_pid": {
+          "pattern": "^[1-9][0-9]{0,19}$",
+          "type": "string"
+        },
+        "backend_ssl": {
+          "const": true
+        },
+        "backend_start": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$",
+          "type": "string"
+        },
+        "backend_tls_version": {
+          "enum": [
+            "TLSv1.2",
+            "TLSv1.3"
+          ],
+          "type": "string"
+        },
+        "connection_source": {
+          "const": "actual-commandcontext-dbsqlsession-connection"
+        },
+        "context_connection_identity": {
+          "const": "enlisted-object-identity-checked"
+        },
+        "observed_at": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$",
+          "type": "string"
+        },
+        "observed_at_source": {
+          "const": "postgresql-clock_timestamp-on-enlisted-connection"
+        },
+        "transaction_id_if_assigned": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "pattern": "^[1-9][0-9]{0,19}$",
+              "type": "string"
+            }
+          ]
+        },
+        "transaction_id_source": {
+          "const": "pg_current_xact_id_if_assigned"
+        },
+        "transaction_isolation": {
+          "const": "READ_COMMITTED"
+        },
+        "transaction_started_at": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$",
+          "type": "string"
+        },
+        "transaction_started_at_source": {
+          "const": "postgresql-transaction_timestamp-on-enlisted-connection"
+        }
+      },
+      "required": [
+        "backend_pid",
+        "backend_start",
+        "transaction_id_if_assigned",
+        "transaction_id_source",
+        "connection_source",
+        "context_connection_identity",
+        "auto_commit",
+        "transaction_isolation",
+        "backend_ssl",
+        "backend_tls_version",
+        "observed_at",
+        "transaction_started_at",
+        "transaction_started_at_source",
+        "observed_at_source"
+      ],
+      "type": "object"
+    },
+    "Sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "SocketPath": {
       "maxLength": 90,
-      "pattern": "^/run/maezo-native-qualify/[a-f0-9]{32}/outcome\\.sock$"
+      "minLength": 2,
+      "pattern": "^/run/maezo-native-qualify/[a-f0-9]{32}/root[.]sock$",
+      "type": "string"
+    },
+    "SourceBuildFreezeLink": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_sha": {
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
+        },
+        "class_major": {
+          "const": 61
+        },
+        "compilation_artifact_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "host_unit_java_runtime_version": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[ -~]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "independent_architecture_gvr_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "independent_security_gvr_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "main_compile_count": {
+          "const": 1
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-source-build-link.v1"
+        },
+        "source": {
+          "const": "root-readback-of-independent-source-freezes-and-single-compilation"
+        },
+        "source_freeze_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "support_owners": {
+          "const": [
+            "br/com/maezo/human/ProviderAuthTestOwner",
+            "br/com/maezo/human/ProviderAuthTestComposition",
+            "br/com/maezo/workload/ProviderNativeIndependentMeasurement"
+          ]
+        },
+        "test_compile_count": {
+          "const": 1
+        }
+      },
+      "required": [
+        "schema",
+        "source",
+        "candidate_sha",
+        "source_freeze_raw_sha256",
+        "independent_architecture_gvr_raw_sha256",
+        "independent_security_gvr_raw_sha256",
+        "compilation_artifact_raw_sha256",
+        "main_compile_count",
+        "test_compile_count",
+        "class_major",
+        "support_owners",
+        "host_unit_java_runtime_version"
+      ],
+      "type": "object"
+    },
+    "StableDatabaseProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "catalogue_projection_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "current_user": {
+          "const": "cibseven_app"
+        },
+        "database_name": {
+          "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
+          "type": "string"
+        },
+        "database_oid": {
+          "pattern": "^[1-9][0-9]{0,19}$",
+          "type": "string"
+        },
+        "engine_schema_name": {
+          "const": "cibseven"
+        },
+        "engine_schema_oid": {
+          "pattern": "^[1-9][0-9]{0,19}$",
+          "type": "string"
+        },
+        "native_schema_name": {
+          "const": "maezo_native"
+        },
+        "native_schema_oid": {
+          "pattern": "^[1-9][0-9]{0,19}$",
+          "type": "string"
+        },
+        "session_user": {
+          "const": "cibseven_app"
+        },
+        "system_identifier": {
+          "pattern": "^[1-9][0-9]{0,19}$",
+          "type": "string"
+        },
+        "witness_projection": {
+          "const": "provider-native-physical-db-join.v2"
+        }
+      },
+      "required": [
+        "database_name",
+        "database_oid",
+        "system_identifier",
+        "engine_schema_name",
+        "engine_schema_oid",
+        "native_schema_name",
+        "native_schema_oid",
+        "current_user",
+        "session_user",
+        "catalogue_projection_sha256",
+        "witness_projection"
+      ],
+      "type": "object"
+    },
+    "TERMINAL": {
+      "additionalProperties": false,
+      "properties": {
+        "config_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "emitted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "event_ordinal": {
+          "maximum": 65,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "http_body_write_flush_close_completed": {
+          "const": true
+        },
+        "kind": {
+          "const": "TERMINAL"
+        },
+        "last_stage_closed_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "original_deadline": {
+          "$ref": "#/$defs/Time"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "response_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "schema": {
+          "const": "provider-native-independent-measurement-frame.v2"
+        },
+        "session_nonce": {
+          "$ref": "#/$defs/Nonce"
+        },
+        "stages_completed": {
+          "maximum": 9,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "technical_result": {
+          "const": "PRIMARY_HTTP_COMPLETE_PENDING_UDS_CLOSE_GUARD"
+        }
+      },
+      "required": [
+        "schema",
+        "event_ordinal",
+        "session_nonce",
+        "request_sha256",
+        "config_sha256",
+        "emitted_at",
+        "original_deadline",
+        "kind",
+        "technical_result",
+        "stages_completed",
+        "response_sha256",
+        "last_stage_closed_raw_sha256",
+        "http_body_write_flush_close_completed"
+      ],
+      "type": "object"
+    },
+    "Time": {
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$",
+      "type": "string"
+    },
+    "TrustedCandidateIntegrityRawCapture": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_attach_disabled": {
+          "const": true
+        },
+        "actual_image_id": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "actual_no_admitted_class_transformers": {
+          "const": true
+        },
+        "actual_no_javaagent_or_native_agent_launch_options": {
+          "const": true
+        },
+        "candidate_sha": {
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
+        },
+        "claim_limit": {
+          "const": "trusted-candidate-integrity-not-malicious-jvm-attestation"
+        },
+        "exact_admitted_classloader_resource_origins": {
+          "const": true
+        },
+        "observed_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "process_launch_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "root_installation_capture_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "root_process_socket_capture_raw_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "schema": {
+          "const": "provider-native-root-trusted-candidate-integrity.v1"
+        },
+        "source": {
+          "const": "root-actual-launch-material-and-classloader-census"
+        }
+      },
+      "required": [
+        "schema",
+        "source",
+        "observed_at",
+        "actual_image_id",
+        "candidate_sha",
+        "process_launch_raw_sha256",
+        "actual_no_javaagent_or_native_agent_launch_options",
+        "actual_attach_disabled",
+        "actual_no_admitted_class_transformers",
+        "exact_admitted_classloader_resource_origins",
+        "root_process_socket_capture_raw_sha256",
+        "root_installation_capture_raw_sha256",
+        "claim_limit"
+      ],
+      "type": "object"
+    },
+    "Uuid": {
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",
+      "type": "string"
     }
-  }
+  },
+  "$id": "urn:maezo:provider-native-independent-measurement:2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Config"
+    },
+    {
+      "$ref": "#/$defs/Frame"
+    },
+    {
+      "$ref": "#/$defs/RootProvenance"
+    },
+    {
+      "$ref": "#/$defs/FinalOutcome"
+    }
+  ],
+  "title": "Closed TestOnly independent JVM/PG measurement protocol successor"
 }
