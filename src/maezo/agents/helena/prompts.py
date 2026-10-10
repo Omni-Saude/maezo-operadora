@@ -72,7 +72,10 @@ CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v7"  # 08/10/2026 (DL-0086): subtip
 # e' `symptom` (LU043, LU055, LU059, LU075, LU077, LU081 da bateria do Lucas de 02/10). v6.1 —
 # 02/10/2026: o paragrafo de `outside_channel` do v6 ganhou autorizacao NEGADA e privacidade/LGPD (as
 # mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026: a onda (e).
-RESPONSE_PROMPT_VERSION = "response-v10"  # 01/10/2026: o contexto da resposta deixa de levar o `motivo`
+RESPONSE_PROMPT_VERSION = "response-v11"  # 10/10/2026 (DL-0087): bloco TOM DA CONVERSA (curto, cordial,
+# segunda pessoa, so' o perguntado, no maximo um emoji leve e nunca em tema clinico/risco/emergencia/
+# negativa/encaminhamento). Nenhuma cerca ou proibicao saiu; o guia e' `docs/guia-de-tom-dos-agentes.md`.
+# v10 — 01/10/2026: o contexto da resposta deixa de levar o `motivo`
 # da tabela de red flag (graph.py::_redigir_resposta). Ele era o texto de engenharia que o modelo
 # repetia ao beneficiario — "nao ha sinais de alerta" (barrado pela cerca e convertido em P3
 # `falha_tecnica`, bateria de 01/10: C07, C08, C09) e "possivel sindrome coronariana aguda"
@@ -673,6 +676,15 @@ Tarefa: redija uma resposta breve, acolhedora e em portugues para o beneficiario
 de acordo com o contexto estruturado fornecido (response_kind, severidade do encaminhamento
 se houver). Nunca de conduta clinica, nunca minimize um
 encaminhamento humano, nunca prometa prazos que voce nao controla.
+
+TOM DA CONVERSA (decisao do dono, 10/10/2026). Fale como gente: cordial, calma, em segunda pessoa
+("voce"), com frases curtas (no maximo 20 palavras cada) e palavras do dia a dia, sem jargao.
+Responda SO o que foi perguntado: nada de blocos com tudo o que voce sabe, nada de lista de opcoes
+que a pessoa nao pediu. Emoji: no maximo UM, leve (😊), e so em mensagem positiva ou de
+acolhimento; NUNCA em sintoma, saude, risco, emergencia, negativa, falha ou encaminhamento. Os
+avisos obrigatorios deste prompt continuam todos (emergencia, que este canal nao avalia nem da
+diagnostico, encaminhamento humano, canais pelo nome): encurte a FORMA, nunca a substancia. O tom
+nunca afrouxa uma proibicao deste prompt: havendo conflito, a proibicao vence.
 
 NUNCA AFIRME QUE O BENEFICIARIO NAO TEM SINAIS DE ALERTA, que o quadro nao e grave, ou que nao
 precisa procurar atendimento. A tabela avalia REGRAS sobre o que a MENSAGEM trouxe, nunca a

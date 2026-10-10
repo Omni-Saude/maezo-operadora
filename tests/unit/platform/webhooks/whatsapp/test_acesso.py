@@ -218,11 +218,11 @@ def test_revogar_variantes(texto: str) -> None:
 
 def test_texto_de_consentimento_exato_e_sha() -> None:
     assert ac.TEXTO_CONSENTIMENTO.startswith("Olá! Sou a assistente da Austa Clínicas.")
-    assert ac.TEXTO_CONSENTIMENTO.endswith("pelo aplicativo ou pelo portal do plano.")
+    assert ac.TEXTO_CONSENTIMENTO.endswith("pelo aplicativo Austa Clínicas ou pelo portal do plano.")
     import hashlib
 
     assert hashlib.sha256(ac.TEXTO_CONSENTIMENTO.encode("utf-8")).hexdigest() == ac.SHA256_TEXTO_CONSENTIMENTO
-    assert ac.VERSAO_TEXTO_CONSENTIMENTO == "wa-consent-v1"
+    assert ac.VERSAO_TEXTO_CONSENTIMENTO == "wa-consent-v2"
 
 
 # --------------------------------------------------------------------------- consentimento
@@ -230,7 +230,7 @@ async def test_primeira_mensagem_qualquer_conteudo_pede_consentimento(amb: Ambie
     d = await amb.msg("meu plano esta ativo?")
     assert d.respostas == (ac.TEXTO_CONSENTIMENTO,) and not d.prosseguir
     assert d.novo.estado == ac.SEM_CONSENTIMENTO
-    assert d.novo.texto_versao == "wa-consent-v1" and d.novo.texto_sha256 == ac.SHA256_TEXTO_CONSENTIMENTO
+    assert d.novo.texto_versao == "wa-consent-v2" and d.novo.texto_sha256 == ac.SHA256_TEXTO_CONSENTIMENTO
 
 
 async def test_primeira_mensagem_aceito_tambem_recebe_o_texto(amb: Ambiente) -> None:
@@ -269,11 +269,11 @@ async def test_telefone_unico_e_cpf_confere_verifica_e_registra_consentimento(am
     assert len(amb.consent.chamadas) == 1
     c = amb.consent.chamadas[0]
     assert c["ref"] == REF and c["decision"] == "granted" and c["scope"] == "atendimento_whatsapp"
-    assert c["channel"] == "whatsapp" and c["consent_text_version"] == "wa-consent-v1"
+    assert c["channel"] == "whatsapp" and c["consent_text_version"] == "wa-consent-v2"
     assert c["consent_text_sha256"] == ac.SHA256_TEXTO_CONSENTIMENTO
     assert c["decided_at"] == "2026-10-08T12:00:00Z"
     assert c["idempotency_key"] == ac.chave_de_idempotencia(
-        CONV, "wa-consent-v1", "granted", d.novo.consentido_em
+        CONV, "wa-consent-v2", "granted", d.novo.consentido_em
     )  # type: ignore[arg-type]
     assert d.novo.consent_ref == "consent-1" and not d.novo.consentimento_pendente_gravacao
 
@@ -569,17 +569,23 @@ def test_hasher_nao_expoe_a_chave_nem_aceita_formato_ruim() -> None:
 
 
 def test_textos_fixos_sao_exatamente_os_do_dono() -> None:
+    """Os textos do tom humanizado (DL-0087, 10/10/2026). A substancia obrigatoria de cada um e' cobrada
+    tambem em `test_tom_humanizado.py`, que nao depende da redacao exata."""
     t = ac.textos_fixos()
-    assert t["pedido_cpf"] == "Obrigada! Agora, para confirmar que é você, digite o seu CPF (apenas números)."
-    assert t["cpf_invalido"] == "Esse CPF não parece válido. Confira e digite de novo."
-    assert t["pedido_nascimento"] == "Para sua segurança, digite também sua data de nascimento (dd/mm/aaaa)."
-    assert t["verificado"] == "Tudo certo, identificamos você. Como posso ajudar?"
-    assert t["falha_conferencia"] == "Não consegui confirmar seus dados. Confira e tente de novo."
-    assert t["bloqueado"] == "Não consegui confirmar a sua identidade. Vou encaminhar você para um atendente."
-    assert t["bloqueado_curto"] == "Seu atendimento foi encaminhado a um atendente."
+    assert t["pedido_cpf"] == "Obrigada! Para confirmar que é você, me envie seu CPF (só os números)."
+    assert t["cpf_invalido"] == "Esse CPF não parece válido. Pode conferir e enviar de novo?"
+    assert t["pedido_nascimento"] == "Por segurança, me envie também sua data de nascimento (dd/mm/aaaa)."
+    assert t["verificado"] == "Pronto, já confirmei que é você 😊 Em que posso ajudar?"
+    assert t["falha_conferencia"] == "Não consegui confirmar seus dados. Pode conferir e tentar de novo?"
+    assert t["bloqueado"] == (
+        "Não consegui confirmar que é você. Vou passar seu atendimento para alguém da nossa equipe."
+    )
+    assert t["bloqueado_curto"] == "Seu atendimento já foi passado para alguém da nossa equipe."
     assert (
         t["indisponivel"]
-        == "No momento não consegui confirmar seus dados. Tente novamente em alguns minutos."
+        == "Não consegui confirmar seus dados agora. Tente de novo em alguns minutos, por favor."
     )
-    assert t["emergencia"] == "Se for uma emergência, ligue 192 (SAMU) ou vá ao pronto-socorro mais próximo."
-    assert t["revogado"].endswith("Se quiser voltar a conversar, escreva ACEITO.")
+    assert t["emergencia"] == (
+        "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
+    )
+    assert t["revogado"].endswith("Se quiser voltar a conversar, é só escrever ACEITO.")

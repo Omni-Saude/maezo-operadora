@@ -448,11 +448,13 @@ RESUMO_REVOGACAO_PENDENTE = (
 #: 21/09/2026: a primeira oracao tinha 21 palavras contra o limite de 20 da propria regua de
 #: clareza da Helena (`EVL-HELENA-CLAREZA-*.clarity.max_words_per_sentence`) — quebrada em duas,
 #: sem mudar o conteudo. Ver a nota igual em `RESPOSTA_HANDOFF_RECUSADA`.
+#: DL-0087 (10/10/2026, tom humanizado): mesma substancia (falha, ninguem acionado, tente de novo,
+#: emergencia), frases mais curtas e em primeira pessoa. Ver `docs/guia-de-tom-dos-agentes.md`.
 RESPOSTA_FALHA_TECNICA_START: str = (
-    "Nao consegui registrar seu atendimento agora por uma falha tecnica no nosso sistema. "
-    "Por isso nenhum atendente foi acionado ainda. Por favor, envie sua mensagem novamente "
-    "em alguns minutos. Se voce estiver passando por uma emergencia, procure o servico de "
-    "emergencia mais proximo."
+    "Tive uma falha técnica e não consegui registrar seu atendimento agora. "
+    "Por isso, nenhum atendente foi acionado ainda. Envie sua mensagem de novo em alguns "
+    "minutos, por favor. Se você estiver passando por uma emergência, procure o serviço de "
+    "emergência mais próximo."
 )
 
 #: 21/09/2026 (segunda rodada, achado CRITICO): o texto quando a REDACAO nao aconteceu — o
@@ -478,9 +480,9 @@ RESPOSTA_FALHA_TECNICA_START: str = (
 #: ABREM processo ela nao e' a ultima palavra: `respond` ve' que um humano foi acionado e que o
 #: texto nao menciona o encaminhamento, e a troca por `RESPOSTA_HANDOFF_RECUSADA` acontece la'.
 RESPOSTA_FALHA_DE_REDACAO: str = (
-    "Recebemos sua mensagem. Nao consegui preparar a resposta agora por uma falha tecnica. "
-    "Por favor, envie sua mensagem novamente em alguns minutos. Se voce estiver passando por "
-    "uma emergencia, procure o servico de emergencia mais proximo."
+    "Recebi sua mensagem, mas tive uma falha técnica e não consegui responder agora. "
+    "Envie de novo em alguns minutos, por favor. Se você estiver passando por "
+    "uma emergência, procure o serviço de emergência mais próximo."
 )
 
 #: RECUSA DE SAIDA (13/09/2026): o texto de handoff quando o proprio rascunho de `escalate` foi
@@ -493,9 +495,9 @@ RESPOSTA_FALHA_DE_REDACAO: str = (
 #: `EVL-HELENA-CLAREZA-0{1,3}.clarity.max_words_per_sentence`. Uma constante que a propria regua da
 #: Helena reprova nao pode ser a saida honesta dela. O CONTEUDO nao mudou.
 RESPOSTA_HANDOFF_RECUSADA: str = (
-    "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saude. "
-    "Um profissional vai dar continuidade ao seu atendimento. Se voce estiver passando por uma "
-    "emergencia, procure o servico de emergencia mais proximo."
+    "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saúde. "
+    "Um profissional vai continuar o seu atendimento. Se você estiver passando por uma "
+    "emergência, procure o serviço de emergência mais próximo."
 )
 
 #: CRITICO 1 DA BATERIA DE 22/09/2026: o texto de um turno `inform` cujo RASCUNHO foi barrado por
@@ -519,10 +521,10 @@ RESPOSTA_HANDOFF_RECUSADA: str = (
 #: orientar o assunto, nao convida a seguir conversando e NAO abre processo. A unica porta aberta e'
 #: a de sempre: quem pede uma pessoa cai no gatilho 3 de `classify`, em qualquer assunto.
 RESPOSTA_FORA_DO_CANAL: str = (
-    "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você "
-    "para a equipe de saúde. Esse assunto não é tratado aqui. Se quiser falar com uma pessoa "
-    "da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço "
-    "de emergência mais próximo."
+    "Esse assunto eu não consigo resolver por aqui. Sou a Helena, navegadora de saúde: cuido de "
+    "sintomas e de encaminhar você para a equipe de saúde. Se quiser falar com uma pessoa da "
+    "equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço de "
+    "emergência mais próximo."
 )
 
 #: SINTOMA SEM BANDEIRA (01/10/2026): o texto fixo de um turno `inform` cujo sintoma a tabela de red
@@ -586,12 +588,14 @@ RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL: str = (
 #: dele: primeira vez, o cartao (que diz o que o canal faz — o mesmo escopo do DL-0052); depois, uma
 #: frase curta. A frase de abertura NAO diz que o canal "orienta duvidas administrativas": desde o
 #: DL-0052 esse assunto recebe `RESPOSTA_FORA_DO_CANAL`, e o cartao antigo prometia o contrario.
+#: DL-0087 (10/10/2026): tom humanizado; o emoji leve so' na saudacao curta e na despedida. O cartao de
+#: abertura fala de sintomas e de encaminhamento, entao fica sem emoji.
 RESPOSTA_SAUDACAO_ABERTURA: str = (
-    "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você "
-    "para a equipe de saúde. Como posso ajudar?"
+    "Olá! Sou a Helena, navegadora de saúde. Por aqui eu cuido de sintomas e de encaminhar você "
+    "para a equipe de saúde. Em que posso ajudar?"
 )
-RESPOSTA_SAUDACAO_CURTA: str = "Olá! Como posso te ajudar?"
-RESPOSTA_DESPEDIDA: str = "De nada! Se precisar de algo, é só me chamar."
+RESPOSTA_SAUDACAO_CURTA: str = "Olá! Em que posso ajudar? 😊"
+RESPOSTA_DESPEDIDA: str = "Por nada! Se precisar, é só me chamar 😊"
 
 #: A DESPEDIDA E' DETECTADA POR VOCABULARIO FECHADO, e e' conservadora de proposito: a mensagem
 #: inteira tem de ser agradecimento ou adeus. Um falso positivo engoliria um pedido ("obrigado, e
@@ -632,10 +636,10 @@ def _texto_de_escalonamento(motivo: MotivoCategoria | None, severidade: Severida
 
 
 RESPOSTA_INFORM_RECUSADA: str = (
-    "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. "
-    "Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma "
-    "pessoa, escreva isso na proxima mensagem. Se voce estiver passando por uma emergencia, "
-    "procure o servico de emergencia mais proximo."
+    "Recebi sua mensagem, mas não consegui preparar uma resposta agora. "
+    "Pode me contar com mais detalhes o que está acontecendo? Se quiser falar com uma "
+    "pessoa, é só escrever isso na próxima mensagem. Se você estiver passando por uma emergência, "
+    "procure o serviço de emergência mais próximo."
 )
 
 #: RECUSA DE SAIDA (13/09/2026): o `error` do turno em que o texto redigido pelo modelo foi
@@ -760,9 +764,9 @@ def _humano_acionado(estado: Mapping[str, Any]) -> bool:
 #: encaminhamento novo. Ela nao cita identificador nenhum e nao promete prazo (o SLA vive na
 #: instancia que ja' existe, e este turno nao sabe quanto dela ja' correu).
 RESPOSTA_HANDOFF_JA_ABERTO: str = (
-    "Recebemos sua mensagem. Seu atendimento com a nossa equipe de saude ja esta aberto e "
-    "continua em andamento. Por isso nao abri outro atendimento. Se voce estiver passando por "
-    "uma emergencia, procure o servico de emergencia mais proximo."
+    "Recebi sua mensagem. Seu atendimento com a nossa equipe de saúde já está aberto e "
+    "segue em andamento, por isso não abri outro. Se você estiver passando por "
+    "uma emergência, procure o serviço de emergência mais próximo."
 )
 
 #: F1, o outro lado: o texto quando o rascunho prometeu um humano e NINGUEM foi acionado neste
@@ -770,9 +774,9 @@ RESPOSTA_HANDOFF_JA_ABERTO: str = (
 #: mentir: diz o que NAO aconteceu e como a pessoa consegue um humano na proxima mensagem (que e'
 #: verdade: `intent=human_request` e' o gatilho 3 de `classify`).
 RESPOSTA_SEM_ENCAMINHAMENTO: str = (
-    "Recebemos sua mensagem. Nao abri atendimento com a nossa equipe neste momento. Se voce "
-    "quiser falar com uma pessoa, escreva isso na proxima mensagem. Se voce estiver passando por "
-    "uma emergencia, procure o servico de emergencia mais proximo."
+    "Recebi sua mensagem. Não abri atendimento com a nossa equipe agora. Se quiser falar "
+    "com uma pessoa, é só escrever isso na próxima mensagem. Se você estiver passando por "
+    "uma emergência, procure o serviço de emergência mais próximo."
 )
 
 #: F1: o `error` do turno em que o texto prometia um humano que este turno nao acionou. TOKEN DE
@@ -836,7 +840,8 @@ ERRO_HANDOFF_RECUSADO: str = "handoff recusado"
 #: FIXO, sem modelo, sujeito a revisao do Diretor de Tecnologia (plano §7, pergunta 1). Nao promete
 #: humano, nao cita canal e nao opina sobre saude — o veredito das cercas de saida esta' fixado em
 #: `tests/unit/agents/corpus_cercas_de_saida.json`.
-FRASE_PASSAGEM_COBRANCA: str = "Vou te passar para o atendimento de cobrança."
+#: DL-0087 (10/10/2026): tom humanizado, sem emoji (cobranca pode ser assunto de atraso ou suspensao).
+FRASE_PASSAGEM_COBRANCA: str = "Vou chamar quem cuida da parte financeira."
 #: `response_kind` do turno que passou a conversa ao Lucas.
 RESPONSE_KIND_HANDOFF: str = "handoff"
 #: Desfechos do turno de passagem. Declarados tambem em `runtime/turn_telemetry.py` (vocabulario da
@@ -929,15 +934,17 @@ NOME_OPERADORA_PADRAO: str = "Austa Clínicas"
 #:   * primeiro contato, numero reconhecido -> `RESPOSTA_AVISO_IDENTIDADE_RECONHECIDA_MODELO`;
 #:   * pergunta "sabe quem sou eu?", numero reconhecido -> `RESPOSTA_PERGUNTA_IDENTIDADE_RECONHECIDA_MODELO`;
 #:   * numero nao encontrado (primeiro contato E pergunta) -> `RESPOSTA_IDENTIDADE_NAO_ENCONTRADA`.
+#: DL-0087 (10/10/2026): reescritos no tom humanizado; a substancia do DL-0078 (so' o fato "reconheci /
+#: nao encontrei", nenhum dado pessoal pelo WhatsApp) nao muda.
 RESPOSTA_AVISO_IDENTIDADE_RECONHECIDA_MODELO: str = (
-    "Reconheci este número no cadastro de beneficiários da {operadora}. "
+    "Olá! Este número está no cadastro de beneficiários da {operadora}. "
     "Por segurança, não mostro dados pessoais por aqui."
 )
 RESPOSTA_PERGUNTA_IDENTIDADE_RECONHECIDA_MODELO: str = (
-    "Este número está cadastrado para um beneficiário da {operadora}. "
-    "Por segurança, não mostro nome nem dados pelo WhatsApp."
+    "Sim, este número está no cadastro de beneficiários da {operadora}. "
+    "Por segurança, não mostro nome nem dados por aqui."
 )
-RESPOSTA_IDENTIDADE_NAO_ENCONTRADA: str = "Não encontrei este número no cadastro de beneficiários."
+RESPOSTA_IDENTIDADE_NAO_ENCONTRADA: str = "Não encontrei este número no nosso cadastro de beneficiários."
 
 
 def texto_aviso_de_identidade(desfecho: object, *, nome_operadora: str = NOME_OPERADORA_PADRAO) -> str | None:

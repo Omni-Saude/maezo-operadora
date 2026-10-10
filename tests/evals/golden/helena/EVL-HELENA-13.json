@@ -25,7 +25,7 @@
     "fields": {
       "escalation_motivo": "falha_tecnica",
       "escalation_severidade": null,
-      "response_text": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saude. Um profissional vai dar continuidade ao seu atendimento. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo."
+      "response_text": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saúde. Um profissional vai continuar o seu atendimento. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo."
     }
   },
   "leak_canaries": []
