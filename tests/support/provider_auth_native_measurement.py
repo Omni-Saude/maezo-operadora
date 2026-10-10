@@ -32,7 +32,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from tests.support import provider_auth_native_runtime as runtime
 
-PROTOCOL_SCHEMA_SHA256 = "d55733ba7703f39c7c71f13da0eb20f14825cbff03c1106894aae610423cebfe"
+PROTOCOL_SCHEMA_SHA256 = "0040920e8960d56e2652758919b04f41c888676813d81170419dcbc4cbf06742"
 MAX_BYTES = 2097152
 MAX_FRAME = 32768
 SESSION_KEYS = (
