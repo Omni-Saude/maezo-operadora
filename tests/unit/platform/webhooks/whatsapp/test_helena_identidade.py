@@ -436,10 +436,10 @@ async def test_despachante_resolve_uma_vez_por_conversa() -> None:
 # --- DL-0078: o desfecho fechado e o aviso de identidade ------------------------------------------
 
 _AVISO_RECONHECIDO = (
-    "Reconheci este número no cadastro de beneficiários da Austa Clínicas. "
+    "Olá! Este número está no cadastro de beneficiários da Austa Clínicas. "
     "Por segurança, não mostro dados pessoais por aqui."
 )
-_NAO_ENCONTRADO = "Não encontrei este número no cadastro de beneficiários."
+_NAO_ENCONTRADO = "Não encontrei este número no nosso cadastro de beneficiários."
 
 
 async def _desfecho(ident: hi.IdentidadeHelena, conversa: str = "wa:amh:hk1_x") -> hi.ResultadoIdentidade:

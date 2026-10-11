@@ -250,11 +250,11 @@ _IDENT = {
 @pytest.mark.parametrize(
     ("pergunta", "esperado"),
     [
-        ("meu plano está ativo?", "Seu plano está ativo, com vigência de 01/01/2025 até 31/12/2026."),
-        ("qual a vigência do meu plano", "O seu plano consta com vigência de 01/01/2025 até 31/12/2026."),
+        ("meu plano está ativo?", "Sim, seu plano está ativo, com vigência de 01/01/2025 até 31/12/2026."),
+        ("qual a vigência do meu plano", "Seu plano está com vigência de 01/01/2025 até 31/12/2026."),
         ("tenho carência?", "Consta no seu cadastro que não há carência vigente."),
         ("qual minha faixa etária", "A sua faixa etária no cadastro é: adulto (18 a 59 anos)."),
-        ("sabe quem sou eu?", "Sim: você foi identificado como beneficiário da Austa Clínicas."),
+        ("sabe quem sou eu?", "Sim! Você já foi identificado como beneficiário da Austa Clínicas 😊"),
     ],
 )
 async def test_helena_responde_dados_do_plano_por_modelo_fixo(
@@ -285,7 +285,7 @@ async def test_cadastro_indisponivel_responde_frase_fixa(monkeypatch: pytest.Mon
     d, _, _ = _montar(identidade=None)
     await _verificar(d)
     r = await d.dispatch(_m("meu plano esta ativo?", 9))
-    assert "não consegui consultar o seu cadastro" in r["response_text"]
+    assert "Não consegui consultar seu cadastro" in r["response_text"]
 
 
 async def test_nova_verificacao_invalida_o_cache_da_identidade(monkeypatch: pytest.MonkeyPatch) -> None:

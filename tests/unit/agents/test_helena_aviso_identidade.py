@@ -53,16 +53,17 @@ from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
-#: OS TEXTOS DO DONO, LITERAIS (07/10/2026). Nao derivar das constantes: e' o que se quer provar.
+#: OS TEXTOS DO DONO, LITERAIS (07/10/2026; tom humanizado do DL-0087, 10/10/2026). Nao derivar das
+#: constantes: e' o que se quer provar.
 AVISO_RECONHECIDO = (
-    "Reconheci este número no cadastro de beneficiários da Austa Clínicas. "
+    "Olá! Este número está no cadastro de beneficiários da Austa Clínicas. "
     "Por segurança, não mostro dados pessoais por aqui."
 )
 PERGUNTA_RECONHECIDO = (
-    "Este número está cadastrado para um beneficiário da Austa Clínicas. "
-    "Por segurança, não mostro nome nem dados pelo WhatsApp."
+    "Sim, este número está no cadastro de beneficiários da Austa Clínicas. "
+    "Por segurança, não mostro nome nem dados por aqui."
 )
-NAO_ENCONTRADO = "Não encontrei este número no cadastro de beneficiários."
+NAO_ENCONTRADO = "Não encontrei este número no nosso cadastro de beneficiários."
 
 #: Uma identidade com valores DISTINTIVOS, para provar que nenhum deles chega ao texto enviado.
 IDENTIDADE = {

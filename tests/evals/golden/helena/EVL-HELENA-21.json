@@ -30,7 +30,7 @@
     "fields": {
       "intent": "cobranca",
       "response_kind": "handoff",
-      "response_text": "Vou te passar para o atendimento de cobrança.",
+      "response_text": "Vou chamar quem cuida da parte financeira.",
       "handoff": {
         "para": "lucas",
         "cobranca_subtipo": "boleto_2via",

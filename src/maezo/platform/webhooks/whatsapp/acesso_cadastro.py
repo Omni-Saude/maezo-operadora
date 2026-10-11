@@ -34,9 +34,10 @@ TIPO_VIGENCIA: Final[str] = "vigencia"
 TIPO_CARENCIA: Final[str] = "carencia"
 TIPO_FAIXA: Final[str] = "faixa_etaria"
 
-RESPOSTA_QUEM_SOU_EU: Final[str] = "Sim: você foi identificado como beneficiário da Austa Clínicas."
+#: DL-0087 (10/10/2026): tom humanizado; mesma substancia (identificado como beneficiario, nenhum dado).
+RESPOSTA_QUEM_SOU_EU: Final[str] = "Sim! Você já foi identificado como beneficiário da Austa Clínicas 😊"
 RESPOSTA_CADASTRO_INDISPONIVEL: Final[str] = (
-    "No momento não consegui consultar o seu cadastro. Tente novamente em alguns minutos."
+    "Não consegui consultar seu cadastro agora. Tente de novo em alguns minutos, por favor."
 )
 RESPOSTA_SEM_INFORMACAO: Final[str] = "Não encontrei essa informação no seu cadastro."
 
@@ -123,13 +124,13 @@ def resposta_de_cadastro(tipo: str, identidade: Mapping[str, Any] | None) -> str
         ativo = identidade.get("plano_ativo")
         if ativo is True:
             vigencia = _vigencia(identidade)
-            return f"Seu plano está ativo, {vigencia}." if vigencia else "Seu plano está ativo."
+            return f"Sim, seu plano está ativo, {vigencia}." if vigencia else "Sim, seu plano está ativo."
         if ativo is False:
             return "Seu plano não consta como ativo no cadastro."
         return RESPOSTA_SEM_INFORMACAO
     if tipo == TIPO_VIGENCIA:
         vigencia = _vigencia(identidade)
-        return f"O seu plano consta {vigencia}." if vigencia else RESPOSTA_SEM_INFORMACAO
+        return f"Seu plano está {vigencia}." if vigencia else RESPOSTA_SEM_INFORMACAO
     if tipo == TIPO_CARENCIA:
         carencia = identidade.get("carencia_vigente")
         if carencia is True:

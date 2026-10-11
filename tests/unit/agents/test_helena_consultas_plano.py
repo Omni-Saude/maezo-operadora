@@ -414,7 +414,7 @@ def test_fatos_nunca_levam_nome_nem_valor_nao_mascarado() -> None:
 
 def test_versoes_da_consulta_estao_no_mapa_de_prompts() -> None:
     assert PROMPT_VERSIONS["classify_consultas"] == "classify-consultas-v1"
-    assert PROMPT_VERSIONS["consulta_plano"] == "consulta-plano-v1"
+    assert PROMPT_VERSIONS["consulta_plano"] == "consulta-plano-v2"
 
 
 def test_literal_do_cadastro_nunca_e_apagado_dentro_de_outra_palavra() -> None:

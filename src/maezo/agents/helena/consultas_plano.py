@@ -46,7 +46,8 @@ SUBTIPOS_REDIGIDOS: Final[frozenset[str]] = frozenset({"elegibilidade", "carteir
 #: Versao do ADENDO do classify (anexado ao classify v5/v6 SO' com as consultas ligadas) e do prompt
 #: de redacao da resposta com fatos. As duas entram em `graph.PROMPT_VERSIONS` e no `agent.yaml`.
 CLASSIFY_CONSULTAS_ADENDO_VERSION: Final[str] = "classify-consultas-v1"
-CONSULTA_PLANO_PROMPT_VERSION: Final[str] = "consulta-plano-v1"
+#: v2 — 10/10/2026 (DL-0087): regra 7, o tom humanizado (curto, cordial, so' o perguntado, sem emoji).
+CONSULTA_PLANO_PROMPT_VERSION: Final[str] = "consulta-plano-v2"
 
 #: Quantas requisicoes/carencias vao ao texto. O agente conversa, nao exporta (contrato: 1..50).
 LIMITE_REQUISICOES: Final[int] = 5
@@ -58,13 +59,14 @@ MAX_CHARS_RESPOSTA: Final[int] = 1200
 #: `RESPOSTA_FORA_DO_CANAL`, ja' aprovada pelas cercas); quem pede uma pessoa cai no gatilho 3 do
 #: classify (SP-OP-ESCALATION-001, `solicitacao_humano`) no turno seguinte.
 RESPOSTA_CONSULTA_SEM_IDENTIDADE: Final[str] = (
-    "Não consegui confirmar seus dados por aqui, então não consigo consultar as informações do seu "
-    "plano neste canal. Se quiser falar com uma pessoa da equipe, é só me pedir."
+    "Não consegui confirmar seus dados, então não consigo ver as informações do seu plano por "
+    "aqui. Se quiser falar com uma pessoa da equipe, é só me pedir."
 )
-#: Fecho da resposta com fatos: o que o fato E' (cadastro) e a mesma oferta de pessoa.
+#: Fecho da resposta com fatos: o que o fato E' (cadastro) e a mesma oferta de pessoa. DL-0087: mais curto,
+#: mesma substancia (cadastro, nao confirma cobertura nem autorizacao, oferta de pessoa).
 _FECHO: Final[str] = (
-    "Essas informações são o que consta no cadastro do plano e não confirmam cobertura nem "
-    "autorização de nenhum procedimento. Se quiser falar com uma pessoa da equipe, é só me pedir."
+    "Essas informações são do cadastro do plano e não confirmam cobertura nem autorização de "
+    "procedimento. Se quiser falar com uma pessoa da equipe, é só me pedir."
 )
 
 
@@ -100,7 +102,7 @@ Autorizacao NEGADA com pedido de explicacao ("por que negaram?") continua "outsi
 nunca explica uma negativa. Cobranca, boleto e mensalidade NUNCA sao "consulta_plano". Uma mensagem
 com QUALQUER sinal de saude segue as regras de saude, e pedir uma pessoa continua "human_request"."""
 
-#: Instrucao de redacao da resposta com fatos (`consulta-plano-v1`).
+#: Instrucao de redacao da resposta com fatos (`consulta-plano-v2`).
 _PROMPT_CONSULTA: Final[
     str
 ] = """Tarefa: responda a pergunta do beneficiario sobre o PROPRIO plano usando SOMENTE os fatos
@@ -119,7 +121,10 @@ REGRAS (todas obrigatorias):
 5. Nao diga que vai encaminhar, registrar, atualizar ou acompanhar nada. Termine dizendo que, se a
    pessoa quiser falar com uma pessoa da equipe, e' so' pedir.
 6. Status de autorizacao: repita o status exatamente como esta' no bloco, dizendo que e' o que consta
-   no cadastro."""
+   no cadastro.
+7. Tom (decisao do dono, 10/10/2026): cordial, calmo e direto, em segunda pessoa ("voce"). Responda
+   SO' o assunto perguntado, sem despejar os outros fatos do bloco. Sem emoji. O tom nunca afrouxa as
+   regras 1 a 6."""
 
 
 def consulta_prompt(*, subtipo: str, fatos: Mapping[str, Any], bloco_mensagem: str) -> str:

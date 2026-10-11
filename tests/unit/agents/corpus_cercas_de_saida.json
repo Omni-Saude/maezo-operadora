@@ -914,7 +914,7 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem. Seu atendimento com a nossa equipe de saude ja esta aberto e continua em andamento. Por isso nao abri outro atendimento. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebi sua mensagem. Seu atendimento com a nossa equipe de saúde já está aberto e segue em andamento, por isso não abri outro. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "escalate",
       "start_aconteceu": true,
       "origem": "constante — handoff ja aberto (mencao obrigatoria)",
@@ -925,7 +925,7 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saude. Um profissional vai dar continuidade ao seu atendimento. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saúde. Um profissional vai continuar o seu atendimento. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "escalate",
       "start_aconteceu": true,
       "origem": "constante — handoff recusado (mencao obrigatoria)",
@@ -936,7 +936,7 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem. Nao abri atendimento com a nossa equipe neste momento. Se voce quiser falar com uma pessoa, escreva isso na proxima mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebi sua mensagem. Não abri atendimento com a nossa equipe agora. Se quiser falar com uma pessoa, é só escrever isso na próxima mensagem. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante — nada foi aberto (nao pode mencionar)",
@@ -947,7 +947,7 @@
       }
     },
     {
-      "texto": "Nao consegui registrar seu atendimento agora por uma falha tecnica no nosso sistema. Por isso nenhum atendente foi acionado ainda. Por favor, envie sua mensagem novamente em alguns minutos. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Tive uma falha técnica e não consegui registrar seu atendimento agora. Por isso, nenhum atendente foi acionado ainda. Envie sua mensagem de novo em alguns minutos, por favor. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "escalate",
       "start_aconteceu": false,
       "origem": "constante — o start falhou",
@@ -958,7 +958,7 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem. Nao consegui preparar a resposta agora por uma falha tecnica. Por favor, envie sua mensagem novamente em alguns minutos. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebi sua mensagem, mas tive uma falha técnica e não consegui responder agora. Envie de novo em alguns minutos, por favor. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante — a redacao falhou",
@@ -1376,7 +1376,7 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma pessoa, escreva isso na proxima mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebi sua mensagem, mas não consegui preparar uma resposta agora. Pode me contar com mais detalhes o que está acontecendo? Se quiser falar com uma pessoa, é só escrever isso na próxima mensagem. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_INFORM_RECUSADA (bateria 22/09, CRITICO 1)",
@@ -1387,7 +1387,7 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma pessoa, escreva isso na proxima mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebi sua mensagem, mas não consegui preparar uma resposta agora. Pode me contar com mais detalhes o que está acontecendo? Se quiser falar com uma pessoa, é só escrever isso na próxima mensagem. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "constante RESPOSTA_INFORM_RECUSADA no rascunho (bateria 22/09, CRITICO 1)",
@@ -1442,7 +1442,7 @@
       }
     },
     {
-      "texto": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Esse assunto não é tratado aqui. Se quiser falar com uma pessoa da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
+      "texto": "Esse assunto eu não consigo resolver por aqui. Sou a Helena, navegadora de saúde: cuido de sintomas e de encaminhar você para a equipe de saúde. Se quiser falar com uma pessoa da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "DL-0052 (01/10/2026): RESPOSTA_FORA_DO_CANAL, texto fixo para assunto fora de saude",
@@ -1453,7 +1453,7 @@
       }
     },
     {
-      "texto": "Vou te passar para o atendimento de cobrança.",
+      "texto": "Vou chamar quem cuida da parte financeira.",
       "rota": "handoff",
       "start_aconteceu": false,
       "origem": "constante FRASE_PASSAGEM_COBRANCA (onda e do numero unico, ADR-0062; plano §2.4): a rota real da frase, `respond` sem start",
@@ -1464,7 +1464,7 @@
       }
     },
     {
-      "texto": "Vou te passar para o atendimento de cobrança.",
+      "texto": "Vou chamar quem cuida da parte financeira.",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "constante FRASE_PASSAGEM_COBRANCA (onda e do numero unico, ADR-0062; plano §2.4): a mesma frase julgada como `inform`, para provar que o veredito nao depende da rota nova",
@@ -1651,7 +1651,7 @@
       }
     },
     {
-      "texto": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Como posso ajudar?",
+      "texto": "Olá! Sou a Helena, navegadora de saúde. Por aqui eu cuido de sintomas e de encaminhar você para a equipe de saúde. Em que posso ajudar?",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "DL-0065 (01/10/2026): RESPOSTA_SAUDACAO_ABERTURA, cartao de abertura fixo (primeira saudacao)",
@@ -1662,7 +1662,7 @@
       }
     },
     {
-      "texto": "Olá! Como posso te ajudar?",
+      "texto": "Olá! Em que posso ajudar? 😊",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "DL-0065 (01/10/2026): RESPOSTA_SAUDACAO_CURTA, saudacao depois de a Helena ja ter se apresentado",
@@ -1673,7 +1673,7 @@
       }
     },
     {
-      "texto": "De nada! Se precisar de algo, é só me chamar.",
+      "texto": "Por nada! Se precisar, é só me chamar 😊",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "DL-0065 (01/10/2026): RESPOSTA_DESPEDIDA, resposta a agradecimento ou adeus",
@@ -1684,7 +1684,7 @@
       }
     },
     {
-      "texto": "Reconheci este número no cadastro de beneficiários da {operadora}. Por segurança, não mostro dados pessoais por aqui.",
+      "texto": "Olá! Este número está no cadastro de beneficiários da {operadora}. Por segurança, não mostro dados pessoais por aqui.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_AVISO_IDENTIDADE_RECONHECIDA_MODELO (DL-0078, 07/10/2026): o modelo do aviso de primeiro contato, numero reconhecido",
@@ -1695,7 +1695,7 @@
       }
     },
     {
-      "texto": "Reconheci este número no cadastro de beneficiários da Austa Clínicas. Por segurança, não mostro dados pessoais por aqui.",
+      "texto": "Olá! Este número está no cadastro de beneficiários da Austa Clínicas. Por segurança, não mostro dados pessoais por aqui.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_AVISO_IDENTIDADE_RECONHECIDA_MODELO (DL-0078) renderizada com o nome padrao: o texto exato ditado pelo dono",
@@ -1706,7 +1706,7 @@
       }
     },
     {
-      "texto": "Este número está cadastrado para um beneficiário da {operadora}. Por segurança, não mostro nome nem dados pelo WhatsApp.",
+      "texto": "Sim, este número está no cadastro de beneficiários da {operadora}. Por segurança, não mostro nome nem dados por aqui.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_PERGUNTA_IDENTIDADE_RECONHECIDA_MODELO (DL-0078, 07/10/2026): o modelo da resposta a 'sabe quem sou eu?', numero reconhecido",
@@ -1717,7 +1717,7 @@
       }
     },
     {
-      "texto": "Este número está cadastrado para um beneficiário da Austa Clínicas. Por segurança, não mostro nome nem dados pelo WhatsApp.",
+      "texto": "Sim, este número está no cadastro de beneficiários da Austa Clínicas. Por segurança, não mostro nome nem dados por aqui.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_PERGUNTA_IDENTIDADE_RECONHECIDA_MODELO (DL-0078) renderizada com o nome padrao: o texto exato ditado pelo dono",
@@ -1728,7 +1728,7 @@
       }
     },
     {
-      "texto": "Não encontrei este número no cadastro de beneficiários.",
+      "texto": "Não encontrei este número no nosso cadastro de beneficiários.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_IDENTIDADE_NAO_ENCONTRADA (DL-0078, 07/10/2026): numero sem candidato na AMH, primeiro contato e pergunta",
@@ -1739,7 +1739,7 @@
       }
     },
     {
-      "texto": "Não consegui confirmar seus dados por aqui, então não consigo consultar as informações do seu plano neste canal. Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "texto": "Não consegui confirmar seus dados, então não consigo ver as informações do seu plano por aqui. Se quiser falar com uma pessoa da equipe, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_CONSULTA_SEM_IDENTIDADE (DL de fatos do plano, 07/10/2026): consulta do plano sem identidade resolvida ou com a AMH indisponivel",

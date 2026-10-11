@@ -514,7 +514,7 @@ def test_o_prompt_manda_repetir_o_nome_do_canal_em_cada_mencao() -> None:
     assert "o portal do plano mostra a mesma lista" in texto, (
         "a instrucao mostra a forma CERTA e a errada lado a lado — sem o exemplo ela e' abstrata"
     )
-    assert RESPONSE_PROMPT_VERSION == "response-v10", (
+    assert RESPONSE_PROMPT_VERSION == "response-v11", (
         "o texto do prompt mudou: a versao sobe no MESMO commit, e `agent.yaml` com ela "
         "(test_helena_dono_declarado.py compara os dois)"
     )

@@ -78,9 +78,9 @@ _RESPOND_TEXT = "A central de atendimento do plano atende duvidas administrativa
 #: beneficiary through a `return` placed BEFORE the output fences, which in an `inform` turn (no
 #: process, no queue, nobody calling) is the C1 defect with no model in the loop.
 _HELENA_RESPOND_LLM_FALLBACK_TEXT = (
-    "Recebemos sua mensagem. Nao consegui preparar a resposta agora por uma falha tecnica. "
-    "Por favor, envie sua mensagem novamente em alguns minutos. Se voce estiver passando por "
-    "uma emergencia, procure o servico de emergencia mais proximo."
+    "Recebi sua mensagem, mas tive uma falha técnica e não consegui responder agora. "
+    "Envie de novo em alguns minutos, por favor. Se você estiver passando por "
+    "uma emergência, procure o serviço de emergência mais próximo."
 )
 
 _CASE: dict[str, Any] = {
