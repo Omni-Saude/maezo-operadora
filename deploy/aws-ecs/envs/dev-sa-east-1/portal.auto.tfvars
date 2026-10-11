@@ -181,6 +181,12 @@ portal = {
     "18.229.179.240/32",
     "18.229.54.212/32",
     "18.231.13.66/32",
+    // [10/10/2026] cognito-idp.sa-east-1.amazonaws.com (JWKS da validacao da sessao) mudou de enderecos:
+    // medido de dentro do SG do portal, "Network is unreachable" para os tres; callback "Nao foi possivel validar
+    // a sessao" (5a rotacao). Correcao definitiva (sem IP fixo) em avaliacao.
+    "52.67.142.58/32",
+    "52.67.89.216/32",
+    "54.233.100.143/32",
     // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.ecr.api (vpce-0f200a15dbd1824ec).
     "10.40.40.27/32",
     "10.40.41.104/32",
