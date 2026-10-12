@@ -33,6 +33,7 @@ from maezo.agents.lucas.graph import (
 from maezo.agents.lucas.prompts import (
     MESSAGE_PROMPT_VERSION,
     RECUSA_BOLETO_SEM_FATO,
+    SEGUNDA_VIA_TEXTO_VERSION,
     VENCIMENTO_PROMPT_VERSION,
     motivo_de_recusa,
 )
@@ -363,36 +364,117 @@ def test_boleto_no_texto_so_aceita_rotulo_mascarado(rotulo: object, esperado: st
     assert boleto_no_texto(rotulo) == esperado
 
 
-async def test_rascunho_do_modelo_com_asterisco_sai_como_boleto_final() -> None:
-    """Rota de rascunho (boleto/2a via): o modelo ve' o boleto ja' como "final 0037" e, se ainda escrever
-    o rotulo mascarado, ele vira "final 0037" antes da cerca."""
-    estado = _estado(
-        "boleto",
-        status_conciliado=True,
+#: A rota de rascunho que restou (lembrete de vencimento SEM fatos por competencia). Desde 10/10/2026 boleto e
+#: 2a via sao texto fixo; a apresentacao "boleto final NNNN" do rascunho continua provada aqui.
+def _estado_de_rascunho() -> LucasState:
+    return _estado(
+        "vencimento",
+        status_conciliado=False,
         ciclos_sem_conciliacao=0,
         numero_boleto="****0037",
         cnab_ref="amh-billing:2026-10-08",
     )
+
+
+async def test_rascunho_do_modelo_com_asterisco_sai_como_boleto_final() -> None:
+    """Rota de rascunho (lembrete sem fatos por competencia): o modelo ve' o boleto ja' como "final 0037" e,
+    se ainda escrever o rotulo mascarado, ele vira "final 0037" antes da cerca."""
     final, envio, inferencia = await _turno(
-        estado, "Seu boleto **0037 está disponível no portal do beneficiário."
+        _estado_de_rascunho(), "Lembrete: seu boleto **0037 vence em breve."
     )
-    assert envio.textos == ["Seu boleto final 0037 está disponível no portal do beneficiário."]
+    assert envio.textos == ["Lembrete: seu boleto final 0037 vence em breve."]
     [(_, prompt)] = inferencia.prompts
     assert "final 0037" in prompt and "****0037" not in prompt
     assert final["mensagem"]["fatos"]["numero_boleto"] == "****0037"  # o fato guarda o rotulo mascarado
 
 
 async def test_rascunho_com_boleto_que_nao_esta_nos_fatos_e_recusado() -> None:
-    estado = _estado(
-        "boleto",
-        status_conciliado=True,
-        ciclos_sem_conciliacao=0,
-        numero_boleto="****0037",
-        cnab_ref="amh-billing:2026-10-08",
-    )
-    final, envio, _ = await _turno(estado, "Seu boleto final 9999 está disponível no portal.")
+    final, envio, _ = await _turno(_estado_de_rascunho(), "Lembrete: seu boleto final 9999 vence em breve.")
     assert envio.textos == [RESPOSTA_INFORMATIVA_RECUSADA]
     assert final["mensagem"]["recusa_de_saida"] is True
+
+
+# --- 2a via em TEXTO FIXO (teste real do dono, 10/10/2026) -------------------------------------------
+#
+# "Preciso da segunda via do boleto" -> o rascunho do modelo: "Ola! Seu pagamento do boleto final 0037 foi
+# identificado e conciliado em nossos registros. Caso precise da 2a via, voce pode obte-la pelo nosso portal
+# ou aplicativo do plano." Agora: canais confirmados + situacao da mensalidade de referencia + data da fonte.
+
+_CANAIS = (
+    "Para a 2ª via do boleto, use o aplicativo Austa Clínicas, o portal do plano ou a central de "
+    "atendimento do plano."
+)
+
+
+async def _segunda_via(estado: LucasState, hoje: date = _HOJE) -> tuple[dict[str, Any], str]:
+    final, envio, inferencia = await _turno(estado, "Olá! Rascunho que nunca pode sair.", hoje)
+    assert inferencia.prompts == [], "nenhum modelo redige a 2a via"
+    assert final["route"] == "respond_member"
+    assert final["admissibilidade"] == "RESPONDER"
+    assert final["process_started"] is False
+    assert final["desfecho"] == "resposta_informativa_enviada"
+    assert final["mensagem"]["prompt_version"] == SEGUNDA_VIA_TEXTO_VERSION == "segunda-via-v1-texto-fixo"
+    assert final["mensagem"]["recusa_de_saida"] is False
+    [texto] = envio.textos
+    assert texto.startswith(_CANAIS)
+    assert "Olá" not in texto and "*" not in texto
+    normalizado = texto.lower()
+    for proibido in ("portal do beneficiário", "aplicativo do plano", "conciliad", "linha digitável", "envi"):
+        assert proibido not in normalizado, proibido
+    fatos_da_cerca = final["mensagem"]["fatos"] | {"dados_de": "2026-10-08"}
+    assert motivo_de_recusa(texto, "mensagem", fatos_da_cerca) is None
+    return final, texto
+
+
+@pytest.mark.parametrize("tipo", ["2a_via", "boleto"])
+async def test_segunda_via_com_fatos_tudo_pago_diz_a_mais_recente_paga(tipo: str) -> None:
+    _, texto = await _segunda_via(_estado(tipo, **_FATOS_DO_TESTE_REAL))
+    assert texto == (
+        f"{_CANAIS} A mensalidade mais recente (10/2026, boleto final 0037) já está paga. {_FECHO}"
+    )
+
+
+async def test_segunda_via_com_mensalidade_em_aberto_nao_vencida_diz_o_vencimento() -> None:
+    _, texto = await _segunda_via(
+        _estado(
+            "2a_via", **_fatos(_em_aberto(), _OUTUBRO, status_conciliado=False, valor_em_aberto="8389.53")
+        )
+    )
+    assert texto == f"{_CANAIS} A mensalidade de 11/2026 (boleto final 0042) vence em 25/11/2026. {_FECHO}"
+
+
+async def test_segunda_via_do_mes_pedido_fala_daquele_mes() -> None:
+    _, texto = await _segunda_via(_estado("2a_via", competencia="2026-09", **_FATOS_DO_TESTE_REAL))
+    assert texto == f"{_CANAIS} A mensalidade de 09/2026 (boleto final 2578) já está paga. {_FECHO}"
+
+
+async def test_segunda_via_em_aberto_com_data_passada_nao_afirma_atraso() -> None:
+    _, texto = await _segunda_via(
+        _estado("2a_via", **_fatos(_em_aberto(), status_conciliado=False, valor_em_aberto="8389.53")),
+        hoje=date(2026, 11, 26),
+    )
+    assert texto == _CANAIS
+
+
+async def test_segunda_via_sem_fatos_so_os_canais() -> None:
+    """Sem fatos por competencia (simulada, flag desligada, fonte fora) o texto fixo e' so' a linha dos
+    canais: nenhum modelo, nenhuma situacao, nenhuma data."""
+    final, texto = await _segunda_via(
+        _estado(
+            "2a_via",
+            status_conciliado=True,
+            ciclos_sem_conciliacao=0,
+            numero_boleto="****0037",
+            cnab_ref="amh-billing:2026-10-08",
+        )
+    )
+    assert texto == _CANAIS
+    assert final["mensagem"]["fatos"]["competencias"] == []
+
+
+async def test_segunda_via_sem_fato_nenhum_so_os_canais() -> None:
+    _, texto = await _segunda_via(_estado("2a_via"))
+    assert texto == _CANAIS
 
 
 def test_cerca_confere_os_digitos_da_forma_nova() -> None:

@@ -677,3 +677,4 @@ def test_a_versao_do_prompt_de_valores_esta_exportada() -> None:
 
     assert PROMPT_VERSIONS["valores"] == VERSOES_DO_GRAFO["valores"] == "valores-v3-texto-fixo"
     assert PROMPT_VERSIONS["vencimento"] == VERSOES_DO_GRAFO["vencimento"] == "vencimento-v1-texto-fixo"
+    assert PROMPT_VERSIONS["segunda_via"] == VERSOES_DO_GRAFO["segunda_via"] == "segunda-via-v1-texto-fixo"

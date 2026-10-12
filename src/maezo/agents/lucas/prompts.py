@@ -43,6 +43,11 @@ VALORES_PROMPT_VERSION = "valores-v3-texto-fixo"
 #: Resposta FIXA a "quando vence?" (`graph.py::texto_vencimento`, 09/10/2026): com os fatos por competencia
 #: do billing-status, nenhum modelo redige o vencimento. Sem os fatos, o lembrete de antes (`message`).
 VENCIMENTO_PROMPT_VERSION = "vencimento-v1-texto-fixo"
+#: Resposta FIXA a boleto/2a via com `admissibilidade=RESPONDER` (`graph.py::texto_segunda_via`, 10/10/2026):
+#: no teste real do dono o rascunho do modelo comecou com "Ola!" no meio da conversa e misturou conciliacao
+#: com a 2a via. Agora: os canais confirmados + a situacao da mensalidade de referencia quando os fatos
+#: por competencia existem + a data da fonte. Sem modelo, com ou sem fatos.
+SEGUNDA_VIA_TEXTO_VERSION = "segunda-via-v1-texto-fixo"
 
 SYSTEM_PROMPT = """Voce e Lucas, um navegador de atendimento e cobranca ao beneficiario de um
 plano de saude brasileiro. Seu papel e responder duvidas de boleto/2a via/vencimento, informar o
@@ -587,4 +592,5 @@ PROMPT_VERSIONS: dict[str, str] = {
     "recusa_de_saida": RECUSA_DE_SAIDA_VERSION,
     "valores": VALORES_PROMPT_VERSION,
     "vencimento": VENCIMENTO_PROMPT_VERSION,
+    "segunda_via": SEGUNDA_VIA_TEXTO_VERSION,
 }

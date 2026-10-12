@@ -25,6 +25,7 @@ import yaml
 
 from maezo.agents.lucas.graph import (
     ACK_ESCALACAO,
+    SEGUNDA_VIA_CANAIS,
     AdmissibilidadeCobranca,
     Intencao,
     LucasGraph,
@@ -309,9 +310,9 @@ async def test_j1_full_turn_sends_whatsapp_never_starts_process() -> None:
     assert result["route"] == "respond_member"
     assert result["mensagem_enviada"] is True
     assert result["desfecho"] == "resposta_informativa_enviada"
-    assert [(to_hash, text) for to_hash, text, _key in sender.sent] == [
-        ("deadbeef", "Aqui esta a 2a via do seu boleto.")
-    ]
+    # 10/10/2026: a 2a via e' TEXTO FIXO (canais confirmados), sem rascunho do modelo.
+    assert [(to_hash, text) for to_hash, text, _key in sender.sent] == [("deadbeef", SEGUNDA_VIA_CANAIS)]
+    assert inference.calls == []
     # §Delta W4-HYGIENE F1: conversation + node + TURN. The turn component is a digest, so the
     # assertion pins the stable prefix and, separately, that a per-turn component exists at all.
     assert sender.sent[0][2].startswith("ESC-amh-wa:amh:deadbeef:respond_member:")
