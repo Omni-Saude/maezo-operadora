@@ -134,10 +134,28 @@ async def test_a_segunda_via_sai_em_texto_fixo_sem_o_rascunho_do_modelo(caso_id:
     grafo, gravador = _grafo()
     resultado = await executar_caso(grafo, gravador, caso, indice=0, execucao="offline")
     texto = resultado["mensagem"]
-    assert texto.startswith("Para a 2ª via do boleto, use o aplicativo Austa Clínicas, o portal do plano")
+    assert texto.startswith("Você consegue a 2ª via pelo aplicativo Austa Clínicas, pelo portal do plano")
     assert "Recebemos sua mensagem" not in texto and not texto.startswith("Olá")
     if caso_id == "L34":
-        assert "A mensalidade mais recente (09/2026, boleto final 4821) já está paga." in texto
+        # O ano so' aparece quando nao e' o de hoje (DL-0087); a bateria roda com o relogio real.
+        assert "A mensalidade de setembro" in texto and "já está paga." in texto
+
+
+@pytest.mark.parametrize(
+    ("caso_id", "esperado"),
+    [
+        ("L35", "você não teve coparticipação: R$ 0,00."),
+        ("L36", "Você pagou a mensalidade de agosto em 09/08"),
+    ],
+)
+async def test_a_pergunta_de_valor_responde_so_o_campo_perguntado(caso_id: str, esperado: str) -> None:
+    """DL-0087: com o foco do handoff, a resposta e' so' o campo perguntado (nada de extrato)."""
+    caso = next(c for c in CASOS if c["id"] == caso_id)
+    grafo, gravador = _grafo()
+    resultado = await executar_caso(grafo, gravador, caso, indice=0, execucao="offline")
+    texto = resultado["mensagem"]
+    assert esperado in texto
+    assert "boleto" not in texto and "saldo" not in texto
 
 
 async def test_a_saida_traz_a_narrativa_do_dossie_truncada() -> None:

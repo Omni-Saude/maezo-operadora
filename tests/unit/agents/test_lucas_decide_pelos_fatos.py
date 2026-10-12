@@ -17,12 +17,14 @@ O que este arquivo prova, contra o grafo real e as DMN DRAFT lidas do XML (`DmnD
 from __future__ import annotations
 
 import unicodedata
+from datetime import date
 from typing import Any
 
 import pytest
 
 from maezo.agents.lucas.graph import (
     ACK_ESCALACAO,
+    GARANTIA_SEM_DECISAO,
     RESPOSTA_INFORMATIVA_RECUSADA,
     LucasGraph,
     LucasState,
@@ -42,6 +44,9 @@ _RASCUNHO_DO_INCIDENTE = (
 )
 
 _FATOS_AMH: dict[str, Any] = {"numero_boleto": "****7869", "cnab_ref": "amh-billing:2026-07-28"}
+
+#: "Hoje" dos testes: o ano decide se a data vai com ano (DL-0087, "28/07" no mesmo ano).
+_HOJE = date(2026, 10, 10)
 
 
 class _Inferencia:
@@ -102,6 +107,7 @@ async def _turno(estado: LucasState) -> tuple[dict[str, Any], _Envio, _Inferenci
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
         whatsapp=envio,
+        hoje=lambda: _HOJE,
     )
     final = dict(await grafo.compile_graph().compile().ainvoke(estado))
     return final, envio, inferencia
@@ -118,11 +124,10 @@ async def test_fato_conciliado_responde_em_dia_sem_processo_sem_modelo_e_sem_ina
     assert final["motivo_humano"] == ""
     assert final["dossier"] == {}
     assert envio.textos == [
-        "Consultei aqui: o pagamento da sua mensalidade (boleto final 7869) consta como conciliado, então "
-        "ela está em dia. Essa informação é conforme os dados de 28/07/2026."
+        "Está tudo em dia! O pagamento da sua última mensalidade já foi confirmado. (dados de 28/07)"
     ]
-    # 09/10/2026: o WhatsApp come asterisco (negrito) — o boleto vai uma vez so', sem asterisco.
-    assert "*" not in envio.textos[0] and envio.textos[0].count("boleto") == 1
+    # DL-0087: o boleto so' quando e' util — aqui nao e'; e nunca com asterisco.
+    assert "*" not in envio.textos[0] and "boleto" not in envio.textos[0]
     assert "inadimpl" not in _sem_acento(envio.textos[0])
     assert inferencia.task_kinds == [], "com o fato dizendo tudo, nenhum modelo redige a resposta"
     assert final["mensagem"]["recusa_de_saida"] is False
@@ -139,8 +144,9 @@ async def test_ciclos_em_aberto_seguem_a_escalacao_de_sempre_com_ack_fixo_sem_ac
     assert final["process_started"] is True
     assert list(final["dmn_refs"]) == ["lucas_billing_admissibility", "lucas_escalation_routing"]
     assert envio.textos == [
-        "Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado (boleto final "
-        "7869). Essa informação é conforme os dados de 28/07/2026. " + ACK_ESCALACAO
+        "Vi aqui uma mensalidade ainda sem pagamento confirmado (boleto final 7869). Vou passar para alguém "
+        "da nossa equipe, que vai te responder por aqui. Fique tranquilo: nenhuma decisão sobre o seu plano "
+        "foi tomada. (dados de 28/07)"
     ]
     assert "*" not in envio.textos[0]
     assert "inadimpl" not in _sem_acento(envio.textos[0])
@@ -161,9 +167,7 @@ async def test_fonte_indisponivel_diz_que_nao_conseguiu_consultar_e_escala_sem_a
     assert final["route"] == "escalate_human"
     assert final["motivo_humano"] == "ambiguidade"
     assert final["process_started"] is True
-    assert envio.textos == [
-        "No momento não consegui consultar a situação da sua mensalidade. " + ACK_ESCALACAO
-    ]
+    assert envio.textos == ["Agora não consegui consultar a situação da sua mensalidade. " + ACK_ESCALACAO]
 
 
 async def test_em_aberto_sem_ciclo_vencido_nunca_vira_inadimplencia() -> None:
@@ -185,8 +189,9 @@ async def test_ack_de_cancelamento_e_o_texto_fixo_neutro() -> None:
 
 
 def test_o_ack_neutro_e_o_da_decisao_do_dono() -> None:
-    assert ACK_ESCALACAO.startswith(
-        "Vou encaminhar sua solicitação de cobrança para um atendente, que vai entrar em contato."
+    assert ACK_ESCALACAO == (
+        "Vou passar sua dúvida para alguém da nossa equipe, que vai te responder por aqui. "
+        "Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada."
     )
     assert "inadimpl" not in _sem_acento(ACK_ESCALACAO)
     assert "detectad" not in _sem_acento(ACK_ESCALACAO)
@@ -204,15 +209,15 @@ def test_o_ack_neutro_e_o_da_decisao_do_dono() -> None:
     ],
 )
 def test_todo_ack_fixo_passa_na_cerca_e_nao_fala_em_inadimplencia(estado: dict[str, Any]) -> None:
-    texto = texto_ack_escalacao(estado)  # type: ignore[arg-type]
+    texto = texto_ack_escalacao(estado, _HOJE)  # type: ignore[arg-type]
     assert motivo_de_recusa(texto, "ack_escalacao", None) is None
     assert "inadimpl" not in _sem_acento(texto)
-    assert texto.endswith(ACK_ESCALACAO)
+    assert GARANTIA_SEM_DECISAO in texto
 
 
 @pytest.mark.parametrize("fatos", [_FATOS_AMH, {}, {"numero_boleto": "SIM-ABC", "cnab_ref": "cnab-sim-1"}])
 def test_a_resposta_em_dia_passa_na_cerca_da_rota_informativa(fatos: dict[str, Any]) -> None:
-    texto = texto_mensalidade_em_dia(_estado(status_conciliado=True, **fatos))
+    texto = texto_mensalidade_em_dia(_estado(status_conciliado=True, **fatos), _HOJE)
     # Rota `mensagem`: nenhuma promessa de humano e nenhum valor monetario. Desde DL-0086 a cerca
     # tambem confere data e boleto com os fatos: o grafo entrega a ela o boleto e a data da fonte
     # (`dados_de`, de `cnab_ref`) que a frase de fechamento cita — os mesmos fatos daqui.
@@ -231,23 +236,23 @@ def test_a_resposta_em_dia_passa_na_cerca_da_rota_informativa(fatos: dict[str, A
             {"numero_boleto": "1234567890", "cnab_ref": "amh-billing:2026-13-40"},
             "",
         ),  # nao mascarado / data invalida
-        (
-            {"numero_boleto": "****1234", "cnab_ref": ""},
-            "Consultei aqui: o pagamento da sua mensalidade (boleto final 1234) consta como conciliado, "
-            "então ela está em dia.",
-        ),
+        ({"numero_boleto": "****1234", "cnab_ref": ""}, ""),  # DL-0087: o boleto nao e' util aqui
         (
             {"cnab_ref": "amh-billing:2026-07-28"},
-            "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia. "
-            "Essa informação é conforme os dados de 28/07/2026.",
+            "Está tudo em dia! O pagamento da sua última mensalidade já foi confirmado. (dados de 28/07)",
+        ),
+        (
+            {"cnab_ref": "amh-billing:2025-12-30"},
+            "Está tudo em dia! O pagamento da sua última mensalidade já foi confirmado. "
+            "(dados de 30/12/2025)",
         ),
     ],
 )
 def test_so_boleto_mascarado_e_data_valida_da_fonte_entram_no_texto(
     fatos: dict[str, Any], esperado: str
 ) -> None:
-    base = "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia."
-    texto = texto_mensalidade_em_dia(_estado(status_conciliado=True, **fatos))
+    base = "Está tudo em dia! O pagamento da sua última mensalidade já foi confirmado."
+    texto = texto_mensalidade_em_dia(_estado(status_conciliado=True, **fatos), _HOJE)
     assert texto == (esperado or base)
 
 

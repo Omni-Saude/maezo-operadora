@@ -22,6 +22,7 @@ citado SO' a competencia mais recente, e "quando vence?" com atraso nos fatos es
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import pytest
@@ -86,7 +87,7 @@ _FATOS_DE_VALOR: dict[str, Any] = {
     "competencias_cobranca": _COMPETENCIAS,
 }
 
-_FECHO = "Essa informação é conforme os dados de 30/09/2026."
+_FECHO = "(dados de 30/09)"
 
 
 class _Inferencia:
@@ -143,6 +144,7 @@ async def _turno(estado: LucasState, rascunho: str) -> tuple[dict[str, Any], _En
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
         whatsapp=envio,
+        hoje=lambda: date(2026, 10, 10),
     )
     final = dict(await grafo.compile_graph().compile().ainvoke(estado))
     return final, envio, inferencia
@@ -359,15 +361,9 @@ def test_fatos_fora_da_forma_sao_descartados_antes_do_modelo() -> None:
 # --- Resposta ponta a ponta -----------------------------------------------------------------------
 
 
-#: 09/10/2026: sem mes citado, SO' a competencia mais recente; total em aberto zerado nao aparece; o
-#: boleto vai uma vez, "boleto final NNNN"; convite para outro mes com o mes anterior da janela.
-_TEXTO_FIXO = (
-    "Consultei aqui os valores do seu plano. "
-    "Competência 09/2026: mensalidade de R$ 8.389,53, coparticipação de R$ 120,00, saldo de R$ 0,00, "
-    "vencimento em 10/09/2026, paga em 08/09/2026, boleto final 4821. "
-    "Se quiser outro mês, é só dizer qual (por exemplo, agosto). "
-    f"{_FECHO}"
-)
+#: DL-0087 (10/10/2026): sem foco no handoff (= `geral`), valor + situacao numa frase, mes por extenso,
+#: datas DD/MM e a data da fonte curta. Sem extrato, sem convite para outro mes, sem boleto.
+_TEXTO_FIXO = f"Sua mensalidade de setembro foi de R$ 8.389,53 e já está paga (você pagou em 08/09). {_FECHO}"
 
 
 async def test_consulta_valores_responde_em_texto_fixo_montado_dos_fatos() -> None:
@@ -380,8 +376,8 @@ async def test_consulta_valores_responde_em_texto_fixo_montado_dos_fatos() -> No
     assert final["process_started"] is False
     assert final["desfecho"] == "resposta_informativa_enviada"
     assert envio.textos == [_TEXTO_FIXO]
-    assert final["mensagem"]["prompt_version"] == VALORES_PROMPT_VERSION == "valores-v3-texto-fixo"
-    assert "*" not in _TEXTO_FIXO and "Boleto de referência" not in _TEXTO_FIXO
+    assert final["mensagem"]["prompt_version"] == VALORES_PROMPT_VERSION == "valores-v4-foco"
+    assert "*" not in _TEXTO_FIXO and "boleto" not in _TEXTO_FIXO
     assert final["mensagem"]["recusa_de_saida"] is False
     assert inferencia.prompts == []
     fatos_da_cerca = final["mensagem"]["fatos"] | {"dados_de": "2026-09-30"}
@@ -394,26 +390,26 @@ async def test_campo_ausente_nao_aparece_e_nada_e_calculado() -> None:
     fatos.pop("valor_em_aberto")
     _, envio, _ = await _turno(_estado(**fatos), "x")
     [texto] = envio.textos
-    assert "Competência 10/2026: mensalidade de R$ 1.234.567,80, em aberto." in texto
-    assert "coparticipação" not in texto and "vencimento" not in texto and "Valor em aberto" not in texto
+    assert texto == f"Sua mensalidade de outubro é de R$ 1.234.567,80. {_FECHO}"
 
 
 async def test_competencia_pedida_restringe_a_resposta_ao_mes_pedido() -> None:
     _, envio, _ = await _turno(_estado(competencia="2026-08", **_FATOS_DE_VALOR), "Ok.")
     [texto] = envio.textos
-    assert texto == (
-        "Consultei aqui os valores do seu plano. Competência 08/2026: mensalidade de R$ 8.269,53, "
-        "coparticipação de R$ 0,00, saldo de R$ 0,00, vencimento em 10/08/2026, paga em 09/08/2026, "
-        f"boleto final 4790. {_FECHO}"
+    assert (
+        texto
+        == f"Sua mensalidade de agosto foi de R$ 8.269,53 e já está paga (você pagou em 09/08). {_FECHO}"
     )
-    assert "Competência 09/2026" not in texto and "8.389,53" not in texto
+    assert "setembro" not in texto and "8.389,53" not in texto
 
 
-async def test_competencia_pedida_ausente_diz_que_nao_achou_e_mostra_as_recentes() -> None:
+async def test_competencia_pedida_ausente_diz_que_nao_achou_e_mostra_a_recente() -> None:
     _, envio, _ = await _turno(_estado(competencia="2025-01", **_FATOS_DE_VALOR), "Ok.")
     [texto] = envio.textos
-    assert texto.startswith("Não encontrei a competência pedida nos dados disponíveis")
-    assert "Competência 09/2026" in texto and "Competência 08/2026" not in texto
+    assert texto == (
+        "Não encontrei a mensalidade de janeiro de 2025 nos dados que tenho. "
+        f"Sua mensalidade de setembro foi de R$ 8.389,53 e já está paga (você pagou em 08/09). {_FECHO}"
+    )
 
 
 async def test_sem_competencia_pedida_vai_so_a_mais_recente() -> None:
@@ -424,13 +420,10 @@ async def test_sem_competencia_pedida_vai_so_a_mais_recente() -> None:
     _, envio, _ = await _turno(_estado(**{**_FATOS_DE_VALOR, "competencias_cobranca": muitas}), "Ok.")
     [texto] = envio.textos
     assert COMPETENCIAS_NO_RASCUNHO == 1
-    assert texto == (
-        "Consultei aqui os valores do seu plano. Competência 07/2026: mensalidade de R$ 700,00, paga. "
-        f"Se quiser outro mês, é só dizer qual (por exemplo, junho). {_FECHO}"
-    )
+    assert texto == f"Sua mensalidade de julho foi de R$ 700,00 e já está paga. {_FECHO}"
 
 
-async def test_sem_competencia_pedida_com_valor_em_aberto_mostra_o_total() -> None:
+async def test_em_aberto_sem_foco_diz_valor_e_vencimento_sem_o_total() -> None:
     aberta = {
         "competencia": "2026-10",
         "situacao": "em_aberto",
@@ -445,14 +438,10 @@ async def test_sem_competencia_pedida_com_valor_em_aberto_mostra_o_total() -> No
         "competencias_cobranca": [aberta, *_COMPETENCIAS],
     }
     _, envio, _ = await _turno(_estado(**fatos), "Ok.")
-    assert envio.textos == [
-        "Consultei aqui os valores do seu plano. Competência 10/2026: mensalidade de R$ 8.389,53, "
-        "vencimento em 25/10/2026, em aberto, boleto final 0037. Valor em aberto na consulta: R$ 8.389,53. "
-        f"Se quiser outro mês, é só dizer qual (por exemplo, setembro). {_FECHO}"
-    ]
+    assert envio.textos == [f"Sua mensalidade de outubro é de R$ 8.389,53, com vencimento em 25/10. {_FECHO}"]
 
 
-async def test_uma_competencia_so_na_janela_nao_convida_para_outro_mes() -> None:
+async def test_nenhuma_resposta_convida_para_outro_mes() -> None:
     fatos = {**_FATOS_DE_VALOR, "competencias_cobranca": _COMPETENCIAS[:1]}
     _, envio, _ = await _turno(_estado(**fatos), "Ok.")
     [texto] = envio.textos
@@ -675,6 +664,6 @@ async def test_lembrete_sem_vencimento_nos_fatos_nao_ganha_a_chave_e_recusa_data
 def test_a_versao_do_prompt_de_valores_esta_exportada() -> None:
     from maezo.agents.lucas.graph import PROMPT_VERSIONS as VERSOES_DO_GRAFO
 
-    assert PROMPT_VERSIONS["valores"] == VERSOES_DO_GRAFO["valores"] == "valores-v3-texto-fixo"
-    assert PROMPT_VERSIONS["vencimento"] == VERSOES_DO_GRAFO["vencimento"] == "vencimento-v1-texto-fixo"
-    assert PROMPT_VERSIONS["segunda_via"] == VERSOES_DO_GRAFO["segunda_via"] == "segunda-via-v1-texto-fixo"
+    assert PROMPT_VERSIONS["valores"] == VERSOES_DO_GRAFO["valores"] == "valores-v4-foco"
+    assert PROMPT_VERSIONS["vencimento"] == VERSOES_DO_GRAFO["vencimento"] == "vencimento-v2-tom"
+    assert PROMPT_VERSIONS["segunda_via"] == VERSOES_DO_GRAFO["segunda_via"] == "segunda-via-v2-tom"

@@ -227,7 +227,7 @@ async def test_o_lucas_recebe_so_o_handoff_tipado_nunca_o_texto() -> None:
     await dispatcher.dispatch(_msg(texto))
     assert espiao is not None
     (handoff,) = espiao.handoffs
-    assert set(handoff) == {"para", "cobranca_subtipo", "competencia", "message_ref"}
+    assert set(handoff) == {"para", "cobranca_subtipo", "competencia", "cobranca_foco", "message_ref"}
     assert "Fulano" not in json.dumps(handoff)
     assert handoff["message_ref"].startswith("hk1_")  # pseudonimo keyed, nunca o wamid cru
     assert "wamid" not in handoff["message_ref"]

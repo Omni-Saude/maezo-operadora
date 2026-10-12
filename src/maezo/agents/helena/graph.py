@@ -157,6 +157,12 @@ from maezo.runtime.caso_clinico import (
     SUFIXO_CASO_CLINICO,
     chave_do_escalonamento,
 )
+from maezo.runtime.cobranca_foco import (
+    FOCO_GERAL,
+    CobrancaFoco,
+    decidir_foco_da_cobranca,
+    foco_valido,
+)
 from maezo.runtime.competencia import (
     competencia_valida,
     hoje_em_brasilia,
@@ -1128,6 +1134,9 @@ class HandoffCobranca(TypedDict):
     para: Literal["lucas"]
     cobranca_subtipo: CobrancaSubtipo
     competencia: str | None
+    #: DL-0087 (10/10/2026): o campo perguntado (`runtime/cobranca_foco.py`), enum fechado decidido
+    #: aqui, onde o texto existe. NAO e' persistido pelo roteador: vive so' neste turno.
+    cobranca_foco: CobrancaFoco
     message_ref: str
 
 
@@ -1187,6 +1196,9 @@ class HelenaState(TypedDict, total=False):
     # dominio fechado. `None` em todo turno que nao e' `intent="cobranca"`.
     cobranca_subtipo: CobrancaSubtipo | None
     cobranca_competencia: str | None
+    #: DL-0087: o foco da pergunta de cobranca (`runtime/cobranca_foco.py`), decidido pelo lexico sobre
+    #: o texto deste turno. `None` em todo turno que nao e' `intent="cobranca"`.
+    cobranca_foco: CobrancaFoco | None
     #: Onda (e): a passagem ao Lucas, escrita SO' pelo no' `handoff_cobranca`.
     handoff: HandoffCobranca | None
     #: CONSULTA DO PLANO (DL de 07/10/2026): o subtipo validado (`None` fora de `consulta_plano`) e os
@@ -1328,6 +1340,7 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "dmn_decision_ref": None,
     "cobranca_subtipo": None,
     "cobranca_competencia": None,
+    "cobranca_foco": None,
     "handoff": None,
     "consulta_subtipo": None,
     "consulta_literais": None,
@@ -2644,6 +2657,10 @@ def _handoff_recusado(estado: Mapping[str, Any], *, roteador_ligado: bool) -> st
     competencia = estado.get("cobranca_competencia")
     if competencia is not None and not competencia_valida(competencia):
         return "competencia_invalida"
+    # DL-0087: foco ausente e' `geral` (o handoff o completa); presente, tem de estar no dominio fechado.
+    foco = estado.get("cobranca_foco")
+    if foco is not None and not foco_valido(foco):
+        return "foco_fora_do_dominio"
     ref = estado.get("message_ref")
     if not isinstance(ref, str) or not ref:
         return "sem_referencia_da_mensagem"
@@ -3086,6 +3103,9 @@ class HelenaGraph:
             if competencia != competencia_do_modelo:
                 logger.info("helena_competencia_ano_resolvido", node="classify")
             update["cobranca_competencia"] = competencia
+            # FOCO DETERMINISTICO (DL-0087, 10/10/2026): o Lucas responde SO' o campo perguntado, e
+            # quem sabe qual e' o texto da pessoa, que o Lucas nao ve'. Lexico pequeno, sem modelo.
+            update["cobranca_foco"] = decidir_foco_da_cobranca(state.get("message_body", ""))
         if intent == INTENT_CONSULTA_PLANO:
             # So' existe com as consultas ligadas (o validador recusa desligado); dominio ja' fechado.
             update["consulta_subtipo"] = extraction.get("consulta_subtipo")
@@ -3214,6 +3234,7 @@ class HelenaGraph:
             update["intent"] = intent
             update["cobranca_subtipo"] = None
             update["cobranca_competencia"] = None
+            update["cobranca_foco"] = None
 
         # PERGUNTA DE IDENTIDADE NAO E' PEDIDO DE HUMANO (23/09/2026, caso `A2`) — ver
         # `_PERGUNTA_DE_IDENTIDADE`. Vira `information`: a resposta honesta ("sou um assistente
@@ -3896,6 +3917,8 @@ class HelenaGraph:
             # Ja' validado em `_validate_extraction` e de novo em `_handoff_recusado` (2 camadas).
             "cobranca_subtipo": cast(CobrancaSubtipo, state.get("cobranca_subtipo")),
             "competencia": state.get("cobranca_competencia"),
+            # Ja' validado em `_handoff_recusado` (dominio fechado de `runtime/cobranca_foco.py`).
+            "cobranca_foco": cast(CobrancaFoco, state.get("cobranca_foco") or FOCO_GERAL),
             "message_ref": str(state.get("message_ref") or ""),
         }
         lucas_ativo = state.get("agente_ativo_conversa") == "lucas"

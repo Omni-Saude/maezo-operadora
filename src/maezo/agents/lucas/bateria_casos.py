@@ -352,7 +352,7 @@ CASOS: list[dict[str, Any]] = [
             processo=False,
             valores_permitidos=True,
         ),
-        "So' os valores/datas dos fatos podem aparecer; fecha com 'conforme os dados de 30/09/2026'.",
+        "So' os valores/datas dos fatos podem aparecer; fecha com '(dados de 30/09)' (DL-0087).",
     ),
     _c(
         "L26",
@@ -365,7 +365,7 @@ CASOS: list[dict[str, Any]] = [
             **_FATOS_DE_VALOR,
         ),
         dict(route="respond_member", processo=False, valores_permitidos=True),
-        "A resposta (texto fixo dos fatos) mostra so' a competencia 2026-08.",
+        "A resposta (texto fixo dos fatos) mostra so' a competencia 2026-08 (foco: geral).",
     ),
     _c(
         "L27",
@@ -450,7 +450,7 @@ CASOS: list[dict[str, Any]] = [
             },
         ),
         dict(route="respond_member", desfecho="lembrete_enviado", processo=False, valores_permitidos=True),
-        "Texto fixo, sem modelo: 'A mensalidade de 11/2026 vence em 25/11/2026, no valor de R$ 8.389,53.' "
+        "Texto fixo, sem modelo: 'A mensalidade de novembro vence em 25/11, no valor de R$ 8.389,53.' "
         "(depois de 25/11/2026 a data ja' passou e sai o 'nao encontrei', sem afirmar atraso).",
     ),
     _c(
@@ -459,8 +459,8 @@ CASOS: list[dict[str, Any]] = [
         "Quando vence? Tudo pago: a mais recente e 'a proxima ainda nao consta'",
         dict(intencao="cobranca_info", tipo_solicitacao="vencimento", **_FATOS_DE_VALOR),
         dict(route="respond_member", desfecho="lembrete_enviado", processo=False),
-        "Texto fixo: 'A mensalidade de 09/2026 venceu em 10/09/2026 e ja' esta' paga (pagamento em "
-        "08/09/2026). A proxima ainda nao consta nos nossos dados.'",
+        "Texto fixo (DL-0087): 'A de setembro venceu em 10/09, e voce ja' pagou. A de outubro ainda nao "
+        "foi gerada. (dados de 30/09)'",
     ),
     _c(
         "L33",
@@ -489,9 +489,38 @@ CASOS: list[dict[str, Any]] = [
         "Pedido de 2a via com fatos por competencia (tudo pago)",
         dict(intencao="cobranca_info", tipo_solicitacao="2a_via", **_FATOS_DE_VALOR),
         dict(route="respond_member", desfecho="resposta_informativa_enviada", processo=False),
-        "Texto fixo, sem modelo: 'Para a 2ª via do boleto, use o aplicativo Austa Clínicas, o portal do "
-        "plano ou a central de atendimento do plano. A mensalidade mais recente (09/2026, boleto final "
-        "4821) ja' esta' paga. Essa informação é conforme os dados de 30/09/2026.' Sem 'Ola!', sem "
-        "conciliacao.",
+        "Texto fixo, sem modelo (DL-0087): 'Você consegue a 2ª via pelo aplicativo Austa Clínicas, pelo "
+        "portal do plano ou pela central de atendimento. A mensalidade de setembro já está paga. (dados de "
+        "30/09)' Sem 'Ola!', sem conciliacao.",
+    ),
+    # --- 10/10/2026 (DL-0087): a pergunta de valor responde SO' o campo perguntado -----------------
+    _c(
+        "L35",
+        VALORES,
+        "Quanto paguei de coparticipacao em agosto? (foco coparticipacao)",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            competencia="2026-08",
+            cobranca_foco="coparticipacao",
+            **_FATOS_DE_VALOR,
+        ),
+        dict(route="respond_member", processo=False, valores_permitidos=True),
+        "Texto fixo: 'Em agosto voce nao teve coparticipacao: R$ 0,00. (dados de 30/09)' — sem mensalidade, "
+        "saldo, vencimento nem boleto.",
+    ),
+    _c(
+        "L36",
+        VALORES,
+        "Quando paguei a mensalidade de agosto? (foco pagamento)",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            competencia="2026-08",
+            cobranca_foco="pagamento",
+            **_FATOS_DE_VALOR,
+        ),
+        dict(route="respond_member", processo=False),
+        "Texto fixo: 'Voce pagou a mensalidade de agosto em 09/08. (dados de 30/09)' — so' a data pedida.",
     ),
 ]

@@ -9,10 +9,11 @@ Transcricao do dono (dev, fonte AMH com os fatos de valor do billing-status):
   5. "Quando vence a proxima mensalidade?" -> o rascunho do MODELO respondeu "Ola! Seu pagamento ... foi
      identificado e conciliado" e nao disse o vencimento.
 
-Decisoes do dono: boleto sempre "boleto final NNNN"; sem mes citado so' a competencia mais recente (mais o
-total em aberto quando > 0) e o convite para outro mes; sem "Boleto de referencia" repetido; vencimento em
-TEXTO FIXO dos fatos por competencia (sem modelo), com "vence"/"venceu" pela data de hoje; sem os fatos,
-o lembrete de antes. Tudo contra o grafo REAL e a DMN DRAFT lida do XML (`DmnDraftLocal`).
+Decisoes do dono: boleto sempre "boleto final NNNN"; sem mes citado so' a competencia mais recente; sem
+"Boleto de referencia" repetido; vencimento em TEXTO FIXO dos fatos por competencia (sem modelo), com
+"vence"/"venceu" pela data de hoje; sem os fatos, o lembrete de antes. DL-0087 (10/10/2026): tom humanizado
+(mes por extenso, DD/MM, "(dados de 08/10)") e a resposta de valor SO' do campo perguntado (`cobranca_foco`).
+Tudo contra o grafo REAL e a DMN DRAFT lida do XML (`DmnDraftLocal`).
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ from tests.evals.lucas.programa import DmnDraftLocal
 from tests.support.audit_fakes import FakeStartAuditSink
 
 _HOJE = date(2026, 10, 9)
-_FECHO = "Essa informação é conforme os dados de 08/10/2026."
+_FECHO = "(dados de 08/10)"
 
 #: Os fatos do teste real (09/10/2026), na forma em que a fonte AMH os entrega (`como_entrada_lucas`).
 _OUTUBRO: dict[str, str] = {
@@ -156,44 +157,41 @@ async def _turno(
 
 # --- As cinco perguntas do teste real ----------------------------------------------------------------
 
-_RESPOSTA_SEM_MES = (
-    "Consultei aqui os valores do seu plano. Competência 10/2026: mensalidade de R$ 8.389,53, "
-    "coparticipação de R$ 0,00, saldo de R$ 0,00, vencimento em 25/10/2026, paga em 06/10/2026, "
-    f"boleto final 0037. Se quiser outro mês, é só dizer qual (por exemplo, setembro). {_FECHO}"
-)
-
 
 @pytest.mark.parametrize(
     ("pergunta", "estado", "esperado"),
     [
         (
             "Qual o valor da minha última mensalidade",
-            _estado("consulta_valores", **_FATOS_DO_TESTE_REAL),
-            _RESPOSTA_SEM_MES,
+            _estado("consulta_valores", cobranca_foco="valor", **_FATOS_DO_TESTE_REAL),
+            f"Sua mensalidade de outubro foi de R$ 8.389,53 e já está paga (você pagou em 06/10). {_FECHO}",
         ),
         (
             "Quando paguei a mensalidade de setembro?",
-            _estado("consulta_valores", competencia="2026-09", **_FATOS_DO_TESTE_REAL),
-            "Consultei aqui os valores do seu plano. Competência 09/2026: mensalidade de R$ 8.389,53, "
-            "coparticipação de R$ 0,00, saldo de R$ 0,00, vencimento em 25/09/2026, paga em 05/09/2026, "
-            f"boleto final 2578. {_FECHO}",
+            _estado(
+                "consulta_valores", competencia="2026-09", cobranca_foco="pagamento", **_FATOS_DO_TESTE_REAL
+            ),
+            f"Você pagou a mensalidade de setembro em 05/09. {_FECHO}",
         ),
         (
             "Quanto paguei de coparticipação este mês?",
-            _estado("consulta_valores", **_FATOS_DO_TESTE_REAL),
-            _RESPOSTA_SEM_MES,
+            _estado(
+                "consulta_valores",
+                competencia="2026-10",
+                cobranca_foco="coparticipacao",
+                **_FATOS_DO_TESTE_REAL,
+            ),
+            f"Em outubro você não teve coparticipação: R$ 0,00. {_FECHO}",
         ),
         (
             "Minha mensalidade está em dia?",
             _estado("status_pagamento", intencao="inadimplencia", **_FATOS_DO_TESTE_REAL),
-            "Consultei aqui: o pagamento da sua mensalidade (boleto final 0037) consta como conciliado, "
-            f"então ela está em dia. {_FECHO}",
+            f"Está tudo em dia! Sua última mensalidade (outubro) já foi paga. {_FECHO}",
         ),
         (
             "Quando vence a próxima mensalidade?",
             _estado("vencimento", **_FATOS_DO_TESTE_REAL),
-            "A mensalidade de 10/2026 vence em 25/10/2026 e já está paga (pagamento em 06/10/2026). "
-            f"A próxima ainda não consta nos nossos dados. {_FECHO}",
+            f"A de outubro vence em 25/10, mas você já pagou. A de novembro ainda não foi gerada. {_FECHO}",
         ),
     ],
     ids=["ultima_mensalidade", "setembro", "coparticipacao_este_mes", "em_dia", "proximo_vencimento"],
@@ -239,39 +237,32 @@ async def test_vencimento_com_competencia_em_aberto_diz_data_e_valor() -> None:
     )
     assert final["admissibilidade"] == "LEMBRETE"
     assert final["desfecho"] == "lembrete_enviado"
-    assert final["mensagem"]["prompt_version"] == VENCIMENTO_PROMPT_VERSION == "vencimento-v1-texto-fixo"
-    assert envio.textos == [
-        f"A mensalidade de 11/2026 vence em 25/11/2026, no valor de R$ 8.389,53. {_FECHO}"
-    ]
+    assert final["mensagem"]["prompt_version"] == VENCIMENTO_PROMPT_VERSION == "vencimento-v2-tom"
+    assert envio.textos == [f"A mensalidade de novembro vence em 25/11, no valor de R$ 8.389,53. {_FECHO}"]
     assert inferencia.prompts == []
 
 
 async def test_vencimento_com_duas_em_aberto_fala_da_mais_antiga() -> None:
     dezembro = _em_aberto(competencia="2026-12", vencimento="2026-12-25", boleto="****0050")
     _, envio, _ = await _turno(_estado("vencimento", **_fatos(dezembro, _em_aberto(), _OUTUBRO)))
-    assert envio.textos == [
-        f"A mensalidade de 11/2026 vence em 25/11/2026, no valor de R$ 8.389,53. {_FECHO}"
-    ]
+    assert envio.textos == [f"A mensalidade de novembro vence em 25/11, no valor de R$ 8.389,53. {_FECHO}"]
 
 
 async def test_vencimento_em_aberto_sem_valor_nos_fatos_nao_cita_valor() -> None:
     sem_valor = {k: v for k, v in _em_aberto().items() if k != "valor_total"}
     _, envio, _ = await _turno(_estado("vencimento", **_fatos(sem_valor)))
-    assert envio.textos == [f"A mensalidade de 11/2026 vence em 25/11/2026. {_FECHO}"]
+    assert envio.textos == [f"A mensalidade de novembro vence em 25/11. {_FECHO}"]
 
 
 async def test_vencimento_vencendo_hoje_diz_vence() -> None:
     _, envio, _ = await _turno(_estado("vencimento", **_fatos(_em_aberto())), hoje=date(2026, 11, 25))
-    assert envio.textos == [
-        f"A mensalidade de 11/2026 vence em 25/11/2026, no valor de R$ 8.389,53. {_FECHO}"
-    ]
+    assert envio.textos == [f"A mensalidade de novembro vence em 25/11, no valor de R$ 8.389,53. {_FECHO}"]
 
 
 async def test_vencimento_tudo_pago_e_data_passada_diz_venceu() -> None:
     _, envio, _ = await _turno(_estado("vencimento", **_FATOS_DO_TESTE_REAL), hoje=date(2026, 10, 30))
     assert envio.textos == [
-        "A mensalidade de 10/2026 venceu em 25/10/2026 e já está paga (pagamento em 06/10/2026). "
-        f"A próxima ainda não consta nos nossos dados. {_FECHO}"
+        f"A de outubro venceu em 25/10, e você já pagou. A de novembro ainda não foi gerada. {_FECHO}"
     ]
 
 
@@ -279,39 +270,36 @@ async def test_vencimento_pago_sem_data_de_pagamento_nao_inventa_a_data() -> Non
     sem_liquidacao = {k: v for k, v in _OUTUBRO.items() if k != "liquidado_em"}
     _, envio, _ = await _turno(_estado("vencimento", **_fatos(sem_liquidacao)))
     assert envio.textos == [
-        "A mensalidade de 10/2026 vence em 25/10/2026 e já está paga. "
-        f"A próxima ainda não consta nos nossos dados. {_FECHO}"
+        f"A de outubro vence em 25/10, mas você já pagou. A de novembro ainda não foi gerada. {_FECHO}"
     ]
 
 
 async def test_vencimento_do_mes_citado_fala_so_daquele_mes() -> None:
     _, envio, _ = await _turno(_estado("vencimento", competencia="2026-09", **_FATOS_DO_TESTE_REAL))
-    assert envio.textos == [
-        f"A mensalidade de 09/2026 venceu em 25/09/2026 e já está paga (pagamento em 05/09/2026). {_FECHO}"
-    ]
+    assert envio.textos == [f"A de setembro venceu em 25/09, e você já pagou. {_FECHO}"]
 
 
 async def test_vencimento_do_mes_citado_ausente_diz_que_nao_achou_e_da_o_proximo() -> None:
     _, envio, _ = await _turno(_estado("vencimento", competencia="2025-01", **_FATOS_DO_TESTE_REAL))
     assert envio.textos == [
-        "Não encontrei a competência pedida nos dados disponíveis. A mensalidade de 10/2026 vence em "
-        "25/10/2026 e já está paga (pagamento em 06/10/2026). A próxima ainda não consta nos nossos dados. "
-        f"{_FECHO}"
+        "Não encontrei a mensalidade de janeiro de 2025 nos dados que tenho. A de outubro vence em 25/10, "
+        f"mas você já pagou. A de novembro ainda não foi gerada. {_FECHO}"
     ]
 
 
 async def test_em_aberto_com_data_passada_nao_afirma_atraso_nem_data() -> None:
     """A fonte ainda diz `em_aberto` (sem `vencida`, `dias_atraso_max=0`), mas a data ja' passou: dizer
-    "venceu" seria afirmar atraso, que e' da DMN. O texto diz que nao achou o vencimento."""
+    "venceu" seria afirmar atraso, que e' da DMN. O texto diz que nao achou o vencimento (DL-0087: sem a
+    data da fonte, que so' acompanha um fato afirmado)."""
     final, envio, _ = await _turno(_estado("vencimento", **_fatos(_em_aberto())), hoje=date(2026, 11, 26))
     assert final["route"] == "respond_member"
-    assert envio.textos == [f"{VENCIMENTO_NAO_ENCONTRADO} {_FECHO}"]
+    assert envio.textos == [VENCIMENTO_NAO_ENCONTRADO]
 
 
 @pytest.mark.parametrize("situacao", ["cancelada", "sem_titulo"])
 async def test_sem_competencia_paga_ou_em_aberto_diz_que_nao_achou(situacao: str) -> None:
     _, envio, _ = await _turno(_estado("vencimento", **_fatos({**_OUTUBRO, "situacao": situacao})))
-    assert envio.textos == [f"{VENCIMENTO_NAO_ENCONTRADO} {_FECHO}"]
+    assert envio.textos == [VENCIMENTO_NAO_ENCONTRADO]
 
 
 async def test_vencimento_sem_fatos_de_valor_mantem_o_lembrete_de_antes() -> None:
@@ -326,7 +314,7 @@ async def test_vencimento_sem_fatos_de_valor_mantem_o_lembrete_de_antes() -> Non
     )
     final, envio, inferencia = await _turno(estado, "Lembrete: confira o vencimento no portal.")
     assert final["admissibilidade"] == "LEMBRETE"
-    assert final["mensagem"]["prompt_version"] == MESSAGE_PROMPT_VERSION == "message-v2"
+    assert final["mensagem"]["prompt_version"] == MESSAGE_PROMPT_VERSION == "message-v3"
     assert [kind for kind, _ in inferencia.prompts] == ["task_default"]
     assert envio.textos == ["Lembrete: confira o vencimento no portal."]
 
@@ -401,8 +389,8 @@ async def test_rascunho_com_boleto_que_nao_esta_nos_fatos_e_recusado() -> None:
 # ou aplicativo do plano." Agora: canais confirmados + situacao da mensalidade de referencia + data da fonte.
 
 _CANAIS = (
-    "Para a 2ª via do boleto, use o aplicativo Austa Clínicas, o portal do plano ou a central de "
-    "atendimento do plano."
+    "Você consegue a 2ª via pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de "
+    "atendimento."
 )
 
 
@@ -413,7 +401,7 @@ async def _segunda_via(estado: LucasState, hoje: date = _HOJE) -> tuple[dict[str
     assert final["admissibilidade"] == "RESPONDER"
     assert final["process_started"] is False
     assert final["desfecho"] == "resposta_informativa_enviada"
-    assert final["mensagem"]["prompt_version"] == SEGUNDA_VIA_TEXTO_VERSION == "segunda-via-v1-texto-fixo"
+    assert final["mensagem"]["prompt_version"] == SEGUNDA_VIA_TEXTO_VERSION == "segunda-via-v2-tom"
     assert final["mensagem"]["recusa_de_saida"] is False
     [texto] = envio.textos
     assert texto.startswith(_CANAIS)
@@ -429,9 +417,7 @@ async def _segunda_via(estado: LucasState, hoje: date = _HOJE) -> tuple[dict[str
 @pytest.mark.parametrize("tipo", ["2a_via", "boleto"])
 async def test_segunda_via_com_fatos_tudo_pago_diz_a_mais_recente_paga(tipo: str) -> None:
     _, texto = await _segunda_via(_estado(tipo, **_FATOS_DO_TESTE_REAL))
-    assert texto == (
-        f"{_CANAIS} A mensalidade mais recente (10/2026, boleto final 0037) já está paga. {_FECHO}"
-    )
+    assert texto == f"{_CANAIS} A mensalidade de outubro já está paga. {_FECHO}"
 
 
 async def test_segunda_via_com_mensalidade_em_aberto_nao_vencida_diz_o_vencimento() -> None:
@@ -440,12 +426,12 @@ async def test_segunda_via_com_mensalidade_em_aberto_nao_vencida_diz_o_venciment
             "2a_via", **_fatos(_em_aberto(), _OUTUBRO, status_conciliado=False, valor_em_aberto="8389.53")
         )
     )
-    assert texto == f"{_CANAIS} A mensalidade de 11/2026 (boleto final 0042) vence em 25/11/2026. {_FECHO}"
+    assert texto == f"{_CANAIS} A mensalidade de novembro (boleto final 0042) vence em 25/11. {_FECHO}"
 
 
 async def test_segunda_via_do_mes_pedido_fala_daquele_mes() -> None:
     _, texto = await _segunda_via(_estado("2a_via", competencia="2026-09", **_FATOS_DO_TESTE_REAL))
-    assert texto == f"{_CANAIS} A mensalidade de 09/2026 (boleto final 2578) já está paga. {_FECHO}"
+    assert texto == f"{_CANAIS} A mensalidade de setembro já está paga. {_FECHO}"
 
 
 async def test_segunda_via_em_aberto_com_data_passada_nao_afirma_atraso() -> None:

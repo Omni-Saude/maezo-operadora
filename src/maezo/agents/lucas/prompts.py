@@ -28,7 +28,9 @@ from maezo.gateway.required_text import ZERO_WIDTH_TRANSLATION
 SYSTEM_PROMPT_VERSION = "system-v1"
 #: v2 (09/10/2026, teste real do dono): o boleto vai ao texto como "boleto final NNNN" — o WhatsApp le'
 #: asteriscos como negrito e comia parte do rotulo mascarado (`****0037` chegava como `**0037`).
-MESSAGE_PROMPT_VERSION = "message-v2"
+#: v3 (10/10/2026, DL-0087): bloco de TOM (so' o que foi perguntado, frases curtas, "voce", canais
+#: permitidos, emoji no maximo um e so' em mensagem positiva). O tom nunca afrouxa uma proibicao.
+MESSAGE_PROMPT_VERSION = "message-v3"
 #: Narrativa do dossie de escalacao. A v1 (`dossier-v1`) era rascunho do modelo sobre fatos com
 #: booleanos, e no dev de 09/10/2026 escreveu "contestacao da cobranca e pedido de cancelamento
 #: registrado" com os dois fatos `False` e "sem pagamento conciliado no CNAB" com a fonte INDISPONIVEL.
@@ -39,15 +41,20 @@ DOSSIE_TEXTO_VERSION = "dossie-texto-fixo-v1"
 #: modelo e a cerca so' conferia se cada quantia PERTENCIA aos fatos, nao a que campo/competencia.
 #: v3 (09/10/2026, teste real do dono): sem mes citado mostra SO' a competencia mais recente (mais o total em
 #: aberto quando ha'), o boleto vira "boleto final NNNN" e sai o "Boleto de referencia" duplicado no fim.
-VALORES_PROMPT_VERSION = "valores-v3-texto-fixo"
+#: v4 (10/10/2026, DL-0087): responde SO' o campo perguntado (`cobranca_foco`, decidido pela Helena sobre o
+#: texto), mes por extenso, datas DD/MM, data da fonte curta "(dados de 08/10)"; sai o convite "outro mes".
+VALORES_PROMPT_VERSION = "valores-v4-foco"
 #: Resposta FIXA a "quando vence?" (`graph.py::texto_vencimento`, 09/10/2026): com os fatos por competencia
 #: do billing-status, nenhum modelo redige o vencimento. Sem os fatos, o lembrete de antes (`message`).
-VENCIMENTO_PROMPT_VERSION = "vencimento-v1-texto-fixo"
+#: v2 (10/10/2026, DL-0087): tom humanizado ("A de outubro vence em 25/10, mas voce ja' pagou."), canais
+#: permitidos na constante de "nao encontrei" (a v1 citava o portal do beneficiario).
+VENCIMENTO_PROMPT_VERSION = "vencimento-v2-tom"
 #: Resposta FIXA a boleto/2a via com `admissibilidade=RESPONDER` (`graph.py::texto_segunda_via`, 10/10/2026):
 #: no teste real do dono o rascunho do modelo comecou com "Ola!" no meio da conversa e misturou conciliacao
 #: com a 2a via. Agora: os canais confirmados + a situacao da mensalidade de referencia quando os fatos
 #: por competencia existem + a data da fonte. Sem modelo, com ou sem fatos.
-SEGUNDA_VIA_TEXTO_VERSION = "segunda-via-v1-texto-fixo"
+#: v2 (10/10/2026, DL-0087): redacao aprovada pelo dono; boleto so' no titulo em aberto.
+SEGUNDA_VIA_TEXTO_VERSION = "segunda-via-v2-tom"
 
 SYSTEM_PROMPT = """Voce e Lucas, um navegador de atendimento e cobranca ao beneficiario de um
 plano de saude brasileiro. Seu papel e responder duvidas de boleto/2a via/vencimento, informar o
@@ -86,6 +93,11 @@ status de conciliacao, admissibilidade). Regras:
   identificado/conciliado, usando exatamente o que os fatos dizem — NUNCA afirme um status que
   nao esteja no fato fornecido.
 - NUNCA comunique uma negativa, suspensao ou cancelamento — isso e sempre de um humano.
+TOM DA CONVERSA (o tom nunca afrouxa uma regra acima; havendo conflito, a proibicao vence):
+- Responda SO o que foi perguntado, em frases curtas, falando com a pessoa como "voce".
+- Sem saudacao no meio da conversa ("Ola!") e sem lista de opcoes que a pessoa nao pediu.
+- Canais, so estes nomes: o aplicativo Austa Clinicas, o portal do plano, a central de atendimento.
+- No maximo um emoji leve, e so em mensagem positiva; nunca em atraso, negativa ou encaminhamento.
 Responda APENAS com o texto da mensagem, sem JSON, sem markdown."""
 
 
@@ -138,12 +150,16 @@ RECUSA_DE_SAIDA_VERSION = "recusa-lucas-v5"
 #: existindo porque o texto continua falando com o beneficiario.
 #:
 #: v3 (09/10/2026): o boleto do ACK de atraso vira "boleto final NNNN" (o WhatsApp come asterisco).
-ESCALATION_ACK_PROMPT_VERSION = "escalation-ack-v3-texto-fixo"
+#: v4 (10/10/2026, DL-0087): "Vou passar sua duvida para alguem da nossa equipe [...]" e a garantia na forma
+#: unica "Fique tranquilo: nenhuma decisao sobre o seu plano foi tomada."; a data da fonte fica curta.
+ESCALATION_ACK_PROMPT_VERSION = "escalation-ack-v4-tom"
 
 #: Versao da resposta FIXA de "mensalidade em dia" (`graph.py::texto_mensalidade_em_dia`, DL-0082):
 #: com os fatos dizendo conciliado e zero ciclos, nenhum modelo redige a resposta.
 #: v2 (09/10/2026): uma unica mencao ao boleto, como "boleto final NNNN" (o WhatsApp come asterisco).
-MENSAGEM_EM_DIA_VERSION = "mensagem-em-dia-v2"
+#: v3 (10/10/2026, DL-0087): "Esta' tudo em dia! Sua ultima mensalidade (outubro) ja' foi paga."
+#: mais a data curta da fonte, "(dados de 08/10)".
+MENSAGEM_EM_DIA_VERSION = "mensagem-em-dia-v3-tom"
 
 #: DESFECHO ADVERSO REVELADO (grupo 1, e o mais grave). PROIBIDO EM TODA ROTA — nao existe rota do
 #: Lucas em que comunicar suspensao, cancelamento, rescisao ou negativa seja legitimo, porque em
