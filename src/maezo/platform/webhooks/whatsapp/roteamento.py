@@ -504,6 +504,17 @@ class ConversaRouter:
             return "helena"
         return atual.agente_ativo
 
+    async def contexto_do_lucas(
+        self, conversation_id: str
+    ) -> tuple[CobrancaSubtipo | None, str | None] | None:
+        """O ASSUNTO e o MES da ultima resposta do Lucas (`lucas_cobranca_subtipo`, `lucas_competencia`),
+        para uma pergunta de esclarecimento (`runtime/cobranca_esclarecimento.py`). `None` quando o Lucas
+        nao esta' com a conversa (linha ausente, vencida ou da Helena). So' LEITURA."""
+        atual = await self._store.ler(conversation_id)
+        if atual is None or atual.expira_em < self._relogio() or atual.agente_ativo != "lucas":
+            return None
+        return atual.lucas_cobranca_subtipo, atual.lucas_competencia
+
     def _linha(
         self, conversation_id: str, atual: LinhaAgenteAtivo | None, decisao: Decisao, agora: datetime
     ) -> LinhaAgenteAtivo:

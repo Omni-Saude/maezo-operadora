@@ -127,7 +127,8 @@ def _dm(dia_mes: str) -> str:
 
 
 def _mes(nome: str) -> str:
-    return nome if _hoje_em_brasilia().year == 2026 else f"{nome} de 2026"
+    """O mes como o texto ao beneficiario o escreve: sempre com o ano (teste real de 12/10/2026)."""
+    return f"{nome} de 2026"
 
 
 @pytest.fixture(scope="module")

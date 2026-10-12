@@ -103,7 +103,8 @@ def test_valor() -> None:
     fatos = _fatos(_JULHO, pedida="2026-07", foco="valor")
     texto = texto_valores(_estado(_JULHO), fatos, _HOJE)
     assert texto == (
-        "Sua mensalidade de julho foi de R$ 9.248,38 e já está paga (você pagou em 29/07). (dados de 08/10)"
+        "Sua mensalidade de julho de 2026 foi de R$ 9.248,38 e já está "
+        "paga (você pagou em 29/07). (dados de 08/10)"
     )
     assert _cerca(texto, fatos) is None
 
@@ -122,15 +123,16 @@ def test_quanto_paguei_em_maio_e_valor() -> None:
     maio = {**_JULHO, "competencia": "2026-05", "vencimento": "2026-05-25", "liquidado_em": "2026-05-20"}
     fatos = _fatos(maio, pedida="2026-05", foco="valor")
     assert texto_valores(_estado(maio), fatos, _HOJE) == (
-        "Sua mensalidade de maio foi de R$ 9.248,38 e já está paga (você pagou em 20/05). (dados de 08/10)"
+        "Sua mensalidade de maio de 2026 foi de R$ 9.248,38 e já está "
+        "paga (você pagou em 20/05). (dados de 08/10)"
     )
 
 
 @pytest.mark.parametrize(
     ("copart", "esperado"),
     [
-        ("0.00", "Em outubro você não teve coparticipação: R$ 0,00. (dados de 08/10)"),
-        ("35.10", "Em outubro sua coparticipação foi de R$ 35,10. (dados de 08/10)"),
+        ("0.00", "Em outubro de 2026 você não teve coparticipação: R$ 0,00. (dados de 08/10)"),
+        ("35.10", "Em outubro de 2026 sua coparticipação foi de R$ 35,10. (dados de 08/10)"),
     ],
 )
 def test_coparticipacao(copart: str, esperado: str) -> None:
@@ -143,14 +145,15 @@ def test_coparticipacao(copart: str, esperado: str) -> None:
 
 def test_em_dia() -> None:
     texto = texto_mensalidade_em_dia(_estado(_OUTUBRO, _JULHO), _HOJE)
-    assert texto == "Está tudo em dia! Sua última mensalidade (outubro) já foi paga. (dados de 08/10)"
+    assert texto == "Está tudo em dia! Sua última mensalidade (outubro de 2026) já foi paga. (dados de 08/10)"
 
 
 def test_vencimento_pago_e_a_proxima_nao_gerada() -> None:
     fatos = _fatos(_OUTUBRO)
     texto = texto_vencimento(_estado(_OUTUBRO), fatos, _HOJE)
     assert texto == (
-        "A de outubro vence em 25/10, mas você já pagou. A de novembro ainda não foi gerada. (dados de 08/10)"
+        "A de outubro de 2026 vence em 25/10, mas você já pagou. A de "
+        "novembro de 2026 ainda não foi gerada. (dados de 08/10)"
     )
     assert _cerca(texto, fatos) is None
 
@@ -158,7 +161,9 @@ def test_vencimento_pago_e_a_proxima_nao_gerada() -> None:
 def test_vencimento_em_aberto() -> None:
     fatos = _fatos(_NOVEMBRO)
     texto = texto_vencimento(_estado(_NOVEMBRO), fatos, _HOJE)
-    assert texto == "A mensalidade de novembro vence em 25/11, no valor de R$ 9.248,38. (dados de 08/10)"
+    assert texto == (
+        "A mensalidade de novembro de 2026 vence em 25/11, no valor de R$ 9.248,38. (dados de 08/10)"
+    )
     assert _cerca(texto, fatos) is None
 
 
@@ -196,7 +201,7 @@ def test_segunda_via() -> None:
     texto = texto_segunda_via(_estado(_OUTUBRO), fatos, _HOJE)
     assert texto == (
         "Você consegue a 2ª via pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de "
-        "atendimento. A mensalidade de outubro já está paga. (dados de 08/10)"
+        "atendimento. A mensalidade de outubro de 2026 já está paga. (dados de 08/10)"
     )
     assert _cerca(texto, fatos) is None
 
