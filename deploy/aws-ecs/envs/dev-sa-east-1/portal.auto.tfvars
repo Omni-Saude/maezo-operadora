@@ -152,6 +152,9 @@ portal = {
   // (vpce-09e34704570f7f756, prefix list pl-6aa54003), nao tem ENI e os IPs publicos do
   // bucket `starport` rotacionam. Ele e' liberado por uma regra propria de prefix list em
   // portal-network.tf (`portal_s3_layers`).
+  // [12/10/2026] Os /32 do Cognito abaixo agora sao COMPLEMENTADOS pela rotina automatica
+  // (portal-egresso-cognito-sync.tf, docs/runbooks/portal-egresso-cognito.md): IP rotacionado ganha
+  // regra propria no SG; nao e mais preciso revisar esta lista a cada rotacao.
   https_egress_ipv4_cidrs = [
     // cognito-idp.sa-east-1.amazonaws.com — JWKS do issuer (publico, via NAT).
     "52.67.144.206/32",
