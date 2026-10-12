@@ -450,7 +450,8 @@ CASOS: list[dict[str, Any]] = [
             },
         ),
         dict(route="respond_member", desfecho="lembrete_enviado", processo=False, valores_permitidos=True),
-        "Texto fixo, sem modelo: 'A mensalidade de novembro vence em 25/11, no valor de R$ 8.389,53.' "
+        "Texto fixo, sem modelo: 'A mensalidade de novembro de 2026 "
+        "vence em 25/11, no valor de R$ 8.389,53.' "
         "(depois de 25/11/2026 a data ja' passou e sai o 'nao encontrei', sem afirmar atraso).",
     ),
     _c(
@@ -459,7 +460,8 @@ CASOS: list[dict[str, Any]] = [
         "Quando vence? Tudo pago: a mais recente e 'a proxima ainda nao consta'",
         dict(intencao="cobranca_info", tipo_solicitacao="vencimento", **_FATOS_DE_VALOR),
         dict(route="respond_member", desfecho="lembrete_enviado", processo=False),
-        "Texto fixo (DL-0087): 'A de setembro venceu em 10/09, e voce ja' pagou. A de outubro ainda nao "
+        "Texto fixo (DL-0087): 'A de setembro de 2026 venceu em 10/09, e "
+        "voce ja' pagou. A de outubro de 2026 ainda nao "
         "foi gerada. (dados de 30/09)'",
     ),
     _c(
@@ -490,7 +492,8 @@ CASOS: list[dict[str, Any]] = [
         dict(intencao="cobranca_info", tipo_solicitacao="2a_via", **_FATOS_DE_VALOR),
         dict(route="respond_member", desfecho="resposta_informativa_enviada", processo=False),
         "Texto fixo, sem modelo (DL-0087): 'Você consegue a 2ª via pelo aplicativo Austa Clínicas, pelo "
-        "portal do plano ou pela central de atendimento. A mensalidade de setembro já está paga. (dados de "
+        "portal do plano ou pela central de atendimento. A mensalidade "
+        "de setembro de 2026 já está paga. (dados de "
         "30/09)' Sem 'Ola!', sem conciliacao.",
     ),
     # --- 10/10/2026 (DL-0087): a pergunta de valor responde SO' o campo perguntado -----------------
@@ -506,7 +509,8 @@ CASOS: list[dict[str, Any]] = [
             **_FATOS_DE_VALOR,
         ),
         dict(route="respond_member", processo=False, valores_permitidos=True),
-        "Texto fixo: 'Em agosto voce nao teve coparticipacao: R$ 0,00. (dados de 30/09)' — sem mensalidade, "
+        "Texto fixo: 'Em agosto de 2026 voce nao teve coparticipacao: "
+        "R$ 0,00. (dados de 30/09)' — sem mensalidade, "
         "saldo, vencimento nem boleto.",
     ),
     _c(
@@ -521,6 +525,7 @@ CASOS: list[dict[str, Any]] = [
             **_FATOS_DE_VALOR,
         ),
         dict(route="respond_member", processo=False),
-        "Texto fixo: 'Voce pagou a mensalidade de agosto em 09/08. (dados de 30/09)' — so' a data pedida.",
+        "Texto fixo: 'Voce pagou a mensalidade de agosto de 2026 em "
+        "09/08. (dados de 30/09)' — so' a data pedida.",
     ),
 ]

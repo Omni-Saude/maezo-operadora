@@ -363,7 +363,9 @@ def test_fatos_fora_da_forma_sao_descartados_antes_do_modelo() -> None:
 
 #: DL-0087 (10/10/2026): sem foco no handoff (= `geral`), valor + situacao numa frase, mes por extenso,
 #: datas DD/MM e a data da fonte curta. Sem extrato, sem convite para outro mes, sem boleto.
-_TEXTO_FIXO = f"Sua mensalidade de setembro foi de R$ 8.389,53 e já está paga (você pagou em 08/09). {_FECHO}"
+_TEXTO_FIXO = (
+    f"Sua mensalidade de setembro de 2026 foi de R$ 8.389,53 e já está paga (você pagou em 08/09). {_FECHO}"
+)
 
 
 async def test_consulta_valores_responde_em_texto_fixo_montado_dos_fatos() -> None:
@@ -390,15 +392,14 @@ async def test_campo_ausente_nao_aparece_e_nada_e_calculado() -> None:
     fatos.pop("valor_em_aberto")
     _, envio, _ = await _turno(_estado(**fatos), "x")
     [texto] = envio.textos
-    assert texto == f"Sua mensalidade de outubro é de R$ 1.234.567,80. {_FECHO}"
+    assert texto == f"Sua mensalidade de outubro de 2026 é de R$ 1.234.567,80. {_FECHO}"
 
 
 async def test_competencia_pedida_restringe_a_resposta_ao_mes_pedido() -> None:
     _, envio, _ = await _turno(_estado(competencia="2026-08", **_FATOS_DE_VALOR), "Ok.")
     [texto] = envio.textos
-    assert (
-        texto
-        == f"Sua mensalidade de agosto foi de R$ 8.269,53 e já está paga (você pagou em 09/08). {_FECHO}"
+    assert texto == (
+        f"Sua mensalidade de agosto de 2026 foi de R$ 8.269,53 e já está paga (você pagou em 09/08). {_FECHO}"
     )
     assert "setembro" not in texto and "8.389,53" not in texto
 
@@ -408,7 +409,8 @@ async def test_competencia_pedida_ausente_diz_que_nao_achou_e_mostra_a_recente()
     [texto] = envio.textos
     assert texto == (
         "Não encontrei a mensalidade de janeiro de 2025 nos dados que tenho. "
-        f"Sua mensalidade de setembro foi de R$ 8.389,53 e já está paga (você pagou em 08/09). {_FECHO}"
+        "Sua mensalidade de setembro de 2026 foi de R$ 8.389,53 e já "
+        f"está paga (você pagou em 08/09). {_FECHO}"
     )
 
 
@@ -420,7 +422,7 @@ async def test_sem_competencia_pedida_vai_so_a_mais_recente() -> None:
     _, envio, _ = await _turno(_estado(**{**_FATOS_DE_VALOR, "competencias_cobranca": muitas}), "Ok.")
     [texto] = envio.textos
     assert COMPETENCIAS_NO_RASCUNHO == 1
-    assert texto == f"Sua mensalidade de julho foi de R$ 700,00 e já está paga. {_FECHO}"
+    assert texto == f"Sua mensalidade de julho de 2026 foi de R$ 700,00 e já está paga. {_FECHO}"
 
 
 async def test_em_aberto_sem_foco_diz_valor_e_vencimento_sem_o_total() -> None:
@@ -438,7 +440,9 @@ async def test_em_aberto_sem_foco_diz_valor_e_vencimento_sem_o_total() -> None:
         "competencias_cobranca": [aberta, *_COMPETENCIAS],
     }
     _, envio, _ = await _turno(_estado(**fatos), "Ok.")
-    assert envio.textos == [f"Sua mensalidade de outubro é de R$ 8.389,53, com vencimento em 25/10. {_FECHO}"]
+    assert envio.textos == [
+        f"Sua mensalidade de outubro de 2026 é de R$ 8.389,53, com vencimento em 25/10. {_FECHO}"
+    ]
 
 
 async def test_nenhuma_resposta_convida_para_outro_mes() -> None:

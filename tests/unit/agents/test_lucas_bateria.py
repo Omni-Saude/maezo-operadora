@@ -145,7 +145,7 @@ async def test_a_segunda_via_sai_em_texto_fixo_sem_o_rascunho_do_modelo(caso_id:
     ("caso_id", "esperado"),
     [
         ("L35", "você não teve coparticipação: R$ 0,00."),
-        ("L36", "Você pagou a mensalidade de agosto em 09/08"),
+        ("L36", "Você pagou a mensalidade de agosto de 2026 em 09/08"),
     ],
 )
 async def test_a_pergunta_de_valor_responde_so_o_campo_perguntado(caso_id: str, esperado: str) -> None:
