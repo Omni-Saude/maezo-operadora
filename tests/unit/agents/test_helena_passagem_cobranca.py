@@ -207,6 +207,8 @@ async def test_ligado_cobranca_limpa_passa_ao_lucas_com_a_frase() -> None:
         "para": "lucas",
         "cobranca_subtipo": "boleto_2via",
         "competencia": "2026-09",
+        # DL-0087: "preciso da segunda via do boleto" nao casa nenhum termo do lexico de foco.
+        "cobranca_foco": "geral",
         "message_ref": _REF,
     }
     assert [t for _, t in sender.sent] == [FRASE_PASSAGEM_COBRANCA]
@@ -218,7 +220,13 @@ async def test_ligado_cobranca_limpa_passa_ao_lucas_com_a_frase() -> None:
 async def test_ligado_o_handoff_nao_carrega_texto_do_beneficiario() -> None:
     compilado, _, _ = _grafo(_FakeInference([_json()]))
     resultado = await compilado.ainvoke(_entrada(message_body="boleto 2a via por favor"))
-    assert set(resultado["handoff"]) == {"para", "cobranca_subtipo", "competencia", "message_ref"}
+    assert set(resultado["handoff"]) == {
+        "para",
+        "cobranca_subtipo",
+        "competencia",
+        "cobranca_foco",
+        "message_ref",
+    }
     assert "boleto 2a via" not in json.dumps(resultado["handoff"])
 
 
@@ -339,6 +347,8 @@ async def test_ligado_sem_referencia_da_mensagem_nao_passa() -> None:
         ({"pedido_humano_lexico": True}, "pedido_humano_lexico"),
         ({"cobranca_subtipo": "estorno"}, "subtipo_fora_do_dominio"),
         ({"cobranca_competencia": "2026-9"}, "competencia_invalida"),
+        ({"cobranca_foco": "extrato"}, "foco_fora_do_dominio"),
+        ({"cobranca_foco": 1}, "foco_fora_do_dominio"),
     ],
 )
 def test_handoff_recusado_cobre_cada_precondicao(estado: dict[str, Any], token: str) -> None:
@@ -479,3 +489,25 @@ def test_desfechos_e_rota_estao_no_vocabulario_de_telemetria() -> None:
         "helena"
     ]
     assert RESPONSE_KIND_HANDOFF in turn_telemetry._ROUTE_VOCAB["helena"]
+
+
+# --- DL-0087: o FOCO da pergunta de valor sai do texto, no classify ------------------------------
+
+
+@pytest.mark.parametrize(
+    ("texto", "foco"),
+    [
+        ("qual foi o valor da mensalidade de julho?", "valor"),
+        ("quanto paguei em maio?", "valor"),
+        ("quanto paguei de coparticipação este mês?", "coparticipacao"),
+        ("quanto devo?", "saldo"),
+        ("quando paguei a mensalidade de setembro?", "pagamento"),
+        ("quando vence a mensalidade?", "vencimento"),
+        ("me fala da mensalidade de julho", "geral"),
+    ],
+)
+async def test_o_handoff_leva_o_foco_decidido_pelo_texto(texto: str, foco: str) -> None:
+    compilado, _, _ = _grafo(_FakeInference([_json(cobranca_subtipo="consulta_valores")]))
+    resultado = await compilado.ainvoke(_entrada(message_body=texto))
+    assert resultado["handoff"]["cobranca_foco"] == foco
+    assert texto not in json.dumps(resultado["handoff"], ensure_ascii=False)

@@ -22,6 +22,7 @@ import importlib.util
 import json
 import re
 from collections import Counter
+from datetime import date
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -181,7 +182,7 @@ def test_cobranca_recebida_conciliada_responde_em_dia_sem_processo(registros: li
     r = next(r for r in registros if r["caso"] == caso["id"])
     assert r["route"] == "respond_member"
     assert r["process_started"] is False
-    assert r["textos_enviados"] == [texto_mensalidade_em_dia(new_lucas_state({}))]
+    assert r["textos_enviados"] == [texto_mensalidade_em_dia(new_lucas_state({}), date(2026, 10, 10))]
 
 
 def test_prova_um_envio_por_turno(registros: list[dict[str, Any]]) -> None:
@@ -199,7 +200,7 @@ def test_rascunhos_barrados_sairam_como_a_constante(registros: list[dict[str, An
             RESPOSTA_INFORMATIVA_RECUSADA,
             ACK_ESCALACAO_RECUSADO,
             ACK_ESCALACAO,
-            texto_mensalidade_em_dia(new_lucas_state({})),
+            texto_mensalidade_em_dia(new_lucas_state({}), date(2026, 10, 10)),
         }
         assert r["textos_enviados"][0] in seguros, caso["id"]
 

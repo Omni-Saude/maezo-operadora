@@ -6,9 +6,9 @@ webhook unico, mas **nao recebe texto do beneficiario**.
 
 O QUE ENTRA. Tres coisas, nenhuma com texto:
   - `handoff`: a saida tipada da Helena (`HandoffCobranca`, §2.4: `para`, `cobranca_subtipo`,
-    `competencia`, `message_ref`). Dominio fechado, conferido aqui chave a chave; qualquer chave a
-    mais (um `message_body` plantado, por exemplo) e' recusada. A Helena so' passa a emiti-lo na
-    onda (e).
+    `competencia`, `cobranca_foco` (DL-0087), `message_ref`). Dominio fechado, conferido aqui chave a
+    chave; qualquer chave a mais (um `message_body` plantado, por exemplo) e' recusada. A Helena
+    so' passa a emiti-lo na onda (e).
   - `conversa`: os identificadores do turno que o despachante ja' tem (`conversation_id` keyed,
     pseudonimo do beneficiario, hash do destino e o `message_id` de entrada, usado SO' para a chave
     de idempotencia de saida).
@@ -71,6 +71,7 @@ from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
 from maezo.platform.observability import record_agent_first_response
+from maezo.runtime.cobranca_foco import foco_valido
 from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
@@ -87,9 +88,10 @@ AGENT_ID: Final[str] = "lucas"
 #: Prefixo do espaco de chaves de saida do Lucas (ver docstring do modulo).
 PREFIXO_CHAVE_SAIDA: Final[str] = "lucas:"
 
-#: As chaves do `HandoffCobranca` (§2.4), nem uma a mais, nem uma a menos.
+#: As chaves do `HandoffCobranca` (§2.4), nem uma a mais, nem uma a menos. `cobranca_foco` (DL-0087,
+#: 10/10/2026): o campo perguntado, enum fechado decidido pela Helena sobre o texto — nunca o texto.
 CHAVES_DO_HANDOFF: Final[frozenset[str]] = frozenset(
-    {"para", "cobranca_subtipo", "competencia", "message_ref"}
+    {"para", "cobranca_subtipo", "competencia", "cobranca_foco", "message_ref"}
 )
 
 _CONVERSATION_ID: Final[re.Pattern[str]] = re.compile(r"^wa:[^:]+:hk1_[0-9a-f]+$")
@@ -145,6 +147,8 @@ class HandoffValidado:
     cobranca_subtipo: str
     competencia: str | None
     message_ref: str
+    #: DL-0087: o campo perguntado (`runtime/cobranca_foco.py`). Nao e' persistido pelo roteador.
+    cobranca_foco: str = "geral"
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,10 +196,15 @@ def validar_handoff(handoff: Mapping[str, Any]) -> HandoffValidado:
     competencia = handoff["competencia"]
     if competencia is not None and not competencia_valida(competencia):
         raise HandoffInvalidoError("lucas_turno: competencia fora do formato YYYY-MM")
+    foco = handoff["cobranca_foco"]
+    if not foco_valido(foco):
+        raise HandoffInvalidoError("lucas_turno: cobranca_foco fora do dominio")
     message_ref = handoff["message_ref"]
     if not isinstance(message_ref, str) or not message_ref:
         raise HandoffInvalidoError("lucas_turno: message_ref ausente")
-    return HandoffValidado(cobranca_subtipo=subtipo, competencia=competencia, message_ref=message_ref)
+    return HandoffValidado(
+        cobranca_subtipo=subtipo, competencia=competencia, message_ref=message_ref, cobranca_foco=foco
+    )
 
 
 def exigir_zona_geral(agent_id: str) -> None:
@@ -233,6 +242,7 @@ def entrada_do_lucas(
         "beneficiario_pseudo_id": conversa.beneficiario_pseudo_id,
         "to_hash": conversa.to_hash,
         **ENTRADA_POR_SUBTIPO[handoff.cobranca_subtipo],
+        "cobranca_foco": handoff.cobranca_foco,
     }
     if handoff.competencia is not None:
         entrada["competencia"] = handoff.competencia

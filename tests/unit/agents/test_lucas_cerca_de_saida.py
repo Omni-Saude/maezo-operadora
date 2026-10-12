@@ -334,7 +334,9 @@ def test_o_ack_de_escalacao_barrado_vira_a_constante_segura(monkeypatch: pytest.
     from maezo.agents.lucas import graph as lucas_graph
 
     monkeypatch.setattr(
-        lucas_graph, "texto_ack_escalacao", lambda _state: "Recebemos seu caso. Seu plano foi suspenso."
+        lucas_graph,
+        "texto_ack_escalacao",
+        lambda _state, _hoje: "Recebemos seu caso. Seu plano foi suspenso.",
     )
     g = _graph("texto do modelo que o ACK nao usa")
     state: LucasState = {"tenant_id": "t1", "motivo_humano": "ambiguidade"}  # type: ignore[typeddict-item]

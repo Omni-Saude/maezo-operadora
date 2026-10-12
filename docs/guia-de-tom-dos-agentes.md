@@ -44,7 +44,7 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
 | Situação | Antes | Depois |
 |---|---|---|
 | Verificação concluída | Tudo certo, identificamos você. Como posso ajudar? | Pronto, já confirmei que é você 😊 Em que posso ajudar? |
-| Escalação (Lucas, próximo PR) | Vou encaminhar sua solicitação ... para um atendente, que vai entrar em contato. Nenhuma decisão sobre seu plano foi tomada. | Vou passar sua dúvida para alguém da nossa equipe, que vai te responder por aqui. Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. |
+| Escalação (Lucas) | Vou encaminhar sua solicitação ... para um atendente, que vai entrar em contato. Nenhuma decisão sobre seu plano foi tomada. | Vou passar sua dúvida para alguém da nossa equipe, que vai te responder por aqui. Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. |
 | Passagem para cobrança | Vou te passar para o atendimento de cobrança. | Vou chamar quem cuida da parte financeira. |
 | Pedido de CPF | Obrigada! Agora, para confirmar que é você, digite o seu CPF (apenas números). | Obrigada! Para confirmar que é você, me envie seu CPF (só os números). |
 | Emergência | Se for uma emergência, ligue 192 (SAMU) ou vá ao pronto-socorro mais próximo. | Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. |
@@ -59,7 +59,11 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   (`wa-consent-vN`), porque o sha256 do texto exato vai para a AMH.
 - **Substância:** `tests/unit/platform/webhooks/whatsapp/test_tom_humanizado.py` cobra, em qualquer redação,
   consentimento completo, 192 na emergência, canais permitidos, emoji só em mensagem positiva, a forma única
-  da garantia de nenhuma decisão e frases de até 20 palavras.
+  da garantia de nenhuma decisão e frases de até 20 palavras. No Lucas, o mesmo papel é de
+  `tests/unit/agents/test_lucas_tom_humanizado.py` (inclui os exemplos aprovados byte a byte).
+- **Responder só o que foi perguntado (Lucas):** a Helena decide o campo perguntado sobre o texto
+  (`runtime/cobranca_foco.py`: valor, coparticipação, saldo, pagamento, vencimento ou geral) e o passa
+  no handoff; a resposta de valor do Lucas fala só daquele campo.
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
   "TOM DA CONVERSA" do `response-v11` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no

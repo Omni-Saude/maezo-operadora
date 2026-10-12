@@ -35,6 +35,7 @@
         "para": "lucas",
         "cobranca_subtipo": "boleto_2via",
         "competencia": "2026-09",
+        "cobranca_foco": "geral",
         "message_ref": "hk1_evlhelena21"
       },
       "desfecho": "passagem_cobranca",

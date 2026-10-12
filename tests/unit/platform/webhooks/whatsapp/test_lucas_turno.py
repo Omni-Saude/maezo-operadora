@@ -22,7 +22,7 @@ from typing import Any, cast
 import pytest
 
 from maezo.agents.lucas.fonte_cobranca import FatosCobranca, FonteCobrancaSimulada, Indisponivel
-from maezo.agents.lucas.graph import _CALLER_INPUT_FIELDS, LucasState
+from maezo.agents.lucas.graph import _CALLER_INPUT_FIELDS, LucasState, _hoje_em_brasilia
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.tool_registry import build_agent_seam_context
@@ -114,9 +114,20 @@ def _handoff(
         "para": "lucas",
         "cobranca_subtipo": subtipo,
         "competencia": competencia,
+        "cobranca_foco": "geral",
         "message_ref": _REF_DESTA_MENSAGEM,
         **extra,
     }
+
+
+def _dm(dia_mes: str) -> str:
+    """DD/MM de 2026 como o texto ao beneficiario o escreve (DL-0087): com o ano so' fora de 2026. O grafo
+    do `LucasTurno` le' o relogio real."""
+    return dia_mes if _hoje_em_brasilia().year == 2026 else f"{dia_mes}/2026"
+
+
+def _mes(nome: str) -> str:
+    return nome if _hoje_em_brasilia().year == 2026 else f"{nome} de 2026"
 
 
 @pytest.fixture(scope="module")
@@ -348,6 +359,10 @@ def test_handoff_com_chave_a_mais_e_recusado_sem_ecoar_valor(chave: str) -> None
         {**_handoff(), "competencia": "setembro"},
         {**_handoff(), "message_ref": ""},
         {k: v for k, v in _handoff().items() if k != "message_ref"},
+        # DL-0087: o foco e' enum fechado e obrigatorio no handoff.
+        {**_handoff(), "cobranca_foco": "extrato"},
+        {**_handoff(), "cobranca_foco": None},
+        {k: v for k, v in _handoff().items() if k != "cobranca_foco"},
     ],
 )
 async def test_handoff_malformado_nao_vira_turno(handoff: dict[str, Any], seam_lucas: SeamContext) -> None:
@@ -504,10 +519,10 @@ async def test_cobranca_recebida_com_fato_conciliado_responde_em_dia_sem_process
     assert final["motivo_humano"] == ""
     assert final["desfecho"] == "resposta_informativa_enviada"
     assert [texto for _, texto, _ in cliente.enviados] == [
-        "Consultei aqui: o pagamento da sua mensalidade (boleto final 7869) consta como conciliado, então "
-        "ela está em dia. Essa informação é conforme os dados de 28/07/2026."
+        "Está tudo em dia! O pagamento da sua última mensalidade já foi confirmado. "
+        f"(dados de {_dm('28/07')})"
     ]
-    assert cliente.enviados[0][1] == texto_mensalidade_em_dia(cast(LucasState, final))
+    assert cliente.enviados[0][1] == texto_mensalidade_em_dia(cast(LucasState, final), _hoje_em_brasilia())
     assert "inadimpl" not in _sem_acento(cliente.enviados[0][1])
 
 
@@ -535,9 +550,11 @@ async def test_cobranca_recebida_com_ciclos_em_aberto_segue_a_escalacao_de_sempr
     assert final["roteamento_escalacao"] == "COBRANCA_HUMANO"
     assert final["process_started"] is True
     assert [texto for _, texto, _ in cliente.enviados] == [
-        "Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado (boleto final "
-        "7869). Essa informação é conforme os dados de 28/07/2026. " + ACK_ESCALACAO
+        "Vi aqui uma mensalidade ainda sem pagamento confirmado (boleto final 7869). Vou passar para alguém "
+        "da nossa equipe, que vai te responder por aqui. Fique tranquilo: nenhuma decisão sobre o seu plano "
+        f"foi tomada. (dados de {_dm('28/07')})"
     ]
+    assert ACK_ESCALACAO not in cliente.enviados[0][1]
     assert "inadimpl" not in _sem_acento(cliente.enviados[0][1])
 
 
@@ -555,7 +572,7 @@ async def test_cobranca_recebida_sem_fato_diz_que_nao_conseguiu_consultar(seam_l
     assert final["motivo_humano"] == "ambiguidade"  # nunca `inadimplencia_detectada` sem fato
     assert final["process_started"] is True
     assert [texto for _, texto, _ in cliente.enviados] == [
-        "No momento não consegui consultar a situação da sua mensalidade. " + ACK_ESCALACAO
+        "Agora não consegui consultar a situação da sua mensalidade. " + ACK_ESCALACAO
     ]
 
 
@@ -590,11 +607,10 @@ def _fatos_com_valores(*, conciliado: bool = True, ciclos: int = 0) -> FatosCobr
 
 async def test_consulta_valores_com_fatos_responde_pelos_fatos_sem_processo(seam_lucas: SeamContext) -> None:
     # Revisao de seguranca do #709: TEXTO FIXO montado dos fatos; o rascunho do modelo nao e' usado.
-    # 09/10/2026: boleto como "final NNNN", sem total zerado e sem o "Boleto de referencia" repetido.
+    # DL-0087: sem foco (= geral), valor + situacao numa frase; mes por extenso, DD/MM, fonte curta.
     texto_fixo = (
-        "Consultei aqui os valores do seu plano. Competência 09/2026: mensalidade de R$ 8.389,53, "
-        "coparticipação de R$ 120,00, saldo de R$ 0,00, vencimento em 10/09/2026, paga em 08/09/2026, "
-        "boleto final 4821."
+        f"Sua mensalidade de {_mes('setembro')} foi de R$ 8.389,53 e já está paga "
+        f"(você pagou em {_dm('08/09')})."
     )
     turno, registry, _ = _turno(
         seam_lucas, fonte=_FonteFixa(_fatos_com_valores()), rascunho="Sua mensalidade e' de R$ 1,00."
@@ -606,9 +622,31 @@ async def test_consulta_valores_com_fatos_responde_pelos_fatos_sem_processo(seam
     assert final["admissibilidade"] == "RESPONDER"
     assert final["process_started"] is False
     assert final["mensagem"]["recusa_de_saida"] is False
-    assert [texto for _, texto, _ in cliente.enviados] == [
-        f"{texto_fixo} Essa informação é conforme os dados de 30/09/2026."
-    ]
+    assert [texto for _, texto, _ in cliente.enviados] == [f"{texto_fixo} (dados de {_dm('30/09')})"]
+
+
+@pytest.mark.parametrize(
+    ("foco", "esperado"),
+    [
+        ("coparticipacao", "Em {mes} sua coparticipação foi de R$ 120,00."),
+        ("saldo", "A mensalidade de {mes} não tem saldo em aberto: R$ 0,00."),  # o mes pedido veio
+        ("pagamento", "Você pagou a mensalidade de {mes} em {pagou}."),
+        ("vencimento", "A de {mes} venceu em {venceu}, e você já pagou."),
+        ("valor", "Sua mensalidade de {mes} foi de R$ 8.389,53 e já está paga (você pagou em {pagou})."),
+    ],
+)
+async def test_consulta_valores_responde_so_o_foco_do_handoff(
+    foco: str, esperado: str, seam_lucas: SeamContext
+) -> None:
+    """DL-0087: o foco que a Helena decidiu sobre o texto chega pelo handoff; a resposta e' SO' o campo."""
+    turno, registry, _ = _turno(seam_lucas, fonte=_FonteFixa(_fatos_com_valores()), rascunho="R$ 1,00")
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(
+        turno, _conversa(f"foco-{foco}"), _handoff("consulta_valores", cobranca_foco=foco), cliente
+    )
+    assert final["cobranca_foco"] == foco
+    frase = esperado.format(mes=_mes("setembro"), pagou=_dm("08/09"), venceu=_dm("10/09"))
+    assert [texto for _, texto, _ in cliente.enviados] == [f"{frase} (dados de {_dm('30/09')})"]
 
 
 async def test_consulta_valores_sem_fatos_escala_e_nao_responde_valor(seam_lucas: SeamContext) -> None:
