@@ -64,6 +64,13 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
 - **Responder só o que foi perguntado (Lucas):** a Helena decide o campo perguntado sobre o texto
   (`runtime/cobranca_foco.py`: valor, coparticipação, saldo, pagamento, vencimento ou geral) e o passa
   no handoff; a resposta de valor do Lucas fala só daquele campo.
+- **Mês sempre com o ano (Lucas, 12/10/2026):** "julho de 2026", nunca só "julho". Sem o ano, a primeira
+  pergunta do dono no teste real foi "De qual ano?". A data de pagamento continua curta (29/07) no ano
+  corrente.
+- **Pergunta sobre a resposta anterior (Lucas, 12/10/2026):** "De qual ano?", "como assim?", "não entendi"
+  depois de uma resposta do Lucas reaproveitam o assunto e o mês daquela resposta
+  (`runtime/cobranca_esclarecimento.py`); não viram pergunta nova nem contestação. Contestação exige
+  discordância explícita ("está errado", "não reconheço", "cobraram a mais").
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
   "TOM DA CONVERSA" do `response-v11` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no

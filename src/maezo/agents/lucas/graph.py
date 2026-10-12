@@ -1036,10 +1036,12 @@ def _mes_ano(competencia: str) -> str:
 
 
 def _mes_por_extenso(competencia: str, hoje: date) -> str:
-    """`2026-07` -> "julho" quando o ano e' o de hoje; senao "julho de 2024" (DL-0087)."""
+    """`2026-07` -> "julho de 2026", SEMPRE com o ano. O DL-0087 omitia o ano corrente, e no teste
+    real do dono (12/10/2026) a primeira pergunta depois de "voce pagou a de julho" foi "De qual
+    ano?". `hoje` fica na assinatura para os chamadores (a data do pagamento ainda usa o ano corrente)."""
+    del hoje
     ano, mes = competencia.split("-")
-    nome = _NOME_DO_MES[int(mes) - 1]
-    return nome if int(ano) == hoje.year else f"{nome} de {ano}"
+    return f"{_NOME_DO_MES[int(mes) - 1]} de {ano}"
 
 
 def _mes_seguinte(competencia: str) -> str:

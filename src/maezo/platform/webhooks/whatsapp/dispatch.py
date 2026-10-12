@@ -1282,6 +1282,55 @@ class HelenaDispatcher:
             )
             return "helena"
 
+    async def _handoff_com_esclarecimento(
+        self, texto: str, conversation_id: str, handoff: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        """PERGUNTA DE ESCLARECIMENTO (teste real do dono, 12/10/2026): "De qual ano?" depois de uma
+        resposta do Lucas nao e' uma pergunta nova. Com o Lucas ainda com a conversa, o handoff
+        reaproveita o ASSUNTO (so' os informativos) e o MES daquela resposta; o mes que a mensagem
+        trouxer vence o lembrado. Sem esclarecimento, sem contexto ou com falha de leitura: o handoff
+        da Helena, intacto (o caminho de sempre)."""
+        from maezo.runtime.cobranca_esclarecimento import (
+            SUBTIPOS_QUE_NAO_SE_SOBRESCREVEM,
+            SUBTIPOS_REAPROVEITAVEIS,
+            e_pergunta_de_esclarecimento,
+        )
+
+        if self.roteador is None or not e_pergunta_de_esclarecimento(texto):
+            return handoff
+        try:
+            contexto = await self.roteador.contexto_do_lucas(conversation_id)
+        except Exception as exc:
+            record_roteamento_falha(tenant=self.tenant_id, tipo="leitura")
+            logger.error(
+                "roteador_leitura_falhou",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                error_type=type(exc).__name__,
+            )
+            return handoff
+        if contexto is None:
+            return handoff
+        subtipo_anterior, competencia_anterior = contexto
+        ajustado = dict(handoff)
+        if (
+            subtipo_anterior in SUBTIPOS_REAPROVEITAVEIS
+            and handoff.get("cobranca_subtipo") not in SUBTIPOS_QUE_NAO_SE_SOBRESCREVEM
+        ):
+            ajustado["cobranca_subtipo"] = subtipo_anterior
+        if ajustado.get("competencia") is None and competencia_anterior is not None:
+            ajustado["competencia"] = competencia_anterior
+        logger.info(
+            "lucas_esclarecimento_reaproveitado",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            subtipo_lido=handoff.get("cobranca_subtipo"),
+            subtipo_usado=ajustado.get("cobranca_subtipo"),
+            competencia_reaproveitada=handoff.get("competencia") is None
+            and ajustado.get("competencia") is not None,
+        )
+        return ajustado
+
     async def _turno_do_lucas(
         self,
         message: InboundMessage,
@@ -1303,6 +1352,9 @@ class HelenaDispatcher:
         from .roteamento import PedidoDeHandoff
 
         assert self.lucas_turno is not None
+        # O handoff E' o da Helena neste request (cerca do item 7); o esclarecimento so' reaproveita
+        # assunto e mes da resposta anterior, dentro do dominio fechado que o `LucasTurno` confere.
+        handoff = await self._handoff_com_esclarecimento(message.text, conversation_id, handoff)
         remetente = _ScopedWhatsAppSender(
             raw_to=message.from_number, expected_hash=phone_hash, client=self.whatsapp_client
         )
