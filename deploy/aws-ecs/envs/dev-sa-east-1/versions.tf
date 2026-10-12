@@ -13,6 +13,11 @@ terraform {
       # diff, entao este alinha com o vizinho que ja esta em producao.
       version = "~> 6.0"
     }
+    # Empacota a Lambda de sincronizacao do egresso Cognito (portal-egresso-cognito-sync.tf).
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.7"
+    }
   }
 
   # Backend informado no init via -backend-config (ver README).

@@ -86,3 +86,6 @@ docs/reports/amh-integration-forensics-summary.md
 # por engano num `git add -A` em 17/09/2026 e trouxe junto tres alertas de path injection do
 # CodeQL sobre uma copia antiga do canal de teste. Ignorada para o engano nao se repetir.
 temp/
+
+# Zip da Lambda gerado pelo archive_file (portal-egresso-cognito-sync.tf)
+deploy/aws-ecs/envs/*/.build/
