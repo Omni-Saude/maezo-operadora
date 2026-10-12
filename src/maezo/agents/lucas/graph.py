@@ -1050,7 +1050,7 @@ def _mes_seguinte(competencia: str) -> str:
 def _foco_da_pergunta(state: LucasState) -> str:
     """O foco do handoff (DL-0087), ou `geral` quando ausente/fora do dominio (entrada do chamador)."""
     foco = state.get("cobranca_foco")
-    return foco if foco_valido(foco) else FOCO_GERAL
+    return foco if isinstance(foco, str) and foco_valido(foco) else FOCO_GERAL
 
 
 def _frase_de_valor_e_situacao(c: Mapping[str, str], hoje: date) -> str:
