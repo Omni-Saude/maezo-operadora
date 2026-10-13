@@ -88,6 +88,18 @@ def test_d4_persona_que_nunca_escala() -> None:
     assert r.achados and r.achados[0].agente == "lucas"
 
 
+def test_d4_pedido_explicito_libera_a_escalacao_dali_em_diante() -> None:
+    antes = turno(1, lucas=["x"], escalonamentos=[escalonamento()])
+    pedido = turno(
+        2,
+        texto="QUERIDA ME PASSA PRA ALGUEM DA EQUIPE",
+        helena=["x"],
+        escalonamentos=[escalonamento("helena", "solicitacao_humano")],
+    )
+    r = ch.d4_escalacao(conversa(antes, pedido), por_id("idoso"))
+    assert [a.turno for a in r.achados] == [1]
+
+
 def test_d4_persona_que_exige_escalacao() -> None:
     assert not ch.d4_escalacao(conversa(turno(1, helena=["x"])), por_id("quer_humano")).passou
     c = conversa(turno(1, helena=["x"], escalonamentos=[escalonamento("helena", "solicitacao_humano")]))
