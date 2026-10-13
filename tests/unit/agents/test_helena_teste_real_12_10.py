@@ -30,6 +30,7 @@ from maezo.agents.helena.graph import (
     FRASE_PASSAGEM_COBRANCA,
     PROCESS_KEY,
     RESPONSE_KIND_HANDOFF,
+    RESPOSTA_CASO_ABERTO_EMERGENCIA,
     RESPOSTA_DUVIDA_DE_SAUDE,
     RESPOSTA_ESCALONAMENTO_URGENTE,
     RESPOSTA_HANDOFF_JA_ABERTO,
@@ -211,7 +212,8 @@ async def test_msg1_falha_tecnica_de_verdade_usa_o_texto_neutro_sem_equipe_de_sa
     assert resultado["escalation_motivo"] == "falha_tecnica"
     assert whatsapp.enviados == [RESPOSTA_HANDOFF_RECUSADA]
     assert "saúde" not in whatsapp.enviados[0]
-    assert EMERGENCIA_192 in whatsapp.enviados[0]
+    # DL-0089 (rodada 2): encaminhamento administrativo sem sinal de saude nao fala em 192/SAMU.
+    assert "192" not in whatsapp.enviados[0]
 
 
 @pytest.mark.parametrize(
@@ -265,8 +267,9 @@ async def test_msg2_dor_no_peito_com_caso_aberto_ainda_recebe_o_192() -> None:
     resultado = await _turno(grafo, _entrada("estou com dor no peito", sinal_saude_lexico=True))
 
     assert resultado["start_desfecho"] == START_DESFECHO_JA_ATIVO
-    assert whatsapp.enviados == [RESPOSTA_HANDOFF_JA_ABERTO]
-    assert EMERGENCIA_192 in whatsapp.enviados[0]
+    # DL-0089 (rodada 2): com caso aberto, alerta clinico recebe EMERGENCIA PRIMEIRO.
+    assert whatsapp.enviados == [RESPOSTA_CASO_ABERTO_EMERGENCIA]
+    assert whatsapp.enviados[0].startswith("Ligue agora para o 192 (SAMU)")
 
 
 # =================================================================================================
@@ -376,7 +379,7 @@ async def test_o_aviso_de_caso_aberto_nao_sai_igual_duas_vezes_seguidas() -> Non
 
     assert whatsapp.enviados == [RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO]
     assert saida["response_text"] == RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO
-    assert EMERGENCIA_192 in whatsapp.enviados[0]
+    assert "192" not in whatsapp.enviados[0], "caso administrativo: sem 192 (DL-0089)"
     assert menciona_encaminhamento(whatsapp.enviados[0]) is True
 
 

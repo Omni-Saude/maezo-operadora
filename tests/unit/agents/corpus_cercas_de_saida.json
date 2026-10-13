@@ -1803,6 +1803,160 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Sou uma assistente virtual, um sistema automatizado — não sou uma pessoa. Se preferir falar com alguém, eu te encaminho para um atendente humano.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_SOU_ASSISTENTE_VIRTUAL",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de atendimento. Um atendente vai continuar o seu atendimento.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_HANDOFF_RECUSADA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Recebi sua mensagem. Seu atendimento com a nossa equipe já está aberto e segue em andamento, por isso não abri outro.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_HANDOFF_JA_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi. Seu atendimento com a nossa equipe já está aberto e continua valendo. Enquanto isso, posso te ajudar com outras dúvidas por aqui.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. Nem eu nem o plano conseguimos enviar ambulância por este chat. Seu caso já está com a nossa equipe de saúde.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_EMERGENCIA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Ligue agora para o 192 (SAMU) ou vá direto ao pronto-socorro mais próximo, sem esperar. Por este chat não sai ambulância. A nossa equipe de saúde já está com o seu caso.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_EMERGENCIA_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Ligue agora para o 192 (SAMU) e siga a orientação deles até a ajuda chegar. Este chat não envia ambulância. O seu caso continua com a nossa equipe de saúde.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_EMERGENCIA_3",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu atendimento já está aberto com a nossa equipe. Um atendente vai te responder aqui mesmo, nesta conversa. Eu não consigo prever o horário exato da resposta.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_PRAZO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu atendimento já está aberto com a nossa equipe, por isso não abri outro. Quando o atendente responder aqui, você pode pedir para falar com um supervisor.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_SUPERVISOR",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Se for uma urgência de saúde, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. Para os outros assuntos, seu atendimento já está aberto, e um atendente vai te responder aqui.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_URGENTE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Tipo do plano, carência e cobertura ainda não estão disponíveis por este chat. Você encontra essas informações no aplicativo Austa Clínicas, no portal do plano ou na central de atendimento do plano.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_PLANO_POR_CANAIS",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não tenho um link para mandar por aqui. A carteirinha digital e os detalhes do plano ficam no aplicativo Austa Clínicas e no portal do plano. A central de atendimento do plano também ajuda.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CANAIS_DO_PLANO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Sobre cobertura, essa informação ainda não está disponível por este chat. Veja no aplicativo Austa Clínicas, no portal do plano ou na central de atendimento do plano.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_COBERTURA_NA_PASSAGEM",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quem define exames, a frequência deles e qualquer tratamento é o médico, numa consulta. Você pode marcar uma consulta na rede do plano. Para isso, use o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento do plano. Se quiser falar com a nossa equipe de saúde, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_DUVIDA_CLINICA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

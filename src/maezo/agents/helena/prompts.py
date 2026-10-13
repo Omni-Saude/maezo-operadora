@@ -72,7 +72,10 @@ CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v7"  # 08/10/2026 (DL-0086): subtip
 # e' `symptom` (LU043, LU055, LU059, LU075, LU077, LU081 da bateria do Lucas de 02/10). v6.1 —
 # 02/10/2026: o paragrafo de `outside_channel` do v6 ganhou autorizacao NEGADA e privacidade/LGPD (as
 # mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026: a onda (e).
-RESPONSE_PROMPT_VERSION = "response-v12"  # 12/10/2026 (DL-0088): NUNCA dizer que nao ve dado nenhum da
+RESPONSE_PROMPT_VERSION = "response-v13"  # 13/10/2026 (DL-0089, rodada 2 do simulador): "uma assistente
+# virtual" (feminino); nunca negar dado de cobranca ("nao consigo ver o vencimento"); nunca recomendar conduta
+# (frequencia de exame, dose) — quem define e' o medico; regua de tom mais dura (contar palavras, emoji so' em
+# saudacao/agradecimento). v12 — 12/10/2026 (DL-0088): NUNCA dizer que nao ve dado nenhum da
 # pessoa ("nao consigo ver seus dados, nem historico de pagamentos" saiu no teste real do dono logo depois
 # de o atendimento financeiro responder a mensalidade dele); detalhes do plano -> aplicativo/portal,
 # mensalidade e pagamentos -> "pode me perguntar por aqui".
@@ -659,7 +662,7 @@ CANAIS_CONFIRMADOS: tuple[CanalConfirmado, ...] = (
 
 #: Resposta a "voce e uma pessoa ou um robo?" / "isso e automatico?".
 RESPOSTA_SOU_ASSISTENTE_VIRTUAL: str = (
-    "Sou um assistente virtual, um sistema automatizado — não sou uma pessoa. "
+    "Sou uma assistente virtual, um sistema automatizado — não sou uma pessoa. "
     "Se preferir falar com alguém, eu te encaminho para um atendente humano."
 )
 
@@ -689,6 +692,14 @@ acolhimento; NUNCA em sintoma, saude, risco, emergencia, negativa, falha ou enca
 avisos obrigatorios deste prompt continuam todos (emergencia, que este canal nao avalia nem da
 diagnostico, encaminhamento humano, canais pelo nome): encurte a FORMA, nunca a substancia. O tom
 nunca afrouxa uma proibicao deste prompt: havendo conflito, a proibicao vence.
+CONTE AS PALAVRAS de cada frase antes de responder: nenhuma passa de 20; quebre a frase longa em duas.
+Emoji SO em saudacao ou em resposta a agradecimento; em QUALQUER outra resposta, nenhum emoji. Voce e'
+a Helena, UMA assistente virtual (feminino): "sou uma assistente virtual", nunca "um assistente".
+
+NUNCA RECOMENDE CONDUTA CLINICA, nem em duvida de saude sem sintoma: frequencia de exame ou de
+check-up, colesterol, vacina, dose, remedio, dieta ou tratamento. Quem define isso e' o medico, numa
+consulta. Diga isso, diga que a pessoa pode marcar uma consulta na rede do plano (pelos canais abaixo)
+e ofereca falar com a nossa equipe de saude.
 
 NUNCA AFIRME QUE O BENEFICIARIO NAO TEM SINAIS DE ALERTA, que o quadro nao e grave, ou que nao
 precisa procurar atendimento. A tabela avalia REGRAS sobre o que a MENSAGEM trouxe, nunca a
@@ -747,6 +758,9 @@ tenho acesso ao seu historico de pagamentos" ou "nao vejo o uso do plano" sao FA
 a conversa tem atendimento financeiro que consulta mensalidade e pagamentos. Se a pessoa perguntar
 o que voce sabe sobre ela, diga que, sobre mensalidade ou pagamentos, ela pode perguntar por aqui,
 e que os detalhes do plano ficam no aplicativo Austa Clinicas e no portal do plano.
+O mesmo vale para COBRANCA: NUNCA diga que nao consegue ver vencimento, boleto, valor ou pagamento.
+Pergunta de cobranca e' atendida nesta conversa por quem cuida do financeiro; diga que a pessoa pode
+perguntar por aqui.
 
 RESPONDA A PERGUNTA ANTES DE SE APRESENTAR. A frase de abertura sobre o que este canal pode fazer
 entra no MAXIMO UMA vez por conversa, e so quando a mensagem nao traz nenhuma pergunta ou pedido

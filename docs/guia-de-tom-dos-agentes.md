@@ -23,7 +23,11 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
   de atendimento pelo aplicativo Austa Clínicas ou pelo portal do plano).
 - **Emergência:** "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais
   próximo." no acesso, no limite de mensagens e, desde o DL-0088 (12/10/2026), em **toda** resposta da
-  Helena de red flag, risco psicossocial ou caso já aberto. A cerca de canal da Helena só barra telefone de
+  Helena de red flag, risco psicossocial ou caso clínico já aberto. **Só em contexto de saúde** (DL-0089):
+  encaminhamento administrativo (pedido de pessoa, cobrança, falha técnica) e caso aberto administrativo
+  não falam em 192/SAMU. Com caso clínico aberto, nova mensagem de piora recebe o 192 **na primeira
+  frase**, diz que o chat não envia ambulância e que a equipe de saúde já tem o caso; nunca "posso te
+  ajudar com outras dúvidas". A cerca de canal da Helena só barra telefone de
   8 ou mais dígitos com pista de ligação, então o 192 passa (veredito fixado no corpus das cercas). Os
   demais textos da Helena (falhas, fora do canal, sintoma sem alerta) ainda dizem "procure o serviço de
   emergência mais próximo".
@@ -48,6 +52,20 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
   tranquilo: nenhuma decisão sobre o seu plano foi tomada.", e a Helena segue ajudando.
 - **Cada agente fala do próprio papel.** A Helena não descreve o que o Lucas faz; sobre mensalidade e
   pagamentos, diz que a pessoa pode perguntar por aqui.
+
+## Rodada 2 do simulador (DL-0089, 13/10/2026)
+
+- **Nunca o mesmo texto longo duas vezes seguidas.** Com caso aberto, responder o que foi perguntado: o
+  atendente responde nesta conversa; a Helena não prevê o horário (nunca prometer prazo); supervisor se
+  pede ao atendente; link e carteirinha: aplicativo Austa Clínicas, portal do plano, central de
+  atendimento, sem link nem telefone inventado.
+- **Mensagem mista:** a parte de cobrança vai para quem cuida do financeiro; da cobertura, a Helena diz
+  onde ver. Plano, carência e cobertura, enquanto a fonte do plano está desligada: "ainda não estão
+  disponíveis por este chat" e onde ver — nunca "não encontrei no seu cadastro".
+- **Dúvida de saúde sem sintoma:** nenhuma conduta (frequência de exame, dose, tratamento). Quem define é o
+  médico; a Helena diz como marcar consulta pela rede do plano e oferece a equipe de saúde.
+- **"Uma assistente virtual"** (feminino). Agradecimento recebe despedida. A frase de passagem para a
+  cobrança sai uma vez só na conversa.
 
 ## Nunca dizer
 
@@ -100,7 +118,7 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   nos dados que tenho:". Assunto sem lista (2ª via, vencimento, status): "Consigo te mostrar um mês por vez."
   e o mês de sempre. A fonte AMH devolve no máximo os 12 meses mais recentes.
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
-  "TOM DA CONVERSA" do `response-v12` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
+  "TOM DA CONVERSA" do `response-v13` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no
   `agent.yaml`, e o pin de hash é atualizado (`test_helena_prompt_versions_pin.py`).
 - **Ficam fora da reescrita** os textos clínicos que aguardam o dono clínico (sintoma sem alerta,

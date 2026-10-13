@@ -53,14 +53,31 @@ TEXTOS = _todos_os_textos()
 #: DL-0088: a forma unica da emergencia, e os textos da Helena que tem de traze-la inteira.
 EMERGENCIA_192 = "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
 _TEXTOS_COM_192 = (
-    "RESPOSTA_HANDOFF_RECUSADA",
     "RESPOSTA_HANDOFF_SAUDE",
-    "RESPOSTA_HANDOFF_JA_ABERTO",
-    "RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO",
+    "RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA",
+    "RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA",
+    "RESPOSTA_CASO_ABERTO_URGENTE",
     "RESPOSTA_ESCALONAMENTO_URGENTE",
     "RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL",
     "RESPOSTA_DUVIDA_DE_SAUDE",
     "RESPOSTA_RECUSA_DE_EQUIPE",
+)
+#: DL-0089 (rodada 2 do simulador): textos ADMINISTRATIVOS nao falam em 192/SAMU ("PARA DE ME MANDAR PRO
+#: SAMU! E' COBRANCA"). E os de emergencia com caso aberto COMECAM pelo 192.
+_TEXTOS_SEM_192 = (
+    "RESPOSTA_HANDOFF_RECUSADA",
+    "RESPOSTA_HANDOFF_JA_ABERTO",
+    "RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO",
+    "RESPOSTA_CASO_ABERTO_PRAZO",
+    "RESPOSTA_CASO_ABERTO_SUPERVISOR",
+    "RESPOSTA_PLANO_POR_CANAIS",
+    "RESPOSTA_CANAIS_DO_PLANO",
+    "RESPOSTA_COBERTURA_NA_PASSAGEM",
+)
+_TEXTOS_192_PRIMEIRO = (
+    "RESPOSTA_CASO_ABERTO_EMERGENCIA",
+    "RESPOSTA_CASO_ABERTO_EMERGENCIA_2",
+    "RESPOSTA_CASO_ABERTO_EMERGENCIA_3",
 )
 
 #: As unicas mensagens que podem levar o emoji leve: positivas ou de acolhimento, sem tema clinico.
@@ -173,6 +190,17 @@ def test_helena_continua_dizendo_que_nao_avalia_e_orienta_emergencia() -> None:
     for nome in _TEXTOS_COM_192:
         assert EMERGENCIA_192 in getattr(g, nome), nome
     assert "cobertura" in cp._FECHO and "autorização" in cp._FECHO
+
+
+def test_192_so_em_contexto_de_saude_e_primeiro_na_emergencia_com_caso_aberto() -> None:
+    for nome in _TEXTOS_SEM_192:
+        texto = getattr(g, nome)
+        assert "192" not in texto and "SAMU" not in texto, nome
+    for nome in _TEXTOS_192_PRIMEIRO:
+        texto = getattr(g, nome)
+        assert texto.startswith("Ligue agora para o 192 (SAMU)"), nome
+        assert "ambulância" in texto, nome
+        assert "outras dúvidas" not in texto, nome
 
 
 def test_falha_tecnica_e_pedido_de_pessoa_nunca_dizem_equipe_de_saude() -> None:

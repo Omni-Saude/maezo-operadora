@@ -1003,15 +1003,18 @@ class HelenaDispatcher:
         assert self.acesso is not None
         if self.acesso.sinal_de_emergencia(message.text):
             return None
-        from .acesso_cadastro import TIPO_QUEM_SOU_EU
+        from .acesso_cadastro import TIPO_IDENTIDADE_E_PLANO, TIPO_NOME, TIPO_PLANO_DETALHE, TIPO_QUEM_SOU_EU
+
+        # Tipos respondidos sem o perfil da AMH (RODADA 2).
+        sem_perfil = frozenset({TIPO_QUEM_SOU_EU, TIPO_NOME, TIPO_IDENTIDADE_E_PLANO, TIPO_PLANO_DETALHE})
 
         identidade: dict[str, Any] | None = None
-        if tipo != TIPO_QUEM_SOU_EU and self.identidade is not None:
+        if tipo not in sem_perfil and self.identidade is not None:
             resolvida = await self.identidade.resolver_com_desfecho(
                 message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
             )
             identidade = resolvida.identidade
-        texto = resposta_de_cadastro(tipo, identidade)
+        texto = resposta_de_cadastro(tipo, identidade, fonte_ligada=self.identidade is not None)
         await sender.send(phone_hash, texto)
         logger.info(
             "acesso_cadastro_respondido",
