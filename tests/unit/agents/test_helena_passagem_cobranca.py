@@ -346,7 +346,7 @@ async def test_ligado_sem_referencia_da_mensagem_nao_passa() -> None:
         ({"pedido_humano_lexico": True}, "pedido_humano_lexico"),
         ({"cobranca_subtipo": "estorno"}, "subtipo_fora_do_dominio"),
         ({"cobranca_competencia": "2026-9"}, "competencia_invalida"),
-        ({"cobranca_foco": "extrato"}, "foco_fora_do_dominio"),
+        ({"cobranca_foco": "boleto"}, "foco_fora_do_dominio"),
         ({"cobranca_foco": 1}, "foco_fora_do_dominio"),
     ],
 )
