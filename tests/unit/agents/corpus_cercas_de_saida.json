@@ -2155,6 +2155,17 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Não tenho telefone nem e-mail da equipe para passar. Encaminhei seu caso, e um atendente vai falar com você aqui mesmo, nesta conversa.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0094 (13/10/2026, rodada 7): RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
     }
   ]
 }
