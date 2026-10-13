@@ -367,7 +367,7 @@ def test_handoff_com_chave_a_mais_e_recusado_sem_ecoar_valor(chave: str) -> None
         {**_handoff(), "message_ref": ""},
         {k: v for k, v in _handoff().items() if k != "message_ref"},
         # DL-0087: o foco e' enum fechado e obrigatorio no handoff.
-        {**_handoff(), "cobranca_foco": "extrato"},
+        {**_handoff(), "cobranca_foco": "boleto"},
         {**_handoff(), "cobranca_foco": None},
         {k: v for k, v in _handoff().items() if k != "cobranca_foco"},
         # 12/10/2026: o pedido de lista e' opcional, mas, presente, tem a forma fechada.
