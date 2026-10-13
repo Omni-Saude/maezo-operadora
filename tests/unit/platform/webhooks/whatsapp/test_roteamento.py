@@ -567,3 +567,36 @@ async def test_store_postgres_recusa_conversa_de_outro_tenant_sem_tocar_no_banco
 def test_store_postgres_recusa_tenant_que_nao_e_identificador() -> None:
     with pytest.raises(ValueError):
         PostgresAgenteAtivoStore(dsn="postgresql://x:y@localhost/z", tenant='amh"; drop')
+
+
+# ---------------------------------------------------------------------------------------
+# Contexto do turno do Lucas (simulador, 13/10/2026): revisao (variante) e assunto anterior.
+# ---------------------------------------------------------------------------------------
+async def test_contexto_do_turno_sem_linha_e_zero_sem_assunto() -> None:
+    assert await _roteador(FakeAgenteAtivoStore()).contexto_do_turno(_CONVERSA) == (0, None)
+
+
+async def test_contexto_do_turno_traz_a_revisao_e_o_assunto_do_lucas() -> None:
+    store = FakeAgenteAtivoStore()
+    roteador = _roteador(store, lucas_disponivel=True)
+    pedido = PedidoDeHandoff(cobranca_subtipo="boleto_2via")
+    for _ in range(2):
+        await roteador.registrar_turno(
+            conversation_id=_CONVERSA, sinais=None, resultado_helena={"intent": "cobranca"}, handoff=pedido
+        )
+    revisao, assunto = await roteador.contexto_do_turno(_CONVERSA)
+    assert (revisao, assunto) == (1, "boleto_2via")
+    # Uma mensagem a mais muda a variante: o mesmo texto nunca sai duas vezes seguidas.
+    await roteador.registrar_turno(
+        conversation_id=_CONVERSA, sinais=None, resultado_helena={"intent": "cobranca"}, handoff=pedido
+    )
+    assert (await roteador.contexto_do_turno(_CONVERSA))[0] % 2 != revisao % 2
+
+
+async def test_contexto_do_turno_com_a_helena_nao_tem_assunto_do_lucas() -> None:
+    store = FakeAgenteAtivoStore()
+    roteador = _roteador(store)
+    await roteador.registrar_turno(
+        conversation_id=_CONVERSA, sinais=None, resultado_helena={"intent": "greeting"}
+    )
+    assert await roteador.contexto_do_turno(_CONVERSA) == (0, None)
