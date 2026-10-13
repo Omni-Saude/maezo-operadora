@@ -3,7 +3,7 @@
   "agent": "helena",
   "class": "CE",
   "tier": ["A", "B"],
-  "description": "Beneficiary asks about their carencia (waiting period) limit -> classify extracts intent=information -> Helena informs directly, no escalation. Synthetic data only (tenant amh, pseudo id). Texto do `recorded_llm` atualizado em 21/09/2026 (F7): a resposta citava \"o aplicativo\", que nao e' um dos nomes de `prompts.py::CANAIS_CONFIRMADOS` — e carencia e' duvida administrativa, resolvida pela central de atendimento do plano, nao pelo app.",
+  "description": "Beneficiary asks about their carencia (waiting period) limit -> classify extracts intent=information -> Helena informs directly, no escalation. Synthetic data only (tenant amh, pseudo id). Texto do `recorded_llm` atualizado em 21/09/2026 (F7): a resposta citava \"o aplicativo\", que nao e' um dos nomes de `prompts.py::CANAIS_CONFIRMADOS` — e carencia e' duvida administrativa, resolvida pela central de atendimento do plano, nao pelo app. REGOLDEN 13/10/2026 (DL-0089): com a fonte dos fatos do plano desligada, carencia/cobertura/tipo de plano recebem o texto FIXO `RESPOSTA_PLANO_POR_CANAIS` — o modelo nao redige mais este turno, entao `recorded_llm` tem so' o classify.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -14,8 +14,7 @@
     }
   },
   "recorded_llm": [
-    "{\"intent\": \"information\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
-    "Voce pode consultar os prazos de carencia com a central de atendimento do plano."
+    "{\"intent\": \"information\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}"
   ],
   "expect": {
     "next_kind": "inform",
