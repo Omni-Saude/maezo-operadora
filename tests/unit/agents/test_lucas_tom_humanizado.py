@@ -287,6 +287,18 @@ def _todos_os_textos() -> dict[str, str]:
         textos[f"segunda_via_repetida_{variante}"] = texto_segunda_via_repetida(
             repetida, _fatos(_NOVEMBRO), _HOJE
         )
+    # Rodada 4 (13/10/2026): a escada sem repeticao, a empresa e a reclamacao com o caso aberto.
+    textos["nao_consigo_com_oferta"] = lg.NAO_CONSIGO_COM_OFERTA
+    for i, frase in enumerate(lg.NAO_CONSIGO):
+        textos[f"nao_consigo_{i}"] = frase
+    empresa = _estado(_OUTUBRO, competencia="2026-07", pagador_tipo="pessoa_juridica")
+    textos["empresa_explicacao"] = lg.texto_pagador_empresa(empresa, {"foco": None}, _HOJE)
+    textos["empresa_curta"] = lg.texto_pagador_empresa_curto(empresa, _HOJE)
+    for variante in (0, 1):
+        reclamacao = _estado(
+            _OUTUBRO, variante_de_redacao=variante, competencia="2026-09", cobranca_reclamacao="em_dobro"
+        )
+        textos[f"ack_reclamacao_{variante}"] = lg.texto_da_reclamacao(reclamacao, _HOJE)
     # Rodada 3 (13/10/2026): mes perguntado, confirmacao da mais recente, esclarecimento e status com mes
     # em aberto (sem "em dia").
     textos["status_mes_perguntado"] = texto_mensalidade_em_dia(

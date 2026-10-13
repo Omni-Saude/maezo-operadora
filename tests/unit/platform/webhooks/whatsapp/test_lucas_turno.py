@@ -374,6 +374,8 @@ def test_handoff_com_chave_a_mais_e_recusado_sem_ecoar_valor(chave: str) -> None
         {**_handoff(), "cobranca_lista": "ultimas tres"},
         {**_handoff(), "cobranca_lista": {"quantidade": 3}},
         {**_handoff(), "cobranca_lista": {"quantidade": 40, "de": None, "ate": None, "situacao": None}},
+        # Rodada 4 (13/10/2026): o tipo da reclamacao e' enum fechado.
+        {**_handoff(), "cobranca_reclamacao": "texto livre"},
     ],
 )
 async def test_handoff_malformado_nao_vira_turno(handoff: dict[str, Any], seam_lucas: SeamContext) -> None:

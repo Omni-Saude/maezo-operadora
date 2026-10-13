@@ -80,6 +80,7 @@ from maezo.gateway.seams.whatsapp import gate_whatsapp
 from maezo.platform.observability import record_agent_first_response
 from maezo.runtime.cobranca_foco import foco_valido
 from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
+from maezo.runtime.cobranca_reclamacao import reclamacao_valida
 from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
@@ -104,7 +105,7 @@ CHAVES_DO_HANDOFF: Final[frozenset[str]] = frozenset(
 #: Chaves OPCIONAIS do handoff. `cobranca_lista` (12/10/2026): o pedido de varios meses
 #: (`runtime/cobranca_lista.py`), que o despachante acrescenta em `_turno_do_lucas` quando o texto pede
 #: lista. Ausente = um mes so', o comportamento de antes.
-CHAVES_OPCIONAIS_DO_HANDOFF: Final[frozenset[str]] = frozenset({"cobranca_lista"})
+CHAVES_OPCIONAIS_DO_HANDOFF: Final[frozenset[str]] = frozenset({"cobranca_lista", "cobranca_reclamacao"})
 
 _CONVERSATION_ID: Final[re.Pattern[str]] = re.compile(r"^wa:[^:]+:hk1_[0-9a-f]+$")
 
@@ -163,6 +164,8 @@ class HandoffValidado:
     cobranca_foco: str = "geral"
     #: 12/10/2026: o pedido de varios meses (`runtime/cobranca_lista.py`); `None` = um mes so'.
     cobranca_lista: PedidoDeLista | None = None
+    #: Rodada 4 (13/10/2026): o tipo da reclamacao (`runtime/cobranca_reclamacao.py`); `None` = nenhum.
+    cobranca_reclamacao: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,12 +233,16 @@ def validar_handoff(handoff: Mapping[str, Any]) -> HandoffValidado:
         lista = lista_do_handoff(handoff.get("cobranca_lista"))
     except (TypeError, ValueError):
         raise HandoffInvalidoError("lucas_turno: cobranca_lista fora do dominio") from None
+    reclamacao = handoff.get("cobranca_reclamacao")
+    if reclamacao is not None and not reclamacao_valida(reclamacao):
+        raise HandoffInvalidoError("lucas_turno: cobranca_reclamacao fora do dominio")
     return HandoffValidado(
         cobranca_subtipo=subtipo,
         competencia=competencia,
         message_ref=message_ref,
         cobranca_foco=foco,
         cobranca_lista=lista,
+        cobranca_reclamacao=reclamacao,
     )
 
 
@@ -280,6 +287,8 @@ def entrada_do_lucas(
         entrada["competencia"] = handoff.competencia
     if handoff.cobranca_lista is not None:
         entrada["cobranca_lista"] = handoff.cobranca_lista.como_handoff()
+    if handoff.cobranca_reclamacao is not None:
+        entrada["cobranca_reclamacao"] = handoff.cobranca_reclamacao
     variante = conversa.variante_de_redacao
     entrada["variante_de_redacao"] = variante % 2 if variante >= 0 else 0
     if conversa.assunto_anterior in ENTRADA_POR_SUBTIPO:
@@ -313,7 +322,8 @@ def competencia_a_lembrar(final: Mapping[str, Any], pedida: object) -> str | Non
 def memoria_do_turno(final: Mapping[str, Any]) -> MemoriaDoLucas | None:
     """A memoria do Lucas DEPOIS do turno (rodada 3): a referencia do texto que ele enviou e os avisos de
     caso aberto. `None` quando ele nao enviou nada (a memoria anterior segue no roteador)."""
-    ref = final.get("resposta_enviada_ref")
+    memoria = final.get("resposta_memoria_ref")
+    ref = memoria if isinstance(memoria, str) and memoria else final.get("resposta_enviada_ref")
     if not isinstance(ref, str):
         return None
     avisos = final.get("avisos_de_caso_aberto")

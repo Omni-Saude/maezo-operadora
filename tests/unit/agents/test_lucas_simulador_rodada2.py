@@ -216,7 +216,8 @@ async def test_contestacao_seguinte_reconhece_o_caso_sem_repetir() -> None:
     for _ in range(3):  # "vao corrigir?", "quanto tempo demora?", ...
         _, enviados = await conversa.mensagem(**contestacao)
         [texto] = enviados
-        assert texto in AVISOS_DE_CASO_ABERTO
+        # Rodada 4 (13/10/2026): a reclamacao com o caso aberto e' reconhecida, sem "outra duvida".
+        assert "nossa equipe" in texto and "outra dúvida" not in texto
         assert "Vou passar" not in texto and "prazo" not in texto
         textos.append(texto)
     _sem_repeticao(textos)

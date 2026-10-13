@@ -101,3 +101,25 @@ def test_ida_e_volta_pelo_handoff() -> None:
 def test_forma_errada_e_recusada(valor: object) -> None:
     with pytest.raises(ValueError):
         lista_do_handoff(valor)
+
+
+# --- Rodada 4 (13/10/2026): meses nomeados ---------------------------------------------------------------
+
+
+def test_meses_nomeados_vao_e_voltam_pelo_handoff() -> None:
+    pedido = PedidoDeLista(2, meses=("2026-08", "2026-09"))
+    assert lista_do_handoff(pedido.como_handoff()) == pedido
+    # Sem meses, o handoff continua com as quatro chaves de antes.
+    assert "meses" not in PedidoDeLista(3).como_handoff()
+
+
+@pytest.mark.parametrize("meses", [["2026-13"], ["2026-08", "2026-08"], "2026-08", [8]])
+def test_meses_fora_da_forma_sao_recusados(meses: object) -> None:
+    with pytest.raises(ValueError):
+        lista_do_handoff({"quantidade": 2, "de": None, "ate": None, "situacao": None, "meses": meses})
+
+
+def test_e_entre_dois_meses_sem_entre_nao_e_intervalo() -> None:
+    assert decidir_lista_da_cobranca("de julho e setembro", _HOJE) == PedidoDeLista(
+        2, meses=("2026-07", "2026-09")
+    )
