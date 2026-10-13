@@ -9,7 +9,20 @@ from maezo.runtime.cobranca_foco import COBRANCA_FOCOS, decidir_foco_da_cobranca
 
 def test_o_dominio_e_fechado_e_e_o_do_dono() -> None:
     assert (
-        frozenset({"valor", "coparticipacao", "saldo", "pagamento", "vencimento", "geral"}) == COBRANCA_FOCOS
+        frozenset(
+            {
+                "valor",
+                "coparticipacao",
+                "saldo",
+                "pagamento",
+                "vencimento",
+                "geral",
+                # Rodada 3 do simulador (13/10/2026): confirmacao da mais recente e esclarecimento.
+                "ultima",
+                "esclarecimento",
+            }
+        )
+        == COBRANCA_FOCOS
     )
 
 

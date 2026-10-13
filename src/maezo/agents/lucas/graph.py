@@ -147,7 +147,7 @@ from langgraph.graph import END, START, StateGraph
 
 from maezo.agents.lucas.fonte_cobranca import PAGADOR_EMPRESA
 from maezo.platform.observability import record_resposta_recusada
-from maezo.runtime.cobranca_foco import FOCO_GERAL, foco_valido
+from maezo.runtime.cobranca_foco import FOCO_ESCLARECIMENTO, FOCO_GERAL, FOCO_ULTIMA, foco_valido
 from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
@@ -332,6 +332,7 @@ class WhatsAppSender(Protocol):
 _OUTPUT_FIELDS_RESET: dict[str, Any] = {
     "gathered": False,
     "caso_aberto_cobranca": False,
+    "avisos_de_caso_aberto": 0,
     "billing_facts": {},
     "gather_notes": [],
     "admissibilidade": "",
@@ -389,6 +390,10 @@ class LucasState(TypedDict, total=False):
     #: 13/10/2026 (simulador): a VARIANTE de redacao deste turno (a revisao do roteador, que sobe uma por
     #: mensagem). Alterna os textos que poderiam se repetir (caso aberto, 2a via de novo).
     variante_de_redacao: int
+    #: 13/10/2026 (rodada 3): a referencia (16 hex do sha256) do ULTIMO texto que o Lucas enviou nesta
+    #: conversa e quantos avisos de caso aberto ele ja' deu (migration 0025). Nunca o texto.
+    resposta_anterior_ref: str
+    avisos_anteriores: int
     #: 13/10/2026: o assunto (`cobranca_subtipo`) da resposta ANTERIOR do Lucas nesta conversa, quando ele
     #: ainda estava com ela; ausente caso contrario. So' enum, nunca texto.
     assunto_anterior: str
@@ -417,6 +422,9 @@ class LucasState(TypedDict, total=False):
     #: 13/10/2026 (simulador): ja' ha' um caso de COBRANCA aberto pelo Lucas nesta conversa (instancia viva
     #: de SP-OP-ESCALATION-001 com `source_agent_id=lucas`). Lido do motor, nunca do chamador.
     caso_aberto_cobranca: bool
+    #: Os avisos de caso aberto dados neste caso DEPOIS deste turno (o roteador os guarda; depois de
+    #: `AVISOS_DE_CASO_ABERTO_MAX`, so' o fato).
+    avisos_de_caso_aberto: int
     billing_facts: dict[str, Any]
     gather_notes: list[str]
 
@@ -512,6 +520,8 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         # 13/10/2026: variante de redacao e assunto anterior (inteiro e enum; texto nunca).
         "variante_de_redacao",
         "assunto_anterior",
+        "resposta_anterior_ref",
+        "avisos_anteriores",
         # Pre-resolved by the deterministic CNAB conciliation worker upstream — CONSUMED, never
         # computed here. These are FACTS a caller may assert; every VERDICT derived from them
         # (`admissibilidade`, `roteamento_escalacao`, `route`, `severidade`) is output-only.
@@ -1228,7 +1238,11 @@ def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date) -> st
     e_a_pedida = c is not None and pedida is not None and c["competencia"] == pedida
     partes: list[str] = []
     if pedida and not e_a_pedida:
-        partes.append(f"Não encontrei a mensalidade de {_mes_por_extenso(pedida, hoje)} nos dados que tenho.")
+        # Rodada 3 (13/10/2026): o mes pedido DEPOIS do mais recente ("novembro ta' lancado?") ainda nao
+        # foi gerado — nunca "nao encontrei" nem o mesmo mes do ano passado.
+        partes.append(
+            _frase_do_mes_ausente(pedida, [dict(x) for x in competencias] + _mais_recente(facts), hoje)
+        )
     valor_em_aberto = facts.get("valor_em_aberto")
     if foco == "saldo" or c is None:
         partes.append(
@@ -1248,6 +1262,15 @@ def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date) -> st
     if fonte:
         partes.append(fonte)
     return " ".join(partes)
+
+
+def _mais_recente(facts: Mapping[str, Any]) -> list[dict[str, str]]:
+    """A competencia mais recente de TODOS os fatos (`mais_recente_dos_fatos`), para decidir se o mes
+    pedido ainda nao foi gerado mesmo quando os fatos da resposta levam so' uma competencia."""
+    mais_recente = facts.get("mais_recente_dos_fatos")
+    if isinstance(mais_recente, str) and _COMPETENCIA_DO_FATO.match(mais_recente):
+        return [{"competencia": mais_recente, "situacao": "paga"}]
+    return []
 
 
 def _competencia_do_vencimento(competencias: list[dict[str, str]], pedida: object) -> dict[str, str] | None:
@@ -1307,9 +1330,7 @@ def texto_vencimento(state: LucasState, facts: Mapping[str, Any], hoje: date) ->
     e_a_pedida = escolhida is not None and bool(pedida) and escolhida["competencia"] == pedida
     partes: list[str] = []
     if pedida and not e_a_pedida and _na_forma(pedida, _COMPETENCIA_DO_FATO):
-        partes.append(
-            f"Não encontrei a mensalidade de {_mes_por_extenso(str(pedida), hoje)} nos dados que tenho."
-        )
+        partes.append(_frase_do_mes_ausente(str(pedida), competencias + _mais_recente(facts), hoje))
     frase = _frase_do_vencimento(escolhida, hoje, e_a_proxima=not e_a_pedida) if escolhida else None
     if frase is None:
         # A constante ja' traz os canais; a data da fonte so' acompanha um fato afirmado.
@@ -1605,19 +1626,125 @@ def texto_mensalidade_em_dia(state: LucasState, hoje: date) -> str:
 
     "Esta' tudo em dia!" so' quando nenhum fato de valor mostra atraso; o mes e' o da ultima mensalidade
     PAGA nos fatos por competencia, quando eles vieram."""
-    pagas = [c for c in _competencias_dos_fatos(state) if c["situacao"] == "paga"]
-    if pagas:
-        corpo = f"Sua última mensalidade ({_mes_por_extenso(pagas[0]['competencia'], hoje)}) já foi paga."
-    else:
-        corpo = "O pagamento da sua última mensalidade já foi confirmado."
-    texto = corpo if valores_com_atraso(state) else f"Está tudo em dia! {corpo}"
-    # 13/10/2026 (simulador): "ja' paguei a deste mes e quando vence a proxima?" ouvia so' a ultima PAGA,
-    # com a de outubro em aberto (e no prazo) nos fatos. A em aberto mais recente que a paga entra junto.
-    aberta = _em_aberto_no_prazo(_competencias_dos_fatos(state), hoje)
-    if aberta is not None and (not pagas or aberta["competencia"] > pagas[0]["competencia"]):
-        texto = f"{texto} {_frase_do_em_aberto(aberta, hoje, curta=True)}"
+    competencias = _competencias_dos_fatos(state)
     fonte = _frase_da_fonte(state, hoje)
+    texto = _texto_de_status(state, competencias, hoje)
     return f"{texto} {fonte}" if fonte else texto
+
+
+def _texto_de_status(state: LucasState, competencias: list[dict[str, str]], hoje: date) -> str:
+    """Simulador, rodada 3 (13/10/2026): "A mensalidade de julho foi paga?" ouviu "Esta' tudo em dia! Sua
+    ultima mensalidade (julho de 2026) ja' foi paga." com setembro sem pagamento e outubro em aberto. Agora:
+    mes perguntado -> o fato DAQUELE mes; sem mes, "em dia" SO' sem nenhum mes em aberto, e "ultima" e' a
+    mais recente dos fatos."""
+    if not competencias:
+        corpo = "O pagamento da sua última mensalidade já foi confirmado."
+        return corpo if valores_com_atraso(state) else f"Está tudo em dia! {corpo}"
+    pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
+    if pedida is not None:
+        c = next((x for x in competencias if x["competencia"] == pedida), None)
+        if c is not None:
+            return _frase_do_mes_perguntado(c, hoje)
+        return _frase_do_mes_ausente(pedida, competencias, hoje)
+    abertas = sorted(
+        (c for c in competencias if c["situacao"] in ("em_aberto", "vencida")), key=lambda c: c["competencia"]
+    )
+    pagas = [c for c in competencias if c["situacao"] == "paga"]
+    if not abertas:
+        mais_recente = competencias[0]
+        if mais_recente["situacao"] == "paga":
+            mes = _mes_por_extenso(mais_recente["competencia"], hoje)
+            return f"Está tudo em dia! Sua última mensalidade ({mes}) já foi paga."
+        if pagas:
+            paga = _mes_por_extenso(pagas[0]["competencia"], hoje)
+            return f"Está tudo em dia! A mensalidade de {paga} já foi paga."
+        return "Está tudo em dia! O pagamento da sua última mensalidade já foi confirmado."
+    partes = [_frase_do_mes_perguntado(c, hoje, pergunta=False) for c in abertas[-3:]]
+    if pagas:
+        partes.append(f"A de {_mes_por_extenso(pagas[0]['competencia'], hoje)} já foi paga.")
+    return " ".join(partes)
+
+
+def _frase_do_mes_perguntado(c: Mapping[str, str], hoje: date, *, pergunta: bool = True) -> str:
+    """O fato de UM mes. `pergunta` (a pessoa perguntou daquele mes): a paga comeca com "Sim"."""
+    mes = _mes_por_extenso(c["competencia"], hoje)
+    situacao = c["situacao"]
+    if situacao == "paga":
+        pagou = _dia_mes(c.get("liquidado_em"), hoje)
+        quando = f" em {pagou}" if pagou else ""
+        return (
+            f"Sim, a mensalidade de {mes} foi paga{quando}." if pergunta else f"A de {mes} foi paga{quando}."
+        )
+    if situacao == "em_aberto":
+        if "vencimento" in c and date.fromisoformat(c["vencimento"]) >= hoje:
+            return _frase_do_em_aberto(c, hoje)
+        return f"A mensalidade de {mes} ainda não consta como paga."
+    if situacao == "vencida":
+        return f"A mensalidade de {mes} ainda está sem pagamento confirmado."
+    if situacao == "cancelada":
+        return f"A mensalidade de {mes} consta com o título cancelado."
+    return f"A mensalidade de {mes} ainda não tem boleto emitido."
+
+
+def mes_ainda_nao_gerado(pedida: str, competencias: list[dict[str, str]]) -> bool:
+    """O mes pedido e' DEPOIS do mais recente dos fatos: a mensalidade ainda nao foi gerada."""
+    return bool(competencias) and pedida > max(c["competencia"] for c in competencias)
+
+
+def _frase_do_mes_ausente(pedida: str, competencias: list[dict[str, str]], hoje: date) -> str:
+    mes = _mes_por_extenso(pedida, hoje)
+    if mes_ainda_nao_gerado(pedida, competencias):
+        return f"A mensalidade de {mes} ainda não foi gerada."
+    return f"Não encontrei a mensalidade de {mes} nos dados que tenho."
+
+
+def _resumo_do_mes(c: Mapping[str, str], hoje: date, *, com_valor: bool = True) -> str:
+    """ "R$ 552,54, vence em 20/10" / "R$ 552,54, paga em 18/08" — o miolo curto de um mes."""
+    partes: list[str] = []
+    if com_valor and "valor_total" in c:
+        partes.append(_reais(c["valor_total"]))
+    if c["situacao"] == "paga":
+        pagou = _dia_mes(c.get("liquidado_em"), hoje)
+        partes.append(f"paga em {pagou}" if pagou else "paga")
+    elif c["situacao"] == "em_aberto" and "vencimento" in c and date.fromisoformat(c["vencimento"]) >= hoje:
+        partes.append(f"vence em {_dia_mes(c['vencimento'], hoje)}")
+    elif c["situacao"] in ("em_aberto", "vencida"):
+        partes.append("ainda não consta como paga")
+    return ", ".join(partes)
+
+
+def texto_da_ultima(state: LucasState, hoje: date) -> str | None:
+    """ "Essa e' a ultima? Nao e' novembro?" (rodada 3): a mais recente dos fatos e, se a pessoa citou um
+    mes depois dela, que ele ainda nao foi gerado. `None` sem fatos por competencia."""
+    competencias = _competencias_dos_fatos(state)
+    if not competencias:
+        return None
+    c = competencias[0]
+    resumo = _resumo_do_mes(c, hoje)
+    detalhe = f" ({resumo})" if resumo else ""
+    partes = [f"Sim, a mais recente é a de {_mes_por_extenso(c['competencia'], hoje)}{detalhe}."]
+    pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
+    if pedida is not None and mes_ainda_nao_gerado(pedida, competencias):
+        partes.append(f"A de {_mes_por_extenso(pedida, hoje)} ainda não foi gerada.")
+    fonte = _frase_da_fonte(state, hoje)
+    if fonte:
+        partes.append(fonte)
+    return " ".join(partes)
+
+
+def texto_de_esclarecimento(state: LucasState, hoje: date) -> str | None:
+    """ "De qual ano?" depois de uma resposta (rodada 3): a resposta CURTA, com o ano — "E' julho de 2026:
+    paga em 18/08." —, nunca o texto anterior de novo. `None` sem fatos por competencia."""
+    competencias = _competencias_dos_fatos(state)
+    if not competencias:
+        return None
+    pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
+    c = next((x for x in competencias if x["competencia"] == pedida), None) if pedida else competencias[0]
+    if c is None:
+        return _frase_do_mes_ausente(str(pedida), competencias, hoje)
+    resumo = _resumo_do_mes(c, hoje, com_valor=False)
+    mes = _mes_por_extenso(c["competencia"], hoje)
+    return f"É {mes}: {resumo}." if resumo else f"É {mes}."
 
 
 # --- SITUACAO de uma mensalidade e CASO JA' ABERTO (simulador de beneficiario, 13/10/2026) --------------
@@ -1700,6 +1827,47 @@ def aviso_de_caso_aberto(state: LucasState) -> str:
     return AVISOS_DE_CASO_ABERTO[_variante(state)]
 
 
+#: Rodada 3 (13/10/2026): depois de DOIS avisos de caso aberto no mesmo caso, o Lucas responde so' o fato.
+AVISOS_DE_CASO_ABERTO_MAX: Final[int] = 2
+
+#: Sem fato a dar e com os avisos esgotados: uma resposta curta, honesta, sem repetir o aviso.
+_SEM_FATO_DEPOIS_DOS_AVISOS: Final[tuple[str, ...]] = (
+    "Certo. Se tiver outra dúvida sobre a mensalidade, posso te ajudar por aqui.",
+    "Entendi. Para outra dúvida sobre a mensalidade, é só me perguntar.",
+)
+
+
+def _avisos_anteriores(state: LucasState) -> int:
+    valor = state.get("avisos_anteriores")
+    return valor if isinstance(valor, int) and not isinstance(valor, bool) and 0 <= valor <= 100 else 0
+
+
+def _avisos_do_turno(state: LucasState) -> int:
+    """Os avisos de caso aberto ja' dados neste caso, como o `gather` os deixou (ausente = nenhum)."""
+    avisos = state.get("avisos_de_caso_aberto")
+    return avisos if isinstance(avisos, int) and not isinstance(avisos, bool) and avisos >= 0 else 0
+
+
+def aviso_permitido(state: LucasState) -> bool:
+    """Ainda cabe um aviso de caso aberto neste caso?"""
+    avisos = state.get("avisos_de_caso_aberto")
+    feitos = avisos if isinstance(avisos, int) and not isinstance(avisos, bool) else 0
+    return feitos < AVISOS_DE_CASO_ABERTO_MAX
+
+
+def ref_de_resposta(texto: str) -> str:
+    """A referencia de um texto enviado: 16 hex do sha256 (migration 0025). So' compara; nao guarda."""
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()[:16]
+
+
+def sem_repetir(state: LucasState, texto: str) -> str:
+    """Rodada 3: o mesmo texto NUNCA sai duas vezes seguidas. Igual ao anterior -> "Confirmando: ..."."""
+    anterior = state.get("resposta_anterior_ref")
+    if not texto or not isinstance(anterior, str) or ref_de_resposta(texto) != anterior:
+        return texto
+    return f"Confirmando: {texto[0].lower()}{texto[1:]}"
+
+
 def resposta_factual_do_turno(state: LucasState, hoje: date) -> str | None:
     """O FATO que responde a pergunta deste turno, quando ha' um, para ir ANTES do aviso de escalacao ou
     de caso aberto. Contestacao e cancelamento nao tem fato a dar: so' o aviso."""
@@ -1710,10 +1878,13 @@ def resposta_factual_do_turno(state: LucasState, hoje: date) -> str | None:
     return frase_da_situacao(state, hoje)
 
 
-def texto_caso_aberto(state: LucasState, hoje: date) -> str:
+def texto_caso_aberto(state: LucasState, hoje: date, *, com_aviso: bool = True) -> str:
     """Caso de cobranca JA' com a equipe: o fato que responde a pergunta (quando ha') e o aviso, na
-    variante deste turno. Nunca reabre nada nem promete prazo."""
+    variante deste turno. Nunca reabre nada nem promete prazo. Sem aviso (`com_aviso=False`, depois de
+    dois): so' o fato, ou uma resposta curta quando nao ha' fato."""
     fato = resposta_factual_do_turno(state, hoje)
+    if not com_aviso:
+        return fato or _SEM_FATO_DEPOIS_DOS_AVISOS[_variante(state)]
     aviso = aviso_de_caso_aberto(state)
     return f"{fato} {aviso}" if fato else aviso
 
@@ -2023,11 +2194,13 @@ class LucasGraph:
             # conservative routing.
             notes.append("conciliation status not yet pre-resolved by the CNAB worker")
 
+        caso_aberto = await self._caso_aberto_cobranca(state)
         return {
             "gathered": True,
             "billing_facts": billing_facts,
             "gather_notes": notes,
-            "caso_aberto_cobranca": await self._caso_aberto_cobranca(state),
+            "caso_aberto_cobranca": caso_aberto,
+            "avisos_de_caso_aberto": _avisos_anteriores(state) if caso_aberto else 0,
         }
 
     async def _caso_aberto_cobranca(self, state: LucasState) -> bool:
@@ -2186,6 +2359,15 @@ class LucasGraph:
         terminado em "enviada".
         """
         mensagem = await self._build_message(state)
+        avisos = _avisos_do_turno(state)
+        if not mensagem.get("recusa_de_saida") and isinstance(mensagem.get("texto"), str):
+            texto = mensagem["texto"]
+            if state.get("caso_aberto_cobranca") is True and aviso_permitido(state):
+                # 13/10/2026 (simulador): com o caso de cobranca ja' com a equipe, a resposta reconhece
+                # isso — no maximo `AVISOS_DE_CASO_ABERTO_MAX` vezes por caso (rodada 3).
+                texto = f"{texto} {aviso_de_caso_aberto(state)}"
+                avisos += 1
+            mensagem["texto"] = sem_repetir(state, texto)
         entrega = ENTREGA_NAO_ENVIADA
         to_hash = state.get("to_hash")
         if to_hash and state.get("canal", "whatsapp") == "whatsapp":
@@ -2231,6 +2413,7 @@ class LucasGraph:
             "mensagem": mensagem,
             "mensagem_enviada": entrega == ENTREGA_ENVIADA,
             "desfecho": desfecho,
+            "avisos_de_caso_aberto": avisos,
         }
 
     async def escalate_human(self, state: LucasState) -> dict[str, Any]:
@@ -2364,14 +2547,19 @@ class LucasGraph:
         if not to_hash or state.get("canal", "whatsapp") != "whatsapp":
             return {"ack_pending": True}
 
+        avisos = _avisos_do_turno(state)
         if (state.get("process_ref") or {}).get("already_existed") is True or state.get(
             "caso_aberto_cobranca"
         ) is True:
             # 13/10/2026 (simulador): caso JA' com a equipe — o fato que responde a pergunta e o aviso na
-            # variante deste turno, nunca o mesmo ACK repetido a cada mensagem.
-            ack_text = self._texto_de_caso_aberto(state)
+            # variante deste turno, nunca o mesmo ACK repetido a cada mensagem; depois de dois avisos,
+            # so' o fato (rodada 3).
+            com_aviso = aviso_permitido(state)
+            ack_text = self._texto_de_caso_aberto(state, com_aviso=com_aviso)
+            avisos += 1 if com_aviso else 0
         else:
             ack_text = self._build_escalation_ack(state)
+        ack_text = sem_repetir(state, ack_text)
         try:
             resultado = await self._whatsapp.send(
                 to_hash, ack_text, idempotency_key=_idempotency_key(state, node="send_escalation_ack")
@@ -2382,7 +2570,12 @@ class LucasGraph:
             return {"mensagem_enviada": False, "ack_pending": True}
         if _entrega_de(resultado) == ENTREGA_SUPRIMIDA_DUPLICATA:
             return {"mensagem_enviada": False, "ack_pending": True}
-        return {"mensagem_enviada": True, "ack_pending": False, "desfecho": "escalado_humano"}
+        return {
+            "mensagem_enviada": True,
+            "ack_pending": False,
+            "desfecho": "escalado_humano",
+            "avisos_de_caso_aberto": avisos,
+        }
 
     async def notify_start_failure(self, state: LucasState) -> dict[str, Any]:
         """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
@@ -2526,15 +2719,6 @@ class LucasGraph:
         mensagem = await self._build_message_de_um_mes(state)
         empresa = mensagem.get("prompt_version") == PAGADOR_EMPRESA_TEXTO_VERSION
         if (
-            state.get("caso_aberto_cobranca") is True
-            and not mensagem.get("recusa_de_saida")
-            and isinstance(mensagem.get("texto"), str)
-            and mensagem.get("prompt_version") != MENSAGEM_EM_DIA_VERSION
-        ):
-            # 13/10/2026 (simulador): com o caso de cobranca ja' com a equipe, a resposta reconhece isso.
-            # (O "em dia" com caso aberto ja' sai especifico, em `_build_message_de_um_mes`.)
-            mensagem["texto"] = f"{mensagem['texto']} {aviso_de_caso_aberto(state)}"
-        if (
             _lista_da_pergunta(state) is not None
             and not empresa
             and state.get("tipo_solicitacao") != TIPO_CONSULTA_VALORES
@@ -2559,20 +2743,25 @@ class LucasGraph:
             # 13/10/2026 (decisao do dono): contrato de EMPRESA. Antes de tudo, inclusive do "em dia", que
             # seria a situacao do titulo da empresa. Nunca o total, o boleto ou o atraso da empresa.
             return self._build_pagador_empresa(state)
+        foco = _foco_da_pergunta(state)
+        if foco in (FOCO_ULTIMA, FOCO_ESCLARECIMENTO) and not valores_com_atraso(state):
+            # Rodada 3 (13/10/2026): "Essa e' a ultima? Nao e' novembro?" e "de qual ano?" tem resposta
+            # PROPRIA, curta, dos fatos — nunca o texto anterior de novo.
+            texto_curto = (
+                texto_da_ultima(state, self._hoje())
+                if foco == FOCO_ULTIMA
+                else texto_de_esclarecimento(state, self._hoje())
+            )
+            if texto_curto is not None:
+                facts["competencias"] = _competencias_dos_fatos(state)
+                return self._mensagem(texto_curto, facts, VALORES_PROMPT_VERSION, state)
         if _mensalidade_em_dia(state):
             # DL-0082: com os fatos dizendo "conciliado, zero ciclos" a resposta e' FIXA — nenhum
-            # modelo redige sobre a situacao financeira de alguem quando o fato ja' diz tudo.
-            if state.get("caso_aberto_cobranca") is True:
-                # 13/10/2026 (simulador): "paguei dia 5, aparece 15/09" com o caso ja' com a equipe ouvia
-                # "Esta' tudo em dia!" tres vezes. A resposta e' o fato ESPECIFICO e o aviso do caso.
-                facts["competencias"] = _competencias_dos_fatos(state)
-                return self._mensagem(
-                    texto_caso_aberto(state, self._hoje()), facts, MENSAGEM_EM_DIA_VERSION, state
-                )
-            aberta = _em_aberto_no_prazo(_competencias_dos_fatos(state), self._hoje())
-            if aberta is not None:
-                # A frase da em aberto no prazo cita o vencimento e o boleto dela: a cerca os confere.
-                facts["competencias"] = [aberta]
+            # modelo redige sobre a situacao financeira de alguem quando o fato ja' diz tudo. Rodada 3:
+            # o texto cita meses, datas e boletos dos fatos — a cerca os confere contra eles.
+            competencias_do_status = _competencias_dos_fatos(state)
+            if competencias_do_status:
+                facts["competencias"] = competencias_do_status
             return self._mensagem(
                 texto_mensalidade_em_dia(state, self._hoje()), facts, MENSAGEM_EM_DIA_VERSION, state
             )
@@ -2638,6 +2827,7 @@ class LucasGraph:
         facts: dict[str, Any] = {
             "tipo_solicitacao": TIPO_CONSULTA_VALORES,
             "competencia_pedida": pedida or None,
+            "mais_recente_dos_fatos": competencias[0]["competencia"] if competencias else None,
             "foco": _foco_da_pergunta(state),
             "numero_boleto": _rotulo_boleto(state),
             "status_conciliado": state.get("status_conciliado"),
@@ -2703,6 +2893,7 @@ class LucasGraph:
         facts: dict[str, Any] = {
             "tipo_solicitacao": state.get("tipo_solicitacao"),
             "competencia_pedida": pedida,
+            "mais_recente_dos_fatos": competencias[0]["competencia"] if competencias else None,
             "competencias": [escolhida] if escolhida is not None else [],
             "admissibilidade": state.get("admissibilidade"),
             "dmn_refs": state.get("dmn_refs", {}),
@@ -2831,8 +3022,8 @@ class LucasGraph:
             fatos["dados_de"] = dados_de
         return fatos
 
-    def _texto_de_caso_aberto(self, state: LucasState) -> str:
-        texto = texto_caso_aberto(state, self._hoje())
+    def _texto_de_caso_aberto(self, state: LucasState, *, com_aviso: bool = True) -> str:
+        texto = texto_caso_aberto(state, self._hoje(), com_aviso=com_aviso)
         try:
             return self._cercar_saida(texto, "ack_escalacao", self._fatos_da_cerca_do_ack(state))
         except RespostaRecusadaError:

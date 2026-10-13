@@ -17,14 +17,33 @@ import re
 import unicodedata
 from typing import Final, Literal, get_args
 
-CobrancaFoco = Literal["valor", "coparticipacao", "saldo", "pagamento", "vencimento", "geral"]
+CobrancaFoco = Literal[
+    "valor", "coparticipacao", "saldo", "pagamento", "vencimento", "geral", "ultima", "esclarecimento"
+]
 
 #: O dominio FECHADO do foco. `geral` e' o default (nenhum termo do lexico no texto).
 COBRANCA_FOCOS: Final[frozenset[str]] = frozenset(get_args(CobrancaFoco))
 FOCO_GERAL: Final[str] = "geral"
 
+#: `ultima` (simulador, 13/10/2026): pergunta de CONFIRMACAO sobre a mensalidade mais recente ("Essa e' a
+#: ultima? Nao e' novembro?"). `esclarecimento` NAO sai do lexico: o despachante o poe quando reaproveita a
+#: resposta anterior ("de qual ano?", `runtime/cobranca_esclarecimento.py`) — a resposta e' a curta.
+FOCO_ULTIMA: Final[str] = "ultima"
+FOCO_ESCLARECIMENTO: Final[str] = "esclarecimento"
+
+_MESES_DO_ANO: Final[str] = (
+    "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro"
+)
+
 #: Lexico na ordem de precedencia, sobre o texto sem acento e minusculo.
 _LEXICO: Final[tuple[tuple[CobrancaFoco, re.Pattern[str]], ...]] = (
+    (
+        "ultima",
+        re.compile(
+            r"\b(?:essa|esta)\s+(?:e\s+)?a\s+(?:ultima|mais recente)\b|^\s*e a (?:ultima|mais recente)\s*\?"
+            r"|\bnao e (?:a )?(?:de )?(?:" + _MESES_DO_ANO + r")\b"
+        ),
+    ),
     ("coparticipacao", re.compile(r"copart")),
     # 13/10/2026 (simulador): "o TOTAL em aberto, tudo junto?" e' saldo em toda forma de perguntar o total.
     (
@@ -35,7 +54,8 @@ _LEXICO: Final[tuple[tuple[CobrancaFoco, re.Pattern[str]], ...]] = (
         ),
     ),
     ("valor", re.compile(r"\bquanto paguei\b")),
-    ("pagamento", re.compile(r"\bpaguei\b|\bpagamento\b")),
+    # 13/10/2026 (simulador): "a mensalidade de julho foi paga?" pergunta do PAGAMENTO daquele mes.
+    ("pagamento", re.compile(r"\bpaguei\b|\bpagamento\b|\b(?:foi|esta|ta|ja foi) pag[oa]\b")),
     ("vencimento", re.compile(r"\bvence|\bvencimento\b")),
     ("valor", re.compile(r"\bvalor\b|\bquanto foi\b|\bquanto e\b")),
 )
@@ -66,7 +86,9 @@ def foco_valido(valor: object) -> bool:
 
 __all__ = [
     "COBRANCA_FOCOS",
+    "FOCO_ESCLARECIMENTO",
     "FOCO_GERAL",
+    "FOCO_ULTIMA",
     "CobrancaFoco",
     "decidir_foco_da_cobranca",
     "foco_valido",

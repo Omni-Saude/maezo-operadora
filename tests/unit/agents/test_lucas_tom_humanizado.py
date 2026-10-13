@@ -30,6 +30,8 @@ from maezo.agents.lucas.graph import (
     LucasState,
     texto_ack_escalacao,
     texto_caso_aberto,
+    texto_da_ultima,
+    texto_de_esclarecimento,
     texto_mensalidade_em_dia,
     texto_segunda_via,
     texto_segunda_via_repetida,
@@ -285,6 +287,14 @@ def _todos_os_textos() -> dict[str, str]:
         textos[f"segunda_via_repetida_{variante}"] = texto_segunda_via_repetida(
             repetida, _fatos(_NOVEMBRO), _HOJE
         )
+    # Rodada 3 (13/10/2026): mes perguntado, confirmacao da mais recente, esclarecimento e status com mes
+    # em aberto (sem "em dia").
+    textos["status_mes_perguntado"] = texto_mensalidade_em_dia(
+        _estado(_OUTUBRO, _JULHO, competencia="2026-07"), _HOJE
+    )
+    textos["status_com_mes_em_aberto"] = texto_mensalidade_em_dia(_estado(_NOVEMBRO, _OUTUBRO), _HOJE)
+    textos["ultima"] = str(texto_da_ultima(_estado(_NOVEMBRO, _OUTUBRO, competencia="2026-12"), _HOJE))
+    textos["esclarecimento"] = str(texto_de_esclarecimento(_estado(_OUTUBRO, competencia="2026-10"), _HOJE))
     return textos
 
 
