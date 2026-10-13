@@ -16,9 +16,12 @@ import json
 import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 
 from .personas import MARCADOR_CPF, MARCADOR_NASCIMENTO, Persona
 from .registro import TEMAS
+
+_BRASILIA = timezone(timedelta(hours=-3))
 
 Gerar = Callable[[str], Awaitable[str]]
 
@@ -40,14 +43,21 @@ class RespostaDaPersonaInvalidaError(ValueError):
     """O modelo nao devolveu o JSON combinado. Nunca ecoa a resposta."""
 
 
-def montar_prompt(persona: Persona, historico: Sequence[tuple[str, str]], turno: int) -> str:
-    """`historico`: pares (quem, texto) JA' MASCARADOS; quem e' `voce` ou `atendimento`."""
+def montar_prompt(
+    persona: Persona, historico: Sequence[tuple[str, str]], turno: int, *, hoje: date | None = None
+) -> str:
+    """`historico`: pares (quem, texto) JA' MASCARADOS; quem e' `voce` ou `atendimento`. `hoje` vai no
+    prompt: sem a data, o modelo da persona supunha outro ano e insistia que "2026" era um erro
+    (medido em 13/10/2026, bateria 2)."""
+    hoje = hoje or datetime.now(_BRASILIA).date()
     linhas = "\n".join(f"[{quem}] {texto}" for quem, texto in historico) or "(a conversa ainda nao comecou)"
     pode_encerrar = turno >= persona.turnos_min
     deve_encerrar = turno >= persona.turnos_max
     return f"""Voce esta' fazendo o papel de um beneficiario de plano de saude conversando pelo WhatsApp
 com o atendimento automatico da operadora. Isto e' um TESTE do atendimento; escreva SO' a proxima
 mensagem do beneficiario.
+
+HOJE: {hoje.strftime("%d/%m/%Y")} (use esta data; o ano corrente e' {hoje.year}).
 
 PERSONA: {persona.nome}. {persona.descricao}
 OBJETIVO NA CONVERSA: {persona.objetivo}
