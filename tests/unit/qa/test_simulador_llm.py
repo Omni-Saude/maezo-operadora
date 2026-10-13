@@ -75,6 +75,23 @@ async def test_gerador_da_inferencia_sempre_pede_a_zona_phi() -> None:
     assert chamadas == [{"phi": True, "agent_id": "simulador-persona", "tenant_id": "amh"}]
 
 
+async def test_gerador_da_inferencia_repete_falha_transitoria_e_desiste_no_fim() -> None:
+    falhas = {"n": 2}
+
+    class Inferencia:
+        async def generate(self, prompt: str, **kwargs: Any) -> str:
+            if falhas["n"]:
+                falhas["n"] -= 1
+                raise RuntimeError("BrRegionalTransportUnavailableError")
+            return "ok"
+
+    gerar = bl.gerador_da_inferencia(Inferencia(), tenant_id="amh", papel="p", esperas=(0.0, 0.0))
+    assert await gerar("p") == "ok"
+    falhas["n"] = 3
+    with pytest.raises(RuntimeError):
+        await gerar("p")
+
+
 # --- juiz -----------------------------------------------------------------------------------------
 def _transcricao() -> list[dict[str, Any]]:
     c = conversa(
