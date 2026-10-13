@@ -35,7 +35,13 @@ import math
 import re
 from typing import Final, Protocol, runtime_checkable
 
-from maezo.agents.lucas.fonte_cobranca import CompetenciaCobranca, FatosCobranca, Indisponivel
+from maezo.agents.lucas.fonte_cobranca import (
+    PAGADOR_EMPRESA,
+    PAGADOR_TIPOS,
+    CompetenciaCobranca,
+    FatosCobranca,
+    Indisponivel,
+)
 from maezo.ports.billing_status import BillingStatusPort, BillingStatusView, CompetenciaBilling
 from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
@@ -62,7 +68,9 @@ def _na_forma(valor: object, forma: re.Pattern[str]) -> str | None:
     return valor if isinstance(valor, str) and forma.match(valor) else None
 
 
-def _competencia_como_fato(c: CompetenciaBilling) -> CompetenciaCobranca | None:
+def _competencia_como_fato(
+    c: CompetenciaBilling, pagador: str = "desconhecido"
+) -> CompetenciaCobranca | None:
     """Uma competencia do contrato -> fato do Lucas, campo a campo na forma do contrato. `None` quando
     nem a competencia nem a situacao tem forma valida: sem elas o resto nao diz de que mes se trata."""
     if not _na_forma(c.competencia, _COMPETENCIA) or c.situacao not in _SITUACOES:
@@ -75,8 +83,13 @@ def _competencia_como_fato(c: CompetenciaBilling) -> CompetenciaCobranca | None:
         valor_coparticipacao=_na_forma(c.valor_coparticipacao, _DECIMAL),
         valor_saldo=_na_forma(c.valor_saldo, _DECIMAL),
         liquidado_em=_na_forma(c.liquidado_em, _DATA),
-        boleto=_na_forma(c.boleto_numero_mascarado, _MASCARA),
+        boleto=None if pagador == PAGADOR_EMPRESA else _na_forma(c.boleto_numero_mascarado, _MASCARA),
     )
+
+
+def _pagador(tipo: object) -> str:
+    """`resumo.pagador_tipo` do contrato; fora do enum vira `desconhecido` (nunca corrigido)."""
+    return tipo if isinstance(tipo, str) and tipo in PAGADOR_TIPOS else "desconhecido"
 
 
 def _dias_validos(dias: object) -> int | None:
@@ -181,27 +194,37 @@ class FonteCobrancaAmh:
         if resumo.status_conciliado is None or resumo.ciclos_sem_conciliacao is None:
             return Indisponivel("fato_ausente")
         referencia = _competencia_de_referencia(view, competencia)
+        pagador = _pagador(resumo.pagador_tipo)
+        # Contrato de EMPRESA (13/10/2026): o boleto e' da empresa contratante, nunca da pessoa. A AMH ja'
+        # nao o manda; aqui e' defesa em profundidade — o rotulo nao chega ao Lucas.
+        boleto = (
+            ""
+            if pagador == PAGADOR_EMPRESA
+            else ((referencia.boleto_numero_mascarado or "") if referencia else "")
+        )
         if not self._fatos_de_valor:
             # Sem a verificacao (ou com `MAEZO_LUCAS_CONSULTA_VALORES` desligada): os quatro fatos de
             # sempre e nada mais — o comportamento de antes do DL-0086, byte a byte.
             return FatosCobranca(
                 status_conciliado=resumo.status_conciliado,
                 ciclos_sem_conciliacao=resumo.ciclos_sem_conciliacao,
-                numero_boleto=(referencia.boleto_numero_mascarado or "") if referencia else "",
+                numero_boleto=boleto,
                 cnab_ref=f"amh-billing:{view.fonte_atualizada_em[:10]}",
+                pagador_tipo=pagador,
             )
         competencias = tuple(
             fato
-            for fato in (_competencia_como_fato(c) for c in view.competencias[:JANELA_MESES])
+            for fato in (_competencia_como_fato(c, pagador) for c in view.competencias[:JANELA_MESES])
             if fato is not None
         )
         return FatosCobranca(
             status_conciliado=resumo.status_conciliado,
             ciclos_sem_conciliacao=resumo.ciclos_sem_conciliacao,
-            numero_boleto=(referencia.boleto_numero_mascarado or "") if referencia else "",
+            numero_boleto=boleto,
             cnab_ref=f"amh-billing:{view.fonte_atualizada_em[:10]}",
             valor_em_aberto=_na_forma(resumo.valor_em_aberto, _DECIMAL),
             dias_atraso_max=_dias_validos(resumo.dias_atraso_max),
             vencimento_referencia=_na_forma(referencia.vencimento, _DATA) if referencia else None,
             competencias=competencias,
+            pagador_tipo=pagador,
         )

@@ -55,6 +55,10 @@ VENCIMENTO_PROMPT_VERSION = "vencimento-v2-tom"
 #: por competencia existem + a data da fonte. Sem modelo, com ou sem fatos.
 #: v2 (10/10/2026, DL-0087): redacao aprovada pelo dono; boleto so' no titulo em aberto.
 SEGUNDA_VIA_TEXTO_VERSION = "segunda-via-v2-tom"
+#: Resposta FIXA a quem tem a mensalidade paga pela EMPRESA contratante (`graph.py::texto_pagador_empresa`,
+#: 13/10/2026, decisao do dono): "Sua mensalidade e' paga pela empresa contratante." (+ a coparticipacao da
+#: pessoa, quando perguntada). Nunca o total, o boleto ou o atraso da fatura da empresa.
+PAGADOR_EMPRESA_TEXTO_VERSION = "pagador-empresa-v1"
 
 SYSTEM_PROMPT = """Voce e Lucas, um navegador de atendimento e cobranca ao beneficiario de um
 plano de saude brasileiro. Seu papel e responder duvidas de boleto/2a via/vencimento, informar o
@@ -609,4 +613,5 @@ PROMPT_VERSIONS: dict[str, str] = {
     "valores": VALORES_PROMPT_VERSION,
     "vencimento": VENCIMENTO_PROMPT_VERSION,
     "segunda_via": SEGUNDA_VIA_TEXTO_VERSION,
+    "pagador_empresa": PAGADOR_EMPRESA_TEXTO_VERSION,
 }
