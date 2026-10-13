@@ -327,6 +327,15 @@ def _linha(partes: Sequence[tuple[str, str | None]]) -> str:
     return "; ".join(f"{rotulo}: {valor}" for rotulo, valor in partes if valor)
 
 
+def segmentacao_dos_fatos(fatos: Mapping[str, Any]) -> str | None:
+    """A segmentacao REGISTRADA no cadastro (primeiro vinculo que a traz), ou `None`. So' le' o fato."""
+    for v in fatos.get("vinculos") or []:
+        valor = v.get("segmentacao") if isinstance(v, Mapping) else None
+        if isinstance(valor, str) and valor.strip():
+            return valor.strip()
+    return None
+
+
 def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
     """A resposta montada SO' com os fatos. E' o caminho quando o modelo falha ou a cerca recusa."""
     atualizado = _br(fatos.get("fonte_atualizada_em"))
@@ -377,7 +386,11 @@ def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
             linha = _linha(((c.get("carencia") or "carência sem descrição", situacao),))
             if linha:
                 linhas.append(f"- {linha}")
-        corpo = "constam estas carências:\n" + "\n".join(linhas) if linhas else "não consta nenhuma carência."
+        if not linhas:
+            # RODADA 8: sem linha de carencia o cadastro diz exatamente isso — e a data da fonte, se houver.
+            quando = f" (atualizado em {atualizado})" if atualizado else ""
+            return f"No seu cadastro não consta nenhuma carência{quando}. {_FECHO}"
+        corpo = "constam estas carências:\n" + "\n".join(linhas)
     elif subtipo == "autorizacao":
         for r in fatos.get("requisicoes") or []:
             linha = _linha(
@@ -496,5 +509,6 @@ __all__ = [
     "literais_dos_fatos",
     "motivo_de_recusa_da_consulta",
     "resposta_deterministica",
+    "segmentacao_dos_fatos",
     "texto_para_cerca",
 ]

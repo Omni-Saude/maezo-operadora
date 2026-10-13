@@ -93,6 +93,17 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
 - **Cobrança é do Lucas, sempre:** mesmo com caso aberto ou pedido de pessoa, a mensagem de cobrança vai
   para quem cuida do financeiro. "Me passa pro RH" não é pedido de uma pessoa da nossa equipe.
 
+## Rodada 8 — teste real do dono (DL-0095, 13/10/2026)
+
+- **Sem carência no cadastro não é falha:** "No seu cadastro não consta nenhuma carência", com a data da fonte
+  se houver. Só falha de verdade (prazo, erro, recusa) usa o texto de falha.
+- **Com os fatos do plano ligados**, nunca "ainda não estão disponíveis por este chat". A falha diz que a
+  consulta não funcionou agora, oferece tentar de novo e, na segunda vez, uma pessoa; não repete igual.
+- **Cobertura de procedimento:** a segmentação registrada (com obstetrícia, se houver) e onde confirmar.
+  Nunca promessa de cobertura.
+- **Mensagem mista (cobrança + plano):** a parte do plano vem junto da frase de passagem; o Lucas responde a
+  cobrança em seguida. Nunca pedir para a pessoa reenviar.
+
 ## Nunca dizer
 
 - "portal do beneficiário", "portal da operadora", "aplicativo do plano", "site", 0800 ou qualquer canal

@@ -2166,6 +2166,50 @@
         "canal": null,
         "menciona": true
       }
+    },
+    {
+      "texto": "Não consegui consultar essa informação do seu plano agora. Pode me perguntar de novo em instantes?",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0095 (13/10/2026, rodada 8, teste real do dono): RESPOSTA_PLANO_FALHA_1",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Ainda não consegui consultar o seu cadastro. Se preferir, uma pessoa da equipe pode ajudar: é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0095 (13/10/2026, rodada 8, teste real do dono): RESPOSTA_PLANO_FALHA_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Continuo sem conseguir consultar o seu cadastro agora. A central de atendimento do plano e o aplicativo Austa Clínicas mostram essa informação.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0095 (13/10/2026, rodada 8, teste real do dono): RESPOSTA_PLANO_FALHA_3",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não consegui consultar o seu plano agora. A central de atendimento do plano e o aplicativo Austa Clínicas mostram essa informação.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0095 (13/10/2026, rodada 8, teste real do dono): RESPOSTA_PLANO_FALHA_NA_PASSAGEM",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }
