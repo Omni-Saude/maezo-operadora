@@ -179,7 +179,7 @@ class ConversaDoTurno:
     #: 13/10/2026 (simulador): a variante de redacao do turno (a revisao do roteador antes dele) e o
     #: assunto da resposta ANTERIOR do Lucas (`cobranca_subtipo`, so' com ele ainda com a conversa). Os
     #: dois so' evitam o mesmo texto duas vezes seguidas; nenhum e' texto do beneficiario.
-    variante_de_texto: int = 0
+    variante_de_redacao: int = 0
     assunto_anterior: str | None = None
 
 
@@ -270,7 +270,8 @@ def entrada_do_lucas(
         entrada["competencia"] = handoff.competencia
     if handoff.cobranca_lista is not None:
         entrada["cobranca_lista"] = handoff.cobranca_lista.como_handoff()
-    entrada["variante_de_texto"] = conversa.variante_de_texto % 2 if conversa.variante_de_texto >= 0 else 0
+    variante = conversa.variante_de_redacao
+    entrada["variante_de_redacao"] = variante % 2 if variante >= 0 else 0
     if conversa.assunto_anterior in ENTRADA_POR_SUBTIPO:
         entrada["assunto_anterior"] = conversa.assunto_anterior
     if fatos is not None:

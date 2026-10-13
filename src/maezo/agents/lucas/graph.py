@@ -386,7 +386,7 @@ class LucasState(TypedDict, total=False):
     cobranca_lista: dict[str, Any]
     #: 13/10/2026 (simulador): a VARIANTE de redacao deste turno (a revisao do roteador, que sobe uma por
     #: mensagem). Alterna os textos que poderiam se repetir (caso aberto, 2a via de novo).
-    variante_de_texto: int
+    variante_de_redacao: int
     #: 13/10/2026: o assunto (`cobranca_subtipo`) da resposta ANTERIOR do Lucas nesta conversa, quando ele
     #: ainda estava com ela; ausente caso contrario. So' enum, nunca texto.
     assunto_anterior: str
@@ -505,7 +505,7 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         # 12/10/2026: o pedido de lista (quantidade, periodo `AAAA-MM`, situacao; texto nunca).
         "cobranca_lista",
         # 13/10/2026: variante de redacao e assunto anterior (inteiro e enum; texto nunca).
-        "variante_de_texto",
+        "variante_de_redacao",
         "assunto_anterior",
         # Pre-resolved by the deterministic CNAB conciliation worker upstream — CONSUMED, never
         # computed here. These are FACTS a caller may assert; every VERDICT derived from them
@@ -1595,7 +1595,7 @@ def texto_mensalidade_em_dia(state: LucasState, hoje: date) -> str:
 # cada nova mensagem reabria a escalacao e repetia o MESMO texto, 10 vezes seguidas; (3) a pergunta
 # especifica ("paguei dia 5, aparece 15/09") recebia o "esta' tudo em dia" generico; (4) a 2a via repetia
 # os canais a quem disse que nao consegue acessa-los. Os textos abaixo dizem o FATO primeiro, reconhecem o
-# caso aberto sem prometer prazo e nunca saem iguais duas vezes seguidas (`variante_de_texto`).
+# caso aberto sem prometer prazo e nunca saem iguais duas vezes seguidas (`variante_de_redacao`).
 
 
 def _em_aberto_no_prazo(competencias: list[dict[str, str]], hoje: date) -> dict[str, str] | None:
@@ -1650,7 +1650,7 @@ def frase_da_situacao(state: LucasState, hoje: date) -> str | None:
     return None
 
 
-#: Caso de cobranca JA' com a equipe: duas redacoes, alternadas por `variante_de_texto` (a revisao do
+#: Caso de cobranca JA' com a equipe: duas redacoes, alternadas por `variante_de_redacao` (a revisao do
 #: roteador, que sobe uma por mensagem) — o mesmo aviso nunca sai duas vezes seguidas. Sem prazo.
 AVISOS_DE_CASO_ABERTO: Final[tuple[str, ...]] = (
     ACK_ATENDIMENTO_JA_ABERTO,
@@ -1659,7 +1659,7 @@ AVISOS_DE_CASO_ABERTO: Final[tuple[str, ...]] = (
 
 
 def _variante(state: LucasState) -> int:
-    valor = state.get("variante_de_texto")
+    valor = state.get("variante_de_redacao")
     return valor % 2 if isinstance(valor, int) and not isinstance(valor, bool) and valor >= 0 else 0
 
 
@@ -1687,7 +1687,7 @@ def texto_caso_aberto(state: LucasState, hoje: date) -> str:
 
 #: 2a via PEDIDA DE NOVO (o turno anterior do Lucas ja' foi 2a via): o Lucas diz com clareza que nao
 #: envia o boleto por aqui, da' o que tem (mes, vencimento, valor, final do boleto), a central como
-#: alternativa e oferece alguem da equipe. Duas redacoes, alternadas (`variante_de_texto`).
+#: alternativa e oferece alguem da equipe. Duas redacoes, alternadas (`variante_de_redacao`).
 _SEGUNDA_VIA_NAO_ENVIO: Final[tuple[str, ...]] = (
     "Por aqui eu não consigo enviar o boleto.",
     "Não consigo mandar o boleto pelo WhatsApp.",
@@ -2012,7 +2012,7 @@ class LucasGraph:
             status = await ler(business_key)
         except PROGRAMMING_ERRORS:
             raise
-        except Exception as exc:
+        except EXTERNAL_DEPENDENCY_FAILURES as exc:
             logger.warning("lucas_caso_aberto_leitura_falhou", error_type=type(exc).__name__)
             return False
         variaveis = getattr(status, "variables", None)

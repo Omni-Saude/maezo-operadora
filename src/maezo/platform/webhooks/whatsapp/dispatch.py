@@ -1370,7 +1370,7 @@ class HelenaDispatcher:
                 # Fonte AMH (decisao do dono 06/10/2026): o hash `amh-phone-lookup-v1` nasce AQUI,
                 # onde o numero cru ainda existe, e morre com este turno. Sem a fonte AMH e' `None`.
                 phone_hash_amh=self.lucas_turno.hash_telefone_para_amh(message.from_number),
-                variante_de_texto=variante,
+                variante_de_redacao=variante,
                 assunto_anterior=assunto_anterior,
             ),
             remetente,

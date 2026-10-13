@@ -106,7 +106,7 @@ class _Conversa:
             whatsapp=envio,
             hoje=lambda: _HOJE,
         )
-        estado = _estado(variante_de_texto=self.turno % 2, **entrada)
+        estado = _estado(variante_de_redacao=self.turno % 2, **entrada)
         self.turno += 1
         final = dict(await grafo.compile_graph().compile().ainvoke(estado))
         return final, envio.textos

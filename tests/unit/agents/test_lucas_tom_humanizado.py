@@ -277,11 +277,11 @@ def _todos_os_textos() -> dict[str, str]:
     atraso = _estado(_NOVEMBRO, vencida, motivo_humano="inadimplencia_detectada", numero_boleto="****0042")
     textos["ack_atraso_com_fato"] = texto_ack_escalacao(atraso, _HOJE)
     for variante in (0, 1):
-        com_fato = _estado(_NOVEMBRO, _OUTUBRO, variante_de_texto=variante)
+        com_fato = _estado(_NOVEMBRO, _OUTUBRO, variante_de_redacao=variante)
         textos[f"ack_caso_aberto_com_fato_{variante}"] = texto_caso_aberto(com_fato, _HOJE)
-        contestacao = _estado(_OUTUBRO, variante_de_texto=variante, contesta_cobranca=True)
+        contestacao = _estado(_OUTUBRO, variante_de_redacao=variante, contesta_cobranca=True)
         textos[f"ack_caso_aberto_contestacao_{variante}"] = texto_caso_aberto(contestacao, _HOJE)
-        repetida = _estado(_NOVEMBRO, variante_de_texto=variante)
+        repetida = _estado(_NOVEMBRO, variante_de_redacao=variante)
         textos[f"segunda_via_repetida_{variante}"] = texto_segunda_via_repetida(
             repetida, _fatos(_NOVEMBRO), _HOJE
         )
