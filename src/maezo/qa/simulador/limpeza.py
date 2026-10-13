@@ -150,7 +150,16 @@ class Limpeza:
             except Exception as exc:
                 resultado.erros.append(f"{tabela}:{type(exc).__name__}")
         await self.conferir_motor(ids, resultado)
-        logger.info("simulador_limpeza", **resultado.como_dict())
+        logger.info(
+            "simulador_limpeza",
+            conversas=resultado.conversas,
+            checkpoints_apagados=resultado.checkpoints_apagados,
+            linhas_roteador=resultado.linhas_roteador,
+            linhas_acesso=resultado.linhas_acesso,
+            casos_no_motor=resultado.casos_no_motor,
+            motor_limpo=resultado.motor_limpo,
+            erros=len(resultado.erros),
+        )
         return resultado
 
     async def conferir_motor(self, conversation_ids: Sequence[str], resultado: ResultadoDaLimpeza) -> None:

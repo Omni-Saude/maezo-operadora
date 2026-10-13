@@ -86,3 +86,16 @@ async def test_planos_de_repeticao_so_as_conversas_que_falharam() -> None:
 def test_main_devolve_codigo_de_preparo_sem_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MAEZO_SIMULADOR_BUCKET", raising=False)
     assert principal.main(["--conversas", "1"]) == principal.SAIDA_PREPARO
+
+
+def test_argumentos_vem_do_ambiente_na_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SIMULADOR_ARGS", "--conversas 20 --personas 'idoso,contesta'")
+    monkeypatch.setattr("sys.argv", ["simulador", "--sem-juiz"])
+    assert principal.argumentos_do_ambiente(None) == [
+        "--conversas",
+        "20",
+        "--personas",
+        "idoso,contesta",
+        "--sem-juiz",
+    ]
+    assert principal.argumentos_do_ambiente(["--limpar", "r1"]) == ["--limpar", "r1"]

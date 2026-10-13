@@ -1,6 +1,6 @@
 """`python -m maezo.qa.simulador` — a bateria do simulador de beneficiario (so' no dev, no Fargate).
 
-Uso (os argumentos chegam pela variavel `SIMULADOR_ARGS` da task `maezo-operadora-dev-simulador`):
+Uso (na task `maezo-operadora-dev-simulador` os argumentos chegam pela variavel `SIMULADOR_ARGS`):
 
   --conversas N                quantas conversas (padrao 10)
   --concorrencia K             conversas em paralelo (padrao 3; telefones diferentes)
@@ -26,6 +26,7 @@ import json
 import os
 import random
 import secrets
+import shlex
 import sys
 import time
 from collections import Counter
@@ -224,7 +225,8 @@ def _extras(
 
 async def executar(args: argparse.Namespace) -> int:
     bucket = os.environ.get("MAEZO_SIMULADOR_BUCKET", "")
-    regiao = os.environ.get("AWS_REGION") or os.environ.get("MAEZO_BEDROCK_REGION") or "sa-east-1"
+    # A regiao do Bedrock da task (a mesma do bucket: tudo em sa-east-1).
+    regiao = os.environ.get("MAEZO_BEDROCK_REGION") or "sa-east-1"
     armazenamento = ArmazenamentoS3(bucket, regiao=regiao)
     if args.limpar:
         return await _so_limpar(args, armazenamento)
@@ -391,8 +393,19 @@ async def executar(args: argparse.Namespace) -> int:
     return SAIDA_OK
 
 
+#: Na task do Fargate os argumentos chegam por esta variavel (o RunTask so' sobrescreve o ambiente).
+VARIAVEL_DE_ARGUMENTOS = "SIMULADOR_ARGS"
+
+
+def argumentos_do_ambiente(argv: Sequence[str] | None) -> list[str]:
+    """`SIMULADOR_ARGS` (dividido como no shell) seguido dos argumentos da linha de comando."""
+    if argv is not None:
+        return list(argv)
+    return shlex.split(os.environ.get(VARIAVEL_DE_ARGUMENTOS, "")) + sys.argv[1:]
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = construir_parser().parse_args(argv)
+    args = construir_parser().parse_args(argumentos_do_ambiente(argv))
     try:
         return asyncio.run(executar(args))
     except Exception as exc:

@@ -111,8 +111,9 @@ resource "aws_ecs_task_definition" "simulador" {
     image     = "${aws_ecr_repository.app.repository_url}:${local.simulador_image_tag}"
     essential = true
 
-    # O DSN e' montado como no receptor; `SIMULADOR_ARGS` e' dividido em palavras de proposito.
-    command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.qa.simulador $SIMULADOR_ARGS"]
+    # O DSN e' montado como no receptor. Os argumentos vem de `SIMULADOR_ARGS`, lida pelo proprio
+    # `__main__` (shlex), nunca expandida pelo shell.
+    command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.qa.simulador"]
 
     environment = concat(
       local.webhook_receiver_contrato.environment_app,
