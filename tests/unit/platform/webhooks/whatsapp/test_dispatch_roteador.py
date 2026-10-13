@@ -82,7 +82,9 @@ CENARIOS: dict[str, tuple[list[str], dict[str, list[dict[str, Any]]], str, str]]
     "classify_falhou": (
         ["isto nao e json", "resumo", "desculpe"],
         {},
-        "oi",
+        # DL-0093: com assunto clinico a falha do classificador escala como sempre (sem ele, pede o
+        # reenvio e nao ha' falha tecnica a registrar).
+        "estou com dor",
         "retorno_falha",
     ),
 }
