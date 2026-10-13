@@ -901,6 +901,12 @@ RESPOSTA_CASO_ABERTO_URGENTE: str = (
 )
 
 #: RODADA 4: o recado ao atendente, sem prometer que ele le' esta conversa (o portal nao a recebe).
+#: RODADA 7: "me passa o contato da equipe" sem caso aberto: nao ha' telefone nem e-mail da equipe para dar;
+#: o caso e' aberto e a equipe fala com a pessoa aqui.
+RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE: str = (
+    "Não tenho telefone nem e-mail da equipe para passar. Encaminhei seu caso, e um atendente vai "
+    "falar com você aqui mesmo, nesta conversa."
+)
 #: RODADA 6: pedido explicito de pessoa com o caso ja' aberto.
 RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA: str = (
     "Seu caso já está com a nossa equipe, por isso não abri outro. "
@@ -3034,6 +3040,16 @@ _PEDIDO_EXPLICITO_DE_PESSOA = re.compile(
     # RODADA 6: "passa pra equipe AGORA" (com ou sem "me").
     r"|\b(?:passa|transfere|encaminha|manda|coloca)(?: \w+){0,2} (?:pra|para|pro|com) (?:a |o |um |uma )?"
     r"(?:equipe|atendente|humano|humana|pessoa|alguem|supervisor\w*|gerente)\b"
+    # RODADA 7: "Passar pra equipe entao", "Encaminha logo pra equipe", "chama essa pessoa AGORA", "me passa
+    # o contato DIRETO dessa equipe".
+    r"|\b(?:passa|passar|passe|transfere|transferir|transfira|encaminha|encaminhar|encaminhe|manda|mandar"
+    r"|mande|coloca|colocar|coloque|chama|chamar|chame)(?: \w+){0,2} (?:pra|para|pro|com) "
+    r"(?:a |o |um |uma |essa |esse |aquela |aquele )?"
+    r"(?:equipe|atendente|humano|humana|pessoa|alguem|supervisor\w*|gerente)\b"
+    r"|\b(?:chama|chame|chamar|traz|traga)(?: \w+){0,1} (?:essa |esse |a |o |um |uma )?"
+    r"(?:pessoa|atendente|equipe|humano|humana|alguem|supervisor\w*|gerente)\b"
+    r"|\bcontato(?: \w+){0,2} (?:da|dessa|desse|do|de|de uma|de um)"
+    r" (?:equipe|atendente|pessoa|humano|supervisor\w*)\b"
 )
 #: RODADA 6: queixa de espera ("to aqui esperando desde cedo e ninguem veio me ligar") nao e' pedido NOVO
 #: de pessoa — o "me ligar" dela e' reclamacao de quem ja' esta' esperando.
@@ -3189,7 +3205,22 @@ _PEDIDO_COM_VERBO = re.compile(
     r"|gente|equipe|supervisor|gerente|responsavel|operador)\b"
     r"|\b(?:passa|transfere|encaminha|manda|coloca)(?: \w+){0,2} (?:pra|para|pro|com) (?:a |o |um |uma )?"
     r"(?:equipe|atendente|humano|humana|pessoa|alguem|supervisor\w*|gerente)\b"
-    r"|\b(?:quero|preciso) (?:de )?(?:uma? )?(?:pessoa|alguem|atendente)\b"
+    r"|\b(?:quero|preciso) (?:de )?(?:uma? )?(?:pessoa|alguem|atendente|humano|humana)\b"
+    # RODADA 7: "Passar pra equipe entao", "Encaminha logo pra equipe", "chama essa pessoa AGORA", "me passa
+    # o contato DIRETO dessa equipe".
+    r"|\b(?:passa|passar|passe|transfere|transferir|transfira|encaminha|encaminhar|encaminhe|manda|mandar"
+    r"|mande|coloca|colocar|coloque|chama|chamar|chame)(?: \w+){0,2} (?:pra|para|pro|com) "
+    r"(?:a |o |um |uma |essa |esse |aquela |aquele )?"
+    r"(?:equipe|atendente|humano|humana|pessoa|alguem|supervisor\w*|gerente)\b"
+    r"|\b(?:chama|chame|chamar|traz|traga)(?: \w+){0,1} (?:essa |esse |a |o |um |uma )?"
+    r"(?:pessoa|atendente|equipe|humano|humana|alguem|supervisor\w*|gerente)\b"
+    r"|\bcontato(?: \w+){0,2} (?:da|dessa|desse|do|de|de uma|de um)"
+    r" (?:equipe|atendente|pessoa|humano|supervisor\w*)\b"
+)
+#: RODADA 7: o pedido do CONTATO da equipe ("me passa o contato direto dessa equipe").
+_PEDE_CONTATO_DA_EQUIPE = re.compile(
+    r"\bcontato(?: \w+){0,2} (?:da|dessa|desse|do|de|de uma|de um)"
+    r" (?:equipe|atendente|pessoa|humano|supervisor\w*)\b"
 )
 
 
@@ -3197,12 +3228,35 @@ _PEDIDO_COM_VERBO = re.compile(
 _RECUSA_DE_PESSOA = re.compile(r"\bnao (?:quero|preciso|gostaria|queria)\b")
 
 
+#: RODADA 7: a RECUSA ("nao quero falar com nenhuma equipe") sai do texto antes do teste de pedido.
+_RECUSA_COM_ALVO = re.compile(
+    r"\bnao (?:quero|preciso|gostaria|queria)(?: de)? (?:falar|conversar|ser atendid[oa])"
+    r"(?: (?:com|por) (?:ninguem|nenhum\w* \w+|(?:a|o|um|uma|essa|esse) \w+|\w+))?"
+)
+
+
+_SO_ME_PEDIR = re.compile(r"\bso (?:me )?pedir\b|\bposso te encaminhar\b")
+
+
+def _sem_frase_so_me_pedir(texto: str) -> str:
+    frases = re.split(r"(?<=[.!?])\s+", texto.strip())
+    mantidas = [f for f in frases if not _SO_ME_PEDIR.search(_plano(f))]
+    return " ".join(mantidas) if mantidas else texto
+
+
+def _texto_do_pedido(texto: str) -> str:
+    """O texto sem queixa de espera, sem "vou esperar o atendente" e sem recusa — o que sobra e' pedido."""
+    plano = _QUEIXA_DE_ESPERA.sub(" ", _plano(texto))
+    plano = _ESPERA_DE_ATENDENTE.sub(" ", plano)
+    return _RECUSA_COM_ALVO.sub(" ", plano)
+
+
 def _pedido_explicito_com_verbo(texto: str) -> bool:
-    return bool(_PEDIDO_COM_VERBO.search(_QUEIXA_DE_ESPERA.sub(" ", _plano(texto))))
+    return bool(_PEDIDO_COM_VERBO.search(_texto_do_pedido(texto)))
 
 
 def _pedido_explicito_de_pessoa(texto: str) -> bool:
-    return bool(_PEDIDO_EXPLICITO_DE_PESSOA.search(_QUEIXA_DE_ESPERA.sub(" ", _plano(texto))))
+    return bool(_PEDIDO_EXPLICITO_DE_PESSOA.search(_texto_do_pedido(texto)))
 
 
 def eh_pedido_explicito_de_pessoa(texto: str) -> bool:
@@ -5020,6 +5074,9 @@ class HelenaGraph:
             if state.get("apresentacao_ja_feita") is True or _falas_da_helena(state):
                 # RODADA 6: "Sou Helena..." so' no primeiro contato.
                 text = _sem_apresentacao(text)
+            if _pedido_explicito_com_verbo(str(state.get("message_body") or "")):
+                # RODADA 7: a pessoa ACABOU de pedir — "e' so' me pedir" nunca sai nesse turno.
+                text = _sem_frase_so_me_pedir(text)
             # RODADA 3 (D8): frase do modelo acima de 20 palavras e' partida, sem trocar palavra.
             text = _frases_curtas(text)
         except RespostaRecusadaError:
@@ -5492,6 +5549,11 @@ class HelenaGraph:
             # TEXTO FIXO, sem modelo — ver `RESPOSTA_ESCALONAMENTO_URGENTE`. O modelo continua
             # redigindo so' o `schedule` (hoje sem rota de entrada, DL-0052).
             response_text = _texto_de_escalonamento(motivo, severidade, saude=_mensagem_de_saude(state))
+            if motivo == "solicitacao_humano" and _PEDE_CONTATO_DA_EQUIPE.search(
+                _plano(str(state.get("message_body") or ""))
+            ):
+                # RODADA 7: pediu o CONTATO da equipe: nao ha' contato a dar; a equipe fala aqui.
+                response_text = RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE
         else:
             try:
                 response_text = await self._respond_llm(state, response_kind)
