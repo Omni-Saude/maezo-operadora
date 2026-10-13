@@ -287,6 +287,15 @@ def _todos_os_textos() -> dict[str, str]:
         textos[f"segunda_via_repetida_{variante}"] = texto_segunda_via_repetida(
             repetida, _fatos(_NOVEMBRO), _HOJE
         )
+    # Rodada 8 (13/10/2026, teste real do dono): a empresa responde por assunto.
+    textos["empresa_vencimento"] = lg.TEXTO_EMPRESA_VENCIMENTO
+    textos["empresa_segunda_via"] = lg.TEXTO_EMPRESA_SEGUNDA_VIA
+    textos["empresa_segunda_via_curta"] = lg.texto_pagador_empresa_curto(
+        _estado(_OUTUBRO, tipo_solicitacao="2a_via"), _HOJE
+    )
+    textos["empresa_vencimento_curta"] = lg.texto_pagador_empresa_curto(
+        _estado(_OUTUBRO, tipo_solicitacao="vencimento"), _HOJE
+    )
     # Rodada 6 (13/10/2026): como pagar, "ja' paguei" e o "ainda no prazo".
     textos["texto_como_pagar"] = lg.TEXTO_COMO_PAGAR
     textos["texto_como_pagar_curto"] = lg.TEXTO_COMO_PAGAR_CURTO

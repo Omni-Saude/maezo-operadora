@@ -1139,6 +1139,31 @@ def texto_cobranca_administradora(state: LucasState, facts: Mapping[str, Any], h
 TEXTO_PAGADOR_EMPRESA: Final[str] = "Sua mensalidade é paga pela empresa contratante."
 
 
+#: Rodada 8 (teste real do dono): o contrato de empresa responde POR ASSUNTO. "2a via", "vencimento/boleto" e
+#: "pagamento/valor/ultimas N" sao tres perguntas diferentes — cada uma com o seu texto e a sua escada.
+TEMA_EMPRESA_PAGAMENTO: Final[str] = "pagamento"
+TEMA_EMPRESA_VENCIMENTO: Final[str] = "vencimento"
+TEMA_EMPRESA_SEGUNDA_VIA: Final[str] = "segunda_via"
+
+TEXTO_EMPRESA_VENCIMENTO: Final[str] = (
+    "O boleto e o vencimento da sua mensalidade ficam com a empresa contratante (normalmente o RH). Se "
+    "quiser, posso te passar para alguém da nossa equipe."
+)
+TEXTO_EMPRESA_SEGUNDA_VIA: Final[str] = (
+    "A 2ª via do boleto é com a empresa contratante (normalmente o RH). Por aqui eu não consigo enviar o "
+    "boleto. Se quiser, posso te passar para alguém da nossa equipe."
+)
+
+
+def tema_da_empresa(state: LucasState) -> str:
+    """O assunto da pergunta num contrato de empresa: 2a via, vencimento/boleto ou pagamento (o resto)."""
+    if state.get("tipo_solicitacao") in _TIPOS_DE_SEGUNDA_VIA:
+        return TEMA_EMPRESA_SEGUNDA_VIA
+    if state.get("tipo_solicitacao") == "vencimento" or _foco_da_pergunta(state) == "vencimento":
+        return TEMA_EMPRESA_VENCIMENTO
+    return TEMA_EMPRESA_PAGAMENTO
+
+
 def texto_pagador_empresa(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
     """Contrato de EMPRESA: o texto fixo e, SO' quando a pergunta e' de coparticipacao (que e' da pessoa),
     a coparticipacao da competencia nos fatos, com a data da fonte. Nunca valor, boleto, vencimento ou
@@ -1149,6 +1174,11 @@ def texto_pagador_empresa(state: LucasState, facts: Mapping[str, Any], hoje: dat
         # Rodada 4: "de qual ano?" num contrato de empresa — o ano, e quem paga.
         return f"É {_mes_por_extenso(pedida, hoje)}. O pagamento dela é feito pela empresa contratante."
     if facts.get("foco") != "coparticipacao" or not competencias:
+        tema = tema_da_empresa(state)
+        if tema == TEMA_EMPRESA_SEGUNDA_VIA:
+            return TEXTO_EMPRESA_SEGUNDA_VIA
+        if tema == TEMA_EMPRESA_VENCIMENTO:
+            return TEXTO_EMPRESA_VENCIMENTO
         # Rodada 4 (13/10/2026): a frase sozinha, repetida 9 vezes, nao respondia "foi paga ou nao?". A
         # consequencia, uma vez: quem confirma o pagamento e' a empresa, e a oferta de alguem da equipe.
         de_qual = f" de {_mes_por_extenso(pedida, hoje)}" if pedida is not None else ""
@@ -1186,7 +1216,13 @@ TEXTO_PAGAMENTO_AO_PRESTADOR_CURTO: Final[str] = (
 
 
 def texto_pagador_empresa_curto(state: LucasState, hoje: date) -> str:
-    """A forma CURTA do contrato de empresa, para quando a pessoa pergunta de novo (rodada 4)."""
+    """A forma CURTA do contrato de empresa, para quando a pessoa pergunta de novo (rodada 4), POR ASSUNTO
+    (rodada 8): a curta da 2a via nao e' a do pagamento."""
+    tema = tema_da_empresa(state)
+    if tema == TEMA_EMPRESA_SEGUNDA_VIA:
+        return "A 2ª via é com a empresa contratante, normalmente pelo RH. Por aqui eu não envio o boleto."
+    if tema == TEMA_EMPRESA_VENCIMENTO:
+        return "O vencimento e o boleto são com a empresa contratante, normalmente pelo RH."
     pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
     de_qual = f" de {_mes_por_extenso(pedida, hoje)}" if pedida is not None else ""
     return f"A confirmação do pagamento{de_qual} é com a empresa contratante, normalmente pelo RH."
@@ -3352,7 +3388,11 @@ class LucasGraph:
         mensagem = self._mensagem(texto, facts, PAGADOR_EMPRESA_TEXTO_VERSION, state)
         if foco != "coparticipacao":
             # Rodada 4: as respostas da empresa (sem coparticipacao) sao UMA resposta, em degraus.
-            mensagem["empresa_chave"] = f"empresa:{state.get('competencia') or ''}"
+            # Rodada 8: a CHAVE da escada e' assunto + mes + tipo de pagador. Duas perguntas de assuntos
+            # diferentes (pagamento, vencimento, 2a via) nunca contam como a mesma repeticao.
+            mensagem["empresa_chave"] = (
+                f"empresa:{PAGADOR_EMPRESA}:{tema_da_empresa(state)}:{state.get('competencia') or ''}"
+            )
         return mensagem
 
     def _escada_da_empresa(
@@ -3371,7 +3411,15 @@ class LucasGraph:
             if state.get("resposta_anterior_ref") not in refs:
                 return texto, ref_do_ano
         completo = texto_pagador_empresa(state, {"foco": None}, self._hoje())
-        formas = [completo, texto_pagador_empresa_curto(state, self._hoje()), *NAO_CONSIGO]
+        # Rodada 8: o "Nao tenho outra informacao..." so' da' a vez depois de DUAS repeticoes reais
+        # (completo, curta, "nao consigo detalhar", e so' entao as duas honestas alternadas).
+        formas = [
+            completo,
+            texto_pagador_empresa_curto(state, self._hoje()),
+            NAO_CONSIGO[1],
+            NAO_CONSIGO[0],
+            NAO_CONSIGO[1],
+        ]
         return _escada(state, chave, formas, equivalentes={ref_do_ano: 0})
 
     def _build_vencimento(self, state: LucasState) -> dict[str, Any]:
