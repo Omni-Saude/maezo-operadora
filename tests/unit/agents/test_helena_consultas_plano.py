@@ -33,6 +33,7 @@ from maezo.agents.helena.consultas_plano import (
 from maezo.agents.helena.graph import (
     IDENTIDADE_RECONHECIDA,
     PROMPT_VERSIONS,
+    RESPOSTA_PLANO_POR_CANAIS,
     HelenaGraph,
     HelenaState,
     _validate_extraction,
@@ -334,9 +335,11 @@ async def test_sem_identidade_texto_fixo_sem_chamar_a_fonte_e_sem_processo() -> 
 
 @pytest.mark.parametrize("view", [None, CARENCIAS])  # falha da AMH / view de outro tipo
 async def test_falha_da_fonte_vira_o_texto_fixo(view: Any) -> None:
+    """DL-0090 (rodada 3): com a pessoa IDENTIFICADA, a falha da fonte nao e' "nao consegui confirmar seus
+    dados" (falso, e o simulador o marca como D7); e' onde ver as informacoes do plano."""
     compilado, sender, _ = _grafo(_FakeInference([_classify()]), _Fonte(view))
     await compilado.ainvoke(_entrada())
-    assert sender.sent[-1] == RESPOSTA_CONSULTA_SEM_IDENTIDADE
+    assert sender.sent[-1] == RESPOSTA_PLANO_POR_CANAIS
 
 
 async def test_fonte_que_levanta_vira_o_texto_fixo() -> None:
@@ -346,7 +349,7 @@ async def test_fonte_que_levanta_vira_o_texto_fixo() -> None:
 
     compilado, sender, _ = _grafo(_FakeInference([_classify()]), _Quebrada())
     await compilado.ainvoke(_entrada())
-    assert sender.sent[-1] == RESPOSTA_CONSULTA_SEM_IDENTIDADE
+    assert sender.sent[-1] == RESPOSTA_PLANO_POR_CANAIS
 
 
 # --- 4. Saude vence consulta ----------------------------------------------------------------------

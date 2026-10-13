@@ -1000,6 +1000,12 @@ class HelenaDispatcher:
         tipo = tipo_de_pergunta(message.text)
         if tipo is None:
             return None
+        from .acesso_cadastro import TIPO_CARENCIA, TIPO_PLANO_DETALHE
+
+        if self.consultas_plano is not None and tipo in (TIPO_PLANO_DETALHE, TIPO_CARENCIA):
+            # RODADA 3: com os fatos do plano ligados (TINA), tipo de plano, cobertura e carencia sao
+            # respondidos pela consulta da Helena, com segmentacao e carencias do cadastro.
+            return None
         assert self.acesso is not None
         if self.acesso.sinal_de_emergencia(message.text):
             return None
