@@ -145,7 +145,7 @@ async def test_insistencia_na_cobertura_nao_reenvia_os_dados_do_plano() -> None:
     # DL-0095: a primeira resposta de cobertura ja' trouxe a frase de "onde confirmar"; a insistencia
     # recebe a outra redacao.
     assert whatsapp.enviados == [RESPOSTA_COBERTURA_ESPECIFICA_2]
-    assert "não consigo confirmar cobertura" in whatsapp.enviados[0]
+    assert "cobertura de um procedimento específico" in whatsapp.enviados[0]
     assert "não consta" not in whatsapp.enviados[0]
 
 
