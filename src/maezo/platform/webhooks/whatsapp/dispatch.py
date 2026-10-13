@@ -98,6 +98,7 @@ from maezo.agents.helena.graph import (
     HelenaState,
     WhatsAppSender,
     build,
+    eh_pedido_explicito_de_pessoa,
     memoria_de_conversa_neutra,
     new_helena_resume_state,
     new_helena_state,
@@ -1313,6 +1314,39 @@ class HelenaDispatcher:
                     if isinstance(exc, PROGRAMMING_ERRORS):
                         raise
                     return dict(escalado)
+                if not lucas_escalou and eh_pedido_explicito_de_pessoa(message.text):
+                    # DL-0092 (decisao do dono antes do merge do #739): cobranca + pedido EXPLICITO de
+                    # uma pessoa da equipe ("quero falar com um atendente sobre o boleto"). O Lucas JA
+                    # respondeu o fato de cobranca neste turno; o pedido de pessoa e' honrado no mesmo
+                    # turno, pelo escalonamento `solicitacao_humano` da Helena — o mesmo start idempotente
+                    # (`ESC-{tenant}-{conversation_id}`), que reaproveita um caso de cobranca aberto pelo
+                    # Lucas (`ja_ativo`, sem duplicata). O caminho do Lucas declara `solicitacao_humano`
+                    # inalcancavel ate' a ratificacao (`agents/lucas/graph.py`), por isso nao e' ele que abre.
+                    escalado = await self._escalar_depois_do_lucas(
+                        message,
+                        phone_hash=phone_hash,
+                        conversation_id=conversation_id,
+                        resultado_helena=result,
+                        motivo="solicitacao_humano",
+                        severidade="leve",
+                        error=None,
+                        espaco_da_chave="lucas-pedido",
+                    )
+                    result = {
+                        **result,
+                        **{
+                            chave: escalado[chave]
+                            for chave in (
+                                "escalation_started",
+                                "escalation_motivo",
+                                "escalation_severidade",
+                                "escalation_business_key",
+                                "start_desfecho",
+                            )
+                            if chave in escalado
+                        },
+                    }
+                    lucas_escalou = True
             await self._registrar_roteamento(
                 conversation_id, sinais, result, handoff=handoff, lucas_escalou=lucas_escalou
             )
@@ -1520,7 +1554,7 @@ class HelenaDispatcher:
         erro: str,
     ) -> dict[str, Any]:
         """O Lucas caiu depois da frase de passagem: escala `falha_tecnica` pelos MESMOS nos da
-        Helena (`escalate` -> `respond`), sem segundo caminho de efeito.
+        Helena (`escalate` -> `respond`), sem segundo caminho de efeito (`_escalar_depois_do_lucas`).
 
         O `escalate` abre SP-OP-ESCALATION-001 pelo chokepoint idempotente (business key
         `ESC-{tenant}-{conversation_id}` — numa reentrega, `ja_ativo`) e o `respond` passa o texto
@@ -1530,11 +1564,37 @@ class HelenaDispatcher:
 
         O `error` leva so' o NOME da classe da excecao (token), nunca a mensagem dela.
         """
+        return await self._escalar_depois_do_lucas(
+            message,
+            phone_hash=phone_hash,
+            conversation_id=conversation_id,
+            resultado_helena=resultado_helena,
+            motivo="falha_tecnica",
+            severidade=None,
+            error=f"{ERRO_LUCAS_FALHOU}: {erro}",
+            espaco_da_chave="lucas-falha",
+        )
+
+    async def _escalar_depois_do_lucas(
+        self,
+        message: InboundMessage,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        resultado_helena: Mapping[str, Any],
+        motivo: str,
+        severidade: str | None,
+        error: str | None,
+        espaco_da_chave: str,
+    ) -> dict[str, Any]:
+        """Escalonamento depois do turno do Lucas pelos nos da Helena (`escalate` -> `respond`): a
+        falha do Lucas (`falha_tecnica`) e, desde o DL-0092, o pedido explicito de pessoa junto da
+        cobranca (`solicitacao_humano`). A chave de saida vive num espaco proprio por motivo."""
         sender = self._gated_scoped_sender(
             raw_to=message.from_number,
             phone_hash=phone_hash,
             conversation_id=conversation_id,
-            idempotency_key_for=self._outbound_key_factory(f"lucas-falha:{message.message_id}"),
+            idempotency_key_for=self._outbound_key_factory(f"{espaco_da_chave}:{message.message_id}"),
         )
         helena = HelenaGraph(
             inference=self.inference,
@@ -1550,9 +1610,9 @@ class HelenaDispatcher:
         estado: dict[str, Any] = {
             **resultado_helena,
             "next_kind": "escalate",
-            "escalation_motivo": "falha_tecnica",
-            "escalation_severidade": None,
-            "error": f"{ERRO_LUCAS_FALHOU}: {erro}",
+            "escalation_motivo": motivo,
+            "escalation_severidade": severidade,
+            "error": error,
             "handoff": None,
             "response_kind": None,
             "response_text": None,

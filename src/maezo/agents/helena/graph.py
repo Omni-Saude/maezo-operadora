@@ -390,6 +390,11 @@ _VALID_COBRANCA_SUBTIPOS: frozenset[str] = frozenset(get_args(CobrancaSubtipo))
 #: DL-0088: as intencoes que a pergunta financeira sobre a pessoa converte em `cobranca`. Nunca as que
 #: ja' escalam por conta propria (sintoma, pergunta clinica, pedido de pessoa, agendamento).
 _INTENTS_QUE_VIRAM_COBRANCA: frozenset[str] = frozenset({"information", "outside_channel", "greeting"})
+#: RODADA 5: com cobranca no TEXTO, estas tambem viram `cobranca` (o Lucas trata o pedido de pessoa e o
+#: caso aberto de cobranca ele mesmo).
+_INTENTS_QUE_VIRAM_COBRANCA_PELO_TEXTO: frozenset[str] = _INTENTS_QUE_VIRAM_COBRANCA | frozenset(
+    {"human_request", "consulta_plano", "scheduling"}
+)
 #: DL-0088: o subtipo que entra quando o modelo diz `cobranca` mas erra o subtipo. Pergunta de valor/
 #: informacao (J1 do Lucas): ele responde pelos fatos do contrato e escala quando eles nao vieram.
 SUBTIPO_COBRANCA_PADRAO: str = "consulta_valores"
@@ -2987,8 +2992,9 @@ RESPOSTA_DUVIDA_CLINICA: str = (
 #: cobre dermatologista?"): a parte de cobranca vai ao Lucas, nunca "nao consigo ver o vencimento".
 _PERGUNTA_DE_COBRANCA = re.compile(
     r"\b(?:boletos?|mensalidades?|faturas?|vence|vencem|vencimento|vencid[oa]s?|segunda via|2a via"
-    r"|codigo de barras|linha digitavel|coparticipac\w*|cobrancas?|debitos?|quanto (?:eu )?devo"
-    r"|paguei|pagamentos?)\b"
+    r"|codigo de barras|linha digitavel|coparticipac\w*|cobrancas?|cobrad[oa]s?|debitos?|quanto (?:eu )?devo"
+    r"|paguei|pagamentos?|pagar|pagando|estorno|estornar|valor extra|multa|duplicad[oa]"
+    r"|nao devo|(?:valor|preco) (?:da|do) (?:mensalidade|plano|boleto)|valor(?: \w+){0,3} quanto)\b"
 )
 _SUBTIPO_POR_TERMO: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(?:segunda via|2a via|codigo de barras|linha digitavel)\b"), "boleto_2via"),
@@ -3013,7 +3019,8 @@ _PEDIDO_EXPLICITO_DE_PESSOA = re.compile(
     r"|gente|equipe|enfermeir\w*|medic[oa]|supervisor|gerente|responsavel|operador)\b"
     r"|\b(?:atendente|humano|humana|operador|supervisor|gerente)\b|\bpessoa (?:de verdade|real)\b"
     r"|\bme (?:liga|ligue|ligar|ligam|chama|retorna)\b"
-    r"|\bme (?:passa|transfere|encaminha|coloca) (?:pra|para|com) (?:alguem|uma? \w+)\b"
+    r"|\bme (?:passa|transfere|encaminha|coloca) (?:pra|para|com) (?:alguem|uma? (?:pessoa|atendente|humano"
+    r"|humana|supervisor\w*|gerente))\b"
     r"|\b(?:quero|preciso) (?:de )?(?:uma? )?(?:pessoa|alguem)\b"
 )
 #: Pergunta de NAVEGACAO para sintoma nao urgente (RODADA 3): "vou na UBS ou espero?", "preciso ir no
@@ -3111,6 +3118,12 @@ def _pede_telefone(texto: str) -> bool:
 
 def _pedido_explicito_de_pessoa(texto: str) -> bool:
     return bool(_PEDIDO_EXPLICITO_DE_PESSOA.search(_plano(texto)))
+
+
+def eh_pedido_explicito_de_pessoa(texto: str) -> bool:
+    """Entrada publica (DL-0092) para o despachante: o texto pede EXPLICITAMENTE uma pessoa da nossa
+    equipe (atendente, humano, pessoa, alguem da equipe, supervisor)? "Me passa pro RH" nao pede."""
+    return _pedido_explicito_de_pessoa(texto)
 
 
 def _pergunta_de_navegacao(texto: str) -> bool:
@@ -3481,7 +3494,10 @@ def _handoff_recusado(estado: Mapping[str, Any], *, roteador_ligado: bool) -> st
         return "sintoma_reportado"
     if estado.get("sinal_saude_lexico") is not False:
         return "sinal_saude_lexico"
-    if estado.get("pedido_humano_lexico") is not False:
+    if estado.get("pedido_humano_lexico") is not False and not _pergunta_de_cobranca(
+        str(estado.get("message_body") or "")
+    ):
+        # RODADA 5: pedido de pessoa COM cobranca no texto vai ao Lucas (decisao do dono, bateria 4).
         return "pedido_humano_lexico"
     if not _em_dominio(estado.get("cobranca_subtipo"), _VALID_COBRANCA_SUBTIPOS):
         return "subtipo_fora_do_dominio"
@@ -3510,6 +3526,7 @@ def _rota_de_cobranca(
         "sinal_saude_lexico": state.get("sinal_saude_lexico", False),
         "pedido_humano_lexico": state.get("pedido_humano_lexico", False),
         "message_ref": state.get("message_ref", ""),
+        "message_body": state.get("message_body", ""),
     }
     recusa = _handoff_recusado(estado, roteador_ligado=roteador_ligado)
     if recusa is None:
@@ -3706,12 +3723,17 @@ def _validate_extraction(
     if consultas_habilitadas:
         # CONSULTA DO PLANO: `consulta_subtipo` OBRIGATORIO e de dominio fechado em `consulta_plano`,
         # nulo/ausente em qualquer outro intent — o mesmo desenho de `cobranca_subtipo`.
+        # RODADA 5 (bateria 4): `invalid_consulta_subtipo` virou `falha_tecnica` cinco vezes (o modelo
+        # mandou `consulta_subtipo` junto de `cobranca`, ou um valor fora do dominio) e a pessoa recebeu o
+        # aviso de caso aberto no lugar da resposta. Normalizado no lugar, como `cobranca_subtipo` (DL-0088).
         subtipo_consulta = data.get("consulta_subtipo")
         if data.get("intent") == INTENT_CONSULTA_PLANO:
             if not _em_dominio(subtipo_consulta, CONSULTA_SUBTIPOS):
-                return "invalid_consulta_subtipo"
+                logger.info("helena_consulta_subtipo_normalizado", motivo="fora_do_dominio")
+                data["consulta_subtipo"] = "elegibilidade"
         elif subtipo_consulta is not None:
-            return "invalid_consulta_subtipo"
+            logger.info("helena_consulta_subtipo_normalizado", motivo="intent_nao_e_consulta")
+            data["consulta_subtipo"] = None
     return None
 
 
@@ -4113,15 +4135,26 @@ class HelenaGraph:
         # #726, o mesmo vale para pedido de LISTA e insistencia logo depois do Lucas (`_continua_a_cobranca`).
         if (
             self._roteador_lucas_enabled
-            and intent in _INTENTS_QUE_VIRAM_COBRANCA
             and not extraction.get("sintoma_codigo")
             and not psychosocial
             and state.get("sinal_saude_lexico") is not True
             and (
-                _pergunta_financeira_sobre_a_pessoa(str(state.get("message_body") or ""))
-                or self._continua_a_cobranca(state)
+                (
+                    intent in _INTENTS_QUE_VIRAM_COBRANCA
+                    and (
+                        _pergunta_financeira_sobre_a_pessoa(str(state.get("message_body") or ""))
+                        or self._continua_a_cobranca(state)
+                    )
+                )
                 # RODADA 2: pergunta de cobranca no texto (inclusive misturada com outro assunto).
-                or _pergunta_de_cobranca(str(state.get("message_body") or ""))
+                # RODADA 5 (D11 = 0,50 na bateria 4): tambem quando o modelo disse pedido de pessoa,
+                # consulta do plano ou agendamento — "me passa pro RH, o boleto sempre veio pra mim",
+                # "a mensalidade ta em dia?" (respondida com os dados do plano), "o que aconteceu com
+                # esse pagamento?" com caso aberto. Cobranca e' do Lucas, inclusive com caso aberto.
+                or (
+                    intent in _INTENTS_QUE_VIRAM_COBRANCA_PELO_TEXTO
+                    and _pergunta_de_cobranca(str(state.get("message_body") or ""))
+                )
             )
         ):
             logger.info("helena_pergunta_financeira_sobre_a_pessoa", node="classify", intent_do_modelo=intent)
@@ -4391,13 +4424,19 @@ class HelenaGraph:
         # RODADA 2: com caso aberto, "quanto tempo demora?", "me passa pra um supervisor", "e se for
         # urgente?" vao pelo caminho do caso (o start reaproveita o aberto) e recebem a resposta ao que foi
         # perguntado (`_texto_de_caso_aberto`), nunca o mesmo aviso generico.
-        if caso_aberto is not None and (
-            _pergunta_sobre_caso_aberto(texto_do_turno) is not None or _recado_ao_atendente(texto_do_turno)
+        if (
+            caso_aberto is not None
+            and intent != INTENT_COBRANCA
+            and (
+                _pergunta_sobre_caso_aberto(texto_do_turno) is not None
+                or _recado_ao_atendente(texto_do_turno)
+            )
         ):
             # RODADA 4: o recado ao atendente tambem vai pelo caminho do caso (o start reaproveita o aberto).
             pedido_lexico = True
-        if encerramento:
-            # RODADA 4: a despedida nao vira pedido de pessoa por citar "atendente".
+        if encerramento or intent == INTENT_COBRANCA:
+            # RODADA 4: a despedida nao vira pedido de pessoa por citar "atendente". RODADA 5: cobranca no
+            # texto vai ao Lucas mesmo com pedido de pessoa (so' pedido SEM cobranca recebe o caso da Helena).
             pedido_lexico = False
         if (intent == "human_request" or pedido_lexico) and not encerramento:
             update["next_kind"] = "escalate"
@@ -4407,7 +4446,9 @@ class HelenaGraph:
 
         # Gatilho 3b (DL-0070): ameaca de reclamacao a orgao regulador. Vence a rota de fora do canal,
         # perde para sintoma, risco psicossocial e pergunta clinica (todos acima).
-        if intent != "greeting" and _ameaca_regulatoria(str(state.get("message_body") or "")):
+        if intent not in ("greeting", INTENT_COBRANCA) and _ameaca_regulatoria(
+            str(state.get("message_body") or "")
+        ):
             update["next_kind"] = "escalate"
             update["escalation_motivo"] = "solicitacao_humano"
             update["escalation_severidade"] = "leve"
@@ -5051,7 +5092,7 @@ class HelenaGraph:
         mensagem = str(state.get("message_body") or "")
         if _pergunta_de_cobertura(mensagem):
             # RODADA 3: cobertura de procedimento especifico nunca e' prometida pela segmentacao.
-            texto = f"{texto.strip()}\n{RESPOSTA_COBERTURA_ESPECIFICA}"
+            texto = f"{texto.strip()} {RESPOSTA_COBERTURA_ESPECIFICA}"
         # RODADA 4: o 192 na frente so' com sinal de saude; "e' urgente" sobre cobertura leva o 192 no fim.
         texto = _com_emergencia_se_preciso(state, texto.strip())
         logger.info(

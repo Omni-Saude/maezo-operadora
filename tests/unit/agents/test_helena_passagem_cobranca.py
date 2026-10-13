@@ -283,14 +283,25 @@ async def test_ligado_cobranca_com_risco_psicossocial_e_p1() -> None:
     assert FRASE_PASSAGEM_COBRANCA not in [t for _, t in sender.sent]
 
 
-async def test_ligado_cobranca_com_lexico_de_pessoa_e_solicitacao_humano() -> None:
+async def test_ligado_cobranca_com_lexico_de_pessoa_vai_ao_lucas() -> None:
+    """DL-0092 (rodada 5 do simulador): cobranca no texto vai ao Lucas mesmo com pedido de pessoa — so'
+    pedido de pessoa SEM cobranca recebe o caso da Helena."""
     compilado, sender, _ = _grafo(_FakeInference([_json()]))
     resultado = await compilado.ainvoke(
         _entrada(message_body="quero falar com um atendente sobre o boleto", pedido_humano_lexico=True)
     )
+    assert resultado.get("escalation_motivo") is None
+    assert resultado["handoff"]["cobranca_subtipo"] == "boleto_2via"
+    assert FRASE_PASSAGEM_COBRANCA in [t for _, t in sender.sent]
+
+
+async def test_ligado_pedido_de_pessoa_sem_cobranca_e_solicitacao_humano() -> None:
+    compilado, _, _ = _grafo(_FakeInference([_json(intent="human_request", cobranca_subtipo=None), _HANDOFF]))
+    resultado = await compilado.ainvoke(
+        _entrada(message_body="quero falar com um atendente", pedido_humano_lexico=True)
+    )
     assert resultado["escalation_motivo"] == "solicitacao_humano"
     assert resultado.get("handoff") is None
-    assert FRASE_PASSAGEM_COBRANCA not in [t for _, t in sender.sent]
 
 
 async def test_o_lexico_de_pessoa_nao_reabre_a_pergunta_de_identidade() -> None:

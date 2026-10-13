@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from maezo.agents.helena.graph import FRASE_PASSAGEM_COBRANCA
+from maezo.agents.helena.graph import FRASE_PASSAGEM_COBRANCA, RESPOSTA_HANDOFF_RECUSADA
 from maezo.agents.lucas.graph import SEGUNDA_VIA_CANAIS
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.tool_registry import build_agent_seam_context
@@ -368,9 +368,37 @@ async def _gravar_quebrado(linha: Any, *, revisao_esperada: int | None) -> bool:
 # --- o que NAO passa ------------------------------------------------------------------------------
 
 
-async def test_cobranca_com_pedido_de_pessoa_no_lexico_escala_e_nao_roda_o_lucas() -> None:
+async def test_cobranca_com_pedido_de_pessoa_no_lexico_vai_ao_lucas() -> None:
+    """DL-0092 (rodada 5 do simulador, D11 = 0,50): cobranca no texto vai ao Lucas mesmo com pedido de
+    pessoa; o Lucas responde a cobranca neste turno. A maquina de roteamento (§2.2) continua lendo o
+    pedido de pessoa e devolve a conversa a Helena depois do turno."""
     dispatcher, cliente, store, espiao, _ = _montar([_classify()])
     resultado = await dispatcher.dispatch(_msg("quero falar com um atendente sobre o boleto"))
+    # O Lucas respondeu o fato de cobranca NESTE turno...
+    assert espiao is not None and len(espiao.handoffs) == 1
+    assert cliente.textos[0] == FRASE_PASSAGEM_COBRANCA
+    assert len(cliente.textos) == 3  # a frase, a resposta do Lucas e o aviso de encaminhamento
+    # ... e o pedido EXPLICITO de pessoa foi honrado no mesmo turno (DL-0092, decisao do dono).
+    assert resultado["escalation_started"] is True
+    assert resultado["escalation_motivo"] == "solicitacao_humano"
+    assert cliente.textos[-1] == RESPOSTA_HANDOFF_RECUSADA
+    assert _linha(store).transicao_motivo == "retorno_pedido_humano"
+
+
+async def test_cobranca_sem_pedido_explicito_vai_ao_lucas_e_nao_abre_caso() -> None:
+    """ "me passa pro RH, o boleto..." nao pede uma pessoa da NOSSA equipe: so' o Lucas responde."""
+    dispatcher, cliente, _, espiao, _ = _montar([_classify(intent="human_request")])
+    resultado = await dispatcher.dispatch(_msg("me passa pro RH, o boleto sempre veio pra mim"))
+    assert espiao is not None and len(espiao.handoffs) == 1
+    assert not resultado.get("escalation_started")
+    assert len(cliente.textos) == 2
+
+
+async def test_pedido_de_pessoa_sem_cobranca_escala_e_nao_roda_o_lucas() -> None:
+    dispatcher, cliente, store, espiao, _ = _montar(
+        [_classify(intent="human_request", cobranca_subtipo=None)]
+    )
+    resultado = await dispatcher.dispatch(_msg("quero falar com um atendente"))
     assert resultado["escalation_motivo"] == "solicitacao_humano"
     assert espiao is not None and espiao.handoffs == []
     assert FRASE_PASSAGEM_COBRANCA not in cliente.textos

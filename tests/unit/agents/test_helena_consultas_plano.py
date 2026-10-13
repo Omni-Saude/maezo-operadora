@@ -208,16 +208,19 @@ def test_desligada_o_validador_recusa_consulta_plano() -> None:
 
 
 @pytest.mark.parametrize(
-    "dados",
+    ("dados", "subtipo_final"),
     [
-        {"consulta_subtipo": "boleto"},
-        {"consulta_subtipo": None},
-        {"intent": "information", "consulta_subtipo": "carencia"},
+        ({"consulta_subtipo": "boleto"}, "elegibilidade"),
+        ({"consulta_subtipo": None}, "elegibilidade"),
+        ({"intent": "information", "consulta_subtipo": "carencia"}, None),
     ],
 )
-def test_ligada_o_subtipo_tem_dominio_fechado(dados: dict[str, Any]) -> None:
-    falha = _validate_extraction(json.loads(_classify(**dados)), consultas_habilitadas=True)
-    assert falha == "invalid_consulta_subtipo"
+def test_ligada_o_subtipo_tem_dominio_fechado(dados: dict[str, Any], subtipo_final: str | None) -> None:
+    """DL-0092 (rodada 5): subtipo fora do dominio nao e' mais falha tecnica — e' normalizado no lugar
+    (`elegibilidade` em `consulta_plano`; descartado em qualquer outra intencao)."""
+    extracao = json.loads(_classify(**dados))
+    assert _validate_extraction(extracao, consultas_habilitadas=True) is None
+    assert extracao["consulta_subtipo"] == subtipo_final
 
 
 async def test_desligada_o_classify_enviado_e_o_grafo_sao_byte_a_byte_os_de_antes() -> None:
