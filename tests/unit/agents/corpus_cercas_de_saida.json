@@ -2067,6 +2067,72 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Entendi o que você precisa confirmar. Quando o atendente responder aqui, conte esse pedido para ele, por favor. Seu atendimento continua aberto.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_CASO_ABERTO_RECADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu atendimento continua aberto com a nossa equipe.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_CASO_ABERTO_CURTO_1",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu caso segue aberto. O atendente responde por aqui.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_CASO_ABERTO_CURTO_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Continua tudo aberto por aqui. Posso ajudar com outra coisa?",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_CASO_ABERTO_CURTO_3",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Por aqui eu não consigo confirmar cobertura de um procedimento específico. Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe. O aplicativo Austa Clínicas e o portal do plano também ajudam.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_COBERTURA_ESPECIFICA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Entendo que você precisa dessa confirmação. A cobertura de um procedimento específico é confirmada pela central de atendimento do plano ou por uma pessoa da equipe: é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_COBERTURA_ESPECIFICA_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

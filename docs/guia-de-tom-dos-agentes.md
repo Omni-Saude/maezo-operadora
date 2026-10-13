@@ -78,6 +78,16 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
 - **Encerramento** (inclusive irônico) recebe despedida curta. Frase acima de 20 palavras é partida antes
   de sair.
 
+## Rodada 4 do simulador (DL-0091, 13/10/2026)
+
+- **Despedida vence:** agradecimento ou adeus sem pergunta nova recebe despedida, mesmo citando o atendente.
+- **Recado ao atendente:** o portal não recebe a conversa; nunca dizer que o atendente vai ler. Pedir para
+  repetir o pedido quando ele responder. Depois de dois avisos de caso aberto, respostas curtas e diferentes.
+- **Pagamento é do Lucas:** a Helena não comenta quem paga nem a mensalidade no texto do plano.
+- **Cobertura de procedimento:** "não consigo confirmar cobertura de procedimento por aqui" e onde
+  confirmar; nunca "não consta no cadastro". Insistência não reenvia os dados do plano.
+- **192 na frente só com sinal de saúde.** "É urgente" sobre cobertura: responde a cobertura, 192 no fim.
+
 ## Nunca dizer
 
 - "portal do beneficiário", "portal da operadora", "aplicativo do plano", "site", 0800 ou qualquer canal

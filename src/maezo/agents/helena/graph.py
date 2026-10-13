@@ -895,6 +895,43 @@ RESPOSTA_CASO_ABERTO_URGENTE: str = (
     "Para os outros assuntos, seu atendimento já está aberto, e um atendente vai te responder aqui."
 )
 
+#: RODADA 4: o recado ao atendente, sem prometer que ele le' esta conversa (o portal nao a recebe).
+RESPOSTA_CASO_ABERTO_RECADO: str = (
+    "Entendi o que você precisa confirmar. Quando o atendente responder aqui, conte esse pedido "
+    "para ele, por favor. Seu atendimento continua aberto."
+)
+#: RODADA 4: depois de dois avisos de caso aberto, respostas curtas e diferentes.
+RESPOSTA_CASO_ABERTO_CURTO_1: str = "Seu atendimento continua aberto com a nossa equipe."
+RESPOSTA_CASO_ABERTO_CURTO_2: str = "Seu caso segue aberto. O atendente responde por aqui."
+RESPOSTA_CASO_ABERTO_CURTO_3: str = "Continua tudo aberto por aqui. Posso ajudar com outra coisa?"
+_AVISOS_CURTOS: tuple[str, ...] = (
+    RESPOSTA_CASO_ABERTO_CURTO_1,
+    RESPOSTA_CASO_ABERTO_CURTO_2,
+    RESPOSTA_CASO_ABERTO_CURTO_3,
+)
+_RECADO_AO_ATENDENTE = re.compile(
+    r"\b(?:avisa|avise|fala pra|fale pra|diz pra|diga pra|diga a|pede pra|peca pra|repassa|repasse"
+    r"|manda (?:pra|para)|deixa (?:avisado|anotado|registrado))\b"
+)
+
+
+def _recado_ao_atendente(texto: str) -> bool:
+    return bool(_RECADO_AO_ATENDENTE.search(_plano(texto)))
+
+
+def _avisos_de_caso_aberto_ja_dados(estado: Mapping[str, Any]) -> int:
+    """Quantos avisos de caso aberto (administrativo) a Helena ja' mandou nesta conversa."""
+    avisos = (
+        RESPOSTA_HANDOFF_JA_ABERTO,
+        RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO,
+        RESPOSTA_CASO_ABERTO_PRAZO,
+        RESPOSTA_CASO_ABERTO_SUPERVISOR,
+        RESPOSTA_CASO_ABERTO_RECADO,
+        *_AVISOS_CURTOS,
+    )
+    return sum(1 for f in _falas_da_helena(estado) if any(_sem_prefixo(f).startswith(a[:50]) for a in avisos))
+
+
 #: As redacoes alternativas de um mesmo texto: `_sem_repetir` escolhe a primeira que a Helena ainda nao
 #: mandou. Texto sem entrada aqui ganha um prefixo curto ("Entendi.", "Certo.").
 _VARIANTES: dict[str, tuple[str, ...]] = {
@@ -1082,6 +1119,16 @@ def _texto_de_caso_aberto(estado: Mapping[str, Any]) -> str | None:
     pergunta = _pergunta_sobre_caso_aberto(texto)
     if pergunta == PERGUNTA_CASO_URGENTE:
         return RESPOSTA_CASO_ABERTO_URGENTE
+    if _recado_ao_atendente(texto):
+        # RODADA 4: "avisa a pessoa que e' pra confirmar parto e fisioterapia". O portal do atendente NAO
+        # mostra a conversa (`TaskContextPanel`: "Nome, telefone e a conversa nao aparecem aqui"), entao
+        # a Helena nao diz que o atendente vai ler: reconhece o pedido e pede para repeti-lo a ele.
+        return RESPOSTA_CASO_ABERTO_RECADO
+    avisos = _avisos_de_caso_aberto_ja_dados(estado)
+    if avisos >= 2 and pergunta in (None, PERGUNTA_CASO_PRAZO):
+        # RODADA 4: depois de dois avisos, respostas CURTAS e diferentes (o transcrito repetiu o mesmo aviso
+        # com "Entendi."/"Certo." na frente quatro vezes).
+        return _AVISOS_CURTOS[avisos % len(_AVISOS_CURTOS)]
     if pergunta == PERGUNTA_CASO_SUPERVISOR:
         return RESPOSTA_CASO_ABERTO_SUPERVISOR
     if pergunta == PERGUNTA_CASO_PRAZO:
@@ -3008,9 +3055,14 @@ RESPOSTA_PLANO_INDISPONIVEL_3: str = (
 )
 #: Cobertura de procedimento ESPECIFICO: a segmentacao do cadastro nao confirma o procedimento.
 RESPOSTA_COBERTURA_ESPECIFICA: str = (
-    "A segmentação do cadastro não confirma um procedimento específico. Para confirmar, fale com a "
+    "Por aqui eu não consigo confirmar cobertura de um procedimento específico. Para isso, fale com a "
     "central de atendimento do plano ou com uma pessoa da equipe. O aplicativo Austa Clínicas e o portal "
-    "do plano também mostram a cobertura."
+    "do plano também ajudam."
+)
+#: RODADA 4: a mesma resposta, com outra redacao, para quem insiste na cobertura (sem reenviar os dados).
+RESPOSTA_COBERTURA_ESPECIFICA_2: str = (
+    "Entendo que você precisa dessa confirmação. A cobertura de um procedimento específico é confirmada "
+    "pela central de atendimento do plano ou por uma pessoa da equipe: é só me pedir."
 )
 #: Mensagem mista cobranca + plano com a fonte do plano LIGADA: a cobranca vai ao Lucas agora.
 RESPOSTA_COBERTURA_DEPOIS: str = "Sobre o plano e a cobertura, é só me perguntar de novo em seguida."
@@ -3071,11 +3123,20 @@ def _e_encerramento(texto: str) -> bool:
     plano = _plano(texto)
     if not plano or len(plano.split()) > 16 or "?" in (texto or ""):
         return False
-    if _PERGUNTA_ABERTA.search(plano) or _pedido_explicito_de_pessoa(texto):
+    # RODADA 4: "vou esperar o atendente. mas valeu pela ajuda, tchau!" e' despedida — esperar o atendente
+    # nao e' pedir um.
+    sem_espera = _ESPERA_DE_ATENDENTE.sub(" ", plano)
+    if _PERGUNTA_ABERTA.search(sem_espera) or _PEDIDO_EXPLICITO_DE_PESSOA.search(sem_espera):
         return False
     if _pergunta_de_cobranca(texto) or _pergunta_do_plano(texto) or _pergunta_de_canal(texto):
         return False
     return bool(_ENCERRAMENTO.search(plano))
+
+
+_ESPERA_DE_ATENDENTE = re.compile(
+    r"\b(?:esperar|aguardar|espero|aguardo|vou esperar|vou aguardar)(?: (?:o|a|pelo|pela|um|uma))?"
+    r" (?:atendente|pessoa|humano|equipe|contato|retorno|resposta)\b"
+)
 
 
 def _nega_acesso(texto: str) -> bool:
@@ -3095,10 +3156,44 @@ def _texto_plano_indisponivel(estado: Mapping[str, Any]) -> str:
     texto = (RESPOSTA_PLANO_POR_CANAIS, RESPOSTA_PLANO_INDISPONIVEL_2, RESPOSTA_PLANO_INDISPONIVEL_3)[
         min(vezes, 2)
     ]
+    return _com_emergencia_se_preciso(estado, texto)
+
+
+def _ja_mostrou_dados_do_plano(estado: Mapping[str, Any]) -> bool:
+    """A Helena ja' respondeu com dados do plano nesta conversa (o historico guarda so' o marcador)."""
+    return any(f.strip() == MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO for f in _falas_da_helena(estado))
+
+
+def _com_emergencia_se_preciso(estado: Mapping[str, Any], texto: str) -> str:
+    """RODADA 4: o 192 so' vai na FRENTE com sinal de saude (lexico, sintoma, risco, sinal de emergencia).
+    "E' urgente" sobre cobertura, de gestante, responde a cobertura e leva o 192 no fim."""
+    if _mensagem_de_saude(estado):
+        return f"{_EMERGENCIA_192} {texto}"
     mensagem = _plano(str(estado.get("message_body") or ""))
     if _URGENCIA.search(mensagem) and _GESTACAO_URGENTE.search(mensagem):
-        return f"{_EMERGENCIA_192} {texto}"
+        return f"{texto} {_EMERGENCIA_192}"
     return texto
+
+
+#: Frases do texto da CONSULTA DO PLANO que a Helena nao manda (RODADA 4): pagamento/cobranca e' papel do
+#: Lucas ("nao consta se e' por empresa ou particular" contradisse "e' paga pela empresa contratante"), e
+#: "nao consta" sobre cobertura soa como dado faltando — a frase fixa de cobertura vai no lugar.
+_FRASE_DE_COBRANCA = re.compile(
+    r"\b(?:pagamento|pagamentos|pago|paga|pagar|mensalidade|boleto|cobranca|financeir\w*|particular)\b"
+)
+_FRASE_DE_COBERTURA_SEM_FATO = re.compile(
+    r"\b(?:cobertura|cobre|coberto|coberta)\b.*\bnao consta\b|\bnao consta\b.*\bcobert"
+)
+
+
+def _sem_frases_fora_do_papel(texto: str) -> str:
+    frases = re.split(r"(?<=[.!?])\s+", texto.strip())
+    mantidas = [
+        f
+        for f in frases
+        if not _FRASE_DE_COBRANCA.search(_plano(f)) and not _FRASE_DE_COBERTURA_SEM_FATO.search(_plano(f))
+    ]
+    return " ".join(mantidas) if mantidas else texto
 
 
 #: As palavras que podem terminar uma frase partida (RODADA 3, D8): frase do modelo acima de 20 palavras e'
@@ -3987,6 +4082,29 @@ class HelenaGraph:
             intent = "information"
             update["intent"] = intent
 
+        # RODADA 4: ENCERRAMENTO VENCE. "beleza, entao vou esperar o atendente. mas valeu pela ajuda, tchau!"
+        # recebeu o aviso de caso aberto (o lexico de pessoa casou "atendente"), e "Valeu ai" no fim de uma
+        # conversa mista recebeu a lista de carencias (o modelo devolveu `consulta_plano`). Despedida sem
+        # pergunta nova, sem sintoma e sem sinal de saude e' `information`: o `inform` responde a despedida.
+        encerramento = (
+            not extraction.get("sintoma_codigo")
+            and not psychosocial
+            and not _mensagem_de_saude(state)
+            and _e_encerramento(str(state.get("message_body") or ""))
+        )
+        if encerramento and intent != "information":
+            logger.info("helena_encerramento", node="classify", intent_do_modelo=intent)
+            intent = "information"
+            update.update(
+                {
+                    "intent": intent,
+                    "cobranca_subtipo": None,
+                    "cobranca_competencia": None,
+                    "cobranca_foco": None,
+                }
+            )
+            update.pop("consulta_subtipo", None)
+
         # PERGUNTA FINANCEIRA SOBRE A PESSOA E' COBRANCA (DL-0088, 12/10/2026). "Quais informacoes
         # financeiras ou de cobranca minhas vc sabe?" e' pergunta para quem cuida do financeiro, e a
         # rota nao depende de o modelo acertar isso: com o roteador ligado, sem sintoma e sem risco, o
@@ -4231,7 +4349,11 @@ class HelenaGraph:
                 _e_encerramento(texto_do_turno)
                 or _pede_telefone(texto_do_turno)
                 or _pergunta_de_navegacao(texto_do_turno)
-                or (intent == "human_request" and _pergunta_sobre_caso_aberto(texto_do_turno) is None)
+                or (
+                    intent == "human_request"
+                    and _pergunta_sobre_caso_aberto(texto_do_turno) is None
+                    and not (caso_aberto is not None and _recado_ao_atendente(texto_do_turno))
+                )
             )
         )
         if conversa_respondida and intent not in ("information", INTENT_COBRANCA, INTENT_CONSULTA_PLANO):
@@ -4269,9 +4391,15 @@ class HelenaGraph:
         # RODADA 2: com caso aberto, "quanto tempo demora?", "me passa pra um supervisor", "e se for
         # urgente?" vao pelo caminho do caso (o start reaproveita o aberto) e recebem a resposta ao que foi
         # perguntado (`_texto_de_caso_aberto`), nunca o mesmo aviso generico.
-        if caso_aberto is not None and _pergunta_sobre_caso_aberto(texto_do_turno) is not None:
+        if caso_aberto is not None and (
+            _pergunta_sobre_caso_aberto(texto_do_turno) is not None or _recado_ao_atendente(texto_do_turno)
+        ):
+            # RODADA 4: o recado ao atendente tambem vai pelo caminho do caso (o start reaproveita o aberto).
             pedido_lexico = True
-        if intent == "human_request" or pedido_lexico:
+        if encerramento:
+            # RODADA 4: a despedida nao vira pedido de pessoa por citar "atendente".
+            pedido_lexico = False
+        if (intent == "human_request" or pedido_lexico) and not encerramento:
             update["next_kind"] = "escalate"
             update["escalation_motivo"] = "solicitacao_humano"
             update["escalation_severidade"] = "leve"
@@ -4879,6 +5007,19 @@ class HelenaGraph:
                 "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="sem_identidade"
             )
             return fixo
+        mensagem_do_turno = str(state.get("message_body") or "")
+        if _pergunta_de_cobertura(mensagem_do_turno) and _ja_mostrou_dados_do_plano(state):
+            # RODADA 4: quem INSISTE na cobertura de um procedimento nao recebe de novo os dados do plano
+            # (o transcrito reenviou o mesmo bloco 4x): a resposta curta de onde confirmar.
+            logger.info(
+                "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="insistencia"
+            )
+            ja_disse = any(RESPOSTA_COBERTURA_ESPECIFICA[:60] in f for f in _falas_da_helena(state))
+            curta = RESPOSTA_COBERTURA_ESPECIFICA_2 if ja_disse else RESPOSTA_COBERTURA_ESPECIFICA
+            return {"response_text": _com_emergencia_se_preciso(state, curta), "response_kind": "inform"}
+        if _pergunta_de_cobertura(mensagem_do_turno) and subtipo == "carteirinha":
+            # Cobertura pede a segmentacao, nao a carteirinha.
+            subtipo = "elegibilidade"
         try:
             async with asyncio.timeout(CONSULTA_PRAZO_S):
                 view = await self._consultas.consultar(ref, subtipo)
@@ -4905,14 +5046,14 @@ class HelenaGraph:
         if recusa is not None or not isinstance(texto, str):
             texto = resposta_deterministica(subtipo, fatos)
         else:
-            texto = _frases_curtas(texto)
+            # RODADA 4: sem frase de pagamento (papel do Lucas) nem "nao consta" sobre cobertura.
+            texto = _frases_curtas(_sem_frases_fora_do_papel(texto))
         mensagem = str(state.get("message_body") or "")
         if _pergunta_de_cobertura(mensagem):
             # RODADA 3: cobertura de procedimento especifico nunca e' prometida pela segmentacao.
             texto = f"{texto.strip()}\n{RESPOSTA_COBERTURA_ESPECIFICA}"
-        if _URGENCIA.search(_plano(mensagem)) and _GESTACAO_URGENTE.search(_plano(mensagem)):
-            # "cobre parto? to gravida, e urgente": o 192 na frente dos fatos do plano.
-            texto = f"{_EMERGENCIA_192}\n{texto.strip()}"
+        # RODADA 4: o 192 na frente so' com sinal de saude; "e' urgente" sobre cobertura leva o 192 no fim.
+        texto = _com_emergencia_se_preciso(state, texto.strip())
         logger.info(
             "helena_consulta_plano",
             node="consultar_plano",

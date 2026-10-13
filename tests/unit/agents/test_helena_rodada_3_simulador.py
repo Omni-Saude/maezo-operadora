@@ -276,7 +276,8 @@ async def test_fonte_falhando_com_gestante_urgente_nao_repete_e_oferece_pessoa(
     await grafo.ainvoke(_entrada("cobre parto? to grávida, é urgente", falas))
 
     enviado = whatsapp.enviados[0]
-    assert enviado == f"{_EMERGENCIA_192} {esperado}"
+    # DL-0091 (rodada 4): "e' urgente" sobre cobertura, sem sinal de saude, leva o 192 no FIM.
+    assert enviado == f"{esperado} {_EMERGENCIA_192}"
     assert enviado not in falas
     if falas:
         assert "pessoa da equipe" in enviado
