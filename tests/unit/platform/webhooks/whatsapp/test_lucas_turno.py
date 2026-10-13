@@ -324,6 +324,9 @@ def test_estado_do_lucas_nunca_tem_chave_de_texto() -> None:
         "to_hash",
         "message_id",
         "phone_hash_amh",
+        # 13/10/2026 (simulador): variante de redacao (inteiro) e assunto anterior do Lucas (enum).
+        "variante_de_texto",
+        "assunto_anterior",
     }
 
 

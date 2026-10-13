@@ -26,7 +26,14 @@ FOCO_GERAL: Final[str] = "geral"
 #: Lexico na ordem de precedencia, sobre o texto sem acento e minusculo.
 _LEXICO: Final[tuple[tuple[CobrancaFoco, re.Pattern[str]], ...]] = (
     ("coparticipacao", re.compile(r"copart")),
-    ("saldo", re.compile(r"\bsaldo\b|\bdevo\b|\bem aberto\b|\bfalta pagar\b")),
+    # 13/10/2026 (simulador): "o TOTAL em aberto, tudo junto?" e' saldo em toda forma de perguntar o total.
+    (
+        "saldo",
+        re.compile(
+            r"\bsaldo\b|\bdevo\b|\bem aberto\b|\bfalta pagar\b|\btudo junto\b|\bao todo\b|\bno total\b"
+            r"|\bsomand|\bdevendo\b"
+        ),
+    ),
     ("valor", re.compile(r"\bquanto paguei\b")),
     ("pagamento", re.compile(r"\bpaguei\b|\bpagamento\b")),
     ("vencimento", re.compile(r"\bvence|\bvencimento\b")),

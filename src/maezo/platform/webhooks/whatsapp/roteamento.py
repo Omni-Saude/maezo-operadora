@@ -515,6 +515,16 @@ class ConversaRouter:
             return None
         return atual.lucas_cobranca_subtipo, atual.lucas_competencia
 
+    async def contexto_do_turno(self, conversation_id: str) -> tuple[int, CobrancaSubtipo | None]:
+        """A REVISAO da linha antes deste turno (sobe uma por mensagem: alterna a redacao do Lucas para o
+        mesmo texto nunca sair duas vezes seguidas) e o ASSUNTO da ultima resposta do Lucas, quando ele
+        ainda esta' com a conversa. Linha ausente: `(0, None)`. So' LEITURA (13/10/2026)."""
+        atual = await self._store.ler(conversation_id)
+        if atual is None:
+            return 0, None
+        ativo = atual.expira_em >= self._relogio() and atual.agente_ativo == "lucas"
+        return atual.revisao, atual.lucas_cobranca_subtipo if ativo else None
+
     def _linha(
         self, conversation_id: str, atual: LinhaAgenteAtivo | None, decisao: Decisao, agora: datetime
     ) -> LinhaAgenteAtivo:

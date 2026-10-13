@@ -1356,6 +1356,7 @@ class HelenaDispatcher:
         # assunto e mes da resposta anterior, dentro do dominio fechado que o `LucasTurno` confere.
         handoff = await self._handoff_com_esclarecimento(message.text, conversation_id, handoff)
         handoff = await self._handoff_com_lista(message.text, conversation_id, handoff)
+        variante, assunto_anterior = await self._contexto_do_turno_do_lucas(conversation_id)
         remetente = _ScopedWhatsAppSender(
             raw_to=message.from_number, expected_hash=phone_hash, client=self.whatsapp_client
         )
@@ -1369,6 +1370,8 @@ class HelenaDispatcher:
                 # Fonte AMH (decisao do dono 06/10/2026): o hash `amh-phone-lookup-v1` nasce AQUI,
                 # onde o numero cru ainda existe, e morre com este turno. Sem a fonte AMH e' `None`.
                 phone_hash_amh=self.lucas_turno.hash_telefone_para_amh(message.from_number),
+                variante_de_texto=variante,
+                assunto_anterior=assunto_anterior,
             ),
             remetente,
         )
@@ -1377,6 +1380,24 @@ class HelenaDispatcher:
             competencia=competencia_a_lembrar(final, handoff.get("competencia")),
         )
         return pedido, final.get("route") == "escalate_human"
+
+    async def _contexto_do_turno_do_lucas(self, conversation_id: str) -> tuple[int, str | None]:
+        """Variante de redacao e assunto anterior do Lucas (simulador, 13/10/2026: o mesmo texto saia
+        ate' 10 vezes seguidas). Falha de leitura: `(0, None)`, o caminho de sempre."""
+        if self.roteador is None:
+            return 0, None
+        try:
+            revisao, assunto = await self.roteador.contexto_do_turno(conversation_id)
+        except Exception as exc:
+            record_roteamento_falha(tenant=self.tenant_id, tipo="leitura")
+            logger.error(
+                "roteador_leitura_falhou",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                error_type=type(exc).__name__,
+            )
+            return 0, None
+        return revisao % 2, assunto
 
     async def _handoff_com_lista(
         self, texto: str, conversation_id: str, handoff: Mapping[str, Any]

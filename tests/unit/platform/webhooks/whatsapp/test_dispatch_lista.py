@@ -125,3 +125,28 @@ async def test_de_qual_ano_depois_de_resposta_sem_mes_pedido_repete_o_mes_respon
     )
     assert ajustado["competencia"] == "2026-10"
     assert ajustado["cobranca_subtipo"] == "consulta_valores"
+
+
+# --- Contexto do turno do Lucas (simulador, 13/10/2026) -------------------------------------------
+
+
+class _RoteadorComContexto:
+    def __init__(self, contexto: Any = None, falha: bool = False) -> None:
+        self._contexto = contexto
+        self._falha = falha
+
+    async def contexto_do_turno(self, conversation_id: str) -> Any:
+        if self._falha:
+            raise RuntimeError("banco fora")
+        return self._contexto
+
+
+async def test_contexto_do_turno_vira_variante_e_assunto() -> None:
+    eu = SimpleNamespace(roteador=_RoteadorComContexto((7, "boleto_2via")), tenant_id="amh")
+    assert await HelenaDispatcher._contexto_do_turno_do_lucas(eu, "wa:amh:hk1_ab") == (1, "boleto_2via")
+
+
+@pytest.mark.parametrize("roteador", [None, _RoteadorComContexto(falha=True)])
+async def test_sem_roteador_ou_com_falha_o_contexto_e_o_neutro(roteador: Any) -> None:
+    eu = SimpleNamespace(roteador=roteador, tenant_id="amh")
+    assert await HelenaDispatcher._contexto_do_turno_do_lucas(eu, "wa:amh:hk1_ab") == (0, None)

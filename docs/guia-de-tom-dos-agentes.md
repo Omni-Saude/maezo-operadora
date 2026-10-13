@@ -99,6 +99,16 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   só em silêncio para quem pediu vários. Com menos meses do que o pedido: "Encontrei só 2 mensalidades pagas
   nos dados que tenho:". Assunto sem lista (2ª via, vencimento, status): "Consigo te mostrar um mês por vez."
   e o mês de sempre. A fonte AMH devolve no máximo os 12 meses mais recentes.
+- **Fato primeiro e caso aberto (Lucas, 13/10/2026, simulador):** mensalidade em aberto no prazo é fato, não
+  escalação ("A mensalidade de outubro de 2026 (boleto final 0042) vence em 15/10 e ainda não consta como
+  paga."). Quando a regra manda escalar (mensalidade sem pagamento confirmado), o texto diz primeiro o mês
+  e o boleto DAQUELE mês e responde a pergunta, depois passa à equipe. Com o caso de cobrança já com a
+  equipe, nada reabre: o fato que responde a pergunta e "Sua dúvida já está com alguém da nossa equipe..."
+  ou "Seu pedido continua com nossa equipe...", alternados — o mesmo texto nunca sai duas vezes seguidas,
+  sem prazo. Pergunta específica recebe o fato específico, nunca o "Está tudo em dia!" genérico. 2ª via
+  pedida de novo: "Por aqui eu não consigo enviar o boleto." com mês, vencimento, valor e final do boleto,
+  a central como alternativa e a oferta de alguém da equipe. Total em aberto: "Seu total em aberto hoje é
+  R$ X: outubro de 2026."
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
   "TOM DA CONVERSA" do `response-v12` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no

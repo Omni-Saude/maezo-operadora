@@ -29,8 +29,10 @@ from maezo.agents.lucas.graph import (
     VENCIMENTO_NAO_ENCONTRADO,
     LucasState,
     texto_ack_escalacao,
+    texto_caso_aberto,
     texto_mensalidade_em_dia,
     texto_segunda_via,
+    texto_segunda_via_repetida,
     texto_valores,
     texto_vencimento,
 )
@@ -268,6 +270,21 @@ def _todos_os_textos() -> dict[str, str]:
                 },
             )
             textos[f"ack_{motivo}_{conciliado}"] = texto_ack_escalacao(estado_ack, _HOJE)
+    # 13/10/2026 (simulador): o ACK de atraso com o fato, o caso ja' aberto (as duas variantes, com e sem
+    # fato) e a 2a via pedida de novo.
+    vencida = {**_JULHO, "situacao": "vencida", "valor_saldo": "9248.38"}
+    vencida.pop("liquidado_em")
+    atraso = _estado(_NOVEMBRO, vencida, motivo_humano="inadimplencia_detectada", numero_boleto="****0042")
+    textos["ack_atraso_com_fato"] = texto_ack_escalacao(atraso, _HOJE)
+    for variante in (0, 1):
+        com_fato = _estado(_NOVEMBRO, _OUTUBRO, variante_de_texto=variante)
+        textos[f"ack_caso_aberto_com_fato_{variante}"] = texto_caso_aberto(com_fato, _HOJE)
+        contestacao = _estado(_OUTUBRO, variante_de_texto=variante, contesta_cobranca=True)
+        textos[f"ack_caso_aberto_contestacao_{variante}"] = texto_caso_aberto(contestacao, _HOJE)
+        repetida = _estado(_NOVEMBRO, variante_de_texto=variante)
+        textos[f"segunda_via_repetida_{variante}"] = texto_segunda_via_repetida(
+            repetida, _fatos(_NOVEMBRO), _HOJE
+        )
     return textos
 
 
