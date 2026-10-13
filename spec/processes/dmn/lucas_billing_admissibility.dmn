@@ -65,6 +65,10 @@
     "Sua mensalidade e' paga pela empresa contratante.", e a regra de atraso passa a exigir
     `pagador_empresa=false` — o atraso da empresa nunca escala o beneficiario como inadimplencia. Pagador
     PF ou desconhecido: false, e a tabela se comporta como antes. As demais linhas ignoram (`-`).
+    13/10/2026 (bateria 4): `pagador_empresa` e' verdadeira tambem no COLETIVO POR ADESAO cobrado pela
+    administradora (o titulo do Tasy e' da administradora/entidade, nao do beneficiario): mesma linha
+    (RESPONDER) e mesma isencao da regra de atraso; o grafo responde com a parcela da pessoa e "o boleto e'
+    emitido pela administradora", nunca "a empresa paga".
 
     NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — uma row catch-all (`-`) sob
     UNIQUE colidiria com qualquer row especifica no engine (violacao em runtime); FIRST preserva o

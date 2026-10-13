@@ -112,6 +112,10 @@ class FatosCobranca:
     #: contratante: o boleto, o total e o atraso sao DELA, nunca da pessoa), `pessoa_fisica` ou
     #: `desconhecido`. Ausente na simulada. Valor fora do vocabulario nao chega aqui (vira `desconhecido`).
     pagador_tipo: str | None = None
+    #: Coletivo por ADESAO cobrado pela administradora (13/10/2026, bateria 4): o titulo do Tasy e' da
+    #: administradora/entidade e o boleto do beneficiario vem DELA. Apurado pela fonte (pagador sem tipo no
+    #: billing-status + vinculo de adesao no contrato TINA); `False` quando nao se sabe.
+    cobranca_administradora: bool = False
 
     def como_entrada_lucas(self) -> dict[str, Any]:
         """As chaves de `_CALLER_INPUT_FIELDS` que estes fatos preenchem — nenhuma outra.
@@ -136,6 +140,8 @@ class FatosCobranca:
         # `desconhecido` e' o mesmo que ausente para o Lucas: nem cria a chave.
         if self.pagador_tipo in PAGADOR_TIPOS and self.pagador_tipo != "desconhecido":
             entrada["pagador_tipo"] = self.pagador_tipo
+        if self.cobranca_administradora is True:
+            entrada["cobranca_administradora"] = True
         return entrada
 
 

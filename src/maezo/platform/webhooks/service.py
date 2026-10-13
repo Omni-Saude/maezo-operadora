@@ -407,6 +407,10 @@ def _build_fonte_cobranca_amh(
         audit=audit,
         agent_version=_LUCAS_AGENT_VERSION,
         billing_atendimento=billing_atendimento,
+        # 13/10/2026 (bateria 4): com o contrato TINA configurado (o mesmo das consultas do plano da Helena),
+        # a cobranca le' a elegibilidade para saber se o plano e' COLETIVO POR ADESAO quando o billing-status
+        # nao diz quem paga. Sem ele, o comportamento de antes.
+        incluir_tina=settings.helena_consultas_amh is True,
     )
     resolvedor: ResolvedorDeSujeito = ResolvedorDeSujeitoAmh(
         port=interop.subjects,
@@ -437,6 +441,8 @@ def _build_fonte_cobranca_amh(
         purpose_of_use=interop.billing_purpose_of_use,
         fatos_de_valor=fatos_de_valor,
         timeout_seconds=settings.lucas_cobranca_prazo_s,
+        tina=interop.tina,
+        tina_purpose_of_use=interop.purpose_of_use,
     )
     logger.warning(
         "lucas_fonte_cobranca_amh_construida",
