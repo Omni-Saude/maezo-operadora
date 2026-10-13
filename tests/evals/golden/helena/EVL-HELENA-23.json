@@ -21,7 +21,7 @@
   "expect": {
     "next_kind": "inform",
     "fields": {
-      "response_text": "Sou um assistente virtual, um sistema automatizado — não sou uma pessoa. Se preferir falar com alguém, eu te encaminho para um atendente humano."
+      "response_text": "Sou uma assistente virtual, um sistema automatizado — não sou uma pessoa. Se preferir falar com alguém, eu te encaminho para um atendente humano."
     }
   },
   "leak_canaries": [

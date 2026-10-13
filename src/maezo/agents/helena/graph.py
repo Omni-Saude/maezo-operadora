@@ -518,7 +518,16 @@ RESPOSTA_FALHA_DE_REDACAO: str = (
 #: para a nossa equipe de saude" — a pessoa perguntou do financeiro e leu que foi mandada a saude. O
 #: texto que nomeia a equipe de SAUDE e' `RESPOSTA_HANDOFF_SAUDE`, e quem escolhe entre os dois e' o
 #: MOTIVO do processo (`_texto_de_handoff`), nunca a redacao. A emergencia vai na forma do guia (192).
+#: RODADA 2 (13/10/2026, simulador): SEM 192. Num encaminhamento ADMINISTRATIVO (pedido de pessoa,
+#: cobranca, falha tecnica) a persona gritou "PARA DE ME MANDAR PRO SAMU! E' COBRANCA". Com sinal de
+#: saude na mensagem sai `RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA` (o mesmo texto + 192).
 RESPOSTA_HANDOFF_RECUSADA: str = (
+    "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de atendimento. "
+    "Um atendente vai continuar o seu atendimento."
+)
+#: RODADA 2: o encaminhamento neutro quando a MENSAGEM tem sinal de saude (falha tecnica sobre um relato
+#: de dor no peito, por exemplo): a equipe continua "de atendimento", e o 192 entra.
+RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA: str = (
     "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de atendimento. "
     "Um atendente vai continuar o seu atendimento. "
     "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
@@ -639,12 +648,20 @@ RESPOSTA_DESPEDIDA: str = "Por nada! Se precisar, é só me chamar 😊"
 #: agora me liga?" tem tokens fora da lista e nao casa); um falso negativo so' devolve o turno ao
 #: modelo, que e' o comportamento de antes. "ok" sozinho fica de fora: costuma responder a uma
 #: pergunta da propria Helena, e "de nada" ali seria estranho.
-_DESPEDIDA_NUCLEO = frozenset({"obrigado", "obrigada", "brigado", "brigada", "valeu", "vlw", "tchau", "xau"})
+_DESPEDIDA_NUCLEO = frozenset(
+    {
+        *("obrigado", "obrigada", "brigado", "brigada", "valeu", "vlw", "tchau", "xau"),
+        # RODADA 2: "valeu pela ajuda, Helena!" recebeu "Ola! Em que posso ajudar?".
+        *("agradeco", "agradecido", "agradecida", "obrigadao", "obrigadinho", "falou", "flw"),
+    }
+)
 _DESPEDIDA_FRASES = ("era so isso", "so isso", "ate mais", "ate logo")
 _DESPEDIDA_ACOMPANHANTES = frozenset(
     {
         *("muito", "era", "so", "isso", "ate", "mais", "logo", "tudo", "certo", "bom", "ta"),
         *("show", "beleza", "por", "pela", "ajuda", "atencao", "e", "de", "nada", "ok"),
+        *("helena", "voce", "vc", "me", "ajudou", "demais", "a", "o", "abraco", "abracos", "boa", "dia"),
+        *("tarde", "noite", "sua", "seu", "viu", "entao", "muitissimo"),
     }
 )
 
@@ -669,19 +686,27 @@ _MOTIVOS_DA_EQUIPE_DE_SAUDE: frozenset[str] = frozenset(
 )
 
 
-def _texto_de_handoff(motivo: object) -> str:
-    """O aviso de encaminhamento generico, escolhido pelo MOTIVO (DL-0088): saude so' com motivo clinico."""
-    return RESPOSTA_HANDOFF_SAUDE if motivo in _MOTIVOS_DA_EQUIPE_DE_SAUDE else RESPOSTA_HANDOFF_RECUSADA
+def _texto_de_handoff(motivo: object, *, saude: bool = False) -> str:
+    """O aviso de encaminhamento generico, escolhido pelo MOTIVO (DL-0088): saude so' com motivo clinico.
+
+    RODADA 2: o 192 so' em contexto de saude — motivo clinico (`RESPOSTA_HANDOFF_SAUDE`) ou sinal de
+    saude na mensagem (`saude=True` -> `RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA`). O resto, sem 192.
+    """
+    if motivo in _MOTIVOS_DA_EQUIPE_DE_SAUDE:
+        return RESPOSTA_HANDOFF_SAUDE
+    return RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA if saude else RESPOSTA_HANDOFF_RECUSADA
 
 
-def _texto_de_escalonamento(motivo: MotivoCategoria | None, severidade: Severidade | None) -> str:
+def _texto_de_escalonamento(
+    motivo: MotivoCategoria | None, severidade: Severidade | None, *, saude: bool = False
+) -> str:
     """O texto fixo do aviso de encaminhamento, escolhido pelo MOTIVO e pela severidade do processo
     que esta' sendo aberto (que derivam da tabela, nunca de redacao)."""
     if motivo == "risco_psicossocial":
         return RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL
     if motivo == "red_flag_clinico" and severidade == "grave":
         return RESPOSTA_ESCALONAMENTO_URGENTE
-    return _texto_de_handoff(motivo)
+    return _texto_de_handoff(motivo, saude=saude)
 
 
 RESPOSTA_INFORM_RECUSADA: str = (
@@ -814,7 +839,14 @@ def _humano_acionado(estado: Mapping[str, Any]) -> bool:
 #: instancia que ja' existe, e este turno nao sabe quanto dela ja' correu).
 #: DL-0088 (12/10/2026): sem "de saude" (o caso aberto pode ser de cobranca ou de falha tecnica) e com
 #: a emergencia na forma do guia (192) — um sintoma novo com caso aberto continua recebendo o 192.
+#: RODADA 2: sem 192 (caso aberto ADMINISTRATIVO). Caso clinico ou sinal de saude usam
+#: `RESPOSTA_CASO_ABERTO_EMERGENCIA*` (192 primeiro) ou `RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA`.
 RESPOSTA_HANDOFF_JA_ABERTO: str = (
+    "Recebi sua mensagem. Seu atendimento com a nossa equipe já está aberto e "
+    "segue em andamento, por isso não abri outro."
+)
+#: O aviso de caso aberto quando o assunto e' de saude mas sem sinal de emergencia (pergunta clinica).
+RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA: str = (
     "Recebi sua mensagem. Seu atendimento com a nossa equipe já está aberto e "
     "segue em andamento, por isso não abri outro. Se for uma emergência, ligue agora para o 192 (SAMU) "
     "ou vá ao pronto-socorro mais próximo."
@@ -824,9 +856,226 @@ RESPOSTA_HANDOFF_JA_ABERTO: str = (
 #: So' e' escolhida com o historico curto ligado (e' de la' que vem a ultima fala da Helena).
 RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO: str = (
     "Entendi. Seu atendimento com a nossa equipe já está aberto e continua valendo. "
-    "Enquanto isso, posso te ajudar com outras dúvidas por aqui. "
-    "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
+    "Enquanto isso, posso te ajudar com outras dúvidas por aqui."
 )
+
+# --- CASO ABERTO (RODADA 2, 13/10/2026 — bateria do simulador de beneficiario) -----------------------
+#
+# CRITICO DE SEGURANCA. Com o caso clinico aberto, "ELE TA ROXO JA E NAO FALA MAIS NADA" e "ELE TA
+# PARANDO DE RESPIRAR" receberam "Entendi. Seu atendimento ... continua valendo. Enquanto isso, posso te
+# ajudar com outras duvidas por aqui." Inaceitavel. Com caso aberto, TODA mensagem com sinal de saude
+# recebe resposta de EMERGENCIA PRIMEIRO: a primeira frase manda ligar para o 192; depois, que este chat
+# nao envia ambulancia; depois, que a equipe de saude ja' tem o caso. Nunca "outras duvidas". Tres
+# redacoes, para nao repetir o mesmo texto em seguida (`_sem_repetir`).
+RESPOSTA_CASO_ABERTO_EMERGENCIA: str = (
+    "Ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. "
+    "Nem eu nem o plano conseguimos enviar ambulância por este chat. "
+    "Seu caso já está com a nossa equipe de saúde."
+)
+RESPOSTA_CASO_ABERTO_EMERGENCIA_2: str = (
+    "Ligue agora para o 192 (SAMU) ou vá direto ao pronto-socorro mais próximo, sem esperar. "
+    "Por este chat não sai ambulância. A nossa equipe de saúde já está com o seu caso."
+)
+RESPOSTA_CASO_ABERTO_EMERGENCIA_3: str = (
+    "Ligue agora para o 192 (SAMU) e siga a orientação deles até a ajuda chegar. "
+    "Este chat não envia ambulância. O seu caso continua com a nossa equipe de saúde."
+)
+#: Perguntas sobre o caso aberto (RODADA 2): respondidas pelo que a pessoa perguntou, sem prazo
+#: prometido (o guia proibe), sem inventar canal, e so' com 192 quando a pessoa fala de urgencia.
+RESPOSTA_CASO_ABERTO_PRAZO: str = (
+    "Seu atendimento já está aberto com a nossa equipe. Um atendente vai te responder aqui mesmo, "
+    "nesta conversa. Eu não consigo prever o horário exato da resposta."
+)
+RESPOSTA_CASO_ABERTO_SUPERVISOR: str = (
+    "Seu atendimento já está aberto com a nossa equipe, por isso não abri outro. "
+    "Quando o atendente responder aqui, você pode pedir para falar com um supervisor."
+)
+RESPOSTA_CASO_ABERTO_URGENTE: str = (
+    "Se for uma urgência de saúde, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. "
+    "Para os outros assuntos, seu atendimento já está aberto, e um atendente vai te responder aqui."
+)
+
+#: As redacoes alternativas de um mesmo texto: `_sem_repetir` escolhe a primeira que a Helena ainda nao
+#: mandou. Texto sem entrada aqui ganha um prefixo curto ("Entendi.", "Certo.").
+_VARIANTES: dict[str, tuple[str, ...]] = {
+    RESPOSTA_CASO_ABERTO_EMERGENCIA: (
+        RESPOSTA_CASO_ABERTO_EMERGENCIA,
+        RESPOSTA_CASO_ABERTO_EMERGENCIA_2,
+        RESPOSTA_CASO_ABERTO_EMERGENCIA_3,
+    ),
+    RESPOSTA_HANDOFF_JA_ABERTO: (RESPOSTA_HANDOFF_JA_ABERTO, RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO),
+}
+_PREFIXOS_DE_VARIACAO: tuple[str, ...] = ("", "Entendi. ", "Certo. ")
+#: Abaixo disto a repeticao e' legitima (frase de passagem, saudacao curta, despedida).
+_MIN_CARACTERES_SEM_REPETIR: int = 60
+
+#: Os textos que dizem que ha' um caso aberto nesta conversa: os CLINICOS (saude/emergencia) e os
+#: administrativos. Lidos no historico curto (`_caso_aberto_no_historico`).
+_TEXTOS_DE_CASO_CLINICO: tuple[str, ...] = (
+    RESPOSTA_ESCALONAMENTO_URGENTE,
+    RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL,
+    RESPOSTA_HANDOFF_SAUDE,
+    RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA,
+    RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA,
+    RESPOSTA_CASO_ABERTO_EMERGENCIA,
+    RESPOSTA_CASO_ABERTO_EMERGENCIA_2,
+    RESPOSTA_CASO_ABERTO_EMERGENCIA_3,
+)
+_TEXTOS_DE_CASO_ADMINISTRATIVO: tuple[str, ...] = (
+    RESPOSTA_HANDOFF_RECUSADA,
+    RESPOSTA_HANDOFF_JA_ABERTO,
+    RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO,
+    RESPOSTA_CASO_ABERTO_PRAZO,
+    RESPOSTA_CASO_ABERTO_SUPERVISOR,
+    RESPOSTA_CASO_ABERTO_URGENTE,
+)
+CASO_ABERTO_CLINICO: str = "clinico"
+CASO_ABERTO_ADMINISTRATIVO: str = "administrativo"
+
+
+def _falas_da_helena(estado: Mapping[str, Any]) -> list[str]:
+    """As falas da Helena no historico curto (DL-0080), da mais antiga para a mais recente."""
+    historico = estado.get("historico_conversa")
+    if not isinstance(historico, list):
+        return []
+    return [
+        str(e.get("texto") or "")
+        for e in historico
+        if isinstance(e, Mapping) and e.get("papel") == "helena" and e.get("texto")
+    ]
+
+
+def _sem_prefixo(texto: str) -> str:
+    for prefixo in _PREFIXOS_DE_VARIACAO:
+        if prefixo and texto.startswith(prefixo):
+            return texto[len(prefixo) :]
+    return texto
+
+
+def _caso_aberto_no_historico(estado: Mapping[str, Any]) -> str | None:
+    """`CASO_ABERTO_CLINICO`, `CASO_ABERTO_ADMINISTRATIVO` ou `None`, pelo que a Helena JA disse.
+
+    Sem consultar o motor: e' o historico curto que diz que um encaminhamento saiu nesta conversa (e o
+    start e' idempotente, entao um escalonamento repetido nunca duplica o caso). Clinico vence.
+    """
+    achado: str | None = None
+    for fala in _falas_da_helena(estado):
+        fala = _sem_prefixo(fala)
+        if any(fala.startswith(t[:200]) for t in _TEXTOS_DE_CASO_CLINICO):
+            return CASO_ABERTO_CLINICO
+        if any(fala.startswith(t[:200]) for t in _TEXTOS_DE_CASO_ADMINISTRATIVO):
+            achado = CASO_ABERTO_ADMINISTRATIVO
+    return achado
+
+
+def _ja_dito(texto: str, falas: list[str]) -> bool:
+    corte = texto.strip()[:280]
+    return any(f.strip()[:280] == corte for f in falas)
+
+
+def _sem_repetir(estado: Mapping[str, Any], texto: str) -> str:
+    """RODADA 2: nunca o MESMO texto longo duas vezes seguidas (nem tres vezes na conversa).
+
+    Escolhe a primeira redacao (`_VARIANTES`, ou o texto com um prefixo curto) que a Helena ainda nao
+    mandou no historico curto; esgotadas, a que nao foi a ultima. Sem historico, o texto como esta'.
+    """
+    if len(texto) < _MIN_CARACTERES_SEM_REPETIR:
+        return texto
+    falas = _falas_da_helena(estado)
+    if not falas or not _ja_dito(texto, falas):
+        return texto
+    base = next((k for k, v in _VARIANTES.items() if texto in v), None)
+    opcoes = _VARIANTES[base] if base is not None else tuple(p + texto for p in _PREFIXOS_DE_VARIACAO)
+    for opcao in opcoes:
+        if not _ja_dito(opcao, falas):
+            return opcao
+    ultima = falas[-1]
+    return next((o for o in opcoes if not _ja_dito(o, [ultima])), texto)
+
+
+#: SINAL DE EMERGENCIA no TEXTO (RODADA 2). Nao e' triagem (quem tria e' a DMN): decide o TEXTO (192
+#: primeiro) e, com caso clinico aberto, mantem o turno no caminho do caso em vez de "outras duvidas".
+#: FORTE = sinal de gravidade dito pela pessoa; FRACO = pedido de socorro/ambulancia, que so' conta
+#: com caso clinico ja' aberto (no caso de cobranca, "socorro, o boleto venceu" nao e' emergencia).
+_SINAL_FORTE_DE_EMERGENCIA = re.compile(
+    r"\b(?:dor (?:muito )?(?:forte )?no peito|falta de ar"
+    r"|(?:nao|parando de|parou de|sem) (?:consegue |consigo |esta |ta )?respirar"
+    r"|dificuldade (?:pra|para|de) respirar|rox[oa]s?|desmai\w*|desacordad\w*"
+    r"|inconscien\w*|convuls\w*|sangramento|sangrando|infart\w*|derrame|overdose|envenen\w*"
+    r"|nao (?:fala|responde|acorda|reage) mais|suicid\w*|me matar|quero morrer)"
+)
+_SINAL_FRACO_DE_EMERGENCIA = re.compile(r"\b(?:ambulancia|samu|192|socorro|emergencia|pronto socorro)\b")
+
+
+def _sinal_forte_de_emergencia(texto: str) -> bool:
+    return bool(_SINAL_FORTE_DE_EMERGENCIA.search(_sem_pontuacao(_normalizar_texto(texto or ""))))
+
+
+def _sinal_fraco_de_emergencia(texto: str) -> bool:
+    return bool(_SINAL_FRACO_DE_EMERGENCIA.search(_sem_pontuacao(_normalizar_texto(texto or ""))))
+
+
+def _mensagem_de_saude(estado: Mapping[str, Any]) -> bool:
+    """A mensagem do turno fala de saude? (lexico do roteador, sintoma, risco ou sinal de emergencia)."""
+    texto = str(estado.get("message_body") or "")
+    return bool(
+        estado.get("sinal_saude_lexico") is True
+        or estado.get("sintoma_codigo")
+        or estado.get("psychosocial_risk") is True
+        or _sinal_forte_de_emergencia(texto)
+        or _sinal_fraco_de_emergencia(texto)
+    )
+
+
+#: O que a pessoa pergunta sobre o caso aberto (RODADA 2): prazo, supervisor, urgencia.
+_PERGUNTA_DE_PRAZO = re.compile(
+    r"\b(?:quanto tempo|demora\w*|vai demorar|que horas|previsao"
+    r"|quando (?:(?:o|a|um|uma) )?(?:humano|atendente|pessoa|alguem|equipe|me respond\w*|vao))"
+)
+_PERGUNTA_DE_SUPERVISOR = re.compile(r"\b(?:supervisor\w*|gerente|coordenador\w*|chefe)\b")
+_PERGUNTA_DE_URGENCIA = re.compile(r"\b(?:urgente|urgencia)\b")
+PERGUNTA_CASO_PRAZO: str = "prazo"
+PERGUNTA_CASO_SUPERVISOR: str = "supervisor"
+PERGUNTA_CASO_URGENTE: str = "urgente"
+
+
+def _pergunta_sobre_caso_aberto(texto: str) -> str | None:
+    plano = _sem_pontuacao(_normalizar_texto(texto or ""))
+    if _PERGUNTA_DE_URGENCIA.search(plano):
+        return PERGUNTA_CASO_URGENTE
+    if _PERGUNTA_DE_SUPERVISOR.search(plano):
+        return PERGUNTA_CASO_SUPERVISOR
+    if _PERGUNTA_DE_PRAZO.search(plano):
+        return PERGUNTA_CASO_PRAZO
+    return None
+
+
+def _texto_de_caso_aberto(estado: Mapping[str, Any]) -> str | None:
+    """O aviso de caso aberto deste turno (RODADA 2), pelo MOTIVO e pelo que a pessoa disse. `None` = o
+    aviso generico (`RESPOSTA_HANDOFF_JA_ABERTO`), que quem chama escreve por extenso."""
+    motivo = estado.get("escalation_motivo")
+    texto = str(estado.get("message_body") or "")
+    if motivo in MOTIVOS_DE_ALERTA_CLINICO or _mensagem_de_saude(estado):
+        if (
+            motivo in MOTIVOS_DE_ALERTA_CLINICO
+            or _sinal_forte_de_emergencia(texto)
+            or (
+                _sinal_fraco_de_emergencia(texto) and _caso_aberto_no_historico(estado) == CASO_ABERTO_CLINICO
+            )
+        ):
+            return RESPOSTA_CASO_ABERTO_EMERGENCIA
+        return RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA
+    pergunta = _pergunta_sobre_caso_aberto(texto)
+    if pergunta == PERGUNTA_CASO_URGENTE:
+        return RESPOSTA_CASO_ABERTO_URGENTE
+    if pergunta == PERGUNTA_CASO_SUPERVISOR:
+        return RESPOSTA_CASO_ABERTO_SUPERVISOR
+    if pergunta == PERGUNTA_CASO_PRAZO:
+        return RESPOSTA_CASO_ABERTO_PRAZO
+    if motivo == "intencao_clinica":
+        return RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA
+    return None
+
 
 #: F1, o outro lado: o texto quando o rascunho prometeu um humano e NINGUEM foi acionado neste
 #: turno. Nao ha como escalar daqui — `respond` e' o no' terminal —, entao o que resta e' nao
@@ -851,27 +1100,6 @@ ERRO_HANDOFF_SEM_MENCAO: str = "handoff sem mencao ao encaminhamento"
 #: e' precisamente o que tornou os 27 escalonamentos reusados da bateria INVISIVEIS. Precisa estar
 #: em `turn_telemetry._DESFECHO_VOCAB["helena"]`, senao e' normalizado para `"outro"`.
 DESFECHO_ESCALONAMENTO_JA_ABERTO: str = "escalonamento_ja_aberto"
-
-
-#: DL-0088: os avisos de caso aberto, para reconhecer no historico a ultima fala da Helena.
-_AVISOS_DE_CASO_ABERTO: tuple[str, ...] = (RESPOSTA_HANDOFF_JA_ABERTO, RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO)
-
-
-def _ultima_fala_foi_aviso_de_caso_aberto(estado: Mapping[str, Any]) -> bool:
-    """A ultima mensagem da Helena no historico curto (DL-0080) COMECA por um aviso de caso aberto?
-
-    So' le' o historico que `receive` ja' validou (`historico_conversa`); sem historico (flag
-    desligada, conversa nova ou expirada) a resposta e' `False` e sai o aviso de sempre. "Comeca por",
-    e nao igualdade, porque o aviso pode ter saido como prefixo do rascunho do turno.
-    """
-    historico = estado.get("historico_conversa")
-    if not isinstance(historico, list):
-        return False
-    for entrada in reversed(historico):
-        if isinstance(entrada, Mapping) and entrada.get("papel") == "helena":
-            texto = str(entrada.get("texto") or "")
-            return any(texto.startswith(aviso) for aviso in _AVISOS_DE_CASO_ABERTO)
-    return False
 
 
 class RespostaRecusadaError(RuntimeError):
@@ -2666,6 +2894,100 @@ RESPOSTA_O_QUE_SEI_DE_VOCE: str = (
     "e no portal do plano."
 )
 
+# --- RODADA 2 (13/10/2026, simulador): plano, canais, cobranca misturada e duvida clinica -------------
+#
+#: Plano/cobertura/carencia com a fonte de fatos do plano DESLIGADA (`MAEZO_HELENA_CONSULTAS_AMH`). Antes
+#: saia "Nao encontrei essa informacao no seu cadastro" — enganoso: parece dado faltando, e o que falta e'
+#: a fonte. Diz o que este chat ainda nao mostra e onde ver, sem negar acesso a nada.
+RESPOSTA_PLANO_POR_CANAIS: str = (
+    "Tipo do plano, carência e cobertura ainda não estão disponíveis por este chat. Você encontra essas "
+    "informações no aplicativo Austa Clínicas, no portal do plano ou na central de atendimento do plano."
+)
+#: "o link do portal?", "e se pedir a carteirinha?": canais pelo NOME, sem link nem telefone inventado.
+RESPOSTA_CANAIS_DO_PLANO: str = (
+    "Não tenho um link para mandar por aqui. A carteirinha digital e os detalhes do plano ficam no "
+    "aplicativo Austa Clínicas e no portal do plano. A central de atendimento do plano também ajuda."
+)
+#: A parte de cobertura de uma mensagem que tambem pergunta de cobranca: a cobranca vai ao Lucas, e a
+#: Helena diz onde ver a cobertura (a fonte do plano esta' desligada).
+RESPOSTA_COBERTURA_NA_PASSAGEM: str = (
+    "Sobre cobertura, essa informação ainda não está disponível por este chat. Veja no aplicativo "
+    "Austa Clínicas, no portal do plano ou na central de atendimento do plano."
+)
+#: Duvida de saude sem sintoma que pede CONDUTA ("de quanto em quanto tempo fazer check-up?"). O modelo
+#: respondeu "check-up e colesterol a cada 1 ou 2 anos" — recomendacao clinica, que a Helena nunca da'.
+RESPOSTA_DUVIDA_CLINICA: str = (
+    "Quem define exames, a frequência deles e qualquer tratamento é o médico, numa consulta. Você pode "
+    "marcar uma consulta na rede do plano. Para isso, use o aplicativo Austa Clínicas, o portal do plano "
+    "ou a central de atendimento do plano. Se quiser falar com a nossa equipe de saúde, é só me pedir."
+)
+
+#: Pergunta de cobranca no TEXTO (RODADA 2, mensagem mista "quando vence o boleto desse mes? E o plano
+#: cobre dermatologista?"): a parte de cobranca vai ao Lucas, nunca "nao consigo ver o vencimento".
+_PERGUNTA_DE_COBRANCA = re.compile(
+    r"\b(?:boletos?|mensalidades?|faturas?|vence|vencem|vencimento|vencid[oa]s?|segunda via|2a via"
+    r"|codigo de barras|linha digitavel|coparticipac\w*|cobrancas?|debitos?|quanto (?:eu )?devo"
+    r"|paguei|pagamentos?)\b"
+)
+_SUBTIPO_POR_TERMO: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\b(?:segunda via|2a via|codigo de barras|linha digitavel)\b"), "boleto_2via"),
+    (re.compile(r"\b(?:vence|vencem|vencimento)\b"), "vencimento"),
+)
+#: Pergunta sobre o PLANO (tipo, cobertura, carencia, rede).
+_PERGUNTA_DO_PLANO = re.compile(
+    r"\b(?:cobre|cobrem|cobertura|carencias?|rede credenciada|que plano (?:eu )?tenho"
+    r"|qual (?:e )?(?:o )?(?:meu|seu) plano|tipo (?:de|do) (?:meu )?plano|meu plano (?:cobre|inclui|tem))\b"
+)
+#: Pergunta sobre CANAL (link, aplicativo, portal, carteirinha).
+_PERGUNTA_DE_CANAL = re.compile(
+    r"\b(?:link|links|portal|aplicativo|app|site|carteirinha|carteira do plano|como (?:eu )?acesso)\b"
+)
+#: Assunto de saude numa mensagem SEM sintoma (o fallback do `inform` vira `RESPOSTA_DUVIDA_CLINICA`).
+_ASSUNTO_DE_SAUDE = re.compile(
+    r"\b(?:saude|medic\w*|exames?|consultas?|check ?up|colesterol|vacina\w*|remedios?|doencas?"
+    r"|tratamentos?|preventiv\w*)\b"
+)
+#: CONDUTA CLINICA no texto redigido: frequencia de exame, dose, posologia. A Helena nao recomenda nada.
+_CONDUTA_CLINICA = re.compile(
+    r"\ba cada (?:\d+|um|uma|dois|duas|tres|seis|doze)(?: (?:ou|a) (?:\d+|um|uma|dois|duas|tres))?"
+    r" (?:anos?|mes(?:es)?|semanas?|dias?|horas?)\b"
+    r"|\b(?:\d+|uma|duas|tres) vez(?:es)? (?:por|ao) (?:ano|mes|semana|dia)\b"
+    r"|\b(?:anualmente|semestralmente)\b|\b\d+ ?mg\b|\btome\b"
+    r"|\brecomend\w* (?:fazer|realizar|que (?:voce )?(?:faca|realize))\b|\bcheck ?up (?:anual|regular)\b"
+)
+
+
+def _plano(texto: str) -> str:
+    return _sem_pontuacao(_normalizar_texto(texto or ""))
+
+
+def _pergunta_de_cobranca(texto: str) -> bool:
+    return bool(_PERGUNTA_DE_COBRANCA.search(_plano(texto)))
+
+
+def _subtipo_pelo_texto(texto: str) -> str:
+    plano = _plano(texto)
+    return next((sub for padrao, sub in _SUBTIPO_POR_TERMO if padrao.search(plano)), SUBTIPO_COBRANCA_PADRAO)
+
+
+def _pergunta_do_plano(texto: str) -> bool:
+    return bool(_PERGUNTA_DO_PLANO.search(_plano(texto)))
+
+
+def _pergunta_de_canal(texto: str) -> bool:
+    return bool(_PERGUNTA_DE_CANAL.search(_plano(texto)))
+
+
+def _conduta_clinica(texto: str) -> bool:
+    return bool(_CONDUTA_CLINICA.search(_plano(texto)))
+
+
+def _frase_de_passagem_ja_dita(estado: Mapping[str, Any]) -> bool:
+    """A Helena ja' mandou a frase de passagem nesta conversa (historico curto)? RODADA 2: a frase saiu
+    dez vezes seguidas quando o Lucas escalava ou soltava a conversa e a pergunta seguinte era de novo de
+    cobranca. Ela so' sai quando a conversa troca de agente pela primeira vez na janela do historico."""
+    return any(f.startswith(FRASE_PASSAGEM_COBRANCA) for f in _falas_da_helena(estado))
+
 
 def _desfecho_determinado(estado: Mapping[str, Any]) -> bool:
     """O desfecho deste turno permite texto de identidade (`reconhecido`/`nao_encontrado`)."""
@@ -3479,12 +3801,16 @@ class HelenaGraph:
             and (
                 _pergunta_financeira_sobre_a_pessoa(str(state.get("message_body") or ""))
                 or self._continua_a_cobranca(state)
+                # RODADA 2: pergunta de cobranca no texto (inclusive misturada com outro assunto).
+                or _pergunta_de_cobranca(str(state.get("message_body") or ""))
             )
         ):
             logger.info("helena_pergunta_financeira_sobre_a_pessoa", node="classify", intent_do_modelo=intent)
             intent = cast(Intent, INTENT_COBRANCA)
             update["intent"] = intent
-            self._preencher_cobranca(update, SUBTIPO_COBRANCA_PADRAO, None, state)
+            self._preencher_cobranca(
+                update, _subtipo_pelo_texto(str(state.get("message_body") or "")), None, state
+            )
 
         # CONVERSA SEM RELATO CLINICO (DL-0088) — ver `_conversa_sem_relato_clinico`. A mensagem e'
         # feita SO' de palavras de conversa ("quero tirar uma duvida sobre minha saude", "nao quero
@@ -3642,6 +3968,37 @@ class HelenaGraph:
         if ja_triado and await self._triar_red_flag(extraction, update):
             return update
 
+        # RODADA 2 — CRITICO DE SEGURANCA: com caso aberto nesta conversa, sinal de emergencia NO TEXTO
+        # ("ELE TA ROXO", "PARANDO DE RESPIRAR", e — com caso clinico — "ambulancia"/"192") mantem o turno
+        # no caminho do alerta: `escalate` (o start e' idempotente: o caso aberto e' reaproveitado, e um
+        # caso de outra classe abre o clinico paralelo do DL-0072) e o texto de EMERGENCIA PRIMEIRO. Nunca
+        # rebaixa: sem caso aberto, quem decide continua sendo a tabela.
+        caso_aberto = _caso_aberto_no_historico(state)
+        texto_do_turno = str(state.get("message_body") or "")
+        if caso_aberto is not None and (
+            _sinal_forte_de_emergencia(texto_do_turno)
+            or (caso_aberto == CASO_ABERTO_CLINICO and _sinal_fraco_de_emergencia(texto_do_turno))
+        ):
+            logger.warning(
+                "helena_alerta_com_caso_aberto", node="classify", caso_aberto=caso_aberto, intent=intent
+            )
+            update["next_kind"] = "escalate"
+            update["escalation_motivo"] = "red_flag_clinico"
+            update["escalation_severidade"] = "grave"
+            return update
+
+        # RODADA 2: pergunta sobre o PLANO (cobertura, carencia, tipo) com a fonte do plano desligada nao
+        # e' pergunta clinica: "o plano cobre dermatologista?" recebe onde ver, sem abrir caso.
+        if (
+            intent == "clinical_question"
+            and self._consultas is None
+            and not extraction.get("sintoma_codigo")
+            and _pergunta_do_plano(texto_do_turno)
+        ):
+            logger.info("helena_pergunta_do_plano_nao_e_clinica", node="classify")
+            intent = "information"
+            update["intent"] = intent
+
         # Gatilho 2: clinical question (L0 hard — Helena never answers one herself).
         if intent == "clinical_question":
             update["next_kind"] = "escalate"
@@ -3669,6 +4026,11 @@ class HelenaGraph:
         )
         if pedido_lexico and intent != "human_request":
             logger.info("helena_pedido_humano_lexico", node="classify", intent=intent)
+        # RODADA 2: com caso aberto, "quanto tempo demora?", "me passa pra um supervisor", "e se for
+        # urgente?" vao pelo caminho do caso (o start reaproveita o aberto) e recebem a resposta ao que foi
+        # perguntado (`_texto_de_caso_aberto`), nunca o mesmo aviso generico.
+        if caso_aberto is not None and _pergunta_sobre_caso_aberto(texto_do_turno) is not None:
+            pedido_lexico = True
         if intent == "human_request" or pedido_lexico:
             update["next_kind"] = "escalate"
             update["escalation_motivo"] = "solicitacao_humano"
@@ -4103,6 +4465,10 @@ class HelenaGraph:
         text = await self._redigir_resposta(state, "inform")
         try:
             text = self._cercar_saida(text, "inform", node="inform")
+            if _conduta_clinica(text):
+                # RODADA 2: o modelo recomendou conduta (frequencia de exame, dose). Texto fixo no lugar.
+                logger.warning("helena_conduta_clinica_barrada", node="inform")
+                return {"response_text": RESPOSTA_DUVIDA_CLINICA, "response_kind": "inform"}
         except RespostaRecusadaError:
             if _texto_tem_negativa_clinica(text):
                 # O `error` leva o TOKEN DE CLASSE e nada mais: ele sobrevive para o sufixo
@@ -4119,8 +4485,18 @@ class HelenaGraph:
             # A recusa ja foi logada e contada em `_cercar_saida`. O `error` aqui e' o RASTRO no
             # proprio turno (item 3 do diretor: toda recusa deixa rastro) e NAO um roteamento —
             # este turno nao escala, e nao ha falha tecnica nenhuma a declarar ao motor.
+            # RODADA 2: o generico "nao consegui preparar uma resposta" saiu numa duvida de saude (o
+            # rascunho barrado — `helena_resposta_recusada` traz o grupo). Com assunto de saude ou de
+            # canal na mensagem, sai o texto fixo daquele assunto.
+            mensagem = str(state.get("message_body") or "")
+            if _ASSUNTO_DE_SAUDE.search(_plano(mensagem)):
+                substituto = RESPOSTA_DUVIDA_CLINICA
+            elif _pergunta_de_canal(mensagem):
+                substituto = RESPOSTA_CANAIS_DO_PLANO
+            else:
+                substituto = RESPOSTA_INFORM_RECUSADA
             return {
-                "response_text": RESPOSTA_INFORM_RECUSADA,
+                "response_text": substituto,
                 "response_kind": "inform",
                 "error": ERRO_RESPOSTA_RECUSADA,
             }
@@ -4145,6 +4521,12 @@ class HelenaGraph:
                 return RESPOSTA_RECUSA_DE_EQUIPE
             if conversa == CONVERSA_DUVIDA_DE_SAUDE:
                 return RESPOSTA_DUVIDA_DE_SAUDE
+        if intent in _INTENTS_QUE_VIRAM_COBRANCA:
+            # RODADA 2: plano/cobertura com a fonte desligada e pergunta de canal, em texto fixo.
+            if self._consultas is None and _pergunta_do_plano(texto):
+                return RESPOSTA_PLANO_POR_CANAIS
+            if _pergunta_de_canal(texto) and not _pergunta_de_cobranca(texto):
+                return RESPOSTA_CANAIS_DO_PLANO
         if (
             self._roteador_lucas_enabled
             and intent in _INTENTS_QUE_VIRAM_COBRANCA
@@ -4290,17 +4672,26 @@ class HelenaGraph:
             "message_ref": str(state.get("message_ref") or ""),
         }
         lucas_ativo = state.get("agente_ativo_conversa") == "lucas"
+        # RODADA 2: a frase so' na PRIMEIRA troca para o Lucas na janela do historico (ela saiu dez vezes
+        # seguidas quando o Lucas escalava e a conversa voltava). E, quando a mensagem tambem pergunta do
+        # plano (com a fonte do plano desligada), a Helena diz onde ver a cobertura.
+        frase = "" if lucas_ativo or _frase_de_passagem_ja_dita(state) else FRASE_PASSAGEM_COBRANCA
+        mensagem = str(state.get("message_body") or "")
+        nota = (
+            RESPOSTA_COBERTURA_NA_PASSAGEM if self._consultas is None and _pergunta_do_plano(mensagem) else ""
+        )
         logger.info(
             "helena_handoff_cobranca",
             node="handoff_cobranca",
             cobranca_subtipo=handoff["cobranca_subtipo"],
             competencia_presente=handoff["competencia"] is not None,
-            frase_de_passagem=not lucas_ativo,
+            frase_de_passagem=bool(frase),
+            nota_de_cobertura=bool(nota),
         )
         return {
             "handoff": handoff,
             "response_kind": RESPONSE_KIND_HANDOFF,
-            "response_text": "" if lucas_ativo else FRASE_PASSAGEM_COBRANCA,
+            "response_text": " ".join(p for p in (frase, nota) if p),
         }
 
     async def schedule(self, state: HelenaState) -> dict[str, Any]:
@@ -4487,7 +4878,7 @@ class HelenaGraph:
         if response_kind == "escalate":
             # TEXTO FIXO, sem modelo — ver `RESPOSTA_ESCALONAMENTO_URGENTE`. O modelo continua
             # redigindo so' o `schedule` (hoje sem rota de entrada, DL-0052).
-            response_text = _texto_de_escalonamento(motivo, severidade)
+            response_text = _texto_de_escalonamento(motivo, severidade, saude=_mensagem_de_saude(state))
         else:
             try:
                 response_text = await self._respond_llm(state, response_kind)
@@ -4496,7 +4887,7 @@ class HelenaGraph:
                 # acionado (este metodo esta' abrindo o processo), entao a constante honesta promete
                 # o que e' verdade e nao contem nenhum dos padroes proibidos. Nao ha nova tentativa
                 # pelo mesmo motivo que em `inform`. DL-0088: a equipe nomeada sai do MOTIVO.
-                response_text = _texto_de_handoff(motivo)
+                response_text = _texto_de_handoff(motivo, saude=_mensagem_de_saude(state))
         provenance = AgentDecisionProvenance(
             agent_id="helena",
             agent_version=self._agent_version,
@@ -4670,6 +5061,12 @@ class HelenaGraph:
             saida = {}
             text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
             saida.update(cerca)
+        # RODADA 2: nunca o mesmo texto longo duas vezes seguidas (ver `_sem_repetir`).
+        varia = _sem_repetir(state, text)
+        if varia != text:
+            logger.info("helena_texto_variado", node="respond", response_kind=state.get("response_kind"))
+            text = varia
+            saida["response_text"] = text
         if not text.strip():
             # HEL-07: NADA e' enviado. Uma mensagem em branco no WhatsApp nao informa e ainda
             # parece um sistema quebrado; e a constante de handoff (`RESPOSTA_HANDOFF_RECUSADA`,
@@ -4998,12 +5395,19 @@ class HelenaGraph:
             # DL-0088 (12/10/2026): o dono recebeu o MESMO texto de caso aberto duas vezes seguidas.
             # Quando a ultima fala da Helena ja' foi esse aviso, sai a outra redacao da mesma verdade
             # (que tambem menciona o atendimento aberto e traz o 192).
-            enviar = (
-                RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO
-                if _ultima_fala_foi_aviso_de_caso_aberto(state)
-                else RESPOSTA_HANDOFF_JA_ABERTO
-            )
-            if recusa is None:
+            # RODADA 2: o aviso e' escolhido pelo MOTIVO e pelo que a pessoa disse (emergencia primeiro com
+            # caso clinico; prazo/supervisor/urgencia respondidos; 192 so' em contexto de saude). A
+            # repeticao e' tratada em `respond` (`_sem_repetir`).
+            enviar = _texto_de_caso_aberto(state) or RESPOSTA_HANDOFF_JA_ABERTO
+            if enviar in _VARIANTES[RESPOSTA_CASO_ABERTO_EMERGENCIA]:
+                logger.warning(
+                    "helena_alerta_com_caso_aberto",
+                    node="respond",
+                    motivo_categoria=state.get("escalation_motivo"),
+                    severidade=state.get("escalation_severidade"),
+                    business_key=state.get("escalation_business_key"),
+                )
+            elif recusa is None:
                 enviar = f"{enviar} {texto.strip()}"
             return enviar, self._registrar_troca(
                 state,
@@ -5023,6 +5427,8 @@ class HelenaGraph:
             enviar = (
                 RESPOSTA_HANDOFF_SAUDE
                 if state.get("escalation_motivo") in _MOTIVOS_DA_EQUIPE_DE_SAUDE
+                else RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA
+                if _mensagem_de_saude(state)
                 else RESPOSTA_HANDOFF_RECUSADA
             )
             return enviar, self._registrar_troca(

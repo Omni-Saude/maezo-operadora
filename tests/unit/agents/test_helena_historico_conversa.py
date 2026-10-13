@@ -285,7 +285,9 @@ async def test_i05_o_par_febre_e_80_anos_chega_a_dmn_como_um_caso_so() -> None:
 
 @pytest.mark.asyncio
 async def test_a_redacao_do_inform_recebe_o_historico_em_bloco_nao_confiavel() -> None:
-    turno1, turno2 = "Quero saber da minha carteirinha", "E da rede credenciada?"
+    # DL-0089: carteirinha e rede credenciada passaram a ter texto fixo (sem redacao do modelo); aqui a
+    # pergunta tem de ir ao modelo, que e' o que o teste mede.
+    turno1, turno2 = "Quero saber o horario da central", "E aos sabados?"
     estados, inferencia, zap, _ = await _conversa(
         [turno1, turno2], [_classify(), _classify()], historico=True, rascunho="Posso ajudar."
     )
