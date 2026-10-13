@@ -786,14 +786,26 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         logger.error("webhook_dispatch_checkpointer_provision_failed", exc_info=True)
 
 
-async def run(settings: WhatsAppWebhookSettings) -> None:
-    """Run the webhook-receiver until SIGTERM/SIGINT. See module docstring for STEP A..D."""
-    logger.info("webhook_receiver_starting", tenant=settings.tenant_id, health_port=settings.health_port)
+async def build_live_dispatcher(settings: WhatsAppWebhookSettings) -> WebhookState:
+    """STEP A as a public builder: the receiver's OWN composition of the live dispatcher.
 
+    `run` calls exactly this, and so does the beneficiary simulator (`maezo.qa.simulador`, dev
+    only), which then swaps only its outbound edges. One composition, never a copy: a simulator
+    that rebuilt the dispatcher by hand would be testing a receiver that does not exist. Never
+    raises — a failed bring-up leaves `dispatcher` `None` and the reason in `dispatcher_error`.
+    """
     state = WebhookState(settings=settings)
     # STEP A: bring up dispatch dependencies — pure construction + the ONE bounded I/O (the T4b
     # durable checkpointer connect+setup, `dep_connect_timeout_s`-bounded; module docstring).
     await _bring_up_dependencies(state)
+    return state
+
+
+async def run(settings: WhatsAppWebhookSettings) -> None:
+    """Run the webhook-receiver until SIGTERM/SIGINT. See module docstring for STEP A..D."""
+    logger.info("webhook_receiver_starting", tenant=settings.tenant_id, health_port=settings.health_port)
+
+    state = await build_live_dispatcher(settings)
 
     # STEP B: bind the app (health + /webhook) with the STEP A result baked in. The dedup guard
     # rides on the dispatcher (`_build_dispatcher` builds both or neither), so a replica that has
