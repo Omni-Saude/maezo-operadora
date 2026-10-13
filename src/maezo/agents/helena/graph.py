@@ -3342,6 +3342,16 @@ def _subtipo_da_consulta(texto: str) -> str:
     return "carteirinha" if _pergunta_da_carteirinha(texto) else "elegibilidade"
 
 
+_PEDE_OUTRO_FATO_DO_PLANO = re.compile(
+    r"\bcarencias?\b|\bautoriza\w*|\bguias?\b|\brequisic\w*|\bsenha\b|\bstatus\b|\bnumero\b|\bcodigo\b"
+)
+
+
+def _pergunta_de_outro_fato_do_plano(texto: str) -> bool:
+    """A mensagem, alem de cobertura, pede carencia, autorizacao ou o numero da carteirinha?"""
+    return bool(_PEDE_OUTRO_FATO_DO_PLANO.search(_plano(texto)))
+
+
 def _texto_de_cobertura(fatos: Mapping[str, Any] | None) -> str:
     """A resposta a "meu plano cobre X?": a SEGMENTACAO registrada (fato do cadastro) e onde confirmar um
     procedimento especifico — nunca a promessa de cobertura. Sem segmentacao, so' o onde confirmar."""
@@ -5317,8 +5327,14 @@ class HelenaGraph:
                 "response_text": _com_emergencia_se_preciso(state, RESPOSTA_COBERTURA_ESPECIFICA_2),
                 "response_kind": "inform",
             }
-        if _pergunta_de_cobertura(mensagem_do_turno) and subtipo == "carteirinha":
-            # Cobertura pede a segmentacao, nao a carteirinha.
+        if _pergunta_de_cobertura(mensagem_do_turno) and not _pergunta_de_outro_fato_do_plano(
+            mensagem_do_turno
+        ):
+            # Cobertura pede a segmentacao — nao a carteirinha, e NAO a carencia. RODADA 9 (roteiro do dono,
+            # 13/10/2026): "Meu plano cobre parto?" logo depois de "Estou em carencia?" saiu `carencia` do
+            # modelo (o historico puxa o assunto anterior, e "parto" e' tema de carencia) e a Helena
+            # respondeu a carencia de novo, sem a segmentacao. O SUBTIPO de uma pergunta de cobertura e'
+            # decidido pelo TEXTO, nunca pelo modelo: so' cede se a propria mensagem pede outro fato.
             subtipo = "elegibilidade"
         view = await self._ler_consulta(ref, subtipo)
         fatos = fatos_da_consulta(subtipo, view)
