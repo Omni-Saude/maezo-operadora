@@ -187,6 +187,7 @@ from maezo.tools.workers.dmn_transport import (
 )
 
 from .prompts import (
+    COBRANCA_ADMINISTRADORA_TEXTO_VERSION,
     DOSSIE_TEXTO_VERSION,
     ESCALATION_ACK_PROMPT_VERSION,
     MENSAGEM_EM_DIA_VERSION,
@@ -427,6 +428,9 @@ class LucasState(TypedDict, total=False):
     #: 13/10/2026: quem paga (`resumo.pagador_tipo`): `pessoa_juridica` (empresa contratante),
     #: `pessoa_fisica` ou `desconhecido`. Fato, nunca veredito; vira a entrada `pagador_empresa` da DMN.
     pagador_tipo: str
+    #: 13/10/2026 (bateria 4): coletivo por ADESAO cobrado pela administradora (fato da fonte). O boleto do
+    #: beneficiario vem da administradora; o titulo do Tasy (situacao, vencimento) e' dela, nao da pessoa.
+    cobranca_administradora: bool
 
     # Filled by `gather`.
     gathered: bool
@@ -552,6 +556,8 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "competencias_cobranca",
         # 13/10/2026: quem paga a mensalidade (enum do contrato; fato, nunca veredito).
         "pagador_tipo",
+        # 13/10/2026: adesao cobrada pela administradora (booleano da fonte; fato, nunca veredito).
+        "cobranca_administradora",
     }
 )
 
@@ -1072,11 +1078,59 @@ def valores_com_atraso(state: LucasState) -> bool:
 
 
 def pagador_empresa(state: LucasState) -> bool:
-    """A mensalidade e' paga pela EMPRESA contratante (`pagador_tipo=pessoa_juridica`)? E' a entrada
-    `pagador_empresa` da DMN (13/10/2026, decisao do dono). Num contrato de empresa o boleto, o total e o
-    atraso sao da empresa: o Lucas nao os mostra e o atraso dela nao escala o beneficiario. PF, desconhecido
-    ou ausente: `False` (a tabela se comporta como antes)."""
+    """A mensalidade e' paga pela EMPRESA contratante (`pagador_tipo=pessoa_juridica`)? Num contrato de
+    empresa o boleto, o total e o atraso sao da empresa: o Lucas nao os mostra. PF, desconhecido ou ausente:
+    `False`."""
     return state.get("pagador_tipo") == PAGADOR_EMPRESA
+
+
+def cobranca_administradora(state: LucasState) -> bool:
+    """Coletivo por ADESAO cobrado pela administradora (13/10/2026, bateria 4)? So' com o fato da fonte."""
+    return state.get("cobranca_administradora") is True and not pagador_empresa(state)
+
+
+def titulo_de_terceiro(state: LucasState) -> bool:
+    """A entrada `pagador_empresa` da DMN: o titulo do Tasy NAO e' do beneficiario — da empresa contratante
+    (decisao do dono, 13/10/2026) ou da administradora da adesao (bateria 4). O atraso desse titulo nunca
+    escala o beneficiario, e a pergunta de cobranca tem resposta fixa."""
+    return pagador_empresa(state) or cobranca_administradora(state)
+
+
+#: Coletivo por adesao (13/10/2026, bateria 4): de onde vem o boleto e o que fica com a administradora.
+TEXTO_COBRANCA_ADMINISTRADORA: Final[str] = (
+    "No seu plano (coletivo por adesão), o boleto é emitido pela administradora do plano: a 2ª via, o "
+    "vencimento e a confirmação do pagamento ficam com ela."
+)
+
+
+def texto_cobranca_administradora(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
+    """Coletivo por ADESAO cobrado pela administradora: a parcela DA PESSOA (ou a coparticipacao, se foi
+    a pergunta) e de onde vem o boleto. Nunca situacao, vencimento, saldo ou boleto do titulo da
+    administradora — e nunca "a empresa paga"."""
+    competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
+    c = competencias[0] if competencias else None
+    foco = facts.get("foco")
+    fato: str | None = None
+    if c is not None and foco == "coparticipacao":
+        fato = _frase_de_coparticipacao(c, hoje)
+    elif c is not None and "valor_total" in c:
+        fato = (
+            f"Sua mensalidade de {_mes_por_extenso(c['competencia'], hoje)} é de {_reais(c['valor_total'])}."
+        )
+    valor_primeiro = state.get("tipo_solicitacao") == TIPO_CONSULTA_VALORES and foco in (
+        "valor",
+        "coparticipacao",
+        FOCO_GERAL,
+    )
+    partes = (
+        [fato, TEXTO_COBRANCA_ADMINISTRADORA] if valor_primeiro else [TEXTO_COBRANCA_ADMINISTRADORA, fato]
+    )
+    texto = [parte for parte in partes if parte]
+    if fato is not None:
+        fonte = _frase_da_fonte(state, hoje)
+        if fonte:
+            texto.append(fonte)
+    return " ".join(texto)
 
 
 #: A resposta FIXA a quem tem a mensalidade paga pela empresa (decisao do dono, 13/10/2026).
@@ -2477,7 +2531,8 @@ class LucasGraph:
             "valores_com_atraso": valores_com_atraso(state),
             # 13/10/2026 (decisao do dono): contrato de EMPRESA. A primeira linha responde com o texto fixo
             # e a regra de atraso exige `false`: o atraso do titulo da empresa nunca escala o beneficiario.
-            "pagador_empresa": pagador_empresa(state),
+            # 13/10/2026 (bateria 4): tambem a adesao cobrada pela administradora — o titulo e' dela.
+            "pagador_empresa": titulo_de_terceiro(state),
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
@@ -2971,6 +3026,9 @@ class LucasGraph:
             return mensagem
         if foco_da_pergunta == FOCO_PAGAMENTO_AO_PRESTADOR:
             return self._build_pagamento_ao_prestador(state, facts)
+        if cobranca_administradora(state) and state.get("admissibilidade") in ("RESPONDER", "LEMBRETE"):
+            # 13/10/2026 (bateria 4): adesao. A parcela da pessoa e a administradora; nunca "a empresa paga".
+            return self._build_cobranca_administradora(state)
         if pagador_empresa(state) and state.get("admissibilidade") in ("RESPONDER", "LEMBRETE"):
             # 13/10/2026 (decisao do dono): contrato de EMPRESA. Antes de tudo, inclusive do "em dia", que
             # seria a situacao do titulo da empresa. Nunca o total, o boleto ou o atraso da empresa.
@@ -3103,6 +3161,34 @@ class LucasGraph:
         mensagem = self._mensagem(" ".join(partes), facts, VALORES_PROMPT_VERSION, state)
         mensagem["curta"] = TEXTO_PAGAMENTO_AO_PRESTADOR_CURTO
         return mensagem
+
+    def _build_cobranca_administradora(self, state: LucasState) -> dict[str, Any]:
+        """Coletivo por ADESAO (13/10/2026, bateria 4), em TEXTO FIXO, sem modelo. Os fatos levam SO' a
+        parcela e a coparticipacao da competencia citada (a pedida; senao a mais recente)."""
+        foco = _foco_da_pergunta(state) if state.get("tipo_solicitacao") == TIPO_CONSULTA_VALORES else None
+        competencias = _competencias_dos_fatos(state)
+        pedida = state.get("competencia")
+        escolhida = next((c for c in competencias if c["competencia"] == pedida), None) or (
+            competencias[0] if competencias else None
+        )
+        facts: dict[str, Any] = {
+            "tipo_solicitacao": state.get("tipo_solicitacao"),
+            "cobranca_administradora": True,
+            "foco": foco,
+            "competencias": []
+            if escolhida is None
+            else [
+                {
+                    k: v
+                    for k, v in escolhida.items()
+                    if k in ("competencia", "valor_total", "valor_coparticipacao")
+                }
+            ],
+            "admissibilidade": state.get("admissibilidade"),
+            "dmn_refs": state.get("dmn_refs", {}),
+        }
+        texto = texto_cobranca_administradora(state, facts, self._hoje())
+        return self._mensagem(texto, facts, COBRANCA_ADMINISTRADORA_TEXTO_VERSION, state)
 
     def _build_pagador_empresa(self, state: LucasState) -> dict[str, Any]:
         """Contrato de EMPRESA (13/10/2026): "Sua mensalidade e' paga pela empresa contratante.", em TEXTO
@@ -3453,4 +3539,6 @@ PROMPT_VERSIONS: dict[str, str] = {
     "segunda_via": SEGUNDA_VIA_TEXTO_VERSION,
     # 13/10/2026: a resposta FIXA a quem tem a mensalidade paga pela empresa contratante.
     "pagador_empresa": PAGADOR_EMPRESA_TEXTO_VERSION,
+    # 13/10/2026 (bateria 4): coletivo por adesao cobrado pela administradora.
+    "cobranca_administradora": COBRANCA_ADMINISTRADORA_TEXTO_VERSION,
 }

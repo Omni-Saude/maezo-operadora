@@ -43,6 +43,7 @@ from maezo.agents.lucas.fonte_cobranca import (
     Indisponivel,
 )
 from maezo.ports.billing_status import BillingStatusPort, BillingStatusView, CompetenciaBilling
+from maezo.ports.tina import TinaPort
 from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
@@ -92,6 +93,20 @@ def _pagador(tipo: object) -> str:
     return tipo if isinstance(tipo, str) and tipo in PAGADOR_TIPOS else "desconhecido"
 
 
+#: Prazo da leitura de ELEGIBILIDADE (TINA) que diz se o plano e' de adesao. Curto: e' um complemento.
+PRAZO_TINA_S: Final[float] = 5.0
+#: A base legal da leitura TINA (a mesma das consultas do plano da Helena; NAO e' consentimento).
+_BASE_LEGAL_TINA: Final[str] = "base-legal:execucao-de-contrato"
+
+
+def _e_adesao(tipo_contratacao: object) -> bool:
+    """O `tipo_contratacao` do vinculo (texto do Tasy, "Coletivo por adesao") e' de ADESAO?"""
+    if not isinstance(tipo_contratacao, str):
+        return False
+    texto = tipo_contratacao.casefold()
+    return "ades" in texto
+
+
 def _dias_validos(dias: object) -> int | None:
     return dias if isinstance(dias, int) and not isinstance(dias, bool) and dias >= 0 else None
 
@@ -136,6 +151,8 @@ class FonteCobrancaAmh:
         purpose_of_use: str,
         fatos_de_valor: bool = False,
         timeout_seconds: float = PRAZO_COBRANCA_PADRAO_S,
+        tina: TinaPort | None = None,
+        tina_purpose_of_use: str | None = None,
     ) -> None:
         # DL-0086 + DL-0083 (revisao de seguranca do #709): os FATOS DE VALOR (valores, coparticipacao,
         # saldo, datas de pagamento, boletos da janela) so' saem para beneficiario VERIFICADO
@@ -158,6 +175,34 @@ class FonteCobrancaAmh:
         self._consentimento = consentimento
         self._purpose = purpose_of_use
         self._fatos_de_valor = fatos_de_valor
+        # 13/10/2026 (bateria 4): a leitura TINA so' diz se o plano e' de ADESAO quando o billing-status
+        # nao diz quem paga. Sem ela (ou sem finalidade), o comportamento de antes.
+        self._tina = tina if tina is not None and tina_purpose_of_use else None
+        self._tina_purpose = tina_purpose_of_use or ""
+
+    async def _adesao_pela_administradora(self, ref: str) -> bool:
+        """O sujeito tem vinculo ATIVO de coletivo por adesao (contrato TINA)? Nunca levanta: falha = `False`.
+
+        So' e' chamada quando o billing-status devolveu `pagador_tipo=desconhecido` — e a AMH devolve isso,
+        desde 13/10/2026, justamente para a adesao cobrada pela administradora (o pagador no Tasy e' o CNPJ
+        dela, e "a empresa paga" seria falso)."""
+        if self._tina is None:
+            return False
+        try:
+            leitura = await self._tina.get_elegibilidade(
+                ref,
+                purpose_of_use=self._tina_purpose,
+                consent_decision_ref=_BASE_LEGAL_TINA,
+                timeout_seconds=min(PRAZO_TINA_S, self._timeout),
+            )
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            return False
+        view = leitura.value if leitura.succeeded else None
+        if view is None or view.portable_subject_ref != ref:
+            return False
+        return any(_e_adesao(v.tipo_contratacao) and not v.cancelamento for v in view.vinculos)
 
     async def fatos(
         self, pseudo_id: str, competencia: str | None, *, phone_hash: str | None = None
@@ -195,11 +240,12 @@ class FonteCobrancaAmh:
             return Indisponivel("fato_ausente")
         referencia = _competencia_de_referencia(view, competencia)
         pagador = _pagador(resumo.pagador_tipo)
+        administradora = pagador == "desconhecido" and await self._adesao_pela_administradora(ref)
         # Contrato de EMPRESA (13/10/2026): o boleto e' da empresa contratante, nunca da pessoa. A AMH ja'
         # nao o manda; aqui e' defesa em profundidade — o rotulo nao chega ao Lucas.
         boleto = (
             ""
-            if pagador == PAGADOR_EMPRESA
+            if pagador == PAGADOR_EMPRESA or administradora
             else ((referencia.boleto_numero_mascarado or "") if referencia else "")
         )
         if not self._fatos_de_valor:
@@ -211,6 +257,7 @@ class FonteCobrancaAmh:
                 numero_boleto=boleto,
                 cnab_ref=f"amh-billing:{view.fonte_atualizada_em[:10]}",
                 pagador_tipo=pagador,
+                cobranca_administradora=administradora,
             )
         competencias = tuple(
             fato
@@ -227,4 +274,5 @@ class FonteCobrancaAmh:
             vencimento_referencia=_na_forma(referencia.vencimento, _DATA) if referencia else None,
             competencias=competencias,
             pagador_tipo=pagador,
+            cobranca_administradora=administradora,
         )

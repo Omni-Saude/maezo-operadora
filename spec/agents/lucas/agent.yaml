@@ -26,6 +26,7 @@ prompt_versions:
   vencimento: vencimento-v2-tom      # 10/10/2026 (DL-0087): tom humanizado, canais permitidos
   segunda_via: segunda-via-v2-tom    # 10/10/2026 (DL-0087): redacao aprovada pelo dono
   pagador_empresa: pagador-empresa-v1  # 13/10/2026: contrato de empresa, texto fixo (decisao do dono)
+  cobranca_administradora: cobranca-administradora-v1  # 13/10/2026: adesao, boleto da administradora
 model:
   task_default: { tier: fast }
   reasoning:    { tier: frontier }

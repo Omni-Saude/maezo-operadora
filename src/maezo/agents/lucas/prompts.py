@@ -59,6 +59,10 @@ SEGUNDA_VIA_TEXTO_VERSION = "segunda-via-v2-tom"
 #: 13/10/2026, decisao do dono): "Sua mensalidade e' paga pela empresa contratante." (+ a coparticipacao da
 #: pessoa, quando perguntada). Nunca o total, o boleto ou o atraso da fatura da empresa.
 PAGADOR_EMPRESA_TEXTO_VERSION = "pagador-empresa-v1"
+#: Resposta FIXA a quem tem plano COLETIVO POR ADESAO cobrado pela administradora (`graph.py::
+#: texto_cobranca_administradora`, 13/10/2026, bateria 4): a parcela da pessoa e "o boleto e' emitido pela
+#: administradora do plano" (2a via, vencimento e confirmacao de pagamento com ela). Nunca "a empresa paga".
+COBRANCA_ADMINISTRADORA_TEXTO_VERSION = "cobranca-administradora-v1"
 
 SYSTEM_PROMPT = """Voce e Lucas, um navegador de atendimento e cobranca ao beneficiario de um
 plano de saude brasileiro. Seu papel e responder duvidas de boleto/2a via/vencimento, informar o
@@ -614,4 +618,5 @@ PROMPT_VERSIONS: dict[str, str] = {
     "vencimento": VENCIMENTO_PROMPT_VERSION,
     "segunda_via": SEGUNDA_VIA_TEXTO_VERSION,
     "pagador_empresa": PAGADOR_EMPRESA_TEXTO_VERSION,
+    "cobranca_administradora": COBRANCA_ADMINISTRADORA_TEXTO_VERSION,
 }
