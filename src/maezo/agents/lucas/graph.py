@@ -1379,7 +1379,9 @@ def texto_lista(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
     assert lista is not None  # `_fatos_de_valores` so' poe `lista` com um pedido valido
     foco = str(facts["foco"]) if foco_valido(facts.get("foco")) else FOCO_GERAL
     competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
-    encontradas = int(facts.get("lista_encontradas") or 0)
+    # Contagem ausente ou fora da forma vale "nenhum mes listado" (a resposta de um mes so', honesta).
+    bruto = facts.get("lista_encontradas")
+    encontradas = bruto if isinstance(bruto, int) and not isinstance(bruto, bool) and bruto > 0 else 0
     esperadas = facts.get("lista_esperadas")
     periodo = _periodo_da_lista(lista, hoje)
     fonte = _frase_da_fonte(state, hoje)
