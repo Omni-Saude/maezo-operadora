@@ -148,9 +148,11 @@ from langgraph.graph import END, START, StateGraph
 from maezo.agents.lucas.fonte_cobranca import PAGADOR_EMPRESA
 from maezo.platform.observability import record_resposta_recusada
 from maezo.runtime.cobranca_foco import (
+    FOCO_COMO_PAGAR,
     FOCO_ESCLARECIMENTO,
     FOCO_EXTRATO,
     FOCO_GERAL,
+    FOCO_JA_PAGUEI,
     FOCO_PAGAMENTO_AO_PRESTADOR,
     FOCO_ULTIMA,
     foco_valido,
@@ -1850,6 +1852,15 @@ def texto_da_ultima(state: LucasState, hoje: date) -> str | None:
     return " ".join(partes)
 
 
+def _quanto_falta(vencimento: date, hoje: date) -> str:
+    dias = (vencimento - hoje).days
+    if dias <= 0:
+        return "hoje"
+    if dias == 1:
+        return "amanhã"
+    return f"daqui a {dias} dias"
+
+
 def texto_de_esclarecimento(state: LucasState, hoje: date) -> str | None:
     """ "De qual ano?" depois de uma resposta (rodada 3): a resposta CURTA, com o ano — "E' julho de 2026:
     paga em 18/08." —, nunca o texto anterior de novo. `None` sem fatos por competencia."""
@@ -1860,6 +1871,13 @@ def texto_de_esclarecimento(state: LucasState, hoje: date) -> str | None:
     c = next((x for x in competencias if x["competencia"] == pedida), None) if pedida else competencias[0]
     if c is None:
         return _frase_do_mes_ausente(str(pedida), competencias, hoje)
+    if c["situacao"] == "em_aberto" and "vencimento" in c and date.fromisoformat(c["vencimento"]) >= hoje:
+        # Rodada 6 (13/10/2026): "hoje e' 13/10, vence 15/10, como assim ainda nao foi paga?" — dito com
+        # clareza: ainda esta' no prazo, e quantos dias faltam.
+        mes = _mes_por_extenso(c["competencia"], hoje)
+        return f"Ainda está no prazo: a de {mes} vence em {_dia_mes(c['vencimento'], hoje)} " + (
+            f"({_quanto_falta(date.fromisoformat(c['vencimento']), hoje)})."
+        )
     resumo = _resumo_do_mes(c, hoje, com_valor=False)
     mes = _mes_por_extenso(c["competencia"], hoje)
     return f"É {mes}: {resumo}." if resumo else f"É {mes}."
@@ -1910,7 +1928,13 @@ def frase_da_situacao(state: LucasState, hoje: date) -> str | None:
     pedida = state.get("competencia")
     c = next((x for x in competencias if x["competencia"] == pedida), None)
     if c is None:
+        # Rodada 6 (13/10/2026): sem mes, o mes em discussao — o sem pagamento confirmado mais recente
+        # (a escalacao falou dele), nunca a paga de outro mes.
+        c = next((x for x in competencias if x["situacao"] == "vencida"), None)
+    if c is None:
         c = _em_aberto_no_prazo(competencias, hoje)
+    if c is None:
+        c = next((x for x in competencias if x["situacao"] == "em_aberto"), None)
     if c is None:
         c = next((x for x in competencias if x["situacao"] == "paga"), None)
     if c is None:
@@ -2127,7 +2151,17 @@ def sem_repetir(state: LucasState, texto: str, curta: str | None = None) -> tupl
     if not any("nossa equipe" in forma for forma in formas):
         formas.append(NAO_CONSIGO_COM_OFERTA)
     formas.extend(NAO_CONSIGO)
-    return _escada(state, texto, formas)
+    # Rodada 6: a escada so' vale para a MESMA pergunta (assunto, foco e mes) — uma pergunta nova, mesmo
+    # que caia no mesmo texto, recebe a resposta inteira.
+    chave = "|".join(
+        (
+            str(state.get("tipo_solicitacao") or ""),
+            _foco_da_pergunta(state),
+            str(state.get("competencia") or ""),
+            texto,
+        )
+    )
+    return _escada(state, chave, formas)
 
 
 def resposta_factual_do_turno(state: LucasState, hoje: date) -> str | None:
@@ -2137,7 +2171,68 @@ def resposta_factual_do_turno(state: LucasState, hoje: date) -> str | None:
         return None
     if state.get("intencao") == "cancelamento":
         return None
+    foco = _foco_da_pergunta(state)
+    if foco == FOCO_COMO_PAGAR:
+        return TEXTO_COMO_PAGAR
+    if foco == FOCO_JA_PAGUEI:
+        return texto_ja_paguei(state, hoje, com_oferta=False)
     return texto_lista_dos_fatos(state, hoje) or frase_da_situacao(state, hoje)
+
+
+#: Rodada 6 (13/10/2026): "como faco pra pagar depois do vencimento?" — a 2a via atualizada e os canais;
+#: nenhum numero de multa ou juros (nao esta' nos dados).
+TEXTO_COMO_PAGAR: Final[str] = (
+    "Para pagar, inclusive depois do vencimento, use a 2ª via atualizada. Ela sai pelo aplicativo Austa "
+    "Clínicas, pelo portal do plano ou pela central de atendimento."
+)
+TEXTO_COMO_PAGAR_CURTO: Final[str] = (
+    "A 2ª via atualizada sai pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de "
+    "atendimento."
+)
+
+
+def _mes_do_pagamento_informado(state: LucasState) -> dict[str, str] | None:
+    """De que mes fala "ja' paguei dia 06": o pedido; senao o sem pagamento mais recente; senao o ultimo."""
+    competencias = _competencias_dos_fatos(state)
+    pedida = state.get("competencia")
+    c = next((x for x in competencias if x["competencia"] == pedida), None)
+    if c is None:
+        c = next((x for x in competencias if x["situacao"] in ("vencida", "em_aberto")), None)
+    if c is None and competencias:
+        c = competencias[0]
+    return c
+
+
+def texto_ja_paguei(state: LucasState, hoje: date, *, com_oferta: bool = True) -> str:
+    """Rodada 6: "Ja' paguei dia 06. Comprovante?" — o que os dados mostram e de quando sao; um pagamento
+    perto dessa data pode ainda nao constar; comprovante nao se recebe por aqui; a oferta de alguem da
+    equipe para conferir (uma vez, quando o turno nao escala)."""
+    c = _mes_do_pagamento_informado(state)
+    dados = _dia_mes(_data_iso_da_fonte(state), hoje)
+    onde = f"Nos dados que tenho (dados de {dados})" if dados else "Nos dados que tenho"
+    if c is not None and c["situacao"] == "paga":
+        pagou = _dia_mes(c.get("liquidado_em"), hoje)
+        quando = f" em {pagou}" if pagou else ""
+        return (
+            f"{onde}, a mensalidade de {_mes_por_extenso(c['competencia'], hoje)} consta como paga{quando}."
+        )
+    de_qual = f" da mensalidade de {_mes_por_extenso(c['competencia'], hoje)}" if c is not None else ""
+    partes = [
+        f"{onde}, o pagamento{de_qual} ainda não aparece.",
+        "Um pagamento feito perto dessa data, ou depois, pode ainda não constar.",
+        "Por aqui eu não consigo receber comprovante.",
+    ]
+    if com_oferta:
+        partes.append("Se quiser, posso te passar para alguém da nossa equipe conferir o comprovante.")
+    return " ".join(partes)
+
+
+def texto_ja_paguei_curto(state: LucasState, hoje: date) -> str:
+    c = _mes_do_pagamento_informado(state)
+    de_qual = f" de {_mes_por_extenso(c['competencia'], hoje)}" if c is not None else ""
+    return (
+        f"Por aqui eu não recebo comprovante, e o pagamento{de_qual} ainda não aparece nos dados que tenho."
+    )
 
 
 def texto_caso_aberto(state: LucasState, hoje: date, *, com_aviso: bool = True) -> str:
@@ -2192,6 +2287,17 @@ def texto_segunda_via_repetida(state: LucasState, facts: Mapping[str, Any], hoje
     return " ".join(partes)
 
 
+def _valor_e_vencimento(c: Mapping[str, str], hoje: date) -> str | None:
+    """ "de R$ 552,54, com vencimento em 05/10" — o que o fato tem dos dois."""
+    partes: list[str] = []
+    if "valor_total" in c:
+        partes.append(f"de {_reais(c['valor_total'])}")
+    vence = _dia_mes(c.get("vencimento"), hoje)
+    if vence:
+        partes.append(f"com vencimento em {vence}")
+    return ", ".join(partes) or None
+
+
 def texto_ack_escalacao(state: LucasState, hoje: date) -> str:
     """ACK FIXO da escalacao, escolhido pelos FATOS e pelo motivo ja' decidido pela DMN (tom do DL-0087).
 
@@ -2220,6 +2326,22 @@ def texto_ack_escalacao(state: LucasState, hoje: date) -> str:
                 partes = [f"A mensalidade de {meses}{detalhe} ainda está sem pagamento confirmado."]
             else:
                 partes = [f"As mensalidades de {meses} ainda estão sem pagamento confirmado."]
+            # Rodada 6 (13/10/2026): "Valor ultima mensalidade e vencimento" ouvia so' "sem pagamento
+            # confirmado". O valor e o vencimento de cada mes sem pagamento (ate' tres), copiados dos fatos.
+            for c in sorted(sem_pagamento, key=lambda x: x["competencia"], reverse=True)[:3]:
+                detalhe_do_mes = _valor_e_vencimento(c, hoje)
+                if detalhe_do_mes:
+                    sujeito = (
+                        "Ela"
+                        if len(sem_pagamento) == 1
+                        else f"A de {_mes_por_extenso(c['competencia'], hoje)}"
+                    )
+                    partes.append(f"{sujeito} é {detalhe_do_mes}.")
+            foco = _foco_da_pergunta(state)
+            if foco == FOCO_JA_PAGUEI:
+                partes.append(texto_ja_paguei(state, hoje, com_oferta=False))
+            elif foco == FOCO_COMO_PAGAR:
+                partes.append(TEXTO_COMO_PAGAR)
             aberta = _em_aberto_no_prazo(competencias, hoje)
             if aberta is not None:
                 partes.append(_frase_do_em_aberto(aberta, hoje, curta=True))
@@ -3026,6 +3148,17 @@ class LucasGraph:
             return mensagem
         if foco_da_pergunta == FOCO_PAGAMENTO_AO_PRESTADOR:
             return self._build_pagamento_ao_prestador(state, facts)
+        if foco_da_pergunta == FOCO_COMO_PAGAR:
+            mensagem = self._mensagem(TEXTO_COMO_PAGAR, facts, VALORES_PROMPT_VERSION, state)
+            mensagem["curta"] = TEXTO_COMO_PAGAR_CURTO
+            return mensagem
+        if foco_da_pergunta == FOCO_JA_PAGUEI:
+            facts["competencias"] = _competencias_dos_fatos(state)
+            mensagem = self._mensagem(
+                texto_ja_paguei(state, self._hoje()), facts, VALORES_PROMPT_VERSION, state
+            )
+            mensagem["curta"] = texto_ja_paguei_curto(state, self._hoje())
+            return mensagem
         if cobranca_administradora(state) and state.get("admissibilidade") in ("RESPONDER", "LEMBRETE"):
             # 13/10/2026 (bateria 4): adesao. A parcela da pessoa e a administradora; nunca "a empresa paga".
             return self._build_cobranca_administradora(state)

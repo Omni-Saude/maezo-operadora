@@ -23,6 +23,9 @@ def test_o_dominio_e_fechado_e_e_o_do_dono() -> None:
                 # Rodada 5: extrato detalhado e pagamento direto ao prestador.
                 "extrato",
                 "pagamento_ao_prestador",
+                # Rodada 6: como pagar (depois do vencimento) e "ja' paguei dia 06".
+                "como_pagar",
+                "ja_paguei",
             }
         )
         == COBRANCA_FOCOS
