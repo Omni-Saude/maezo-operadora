@@ -1221,7 +1221,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-13",
-        pr="fix/lucas-pagador-pj",
+        pr="#733",
         name="pagador_empresa",
         name_delta=1,
         occurrence_delta=1,
