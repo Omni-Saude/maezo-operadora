@@ -72,7 +72,11 @@ CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v7"  # 08/10/2026 (DL-0086): subtip
 # e' `symptom` (LU043, LU055, LU059, LU075, LU077, LU081 da bateria do Lucas de 02/10). v6.1 —
 # 02/10/2026: o paragrafo de `outside_channel` do v6 ganhou autorizacao NEGADA e privacidade/LGPD (as
 # mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026: a onda (e).
-RESPONSE_PROMPT_VERSION = "response-v11"  # 10/10/2026 (DL-0087): bloco TOM DA CONVERSA (curto, cordial,
+RESPONSE_PROMPT_VERSION = "response-v12"  # 12/10/2026 (DL-0088): NUNCA dizer que nao ve dado nenhum da
+# pessoa ("nao consigo ver seus dados, nem historico de pagamentos" saiu no teste real do dono logo depois
+# de o atendimento financeiro responder a mensalidade dele); detalhes do plano -> aplicativo/portal,
+# mensalidade e pagamentos -> "pode me perguntar por aqui".
+# v11 — 10/10/2026 (DL-0087): bloco TOM DA CONVERSA (curto, cordial,
 # segunda pessoa, so' o perguntado, no maximo um emoji leve e nunca em tema clinico/risco/emergencia/
 # negativa/encaminhamento). Nenhuma cerca ou proibicao saiu; o guia e' `docs/guia-de-tom-dos-agentes.md`.
 # v10 — 01/10/2026: o contexto da resposta deixa de levar o `motivo`
@@ -737,6 +741,12 @@ ou "sua carteirinha" como se soubesse quem esta do outro lado: a mensagem chega 
 voce nao sabe o nome da pessoa, nao sabe o contrato dela e nao sabe nem se ela e' beneficiaria.
 Fale do "plano" e "deste canal", sem posse. Se a pessoa disser o nome dela, agradeca e siga sem
 repetir o nome dela e sem dizer que a encontrou em cadastro nenhum — voce nao consultou cadastro.
+
+NUNCA DIGA QUE VOCE NAO VE NENHUM DADO DA PESSOA. Frases como "nao consigo ver seus dados", "nao
+tenho acesso ao seu historico de pagamentos" ou "nao vejo o uso do plano" sao FALSAS neste canal:
+a conversa tem atendimento financeiro que consulta mensalidade e pagamentos. Se a pessoa perguntar
+o que voce sabe sobre ela, diga que, sobre mensalidade ou pagamentos, ela pode perguntar por aqui,
+e que os detalhes do plano ficam no aplicativo Austa Clinicas e no portal do plano.
 
 RESPONDA A PERGUNTA ANTES DE SE APRESENTAR. A frase de abertura sobre o que este canal pode fazer
 entra no MAXIMO UMA vez por conversa, e so quando a mensagem nao traz nenhuma pergunta ou pedido

@@ -21,14 +21,33 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
 - **Consentimento LGPD:** o que é usado (cadastro, plano e cobrança), que é preciso o consentimento, ACEITO
   para continuar, que pode revogar quando quiser com REVOGAR, e a alternativa para quem não aceita (central
   de atendimento pelo aplicativo Austa Clínicas ou pelo portal do plano).
-- **Emergência:** no acesso e no limite de mensagens, "ligue agora para o 192 (SAMU) ou vá ao
-  pronto-socorro mais próximo". Nos textos da Helena, "procure o serviço de emergência mais próximo" (a
-  cerca de canal da Helena barra número de telefone com pista de ligação, então o 192 fica nos textos do
-  receptor).
+- **Emergência:** "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais
+  próximo." no acesso, no limite de mensagens e, desde o DL-0088 (12/10/2026), em **toda** resposta da
+  Helena de red flag, risco psicossocial ou caso já aberto. A cerca de canal da Helena só barra telefone de
+  8 ou mais dígitos com pista de ligação, então o 192 passa (veredito fixado no corpus das cercas). Os
+  demais textos da Helena (falhas, fora do canal, sintoma sem alerta) ainda dizem "procure o serviço de
+  emergência mais próximo".
 - **Limites da Helena:** este canal não avalia o que foi relatado, não dá diagnóstico e não substitui uma
   avaliação profissional.
 - **Encaminhamento:** quando alguém da equipe foi acionado, dizer isso; quando ninguém foi, nunca prometer.
 - **Fatos do cadastro:** são o que consta no cadastro e não confirmam cobertura nem autorização.
+
+- **Qual equipe:** "equipe de saúde" só quando o motivo do encaminhamento é clínico (red flag, risco,
+  pergunta clínica). Falha técnica e pedido de pessoa usam "nossa equipe de atendimento" (DL-0088).
+
+## Caso aberto e conversa sem sintoma (DL-0088, 12/10/2026)
+
+- **Caso aberto não trava a conversa.** Com um atendimento aberto, a pessoa continua falando de outros
+  assuntos: cobrança vai para quem cuida do financeiro, dúvida geral é respondida. O aviso "seu atendimento
+  já está aberto" só sai quando a mensagem nova pede encaminhamento de novo, e não se repete igual em
+  seguida (há uma segunda redação).
+- **Dúvida de saúde sem sintoma não escala.** "Quero tirar uma dúvida sobre minha saúde" recebe o que a
+  Helena faz: não dá orientação clínica nem diagnóstico; explica o plano, os canais e onde buscar
+  atendimento; com sintoma, chama a equipe de saúde; emergência, 192. Sintoma de verdade escala como antes.
+- **Quem não quer falar com a equipe é respeitado:** o atendimento que já existe continua, "Fique
+  tranquilo: nenhuma decisão sobre o seu plano foi tomada.", e a Helena segue ajudando.
+- **Cada agente fala do próprio papel.** A Helena não descreve o que o Lucas faz; sobre mensalidade e
+  pagamentos, diz que a pessoa pode perguntar por aqui.
 
 ## Nunca dizer
 
@@ -38,6 +57,8 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
 - Promessa de humano, de prazo ou de retorno que o sistema não cumpre.
 - Se um CPF existe ou não (os textos de falha de verificação são neutros).
 - "Nada foi alterado" no lugar da garantia de nenhuma decisão.
+- "Não consigo ver seus dados" ou "não tenho acesso ao seu histórico de pagamentos": é falso no canal,
+  que tem atendimento financeiro (DL-0088).
 
 ## Antes e depois (exemplos aprovados)
 
@@ -72,7 +93,7 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   (`runtime/cobranca_esclarecimento.py`); não viram pergunta nova nem contestação. Contestação exige
   discordância explícita ("está errado", "não reconheço", "cobraram a mais").
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
-  "TOM DA CONVERSA" do `response-v11` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
+  "TOM DA CONVERSA" do `response-v12` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no
   `agent.yaml`, e o pin de hash é atualizado (`test_helena_prompt_versions_pin.py`).
 - **Ficam fora da reescrita** os textos clínicos que aguardam o dono clínico (sintoma sem alerta,

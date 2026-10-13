@@ -385,6 +385,12 @@ CobrancaSubtipo = Literal[
     "outro",
 ]
 _VALID_COBRANCA_SUBTIPOS: frozenset[str] = frozenset(get_args(CobrancaSubtipo))
+#: DL-0088: as intencoes que a pergunta financeira sobre a pessoa converte em `cobranca`. Nunca as que
+#: ja' escalam por conta propria (sintoma, pergunta clinica, pedido de pessoa, agendamento).
+_INTENTS_QUE_VIRAM_COBRANCA: frozenset[str] = frozenset({"information", "outside_channel", "greeting"})
+#: DL-0088: o subtipo que entra quando o modelo diz `cobranca` mas erra o subtipo. Pergunta de valor/
+#: informacao (J1 do Lucas): ele responde pelos fatos do contrato e escala quando eles nao vieram.
+SUBTIPO_COBRANCA_PADRAO: str = "consulta_valores"
 
 
 def _intents_validos(*, cobranca_habilitada: bool, consultas_habilitadas: bool = False) -> frozenset[str]:
@@ -504,10 +510,23 @@ RESPOSTA_FALHA_DE_REDACAO: str = (
 #: la' ela reprovou: a primeira oracao tinha 22 palavras contra o limite de 20 declarado por
 #: `EVL-HELENA-CLAREZA-0{1,3}.clarity.max_words_per_sentence`. Uma constante que a propria regua da
 #: Helena reprova nao pode ser a saida honesta dela. O CONTEUDO nao mudou.
+#:
+#: DL-0088 (12/10/2026, teste real do dono): esta constante passou a ser o texto NEUTRO ("nossa equipe
+#: de atendimento"). Uma falha tecnica numa pergunta de COBRANCA saiu dizendo "encaminhamos seu caso
+#: para a nossa equipe de saude" — a pessoa perguntou do financeiro e leu que foi mandada a saude. O
+#: texto que nomeia a equipe de SAUDE e' `RESPOSTA_HANDOFF_SAUDE`, e quem escolhe entre os dois e' o
+#: MOTIVO do processo (`_texto_de_handoff`), nunca a redacao. A emergencia vai na forma do guia (192).
 RESPOSTA_HANDOFF_RECUSADA: str = (
+    "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de atendimento. "
+    "Um atendente vai continuar o seu atendimento. "
+    "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
+)
+#: DL-0088: o mesmo aviso de encaminhamento quando o motivo e' CLINICO (`_MOTIVOS_DA_EQUIPE_DE_SAUDE`):
+#: red flag sem prioridade urgente e pergunta clinica. So' aqui a equipe e' "de saude".
+RESPOSTA_HANDOFF_SAUDE: str = (
     "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saúde. "
-    "Um profissional vai continuar o seu atendimento. Se você estiver passando por uma "
-    "emergência, procure o serviço de emergência mais próximo."
+    "Um profissional vai continuar o seu atendimento. "
+    "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
 )
 
 #: CRITICO 1 DA BATERIA DE 22/09/2026: o texto de um turno `inform` cujo RASCUNHO foi barrado por
@@ -575,15 +594,21 @@ RESPOSTA_SINTOMA_SEM_ALERTA: str = (
 #: sem esperar o contato; psicossocial acolhe antes; o resto usa `RESPOSTA_HANDOFF_RECUSADA`. Nenhum
 #: promete prazo (o relogio e' do processo, e o SLA do motor nao e' exato) nem canal (nao ha ligacao).
 #: O resumo clinico vai ao ATENDENTE (`_resumo_contexto`), nao a pessoa. Cada frase tem ate' 20 palavras.
+#: DL-0088 (12/10/2026): "estou com dor no peito" foi escalado certo e a resposta nao dizia 192. Todo
+#: texto de red flag/risco termina na forma de emergencia do guia de tom ("ligue agora para o 192
+#: (SAMU) ou va ao pronto-socorro mais proximo"); a cerca de canal so' barra telefone de 8+ digitos com
+#: pista de ligacao, entao o 192 passa nas tres cercas (veredito fixado no corpus).
 RESPOSTA_ESCALONAMENTO_URGENTE: str = (
     "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde. "
     "Um profissional vai dar continuidade ao seu atendimento. Se você estiver com sintomas agora, "
-    "procure o serviço de emergência mais próximo sem esperar o nosso contato."
+    "não espere o nosso contato. Se for uma emergência, ligue agora para o 192 (SAMU) "
+    "ou vá ao pronto-socorro mais próximo."
 )
 RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL: str = (
     "Sinto muito que você esteja passando por isso. Encaminhamos o seu caso para a nossa equipe de "
     "saúde, e um profissional vai dar continuidade ao seu atendimento. Se você estiver em risco "
-    "agora, procure o serviço de emergência mais próximo sem esperar o nosso contato."
+    "agora, não espere o nosso contato. Se for uma emergência, ligue agora para o 192 (SAMU) "
+    "ou vá ao pronto-socorro mais próximo."
 )
 
 
@@ -635,6 +660,18 @@ def _e_despedida(texto: str) -> bool:
     )
 
 
+#: DL-0088: os motivos em que o caso vai mesmo para a equipe de SAUDE. Os outros (falha tecnica,
+#: pedido de pessoa, `outro`, motivo ausente) usam o texto neutro — falha tecnica nunca diz "saude".
+_MOTIVOS_DA_EQUIPE_DE_SAUDE: frozenset[str] = frozenset(
+    {"red_flag_clinico", "risco_psicossocial", "intencao_clinica"}
+)
+
+
+def _texto_de_handoff(motivo: object) -> str:
+    """O aviso de encaminhamento generico, escolhido pelo MOTIVO (DL-0088): saude so' com motivo clinico."""
+    return RESPOSTA_HANDOFF_SAUDE if motivo in _MOTIVOS_DA_EQUIPE_DE_SAUDE else RESPOSTA_HANDOFF_RECUSADA
+
+
 def _texto_de_escalonamento(motivo: MotivoCategoria | None, severidade: Severidade | None) -> str:
     """O texto fixo do aviso de encaminhamento, escolhido pelo MOTIVO e pela severidade do processo
     que esta' sendo aberto (que derivam da tabela, nunca de redacao)."""
@@ -642,7 +679,7 @@ def _texto_de_escalonamento(motivo: MotivoCategoria | None, severidade: Severida
         return RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL
     if motivo == "red_flag_clinico" and severidade == "grave":
         return RESPOSTA_ESCALONAMENTO_URGENTE
-    return RESPOSTA_HANDOFF_RECUSADA
+    return _texto_de_handoff(motivo)
 
 
 RESPOSTA_INFORM_RECUSADA: str = (
@@ -773,10 +810,20 @@ def _humano_acionado(estado: Mapping[str, Any]) -> bool:
 #: "explicar que nada foi aberto porque ja' havia" convida a inventar um protocolo, um prazo ou um
 #: encaminhamento novo. Ela nao cita identificador nenhum e nao promete prazo (o SLA vive na
 #: instancia que ja' existe, e este turno nao sabe quanto dela ja' correu).
+#: DL-0088 (12/10/2026): sem "de saude" (o caso aberto pode ser de cobranca ou de falha tecnica) e com
+#: a emergencia na forma do guia (192) — um sintoma novo com caso aberto continua recebendo o 192.
 RESPOSTA_HANDOFF_JA_ABERTO: str = (
-    "Recebi sua mensagem. Seu atendimento com a nossa equipe de saúde já está aberto e "
-    "segue em andamento, por isso não abri outro. Se você estiver passando por "
-    "uma emergência, procure o serviço de emergência mais próximo."
+    "Recebi sua mensagem. Seu atendimento com a nossa equipe já está aberto e "
+    "segue em andamento, por isso não abri outro. Se for uma emergência, ligue agora para o 192 (SAMU) "
+    "ou vá ao pronto-socorro mais próximo."
+)
+#: DL-0088: a MESMA verdade, com outra redacao, quando a ultima mensagem da Helena ja' foi o aviso de
+#: caso aberto. No teste do dono o texto saiu identico duas vezes seguidas e pareceu um robo travado.
+#: So' e' escolhida com o historico curto ligado (e' de la' que vem a ultima fala da Helena).
+RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO: str = (
+    "Entendi. Seu atendimento com a nossa equipe já está aberto e continua valendo. "
+    "Enquanto isso, posso te ajudar com outras dúvidas por aqui. "
+    "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
 )
 
 #: F1, o outro lado: o texto quando o rascunho prometeu um humano e NINGUEM foi acionado neste
@@ -802,6 +849,27 @@ ERRO_HANDOFF_SEM_MENCAO: str = "handoff sem mencao ao encaminhamento"
 #: e' precisamente o que tornou os 27 escalonamentos reusados da bateria INVISIVEIS. Precisa estar
 #: em `turn_telemetry._DESFECHO_VOCAB["helena"]`, senao e' normalizado para `"outro"`.
 DESFECHO_ESCALONAMENTO_JA_ABERTO: str = "escalonamento_ja_aberto"
+
+
+#: DL-0088: os avisos de caso aberto, para reconhecer no historico a ultima fala da Helena.
+_AVISOS_DE_CASO_ABERTO: tuple[str, ...] = (RESPOSTA_HANDOFF_JA_ABERTO, RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO)
+
+
+def _ultima_fala_foi_aviso_de_caso_aberto(estado: Mapping[str, Any]) -> bool:
+    """A ultima mensagem da Helena no historico curto (DL-0080) COMECA por um aviso de caso aberto?
+
+    So' le' o historico que `receive` ja' validou (`historico_conversa`); sem historico (flag
+    desligada, conversa nova ou expirada) a resposta e' `False` e sai o aviso de sempre. "Comeca por",
+    e nao igualdade, porque o aviso pode ter saido como prefixo do rascunho do turno.
+    """
+    historico = estado.get("historico_conversa")
+    if not isinstance(historico, list):
+        return False
+    for entrada in reversed(historico):
+        if isinstance(entrada, Mapping) and entrada.get("papel") == "helena":
+            texto = str(entrada.get("texto") or "")
+            return any(texto.startswith(aviso) for aviso in _AVISOS_DE_CASO_ABERTO)
+    return False
 
 
 class RespostaRecusadaError(RuntimeError):
@@ -2454,6 +2522,149 @@ def eh_pergunta_quem_sou_eu(texto: str) -> bool:
     return _pergunta_quem_sou_eu(_normalizar_texto(texto or ""))
 
 
+# --- CONVERSA SEM RELATO CLINICO (DL-0088, 12/10/2026 — teste real do dono no WhatsApp) -------------
+#
+# O QUE FOI MEDIDO. Depois de "estou com dor no peito" (escalado, certo), a pessoa escreveu "eu quero
+# tirar uma duvida sobre minha saude" e "Voce nao pode me tirar a duvida? eu nao quero falar com nenhuma
+# equipe". Nenhuma das duas traz sintoma. O classificador, lendo o historico, carregou a dor toracica
+# para as duas, a tabela marcou bandeira de novo e a Helena respondeu DUAS VEZES o mesmo texto de "seu
+# atendimento ja esta aberto" — a pessoa ficou presa num caso aberto, sem ninguem responder o que ela
+# perguntou.
+#
+# A REGRA (decisao do dono): duvida de saude SEM sintoma nao escala; a Helena diz o que ela pode fazer.
+# Quem recusa falar com a equipe recebe respeito: o caso dela continua, nenhuma decisao foi tomada, e a
+# Helena segue ajudando. Sintoma de verdade continua escalando exatamente como antes.
+#
+# POR QUE VOCABULARIO FECHADO, e nao uma lista de sintomas. Uma lista de sintomas deixa passar o que
+# ela nao conhece ("formigamento no braco"). Aqui e' o contrario: a mensagem INTEIRA tem de ser feita
+# de palavras desta lista, que so' tem palavras de conversa — nenhuma palavra de corpo, de dor, de
+# remedio, de idade ou de numero cabe nela. Qualquer palavra de fora (inclusive um sintoma que ninguem
+# previu) devolve `None`, e o turno segue o caminho de sempre (classificador + tabela). O falso negativo
+# custa o comportamento de antes; o falso positivo nao existe por construcao, porque nao ha' como
+# descrever um sintoma so' com estas palavras.
+_VOCABULARIO_DE_CONVERSA: frozenset[str] = frozenset(
+    {
+        *("eu", "voce", "vc", "voces", "tu", "me", "mim", "minha", "minhas", "meu", "meus", "comigo"),
+        *("a", "o", "as", "os", "um", "uma", "de", "da", "do", "das", "dos", "com", "para", "pra"),
+        *("por", "e", "ou", "que", "so", "apenas", "aqui", "isso", "mas", "entao", "sim", "nao", "nem"),
+        *("ok", "oi", "ola", "bom", "boa", "dia", "tarde", "noite", "helena", "agora", "ai", "favor"),
+        *("quero", "queria", "gostaria", "preciso", "precisava", "tenho", "tem", "posso", "pode"),
+        *("poderia", "podia", "consegue", "conseguiria", "ajudar", "responder", "tirar", "tira", "tire"),
+        *("esclarecer", "fazer", "ser", "duvida", "duvidas", "pergunta", "perguntas", "questao", "coisa"),
+        *("rapida", "simples", "sobre", "saude", "falar", "conversar", "atendido", "atendida"),
+        *("nenhuma", "nenhum", "ninguem", "equipe", "atendente", "pessoa", "humano", "alguem"),
+    }
+)
+#: A pessoa pede para tirar uma duvida (sem dizer qual).
+_PEDE_DUVIDA = re.compile(r"\b(?:duvidas?|perguntas?|questao|esclarecer)\b")
+#: Palavras de PESSOA: com elas, so' a RECUSA explicita conta. "quero tirar uma duvida com um atendente"
+#: e' pedido de pessoa, e esse caminho (gatilho 3) nao muda.
+_FALA_DE_PESSOA = re.compile(
+    r"\b(?:equipe|atendente|pessoa|humano|alguem|ninguem|falar|conversar|atendid[oa])\b"
+)
+#: A RECUSA explicita: "nao quero falar com nenhuma equipe", "nao preciso de atendente", "nao quero ser
+#: atendido por ninguem". O alvo (equipe/atendente/pessoa/humano/ninguem) e' obrigatorio.
+_RECUSA_DE_EQUIPE = re.compile(
+    r"\bnao (?:quero|preciso|gostaria|queria)(?: de)?"
+    r"(?: (?:falar|conversar) com| ser atendid[oa] por)?"
+    r"(?: nenhuma?| uma?| a| o)? (?:equipe|atendente|pessoa|humano|ninguem)\b"
+)
+CONVERSA_DUVIDA_DE_SAUDE: str = "duvida_de_saude"
+CONVERSA_RECUSA_DE_EQUIPE: str = "recusa_de_equipe"
+_MAX_PALAVRAS_DE_CONVERSA: int = 30
+
+
+def _conversa_sem_relato_clinico(texto: str) -> str | None:
+    """`CONVERSA_RECUSA_DE_EQUIPE`, `CONVERSA_DUVIDA_DE_SAUDE` ou `None` (o caminho de sempre).
+
+    So' responde quando TODAS as palavras da mensagem estao em `_VOCABULARIO_DE_CONVERSA` — ou seja,
+    quando a mensagem nao tem como conter sintoma, idade, remedio nem assunto de cobranca.
+    """
+    plano = _sem_pontuacao(_normalizar_texto(texto or ""))
+    palavras = plano.split()
+    if not palavras or len(palavras) > _MAX_PALAVRAS_DE_CONVERSA:
+        return None
+    if not all(p in _VOCABULARIO_DE_CONVERSA for p in palavras):
+        return None
+    if _RECUSA_DE_EQUIPE.search(plano):
+        # Sobrou fala de pessoa FORA da recusa ("nao quero falar com ninguem, quero um humano")? Entao
+        # tambem ha' pedido, e o pedido vence: caminho de sempre.
+        if _FALA_DE_PESSOA.search(_RECUSA_DE_EQUIPE.sub(" ", plano)):
+            return None
+        return CONVERSA_RECUSA_DE_EQUIPE
+    if _FALA_DE_PESSOA.search(plano):
+        # Fala de pessoa SEM recusa explicita: pode ser pedido de atendente. Caminho de sempre.
+        return None
+    if _PEDE_DUVIDA.search(plano):
+        return CONVERSA_DUVIDA_DE_SAUDE
+    return None
+
+
+#: DL-0088: a resposta a "quero tirar uma duvida sobre minha saude". Diz o que a Helena e' e o que ela
+#: faz, sem orientar nada clinico, e convida a contar o sintoma se houver — e' ai que a tabela entra.
+RESPOSTA_DUVIDA_DE_SAUDE: str = (
+    "Claro, posso ajudar. Como navegadora de saúde, eu não dou orientação clínica nem diagnóstico. "
+    "Posso explicar como usar o plano, onde buscar atendimento e quais canais procurar. "
+    "Se você estiver com algum sintoma, me conte o que sente. Quando for preciso, eu chamo a equipe "
+    "de saúde. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais "
+    "próximo."
+)
+#: DL-0088: a resposta a quem NAO quer falar com a equipe. O caso que ja' existe continua (a frase e'
+#: condicional porque este turno nao consulta o motor), nenhuma decisao foi tomada (forma unica do
+#: guia) e a Helena segue ajudando. Nada aqui abre ou fecha processo.
+RESPOSTA_RECUSA_DE_EQUIPE: str = (
+    "Tudo bem, respeito sua escolha. Se você já tem um atendimento aberto com a nossa equipe, ele "
+    "continua lá, sem pressa. Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. "
+    "Eu não dou orientação clínica nem diagnóstico, mas posso ajudar com o plano, os canais e onde "
+    "buscar atendimento. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro "
+    "mais próximo."
+)
+
+
+# --- O QUE A HELENA SABE DA PESSOA (DL-0088) ----------------------------------------------------------
+#
+# O QUE FOI MEDIDO. "Voce e capaz de responder quais informacoes sobre mim?" recebeu do modelo "Por aqui
+# eu nao consigo ver seus dados, nem historico de pagamentos ou uso do plano" — FALSO: o atendimento
+# financeiro tinha acabado de responder a mensalidade da pessoa. E "Quais informacoes financeiras ou de
+# cobranca minhas vc sabe?" virou falha tecnica (subtipo invalido) e foi para a equipe de saude.
+#
+# A REGRA (decisao do dono): pergunta FINANCEIRA sobre a pessoa vai para quem cuida do financeiro (o
+# Lucas, com o roteador ligado). Sem assunto financeiro, a Helena aponta os canais do plano, sem a
+# negativa generica. Cada agente fala do proprio papel: a Helena nao descreve o que o Lucas faz.
+_PERGUNTA_SOBRE_A_PESSOA = re.compile(
+    r"\b(?:informac\w*|dados?|o que|que coisas?)\b[^.?!\n]{0,50}"
+    r"\b(?:minhas?|meus?|sobre mim|de mim|a meu respeito)\b"
+)
+_VERBO_DE_SABER = re.compile(
+    r"\b(?:sabe|sabem|conhece|tem|ter|ve|ver|enxerga|acessa|acesso|consegue|capaz|responder|mostra)\b"
+)
+_ASSUNTO_FINANCEIRO = re.compile(
+    r"\b(?:financeir\w*|cobrancas?|pagamentos?|mensalidades?|boletos?|faturas?|debitos?|coparticipac\w*"
+    r"|paguei|valores?)\b"
+)
+
+
+def _pergunta_sobre_o_que_sabe(texto: str) -> bool:
+    """`True` quando a mensagem pergunta o que a Helena sabe (ou ve') sobre a propria pessoa."""
+    plano = _sem_pontuacao(_normalizar_texto(texto or ""))
+    return bool(_PERGUNTA_SOBRE_A_PESSOA.search(plano) and _VERBO_DE_SABER.search(plano))
+
+
+def _pergunta_financeira_sobre_a_pessoa(texto: str) -> bool:
+    """`True` quando a pergunta sobre o que se sabe da pessoa e' sobre o FINANCEIRO dela."""
+    plano = _sem_pontuacao(_normalizar_texto(texto or ""))
+    return _pergunta_sobre_o_que_sabe(texto) and bool(_ASSUNTO_FINANCEIRO.search(plano))
+
+
+#: DL-0088: a resposta (so' com o roteador ligado) a "o que voce sabe sobre mim?" sem assunto financeiro.
+#: Nao diz que a Helena "nao ve dado nenhum" (falso) e nao descreve o Lucas: so' diz onde perguntar.
+RESPOSTA_O_QUE_SEI_DE_VOCE: str = (
+    "Se a sua dúvida for sobre mensalidade ou pagamentos, é só me perguntar por aqui. "
+    "Os detalhes do plano, como carteirinha e rede credenciada, ficam no aplicativo Austa Clínicas "
+    "e no portal do plano."
+)
+
+
 def _desfecho_determinado(estado: Mapping[str, Any]) -> bool:
     """O desfecho deste turno permite texto de identidade (`reconhecido`/`nao_encontrado`)."""
     return estado.get("identidade_desfecho") in (IDENTIDADE_RECONHECIDA, IDENTIDADE_NAO_ENCONTRADA)
@@ -2816,8 +3027,10 @@ def _validate_extraction(
     NUMERO UNICO (onda e, `cobranca_habilitada=True` SO' com o roteador ligado — `classify-v6`):
     `intent="cobranca"` passa a existir no dominio, e com ele dois campos. `cobranca_subtipo` e'
     OBRIGATORIO em `cobranca` e tem dominio fechado (`_VALID_COBRANCA_SUBTIPOS`); fora de `cobranca`
-    ele tem de ser nulo ou ausente. `competencia`, quando presente, e' `AAAA-MM`. Qualquer desvio e'
-    `invalid_cobranca_subtipo`/`invalid_competencia`, ou seja `falha_tecnica`, nunca Lucas. Com
+    ele tem de ser nulo ou ausente. `competencia`, quando presente, e' `AAAA-MM`; fora disso e'
+    `invalid_competencia`, ou seja `falha_tecnica`, nunca Lucas. O SUBTIPO fora do dominio deixou de
+    ser falha (DL-0088): e' normalizado no lugar (`SUBTIPO_COBRANCA_PADRAO` em `cobranca`, `None`
+    fora dela) e o turno segue — o assunto estava certo, so' o detalhe veio torto. Com
     `cobranca_habilitada=False` NADA disto e' lido: o validador e' o de antes, e `cobranca` e'
     `invalid_intent`.
     """
@@ -2852,12 +3065,21 @@ def _validate_extraction(
         if coerced is not None:
             data[field] = coerced
     if cobranca_habilitada:
+        # DL-0088 (12/10/2026, teste real do dono): SUBTIPO INVALIDO NAO E' FALHA TECNICA. "Quais
+        # informacoes financeiras ou de cobranca minhas vc sabe?" voltou `cobranca` com um subtipo fora
+        # do dominio, o turno virou `falha_tecnica` e a pessoa leu que o caso foi para a equipe de
+        # SAUDE. O assunto (cobranca) estava certo; so' o detalhe veio torto. Entao o subtipo e'
+        # NORMALIZADO NO LUGAR (como a idade "5" -> 5 acima): em `cobranca`, o subtipo informativo
+        # seguro `SUBTIPO_COBRANCA_PADRAO` (o Lucas responde pelos fatos e escala quando nao ha' fato);
+        # fora de `cobranca`, descartado. O valor do modelo nunca e' logado (so' a classe).
         subtipo = data.get("cobranca_subtipo")
         if data.get("intent") == INTENT_COBRANCA:
             if not _em_dominio(subtipo, _VALID_COBRANCA_SUBTIPOS):
-                return "invalid_cobranca_subtipo"
+                logger.info("helena_cobranca_subtipo_normalizado", motivo="fora_do_dominio")
+                data["cobranca_subtipo"] = SUBTIPO_COBRANCA_PADRAO
         elif subtipo is not None:
-            return "invalid_cobranca_subtipo"
+            logger.info("helena_cobranca_subtipo_normalizado", motivo="intent_nao_e_cobranca")
+            data["cobranca_subtipo"] = None
         competencia = data.get("competencia")
         if competencia is not None and not competencia_valida(competencia):
             return "invalid_competencia"
@@ -3089,23 +3311,12 @@ class HelenaGraph:
         if intent == INTENT_COBRANCA:
             # Onda (e): so' existe com o roteador ligado (o validador recusa `cobranca` desligado),
             # e os dois valores ja' passaram pelo dominio fechado de `_validate_extraction`.
-            update["cobranca_subtipo"] = extraction.get("cobranca_subtipo")
-            # ANO DETERMINISTICO (10/10/2026, teste real do dono): "valor da mensalidade de julho?"
-            # saiu `2024-07` — o modelo inventou o ano que a pessoa nao disse. O MES e' do modelo (ja'
-            # validado `AAAA-MM`); o ANO sai do texto da pessoa ou, sem ano no texto, da ocorrencia
-            # mais recente do mes que nao esta' no futuro (fuso de Brasilia).
-            competencia_do_modelo = extraction.get("competencia")
-            competencia = resolver_ano_da_competencia(
-                competencia_do_modelo,
-                state.get("message_body", ""),
-                hoje_em_brasilia(self._relogio()),
+            self._preencher_cobranca(
+                update,
+                extraction.get("cobranca_subtipo"),
+                cast(str | None, extraction.get("competencia")),
+                state,
             )
-            if competencia != competencia_do_modelo:
-                logger.info("helena_competencia_ano_resolvido", node="classify")
-            update["cobranca_competencia"] = competencia
-            # FOCO DETERMINISTICO (DL-0087, 10/10/2026): o Lucas responde SO' o campo perguntado, e
-            # quem sabe qual e' o texto da pessoa, que o Lucas nao ve'. Lexico pequeno, sem modelo.
-            update["cobranca_foco"] = decidir_foco_da_cobranca(state.get("message_body", ""))
         if intent == INTENT_CONSULTA_PLANO:
             # So' existe com as consultas ligadas (o validador recusa desligado); dominio ja' fechado.
             update["consulta_subtipo"] = extraction.get("consulta_subtipo")
@@ -3251,6 +3462,61 @@ class HelenaGraph:
             intent = "information"
             update["intent"] = intent
 
+        # PERGUNTA FINANCEIRA SOBRE A PESSOA E' COBRANCA (DL-0088, 12/10/2026). "Quais informacoes
+        # financeiras ou de cobranca minhas vc sabe?" e' pergunta para quem cuida do financeiro, e a
+        # rota nao depende de o modelo acertar isso: com o roteador ligado, sem sintoma e sem risco, o
+        # turno vira `cobranca` / `SUBTIPO_COBRANCA_PADRAO`. Os gatilhos de pessoa (lexico) e a
+        # precondicao de duas camadas (`_handoff_recusado`) continuam valendo depois daqui.
+        if (
+            self._roteador_lucas_enabled
+            and intent in _INTENTS_QUE_VIRAM_COBRANCA
+            and not extraction.get("sintoma_codigo")
+            and not psychosocial
+            and _pergunta_financeira_sobre_a_pessoa(str(state.get("message_body") or ""))
+        ):
+            logger.info("helena_pergunta_financeira_sobre_a_pessoa", node="classify", intent_do_modelo=intent)
+            intent = cast(Intent, INTENT_COBRANCA)
+            update["intent"] = intent
+            self._preencher_cobranca(update, SUBTIPO_COBRANCA_PADRAO, None, state)
+
+        # CONVERSA SEM RELATO CLINICO (DL-0088) — ver `_conversa_sem_relato_clinico`. A mensagem e'
+        # feita SO' de palavras de conversa ("quero tirar uma duvida sobre minha saude", "nao quero
+        # falar com nenhuma equipe"): nao ha' sintoma nela por construcao. Um `sintoma_codigo` aqui
+        # so' pode ter vindo do HISTORICO (o quadro do turno anterior, que ja' foi triado e tratado), e
+        # triar de novo esse quadro reabria o mesmo escalonamento a cada mensagem — a conversa
+        # travada no "seu atendimento ja esta aberto". O turno vira `information` sem sintoma, e o
+        # `inform` responde com o texto fixo do que a Helena pode fazer.
+        #
+        # O QUE NAO MUDA: risco psicossocial (gatilho 5) vence — a condicao exclui. O lexico de saude
+        # do roteador (`sinal_saude_lexico`) tambem: se ele acendeu, o caminho e' o de sempre.
+        conversa = _conversa_sem_relato_clinico(str(state.get("message_body") or ""))
+        sem_relato_clinico = (
+            conversa is not None and not psychosocial and state.get("sinal_saude_lexico") is not True
+        )
+        if sem_relato_clinico:
+            logger.info(
+                "helena_conversa_sem_relato_clinico",
+                node="classify",
+                conversa=conversa,
+                intent_do_modelo=intent,
+                sintoma_do_historico=bool(extraction.get("sintoma_codigo")),
+            )
+            intent = "information"
+            extraction["sintoma_codigo"] = None
+            extraction["intensidade"] = "desconhecida"
+            update.update(
+                {
+                    "intent": intent,
+                    "sintoma_codigo": None,
+                    "intensidade": "desconhecida",
+                    "cobranca_subtipo": None,
+                    "cobranca_competencia": None,
+                    "cobranca_foco": None,
+                }
+            )
+            update.pop("memoria_a_confirmar", None)
+            update.pop("consulta_subtipo", None)
+
         # F5 (21/09/2026): CORRECAO DE UM DADO JA' AVALIADO RE-DISPARA A AVALIACAO.
         #
         # O caso `D3`: "tenho 30 anos e estou com febre" avaliou a tabela de adulto; "me enganei,
@@ -3269,7 +3535,14 @@ class HelenaGraph:
         # resposta automatica. E' esse o risco que esta regra existe para remover: uma correcao de
         # dado clinico que termina em cartao administrativo.
         correcao = _correcao_de_dado_avaliado(extraction, memoria)
-        if correcao is not None and not psychosocial and intent in _INTENTS_ADMISSIVEIS_INFORM:
+        # DL-0088: uma mensagem SEM relato clinico (vocabulario fechado, sem numero) nao corrige dado
+        # nenhum — uma idade "corrigida" ali so' pode ter vindo do historico ou de invencao do modelo.
+        if (
+            correcao is not None
+            and not psychosocial
+            and not sem_relato_clinico
+            and intent in _INTENTS_ADMISSIVEIS_INFORM
+        ):
             logger.info(
                 "helena_reavaliacao_por_correcao",
                 node="classify",
@@ -3378,8 +3651,14 @@ class HelenaGraph:
         # ("voce e humano?"), o caso `A2` de 23/09: o termo "humano" esta' no lexico, e forcar o
         # gatilho ali reabriria o chamado P3 que aquela cerca fechou. Um pedido explicito na mesma
         # mensagem ("voce e um robo? quero falar com uma pessoa") continua vencendo.
-        pedido_lexico = state.get("pedido_humano_lexico") is True and not _pergunta_de_identidade_sem_pedido(
-            str(state.get("message_body") or ""), incluir_quem_sou_eu=_desfecho_determinado(state)
+        # DL-0088: a RECUSA explicita ("nao quero falar com nenhum atendente") casa o lexico de pessoa
+        # pela palavra, e e' o contrario de um pedido. `conversa` ja' exclui a recusa com pedido junto.
+        pedido_lexico = (
+            state.get("pedido_humano_lexico") is True
+            and conversa != CONVERSA_RECUSA_DE_EQUIPE
+            and not _pergunta_de_identidade_sem_pedido(
+                str(state.get("message_body") or ""), incluir_quem_sou_eu=_desfecho_determinado(state)
+            )
         )
         if pedido_lexico and intent != "human_request":
             logger.info("helena_pedido_humano_lexico", node="classify", intent=intent)
@@ -3449,6 +3728,31 @@ class HelenaGraph:
             return _rota_informativa(update)
 
         return _rota_informativa(update)
+
+    def _preencher_cobranca(
+        self,
+        update: dict[str, Any],
+        subtipo: object,
+        competencia_do_modelo: str | None,
+        state: Mapping[str, Any],
+    ) -> None:
+        """Os tres campos de cobranca do turno (subtipo, competencia com ANO deterministico, foco)."""
+        update["cobranca_subtipo"] = subtipo
+        # ANO DETERMINISTICO (10/10/2026, teste real do dono): "valor da mensalidade de julho?"
+        # saiu `2024-07` — o modelo inventou o ano que a pessoa nao disse. O MES e' do modelo (ja'
+        # validado `AAAA-MM`); o ANO sai do texto da pessoa ou, sem ano no texto, da ocorrencia
+        # mais recente do mes que nao esta' no futuro (fuso de Brasilia).
+        competencia = resolver_ano_da_competencia(
+            competencia_do_modelo,
+            state.get("message_body", ""),
+            hoje_em_brasilia(self._relogio()),
+        )
+        if competencia != competencia_do_modelo:
+            logger.info("helena_competencia_ano_resolvido", node="classify")
+        update["cobranca_competencia"] = competencia
+        # FOCO DETERMINISTICO (DL-0087, 10/10/2026): o Lucas responde SO' o campo perguntado, e
+        # quem sabe qual e' o texto da pessoa, que o Lucas nao ve'. Lexico pequeno, sem modelo.
+        update["cobranca_foco"] = decidir_foco_da_cobranca(state.get("message_body", ""))
 
     async def _triar_red_flag(self, extraction: dict[str, Any], update: dict[str, Any]) -> bool:
         """Consulta a tabela de red flag da populacao e ESCREVE o veredito em `update`. Devolve
@@ -3734,6 +4038,11 @@ class HelenaGraph:
             # F6: a pergunta de identidade recebe a frase do dono, LITERAL, antes de qualquer
             # decisao sobre "fora do canal" — ver `_resposta_fixa_de_identidade`.
             return {"response_text": identidade, "response_kind": "inform"}
+        fixo = self._resposta_fixa_de_conversa(state)
+        if fixo is not None:
+            # DL-0088: duvida de saude sem sintoma, recusa de falar com a equipe e "o que voce sabe
+            # de mim?" recebem texto FIXO — ver `_resposta_fixa_de_conversa`.
+            return {"response_text": fixo, "response_kind": "inform"}
         if state.get("intent") in _INTENTS_FORA_DO_CANAL:
             # Texto FIXO, sem modelo: nao varia, nao se oferece para orientar o assunto e nao
             # convida a continuar. A precondicao da DMN ja' foi aplicada por `_route`.
@@ -3784,6 +4093,33 @@ class HelenaGraph:
                 "error": ERRO_RESPOSTA_RECUSADA,
             }
         return {"response_text": text, "response_kind": "inform"}
+
+    def _resposta_fixa_de_conversa(self, estado: Mapping[str, Any]) -> str | None:
+        """DL-0088: o texto fixo de um turno `inform` sem relato clinico, ou `None` (o caminho de antes).
+
+        So' vale sem sintoma e sem risco (o `inform` com sintoma tem texto proprio). A recusa de falar
+        com a equipe vem antes da duvida, porque a mesma mensagem pode trazer as duas ("voce nao pode
+        me tirar a duvida? nao quero falar com nenhuma equipe") e a recusa e' o que a pessoa precisa
+        ouvir reconhecido. A pergunta "o que voce sabe de mim?" so' tem texto fixo com o roteador
+        ligado: e' ele que torna verdade o "e' so' me perguntar por aqui" sobre mensalidade.
+        """
+        if estado.get("sintoma_codigo") or estado.get("psychosocial_risk") is True:
+            return None
+        intent = estado.get("intent")
+        texto = str(estado.get("message_body") or "")
+        if intent in ("information", "greeting"):
+            conversa = _conversa_sem_relato_clinico(texto)
+            if conversa == CONVERSA_RECUSA_DE_EQUIPE:
+                return RESPOSTA_RECUSA_DE_EQUIPE
+            if conversa == CONVERSA_DUVIDA_DE_SAUDE:
+                return RESPOSTA_DUVIDA_DE_SAUDE
+        if (
+            self._roteador_lucas_enabled
+            and intent in _INTENTS_QUE_VIRAM_COBRANCA
+            and _pergunta_sobre_o_que_sabe(texto)
+        ):
+            return RESPOSTA_O_QUE_SEI_DE_VOCE
+        return None
 
     def _consulta_recusada(self, estado: Mapping[str, Any]) -> str | None:
         """Precondicao DETERMINISTICA da rota `consultar_plano` (as duas camadas, como `inform`)."""
@@ -4127,8 +4463,8 @@ class HelenaGraph:
                 # A recusa ja foi registrada e contada em `_respond_llm`. AQUI um humano FOI mesmo
                 # acionado (este metodo esta' abrindo o processo), entao a constante honesta promete
                 # o que e' verdade e nao contem nenhum dos padroes proibidos. Nao ha nova tentativa
-                # pelo mesmo motivo que em `inform`.
-                response_text = RESPOSTA_HANDOFF_RECUSADA
+                # pelo mesmo motivo que em `inform`. DL-0088: a equipe nomeada sai do MOTIVO.
+                response_text = _texto_de_handoff(motivo)
         provenance = AgentDecisionProvenance(
             agent_id="helena",
             agent_version=self._agent_version,
@@ -4627,11 +4963,16 @@ class HelenaGraph:
             # que o item 2 envia). Cercar `com_prefixo` daria True SEMPRE e mataria o caminho do
             # prefixo inteiro — a cerca tem de ler o RASCUNHO, nao a montagem.
             recusa = motivo_de_recusa(texto, response_kind, start_aconteceu=False)
+            # DL-0088 (12/10/2026): o dono recebeu o MESMO texto de caso aberto duas vezes seguidas.
+            # Quando a ultima fala da Helena ja' foi esse aviso, sai a outra redacao da mesma verdade
+            # (que tambem menciona o atendimento aberto e traz o 192).
             enviar = (
-                RESPOSTA_HANDOFF_JA_ABERTO
-                if recusa is not None
-                else f"{RESPOSTA_HANDOFF_JA_ABERTO} {texto.strip()}"
+                RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO
+                if _ultima_fala_foi_aviso_de_caso_aberto(state)
+                else RESPOSTA_HANDOFF_JA_ABERTO
             )
+            if recusa is None:
+                enviar = f"{enviar} {texto.strip()}"
             return enviar, self._registrar_troca(
                 state,
                 grupo=RECUSA_ESCALONAMENTO_JA_ABERTO,
@@ -4645,12 +4986,19 @@ class HelenaGraph:
             # F2: um humano recebeu o caso e o beneficiario nao foi avisado. A constante de handoff
             # da recusa de saida serve exatamente aqui — ela JA e' a frase honesta para "um humano
             # foi acionado neste ponto", e passa na propria cerca (teste fixa as duas coisas).
-            return RESPOSTA_HANDOFF_RECUSADA, self._registrar_troca(
+            # DL-0088: "equipe de saude" so' com motivo clinico; o resto (falha tecnica, pedido de
+            # pessoa) recebe o texto neutro.
+            enviar = (
+                RESPOSTA_HANDOFF_SAUDE
+                if state.get("escalation_motivo") in _MOTIVOS_DA_EQUIPE_DE_SAUDE
+                else RESPOSTA_HANDOFF_RECUSADA
+            )
+            return enviar, self._registrar_troca(
                 state,
                 grupo=RECUSA_HANDOFF_SEM_MENCAO,
                 response_kind=response_kind,
                 start_desfecho=start_desfecho,
-                texto=RESPOSTA_HANDOFF_RECUSADA,
+                texto=enviar,
                 error=ERRO_HANDOFF_SEM_MENCAO,
             )
 

@@ -914,10 +914,10 @@
       }
     },
     {
-      "texto": "Recebi sua mensagem. Seu atendimento com a nossa equipe de saúde já está aberto e segue em andamento, por isso não abri outro. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
+      "texto": "Recebi sua mensagem. Seu atendimento com a nossa equipe já está aberto e segue em andamento, por isso não abri outro. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "constante — handoff ja aberto (mencao obrigatoria)",
+      "origem": "constante — handoff ja aberto (mencao obrigatoria) — DL-0088 (12/10/2026): emergencia com 192; texto neutro (sem 'equipe de saude')",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -925,10 +925,10 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saúde. Um profissional vai continuar o seu atendimento. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
+      "texto": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de atendimento. Um atendente vai continuar o seu atendimento. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "constante — handoff recusado (mencao obrigatoria)",
+      "origem": "constante — handoff recusado (mencao obrigatoria) — DL-0088 (12/10/2026): emergencia com 192; texto neutro (sem 'equipe de saude')",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1486,10 +1486,10 @@
       }
     },
     {
-      "texto": "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde. Um profissional vai dar continuidade ao seu atendimento. Se você estiver com sintomas agora, procure o serviço de emergência mais próximo sem esperar o nosso contato.",
+      "texto": "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde. Um profissional vai dar continuidade ao seu atendimento. Se você estiver com sintomas agora, não espere o nosso contato. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_URGENTE, texto fixo do aviso de encaminhamento para P1 clinico",
+      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_URGENTE, texto fixo do aviso de encaminhamento para P1 clinico — DL-0088 (12/10/2026): emergencia com 192",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1497,10 +1497,10 @@
       }
     },
     {
-      "texto": "Sinto muito que você esteja passando por isso. Encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento. Se você estiver em risco agora, procure o serviço de emergência mais próximo sem esperar o nosso contato.",
+      "texto": "Sinto muito que você esteja passando por isso. Encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento. Se você estiver em risco agora, não espere o nosso contato. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL, texto fixo do aviso de encaminhamento para risco psicossocial",
+      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL, texto fixo do aviso de encaminhamento para risco psicossocial — DL-0088 (12/10/2026): emergencia com 192",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1743,6 +1743,61 @@
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_CONSULTA_SEM_IDENTIDADE (DL de fatos do plano, 07/10/2026): consulta do plano sem identidade resolvida ou com a AMH indisponivel",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saúde. Um profissional vai continuar o seu atendimento. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0088: handoff com motivo clinico (equipe de saude), com 192",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi. Seu atendimento com a nossa equipe já está aberto e continua valendo. Enquanto isso, posso te ajudar com outras dúvidas por aqui. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0088: segunda redacao do caso ja aberto (nao repetir), com 192",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Claro, posso ajudar. Como navegadora de saúde, eu não dou orientação clínica nem diagnóstico. Posso explicar como usar o plano, onde buscar atendimento e quais canais procurar. Se você estiver com algum sintoma, me conte o que sente. Quando for preciso, eu chamo a equipe de saúde. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0088: duvida de saude sem sintoma (o que a Helena faz), sem start",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tudo bem, respeito sua escolha. Se você já tem um atendimento aberto com a nossa equipe, ele continua lá, sem pressa. Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. Eu não dou orientação clínica nem diagnóstico, mas posso ajudar com o plano, os canais e onde buscar atendimento. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0088: recusa de falar com a equipe, sem start",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Se a sua dúvida for sobre mensalidade ou pagamentos, é só me perguntar por aqui. Os detalhes do plano, como carteirinha e rede credenciada, ficam no aplicativo Austa Clínicas e no portal do plano.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0088: 'o que voce sabe de mim?' sem assunto financeiro, sem start",
       "esperado": {
         "recusa": null,
         "canal": null,
