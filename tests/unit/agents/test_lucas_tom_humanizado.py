@@ -287,6 +287,13 @@ def _todos_os_textos() -> dict[str, str]:
         textos[f"segunda_via_repetida_{variante}"] = texto_segunda_via_repetida(
             repetida, _fatos(_NOVEMBRO), _HOJE
         )
+    # Rodada 6 (13/10/2026): como pagar, "ja' paguei" e o "ainda no prazo".
+    textos["texto_como_pagar"] = lg.TEXTO_COMO_PAGAR
+    textos["texto_como_pagar_curto"] = lg.TEXTO_COMO_PAGAR_CURTO
+    ja_paguei = _estado(_NOVEMBRO, _OUTUBRO)
+    textos["ja_paguei"] = lg.texto_ja_paguei(ja_paguei, _HOJE)
+    textos["ja_paguei_curto"] = lg.texto_ja_paguei_curto(ja_paguei, _HOJE)
+    textos["no_prazo"] = str(lg.texto_de_esclarecimento(_estado(_NOVEMBRO, competencia="2026-11"), _HOJE))
     # Rodada 5 (13/10/2026): extrato, pagamento ao prestador e a reclamacao com os fatos do mes.
     for nome in ("TEXTO_EXTRATO", "TEXTO_EXTRATO_CURTO", "TEXTO_PAGAMENTO_AO_PRESTADOR"):
         textos[nome.lower()] = getattr(lg, nome)

@@ -28,6 +28,8 @@ CobrancaFoco = Literal[
     "esclarecimento",
     "extrato",
     "pagamento_ao_prestador",
+    "como_pagar",
+    "ja_paguei",
 ]
 
 #: O dominio FECHADO do foco. `geral` e' o default (nenhum termo do lexico no texto).
@@ -43,6 +45,9 @@ FOCO_ESCLARECIMENTO: Final[str] = "esclarecimento"
 #: direto ao medico e nao aparece" (pagamento ao prestador nao e' coparticipacao cobrada pelo plano).
 FOCO_EXTRATO: Final[str] = "extrato"
 FOCO_PAGAMENTO_AO_PRESTADOR: Final[str] = "pagamento_ao_prestador"
+#: Rodada 6 (13/10/2026): "como faco pra pagar depois do vencimento?" e "ja' paguei dia 06, e o comprovante?".
+FOCO_COMO_PAGAR: Final[str] = "como_pagar"
+FOCO_JA_PAGUEI: Final[str] = "ja_paguei"
 
 _MESES_DO_ANO: Final[str] = (
     "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro"
@@ -51,6 +56,14 @@ _MESES_DO_ANO: Final[str] = (
 #: Lexico na ordem de precedencia, sobre o texto sem acento e minusculo.
 _LEXICO: Final[tuple[tuple[CobrancaFoco, re.Pattern[str]], ...]] = (
     ("extrato", re.compile(r"\bextrato\b|\bdemonstrativo\b|\bdetalhad")),
+    ("ja_paguei", re.compile(r"\bpaguei (?:no )?dia\b|\bcomprovante\b|\bpaguei ontem\b|\bpaguei hoje\b")),
+    (
+        "como_pagar",
+        re.compile(
+            r"\bdepois do vencimento\b|\bapos o vencimento\b|\bpagar atrasad|\bpagar em atraso\b"
+            r"|\bcomo (?:faco|posso|eu faco|que eu faco) (?:pra |para )?pagar\b"
+        ),
+    ),
     (
         "pagamento_ao_prestador",
         re.compile(
@@ -110,9 +123,11 @@ def foco_valido(valor: object) -> bool:
 
 __all__ = [
     "COBRANCA_FOCOS",
+    "FOCO_COMO_PAGAR",
     "FOCO_ESCLARECIMENTO",
     "FOCO_EXTRATO",
     "FOCO_GERAL",
+    "FOCO_JA_PAGUEI",
     "FOCO_PAGAMENTO_AO_PRESTADOR",
     "FOCO_ULTIMA",
     "CobrancaFoco",

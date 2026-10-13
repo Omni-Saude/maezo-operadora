@@ -331,7 +331,13 @@ def _handoff_com_mes_do_texto(texto: str, handoff: Mapping[str, Any]) -> Mapping
     sem pedido de lista, UM mes nomeado no texto vira a competencia — o ano pela regra unica de
     `runtime/competencia.py` (pistas de "lancado"/"vence"/"ultima" -> o que vem). Uma pergunta de
     confirmacao ("essa e' a ultima?") num assunto "outro" e' consulta de valores."""
-    from maezo.runtime.cobranca_foco import FOCO_EXTRATO, FOCO_PAGAMENTO_AO_PRESTADOR, FOCO_ULTIMA
+    from maezo.runtime.cobranca_foco import (
+        FOCO_COMO_PAGAR,
+        FOCO_EXTRATO,
+        FOCO_JA_PAGUEI,
+        FOCO_PAGAMENTO_AO_PRESTADOR,
+        FOCO_ULTIMA,
+    )
     from maezo.runtime.cobranca_reclamacao import decidir_reclamacao
     from maezo.runtime.competencia import (
         hoje_em_brasilia,
@@ -347,8 +353,14 @@ def _handoff_com_mes_do_texto(texto: str, handoff: Mapping[str, Any]) -> Mapping
     # Rodada 5 (13/10/2026): o extrato detalhado tem a resposta fixa da 2a via (canais, sem fato); o
     # pagamento direto ao medico e' pergunta de coparticipacao (consulta de valores).
     informativos = {"outro", "consulta_valores", "confirmacao_pagamento", "vencimento", "boleto_2via"}
-    if ajustado.get("cobranca_foco") == FOCO_EXTRATO and ajustado.get("cobranca_subtipo") in informativos:
+    if ajustado.get("cobranca_foco") in (FOCO_EXTRATO, FOCO_COMO_PAGAR) and (
+        ajustado.get("cobranca_subtipo") in informativos
+    ):
+        # Rodada 6: "como pagar depois do vencimento" tambem tem a resposta fixa dos canais.
         ajustado["cobranca_subtipo"] = "boleto_2via"
+    if ajustado.get("cobranca_foco") == FOCO_JA_PAGUEI and ajustado.get("cobranca_subtipo") == "outro":
+        # Rodada 6: "ja' paguei dia 06" e' pergunta de confirmacao de pagamento.
+        ajustado["cobranca_subtipo"] = "confirmacao_pagamento"
     if ajustado.get("cobranca_foco") == FOCO_PAGAMENTO_AO_PRESTADOR and ajustado.get("cobranca_subtipo") in (
         "outro",
         "confirmacao_pagamento",

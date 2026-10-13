@@ -185,6 +185,8 @@ async def test_com_vencida_a_escalacao_diz_o_fato_e_nao_se_repete() -> None:
     assert final["route"] == "escalate_human" and final["motivo_humano"] == "inadimplencia_detectada"
     assert primeiro == [
         "A mensalidade de agosto de 2026 (boleto final 0031) ainda está sem pagamento confirmado. "
+        # Rodada 6 (13/10/2026): o valor e o vencimento do mes sem pagamento.
+        "Ela é de R$ 966,52, com vencimento em 15/08. "
         "A de outubro de 2026 (boleto final 0042) vence em 15/10 e ainda não consta como paga. "
         "Vou passar para alguém da nossa equipe, que vai te responder por aqui. "
         f"Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. {_FECHO}"
@@ -195,7 +197,11 @@ async def test_com_vencida_a_escalacao_diz_o_fato_e_nao_se_repete() -> None:
         final, enviados = await conversa.mensagem(**atraso)
         assert final["caso_aberto_cobranca"] is True
         [texto] = enviados
-        assert texto.startswith(_OUTUBRO_NO_PRAZO)
+        # Rodada 6: sem mes na pergunta, o mes em discussao — o sem pagamento confirmado, com valor e data.
+        assert texto.startswith(
+            "A mensalidade de agosto de 2026 (R$ 966,52, vencimento em 15/08) ainda está sem pagamento "
+            "confirmado."
+        )
         assert "Vou passar" not in texto
         textos.append(texto)
     _sem_repeticao(textos)

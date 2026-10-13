@@ -182,6 +182,14 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   coparticipações cobradas pelo plano. Um valor pago direto ao médico ou à clínica não aparece nesses dados."
   e a oferta de alguém da equipe. Extrato detalhado: "Por aqui eu não consigo enviar o extrato detalhado."
   com o aplicativo, o portal e a central, a oferta uma vez e depois as formas curtas.
+- **Atraso com o que foi pedido, prazo, como pagar e "já paguei" (Lucas, 13/10/2026, rodada 6):** a escalação
+  por mensalidade sem pagamento traz o valor e o vencimento daquele mês ("Ela é de R$ 552,54, com vencimento
+  em 05/10."), e a pergunta seguinte sem mês fica no mês em discussão. Ainda no prazo: "Ainda está no prazo: a
+  de outubro de 2026 vence em 15/10 (daqui a 2 dias)." Como pagar depois do vencimento: a 2ª via atualizada
+  pelo aplicativo, pelo portal ou pela central, sem número de multa ou juros. "Já paguei dia 06": o que os
+  dados mostram e de quando são, que um pagamento perto dessa data pode ainda não constar, que comprovante não
+  se recebe por aqui e a oferta de alguém da equipe (uma vez). A escada de repetição vale só para a MESMA
+  pergunta (assunto, foco e mês): pergunta nova recebe a resposta dela.
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
   "TOM DA CONVERSA" do `response-v14` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no
