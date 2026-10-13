@@ -157,12 +157,14 @@ from maezo.runtime.caso_clinico import (
     SUFIXO_CASO_CLINICO,
     chave_do_escalonamento,
 )
+from maezo.runtime.cobranca_esclarecimento import e_pergunta_de_esclarecimento
 from maezo.runtime.cobranca_foco import (
     FOCO_GERAL,
     CobrancaFoco,
     decidir_foco_da_cobranca,
     foco_valido,
 )
+from maezo.runtime.cobranca_lista import decidir_lista_da_cobranca
 from maezo.runtime.competencia import (
     competencia_valida,
     hoje_em_brasilia,
@@ -3466,13 +3468,18 @@ class HelenaGraph:
         # financeiras ou de cobranca minhas vc sabe?" e' pergunta para quem cuida do financeiro, e a
         # rota nao depende de o modelo acertar isso: com o roteador ligado, sem sintoma e sem risco, o
         # turno vira `cobranca` / `SUBTIPO_COBRANCA_PADRAO`. Os gatilhos de pessoa (lexico) e a
-        # precondicao de duas camadas (`_handoff_recusado`) continuam valendo depois daqui.
+        # precondicao de duas camadas (`_handoff_recusado`) continuam valendo depois daqui. Depois do
+        # #726, o mesmo vale para pedido de LISTA e insistencia logo depois do Lucas (`_continua_a_cobranca`).
         if (
             self._roteador_lucas_enabled
             and intent in _INTENTS_QUE_VIRAM_COBRANCA
             and not extraction.get("sintoma_codigo")
             and not psychosocial
-            and _pergunta_financeira_sobre_a_pessoa(str(state.get("message_body") or ""))
+            and state.get("sinal_saude_lexico") is not True
+            and (
+                _pergunta_financeira_sobre_a_pessoa(str(state.get("message_body") or ""))
+                or self._continua_a_cobranca(state)
+            )
         ):
             logger.info("helena_pergunta_financeira_sobre_a_pessoa", node="classify", intent_do_modelo=intent)
             intent = cast(Intent, INTENT_COBRANCA)
@@ -3728,6 +3735,31 @@ class HelenaGraph:
             return _rota_informativa(update)
 
         return _rota_informativa(update)
+
+    def _continua_a_cobranca(self, state: Mapping[str, Any]) -> bool:
+        """PEDIDO DE LISTA E INSISTENCIA SAO COBRANCA (DL-0088, depois do #726).
+
+        "Quais foram as ultimas tres mensalidades pagas?" e, logo depois da resposta do Lucas, "Mas eu te
+        perguntei das ultimas tres" sairam do classificador como `information`/`outro` e ficaram com a
+        Helena. O parser de lista (`runtime/cobranca_lista.py`) e o de esclarecimento sao do PROPRIO texto,
+        deterministicos. Lista so' conta com contexto de cobranca — o Lucas acabou de responder, a lista
+        tem situacao (paga/em aberto) ou o texto cita assunto financeiro —, porque "dor de cabeca nos
+        ultimos tres meses" tambem e' lista para o parser (e o sintoma, nesse caso, ja' saiu do modelo e
+        barra a conversao antes daqui). Esclarecimento ("como assim?", "de qual ano?") so' com o Lucas
+        ativo. Quem chama ja' exige roteador ligado, sem sintoma e sem risco.
+        """
+        texto = str(state.get("message_body") or "")
+        lucas_ativo = state.get("agente_ativo_conversa") == "lucas"
+        if lucas_ativo and e_pergunta_de_esclarecimento(texto):
+            return True
+        lista = decidir_lista_da_cobranca(texto, hoje_em_brasilia(self._relogio()))
+        if lista is None:
+            return False
+        return (
+            lucas_ativo
+            or lista.situacao is not None
+            or bool(_ASSUNTO_FINANCEIRO.search(_sem_pontuacao(_normalizar_texto(texto))))
+        )
 
     def _preencher_cobranca(
         self,

@@ -471,3 +471,64 @@ async def test_msg4_com_o_roteador_desligado_o_caminho_e_o_de_antes() -> None:
 def test_pergunta_sobre_o_que_a_helena_sabe(mensagem: str, sobre_a_pessoa: bool, financeira: bool) -> None:
     assert _pergunta_sobre_o_que_sabe(mensagem) is sobre_a_pessoa
     assert _pergunta_financeira_sobre_a_pessoa(mensagem) is financeira
+
+
+# =================================================================================================
+# 5. Pedido de lista e insistencia depois do Lucas (#726) sao cobranca, nunca `information`
+# =================================================================================================
+
+
+async def test_insistencia_na_lista_logo_depois_do_lucas_volta_ao_lucas() -> None:
+    """ "Mas eu te perguntei das ultimas tres", com o Lucas ativo: o modelo disse `information`."""
+    grafo, whatsapp, _, cib = _grafo([_classify(intent="information")])
+
+    resultado = await _turno(
+        grafo, _entrada("Mas eu te perguntei das últimas três", agente_ativo_conversa="lucas")
+    )
+
+    assert resultado["response_kind"] == RESPONSE_KIND_HANDOFF
+    assert resultado["handoff"]["cobranca_subtipo"] == SUBTIPO_COBRANCA_PADRAO
+    assert whatsapp.enviados == [], "com o Lucas ja' ativo a Helena nao envia frase"
+    assert _starts(cib) == 0
+
+
+async def test_pedido_de_lista_de_mensalidades_pagas_vai_ao_lucas() -> None:
+    grafo, whatsapp, _, _ = _grafo([_classify(intent="information")])
+
+    resultado = await _turno(grafo, _entrada("Quais foram as ultimas tres mensalidades pagas por mim?"))
+
+    assert resultado["response_kind"] == RESPONSE_KIND_HANDOFF
+    assert whatsapp.enviados == [FRASE_PASSAGEM_COBRANCA]
+
+
+async def test_esclarecimento_com_o_lucas_ativo_volta_ao_lucas() -> None:
+    grafo, _, _, _ = _grafo([_classify(intent="information")])
+
+    resultado = await _turno(grafo, _entrada("como assim?", agente_ativo_conversa="lucas"))
+
+    assert resultado["response_kind"] == RESPONSE_KIND_HANDOFF
+
+
+async def test_lista_sem_contexto_de_cobranca_nao_vira_cobranca() -> None:
+    """ "nos ultimos tres meses" sem Lucas ativo, sem situacao e sem assunto financeiro: nada muda."""
+    grafo, _, _, _ = _grafo([_classify(intent="information")])
+
+    resultado = await _turno(grafo, _entrada("o que mudou no plano nos ultimos tres meses?"))
+
+    assert resultado["response_kind"] == "inform"
+    assert resultado.get("handoff") is None
+
+
+async def test_lista_com_sintoma_continua_na_triagem() -> None:
+    grafo, whatsapp, _, _ = _grafo([_classify(intent="symptom", sintoma_codigo="dor_toracica")])
+
+    resultado = await _turno(
+        grafo,
+        _entrada(
+            "dor no peito nos ultimos tres meses", agente_ativo_conversa="lucas", sinal_saude_lexico=True
+        ),
+    )
+
+    assert resultado.get("handoff") is None
+    assert resultado["escalation_motivo"] == "red_flag_clinico"
+    assert EMERGENCIA_192 in whatsapp.enviados[-1]
