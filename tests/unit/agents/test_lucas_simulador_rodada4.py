@@ -197,7 +197,8 @@ async def test_empresa_explica_uma_vez_responde_o_ano_e_nunca_repete() -> None:
     _sem_repeticao(conversa.textos)
     # A coparticipacao e' da pessoa: continua respondida.
     _, copart = await conversa.mensagem(competencia="2026-07", cobranca_foco="coparticipacao")
-    assert copart == f"{TEXTO_PAGADOR_EMPRESA} Em julho de 2026 sua coparticipação foi de R$ 35,20. {_FECHO}"
+    # Rodada 5: a coparticipacao e' da pessoa — so' o fato dela, sem a frase da empresa.
+    assert copart == f"Em julho de 2026 sua coparticipação foi de R$ 35,20. {_FECHO}"
 
 
 async def test_pessoa_fisica_que_insiste_recebe_a_curta_e_depois_a_oferta_uma_vez() -> None:
@@ -302,11 +303,10 @@ async def test_reclamacao_com_caso_aberto_e_reconhecida_sem_outra_duvida() -> No
     _, primeiro = await conversa.mensagem(**reclamacao)
     assert primeiro == ACK_ESCALACAO
     seguintes = [(await conversa.mensagem(**reclamacao))[1] for _ in range(5)]
-    especifica = (
-        "Sua reclamação sobre a cobrança em dobro de setembro de 2026 já está com a nossa equipe. A resposta "
-        "vem por aqui. Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada."
+    # Rodada 5: a primeira reconhece a reclamacao e da' os fatos do mes UMA vez; as seguintes sao curtas.
+    assert seguintes[0].startswith(
+        "Sua reclamação sobre a cobrança em dobro de setembro de 2026 já está com a nossa equipe."
     )
-    assert especifica in seguintes
     assert any(t.startswith("Entendo a sua chateação") for t in seguintes)
     for texto in seguintes:
         assert "outra dúvida" not in texto and "prazo" not in texto and "Vou passar" not in texto

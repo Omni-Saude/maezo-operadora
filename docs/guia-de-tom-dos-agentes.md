@@ -168,6 +168,15 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   2026: R$ 966,52, vencimento em 15/08, sem pagamento confirmado."). Reclamação com o caso aberto: a
   reclamação específica ("Sua reclamação sobre a cobrança em dobro de setembro de 2026 já está com a nossa
   equipe.") alternada com empatia ("Entendo a sua chateação com isso."), sem prazo e nunca "outra dúvida".
+- **Reclamação repetida, coparticipação e extrato (Lucas, 13/10/2026, rodada 5):** na primeira mensagem
+  depois da escalação, o Lucas reconhece a reclamação, dá UMA vez os fatos do mês ("No que eu vejo aqui,
+  setembro de 2026 tem uma mensalidade de R$ 966,52, paga em 14/09.") e diz com clareza que não confirma
+  ("Eu não consigo confirmar se houve cobrança em dobro. Quem confirma é a nossa equipe, por aqui."); depois,
+  frases curtas e alternadas, sem repetir os fatos e sem julgar a reclamação. Coparticipação é da pessoa: só o
+  fato dela, sem a frase da empresa. Pagamento feito direto ao médico ou à clínica: "Aqui eu só vejo as
+  coparticipações cobradas pelo plano. Um valor pago direto ao médico ou à clínica não aparece nesses dados."
+  e a oferta de alguém da equipe. Extrato detalhado: "Por aqui eu não consigo enviar o extrato detalhado."
+  com o aplicativo, o portal e a central, a oferta uma vez e depois as formas curtas.
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
   "TOM DA CONVERSA" do `response-v14` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no

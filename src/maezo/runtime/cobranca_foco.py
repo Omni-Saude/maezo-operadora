@@ -18,7 +18,16 @@ import unicodedata
 from typing import Final, Literal, get_args
 
 CobrancaFoco = Literal[
-    "valor", "coparticipacao", "saldo", "pagamento", "vencimento", "geral", "ultima", "esclarecimento"
+    "valor",
+    "coparticipacao",
+    "saldo",
+    "pagamento",
+    "vencimento",
+    "geral",
+    "ultima",
+    "esclarecimento",
+    "extrato",
+    "pagamento_ao_prestador",
 ]
 
 #: O dominio FECHADO do foco. `geral` e' o default (nenhum termo do lexico no texto).
@@ -30,6 +39,10 @@ FOCO_GERAL: Final[str] = "geral"
 #: resposta anterior ("de qual ano?", `runtime/cobranca_esclarecimento.py`) — a resposta e' a curta.
 FOCO_ULTIMA: Final[str] = "ultima"
 FOCO_ESCLARECIMENTO: Final[str] = "esclarecimento"
+#: Rodada 5 (13/10/2026): "manda o extrato detalhado" (o Lucas nao envia extrato) e "paguei a consulta
+#: direto ao medico e nao aparece" (pagamento ao prestador nao e' coparticipacao cobrada pelo plano).
+FOCO_EXTRATO: Final[str] = "extrato"
+FOCO_PAGAMENTO_AO_PRESTADOR: Final[str] = "pagamento_ao_prestador"
 
 _MESES_DO_ANO: Final[str] = (
     "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro"
@@ -37,6 +50,17 @@ _MESES_DO_ANO: Final[str] = (
 
 #: Lexico na ordem de precedencia, sobre o texto sem acento e minusculo.
 _LEXICO: Final[tuple[tuple[CobrancaFoco, re.Pattern[str]], ...]] = (
+    ("extrato", re.compile(r"\bextrato\b|\bdemonstrativo\b|\bdetalhad")),
+    (
+        "pagamento_ao_prestador",
+        re.compile(
+            r"\bdireto (?:ao|pro|para o|na|no|a) "
+            r"(?:medico|clinica|consultorio|laboratorio|dentista|hospital)\b"
+            r"|\bpaguei (?:a|o) (?:consulta|exame|procedimento)\b"
+            r"|\bpaguei (?:ao|pro|para o|na|no|a) (?:medico|clinica|consultorio|laboratorio|dentista)\b"
+            r"|\bfui (?:no|ao) (?:medico|dentista)\b"
+        ),
+    ),
     (
         "ultima",
         re.compile(
@@ -87,7 +111,9 @@ def foco_valido(valor: object) -> bool:
 __all__ = [
     "COBRANCA_FOCOS",
     "FOCO_ESCLARECIMENTO",
+    "FOCO_EXTRATO",
     "FOCO_GERAL",
+    "FOCO_PAGAMENTO_AO_PRESTADOR",
     "FOCO_ULTIMA",
     "CobrancaFoco",
     "decidir_foco_da_cobranca",

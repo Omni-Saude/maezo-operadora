@@ -213,8 +213,9 @@ async def test_contestacao_seguinte_reconhece_o_caso_sem_repetir() -> None:
     )  # "O valor cobrado no boleto desse mes ta' errado"
     assert final["route"] == "escalate_human" and primeiro == [ACK_ESCALACAO]
     textos = list(primeiro)
-    for _ in range(3):  # "vao corrigir?", "quanto tempo demora?", ...
-        _, enviados = await conversa.mensagem(**contestacao)
+    for avisos in range(3):  # "vao corrigir?", "quanto tempo demora?", ...
+        # A memoria do roteador (migration 0025): quantos avisos de caso aberto ja' sairam.
+        _, enviados = await conversa.mensagem(**contestacao, avisos_anteriores=avisos)
         [texto] = enviados
         # Rodada 4 (13/10/2026): a reclamacao com o caso aberto e' reconhecida, sem "outra duvida".
         assert "nossa equipe" in texto and "outra dúvida" not in texto
