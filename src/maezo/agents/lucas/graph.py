@@ -147,7 +147,14 @@ from langgraph.graph import END, START, StateGraph
 
 from maezo.agents.lucas.fonte_cobranca import PAGADOR_EMPRESA
 from maezo.platform.observability import record_resposta_recusada
-from maezo.runtime.cobranca_foco import FOCO_ESCLARECIMENTO, FOCO_GERAL, FOCO_ULTIMA, foco_valido
+from maezo.runtime.cobranca_foco import (
+    FOCO_ESCLARECIMENTO,
+    FOCO_EXTRATO,
+    FOCO_GERAL,
+    FOCO_PAGAMENTO_AO_PRESTADOR,
+    FOCO_ULTIMA,
+    foco_valido,
+)
 from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
 from maezo.runtime.cobranca_reclamacao import reclamacao_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
@@ -1093,11 +1100,33 @@ def texto_pagador_empresa(state: LucasState, facts: Mapping[str, Any], hoje: dat
             f"{TEXTO_PAGADOR_EMPRESA} Por isso, a situação do pagamento{de_qual} fica com a empresa "
             "(normalmente o RH). Se quiser, posso te passar para alguém da nossa equipe."
         )
-    partes = [TEXTO_PAGADOR_EMPRESA, _frase_de_coparticipacao(competencias[0], hoje)]
+    # Rodada 5 (13/10/2026): a coparticipacao e' da PESSOA — so' o fato dela, sem a frase da empresa
+    # repetida em toda resposta.
+    partes = [_frase_de_coparticipacao(competencias[0], hoje)]
     fonte = _frase_da_fonte(state, hoje)
     if fonte:
         partes.append(fonte)
     return " ".join(partes)
+
+
+#: Rodada 5 (13/10/2026): "manda o extrato detalhado" — o Lucas nao envia o extrato; diz onde ele sai.
+TEXTO_EXTRATO: Final[str] = (
+    "Por aqui eu não consigo enviar o extrato detalhado. Ele sai pelo aplicativo Austa Clínicas, pelo portal "
+    "do plano ou pela central de atendimento. Se quiser, posso te passar para alguém da nossa equipe."
+)
+TEXTO_EXTRATO_CURTO: Final[str] = (
+    "O extrato detalhado sai pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de "
+    "atendimento."
+)
+#: Rodada 5: pagamento feito DIRETO ao medico/clinica. O Lucas so' ve' o que o plano cobra — nao afirma
+#: regra de reembolso nem de cobertura; oferece alguem da equipe.
+TEXTO_PAGAMENTO_AO_PRESTADOR: Final[str] = (
+    "Aqui eu só vejo as coparticipações cobradas pelo plano. Um valor pago direto ao médico ou à clínica não "
+    "aparece nesses dados. Se quiser, posso te passar para alguém da nossa equipe."
+)
+TEXTO_PAGAMENTO_AO_PRESTADOR_CURTO: Final[str] = (
+    "O que foi pago direto ao médico ou à clínica não aparece para mim: só vejo o que o plano cobra."
+)
 
 
 def texto_pagador_empresa_curto(state: LucasState, hoje: date) -> str:
@@ -1914,18 +1943,63 @@ _OBJETO_DA_RECLAMACAO: Final[dict[str, str]] = {
 }
 
 
+#: O que o Lucas NAO consegue confirmar, por tipo de reclamacao (rodada 5): nunca afirma se houve ou nao.
+_O_QUE_NAO_CONFIRMO: Final[dict[str, str]] = {
+    "em_dobro": "se houve cobrança em dobro",
+    "valor_errado": "se o valor está errado",
+    "nao_reconhece": "de onde vem essa cobrança",
+}
+
+
+def _fatos_do_mes_da_reclamacao(state: LucasState, hoje: date) -> str | None:
+    """ "No que eu vejo aqui, setembro de 2026 tem uma mensalidade de R$ 966,52, paga em 14/09." — o que os
+    fatos dizem do mes da reclamacao, sem julgar a reclamacao. Contrato de empresa: nada (o valor e' o da
+    fatura da empresa)."""
+    pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
+    if pedida is None or pagador_empresa(state):
+        return None
+    c = next((x for x in _competencias_dos_fatos(state) if x["competencia"] == pedida), None)
+    mes = _mes_por_extenso(pedida, hoje)
+    if c is None:
+        return f"No que eu vejo aqui, não há mensalidade de {mes} nos dados que tenho."
+    valor = f" de {_reais(c['valor_total'])}" if "valor_total" in c else ""
+    if c["situacao"] == "paga":
+        pagou = _dia_mes(c.get("liquidado_em"), hoje)
+        situacao = f", paga em {pagou}" if pagou else ", paga"
+    elif c["situacao"] == "vencida":
+        situacao = ", sem pagamento confirmado"
+    elif c["situacao"] == "em_aberto":
+        situacao = ", ainda não consta como paga"
+    else:
+        situacao = ""
+    frase = f"No que eu vejo aqui, {mes} tem uma mensalidade{valor}{situacao}."
+    copart = c.get("valor_coparticipacao")
+    if copart is not None and Decimal(copart) > 0:
+        frase += f" A coparticipação desse mês foi de {_reais(copart)}."
+    return frase
+
+
 def texto_da_reclamacao(state: LucasState, hoje: date) -> str:
+    """Reclamacao com o caso ja' com a equipe (rodadas 4 e 5). Na PRIMEIRA mensagem depois da escalacao:
+    o reconhecimento, os fatos do mes uma vez (sem julgar) e o aviso. Depois: curto, alternado, dizendo
+    com clareza que o Lucas nao confirma — quem confirma e' a equipe. Sem prazo, nunca "outra duvida"."""
     tipo = state.get("cobranca_reclamacao")
     objeto = _OBJETO_DA_RECLAMACAO[str(tipo)] if reclamacao_valida(tipo) else "a cobrança"
+    nao_confirmo = _O_QUE_NAO_CONFIRMO[str(tipo)] if reclamacao_valida(tipo) else "o que houve com a cobrança"
     pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
     if pedida is not None:
         objeto = f"{objeto} de {_mes_por_extenso(pedida, hoje)}"
+    if _avisos_do_turno(state) == 0:
+        partes = [f"Sua reclamação sobre {objeto} já está com a nossa equipe."]
+        fatos = _fatos_do_mes_da_reclamacao(state, hoje)
+        if fatos:
+            partes.append(fatos)
+        partes.append(f"Eu não consigo confirmar {nao_confirmo}. Quem confirma é a nossa equipe, por aqui.")
+        partes.append(GARANTIA_SEM_DECISAO)
+        return " ".join(partes)
     if _variante(state) == 0:
-        return (
-            f"Sua reclamação sobre {objeto} já está com a nossa equipe. A resposta vem por aqui. "
-            f"{GARANTIA_SEM_DECISAO}"
-        )
-    return f"Entendo a sua chateação com isso. O seu caso está com a nossa equipe. {GARANTIA_SEM_DECISAO}"
+        return f"Eu não consigo confirmar {nao_confirmo} por aqui. A nossa equipe confirma nesta conversa."
+    return f"Entendo a sua chateação. Só a nossa equipe consegue confirmar {nao_confirmo}."
 
 
 def _avisos_anteriores(state: LucasState) -> int:
@@ -2890,6 +2964,13 @@ class LucasGraph:
             "admissibilidade": state.get("admissibilidade"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
+        foco_da_pergunta = _foco_da_pergunta(state)
+        if foco_da_pergunta == FOCO_EXTRATO:
+            mensagem = self._mensagem(TEXTO_EXTRATO, facts, VALORES_PROMPT_VERSION, state)
+            mensagem["curta"] = TEXTO_EXTRATO_CURTO
+            return mensagem
+        if foco_da_pergunta == FOCO_PAGAMENTO_AO_PRESTADOR:
+            return self._build_pagamento_ao_prestador(state, facts)
         if pagador_empresa(state) and state.get("admissibilidade") in ("RESPONDER", "LEMBRETE"):
             # 13/10/2026 (decisao do dono): contrato de EMPRESA. Antes de tudo, inclusive do "em dia", que
             # seria a situacao do titulo da empresa. Nunca o total, o boleto ou o atraso da empresa.
@@ -3005,6 +3086,23 @@ class LucasGraph:
         facts["admissibilidade"] = state.get("admissibilidade")
         facts["dmn_refs"] = state.get("dmn_refs", {})
         return facts
+
+    def _build_pagamento_ao_prestador(self, state: LucasState, facts: dict[str, Any]) -> dict[str, Any]:
+        """Rodada 5: "paguei a consulta direto ao medico e nao aparece". A coparticipacao cobrada pelo plano
+        no mes (quando ha' fato) e o limite do que o Lucas ve' — so' o que o plano cobra."""
+        competencias = _competencias_dos_fatos(state)
+        pedida = state.get("competencia")
+        c = next((x for x in competencias if x["competencia"] == pedida), None)
+        partes: list[str] = []
+        if c is not None and "valor_coparticipacao" in c:
+            partes.append(_frase_de_coparticipacao(c, self._hoje()))
+            facts["competencias"] = [
+                {k: v for k, v in c.items() if k in ("competencia", "valor_coparticipacao")}
+            ]
+        partes.append(TEXTO_PAGAMENTO_AO_PRESTADOR)
+        mensagem = self._mensagem(" ".join(partes), facts, VALORES_PROMPT_VERSION, state)
+        mensagem["curta"] = TEXTO_PAGAMENTO_AO_PRESTADOR_CURTO
+        return mensagem
 
     def _build_pagador_empresa(self, state: LucasState) -> dict[str, Any]:
         """Contrato de EMPRESA (13/10/2026): "Sua mensalidade e' paga pela empresa contratante.", em TEXTO
@@ -3195,7 +3293,10 @@ class LucasGraph:
         contrato de empresa, ou "E' julho de 2026: paga em 18/08." do mes da resposta. Passa pela cerca
         com os fatos da mensagem; recusada, nenhuma."""
         if mensagem.get("prompt_version") == PAGADOR_EMPRESA_TEXTO_VERSION:
-            return texto_pagador_empresa_curto(state, self._hoje())
+            # Rodada 5: a curta da empresa so' para as respostas da empresa — nunca para a coparticipacao.
+            return texto_pagador_empresa_curto(state, self._hoje()) if mensagem.get("empresa_chave") else None
+        if mensagem.get("curta"):
+            return str(mensagem["curta"])
         fatos = mensagem.get("fatos")
         if (
             not isinstance(fatos, Mapping)

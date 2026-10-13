@@ -287,6 +287,20 @@ def _todos_os_textos() -> dict[str, str]:
         textos[f"segunda_via_repetida_{variante}"] = texto_segunda_via_repetida(
             repetida, _fatos(_NOVEMBRO), _HOJE
         )
+    # Rodada 5 (13/10/2026): extrato, pagamento ao prestador e a reclamacao com os fatos do mes.
+    for nome in ("TEXTO_EXTRATO", "TEXTO_EXTRATO_CURTO", "TEXTO_PAGAMENTO_AO_PRESTADOR"):
+        textos[nome.lower()] = getattr(lg, nome)
+    textos["texto_pagamento_ao_prestador_curto"] = lg.TEXTO_PAGAMENTO_AO_PRESTADOR_CURTO
+    for avisos in (0, 1):
+        reclamacao_r5 = _estado(
+            _OUTUBRO,
+            avisos_de_caso_aberto=avisos,
+            competencia="2026-10",
+            cobranca_reclamacao="em_dobro",
+        )
+        # So' a primeira (com a garantia) e' ACK de escalacao; as curtas seguintes, nao.
+        nome_r5 = f"ack_reclamacao_r5_{avisos}" if avisos == 0 else f"reclamacao_curta_r5_{avisos}"
+        textos[nome_r5] = lg.texto_da_reclamacao(reclamacao_r5, _HOJE)
     # Rodada 4 (13/10/2026): a escada sem repeticao, a empresa e a reclamacao com o caso aberto.
     textos["nao_consigo_com_oferta"] = lg.NAO_CONSIGO_COM_OFERTA
     for i, frase in enumerate(lg.NAO_CONSIGO):

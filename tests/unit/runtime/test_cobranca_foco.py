@@ -20,6 +20,9 @@ def test_o_dominio_e_fechado_e_e_o_do_dono() -> None:
                 # Rodada 3 do simulador (13/10/2026): confirmacao da mais recente e esclarecimento.
                 "ultima",
                 "esclarecimento",
+                # Rodada 5: extrato detalhado e pagamento direto ao prestador.
+                "extrato",
+                "pagamento_ao_prestador",
             }
         )
         == COBRANCA_FOCOS
@@ -75,6 +78,6 @@ def test_foco_valido_aceita_o_dominio(valor: str) -> None:
     assert foco_valido(valor)
 
 
-@pytest.mark.parametrize("valor", ["extrato", "", None, 1, "VALOR"])
+@pytest.mark.parametrize("valor", ["boleto", "", None, 1, "VALOR"])
 def test_foco_valido_recusa_o_resto(valor: object) -> None:
     assert not foco_valido(valor)

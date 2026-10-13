@@ -195,7 +195,8 @@ async def test_empresa_coparticipacao_e_da_pessoa_e_aparece_quando_perguntada() 
     final, envio, _ = await _turno(_estado("consulta_valores", cobranca_foco="coparticipacao"))
     [texto] = envio.textos
     assert texto == (
-        f"{TEXTO_PAGADOR_EMPRESA} Em outubro de 2026 sua coparticipação foi de R$ 35,20. (dados de 12/10)"
+        # Rodada 5 (13/10/2026): so' o fato da coparticipacao, sem a frase da empresa.
+        "Em outubro de 2026 sua coparticipação foi de R$ 35,20. (dados de 12/10)"
     )
     assert final["mensagem"]["recusa_de_saida"] is False
     assert "107" not in texto
@@ -209,9 +210,7 @@ async def test_empresa_coparticipacao_do_mes_pedido() -> None:
     _, envio, _ = await _turno(
         _estado("consulta_valores", cobranca_foco="coparticipacao", competencia="2026-09")
     )
-    assert envio.textos == [
-        f"{TEXTO_PAGADOR_EMPRESA} Em setembro de 2026 você não teve coparticipação: R$ 0,00. (dados de 12/10)"
-    ]
+    assert envio.textos == ["Em setembro de 2026 você não teve coparticipação: R$ 0,00. (dados de 12/10)"]
 
 
 def test_a_cerca_recusa_o_total_da_empresa_nos_fatos_do_texto_fixo() -> None:
