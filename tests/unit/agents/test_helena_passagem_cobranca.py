@@ -29,6 +29,7 @@ from maezo.agents.helena.graph import (
     PROMPT_VERSIONS,
     RESPONSE_KIND_HANDOFF,
     RESPOSTA_HANDOFF_RECUSADA,
+    RESPOSTA_PECA_REENVIO,
     HelenaGraph,
     HelenaState,
     _handoff_recusado,
@@ -324,18 +325,21 @@ async def test_ligado_cobranca_com_lexico_de_saude_nunca_vai_ao_lucas() -> None:
 # DL-0088: subtipo fora do dominio deixou de ser falha (vira `consulta_valores`); competencia torta continua.
 @pytest.mark.parametrize("bruto", ["nao e json", '{"intent": "cobranca"}', _json(competencia="09/2026")])
 async def test_ligado_classify_falho_nunca_vai_ao_lucas(bruto: str) -> None:
+    """DL-0093 (rodada 6): a primeira falha do classificador, sem assunto de saude, pede o reenvio e nao
+    escala; nunca vai ao Lucas."""
     compilado, sender, _ = _grafo(_FakeInference([bruto]))
     resultado = await compilado.ainvoke(_entrada())
     assert resultado.get("handoff") is None
-    assert resultado["escalation_motivo"] == "falha_tecnica"
-    assert FRASE_PASSAGEM_COBRANCA not in [t for _, t in sender.sent]
+    assert resultado.get("escalation_motivo") is None
+    assert [t for _, t in sender.sent] == [RESPOSTA_PECA_REENVIO]
 
 
 async def test_ligado_provedor_fora_nunca_vai_ao_lucas() -> None:
     compilado, _, _ = _grafo(_FakeInference(fail=True))
     resultado = await compilado.ainvoke(_entrada())
     assert resultado.get("handoff") is None
-    assert resultado["escalation_motivo"] == "falha_tecnica"
+    assert resultado.get("escalation_motivo") is None
+    assert resultado["response_text"] == RESPOSTA_PECA_REENVIO
 
 
 async def test_ligado_sem_referencia_da_mensagem_nao_passa() -> None:

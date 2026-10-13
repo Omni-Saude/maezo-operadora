@@ -552,7 +552,9 @@ async def test_classify_missing_psychosocial_risk_escalates_falha_tecnica() -> N
     )
     graph = _graph(inference=inference)
 
-    result = await graph.classify(_base_state(message_body="oi"))
+    # DL-0093 (rodada 6): a falha do classificador so' escala de imediato com assunto de saude na mensagem
+    # (sem ele, a primeira falha pede o reenvio — `test_helena_rodada_6_simulador.py`).
+    result = await graph.classify(_base_state(message_body="estou com tontura"))
 
     assert result["next_kind"] == "escalate"
     assert result["escalation_motivo"] == "falha_tecnica"

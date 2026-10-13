@@ -357,9 +357,14 @@ async def test_caso_adversarial(caso: Caso) -> None:
         assert r.agente == "helena", caso.id
     if caso.grupo == "falha_classify":
         assert r.turnos_do_lucas == 0
-        assert r.escalation_motivo == "falha_tecnica"
         assert r.agente == "helena"
-        assert r.transicao == ("retorno_saude" if r.lexico_saude else "retorno_falha")
+        # DL-0093 (rodada 6): com sinal de saude a falha escala como sempre; sem ele, a primeira falha
+        # pede o reenvio (sem caso) e a conversa fica com a Helena.
+        if r.lexico_saude:
+            assert r.escalation_motivo == "falha_tecnica"
+            assert r.transicao == "retorno_saude"
+        else:
+            assert r.escalation_motivo is None
     if caso.grupo == "lucas_ativo":
         # saude com o Lucas ativo: a Helena tria e a conversa volta para ela
         assert (r.agente, r.transicao) == ("helena", "retorno_saude")

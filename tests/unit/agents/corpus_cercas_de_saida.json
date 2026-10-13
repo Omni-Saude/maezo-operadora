@@ -2133,6 +2133,28 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Seu caso já está com a nossa equipe, por isso não abri outro. O atendente vai te responder aqui mesmo, nesta conversa.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0093 (13/10/2026, rodada 6 do simulador): RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Tive um problema para entender sua mensagem agora. Pode me mandar de novo?",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0093 (13/10/2026, rodada 6 do simulador): RESPOSTA_PECA_REENVIO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }
