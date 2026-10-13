@@ -12,10 +12,12 @@ Uso (na task `maezo-operadora-dev-simulador` os argumentos chegam pela variavel 
   --roster CHAVE               objeto do roster (padrao: o CSV mais recente em roster/)
   --max-sujeitos N             pessoas resolvidas no preflight (padrao 40)
   --sem-juiz                   pula o juiz (so' as checagens deterministicas)
+  --roteiro NOME               roteiro de ACEITE do dono (mensagens fixas, sem persona; `dono_v1`)
 
 Saida: `s3://$MAEZO_SIMULADOR_BUCKET/runs/<run_id>/` (manifest, transcricoes, checagens, juiz,
 resumo e report.md), tudo mascarado. Codigo de saida: 0 execucao concluida com o motor limpo;
 2 erro de preparo; 3 o motor tem caso ESC de conversa simulada (nao deveria acontecer nunca).
+No `--roteiro`: 0 so' se TODOS os passos passam (e o motor esta' limpo); 1 se algum passo reprova.
 """
 
 from __future__ import annotations
@@ -36,22 +38,31 @@ from typing import Any
 
 import structlog
 
+from . import aceite
 from .armazenamento import ArmazenamentoS3, chave_da_execucao, jsonl, roster_mais_recente
 from .beneficiario_llm import BeneficiarioLLM, gerador_da_inferencia
 from .checagens import Limites, checar_conversa, checar_execucao
 from .composicao import MODOS_CONSENTIMENTO, Composicao, autorizar_consentimento, compor, inferencia_crua
-from .condutor import Condutor, ConfigDoCondutor, PlanoDeConversa, planejar_conversas
+from .condutor import (
+    FAIXA_ACESSO,
+    Condutor,
+    ConfigDoCondutor,
+    PlanoDeConversa,
+    planejar_conversas,
+    telefone,
+)
 from .juiz import Juiz, avaliacao_indisponivel, transcricao_mascarada
 from .limpeza import Limpeza, ResultadoDaLimpeza
 from .mascaramento import Mascarador
 from .personas import planejar, por_id, selecionar
-from .registro import Achado, Avaliacao, Conversa, Sujeito
+from .registro import Achado, Avaliacao, Conversa, Sujeito, Turno
 from .relatorio import ItemDaExecucao, agrupar_falhas, relatorio_md, resumo
 from .roster import ler_roster_csv, preflight
 
 logger = structlog.get_logger(__name__)
 
 SAIDA_OK = 0
+SAIDA_ROTEIRO_REPROVADO = 1
 SAIDA_PREPARO = 2
 SAIDA_MOTOR_SUJO = 3
 
@@ -71,6 +82,7 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--latencia-p95-max-s", type=float, default=30.0)
     p.add_argument("--taxa-falha-tecnica-max", type=float, default=0.05)
     p.add_argument("--sem-juiz", action="store_true")
+    p.add_argument("--roteiro", choices=sorted(aceite.ROTEIROS), default=None, metavar="NOME")
     return p
 
 
@@ -223,6 +235,136 @@ def _extras(
     }
 
 
+async def _executar_roteiro(args: argparse.Namespace, armazenamento: ArmazenamentoS3) -> int:
+    """`--roteiro NOME`: o roteiro de aceite do dono (`aceite.py`), com o despachante real."""
+    roteiro = aceite.ROTEIROS[args.roteiro]
+    aceite.validar(roteiro)
+    run_id = novo_run_id()
+    inicio = datetime.now(UTC).isoformat()
+    composicao = await compor(_settings(), modo_consentimento=args.consentimento_terceiros)
+    limpeza = _limpeza_da(composicao)
+    resultado_limpeza: ResultadoDaLimpeza | None = None
+    resultados: list[aceite.ResultadoDoSegmento] = []
+    conversas: list[Conversa] = []
+    conversation_ids: list[str] = []
+    dono: Sujeito | None = None
+    manifesto: dict[str, Any] = {}
+    try:
+        if composicao.resolver is None:
+            raise RuntimeError("simulador: o acesso do beneficiario nao esta' ligado neste ambiente")
+        roster_chave = args.roster or await roster_mais_recente(armazenamento)
+        lidos = ler_roster_csv(await armazenamento.ler(roster_chave))
+        sujeitos, descartados = await preflight(lidos, composicao.resolver, limite=1)
+        if not sujeitos or not sujeitos[0].dono:
+            raise RuntimeError("simulador: o dono (primeira linha do roster) nao resolveu na AMH")
+        dono = sujeitos[0]
+        autorizar_consentimento(composicao, frozenset({dono.ref} if dono.ref else ()))
+        condutor = Condutor(
+            dispatcher=composicao.dispatcher,
+            beneficiario=BeneficiarioLLM(
+                gerador_da_inferencia(
+                    inferencia_crua(composicao), tenant_id=composicao.tenant_id, papel="simulador-aceite"
+                )
+            ),
+            limpeza=limpeza,
+            run_id=run_id,
+            config=ConfigDoCondutor(concorrencia=1, intervalo_min_s=args.intervalo_min_s),
+        )
+        planos = [
+            PlanoDeConversa(
+                id=f"r{i + 1}",
+                persona=aceite.PERSONA_ACEITE,
+                sujeito=dono,
+                telefone=telefone(FAIXA_ACESSO[i % len(FAIXA_ACESSO)]),
+                semente=i,
+            )
+            for i in range(len(roteiro))
+        ]
+        conversation_ids = [condutor.conversation_id(p.telefone) for p in planos]
+        manifesto = {
+            "run_id": run_id,
+            "status": "em_andamento",
+            "modo": "roteiro",
+            "roteiro": args.roteiro,
+            "inicio": inicio,
+            "argumentos": dict(vars(args)),
+            "roster": roster_chave,
+            "preflight": {"lidos": len(lidos), "descartados": descartados},
+            "consentimento_terceiros": args.consentimento_terceiros,
+            "conversas": [
+                {**p.como_manifesto(cid), "telefone": p.telefone}
+                for p, cid in zip(planos, conversation_ids, strict=True)
+            ],
+            "conversation_ids": conversation_ids,
+        }
+        await _gravar_json(armazenamento, run_id, "manifest.json", manifesto)
+        logger.info("simulador_roteiro_iniciado", run_id=run_id, roteiro=args.roteiro, segmentos=len(roteiro))
+        for segmento, plano, cid in zip(roteiro, planos, conversation_ids, strict=True):
+            conversa = await condutor.preparar_conversa(plano)
+            conversas.append(conversa)
+            resultado = aceite.ResultadoDoSegmento(nome=segmento.nome, telefone_rotulo=plano.id)
+            if conversa.erro_preparo:
+                resultado.erro_preparo = conversa.erro_preparo
+                resultado.passos = aceite.segmento_sem_preparo(segmento, conversa.erro_preparo)
+            else:
+
+                async def enviar(texto: str, _c: Conversa = conversa, _p: PlanoDeConversa = plano) -> Turno:
+                    return await condutor.enviar_texto(_c, _p, texto)
+
+                resultado.passos = await aceite.executar_passos(segmento, enviar)
+            resultados.append(resultado)
+            # limpeza da conversa que acabou, ANTES do proximo segmento
+            parcial = await limpeza.limpar_execucao([cid])
+            if not parcial.motor_limpo:
+                resultado.erro_preparo = resultado.erro_preparo or "motor_com_caso_esc"
+    finally:
+        if conversation_ids:
+            resultado_limpeza = await limpeza.limpar_execucao(conversation_ids)
+        await limpeza.aclose()
+
+    try:
+        if dono is None:
+            raise RuntimeError("simulador: roteiro sem dono")
+        dados = aceite.como_json(resultados, dono)
+        dados["limpeza"] = resultado_limpeza.como_dict() if resultado_limpeza else None
+        await _gravar_json(armazenamento, run_id, "roteiro.json", dados)
+        mascarador = Mascarador(dono)
+        await armazenamento.gravar(
+            chave_da_execucao(run_id, "transcripts.jsonl"),
+            jsonl(
+                {
+                    "conversa": c.id,
+                    "persona": c.persona_id,
+                    "sujeito": c.sujeito.rotulo,
+                    "turnos": transcricao_mascarada(c, mascarador),
+                }
+                for c in conversas
+            ),
+            tipo="application/x-ndjson",
+        )
+        await armazenamento.gravar(
+            chave_da_execucao(run_id, "report.md"),
+            f"# Simulador de beneficiario — execucao `{run_id}`\n\n"
+            "Tudo neste relatorio e' MASCARADO.\n\n" + aceite.secao_do_relatorio(dados, args.roteiro),
+            tipo="text/markdown",
+        )
+        manifesto |= {"status": "concluida", "fim": datetime.now(UTC).isoformat()}
+        await _gravar_json(armazenamento, run_id, "manifest.json", manifesto)
+        logger.info(
+            "simulador_roteiro_concluido",
+            run_id=run_id,
+            aprovado=dados["roteiro_passou"],
+            passos=dados["passos"],
+            passos_aprovados=dados["passos_aprovados"],
+            relatorio=f"s3://{armazenamento.bucket}/{chave_da_execucao(run_id, 'report.md')}",
+        )
+    finally:
+        await composicao.aclose()
+    if resultado_limpeza is not None and not resultado_limpeza.motor_limpo:
+        return SAIDA_MOTOR_SUJO
+    return SAIDA_OK if dados["roteiro_passou"] else SAIDA_ROTEIRO_REPROVADO
+
+
 async def executar(args: argparse.Namespace) -> int:
     bucket = os.environ.get("MAEZO_SIMULADOR_BUCKET", "")
     # A regiao do Bedrock da task (a mesma do bucket: tudo em sa-east-1).
@@ -232,6 +374,8 @@ async def executar(args: argparse.Namespace) -> int:
     )
     if args.limpar:
         return await _so_limpar(args, armazenamento)
+    if args.roteiro:
+        return await _executar_roteiro(args, armazenamento)
 
     run_id = novo_run_id()
     semente = args.semente if args.semente is not None else int(time.time())

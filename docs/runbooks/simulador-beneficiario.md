@@ -125,6 +125,34 @@ O `report.md` traz as taxas por checagem, por persona e por agente, as notas do 
 de falha** (mesmo defeito = mesmo grupo), cada um com duas transcrições de exemplo. Os resultados
 somem em 30 dias.
 
+## Roteiro de aceite do dono (`--roteiro dono_v1`)
+
+Modo deterministico para repetir o roteiro manual do dono: as MESMAS mensagens, na mesma ordem, sem
+persona LLM, com assercao em cada passo (`src/maezo/qa/simulador/aceite.py`). Usa a mesma composicao
+(despachante real, escalonamento interceptado: nenhum caso real) e o sujeito `s000` do roster (o
+dono, sempre a primeira linha), com o fluxo completo ACEITO -> CPF -> nascimento.
+
+```
+aws ecs run-task --cluster maezo-operadora-dev --launch-type FARGATE   --task-definition maezo-operadora-dev-simulador   --network-configuration "awsvpcConfiguration={subnets=[subnet-06647b0c664d0d22a,subnet-0e1f840dbec44e66a],securityGroups=[sg-0e2aebe1a2c1d253d],assignPublicIp=DISABLED}"   --no-enable-execute-command   --tags key=MaezoPurpose,value=simulador-beneficiario key=MaezoOwner,value=$(aws sts get-caller-identity --query UserId --output text)   --overrides '{"containerOverrides":[{"name":"simulador","environment":[{"name":"SIMULADOR_ARGS","value":"--roteiro dono_v1"}]}]}'
+```
+
+- **Segmentos** sao conversas separadas (telefone sintetico novo, acesso do zero), em ordem:
+  1 plano e cobranca (14 passos), 2 pedido de atendente, 3 emergencia, 4 duvida de saude. Entre um e
+  o seguinte, a conversa anterior e' limpa (checkpoint, roteador, acesso) e o motor e' conferido.
+- **Assercoes por passo**, sobre o texto concatenado das respostas do turno (ou so' as do `agente`,
+  quando dado), sem acento e sem diferenca de caixa, no texto e no padrao:
+  `deve` (todos casam), `nao_deve` (nenhum casa), `escalacao` (`nenhuma` = nenhum caso novo neste
+  turno; ou o `motivo_categoria` do caso aberto), `primeira_frase_deve` (primeira frase da primeira
+  resposta), `nao_igual_ao_anterior`. `^` casa no inicio de cada resposta; `.` atravessa linha.
+  Um passo que falha nao interrompe o segmento; a falha diz QUAL assercao reprovou (padrao, nunca o texto).
+- **Saida** em `runs/<run_id>/`: `roteiro.json` (por passo: texto enviado, respostas mascaradas com o
+  agente, escalacoes, `passou`, `falhas`), `report.md` (secao do roteiro; passos reprovados com as
+  respostas), `manifest.json` e `transcripts.jsonl`. Nao roda juiz nem D1..D12.
+- **Codigo de saida**: 0 so' se TODOS os passos passam e o motor esta' limpo; 1 se algum passo
+  reprova (ou o acesso de um segmento nao concluiu); 2 erro de preparo; 3 motor com caso ESC.
+- Pre-requisito extra: o dono (CPF 42853296890) tem de estar na primeira linha do roster e resolver
+  na AMH (o preflight para na primeira pessoa); senao o modo recusa rodar.
+
 ## As checagens
 
 | | O que reprova |
