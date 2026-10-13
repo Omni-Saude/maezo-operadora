@@ -70,7 +70,14 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
 - **Pergunta sobre a resposta anterior (Lucas, 12/10/2026):** "De qual ano?", "como assim?", "não entendi"
   depois de uma resposta do Lucas reaproveitam o assunto e o mês daquela resposta
   (`runtime/cobranca_esclarecimento.py`); não viram pergunta nova nem contestação. Contestação exige
-  discordância explícita ("está errado", "não reconheço", "cobraram a mais").
+  discordância explícita ("está errado", "não reconheço", "cobraram a mais"). O mês lembrado é o mês
+  RESPONDIDO, não só o pedido: "de qual ano mesmo??" depois de "a de outubro" repete outubro com o ano.
+- **Vários meses (Lucas, 12/10/2026):** "as últimas três pagas", "de julho a setembro", "as de 2026" e
+  "quais estão em aberto" viram LISTA (`runtime/cobranca_lista.py`): um cabeçalho curto e uma linha por mês,
+  com o mês e o ano e só o campo perguntado ("• outubro de 2026: R$ 8.389,53, paga em 06/10."). Nunca um mês
+  só em silêncio para quem pediu vários. Com menos meses do que o pedido: "Encontrei só 2 mensalidades pagas
+  nos dados que tenho:". Assunto sem lista (2ª via, vencimento, status): "Consigo te mostrar um mês por vez."
+  e o mês de sempre. A fonte AMH devolve no máximo os 12 meses mais recentes.
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
   "TOM DA CONVERSA" do `response-v11` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no

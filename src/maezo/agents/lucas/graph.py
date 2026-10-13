@@ -147,6 +147,7 @@ from langgraph.graph import END, START, StateGraph
 
 from maezo.platform.observability import record_resposta_recusada
 from maezo.runtime.cobranca_foco import FOCO_GERAL, foco_valido
+from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -377,6 +378,9 @@ class LucasState(TypedDict, total=False):
     #: DL-0087 (10/10/2026): o campo perguntado numa `consulta_valores` (`runtime/cobranca_foco.py`),
     #: decidido pela Helena sobre o texto. Valor fora do dominio vira `geral` (`_foco_da_pergunta`).
     cobranca_foco: str
+    #: 12/10/2026 (teste real do dono): o PEDIDO DE LISTA ("as ultimas tres pagas", "de julho a setembro",
+    #: `runtime/cobranca_lista.py`), decidido sobre o texto antes do Lucas. Forma errada e' ignorada.
+    cobranca_lista: dict[str, Any]
 
     # Pre-resolved by a deterministic CNAB conciliation worker upstream — CONSUMED, never
     # computed here (module docstring's L0-hard invariant).
@@ -486,6 +490,8 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "competencia",
         # DL-0087: o foco da pergunta de valor (enum fechado; texto nunca).
         "cobranca_foco",
+        # 12/10/2026: o pedido de lista (quantidade, periodo `AAAA-MM`, situacao; texto nunca).
+        "cobranca_lista",
         # Pre-resolved by the deterministic CNAB conciliation worker upstream — CONSUMED, never
         # computed here. These are FACTS a caller may assert; every VERDICT derived from them
         # (`admissibilidade`, `roteamento_escalacao`, `route`, `severidade`) is output-only.
@@ -1135,7 +1141,10 @@ def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date) -> st
     Nenhum modelo redige valor: cada quantia, data e boleto citado e' o campo da competencia a que ele
     pertence, entao "o valor certo no mes errado" nao e' possivel por construcao. COM mes citado e
     presente nos fatos, so' aquele mes; senao a competencia mais recente, avisando quando a pedida nao
-    veio. Fecha com a data curta da fonte, "(dados de 08/10)"."""
+    veio. Fecha com a data curta da fonte, "(dados de 08/10)". Com PEDIDO DE LISTA nos fatos, a lista
+    (`texto_lista`)."""
+    if isinstance(facts.get("lista"), Mapping):
+        return texto_lista(state, facts, hoje)
     competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
     pedida = _na_forma(facts.get("competencia_pedida"), _COMPETENCIA_DO_FATO)
     foco = facts.get("foco") if foco_valido(facts.get("foco")) else FOCO_GERAL
@@ -1231,6 +1240,201 @@ def texto_vencimento(state: LucasState, facts: Mapping[str, Any], hoje: date) ->
     if fonte:
         partes.append(fonte)
     return " ".join(partes)
+
+
+# --- LISTA de varios meses (teste real do dono, 12/10/2026) ----------------------------------------
+#
+# "Quais foram as ultimas tres mensalidades pagas por mim?" recebeu so' "outubro de 2026" — e de novo na
+# insistencia. Decisao do dono: havendo o dado, o Lucas LISTA (mes com ano, valor, data); faltando, diz o
+# que tem ("Encontrei so' 2 ..."); e quando o assunto nao tem lista (2a via, vencimento, status), diz
+# "Consigo te mostrar um mes por vez." e responde o mes de sempre. O pedido vem pronto no handoff
+# (`runtime/cobranca_lista.py`); aqui ele so' SELECIONA competencias dos fatos e copia os campos delas.
+
+#: Quando o assunto nao tem resposta em lista: o aviso antes da resposta de um mes so'.
+UM_MES_POR_VEZ: Final[str] = "Consigo te mostrar um mês por vez."
+
+
+def _lista_da_pergunta(state: LucasState) -> PedidoDeLista | None:
+    """O pedido de lista do handoff, ou `None` (ausente ou fora da forma: entrada do chamador)."""
+    try:
+        return lista_do_handoff(state.get("cobranca_lista"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _situacao_que_filtra(lista: PedidoDeLista, foco: str) -> str | None:
+    """A situacao pedida filtra os meses, menos na coparticipacao ("quanto paguei de coparticipacao nos
+    ultimos 3 meses" pergunta da coparticipacao de cada mes, paga ou nao)."""
+    return None if foco == "coparticipacao" else lista.situacao
+
+
+def selecionar_competencias_da_lista(
+    competencias: list[dict[str, str]], lista: PedidoDeLista, foco: str
+) -> list[dict[str, str]]:
+    """As competencias do pedido, da mais recente para a mais antiga: uma por mes, dentro do periodo, da
+    situacao pedida, no maximo `quantidade`. So' seleciona — nenhum campo e' tocado."""
+    situacao = _situacao_que_filtra(lista, foco)
+    vistas: set[str] = set()
+    saida: list[dict[str, str]] = []
+    for c in competencias:
+        mes = c["competencia"]
+        if mes in vistas:
+            continue
+        vistas.add(mes)
+        if (lista.de is not None and mes < lista.de) or (lista.ate is not None and mes > lista.ate):
+            continue
+        if situacao is not None and c["situacao"] != situacao:
+            continue
+        saida.append(c)
+    return saida[: lista.quantidade]
+
+
+def _meses_no_intervalo(de: str, ate: str) -> int:
+    ano_de, mes_de = (int(p) for p in de.split("-"))
+    ano_ate, mes_ate = (int(p) for p in ate.split("-"))
+    return max(0, (ano_ate - ano_de) * 12 + (mes_ate - mes_de) + 1)
+
+
+def quantos_meses_a_lista_espera(
+    lista: PedidoDeLista, competencias: list[dict[str, str]], foco: str, hoje: date
+) -> int | None:
+    """Quantos meses o pedido deveria trazer, para dizer "Encontrei so' N" quando vieram menos. `None`
+    quando nao da' para saber: periodo com filtro de situacao (nao se sabe quantos meses estao pagos) e
+    "todas em aberto" (o total em aberto e' o que a fonte tem). Meses do periodo depois do mais recente
+    que existe (o de hoje, ou um ja' gerado a frente) nao contam."""
+    situacao = _situacao_que_filtra(lista, foco)
+    if not lista.tem_periodo:
+        return None if situacao == "em_aberto" else lista.quantidade
+    if situacao is not None:
+        return None
+    de = lista.de or "0000-01"
+    teto = max([f"{hoje.year:04d}-{hoje.month:02d}", *(c["competencia"] for c in competencias)])
+    ate = min(lista.ate or teto, teto)
+    return min(lista.quantidade, _meses_no_intervalo(de, ate))
+
+
+def _nome_da_lista(lista: PedidoDeLista, foco: str, quantidade: int) -> str:
+    """ "mensalidades pagas", "mensalidade em aberto", "coparticipacoes" — no singular quando e' uma."""
+    if foco == "coparticipacao":
+        return "coparticipação" if quantidade == 1 else "coparticipações"
+    nome = "mensalidade" if quantidade == 1 else "mensalidades"
+    if lista.situacao == "paga":
+        return f"{nome} paga" if quantidade == 1 else f"{nome} pagas"
+    if lista.situacao == "em_aberto":
+        return f"{nome} em aberto"
+    return nome
+
+
+def _periodo_da_lista(lista: PedidoDeLista, hoje: date) -> str | None:
+    """ "de 2026" (ano inteiro), "de julho de 2026 a setembro de 2026", ou `None` sem periodo."""
+    if lista.de is None or lista.ate is None:
+        return None
+    if lista.de.endswith("-01") and lista.ate.endswith("-12") and lista.de[:4] == lista.ate[:4]:
+        return f"de {lista.de[:4]}"
+    return f"de {_mes_por_extenso(lista.de, hoje)} a {_mes_por_extenso(lista.ate, hoje)}"
+
+
+def _linha_da_lista(c: Mapping[str, str], foco: str, hoje: date) -> str:
+    """UMA linha da lista: o mes com o ano e o campo perguntado, copiado do fato daquele mes."""
+    mes = _mes_por_extenso(c["competencia"], hoje)
+    if foco == "coparticipacao":
+        copart = c.get("valor_coparticipacao")
+        if copart is None:
+            return f"• {mes}: não encontrei a coparticipação."
+        if Decimal(copart) > 0:
+            return f"• {mes}: {_reais(copart)}."
+        return f"• {mes}: sem coparticipação."
+    if foco == "saldo" and "valor_saldo" in c:
+        if Decimal(c["valor_saldo"]) > 0:
+            return f"• {mes}: {_reais(c['valor_saldo'])} em aberto."
+        return f"• {mes}: nada em aberto."
+    if foco == "vencimento":
+        vence = _dia_mes(c.get("vencimento"), hoje)
+        if vence:
+            return f"• {mes}: vencimento em {vence}."
+    valor = f"{_reais(c['valor_total'])}, " if "valor_total" in c else ""
+    situacao = c["situacao"]
+    if situacao == "paga":
+        pagou = _dia_mes(c.get("liquidado_em"), hoje)
+        return f"• {mes}: {valor}paga em {pagou}." if pagou else f"• {mes}: {valor}paga."
+    if situacao == "em_aberto":
+        vencimento_iso = c.get("vencimento")
+        vence = _dia_mes(vencimento_iso, hoje)
+        if vencimento_iso is not None and vence and date.fromisoformat(vencimento_iso) >= hoje:
+            return f"• {mes}: {valor}em aberto, vence em {vence}."
+        return f"• {mes}: {valor}em aberto."
+    if situacao == "cancelada":
+        return f"• {mes}: título cancelado."
+    if situacao == "sem_titulo":
+        return f"• {mes}: boleto ainda não emitido."
+    # `vencida` nao chega aqui (a DMN escala); se chegar, nada de afirmar atraso.
+    return f"• {mes}: não consegui confirmar a situação."
+
+
+def texto_lista(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
+    """A resposta a um PEDIDO DE LISTA em TEXTO FIXO: um cabecalho curto, uma linha por mes (mais recente
+    primeiro) e a data da fonte. Com menos meses do que o pedido, o cabecalho diz quantos achou; sem
+    nenhum, diz que nao achou e responde o mes mais recente, como a pergunta de um mes."""
+    lista = lista_do_handoff(facts.get("lista"))
+    assert lista is not None  # `_fatos_de_valores` so' poe `lista` com um pedido valido
+    foco = str(facts["foco"]) if foco_valido(facts.get("foco")) else FOCO_GERAL
+    competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
+    # Contagem ausente ou fora da forma vale "nenhum mes listado" (a resposta de um mes so', honesta).
+    bruto = facts.get("lista_encontradas")
+    encontradas = bruto if isinstance(bruto, int) and not isinstance(bruto, bool) and bruto > 0 else 0
+    esperadas = facts.get("lista_esperadas")
+    periodo = _periodo_da_lista(lista, hoje)
+    fonte = _frase_da_fonte(state, hoje)
+    if encontradas == 0:
+        onde = f" {periodo}" if periodo else ""
+        partes = [f"Não encontrei {_nome_da_lista(lista, foco, 2)}{onde} nos dados que tenho."]
+        c = competencias[0] if competencias else None
+        if c is not None:
+            if foco == "coparticipacao":
+                partes.append(_frase_de_coparticipacao(c, hoje))
+            elif foco == "saldo":
+                partes.append(_frase_de_saldo(c, None, hoje, e_a_pedida=True))
+            else:
+                partes.append(_frase_de_valor_e_situacao(c, hoje))
+        if fonte and c is not None:
+            partes.append(fonte)
+        return " ".join(partes)
+    nome = _nome_da_lista(lista, foco, encontradas)
+    onde = f" {periodo}" if periodo else ""
+    if isinstance(esperadas, int) and encontradas < esperadas:
+        cabecalho = f"Encontrei só {encontradas} {nome}{onde} nos dados que tenho:"
+    elif periodo:
+        cabecalho = f"Suas {nome} {periodo}:" if encontradas > 1 else f"Sua {nome} {periodo}:"
+    elif esperadas is None:
+        cabecalho = f"Suas {nome}:" if encontradas > 1 else f"Sua {nome}:"
+    else:
+        cabecalho = f"Suas últimas {encontradas} {nome}:"
+    linhas = [cabecalho, *(_linha_da_lista(c, foco, hoje) for c in competencias[:encontradas])]
+    if fonte:
+        linhas.append(fonte)
+    return "\n".join(linhas)
+
+
+def competencias_da_resposta(final: Mapping[str, Any]) -> tuple[str, ...]:
+    """Os meses que a resposta INFORMATIVA deste turno citou (os fatos que acompanham o texto), para o
+    roteador lembrar o mes RESPONDIDO — e nao so' o pedido. Teste real do dono (12/10/2026): "de qual ano
+    mesmo??" depois de uma resposta sem mes pedido reaproveitava `None` e respondia outro mes. Vazio quando
+    o turno escalou, a cerca recusou o texto ou os fatos nao trazem competencia."""
+    if final.get("route") != "respond_member":
+        return ()
+    mensagem = final.get("mensagem")
+    if not isinstance(mensagem, Mapping) or mensagem.get("recusa_de_saida"):
+        return ()
+    fatos = mensagem.get("fatos")
+    if not isinstance(fatos, Mapping):
+        return ()
+    if isinstance(fatos.get("lista"), Mapping) and not fatos.get("lista_encontradas"):
+        return ()  # nada listado: o mes mostrado e' so' o oferecido
+    competencias = fatos.get("competencias")
+    if not isinstance(competencias, list):
+        return ()
+    meses = (c.get("competencia") for c in competencias if isinstance(c, Mapping))
+    return tuple(m for m in meses if isinstance(m, str) and _COMPETENCIA_DO_FATO.match(m))
 
 
 # --- 2a VIA em TEXTO FIXO (decisao do dono de 10/10/2026) ----------------------------------------
@@ -2041,6 +2245,21 @@ class LucasGraph:
         raise RespostaRecusadaError(grupo, padrao, response_kind)
 
     async def _build_message(self, state: LucasState) -> dict[str, Any]:
+        """A mensagem informativa do turno. PEDIDO DE LISTA (12/10/2026) num assunto sem resposta em
+        lista (2a via, vencimento, status de pagamento): "Consigo te mostrar um mes por vez." antes da
+        resposta de um mes — nunca um mes so' em silencio para quem pediu varios. A pergunta de valor
+        lista de verdade (`_fatos_de_valores`)."""
+        mensagem = await self._build_message_de_um_mes(state)
+        if (
+            _lista_da_pergunta(state) is not None
+            and state.get("tipo_solicitacao") != TIPO_CONSULTA_VALORES
+            and not mensagem.get("recusa_de_saida")
+            and isinstance(mensagem.get("texto"), str)
+        ):
+            mensagem["texto"] = f"{UM_MES_POR_VEZ} {mensagem['texto']}"
+        return mensagem
+
+    async def _build_message_de_um_mes(self, state: LucasState) -> dict[str, Any]:
         """Drafts the informational/reminder message (J1/J2). The LLM only phrases already-known
         facts — it never decides `admissibilidade` (that is 100% DMN-derived, ADR-0012)."""
         facts: dict[str, Any] = {
@@ -2128,6 +2347,18 @@ class LucasGraph:
             facts["valor_em_aberto"] = valor_em_aberto
         # `dias_atraso_max` e `situacao=vencida` decidem na DMN (`valores_com_atraso`), nunca no texto.
         facts["competencias"] = da_pedida or competencias[:COMPETENCIAS_NO_RASCUNHO]
+        lista = _lista_da_pergunta(state)
+        if lista is not None:
+            # 12/10/2026: pedido de LISTA. O mes pedido nao vale (o periodo e' o da lista); os fatos levam
+            # SO' os meses listados — ou, sem nenhum, o mais recente, que a resposta oferece no lugar.
+            selecionadas = selecionar_competencias_da_lista(competencias, lista, facts["foco"])
+            facts["competencia_pedida"] = None
+            facts["lista"] = lista.como_handoff()
+            facts["lista_encontradas"] = len(selecionadas)
+            facts["lista_esperadas"] = quantos_meses_a_lista_espera(
+                lista, competencias, facts["foco"], self._hoje()
+            )
+            facts["competencias"] = selecionadas or competencias[:COMPETENCIAS_NO_RASCUNHO]
         facts["admissibilidade"] = state.get("admissibilidade")
         facts["dmn_refs"] = state.get("dmn_refs", {})
         return facts

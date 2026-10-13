@@ -1348,13 +1348,14 @@ class HelenaDispatcher:
         Helena) e escolhe a chave de cada envio (`lucas:{message_id}`). O numero cru continua onde
         sempre esteve — dentro do remetente, so' por este turno.
         """
-        from .lucas_turno import ConversaDoTurno
+        from .lucas_turno import ConversaDoTurno, competencia_a_lembrar
         from .roteamento import PedidoDeHandoff
 
         assert self.lucas_turno is not None
         # O handoff E' o da Helena neste request (cerca do item 7); o esclarecimento so' reaproveita
         # assunto e mes da resposta anterior, dentro do dominio fechado que o `LucasTurno` confere.
         handoff = await self._handoff_com_esclarecimento(message.text, conversation_id, handoff)
+        handoff = await self._handoff_com_lista(message.text, conversation_id, handoff)
         remetente = _ScopedWhatsAppSender(
             raw_to=message.from_number, expected_hash=phone_hash, client=self.whatsapp_client
         )
@@ -1372,9 +1373,57 @@ class HelenaDispatcher:
             remetente,
         )
         pedido = PedidoDeHandoff(
-            cobranca_subtipo=handoff["cobranca_subtipo"], competencia=handoff.get("competencia")
+            cobranca_subtipo=handoff["cobranca_subtipo"],
+            competencia=competencia_a_lembrar(final, handoff.get("competencia")),
         )
         return pedido, final.get("route") == "escalate_human"
+
+    async def _handoff_com_lista(
+        self, texto: str, conversation_id: str, handoff: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        """PEDIDO DE LISTA (teste real do dono, 12/10/2026): "as ultimas tres mensalidades pagas" recebeu um
+        mes so'. Quando o texto pede varios meses (`runtime/cobranca_lista.py`), o handoff ganha a chave
+        opcional `cobranca_lista` (numeros e `AAAA-MM`, nunca texto). Uma confirmacao de pagamento em lista
+        ("ja paguei as ultimas tres?") e' uma consulta de valores; um "outro" em lista (a insistencia "mas
+        eu te perguntei das ultimas tres") reaproveita o assunto informativo da resposta anterior do Lucas.
+        Sem pedido de lista: o handoff intacto."""
+        from maezo.runtime.cobranca_esclarecimento import SUBTIPOS_REAPROVEITAVEIS
+        from maezo.runtime.cobranca_lista import decidir_lista_da_cobranca
+        from maezo.runtime.competencia import hoje_em_brasilia
+
+        lista = decidir_lista_da_cobranca(texto, hoje_em_brasilia(datetime.now(UTC)))
+        if lista is None:
+            return handoff
+        ajustado = dict(handoff)
+        ajustado["cobranca_lista"] = lista.como_handoff()
+        subtipo = handoff.get("cobranca_subtipo")
+        if subtipo == "confirmacao_pagamento":
+            ajustado["cobranca_subtipo"] = "consulta_valores"
+        elif subtipo == "outro" and self.roteador is not None:
+            try:
+                contexto = await self.roteador.contexto_do_lucas(conversation_id)
+            except Exception as exc:
+                record_roteamento_falha(tenant=self.tenant_id, tipo="leitura")
+                logger.error(
+                    "roteador_leitura_falhou",
+                    tenant_id=self.tenant_id,
+                    conversation_id=conversation_id,
+                    error_type=type(exc).__name__,
+                )
+                contexto = None
+            if contexto is not None and contexto[0] in SUBTIPOS_REAPROVEITAVEIS:
+                ajustado["cobranca_subtipo"] = contexto[0]
+        logger.info(
+            "lucas_lista_pedida",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            quantidade=lista.quantidade,
+            periodo=lista.tem_periodo,
+            situacao=lista.situacao,
+            subtipo_lido=subtipo,
+            subtipo_usado=ajustado.get("cobranca_subtipo"),
+        )
+        return ajustado
 
     async def _escalar_falha_do_lucas(
         self,
