@@ -6,7 +6,8 @@ webhook unico, mas **nao recebe texto do beneficiario**.
 
 O QUE ENTRA. Tres coisas, nenhuma com texto:
   - `handoff`: a saida tipada da Helena (`HandoffCobranca`, §2.4: `para`, `cobranca_subtipo`,
-    `competencia`, `cobranca_foco` (DL-0087), `message_ref`). Dominio fechado, conferido aqui chave a
+    `competencia`, `cobranca_foco` (DL-0087), `message_ref` e, opcional, `cobranca_lista` — o pedido de
+    varios meses, 12/10/2026). Dominio fechado, conferido aqui chave a
     chave; qualquer chave a mais (um `message_body` plantado, por exemplo) e' recusada. A Helena
     so' passa a emiti-lo na onda (e).
   - `conversa`: os identificadores do turno que o despachante ja' tem (`conversation_id` keyed,
@@ -66,12 +67,13 @@ from typing import Any, Final, Protocol
 import structlog
 
 from maezo.agents.lucas.fonte_cobranca import FatosCobranca, FonteCobranca
-from maezo.agents.lucas.graph import LucasState, build, new_lucas_state
+from maezo.agents.lucas.graph import LucasState, build, competencias_da_resposta, new_lucas_state
 from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
 from maezo.platform.observability import record_agent_first_response
 from maezo.runtime.cobranca_foco import foco_valido
+from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
 from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
@@ -93,6 +95,10 @@ PREFIXO_CHAVE_SAIDA: Final[str] = "lucas:"
 CHAVES_DO_HANDOFF: Final[frozenset[str]] = frozenset(
     {"para", "cobranca_subtipo", "competencia", "cobranca_foco", "message_ref"}
 )
+#: Chaves OPCIONAIS do handoff. `cobranca_lista` (12/10/2026): o pedido de varios meses
+#: (`runtime/cobranca_lista.py`), que o despachante acrescenta em `_turno_do_lucas` quando o texto pede
+#: lista. Ausente = um mes so', o comportamento de antes.
+CHAVES_OPCIONAIS_DO_HANDOFF: Final[frozenset[str]] = frozenset({"cobranca_lista"})
 
 _CONVERSATION_ID: Final[re.Pattern[str]] = re.compile(r"^wa:[^:]+:hk1_[0-9a-f]+$")
 
@@ -149,6 +155,8 @@ class HandoffValidado:
     message_ref: str
     #: DL-0087: o campo perguntado (`runtime/cobranca_foco.py`). Nao e' persistido pelo roteador.
     cobranca_foco: str = "geral"
+    #: 12/10/2026: o pedido de varios meses (`runtime/cobranca_lista.py`); `None` = um mes so'.
+    cobranca_lista: PedidoDeLista | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,12 +189,13 @@ def validar_handoff(handoff: Mapping[str, Any]) -> HandoffValidado:
     """Confere o `HandoffCobranca` chave a chave. Fail-closed: forma errada nao vira turno."""
     if not isinstance(handoff, Mapping):
         raise HandoffInvalidoError("lucas_turno: handoff nao e' um mapeamento")
-    if frozenset(handoff) != CHAVES_DO_HANDOFF:
+    chaves = frozenset(handoff)
+    if not CHAVES_DO_HANDOFF <= chaves <= CHAVES_DO_HANDOFF | CHAVES_OPCIONAIS_DO_HANDOFF:
         # So' os NOMES das chaves, e so' os que sobram ou faltam: um valor plantado nunca ecoa.
         raise HandoffInvalidoError(
             "lucas_turno: chaves do handoff fora de §2.4 "
-            f"(sobram={sorted(frozenset(handoff) - CHAVES_DO_HANDOFF)}, "
-            f"faltam={sorted(CHAVES_DO_HANDOFF - frozenset(handoff))})"
+            f"(sobram={sorted(chaves - CHAVES_DO_HANDOFF - CHAVES_OPCIONAIS_DO_HANDOFF)}, "
+            f"faltam={sorted(CHAVES_DO_HANDOFF - chaves)})"
         )
     if handoff["para"] != AGENT_ID:
         raise HandoffInvalidoError("lucas_turno: handoff nao e' para o lucas")
@@ -202,8 +211,16 @@ def validar_handoff(handoff: Mapping[str, Any]) -> HandoffValidado:
     message_ref = handoff["message_ref"]
     if not isinstance(message_ref, str) or not message_ref:
         raise HandoffInvalidoError("lucas_turno: message_ref ausente")
+    try:
+        lista = lista_do_handoff(handoff.get("cobranca_lista"))
+    except (TypeError, ValueError):
+        raise HandoffInvalidoError("lucas_turno: cobranca_lista fora do dominio") from None
     return HandoffValidado(
-        cobranca_subtipo=subtipo, competencia=competencia, message_ref=message_ref, cobranca_foco=foco
+        cobranca_subtipo=subtipo,
+        competencia=competencia,
+        message_ref=message_ref,
+        cobranca_foco=foco,
+        cobranca_lista=lista,
     )
 
 
@@ -246,9 +263,25 @@ def entrada_do_lucas(
     }
     if handoff.competencia is not None:
         entrada["competencia"] = handoff.competencia
+    if handoff.cobranca_lista is not None:
+        entrada["cobranca_lista"] = handoff.cobranca_lista.como_handoff()
     if fatos is not None:
         entrada.update(fatos.como_entrada_lucas())
     return new_lucas_state(entrada)
+
+
+def competencia_a_lembrar(final: Mapping[str, Any], pedida: object) -> str | None:
+    """O mes que o roteador grava em `lucas_competencia` depois do turno: o mes RESPONDIDO, quando a
+    resposta informativa citou um so' (teste real do dono, 12/10/2026: "de qual ano mesmo??" depois de
+    uma resposta SEM mes pedido reaproveitava `None` e o Lucas respondia outro mes); nenhum, quando ela
+    listou varios (cada linha ja' traz o ano); senao o mes PEDIDO, como antes (escalacao, texto recusado).
+    """
+    respondidas = competencias_da_resposta(final)
+    if len(respondidas) == 1:
+        return respondidas[0]
+    if respondidas:
+        return None
+    return pedida if isinstance(pedida, str) and competencia_valida(pedida) else None
 
 
 class _RemetenteDoLucas:
@@ -351,8 +384,11 @@ class LucasTurno:
     async def _fatos(self, conversa: ConversaDoTurno, handoff: HandoffValidado) -> FatosCobranca | None:
         # O `phone_hash` que a fonte recebe e' o da AMH (`amh-phone-lookup-v1`), nunca o `to_hash`:
         # o pseudonimo `hk1_` e' chaveado pelo Maezo e nao resolve ninguem do lado da AMH.
+        # Pedido de LISTA (12/10/2026): a janela inteira. Com `competencia` o contrato `billing-status`
+        # devolve SO' aquele mes, e a lista sairia com um mes so'.
+        competencia = None if handoff.cobranca_lista is not None else handoff.competencia
         resultado = await self.fonte.fatos(
-            conversa.beneficiario_pseudo_id, handoff.competencia, phone_hash=conversa.phone_hash_amh
+            conversa.beneficiario_pseudo_id, competencia, phone_hash=conversa.phone_hash_amh
         )
         if isinstance(resultado, FatosCobranca):
             return resultado
@@ -402,6 +438,7 @@ class LucasTurno:
             cobranca_subtipo=validado.cobranca_subtipo,
             intencao=estado.get("intencao"),
             competencia_presente=validado.competencia is not None,
+            lista_pedida=validado.cobranca_lista is not None,
         )
         try:
             final = await compilado.ainvoke(estado)
@@ -437,6 +474,7 @@ class LucasTurno:
 __all__ = [
     "AGENT_ID",
     "CHAVES_DO_HANDOFF",
+    "CHAVES_OPCIONAIS_DO_HANDOFF",
     "ENTRADA_POR_SUBTIPO",
     "PREFIXO_CHAVE_SAIDA",
     "ConversaDoTurno",
@@ -446,6 +484,7 @@ __all__ = [
     "LucasTurno",
     "RemetenteDoTurno",
     "ZonaDeSegurancaError",
+    "competencia_a_lembrar",
     "entrada_do_lucas",
     "exigir_zona_geral",
     "validar_handoff",
