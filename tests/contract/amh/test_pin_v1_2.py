@@ -1,10 +1,11 @@
 """Testes do pin ADITIVO v1.2 (TINA: fatos do plano) e do gerador generalizado.
 
-Hermeticos: o manifest v1.2 "publicado" e' SINTETICO (montado aqui) e o lock real e' copiado para
-tmp_path. O lock real NAO tem o bloco `manifest_v1_2` (o manifest v1.2 ainda e' DRAFT na AMH em
-07/10/2026, a publicacao depende de atestacao humana): o pin atual tem de continuar valido e o
-adaptador TINA segue fail-closed. O rigor e' o MESMO do v1.1, inclusive a imutabilidade do bloco sob o
-mesmo manifest (`candidate-v1-2-mutated`), mais o v1.1 como predecessor obrigatorio.
+O lock real TEM o bloco `manifest_v1_2`: a AMH publicou o v1.2 em 13/10/2026 (XRG-2 run 38346972222,
+registro fechado no AMH #232). A primeira secao fixa o pin REAL (digest do OpenAPI TINA, evidencia, bytes
+vendorizados na imagem). O resto e' hermetico: o manifest v1.2 "publicado" e' SINTETICO (montado aqui) e
+parte do lock real SEM o bloco v1.2 (`LOCK_SEM_V1_2`, o estado de antes do pin, que segue valido). O rigor
+e' o MESMO do v1.1, inclusive a imutabilidade do bloco sob o mesmo manifest (`candidate-v1-2-mutated`),
+mais o v1.1 como predecessor obrigatorio.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from scripts.ci.verify_amh_contract_pin import (
     V1_2_LOCK_KEY,
     V1_2_MIN_PUBLICATION_RUN_ID,
     check_manifest_v1_1,
+    check_manifest_v1_2,
     main,
     verify_candidate,
     verify_lock,
@@ -45,6 +47,10 @@ from maezo.adapters.amh.contract import (
 REPO_ROOT = Path(__file__).resolve().parents[3]
 LOCK_PATH = REPO_ROOT / DEFAULT_LOCK_PATH
 LOCK_REAL = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+LOCK_SEM_V1_2 = {k: v for k, v in LOCK_REAL.items() if k != V1_2_LOCK_KEY}
+
+# Publicado pela AMH (manifest v1.2, XRG-2 run 38346972222): o mesmo digest que o manifest declara.
+TINA_SHA_PUBLICADO = "320ab30360bbbe382220ba0c2cc8ee9d3dc6f8270a4e067c55b2c14a8c778a59"
 
 V1_MANIFEST_SHA = LOCK_REAL["manifest_pin"]["sha256"]
 V1_1_MANIFEST_SHA = LOCK_REAL[V1_1_LOCK_KEY]["manifest_pin"]["sha256"]
@@ -129,14 +135,36 @@ def codes(violations: list[Any]) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# Estado real: sem bloco v1.2 (DRAFT) -> pin valido e adaptador TINA sem digest
+# Estado real: bloco v1.2 PUBLICADO -> pin valido, digest TINA exposto e bytes na imagem
 # ---------------------------------------------------------------------------
 
 
-def test_lock_real_sem_v1_2_segue_valido_e_tina_sem_digest() -> None:
-    assert V1_2_LOCK_KEY not in LOCK_REAL
+def test_lock_real_tem_o_bloco_v1_2_publicado() -> None:
+    b = LOCK_REAL[V1_2_LOCK_KEY]
+    assert b["provenance"]["status"] == "PUBLISHED"
+    assert b["provenance"]["evidence_id"] == "XRG2-AMH-DEV-GHA-38346972222"
+    assert b["publication"]["publication_run_id"] == "38346972222"
+    assert b["compatibility_report"]["result"] == "PASSED"
+    assert b["artifacts"] == [{"path": V1_2_ARTIFACT_PATHS[0], "sha256": TINA_SHA_PUBLICADO}]
+    assert check_manifest_v1_2(LOCK_REAL) == []
     assert verify_lock(LOCK_REAL, repo_root=REPO_ROOT, check_vendored=False) == []
+
+
+def test_loader_expoe_o_digest_tina_e_o_do_manifest_v1_2() -> None:
     pin = load_contract_pin(LOCK_PATH)
+    assert pin.artifact_digests[V1_2_ARTIFACT_PATHS[0]] == TINA_SHA_PUBLICADO
+    assert pin.manifest_v1_2_digest == LOCK_REAL[V1_2_LOCK_KEY]["manifest_pin"]["sha256"]
+
+
+def test_openapi_tina_vendorizado_bate_com_o_pin() -> None:
+    copia = REPO_ROOT / "config/integrations/amh/openapi" / Path(V1_2_ARTIFACT_PATHS[0]).name  # vai na imagem
+    assert b"\r" not in copia.read_bytes()
+    assert hashlib.sha256(copia.read_bytes()).hexdigest() == TINA_SHA_PUBLICADO
+
+
+def test_lock_sem_v1_2_segue_valido_e_tina_sem_digest(tmp_path: Path) -> None:
+    assert verify_lock(LOCK_SEM_V1_2, repo_root=REPO_ROOT, check_vendored=False) == []
+    pin = load_contract_pin(escreve(tmp_path, LOCK_SEM_V1_2))
     assert pin.manifest_v1_2_digest is None
     assert V1_2_ARTIFACT_PATHS[0] not in pin.artifact_digests
 
@@ -159,7 +187,7 @@ def test_lock_com_bloco_v1_2_passa_e_expoe_o_digest_tina(tmp_path: Path) -> None
     pin = load_contract_pin(escreve(tmp_path, lock))
     assert pin.artifact_digests[V1_2_ARTIFACT_PATHS[0]] == TINA_SHA
     assert pin.manifest_v1_2_digest == lock[V1_2_LOCK_KEY]["manifest_pin"]["sha256"]
-    # v1 (5) + v1.1 (2) + v1.2 (1) + v1.3 (3) + v1.4 (1) — v1.3 e v1.4 ja pinados no lock real
+    # v1 (5) + v1.1 (2) + v1.2 (1, o sintetico no lugar do real) + v1.3 (3) + v1.4 (1)
     assert len(pin.artifact_digests) == 12
     # o v1.1 nao mudou de codigo de violacao com a generalizacao
     assert check_manifest_v1_1(lock) == []
@@ -218,7 +246,9 @@ def test_placeholder_no_bloco_v1_2_e_recusado(tmp_path: Path) -> None:
 
 
 def test_candidate_que_acrescenta_v1_2_valido_passa() -> None:
-    assert verify_candidate(copy.deepcopy(LOCK_REAL), lock_com_v1_2()) == []
+    assert verify_candidate(copy.deepcopy(LOCK_SEM_V1_2), lock_com_v1_2()) == []
+    # o PR real deste pin: do lock sem o bloco para o lock real
+    assert verify_candidate(copy.deepcopy(LOCK_SEM_V1_2), copy.deepcopy(LOCK_REAL)) == []
 
 
 def test_candidate_recusa_trocar_o_digest_tina_sob_o_mesmo_manifest() -> None:
@@ -246,7 +276,7 @@ def test_candidate_recusa_remover_regredir_ou_reusar_evidencia() -> None:
     older = lock_com_v1_2(publication__publication_run_id="37590000000")
     assert "candidate-v1-2-run-regression" in codes(verify_candidate(current, older))
     reuso = lock_com_v1_2(provenance__evidence_id=V1_1_EVIDENCE)
-    assert "candidate-v1-2-evidence-reuse" in codes(verify_candidate(copy.deepcopy(LOCK_REAL), reuso))
+    assert "candidate-v1-2-evidence-reuse" in codes(verify_candidate(copy.deepcopy(LOCK_SEM_V1_2), reuso))
 
 
 def test_candidate_com_o_mesmo_bloco_v1_2_passa() -> None:
@@ -288,7 +318,7 @@ def test_manifest_v1_2_adulterado_e_recusado(tmp_path: Path) -> None:
 def test_manifest_v1_2_sem_bloco_no_lock_explica_o_proximo_passo(tmp_path: Path) -> None:
     path = tmp_path / "m.yaml"
     path.write_bytes(manifest_publicado())
-    assert codes(verify_manifest_v1_2(copy.deepcopy(LOCK_REAL), path)) == {"v1-2-pin-absent"}
+    assert codes(verify_manifest_v1_2(copy.deepcopy(LOCK_SEM_V1_2), path)) == {"v1-2-pin-absent"}
 
 
 def test_cli_manifest_version_v1_2(tmp_path: Path) -> None:
@@ -323,7 +353,7 @@ def test_gerador_v1_2_recusa_manifest_de_outra_versao() -> None:
 
 def test_gerador_write_v1_2_grava_valida_e_nao_sobrescreve(tmp_path: Path) -> None:
     lock_path = tmp_path / "lock.json"
-    lock_path.write_text(json.dumps(LOCK_REAL, indent=2), encoding="utf-8")
+    lock_path.write_text(json.dumps(LOCK_SEM_V1_2, indent=2), encoding="utf-8")
     manifest = tmp_path / "m.yaml"
     manifest.write_bytes(manifest_publicado())
     argv = [
@@ -332,14 +362,14 @@ def test_gerador_write_v1_2_grava_valida_e_nao_sobrescreve(tmp_path: Path) -> No
     ]  # fmt: skip
     assert gerar.main(argv) == 0
     gravado = json.loads(lock_path.read_text(encoding="utf-8"))
-    assert {k: v for k, v in gravado.items() if k != V1_2_LOCK_KEY} == LOCK_REAL
+    assert {k: v for k, v in gravado.items() if k != V1_2_LOCK_KEY} == LOCK_SEM_V1_2
     assert verify_lock(gravado, repo_root=REPO_ROOT, check_vendored=False) == []
     assert main(["--lock", str(lock_path), "--manifest", str(manifest), "--manifest-version", "v1.2"]) == 0
     assert gerar.main(argv) == 1  # pin imutavel
 
 
 def test_gerador_write_v1_2_sem_v1_1_no_lock_e_recusado(tmp_path: Path) -> None:
-    lock = copy.deepcopy(LOCK_REAL)
+    lock = copy.deepcopy(LOCK_SEM_V1_2)
     del lock[V1_1_LOCK_KEY]
     lock_path = escreve(tmp_path, lock)
     manifest = tmp_path / "m.yaml"

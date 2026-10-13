@@ -21,8 +21,8 @@ nao publicado — sem o bloco `manifest_v1_3` no pin os adaptadores recusam subi
   * `POST /interop/identity/v1/resolve-by-document` (sem cadastro, DL-0084)   (`interop/subject.verify`)
 
 e, SO' com `MAEZO_HELENA_CONSULTAS_AMH` ligada (DL de 07/10/2026, fatos do plano na Helena), mais tres
-leituras do contrato TINA (manifest aditivo v1.2, ainda DRAFT — sem o bloco `manifest_v1_2` no pin o
-adaptador recusa subir):
+leituras do contrato TINA (manifest aditivo v1.2, publicado em 13/10/2026 — sem o bloco `manifest_v1_2`
+no pin o adaptador recusa subir):
 
   * `GET  /interop/tina/v1/subjects/{ref}/elegibilidade`                 (`interop/tina.read`)
   * `GET  /interop/tina/v1/subjects/{ref}/carencias`                     (`interop/tina.read`)

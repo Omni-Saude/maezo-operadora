@@ -1,8 +1,8 @@
 """Fatos do plano (vinculos, carencias, requisicoes) pelo contrato `tina` da AMH (ADR-0037 XRD-04/06).
 
-O CONTRATO AINDA NAO ESTA PUBLICADO. O artefato `schemas/openapi/maezo/v1/tina.openapi.yaml` vive em
-`Omni-Saude/amh-data-platform` como DRAFT e entra pelo manifest ADITIVO v1.2, que depende de atestacao
-humana (XRG-2). Este adaptador e' fail-closed por construcao, como `billing_status.py`: so' sobe com os
+O artefato `schemas/openapi/maezo/v1/tina.openapi.yaml` de `Omni-Saude/amh-data-platform` entra pelo
+manifest ADITIVO v1.2, publicado pela AMH em 13/10/2026 (XRG-2 run 38346972222) e pinado no bloco
+`manifest_v1_2`. Este adaptador e' fail-closed por construcao, como `billing_status.py`: so' sobe com os
 BYTES do OpenAPI cujo sha256 esta no bloco `manifest_v1_2` do pin imutavel
 (`config/integrations/amh/contracts.lock.json`). Sem o bloco nao ha' digest e o construtor recusa.
 

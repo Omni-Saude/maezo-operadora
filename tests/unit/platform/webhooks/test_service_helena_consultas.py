@@ -1,8 +1,8 @@
 """Fatos do plano na Helena (DL de 07/10/2026): flag, composicao fail-closed e a fonte `ConsultasPlanoAmh`.
 
 1. `MAEZO_HELENA_CONSULTAS_AMH` nasce desligada e EXIGE a identidade ligada (o settings recusa o boot).
-2. Ligada sem configuracao, sem o OpenAPI TINA, sem o escopo `interop/tina.read` ou sem o pin v1.2 (o
-   estado real: manifest DRAFT), o receptor RECUSA servir — nunca sobe "sem consultas" em silencio.
+2. Ligada sem configuracao, sem o OpenAPI TINA, sem o escopo `interop/tina.read` ou com bytes TINA fora do
+   pin v1.2, o receptor RECUSA servir — nunca sobe "sem consultas" em silencio.
 3. Com os contratos pinados (sinteticos), a mesma composicao da identidade traz o adaptador TINA sob o
    principal `helena`, e o despachante passa a fonte ao grafo (no' `consultar_plano`).
 4. A fonte: base legal fixa, uma leitura por subtipo, recusa/prazo/outro sujeito -> `None`, nunca levanta.
@@ -75,13 +75,13 @@ def test_desligada_o_despachante_nao_tem_fonte_e_o_grafo_nao_tem_o_no() -> None:
 # --- 2. composicao fail-closed --------------------------------------------------------------------
 
 
-async def test_ligada_sem_pin_v1_2_recusa_servir(
+async def test_ligada_com_tina_fora_do_pin_v1_2_recusa_servir(
     tmp_path: object,
     monkeypatch: pytest.MonkeyPatch,
     _checkpointer_ok: None,  # noqa: F811
 ) -> None:
-    """Estado real de hoje: o lock NAO tem `manifest_v1_2` (DRAFT). Com billing/subject resolvidos, e'
-    o adaptador TINA que recusa — e com ele o boot inteiro."""
+    """Bytes TINA que nao batem com o digest do bloco `manifest_v1_2` do lock real. Com billing/subject
+    resolvidos, e' o adaptador TINA que recusa — e com ele o boot inteiro."""
     from maezo.adapters.amh import billing_status as bs
     from maezo.adapters.amh import subject_resolution as sr
     from tests.unit.adapters.amh.test_tina import _openapi as contrato_tina

@@ -39,3 +39,9 @@ helena_historico = true
 # Acesso do beneficiario (DL-0083/DL-0084) LIGADO no dev em 08/10/2026 23:10 UTC, decisao do dono; testado
 # ponta a ponta no mesmo dia (aceite, CPF, Helena -> Lucas, revogacao, consentimento gravado no lago).
 acesso_beneficiario = true
+
+// Fatos do plano na Helena pelo contrato TINA da AMH (DL-0081): elegibilidade, carteirinha, carencia e
+// autorizacao do proprio beneficiario. Ligado so' no dev em 13/10/2026, decisao do dono, depois da
+// publicacao do manifest v1.2 pela AMH (XRG-2 run 38346972222, AMH #232) e do pin `manifest_v1_2`.
+// Base legal LGPD para fora do dev segue PENDENTE de ratificacao do DPO (DL-0081). Voltar: false.
+helena_consultas_amh = true

@@ -1,0 +1,274 @@
+# tina.openapi.yaml — PROPOSTA (DRAFT) de contrato canônico AMH×Maezo (artefato novo)
+# NÃO PUBLICADO: depende de aprovação dos data stewards, do DPO e do gate XRG-2 (ADR-042 §2).
+# Objetivo: os agentes do Maezo atendem as funções de LEITURA do bot TINA da operadora
+# (validar beneficiário, dados da carteirinha, carências, status de requisições), lendo as golds
+# `tina_*` do tenant `austa_operadora` (AMH #200). As funções de ESCRITA da TINA (prioridade de
+# requisição, atualização cadastral, 2ª via, informe de IR, TISS, protocolos) NÃO passam por aqui.
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# REGRAS DE DESENHO:
+#  * chave = `portable_subject_ref`; nunca nome, CPF, RG, CNS, nascimento, contato ou conta bancária;
+#  * carteirinha e senha de autorização vêm MASCARADAS;
+#  * carência é orientação: a descrição é a do cadastro, o consumidor nunca promete cobertura;
+#  * campo ausente é estado válido (`null`); o consumidor nunca o completa.
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH TINA Read API (funções de leitura do bot da operadora)
+  version: 0.1.0
+  description: |
+    Elegibilidade (vínculos/carteirinha), carências e status de requisições de autorização do
+    beneficiário, keyed por `portable_subject_ref`. Mesma base legal e mesmo portão de propósito
+    do `subject-resolution` (execução de contrato; verificação de consentimento implementada e
+    DESLIGADA até existir produtor do log).
+    FRESCOR: as fontes são views do Tasy materializadas no lago; requisições mudam no dia.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/tina/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11).
+security:
+  - bearerAuth: []
+tags:
+  - name: tina
+    description: Leituras do bot TINA da operadora.
+paths:
+  /subjects/{portable_subject_ref}/elegibilidade:
+    get:
+      tags: [tina]
+      operationId: getElegibilidade
+      summary: Vínculos do beneficiário com o plano (carteirinha mascarada, plano, vigência)
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+      responses:
+        '200':
+          description: Vínculos do sujeito.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Elegibilidade'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ConsentDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /subjects/{portable_subject_ref}/carencias:
+    get:
+      tags: [tina]
+      operationId: getCarencias
+      summary: Carências do beneficiário (cumpridas e em curso)
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - $ref: '#/components/parameters/Limite'
+        - name: pendentes
+          in: query
+          required: false
+          description: '`true` devolve só as carências ainda não cumpridas (lista vazia é resposta válida).'
+          schema:
+            type: string
+            enum: ['true', 'false']
+      responses:
+        '200':
+          description: Carências do sujeito.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Carencias'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ConsentDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /subjects/{portable_subject_ref}/requisicoes:
+    get:
+      tags: [tina]
+      operationId: getRequisicoes
+      summary: Status das solicitações de autorização (mais recentes primeiro)
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - $ref: '#/components/parameters/Limite'
+      responses:
+        '200':
+          description: Requisições do sujeito (lista vazia é resposta válida).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Requisicoes'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ConsentDenied' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo `interop/tina.read` — fail-closed.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05).
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD — OBRIGATÓRIO (mesmo vocabulário do subject-resolution).
+      schema:
+        type: string
+        enum: [analytics, research, sharing_amh_internal, external_sharing]
+      example: sharing_amh_internal
+    Limite:
+      name: limite
+      in: query
+      required: false
+      description: Máximo de itens (1..50, padrão 20). O agente conversa, não exporta.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+  schemas:
+    Elegibilidade:
+      type: object
+      required: [portable_subject_ref, ativo, vinculos, fonte_atualizada_em, qualidade]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+        ativo:
+          type: boolean
+          description: Algum vínculo sem data de cancelamento.
+        vinculos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vinculo'
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+        qualidade:
+          $ref: '#/components/schemas/DataQuality'
+    Vinculo:
+      type: object
+      additionalProperties: false
+      required: [carteirinha_mascarada, plano, vigencia_inicio, cancelamento, titular]
+      properties:
+        carteirinha_mascarada: { type: string, nullable: true, example: '******4567' }
+        plano: { type: string, nullable: true }
+        registro_ans_plano: { type: string, nullable: true }
+        segmentacao: { type: string, nullable: true }
+        acomodacao: { type: string, nullable: true }
+        tipo_contratacao: { type: string, nullable: true }
+        vigencia_inicio: { type: string, format: date, nullable: true }
+        cancelamento: { type: string, format: date, nullable: true }
+        atendimento_liberado: { type: boolean, nullable: true }
+        situacao_beneficiario: { type: string, nullable: true }
+        situacao_contrato: { type: string, nullable: true }
+        titular: { type: boolean, nullable: true }
+        relacao_dependencia: { type: string, nullable: true }
+        titular_ref: { type: string, nullable: true }
+    Carencias:
+      type: object
+      required: [portable_subject_ref, pendentes, carencias, fonte_atualizada_em]
+      additionalProperties: false
+      properties:
+        portable_subject_ref: { type: string }
+        pendentes:
+          type: integer
+          description: Quantas carências da lista ainda não foram cumpridas.
+        carencias:
+          type: array
+          items:
+            $ref: '#/components/schemas/Carencia'
+        fonte_atualizada_em: { type: string, format: date-time }
+    Carencia:
+      type: object
+      additionalProperties: false
+      required: [carencia, inicio, dias, validade, cumprida]
+      properties:
+        carencia: { type: string, nullable: true, description: 'Descrição do cadastro do Tasy, sem interpretação.' }
+        inicio: { type: string, format: date, nullable: true }
+        dias: { type: integer, nullable: true }
+        validade: { type: string, format: date, nullable: true }
+        cumprida: { type: boolean, nullable: true }
+    Requisicoes:
+      type: object
+      required: [portable_subject_ref, requisicoes, fonte_atualizada_em]
+      additionalProperties: false
+      properties:
+        portable_subject_ref: { type: string }
+        requisicoes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Requisicao'
+        fonte_atualizada_em: { type: string, format: date-time }
+    Requisicao:
+      type: object
+      additionalProperties: false
+      required: [solicitacao, solicitada_em, status]
+      properties:
+        solicitacao: { type: integer, nullable: true }
+        solicitada_em: { type: string, format: date-time, nullable: true }
+        status: { type: string, nullable: true, example: Aprovada }
+        senha_mascarada: { type: string, nullable: true, example: '********42' }
+        senha_validade: { type: string, format: date, nullable: true }
+        senha_vigente: { type: boolean, nullable: true }
+        sla_dias: { type: integer, nullable: true }
+        liberacao_prevista: { type: string, format: date, nullable: true }
+    DataQuality:
+      type: object
+      required: [campos_ausentes]
+      additionalProperties: false
+      properties:
+        campos_ausentes:
+          type: array
+          items:
+            type: string
+            enum: [segmentacao, acomodacao]
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional SEM PHI. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ConsentDenied:
+      description: FAIL-CLOSED — escopo/propósito não permitido; nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Sujeito desconhecido ou não visível (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
