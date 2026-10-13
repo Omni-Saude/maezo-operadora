@@ -25,6 +25,7 @@ from maezo.agents.lucas.graph import (
     GARANTIA_SEM_DECISAO,
     RESPOSTA_INFORMATIVA_RECUSADA,
     SEGUNDA_VIA_CANAIS,
+    UM_MES_POR_VEZ,
     VENCIMENTO_NAO_ENCONTRADO,
     LucasState,
     texto_ack_escalacao,
@@ -40,6 +41,7 @@ from maezo.agents.lucas.prompts import (
     message_prompt,
     motivo_de_recusa,
 )
+from maezo.runtime.cobranca_lista import PedidoDeLista
 
 _HOJE = date(2026, 10, 10)
 
@@ -230,6 +232,30 @@ def _todos_os_textos() -> dict[str, str]:
             textos[f"valores_{foco}_{nome}"] = texto_valores(
                 _estado(c), _fatos(c, pedida=c["competencia"], foco=foco), _HOJE
             )
+    # 12/10/2026: as respostas em LISTA (o nome nao comeca com `valores_`: a lista cita um valor por mes).
+    for foco in ("geral", "coparticipacao", "saldo", "vencimento"):
+        for nome, lista, achadas, esperadas in (
+            ("completa", PedidoDeLista(2), 2, 2),
+            ("faltando", PedidoDeLista(3, situacao="paga"), 2, 3),
+            ("ano", PedidoDeLista(12, de="2026-01", ate="2026-12"), 2, None),
+        ):
+            fatos_da_lista = _fatos(
+                None,
+                foco=foco,
+                lista=lista.como_handoff(),
+                lista_encontradas=achadas,
+                lista_esperadas=esperadas,
+            )
+            fatos_da_lista["competencias"] = [_OUTUBRO, _JULHO][:achadas]
+            textos[f"lista_{foco}_{nome}"] = texto_valores(estado, fatos_da_lista, _HOJE)
+    textos["lista_nenhuma"] = texto_valores(
+        estado,
+        _fatos(
+            _OUTUBRO, lista=PedidoDeLista(3, de="2024-01", ate="2024-03").como_handoff(), lista_encontradas=0
+        ),
+        _HOJE,
+    )
+    textos["um_mes_por_vez"] = f"{UM_MES_POR_VEZ} {texto_segunda_via(estado, _fatos(_OUTUBRO), _HOJE)}"
     for motivo in ("ambiguidade", "inadimplencia_detectada", "pedido_cancelamento", "contestacao_cobranca"):
         for conciliado in (True, False, None):
             estado_ack = cast(

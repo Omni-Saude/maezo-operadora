@@ -364,6 +364,10 @@ def test_handoff_com_chave_a_mais_e_recusado_sem_ecoar_valor(chave: str) -> None
         {**_handoff(), "cobranca_foco": "extrato"},
         {**_handoff(), "cobranca_foco": None},
         {k: v for k, v in _handoff().items() if k != "cobranca_foco"},
+        # 12/10/2026: o pedido de lista e' opcional, mas, presente, tem a forma fechada.
+        {**_handoff(), "cobranca_lista": "ultimas tres"},
+        {**_handoff(), "cobranca_lista": {"quantidade": 3}},
+        {**_handoff(), "cobranca_lista": {"quantidade": 40, "de": None, "ate": None, "situacao": None}},
     ],
 )
 async def test_handoff_malformado_nao_vira_turno(handoff: dict[str, Any], seam_lucas: SeamContext) -> None:
@@ -648,6 +652,25 @@ async def test_consulta_valores_responde_so_o_foco_do_handoff(
     assert final["cobranca_foco"] == foco
     frase = esperado.format(mes=_mes("setembro"), pagou=_dm("08/09"), venceu=_dm("10/09"))
     assert [texto for _, texto, _ in cliente.enviados] == [f"{frase} (dados de {_dm('30/09')})"]
+
+
+async def test_pedido_de_lista_le_a_janela_inteira_e_diz_o_que_tem(seam_lucas: SeamContext) -> None:
+    """12/10/2026: com `cobranca_lista` a fonte e' lida SEM competencia (com ela o `billing-status` devolve
+    so' aquele mes) e, com menos meses do que o pedido, o Lucas diz quantos achou."""
+    fonte = _FonteFixa(_fatos_com_valores())
+    turno, registry, _ = _turno(seam_lucas, fonte=fonte, rascunho="R$ 1,00")
+    cliente = _ClienteComDedup(registry)
+    lista = {"quantidade": 3, "de": None, "ate": None, "situacao": "paga"}
+    final = await _rodar(
+        turno, _conversa("lista"), _handoff("consulta_valores", "2026-09", cobranca_lista=lista), cliente
+    )
+    assert fonte.pedidos == [("pseudo-sintetico", None)]
+    assert final["cobranca_lista"] == lista
+    assert [texto for _, texto, _ in cliente.enviados] == [
+        "Encontrei só 1 mensalidade paga nos dados que tenho:\n"
+        f"• {_mes('setembro')}: R$ 8.389,53, paga em {_dm('08/09')}.\n"
+        f"(dados de {_dm('30/09')})"
+    ]
 
 
 async def test_consulta_valores_sem_fatos_escala_e_nao_responde_valor(seam_lucas: SeamContext) -> None:
