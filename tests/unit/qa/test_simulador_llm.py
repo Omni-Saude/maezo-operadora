@@ -137,3 +137,10 @@ async def test_juiz_indisponivel_nunca_aprova() -> None:
 
     a = await jz.Juiz(gerar).avaliar(por_id("apressado"), _transcricao())
     assert a.erro == "RuntimeError" and a.nota_minima() == 0
+
+
+def test_prompt_da_persona_traz_a_data_de_hoje() -> None:
+    from datetime import date
+
+    prompt = bl.montar_prompt(por_id("idoso"), [], 1, hoje=date(2026, 10, 13))
+    assert "HOJE: 13/10/2026" in prompt and "2026" in prompt
