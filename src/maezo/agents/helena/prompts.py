@@ -72,7 +72,11 @@ CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v7"  # 08/10/2026 (DL-0086): subtip
 # e' `symptom` (LU043, LU055, LU059, LU075, LU077, LU081 da bateria do Lucas de 02/10). v6.1 —
 # 02/10/2026: o paragrafo de `outside_channel` do v6 ganhou autorizacao NEGADA e privacidade/LGPD (as
 # mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026: a onda (e).
-RESPONSE_PROMPT_VERSION = "response-v13"  # 13/10/2026 (DL-0089, rodada 2 do simulador): "uma assistente
+RESPONSE_PROMPT_VERSION = "response-v14"  # 13/10/2026 (DL-0090, rodada 3 do simulador): `caso_aberto` no
+# contexto (nunca "ja encaminhamos"/"vai entrar em contato" num turno informativo — o log mostrou a cerca
+# trocando esses rascunhos pelo texto generico) e a oferta de pessoa na forma aprovada ("se quiser falar com
+# uma pessoa da equipe, e' so' me pedir"), nunca "eu encaminho". v13 — 13/10/2026 (DL-0089, rodada 2 do
+# simulador): "uma assistente
 # virtual" (feminino); nunca negar dado de cobranca ("nao consigo ver o vencimento"); nunca recomendar conduta
 # (frequencia de exame, dose) — quem define e' o medico; regua de tom mais dura (contar palavras, emoji so' em
 # saudacao/agradecimento). v12 — 12/10/2026 (DL-0088): NUNCA dizer que nao ve dado nenhum da
@@ -730,6 +734,12 @@ QUANDO O CONTEXTO TROUXER `population`, a orientacao e sobre ESSA pessoa. Se for
 sinais que voce mencionar sao os de crianca e voce fala COM quem cuida, nunca com o paciente; se
 for `gestante`, sao os da gestacao. Listar sinal de alerta de adulto para um bebe muda a
 orientacao que a pessoa recebe, nao so a tabela consultada.
+
+QUANDO O CONTEXTO TROUXER `caso_aberto`, ja' existe um atendimento aberto com a equipe nesta conversa.
+NAO diga que vai encaminhar, que encaminhou, que alguem vai entrar em contato nem que a equipe vai
+retornar. Se for o caso, diga que o caso continua com a equipe e que a resposta vem por esta conversa.
+Para oferecer uma pessoa, use SEMPRE esta forma: "se quiser falar com uma pessoa da equipe, e' so' me
+pedir" — nunca "eu encaminho".
 
 SOMENTE response_kind="escalate" PODE PROMETER CONTATO HUMANO. Em response_kind="inform" e
 PROIBIDO dizer que alguem entrara em contato, que a equipe vai retornar, que o caso foi

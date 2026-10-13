@@ -30,8 +30,8 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
     "system": ("system-v1", "16660021eca9f853c45a191286a3e7a0f3c96ea985333bc6f008748306f958c1"),
     "classify": ("classify-v5.3", "34cc3a8888da3550963859a6e99976653a5271bdb991564fa50c266e5780c00e"),
     # DL-0088 (12/10/2026): nunca dizer que nao ve dado nenhum da pessoa.
-    # DL-0089 (13/10/2026): uma assistente; cobranca nunca negada; nenhuma conduta clinica; tom mais duro.
-    "response": ("response-v13", "33178c5131bad0e7baede0ed37ea8abf85e61467d917a89aaa7889a7828685e5"),
+    # DL-0090 (13/10/2026): `caso_aberto` no contexto; oferta de pessoa na forma aprovada.
+    "response": ("response-v14", "f61f0676d365d0e9ea05021af1dcfca256e6ba9e2c56df19601914a73c892bd3"),
     # DL-0086 (08/10/2026): subtipo `consulta_valores`.
     "classify_roteador": (
         "classify-v7",

@@ -64,7 +64,8 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # `cobranca` + `cobranca_subtipo`/`competencia` e tira
                                      # cobranca da lista de `outside_channel`. Desligado, o
                                      # classify e' o v5 byte a byte (sha256 fixado em teste).
-  response: response-v13              # 13/10/2026 (DL-0089): uma assistente virtual; nunca negar dado de
+  response: response-v14              # 13/10/2026 (DL-0090): `caso_aberto` no contexto; oferta de pessoa na
+                                     # forma aprovada. v13 — 13/10/2026 (DL-0089): uma assistente virtual; nunca negar dado de
                                      # cobranca; nunca recomendar conduta clinica; regua de tom mais dura.
                                      # v12 — 12/10/2026 (DL-0088): nunca dizer que nao ve dado nenhum da pessoa;
                                      # plano -> aplicativo/portal, mensalidade/pagamentos -> "pergunte por aqui".

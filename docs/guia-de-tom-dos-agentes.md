@@ -67,6 +67,17 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
 - **"Uma assistente virtual"** (feminino). Agradecimento recebe despedida. A frase de passagem para a
   cobrança sai uma vez só na conversa.
 
+## Rodada 3 do simulador (DL-0090, 13/10/2026)
+
+- **Plano pelos fatos do cadastro:** tipo, segmentação, acomodação e carências vêm da consulta do plano.
+  Cobertura de um procedimento específico nunca é prometida: diz a segmentação e onde confirmar.
+- **Telefone da central:** está no aplicativo Austa Clínicas e no portal do plano; nunca inventar número.
+  Pedir o número não é pedir uma pessoa.
+- **"Não é emergência"** é negação: não vira alerta. Navegação sem urgência: rede do plano, UBS (SUS),
+  pronto-atendimento se piorar, 192 se for grave — sem dizer se a pessoa precisa de médico.
+- **Encerramento** (inclusive irônico) recebe despedida curta. Frase acima de 20 palavras é partida antes
+  de sair.
+
 ## Nunca dizer
 
 - "portal do beneficiário", "portal da operadora", "aplicativo do plano", "site", 0800 ou qualquer canal
@@ -128,7 +139,7 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   a central como alternativa e a oferta de alguém da equipe. Total em aberto: "Seu total em aberto hoje é
   R$ X: outubro de 2026."
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
-  "TOM DA CONVERSA" do `response-v13` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
+  "TOM DA CONVERSA" do `response-v14` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no
   `agent.yaml`, e o pin de hash é atualizado (`test_helena_prompt_versions_pin.py`).
 - **Ficam fora da reescrita** os textos clínicos que aguardam o dono clínico (sintoma sem alerta,

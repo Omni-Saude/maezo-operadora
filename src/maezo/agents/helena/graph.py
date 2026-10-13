@@ -1007,12 +1007,26 @@ _SINAL_FORTE_DE_EMERGENCIA = re.compile(
 _SINAL_FRACO_DE_EMERGENCIA = re.compile(r"\b(?:ambulancia|samu|192|socorro|emergencia|pronto socorro)\b")
 
 
+#: RODADA 3 (13/10/2026): NEGACAO. "Blz, mas nao e emergencia nao" escalou `red_flag_clinico` grave: o
+#: "emergencia" negado acendia o sinal fraco com caso clinico aberto. A frase negada sai do texto antes de
+#: qualquer lexico de emergencia; sinal de verdade ("estou sem conseguir respirar") nao e' tocado.
+_NEGACAO_DE_URGENCIA = re.compile(
+    r"\b(?:nao|nem) (?:e|eh|ta|esta|era|sera|foi|parece)? ?(?:uma |nenhuma |caso de )?"
+    r"(?:emergencia|urgencia|urgente|grave|nada grave|socorro)\b"
+    r"|\bsem (?:urgencia|emergencia|pressa)\b|\bnada (?:de )?(?:urgente|grave)\b"
+)
+
+
+def _texto_dos_sinais(texto: str) -> str:
+    return _NEGACAO_DE_URGENCIA.sub(" ", _sem_pontuacao(_normalizar_texto(texto or "")))
+
+
 def _sinal_forte_de_emergencia(texto: str) -> bool:
-    return bool(_SINAL_FORTE_DE_EMERGENCIA.search(_sem_pontuacao(_normalizar_texto(texto or ""))))
+    return bool(_SINAL_FORTE_DE_EMERGENCIA.search(_texto_dos_sinais(texto)))
 
 
 def _sinal_fraco_de_emergencia(texto: str) -> bool:
-    return bool(_SINAL_FRACO_DE_EMERGENCIA.search(_sem_pontuacao(_normalizar_texto(texto or ""))))
+    return bool(_SINAL_FRACO_DE_EMERGENCIA.search(_texto_dos_sinais(texto)))
 
 
 def _mensagem_de_saude(estado: Mapping[str, Any]) -> bool:
@@ -2933,11 +2947,198 @@ _SUBTIPO_POR_TERMO: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(?:segunda via|2a via|codigo de barras|linha digitavel)\b"), "boleto_2via"),
     (re.compile(r"\b(?:vence|vencem|vencimento)\b"), "vencimento"),
 )
-#: Pergunta sobre o PLANO (tipo, cobertura, carencia, rede).
+#: Pergunta sobre o PLANO (tipo, cobertura, carencia, rede). RODADA 3: segmentacao e acomodacao por
+#: extenso ("o plano e' hospitalar ou ambulatorial?", "enfermaria ou apartamento?").
 _PERGUNTA_DO_PLANO = re.compile(
-    r"\b(?:cobre|cobrem|cobertura|carencias?|rede credenciada|que plano (?:eu )?tenho"
-    r"|qual (?:e )?(?:o )?(?:meu|seu) plano|tipo (?:de|do) (?:meu )?plano|meu plano (?:cobre|inclui|tem))\b"
+    r"\b(?:cobre|cobrem|cobertura|coberto|coberta|carencias?|rede credenciada|que plano (?:eu )?tenho"
+    r"|qual (?:e )?(?:o )?(?:meu|seu) plano|tipo (?:de|do) (?:meu )?plano|meu plano (?:cobre|inclui|tem|e)"
+    r"|hospitalar|ambulatorial|segmentacao|acomodacao|enfermaria|apartamento|obstetric\w*)\b"
 )
+_PERGUNTA_DE_COBERTURA = re.compile(r"\b(?:cobre|cobrem|cobertura|coberto|coberta)\b")
+#: "me passa o numero da central pra eu ligar": nao e' pedido de pessoa (RODADA 3).
+_PEDE_TELEFONE = re.compile(
+    r"\b(?:numero|telefone|fone|contato|whatsapp|zap)\b(?:\s+\w+){0,5}\s+(?:central|atendimento|plano|operadora"
+    r"|austa)\b|\b(?:pra|para) (?:eu )?ligar\b|\bqual (?:e )?o (?:numero|telefone)\b"
+)
+#: Pedido EXPLICITO de pessoa (RODADA 3): sem ele, `human_request` do modelo nao escala.
+_PEDIDO_EXPLICITO_DE_PESSOA = re.compile(
+    r"\b(?:falar|conversar|atendid[oa]|atender)\b(?:\s+\w+){0,4}\s+(?:pessoa|atendente|humano|humana|alguem"
+    r"|gente|equipe|enfermeir\w*|medic[oa]|supervisor|gerente|responsavel|operador)\b"
+    r"|\b(?:atendente|humano|humana|operador|supervisor|gerente)\b|\bpessoa (?:de verdade|real)\b"
+    r"|\bme (?:liga|ligue|ligar|ligam|chama|retorna)\b"
+    r"|\bme (?:passa|transfere|encaminha|coloca) (?:pra|para|com) (?:alguem|uma? \w+)\b"
+    r"|\b(?:quero|preciso) (?:de )?(?:uma? )?(?:pessoa|alguem)\b"
+)
+#: Pergunta de NAVEGACAO para sintoma nao urgente (RODADA 3): "vou na UBS ou espero?", "preciso ir no
+#: medico?". A Helena nao diz se precisa de medico; diz as opcoes.
+_PERGUNTA_DE_NAVEGACAO = re.compile(
+    r"\b(?:ubs|posto de saude|postinho|upa|pronto atendimento|onde (?:eu )?(?:vou|devo ir|procuro)"
+    r"|qual lugar|que lugar|vou (?:no|ao|na|pro) (?:medico|hospital|pronto)"
+    r"|ir (?:no|ao|pro) (?:medico|hospital)"
+    r"|preciso (?:ir|procurar)|devo (?:ir|procurar)|ou espero)\b"
+)
+#: ENCERRAMENTO (RODADA 3): agradecimento, inclusive ironico, e "vou ligar pra central entao".
+_ENCERRAMENTO = re.compile(
+    r"^(?:.*\b(?:valeu|obrigad[oa]|brigad[oa]|tchau|flw|falou)\b.*"
+    r"|.*\bvou (?:ligar|ver|procurar|resolver)\b.*\b(?:entao|mesmo|la|depois|sozinh[oa])\b.*"
+    r"|.*\b(?:deixa|esquece)\b.*\b(?:pra la|quieto|isso)\b.*)$"
+)
+_PERGUNTA_ABERTA = re.compile(
+    r"\?|\b(?:qual|quando|quanto|como|onde|por que|porque|pode|podia|consegue|tem como"
+    r"|quero|queria|preciso|gostaria|cancel\w*|me (?:liga|passa|manda))\b"
+)
+#: Gestacao/urgencia na pergunta do plano: "cobre parto? to gravida, e urgente" — o 192 vai na frente.
+_GESTACAO_URGENTE = re.compile(r"\b(?:gravida|gestante|gestacao|parto|contracoes?|bolsa|sangr\w+)\b")
+_URGENCIA = re.compile(r"\b(?:urgente|urgencia|emergencia|socorro)\b")
+#: D7 (RODADA 3): texto do MODELO que nega acesso a dado da pessoa. Nunca sai.
+_NEGA_ACESSO = re.compile(
+    r"nao (?:tenho|consigo|posso) (?:acesso|ver|consultar|acessar|verificar)"
+    r"|nao tenho como (?:ver|consultar|saber|acessar|verificar)|sem acesso a(?:os)? (?:seus|sua|informac)"
+)
+
+#: Plano/cobertura sem fonte (ou com a fonte falhando): redacoes que avancam a cada repeticao — na segunda
+#: vez ja' oferece uma pessoa. O transcrito repetiu o mesmo texto 4x a uma gestante.
+RESPOSTA_PLANO_INDISPONIVEL_2: str = (
+    "Entendi, e sei que é importante. As informações do plano ainda não vieram por este chat. "
+    "Se quiser falar com uma pessoa da equipe, é só me pedir."
+)
+RESPOSTA_PLANO_INDISPONIVEL_3: str = (
+    "Sinto muito pela dificuldade. Por aqui as informações do plano ainda não estão disponíveis. "
+    "Uma pessoa da equipe pode te ajudar com isso: é só me pedir."
+)
+#: Cobertura de procedimento ESPECIFICO: a segmentacao do cadastro nao confirma o procedimento.
+RESPOSTA_COBERTURA_ESPECIFICA: str = (
+    "A segmentação do cadastro não confirma um procedimento específico. Para confirmar, fale com a "
+    "central de atendimento do plano ou com uma pessoa da equipe. O aplicativo Austa Clínicas e o portal "
+    "do plano também mostram a cobertura."
+)
+#: Mensagem mista cobranca + plano com a fonte do plano LIGADA: a cobranca vai ao Lucas agora.
+RESPOSTA_COBERTURA_DEPOIS: str = "Sobre o plano e a cobertura, é só me perguntar de novo em seguida."
+RESPOSTA_TELEFONE_DA_CENTRAL: str = (
+    "O telefone da central de atendimento do plano está no aplicativo Austa Clínicas e no portal do plano. "
+    "Por aqui eu não passo número, para não arriscar te mandar um contato errado."
+)
+RESPOSTA_NAVEGACAO: str = (
+    "Eu não avalio sintomas, então não consigo dizer se você precisa de médico. Você pode marcar consulta "
+    "com um médico da rede do plano: a rede credenciada está no aplicativo Austa Clínicas e no portal do "
+    "plano. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento. Se for grave, ligue "
+    "para o 192 (SAMU)."
+)
+RESPOSTA_NAVEGACAO_CASO_ABERTO: str = (
+    "Eu não avalio sintomas, então não consigo dizer se você precisa de médico. Você pode marcar consulta "
+    "com um médico da rede do plano: a rede credenciada está no aplicativo Austa Clínicas e no portal do "
+    "plano. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento. Se for grave, ligue "
+    "para o 192 (SAMU). A nossa equipe de saúde já está com o seu caso."
+)
+RESPOSTA_DESPEDIDA_CASO_ABERTO: str = (
+    "Tudo bem. Seu caso continua com a nossa equipe, e a resposta vem por aqui. Se precisar, é só me chamar."
+)
+#: Fallback do `inform` com caso aberto (RODADA 3, log de 13/10: o modelo escreveu "ja encaminhamos" e
+#: "vai entrar em contato" num turno informativo e a cerca trocou pelo generico).
+RESPOSTA_INFORM_CASO_ABERTO: str = (
+    "Seu caso continua com a nossa equipe, e a resposta vem por aqui, nesta conversa. "
+    "Enquanto isso, me diga em que mais posso ajudar."
+)
+_TEXTOS_DE_PLANO_INDISPONIVEL: tuple[str, ...] = (
+    "Tipo do plano, carência e cobertura ainda não estão disponíveis por este chat.",
+    RESPOSTA_PLANO_INDISPONIVEL_2,
+    RESPOSTA_PLANO_INDISPONIVEL_3,
+)
+_EMERGENCIA_192: str = (
+    "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
+)
+
+
+def _pergunta_de_cobertura(texto: str) -> bool:
+    return bool(_PERGUNTA_DE_COBERTURA.search(_plano(texto)))
+
+
+def _pede_telefone(texto: str) -> bool:
+    return bool(_PEDE_TELEFONE.search(_plano(texto)))
+
+
+def _pedido_explicito_de_pessoa(texto: str) -> bool:
+    return bool(_PEDIDO_EXPLICITO_DE_PESSOA.search(_plano(texto)))
+
+
+def _pergunta_de_navegacao(texto: str) -> bool:
+    return bool(_PERGUNTA_DE_NAVEGACAO.search(_plano(texto)))
+
+
+def _e_encerramento(texto: str) -> bool:
+    """Mensagem de fechamento (agradecimento, inclusive ironico; "vou ligar pra central entao") SEM
+    pergunta nova. Conservador: com pergunta ou pedido, nao e' encerramento."""
+    plano = _plano(texto)
+    if not plano or len(plano.split()) > 16 or "?" in (texto or ""):
+        return False
+    if _PERGUNTA_ABERTA.search(plano) or _pedido_explicito_de_pessoa(texto):
+        return False
+    if _pergunta_de_cobranca(texto) or _pergunta_do_plano(texto) or _pergunta_de_canal(texto):
+        return False
+    return bool(_ENCERRAMENTO.search(plano))
+
+
+def _nega_acesso(texto: str) -> bool:
+    return bool(_NEGA_ACESSO.search(_normalizar_texto(texto or "")))
+
+
+def _subtipo_da_consulta(texto: str) -> str:
+    return "carencia" if re.search(r"\bcarencias?\b", _plano(texto)) else "elegibilidade"
+
+
+def _texto_plano_indisponivel(estado: Mapping[str, Any]) -> str:
+    """Plano sem fonte (ou fonte falhando): a redacao avanca a cada vez que ja' saiu na conversa, e a
+    partir da segunda oferece uma pessoa. Com gestacao/urgencia na mensagem, o 192 vai na frente."""
+    falas = [_sem_prefixo(f) for f in _falas_da_helena(estado)]
+    # "Contem", e nao "comeca por": a fala pode ter saido com o 192 na frente.
+    vezes = sum(1 for f in falas if any(t[:60] in f for t in _TEXTOS_DE_PLANO_INDISPONIVEL))
+    texto = (RESPOSTA_PLANO_POR_CANAIS, RESPOSTA_PLANO_INDISPONIVEL_2, RESPOSTA_PLANO_INDISPONIVEL_3)[
+        min(vezes, 2)
+    ]
+    mensagem = _plano(str(estado.get("message_body") or ""))
+    if _URGENCIA.search(mensagem) and _GESTACAO_URGENTE.search(mensagem):
+        return f"{_EMERGENCIA_192} {texto}"
+    return texto
+
+
+#: As palavras que podem terminar uma frase partida (RODADA 3, D8): frase do modelo acima de 20 palavras e'
+#: partida no separador mais perto do meio, sem trocar palavra nenhuma.
+_SEPARADORES_DE_FRASE: tuple[str, ...] = (", ", "; ", " mas ", " porque ", " e ")
+MAX_PALAVRAS_POR_FRASE: int = 20
+
+
+def _partir(frase: str) -> list[str]:
+    palavras = frase.split()
+    if len(palavras) <= MAX_PALAVRAS_POR_FRASE:
+        return [frase]
+    meio = len(frase) // 2
+    melhor: tuple[int, str] | None = None
+    for sep in _SEPARADORES_DE_FRASE:
+        inicio = 0
+        while (i := frase.find(sep, inicio)) != -1:
+            if melhor is None or abs(i - meio) < abs(melhor[0] - meio):
+                melhor = (i, sep)
+            inicio = i + 1
+    if melhor is None:
+        return [frase]
+    i, sep = melhor
+    esquerda = frase[:i].rstrip(" ,;")
+    direita = frase[i + len(sep) :].lstrip()
+    if sep.strip() in ("mas", "porque", "e"):
+        direita = f"{sep.strip()} {direita}"
+    if len(esquerda.split()) < 3 or len(direita.split()) < 3:
+        return [frase]
+    direita = direita[:1].upper() + direita[1:]
+    fim = "" if esquerda.endswith((".", "!", "?")) else "."
+    return [*_partir(esquerda + fim), *_partir(direita)]
+
+
+def _frases_curtas(texto: str) -> str:
+    """O texto do modelo com toda frase de ate' `MAX_PALAVRAS_POR_FRASE` palavras (regua D8 do guia)."""
+    partes = re.split(r"(?<=[.!?])\s+", texto.strip())
+    return " ".join(p for parte in partes for p in _partir(parte))
+
+
 #: Pergunta sobre CANAL (link, aplicativo, portal, carteirinha).
 _PERGUNTA_DE_CANAL = re.compile(
     r"\b(?:link|links|portal|aplicativo|app|site|carteirinha|carteira do plano|como (?:eu )?acesso)\b"
@@ -3812,6 +4013,23 @@ class HelenaGraph:
                 update, _subtipo_pelo_texto(str(state.get("message_body") or "")), None, state
             )
 
+        # RODADA 3: com a fonte dos fatos do plano LIGADA, pergunta do plano ("qual o tipo do meu plano?",
+        # "carencia?", "cobre parto?", "e' hospitalar ou ambulatorial?") vai a `consultar_plano` sem depender
+        # de o modelo escolher `consulta_plano`. Cobranca (acima) vence numa mensagem mista.
+        texto_da_mensagem = str(state.get("message_body") or "")
+        if (
+            self._consultas is not None
+            and intent in (*_INTENTS_QUE_VIRAM_COBRANCA, "clinical_question")
+            and not extraction.get("sintoma_codigo")
+            and not psychosocial
+            and _pergunta_do_plano(texto_da_mensagem)
+            and not _pergunta_de_navegacao(texto_da_mensagem)
+        ):
+            logger.info("helena_pergunta_do_plano_vai_a_consulta", node="classify", intent_do_modelo=intent)
+            intent = cast(Intent, INTENT_CONSULTA_PLANO)
+            update["intent"] = intent
+            update["consulta_subtipo"] = _subtipo_da_consulta(texto_da_mensagem)
+
         # CONVERSA SEM RELATO CLINICO (DL-0088) — ver `_conversa_sem_relato_clinico`. A mensagem e'
         # feita SO' de palavras de conversa ("quero tirar uma duvida sobre minha saude", "nao quero
         # falar com nenhuma equipe"): nao ha' sintoma nela por construcao. Um `sintoma_codigo` aqui
@@ -3996,6 +4214,28 @@ class HelenaGraph:
             and _pergunta_do_plano(texto_do_turno)
         ):
             logger.info("helena_pergunta_do_plano_nao_e_clinica", node="classify")
+            intent = "information"
+            update["intent"] = intent
+
+        # RODADA 3: sem sintoma, estas mensagens sao respondidas e NUNCA abrem caso — encerramento (inclusive
+        # ironico), pedido do telefone da central, pergunta de navegacao ("vou na UBS ou espero?") e o
+        # `human_request` do modelo sem pedido EXPLICITO de pessoa no texto (personas o_que_sabe, idoso,
+        # cpf_errado). O pedido explicito continua vencendo tudo isto.
+        sem_pedido_explicito = not _pedido_explicito_de_pessoa(texto_do_turno)
+        conversa_respondida = (
+            not extraction.get("sintoma_codigo")
+            and not _mensagem_de_saude(state)
+            and sem_pedido_explicito
+            and state.get("pedido_humano_lexico") is not True
+            and (
+                _e_encerramento(texto_do_turno)
+                or _pede_telefone(texto_do_turno)
+                or _pergunta_de_navegacao(texto_do_turno)
+                or (intent == "human_request" and _pergunta_sobre_caso_aberto(texto_do_turno) is None)
+            )
+        )
+        if conversa_respondida and intent not in ("information", INTENT_COBRANCA, INTENT_CONSULTA_PLANO):
+            logger.info("helena_conversa_respondida_sem_caso", node="classify", intent_do_modelo=intent)
             intent = "information"
             update["intent"] = intent
 
@@ -4441,6 +4681,13 @@ class HelenaGraph:
             # Texto FIXO, sem modelo: nao varia, nao se oferece para orientar o assunto e nao
             # convida a continuar. A precondicao da DMN ja' foi aplicada por `_route`.
             return {"response_text": RESPOSTA_FORA_DO_CANAL, "response_kind": "inform"}
+        if (
+            _pergunta_de_navegacao(str(state.get("message_body") or ""))
+            and state.get("psychosocial_risk") is not True
+        ):
+            # RODADA 3: navegacao para sintoma nao urgente (a tabela ja' disse que nao ha' bandeira, ou nao
+            # ha' sintoma): as opcoes, sem dizer se precisa de medico.
+            return {"response_text": self._texto_de_navegacao(state), "response_kind": "inform"}
         if state.get("intent") == "symptom" or state.get("sintoma_codigo"):
             # SINTOMA SEM BANDEIRA: texto FIXO, sem modelo — ver `RESPOSTA_SINTOMA_SEM_ALERTA`. A
             # precondicao de `_route` (`_inform_recusado`) garante que a tabela JA' disse `red_flag
@@ -4469,6 +4716,15 @@ class HelenaGraph:
                 # RODADA 2: o modelo recomendou conduta (frequencia de exame, dose). Texto fixo no lugar.
                 logger.warning("helena_conduta_clinica_barrada", node="inform")
                 return {"response_text": RESPOSTA_DUVIDA_CLINICA, "response_kind": "inform"}
+            if _nega_acesso(text):
+                # RODADA 3 (D7): o modelo disse que nao tem acesso aos dados da pessoa — falso neste canal.
+                logger.warning("helena_negativa_de_acesso_barrada", node="inform")
+                substituto_d7 = (
+                    RESPOSTA_O_QUE_SEI_DE_VOCE if self._roteador_lucas_enabled else RESPOSTA_PLANO_POR_CANAIS
+                )
+                return {"response_text": substituto_d7, "response_kind": "inform"}
+            # RODADA 3 (D8): frase do modelo acima de 20 palavras e' partida, sem trocar palavra.
+            text = _frases_curtas(text)
         except RespostaRecusadaError:
             if _texto_tem_negativa_clinica(text):
                 # O `error` leva o TOKEN DE CLASSE e nada mais: ele sobrevive para o sufixo
@@ -4489,7 +4745,13 @@ class HelenaGraph:
             # rascunho barrado — `helena_resposta_recusada` traz o grupo). Com assunto de saude ou de
             # canal na mensagem, sai o texto fixo daquele assunto.
             mensagem = str(state.get("message_body") or "")
-            if _ASSUNTO_DE_SAUDE.search(_plano(mensagem)):
+            if _caso_aberto_no_historico(state) is not None:
+                # RODADA 3 (log de 13/10): com caso aberto o modelo escreve "ja encaminhamos" / "vai entrar
+                # em contato" e a cerca barra; o que e' verdade e' que o caso continua com a equipe.
+                substituto = RESPOSTA_INFORM_CASO_ABERTO
+            elif _pergunta_do_plano(mensagem):
+                substituto = _texto_plano_indisponivel(state)
+            elif _ASSUNTO_DE_SAUDE.search(_plano(mensagem)):
                 substituto = RESPOSTA_DUVIDA_CLINICA
             elif _pergunta_de_canal(mensagem):
                 substituto = RESPOSTA_CANAIS_DO_PLANO
@@ -4515,6 +4777,20 @@ class HelenaGraph:
             return None
         intent = estado.get("intent")
         texto = str(estado.get("message_body") or "")
+        if intent in _INTENTS_QUE_VIRAM_COBRANCA:
+            # RODADA 3: encerramento (inclusive ironico) e pedido do telefone da central. Com sinal de saude
+            # ("ok obrigado, mas estou com sangramento") nunca e' despedida.
+            if _e_encerramento(texto) and not _mensagem_de_saude(estado):
+                return (
+                    RESPOSTA_DESPEDIDA_CASO_ABERTO
+                    if _caso_aberto_no_historico(estado) is not None
+                    else RESPOSTA_DESPEDIDA
+                )
+            if _pede_telefone(texto):
+                return RESPOSTA_TELEFONE_DA_CENTRAL
+            if _pergunta_de_navegacao(texto):
+                # Navegacao vence a pergunta do plano ("vou na UBS? qual lugar cobre?").
+                return self._texto_de_navegacao(estado)
         if intent in ("information", "greeting"):
             conversa = _conversa_sem_relato_clinico(texto)
             if conversa == CONVERSA_RECUSA_DE_EQUIPE:
@@ -4524,7 +4800,7 @@ class HelenaGraph:
         if intent in _INTENTS_QUE_VIRAM_COBRANCA:
             # RODADA 2: plano/cobertura com a fonte desligada e pergunta de canal, em texto fixo.
             if self._consultas is None and _pergunta_do_plano(texto):
-                return RESPOSTA_PLANO_POR_CANAIS
+                return _texto_plano_indisponivel(estado)
             if _pergunta_de_canal(texto) and not _pergunta_de_cobranca(texto):
                 return RESPOSTA_CANAIS_DO_PLANO
         if (
@@ -4534,6 +4810,14 @@ class HelenaGraph:
         ):
             return RESPOSTA_O_QUE_SEI_DE_VOCE
         return None
+
+    @staticmethod
+    def _texto_de_navegacao(estado: Mapping[str, Any]) -> str:
+        """RODADA 3: as opcoes de cuidado (rede do plano, UBS, pronto-atendimento, 192), com o caso de saude
+        mencionado quando ele esta' aberto."""
+        if _caso_aberto_no_historico(estado) == CASO_ABERTO_CLINICO:
+            return RESPOSTA_NAVEGACAO_CASO_ABERTO
+        return RESPOSTA_NAVEGACAO
 
     def _consulta_recusada(self, estado: Mapping[str, Any]) -> str | None:
         """Precondicao DETERMINISTICA da rota `consultar_plano` (as duas camadas, como `inform`)."""
@@ -4583,7 +4867,11 @@ class HelenaGraph:
         if (
             self._consultas is None
             or subtipo not in CONSULTA_SUBTIPOS
-            or state.get("identidade_desfecho") != IDENTIDADE_RECONHECIDA
+            # RODADA 3: com o acesso do beneficiario ligado o despachante ZERA o desfecho (DL-0083: quem diz
+            # quem e' a pessoa e' a verificacao) e a identidade vem da referencia VERIFICADA. Sem esta
+            # leitura, a consulta nunca saia do texto fixo no dev. Desfecho declarado diferente de
+            # `reconhecido` continua recusando.
+            or state.get("identidade_desfecho") not in (IDENTIDADE_RECONHECIDA, None)
             or not isinstance(ref, str)
             or not ref
         ):
@@ -4604,7 +4892,9 @@ class HelenaGraph:
             logger.info(
                 "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="indisponivel"
             )
-            return fixo
+            # RODADA 3: a fonte falhou com a pessoa identificada: nao e' "nao consegui confirmar seus
+            # dados" (falso, e D7). Onde ver, variando, e a partir da segunda vez a oferta de pessoa.
+            return {"response_text": _texto_plano_indisponivel(state), "response_kind": "inform"}
         texto: str | None = None
         if subtipo in SUBTIPOS_REDIGIDOS:
             texto = await self._redigir_consulta(state, subtipo, fatos)
@@ -4614,6 +4904,15 @@ class HelenaGraph:
             recusa = "subtipo_deterministico"
         if recusa is not None or not isinstance(texto, str):
             texto = resposta_deterministica(subtipo, fatos)
+        else:
+            texto = _frases_curtas(texto)
+        mensagem = str(state.get("message_body") or "")
+        if _pergunta_de_cobertura(mensagem):
+            # RODADA 3: cobertura de procedimento especifico nunca e' prometida pela segmentacao.
+            texto = f"{texto.strip()}\n{RESPOSTA_COBERTURA_ESPECIFICA}"
+        if _URGENCIA.search(_plano(mensagem)) and _GESTACAO_URGENTE.search(_plano(mensagem)):
+            # "cobre parto? to gravida, e urgente": o 192 na frente dos fatos do plano.
+            texto = f"{_EMERGENCIA_192}\n{texto.strip()}"
         logger.info(
             "helena_consulta_plano",
             node="consultar_plano",
@@ -4678,7 +4977,11 @@ class HelenaGraph:
         frase = "" if lucas_ativo or _frase_de_passagem_ja_dita(state) else FRASE_PASSAGEM_COBRANCA
         mensagem = str(state.get("message_body") or "")
         nota = (
-            RESPOSTA_COBERTURA_NA_PASSAGEM if self._consultas is None and _pergunta_do_plano(mensagem) else ""
+            ""
+            if not _pergunta_do_plano(mensagem)
+            else RESPOSTA_COBERTURA_NA_PASSAGEM
+            if self._consultas is None
+            else RESPOSTA_COBERTURA_DEPOIS
         )
         logger.info(
             "helena_handoff_cobranca",
@@ -5969,6 +6272,9 @@ class HelenaGraph:
         a_confirmar = state.get("memoria_a_confirmar")
         if a_confirmar:
             context["memoria_a_confirmar"] = a_confirmar
+        # RODADA 3: com caso aberto o modelo escrevia "ja encaminhamos" num turno informativo (barrado).
+        if _caso_aberto_no_historico(state) is not None:
+            context["caso_aberto"] = True
         # HEL-06: mesma fronteira do `_classify_llm`. Aqui o poder da injecao seria sobre o
         # TEXTO enviado ao beneficiario (a rota ja esta decidida), o que nao a torna menos
         # necessaria: a resposta e' a unica coisa que a pessoa do outro lado le'.

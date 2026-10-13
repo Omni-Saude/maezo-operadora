@@ -1957,6 +1957,116 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Entendi, e sei que é importante. As informações do plano ainda não vieram por este chat. Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_PLANO_INDISPONIVEL_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Sinto muito pela dificuldade. Por aqui as informações do plano ainda não estão disponíveis. Uma pessoa da equipe pode te ajudar com isso: é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_PLANO_INDISPONIVEL_3",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "A segmentação do cadastro não confirma um procedimento específico. Para confirmar, fale com a central de atendimento do plano ou com uma pessoa da equipe. O aplicativo Austa Clínicas e o portal do plano também mostram a cobertura.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_COBERTURA_ESPECIFICA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Sobre o plano e a cobertura, é só me perguntar de novo em seguida.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_COBERTURA_DEPOIS",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O telefone da central de atendimento do plano está no aplicativo Austa Clínicas e no portal do plano. Por aqui eu não passo número, para não arriscar te mandar um contato errado.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_TELEFONE_DA_CENTRAL",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Eu não avalio sintomas, então não consigo dizer se você precisa de médico. Você pode marcar consulta com um médico da rede do plano: a rede credenciada está no aplicativo Austa Clínicas e no portal do plano. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento. Se for grave, ligue para o 192 (SAMU).",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_NAVEGACAO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Eu não avalio sintomas, então não consigo dizer se você precisa de médico. Você pode marcar consulta com um médico da rede do plano: a rede credenciada está no aplicativo Austa Clínicas e no portal do plano. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento. Se for grave, ligue para o 192 (SAMU). A nossa equipe de saúde já está com o seu caso.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_NAVEGACAO_CASO_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tudo bem. Seu caso continua com a nossa equipe, e a resposta vem por aqui. Se precisar, é só me chamar.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_DESPEDIDA_CASO_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu caso continua com a nossa equipe, e a resposta vem por aqui, nesta conversa. Enquanto isso, me diga em que mais posso ajudar.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_INFORM_CASO_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): _EMERGENCIA_192",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }
