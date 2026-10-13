@@ -120,6 +120,7 @@ resource "aws_ecs_task_definition" "simulador" {
       local.webhook_receiver_contrato.environment_amh,
       [
         { name = "MAEZO_SIMULADOR_BUCKET", value = aws_s3_bucket.qa_simulador.bucket },
+        { name = "MAEZO_SIMULADOR_KMS_KEY", value = aws_kms_alias.qa_simulador.name },
         { name = "SIMULADOR_ARGS", value = "--conversas 10" },
       ],
     )

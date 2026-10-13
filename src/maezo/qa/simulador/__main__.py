@@ -227,7 +227,9 @@ async def executar(args: argparse.Namespace) -> int:
     bucket = os.environ.get("MAEZO_SIMULADOR_BUCKET", "")
     # A regiao do Bedrock da task (a mesma do bucket: tudo em sa-east-1).
     regiao = os.environ.get("MAEZO_BEDROCK_REGION") or "sa-east-1"
-    armazenamento = ArmazenamentoS3(bucket, regiao=regiao)
+    armazenamento = ArmazenamentoS3(
+        bucket, regiao=regiao, chave_kms=os.environ.get("MAEZO_SIMULADOR_KMS_KEY", "")
+    )
     if args.limpar:
         return await _so_limpar(args, armazenamento)
 

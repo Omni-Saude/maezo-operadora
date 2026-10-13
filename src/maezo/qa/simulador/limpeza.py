@@ -163,11 +163,13 @@ class Limpeza:
         return resultado
 
     async def conferir_motor(self, conversation_ids: Sequence[str], resultado: ResultadoDaLimpeza) -> None:
-        """Zero caso ESC destas conversas no motor REAL (ativo ou no historico)."""
+        """Zero caso ESC ATIVO destas conversas no motor REAL. So' o ativo: os telefones sinteticos ja'
+        serviram a baterias antigas, e o historico traz casos encerrados que esta execucao nao criou
+        (medido em 13/10/2026: 13 falsos positivos na primeira execucao, com o motor limpo)."""
         if self._motor is None:
             resultado.erros.append("motor:sem_transporte")
             return
-        procurar = getattr(self._motor, "find_any_instance", None) or self._motor.find_active_instance
+        procurar = self._motor.find_active_instance
         for cid in conversation_ids:
             for clinico in (False, True):
                 chave = chave_do_escalonamento(self._tenant, cid, clinico=clinico)
