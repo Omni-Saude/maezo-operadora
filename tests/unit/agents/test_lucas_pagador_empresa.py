@@ -24,6 +24,8 @@ from maezo.agents.lucas.fonte_cobranca import FatosCobranca
 from maezo.agents.lucas.fonte_cobranca_amh import FonteCobrancaAmh
 from maezo.agents.lucas.graph import (
     PROMPT_VERSIONS,
+    TEXTO_EMPRESA_SEGUNDA_VIA,
+    TEXTO_EMPRESA_VENCIMENTO,
     TEXTO_PAGADOR_EMPRESA,
     LucasGraph,
     LucasState,
@@ -176,11 +178,17 @@ async def test_empresa_ouve_o_texto_fixo_e_nunca_a_fatura_da_empresa(tipo: str) 
     assert final["route"] == "respond_member"
     assert final["process_started"] is False
     # Rodada 4 (13/10/2026): a frase e a consequencia, uma vez — quem confirma o pagamento e' a empresa.
-    assert envio.textos == [_EXPLICACAO_EMPRESA]
+    # Rodada 8: por assunto — 2a via e vencimento/boleto tem o texto proprio (a empresa e' quem os tem).
+    esperado = {
+        "boleto": TEXTO_EMPRESA_SEGUNDA_VIA,
+        "2a_via": TEXTO_EMPRESA_SEGUNDA_VIA,
+        "vencimento": TEXTO_EMPRESA_VENCIMENTO,
+    }.get(tipo, _EXPLICACAO_EMPRESA)
+    assert envio.textos == [esperado]
     assert final["mensagem"]["prompt_version"] == PAGADOR_EMPRESA_TEXTO_VERSION
     assert inferencia.prompts == []
     texto = envio.textos[0]
-    for proibido in ("107", "R$", "vencid", "atraso", "boleto", "10/10"):
+    for proibido in ("107", "R$", "vencid", "atraso", "10/10"):
         assert proibido not in texto
 
 

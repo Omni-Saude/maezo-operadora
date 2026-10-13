@@ -190,6 +190,12 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   dados mostram e de quando são, que um pagamento perto dessa data pode ainda não constar, que comprovante não
   se recebe por aqui e a oferta de alguém da equipe (uma vez). A escada de repetição vale só para a MESMA
   pergunta (assunto, foco e mês): pergunta nova recebe a resposta dela.
+- **Empresa por assunto (Lucas, 13/10/2026, rodada 8, teste real do dono):** num contrato de empresa, 2ª via,
+  vencimento/boleto e pagamento são três perguntas, cada uma com o seu texto e a sua escada ("O boleto e o
+  vencimento da sua mensalidade ficam com a empresa contratante (normalmente o RH).", "A 2ª via do boleto é
+  com a empresa contratante (normalmente o RH). Por aqui eu não consigo enviar o boleto."). Só a repetição
+  REAL do mesmo assunto e mês anda na escada: completa, curta, "Por aqui eu não consigo detalhar mais do que
+  isso." e, só na terceira repetição, "Não tenho outra informação sobre isso além do que já te passei.".
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
   "TOM DA CONVERSA" do `response-v14` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no
