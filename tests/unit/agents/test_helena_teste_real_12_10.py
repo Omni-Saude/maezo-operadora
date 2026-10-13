@@ -38,6 +38,7 @@ from maezo.agents.helena.graph import (
     RESPOSTA_HANDOFF_RECUSADA,
     RESPOSTA_HANDOFF_SAUDE,
     RESPOSTA_O_QUE_SEI_DE_VOCE,
+    RESPOSTA_PECA_REENVIO,
     RESPOSTA_RECUSA_DE_EQUIPE,
     START_DESFECHO_JA_ATIVO,
     SUBTIPO_COBRANCA_PADRAO,
@@ -141,6 +142,7 @@ def _grafo(
         audit_sink=FakeStartAuditSink(),
         whatsapp=whatsapp,
         roteador_lucas_enabled=roteador,
+        historico_enabled=True,
         relogio=lambda: datetime(2026, 10, 12, 15, 0, tzinfo=UTC),
     )
     return grafo, whatsapp, modelo, cibseven
@@ -207,7 +209,15 @@ async def test_msg1_falha_tecnica_de_verdade_usa_o_texto_neutro_sem_equipe_de_sa
     texto NEUTRO. A pessoa perguntou do financeiro e nunca le' "equipe de saude"."""
     grafo, whatsapp, _, _ = _grafo(["nao e json", "tambem nao"])
 
-    resultado = await _turno(grafo, _entrada(MSG_1))
+    # DL-0093 (rodada 6): a falha so' escala quando se repete (o turno anterior pediu o reenvio).
+    entrada = dict(_entrada(MSG_1))
+    agora = datetime.now(UTC).isoformat()
+    entrada["historico_conversa"] = [
+        {"papel": "beneficiario", "texto": MSG_1, "em": agora},
+        {"papel": "helena", "texto": RESPOSTA_PECA_REENVIO, "em": agora},
+    ]
+    entrada["ultima_mensagem_em"] = agora
+    resultado = await _turno(grafo, entrada)  # type: ignore[arg-type]
 
     assert resultado["escalation_motivo"] == "falha_tecnica"
     assert whatsapp.enviados == [RESPOSTA_HANDOFF_RECUSADA]
@@ -363,7 +373,7 @@ async def test_o_aviso_de_caso_aberto_nao_sai_igual_duas_vezes_seguidas() -> Non
         "conversation_id": _CONVERSA,
         "canal": "whatsapp",
         "beneficiario_pseudo_id": "PSEUDO-DONO",
-        "message_body": "quero falar com alguem de novo",
+        "message_body": "alguma novidade?",
         "response_text": RESPOSTA_HANDOFF_RECUSADA,
         "response_kind": "escalate",
         "escalation_started": True,
@@ -390,7 +400,7 @@ async def test_sem_historico_o_aviso_de_caso_aberto_e_o_de_sempre() -> None:
         "conversation_id": _CONVERSA,
         "canal": "whatsapp",
         "beneficiario_pseudo_id": "PSEUDO-DONO",
-        "message_body": "quero falar com alguem",
+        "message_body": "alguma novidade?",
         "response_text": RESPOSTA_HANDOFF_RECUSADA,
         "response_kind": "escalate",
         "escalation_started": True,

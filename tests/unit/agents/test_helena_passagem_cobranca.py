@@ -188,8 +188,9 @@ async def test_desligado_o_grafo_nao_tem_o_no_de_passagem() -> None:
 async def test_desligado_um_cobranca_do_modelo_vira_falha_tecnica_como_hoje() -> None:
     compilado, sender, _ = _grafo(_FakeInference([_json(), _json(), _HANDOFF, "resumo"]), ligado=False)
     resultado = await compilado.ainvoke(_entrada())
-    assert resultado["escalation_motivo"] == "falha_tecnica"
-    assert "invalid_intent" in resultado["error"]
+    # DL-0093 (rodada 6): a primeira falha do classificador, sem assunto de saude, pede o reenvio.
+    assert resultado.get("escalation_motivo") is None
+    assert resultado["response_text"] == RESPOSTA_PECA_REENVIO
     assert resultado.get("handoff") is None
     assert FRASE_PASSAGEM_COBRANCA not in [t for _, t in sender.sent]
 

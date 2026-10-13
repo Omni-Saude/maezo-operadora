@@ -3161,6 +3161,17 @@ _ASSUNTO_CLINICO_NA_FALHA = re.compile(
 )
 
 
+def _classe_da_falha_do_classify(falha: str | None) -> str:
+    """Token de classe da falha do classificador, sem texto de terceiro (para log)."""
+    texto = falha or ""
+    if texto.startswith("classify LLM call failed"):
+        return "excecao_do_provedor"
+    if "unparseable" in texto:
+        return "json_ilegivel"
+    token = re.search(r"schema-invalid JSON: (\w+)", texto)
+    return f"schema_invalido:{token.group(1)}" if token else "desconhecida"
+
+
 def _falha_deve_escalar(estado: Mapping[str, Any]) -> bool:
     """A falha do classificador escala (`falha_tecnica`) quando a mensagem fala de saude ou quando a
     falha se repete — o turno anterior da Helena ja' foi o pedido de reenvio."""
@@ -4006,7 +4017,9 @@ class HelenaGraph:
                 logger.warning(
                     "helena_classify_falhou_pede_reenvio",
                     node="classify",
-                    falha=(classify_failure or "classify LLM failed")[:120],
+                    # So' a CLASSE da falha: a mensagem de excecao do provedor pode ecoar o texto da
+                    # pessoa (o CI mostrou um CPF mascarado ali) — nunca vai ao log.
+                    falha=_classe_da_falha_do_classify(classify_failure),
                 )
                 return {
                     "next_kind": "inform",

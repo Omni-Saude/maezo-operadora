@@ -874,7 +874,9 @@ async def test_cpf_bearing_field_value_never_reaches_engine_variables() -> None:
     graph = _graph(inference=inference, cibseven=_RecordingCibSeven(), whatsapp=sender).compile_graph()
     compiled = graph.compile()
 
-    result = await compiled.ainvoke(_base_state(message_body="qualquer coisa"))
+    # DL-0093: assunto clinico na mensagem — a falha do classificador escala de imediato (sem ele, pede
+    # o reenvio primeiro).
+    result = await compiled.ainvoke(_base_state(message_body="estou com dor nas costas"))
 
     assert result["next_kind"] == "escalate"
     assert result["escalation_motivo"] == "falha_tecnica"
@@ -1354,7 +1356,8 @@ async def test_classify_llm_exception_text_never_reaches_engine_variables(
     graph = _graph(inference=_ExplodingInference(), cibseven=_RecordingCibSeven()).compile_graph()
     compiled = graph.compile()
 
-    result = await compiled.ainvoke(_base_state(message_body=f"meu CPF e {cpf}, quero ajuda"))
+    # DL-0093: assunto clinico na mensagem, para a falha escalar de imediato.
+    result = await compiled.ainvoke(_base_state(message_body=f"meu CPF e {cpf}, estou com febre"))
 
     assert result["next_kind"] == "escalate"
     assert result["escalation_motivo"] == "falha_tecnica"
