@@ -3019,7 +3019,8 @@ _PEDIDO_EXPLICITO_DE_PESSOA = re.compile(
     r"|gente|equipe|enfermeir\w*|medic[oa]|supervisor|gerente|responsavel|operador)\b"
     r"|\b(?:atendente|humano|humana|operador|supervisor|gerente)\b|\bpessoa (?:de verdade|real)\b"
     r"|\bme (?:liga|ligue|ligar|ligam|chama|retorna)\b"
-    r"|\bme (?:passa|transfere|encaminha|coloca) (?:pra|para|com) (?:alguem|uma? \w+)\b"
+    r"|\bme (?:passa|transfere|encaminha|coloca) (?:pra|para|com) (?:alguem|uma? (?:pessoa|atendente|humano"
+    r"|humana|supervisor\w*|gerente))\b"
     r"|\b(?:quero|preciso) (?:de )?(?:uma? )?(?:pessoa|alguem)\b"
 )
 #: Pergunta de NAVEGACAO para sintoma nao urgente (RODADA 3): "vou na UBS ou espero?", "preciso ir no
@@ -3117,6 +3118,12 @@ def _pede_telefone(texto: str) -> bool:
 
 def _pedido_explicito_de_pessoa(texto: str) -> bool:
     return bool(_PEDIDO_EXPLICITO_DE_PESSOA.search(_plano(texto)))
+
+
+def eh_pedido_explicito_de_pessoa(texto: str) -> bool:
+    """Entrada publica (DL-0092) para o despachante: o texto pede EXPLICITAMENTE uma pessoa da nossa
+    equipe (atendente, humano, pessoa, alguem da equipe, supervisor)? "Me passa pro RH" nao pede."""
+    return _pedido_explicito_de_pessoa(texto)
 
 
 def _pergunta_de_navegacao(texto: str) -> bool:
