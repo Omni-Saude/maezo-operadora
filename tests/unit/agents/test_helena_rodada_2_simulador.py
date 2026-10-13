@@ -30,6 +30,7 @@ from maezo.agents.helena.graph import (
     RESPOSTA_CASO_ABERTO_EMERGENCIA,
     RESPOSTA_CASO_ABERTO_EMERGENCIA_2,
     RESPOSTA_CASO_ABERTO_EMERGENCIA_3,
+    RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA,
     RESPOSTA_CASO_ABERTO_PRAZO,
     RESPOSTA_CASO_ABERTO_SUPERVISOR,
     RESPOSTA_CASO_ABERTO_URGENTE,
@@ -37,7 +38,6 @@ from maezo.agents.helena.graph import (
     RESPOSTA_DESPEDIDA,
     RESPOSTA_DUVIDA_CLINICA,
     RESPOSTA_ESCALONAMENTO_URGENTE,
-    RESPOSTA_HANDOFF_JA_ABERTO,
     RESPOSTA_HANDOFF_RECUSADA,
     RESPOSTA_PLANO_POR_CANAIS,
     START_DESFECHO_JA_ATIVO,
@@ -259,7 +259,9 @@ async def test_caso_aberto_administrativo_nao_fala_em_samu() -> None:
 
     await grafo.ainvoke(_entrada("quero falar com alguem", [RESPOSTA_HANDOFF_RECUSADA]))
 
-    assert whatsapp.enviados == [RESPOSTA_HANDOFF_JA_ABERTO]
+    # DL-0093 (rodada 6): pedido explicito com o caso aberto recebe o texto proprio (o atendente responde
+    # aqui) — e continua sem 192 num caso administrativo.
+    assert whatsapp.enviados == [RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA]
     assert "192" not in whatsapp.enviados[0]
 
 

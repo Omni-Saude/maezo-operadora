@@ -23,7 +23,11 @@ from typing import Any
 
 import pytest
 
-from maezo.agents.helena.graph import FRASE_PASSAGEM_COBRANCA, RESPOSTA_HANDOFF_RECUSADA
+from maezo.agents.helena.graph import (
+    FRASE_PASSAGEM_COBRANCA,
+    RESPOSTA_HANDOFF_RECUSADA,
+    RESPOSTA_PECA_REENVIO,
+)
 from maezo.agents.lucas.graph import SEGUNDA_VIA_CANAIS
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.tool_registry import build_agent_seam_context
@@ -415,11 +419,14 @@ async def test_cobranca_com_sinal_de_saude_no_lexico_nunca_vai_ao_lucas() -> Non
 
 
 async def test_classify_falho_nunca_vai_ao_lucas() -> None:
-    dispatcher, _, store, espiao, _ = _montar(["isto nao e json"])
+    dispatcher, cliente, store, espiao, _ = _montar(["isto nao e json"])
     resultado = await dispatcher.dispatch(_msg())
-    assert resultado["escalation_motivo"] == "falha_tecnica"
+    # DL-0093 (rodada 6): a primeira falha do classificador, sem assunto de saude, pede o reenvio e nao
+    # escala; nunca vai ao Lucas.
+    assert resultado.get("escalation_motivo") is None
     assert espiao is not None and espiao.handoffs == []
-    assert _linha(store).transicao_motivo == "retorno_falha"
+    assert cliente.textos == [RESPOSTA_PECA_REENVIO]
+    assert _linha(store).agente_ativo == "helena"
 
 
 # --- desligado e sombra --------------------------------------------------------------------------
@@ -434,7 +441,8 @@ async def test_roteador_sem_lucas_e_a_sombra_a_helena_nao_conhece_cobranca() -> 
     assert len(classificacoes) == 2
     assert all('"cobranca"]' not in p for p in classificacoes)  # classify-v5
     assert resultado.get("handoff") is None
-    assert "invalid_intent" in str(resultado.get("error"))
+    # DL-0093: a recusa da extracao (`invalid_intent`) e' falha do classificador -> pede o reenvio.
+    assert resultado["response_text"] == RESPOSTA_PECA_REENVIO
     assert FRASE_PASSAGEM_COBRANCA not in cliente.textos
     assert _linha(store).agente_ativo == "helena"
 

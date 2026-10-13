@@ -901,6 +901,11 @@ RESPOSTA_CASO_ABERTO_URGENTE: str = (
 )
 
 #: RODADA 4: o recado ao atendente, sem prometer que ele le' esta conversa (o portal nao a recebe).
+#: RODADA 6: pedido explicito de pessoa com o caso ja' aberto.
+RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA: str = (
+    "Seu caso já está com a nossa equipe, por isso não abri outro. "
+    "O atendente vai te responder aqui mesmo, nesta conversa."
+)
 RESPOSTA_CASO_ABERTO_RECADO: str = (
     "Entendi o que você precisa confirmar. Quando o atendente responder aqui, conte esse pedido "
     "para ele, por favor. Seu atendimento continua aberto."
@@ -1138,6 +1143,10 @@ def _texto_de_caso_aberto(estado: Mapping[str, Any]) -> str | None:
         return RESPOSTA_CASO_ABERTO_SUPERVISOR
     if pergunta == PERGUNTA_CASO_PRAZO:
         return RESPOSTA_CASO_ABERTO_PRAZO
+    if _pedido_explicito_com_verbo(texto):
+        # RODADA 6: "Passa pra equipe AGORA" com o caso ja' aberto: o caso ja' esta' com a equipe e o
+        # atendente responde aqui (nunca "vou levar isso para a equipe").
+        return RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA
     if motivo == "intencao_clinica":
         return RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA
     return None
@@ -3022,6 +3031,15 @@ _PEDIDO_EXPLICITO_DE_PESSOA = re.compile(
     r"|\bme (?:passa|transfere|encaminha|coloca) (?:pra|para|com) (?:alguem|uma? (?:pessoa|atendente|humano"
     r"|humana|supervisor\w*|gerente))\b"
     r"|\b(?:quero|preciso) (?:de )?(?:uma? )?(?:pessoa|alguem)\b"
+    # RODADA 6: "passa pra equipe AGORA" (com ou sem "me").
+    r"|\b(?:passa|transfere|encaminha|manda|coloca)(?: \w+){0,2} (?:pra|para|pro|com) (?:a |o |um |uma )?"
+    r"(?:equipe|atendente|humano|humana|pessoa|alguem|supervisor\w*|gerente)\b"
+)
+#: RODADA 6: queixa de espera ("to aqui esperando desde cedo e ninguem veio me ligar") nao e' pedido NOVO
+#: de pessoa — o "me ligar" dela e' reclamacao de quem ja' esta' esperando.
+_QUEIXA_DE_ESPERA = re.compile(
+    r"\b(?:ninguem|nenhum\w*)(?: \w+){0,3} (?:veio|vem|apareceu|respondeu|ligou|retornou)(?: \w+){0,3}"
+    r"|\b(?:estou|to|tou|fico|fiquei|continuo)(?: aqui)? esperando(?: \w+){0,6}"
 )
 #: Pergunta de NAVEGACAO para sintoma nao urgente (RODADA 3): "vou na UBS ou espero?", "preciso ir no
 #: medico?". A Helena nao diz se precisa de medico; diz as opcoes.
@@ -3116,8 +3134,75 @@ def _pede_telefone(texto: str) -> bool:
     return bool(_PEDE_TELEFONE.search(_plano(texto)))
 
 
+#: RODADA 6: o texto do MODELO promete repassar algo a equipe ("vou levar isso", "ja pedi para a equipe").
+_PROMESSA_DE_REPASSE = re.compile(
+    r"\b(?:vou|irei|vamos) (?:levar|passar|repassar|encaminhar|avisar|informar|registrar|anotar)\b"
+    r"|\bja pedi\b|\bpedi (?:para|pra) (?:a |o )?(?:equipe|atendente|setor|pessoa)\b"
+)
+_APRESENTACAO_NO_INICIO = re.compile(
+    r"^\s*(?:(?:oi|ola|olá)[!,.]?\s*)?sou (?:a )?helena\b[^.!?]*[.!?]\s*", re.I
+)
+
+
+def _sem_apresentacao(texto: str) -> str:
+    """O texto do modelo sem a frase de apresentacao no inicio (so' o primeiro contato se apresenta)."""
+    sem = _APRESENTACAO_NO_INICIO.sub("", texto, count=1).strip()
+    return sem[:1].upper() + sem[1:] if sem else texto
+
+
+#: RODADA 6: o texto quando o classificador falha UMA vez (sem sinal de saude): pede a mensagem de novo.
+RESPOSTA_PECA_REENVIO: str = "Tive um problema para entender sua mensagem agora. Pode me mandar de novo?"
+#: Assunto clinico no TEXTO: com ele, a falha do classificador escala como sempre (fail-closed).
+_ASSUNTO_CLINICO_NA_FALHA = re.compile(
+    r"\b(?:dor|doi|doendo|febre|sintoma\w*|sangr\w*|vomit\w*|tontura|tont[oa]|desmai\w*|respir\w*|tosse"
+    r"|mal estar|passando mal|machuc\w*|ferid[oa]s?|ferimento|gravid\w*|gestante|bebe|crianca|filh[oa]s?"
+    r"|o que eu tenho|remedio\w*|medicament\w*|alergi\w*|inchad\w*|incha\w*|queimad\w*|convuls\w*"
+    r"|ansiedade|ansios\w*|depress\w*|triste\w*|morrer|matar|suicid\w*|enjoo|diarreia|pressao|infec\w*)\b"
+)
+
+
+def _classe_da_falha_do_classify(falha: str | None) -> str:
+    """Token de classe da falha do classificador, sem texto de terceiro (para log)."""
+    texto = falha or ""
+    if texto.startswith("classify LLM call failed"):
+        return "excecao_do_provedor"
+    if "unparseable" in texto:
+        return "json_ilegivel"
+    token = re.search(r"schema-invalid JSON: (\w+)", texto)
+    return f"schema_invalido:{token.group(1)}" if token else "desconhecida"
+
+
+def _falha_deve_escalar(estado: Mapping[str, Any]) -> bool:
+    """A falha do classificador escala (`falha_tecnica`) quando a mensagem fala de saude ou quando a
+    falha se repete — o turno anterior da Helena ja' foi o pedido de reenvio."""
+    texto = str(estado.get("message_body") or "")
+    if _mensagem_de_saude(estado) or _ASSUNTO_CLINICO_NA_FALHA.search(_plano(texto)):
+        return True
+    falas = _falas_da_helena(estado)
+    return bool(falas) and _sem_prefixo(falas[-1]).startswith(RESPOSTA_PECA_REENVIO[:40])
+
+
+#: O pedido explicito COM VERBO (sem a palavra solta "humano"/"atendente", que tambem aparece em pergunta de
+#: identidade como "voce e humano?").
+_PEDIDO_COM_VERBO = re.compile(
+    r"\b(?:falar|conversar|atendid[oa]|atender)\b(?:\s+\w+){0,4}\s+(?:pessoa|atendente|humano|humana|alguem"
+    r"|gente|equipe|supervisor|gerente|responsavel|operador)\b"
+    r"|\b(?:passa|transfere|encaminha|manda|coloca)(?: \w+){0,2} (?:pra|para|pro|com) (?:a |o |um |uma )?"
+    r"(?:equipe|atendente|humano|humana|pessoa|alguem|supervisor\w*|gerente)\b"
+    r"|\b(?:quero|preciso) (?:de )?(?:uma? )?(?:pessoa|alguem|atendente)\b"
+)
+
+
+#: "nao quero falar com nenhum atendente": recusa, nunca pedido.
+_RECUSA_DE_PESSOA = re.compile(r"\bnao (?:quero|preciso|gostaria|queria)\b")
+
+
+def _pedido_explicito_com_verbo(texto: str) -> bool:
+    return bool(_PEDIDO_COM_VERBO.search(_QUEIXA_DE_ESPERA.sub(" ", _plano(texto))))
+
+
 def _pedido_explicito_de_pessoa(texto: str) -> bool:
-    return bool(_PEDIDO_EXPLICITO_DE_PESSOA.search(_plano(texto)))
+    return bool(_PEDIDO_EXPLICITO_DE_PESSOA.search(_QUEIXA_DE_ESPERA.sub(" ", _plano(texto))))
 
 
 def eh_pedido_explicito_de_pessoa(texto: str) -> bool:
@@ -3923,6 +4008,25 @@ class HelenaGraph:
             # aquela regra casa `severidade` no coringa `-`, entao nunca dependeu dela) e a
             # instancia segue por `Flow_Notificar_UT` -> `UT_TratarEscalonamento`. O que deixa de
             # existir e' o rotulo fabricado — nao a pagina.
+            # RODADA 6 (bateria 5): uma falha PASSAGEIRA do provedor (5 turnos no mesmo segundo, em
+            # conversas diferentes) virou 5 escalonamentos `falha_tecnica`. Sem sinal de saude na mensagem
+            # e sem falha no turno anterior, a Helena pede para a pessoa mandar de novo e NAO escala; a
+            # segunda falha seguida escala como antes. Com sinal de saude (lexico, emergencia ou assunto
+            # clinico no texto) o caminho e' o de sempre: escala, com o 192 no texto.
+            if not _falha_deve_escalar(state):
+                logger.warning(
+                    "helena_classify_falhou_pede_reenvio",
+                    node="classify",
+                    # So' a CLASSE da falha: a mensagem de excecao do provedor pode ecoar o texto da
+                    # pessoa (o CI mostrou um CPF mascarado ali) — nunca vai ao log.
+                    falha=_classe_da_falha_do_classify(classify_failure),
+                )
+                return {
+                    "next_kind": "inform",
+                    "intent": "information",
+                    "psychosocial_risk": False,
+                    "response_text": RESPOSTA_PECA_REENVIO,
+                }
             return {
                 "next_kind": "escalate",
                 "escalation_motivo": "falha_tecnica",
@@ -4438,6 +4542,19 @@ class HelenaGraph:
             # RODADA 4: a despedida nao vira pedido de pessoa por citar "atendente". RODADA 5: cobranca no
             # texto vai ao Lucas mesmo com pedido de pessoa (so' pedido SEM cobranca recebe o caso da Helena).
             pedido_lexico = False
+        if (
+            intent not in (INTENT_COBRANCA, "human_request")
+            and not encerramento
+            and conversa != CONVERSA_RECUSA_DE_EQUIPE
+            and not _RECUSA_DE_PESSOA.search(_plano(texto_do_turno))
+            and _pedido_explicito_com_verbo(texto_do_turno)
+            and not _pergunta_de_identidade_sem_pedido(texto_do_turno)
+        ):
+            # RODADA 6: "Passa pra equipe AGORA" saiu `information` do modelo e a Helena prometeu "vou levar
+            # isso para a equipe". Pedido EXPLICITO de pessoa (com verbo) e' pedido, qualquer que seja a
+            # intencao que o modelo deu — cobranca no texto continua indo ao Lucas (acima).
+            logger.info("helena_pedido_explicito_de_pessoa", node="classify", intent_do_modelo=intent)
+            pedido_lexico = True
         if (intent == "human_request" or pedido_lexico) and not encerramento:
             update["next_kind"] = "escalate"
             update["escalation_motivo"] = "solicitacao_humano"
@@ -4836,6 +4953,9 @@ class HelenaGraph:
         mensagem tende ao mesmo texto, e um laco de tentativas transforma uma cerca num atraso
         (a mesma escolha de CC-01 e da cerca TEXTO x FATO).
         """
+        if state.get("response_text") == RESPOSTA_PECA_REENVIO:
+            # RODADA 6: o classificador falhou neste turno (ver `classify`); o texto ja' vem pronto.
+            return {"response_text": RESPOSTA_PECA_REENVIO, "response_kind": "inform"}
         identidade = _resposta_fixa_de_identidade(state, nome_operadora=self._nome_operadora)
         if identidade is not None:
             # F6: a pergunta de identidade recebe a frase do dono, LITERAL, antes de qualquer
@@ -4892,6 +5012,14 @@ class HelenaGraph:
                     RESPOSTA_O_QUE_SEI_DE_VOCE if self._roteador_lucas_enabled else RESPOSTA_PLANO_POR_CANAIS
                 )
                 return {"response_text": substituto_d7, "response_kind": "inform"}
+            if _PROMESSA_DE_REPASSE.search(_plano(text)):
+                # RODADA 6: "Vou levar isso para a equipe financeira" — promessa que a Helena nao cumpre
+                # (ela nao repassa nada). Trocada como uma recusa de saida (o substituto depende do caso).
+                logger.warning("helena_promessa_de_repasse_barrada", node="inform")
+                raise RespostaRecusadaError("promessa_de_repasse", "vou levar/passar", "inform")
+            if state.get("apresentacao_ja_feita") is True or _falas_da_helena(state):
+                # RODADA 6: "Sou Helena..." so' no primeiro contato.
+                text = _sem_apresentacao(text)
             # RODADA 3 (D8): frase do modelo acima de 20 palavras e' partida, sem trocar palavra.
             text = _frases_curtas(text)
         except RespostaRecusadaError:

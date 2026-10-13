@@ -1326,7 +1326,13 @@ class HelenaDispatcher:
                     if isinstance(exc, PROGRAMMING_ERRORS):
                         raise
                     return dict(escalado)
-                if not lucas_escalou and eh_pedido_explicito_de_pessoa(message.text):
+                if (
+                    not lucas_escalou
+                    and eh_pedido_explicito_de_pessoa(message.text)
+                    # RODADA 6: com caso ja' aberto o Lucas ja' reconhece o pedido; o aviso da Helena
+                    # ("seu atendimento ja' esta' aberto") so' duplicava a resposta (4 turnos seguidos).
+                    and not await self._caso_aberto_na_conversa(conversation_id)
+                ):
                     # DL-0092 (decisao do dono antes do merge do #739): cobranca + pedido EXPLICITO de
                     # uma pessoa da equipe ("quero falar com um atendente sobre o boleto"). O Lucas JA
                     # respondeu o fato de cobranca neste turno; o pedido de pessoa e' honrado no mesmo
@@ -1586,6 +1592,22 @@ class HelenaDispatcher:
             error=f"{ERRO_LUCAS_FALHOU}: {erro}",
             espaco_da_chave="lucas-falha",
         )
+
+    async def _caso_aberto_na_conversa(self, conversation_id: str) -> bool:
+        """Ha' um SP-OP-ESCALATION-001 vivo na chave desta conversa? Falha de leitura = `False` (o start
+        idempotente reaproveita o caso de qualquer jeito, so' com o aviso a mais)."""
+        from maezo.runtime.caso_clinico import chave_do_escalonamento
+
+        try:
+            ativa = await self.cibseven.find_active_instance(
+                chave_do_escalonamento(self.tenant_id, conversation_id)
+            )
+        except Exception as exc:
+            logger.warning(
+                "caso_aberto_leitura_falhou", tenant_id=self.tenant_id, error_type=type(exc).__name__
+            )
+            return False
+        return ativa is not None
 
     async def _escalar_depois_do_lucas(
         self,
