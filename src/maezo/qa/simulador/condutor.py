@@ -207,6 +207,36 @@ class Condutor:
         )
         return conversa
 
+    # -- roteiro de aceite (mensagens fixas, sem persona) -------------------------------------------
+    async def preparar_conversa(self, plano: PlanoDeConversa) -> Conversa:
+        """Conversa NOVA no telefone do plano: limpa o estado, apaga o acesso e refaz a verificacao
+        completa (ACEITO -> CPF -> nascimento). `erro_preparo` preenchido = nao concluiu."""
+        cid = self.conversation_id(plano.telefone)
+        conversa = Conversa(
+            id=plano.id,
+            persona_id=plano.persona.id,
+            sujeito=plano.sujeito,
+            telefone=plano.telefone,
+            conversation_id=cid,
+            semente=plano.semente,
+        )
+        try:
+            await self._limpeza.reiniciar_conversa(cid)
+            await self._limpeza.apagar_acesso(cid)
+            self._verificados.discard(plano.telefone)
+            if await self._verificar(conversa, plano):
+                self._verificados.add(plano.telefone)
+            else:
+                conversa.erro_preparo = "verificacao_nao_concluida"
+        except Exception as exc:
+            conversa.erro_preparo = type(exc).__name__
+            logger.error("simulador_preparo_falhou", conversa=plano.id, erro=type(exc).__name__)
+        return conversa
+
+    async def enviar_texto(self, conversa: Conversa, plano: PlanoDeConversa, texto: str) -> Turno:
+        """UMA mensagem fixa (fase `persona`, tema `aceite`), com o mesmo ritmo e registro do resto."""
+        return await self._enviar(conversa, plano, texto, fase="persona", tema="aceite")
+
     # -- verificacao (fora da persona) ------------------------------------------------------------
     async def _verificar(self, conversa: Conversa, plano: PlanoDeConversa) -> bool:
         for passo in ROTEIRO_DE_VERIFICACAO:

@@ -99,3 +99,10 @@ def test_argumentos_vem_do_ambiente_na_task(monkeypatch: pytest.MonkeyPatch) -> 
         "--sem-juiz",
     ]
     assert principal.argumentos_do_ambiente(["--limpar", "r1"]) == ["--limpar", "r1"]
+
+
+def test_parser_aceita_o_roteiro_do_dono_e_recusa_outro() -> None:
+    assert principal.construir_parser().parse_args(["--roteiro", "dono_v1"]).roteiro == "dono_v1"
+    assert principal.construir_parser().parse_args([]).roteiro is None
+    with pytest.raises(SystemExit):
+        principal.construir_parser().parse_args(["--roteiro", "inexistente"])
