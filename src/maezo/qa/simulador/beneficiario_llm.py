@@ -11,6 +11,7 @@ garantia de que a conversa (que tem dado real de cobranca nas respostas) nao sai
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable, Sequence
@@ -115,14 +116,34 @@ class BeneficiarioLLM:
         raise RespostaDaPersonaInvalidaError(str(ultimo))
 
 
-def gerador_da_inferencia(inferencia: object, *, tenant_id: str, papel: str) -> Gerar:
-    """Adapta o provedor real (`InferenceProvider.generate`) ao `Gerar`, SEMPRE com `phi=True`."""
+#: Esperas entre tentativas quando o provedor falha de forma transitoria. Medido em 13/10/2026: um
+#: `BrRegionalTransportUnavailableError` isolado encerrou uma conversa inteira na primeira execucao.
+ESPERAS_TRANSITORIAS_S: tuple[float, ...] = (2.0, 5.0, 10.0)
+
+
+def gerador_da_inferencia(
+    inferencia: object,
+    *,
+    tenant_id: str,
+    papel: str,
+    esperas: Sequence[float] = ESPERAS_TRANSITORIAS_S,
+) -> Gerar:
+    """Adapta o provedor real (`InferenceProvider.generate`) ao `Gerar`, SEMPRE com `phi=True`, com
+    novas tentativas para falha transitoria do provedor (a persona e o juiz nao sao o agente: repetir
+    a chamada nao muda nada do que se mede)."""
 
     async def gerar(prompt: str) -> str:
-        texto: str = await inferencia.generate(  # type: ignore[attr-defined]
-            prompt, phi=True, agent_id=papel, tenant_id=tenant_id
-        )
-        return texto
+        for espera in (*esperas, None):
+            try:
+                texto: str = await inferencia.generate(  # type: ignore[attr-defined]
+                    prompt, phi=True, agent_id=papel, tenant_id=tenant_id
+                )
+                return texto
+            except Exception:
+                if espera is None:
+                    raise
+                await asyncio.sleep(espera)
+        raise AssertionError("inalcancavel")
 
     return gerar
 

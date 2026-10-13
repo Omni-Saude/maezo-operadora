@@ -93,9 +93,11 @@ async def test_roster_mais_recente_e_sem_roster() -> None:
 class _ClienteS3:
     def __init__(self) -> None:
         self.objetos: dict[str, bytes] = {}
+        self.cripto: dict[str, dict[str, str]] = {}
 
-    def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> None:  # noqa: N803
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str, **cripto: str) -> None:  # noqa: N803
         self.objetos[Key] = Body
+        self.cripto[Key] = cripto
 
     def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
         corpo = self.objetos[Key]
@@ -117,9 +119,12 @@ class _ClienteS3:
 
 
 async def test_armazenamento_s3_grava_le_e_pagina() -> None:
-    s3 = arm.ArmazenamentoS3("bucket", regiao="sa-east-1", cliente=_ClienteS3())
+    cliente = _ClienteS3()
+    s3 = arm.ArmazenamentoS3("bucket", regiao="sa-east-1", chave_kms="alias/k", cliente=cliente)
     await s3.gravar("runs/r/x.json", "{}", tipo="application/json")
     assert await s3.ler("runs/r/x.json") == "{}"
+    # A SCP `deny-unencrypted-resources` recusa PutObject sem o cabecalho de criptografia.
+    assert cliente.cripto["runs/r/x.json"] == {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": "alias/k"}
     assert await arm.roster_mais_recente(s3) == "roster/2.csv"
     with pytest.raises(ValueError):
         arm.ArmazenamentoS3("", regiao="sa-east-1", cliente=_ClienteS3())

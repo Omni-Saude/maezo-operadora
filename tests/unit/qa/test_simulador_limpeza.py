@@ -68,7 +68,7 @@ class _Motor:
         self.perguntas: list[str] = []
         self._falhar = falhar
 
-    async def find_any_instance(self, business_key: str, *, process_key: str = "") -> object | None:
+    async def find_active_instance(self, business_key: str, *, process_key: str = "") -> object | None:
         if self._falhar:
             raise RuntimeError("motor fora")
         self.perguntas.append(business_key)

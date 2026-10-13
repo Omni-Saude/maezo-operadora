@@ -41,10 +41,11 @@ def chave_da_execucao(run_id: str, nome: str) -> str:
 class ArmazenamentoS3:
     """S3 com o cliente sincrono do boto3 em thread (o volume e' pequeno: dezenas de objetos)."""
 
-    def __init__(self, bucket: str, *, regiao: str, cliente: Any = None) -> None:
+    def __init__(self, bucket: str, *, regiao: str, chave_kms: str = "", cliente: Any = None) -> None:
         if not bucket:
             raise ValueError("armazenamento: bucket ausente (MAEZO_SIMULADOR_BUCKET)")
         self._bucket = bucket
+        self._chave_kms = chave_kms
         if cliente is None:
             import boto3  # type: ignore[import-untyped]  # extra [bedrock] da imagem
 
@@ -62,7 +63,16 @@ class ArmazenamentoS3:
             Key=chave,
             Body=conteudo.encode("utf-8"),
             ContentType=tipo,
+            **self._criptografia(),
         )
+
+    def _criptografia(self) -> dict[str, str]:
+        # A SCP `deny-unencrypted-resources` recusa PutObject sem o cabecalho de criptografia, mesmo
+        # com o bucket cifrado por padrao (medido em 13/10/2026). Com a CMK do bucket quando ha'.
+        cabecalhos = {"ServerSideEncryption": "aws:kms"}
+        if self._chave_kms:
+            cabecalhos["SSEKMSKeyId"] = self._chave_kms
+        return cabecalhos
 
     async def ler(self, chave: str) -> str:
         resposta = await asyncio.to_thread(self._cliente.get_object, Bucket=self._bucket, Key=chave)
