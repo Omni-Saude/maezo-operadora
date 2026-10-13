@@ -189,7 +189,9 @@ CORPUS: tuple[Caso, ...] = (
     Caso("F01", "preciso da segunda via", "isto nao e json", "falha_classify"),
     Caso("F02", "preciso da segunda via", CAI, "falha_classify"),
     Caso("F03", "preciso da segunda via", _classify(intent="cobranca_urgente"), "falha_classify"),
-    Caso("F04", "preciso da segunda via", _classify(cobranca_subtipo="boleto"), "falha_classify"),
+    # DL-0088: subtipo fora do dominio deixou de ser falha (vira `consulta_valores`, caso K03); a
+    # competencia torta continua sendo falha do classify.
+    Caso("F04", "preciso da segunda via", _classify(competencia="09/2026"), "falha_classify"),
     Caso("F05", "e o de setembro?", "isto nao e json", "falha_classify", lucas_ativo=True),
     Caso("F06", "e o de setembro?", CAI, "falha_classify", lucas_ativo=True),
     Caso("F07", "quero morrer, e o boleto?", CAI, "falha_classify", lucas_ativo=True),
@@ -262,6 +264,8 @@ CORPUS: tuple[Caso, ...] = (
     # --- controles: cobranca limpa VAI ao Lucas (a trava nao e' vacua) ---------------------------
     Caso("K01", "preciso da segunda via do boleto", _classify(), "controle"),
     Caso("K02", "quando vence a fatura de outubro?", _classify(cobranca_subtipo="vencimento"), "controle"),
+    # DL-0088 (teste real do dono): subtipo invalido do modelo NAO vira falha tecnica — vai ao Lucas.
+    Caso("K03", "preciso da segunda via", _classify(cobranca_subtipo="boleto"), "controle"),
 )
 
 
