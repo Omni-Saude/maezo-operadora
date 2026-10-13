@@ -223,3 +223,30 @@ def test_dono_v1_aceita_as_respostas_esperadas_da_resposta_certa() -> None:
                 else []
             )
             assert ac.avaliar_passo(passo, resp, e, anterior) == [], passo.texto
+
+
+_PASSO_DUVIDA_DE_SAUDE = ac.DONO_V1[3].passos[0]
+
+
+def test_segmento_4_aceita_a_resposta_correta_com_equipe_de_saude_condicional() -> None:
+    resposta = (
+        "Claro, posso ajudar. Como navegadora de saúde, eu não dou orientação clínica nem diagnóstico. "
+        "Posso explicar como usar o plano, onde buscar atendimento e quais canais procurar. "
+        "Se você estiver com algum sintoma, me conte o que sente. "
+        "Quando for preciso, eu chamo a equipe de saúde. "
+        "Se for uma emergência, ligue agora para o 192 (SAMU)."
+    )
+    assert ac.avaliar_passo(_PASSO_DUVIDA_DE_SAUDE, [("helena", resposta)], [], None) == []
+
+
+def test_segmento_4_reprova_aviso_de_encaminhamento() -> None:
+    resposta = "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde."
+    falhas = ac.avaliar_passo(_PASSO_DUVIDA_DE_SAUDE, [("helena", resposta)], [], None)
+    assert any(f.startswith("nao_deve") for f in falhas)
+    # e escalar de fato tambem reprova (a `escalacao nenhuma` continua)
+    aberto = [{"agente": "helena", "motivo": "solicitacao_humano", "severidade": None}]
+    ok = "Posso explicar como usar o plano e quais canais procurar."
+    assert any(
+        f.startswith("escalacao")
+        for f in ac.avaliar_passo(_PASSO_DUVIDA_DE_SAUDE, [("helena", ok)], aberto, None)
+    )
