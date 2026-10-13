@@ -26,7 +26,7 @@ import structlog
 
 from maezo.agents.helena.consultas_plano import LIMITE_CARENCIAS, LIMITE_REQUISICOES
 from maezo.agents.lucas.fonte_cobranca_amh import FonteDeConsentimento
-from maezo.ports.errors import PortResult
+from maezo.ports.errors import PortFailureReason, PortResult
 from maezo.ports.tina import CarenciasView, ElegibilidadeView, RequisicoesView, TinaPort
 
 logger = structlog.get_logger(__name__)
@@ -64,6 +64,29 @@ class ConsultasPlanoAmh:
             )
         return None
 
+    async def _sem_carencias(self, ref: str, base_legal: str) -> CarenciasView | None:
+        """RODADA 8 (teste real do dono, 13/10/2026): `not_found` em carencias = a pessoa NAO TEM linhas de
+        carencia. O dono perguntou "Estou em carencia?" e leu "ainda nao estao disponiveis por este chat",
+        com a elegibilidade da MESMA pessoa funcionando um turno antes.
+
+        So' vira "nenhuma carencia" depois de CONFIRMAR o sujeito: a elegibilidade dele responde agora. Sem
+        essa confirmacao (ela tambem falhou, ou voltou de outro sujeito) continua falha — nunca se afirma
+        "nenhuma carencia" sobre um sujeito que a AMH nao reconheceu. A data da fonte e' a da
+        elegibilidade."""
+        confirmada = await self.port.get_elegibilidade(
+            ref, purpose_of_use=self.purpose_of_use, consent_decision_ref=base_legal
+        )
+        if not confirmada.succeeded or confirmada.value is None:
+            return None
+        if getattr(confirmada.value, "portable_subject_ref", None) != ref:
+            return None
+        return CarenciasView(
+            portable_subject_ref=ref,
+            pendentes=0,
+            carencias=(),
+            fonte_atualizada_em=confirmada.value.fonte_atualizada_em,
+        )
+
     async def consultar(self, portable_subject_ref: str, subtipo: str) -> _View | None:
         """A view do contrato para o subtipo, ou `None`. NUNCA levanta."""
         motivo = "ok"
@@ -80,6 +103,14 @@ class ConsultasPlanoAmh:
                     elif not resultado.succeeded or resultado.value is None:
                         falha = resultado.failure
                         motivo = falha.reason.value if falha is not None else "recusa"
+                        if (
+                            subtipo == "carencia"
+                            and falha is not None
+                            and falha.reason == PortFailureReason.NOT_FOUND
+                        ):
+                            view = await self._sem_carencias(portable_subject_ref, base_legal)
+                            if view is not None:
+                                motivo = "sem_carencias"
                     elif getattr(resultado.value, "portable_subject_ref", None) != portable_subject_ref:
                         motivo = "fatos_de_outro_sujeito"
                     else:

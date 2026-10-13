@@ -24,7 +24,6 @@ from maezo.agents.helena.graph import (
     FRASE_PASSAGEM_COBRANCA,
     PROCESS_KEY,
     RESPONSE_KIND_HANDOFF,
-    RESPOSTA_COBERTURA_DEPOIS,
     RESPOSTA_COBERTURA_ESPECIFICA,
     RESPOSTA_DESPEDIDA,
     RESPOSTA_DESPEDIDA_CASO_ABERTO,
@@ -34,9 +33,9 @@ from maezo.agents.helena.graph import (
     RESPOSTA_NAVEGACAO,
     RESPOSTA_NAVEGACAO_CASO_ABERTO,
     RESPOSTA_O_QUE_SEI_DE_VOCE,
-    RESPOSTA_PLANO_INDISPONIVEL_2,
-    RESPOSTA_PLANO_INDISPONIVEL_3,
-    RESPOSTA_PLANO_POR_CANAIS,
+    RESPOSTA_PLANO_FALHA_1,
+    RESPOSTA_PLANO_FALHA_2,
+    RESPOSTA_PLANO_FALHA_3,
     RESPOSTA_TELEFONE_DA_CENTRAL,
     HelenaGraph,
     new_helena_state,
@@ -234,6 +233,9 @@ async def test_pergunta_do_plano_usa_os_fatos(mensagem: str, intent_do_modelo: s
     enviado = whatsapp.enviados[0]
     if subtipo == "carencia":
         assert "PARTO" in enviado
+    elif "cobre" in mensagem:
+        # DL-0095 (rodada 8): a pergunta de cobertura recebe a segmentacao e onde confirmar (nao o bloco).
+        assert "Ambulatorial + Hospitalar" in enviado and RESPOSTA_COBERTURA_ESPECIFICA in enviado
     else:
         assert "Ambulatorial + Hospitalar" in enviado and "Enfermaria" in enviado
     assert "Recebi sua mensagem, mas não consegui preparar" not in enviado
@@ -250,21 +252,26 @@ async def test_cobertura_de_procedimento_nunca_e_prometida() -> None:
     assert "está coberto" not in enviado and "cobre o parto" not in enviado
 
 
-async def test_mensagem_mista_com_os_fatos_ligados_manda_a_cobranca_e_convida_a_perguntar_do_plano() -> None:
+async def test_mensagem_mista_com_os_fatos_ligados_entrega_o_plano_junto_da_passagem() -> None:
     grafo, whatsapp, _, _ = _grafo([_classify()])
 
     resultado = await grafo.ainvoke(_entrada("quando vence o boleto? e o plano cobre parto?"))
 
     assert resultado["response_kind"] == RESPONSE_KIND_HANDOFF
-    assert whatsapp.enviados == [f"{FRASE_PASSAGEM_COBRANCA} {RESPOSTA_COBERTURA_DEPOIS}"]
+    # DL-0095 (rodada 8): a parte do plano vai JUNTO da frase de passagem (nunca "pergunte de novo").
+    enviado = whatsapp.enviados[0]
+    assert enviado.startswith(f"{FRASE_PASSAGEM_COBRANCA} No cadastro, seu plano consta com segmentação")
+    assert enviado.endswith(RESPOSTA_COBERTURA_ESPECIFICA)
+    assert "de novo" not in enviado
 
 
 @pytest.mark.parametrize(
     ("falas", "esperado"),
     [
-        ([], RESPOSTA_PLANO_POR_CANAIS),
-        ([RESPOSTA_PLANO_POR_CANAIS], RESPOSTA_PLANO_INDISPONIVEL_2),
-        ([RESPOSTA_PLANO_POR_CANAIS, RESPOSTA_PLANO_INDISPONIVEL_2], RESPOSTA_PLANO_INDISPONIVEL_3),
+        # DL-0095 (rodada 8): com a fonte LIGADA a falha e' da consulta, nunca "por este chat".
+        ([], RESPOSTA_PLANO_FALHA_1),
+        ([RESPOSTA_PLANO_FALHA_1], RESPOSTA_PLANO_FALHA_2),
+        ([RESPOSTA_PLANO_FALHA_1, RESPOSTA_PLANO_FALHA_2], RESPOSTA_PLANO_FALHA_3),
     ],
 )
 async def test_fonte_falhando_com_gestante_urgente_nao_repete_e_oferece_pessoa(
@@ -279,7 +286,7 @@ async def test_fonte_falhando_com_gestante_urgente_nao_repete_e_oferece_pessoa(
     # DL-0091 (rodada 4): "e' urgente" sobre cobertura, sem sinal de saude, leva o 192 no FIM.
     assert enviado == f"{esperado} {_EMERGENCIA_192}"
     assert enviado not in falas
-    if falas:
+    if len(falas) == 1:
         assert "pessoa da equipe" in enviado
     assert "Não consegui confirmar seus dados" not in enviado
     assert _starts(cib) == 0

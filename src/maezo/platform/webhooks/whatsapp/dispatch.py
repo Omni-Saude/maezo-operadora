@@ -94,6 +94,7 @@ import structlog
 
 from maezo.agents.helena.graph import (
     NOME_OPERADORA_PADRAO,
+    RESPOSTA_PLANO_POR_CANAIS,
     HelenaGraph,
     HelenaState,
     WhatsAppSender,
@@ -1078,6 +1079,10 @@ class HelenaDispatcher:
             )
             identidade = resolvida.identidade
         texto = resposta_de_cadastro(tipo, identidade, fonte_ligada=self.identidade is not None)
+        if self.consultas_plano is not None and texto == RESPOSTA_PLANO_POR_CANAIS:
+            # RODADA 8: com os fatos do plano (TINA) ligados e a pessoa verificada, "ainda nao estao
+            # disponiveis por este chat" nunca sai: o fato ausente do perfil segue para o grafo, que consulta.
+            return None
         await sender.send(phone_hash, texto)
         logger.info(
             "acesso_cadastro_respondido",

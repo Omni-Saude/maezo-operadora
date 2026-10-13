@@ -20,14 +20,13 @@ from maezo.agents.helena.graph import (
     RESPOSTA_CASO_ABERTO_CURTO_3,
     RESPOSTA_CASO_ABERTO_PRAZO,
     RESPOSTA_CASO_ABERTO_RECADO,
-    RESPOSTA_COBERTURA_ESPECIFICA,
     RESPOSTA_COBERTURA_ESPECIFICA_2,
     RESPOSTA_DESPEDIDA,
     RESPOSTA_DESPEDIDA_CASO_ABERTO,
     RESPOSTA_HANDOFF_RECUSADA,
     _com_emergencia_se_preciso,
 )
-from maezo.agents.helena.historico import MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
+from maezo.agents.helena.historico import MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO, MARCADOR_RESPOSTA_DE_COBERTURA
 from tests.unit.agents.test_helena_rodada_3_simulador import (
     _EMERGENCIA_192,
     _caso_aberto,
@@ -140,10 +139,12 @@ async def test_insistencia_na_cobertura_nao_reenvia_os_dados_do_plano() -> None:
         [_classify(intent="consulta_plano", consulta_subtipo="carteirinha")], fonte=fonte
     )
 
-    await grafo.ainvoke(_entrada("mas cobre dermatologia ou não?", [MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO]))
+    await grafo.ainvoke(_entrada("mas cobre dermatologia ou não?", [MARCADOR_RESPOSTA_DE_COBERTURA]))
 
     assert fonte.chamadas == []
-    assert whatsapp.enviados == [RESPOSTA_COBERTURA_ESPECIFICA]
+    # DL-0095: a primeira resposta de cobertura ja' trouxe a frase de "onde confirmar"; a insistencia
+    # recebe a outra redacao.
+    assert whatsapp.enviados == [RESPOSTA_COBERTURA_ESPECIFICA_2]
     assert "não consigo confirmar cobertura" in whatsapp.enviados[0]
     assert "não consta" not in whatsapp.enviados[0]
 
@@ -154,11 +155,13 @@ async def test_segunda_insistencia_muda_a_redacao() -> None:
     await grafo.ainvoke(
         _entrada(
             "e dermatologia, cobre?",
-            [MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO, RESPOSTA_COBERTURA_ESPECIFICA],
+            [MARCADOR_RESPOSTA_DE_COBERTURA, RESPOSTA_COBERTURA_ESPECIFICA_2],
         )
     )
 
-    assert whatsapp.enviados == [RESPOSTA_COBERTURA_ESPECIFICA_2]
+    # Ja' disse a segunda redacao: a terceira varia de novo (`_sem_repetir`), sem repetir igual.
+    assert whatsapp.enviados[0] != RESPOSTA_COBERTURA_ESPECIFICA_2
+    assert RESPOSTA_COBERTURA_ESPECIFICA_2 in whatsapp.enviados[0]
 
 
 # =================================================================================================

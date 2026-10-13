@@ -209,12 +209,14 @@ from .consultas_plano import (
     literais_dos_fatos,
     motivo_de_recusa_da_consulta,
     resposta_deterministica,
+    segmentacao_dos_fatos,
     texto_para_cerca,
 )
 from .historico import (
     CHAVE_RESPOSTA_COM_DADOS_DO_PLANO,
     HISTORICO_JANELA_HORAS,
     MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO,
+    MARCADOR_RESPOSTA_DE_COBERTURA,
     acrescentar_turno,
     historico_em_texto,
     historico_valido,
@@ -3105,8 +3107,34 @@ RESPOSTA_COBERTURA_ESPECIFICA_2: str = (
     "Entendo que você precisa dessa confirmação. A cobertura de um procedimento específico é confirmada "
     "pela central de atendimento do plano ou por uma pessoa da equipe: é só me pedir."
 )
-#: Mensagem mista cobranca + plano com a fonte do plano LIGADA: a cobranca vai ao Lucas agora.
-RESPOSTA_COBERTURA_DEPOIS: str = "Sobre o plano e a cobertura, é só me perguntar de novo em seguida."
+#: RODADA 8: o texto de cobertura com a SEGMENTACAO registrada (so' o fato do cadastro; nunca promessa).
+#: "{segmentacao}" e' o valor do cadastro. Seguido de `RESPOSTA_COBERTURA_ESPECIFICA`.
+MODELO_SEGMENTACAO_DO_CADASTRO: str = "No cadastro, seu plano consta com segmentação {segmentacao}."
+#: RODADA 8 (teste real do dono): com os fatos do plano LIGADOS e a pessoa verificada, a falha da consulta
+#: NUNCA diz que a informacao "nao esta' disponivel por este chat" (e' falso): diz que a consulta falhou
+#: agora, e avanca a cada repeticao (retentar -> pessoa -> canais).
+RESPOSTA_PLANO_FALHA_1: str = (
+    "Não consegui consultar essa informação do seu plano agora. Pode me perguntar de novo em instantes?"
+)
+RESPOSTA_PLANO_FALHA_2: str = (
+    "Ainda não consegui consultar o seu cadastro. Se preferir, uma pessoa da equipe pode ajudar: "
+    "é só me pedir."
+)
+RESPOSTA_PLANO_FALHA_3: str = (
+    "Continuo sem conseguir consultar o seu cadastro agora. A central de atendimento do plano e o "
+    "aplicativo Austa Clínicas mostram essa informação."
+)
+_TEXTOS_DE_PLANO_FALHA: tuple[str, ...] = (
+    RESPOSTA_PLANO_FALHA_1,
+    RESPOSTA_PLANO_FALHA_2,
+    RESPOSTA_PLANO_FALHA_3,
+)
+#: RODADA 8: a falha da consulta do plano dentro de uma mensagem MISTA (cobranca + plano): a pessoa nao
+#: precisa reenviar nada; a cobranca segue com o Lucas e o plano tem onde ver.
+RESPOSTA_PLANO_FALHA_NA_PASSAGEM: str = (
+    "Não consegui consultar o seu plano agora. A central de atendimento do plano e o aplicativo "
+    "Austa Clínicas mostram essa informação."
+)
 RESPOSTA_TELEFONE_DA_CENTRAL: str = (
     "O telefone da central de atendimento do plano está no aplicativo Austa Clínicas e no portal do plano. "
     "Por aqui eu não passo número, para não arriscar te mandar um contato errado."
@@ -3295,14 +3323,44 @@ def _nega_acesso(texto: str) -> bool:
     return bool(_NEGA_ACESSO.search(_normalizar_texto(texto or "")))
 
 
+#: RODADA 8: o numero/dado da carteirinha ("qual o numero da minha carteirinha?"). "E se pedir a carteirinha?"
+#: (onde achar a carteirinha digital) continua sendo pergunta de CANAL.
+_PERGUNTA_DA_CARTEIRINHA = re.compile(
+    r"\b(?:numero|codigo|dados?|qual)\b(?: \w+){0,4} carteirinha\b"
+    r"|\bcarteirinha(?: \w+){0,3} (?:numero|codigo)\b"
+)
+
+
+def _pergunta_da_carteirinha(texto: str) -> bool:
+    return bool(_PERGUNTA_DA_CARTEIRINHA.search(_plano(texto)))
+
+
 def _subtipo_da_consulta(texto: str) -> str:
-    return "carencia" if re.search(r"\bcarencias?\b", _plano(texto)) else "elegibilidade"
+    plano = _plano(texto)
+    if re.search(r"\bcarencias?\b", plano):
+        return "carencia"
+    return "carteirinha" if _pergunta_da_carteirinha(texto) else "elegibilidade"
 
 
-def _texto_plano_indisponivel(estado: Mapping[str, Any]) -> str:
+def _texto_de_cobertura(fatos: Mapping[str, Any] | None) -> str:
+    """A resposta a "meu plano cobre X?": a SEGMENTACAO registrada (fato do cadastro) e onde confirmar um
+    procedimento especifico — nunca a promessa de cobertura. Sem segmentacao, so' o onde confirmar."""
+    segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
+    if segmentacao is None:
+        return RESPOSTA_COBERTURA_ESPECIFICA
+    return f"{MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=segmentacao)} {RESPOSTA_COBERTURA_ESPECIFICA}"
+
+
+def _texto_plano_indisponivel(estado: Mapping[str, Any], *, fonte_ligada: bool = False) -> str:
     """Plano sem fonte (ou fonte falhando): a redacao avanca a cada vez que ja' saiu na conversa, e a
-    partir da segunda oferece uma pessoa. Com gestacao/urgencia na mensagem, o 192 vai na frente."""
+    partir da segunda oferece uma pessoa. Com gestacao/urgencia na mensagem, o 192 vai na frente.
+
+    RODADA 8: com a fonte LIGADA (`fonte_ligada`) o texto e' o da FALHA da consulta, nunca o "ainda nao
+    estao disponiveis por este chat" (que e' o texto da fonte DESLIGADA)."""
     falas = [_sem_prefixo(f) for f in _falas_da_helena(estado)]
+    if fonte_ligada:
+        vezes_falha = sum(1 for f in falas if any(t[:50] in f for t in _TEXTOS_DE_PLANO_FALHA))
+        return _com_emergencia_se_preciso(estado, _TEXTOS_DE_PLANO_FALHA[min(vezes_falha, 2)])
     # "Contem", e nao "comeca por": a fala pode ter saido com o 192 na frente.
     vezes = sum(1 for f in falas if any(t[:60] in f for t in _TEXTOS_DE_PLANO_INDISPONIVEL))
     texto = (RESPOSTA_PLANO_POR_CANAIS, RESPOSTA_PLANO_INDISPONIVEL_2, RESPOSTA_PLANO_INDISPONIVEL_3)[
@@ -3313,7 +3371,20 @@ def _texto_plano_indisponivel(estado: Mapping[str, Any]) -> str:
 
 def _ja_mostrou_dados_do_plano(estado: Mapping[str, Any]) -> bool:
     """A Helena ja' respondeu com dados do plano nesta conversa (o historico guarda so' o marcador)."""
-    return any(f.strip() == MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO for f in _falas_da_helena(estado))
+    return any(
+        f.strip() in (MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO, MARCADOR_RESPOSTA_DE_COBERTURA)
+        for f in _falas_da_helena(estado)
+    )
+
+
+def _ja_respondeu_cobertura(estado: Mapping[str, Any]) -> bool:
+    """RODADA 8: a Helena ja' respondeu uma pergunta de COBERTURA nesta conversa (marcador proprio ou a
+    resposta curta da insistencia). So' a insistencia na COBERTURA ganha a resposta curta — a primeira
+    pergunta de cobertura, mesmo depois de outras respostas do plano, recebe a segmentacao."""
+    return any(
+        f.strip() == MARCADOR_RESPOSTA_DE_COBERTURA or RESPOSTA_COBERTURA_ESPECIFICA[:50] in f
+        for f in _falas_da_helena(estado)
+    )
 
 
 def _com_emergencia_se_preciso(estado: Mapping[str, Any], texto: str) -> str:
@@ -4331,7 +4402,7 @@ class HelenaGraph:
             and intent in (*_INTENTS_QUE_VIRAM_COBRANCA, "clinical_question")
             and not extraction.get("sintoma_codigo")
             and not psychosocial
-            and _pergunta_do_plano(texto_da_mensagem)
+            and (_pergunta_do_plano(texto_da_mensagem) or _pergunta_da_carteirinha(texto_da_mensagem))
             and not _pergunta_de_navegacao(texto_da_mensagem)
         ):
             logger.info("helena_pergunta_do_plano_vai_a_consulta", node="classify", intent_do_modelo=intent)
@@ -5104,7 +5175,7 @@ class HelenaGraph:
                 # em contato" e a cerca barra; o que e' verdade e' que o caso continua com a equipe.
                 substituto = RESPOSTA_INFORM_CASO_ABERTO
             elif _pergunta_do_plano(mensagem):
-                substituto = _texto_plano_indisponivel(state)
+                substituto = _texto_plano_indisponivel(state, fonte_ligada=self._consultas is not None)
             elif _ASSUNTO_DE_SAUDE.search(_plano(mensagem)):
                 substituto = RESPOSTA_DUVIDA_CLINICA
             elif _pergunta_de_canal(mensagem):
@@ -5234,48 +5305,57 @@ class HelenaGraph:
             )
             return fixo
         mensagem_do_turno = str(state.get("message_body") or "")
-        if _pergunta_de_cobertura(mensagem_do_turno) and _ja_mostrou_dados_do_plano(state):
+        if _pergunta_de_cobertura(mensagem_do_turno) and _ja_respondeu_cobertura(state):
             # RODADA 4: quem INSISTE na cobertura de um procedimento nao recebe de novo os dados do plano
             # (o transcrito reenviou o mesmo bloco 4x): a resposta curta de onde confirmar.
             logger.info(
                 "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="insistencia"
             )
-            ja_disse = any(RESPOSTA_COBERTURA_ESPECIFICA[:60] in f for f in _falas_da_helena(state))
-            curta = RESPOSTA_COBERTURA_ESPECIFICA_2 if ja_disse else RESPOSTA_COBERTURA_ESPECIFICA
-            return {"response_text": _com_emergencia_se_preciso(state, curta), "response_kind": "inform"}
+            # RODADA 8: a primeira resposta de cobertura ja' trouxe a frase de "onde confirmar"; a insistencia
+            # recebe a OUTRA redacao (e, da terceira vez, `_sem_repetir` varia de novo).
+            return {
+                "response_text": _com_emergencia_se_preciso(state, RESPOSTA_COBERTURA_ESPECIFICA_2),
+                "response_kind": "inform",
+            }
         if _pergunta_de_cobertura(mensagem_do_turno) and subtipo == "carteirinha":
             # Cobertura pede a segmentacao, nao a carteirinha.
             subtipo = "elegibilidade"
-        try:
-            async with asyncio.timeout(CONSULTA_PRAZO_S):
-                view = await self._consultas.consultar(ref, subtipo)
-        except PROGRAMMING_ERRORS:
-            raise
-        except EXTERNAL_DEPENDENCY_FAILURES:
-            # Prazo (`TimeoutError` <: `OSError`) e falha de rede/servico viram o texto fixo; bug sobe.
-            view = None
+        view = await self._ler_consulta(ref, subtipo)
         fatos = fatos_da_consulta(subtipo, view)
         if fatos is None:
             logger.info(
                 "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="indisponivel"
             )
             # RODADA 3: a fonte falhou com a pessoa identificada: nao e' "nao consegui confirmar seus
-            # dados" (falso, e D7). Onde ver, variando, e a partir da segunda vez a oferta de pessoa.
-            return {"response_text": _texto_plano_indisponivel(state), "response_kind": "inform"}
+            # dados" (falso, e D7). RODADA 8: nem "ainda nao estao disponiveis por este chat" — com a
+            # fonte LIGADA a falha e' desta consulta, agora; o texto avanca (retentar -> pessoa -> canais).
+            return {
+                "response_text": _texto_plano_indisponivel(state, fonte_ligada=True),
+                "response_kind": "inform",
+            }
         texto: str | None = None
-        if subtipo in SUBTIPOS_REDIGIDOS:
+        if _pergunta_de_cobertura(mensagem_do_turno) and subtipo == "elegibilidade":
+            # RODADA 8 (teste real do dono): "Meu plano cobre parto?" — a segmentacao REGISTRADA (com
+            # obstetricia, se houver) e onde confirmar o procedimento; nunca a promessa e nunca o bloco
+            # inteiro do plano (o dono perguntou so' a cobertura). Texto deterministico, sem modelo.
+            texto = _texto_de_cobertura(fatos)
+            recusa: str | None = "cobertura_deterministica"
+        elif subtipo in SUBTIPOS_REDIGIDOS:
             texto = await self._redigir_consulta(state, subtipo, fatos)
             recusa = motivo_de_recusa_da_consulta(texto, fatos) if isinstance(texto, str) else "sem_rascunho"
         else:
             # Autorizacao e carencia (revisao do #690): SEMPRE a resposta deterministica, sem modelo.
             recusa = "subtipo_deterministico"
-        if recusa is not None or not isinstance(texto, str):
+        if recusa == "cobertura_deterministica" and isinstance(texto, str):
+            pass
+        elif recusa is not None or not isinstance(texto, str):
             texto = resposta_deterministica(subtipo, fatos)
         else:
             # RODADA 4: sem frase de pagamento (papel do Lucas) nem "nao consta" sobre cobertura.
             texto = _frases_curtas(_sem_frases_fora_do_papel(texto))
+        assert isinstance(texto, str)
         mensagem = str(state.get("message_body") or "")
-        if _pergunta_de_cobertura(mensagem):
+        if _pergunta_de_cobertura(mensagem) and RESPOSTA_COBERTURA_ESPECIFICA not in texto:
             # RODADA 3: cobertura de procedimento especifico nunca e' prometida pela segmentacao.
             texto = f"{texto.strip()} {RESPOSTA_COBERTURA_ESPECIFICA}"
         # RODADA 4: o 192 na frente so' com sinal de saude; "e' urgente" sobre cobertura leva o 192 no fim.
@@ -5295,6 +5375,52 @@ class HelenaGraph:
             # Onda 0 (historico): a resposta carrega dados do plano -> o historico grava so' um marcador.
             "resposta_com_dados_do_plano": True,
         }
+
+    async def _ler_consulta(self, ref: str, subtipo: str) -> Any:
+        """UMA leitura da fonte do plano, com o prazo do turno. Falha de rede/servico/prazo = `None`; bug
+        (`PROGRAMMING_ERRORS`) sobe. So' chamada com a fonte ligada."""
+        assert self._consultas is not None
+        try:
+            async with asyncio.timeout(CONSULTA_PRAZO_S):
+                return await self._consultas.consultar(ref, subtipo)
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            return None
+
+    def _ref_verificada(self, state: HelenaState) -> str | None:
+        """A referencia opaca da pessoa VERIFICADA (a mesma regra de `consultar_plano`), ou `None`."""
+        identidade = state.get("identidade_beneficiario")
+        ref = identidade.get("portable_subject_ref") if isinstance(identidade, Mapping) else None
+        if (
+            self._consultas is None
+            or state.get("identidade_desfecho") not in (IDENTIDADE_RECONHECIDA, None)
+            or not isinstance(ref, str)
+            or not ref
+        ):
+            return None
+        return ref
+
+    async def _plano_na_passagem(self, state: HelenaState) -> tuple[str, dict[str, Any]]:
+        """RODADA 8 (teste real do dono): a parte do PLANO de uma mensagem MISTA ("quando vence o boleto? e
+        meu plano cobre dermatologista?"), entregue JUNTO da frase de passagem — a cobranca segue com o
+        Lucas neste mesmo turno e a pessoa nunca precisa reenviar nada. Devolve `(texto, extras_do_estado)`.
+
+        Sem a fonte (ou sem a pessoa verificada), ou com a fonte falhando, so' o "onde confirmar"."""
+        mensagem = str(state.get("message_body") or "")
+        cobertura = _pergunta_de_cobertura(mensagem)
+        ref = self._ref_verificada(state)
+        if ref is None:
+            return (RESPOSTA_COBERTURA_NA_PASSAGEM, {})
+        subtipo = "elegibilidade" if cobertura else _subtipo_da_consulta(mensagem)
+        fatos = fatos_da_consulta(subtipo, await self._ler_consulta(ref, subtipo))
+        if fatos is None:
+            return (RESPOSTA_COBERTURA_ESPECIFICA if cobertura else RESPOSTA_PLANO_FALHA_NA_PASSAGEM, {})
+        texto = _texto_de_cobertura(fatos) if cobertura else resposta_deterministica(subtipo, fatos)
+        return (
+            texto,
+            {"consulta_literais": literais_dos_fatos(fatos), "resposta_com_dados_do_plano": True},
+        )
 
     async def _redigir_consulta(
         self, state: HelenaState, subtipo: str, fatos: Mapping[str, Any]
@@ -5343,13 +5469,7 @@ class HelenaGraph:
         # plano (com a fonte do plano desligada), a Helena diz onde ver a cobertura.
         frase = "" if lucas_ativo or _frase_de_passagem_ja_dita(state) else FRASE_PASSAGEM_COBRANCA
         mensagem = str(state.get("message_body") or "")
-        nota = (
-            ""
-            if not _pergunta_do_plano(mensagem)
-            else RESPOSTA_COBERTURA_NA_PASSAGEM
-            if self._consultas is None
-            else RESPOSTA_COBERTURA_DEPOIS
-        )
+        nota, extras = await self._plano_na_passagem(state) if _pergunta_do_plano(mensagem) else ("", {})
         logger.info(
             "helena_handoff_cobranca",
             node="handoff_cobranca",
@@ -5362,6 +5482,7 @@ class HelenaGraph:
             "handoff": handoff,
             "response_kind": RESPONSE_KIND_HANDOFF,
             "response_text": " ".join(p for p in (frase, nota) if p),
+            **extras,
         }
 
     async def schedule(self, state: HelenaState) -> dict[str, Any]:
@@ -5866,7 +5987,13 @@ class HelenaGraph:
             mensagem = redact_free_text(mensagem, max_chars=len(mensagem) + 64)
         resposta = resposta_enviada
         if resposta and cast(Mapping[str, Any], state).get(CHAVE_RESPOSTA_COM_DADOS_DO_PLANO) is True:
-            resposta = MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
+            # RODADA 8: a resposta de COBERTURA tem marcador proprio, para a insistencia na cobertura ser
+            # reconhecida sem confundir com qualquer outra resposta que mostrou dados do plano.
+            resposta = (
+                MARCADOR_RESPOSTA_DE_COBERTURA
+                if RESPOSTA_COBERTURA_ESPECIFICA[:50] in resposta
+                else MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
+            )
         return {
             "historico_conversa": acrescentar_turno(
                 state.get("historico_conversa"),

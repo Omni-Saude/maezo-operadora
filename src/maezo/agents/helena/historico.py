@@ -49,6 +49,9 @@ HISTORICO_ORCAMENTO_CHARS: Final[int] = 3500
 #: marcador, NUNCA com o texto — dado do plano nao fica guardado na memoria da conversa.
 CHAVE_RESPOSTA_COM_DADOS_DO_PLANO: Final[str] = "resposta_com_dados_do_plano"
 MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO: Final[str] = "[resposta com dados do plano]"
+#: RODADA 8: o marcador da resposta de COBERTURA (segmentacao do cadastro + onde confirmar). Proprio, para a
+#: insistencia na cobertura ser reconhecida sem confundir com outras respostas do plano.
+MARCADOR_RESPOSTA_DE_COBERTURA: Final[str] = "[resposta de cobertura com dados do plano]"
 
 #: A mesma janela da memoria clinica (`graph.MEMORIA_CLINICA_JANELA_HORAS`, igualdade fixada em
 #: teste): a conversa de horas atras ainda e' a mesma conversa; a de ontem nao e'.
