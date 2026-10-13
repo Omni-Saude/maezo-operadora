@@ -149,6 +149,7 @@ from maezo.agents.lucas.fonte_cobranca import PAGADOR_EMPRESA
 from maezo.platform.observability import record_resposta_recusada
 from maezo.runtime.cobranca_foco import FOCO_ESCLARECIMENTO, FOCO_GERAL, FOCO_ULTIMA, foco_valido
 from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
+from maezo.runtime.cobranca_reclamacao import reclamacao_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -333,6 +334,7 @@ _OUTPUT_FIELDS_RESET: dict[str, Any] = {
     "gathered": False,
     "caso_aberto_cobranca": False,
     "avisos_de_caso_aberto": 0,
+    "resposta_memoria_ref": "",
     "billing_facts": {},
     "gather_notes": [],
     "admissibilidade": "",
@@ -394,6 +396,8 @@ class LucasState(TypedDict, total=False):
     #: conversa e quantos avisos de caso aberto ele ja' deu (migration 0025). Nunca o texto.
     resposta_anterior_ref: str
     avisos_anteriores: int
+    #: Rodada 4 (13/10/2026): o TIPO da reclamacao de cobranca (`runtime/cobranca_reclamacao.py`), enum.
+    cobranca_reclamacao: str
     #: 13/10/2026: o assunto (`cobranca_subtipo`) da resposta ANTERIOR do Lucas nesta conversa, quando ele
     #: ainda estava com ela; ausente caso contrario. So' enum, nunca texto.
     assunto_anterior: str
@@ -425,6 +429,9 @@ class LucasState(TypedDict, total=False):
     #: Os avisos de caso aberto dados neste caso DEPOIS deste turno (o roteador os guarda; depois de
     #: `AVISOS_DE_CASO_ABERTO_MAX`, so' o fato).
     avisos_de_caso_aberto: int
+    #: Rodada 4 (13/10/2026): a referencia que o roteador guarda deste turno — o DEGRAU da resposta na
+    #: escada (`_escada`), para a proxima repeticao seguir dele. Hash truncado; nunca o texto.
+    resposta_memoria_ref: str
     billing_facts: dict[str, Any]
     gather_notes: list[str]
 
@@ -522,6 +529,7 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "assunto_anterior",
         "resposta_anterior_ref",
         "avisos_anteriores",
+        "cobranca_reclamacao",
         # Pre-resolved by the deterministic CNAB conciliation worker upstream — CONSUMED, never
         # computed here. These are FACTS a caller may assert; every VERDICT derived from them
         # (`admissibilidade`, `roteamento_escalacao`, `route`, `severidade`) is output-only.
@@ -1073,13 +1081,30 @@ def texto_pagador_empresa(state: LucasState, facts: Mapping[str, Any], hoje: dat
     a coparticipacao da competencia nos fatos, com a data da fonte. Nunca valor, boleto, vencimento ou
     situacao da fatura da empresa."""
     competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
+    pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
+    if facts.get("foco") == FOCO_ESCLARECIMENTO and pedida is not None:
+        # Rodada 4: "de qual ano?" num contrato de empresa — o ano, e quem paga.
+        return f"É {_mes_por_extenso(pedida, hoje)}. O pagamento dela é feito pela empresa contratante."
     if facts.get("foco") != "coparticipacao" or not competencias:
-        return TEXTO_PAGADOR_EMPRESA
+        # Rodada 4 (13/10/2026): a frase sozinha, repetida 9 vezes, nao respondia "foi paga ou nao?". A
+        # consequencia, uma vez: quem confirma o pagamento e' a empresa, e a oferta de alguem da equipe.
+        de_qual = f" de {_mes_por_extenso(pedida, hoje)}" if pedida is not None else ""
+        return (
+            f"{TEXTO_PAGADOR_EMPRESA} Por isso, a situação do pagamento{de_qual} fica com a empresa "
+            "(normalmente o RH). Se quiser, posso te passar para alguém da nossa equipe."
+        )
     partes = [TEXTO_PAGADOR_EMPRESA, _frase_de_coparticipacao(competencias[0], hoje)]
     fonte = _frase_da_fonte(state, hoje)
     if fonte:
         partes.append(fonte)
     return " ".join(partes)
+
+
+def texto_pagador_empresa_curto(state: LucasState, hoje: date) -> str:
+    """A forma CURTA do contrato de empresa, para quando a pessoa pergunta de novo (rodada 4)."""
+    pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
+    de_qual = f" de {_mes_por_extenso(pedida, hoje)}" if pedida is not None else ""
+    return f"A confirmação do pagamento{de_qual} é com a empresa contratante, normalmente pelo RH."
 
 
 def _reais(decimal_texto: str) -> str:
@@ -1384,6 +1409,8 @@ def selecionar_competencias_da_lista(
         vistas.add(mes)
         if (lista.de is not None and mes < lista.de) or (lista.ate is not None and mes > lista.ate):
             continue
+        if lista.meses and mes not in lista.meses:
+            continue
         if situacao is not None and c["situacao"] != situacao:
             continue
         saida.append(c)
@@ -1404,6 +1431,8 @@ def quantos_meses_a_lista_espera(
     "todas em aberto" (o total em aberto e' o que a fonte tem). Meses do periodo depois do mais recente
     que existe (o de hoje, ou um ja' gerado a frente) nao contam."""
     situacao = _situacao_que_filtra(lista, foco)
+    if lista.meses:
+        return len(lista.meses)
     if not lista.tem_periodo:
         return None if situacao == "em_aberto" else lista.quantidade
     if situacao is not None:
@@ -1427,7 +1456,10 @@ def _nome_da_lista(lista: PedidoDeLista, foco: str, quantidade: int) -> str:
 
 
 def _periodo_da_lista(lista: PedidoDeLista, hoje: date) -> str | None:
-    """ "de 2026" (ano inteiro), "de julho de 2026 a setembro de 2026", ou `None` sem periodo."""
+    """ "de 2026" (ano inteiro), "de julho de 2026 a setembro de 2026", "de agosto de 2026 e setembro de
+    2026" (meses nomeados, rodada 4), ou `None` sem periodo."""
+    if lista.meses:
+        return f"de {_juntar_meses(list(lista.meses), hoje)}"
     if lista.de is None or lista.ate is None:
         return None
     if lista.de.endswith("-01") and lista.ate.endswith("-12") and lista.de[:4] == lista.ate[:4]:
@@ -1468,8 +1500,11 @@ def _linha_da_lista(c: Mapping[str, str], foco: str, hoje: date) -> str:
         return f"• {mes}: título cancelado."
     if situacao == "sem_titulo":
         return f"• {mes}: boleto ainda não emitido."
-    # `vencida` nao chega aqui (a DMN escala); se chegar, nada de afirmar atraso.
-    return f"• {mes}: não consegui confirmar a situação."
+    # `vencida` (rodada 4): so' na lista que acompanha a escalacao ou o caso aberto — o fato, dito como
+    # "sem pagamento confirmado", nunca como atraso.
+    vence = _dia_mes(c.get("vencimento"), hoje)
+    data = f"vencimento em {vence}, " if vence else ""
+    return f"• {mes}: {valor}{data}sem pagamento confirmado."
 
 
 def texto_lista(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
@@ -1807,7 +1842,40 @@ def frase_da_situacao(state: LucasState, hoje: date) -> str | None:
             if pagou
             else f"A mensalidade de {mes} consta como paga."
         )
+    if c["situacao"] in ("vencida", "em_aberto"):
+        # Rodada 4 (13/10/2026): "agosto e setembro tao sem pagar mesmo? quais os valores?" depois da
+        # escalacao recebia outubro. O mes perguntado, com valor e vencimento, "sem pagamento confirmado".
+        mes = _mes_por_extenso(c["competencia"], hoje)
+        detalhes = [_reais(c["valor_total"])] if "valor_total" in c else []
+        vence = _dia_mes(c.get("vencimento"), hoje)
+        if vence:
+            detalhes.append(f"vencimento em {vence}")
+        entre = f" ({', '.join(detalhes)})" if detalhes else ""
+        if c["situacao"] == "vencida":
+            return f"A mensalidade de {mes}{entre} ainda está sem pagamento confirmado."
+        return f"A mensalidade de {mes}{entre} ainda não consta como paga."
     return None
+
+
+def texto_lista_dos_fatos(state: LucasState, hoje: date) -> str | None:
+    """O PEDIDO DE LISTA respondido com TODAS as competencias dos fatos (inclusive as sem pagamento
+    confirmado), para a escalacao e o caso aberto (rodada 4). `None` sem pedido ou sem fatos."""
+    lista = _lista_da_pergunta(state)
+    competencias = _competencias_dos_fatos(state)
+    if lista is None or not competencias:
+        return None
+    foco = _foco_da_pergunta(state)
+    selecionadas = selecionar_competencias_da_lista(competencias, lista, foco)
+    if not selecionadas:
+        return None
+    facts = {
+        "lista": lista.como_handoff(),
+        "foco": foco,
+        "competencias": selecionadas,
+        "lista_encontradas": len(selecionadas),
+        "lista_esperadas": quantos_meses_a_lista_espera(lista, competencias, foco, hoje),
+    }
+    return texto_lista(state, facts, hoje)
 
 
 #: Caso de cobranca JA' com a equipe: duas redacoes, alternadas por `variante_de_redacao` (a revisao do
@@ -1832,9 +1900,32 @@ AVISOS_DE_CASO_ABERTO_MAX: Final[int] = 2
 
 #: Sem fato a dar e com os avisos esgotados: uma resposta curta, honesta, sem repetir o aviso.
 _SEM_FATO_DEPOIS_DOS_AVISOS: Final[tuple[str, ...]] = (
-    "Certo. Se tiver outra dúvida sobre a mensalidade, posso te ajudar por aqui.",
-    "Entendi. Para outra dúvida sobre a mensalidade, é só me perguntar.",
+    "Ainda não tenho uma resposta da equipe sobre isso. Ela vem por aqui mesmo.",
+    "Por aqui eu não consigo adiantar a resposta da equipe, mas ela vem nesta conversa.",
 )
+
+#: Rodada 4 (13/10/2026): RECLAMACAO de cobranca com o caso ja' com a equipe ("FUI COBRADO DUAS VEZES",
+#: seguida de mensagens irritadas). Reconhece a reclamacao ESPECIFICA de tempos em tempos e, no outro
+#: turno, a empatia — sem promessa de prazo nem de resultado, nunca "outra duvida".
+_OBJETO_DA_RECLAMACAO: Final[dict[str, str]] = {
+    "em_dobro": "a cobrança em dobro",
+    "valor_errado": "o valor cobrado",
+    "nao_reconhece": "a cobrança que você não reconhece",
+}
+
+
+def texto_da_reclamacao(state: LucasState, hoje: date) -> str:
+    tipo = state.get("cobranca_reclamacao")
+    objeto = _OBJETO_DA_RECLAMACAO[str(tipo)] if reclamacao_valida(tipo) else "a cobrança"
+    pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
+    if pedida is not None:
+        objeto = f"{objeto} de {_mes_por_extenso(pedida, hoje)}"
+    if _variante(state) == 0:
+        return (
+            f"Sua reclamação sobre {objeto} já está com a nossa equipe. A resposta vem por aqui. "
+            f"{GARANTIA_SEM_DECISAO}"
+        )
+    return f"Entendo a sua chateação com isso. O seu caso está com a nossa equipe. {GARANTIA_SEM_DECISAO}"
 
 
 def _avisos_anteriores(state: LucasState) -> int:
@@ -1860,12 +1951,55 @@ def ref_de_resposta(texto: str) -> str:
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()[:16]
 
 
-def sem_repetir(state: LucasState, texto: str) -> str:
-    """Rodada 3: o mesmo texto NUNCA sai duas vezes seguidas. Igual ao anterior -> "Confirmando: ..."."""
+#: Rodada 4 (13/10/2026): quando a MESMA resposta teria de sair de novo, o Lucas a diz de forma curta;
+#: se a pessoa insiste, diz com clareza que nao tem mais o que informar e oferece uma pessoa (UMA vez); depois
+#: alterna duas frases honestas. Nunca o mesmo texto duas vezes seguidas, nunca "Confirmando:".
+NAO_CONSIGO_COM_OFERTA: Final[str] = (
+    "Sobre isso, é o que eu consigo te informar por aqui. Se quiser, posso te passar para alguém da nossa "
+    "equipe."
+)
+NAO_CONSIGO: Final[tuple[str, ...]] = (
+    "Não tenho outra informação sobre isso além do que já te passei.",
+    "Por aqui eu não consigo detalhar mais do que isso.",
+)
+
+
+def _ref_do_degrau(chave: str, degrau: int | str) -> str:
+    return ref_de_resposta(f"{chave}\n{degrau}")
+
+
+def _escada(
+    state: LucasState, chave: str, formas: list[str], *, equivalentes: Mapping[str, int] | None = None
+) -> tuple[str, str]:
+    """O degrau desta resposta: o seguinte ao que saiu no turno anterior PARA A MESMA CHAVE (a mesma
+    resposta), ou o primeiro. A ultima forma alterna com a penultima. Devolve o texto e a referencia que o
+    roteador guarda. `equivalentes`: outras referencias que contam como um degrau (o "de qual ano?" da
+    empresa conta como o primeiro)."""
     anterior = state.get("resposta_anterior_ref")
-    if not texto or not isinstance(anterior, str) or ref_de_resposta(texto) != anterior:
-        return texto
-    return f"Confirmando: {texto[0].lower()}{texto[1:]}"
+    refs = [_ref_do_degrau(chave, i) for i in range(len(formas))]
+    indice: int | None = None
+    if isinstance(anterior, str):
+        if anterior in refs:
+            indice = refs.index(anterior)
+        elif equivalentes and anterior in equivalentes:
+            indice = equivalentes[anterior]
+    if indice is None:
+        return formas[0], refs[0]
+    seguinte = indice + 1 if indice + 1 < len(formas) else len(formas) - 2
+    return formas[seguinte], refs[seguinte]
+
+
+def sem_repetir(state: LucasState, texto: str, curta: str | None = None) -> tuple[str, str]:
+    """A resposta deste turno sem repetir a anterior (rodada 4): a escada [texto, curta, oferta de pessoa
+    (se nenhuma forma anterior ja' ofereceu), nao consigo 1, nao consigo 2] da MESMA resposta. Uma
+    resposta diferente sempre sai inteira."""
+    formas: list[str] = [texto]
+    if curta and curta != texto:
+        formas.append(curta)
+    if not any("nossa equipe" in forma for forma in formas):
+        formas.append(NAO_CONSIGO_COM_OFERTA)
+    formas.extend(NAO_CONSIGO)
+    return _escada(state, texto, formas)
 
 
 def resposta_factual_do_turno(state: LucasState, hoje: date) -> str | None:
@@ -1875,13 +2009,16 @@ def resposta_factual_do_turno(state: LucasState, hoje: date) -> str | None:
         return None
     if state.get("intencao") == "cancelamento":
         return None
-    return frase_da_situacao(state, hoje)
+    return texto_lista_dos_fatos(state, hoje) or frase_da_situacao(state, hoje)
 
 
 def texto_caso_aberto(state: LucasState, hoje: date, *, com_aviso: bool = True) -> str:
     """Caso de cobranca JA' com a equipe: o fato que responde a pergunta (quando ha') e o aviso, na
     variante deste turno. Nunca reabre nada nem promete prazo. Sem aviso (`com_aviso=False`, depois de
     dois): so' o fato, ou uma resposta curta quando nao ha' fato."""
+    if state.get("contesta_cobranca") is True:
+        # Rodada 4: a reclamacao com o caso aberto e' reconhecida, nunca respondida com "outra duvida".
+        return texto_da_reclamacao(state, hoje)
     fato = resposta_factual_do_turno(state, hoje)
     if not com_aviso:
         return fato or _SEM_FATO_DEPOIS_DOS_AVISOS[_variante(state)]
@@ -1938,6 +2075,11 @@ def texto_ack_escalacao(state: LucasState, hoje: date) -> str:
     """
     motivo = state.get("motivo_humano")
     if motivo == "inadimplencia_detectada":
+        lista = texto_lista_dos_fatos(state, hoje)
+        if lista is not None:
+            # Rodada 4: "quanto foi agosto e setembro?" com os dois sem pagamento confirmado — os meses
+            # pedidos, com valor e vencimento, antes de passar a equipe.
+            return f"{lista}\n{_ACK_ESCALACAO_ATRASO}"
         competencias = _competencias_dos_fatos(state)
         sem_pagamento = _sem_pagamento_confirmado(competencias)
         if sem_pagamento:
@@ -2360,6 +2502,7 @@ class LucasGraph:
         """
         mensagem = await self._build_message(state)
         avisos = _avisos_do_turno(state)
+        memoria_ref = ""
         if not mensagem.get("recusa_de_saida") and isinstance(mensagem.get("texto"), str):
             texto = mensagem["texto"]
             if state.get("caso_aberto_cobranca") is True and aviso_permitido(state):
@@ -2367,7 +2510,13 @@ class LucasGraph:
                 # isso — no maximo `AVISOS_DE_CASO_ABERTO_MAX` vezes por caso (rodada 3).
                 texto = f"{texto} {aviso_de_caso_aberto(state)}"
                 avisos += 1
-            mensagem["texto"] = sem_repetir(state, texto)
+            if mensagem.get("prompt_version") == PAGADOR_EMPRESA_TEXTO_VERSION and mensagem.get(
+                "empresa_chave"
+            ):
+                texto, memoria_ref = self._escada_da_empresa(state, mensagem, texto)
+            else:
+                texto, memoria_ref = sem_repetir(state, texto, self._forma_curta(state, mensagem))
+            mensagem["texto"] = texto
         entrega = ENTREGA_NAO_ENVIADA
         to_hash = state.get("to_hash")
         if to_hash and state.get("canal", "whatsapp") == "whatsapp":
@@ -2414,6 +2563,7 @@ class LucasGraph:
             "mensagem_enviada": entrega == ENTREGA_ENVIADA,
             "desfecho": desfecho,
             "avisos_de_caso_aberto": avisos,
+            "resposta_memoria_ref": memoria_ref,
         }
 
     async def escalate_human(self, state: LucasState) -> dict[str, Any]:
@@ -2559,7 +2709,7 @@ class LucasGraph:
             avisos += 1 if com_aviso else 0
         else:
             ack_text = self._build_escalation_ack(state)
-        ack_text = sem_repetir(state, ack_text)
+        ack_text, memoria_ref = sem_repetir(state, ack_text)
         try:
             resultado = await self._whatsapp.send(
                 to_hash, ack_text, idempotency_key=_idempotency_key(state, node="send_escalation_ack")
@@ -2575,6 +2725,7 @@ class LucasGraph:
             "ack_pending": False,
             "desfecho": "escalado_humano",
             "avisos_de_caso_aberto": avisos,
+            "resposta_memoria_ref": memoria_ref,
         }
 
     async def notify_start_failure(self, state: LucasState) -> dict[str, Any]:
@@ -2860,6 +3011,8 @@ class LucasGraph:
         FIXO, sem modelo. Os fatos levam SO' a coparticipacao da competencia que a frase cita (pergunta de
         coparticipacao); senao nenhuma competencia, e a cerca recusa qualquer quantia, data ou boleto."""
         foco = _foco_da_pergunta(state) if state.get("tipo_solicitacao") == TIPO_CONSULTA_VALORES else None
+        if _foco_da_pergunta(state) == FOCO_ESCLARECIMENTO:
+            foco = FOCO_ESCLARECIMENTO
         facts: dict[str, Any] = {
             "tipo_solicitacao": state.get("tipo_solicitacao"),
             "pagador_tipo": PAGADOR_EMPRESA,
@@ -2879,7 +3032,30 @@ class LucasGraph:
                     {k: v for k, v in escolhida.items() if k in ("competencia", "valor_coparticipacao")}
                 ]
         texto = texto_pagador_empresa(state, facts, self._hoje())
-        return self._mensagem(texto, facts, PAGADOR_EMPRESA_TEXTO_VERSION, state)
+        mensagem = self._mensagem(texto, facts, PAGADOR_EMPRESA_TEXTO_VERSION, state)
+        if foco != "coparticipacao":
+            # Rodada 4: as respostas da empresa (sem coparticipacao) sao UMA resposta, em degraus.
+            mensagem["empresa_chave"] = f"empresa:{state.get('competencia') or ''}"
+        return mensagem
+
+    def _escada_da_empresa(
+        self, state: LucasState, mensagem: Mapping[str, Any], texto: str
+    ) -> tuple[str, str]:
+        """Contrato de empresa (rodada 4): [explicacao, curta, nao consigo 1, nao consigo 2]. O "de qual
+        ano?" e' respondido (o ano) e conta como o primeiro degrau: a pergunta seguinte ja' recebe a curta.
+        Nunca a explicacao inteira duas vezes seguidas."""
+        chave = str(mensagem["empresa_chave"])
+        ref_do_ano = _ref_do_degrau(chave, "ano")
+        if (
+            _foco_da_pergunta(state) == FOCO_ESCLARECIMENTO
+            and state.get("resposta_anterior_ref") != ref_do_ano
+        ):
+            refs = {_ref_do_degrau(chave, i) for i in range(1, 4)}
+            if state.get("resposta_anterior_ref") not in refs:
+                return texto, ref_do_ano
+        completo = texto_pagador_empresa(state, {"foco": None}, self._hoje())
+        formas = [completo, texto_pagador_empresa_curto(state, self._hoje()), *NAO_CONSIGO]
+        return _escada(state, chave, formas, equivalentes={ref_do_ano: 0})
 
     def _build_vencimento(self, state: LucasState) -> dict[str, Any]:
         """A resposta a "quando vence?" em TEXTO FIXO dos fatos por competencia (`texto_vencimento`).
@@ -3013,6 +3189,28 @@ class LucasGraph:
             # STRUCTURAL GUARDRAIL (L0 hard): the dossier NEVER carries the adverse decision.
             "decisao_cancelamento": None,  # rescindir/manter/suspender — always human (CANCEL-001)
         }
+
+    def _forma_curta(self, state: LucasState, mensagem: Mapping[str, Any]) -> str | None:
+        """A forma CURTA da resposta deste turno (rodada 4), para quando a anterior foi a mesma: a do
+        contrato de empresa, ou "E' julho de 2026: paga em 18/08." do mes da resposta. Passa pela cerca
+        com os fatos da mensagem; recusada, nenhuma."""
+        if mensagem.get("prompt_version") == PAGADOR_EMPRESA_TEXTO_VERSION:
+            return texto_pagador_empresa_curto(state, self._hoje())
+        fatos = mensagem.get("fatos")
+        if (
+            not isinstance(fatos, Mapping)
+            or not fatos.get("competencias")
+            or isinstance(fatos.get("lista"), Mapping)
+        ):
+            return None
+        curta = texto_de_esclarecimento(state, self._hoje())
+        if curta is None:
+            return None
+        fatos_da_cerca = dict(fatos)
+        dados_de = _data_iso_da_fonte(state)
+        if dados_de is not None:
+            fatos_da_cerca["dados_de"] = dados_de
+        return None if motivo_de_recusa(curta, "mensagem", fatos_da_cerca) is not None else curta
 
     def _fatos_da_cerca_do_ack(self, state: LucasState) -> dict[str, Any]:
         """Os fatos com que a cerca confere valor, data e boleto do ACK que cita fatos (13/10/2026)."""

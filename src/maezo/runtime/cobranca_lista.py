@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Final, Literal
 
-from maezo.runtime.competencia import competencia_valida
+from maezo.runtime.competencia import competencia_valida, resolver_ano_da_competencia
 
 SituacaoDaLista = Literal["paga", "em_aberto"]
 
@@ -39,6 +39,8 @@ QUANTIDADE_PADRAO: Final[int] = 3
 QUANTIDADE_MAXIMA: Final[int] = 12
 #: As chaves do pedido no handoff, nem uma a mais, nem uma a menos.
 CHAVES_DA_LISTA: Final[frozenset[str]] = frozenset({"quantidade", "de", "ate", "situacao"})
+#: Rodada 4 (13/10/2026): os MESES NOMEADOS ("quanto foi agosto e setembro?"), opcional no handoff.
+CHAVE_DOS_MESES: Final[str] = "meses"
 SITUACOES_DA_LISTA: Final[frozenset[str]] = frozenset({"paga", "em_aberto"})
 
 _NUMERAIS: Final[dict[str, int]] = {
@@ -86,15 +88,20 @@ _ULTIMAS_SEM_N: Final[re.Pattern[str]] = re.compile(
 _TEM_ULTIMAS: Final[re.Pattern[str]] = re.compile(r"\bultim[oa]s\b|\banteriores\b")
 
 _INTERVALO: Final[re.Pattern[str]] = re.compile(
-    r"\b(?:de|desde|entre)\s+"
+    r"\b(?:de|desde)\s+"
     + _MES
     + r"(?:\s+de\s+"
     + _ANO
-    + r")?\s+(?:a|ate|e)\s+"
+    + r")?\s+(?:a|ate)\s+"
     + _MES
     + r"(?:\s+de\s+"
     + _ANO
     + r")?\b"
+)
+#: "entre julho e setembro": o "e" so' vale como intervalo depois de "entre" ("agosto e setembro" sao DOIS
+#: meses nomeados, nao o intervalo — `meses`).
+_ENTRE: Final[re.Pattern[str]] = re.compile(
+    r"\bentre\s+" + _MES + r"(?:\s+de\s+" + _ANO + r")?\s+e\s+" + _MES + r"(?:\s+de\s+" + _ANO + r")?\b"
 )
 _ANO_INTEIRO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:as|os|todas|todos|pag[oa]s|"
@@ -126,8 +133,12 @@ class PedidoDeLista:
     de: str | None = None
     ate: str | None = None
     situacao: SituacaoDaLista | None = None
+    #: Rodada 4: os meses NOMEADOS (`AAAA-MM`, ordenados), quando a pessoa citou dois ou mais.
+    meses: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if any(not competencia_valida(m) for m in self.meses) or len(set(self.meses)) != len(self.meses):
+            raise ValueError("cobranca_lista: meses fora do dominio")
         if (
             type(self.quantidade) is not int
             or not 2 <= self.quantidade <= QUANTIDADE_MAXIMA
@@ -139,7 +150,15 @@ class PedidoDeLista:
             raise ValueError("cobranca_lista: pedido fora do dominio")
 
     def como_handoff(self) -> dict[str, Any]:
-        return {"quantidade": self.quantidade, "de": self.de, "ate": self.ate, "situacao": self.situacao}
+        handoff: dict[str, Any] = {
+            "quantidade": self.quantidade,
+            "de": self.de,
+            "ate": self.ate,
+            "situacao": self.situacao,
+        }
+        if self.meses:
+            handoff[CHAVE_DOS_MESES] = list(self.meses)
+        return handoff
 
     @property
     def tem_periodo(self) -> bool:
@@ -151,10 +170,17 @@ def lista_do_handoff(valor: object) -> PedidoDeLista | None:
     (o chamador decide: o handoff recusa, o grafo ignora)."""
     if valor is None:
         return None
-    if not isinstance(valor, Mapping) or frozenset(valor) != CHAVES_DA_LISTA:
+    if not isinstance(valor, Mapping) or frozenset(valor) - {CHAVE_DOS_MESES} != CHAVES_DA_LISTA:
         raise ValueError("cobranca_lista: chaves fora do dominio")
+    meses = valor.get(CHAVE_DOS_MESES, [])
+    if not isinstance(meses, list | tuple) or not all(isinstance(m, str) for m in meses):
+        raise ValueError("cobranca_lista: meses fora do dominio")
     return PedidoDeLista(
-        quantidade=valor["quantidade"], de=valor["de"], ate=valor["ate"], situacao=valor["situacao"]
+        quantidade=valor["quantidade"],
+        de=valor["de"],
+        ate=valor["ate"],
+        situacao=valor["situacao"],
+        meses=tuple(meses),
     )
 
 
@@ -187,7 +213,7 @@ def _meses_entre(de: str, ate: str) -> int:
 
 
 def _intervalo(plano: str, hoje: date) -> tuple[str, str] | None:
-    achado = _INTERVALO.search(plano)
+    achado = _INTERVALO.search(plano) or _ENTRE.search(plano)
     if achado is None:
         return None
     mes_de, ano_de, mes_ate, ano_ate = achado.groups()
@@ -231,6 +257,20 @@ def decidir_lista_da_cobranca(texto: object, hoje: date) -> PedidoDeLista | None
     elif quantidade is None and situacao == "em_aberto" and _PEDE_TODAS_EM_ABERTO.search(plano):
         quantidade = QUANTIDADE_MAXIMA
 
+    if periodo is None and quantidade is None:
+        # Rodada 4 (13/10/2026): "quanto foi agosto e setembro?" — DOIS ou mais meses nomeados, cada um com
+        # o ano pela regra unica de `competencia.py`. Os meses valem sem filtro de situacao.
+        nomeados = sorted({_MESES[m] for m in _NOME_DE_MES.findall(plano)})
+        if len(nomeados) >= 2:
+            meses = tuple(
+                sorted(
+                    {
+                        str(resolver_ano_da_competencia(f"{hoje.year:04d}-{m:02d}", texto, hoje))
+                        for m in nomeados
+                    }
+                )
+            )
+            return PedidoDeLista(quantidade=min(len(meses), QUANTIDADE_MAXIMA), meses=meses)
     if quantidade is None or quantidade < 2:
         return None
     de, ate = periodo if periodo is not None else (None, None)

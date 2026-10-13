@@ -331,16 +331,30 @@ def _handoff_com_mes_do_texto(texto: str, handoff: Mapping[str, Any]) -> Mapping
     `runtime/competencia.py` (pistas de "lancado"/"vence"/"ultima" -> o que vem). Uma pergunta de
     confirmacao ("essa e' a ultima?") num assunto "outro" e' consulta de valores."""
     from maezo.runtime.cobranca_foco import FOCO_ULTIMA
-    from maezo.runtime.competencia import hoje_em_brasilia, mes_unico_do_texto, resolver_ano_da_competencia
+    from maezo.runtime.cobranca_reclamacao import decidir_reclamacao
+    from maezo.runtime.competencia import (
+        hoje_em_brasilia,
+        mes_relativo_do_texto,
+        mes_unico_do_texto,
+        resolver_ano_da_competencia,
+    )
 
     ajustado = dict(handoff)
+    hoje = hoje_em_brasilia(datetime.now(UTC))
     if ajustado.get("cobranca_foco") == FOCO_ULTIMA and ajustado.get("cobranca_subtipo") == "outro":
         ajustado["cobranca_subtipo"] = "consulta_valores"
     if ajustado.get("competencia") is None and "cobranca_lista" not in ajustado:
         mes = mes_unico_do_texto(texto)
         if mes is not None:
-            hoje = hoje_em_brasilia(datetime.now(UTC))
             ajustado["competencia"] = resolver_ano_da_competencia(f"{hoje.year:04d}-{mes:02d}", texto, hoje)
+        else:
+            # Rodada 4: "no mes passado" / "deste mes" tambem dizem de que mes se fala.
+            ajustado["competencia"] = mes_relativo_do_texto(texto, hoje)
+    if ajustado.get("cobranca_subtipo") == "contestacao":
+        # Rodada 4 (13/10/2026): o TIPO da reclamacao, para o Lucas reconhece-la com o caso aberto.
+        reclamacao = decidir_reclamacao(texto)
+        if reclamacao is not None:
+            ajustado["cobranca_reclamacao"] = reclamacao
     return ajustado if ajustado != dict(handoff) else handoff
 
 

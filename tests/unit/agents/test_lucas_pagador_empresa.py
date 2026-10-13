@@ -37,6 +37,11 @@ from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.evals.lucas.programa import DmnDraftLocal
 from tests.support.audit_fakes import FakeStartAuditSink
 
+_EXPLICACAO_EMPRESA = (
+    f"{TEXTO_PAGADOR_EMPRESA} Por isso, a situação do pagamento fica com a empresa (normalmente o RH). Se "
+    "quiser, posso te passar para alguém da nossa equipe."
+)
+
 #: A fatura da EMPRESA vencida (o caso da bateria): total, saldo e boleto sao do titulo da empresa.
 _COMPETENCIAS_EMPRESA: list[dict[str, Any]] = [
     {
@@ -170,7 +175,8 @@ async def test_empresa_ouve_o_texto_fixo_e_nunca_a_fatura_da_empresa(tipo: str) 
 
     assert final["route"] == "respond_member"
     assert final["process_started"] is False
-    assert envio.textos == [TEXTO_PAGADOR_EMPRESA]
+    # Rodada 4 (13/10/2026): a frase e a consequencia, uma vez — quem confirma o pagamento e' a empresa.
+    assert envio.textos == [_EXPLICACAO_EMPRESA]
     assert final["mensagem"]["prompt_version"] == PAGADOR_EMPRESA_TEXTO_VERSION
     assert inferencia.prompts == []
     texto = envio.textos[0]
@@ -182,7 +188,7 @@ async def test_empresa_inadimplencia_da_empresa_nao_escala_o_beneficiario() -> N
     final, envio, _ = await _turno(_estado("status_pagamento", intencao="inadimplencia"))
     assert final["route"] == "respond_member"
     assert final.get("motivo_humano") != "inadimplencia_detectada"
-    assert envio.textos == [TEXTO_PAGADOR_EMPRESA]
+    assert envio.textos == [_EXPLICACAO_EMPRESA]
 
 
 async def test_empresa_coparticipacao_e_da_pessoa_e_aparece_quando_perguntada() -> None:

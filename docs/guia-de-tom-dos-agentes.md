@@ -143,9 +143,21 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   nenhum mês em aberto, e "última" é a mais recente dos dados. Mês ainda não lançado ("novembro tá
   lançado?" em outubro): "A mensalidade de novembro de 2026 ainda não foi gerada." — nunca o novembro do
   ano passado. "Essa é a última?": "Sim, a mais recente é a de outubro de 2026 (R$ 552,54, vence em
-  20/10)." "De qual ano?": a resposta curta, "É julho de 2026: paga em 18/08.". O mesmo texto nunca sai
-  duas vezes seguidas (o repetido vira "Confirmando: ..."), e o aviso de caso aberto sai no máximo duas
-  vezes por caso; depois, só o fato.
+  20/10)." "De qual ano?": a resposta curta, "É julho de 2026: paga em 18/08.". O aviso de caso aberto sai
+  no máximo duas vezes por caso; depois, só o fato.
+- **Pergunta repetida, empresa, vários meses e reclamação (Lucas, 13/10/2026, rodada 4):** nunca
+  "Confirmando: ...". A mesma resposta pedida de novo sai CURTA e responde o que foi perguntado; se a pessoa
+  insiste, o Lucas diz que é o que consegue informar e oferece alguém da equipe UMA vez ("Sobre isso, é o que
+  eu consigo te informar por aqui. Se quiser, posso te passar para alguém da nossa equipe."), depois
+  alterna "Não tenho outra informação sobre isso além do que já te passei." e "Por aqui eu não consigo
+  detalhar mais do que isso.". Contrato de empresa: a consequência uma vez ("Sua mensalidade é paga pela
+  empresa contratante. Por isso, a situação do pagamento de julho de 2026 fica com a empresa (normalmente
+  o RH). Se quiser, posso te passar para alguém da nossa equipe."), o ano quando perguntado ("É julho de
+  2026. O pagamento dela é feito pela empresa contratante."), a coparticipação da pessoa sempre. Dois
+  meses nomeados ("agosto e setembro") viram lista, também na escalação e no caso aberto ("• agosto de
+  2026: R$ 966,52, vencimento em 15/08, sem pagamento confirmado."). Reclamação com o caso aberto: a
+  reclamação específica ("Sua reclamação sobre a cobrança em dobro de setembro de 2026 já está com a nossa
+  equipe.") alternada com empatia ("Entendo a sua chateação com isso."), sem prazo e nunca "outra dúvida".
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
   "TOM DA CONVERSA" do `response-v14` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no

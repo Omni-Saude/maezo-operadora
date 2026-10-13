@@ -22,6 +22,7 @@ import pytest
 from maezo.agents.lucas.graph import (
     ACK_ESCALACAO,
     AVISOS_DE_CASO_ABERTO,
+    NAO_CONSIGO_COM_OFERTA,
     LucasGraph,
     LucasState,
     new_lucas_state,
@@ -101,7 +102,8 @@ class _Conversa:
         final = dict(await grafo.compile_graph().compile().ainvoke(_estado(**memoria, **entrada)))
         self.turno += 1
         [texto] = envio.textos
-        self.ref = ref_de_resposta(texto)
+        # A referencia que o roteador guarda: o degrau da escada (rodada 4) ou, sem ele, o texto enviado.
+        self.ref = final.get("resposta_memoria_ref") or ref_de_resposta(texto)
         self.avisos = final.get("avisos_de_caso_aberto") or 0
         return final, texto
 
@@ -175,7 +177,9 @@ async def test_de_qual_ano_responde_curto_com_o_ano_e_nunca_igual() -> None:
     assert segundo != primeiro
     _sem_recusa(final, segundo)
     _, terceiro = await conversa.mensagem(competencia="2026-07", cobranca_foco="esclarecimento")
-    assert terceiro == "Confirmando: é julho de 2026: paga em 18/08."
+    # Rodada 4: a mesma pergunta de novo nao vira "Confirmando: ..." — o Lucas diz que e' o que tem e oferece
+    # alguem da equipe.
+    assert terceiro == NAO_CONSIGO_COM_OFERTA
 
 
 # --- 3. "Novembro ta' lancado?" -------------------------------------------------------------------------
@@ -225,7 +229,8 @@ async def test_confirmacao_da_ultima_responde_sim_e_nao_repete() -> None:
     )
     _sem_recusa(final, primeiro)
     _, segundo = await conversa.mensagem(**entrada, cobranca_foco="ultima")
-    assert segundo != primeiro and segundo.startswith("Confirmando: sim, a mais recente")
+    # Rodada 4: a repeticao sai CURTA e responde o que foi perguntado (novembro).
+    assert segundo == "A mensalidade de novembro de 2026 ainda não foi gerada."
 
 
 # --- 5. Avisos de caso aberto: no maximo dois ----------------------------------------------------------
@@ -239,12 +244,14 @@ async def test_depois_de_dois_avisos_so_o_fato() -> None:
     textos = [primeiro]
     for _ in range(2):
         _, texto = await conversa.mensagem(**contestacao)
-        assert texto in AVISOS_DE_CASO_ABERTO
+        # Rodada 4: a reclamacao com o caso aberto e' reconhecida (nunca "outra duvida").
+        assert "nossa equipe" in texto and "outra dúvida" not in texto
         textos.append(texto)
     assert conversa.avisos == 2
     for _ in range(3):
         _, texto = await conversa.mensagem(**contestacao)
         assert not any(aviso in texto for aviso in AVISOS_DE_CASO_ABERTO)
+        assert "outra dúvida" not in texto
         textos.append(texto)
     # Pergunta de fato com o caso aberto e os avisos esgotados: so' o fato.
     _, fato = await conversa.mensagem(competencia="2026-07", cobranca_foco="pagamento")

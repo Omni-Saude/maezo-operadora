@@ -118,11 +118,30 @@ def mes_unico_do_texto(texto: object) -> int | None:
     return meses.pop() if len(meses) == 1 else None
 
 
+_MES_PASSADO: Final[re.Pattern[str]] = re.compile(r"\bmes passado\b|\bultimo mes\b")
+_ESTE_MES: Final[re.Pattern[str]] = re.compile(r"\b(?:d?este|d?esse) mes\b|\bmes atual\b")
+
+
+def mes_relativo_do_texto(texto: object, hoje: date) -> str | None:
+    """ "no mes passado" -> a competencia anterior a de hoje; "deste mes" -> a de hoje; senao `None`
+    (rodada 4 do simulador: "FUI COBRADO DUAS VEZES NO MES PASSADO")."""
+    if not isinstance(texto, str):
+        return None
+    plano = _sem_acento(texto)
+    if _MES_PASSADO.search(plano):
+        ano, mes = (hoje.year - 1, 12) if hoje.month == 1 else (hoje.year, hoje.month - 1)
+        return f"{ano:04d}-{mes:02d}"
+    if _ESTE_MES.search(plano):
+        return f"{hoje.year:04d}-{hoje.month:02d}"
+    return None
+
+
 __all__ = [
     "COMPETENCIA_RE",
     "FUSO_BRASILIA",
     "competencia_valida",
     "hoje_em_brasilia",
+    "mes_relativo_do_texto",
     "mes_unico_do_texto",
     "resolver_ano_da_competencia",
 ]
