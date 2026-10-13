@@ -1,7 +1,7 @@
 """Roteiro de ACEITE do dono: mensagens FIXAS (sem persona LLM) com assercao por passo.
 
 Nasceu de um roteiro manual que o dono rodou no WhatsApp e achou defeitos que a bateria de personas
-nao pegou. Aqui o mesmo roteiro e' repetivel: `--roteiro dono_v1` reenvia exatamente os mesmos
+nao pegou. Aqui o mesmo roteiro e' repetivel: `--roteiro dono_v1` repete exatamente os mesmos
 textos, na ordem, ao despachante real (composicao do simulador: nenhum caso real, escalonamento
 interceptado), e confere cada resposta.
 
@@ -40,7 +40,7 @@ PERSONA_ACEITE = Persona(
     id="roteiro_aceite",
     nome="Roteiro de aceite",
     descricao="Mensagens fixas do roteiro de aceite do dono.",
-    objetivo="Reenviar o roteiro de aceite sem variacao.",
+    objetivo="Repetir o roteiro de aceite sem variacao.",
     estilo="Fixo.",
     escalacao="permitida",
     turnos_min=1,
