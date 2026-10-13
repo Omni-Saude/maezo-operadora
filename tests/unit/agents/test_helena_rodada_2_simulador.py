@@ -246,7 +246,8 @@ async def test_piora_com_sintoma_extraido_e_caso_aberto_tambem_e_emergencia_prim
 async def test_encaminhamento_administrativo_nao_fala_em_samu() -> None:
     grafo, whatsapp, _ = _grafo([_classify(intent="human_request")])
 
-    resultado = await grafo.ainvoke(_entrada("quero falar com um atendente, é cobrança"))
+    # DL-0092: sem cobranca no texto (cobranca no texto vai ao Lucas).
+    resultado = await grafo.ainvoke(_entrada("quero falar com um atendente, é sobre meu cadastro"))
 
     assert resultado["escalation_motivo"] == "solicitacao_humano"
     assert whatsapp.enviados == [RESPOSTA_HANDOFF_RECUSADA]

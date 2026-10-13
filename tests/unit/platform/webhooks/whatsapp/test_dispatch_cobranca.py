@@ -368,9 +368,23 @@ async def _gravar_quebrado(linha: Any, *, revisao_esperada: int | None) -> bool:
 # --- o que NAO passa ------------------------------------------------------------------------------
 
 
-async def test_cobranca_com_pedido_de_pessoa_no_lexico_escala_e_nao_roda_o_lucas() -> None:
+async def test_cobranca_com_pedido_de_pessoa_no_lexico_vai_ao_lucas() -> None:
+    """DL-0092 (rodada 5 do simulador, D11 = 0,50): cobranca no texto vai ao Lucas mesmo com pedido de
+    pessoa; o Lucas responde a cobranca neste turno. A maquina de roteamento (§2.2) continua lendo o
+    pedido de pessoa e devolve a conversa a Helena depois do turno."""
     dispatcher, cliente, store, espiao, _ = _montar([_classify()])
     resultado = await dispatcher.dispatch(_msg("quero falar com um atendente sobre o boleto"))
+    assert resultado.get("escalation_motivo") is None
+    assert espiao is not None and len(espiao.handoffs) == 1
+    assert FRASE_PASSAGEM_COBRANCA in cliente.textos
+    assert _linha(store).transicao_motivo == "retorno_pedido_humano"
+
+
+async def test_pedido_de_pessoa_sem_cobranca_escala_e_nao_roda_o_lucas() -> None:
+    dispatcher, cliente, store, espiao, _ = _montar(
+        [_classify(intent="human_request", cobranca_subtipo=None)]
+    )
+    resultado = await dispatcher.dispatch(_msg("quero falar com um atendente"))
     assert resultado["escalation_motivo"] == "solicitacao_humano"
     assert espiao is not None and espiao.handoffs == []
     assert FRASE_PASSAGEM_COBRANCA not in cliente.textos

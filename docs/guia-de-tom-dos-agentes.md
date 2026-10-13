@@ -88,6 +88,11 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
   confirmar; nunca "não consta no cadastro". Insistência não reenvia os dados do plano.
 - **192 na frente só com sinal de saúde.** "É urgente" sobre cobertura: responde a cobertura, 192 no fim.
 
+## Rodada 5 do simulador (DL-0092, 13/10/2026)
+
+- **Cobrança é do Lucas, sempre:** mesmo com caso aberto ou pedido de pessoa, a mensagem de cobrança vai
+  para quem cuida do financeiro. "Me passa pro RH" não é pedido de uma pessoa da nossa equipe.
+
 ## Nunca dizer
 
 - "portal do beneficiário", "portal da operadora", "aplicativo do plano", "site", 0800 ou qualquer canal
