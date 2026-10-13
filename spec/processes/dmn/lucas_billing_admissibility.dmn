@@ -57,6 +57,15 @@
     duvida de vencimento ESCALA com categoria `ambiguidade`, pela mesma razao da linha acima. Fica antes de
     `vencimento`; sem fatos de valor a entrada e' false e o lembrete de sempre continua.
 
+    ENTRADA `pagador_empresa` + REGRA `pagador_empresa` (13/10/2026, decisao do dono; bateria de beneficiario
+    simulado: o Lucas mostrou a fatura de R$ 107.655,44 de uma empresa como "sua mensalidade"). Verdadeira
+    quando o contrato `billing-status` diz `pagador_tipo=pessoa_juridica` (apurado pelo grafo, nunca pelo
+    modelo). Num contrato de empresa `status_conciliado`/`ciclos_sem_conciliacao`/atraso sao do TITULO DA
+    EMPRESA, nao da pessoa: a regra nova (PRIMEIRA linha) responde a pergunta de cobranca com o texto fixo
+    "Sua mensalidade e' paga pela empresa contratante.", e a regra de atraso passa a exigir
+    `pagador_empresa=false` — o atraso da empresa nunca escala o beneficiario como inadimplencia. Pagador
+    PF ou desconhecido: false, e a tabela se comporta como antes. As demais linhas ignoram (`-`).
+
     NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — uma row catch-all (`-`) sob
     UNIQUE colidiria com qualquer row especifica no engine (violacao em runtime); FIRST preserva o
     catch-all ESCALAR_HUMANO mantendo a tabela ENGINE-DEPLOYAVEL. Espelha cancel_admissibility /
@@ -79,9 +88,24 @@
       <input id="lba_in_valores_com_atraso" label="Fatos de valor com competencia vencida ou dias de atraso (valores_com_atraso)">
         <inputExpression id="lba_ie_valores_com_atraso" typeRef="boolean"><text>valores_com_atraso</text></inputExpression>
       </input>
+      <input id="lba_in_pagador_empresa" label="Mensalidade paga pela empresa contratante (pagador_empresa)">
+        <inputExpression id="lba_ie_pagador_empresa" typeRef="boolean"><text>pagador_empresa</text></inputExpression>
+      </input>
       <output id="lba_out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
       <output id="lba_out_motivo" label="motivo" name="motivo" typeRef="string"/>
       <output id="lba_out_categoria" label="categoria" name="categoria" typeRef="string"/>
+      <rule id="lba_r_pagador_empresa">
+        <description>Contrato de EMPRESA (pagador pessoa juridica, 13/10/2026, decisao do dono): a mensalidade e' paga pela empresa contratante. Pergunta de cobranca (valor, boleto/2a via, vencimento, status de pagamento) -> resposta FIXA "Sua mensalidade e' paga pela empresa contratante." (mais a coparticipacao da pessoa, se perguntada). O boleto, o total e o atraso sao da EMPRESA: nunca sao mostrados ao beneficiario e nunca o escalam. Fica ANTES da regra de atraso.</description>
+        <inputEntry id="lba_r_pagador_empresa_i1"><text>"consulta_valores","boleto","2a_via","vencimento","status_pagamento"</text></inputEntry>
+        <inputEntry id="lba_r_pagador_empresa_i2"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_pagador_empresa_i3"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_pagador_empresa_i4"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_pagador_empresa_i5"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_pagador_empresa_i6"><text>true</text></inputEntry>
+        <outputEntry id="lba_r_pagador_empresa_o1"><text>"RESPONDER"</text></outputEntry>
+        <outputEntry id="lba_r_pagador_empresa_o2"><text>"Mensalidade paga pela empresa contratante — resposta fixa; boleto, total e atraso da empresa nao sao do beneficiario e nao escalam (decisao do dono 13/10/2026) — DRAFT/verify"</text></outputEntry>
+        <outputEntry id="lba_r_pagador_empresa_o3"><text>"-"</text></outputEntry>
+      </rule>
       <rule id="lba_r_atraso_escala">
         <description>Indicio de inadimplencia: nao conciliado por >=1 ciclo -> escala ao humano (NUNCA cobra/suspende por suposicao)</description>
         <inputEntry id="lba_r_atraso_escala_i1"><text>-</text></inputEntry>
@@ -89,6 +113,7 @@
         <inputEntry id="lba_r_atraso_escala_i3"><text>&gt;= 1</text></inputEntry>
         <inputEntry id="lba_r_atraso_escala_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_atraso_escala_i5"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_atraso_escala_i6"><text>false</text></inputEntry>
         <outputEntry id="lba_r_atraso_escala_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
         <outputEntry id="lba_r_atraso_escala_o2"><text>"Indicio de inadimplencia (nao conciliado por >=1 ciclo) — humano confirma antes de qualquer acao de cobranca; NUNCA suspende/cobra por suposicao (limiar DRAFT/verify — sign-off financeiro/PO)"</text></outputEntry>
         <outputEntry id="lba_r_atraso_escala_o3"><text>"inadimplencia"</text></outputEntry>
@@ -100,6 +125,7 @@
         <inputEntry id="lba_r_vencimento_atraso_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_vencimento_atraso_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_vencimento_atraso_i5"><text>true</text></inputEntry>
+        <inputEntry id="lba_r_vencimento_atraso_i6"><text>-</text></inputEntry>
         <outputEntry id="lba_r_vencimento_atraso_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
         <outputEntry id="lba_r_vencimento_atraso_o2"><text>"Duvida de vencimento com competencia vencida ou dias de atraso nos fatos (sem ciclo sem conciliacao) — humano confirma; nunca se afirma atraso ao beneficiario (DL-0082) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_vencimento_atraso_o3"><text>"ambiguidade"</text></outputEntry>
@@ -111,6 +137,7 @@
         <inputEntry id="lba_r_vencimento_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_vencimento_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_vencimento_i5"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_vencimento_i6"><text>-</text></inputEntry>
         <outputEntry id="lba_r_vencimento_o1"><text>"LEMBRETE"</text></outputEntry>
         <outputEntry id="lba_r_vencimento_o2"><text>"Lembrete de vencimento (informativo; NUNCA ameaca suspensao/cancelamento) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_vencimento_o3"><text>"-"</text></outputEntry>
@@ -122,6 +149,7 @@
         <inputEntry id="lba_r_boleto_2via_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_boleto_2via_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_boleto_2via_i5"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_boleto_2via_i6"><text>-</text></inputEntry>
         <outputEntry id="lba_r_boleto_2via_o1"><text>"RESPONDER"</text></outputEntry>
         <outputEntry id="lba_r_boleto_2via_o2"><text>"Duvida informacional de boleto/2a via — resposta informativa (caminho neutro; nunca adverso) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_boleto_2via_o3"><text>"-"</text></outputEntry>
@@ -133,6 +161,7 @@
         <inputEntry id="lba_r_status_conciliado_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_status_conciliado_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_status_conciliado_i5"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_status_conciliado_i6"><text>-</text></inputEntry>
         <outputEntry id="lba_r_status_conciliado_o1"><text>"RESPONDER"</text></outputEntry>
         <outputEntry id="lba_r_status_conciliado_o2"><text>"Pagamento conciliado (pre-resolvido por worker CNAB) — reporta o status ao beneficiario; Lucas LE, nunca calcula/inventa (ADR-0012) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_status_conciliado_o3"><text>"-"</text></outputEntry>
@@ -144,6 +173,7 @@
         <inputEntry id="lba_r_consulta_valores_atraso_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_consulta_valores_atraso_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_consulta_valores_atraso_i5"><text>true</text></inputEntry>
+        <inputEntry id="lba_r_consulta_valores_atraso_i6"><text>-</text></inputEntry>
         <outputEntry id="lba_r_consulta_valores_atraso_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
         <outputEntry id="lba_r_consulta_valores_atraso_o2"><text>"Consulta de valores com competencia vencida ou dias de atraso nos fatos (sem ciclo sem conciliacao) — humano confirma; nunca se afirma atraso ao beneficiario (DL-0082) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_consulta_valores_atraso_o3"><text>"ambiguidade"</text></outputEntry>
@@ -155,6 +185,7 @@
         <inputEntry id="lba_r_consulta_valores_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_consulta_valores_i4"><text>true</text></inputEntry>
         <inputEntry id="lba_r_consulta_valores_i5"><text>false</text></inputEntry>
+        <inputEntry id="lba_r_consulta_valores_i6"><text>-</text></inputEntry>
         <outputEntry id="lba_r_consulta_valores_o1"><text>"RESPONDER"</text></outputEntry>
         <outputEntry id="lba_r_consulta_valores_o2"><text>"Consulta de valores com fatos do contrato billing-status presentes — resposta restrita aos fatos (DL-0086); sem fato o catch-all escala — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_consulta_valores_o3"><text>"-"</text></outputEntry>
@@ -166,6 +197,7 @@
         <inputEntry id="lba_r_catchall_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_catchall_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_catchall_i5"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_catchall_i6"><text>-</text></inputEntry>
         <outputEntry id="lba_r_catchall_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
         <outputEntry id="lba_r_catchall_o2"><text>"Ambiguidade de cobranca / combinacao nao mapeada — humano confirma antes de qualquer acao (fail-safe fechado; NUNCA cobra/suspende/nega por suposicao) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_catchall_o3"><text>"ambiguidade"</text></outputEntry>

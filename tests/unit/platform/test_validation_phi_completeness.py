@@ -1219,6 +1219,19 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "beneficiario."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-13",
+        pr="#733",
+        name="pagador_empresa",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova de `lucas_billing_admissibility` (decisao do dono, 13/10/2026): booleano "
+            "apurado pelo grafo do Lucas a partir do `pagador_tipo` do billing-status ('a mensalidade e' "
+            "paga pela empresa contratante?'). Le'-a a linha `pagador_empresa` (resposta fixa) e a regra de "
+            "atraso (exige false); nao carrega dado do beneficiario, so' o tipo do pagador."
+        ),
+    ),
 )
 
 
@@ -1229,7 +1242,9 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
-        assert expected_clean == 337  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1
+        assert (
+            expected_clean == 338
+        )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -1258,8 +1273,8 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 353  # GP11: +9; DL-0086: +1; #709: +1
-        assert len(live_sweep.refs) == expected_refs == 1690  # GP11: +34; DL-0086: +1; #709: +1
+        assert len(live_sweep.names) == expected_names == 354  # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1
+        assert len(live_sweep.refs) == expected_refs == 1691  # GP11: +34; DL-0086: +1; #709: +1; 13/10: +1
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1386,7 +1401,9 @@ class TestBuckets:
         assert f"## {SHAPE_SUSPECT} (10)" in rendered
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
-        assert f"## {CLEAN} (337)" in rendered  # #709: +1 (`valores_com_atraso`)
+        assert (
+            f"## {CLEAN} (338)" in rendered
+        )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`)
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

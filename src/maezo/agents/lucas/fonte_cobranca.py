@@ -49,6 +49,11 @@ MotivoIndisponivel = Literal[
 ]
 
 
+#: `resumo.pagador_tipo` do contrato `billing-status` (enum). `pessoa_juridica` = contrato de EMPRESA.
+PAGADOR_TIPOS: Final[frozenset[str]] = frozenset({"pessoa_fisica", "pessoa_juridica", "desconhecido"})
+PAGADOR_EMPRESA: Final[str] = "pessoa_juridica"
+
+
 @dataclass(frozen=True, slots=True)
 class CompetenciaCobranca:
     """Os fatos de UMA competencia como a fonte os entregou (DL-0086). Ausente e' `None`, nunca zero.
@@ -103,6 +108,10 @@ class FatosCobranca:
     vencimento_referencia: str | None = None
     #: As competencias da janela que o contrato devolveu, da mais recente para a mais antiga.
     competencias: tuple[CompetenciaCobranca, ...] = ()
+    #: Quem paga a mensalidade (`resumo.pagador_tipo` do contrato, 13/10/2026): `pessoa_juridica` (a empresa
+    #: contratante: o boleto, o total e o atraso sao DELA, nunca da pessoa), `pessoa_fisica` ou
+    #: `desconhecido`. Ausente na simulada. Valor fora do vocabulario nao chega aqui (vira `desconhecido`).
+    pagador_tipo: str | None = None
 
     def como_entrada_lucas(self) -> dict[str, Any]:
         """As chaves de `_CALLER_INPUT_FIELDS` que estes fatos preenchem — nenhuma outra.
@@ -124,6 +133,9 @@ class FatosCobranca:
             entrada["vencimento_referencia"] = self.vencimento_referencia
         if self.competencias:
             entrada["competencias_cobranca"] = [c.como_fato() for c in self.competencias]
+        # `desconhecido` e' o mesmo que ausente para o Lucas: nem cria a chave.
+        if self.pagador_tipo in PAGADOR_TIPOS and self.pagador_tipo != "desconhecido":
+            entrada["pagador_tipo"] = self.pagador_tipo
         return entrada
 
 
