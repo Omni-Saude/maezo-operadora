@@ -295,12 +295,30 @@ def d3_mes_com_ano(conversa: Conversa, persona: Persona) -> ResultadoChecagem:
 # ================================================================================================
 # D4
 # ================================================================================================
+#: Pedido explicito de falar com alguem da equipe. Depois dele, escalar e' atender o pedido, nao um
+#: defeito, em qualquer persona (bateria 5, 13/10/2026: "me passa pra alguem da equipe" contava como
+#: escalacao indevida na persona do idoso).
+_PEDIDO_EXPLICITO = re.compile(
+    r"\b(?:atendente|humano|pessoa de verdade|alguem da (?:sua |nossa )?equipe|alguem da equipe"
+    r"|supervisor|gerente|falar com (?:uma |um |alguem)|me passa (?:pra|para) (?:alguem|um|uma|a equipe)"
+    r"|passa (?:pra|para) (?:a )?equipe)\b"
+)
+
+
+def _pedido_explicito(texto: str) -> bool:
+    return bool(_PEDIDO_EXPLICITO.search(_normal(texto).casefold()))
+
+
 def d4_escalacao(conversa: Conversa, persona: Persona) -> ResultadoChecagem:
     novo = _achar("D4")
     escalacoes = conversa.escalonamentos()
     achados = []
     if persona.escalacao == "nunca":
+        pediu = False
         for t in conversa.turnos:
+            pediu = pediu or (t.fase == "persona" and _pedido_explicito(t.texto))
+            if pediu:
+                continue
             for e in t.escalonamentos:
                 achados.append(
                     novo(
