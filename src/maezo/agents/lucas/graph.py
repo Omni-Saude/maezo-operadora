@@ -1809,6 +1809,12 @@ def _avisos_anteriores(state: LucasState) -> int:
     return valor if isinstance(valor, int) and not isinstance(valor, bool) and 0 <= valor <= 100 else 0
 
 
+def _avisos_do_turno(state: LucasState) -> int:
+    """Os avisos de caso aberto ja' dados neste caso, como o `gather` os deixou (ausente = nenhum)."""
+    avisos = state.get("avisos_de_caso_aberto")
+    return avisos if isinstance(avisos, int) and not isinstance(avisos, bool) and avisos >= 0 else 0
+
+
 def aviso_permitido(state: LucasState) -> bool:
     """Ainda cabe um aviso de caso aberto neste caso?"""
     avisos = state.get("avisos_de_caso_aberto")
@@ -2317,7 +2323,7 @@ class LucasGraph:
         terminado em "enviada".
         """
         mensagem = await self._build_message(state)
-        avisos = state.get("avisos_de_caso_aberto") or 0
+        avisos = _avisos_do_turno(state)
         if not mensagem.get("recusa_de_saida") and isinstance(mensagem.get("texto"), str):
             texto = mensagem["texto"]
             if state.get("caso_aberto_cobranca") is True and aviso_permitido(state):
@@ -2505,7 +2511,7 @@ class LucasGraph:
         if not to_hash or state.get("canal", "whatsapp") != "whatsapp":
             return {"ack_pending": True}
 
-        avisos = state.get("avisos_de_caso_aberto") or 0
+        avisos = _avisos_do_turno(state)
         if (state.get("process_ref") or {}).get("already_existed") is True or state.get(
             "caso_aberto_cobranca"
         ) is True:
