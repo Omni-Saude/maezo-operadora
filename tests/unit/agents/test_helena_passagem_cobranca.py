@@ -166,10 +166,8 @@ def test_desligado_cobranca_e_intent_invalido() -> None:
 @pytest.mark.parametrize(
     ("dados", "falha"),
     [
-        ({"cobranca_subtipo": "estorno"}, "invalid_cobranca_subtipo"),
-        ({"cobranca_subtipo": None}, "invalid_cobranca_subtipo"),
-        ({"cobranca_subtipo": ["boleto_2via"]}, "invalid_cobranca_subtipo"),
-        ({"intent": "information", "cobranca_subtipo": "boleto_2via"}, "invalid_cobranca_subtipo"),
+        # DL-0088: subtipo fora do dominio deixou de ser falha (normalizado no lugar) — ver
+        # `test_helena_teste_real_12_10.py::test_subtipo_fora_do_dominio_e_normalizado_e_nao_e_falha`.
         ({"competencia": "09/2026"}, "invalid_competencia"),
         ({"competencia": "2026-13"}, "invalid_competencia"),
         ({"competencia": 202609}, "invalid_competencia"),
@@ -312,7 +310,8 @@ async def test_ligado_cobranca_com_lexico_de_saude_nunca_vai_ao_lucas() -> None:
     assert FRASE_PASSAGEM_COBRANCA not in [t for _, t in sender.sent]
 
 
-@pytest.mark.parametrize("bruto", ["nao e json", '{"intent": "cobranca"}', _json(cobranca_subtipo="estorno")])
+# DL-0088: subtipo fora do dominio deixou de ser falha (vira `consulta_valores`); competencia torta continua.
+@pytest.mark.parametrize("bruto", ["nao e json", '{"intent": "cobranca"}', _json(competencia="09/2026")])
 async def test_ligado_classify_falho_nunca_vai_ao_lucas(bruto: str) -> None:
     compilado, sender, _ = _grafo(_FakeInference([bruto]))
     resultado = await compilado.ainvoke(_entrada())

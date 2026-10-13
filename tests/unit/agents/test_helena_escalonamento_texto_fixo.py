@@ -19,6 +19,7 @@ from maezo.agents.helena.graph import (
     RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL,
     RESPOSTA_ESCALONAMENTO_URGENTE,
     RESPOSTA_HANDOFF_RECUSADA,
+    RESPOSTA_HANDOFF_SAUDE,
     HelenaGraph,
     HelenaState,
 )
@@ -165,21 +166,27 @@ async def test_risco_psicossocial_recebe_o_texto_de_acolhimento() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("mensagem", "intencao", "motivo"),
+    ("mensagem", "intencao", "motivo", "texto_esperado"),
     [
-        ("quero falar com um atendente", "human_request", "solicitacao_humano"),
-        ("posso tomar dipirona com amoxicilina?", "clinical_question", "intencao_clinica"),
+        # DL-0088: pedido de pessoa usa o texto NEUTRO; so' o motivo clinico nomeia a equipe de saude.
+        ("quero falar com um atendente", "human_request", "solicitacao_humano", RESPOSTA_HANDOFF_RECUSADA),
+        (
+            "posso tomar dipirona com amoxicilina?",
+            "clinical_question",
+            "intencao_clinica",
+            RESPOSTA_HANDOFF_SAUDE,
+        ),
     ],
 )
 async def test_p2_e_p3_recebem_o_texto_padrao_sem_dizer_a_prioridade(
-    mensagem: str, intencao: str, motivo: str
+    mensagem: str, intencao: str, motivo: str, texto_esperado: str
 ) -> None:
     resultado, _, _, _ = await _turno(
         mensagem, [_classify(intent=intencao, population="none"), "Resumo.", "rascunho"]
     )
 
     assert resultado["escalation_motivo"] == motivo
-    assert resultado["response_text"] == RESPOSTA_HANDOFF_RECUSADA
+    assert resultado["response_text"] == texto_esperado
     assert "classificad" not in resultado["response_text"].lower()
     assert "horas" not in resultado["response_text"].lower(), "nenhum prazo estimado ao beneficiario"
 

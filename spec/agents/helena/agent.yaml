@@ -64,7 +64,9 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # `cobranca` + `cobranca_subtipo`/`competencia` e tira
                                      # cobranca da lista de `outside_channel`. Desligado, o
                                      # classify e' o v5 byte a byte (sha256 fixado em teste).
-  response: response-v11              # 10/10/2026 (DL-0087): bloco TOM DA CONVERSA (curto, cordial,
+  response: response-v12              # 12/10/2026 (DL-0088): nunca dizer que nao ve dado nenhum da pessoa;
+                                     # plano -> aplicativo/portal, mensalidade/pagamentos -> "pergunte por aqui".
+                                     # v11 — 10/10/2026 (DL-0087): bloco TOM DA CONVERSA (curto, cordial,
                                      # segunda pessoa, so' o perguntado, no maximo um emoji leve e nunca
                                      # em tema clinico/risco/emergencia/negativa/encaminhamento); nenhuma
                                      # cerca saiu. Guia: docs/guia-de-tom-dos-agentes.md.

@@ -50,6 +50,19 @@ def _todos_os_textos() -> dict[str, str]:
 
 TEXTOS = _todos_os_textos()
 
+#: DL-0088: a forma unica da emergencia, e os textos da Helena que tem de traze-la inteira.
+EMERGENCIA_192 = "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
+_TEXTOS_COM_192 = (
+    "RESPOSTA_HANDOFF_RECUSADA",
+    "RESPOSTA_HANDOFF_SAUDE",
+    "RESPOSTA_HANDOFF_JA_ABERTO",
+    "RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO",
+    "RESPOSTA_ESCALONAMENTO_URGENTE",
+    "RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL",
+    "RESPOSTA_DUVIDA_DE_SAUDE",
+    "RESPOSTA_RECUSA_DE_EQUIPE",
+)
+
 #: As unicas mensagens que podem levar o emoji leve: positivas ou de acolhimento, sem tema clinico.
 COM_EMOJI_PERMITIDO = frozenset(
     {
@@ -150,16 +163,28 @@ def test_helena_continua_dizendo_que_nao_avalia_e_orienta_emergencia() -> None:
     for nome in (
         "RESPOSTA_FALHA_TECNICA_START",
         "RESPOSTA_FALHA_DE_REDACAO",
-        "RESPOSTA_HANDOFF_RECUSADA",
         "RESPOSTA_FORA_DO_CANAL",
         "RESPOSTA_INFORM_RECUSADA",
-        "RESPOSTA_HANDOFF_JA_ABERTO",
         "RESPOSTA_SEM_ENCAMINHAMENTO",
-        "RESPOSTA_ESCALONAMENTO_URGENTE",
-        "RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL",
     ):
         assert "serviço de emergência mais próximo" in getattr(g, nome), nome
+    # DL-0088 (12/10/2026): todo texto de encaminhamento, red flag, risco ou caso ja' aberto leva o 192
+    # na forma do guia — "estou com dor no peito" escalou sem dizer 192 no teste real do dono.
+    for nome in _TEXTOS_COM_192:
+        assert EMERGENCIA_192 in getattr(g, nome), nome
     assert "cobertura" in cp._FECHO and "autorização" in cp._FECHO
+
+
+def test_falha_tecnica_e_pedido_de_pessoa_nunca_dizem_equipe_de_saude() -> None:
+    """DL-0088: a equipe nomeada sai do MOTIVO. Falha tecnica (ou pedido de pessoa) e' texto neutro."""
+    assert "saúde" not in g.RESPOSTA_HANDOFF_RECUSADA
+    assert "saúde" not in g.RESPOSTA_HANDOFF_JA_ABERTO
+    assert "saúde" not in g.RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO
+    assert "equipe de saúde" in g.RESPOSTA_HANDOFF_SAUDE
+    assert g._texto_de_escalonamento("falha_tecnica", None) == g.RESPOSTA_HANDOFF_RECUSADA
+    assert g._texto_de_escalonamento("solicitacao_humano", "leve") == g.RESPOSTA_HANDOFF_RECUSADA
+    assert g._texto_de_escalonamento("intencao_clinica", "moderada") == g.RESPOSTA_HANDOFF_SAUDE
+    assert g._texto_de_escalonamento("red_flag_clinico", "moderada") == g.RESPOSTA_HANDOFF_SAUDE
 
 
 def test_prompt_de_resposta_traz_o_tom_sem_tirar_as_proibicoes() -> None:
