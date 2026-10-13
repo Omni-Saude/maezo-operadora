@@ -34,6 +34,7 @@ the established convention rather than introducing a second language into this d
 | [`renovar-material-staff-dev.md`](renovar-material-staff-dev.md) | A renovacao de 14 dias (N2) do material staff/human do portal nativo em dev: gerar no container, publicar os segredos, linhas, task definitions, destravar o emissor, verificar; o que vence e o sintoma quando vence (motor nao sobe) | Plataforma, SRE |
 | [`supply-chain-imagem.md`](supply-chain-imagem.md) | SBOM + assinatura (cosign keyless/Sigstore) do digest da imagem: qual identidade assina, qual issuer, o comando exato de verificacao e o que o portao 1.4 de `portal.md` passa a significar | Plataforma, seguranca, dono do produto |
 | [`melhorar-com-o-uso.md`](melhorar-com-o-uso.md) | De conversa real a caso de teste: o comando, o rotulo que continua humano, e a cadencia de revisao das reguas como cerca de CI (Frente 8) | Plataforma, QA, dono clinico |
+| [`simulador-beneficiario.md`](simulador-beneficiario.md) | Simulador de beneficiario no dev: roster real no S3, task avulsa que compoe o receptor real com as bordas trocadas (captura, ESC interceptado), checagens D1..D12 + juiz, relatorio mascarado, limpeza | Plataforma, QA, dono do produto |
 | [`metricas-do-canal.md`](metricas-do-canal.md) | O coletor de metricas em dev (ECS/Cloud Map -> workspace gerenciado), os quatro numeros do canal, e a rotina semanal de leitura humana das respostas da Helena (Frente 5) | Plataforma, SRE, dono clinico |
 
 ## Alert runbooks

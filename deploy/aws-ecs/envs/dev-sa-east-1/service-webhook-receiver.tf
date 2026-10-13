@@ -49,36 +49,17 @@ resource "aws_service_discovery_service" "webhook_receiver" {
   tags = local.base_tags
 }
 
-resource "aws_ecs_task_definition" "webhook_receiver" {
-  family                   = "${local.name}-webhook-receiver"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  cpu                      = tostring(var.agent_cpu)
-  memory                   = tostring(var.agent_memory)
-  execution_role_arn       = aws_iam_role.task_execution.arn
-  # ADR-0061: com a custodia ligada, role propria (so' kms:Encrypt na chave da custodia).
-  task_role_arn = local.webhook_receiver_task_role_arn
-
-  runtime_platform {
-    cpu_architecture        = "X86_64"
-    operating_system_family = "LINUX"
-  }
-
-  container_definitions = jsonencode([{
-    name      = "webhook-receiver"
-    image     = "${aws_ecr_repository.app.repository_url}:${var.webhook_receiver_image_tag}"
-    essential = true
-
-    # Mesmo entrypoint do Helm e do compose. O DSN e' montado do mesmo jeito que nos agentes:
-    # o despacho da Helena exige DATABASE_URL (fail-closed — sem ele o /webhook responde 501).
-    command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.platform.webhooks"]
-
-    portMappings = [{ containerPort = 8080, protocol = "tcp" }]
-
-    # O bloco de ambiente ESPELHA o do `agent-helena` em `service-agents.tf` — porque o grafo
-    # que roda aqui e' o dela. Divergir os dois e' a forma classica de a Helena "funcionar no
-    # receptor e nao no agente" (ou o inverso) sem que ninguem saiba por que.
-    environment = concat(local.db_env, [
+# O CONTRATO DE AMBIENTE DO RECEPTOR, compartilhado com a task avulsa do simulador de beneficiario
+# (`task-simulador.tf`). Um so' lugar para os dois: um simulador com ambiente diferente do receptor
+# testaria um receptor que nao existe. As pecas:
+#   environment_app  o ambiente da Helena/Lucas/acesso (o que o grafo le');
+#   environment_amh  os contratos da AMH (vazios com a fonte `simulada`);
+#   secrets_app      banco, PHI_HMAC_KEY, chave A2A e os dois segredos que o boot exige;
+#   secrets_envio    SO' o receptor: credenciais de envio da Meta (o simulador nunca envia).
+# A custodia do telefone (`local.recipient_vault_env`) tambem fica so' no receptor.
+locals {
+  webhook_receiver_contrato = {
+    environment_app = concat(local.db_env, [
       { name = "DSN_SCHEME", value = "postgresql+asyncpg" },
       { name = "TENANT_ID", value = var.tenant_id },
       { name = "AGENT_ID", value = "helena" },
@@ -152,11 +133,11 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # o texto presta, nem conferir se vaza orientacao clinica, sem le-lo uma vez.
       { name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = "1" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
-      # Fonte AMH do Lucas: `local.amh_interop_env` (amh-interop.tf) e' vazia com a fonte
+      # Fonte AMH do Lucas: `environment_amh` (abaixo; amh-interop.tf) e' vazia com a fonte
       # `simulada`, entao esta task definition fica byte a byte igual enquanto ela nao for ligada.
-    ], local.recipient_vault_env, local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env)
-
-    secrets = concat(local.db_secrets_maezo, [
+    ])
+    environment_amh = concat(local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env)
+    secrets_app = concat(local.db_secrets_maezo, [
       # Sem esta o Pseudonymizer falha FECHADO (ADR-0035) — e o receptor e' quem pseudonimiza
       # o numero e o wamid antes de qualquer coisa tocar o texto.
       { name = "PHI_HMAC_KEY", valueFrom = "${aws_secretsmanager_secret.phi_hmac_key.arn}:key::" },
@@ -164,12 +145,59 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # As duas que o receptor EXIGE no boot (settings.py: sem default, fail-closed).
       { name = "WHATSAPP_APP_SECRET", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:app_secret::" },
       { name = "WHATSAPP_VERIFY_TOKEN", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:verify_token::" },
+    ])
+    # Segredo do client Cognito e chave do hash do telefone da fonte AMH: `local.amh_interop_secrets`
+    # (amh-interop.tf), acrescentado por quem usa o contrato. Chegam ao executor SO' pelo cofre de agente.
+    secrets_envio = [
       # O mesmo processo envia a resposta; ambas as configuracoes sao obrigatorias no envio.
       { name = "WHATSAPP_PHONE_NUMBER_ID", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:phone_number_id::" },
       { name = "WHATSAPP_TOKEN", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:waba_token::" },
-      # Segredo do client Cognito e chave do hash do telefone da fonte AMH — so' com ela ligada
-      # (`local.amh_interop_secrets`, amh-interop.tf). Chegam ao executor SO' pelo cofre de agente.
-    ], local.amh_interop_secrets)
+    ]
+  }
+}
+
+resource "aws_ecs_task_definition" "webhook_receiver" {
+  family                   = "${local.name}-webhook-receiver"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = tostring(var.agent_cpu)
+  memory                   = tostring(var.agent_memory)
+  execution_role_arn       = aws_iam_role.task_execution.arn
+  # ADR-0061: com a custodia ligada, role propria (so' kms:Encrypt na chave da custodia).
+  task_role_arn = local.webhook_receiver_task_role_arn
+
+  runtime_platform {
+    cpu_architecture        = "X86_64"
+    operating_system_family = "LINUX"
+  }
+
+  container_definitions = jsonencode([{
+    name      = "webhook-receiver"
+    image     = "${aws_ecr_repository.app.repository_url}:${var.webhook_receiver_image_tag}"
+    essential = true
+
+    # Mesmo entrypoint do Helm e do compose. O DSN e' montado do mesmo jeito que nos agentes:
+    # o despacho da Helena exige DATABASE_URL (fail-closed — sem ele o /webhook responde 501).
+    command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.platform.webhooks"]
+
+    portMappings = [{ containerPort = 8080, protocol = "tcp" }]
+
+    # O bloco de ambiente ESPELHA o do `agent-helena` em `service-agents.tf` — porque o grafo
+    # que roda aqui e' o dela. Divergir os dois e' a forma classica de a Helena "funcionar no
+    # receptor e nao no agente" (ou o inverso) sem que ninguem saiba por que.
+    # O ambiente e os segredos moram em `local.webhook_receiver_contrato` (logo acima deste
+    # recurso), que a task avulsa do simulador (`task-simulador.tf`) tambem usa: nao derivam.
+    environment = concat(
+      local.webhook_receiver_contrato.environment_app,
+      local.recipient_vault_env,
+      local.webhook_receiver_contrato.environment_amh,
+    )
+
+    secrets = concat(
+      local.webhook_receiver_contrato.secrets_app,
+      local.webhook_receiver_contrato.secrets_envio,
+      local.amh_interop_secrets,
+    )
 
     readonlyRootFilesystem = true
 

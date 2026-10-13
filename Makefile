@@ -1,5 +1,5 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
-        check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence \
+        check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence check-qa-isolada \
         verify-amh-contract-pin \
         check-alert-runbook-urls \
         check-revisao-das-reguas \
@@ -120,6 +120,12 @@ effect-chokepoint-fence: ## Onda 1 design §8: chokepoint de efeitos INEVITAVEL 
 	# recusa declarada + teste de mutacao (ladder do design §6.1). O fence de start-process
 	# (T3.4 F1) permanece separado e inalterado — protege um invariante diferente.
 	.venv/bin/python scripts/ci/check_effect_chokepoint_fence.py
+
+check-qa-isolada: ## Simulador de beneficiario: nenhum codigo de producao importa maezo.qa (so' o QA importa a plataforma)
+	# AST-scan de src/maezo fora de src/maezo/qa: import absoluto, import relativo que resolve para
+	# maezo.qa ou string `maezo.qa...` fora de docstring (importlib) reprovam. O QA troca as bordas
+	# do receptor (Meta -> captura, ESC -> interceptado); em producao isso seria um caminho que finge.
+	.venv/bin/python scripts/ci/check_qa_isolada.py
 
 verify-amh-contract-pin: ## ADR-0037 XRD-04 (MZO-010/XRG-3): pin imutavel do contrato AMH intacto, completo e nao-regressivo
 	# XRD-04 verbatim: "Digest divergente, schema ausente, topico errado ou versao rebaixada falham
