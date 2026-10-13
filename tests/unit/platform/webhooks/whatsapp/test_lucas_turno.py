@@ -327,6 +327,9 @@ def test_estado_do_lucas_nunca_tem_chave_de_texto() -> None:
         # 13/10/2026 (simulador): variante de redacao (inteiro) e assunto anterior do Lucas (enum).
         "variante_de_redacao",
         "assunto_anterior",
+        # Rodada 3 (13/10/2026): memoria curta do Lucas — hash truncado e contador, nunca texto.
+        "resposta_anterior_ref",
+        "avisos_anteriores",
     }
 
 

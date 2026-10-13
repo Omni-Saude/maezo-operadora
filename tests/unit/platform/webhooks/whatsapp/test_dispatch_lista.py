@@ -10,6 +10,7 @@ import pytest
 
 from maezo.platform.webhooks.whatsapp import lucas_turno as lt
 from maezo.platform.webhooks.whatsapp.dispatch import HelenaDispatcher
+from maezo.platform.webhooks.whatsapp.roteamento import ContextoDoTurno, MemoriaDoLucas
 
 
 class _Roteador:
@@ -141,12 +142,15 @@ class _RoteadorComContexto:
         return self._contexto
 
 
-async def test_contexto_do_turno_vira_variante_e_assunto() -> None:
-    eu = SimpleNamespace(roteador=_RoteadorComContexto((7, "boleto_2via")), tenant_id="amh")
-    assert await HelenaDispatcher._contexto_do_turno_do_lucas(eu, "wa:amh:hk1_ab") == (1, "boleto_2via")
+async def test_contexto_do_turno_chega_inteiro_ao_turno() -> None:
+    contexto = ContextoDoTurno(
+        revisao=7, assunto_anterior="boleto_2via", memoria=MemoriaDoLucas("0123456789abcdef", 1)
+    )
+    eu = SimpleNamespace(roteador=_RoteadorComContexto(contexto), tenant_id="amh")
+    assert await HelenaDispatcher._contexto_do_turno_do_lucas(eu, "wa:amh:hk1_ab") == contexto
 
 
 @pytest.mark.parametrize("roteador", [None, _RoteadorComContexto(falha=True)])
 async def test_sem_roteador_ou_com_falha_o_contexto_e_o_neutro(roteador: Any) -> None:
     eu = SimpleNamespace(roteador=roteador, tenant_id="amh")
-    assert await HelenaDispatcher._contexto_do_turno_do_lucas(eu, "wa:amh:hk1_ab") == (0, None)
+    assert await HelenaDispatcher._contexto_do_turno_do_lucas(eu, "wa:amh:hk1_ab") == ContextoDoTurno()

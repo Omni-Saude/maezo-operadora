@@ -134,7 +134,7 @@ if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
     from .helena_identidade import IdentidadeHelena
     from .lucas_turno import LucasTurno
     from .pre_roteamento import SinaisLexicos
-    from .roteamento import ConversaRouter, PedidoDeHandoff
+    from .roteamento import ContextoDoTurno, ConversaRouter, PedidoDeHandoff
 
 logger = structlog.get_logger(__name__)
 
@@ -322,6 +322,26 @@ class _ScopedWhatsAppSender:
         return await self._client.send_message(
             self._raw_to, text, idempotency_key=self._idempotency_key_for(self._sends)
         )
+
+
+def _handoff_com_mes_do_texto(texto: str, handoff: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Rodada 3 do simulador (13/10/2026): "A mensalidade de julho foi paga?" e "Novembro ta' lancado?"
+    chegavam ao Lucas sem mes (o classify so' extrai com o ano) ou com o ano errado. Sem mes no handoff e
+    sem pedido de lista, UM mes nomeado no texto vira a competencia — o ano pela regra unica de
+    `runtime/competencia.py` (pistas de "lancado"/"vence"/"ultima" -> o que vem). Uma pergunta de
+    confirmacao ("essa e' a ultima?") num assunto "outro" e' consulta de valores."""
+    from maezo.runtime.cobranca_foco import FOCO_ULTIMA
+    from maezo.runtime.competencia import hoje_em_brasilia, mes_unico_do_texto, resolver_ano_da_competencia
+
+    ajustado = dict(handoff)
+    if ajustado.get("cobranca_foco") == FOCO_ULTIMA and ajustado.get("cobranca_subtipo") == "outro":
+        ajustado["cobranca_subtipo"] = "consulta_valores"
+    if ajustado.get("competencia") is None and "cobranca_lista" not in ajustado:
+        mes = mes_unico_do_texto(texto)
+        if mes is not None:
+            hoje = hoje_em_brasilia(datetime.now(UTC))
+            ajustado["competencia"] = resolver_ano_da_competencia(f"{hoje.year:04d}-{mes:02d}", texto, hoje)
+    return ajustado if ajustado != dict(handoff) else handoff
 
 
 @dataclass
@@ -1323,6 +1343,11 @@ class HelenaDispatcher:
             ajustado["cobranca_subtipo"] = subtipo_anterior
         if ajustado.get("competencia") is None and competencia_anterior is not None:
             ajustado["competencia"] = competencia_anterior
+        # Rodada 3 (13/10/2026): "de qual ano?" repetia o texto anterior, identico. O foco proprio pede a
+        # resposta CURTA, com o ano ("E' julho de 2026: paga em 18/08.").
+        from maezo.runtime.cobranca_foco import FOCO_ESCLARECIMENTO
+
+        ajustado["cobranca_foco"] = FOCO_ESCLARECIMENTO
         logger.info(
             "lucas_esclarecimento_reaproveitado",
             tenant_id=self.tenant_id,
@@ -1351,7 +1376,7 @@ class HelenaDispatcher:
         Helena) e escolhe a chave de cada envio (`lucas:{message_id}`). O numero cru continua onde
         sempre esteve — dentro do remetente, so' por este turno.
         """
-        from .lucas_turno import ConversaDoTurno, competencia_a_lembrar
+        from .lucas_turno import ConversaDoTurno, competencia_a_lembrar, memoria_do_turno
         from .roteamento import PedidoDeHandoff
 
         assert self.lucas_turno is not None
@@ -1359,7 +1384,8 @@ class HelenaDispatcher:
         # assunto e mes da resposta anterior, dentro do dominio fechado que o `LucasTurno` confere.
         handoff = await self._handoff_com_esclarecimento(message.text, conversation_id, handoff)
         handoff = await self._handoff_com_lista(message.text, conversation_id, handoff)
-        variante, assunto_anterior = await self._contexto_do_turno_do_lucas(conversation_id)
+        handoff = _handoff_com_mes_do_texto(message.text, handoff)
+        contexto = await self._contexto_do_turno_do_lucas(conversation_id)
         remetente = _ScopedWhatsAppSender(
             raw_to=message.from_number, expected_hash=phone_hash, client=self.whatsapp_client
         )
@@ -1373,24 +1399,29 @@ class HelenaDispatcher:
                 # Fonte AMH (decisao do dono 06/10/2026): o hash `amh-phone-lookup-v1` nasce AQUI,
                 # onde o numero cru ainda existe, e morre com este turno. Sem a fonte AMH e' `None`.
                 phone_hash_amh=self.lucas_turno.hash_telefone_para_amh(message.from_number),
-                variante_de_redacao=variante,
-                assunto_anterior=assunto_anterior,
+                variante_de_redacao=contexto.revisao % 2,
+                assunto_anterior=contexto.assunto_anterior,
+                resposta_anterior_ref=contexto.memoria.resposta_ref,
+                avisos_anteriores=contexto.memoria.avisos_caso_aberto,
             ),
             remetente,
         )
         pedido = PedidoDeHandoff(
             cobranca_subtipo=handoff["cobranca_subtipo"],
             competencia=competencia_a_lembrar(final, handoff.get("competencia")),
+            memoria=memoria_do_turno(final),
         )
         return pedido, final.get("route") == "escalate_human"
 
-    async def _contexto_do_turno_do_lucas(self, conversation_id: str) -> tuple[int, str | None]:
-        """Variante de redacao e assunto anterior do Lucas (simulador, 13/10/2026: o mesmo texto saia
-        ate' 10 vezes seguidas). Falha de leitura: `(0, None)`, o caminho de sempre."""
+    async def _contexto_do_turno_do_lucas(self, conversation_id: str) -> ContextoDoTurno:
+        """Revisao (variante de redacao), assunto anterior e memoria curta do Lucas (simulador, 13/10/2026:
+        o mesmo texto saia ate' 10 vezes seguidas). Falha de leitura: o contexto neutro."""
+        from .roteamento import ContextoDoTurno
+
         if self.roteador is None:
-            return 0, None
+            return ContextoDoTurno()
         try:
-            revisao, assunto = await self.roteador.contexto_do_turno(conversation_id)
+            contexto: ContextoDoTurno = await self.roteador.contexto_do_turno(conversation_id)
         except Exception as exc:
             record_roteamento_falha(tenant=self.tenant_id, tipo="leitura")
             logger.error(
@@ -1399,8 +1430,8 @@ class HelenaDispatcher:
                 conversation_id=conversation_id,
                 error_type=type(exc).__name__,
             )
-            return 0, None
-        return revisao % 2, assunto
+            return ContextoDoTurno()
+        return contexto
 
     async def _handoff_com_lista(
         self, texto: str, conversation_id: str, handoff: Mapping[str, Any]

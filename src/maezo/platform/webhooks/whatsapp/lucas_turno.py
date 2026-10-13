@@ -67,7 +67,13 @@ from typing import Any, Final, Protocol
 import structlog
 
 from maezo.agents.lucas.fonte_cobranca import FatosCobranca, FonteCobranca
-from maezo.agents.lucas.graph import LucasState, build, competencias_da_resposta, new_lucas_state
+from maezo.agents.lucas.graph import (
+    LucasState,
+    build,
+    competencias_da_resposta,
+    new_lucas_state,
+    ref_de_resposta,
+)
 from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
@@ -81,7 +87,7 @@ from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.dmn_transport import DmnTransport
 
 from .dedup import WhatsAppDedupGuard
-from .roteamento import COBRANCA_SUBTIPOS
+from .roteamento import COBRANCA_SUBTIPOS, MemoriaDoLucas
 
 logger = structlog.get_logger(__name__)
 
@@ -181,6 +187,10 @@ class ConversaDoTurno:
     #: dois so' evitam o mesmo texto duas vezes seguidas; nenhum e' texto do beneficiario.
     variante_de_redacao: int = 0
     assunto_anterior: str | None = None
+    #: Rodada 3 (13/10/2026): a memoria curta do Lucas lida do roteador (migration 0025) — a referencia
+    #: (hash truncado) do ultimo texto enviado e os avisos de caso aberto ja' dados. Nenhum texto.
+    resposta_anterior_ref: str | None = None
+    avisos_anteriores: int = 0
 
 
 class RemetenteDoTurno(Protocol):
@@ -274,6 +284,13 @@ def entrada_do_lucas(
     entrada["variante_de_redacao"] = variante % 2 if variante >= 0 else 0
     if conversa.assunto_anterior in ENTRADA_POR_SUBTIPO:
         entrada["assunto_anterior"] = conversa.assunto_anterior
+    try:
+        memoria = MemoriaDoLucas(conversa.resposta_anterior_ref, conversa.avisos_anteriores)
+    except ValueError:
+        memoria = MemoriaDoLucas()
+    if memoria.resposta_ref is not None:
+        entrada["resposta_anterior_ref"] = memoria.resposta_ref
+    entrada["avisos_anteriores"] = memoria.avisos_caso_aberto
     if fatos is not None:
         entrada.update(fatos.como_entrada_lucas())
     return new_lucas_state(entrada)
@@ -293,6 +310,20 @@ def competencia_a_lembrar(final: Mapping[str, Any], pedida: object) -> str | Non
     return pedida if isinstance(pedida, str) and competencia_valida(pedida) else None
 
 
+def memoria_do_turno(final: Mapping[str, Any]) -> MemoriaDoLucas | None:
+    """A memoria do Lucas DEPOIS do turno (rodada 3): a referencia do texto que ele enviou e os avisos de
+    caso aberto. `None` quando ele nao enviou nada (a memoria anterior segue no roteador)."""
+    ref = final.get("resposta_enviada_ref")
+    if not isinstance(ref, str):
+        return None
+    avisos = final.get("avisos_de_caso_aberto")
+    contagem = avisos if isinstance(avisos, int) and not isinstance(avisos, bool) and avisos >= 0 else 0
+    try:
+        return MemoriaDoLucas(ref, min(contagem, 100))
+    except ValueError:
+        return None
+
+
 class _RemetenteDoLucas:
     """O `WhatsAppSender` que o grafo do Lucas recebe: troca a chave do grafo pela chave por
     entrega (`lucas:{message_id}`, ordinal n) e entrega ao remetente do turno."""
@@ -302,6 +333,8 @@ class _RemetenteDoLucas:
         self._dedup = dedup
         self._message_id = message_id
         self._envios = 0
+        #: O ultimo texto ENTREGUE ao remetente neste turno (so' para a referencia da memoria; nunca log).
+        self.ultimo_texto: str | None = None
 
     def chave(self, ordinal: int) -> str:
         return self._dedup.outbound_key(f"{PREFIXO_CHAVE_SAIDA}{self._message_id}", occurrence=ordinal)
@@ -309,7 +342,9 @@ class _RemetenteDoLucas:
     async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
         del idempotency_key  # a do grafo (impressao digital); ver docstring do modulo
         self._envios += 1
-        return await self._inner.send(to_hash, text, idempotency_key=self.chave(self._envios))
+        resultado = await self._inner.send(to_hash, text, idempotency_key=self.chave(self._envios))
+        self.ultimo_texto = text
+        return resultado
 
 
 @dataclass
@@ -435,10 +470,8 @@ class LucasTurno:
 
             record_agent_error(agent=AGENT_ID, error_type=classify_agent_error_type(exc))
             raise
-        remetente = gate_whatsapp(
-            _RemetenteDoLucas(inner=sender, dedup=self.dedup, message_id=conversa.message_id),
-            self.seam_context,
-        )
+        remetente_do_lucas = _RemetenteDoLucas(inner=sender, dedup=self.dedup, message_id=conversa.message_id)
+        remetente = gate_whatsapp(remetente_do_lucas, self.seam_context)
         compilado = self._compilar(remetente)
         logger.info(
             "lucas_turno_iniciado",
@@ -466,7 +499,10 @@ class LucasTurno:
             process_started=final.get("process_started"),
             mensagem_enviada=final.get("mensagem_enviada"),
         )
-        return dict(final)
+        saida = dict(final)
+        if remetente_do_lucas.ultimo_texto:
+            saida["resposta_enviada_ref"] = ref_de_resposta(remetente_do_lucas.ultimo_texto)
+        return saida
 
     async def aclose(self) -> None:
         """Drenagem: fecha o transporte do motor do Lucas (o da Helena e' fechado a parte) e, com a
@@ -495,6 +531,7 @@ __all__ = [
     "ZonaDeSegurancaError",
     "competencia_a_lembrar",
     "entrada_do_lucas",
+    "memoria_do_turno",
     "exigir_zona_geral",
     "validar_handoff",
 ]

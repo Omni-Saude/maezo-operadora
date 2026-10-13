@@ -33,6 +33,7 @@ nenhum texto; os logs deste modulo carregam so' tokens.
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -122,6 +123,36 @@ def _agora() -> datetime:
 # ---------------------------------------------------------------------------------------
 # O que aconteceu no turno.
 # ---------------------------------------------------------------------------------------
+#: A forma da referencia da ultima resposta do Lucas: 16 hex do sha256 do texto (migration 0025).
+_REF_DE_RESPOSTA: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{16}$")
+#: Teto do contador de avisos de caso aberto (o CHECK da coluna, migration 0025).
+AVISOS_MAX: Final[int] = 100
+
+
+@dataclass(frozen=True, slots=True)
+class MemoriaDoLucas:
+    """O que o Lucas lembra entre turnos (simulador, 13/10/2026; migration 0025): a referencia (hash
+    truncado) do ULTIMO texto que ele enviou e quantos avisos de caso aberto ja' deu. Nenhum texto."""
+
+    resposta_ref: str | None = None
+    avisos_caso_aberto: int = 0
+
+    def __post_init__(self) -> None:
+        if self.resposta_ref is not None and not _REF_DE_RESPOSTA.match(self.resposta_ref):
+            raise ValueError("roteamento: referencia de resposta fora da forma")
+        if type(self.avisos_caso_aberto) is not int or not 0 <= self.avisos_caso_aberto <= AVISOS_MAX:
+            raise ValueError("roteamento: contador de avisos fora do dominio")
+
+
+@dataclass(frozen=True, slots=True)
+class ContextoDoTurno:
+    """O que o turno do Lucas le' do roteador ANTES de rodar (so' leitura)."""
+
+    revisao: int = 0
+    assunto_anterior: CobrancaSubtipo | None = None
+    memoria: MemoriaDoLucas = MemoriaDoLucas()
+
+
 @dataclass(frozen=True, slots=True)
 class PedidoDeHandoff:
     """O `handoff` tipado da Helena para o Lucas (§2.4), visto pelo roteador.
@@ -132,6 +163,8 @@ class PedidoDeHandoff:
 
     cobranca_subtipo: CobrancaSubtipo
     competencia: str | None = None
+    #: 13/10/2026: a memoria do Lucas DEPOIS deste turno (`None` = o turno nao a mudou).
+    memoria: MemoriaDoLucas | None = None
 
     def __post_init__(self) -> None:
         if self.cobranca_subtipo not in COBRANCA_SUBTIPOS:
@@ -229,6 +262,9 @@ class LinhaAgenteAtivo:
     ativo_desde: datetime
     ultimo_turno_em: datetime
     expira_em: datetime
+    #: Migration 0025: a memoria curta do Lucas (sobrevive a volta da conversa para a Helena).
+    lucas_ultima_resposta: str | None = None
+    lucas_avisos_caso_aberto: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,17 +371,19 @@ class AgenteAtivoStore(Protocol):
 
 _COLUNAS: Final[str] = (
     "conversation_id, agente_ativo, revisao, transicao_motivo, lucas_cobranca_subtipo, "
-    "lucas_competencia, ativo_desde, ultimo_turno_em, expira_em"
+    "lucas_competencia, ativo_desde, ultimo_turno_em, expira_em, lucas_ultima_resposta, "
+    "lucas_avisos_caso_aberto"
 )
 _SELECT_SQL: Final[str] = f"SELECT {_COLUNAS} FROM {TABELA} WHERE tenant = $1 AND conversation_id = $2"
 _INSERT_SQL: Final[str] = (
-    f"INSERT INTO {TABELA} (tenant, {_COLUNAS}) VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9) "
+    f"INSERT INTO {TABELA} (tenant, {_COLUNAS}) VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9, $10, $11) "
     "ON CONFLICT (tenant, conversation_id) DO NOTHING"
 )
 _UPDATE_SQL: Final[str] = (
     f"UPDATE {TABELA} SET agente_ativo = $3, revisao = revisao + 1, transicao_motivo = $4, "
     "lucas_cobranca_subtipo = $5, lucas_competencia = $6, ativo_desde = $7, ultimo_turno_em = $8, "
-    "expira_em = $9 WHERE tenant = $1 AND conversation_id = $2 AND revisao = $10"
+    "expira_em = $9, lucas_ultima_resposta = $10, lucas_avisos_caso_aberto = $11 "
+    "WHERE tenant = $1 AND conversation_id = $2 AND revisao = $12"
 )
 _PURGE_SQL: Final[str] = (
     f"DELETE FROM {TABELA} WHERE tenant = $1 AND conversation_id IN ("
@@ -406,6 +444,8 @@ class PostgresAgenteAtivoStore:
             ativo_desde=row["ativo_desde"],
             ultimo_turno_em=row["ultimo_turno_em"],
             expira_em=row["expira_em"],
+            lucas_ultima_resposta=row["lucas_ultima_resposta"],
+            lucas_avisos_caso_aberto=int(row["lucas_avisos_caso_aberto"] or 0),
         )
 
     async def gravar(self, linha: LinhaAgenteAtivo, *, revisao_esperada: int | None) -> bool:
@@ -420,6 +460,8 @@ class PostgresAgenteAtivoStore:
             linha.ativo_desde,
             linha.ultimo_turno_em,
             linha.expira_em,
+            linha.lucas_ultima_resposta,
+            linha.lucas_avisos_caso_aberto,
         )
         pool = await self._ensure_pool()
         async with pool.acquire() as conn:
@@ -444,6 +486,14 @@ class PostgresAgenteAtivoStore:
 # ---------------------------------------------------------------------------------------
 # O roteador.
 # ---------------------------------------------------------------------------------------
+def _memoria_da_linha(linha: LinhaAgenteAtivo) -> MemoriaDoLucas:
+    """A memoria gravada, ou a neutra quando a linha traz algo fora da forma (nunca derruba o turno)."""
+    try:
+        return MemoriaDoLucas(linha.lucas_ultima_resposta, linha.lucas_avisos_caso_aberto)
+    except ValueError:
+        return MemoriaDoLucas()
+
+
 class ConversaRouter:
     """Le', decide e grava UMA vez por mensagem recebida, depois do turno (§2.2).
 
@@ -515,22 +565,36 @@ class ConversaRouter:
             return None
         return atual.lucas_cobranca_subtipo, atual.lucas_competencia
 
-    async def contexto_do_turno(self, conversation_id: str) -> tuple[int, CobrancaSubtipo | None]:
-        """A REVISAO da linha antes deste turno (sobe uma por mensagem: alterna a redacao do Lucas para o
-        mesmo texto nunca sair duas vezes seguidas) e o ASSUNTO da ultima resposta do Lucas, quando ele
-        ainda esta' com a conversa. Linha ausente: `(0, None)`. So' LEITURA (13/10/2026)."""
+    async def contexto_do_turno(self, conversation_id: str) -> ContextoDoTurno:
+        """A REVISAO da linha antes deste turno (sobe uma por mensagem: alterna a redacao do Lucas), o
+        ASSUNTO da ultima resposta do Lucas, quando ele ainda esta' com a conversa, e a MEMORIA curta dele
+        (migration 0025), enquanto a linha nao venceu. Linha ausente: o contexto neutro. So' LEITURA."""
         atual = await self._store.ler(conversation_id)
         if atual is None:
-            return 0, None
-        ativo = atual.expira_em >= self._relogio() and atual.agente_ativo == "lucas"
-        return atual.revisao, atual.lucas_cobranca_subtipo if ativo else None
+            return ContextoDoTurno()
+        viva = atual.expira_em >= self._relogio()
+        assunto = atual.lucas_cobranca_subtipo if viva and atual.agente_ativo == "lucas" else None
+        memoria = _memoria_da_linha(atual) if viva else MemoriaDoLucas()
+        return ContextoDoTurno(revisao=atual.revisao, assunto_anterior=assunto, memoria=memoria)
 
     def _linha(
-        self, conversation_id: str, atual: LinhaAgenteAtivo | None, decisao: Decisao, agora: datetime
+        self,
+        conversation_id: str,
+        atual: LinhaAgenteAtivo | None,
+        decisao: Decisao,
+        agora: datetime,
+        memoria: MemoriaDoLucas | None = None,
     ) -> LinhaAgenteAtivo:
         continua = (
             atual is not None and atual.expira_em >= agora and atual.agente_ativo == decisao.agente_ativo
         )
+        if memoria is None:
+            # O turno nao mexeu na memoria do Lucas: ela segue enquanto a linha nao venceu.
+            memoria = (
+                _memoria_da_linha(atual)
+                if atual is not None and atual.expira_em >= agora
+                else MemoriaDoLucas()
+            )
         return LinhaAgenteAtivo(
             conversation_id=conversation_id,
             agente_ativo=decisao.agente_ativo,
@@ -541,6 +605,8 @@ class ConversaRouter:
             ativo_desde=atual.ativo_desde if continua and atual is not None else agora,
             ultimo_turno_em=agora,
             expira_em=agora + self._inatividade,
+            lucas_ultima_resposta=memoria.resposta_ref,
+            lucas_avisos_caso_aberto=memoria.avisos_caso_aberto,
         )
 
     async def registrar_turno(
@@ -573,7 +639,9 @@ class ConversaRouter:
                     detail="decisao levaria ao Lucas, que nao tem entrada neste build; gravado helena",
                 )
                 decisao = _para_helena("retorno_falha")
-            linha = self._linha(conversation_id, atual, decisao, agora)
+            linha = self._linha(
+                conversation_id, atual, decisao, agora, handoff.memoria if handoff is not None else None
+            )
             gravou = await self._store.gravar(
                 linha, revisao_esperada=None if atual is None else atual.revisao
             )

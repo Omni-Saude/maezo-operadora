@@ -158,8 +158,8 @@ async def test_em_aberto_no_prazo_responde_com_fatos_sem_escalar() -> None:
     final, textos = await _Conversa().mensagem()
     assert final["route"] == "respond_member" and final["process_started"] is False
     assert textos == [
-        "Está tudo em dia! Sua última mensalidade (setembro de 2026) já foi paga. A de outubro de 2026 "
-        f"(boleto final 0042) vence em 15/10 e ainda não consta como paga. {_FECHO}"
+        # Rodada 3 (13/10/2026): "Esta' tudo em dia!" so' sem nenhum mes em aberto.
+        f"{_OUTUBRO_NO_PRAZO} A de setembro de 2026 já foi paga. {_FECHO}"
     ]
     fatos = final["mensagem"]["fatos"] | {"dados_de": "2026-10-12", "competencias": [_OUTUBRO, _SETEMBRO]}
     assert motivo_de_recusa(textos[0], "mensagem", fatos) is None
@@ -236,7 +236,7 @@ async def test_data_de_pagamento_com_caso_aberto_responde_o_fato_especifico() ->
         assert final["route"] == "respond_member"
         [texto] = enviados
         assert "Está tudo em dia" not in texto
-        assert texto.startswith("A mensalidade de setembro de 2026 consta como paga em 15/09.")
+        assert texto.startswith("Sim, a mensalidade de setembro de 2026 foi paga em 15/09.")
         assert texto.endswith(tuple(AVISOS_DE_CASO_ABERTO))
         textos.append(texto)
     _sem_repeticao(textos)
@@ -252,7 +252,7 @@ async def test_caso_aberto_pela_helena_nao_muda_a_resposta_do_lucas() -> None:
     )
     final, textos = await conversa.mensagem()
     assert final["caso_aberto_cobranca"] is False
-    assert textos[0].startswith("Está tudo em dia!")
+    assert not textos[0].endswith(tuple(AVISOS_DE_CASO_ABERTO))
 
 
 # --- 4. 2a via pedida de novo -------------------------------------------------------------------------

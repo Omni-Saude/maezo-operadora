@@ -127,6 +127,14 @@ A tabela completa de cada texto alterado está no PR do DL-0087.
   pedida de novo: "Por aqui eu não consigo enviar o boleto." com mês, vencimento, valor e final do boleto,
   a central como alternativa e a oferta de alguém da equipe. Total em aberto: "Seu total em aberto hoje é
   R$ X: outubro de 2026."
+- **Mês perguntado, "última" e nada repetido (Lucas, 13/10/2026, rodada 3):** "A de julho foi paga?" recebe o
+  fato daquele mês ("Sim, a mensalidade de julho de 2026 foi paga em 18/08."). "Está tudo em dia!" só sem
+  nenhum mês em aberto, e "última" é a mais recente dos dados. Mês ainda não lançado ("novembro tá
+  lançado?" em outubro): "A mensalidade de novembro de 2026 ainda não foi gerada." — nunca o novembro do
+  ano passado. "Essa é a última?": "Sim, a mais recente é a de outubro de 2026 (R$ 552,54, vence em
+  20/10)." "De qual ano?": a resposta curta, "É julho de 2026: paga em 18/08.". O mesmo texto nunca sai
+  duas vezes seguidas (o repetido vira "Confirmando: ..."), e o aviso de caso aberto sai no máximo duas
+  vezes por caso; depois, só o fato.
 - **Textos gerados pelo modelo:** as regras de tom entram como instrução no prompt de resposta (bloco
   "TOM DA CONVERSA" do `response-v13` da Helena e regra 7 do `consulta-plano-v2`). O tom nunca afrouxa uma
   proibição: havendo conflito, a proibição vence. Prompt mudou, a versão sobe em `prompts.py` e no
