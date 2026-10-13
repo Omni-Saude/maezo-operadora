@@ -365,7 +365,7 @@ DONO_V1: tuple[Segmento, ...] = (
                 "Quero tirar uma dúvida sobre minha saúde",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=("(plano|canais|aplicativo|portal|sintoma)",),
-                nao_deve=("equipe de saude",),
+                nao_deve=("(encaminhamos|encaminhei|abri) .*(caso|relato)",),
             ),
         ),
     ),
