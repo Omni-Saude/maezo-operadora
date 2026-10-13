@@ -155,6 +155,7 @@ async def _turno(estado: LucasState, rascunho: str) -> tuple[dict[str, Any], _En
 
 async def _dmn(**entrada: Any) -> dict[str, Any]:
     entrada.setdefault("valores_com_atraso", False)
+    entrada.setdefault("pagador_empresa", False)
     linhas, _ = await DmnDraftLocal().evaluate("lucas_billing_admissibility", entrada)
     return linhas[0]
 

@@ -465,6 +465,8 @@ async def test_intencao_inadimplencia_passa_pela_dmn_com_os_fatos() -> None:
         "valores_disponiveis": False,
         # Revisao do #709 (DL-0082): sem fato de valor, nada de atraso nos valores.
         "valores_com_atraso": False,
+        # 13/10/2026: sem `pagador_tipo` no estado, nao e' contrato de empresa.
+        "pagador_empresa": False,
     }
 
 

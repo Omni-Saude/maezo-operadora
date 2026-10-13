@@ -145,6 +145,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.agents.lucas.fonte_cobranca import PAGADOR_EMPRESA
 from maezo.platform.observability import record_resposta_recusada
 from maezo.runtime.cobranca_foco import FOCO_GERAL, foco_valido
 from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
@@ -182,6 +183,7 @@ from .prompts import (
     ESCALATION_ACK_PROMPT_VERSION,
     MENSAGEM_EM_DIA_VERSION,
     MESSAGE_PROMPT_VERSION,
+    PAGADOR_EMPRESA_TEXTO_VERSION,
     RECUSA_DE_SAIDA_VERSION,
     SEGUNDA_VIA_TEXTO_VERSION,
     SYSTEM_PROMPT_VERSION,
@@ -406,6 +408,9 @@ class LucasState(TypedDict, total=False):
     dias_atraso_max: int
     vencimento_referencia: str  # AAAA-MM-DD
     competencias_cobranca: list[dict[str, Any]]
+    #: 13/10/2026: quem paga (`resumo.pagador_tipo`): `pessoa_juridica` (empresa contratante),
+    #: `pessoa_fisica` ou `desconhecido`. Fato, nunca veredito; vira a entrada `pagador_empresa` da DMN.
+    pagador_tipo: str
 
     # Filled by `gather`.
     gathered: bool
@@ -520,6 +525,8 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "dias_atraso_max",
         "vencimento_referencia",
         "competencias_cobranca",
+        # 13/10/2026: quem paga a mensalidade (enum do contrato; fato, nunca veredito).
+        "pagador_tipo",
     }
 )
 
@@ -1037,6 +1044,32 @@ def valores_com_atraso(state: LucasState) -> bool:
     if dias is not None and dias > 0:
         return True
     return any(c["situacao"] == "vencida" for c in _competencias_dos_fatos(state))
+
+
+def pagador_empresa(state: LucasState) -> bool:
+    """A mensalidade e' paga pela EMPRESA contratante (`pagador_tipo=pessoa_juridica`)? E' a entrada
+    `pagador_empresa` da DMN (13/10/2026, decisao do dono). Num contrato de empresa o boleto, o total e o
+    atraso sao da empresa: o Lucas nao os mostra e o atraso dela nao escala o beneficiario. PF, desconhecido
+    ou ausente: `False` (a tabela se comporta como antes)."""
+    return state.get("pagador_tipo") == PAGADOR_EMPRESA
+
+
+#: A resposta FIXA a quem tem a mensalidade paga pela empresa (decisao do dono, 13/10/2026).
+TEXTO_PAGADOR_EMPRESA: Final[str] = "Sua mensalidade é paga pela empresa contratante."
+
+
+def texto_pagador_empresa(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
+    """Contrato de EMPRESA: o texto fixo e, SO' quando a pergunta e' de coparticipacao (que e' da pessoa),
+    a coparticipacao da competencia nos fatos, com a data da fonte. Nunca valor, boleto, vencimento ou
+    situacao da fatura da empresa."""
+    competencias: list[Mapping[str, str]] = list(facts.get("competencias") or [])
+    if facts.get("foco") != "coparticipacao" or not competencias:
+        return TEXTO_PAGADOR_EMPRESA
+    partes = [TEXTO_PAGADOR_EMPRESA, _frase_de_coparticipacao(competencias[0], hoje)]
+    fonte = _frase_da_fonte(state, hoje)
+    if fonte:
+        partes.append(fonte)
+    return " ".join(partes)
 
 
 def _reais(decimal_texto: str) -> str:
@@ -2053,6 +2086,9 @@ class LucasGraph:
             # DL-0082 sobre DL-0086 (revisao do #709): competencia vencida ou `dias_atraso_max > 0`
             # com a pergunta de valor ESCALA (sem afirmar inadimplencia), mesmo com `ciclos=0`.
             "valores_com_atraso": valores_com_atraso(state),
+            # 13/10/2026 (decisao do dono): contrato de EMPRESA. A primeira linha responde com o texto fixo
+            # e a regra de atraso exige `false`: o atraso do titulo da empresa nunca escala o beneficiario.
+            "pagador_empresa": pagador_empresa(state),
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
@@ -2488,6 +2524,7 @@ class LucasGraph:
         resposta de um mes — nunca um mes so' em silencio para quem pediu varios. A pergunta de valor
         lista de verdade (`_fatos_de_valores`)."""
         mensagem = await self._build_message_de_um_mes(state)
+        empresa = mensagem.get("prompt_version") == PAGADOR_EMPRESA_TEXTO_VERSION
         if (
             state.get("caso_aberto_cobranca") is True
             and not mensagem.get("recusa_de_saida")
@@ -2499,6 +2536,7 @@ class LucasGraph:
             mensagem["texto"] = f"{mensagem['texto']} {aviso_de_caso_aberto(state)}"
         if (
             _lista_da_pergunta(state) is not None
+            and not empresa
             and state.get("tipo_solicitacao") != TIPO_CONSULTA_VALORES
             and not mensagem.get("recusa_de_saida")
             and isinstance(mensagem.get("texto"), str)
@@ -2517,6 +2555,10 @@ class LucasGraph:
             "admissibilidade": state.get("admissibilidade"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
+        if pagador_empresa(state) and state.get("admissibilidade") in ("RESPONDER", "LEMBRETE"):
+            # 13/10/2026 (decisao do dono): contrato de EMPRESA. Antes de tudo, inclusive do "em dia", que
+            # seria a situacao do titulo da empresa. Nunca o total, o boleto ou o atraso da empresa.
+            return self._build_pagador_empresa(state)
         if _mensalidade_em_dia(state):
             # DL-0082: com os fatos dizendo "conciliado, zero ciclos" a resposta e' FIXA — nenhum
             # modelo redige sobre a situacao financeira de alguem quando o fato ja' diz tudo.
@@ -2622,6 +2664,32 @@ class LucasGraph:
         facts["admissibilidade"] = state.get("admissibilidade")
         facts["dmn_refs"] = state.get("dmn_refs", {})
         return facts
+
+    def _build_pagador_empresa(self, state: LucasState) -> dict[str, Any]:
+        """Contrato de EMPRESA (13/10/2026): "Sua mensalidade e' paga pela empresa contratante.", em TEXTO
+        FIXO, sem modelo. Os fatos levam SO' a coparticipacao da competencia que a frase cita (pergunta de
+        coparticipacao); senao nenhuma competencia, e a cerca recusa qualquer quantia, data ou boleto."""
+        foco = _foco_da_pergunta(state) if state.get("tipo_solicitacao") == TIPO_CONSULTA_VALORES else None
+        facts: dict[str, Any] = {
+            "tipo_solicitacao": state.get("tipo_solicitacao"),
+            "pagador_tipo": PAGADOR_EMPRESA,
+            "foco": foco,
+            "competencias": [],
+            "admissibilidade": state.get("admissibilidade"),
+            "dmn_refs": state.get("dmn_refs", {}),
+        }
+        if foco == "coparticipacao":
+            competencias = _competencias_dos_fatos(state)
+            pedida = state.get("competencia")
+            escolhida = next((c for c in competencias if c["competencia"] == pedida), None) or (
+                competencias[0] if competencias else None
+            )
+            if escolhida is not None:
+                facts["competencias"] = [
+                    {k: v for k, v in escolhida.items() if k in ("competencia", "valor_coparticipacao")}
+                ]
+        texto = texto_pagador_empresa(state, facts, self._hoje())
+        return self._mensagem(texto, facts, PAGADOR_EMPRESA_TEXTO_VERSION, state)
 
     def _build_vencimento(self, state: LucasState) -> dict[str, Any]:
         """A resposta a "quando vence?" em TEXTO FIXO dos fatos por competencia (`texto_vencimento`).
@@ -2893,4 +2961,6 @@ PROMPT_VERSIONS: dict[str, str] = {
     "vencimento": VENCIMENTO_PROMPT_VERSION,
     # 10/10/2026: a resposta FIXA a boleto/2a via (canais confirmados + situacao dos fatos).
     "segunda_via": SEGUNDA_VIA_TEXTO_VERSION,
+    # 13/10/2026: a resposta FIXA a quem tem a mensalidade paga pela empresa contratante.
+    "pagador_empresa": PAGADOR_EMPRESA_TEXTO_VERSION,
 }

@@ -319,12 +319,16 @@ async def test_sem_verificacao_nem_flag_a_fonte_entrega_so_os_quatro_fatos_de_se
         ciclos_sem_conciliacao=2,
         numero_boleto="****0002",
         cnab_ref="amh-billing:2026-08-05",
+        # 13/10/2026: quem paga vai tambem sem os fatos de valor — e' ele que impede o atraso da EMPRESA
+        # de escalar o beneficiario pela regra de atraso da DMN.
+        pagador_tipo="pessoa_fisica",
     )
     assert set(fatos.como_entrada_lucas()) == {
         "status_conciliado",
         "ciclos_sem_conciliacao",
         "numero_boleto",
         "cnab_ref",
+        "pagador_tipo",
     }
 
 
