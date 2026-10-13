@@ -602,7 +602,14 @@ async def test_acesso_desligado_pergunta_de_valor_nao_tem_valor_no_texto_nem_no_
     fatos = await fonte.fatos("pseudo-dl0086", None)
     assert isinstance(fatos, FatosCobranca)
     entrada = fatos.como_entrada_lucas()
-    assert set(entrada) == {"status_conciliado", "ciclos_sem_conciliacao", "numero_boleto", "cnab_ref"}
+    # 13/10/2026: `pagador_tipo` vai tambem sem os fatos de valor (nao e' valor: so' quem paga).
+    assert set(entrada) == {
+        "status_conciliado",
+        "ciclos_sem_conciliacao",
+        "numero_boleto",
+        "cnab_ref",
+        "pagador_tipo",
+    }
 
     estado = _estado(**entrada)
     assert valores_disponiveis(estado) is False
