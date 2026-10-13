@@ -157,12 +157,15 @@ respondendo com fatos simulados, como hoje.
 Desligado por padrao. So' depois de TODOS estes passos:
 
 1. A AMH publicou o manifest aditivo **v1.2** (`schemas/contracts/maezo/v1.2/contract-manifest.yaml`, 1
-   artefato: `schemas/openapi/maezo/v1/tina.openapi.yaml`) — XRG-2 com atestacao humana. Hoje (07/10/2026)
-   ele e' DRAFT.
+   artefato: `schemas/openapi/maezo/v1/tina.openapi.yaml`) — XRG-2 com atestacao humana. **Feito em
+   13/10/2026**: run XRG-2 38346972222, registro fechado no AMH #232 (commit `78fb6035`), aprovacao do dono
+   nos 4 papeis.
 2. Pin XRG-3 por PR: `python scripts/ci/gerar_pin_v1_1.py --manifest-version v1.2 --gh-ref <commit> --verified-by
    "<pessoa>" --write`, depois `python scripts/ci/verify_amh_contract_pin.py --manifest <bytes> --manifest-version
    v1.2`. Os bytes do OpenAPI vao para `config/integrations/amh/openapi/tina.openapi.yaml` (sha256 = o do pin).
-3. Base legal LGPD ratificada pelo DPO (DL-0081 a declara PENDENTE).
+   **Feito em 13/10/2026** (bloco `manifest_v1_2`, OpenAPI `320ab303...8a59` na imagem).
+3. Base legal LGPD ratificada pelo DPO (DL-0081 a declara PENDENTE). Em dev a flag foi ligada em 13/10/2026 por
+   decisao do dono; fora do dev continua exigindo a ratificacao.
 4. `helena_identidade_amh = true` ja' ligado (a variavel nova recusa o plan sem ela) e o client
    `maezo-operadora-interop` com o escopo `interop/tina.read` (ja' tem em dev).
 

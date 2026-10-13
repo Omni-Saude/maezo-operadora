@@ -134,7 +134,7 @@ V1_1_MIN_PUBLICATION_RUN_ID: Final[int] = 30991849241
 # --- Manifest ADITIVO v1.2 (TINA: elegibilidade, carencias, requisicoes; so OpenAPI) ---
 # Mesmo desenho do v1.1: bloco `manifest_v1_2` OPCIONAL (ausente = o adaptador TINA recusa subir, sem
 # digest); presente = obrigatorio, completo, com o v1.1 ja' pinado e um run de publicacao posterior ao
-# dele. Em 07/10/2026 o manifest v1.2 ainda e' DRAFT na AMH: o bloco NAO existe no lock.
+# dele. A AMH publicou o v1.2 em 13/10/2026 (XRG-2 run 38346972222): o bloco existe no lock.
 V1_2_LOCK_KEY: Final[str] = "manifest_v1_2"
 V1_2_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.2/contract-manifest.yaml"
 V1_2_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina.openapi.yaml",)

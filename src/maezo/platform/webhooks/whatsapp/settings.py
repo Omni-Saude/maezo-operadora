@@ -513,7 +513,7 @@ class WhatsAppWebhookSettings(BaseSettings):
         ),
     )
     # O OpenAPI TINA (fatos do plano), lido SO' com `helena_consultas_amh` ligada; os bytes so' valem
-    # com o digest no bloco `manifest_v1_2` do pin (ainda DRAFT na AMH em 07/10/2026).
+    # com o digest no bloco `manifest_v1_2` do pin (publicado pela AMH em 13/10/2026, run 38346972222).
     amh_tina_openapi_path: str | None = Field(
         default=None,
         validation_alias=AliasChoices("MAEZO_AMH_TINA_OPENAPI_PATH", "amh_tina_openapi_path"),

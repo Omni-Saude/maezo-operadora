@@ -783,7 +783,7 @@ variable "helena_consultas_amh" {
     carteirinha, carencia e autorizacao do PROPRIO beneficiario (identidade resolvida). Exige
     `helena_identidade_amh = true` (validado aqui e no boot), acrescenta `interop/tina.read` aos escopos
     pedidos ao Cognito e o caminho do OpenAPI TINA na task definition. O receptor RECUSA servir sem o
-    manifest v1.2 pinado (ainda DRAFT na AMH em 07/10/2026).
+    manifest v1.2 pinado (publicado pela AMH em 13/10/2026; bloco `manifest_v1_2` no lock).
   EOT
   type        = bool
   default     = false

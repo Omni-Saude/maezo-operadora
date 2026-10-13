@@ -2,7 +2,7 @@
 
 Prende a decisao do dono de 07/10/2026: mesmo caminho governado do billing-status/subject-resolution
 (gate em sombra, Zona Geral, auditoria duravel ANTES do despacho, base legal so' como hash, recusa
-fechada), escopo `interop/tina.read` exigido na composicao e o adaptador TINA fail-closed sem o pin v1.2.
+fechada), escopo `interop/tina.read` exigido na composicao e o adaptador TINA fail-closed fora do pin v1.2.
 """
 
 from __future__ import annotations
@@ -194,10 +194,10 @@ def test_composicao_sem_tina_nao_le_nada_da_tina(tmp_path: Path, monkeypatch: py
     assert len(interop._executors) == 2
 
 
-def test_composicao_com_tina_sem_pin_v1_2_recusa_pelo_contrato(
+def test_composicao_com_tina_fora_do_pin_v1_2_recusa_pelo_contrato(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """O lock real NAO tem `manifest_v1_2` (DRAFT): o adaptador TINA recusa, e com ele o boot."""
+    """Bytes TINA fora do digest do bloco `manifest_v1_2`: o adaptador recusa, e com ele o boot."""
     from maezo.adapters.amh import billing_status as bs
     from maezo.adapters.amh import subject_resolution as sr
 
