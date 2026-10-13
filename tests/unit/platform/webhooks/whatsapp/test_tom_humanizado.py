@@ -56,7 +56,6 @@ _TEXTOS_COM_192 = (
     "RESPOSTA_HANDOFF_SAUDE",
     "RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA",
     "RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA",
-    "RESPOSTA_CASO_ABERTO_URGENTE",
     "RESPOSTA_ESCALONAMENTO_URGENTE",
     "RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL",
     "RESPOSTA_DUVIDA_DE_SAUDE",
@@ -196,6 +195,8 @@ def test_192_so_em_contexto_de_saude_e_primeiro_na_emergencia_com_caso_aberto() 
     for nome in _TEXTOS_SEM_192:
         texto = getattr(g, nome)
         assert "192" not in texto and "SAMU" not in texto, nome
+    # "e se for urgente?" com caso administrativo: o 192 so' para urgencia DE SAUDE, com outra redacao.
+    assert "ligue agora para o 192 (SAMU)" in g.RESPOSTA_CASO_ABERTO_URGENTE
     for nome in _TEXTOS_192_PRIMEIRO:
         texto = getattr(g, nome)
         assert texto.startswith("Ligue agora para o 192 (SAMU)"), nome
