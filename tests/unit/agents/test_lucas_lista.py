@@ -230,14 +230,35 @@ async def test_sem_pedido_de_lista_nada_muda() -> None:
     assert competencias_da_resposta(final) == ("2026-11",)
 
 
-async def test_lista_com_atraso_continua_escalando() -> None:
+async def test_lista_com_um_mes_sem_pagamento_lista_os_fatos_e_oferece_uma_pessoa() -> None:
+    """14/10/2026 (decisao do dono): 17 dias de atraso e um mes sem pagamento nao e' atraso critico — a lista
+    traz o mes sem pagamento ("vencimento em 25/09, sem pagamento confirmado") e a oferta, sem caso."""
     final, textos, _ = await _turno(
         _estado(
             "consulta_valores", PedidoDeLista(3), _mes("2026-09", "vencida"), _OUTUBRO, dias_atraso_max=17
         )
     )
+    assert final["route"] == "respond_member" and final["process_started"] is False
+    assert textos == [
+        "Encontrei só 2 mensalidades nos dados que tenho:\n"
+        "• outubro de 2026: R$ 8.389,53, paga em 06/10.\n"
+        "• setembro de 2026: R$ 8.389,53, vencimento em 25/09, sem pagamento confirmado.\n"
+        f"Se quiser, posso te passar para alguém da nossa equipe.\n{_FECHO}"
+    ]
+    assert competencias_da_resposta(final) == ("2026-10", "2026-09")
+
+
+async def test_lista_com_atraso_critico_continua_escalando() -> None:
+    final, textos, _ = await _turno(
+        _estado(
+            "consulta_valores",
+            PedidoDeLista(3),
+            _mes("2026-09", "vencida"),
+            _OUTUBRO,
+            dias_atraso_max=45,
+        )
+    )
     assert final["route"] == "escalate_human"
-    assert all("•" not in texto for texto in textos)
     assert competencias_da_resposta(final) == ()
 
 

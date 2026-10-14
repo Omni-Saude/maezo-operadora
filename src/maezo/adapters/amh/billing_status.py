@@ -36,7 +36,10 @@ ARTIFACT = "schemas/openapi/maezo/v1/billing-status.openapi.yaml"
 #: `purpose_of_use` aceita tambem `atendimento_whatsapp`. Sucede o 0.1.0 sem substitui-lo: os dois seguem
 #: pinados e o construtor escolhe qual, pelo caminho do artefato (cada um com o digest do proprio bloco).
 ARTIFACT_ATENDIMENTO = "schemas/openapi/maezo/v1/billing-status-atendimento.openapi.yaml"
-ARTIFACTS: frozenset[str] = frozenset({ARTIFACT, ARTIFACT_ATENDIMENTO})
+#: Revisao 0.3.0 (manifest v1.6, decisao do dono de 14/10/2026): sucede o 0.2.0 na mesma rota e acrescenta,
+#: SO' com `incluir_contratacao=true`, `tipo_contratacao`, `beneficiario_e_pagador` e `valor_boleto_pagador`.
+ARTIFACT_CONTRATACAO = "schemas/openapi/maezo/v1/billing-status-contratacao.openapi.yaml"
+ARTIFACTS: frozenset[str] = frozenset({ARTIFACT, ARTIFACT_ATENDIMENTO, ARTIFACT_CONTRATACAO})
 OPERATION = "amh.get_billing_status"
 _SERVER = "/interop/billing-status/v1"
 _PATH = "/subjects/{portable_subject_ref}/billing/status"
@@ -153,6 +156,9 @@ class AmhBillingStatusAdapter:
                 "purpose_of_use": purpose_of_use,
                 "competencia": competencia,
                 "janela_meses": janela_meses,
+                # So' o 0.3.0 declara o parametro: ele pede os tres campos de contratacao. Nas revisoes
+                # antigas o contrato nao o declara e ele nem entra na query (a resposta e' a de sempre).
+                "incluir_contratacao": "true" if self.artifact == ARTIFACT_CONTRATACAO else None,
             }
             query: list[tuple[str, str | int]] = []
             for parameter in self._parameters:
@@ -243,6 +249,8 @@ def _view(body: dict[str, Any]) -> BillingStatusView:
             dias_atraso_max=resumo["dias_atraso_max"],
             pagador_tipo=resumo["pagador_tipo"],
             criterio_conciliacao=resumo["criterio_conciliacao"],
+            tipo_contratacao=resumo.get("tipo_contratacao"),
+            eh_o_pagador=resumo.get("beneficiario_e_pagador"),
         ),
         competencias=tuple(
             CompetenciaBilling(
@@ -256,6 +264,7 @@ def _view(body: dict[str, Any]) -> BillingStatusView:
                 liquidado_em=c["liquidado_em"],
                 boleto_numero_mascarado=c["boleto"]["numero_mascarado"],
                 boleto_disponivel_online=c["boleto"]["disponivel_online"],
+                valor_boleto_pagador=c.get("valor_boleto_pagador"),
             )
             for c in body["competencias"]
         ),

@@ -279,6 +279,21 @@ class WhatsAppWebhookSettings(BaseSettings):
         le=1440,
         validation_alias=AliasChoices("MAEZO_LUCAS_INATIVIDADE_MINUTOS", "lucas_inatividade_minutos"),
     )
+    # POLITICA DE ATRASO do Lucas (decisao do dono, sessao de 14/10/2026): so' o atraso CRITICO de pagador PF
+    # abre caso humano — `meses_min` competencias sem pagamento OU mais de `dias_min` dias de atraso. Abaixo
+    # disso o Lucas responde os fatos e oferece uma pessoa. Padrao: 2 meses e 30 dias.
+    lucas_atraso_meses_min: int = Field(
+        default=2,
+        ge=1,
+        le=24,
+        validation_alias=AliasChoices("MAEZO_LUCAS_ATRASO_MESES_MIN", "lucas_atraso_meses_min"),
+    )
+    lucas_atraso_dias_min: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        validation_alias=AliasChoices("MAEZO_LUCAS_ATRASO_DIAS_MIN", "lucas_atraso_dias_min"),
+    )
     # Fonte dos fatos de cobranca do Lucas. `simulada` (o default) ou `amh` — a fonte REAL pelos
     # contratos `billing-status`/`subject-resolution` da AMH (decisao do dono 06/10/2026). `amh` so'
     # sobe com os contratos publicados e pinados e com toda a configuracao abaixo; faltando qualquer
@@ -507,6 +522,16 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=None,
         validation_alias=AliasChoices(
             "MAEZO_AMH_BILLING_STATUS_ATENDIMENTO_OPENAPI_PATH", "amh_billing_status_atendimento_openapi_path"
+        ),
+    )
+    # O billing-status 0.3.0 (manifest v1.6, decisao do dono de 14/10/2026), OPCIONAL: so' vale com o acesso
+    # ligado e a fonte AMH, no lugar do 0.2.0. Com o caminho, a leitura de cobranca pede
+    # `incluir_contratacao=true` e exige o bloco `manifest_v1_6` do pin (sem ele o receptor recusa servir);
+    # sem o caminho, e' o 0.2.0 de sempre.
+    amh_billing_status_contratacao_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_BILLING_STATUS_CONTRATACAO_OPENAPI_PATH", "amh_billing_status_contratacao_openapi_path"
         ),
     )
     #: DL-0084 (AMH #214): o OpenAPI da resolucao pelo documento (telefone sem cadastro), 3o artefato do v1.3.

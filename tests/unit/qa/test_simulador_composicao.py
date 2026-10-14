@@ -278,6 +278,30 @@ async def test_interceptador_finge_so_o_escalonamento() -> None:
     assert await real.find_active_instance(chave) is None
 
 
+async def test_interceptador_finge_o_cancelamento_do_lucas_e_registra_o_motivo() -> None:
+    """Rodada 12: o pedido de cancelamento confirmado do Lucas e' fingido (nunca vai ao motor real)."""
+    registro = comp.RegistroDeEscalonamentos()
+    real = FakeCibSevenTransport()
+    motor = gate_cibseven(comp.InterceptorDeEscalonamento(real, registro), _seam())
+    chave = "CANCEL-amh-pseudo-x"
+    contexto = _contexto()
+    with comp.no_turno(contexto):
+        instancia = await motor.start_process_instance(
+            comp.PROCESSO_CANCELAMENTO,
+            chave,
+            {"source_agent_id": "lucas", "tipo_solicitacao": "pedido_beneficiario"},
+        )
+    assert instancia.process_key == "SP-OP-CANCEL-001"
+    (esc,) = contexto.turno.escalonamentos
+    assert (esc.agente, esc.motivo, esc.business_key) == ("lucas", "cancelamento", chave)
+    assert await motor.inner.find_active_instance(chave) == instancia
+    assert await real.find_active_instance(chave) is None
+    with pytest.raises(CibSevenError):  # chave de cancelamento so' com o processo de cancelamento
+        await motor.inner.start_process_instance(comp.PROCESSO_ESCALONAMENTO, chave, {})
+    registro.esquecer("amh", _CID)
+    assert registro.ativa(chave) is None
+
+
 async def test_interceptador_recusa_qualquer_outro_inicio_e_passa_leituras() -> None:
     real = FakeCibSevenTransport()
     interceptador = comp.InterceptorDeEscalonamento(real, comp.RegistroDeEscalonamentos())

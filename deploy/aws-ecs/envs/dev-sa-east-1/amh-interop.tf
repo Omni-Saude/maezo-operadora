@@ -35,6 +35,10 @@ locals {
     # `purpose_of_use=atendimento_whatsapp`. Sem acesso ligado a env nao entra e a cobranca segue no 0.1.0.
     { name = "MAEZO_AMH_BILLING_STATUS_ATENDIMENTO_OPENAPI_PATH", value = var.amh_billing_status_atendimento_openapi_path },
   ] : []
+  # Billing-status 0.3.0 (manifest v1.6, decisao do dono de 14/10/2026): so' com o caminho preenchido.
+  amh_billing_contratacao_env = local.amh_interop_ligado && var.acesso_beneficiario && var.amh_billing_status_contratacao_openapi_path != "" ? [
+    { name = "MAEZO_AMH_BILLING_STATUS_CONTRATACAO_OPENAPI_PATH", value = var.amh_billing_status_contratacao_openapi_path },
+  ] : []
   amh_acesso_secrets = var.acesso_beneficiario ? [
     { name = "MAEZO_AMH_SUBJECT_VERIFY_KEY", valueFrom = data.aws_secretsmanager_secret.amh_subject_verify_key[0].arn },
   ] : []

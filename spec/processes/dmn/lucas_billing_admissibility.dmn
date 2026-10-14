@@ -6,7 +6,7 @@
              name="Admissibilidade de cobranca/atendimento ao beneficiario (roteamento — Lucas)"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    lucas_billing_admissibility v0.1.0 — status: DRAFT — requires human review (financeiro/PO)
+    lucas_billing_admissibility v0.2.0 — status: DRAFT — requires human review (financeiro/PO)
     (conteudo de negocio: limiar de ciclos sem conciliacao, mapeamento tipo_solicitacao -> rota;
     docs/review-queue.md). Consumida pelo AGENTE Lucas via mcp-dmn.evaluate (agents/lucas/graph.py
     ::assess, decision_id="lucas_billing_admissibility") — NAO por businessRuleTask. ADR-0012: a DMN
@@ -70,6 +70,27 @@
     (RESPONDER) e mesma isencao da regra de atraso; o grafo responde com a parcela da pessoa e "o boleto e'
     emitido pela administradora", nunca "a empresa paga".
 
+
+    v0.2.0 — POLITICA DE ESCALACAO (decisao do dono, sessao de 14/10/2026). Na bateria final do simulador
+    de beneficiario (200 conversas) o Lucas abriu caso humano em 20 conversas que so' perguntavam valor,
+    vencimento ou "esta em dia?": QUALQUER indicio de atraso (`ciclos_sem_conciliacao >= 1`, competencia
+    `vencida`, `dias_atraso_max > 0`) escalava. Decisao do dono: o Lucas responde os FATOS primeiro, sempre
+    (valor, vencimento e situacao de cada mes) e so' abre caso humano para contestacao, pedido de
+    negociacao/parcelamento, cancelamento, pedido explicito de pessoa (todos decididos ANTES desta tabela,
+    no grafo) ou ATRASO REAL. Atraso real = ENTRADA `atraso_critico` (apurada pelo grafo sobre os fatos da
+    fonte, nunca pelo modelo; `agents/lucas/politica_atraso.py`): pagador PESSOA FISICA E (meses `vencida` >= 2
+    OU maior atraso > 30 dias) — limiares configuraveis (`MAEZO_LUCAS_ATRASO_MESES_MIN`,
+    `MAEZO_LUCAS_ATRASO_DIAS_MIN`). Um mes sem pagamento, ate' 30 dias, e' RESPOSTA com os fatos e a oferta
+    a oferta de uma pessoa (texto fixo do Lucas) — sem caso. Contrato de empresa e adesao
+    (`pagador_empresa=true`) nunca sao criticos (inalterado). Mudancas: a regra `atraso_escala` passa a ler
+    `atraso_critico` (era `status_conciliado=false` e `ciclos >= 1`); `vencimento_atraso` e
+    `consulta_valores_atraso` foram REMOVIDAS (o vencimento e a pergunta de valor respondem com atraso);
+    `status_conciliado` virou `status_pagamento` (responde qualquer estado, o critico ja' escalou antes);
+    `consulta_valores` nao exige mais `valores_com_atraso=false`; nova `outro_assunto` (tipo vazio ->
+    RESPONDER com texto fixo, antes ia ao catch-all). O catch-all continua: combinacao nao mapeada ->
+    humano. A entrada `valores_com_atraso` segue declarada, sem rota que dependa dela. Carece da ratificacao
+    do dono (decisao registrada em `docs/decisions-log.md`, DL-0098).
+
     NOTA hitPolicy: FIRST (catch-all conservador como ultima row) — uma row catch-all (`-`) sob
     UNIQUE colidiria com qualquer row especifica no engine (violacao em runtime); FIRST preserva o
     catch-all ESCALAR_HUMANO mantendo a tabela ENGINE-DEPLOYAVEL. Espelha cancel_admissibility /
@@ -95,6 +116,9 @@
       <input id="lba_in_pagador_empresa" label="Mensalidade paga pela empresa contratante (pagador_empresa)">
         <inputExpression id="lba_ie_pagador_empresa" typeRef="boolean"><text>pagador_empresa</text></inputExpression>
       </input>
+      <input id="lba_in_atraso_critico" label="Atraso critico: pagador PF com &gt;= 2 meses ou &gt; 30 dias sem pagamento (atraso_critico)">
+        <inputExpression id="lba_ie_atraso_critico" typeRef="boolean"><text>atraso_critico</text></inputExpression>
+      </input>
       <output id="lba_out_roteamento" label="roteamento" name="roteamento" typeRef="string"/>
       <output id="lba_out_motivo" label="motivo" name="motivo" typeRef="string"/>
       <output id="lba_out_categoria" label="categoria" name="categoria" typeRef="string"/>
@@ -106,102 +130,98 @@
         <inputEntry id="lba_r_pagador_empresa_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_pagador_empresa_i5"><text>-</text></inputEntry>
         <inputEntry id="lba_r_pagador_empresa_i6"><text>true</text></inputEntry>
+        <inputEntry id="lba_r_pagador_empresa_i7"><text>-</text></inputEntry>
         <outputEntry id="lba_r_pagador_empresa_o1"><text>"RESPONDER"</text></outputEntry>
         <outputEntry id="lba_r_pagador_empresa_o2"><text>"Mensalidade paga pela empresa contratante — resposta fixa; boleto, total e atraso da empresa nao sao do beneficiario e nao escalam (decisao do dono 13/10/2026) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_pagador_empresa_o3"><text>"-"</text></outputEntry>
       </rule>
-      <rule id="lba_r_atraso_escala">
-        <description>Indicio de inadimplencia: nao conciliado por >=1 ciclo -> escala ao humano (NUNCA cobra/suspende por suposicao)</description>
-        <inputEntry id="lba_r_atraso_escala_i1"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_atraso_escala_i2"><text>false</text></inputEntry>
-        <inputEntry id="lba_r_atraso_escala_i3"><text>&gt;= 1</text></inputEntry>
-        <inputEntry id="lba_r_atraso_escala_i4"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_atraso_escala_i5"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_atraso_escala_i6"><text>false</text></inputEntry>
-        <outputEntry id="lba_r_atraso_escala_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
-        <outputEntry id="lba_r_atraso_escala_o2"><text>"Indicio de inadimplencia (nao conciliado por >=1 ciclo) — humano confirma antes de qualquer acao de cobranca; NUNCA suspende/cobra por suposicao (limiar DRAFT/verify — sign-off financeiro/PO)"</text></outputEntry>
-        <outputEntry id="lba_r_atraso_escala_o3"><text>"inadimplencia"</text></outputEntry>
-      </rule>
-      <rule id="lba_r_vencimento_atraso">
-        <description>Duvida de vencimento com competencia vencida ou dias de atraso nos fatos de valor, sem ciclo sem conciliacao (vencida ontem) -> humano confirma; o texto fixo de vencimento nunca afirma atraso (09/10/2026, mesma regra da consulta de valores, DL-0082 sobre DL-0086). Sem fatos de valor a entrada e' false e a linha nao casa.</description>
-        <inputEntry id="lba_r_vencimento_atraso_i1"><text>"vencimento"</text></inputEntry>
-        <inputEntry id="lba_r_vencimento_atraso_i2"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_vencimento_atraso_i3"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_vencimento_atraso_i4"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_vencimento_atraso_i5"><text>true</text></inputEntry>
-        <inputEntry id="lba_r_vencimento_atraso_i6"><text>-</text></inputEntry>
-        <outputEntry id="lba_r_vencimento_atraso_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
-        <outputEntry id="lba_r_vencimento_atraso_o2"><text>"Duvida de vencimento com competencia vencida ou dias de atraso nos fatos (sem ciclo sem conciliacao) — humano confirma; nunca se afirma atraso ao beneficiario (DL-0082) — DRAFT/verify"</text></outputEntry>
-        <outputEntry id="lba_r_vencimento_atraso_o3"><text>"ambiguidade"</text></outputEntry>
+      <rule id="lba_r_atraso_critico">
+        <description>ATRASO REAL (decisao do dono 14/10/2026): pagador PF com &gt;= 2 meses ou &gt; 30 dias sem pagamento -&gt; escala ao humano (NUNCA cobra/suspende por suposicao). Um mes sem pagamento ate 30 dias NAO casa: resposta com fatos.</description>
+        <inputEntry id="lba_r_atraso_critico_i1"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_atraso_critico_i2"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_atraso_critico_i3"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_atraso_critico_i4"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_atraso_critico_i5"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_atraso_critico_i6"><text>false</text></inputEntry>
+        <inputEntry id="lba_r_atraso_critico_i7"><text>true</text></inputEntry>
+        <outputEntry id="lba_r_atraso_critico_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
+        <outputEntry id="lba_r_atraso_critico_o2"><text>"Atraso critico (pagador PF; &gt;= 2 meses ou &gt; 30 dias sem pagamento) — humano confirma antes de qualquer acao de cobranca; NUNCA suspende/cobra por suposicao (limiar configuravel — decisao do dono 14/10/2026) — DRAFT/verify"</text></outputEntry>
+        <outputEntry id="lba_r_atraso_critico_o3"><text>"inadimplencia"</text></outputEntry>
       </rule>
       <rule id="lba_r_vencimento">
-        <description>Duvida de vencimento sem indicio de inadimplencia -> lembrete informativo (nunca ameaca suspensao)</description>
+        <description>Duvida de vencimento (inclusive com um mes sem pagamento nao critico) -&gt; resposta com os fatos de cada mes (nunca ameaca suspensao)</description>
         <inputEntry id="lba_r_vencimento_i1"><text>"vencimento"</text></inputEntry>
         <inputEntry id="lba_r_vencimento_i2"><text>-</text></inputEntry>
         <inputEntry id="lba_r_vencimento_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_vencimento_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_vencimento_i5"><text>-</text></inputEntry>
         <inputEntry id="lba_r_vencimento_i6"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_vencimento_i7"><text>-</text></inputEntry>
         <outputEntry id="lba_r_vencimento_o1"><text>"LEMBRETE"</text></outputEntry>
-        <outputEntry id="lba_r_vencimento_o2"><text>"Lembrete de vencimento (informativo; NUNCA ameaca suspensao/cancelamento) — DRAFT/verify"</text></outputEntry>
+        <outputEntry id="lba_r_vencimento_o2"><text>"Vencimento respondido com os fatos (informativo; NUNCA ameaca suspensao/cancelamento) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_vencimento_o3"><text>"-"</text></outputEntry>
       </rule>
       <rule id="lba_r_boleto_2via">
-        <description>Duvida informacional de boleto / 2a via -> resposta informativa (caminho neutro)</description>
+        <description>Duvida informacional de boleto / 2a via -&gt; resposta informativa (caminho neutro)</description>
         <inputEntry id="lba_r_boleto_2via_i1"><text>"boleto","2a_via"</text></inputEntry>
         <inputEntry id="lba_r_boleto_2via_i2"><text>-</text></inputEntry>
         <inputEntry id="lba_r_boleto_2via_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_boleto_2via_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_boleto_2via_i5"><text>-</text></inputEntry>
         <inputEntry id="lba_r_boleto_2via_i6"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_boleto_2via_i7"><text>-</text></inputEntry>
         <outputEntry id="lba_r_boleto_2via_o1"><text>"RESPONDER"</text></outputEntry>
         <outputEntry id="lba_r_boleto_2via_o2"><text>"Duvida informacional de boleto/2a via — resposta informativa (caminho neutro; nunca adverso) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_boleto_2via_o3"><text>"-"</text></outputEntry>
       </rule>
-      <rule id="lba_r_status_conciliado">
-        <description>Confirmacao de pagamento com conciliacao PRE-RESOLVIDA (true) -> reporta status conciliado (nunca inventa)</description>
-        <inputEntry id="lba_r_status_conciliado_i1"><text>"status_pagamento"</text></inputEntry>
-        <inputEntry id="lba_r_status_conciliado_i2"><text>true</text></inputEntry>
-        <inputEntry id="lba_r_status_conciliado_i3"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_status_conciliado_i4"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_status_conciliado_i5"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_status_conciliado_i6"><text>-</text></inputEntry>
-        <outputEntry id="lba_r_status_conciliado_o1"><text>"RESPONDER"</text></outputEntry>
-        <outputEntry id="lba_r_status_conciliado_o2"><text>"Pagamento conciliado (pre-resolvido por worker CNAB) — reporta o status ao beneficiario; Lucas LE, nunca calcula/inventa (ADR-0012) — DRAFT/verify"</text></outputEntry>
-        <outputEntry id="lba_r_status_conciliado_o3"><text>"-"</text></outputEntry>
-      </rule>
-      <rule id="lba_r_consulta_valores_atraso">
-        <description>Pergunta de valor com competencia vencida ou dias de atraso nos fatos, sem ciclo sem conciliacao (vencida ontem) -> humano confirma; NUNCA se afirma atraso/inadimplencia ao beneficiario (DL-0082 sobre DL-0086, revisao do #709).</description>
-        <inputEntry id="lba_r_consulta_valores_atraso_i1"><text>"consulta_valores"</text></inputEntry>
-        <inputEntry id="lba_r_consulta_valores_atraso_i2"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_consulta_valores_atraso_i3"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_consulta_valores_atraso_i4"><text>-</text></inputEntry>
-        <inputEntry id="lba_r_consulta_valores_atraso_i5"><text>true</text></inputEntry>
-        <inputEntry id="lba_r_consulta_valores_atraso_i6"><text>-</text></inputEntry>
-        <outputEntry id="lba_r_consulta_valores_atraso_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
-        <outputEntry id="lba_r_consulta_valores_atraso_o2"><text>"Consulta de valores com competencia vencida ou dias de atraso nos fatos (sem ciclo sem conciliacao) — humano confirma; nunca se afirma atraso ao beneficiario (DL-0082) — DRAFT/verify"</text></outputEntry>
-        <outputEntry id="lba_r_consulta_valores_atraso_o3"><text>"ambiguidade"</text></outputEntry>
+      <rule id="lba_r_status_pagamento">
+        <description>Confirmacao/status de pagamento em QUALQUER estado de conciliacao (o atraso critico escalou antes) -&gt; reporta os fatos de cada mes (nunca inventa)</description>
+        <inputEntry id="lba_r_status_pagamento_i1"><text>"status_pagamento"</text></inputEntry>
+        <inputEntry id="lba_r_status_pagamento_i2"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_status_pagamento_i3"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_status_pagamento_i4"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_status_pagamento_i5"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_status_pagamento_i6"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_status_pagamento_i7"><text>-</text></inputEntry>
+        <outputEntry id="lba_r_status_pagamento_o1"><text>"RESPONDER"</text></outputEntry>
+        <outputEntry id="lba_r_status_pagamento_o2"><text>"Status de pagamento respondido com os fatos — Lucas LE, nunca calcula/inventa (ADR-0012); atraso nao critico responde com a oferta de uma pessoa (decisao do dono 14/10/2026) — DRAFT/verify"</text></outputEntry>
+        <outputEntry id="lba_r_status_pagamento_o3"><text>"-"</text></outputEntry>
       </rule>
       <rule id="lba_r_consulta_valores">
-        <description>Pergunta de valor (mensalidade, coparticipacao, saldo, historico, data de pagamento) COM os fatos de valor no turno e sem indicio de atraso (a regra de atraso vem antes) -> resposta pelos fatos (DL-0086). Sem os fatos: nao casa, o catch-all escala.</description>
+        <description>Pergunta de valor (mensalidade, coparticipacao, saldo, historico, data de pagamento) COM os fatos de valor no turno -&gt; resposta pelos fatos, inclusive com um mes sem pagamento nao critico (decisao do dono 14/10/2026). Sem os fatos: nao casa, o catch-all escala.</description>
         <inputEntry id="lba_r_consulta_valores_i1"><text>"consulta_valores"</text></inputEntry>
         <inputEntry id="lba_r_consulta_valores_i2"><text>-</text></inputEntry>
         <inputEntry id="lba_r_consulta_valores_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_consulta_valores_i4"><text>true</text></inputEntry>
-        <inputEntry id="lba_r_consulta_valores_i5"><text>false</text></inputEntry>
+        <inputEntry id="lba_r_consulta_valores_i5"><text>-</text></inputEntry>
         <inputEntry id="lba_r_consulta_valores_i6"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_consulta_valores_i7"><text>-</text></inputEntry>
         <outputEntry id="lba_r_consulta_valores_o1"><text>"RESPONDER"</text></outputEntry>
         <outputEntry id="lba_r_consulta_valores_o2"><text>"Consulta de valores com fatos do contrato billing-status presentes — resposta restrita aos fatos (DL-0086); sem fato o catch-all escala — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_consulta_valores_o3"><text>"-"</text></outputEntry>
       </rule>
+      <rule id="lba_r_outro_assunto">
+        <description>Pergunta de cobranca sem tipo mapeado (forma de pagamento, nota fiscal, informe de rendimentos...) -&gt; texto fixo do que o Lucas mostra e onde buscar o resto, com a oferta de uma pessoa; sem caso (decisao do dono 14/10/2026).</description>
+        <inputEntry id="lba_r_outro_assunto_i1"><text>""</text></inputEntry>
+        <inputEntry id="lba_r_outro_assunto_i2"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_outro_assunto_i3"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_outro_assunto_i4"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_outro_assunto_i5"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_outro_assunto_i6"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_outro_assunto_i7"><text>-</text></inputEntry>
+        <outputEntry id="lba_r_outro_assunto_o1"><text>"RESPONDER"</text></outputEntry>
+        <outputEntry id="lba_r_outro_assunto_o2"><text>"Assunto de cobranca fora do que o Lucas responde — texto fixo, sem caso (decisao do dono 14/10/2026) — DRAFT/verify"</text></outputEntry>
+        <outputEntry id="lba_r_outro_assunto_o3"><text>"-"</text></outputEntry>
+      </rule>
       <rule id="lba_r_catchall">
-        <description>Catch-all FAIL-SAFE: ambiguidade de cobranca / combinacao nao mapeada (ex.: status_pagamento nao conciliado sem ciclo, cancelamento, consulta de valores sem os fatos) -> humano. NUNCA cobra/suspende/nega.</description>
+        <description>Catch-all FAIL-SAFE: ambiguidade de cobranca / combinacao nao mapeada (ex.: cancelamento, consulta de valores sem os fatos) -> humano. NUNCA cobra/suspende/nega.</description>
         <inputEntry id="lba_r_catchall_i1"><text>-</text></inputEntry>
         <inputEntry id="lba_r_catchall_i2"><text>-</text></inputEntry>
         <inputEntry id="lba_r_catchall_i3"><text>-</text></inputEntry>
         <inputEntry id="lba_r_catchall_i4"><text>-</text></inputEntry>
         <inputEntry id="lba_r_catchall_i5"><text>-</text></inputEntry>
         <inputEntry id="lba_r_catchall_i6"><text>-</text></inputEntry>
+        <inputEntry id="lba_r_catchall_i7"><text>-</text></inputEntry>
         <outputEntry id="lba_r_catchall_o1"><text>"ESCALAR_HUMANO"</text></outputEntry>
         <outputEntry id="lba_r_catchall_o2"><text>"Ambiguidade de cobranca / combinacao nao mapeada — humano confirma antes de qualquer acao (fail-safe fechado; NUNCA cobra/suspende/nega por suposicao) — DRAFT/verify"</text></outputEntry>
         <outputEntry id="lba_r_catchall_o3"><text>"ambiguidade"</text></outputEntry>

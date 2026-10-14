@@ -22,7 +22,12 @@ from typing import Any, cast
 import pytest
 
 from maezo.agents.lucas.fonte_cobranca import FatosCobranca, FonteCobrancaSimulada, Indisponivel
-from maezo.agents.lucas.graph import _CALLER_INPUT_FIELDS, LucasState, _hoje_em_brasilia
+from maezo.agents.lucas.graph import (
+    _CALLER_INPUT_FIELDS,
+    TEXTO_FONTE_INDISPONIVEL,
+    LucasState,
+    _hoje_em_brasilia,
+)
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.tool_registry import build_agent_seam_context
@@ -376,6 +381,11 @@ def test_handoff_com_chave_a_mais_e_recusado_sem_ecoar_valor(chave: str) -> None
         {**_handoff(), "cobranca_lista": {"quantidade": 40, "de": None, "ate": None, "situacao": None}},
         # Rodada 4 (13/10/2026): o tipo da reclamacao e' enum fechado.
         {**_handoff(), "cobranca_reclamacao": "texto livre"},
+        # Rodada 12 (14/10/2026): negociacao so' `True`; confirmacao so' "confirma"/"nega".
+        {**_handoff(), "cobranca_negociacao": "sim"},
+        {**_handoff(), "cobranca_negociacao": False},
+        {**_handoff(), "cobranca_confirmacao": "talvez"},
+        {**_handoff(), "cobranca_confirmacao": True},
     ],
 )
 async def test_handoff_malformado_nao_vira_turno(handoff: dict[str, Any], seam_lucas: SeamContext) -> None:
@@ -465,18 +475,17 @@ def test_recusa_de_outra_mensagem_e_um_handoff_invalido() -> None:
 # --- Fonte de cobranca ----------------------------------------------------------------------------
 
 
-async def test_fonte_indisponivel_nao_inventa_fato_e_escala(seam_lucas: SeamContext) -> None:
+async def test_fonte_indisponivel_nao_inventa_fato_e_responde_sem_abrir_caso(seam_lucas: SeamContext) -> None:
+    """14/10/2026 (dono): sem fato nenhum a resposta e' a constante honesta; a falha da fonte nao e'
+    caso humano e nunca vira "inadimplente" por suposicao."""
     fonte = _FonteFixa(Indisponivel("fonte_indisponivel"))
-    turno, registry, _ = _turno(seam_lucas, fonte=fonte, rota_padrao="escalate_human")
-    final = await _rodar(
-        turno,
-        _conversa("ind", pseudo_id="p-x"),
-        _handoff("confirmacao_pagamento"),
-        _ClienteComDedup(registry),
-    )
+    turno, registry, _ = _turno(seam_lucas, fonte=fonte)
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(turno, _conversa("ind", pseudo_id="p-x"), _handoff("confirmacao_pagamento"), cliente)
     assert fonte.pedidos == [("p-x", "2026-09")]
-    assert final["route"] == "escalate_human"
+    assert final["route"] == "respond_member" and final["process_started"] is False
     assert final["billing_facts"]["status_conciliado"] is None
+    assert [texto for _, texto, _ in cliente.enviados] == [TEXTO_FONTE_INDISPONIVEL]
 
 
 async def test_competencia_ausente_chega_como_ausente(seam_lucas: SeamContext) -> None:
@@ -572,21 +581,15 @@ async def test_cobranca_recebida_com_ciclos_em_aberto_segue_a_escalacao_de_sempr
 
 
 async def test_cobranca_recebida_sem_fato_diz_que_nao_conseguiu_consultar(seam_lucas: SeamContext) -> None:
-    from maezo.agents.lucas.graph import ACK_ESCALACAO
-
     fonte = _FonteFixa(Indisponivel("sujeito_nao_resolvido"))
-    turno, registry, _ = _turno(
-        seam_lucas, fonte=fonte, rascunho=_RASCUNHO_DO_INCIDENTE, rota_padrao="escalate_human"
-    )
+    turno, registry, _ = _turno(seam_lucas, fonte=fonte, rascunho=_RASCUNHO_DO_INCIDENTE)
     cliente = _ClienteComDedup(registry)
     final = await _rodar(turno, _conversa("dl82-ind"), _handoff("cobranca_recebida"), cliente)
 
-    assert final["route"] == "escalate_human"
-    assert final["motivo_humano"] == "ambiguidade"  # nunca `inadimplencia_detectada` sem fato
-    assert final["process_started"] is True
-    assert [texto for _, texto, _ in cliente.enviados] == [
-        "Agora não consegui consultar a situação da sua mensalidade. " + ACK_ESCALACAO
-    ]
+    # 14/10/2026: nunca `inadimplencia_detectada` sem fato — e a falha da fonte tambem nao abre caso.
+    assert final["route"] == "respond_member" and final["process_started"] is False
+    assert final.get("motivo_humano", "") == ""
+    assert [texto for _, texto, _ in cliente.enviados] == [TEXTO_FONTE_INDISPONIVEL]
 
 
 # --- DL-0086: pergunta de VALOR, respondida pelos fatos do `billing-status` ---------------------------
@@ -681,16 +684,13 @@ async def test_pedido_de_lista_le_a_janela_inteira_e_diz_o_que_tem(seam_lucas: S
     ]
 
 
-async def test_consulta_valores_sem_fatos_escala_e_nao_responde_valor(seam_lucas: SeamContext) -> None:
-    turno, registry, _ = _turno(
-        seam_lucas, fonte=_FonteFixa(Indisponivel("fonte_indisponivel")), rota_padrao="escalate_human"
-    )
+async def test_consulta_valores_sem_fatos_nao_responde_valor_e_nao_abre_caso(seam_lucas: SeamContext) -> None:
+    turno, registry, _ = _turno(seam_lucas, fonte=_FonteFixa(Indisponivel("fonte_indisponivel")))
     cliente = _ClienteComDedup(registry)
     final = await _rodar(turno, _conversa("dl86-ind"), _handoff("consulta_valores"), cliente)
 
-    assert final["route"] == "escalate_human"
-    assert final["motivo_humano"] == "ambiguidade"
-    assert final["process_started"] is True
+    assert final["route"] == "respond_member" and final["process_started"] is False
+    assert [texto for _, texto, _ in cliente.enviados] == [TEXTO_FONTE_INDISPONIVEL]
     assert all("R$" not in texto for _, texto, _ in cliente.enviados)
 
 
@@ -703,10 +703,10 @@ async def test_consulta_valores_da_fonte_simulada_escala_porque_ela_nao_tem_valo
     assert final["route"] == "escalate_human"
 
 
-async def test_consulta_valores_com_atraso_continua_escalando_para_cobranca_humano(
+async def test_consulta_valores_com_atraso_critico_continua_escalando_para_cobranca_humano(
     seam_lucas: SeamContext,
 ) -> None:
-    fonte = _FonteFixa(_fatos_com_valores(conciliado=False, ciclos=1))
+    fonte = _FonteFixa(_fatos_com_valores(conciliado=False, ciclos=2))
     turno, registry, _ = _turno(seam_lucas, fonte=fonte, rota_padrao="escalate_human")
     cliente = _ClienteComDedup(registry)
     final = await _rodar(turno, _conversa("dl86-atraso"), _handoff("consulta_valores"), cliente)
@@ -715,6 +715,30 @@ async def test_consulta_valores_com_atraso_continua_escalando_para_cobranca_huma
     assert final["motivo_humano"] == "inadimplencia_detectada"
     assert final["roteamento_escalacao"] == "COBRANCA_HUMANO"
     assert final["process_started"] is True
+
+
+async def test_consulta_valores_com_um_mes_sem_pagamento_responde_sem_abrir_caso(
+    seam_lucas: SeamContext,
+) -> None:
+    """14/10/2026 (dono): 1 ciclo nao e' atraso critico (>= 2 meses ou > 30 dias): os fatos primeiro."""
+    fonte = _FonteFixa(_fatos_com_valores(conciliado=False, ciclos=1))
+    turno, registry, _ = _turno(seam_lucas, fonte=fonte)
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(turno, _conversa("dl86-um-mes"), _handoff("consulta_valores"), cliente)
+    assert final["route"] == "respond_member" and final["process_started"] is False
+
+
+async def test_os_limiares_de_atraso_do_receptor_chegam_ao_grafo(seam_lucas: SeamContext) -> None:
+    """`MAEZO_LUCAS_ATRASO_MESES_MIN`: com o limiar em 1 mes, o mesmo fato (1 ciclo) vira atraso critico."""
+    from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
+
+    fonte = _FonteFixa(_fatos_com_valores(conciliado=False, ciclos=1))
+    turno, registry, _ = _turno(seam_lucas, fonte=fonte, rota_padrao="escalate_human")
+    turno.limiares_atraso = LimiaresDeAtraso(meses_minimo=1)
+    cliente = _ClienteComDedup(registry)
+    final = await _rodar(turno, _conversa("dl86-limiar"), _handoff("consulta_valores"), cliente)
+    assert final["route"] == "escalate_human"
+    assert final["motivo_humano"] == "inadimplencia_detectada"
 
 
 # --- Gate, checkpointer, metricas ------------------------------------------------------------------

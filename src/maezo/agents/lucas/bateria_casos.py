@@ -141,7 +141,8 @@ CASOS: list[dict[str, Any]] = [
             status_conciliado=False,
             ciclos_sem_conciliacao=1,
         ),
-        dict(route="escalate_human", motivo="inadimplencia_detectada", processo=True),
+        dict(route="respond_member", processo=False),
+        "14/10/2026 (decisao do dono): 1 ciclo nao e' atraso critico — a 2a via responde, sem caso.",
     ),
     # --- B. J2 ---------------------------------------------------------------------------------
     _c(
@@ -167,8 +168,8 @@ CASOS: list[dict[str, Any]] = [
             status_conciliado=False,
             ciclos_sem_conciliacao=0,
         ),
-        dict(route="escalate_human", motivo="ambiguidade", processo=True),
-        "A tabela cai no catch-all 'ambiguidade'. O grafo hoje rotula como inadimplencia_detectada.",
+        dict(route="respond_member", processo=False),
+        "14/10/2026: o status responde em qualquer estado (fatos primeiro); so' o atraso critico escala.",
     ),
     _c(
         "L08",
@@ -187,8 +188,9 @@ CASOS: list[dict[str, Any]] = [
         PAGTO,
         "Status de conciliacao AUSENTE (worker CNAB ainda nao resolveu)",
         dict(intencao="confirmacao_pagamento", tipo_solicitacao="status_pagamento"),
-        dict(route="escalate_human", motivo="ambiguidade", processo=True),
-        "Ausencia nunca deveria virar 'inadimplente' por suposicao (nota do proprio grafo em gather).",
+        dict(route="respond_member", processo=False),
+        "Ausencia nunca vira 'inadimplente' por suposicao (nota do grafo em gather). 14/10/2026: a falha da "
+        "fonte nao e' caso humano — a constante honesta ('nao consegui consultar') e a oferta de uma pessoa.",
     ),
     # --- C. J3 ---------------------------------------------------------------------------------
     _c(
@@ -372,8 +374,9 @@ CASOS: list[dict[str, Any]] = [
         VALORES,
         "Quanto devo? Sem fatos de valor (fonte indisponivel ou simulada)",
         dict(intencao="cobranca_info", tipo_solicitacao="consulta_valores"),
-        dict(route="escalate_human", motivo="ambiguidade", processo=True),
-        "Nunca responde valor sem dado: o catch-all da DMN escala.",
+        dict(route="respond_member", processo=False),
+        "Nunca responde valor sem dado. 14/10/2026: sem fatos (fonte indisponivel) a resposta e' a constante "
+        "honesta, sem caso.",
     ),
     _c(
         "L28",
@@ -420,8 +423,9 @@ CASOS: list[dict[str, Any]] = [
                 ],
             },
         ),
-        dict(route="escalate_human", motivo="ambiguidade", processo=True),
-        "DL-0082 (revisao do #709): atraso sem ciclo escala sem afirmar inadimplencia nem citar valor.",
+        dict(route="respond_member", processo=False, valores_permitidos=True),
+        "14/10/2026 (decisao do dono): um mes sem pagamento (1 dia) responde os fatos e oferece uma pessoa — "
+        "sem caso e sem a palavra inadimplencia.",
     ),
     # --- 09/10/2026 (teste real do dono): vencimento em texto fixo dos fatos por competencia --------
     _c(
@@ -481,8 +485,9 @@ CASOS: list[dict[str, Any]] = [
                 ],
             },
         ),
-        dict(route="escalate_human", motivo="ambiguidade", processo=True),
-        "DMN lba_r_vencimento_atraso: atraso sem ciclo escala; a data vencida nunca chega ao beneficiario.",
+        dict(route="respond_member", desfecho="lembrete_enviado", processo=False, valores_permitidos=True),
+        "14/10/2026: o vencimento responde com os fatos ('venceu em 10/09 e ainda esta sem pagamento "
+        "confirmado'), sem caso.",
     ),
     # --- 10/10/2026 (teste real do dono): 2a via em texto fixo, sem modelo -------------------------
     _c(
