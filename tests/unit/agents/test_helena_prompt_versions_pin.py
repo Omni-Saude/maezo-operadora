@@ -37,7 +37,7 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
         "classify-v7",
         "7f2dfcc6ffaac94f3f72609cbebd8c9017e6e02b721e1da240e4a70a2abd3a28",
     ),
-    "coleta": ("coleta-v1", "a825d71380d522a6cbfc89720739cd1712fe93ea197fc4bc2c86bddb07c73665"),
+    "coleta": ("coleta-v2", "4dae04994f5f95b53d3855a84d2c3f7e2b23bf697a66dc739d59f4f12671e0bd"),
     # DL-0080: os adendos do historico curto (so' com `MAEZO_HELENA_HISTORICO` ligada).
     "classify_historico": (
         "classify-historico-v1",

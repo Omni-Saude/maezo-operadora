@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 
 from maezo.agents.helena.graph import (
-    RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA,
     RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE,
+    RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA,
     RESPOSTA_HANDOFF_RECUSADA,
     _sem_frase_so_me_pedir,
     eh_pedido_explicito_de_pessoa,
@@ -56,7 +56,7 @@ async def test_com_caso_aberto_o_pedido_diz_que_o_caso_ja_esta_com_a_equipe(mens
 
     await grafo.ainvoke(_entrada(mensagem))
 
-    assert whatsapp.enviados == [RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA]
+    assert whatsapp.enviados == [RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA]
     assert _starts(cib) == antes
 
 
