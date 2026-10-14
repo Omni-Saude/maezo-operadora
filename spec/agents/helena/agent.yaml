@@ -10,11 +10,28 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
   - roteamento_intencao                # classify() decide inform | schedule | escalate
   - escalonamento_humano               # SP-OP-ESCALATION-001 (unico efeito real desta jornada)
   - passagem_cobranca                  # onda (e) do numero unico (ADR-0062): cobranca -> Lucas, SO' com MAEZO_ROTEADOR_LUCAS ligado
+  # ESCOPO REAL (DL-0099, 14/10/2026; decisao do dono): a lista acima tinha so' os quatro itens originais.
+  - consulta_fatos_do_plano            # elegibilidade, carteirinha, carencia, autorizacao e dependentes (TINA, SO' com MAEZO_HELENA_CONSULTAS_AMH ligado); resposta so' com fatos do cadastro
+  - duvida_de_saude_sem_sintoma        # explica o que a Helena pode fazer; NUNCA orientacao clinica
+  - pedido_explicito_de_humano         # human_request -> SP-OP-ESCALATION-001 (solicitacao_humano)
+  - apresentacao_do_canal              # quem e' a Helena, o que faz, saudacao e despedida
 out_of_scope:                          # o que Helena NAO faz, rastreado (nao e recusa muda)
   - id: agendamento_direto             # trabalho #1 do beneficiario (D9/D11) — nao entregue aqui
     fase: 0
     disposicao: "DL-0052 (01/10/2026): texto fixo fora do canal, sem caso; quem pede uma pessoa escala por human_request"
     onde: "graph.py:schedule() -> _start_escalation() (node dedicado; ver escalation.triggers abaixo)"
+  - id: orientacao_ou_diagnostico_clinico   # a Helena nunca orienta conduta nem diagnostica (L0 hard, ADR-0012)
+    fase: 0
+    disposicao: "sintoma -> tabela de red flag (DMN) e, se for o caso, escalonamento; pergunta clinica -> intencao_clinica"
+    onde: "graph.py:classify() -> escalate (motivos red_flag_clinico, intencao_clinica)"
+  - id: emissao_de_boleto_ou_segunda_via   # cobranca e' do Lucas; a Helena so' passa a conversa
+    fase: 0
+    disposicao: "passagem_cobranca (ADR-0062); sem o roteador ligado, texto fixo fora do canal"
+    onde: "graph.py:handoff_cobranca()"
+  - id: confirmacao_de_cobertura_de_procedimento_especifico   # so' a segmentacao registrada e onde confirmar
+    fase: 0
+    disposicao: "RESPOSTA_COBERTURA_ESPECIFICA: a Helena nunca promete nem nega cobertura de procedimento"
+    onde: "graph.py:consultar_plano() (cobertura deterministica)"
 process_keys:
   - SP-OP-ESCALATION-001
 reports_to: "gestor.atendimento@amh"
@@ -42,7 +59,7 @@ security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  classify: classify-v5.3             # 01/10/2026: privacidade e armazenamento de dados sao `outside_channel`
+  classify: classify-v5.4             # 14/10/2026 (DL-0099): recem-nascido (codigos neonatais, idade 0). v5.3: 01/10/2026: privacidade e armazenamento de dados sao `outside_channel`
                                      # (J09). v5.1: autorizacao NEGADA e status de guia (B07).
                                      # v5 — 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO
                                      # CAMPOS DIFERENTES — `sintoma_codigo`/`intensidade`
@@ -56,7 +73,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # ("estou com dor de cabeca" nao e'
                                      # cefaleia_subita_intensa), e `intensidade` nunca e'
                                      # inferida do sintoma.
-  classify_roteador: classify-v7     # 08/10/2026 (DL-0086): subtipo `consulta_valores` (valor, coparticipacao,
+  classify_roteador: classify-v7.1   # 14/10/2026 (DL-0099): recem-nascido, como no v5.4. v7: 08/10/2026 (DL-0086): subtipo `consulta_valores` (valor, coparticipacao,
                                      # saldo, historico, data de pagamento); pix/cartao/nota fiscal/IR seguem `outro`.
                                      # v6.2 — 02/10/2026: paragrafo de outside_channel com
                                      # autorizacao negada e privacidade (DL-0063/0059). v6: onda (e) do numero unico (ADR-0062): usado SO' com o

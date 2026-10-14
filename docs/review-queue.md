@@ -8,7 +8,7 @@ pelo revisor competente). O orquestrador espelha pendencias em
 | Artefato | O que precisa de revisao humana | Revisor | Status |
 |---|---|---|---|
 | `spec/processes/dmn/triage_redflag_adult.dmn` | Conteudo clinico: lista de sintomas, limiares de intensidade/idade, prioridades P1/P2, regra fail-safe | medico (diretriz de triagem) | `DRAFT — requires human review before any deploy` |
-| `spec/processes/dmn/triage_redflag_pediatric.dmn` | Conteudo clinico pediatrico (limiar febre <3 meses, desidratacao, etc.) | medico pediatra | `DRAFT — requires human review before any deploy` |
+| `spec/processes/dmn/triage_redflag_pediatric.dmn` | Conteudo clinico pediatrico (limiar febre <3 meses, desidratacao, etc.); v0.2.0 (DL-0099): regras neonatais r9-r13 ratificadas PELO DONO em 14/10/2026 (`triage-redflag-pediatric-neonatal-ratification.yaml`) — nao e' ratificacao medica | medico pediatra | `DRAFT — regras r9-r13 ratificadas pelo dono; revisao do medico pediatra/auditor recomendada` |
 | `spec/processes/dmn/triage_redflag_gestante.dmn` | Conteudo clinico obstetrico (pre-eclampsia >=20s, MF reduzidos >=26s, etc.) | medico obstetra | `DRAFT — requires human review before any deploy` |
 | `spec/processes/dmn/triage_redflag_mental_health.dmn` | Conteudo clinico de saude mental + postura conservadora (tudo escala?) | psiquiatra/psicologo + gestao assistencial | `DRAFT — requires human review before any deploy` |
 | `spec/processes/dmn/escalation_routing.dmn` | Valores de SLA (ack/resolucao por prioridade) e mapeamento grupo humano | gestao assistencial + compliance | `DRAFT — requires human review before any deploy` (shape FINAL) |

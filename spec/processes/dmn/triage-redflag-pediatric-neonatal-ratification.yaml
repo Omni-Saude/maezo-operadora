@@ -1,0 +1,47 @@
+# RATIFICACAO DO DONO — regras neonatais (r9-r13) de `triage_redflag_pediatric.dmn` (DL-0099, 14/10/2026).
+#
+# O QUE ESTE ARQUIVO E'. O registro, em nome de quem decidiu, de que a regra abaixo foi lida e aceita.
+# NAO e' ratificacao medica: a base declarada e' a decisao do dono, e recomenda-se a revisao do
+# medico-auditor/pediatra (docs/review-queue.md). Nao e' artefato implantavel (`.yaml`: `collect_artifacts`
+# so' le `*.dmn`/`*.bpmn`) e nada em `src/` o le'.
+#
+# AMARRACAO AOS BYTES. `tabela_viva.sha256` e' o digest da tabela que foi lida. Editar a tabela sem refazer
+# este registro quebra o teste `tests/unit/spec/test_triage_pediatric_neonatal.py` (docs/runbooks/
+# dmn-bpmn-deployment.md §4: editar bytes de tabela ratificada exige nova decisao explicita).
+#
+# NAO duplique as chaves abaixo: YAML resolve chave duplicada pela ULTIMA ocorrencia, em silencio.
+version: 1
+alvo: spec/processes/dmn/triage_redflag_pediatric.dmn
+decisao_alvo: triage_redflag_pediatric
+regras_ratificadas: [r9, r10, r11, r12, r13]
+
+ratificado: true
+revisor: "Márcio Filipe Filó do Carmo"
+capacidade: "Dono da organização, CTO e DPO"
+ratificado_em: "2026-10-14"
+attestation_basis: >-
+  decisão do dono registrada na sessão de 14/10/2026: ratifica a regra de recém-nascido com sinal de
+  sofrimento escalar como grave com orientação de 192; ratificação do dono, não médica — recomenda-se
+  revisão do médico-auditor
+
+regra:
+  populacao: recem-nascido (menos de 28 dias; idade_meses < 1; tambem "bebe pequeno" e "X dias de vida")
+  sinais:
+    - dor, choro que nao para ou irritabilidade intensa   # sintoma_codigo choro_inconsolavel (r9)
+    - febre                                               # ja' coberta por r1 (febre, idade_meses < 3)
+    - alteracao respiratoria                              # ja' coberta por r2 (dificuldade_respiratoria)
+    - nao mama / recusa alimentar                         # recusa_alimentar (r10)
+    - hipotonia ("mole")                                  # hipotonia (r11)
+    - cianose ("roxo")                                    # cianose (r12)
+    - vomitos persistentes                                # vomitos_persistentes (r13)
+  desfecho:
+    red_flag: true
+    prioridade: P1
+    conduta: ESCALATE_EMERGENCY
+    severidade_do_caso: grave
+    resposta_ao_beneficiario: "orientacao de emergencia com a frase do 192 (RESPOSTA_ESCALONAMENTO_URGENTE)"
+  fail_safe: "a regra deterministica do grafo (`_alerta_neonatal`) continua como cinto e suspensorio"
+
+tabela_viva:
+  path: spec/processes/dmn/triage_redflag_pediatric.dmn
+  sha256: "be381eb5263ec4aa1aeb62c4140bcda194246e4de1b7310db6cf7d5d45677815"

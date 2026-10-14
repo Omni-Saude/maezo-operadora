@@ -3528,10 +3528,26 @@ _SINAL_NEGADO = re.compile(
 )
 
 
+def _contexto_de_recem_nascido(estado: Mapping[str, Any]) -> bool:
+    """A mensagem ou o contexto recente dizem que o paciente e' recem-nascido (menos de 28 dias)."""
+    contexto = " ".join(
+        [
+            str(estado.get("message_body") or ""),
+            str(estado.get("coleta_contexto") or ""),
+            *_falas_do_beneficiario(estado)[-6:],
+        ]
+    )
+    return bool(_RECEM_NASCIDO.search(_plano(contexto)))
+
+
 def _alerta_neonatal(
     estado: Mapping[str, Any], extraction: Mapping[str, Any], memoria: Mapping[str, Any] | None
 ) -> bool:
-    """Recem-nascido (na mensagem, no contexto da conversa ou na idade 0 mes) COM sinal de sofrimento na
+    """FAIL-SAFE da regra neonatal (DL-0099): a FONTE PRIMARIA agora e' a tabela pediatrica (regras r9-r13,
+    ratificadas pelo dono); esta regra do grafo continua como cinto e suspensorio para quando o modelo nao
+    devolver o codigo neonatal.
+
+    Recem-nascido (na mensagem, no contexto da conversa ou na idade 0 mes) COM sinal de sofrimento na
     mensagem atual (dor, choro que nao para, febre, mudanca da respiracao, nao mamar, mole, roxo...)."""
     atual = _plano(str(estado.get("message_body") or ""))
     contexto = " ".join(
@@ -4410,6 +4426,15 @@ class HelenaGraph:
         memoria = state.get("memoria_clinica") if self._memoria_clinica_enabled else None
         extraction, veio_da_memoria = _fundir_memoria_clinica(extraction, memoria)
         population = cast(Population, extraction.get("population", "none"))
+        if (
+            population == "pediatric"
+            and extraction.get("idade_meses") is None
+            and _contexto_de_recem_nascido(state)
+        ):
+            # DL-0099: recem-nascido dito em palavras ("nasceu ha 5 dias") e' idade 0 meses: e' o que
+            # as regras neonatais da tabela pediatrica leem (`idade_meses < 1`).
+            extraction["idade_meses"] = 0
+            logger.info("helena_recem_nascido_idade_zero", node="classify")
 
         update: dict[str, Any] = {
             "intent": intent,

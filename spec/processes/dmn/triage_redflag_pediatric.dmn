@@ -6,8 +6,11 @@
              name="Red flags de triagem — pediatria"
              namespace="http://maezo.health/dmn/operadora">
   <description>
-    triage_redflag_pediatric v0.1.0 — status: SHAPE FINAL; CONTEUDO CLINICO: DRAFT —
+    triage_redflag_pediatric v0.2.0 — status: SHAPE FINAL; CONTEUDO CLINICO: DRAFT —
     requer validacao de pediatra antes de qualquer deploy (docs/review-queue.md).
+    v0.2.0 (14/10/2026, DL-0099): regras r9-r13, recem-nascido (menos de 28 dias) com sinal de sofrimento
+    escala como emergencia (P1). Ratificadas PELO DONO (nao e' ratificacao medica; recomenda-se revisao do
+    medico-auditor) em triage-redflag-pediatric-neonatal-ratification.yaml.
     Schema comum triage_redflag_* (ver triage_redflag_adult); campo populacional:
     idade_meses (number). Aplicavel quando o caso relatado e de menor de 12 anos.
     Consumida por Helena via mcp-dmn.evaluate; red_flag=true -> SP-OP-ESCALATION-001.
@@ -73,6 +76,56 @@
         <outputEntry id="r5o2"><text>"P1"</text></outputEntry>
         <outputEntry id="r5o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
         <outputEntry id="r5o4"><text>"Crianca letargica/irresponsiva"</text></outputEntry>
+      </rule>
+      <rule id="r9">
+        <description>RECEM-NASCIDO (DL-0099, 14/10/2026): ratificada pelo dono (ver triage-redflag-pediatric-neonatal-ratification.yaml). idade_meses &lt; 1 = menos de 28 dias; febre e dificuldade respiratoria neonatais ja' sao cobertas por r1 e r2.</description>
+        <inputEntry id="r9i1"><text>"choro_inconsolavel"</text></inputEntry>
+        <inputEntry id="r9i2"><text>-</text></inputEntry>
+        <inputEntry id="r9i3"><text>&lt; 1</text></inputEntry>
+        <outputEntry id="r9o1"><text>true</text></outputEntry>
+        <outputEntry id="r9o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r9o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r9o4"><text>"Recem-nascido (menos de 28 dias) com dor, choro que nao para ou irritabilidade intensa: emergencia neonatal"</text></outputEntry>
+      </rule>
+      <rule id="r10">
+        <description>RECEM-NASCIDO (DL-0099, 14/10/2026): ratificada pelo dono (ver triage-redflag-pediatric-neonatal-ratification.yaml). idade_meses &lt; 1 = menos de 28 dias; febre e dificuldade respiratoria neonatais ja' sao cobertas por r1 e r2.</description>
+        <inputEntry id="r10i1"><text>"recusa_alimentar"</text></inputEntry>
+        <inputEntry id="r10i2"><text>-</text></inputEntry>
+        <inputEntry id="r10i3"><text>&lt; 1</text></inputEntry>
+        <outputEntry id="r10o1"><text>true</text></outputEntry>
+        <outputEntry id="r10o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r10o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r10o4"><text>"Recem-nascido (menos de 28 dias) que nao mama ou recusa a alimentacao: emergencia neonatal"</text></outputEntry>
+      </rule>
+      <rule id="r11">
+        <description>RECEM-NASCIDO (DL-0099, 14/10/2026): ratificada pelo dono (ver triage-redflag-pediatric-neonatal-ratification.yaml). idade_meses &lt; 1 = menos de 28 dias; febre e dificuldade respiratoria neonatais ja' sao cobertas por r1 e r2.</description>
+        <inputEntry id="r11i1"><text>"hipotonia"</text></inputEntry>
+        <inputEntry id="r11i2"><text>-</text></inputEntry>
+        <inputEntry id="r11i3"><text>&lt; 1</text></inputEntry>
+        <outputEntry id="r11o1"><text>true</text></outputEntry>
+        <outputEntry id="r11o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r11o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r11o4"><text>"Recem-nascido (menos de 28 dias) mole ou hipotonico: emergencia neonatal"</text></outputEntry>
+      </rule>
+      <rule id="r12">
+        <description>RECEM-NASCIDO (DL-0099, 14/10/2026): ratificada pelo dono (ver triage-redflag-pediatric-neonatal-ratification.yaml). idade_meses &lt; 1 = menos de 28 dias; febre e dificuldade respiratoria neonatais ja' sao cobertas por r1 e r2.</description>
+        <inputEntry id="r12i1"><text>"cianose"</text></inputEntry>
+        <inputEntry id="r12i2"><text>-</text></inputEntry>
+        <inputEntry id="r12i3"><text>&lt; 1</text></inputEntry>
+        <outputEntry id="r12o1"><text>true</text></outputEntry>
+        <outputEntry id="r12o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r12o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r12o4"><text>"Recem-nascido (menos de 28 dias) roxo ou cianotico: emergencia neonatal"</text></outputEntry>
+      </rule>
+      <rule id="r13">
+        <description>RECEM-NASCIDO (DL-0099, 14/10/2026): ratificada pelo dono (ver triage-redflag-pediatric-neonatal-ratification.yaml). idade_meses &lt; 1 = menos de 28 dias; febre e dificuldade respiratoria neonatais ja' sao cobertas por r1 e r2.</description>
+        <inputEntry id="r13i1"><text>"vomitos_persistentes"</text></inputEntry>
+        <inputEntry id="r13i2"><text>-</text></inputEntry>
+        <inputEntry id="r13i3"><text>&lt; 1</text></inputEntry>
+        <outputEntry id="r13o1"><text>true</text></outputEntry>
+        <outputEntry id="r13o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r13o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r13o4"><text>"Recem-nascido (menos de 28 dias) com vomitos persistentes: emergencia neonatal"</text></outputEntry>
       </rule>
       <rule id="r6">
         <description>INTERINO (DL-0067, 02/10/2026, caso E06 da bateria): sinais de desidratacao sem intensidade informada escalam igual — cuidador raramente mede o degrau; o custo de um caso a mais e' menor que o de uma crianca desidratada sem atendimento. PENDENTE de ratificacao do dono clinico (pediatra).</description>

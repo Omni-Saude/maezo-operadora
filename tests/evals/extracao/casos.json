@@ -1,5 +1,5 @@
 {
-  "versao": "extracao-v7",
+  "versao": "extracao-v8",
   "casos": [
     {
       "id": "r2-cefaleia-comum-01",
@@ -2538,7 +2538,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v7"
+      "prompt": "classify-v7.1"
     },
     {
       "id": "onda-e-cobranca-indevida",
@@ -2558,7 +2558,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v7"
+      "prompt": "classify-v7.1"
     },
     {
       "id": "dl0052-autorizacao-negada",
@@ -2711,7 +2711,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v7"
+      "prompt": "classify-v7.1"
     },
     {
       "id": "lu055-mensalidade-atrasada",
@@ -2731,7 +2731,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v7"
+      "prompt": "classify-v7.1"
     },
     {
       "id": "lu059-plano-suspenso",
@@ -2751,7 +2751,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v7"
+      "prompt": "classify-v7.1"
     },
     {
       "id": "lu075-nota-fiscal-ir",
@@ -2771,7 +2771,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v7"
+      "prompt": "classify-v7.1"
     },
     {
       "id": "lu077-cartao-de-credito",
@@ -2791,7 +2791,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v7"
+      "prompt": "classify-v7.1"
     },
     {
       "id": "dl0086-valor-da-mensalidade",
@@ -2811,7 +2811,107 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v7"
+      "prompt": "classify-v7.1"
+    },
+    {
+      "id": "dl0099-rn-chora-sem-parar",
+      "mensagem": "minha filha nasceu ha 5 dias e chora sem parar, parece sentir dor",
+      "esperado": {
+        "intent": "symptom",
+        "population": "pediatric",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "choro_inconsolavel",
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": 0,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "DL-0099 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
+      "origem": "dl-0099",
+      "regras": [
+        "R1",
+        "R3"
+      ]
+    },
+    {
+      "id": "dl0099-rn-nao-mama",
+      "mensagem": "meu bebe recem nascido nao quer mamar de jeito nenhum",
+      "esperado": {
+        "intent": "symptom",
+        "population": "pediatric",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "recusa_alimentar",
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": 0,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "DL-0099 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
+      "origem": "dl-0099",
+      "regras": [
+        "R1",
+        "R3"
+      ]
+    },
+    {
+      "id": "dl0099-rn-mole",
+      "mensagem": "meu neto de 10 dias de vida esta muito molinho, sem forca",
+      "esperado": {
+        "intent": "symptom",
+        "population": "pediatric",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "hipotonia",
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": 0,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "DL-0099 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
+      "origem": "dl-0099",
+      "regras": [
+        "R1",
+        "R3"
+      ]
+    },
+    {
+      "id": "dl0099-rn-roxo",
+      "mensagem": "o bebe nasceu semana passada e ficou roxo em volta da boca",
+      "esperado": {
+        "intent": "symptom",
+        "population": "pediatric",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "cianose",
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": 0,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "DL-0099 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
+      "origem": "dl-0099",
+      "regras": [
+        "R1",
+        "R3"
+      ]
+    },
+    {
+      "id": "dl0099-rn-vomita",
+      "mensagem": "minha bebe recem nascida vomita toda vez que mama, ja' faz dois dias",
+      "esperado": {
+        "intent": "symptom",
+        "population": "pediatric",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "vomitos_persistentes",
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": 0,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "DL-0099 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
+      "origem": "dl-0099",
+      "regras": [
+        "R1",
+        "R3"
+      ]
     }
   ]
 }
