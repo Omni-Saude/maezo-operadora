@@ -92,6 +92,136 @@ esperado é o de normalização do ECS (task definitions recriadas por `portMapp
 a assinatura SNS pendente de confirmação e a task `staff-rows` na imagem do `staff_ops`. Se o plano propuser
 destruir `staff_*`, `engine_native` ou o NLB, PARE: algum `.auto.tfvars` não foi carregado.
 
+### Verificação de deriva do dev
+
+O workflow `.github/workflows/deriva-dev.yml` responde, todo dia, uma pergunta: **o Terraform no git e o dev vivo
+(conta 203312548462, sa-east-1) ainda dizem a mesma coisa?** Ele é só leitura: não faz `apply`, não escreve na AWS
+nem no state (`plan -lock=false`) e não publica o plano como artefato (plano carrega valores de ambiente).
+
+**Como funciona**
+
+1. Lê, das task definitions que RODAM, as sete variáveis por deploy (`image_tag` de `a2a-outbox-relay`,
+   `webhook_receiver_image_tag`, `canal_teste_image_tag`, `agents_image_digest` de `agent-helena`,
+   `worker_image_digest`, `diagnostics_image_digest`, `engine_image_digest` de `cibseven`). Assim o plano compara
+   configuração, não versão de deploy.
+2. `terraform init` (leitura do backend) e `terraform plan -lock=false -detailed-exitcode -out=tfplan`. A saída
+   do plano não vai para o log; só a linha de totais.
+3. `terraform show -json tfplan` e `scripts/ci/classificar_deriva.py` separam:
+   - **Ruído conhecido** (ignorado): ver a tabela abaixo.
+   - **Deriva real**: qualquer outro create/update/delete, e qualquer delete de recurso que não seja task definition.
+4. Sem deriva real: job verde, e a issue `deriva-dev` aberta (se houver) é fechada. Com deriva real: job vermelho,
+   resumo no sumário do run e UMA issue com o rótulo `deriva-dev` (criada na primeira vez, atualizada nos dias
+   seguintes, nunca duplicada). Erro do próprio `terraform plan` ou plano ilegível também deixa o job vermelho, mas
+   NÃO mexe na issue: não saber não é estar limpo, nem é deriva.
+
+**Como ler a issue.** Ela lista só **endereço do recurso e tipo de ação** (`create`, `update`, `delete`,
+`delete+create`), nunca valores, para não vazar configuração. Duas causas possíveis para cada linha: alguém mexeu na
+AWS sem passar pelo git (corrija a AWS, ou leve a mudança ao git em PR) ou o git mudou e ninguém aplicou (aplique
+conforme "Plan/apply do dev"). Para ver o detalhe, rode o plano local como descrito acima; a issue não o traz.
+
+**Ruído conhecido** (cada linha é uma regra em `scripts/ci/classificar_deriva.py`):
+
+| Regra | Por que é ruído |
+|---|---|
+| Task definition em `delete+create` cuja única diferença é normalização do ECS: `portMappings[].hostPort`; `mountPoints`/`portMappings`/`systemControls`/`volumesFrom` e `capabilities.add` como `[]` no vivo e ausentes no código; `ipc_mode`/`pid_mode`/`task_role_arn` como `""` vs nulo; ordem do `environment`; CRLF vs LF em `command`; `enable_fault_injection` e `volume[].configure_at_launch` desconhecidos no plano | O ECS normaliza o que registra e o provider 6.59 vê a diferença; recriar a task definition não muda nada que roda. Qualquer outra diferença (imagem, valor de ambiente, `add` não vazio, role nova, volume novo, outro atributo desconhecido) é deriva. |
+| `aws_ecs_service` (`task_definition`), `aws_scheduler_schedule.staff_job` (`target[].ecs_parameters[].task_definition_arn`) e `aws_iam_role_policy.staff_job_scheduler` (`policy`) em `update`, quando esse é o único atributo que muda (passa a ser conhecido no apply) e o mesmo plano recria alguma task definition por ruído | Seguem a task definition recriada acima. |
+| `aws_sns_topic_subscription.staff_alerts_email` em `create` | A assinatura fica pendente até alguém confirmar o e-mail. Some do ruído quando for confirmada. |
+
+**Como acrescentar algo ao ruído.** Só com justificativa: (1) abra PR que edita `classificar_deriva.py` com a regra
+mais estreita possível e um comentário dizendo o que é, por que o provider/AWS diverge e quando a regra deve sair;
+(2) acrescente em `tests/unit/ci/test_classificar_deriva.py` um teste que passa com o ruído E um que prova que uma
+mudança real vizinha continua sendo deriva; (3) acrescente a linha na tabela acima. Se a diferença é real e
+duradoura, o certo não é silenciá-la: leve-a ao git (`dev-vivo.auto.tfvars` ou o `.tf`).
+
+**Estado: DESLIGADO até existir a role.** Hoje só há `workflow_dispatch`, e o job para com erro claro se a variável
+de repositório `AWS_DERIVA_ROLE_ARN` não existir. As roles OIDC que já existem (`*-github-supply-chain`,
+`*-github-verify`) só leem ECR/KMS, não leem o state nem refrescam o dev. Para ligar, a equipe dona da conta:
+
+1. Cria a role `maezo-operadora-dev-github-deriva` (somente-leitura). Trust, confiando só em `main` (um PR não deve
+   ler o state, que tem valores sensíveis):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Federated": "arn:aws:iam::203312548462:oidc-provider/token.actions.githubusercontent.com"},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:Omni-Saude/maezo-operadora:ref:refs/heads/main"
+      }
+    }
+  }]
+}
+```
+
+   Policy de menor privilégio (leitura do state e Describe/Get/List do que o stack declara; nenhum `Put*`,
+   `Create*`, `Delete*`, `Update*`, nem `secretsmanager:GetSecretValue`, nem `kms:Decrypt`):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EstadoLeitura",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::amh-tfstate-dev/envs/dev-sa-east-1/maezo-operadora/terraform.tfstate"
+    },
+    {
+      "Sid": "EstadoListar",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::amh-tfstate-dev",
+      "Condition": {"StringLike": {"s3:prefix": "envs/dev-sa-east-1/maezo-operadora/*"}}
+    },
+    {
+      "Sid": "RefreshRegional",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:Describe*", "ecs:List*",
+        "ecr:Describe*", "ecr:List*", "ecr:GetLifecyclePolicy", "ecr:GetRepositoryPolicy",
+        "logs:Describe*", "logs:ListTagsForResource", "logs:ListTagsLogGroup",
+        "ec2:Describe*",
+        "elasticloadbalancing:Describe*",
+        "servicediscovery:Get*", "servicediscovery:List*",
+        "secretsmanager:DescribeSecret", "secretsmanager:GetResourcePolicy",
+        "kms:DescribeKey", "kms:GetKeyPolicy", "kms:GetKeyRotationStatus", "kms:ListAliases", "kms:ListResourceTags",
+        "scheduler:GetSchedule", "scheduler:ListSchedules", "scheduler:ListTagsForResource",
+        "sns:GetTopicAttributes", "sns:GetSubscriptionAttributes", "sns:ListSubscriptionsByTopic", "sns:ListTagsForResource",
+        "cloudwatch:DescribeAlarms", "cloudwatch:ListTagsForResource",
+        "lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetFunctionEventInvokeConfig", "lambda:GetPolicy", "lambda:ListVersionsByFunction", "lambda:ListTags",
+        "aps:Describe*", "aps:List*",
+        "codebuild:BatchGetProjects",
+        "rds:DescribeDBClusters", "rds:ListTagsForResource",
+        "s3:GetBucket*", "s3:GetEncryptionConfiguration", "s3:GetLifecycleConfiguration",
+        "s3:GetAccelerateConfiguration", "s3:GetReplicationConfiguration", "s3:ListBucket"
+      ],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "sa-east-1"}}
+    },
+    {
+      "Sid": "RefreshIamGlobal",
+      "Effect": "Allow",
+      "Action": ["iam:Get*", "iam:List*"],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+   Se a primeira execução apontar `AccessDenied` numa ação de leitura que faltou, acrescente-a (só `Get`/`List`/
+   `Describe`). O bucket do state fica em sa-east-1; os buckets do stack também.
+2. Define a variável de repositório (Settings, Secrets and variables, Actions, Variables) `AWS_DERIVA_ROLE_ARN`
+   com o ARN da role. Não é segredo.
+3. Descomenta o bloco `schedule` de `deriva-dev.yml` (diário, 09:17 UTC) e dispara uma vez manualmente
+   (`gh workflow run deriva-dev`) para ver o primeiro resultado.
+4. Opcional: declarar a role no próprio Terraform do dev, ao lado de `iam-github-supply-chain.tf`; aplicar exige
+   um administrador da conta.
+
 **1. O SG das tasks tem de ser liberado no Aurora — em OUTRO repositório.**
 `terraform output ecs_tasks_security_group_id` → o ID entra em
 `module.aurora_hapi.allowed_security_group_ids`, em
