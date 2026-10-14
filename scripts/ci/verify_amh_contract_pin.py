@@ -252,6 +252,16 @@ V1_5_ARTIFACT_PATHS: tuple[str, ...] = ("schemas/openapi/maezo/v1/tina-dependent
 #: Run de publicacao do v1.2 (XRG2-AMH-DEV-GHA-38346972222): o v1.5 so pode ser posterior a ele.
 V1_5_MIN_PUBLICATION_RUN_ID = 38346972222
 
+#: Manifest ADITIVO v1.6 (billing-status 0.3.0: tipo de contratacao e boleto do pagador; decisao do dono de
+#: 14/10/2026, AMH #240). Um OpenAPI NOVO; o manifest declara `supersedes` do billing-status 0.2.0 do v1.4,
+#: que continua pinado e intocado. Por isso o v1.4 e' PREDECESSOR e a verificacao dos bytes confere que o
+#: `superseded_artifact_sha256` e' exatamente o digest que o v1.4 pina.
+V1_6_LOCK_KEY = "manifest_v1_6"
+V1_6_MANIFEST_PATH = "schemas/contracts/maezo/v1.6/contract-manifest.yaml"
+V1_6_ARTIFACT_PATHS: tuple[str, ...] = ("schemas/openapi/maezo/v1/billing-status-contratacao.openapi.yaml",)
+#: Run de publicacao do v1.5 (XRG2-AMH-DEV-GHA-38489298542): o v1.6 so pode ser posterior a ele.
+V1_6_MIN_PUBLICATION_RUN_ID = 38489298542
+
 
 @dataclass(frozen=True)
 class AdditiveManifest:
@@ -324,8 +334,19 @@ V1_5 = AdditiveManifest(
     code="v1-5",
     predecessors=(V1_2_LOCK_KEY,),
 )
+V1_6 = AdditiveManifest(
+    version="v1.6",
+    lock_key=V1_6_LOCK_KEY,
+    manifest_path=V1_6_MANIFEST_PATH,
+    manifest_version="1.6.0",
+    artifact_paths=V1_6_ARTIFACT_PATHS,
+    min_publication_run_id=V1_6_MIN_PUBLICATION_RUN_ID,
+    code="v1-6",
+    predecessors=(V1_4_LOCK_KEY,),
+    supersedes=(("schemas/openapi/maezo/v1/billing-status-atendimento.openapi.yaml", V1_4_LOCK_KEY),),
+)
 #: Em ordem de publicacao. O loader do adaptador (`maezo.adapters.amh.contract`) tem a copia dele.
-ADDITIVE_MANIFESTS: tuple[AdditiveManifest, ...] = (V1_1, V1_2, V1_3, V1_4, V1_5)
+ADDITIVE_MANIFESTS: tuple[AdditiveManifest, ...] = (V1_1, V1_2, V1_3, V1_4, V1_5, V1_6)
 ADDITIVE_BY_VERSION: dict[str, AdditiveManifest] = {m.version: m for m in ADDITIVE_MANIFESTS}
 
 #: Glue schema-version IDs are keyed by the Avro schema basename (no extension).
@@ -940,6 +961,11 @@ def check_manifest_v1_3(lock: dict[str, Any]) -> list[Violation]:
 def check_manifest_v1_4(lock: dict[str, Any]) -> list[Violation]:
     """Bloco `manifest_v1_4` (opcional, billing-status 0.2.0): regras do aditivo, v1.1 como predecessor."""
     return check_manifest_additive(lock, V1_4)
+
+
+def check_manifest_v1_6(lock: dict[str, Any]) -> list[Violation]:
+    """Bloco `manifest_v1_6` (opcional, billing-status 0.3.0): regras do aditivo, v1.4 como predecessor."""
+    return check_manifest_additive(lock, V1_6)
 
 
 def check_manifest_v1_5(lock: dict[str, Any]) -> list[Violation]:
@@ -1786,6 +1812,11 @@ def verify_manifest_v1_3(lock: dict[str, Any], manifest_path: Path) -> list[Viol
 def verify_manifest_v1_4(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
     """Bytes do manifest v1.4 (billing-status 0.2.0) publicado contra o bloco `manifest_v1_4`."""
     return verify_manifest_additive(lock, manifest_path, V1_4)
+
+
+def verify_manifest_v1_6(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
+    """Bytes do manifest v1.6 (billing-status 0.3.0) publicado contra o bloco `manifest_v1_6`."""
+    return verify_manifest_additive(lock, manifest_path, V1_6)
 
 
 def verify_manifest_v1_5(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:

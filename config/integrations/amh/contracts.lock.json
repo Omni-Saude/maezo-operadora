@@ -442,5 +442,47 @@
       "verified_at_utc": "2026-10-14T00:23:27Z",
       "verified_by": "Claude Code, a pedido do Márcio Filipe Filó do Carmo (CTO e owner)"
     }
+  },
+  "manifest_v1_6": {
+    "provenance": {
+      "amh_commit_sha": "1b23cf67f900b8c30cdbe40fe21575c83067a63e",
+      "amh_manifest_commit_sha": "e05c996e5140fecf20142b8d9a064aadf3864614",
+      "evidence_id": "XRG2-AMH-DEV-GHA-38501293989",
+      "status": "PUBLISHED"
+    },
+    "manifest_pin": {
+      "byte_size": 8315,
+      "git_blob_sha": "7ecf0230582d09f23f739290f09d1c17a657612c",
+      "path": "schemas/contracts/maezo/v1.6/contract-manifest.yaml",
+      "prepublication_sha256": "ad64186130e2861b53e795ffe3ee5cac09eaae1a6f7be551c1833481d47ce2e5",
+      "sha256": "5c288ce80dfde9c1d35b6b02053f6c7a8f27efb5b8cec997130c21aa17544d48"
+    },
+    "compatibility_report": {
+      "dry_run_id": "github-actions-run-38501293989",
+      "dry_run_run_id": "38501293989",
+      "evidence_artifact_id": "11865876920",
+      "provider_contract_tests": "13 passed",
+      "result": "PASSED"
+    },
+    "publication": {
+      "environment": "dev",
+      "publication_run_id": "38501293989",
+      "published_at_utc": "2026-10-14T02:30:16Z"
+    },
+    "artifacts": [
+      {
+        "path": "schemas/openapi/maezo/v1/billing-status-contratacao.openapi.yaml",
+        "sha256": "b78936da13f0ee81f946a696911df313dd8d096abcaa2d1288d297f543000c5a"
+      }
+    ],
+    "xrg3_verification": {
+      "verification_method": [
+        "manifest v1.6 + digests recalculados pelo script scripts/ci/gerar_pin_v1_1.py",
+        "sha256, git blob sha e tamanho calculados sobre os bytes publicados",
+        "1 digests OpenAPI conferidos contra o manifest publicado"
+      ],
+      "verified_at_utc": "2026-10-14T02:35:45Z",
+      "verified_by": "Claude Code, a pedido do Márcio Filipe Filó do Carmo (CTO e owner)"
+    }
   }
 }

@@ -38,6 +38,7 @@ from typing import Final, Protocol, runtime_checkable
 from maezo.agents.lucas.fonte_cobranca import (
     PAGADOR_EMPRESA,
     PAGADOR_TIPOS,
+    TIPOS_CONTRATACAO,
     CompetenciaCobranca,
     FatosCobranca,
     Indisponivel,
@@ -91,6 +92,30 @@ def _competencia_como_fato(
 def _pagador(tipo: object) -> str:
     """`resumo.pagador_tipo` do contrato; fora do enum vira `desconhecido` (nunca corrigido)."""
     return tipo if isinstance(tipo, str) and tipo in PAGADOR_TIPOS else "desconhecido"
+
+
+def _tipo_contratacao(tipo: object) -> str | None:
+    """`resumo.tipo_contratacao` do contrato 0.3.0; `desconhecido`, ausente ou fora do enum e' AUSENTE."""
+    return tipo if isinstance(tipo, str) and tipo in TIPOS_CONTRATACAO and tipo != "desconhecido" else None
+
+
+def _pagador_e_o_proprio(view: BillingStatusView, pagador: str) -> bool | None:
+    """A pessoa e' o proprio pagador PF? So' com pagador PF e o booleano que a AMH mandou; senao, `None`."""
+    valor = view.resumo.eh_o_pagador
+    return valor if pagador == "pessoa_fisica" and isinstance(valor, bool) else None
+
+
+def _valor_boleto_pagador(
+    referencia: CompetenciaBilling | None, pagador: str, e_o_pagador: bool | None
+) -> str | None:
+    """O total do boleto do pagador da competencia de referencia, na forma do contrato (`0.00`).
+
+    Defesa em profundidade sobre o que a AMH ja' restringe: so' com pagador PF E beneficiario = pagador; senao
+    ausente. Nunca completa nem corrige.
+    """
+    if referencia is None or pagador != "pessoa_fisica" or e_o_pagador is not True:
+        return None
+    return _na_forma(referencia.valor_boleto_pagador, _DECIMAL)
 
 
 #: Prazo da leitura de ELEGIBILIDADE (TINA) que diz se o plano e' de adesao. Curto: e' um complemento.
@@ -258,7 +283,9 @@ class FonteCobrancaAmh:
                 cnab_ref=f"amh-billing:{view.fonte_atualizada_em[:10]}",
                 pagador_tipo=pagador,
                 cobranca_administradora=administradora,
+                tipo_contratacao=_tipo_contratacao(resumo.tipo_contratacao),
             )
+        e_o_pagador = _pagador_e_o_proprio(view, pagador)
         competencias = tuple(
             fato
             for fato in (_competencia_como_fato(c, pagador) for c in view.competencias[:JANELA_MESES])
@@ -275,4 +302,7 @@ class FonteCobrancaAmh:
             competencias=competencias,
             pagador_tipo=pagador,
             cobranca_administradora=administradora,
+            tipo_contratacao=_tipo_contratacao(resumo.tipo_contratacao),
+            beneficiario_e_pagador=e_o_pagador,
+            valor_boleto_pagador=_valor_boleto_pagador(referencia, pagador, e_o_pagador),
         )

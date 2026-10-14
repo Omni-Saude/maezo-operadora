@@ -803,7 +803,11 @@ class AmhBillingStatusExecutor(_ExecutorInteropAmh, GovernedBillingStatusExecuto
         ):
             raise ValueError
         self._sujeito(request.path, _BILLING_PREFIX, _BILLING_SUFFIX)
-        query = self._query(request.query, frozenset({"purpose_of_use", "competencia", "janela_meses"}))
+        query = self._query(
+            request.query, frozenset({"purpose_of_use", "competencia", "janela_meses", "incluir_contratacao"})
+        )
+        if query.get("incluir_contratacao") not in (None, "true", "false"):
+            raise ValueError
         competencia = query.get("competencia")
         if competencia is not None and (
             type(competencia) is not str or not _COMPETENCIA.fullmatch(competencia)
