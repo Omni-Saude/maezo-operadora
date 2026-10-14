@@ -450,6 +450,9 @@ class LucasState(TypedDict, total=False):
     #: 13/10/2026 (bateria 4): coletivo por ADESAO cobrado pela administradora (fato da fonte). O boleto do
     #: beneficiario vem da administradora; o titulo do Tasy (situacao, vencimento) e' dela, nao da pessoa.
     cobranca_administradora: bool
+    #: Wave 2 (14/10/2026): a pessoa e' o proprio pagador PF do boleto (`True`) ou nao (`False`, dependente).
+    #: Ausente quando a fonte nao sabe. O total do boleto da familia viaja em cada competencia.
+    beneficiario_e_pagador: bool
 
     # Filled by `gather`.
     gathered: bool
@@ -586,6 +589,8 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "pagador_tipo",
         # 13/10/2026: adesao cobrada pela administradora (booleano da fonte; fato, nunca veredito).
         "cobranca_administradora",
+        # Wave 2 (14/10/2026): a pessoa e' (ou nao) o pagador PF do boleto (booleano da fonte).
+        "beneficiario_e_pagador",
     }
 )
 
@@ -1061,6 +1066,7 @@ _CAMPOS_DA_COMPETENCIA: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ("valor_saldo", _DECIMAL_DO_FATO),
     ("liquidado_em", _DATA_DO_FATO),
     ("boleto", _MASCARA_DO_FATO),
+    ("valor_boleto_pagador", _DECIMAL_DO_FATO),
 )
 #: Quantas competencias a resposta de valores mostra quando a pergunta nao nomeia uma que veio nos fatos:
 #: SO' a mais recente (decisao do dono de 09/10/2026 — no teste real "quanto paguei de coparticipacao este
@@ -1097,6 +1103,26 @@ def _na_forma(valor: object, forma: re.Pattern[str]) -> str | None:
     return valor if isinstance(valor, str) and forma.match(valor) else None
 
 
+def mostra_boleto_da_familia(state: LucasState) -> bool:
+    """O total do boleto da familia pode ser mostrado? So' para o pagador PF que e' a propria pessoa
+    (`pagador_tipo=pessoa_fisica` e `beneficiario_e_pagador=True`), nunca empresa nem administradora."""
+    return (
+        state.get("pagador_tipo") == "pessoa_fisica"
+        and state.get("beneficiario_e_pagador") is True
+        and not cobranca_administradora(state)
+    )
+
+
+def dependente_do_titular(state: LucasState) -> bool:
+    """A pessoa NAO e' o pagador PF do boleto (`beneficiario_e_pagador=False`, ex. dependente): o boleto da
+    familia e' emitido em nome do titular do plano."""
+    return (
+        state.get("pagador_tipo") == "pessoa_fisica"
+        and state.get("beneficiario_e_pagador") is False
+        and not cobranca_administradora(state)
+    )
+
+
 def _competencias_dos_fatos(state: LucasState) -> list[dict[str, str]]:
     """As competencias do estado que tem a forma do contrato, da mais recente para a mais antiga."""
     bruto = state.get("competencias_cobranca")
@@ -1112,6 +1138,8 @@ def _competencias_dos_fatos(state: LucasState) -> list[dict[str, str]]:
             continue
         limpo = {"competencia": competencia, "situacao": situacao}
         for campo, forma in _CAMPOS_DA_COMPETENCIA:
+            if campo == "valor_boleto_pagador" and not mostra_boleto_da_familia(state):
+                continue  # o total do boleto da familia so' chega ao texto para o pagador PF
             valor = _na_forma(item.get(campo), forma)
             if valor is not None:
                 limpo[campo] = valor
@@ -1394,6 +1422,32 @@ def _frase_de_valor_e_situacao(c: Mapping[str, str], hoje: date) -> str:
     return f"Não consegui confirmar a situação da mensalidade de {mes} por aqui."
 
 
+#: Wave 2 (14/10/2026): quem nao e' o pagador (dependente) ouve de quem e' o boleto — sem valor nenhum.
+TEXTO_BOLETO_DO_TITULAR: Final[str] = (
+    "O boleto da sua família é emitido em nome do titular do plano. A 2ª via e o vencimento são com ele."
+)
+
+
+def _frase_de_valor_da_familia(c: Mapping[str, str], hoje: date) -> str | None:
+    """Pagador PF: a parte da pessoa E o total do boleto da familia, ambos campos dos fatos do mes. `None`
+    sem os dois valores ou fora de paga/em aberto (as outras situacoes mantem a frase de sempre)."""
+    total = c.get("valor_boleto_pagador")
+    if total is None or "valor_total" not in c or c["situacao"] not in ("paga", "em_aberto"):
+        return None
+    mes = _mes_por_extenso(c["competencia"], hoje)
+    parte = _reais(c["valor_total"])
+    familia = f"O boleto da família, com todos os beneficiários do plano, {{verbo}} {_reais(total)}."
+    if c["situacao"] == "paga":
+        pagou = _dia_mes(c.get("liquidado_em"), hoje)
+        quando = f" (você pagou em {pagou})" if pagou else ""
+        return f"Sua parte da mensalidade de {mes} foi de {parte} e já está paga{quando}. " + familia.format(
+            verbo="foi de"
+        )
+    vence = _dia_mes(c.get("vencimento"), hoje)
+    com_vencimento = f", com vencimento em {vence}" if vence else ""
+    return f"Sua parte da mensalidade de {mes} é de {parte}{com_vencimento}. " + familia.format(verbo="é de")
+
+
 def _resumo_valor_e_vencimento(c: Mapping[str, str], hoje: date) -> str | None:
     """ "R$ 552,54, vencimento em 05/10" — o que o fato tem do valor e do vencimento de um mes."""
     partes: list[str] = []
@@ -1551,7 +1605,10 @@ def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date) -> st
     elif foco == "vencimento":
         partes.append(_frase_do_vencimento(c, hoje, e_a_proxima=False) or _frase_de_valor_e_situacao(c, hoje))
     else:
-        partes.append(_frase_de_valor_e_situacao(c, hoje))
+        familia = _frase_de_valor_da_familia(c, hoje) if mostra_boleto_da_familia(state) else None
+        partes.append(familia or _frase_de_valor_e_situacao(c, hoje))
+        if dependente_do_titular(state):
+            partes.append(TEXTO_BOLETO_DO_TITULAR)
     tambem = _linha_tambem_sem_pagamento(facts.get("sem_pagamento"), hoje)
     if tambem:
         partes.append(tambem)
@@ -3512,6 +3569,13 @@ class LucasGraph:
         if cobranca_administradora(state) and state.get("admissibilidade") in ("RESPONDER", "LEMBRETE"):
             # 13/10/2026 (bateria 4): adesao. A parcela da pessoa e a administradora; nunca "a empresa paga".
             return self._build_cobranca_administradora(state)
+        if (
+            dependente_do_titular(state)
+            and state.get("admissibilidade") in ("RESPONDER", "LEMBRETE")
+            and state.get("tipo_solicitacao") in (*_TIPOS_DE_SEGUNDA_VIA, "vencimento")
+        ):
+            # Wave 2 (14/10/2026): dependente — o boleto e' do titular do plano; nenhum valor.
+            return self._mensagem(TEXTO_BOLETO_DO_TITULAR, facts, VALORES_PROMPT_VERSION, state)
         if pagador_empresa(state) and state.get("admissibilidade") in ("RESPONDER", "LEMBRETE"):
             # 13/10/2026 (decisao do dono): contrato de EMPRESA. Antes de tudo, inclusive do "em dia", que
             # seria a situacao do titulo da empresa. Nunca o total, o boleto ou o atraso da empresa.

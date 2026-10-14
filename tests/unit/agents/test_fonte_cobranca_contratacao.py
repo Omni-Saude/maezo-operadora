@@ -184,12 +184,19 @@ async def test_revisao_antiga_sem_os_campos_deixa_tudo_ausente() -> None:
     assert fatos.valor_boleto_pagador is None
 
 
-async def test_novos_campos_nao_entram_na_entrada_do_lucas_ainda() -> None:
-    """O grafo e' de outro PR: `como_entrada_lucas` segue com as mesmas chaves de antes."""
+async def test_entrada_do_lucas_leva_o_flag_e_o_total_por_competencia_nunca_solto() -> None:
+    """Wave 2: o flag entra na entrada do Lucas; o total do boleto viaja em cada competencia."""
     fatos = await _fatos(_view())
     entrada = fatos.como_entrada_lucas()
-    for chave in ("tipo_contratacao", "beneficiario_e_pagador", "valor_boleto_pagador"):
-        assert chave not in entrada
+    assert entrada["beneficiario_e_pagador"] is True
+    assert "valor_boleto_pagador" not in entrada and "tipo_contratacao" not in entrada
+    assert [c["valor_boleto_pagador"] for c in entrada["competencias_cobranca"]] == ["1280.40", "1280.40"]
+
+
+async def test_competencias_sem_o_total_quando_a_pessoa_nao_e_o_pagador() -> None:
+    entrada = (await _fatos(_view(eh_pagador=False, valor="1280.40"))).como_entrada_lucas()
+    assert entrada["beneficiario_e_pagador"] is False
+    assert all("valor_boleto_pagador" not in c for c in entrada["competencias_cobranca"])
 
 
 async def test_fatos_de_antes_nao_mudam() -> None:
