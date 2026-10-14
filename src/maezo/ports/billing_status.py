@@ -34,9 +34,9 @@ class CompetenciaBilling:
     liquidado_em: str | None
     boleto_numero_mascarado: str | None  # ****1234
     boleto_disponivel_online: bool | None
-    #: Total do boleto do pagador (a mensalidade da familia inteira), SO' quando a pessoa e' o proprio pagador PF
-    #: (billing-status 0.3.0, `competencias[].valor_boleto_pagador`). `None` nas demais revisoes e para quem nao
-    #: paga: nunca a fatura da empresa nem o titulo coletivo da administradora.
+    #: Total do boleto do pagador (a mensalidade da familia inteira), SO' quando a pessoa e' o proprio
+    #: pagador PF (billing-status 0.3.0, `competencias[].valor_boleto_pagador`). `None` nas demais revisoes e
+    #: para quem nao paga: nunca a fatura da empresa nem o titulo coletivo da administradora.
     valor_boleto_pagador: str | None = None
 
 

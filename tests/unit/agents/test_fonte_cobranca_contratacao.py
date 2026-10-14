@@ -1,7 +1,7 @@
-"""`FonteCobrancaAmh` com o billing-status 0.3.0: tipo de contratacao, beneficiario = pagador e total do boleto.
+"""`FonteCobrancaAmh` com o billing-status 0.3.0: tipo de contratacao, beneficiario = pagador, boleto.
 
-Decisao do dono de 14/10/2026. A fonte so' LE os tres campos para `FatosCobranca`; o grafo do Lucas e' de outro
-PR (`como_entrada_lucas` nao os leva ainda). Nada e' inventado: ausente continua ausente.
+Decisao do dono de 14/10/2026. A fonte so' LE os tres campos para `FatosCobranca`; o grafo do Lucas e' de
+outro PR (`como_entrada_lucas` nao os leva ainda). Nada e' inventado: ausente continua ausente.
 """
 
 from __future__ import annotations
@@ -167,7 +167,7 @@ async def test_valor_e_o_da_competencia_de_referencia() -> None:
 
 
 async def test_sem_fatos_de_valor_o_total_do_boleto_e_o_flag_nao_saem_mas_o_tipo_sim() -> None:
-    """Sem a verificacao do beneficiario so' o rotulo do plano passa; valor e pagador-proprio ficam ausentes."""
+    """Sem a verificacao do beneficiario so' o rotulo do plano passa; valor e pagador ficam ausentes."""
     fatos = await _fatos(_view(), valores=False)
     assert fatos.tipo_contratacao == "individual_familiar"
     assert fatos.beneficiario_e_pagador is None

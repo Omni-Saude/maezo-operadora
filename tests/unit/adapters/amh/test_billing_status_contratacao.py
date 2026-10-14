@@ -171,7 +171,7 @@ async def test_resposta_fora_do_contrato_e_recusada(mutar: Any) -> None:
 
 
 async def test_o_0_2_0_continua_rejeitando_campo_novo_na_resposta() -> None:
-    """Quem pina o 0.2.0 valida `additionalProperties:false`: por isso o servidor so' manda com o parametro."""
+    """Quem pina o 0.2.0 valida `additionalProperties:false`: o servidor so' manda com o parametro."""
     executor = Executor()
     executor.body = _corpo_novo()
     atendimento = bs.AmhBillingStatusAdapter(

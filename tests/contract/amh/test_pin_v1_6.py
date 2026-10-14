@@ -1,8 +1,8 @@
 """Pin REAL do manifest v1.6 da AMH (billing-status 0.3.0: tipo de contratacao e boleto do pagador).
 
-O lock real tem o bloco `manifest_v1_6` publicado (XRG-2 run 38501293989, AMH #240/#241): estes testes fixam o digest
-do OpenAPI `billing-status-contratacao`, a evidencia, o v1.4 como predecessor (o 0.2.0 que ele sucede) e os bytes
-vendorizados na imagem.
+O lock real tem o bloco `manifest_v1_6` publicado (XRG-2 run 38501293989, AMH #240/#241): estes testes
+fixam o digest do OpenAPI `billing-status-contratacao`, a evidencia, o v1.4 como predecessor (o 0.2.0 que ele
+sucede) e os bytes vendorizados na imagem.
 """
 
 from __future__ import annotations

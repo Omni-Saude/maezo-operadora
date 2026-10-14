@@ -1,15 +1,14 @@
 """Composicao da cobranca com o billing-status 0.3.0 (manifest v1.6, decisao do dono de 14/10/2026).
 
-Com `amh_billing_status_contratacao_openapi_path` configurado e `billing_atendimento=True`, a leitura de cobranca
-passa a ler o 0.3.0 (que pede `incluir_contratacao=true`); sem o caminho, e' o 0.2.0 de sempre. Sobre os bytes
-REAIS vendorizados e o pin real, sem rede. O executor deixa passar o parametro novo (e so' ele).
+Com `amh_billing_status_contratacao_openapi_path` configurado e `billing_atendimento=True`, a leitura de
+cobranca passa a ler o 0.3.0 (que pede `incluir_contratacao=true`); sem o caminho, e' o 0.2.0 de sempre.
+Sobre os bytes REAIS vendorizados e o pin real, sem rede. O executor deixa passar so' o parametro novo.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-
 from urllib.parse import quote
 
 import httpx
@@ -28,9 +27,9 @@ from tests.unit.gateway.test_amh_interop import (
     _seam,
     _settings,
 )
+from tests.unit.gateway.test_amh_interop import relogio as relogio  # noqa: F401  (fixture)
 from tests.unit.gateway.test_amh_interop import servidor as servidor  # noqa: F401  (fixture)
 from tests.unit.gateway.test_amh_interop import tokens as tokens  # noqa: F401  (fixture)
-from tests.unit.gateway.test_amh_interop import relogio as relogio  # noqa: F401  (fixture)
 
 pytestmark = pytest.mark.anyio
 

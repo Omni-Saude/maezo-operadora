@@ -176,7 +176,8 @@ def test_lock_com_bloco_v1_1_passa_sem_ids_glue(tmp_path: Path) -> None:
     assert pin.artifact_digests[V1_1_ARTIFACT_PATHS[0]] == BILLING_SHA
     assert pin.artifact_digests[V1_1_ARTIFACT_PATHS[1]] == SUBJECT_SHA
     assert pin.manifest_v1_1_digest == lock[V1_1_LOCK_KEY]["manifest_pin"]["sha256"]
-    # 5 do v1 + 2 do v1.1 + 1 do v1.2 + 3 do v1.3 + 1 do v1.4 + 1 do v1.5 + 1 do v1.6 (o lock real ja tem v1.2 a v1.6)
+    # 5 do v1 + 2 do v1.1 + 1 do v1.2 + 3 do v1.3 + 1 do v1.4 + 1 do v1.5 + 1 do v1.6
+    # (o lock real ja tem os blocos v1.2 a v1.6)
     assert len(pin.artifact_digests) == 14
 
 
