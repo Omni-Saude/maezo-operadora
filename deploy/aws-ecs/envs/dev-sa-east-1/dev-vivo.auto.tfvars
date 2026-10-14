@@ -59,7 +59,10 @@ staff_install = {
 // de metrica e o ledger S3: e' o refresher da fila de casos do portal. Sem isto a fila do portal para.
 // ---------------------------------------------------------------------------
 staff_ops = {
-  image_digest = "sha256:a20b2597f8d1d0dbdccb9ac6322b5a6e4f1c2fe8f4e87499a37f5c8e3ed8a7d2"
+  // Digest UNICO das 4 tasks staff-ops (rows/syn/assignment/job): imagem de operacao 1ded30e7-staff-ops.
+  // Mesmas camadas-base que 6bd559ec-staff-ops (a20b2597); entre as duas so mudou deploy/sql/portal-human-plane-grants.sql
+  // (#558: INSERT do outbox na cadeia de auditoria); tools/staff_ops, staff_install, staff_materials e dev_syn_fixture identicos.
+  image_digest = "sha256:e92a4e5e663dc7beca4833fe8e3306cfed485e461485034bcefb8e2eb6e04dae"
 
   rows_secret_arn       = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-install/rows-R8q4LK"
   syn_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-install/syn-fixture-wt3sOm"
