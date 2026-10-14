@@ -1322,7 +1322,7 @@ class TestBuckets:
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
         assert len(live_sweep.names) == expected_names == 354  # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1
-        assert len(live_sweep.refs) == expected_refs == 1711  # GP11: +34; DL-0086: +1; #709: +1; 13/10: +1; #772: +20
+        assert len(live_sweep.refs) == expected_refs == 1711  # +34 GP11; ...; #772: +20
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
