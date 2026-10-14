@@ -1178,7 +1178,8 @@ def atraso_critico(state: LucasState, limiares: LimiaresDeAtraso) -> bool:
     if titulo_de_terceiro(state):
         return False
     vencidas = sum(1 for c in _competencias_dos_fatos(state) if c["situacao"] == "vencida")
-    meses = max(_ciclos_sem_conciliacao(state) or 0, vencidas)
+    ciclos = _ciclos_sem_conciliacao(state)
+    meses = max(0 if ciclos is None else ciclos, vencidas)
     return limiares.critico(meses_vencidos=meses, dias_atraso_max=_dias_atraso_max(state))
 
 
@@ -1953,7 +1954,8 @@ def _texto_de_status(state: LucasState, competencias: list[dict[str, str]], hoje
     mes perguntado -> o fato DAQUELE mes; sem mes, "em dia" SO' sem nenhum mes em aberto, e "ultima" e' a
     mais recente dos fatos."""
     if not competencias:
-        if state.get("status_conciliado") is False or (_ciclos_sem_conciliacao(state) or 0) > 0:
+        ciclos_abertos = _ciclos_sem_conciliacao(state)
+        if state.get("status_conciliado") is False or (ciclos_abertos is not None and ciclos_abertos > 0):
             boleto = boleto_no_texto(state.get("numero_boleto"))
             detalhe = f" ({boleto})" if boleto else ""
             return f"Consta uma mensalidade ainda sem pagamento confirmado{detalhe}."

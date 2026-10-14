@@ -69,6 +69,12 @@ KNOWN_DEAD_INPUTS: frozenset[tuple[str, str, str]] = frozenset(
         # admissão da base foram REMOVIDAS pelo ratchet, como ela prometeu) — a ratchet
         # abaixo força a remoção desta linha no dia em que `canal` passar a discriminar.
         ("suppression_routing.dmn", "in_canal", "canal"),
+        # Lucas rodada 12 (14/10/2026, decisao do dono): o atraso passou a ser decidido pelo grafo e chega ja
+        # pronto a tabela (`atraso_critico`); estas tres colunas seguem DECLARADAS (contrato dos fatos), sem regra que
+        # dependa delas em v0.2.0.
+        ("lucas_billing_admissibility.dmn", "lba_in_ciclos", "ciclos_sem_conciliacao"),
+        ("lucas_billing_admissibility.dmn", "lba_in_status_conciliado", "status_conciliado"),
+        ("lucas_billing_admissibility.dmn", "lba_in_valores_com_atraso", "valores_com_atraso"),
         ("ans_calendar.dmn", "in_competencia", "competencia"),
         ("auth_auto_approval.dmn", "in_carater", "carater_atendimento"),
         ("auth_criteria_contratual.dmn", "in_tenant", "tenant_id"),

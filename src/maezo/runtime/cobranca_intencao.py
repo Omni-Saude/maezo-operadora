@@ -51,7 +51,7 @@ def pede_negociacao(texto: object) -> bool:
 
 
 def decidir_confirmacao(texto: object) -> Confirmacao | None:
-    """ "confirma" para um pedido afirmativo ("sim, quero cancelar"), "nega" para desistencia ("nao quero,
+    """ "confirma" para um pedido afirmativo ("sim, quero cancelar"), "nega" para recusa ("nao quero,
     deixa pra la"), `None` sem nenhum dos dois. Negacao vence: "nao quero cancelar" nunca confirma."""
     if not isinstance(texto, str):
         return None
