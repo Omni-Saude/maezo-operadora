@@ -92,7 +92,7 @@ async def test_titular_com_dependentes_vira_a_visao_anonima() -> None:
 
 def test_dependente_anonimo_nao_tem_onde_guardar_identificador() -> None:
     nomes = {campo.name for campo in fields(DependenteAnonimo)}
-    assert nomes == {"relacao_dependencia", "situacao_beneficiario", "recem_nascido_no_plano"}
+    assert nomes == {"relacao_dependencia", "situacao_vinculo", "rn_no_plano"}
     assert {campo.name for campo in fields(DependentesView)} == {
         "portable_subject_ref",
         "eh_titular",

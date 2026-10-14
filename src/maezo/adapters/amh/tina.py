@@ -429,8 +429,8 @@ def _dependentes(body: dict[str, Any]) -> DependentesView:
     itens = tuple(
         DependenteAnonimo(
             relacao_dependencia=d["relacao_dependencia"],
-            situacao_beneficiario=d["situacao_beneficiario"],
-            recem_nascido_no_plano=d["recem_nascido_no_plano"],
+            situacao_vinculo=d["situacao_beneficiario"],
+            rn_no_plano=d["recem_nascido_no_plano"],
         )
         for d in body["dependentes"]
     )

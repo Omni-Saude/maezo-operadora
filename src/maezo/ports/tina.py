@@ -99,8 +99,8 @@ class DependenteAnonimo:
     """
 
     relacao_dependencia: str | None  # ex.: "Filho(a) até 23 anos"
-    situacao_beneficiario: str | None  # ex.: "Apto"
-    recem_nascido_no_plano: bool | None
+    situacao_vinculo: str | None  # `situacao_beneficiario` no contrato; ex.: "Apto"
+    rn_no_plano: bool | None  # `recem_nascido_no_plano` no contrato (nomes PHI-shaped nao entram nos ports)
 
 
 @dataclass(frozen=True, slots=True)
