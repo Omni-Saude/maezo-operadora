@@ -50,8 +50,9 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
 }
 #: `(versao, sha256)` das listas e padroes das cercas de saida (o que decide se um texto sai).
 CERCAS_PINADAS: tuple[str, str] = (
-    "recusa-v9",
-    "4dca770f45587d8c88c901d15bc98113e74f46be0a1169542bcb90503ae44522",
+    # 14/10/2026 (B-05 do red team): grupo `afirma_autorizacao` (ver `docs/decisions-log.md`).
+    "recusa-v10",
+    "5364b747a09de241351488f4c99939ebc85055bafb623000324c3fe75052f90b",
 )
 
 
@@ -88,6 +89,8 @@ def hash_das_cercas() -> str:
         "negativa_clinica": prompts.NEGATIVA_CLINICA_PROIBIDA,
         "promessa_de_humano": prompts.PROMESSA_DE_HUMANO_PROIBIDA,
         "promessa_de_capacidade": prompts.PROMESSA_DE_CAPACIDADE_PROIBIDA,
+        "afirma_autorizacao": prompts.AFIRMACAO_DE_AUTORIZACAO_PROIBIDA,
+        "condicional_antes": prompts._CONDICIONAL_ANTES,
         "mencao_de_encaminhamento": prompts.MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA,
         "canal_nao_confirmado": prompts.CANAL_NAO_CONFIRMADO_PROIBIDO,
         "canal_termo_que_exige_o_nome": prompts.CANAL_TERMO_QUE_EXIGE_O_NOME,

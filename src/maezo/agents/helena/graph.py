@@ -1542,8 +1542,10 @@ def motivo_de_recusa_da_retomada(texto: str) -> tuple[str, str] | None:
     caso — ele acabou de ser devolvido. Assim a promessa de humano e' barrada em qualquer forma,
     inclusive a mencao de encaminhamento que o humano tenha escrito na nota.
     """
+    # `cerca_de_autorizacao=False`: o texto da retomada e' escrito por um ATENDENTE ("sua guia foi
+    # liberada" e' fato dele, nao rascunho de modelo); a cerca de afirmacao existe para o modelo.
     return motivo_de_canal_nao_confirmado(texto) or motivo_de_recusa(
-        texto, RESPONSE_KIND_RETOMADA, start_aconteceu=False
+        texto, RESPONSE_KIND_RETOMADA, start_aconteceu=False, cerca_de_autorizacao=False
     )
 
 

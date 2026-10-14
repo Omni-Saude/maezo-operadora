@@ -539,7 +539,7 @@ def motivo_de_recusa_da_consulta(texto: str, fatos: Mapping[str, Any]) -> str | 
     cercado = texto_para_cerca(texto, literais_dos_fatos(fatos))
     if motivo_de_canal_nao_confirmado(cercado) is not None:
         return "canal_nao_confirmado"
-    recusa = motivo_de_recusa(cercado, "inform", start_aconteceu=False)
+    recusa = motivo_de_recusa(cercado, "inform", start_aconteceu=False, cerca_de_autorizacao=False)
     if recusa is not None:
         return recusa[0]
     if _ONZE_DIGITOS.search(cercado):
