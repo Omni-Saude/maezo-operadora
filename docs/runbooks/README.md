@@ -35,6 +35,7 @@ the established convention rather than introducing a second language into this d
 | [`supply-chain-imagem.md`](supply-chain-imagem.md) | SBOM + assinatura (cosign keyless/Sigstore) do digest da imagem: qual identidade assina, qual issuer, o comando exato de verificacao e o que o portao 1.4 de `portal.md` passa a significar | Plataforma, seguranca, dono do produto |
 | [`melhorar-com-o-uso.md`](melhorar-com-o-uso.md) | De conversa real a caso de teste: o comando, o rotulo que continua humano, e a cadencia de revisao das reguas como cerca de CI (Frente 8) | Plataforma, QA, dono clinico |
 | [`simulador-beneficiario.md`](simulador-beneficiario.md) | Simulador de beneficiario no dev: roster real no S3, task avulsa que compoe o receptor real com as bordas trocadas (captura, ESC interceptado), checagens D1..D12 + juiz, relatorio mascarado, limpeza | Plataforma, QA, dono do produto |
+| [`lembrete-cobranca.md`](lembrete-cobranca.md) | Lembrete proativo de cobranca (job agendado): quem recebe, texto fixo, dry-run, allowlist em dev, modo de teste `--simular`, template da Meta fora da janela de 24 h, PARAR, como ligar e desligar | Plataforma, dono do produto |
 | [`metricas-do-canal.md`](metricas-do-canal.md) | O coletor de metricas em dev (ECS/Cloud Map -> workspace gerenciado), os quatro numeros do canal, e a rotina semanal de leitura humana das respostas da Helena (Frente 5) | Plataforma, SRE, dono clinico |
 
 ## Alert runbooks

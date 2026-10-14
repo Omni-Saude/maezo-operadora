@@ -38,7 +38,11 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # 0023 fixes 0022's ref CHECKs (Postgres caps regex repetition at 255).
     # DL-0086 widens the router's `lucas_cobranca_subtipo` CHECK (`consulta_valores`) as 0024 after 0023.
     # O simulador de beneficiario (13/10/2026) adds the Lucas short memory columns as 0025 after 0024.
-    assert heads == {"0025"}, f"expected 0025 to be the sole head, got {heads}"
+    # O carimbo da apresentacao do canal (14/10/2026) adds `apresentado_em` to the access state as 0026.
+    # O lembrete proativo de cobranca (14/10/2026) adds the reminder tables as 0027.
+    assert heads == {"0027"}, f"expected 0027 to be the sole head, got {heads}"
+    assert revisions["0027"] == "0026"
+    assert revisions["0026"] == "0025"
     assert revisions["0025"] == "0024"
     assert revisions["0024"] == "0023"
     assert revisions["0023"] == "0022"
@@ -54,7 +58,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0025"
+    current = "0027"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

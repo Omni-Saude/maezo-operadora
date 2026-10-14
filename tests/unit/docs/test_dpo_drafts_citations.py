@@ -603,10 +603,11 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     assert journal.isdisjoint(covered)
     assert journal.isdisjoint(retired)
     # DL-0083 (0022) adds `acesso_beneficiario`/`conversa_acesso_beneficiario`, also NOT covered.
-    assert len(covered | uncovered) == 38  # 37 + conversa_acesso_beneficiario (0022, DL-0083)
-    assert len(uncovered) == 27  # 26 + conversa_acesso_beneficiario (PONTE_AUSENTE, sem probe)
-    assert len((covered | uncovered) - journal) == 32
-    assert len(uncovered - journal) == 21
+    # Lembrete de cobranca (0027) adds `lembrete_cobranca_enviado` and `_optout`, also NOT covered.
+    assert len(covered | uncovered) == 40  # 38 + as duas tabelas do lembrete (0027)
+    assert len(uncovered) == 29  # 27 + as duas tabelas do lembrete (PONTE_AUSENTE, sem probe)
+    assert len((covered | uncovered) - journal) == 34
+    assert len(uncovered - journal) == 23
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in journal)
     assert {key: by_key[key].resolucao for key in journal} == {
