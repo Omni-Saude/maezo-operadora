@@ -1234,6 +1234,54 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-14",
+        pr="#772",
+        name="red_flag",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="prioridade",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="conduta",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="motivo",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
         pr="#771",
         name="atraso_critico",
         name_delta=1,
@@ -1288,8 +1336,8 @@ class TestBuckets:
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
         # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1
         assert len(live_sweep.names) == expected_names == 355
-        # GP11: +34; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1
-        assert len(live_sweep.refs) == expected_refs == 1692
+        # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
+        assert len(live_sweep.refs) == expected_refs == 1712
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1393,7 +1441,7 @@ class TestBuckets:
                 "triage_redflag_adult.dmn:26 (dmn_input_expression)",
                 "triage_redflag_gestante.dmn:19 (dmn_input_expression)",
                 "triage_redflag_mental_health.dmn:22 (dmn_input_expression)",
-                "triage_redflag_pediatric.dmn:19 (dmn_input_expression)",
+                "triage_redflag_pediatric.dmn:22 (dmn_input_expression)",
             ],
         }
 
@@ -2340,7 +2388,7 @@ class TestYamlManifests:
             "carencia-check-shadow-candidate.yaml": 72,
             "glosa-triage-shadow-candidate.yaml": 35,
             "triage-redflag-gestante-shadow-candidate.yaml": 32,
-            "triage-redflag-pediatric-shadow-candidate.yaml": 32,
+            "triage-redflag-pediatric-shadow-candidate.yaml": 52,
             "upcoding-complexity-ceiling-shadow-candidate.yaml": 43,
         }
         # `orphans-allowlist.yaml` and `auth-criteria-ratification.yaml` declare

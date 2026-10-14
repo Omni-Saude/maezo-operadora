@@ -40,7 +40,8 @@ from typing import NamedTuple
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
-CLASSIFY_PROMPT_VERSION = "classify-v5.3"  # 04/10/2026: pedido vago ("preciso de ajuda") e `greeting`, nunca
+CLASSIFY_PROMPT_VERSION = "classify-v5.4"  # 14/10/2026 (DL-0101): recem-nascido (codigos neonatais, idade 0).
+# v5.3 — 04/10/2026: pedido vago ("preciso de ajuda") e `greeting`, nunca
 # `human_request`, e mensagem sem conteudo nao ganha sintoma inventado (A09 e G11 da bateria de 02/10).
 # v5.2 — 01/10/2026: privacidade e armazenamento de dados sao
 # `outside_channel` (J09: "voces guardam minhas mensagens?" saia `information` e a Helena afirmava
@@ -63,7 +64,8 @@ CLASSIFY_PROMPT_VERSION = "classify-v5.3"  # 04/10/2026: pedido vago ("preciso d
 #: `outside_channel`. Usado SO' quando `MAEZO_ROTEADOR_LUCAS` esta' ligado: desligado, o texto
 #: enviado ao modelo e' o `classify-v5` byte a byte (o sha256 dele esta' fixado em
 #: `tests/unit/agents/test_helena_passagem_cobranca.py`).
-CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v7"  # 08/10/2026 (DL-0086): subtipo novo `consulta_valores`
+CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v7.1"  # 14/10/2026 (DL-0101): recem-nascido, como no v5.4.
+# v7 — 08/10/2026 (DL-0086): subtipo novo `consulta_valores`
 # no dominio de `cobranca_subtipo` — valor da mensalidade, coparticipacao, saldo/"quanto devo", historico de
 # valores e data de pagamento deixam de ser `outro` (o Lucas passa a responde-los pelos fatos do contrato
 # `billing-status`); pix, cartao, nota fiscal e informe de IR continuam `outro`. v6.2 — 04/10/2026: as
@@ -174,6 +176,12 @@ SINTOMA_CODIGOS_BY_POPULATION: dict[str, tuple[str, ...]] = {
         "letargia",
         "sinais_desidratacao",
         "petequias_febre",
+        # DL-0101 (14/10/2026): recem-nascido com sinal de sofrimento (regras r9-r13 da tabela).
+        "choro_inconsolavel",
+        "recusa_alimentar",
+        "hipotonia",
+        "cianose",
+        "vomitos_persistentes",
     ),
     "gestante": (
         "sangramento_vaginal",
@@ -334,6 +342,11 @@ SINTOMA_EM_PALAVRAS: dict[str, str | None] = {
     "letargia": None,
     "sinais_desidratacao": None,
     "petequias_febre": None,
+    "choro_inconsolavel": None,
+    "recusa_alimentar": None,
+    "hipotonia": None,
+    "cianose": None,
+    "vomitos_persistentes": None,
     # gestante
     "sangramento_vaginal": None,
     "cefaleia_alteracao_visual": None,
@@ -506,6 +519,14 @@ relatando como esta (ou alguem com ela); "estou confuso com a minha fatura" e' `
 Se a mensagem trouxer DOIS sintomas ("falta de ar e confusao mental"), devolva o de MAIOR risco
 (aqui, `deficit_neurologico`): o campo so' comporta um codigo, e escolher o mais brando esconderia a
 emergencia.
+
+RECEM-NASCIDO (DL-0101, 14/10/2026). "recem-nascido", "neonato", "nasceu ha poucos dias", "X dias de
+vida" e "bebe pequeno" sao population="pediatric" com idade_meses=0 (menos de 28 dias). Nesse caso, ha
+cinco codigos pediatricos para o sofrimento do recem-nascido: "choro_inconsolavel" (dor, choro que nao
+para, irritabilidade intensa), "recusa_alimentar" (nao mama, recusa o peito ou a mamadeira),
+"hipotonia" (mole, sem tonus), "cianose" (roxo, labios ou pele azulados) e "vomitos_persistentes".
+Febre e dificuldade para respirar do recem-nascido continuam "febre" e "dificuldade_respiratoria". Use
+esses codigos so' para quem a pessoa descreve; a decisao de escalar e' da tabela, nunca sua.
 
 O QUADRO E O PEDIDO SAO CAMPOS DIFERENTES (medido em 22/09/2026, caso `E1`). `sintoma_codigo` e
 `intensidade` descrevem o que a pessoa ESTA SENTINDO; `intent` descreve o que ela esta PEDINDO. Os

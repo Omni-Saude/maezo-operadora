@@ -50,10 +50,11 @@ from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
-#: sha256 do texto do `classify-v5.3` (02/10/2026; o `classify-v5` era 5b480bd3...; v5.1 e v5.2 acrescentaram
+#: sha256 do texto do `classify-v5.4` (14/10/2026, DL-0101: recem-nascido; v5.3 era 34cc3a88...;
+#: 02/10/2026; o `classify-v5` era 5b480bd3...; v5.1 e v5.2 acrescentaram
 #: autorizacao negada e privacidade a `outside_channel`, DL-0063 e DL-0064). Desligado, o roteador NAO pode
 #: mudar um byte do que vai ao modelo: se este numero mudar, o v5 mudou, e isso e' bump de versao.
-SHA256_CLASSIFY_V5 = "34cc3a8888da3550963859a6e99976653a5271bdb991564fa50c266e5780c00e"
+SHA256_CLASSIFY_V5 = "b589bb42bba9f5e1f07815164f238a75ab8b11b3eeadda6199da345ccdd1bd46"
 
 _REF = "hk1_abc123"
 #: Rascunho de handoff para as rotas que escalam (o fake devolve "" quando acaba a lista, e a
@@ -136,7 +137,7 @@ def test_desligado_o_prompt_e_o_classify_v5_byte_a_byte() -> None:
     texto = classify_prompt()
     assert hashlib.sha256(texto.encode("utf-8")).hexdigest() == SHA256_CLASSIFY_V5
     assert classify_prompt(roteador_lucas=False) == texto
-    assert CLASSIFY_PROMPT_VERSION == "classify-v5.3"
+    assert CLASSIFY_PROMPT_VERSION == "classify-v5.4"
     assert '"cobranca"' not in texto.split("population")[0]
 
 
@@ -144,8 +145,8 @@ def test_ligado_o_prompt_e_o_v6_e_so_ele_conhece_cobranca() -> None:
     v6 = classify_prompt(roteador_lucas=True)
     assert v6 != classify_prompt()
     # DL-0086: o v7 acrescentou `consulta_valores` ao dominio de `cobranca_subtipo`.
-    assert CLASSIFY_PROMPT_VERSION_ROTEADOR == "classify-v7"
-    assert PROMPT_VERSIONS["classify_roteador"] == "classify-v7"
+    assert CLASSIFY_PROMPT_VERSION_ROTEADOR == "classify-v7.1"
+    assert PROMPT_VERSIONS["classify_roteador"] == "classify-v7.1"
     assert '"cobranca"]' in v6
     for subtipo in _VALID_COBRANCA_SUBTIPOS:
         assert f'"{subtipo}"' in v6

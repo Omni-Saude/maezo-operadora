@@ -28,14 +28,14 @@ from maezo.agents.helena import prompts
 #: `(versao, sha256 do texto)` do que o modelo recebe. `SYSTEM_PROMPT` e' parte dos outros tres.
 PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
     "system": ("system-v1", "16660021eca9f853c45a191286a3e7a0f3c96ea985333bc6f008748306f958c1"),
-    "classify": ("classify-v5.3", "34cc3a8888da3550963859a6e99976653a5271bdb991564fa50c266e5780c00e"),
+    "classify": ("classify-v5.4", "b589bb42bba9f5e1f07815164f238a75ab8b11b3eeadda6199da345ccdd1bd46"),
     # DL-0088 (12/10/2026): nunca dizer que nao ve dado nenhum da pessoa.
     # DL-0090 (13/10/2026): `caso_aberto` no contexto; oferta de pessoa na forma aprovada.
     "response": ("response-v14", "f61f0676d365d0e9ea05021af1dcfca256e6ba9e2c56df19601914a73c892bd3"),
     # DL-0086 (08/10/2026): subtipo `consulta_valores`.
     "classify_roteador": (
-        "classify-v7",
-        "7f2dfcc6ffaac94f3f72609cbebd8c9017e6e02b721e1da240e4a70a2abd3a28",
+        "classify-v7.1",
+        "c6e449ce73558d55bd8b05b31e1ab8987f430fda6142262caf80716808d2a8f6",
     ),
     "coleta": ("coleta-v2", "4dae04994f5f95b53d3855a84d2c3f7e2b23bf697a66dc739d59f4f12671e0bd"),
     # DL-0080: os adendos do historico curto (so' com `MAEZO_HELENA_HISTORICO` ligada).
