@@ -835,3 +835,30 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: "PENDENTE-RATIFICACAO-DPO: consentimento explicito do titular (LGPD art. 7o, I, e art. 11, I), texto wa-consent-v1 com sha256 registrado, revogavel por REVOGAR (DL-0083/DL-0084)"
     retencao: "PENDENTE-RATIFICACAO-DPO: 90 dias sem atividade (ultima_mensagem_em), apagada pelo varredor; linha com revogacao_pendente nunca e' apagada antes de a revogacao ser gravada no lago (DL-0084)"
+  - camada: lembrete_cobranca
+    tabela: lembrete_cobranca_enviado
+    migracao: "0027_lembrete_cobranca.py::upgrade (lembrete_cobranca_enviado)"
+    identificacao: "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone) + competencia (`AAAA-MM`); the row holds only the reservation timestamp and the send channel (texto/template) of the proactive billing reminder - no phone, no value, no text. The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so the bridge is absent"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 39
+    tensao: null
+    notas: >-
+      Lembrete proativo de cobranca (MAEZO_LEMBRETE_COBRANCA, desligado por padrao). Idempotencia: uma linha
+      por conversa e competencia, reservada antes do envio. Sem telefone, valor nem texto. Retencao ainda
+      sem decisao nem varredor (pendencia para o DPO).
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: execucao de contrato (lembrete de mensalidade a beneficiario com acesso verificado e consentimento), sem decisao ratificada"
+    retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo de retencao ratificado; ainda sem varredor"
+  - camada: lembrete_cobranca
+    tabela: lembrete_cobranca_optout
+    migracao: "0027_lembrete_cobranca.py::upgrade (lembrete_cobranca_optout)"
+    identificacao: "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row holds only the PARAR timestamp - no phone, no text. The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so the bridge is absent"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 40
+    tensao: null
+    notas: >-
+      PARAR do lembrete de cobranca. Uma linha por conversa. Apagar esta linha volta a mandar lembrete a
+      quem pediu para nao receber: a disposicao e' decisao do DPO, nao da migration.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: execucao de contrato (lembrete de mensalidade a beneficiario com acesso verificado e consentimento), sem decisao ratificada"
+    retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo de retencao ratificado; ainda sem varredor"

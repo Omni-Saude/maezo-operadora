@@ -280,6 +280,14 @@ escopo_b:
         idempotente whatsapp/acesso_retencao.py, exceto revogacao_pendente (nunca antes de gravada no
         lago); base legal = consentimento explicito (wa-consent-v1); PONTE_AUSENTE (conversation_id
         e' pseudonimo keyed, a referencia DSR nao o alcanca)
+    - camada: lembrete_cobranca
+      tabelas: [lembrete_cobranca_enviado, lembrete_cobranca_optout]
+      motivo: >-
+        fora do escopo B; 0027 (lembrete proativo de cobranca, flag MAEZO_LEMBRETE_COBRANCA
+        desligada por padrao) guarda so' o conversation_id pseudonimo keyed, a competencia YYYY-MM,
+        carimbos e o canal de envio (idempotencia) e o PARAR do beneficiario — nenhum telefone,
+        valor ou texto; PONTE_AUSENTE (conversation_id e' pseudonimo keyed, a referencia DSR nao o
+        alcanca); sem decisao de retencao ratificada e sem varredor
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-
