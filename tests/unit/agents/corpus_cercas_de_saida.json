@@ -2355,6 +2355,17 @@
       }
     },
     {
+      "texto": "Por aqui eu não consigo consultar seus dependentes agora. Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - DL-0100 (14/10/2026, rodada 11): RESPOSTA_DEPENDENTES_FALHA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
       "texto": "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n• Ver os dados do seu plano: carteirinha, carências e dependentes.\n• Relatar um sintoma e ser encaminhado à equipe de saúde.\n• Questionar uma cobrança e ser encaminhado à equipe de atendimento.\nEm emergência, ligue 192. Como posso ajudar?",
       "rota": "inform",
       "start_aconteceu": false,

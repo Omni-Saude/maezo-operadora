@@ -28,24 +28,33 @@ import json
 import re
 import unicodedata
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Final, Literal, Protocol, get_args, runtime_checkable
 
-from maezo.ports.tina import CarenciasView, ElegibilidadeView, RequisicoesView
+from maezo.ports.tina import (
+    MAX_DEPENDENTES,
+    CarenciasView,
+    DependentesView,
+    ElegibilidadeView,
+    RequisicoesView,
+)
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT, render_untrusted_block
 
 from .prompts import SYSTEM_PROMPT, motivo_de_canal_nao_confirmado, motivo_de_recusa
 
 INTENT_CONSULTA_PLANO: Final[str] = "consulta_plano"
-ConsultaSubtipo = Literal["elegibilidade", "carteirinha", "carencia", "autorizacao"]
+ConsultaSubtipo = Literal["elegibilidade", "carteirinha", "carencia", "autorizacao", "dependentes"]
 CONSULTA_SUBTIPOS: Final[frozenset[str]] = frozenset(get_args(ConsultaSubtipo))
 #: Os UNICOS subtipos que o modelo redige (revisao do #690). Autorizacao e carencia sao sempre a
 #: resposta deterministica: status e prazo sao exatamente o que um rascunho poderia transformar em promessa.
 SUBTIPOS_REDIGIDOS: Final[frozenset[str]] = frozenset({"elegibilidade", "carteirinha"})
+#: Rodada 11: `dependentes` e' sempre a resposta deterministica (contagem e relacao; nunca nome).
 
 #: Versao do ADENDO do classify (anexado ao classify v5/v6 SO' com as consultas ligadas) e do prompt
 #: de redacao da resposta com fatos. As duas entram em `graph.PROMPT_VERSIONS` e no `agent.yaml`.
-CLASSIFY_CONSULTAS_ADENDO_VERSION: Final[str] = "classify-consultas-v1"
+#: v2 — 14/10/2026 (DL-0100): o quinto subtipo, `dependentes`.
+CLASSIFY_CONSULTAS_ADENDO_VERSION: Final[str] = "classify-consultas-v2"
 #: v2 — 10/10/2026 (DL-0087): regra 7, o tom humanizado (curto, cordial, so' o perguntado, sem emoji).
 CONSULTA_PLANO_PROMPT_VERSION: Final[str] = "consulta-plano-v2"
 
@@ -70,13 +79,21 @@ _FECHO: Final[str] = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class FonteIndisponivel:
+    """A fonte NAO esta' carregada neste ambiente (o artefato da rota nao foi configurado): diferente de uma
+    falha da consulta. So' `dependentes` a usa — com ela o texto provisorio da rodada 10 continua valendo."""
+
+    subtipo: str
+
+
 @runtime_checkable
 class FonteDeFatosDoPlano(Protocol):
     """Consulta a AMH para UM sujeito e UM subtipo. Nunca levanta; falha = `None`."""
 
     async def consultar(
         self, portable_subject_ref: str, subtipo: str
-    ) -> ElegibilidadeView | CarenciasView | RequisicoesView | None: ...
+    ) -> ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel | None: ...
 
 
 # --------------------------------------------------------------------------------------------
@@ -87,17 +104,18 @@ class FonteDeFatosDoPlano(Protocol):
 #: `consulta_subtipo`, e VENCE o paragrafo de "fora do canal" para as quatro perguntas do plano.
 ADENDO_CLASSIFY_CONSULTAS: Final[str] = """
 
-CONSULTA DO PLANO (classify-consultas-v1, 07/10/2026). Alem das intencoes acima, existe
+CONSULTA DO PLANO (classify-consultas-v2, 14/10/2026). Alem das intencoes acima, existe
 intent="consulta_plano": a pessoa quer saber um FATO do proprio cadastro no plano. Esta regra VENCE
-o paragrafo de assunto fora do canal para estes quatro assuntos, e so' para eles. Devolva tambem o
+o paragrafo de assunto fora do canal para estes cinco assuntos, e so' para eles. Devolva tambem o
 campo "consulta_subtipo": SOMENTE quando intent="consulta_plano", um de ["elegibilidade",
-"carteirinha", "carencia", "autorizacao"]; em qualquer outro intent, null.
+"carteirinha", "carencia", "autorizacao", "dependentes"]; em qualquer outro intent, null.
   - "elegibilidade": se o plano esta' ativo, qual e' o plano, vigencia, acomodacao, se pode ser
     atendido ("meu plano esta ativo?", "qual o meu plano?");
   - "carteirinha": numero ou dados da carteirinha ("qual o numero da minha carteirinha?");
   - "carencia": carencias do plano ("ja cumpri a carencia?", "tenho carencia para parto?");
   - "autorizacao": andamento de um pedido de autorizacao ou guia ja' feito ("minha autorizacao saiu?",
-    "qual o status da minha guia?").
+    "qual o status da minha guia?");
+  - "dependentes": quem e' dependente no plano ("tenho dependentes?", "minha filha esta' no plano?").
 Autorizacao NEGADA com pedido de explicacao ("por que negaram?") continua "outside_channel": voce
 nunca explica uma negativa. Cobranca, boleto e mensalidade NUNCA sao "consulta_plano". Uma mensagem
 com QUALQUER sinal de saude segue as regras de saude, e pedir uma pessoa continua "human_request"."""
@@ -182,7 +200,8 @@ def _data(valor: object) -> str | None:
 
 
 def fatos_da_consulta(
-    subtipo: str, view: ElegibilidadeView | CarenciasView | RequisicoesView | None
+    subtipo: str,
+    view: ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel | None,
 ) -> dict[str, Any] | None:
     """Os fatos que PODEM ir ao texto, por subtipo, ou `None` (view ausente ou de outro tipo).
 
@@ -232,6 +251,23 @@ def fatos_da_consulta(
                 }
                 for c in view.carencias[:LIMITE_CARENCIAS]
             ],
+            "fonte_atualizada_em": _data(view.fonte_atualizada_em),
+        }
+    if subtipo == "dependentes" and isinstance(view, DependentesView):
+        # SO' contagem e relacao (vocabulario do cadastro) — NUNCA nome, CPF, nascimento nem referencia.
+        contagem: dict[str, int] = {}
+        recem_nascidos = 0
+        for d in view.dependentes[:MAX_DEPENDENTES]:
+            relacao = _texto(d.relacao_dependencia) or ""
+            contagem[relacao] = contagem.get(relacao, 0) + 1
+            if d.rn_no_plano is True:
+                recem_nascidos += 1
+        return {
+            "eh_titular": view.eh_titular is True,
+            "total_ativos": max(0, _inteiro(view.total_ativos) or 0),
+            "lista_truncada": view.lista_truncada is True,
+            "relacoes": [{"relacao": r, "quantidade": n} for r, n in contagem.items()],
+            "recem_nascidos": recem_nascidos,
             "fonte_atualizada_em": _data(view.fonte_atualizada_em),
         }
     if subtipo == "autorizacao" and isinstance(view, RequisicoesView):
@@ -336,8 +372,57 @@ def segmentacao_dos_fatos(fatos: Mapping[str, Any]) -> str | None:
     return None
 
 
+#: DEPENDENTES (rodada 11, DL-0100): textos FIXOS. O que e' fato (contagem, relacao) entra por
+#: `_texto_de_dependentes`; nome, CPF e nascimento nao existem no tipo nem aqui.
+RESPOSTA_DEPENDENTES_NAO_TITULAR: Final[str] = (
+    "Seu cadastro consta como dependente. A consulta de dependentes é feita pelo titular do plano."
+)
+RESPOSTA_DEPENDENTES_NENHUM: Final[str] = "No seu cadastro não consta nenhum dependente ativo."
+RESPOSTA_DEPENDENTES_FALHA: Final[str] = (
+    "Por aqui eu não consigo consultar seus dependentes agora. "
+    "Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe."
+)
+_DEPENDENTES_SEM_NOMES: Final[str] = "Por segurança, este canal não mostra nomes nem outros dados deles."
+
+
+def _relacao_em_texto(relacao: str, quantidade: int) -> str:
+    if not relacao:
+        return f"{quantidade} sem relação informada"
+    base = relacao[:1].lower() + relacao[1:]
+    return f"{quantidade} {base}" if quantidade == 1 else f"{quantidade} com relação {base}"
+
+
+def _texto_de_dependentes(fatos: Mapping[str, Any]) -> str:
+    """A resposta de dependentes, so' com contagem e relacao. Mesma forma para qualquer pergunta."""
+    if fatos.get("eh_titular") is not True:
+        return RESPOSTA_DEPENDENTES_NAO_TITULAR
+    total = int(fatos.get("total_ativos") or 0)
+    if total <= 0:
+        return RESPOSTA_DEPENDENTES_NENHUM
+    relacoes = [
+        (str(r.get("relacao") or ""), int(r.get("quantidade") or 0)) for r in fatos.get("relacoes") or []
+    ]
+    recem_nascidos = int(fatos.get("recem_nascidos") or 0)
+    if fatos.get("lista_truncada") is True:
+        corpo = f"No seu cadastro constam {total} dependentes ativos."
+    elif total == 1:
+        relacao = relacoes[0][0] if relacoes else ""
+        sufixo = " (recém-nascido no plano)" if recem_nascidos else ""
+        detalhe = f": {relacao[:1].lower() + relacao[1:]}{sufixo}" if relacao else sufixo
+        corpo = f"No seu cadastro consta 1 dependente ativo{detalhe}."
+    else:
+        partes = [_relacao_em_texto(r, n) for r, n in relacoes]
+        lista = ", ".join(partes[:-1]) + f" e {partes[-1]}" if len(partes) > 1 else partes[0]
+        corpo = f"No seu cadastro constam {total} dependentes ativos: {lista}."
+        if recem_nascidos:
+            corpo += f" Entre eles, {recem_nascidos} recém-nascido(s) no plano."
+    return f"{corpo} {_DEPENDENTES_SEM_NOMES}"
+
+
 def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
     """A resposta montada SO' com os fatos. E' o caminho quando o modelo falha ou a cerca recusa."""
+    if subtipo == "dependentes":
+        return _texto_de_dependentes(fatos)
     atualizado = _br(fatos.get("fonte_atualizada_em"))
     abertura = "Pelo que consta no cadastro do plano" + (
         f" (atualizado em {atualizado})" if atualizado else ""
@@ -501,9 +586,13 @@ __all__ = [
     "LIMITE_REQUISICOES",
     "MAX_CHARS_RESPOSTA",
     "RESPOSTA_CONSULTA_SEM_IDENTIDADE",
+    "RESPOSTA_DEPENDENTES_FALHA",
+    "RESPOSTA_DEPENDENTES_NAO_TITULAR",
+    "RESPOSTA_DEPENDENTES_NENHUM",
     "SUBTIPOS_REDIGIDOS",
     "ConsultaSubtipo",
     "FonteDeFatosDoPlano",
+    "FonteIndisponivel",
     "consulta_prompt",
     "fatos_da_consulta",
     "literais_dos_fatos",
