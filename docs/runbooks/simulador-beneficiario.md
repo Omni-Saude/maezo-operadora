@@ -137,12 +137,15 @@ aws ecs run-task --cluster maezo-operadora-dev --launch-type FARGATE   --task-de
 ```
 
 - **Segmentos** sao conversas separadas (telefone sintetico novo, acesso do zero), em ordem:
-  1 plano e cobranca (14 passos), 2 pedido de atendente, 3 emergencia, 4 duvida de saude. Entre um e
+  1 plano e cobranca (14 passos), 2 pedido de atendente, 3 emergencia, 4 duvida de saude,
+  5 caso administrativo aberto + relato clinico (recem-nascida) na MESMA conversa. Entre um e
   o seguinte, a conversa anterior e' limpa (checkpoint, roteador, acesso) e o motor e' conferido.
 - **Assercoes por passo**, sobre o texto concatenado das respostas do turno (ou so' as do `agente`,
   quando dado), sem acento e sem diferenca de caixa, no texto e no padrao:
   `deve` (todos casam), `nao_deve` (nenhum casa), `escalacao` (`nenhuma` = nenhum caso novo neste
-  turno; ou o `motivo_categoria` do caso aberto), `primeira_frase_deve` (primeira frase da primeira
+  turno; ou o `motivo_categoria` do caso aberto), `escalacao_um_de` (o caso aberto tem UM destes
+  motivos), mais um `nao_deve` GLOBAL em todo passo ("por isso nao abri outro",
+  "nao consta essa informacao"), `primeira_frase_deve` (primeira frase da primeira
   resposta), `nao_igual_ao_anterior`. `^` casa no inicio de cada resposta; `.` atravessa linha.
   Um passo que falha nao interrompe o segmento; a falha diz QUAL assercao reprovou (padrao, nunca o texto).
 - **Saida** em `runs/<run_id>/`: `roteiro.json` (por passo: texto enviado, respostas mascaradas com o

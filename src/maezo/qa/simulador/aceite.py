@@ -12,6 +12,7 @@ ASSERCOES de um passo (todas sobre o texto concatenado das respostas DAQUELE tur
 `agente` quando ele e' dado; sem acento e sem diferenca de caixa, no texto E no padrao):
   deve                  todo padrao tem de casar
   nao_deve              nenhum padrao pode casar
+  escalacao_um_de       o caso aberto neste turno tem UM destes motivos (ex.: clinico)
   escalacao             "nenhuma" = nenhum caso novo aberto neste turno; outro valor = um caso com
                         esse `motivo_categoria` foi aberto neste turno; `None` = nao confere
   primeira_frase_deve   padrao sobre a primeira frase da primeira resposta
@@ -35,6 +36,9 @@ ESCALACAO_NENHUMA = "nenhuma"
 _FLAGS = re.IGNORECASE | re.MULTILINE | re.DOTALL
 _FIM_DE_FRASE = re.compile(r"[.!?\n]")
 
+#: `nao_deve` GLOBAL: vale em TODO passo de TODO segmento (regressao de frases ja corrigidas).
+NAO_DEVE_GLOBAL: tuple[str, ...] = ("por isso nao abri outro", "nao consta essa informacao")
+
 #: A "persona" das conversas do roteiro (so' para o registro; nenhum modelo e' chamado).
 PERSONA_ACEITE = Persona(
     id="roteiro_aceite",
@@ -54,6 +58,7 @@ class Passo:
     deve: tuple[str, ...] = ()
     nao_deve: tuple[str, ...] = ()
     escalacao: str | None = None
+    escalacao_um_de: tuple[str, ...] = ()
     primeira_frase_deve: str | None = None
     nao_igual_ao_anterior: bool = False
     agente: str | None = None
@@ -129,6 +134,9 @@ def avaliar_passo(
     for padrao in passo.nao_deve:
         if compilar(padrao).search(texto):
             falhas.append(f"nao_deve{onde}: casou /{padrao}/")
+    for padrao in NAO_DEVE_GLOBAL:
+        if compilar(padrao).search(texto):
+            falhas.append(f"nao_deve_global{onde}: casou /{padrao}/")
     if passo.primeira_frase_deve is not None:
         primeira = respostas[0][1] if respostas else ""
         if not compilar(passo.primeira_frase_deve).search(sem_acento(primeira_frase(primeira))):
@@ -140,6 +148,12 @@ def avaliar_passo(
                 falhas.append(f"escalacao: esperava nenhuma, abriu {motivos}")
         elif passo.escalacao not in motivos:
             falhas.append(f"escalacao: esperava '{passo.escalacao}', abriu {motivos or 'nenhuma'}")
+    if passo.escalacao_um_de:
+        abertos = [e.get("motivo") or "sem_motivo" for e in escalacoes]
+        if not any(m in passo.escalacao_um_de for m in abertos):
+            falhas.append(
+                f"escalacao_um_de: esperava um de {list(passo.escalacao_um_de)}, abriu {abertos or 'nenhuma'}"
+            )
     if passo.nao_igual_ao_anterior and anterior is not None and texto.strip() == anterior.strip():
         falhas.append("nao_igual_ao_anterior: respostas identicas as do passo anterior")
     return falhas
@@ -369,6 +383,38 @@ DONO_V1: tuple[Segmento, ...] = (
             ),
         ),
     ),
+    Segmento(
+        "5-caso-administrativo-aberto-e-clinico",
+        (
+            _p(
+                "O valor do meu boleto está errado, fui cobrado duas vezes",
+                escalacao="cobranca",
+            ),
+            _p(
+                "Antes, vc consegue olhar sobre meus dependentes?",
+                deve=("(nao consigo|ainda nao consigo|central|pessoa da equipe)",),
+                nao_deve=("nao consta",),
+            ),
+            _p(
+                "Digo isso, pois minha filha, recém nascida está com uma alergia",
+                deve=("(sua filha|a bebe|ela|recem-nascid)",),
+                nao_deve=("voce esta sentindo|o que exatamente voce",),
+            ),
+            _p(
+                "São umas bolinhas vermelhas, tipo uma irritação na pele.",
+                deve=("(sua filha|a bebe|ela|o bebe)",),
+                nao_deve=("o que exatamente voce esta sentindo|voce esta sentindo",),
+            ),
+            _p(
+                "Começou tem uns dois dias, e eu acabei de falar que é no meu filho recém nascido. "
+                "Mas ele deve estar sentindo dor, pois está chorando muito.",
+                escalacao_um_de=("red_flag_clinico", "intencao_clinica"),
+                deve=("192",),
+                nao_deve=("(ja esta aberto|por isso nao abri outro|segue em andamento)",),
+            ),
+            _p("e a minha mensalidade de outubro?", deve=("empresa contratante",)),
+        ),
+    ),
 )
 
 ROTEIROS: dict[str, tuple[Segmento, ...]] = {"dono_v1": DONO_V1}
@@ -381,6 +427,7 @@ def validar(roteiro: Sequence[Segmento]) -> None:
             for padrao in (
                 *passo.deve,
                 *passo.nao_deve,
+                *NAO_DEVE_GLOBAL,
                 *([passo.primeira_frase_deve] if passo.primeira_frase_deve else []),
             ):
                 compilar(padrao)
@@ -389,6 +436,7 @@ def validar(roteiro: Sequence[Segmento]) -> None:
 __all__ = [
     "DONO_V1",
     "ESCALACAO_NENHUMA",
+    "NAO_DEVE_GLOBAL",
     "PERSONA_ACEITE",
     "ROTEIROS",
     "Passo",
