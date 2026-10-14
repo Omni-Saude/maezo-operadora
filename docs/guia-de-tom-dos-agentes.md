@@ -117,6 +117,14 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
   dependentes. Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe." Nunca "não
   consta essa informação no cadastro".
 
+## Rodada 11 — dependentes e seguimento (DL-0100, 14/10/2026)
+
+- **Dependentes:** só contagem e relação, sempre no mesmo formato ("No seu cadastro consta 1 dependente ativo:
+  filho(a) até 23 anos (recém-nascido no plano)."). Nunca nome, CPF ou nascimento; o canal diz que, por
+  segurança, não mostra nomes. Falha da consulta: "Por aqui eu não consigo consultar seus dependentes agora."
+  Nunca "não consta" quando a consulta falhou.
+- **Seguimento curto com o Lucas:** "de qual ano?", "como assim?", "quanto foi?" continuam a conversa de
+  cobrança, e quem responde é o Lucas.
 ## Rodada 12 — política de escalação e cancelamento (DL-0098, 14/10/2026)
 
 Decisão do dono, sessão de 14/10/2026. O Lucas responde os fatos primeiro, sempre.

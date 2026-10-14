@@ -62,8 +62,48 @@ def e_pergunta_de_esclarecimento(texto: object) -> bool:
     return bool(_ESCLARECIMENTO.search(plano)) and not _DISCORDANCIA.search(plano)
 
 
+#: SEGUIMENTO CURTO (rodada 11, 14/10/2026): com o Lucas ativo, estas perguntas continuam o assunto
+#: financeiro. Alem do esclarecimento acima: "e a de outubro?", "quanto foi?", "e o vencimento?", "foi paga?".
+_SEGUIMENTO: Final[re.Pattern[str]] = re.compile(
+    r"\bquanto (?:foi|era|ficou|deu)\b|\bfoi (?:paga|pago|quitad[ao])\b|\be o vencimento\b"
+    r"|\bvence quando\b|\bquando vence\b"
+)
+_E_A_DE: Final[re.Pattern[str]] = re.compile(r"^e (?:a|o|as|os|aquela|aquele)\b")
+_MAX_PALAVRAS_DO_SEGUIMENTO: Final[int] = 7
+
+#: SINAL DE CONSULTA DO PLANO: com qualquer um destes a mensagem NAO e' seguimento da cobranca — vai pelo
+#: caminho normal (a consulta do plano e' da Helena).
+_PISTA_DE_PLANO: Final[re.Pattern[str]] = re.compile(
+    r"\bplano\b|\bcarencias?\b|\bcarteirinha\b|\bcobre\b|\bcobrem\b|\bcobertura\b|\bautoriza\w*"
+    r"|\bdependentes?\b|\bsegmenta\w*|\bacomoda\w*|\bvigencia\b"
+)
+#: Pessoa ou quadro de saude na frase ("e a minha filha?", "e o bebe?"): nunca seguimento financeiro.
+_PESSOA_OU_SAUDE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:filh[oa]s?|mae|pai|bebe|crianca|esposa|marido|dor|febre|sintoma\w*|passando mal|remedio)\b"
+)
+
+
+def e_seguimento_de_cobranca(texto: object) -> bool:
+    """`True` quando a mensagem curta continua a conversa de cobranca (esclarecimento, "e a de <mes>?",
+    "quanto foi?", "e o vencimento?", "foi paga?") SEM pista de consulta do plano, sem pessoa/saude e sem
+    discordancia. Decide por TEXTO, nunca pelo modelo; o chamador exige o Lucas ativo."""
+    if not isinstance(texto, str):
+        return False
+    plano = _normalizar(texto).strip(" ?!.,")
+    if not plano or _PISTA_DE_PLANO.search(plano) or _PESSOA_OU_SAUDE.search(plano):
+        return False
+    if _DISCORDANCIA.search(plano):
+        return False
+    if _ESCLARECIMENTO.search(plano):
+        return True
+    if len(plano.split()) > _MAX_PALAVRAS_DO_SEGUIMENTO:
+        return False
+    return bool(_SEGUIMENTO.search(plano) or _E_A_DE.search(plano))
+
+
 __all__ = [
     "SUBTIPOS_QUE_NAO_SE_SOBRESCREVEM",
     "SUBTIPOS_REAPROVEITAVEIS",
     "e_pergunta_de_esclarecimento",
+    "e_seguimento_de_cobranca",
 ]
