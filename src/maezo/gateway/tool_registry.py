@@ -691,8 +691,8 @@ def build_amh_interop(
     }
     # A leitura de cobranca le' UM dos OpenAPI do billing-status: o 0.1.0 de sempre ou, no atendimento do
     # WhatsApp verificado, o 0.2.0 (finalidade `atendimento_whatsapp`) ou o 0.3.0.
-    # 14/10/2026 (manifest v1.6): com o caminho do 0.3.0 configurado, a cobranca do atendimento le' ELE (os tres
-    # campos de contratacao); sem o caminho, o 0.2.0 de sempre.
+    # 14/10/2026 (manifest v1.6): com o caminho do 0.3.0 configurado, a cobranca do atendimento le' ELE (os
+    # tres campos de contratacao); sem o caminho, o 0.2.0 de sempre.
     billing_contratacao = billing_atendimento is True and bool(
         getattr(settings, "amh_billing_status_contratacao_openapi_path", None)
     )

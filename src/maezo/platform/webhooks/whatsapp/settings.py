@@ -499,9 +499,10 @@ class WhatsAppWebhookSettings(BaseSettings):
             "MAEZO_AMH_BILLING_STATUS_ATENDIMENTO_OPENAPI_PATH", "amh_billing_status_atendimento_openapi_path"
         ),
     )
-    # O billing-status 0.3.0 (manifest v1.6, decisao do dono de 14/10/2026), OPCIONAL: so' vale com o acesso ligado
-    # e a fonte AMH, no lugar do 0.2.0. Com o caminho, a leitura de cobranca pede `incluir_contratacao=true` e
-    # exige o bloco `manifest_v1_6` do pin (sem ele o receptor recusa servir); sem o caminho, e' o 0.2.0 de sempre.
+    # O billing-status 0.3.0 (manifest v1.6, decisao do dono de 14/10/2026), OPCIONAL: so' vale com o acesso
+    # ligado e a fonte AMH, no lugar do 0.2.0. Com o caminho, a leitura de cobranca pede
+    # `incluir_contratacao=true` e exige o bloco `manifest_v1_6` do pin (sem ele o receptor recusa servir);
+    # sem o caminho, e' o 0.2.0 de sempre.
     amh_billing_status_contratacao_openapi_path: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
