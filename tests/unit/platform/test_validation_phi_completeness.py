@@ -2373,7 +2373,7 @@ class TestYamlManifests:
             "carencia-check-shadow-candidate.yaml": 72,
             "glosa-triage-shadow-candidate.yaml": 35,
             "triage-redflag-gestante-shadow-candidate.yaml": 32,
-            "triage-redflag-pediatric-shadow-candidate.yaml": 32,
+            "triage-redflag-pediatric-shadow-candidate.yaml": 52,
             "upcoding-complexity-ceiling-shadow-candidate.yaml": 43,
         }
         # `orphans-allowlist.yaml` and `auth-criteria-ratification.yaml` declare
