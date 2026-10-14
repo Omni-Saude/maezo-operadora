@@ -408,11 +408,26 @@ def emojis(texto: str) -> list[str]:
     return [c for c in texto if unicodedata.category(c) == "So" and c not in _NAO_EMOJI]
 
 
+#: Marcador de item de lista no comeco da linha: bullet, hifen, asterisco ou numeracao ("1." / "2)").
+_MARCADOR_DE_ITEM = re.compile(r"^\s*(?:[•·\-*]|\d+[.)])\s+")
+
+
 def frases_longas(texto: str) -> list[int]:
-    plano = re.sub(r"[?!:;\n]", ".", texto)
-    # "R$ 1.234,56" e datas nao quebram frase: so' ponto seguido de espaco/fim.
-    frases = re.split(r"\.(?:\s|$)", plano)
-    return [len(f.split()) for f in frases if len(f.split()) > MAX_PALAVRAS_POR_FRASE]
+    """Quantas palavras tem cada frase acima do limite (as frases curtas nao aparecem).
+
+    Frase = o que fica entre fins de frase. Quebra de linha SEMPRE separa (cada item de lista e' a sua
+    frase, e um cabecalho que termina em ":" tambem), o marcador do item ("•", "-", "*", "1.") nao conta
+    como palavra, e depois `. ! ? : ;` seguidos de espaco ou do fim separam. "R$ 1.234,56" e datas
+    ("10.07.2026") nao quebram: ponto so' separa quando vem seguido de espaco/fim.
+    """
+    longas: list[int] = []
+    for linha in texto.splitlines():
+        plano = re.sub(r"[?!:;]", ".", _MARCADOR_DE_ITEM.sub("", linha))
+        for frase in re.split(r"\.+(?:\s|$)", plano):
+            palavras = len(frase.split())
+            if palavras > MAX_PALAVRAS_POR_FRASE:
+                longas.append(palavras)
+    return longas
 
 
 def problemas_de_tom(texto: str) -> list[str]:

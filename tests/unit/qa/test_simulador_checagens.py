@@ -264,3 +264,46 @@ def test_checar_conversa_roda_as_doze() -> None:
     resultados = ch.checar_conversa(conversa(turno(1, helena=["Oi!"])), por_id("apressado"))
     assert [r.checagem for r in resultados] == list(ch.CHECAGENS)
     assert set(ch.DESCRICOES) == set(ch.CHECAGENS)
+
+
+_APRESENTACAO = (
+    "Por aqui você pode:\n"
+    "• Consultar mensalidade, vencimento e coparticipação.\n"
+    "• Ver os dados do seu plano: carteirinha, carências e dependentes.\n"
+    "• Relatar um sintoma e ser encaminhado à equipe de saúde.\n"
+    "• Questionar uma cobrança e ser encaminhado à equipe de atendimento.\n"
+    "Em emergência, ligue 192. Como posso ajudar?"
+)
+
+
+def test_d8_a_apresentacao_do_canal_passa() -> None:
+    assert ch.frases_longas(_APRESENTACAO) == []
+    assert ch.problemas_de_tom(_APRESENTACAO) == []
+    c = conversa(turno(1, acesso=["Pronto, já confirmei que é você 😊", _APRESENTACAO]))
+    assert ch.d8_tom(c, por_id("apressado")).passou
+
+
+def test_d8_frase_realmente_longa_continua_reprovando_mesmo_numa_lista() -> None:
+    longa = " ".join(["palavra"] * 25) + "."
+    assert ch.frases_longas(longa) == [25]
+    assert ch.frases_longas(f"• {longa}") == [25]  # o marcador nao conta e a frase continua longa
+    assert ch.frases_longas(f"Veja:\n1. {longa}\n2) Curta.") == [25]
+    assert any("25 palavras" in p for p in ch.problemas_de_tom(longa))
+
+
+def test_d8_quebra_de_linha_separa_frases() -> None:
+    # "pedir.\nPor": antes virava "pedir..Por" e a frase seguinte colava na anterior
+    dez = " ".join(["a"] * 12)
+    assert ch.frases_longas(f"{dez} pedir.\n{dez} por favor.") == []
+    assert ch.frases_longas(f"{dez} {dez}.") == [24]
+    assert ch.frases_longas(f"{dez}\n{dez}") == []  # sem pontuacao, a linha ainda separa
+    assert ch.frases_longas("Cabecalho com muitas palavras ate dois pontos:\n- item curto") == []
+
+
+def test_d8_marcadores_nao_contam_como_palavra() -> None:
+    vinte = " ".join(["b"] * 20)
+    assert ch.frases_longas(f"• {vinte}.") == []
+    assert ch.frases_longas(f"- {vinte}.") == []
+    assert ch.frases_longas(f"* {vinte}.") == []
+    assert ch.frases_longas(f"3. {vinte}.") == []
+    assert ch.frases_longas(f"{vinte} b.") == [21]
