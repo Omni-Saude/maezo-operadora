@@ -141,6 +141,17 @@ Decisão do dono, sessão de 14/10/2026. O Lucas responde os fatos primeiro, sem
   de retenção e sem prazo. Só com o "SIM, QUERO CANCELAR" o pedido segue. O Lucas nunca diz que o plano foi
   cancelado: diz que o pedido está com a equipe, que responde por aqui.
 
+## Wave 2 — adesão e boleto da família (DL-0099, 14/10/2026)
+
+- **Adesão:** quando a AMH diz que o plano é coletivo por adesão, vale o texto da administradora. A TINA só
+  serve de reserva quando o tipo vem desconhecido.
+- **Pagador pessoa física, valor:** "Sua parte da mensalidade de outubro de 2026 é de R$ 320,25, com
+  vencimento em 20/10. O boleto da família, com todos os beneficiários do plano, é de R$ 1.280,40." Mês
+  sempre com ano, frases com até 20 palavras.
+- **Dependente:** "O boleto da sua família é emitido em nome do titular do plano. A 2ª via e o vencimento são
+  com ele." Nenhum valor de boleto.
+- **Nunca** mostrar o total de outra fatura: empresa, adesão e tipo desconhecido ficam como estavam.
+
 ## Apresentação do canal (14/10/2026)
 
 Mensagem fixa `apresentacao-canal-v1` (`platform/webhooks/whatsapp/apresentacao_canal.py`), sem nome de agente:

@@ -194,10 +194,13 @@ def test_secao_do_relatorio_lista_as_falhas() -> None:
 def test_dono_v1_tem_a_forma_pedida_e_todo_padrao_compila() -> None:
     ac.validar(ac.ROTEIROS["dono_v1"])
     segmentos = ac.DONO_V1
-    assert [len(s.passos) for s in segmentos] == [14, 3, 3, 1, 6, 4]
+    assert [len(s.passos) for s in segmentos] == [18, 3, 3, 1, 6, 4, 2]
     s1 = segmentos[0].passos
-    assert s1[11].texto == s1[12].texto and s1[11].escalacao == "cobranca" and s1[12].escalacao == "nenhuma"
-    assert s1[7].nao_igual_ao_anterior and s1[7].texto == "de qual ano?"
+    assert s1[15].texto == s1[16].texto and s1[15].escalacao == "cobranca" and s1[16].escalacao == "nenhuma"
+    anos = [i for i, p in enumerate(s1) if p.texto == "de qual ano?"]
+    assert anos == [7, 9, 11]  # o par coparticipacao + ano roda 3 vezes
+    assert all(s1[i].nao_igual_ao_anterior and s1[i].deve == ("setembro de 2026",) for i in anos)
+    assert all(s1[i - 1].texto.startswith("Quanto foi minha coparticipação") for i in anos)
     assert segmentos[2].passos[2].primeira_frase_deve == "^ligue agora para o 192"
 
 
@@ -312,11 +315,91 @@ def test_segmento_5_passos_da_filha_reprovam_a_pergunta_sobre_o_adulto() -> None
 
 def test_segmento_5_dependentes_e_mensalidade() -> None:
     p2, p6 = _segmento5()[1], _segmento5()[5]
-    assert (
-        ac.avaliar_passo(p2, [("helena", "Ainda não consigo ver dependentes; a central ajuda.")], [], None)
-        == []
-    )
-    assert ac.avaliar_passo(p2, [("helena", "Isso não consta no cadastro.")], [], None) != []
+    certa = "No seu cadastro consta 1 dependente ativo: filho(a) até 23 anos (recém-nascido no plano)."
+    assert ac.avaliar_passo(p2, [("helena", certa)], [], None) == []
+    assert ac.avaliar_passo(p2, [("helena", "Consta um dependente: filha.")], [], None) == []
+    for ruim in (
+        "Ainda não consigo consultar dependentes; a central ajuda.",  # fonte desligada
+        "Essa informação não consta essa informação.",
+        "Seu cadastro tem 2 dependentes.",
+        certa + " CPF 52998224725.",
+        certa + " CPF 529.982.247-25.",
+        certa + " Nasceu em 14/03/2026.",
+    ):
+        assert ac.avaliar_passo(p2, [("helena", ruim)], [], None) != [], ruim
     assert (
         ac.avaliar_passo(p6, [("lucas", "A empresa contratante pagou a de outubro de 2026.")], [], None) == []
     )
+
+
+def test_nao_deve_condicional_so_em_mensagem_sobre_filha_filho_bebe() -> None:
+    frase = "O que exatamente você está sentindo?"
+    sobre_filho = ac.Passo("Meu filho está com febre")
+    assert any(f.startswith("nao_deve_global") for f in _falhas(sobre_filho, ("helena", frase)))
+    assert any("bebe" in f or "filha" in f for f in _falhas(ac.Passo("A bebê chora"), ("helena", frase)))
+    assert _falhas(ac.Passo("Estou com dor de cabeça"), ("helena", frase)) == []  # adulto: pode perguntar
+
+
+def _fecho(*textos: str, fase: str = "acesso") -> list[Turno]:
+    return [
+        turno(1, fase=fase, acesso=["Obrigada! Para confirmar que é você, me envie seu CPF."]),
+        turno(2, fase=fase, acesso=list(textos)),
+    ]
+
+
+_CONFIRMADO = "Pronto, já confirmei que é você 😊"
+_APRESENTACAO = (
+    "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n"
+    "• Ver os dados do seu plano: carteirinha, carências e dependentes.\n"
+    "Em emergência, ligue 192. Como posso ajudar?"
+)
+
+
+def test_apresentacao_do_canal_no_fecho_do_acesso() -> None:
+    assert ac.conferir_apresentacao(_fecho(_CONFIRMADO, _APRESENTACAO)) == []
+    # sem dependentes (fonte desligada) tambem e' a apresentacao
+    assert (
+        ac.conferir_apresentacao(
+            _fecho(_CONFIRMADO, _APRESENTACAO.replace(", carências e dependentes", " e carências"))
+        )
+        == []
+    )
+
+
+def test_apresentacao_ausente_ou_incompleta_reprova_com_mensagem_clara() -> None:
+    (sem_nada,) = ac.conferir_apresentacao(_fecho(_CONFIRMADO))
+    assert "faltou a mensagem seguinte" in sem_nada
+    # o fecho antigo (reverificacao): "Em que posso ajudar?" na mesma mensagem, sem apresentacao
+    antigo = ac.conferir_apresentacao(_fecho("Pronto, já confirmei que é você 😊 Em que posso ajudar?"))
+    assert antigo and "faltou a mensagem seguinte" in antigo[0]
+    sem_192 = ac.conferir_apresentacao(_fecho(_CONFIRMADO, "Por aqui você pode:\n• Consultar mensalidade."))
+    assert sem_192 == [
+        "apresentacao: a mensagem seguinte ao 'ja confirmei' nao traz 'em emergencia, ligue 192'"
+    ]
+    sem_abertura = ac.conferir_apresentacao(_fecho(_CONFIRMADO, "Em emergência, ligue 192."))
+    assert any("por aqui voce pode" in f for f in sem_abertura)
+    nao_confirmou = ac.conferir_apresentacao(
+        [turno(1, fase="acesso", acesso=["Não consegui confirmar seus dados."])]
+    )
+    assert "nenhum turno do acesso" in nao_confirmou[0]
+
+
+def test_segmento_falha_se_o_fecho_do_acesso_falhou_mesmo_com_passos_ok() -> None:
+    ok = ac.ResultadoDoPasso("1", 1, "oi")
+    assert ac.ResultadoDoSegmento("1", "r1", [ok]).passou
+    seg = ac.ResultadoDoSegmento("1", "r1", [ok], falhas_de_acesso=["apresentacao: faltou"])
+    assert not seg.passou
+    dados = ac.como_json([seg], sujeito())
+    assert dados["roteiro_passou"] is False and dados["segmentos"][0]["falhas_de_acesso"] == [
+        "apresentacao: faltou"
+    ]
+    assert "Falha no fecho do acesso: apresentacao: faltou" in ac.secao_do_relatorio(dados, "dono_v1")
+
+
+def test_segmento_7_retorno_sem_reapresentar() -> None:
+    (segmento,) = [s for s in ac.DONO_V1 if s.nome.startswith("7-")]
+    assert [p.texto for p in segmento.passos] == ["Oi", "Tudo bem?"]
+    for passo in segmento.passos:
+        assert ac.avaliar_passo(passo, [("helena", "Oi! Em que posso ajudar?")], [], None) == []
+        falhas = ac.avaliar_passo(passo, [("helena", _APRESENTACAO)], [], None)
+        assert any("por aqui voce pode" in f for f in falhas)

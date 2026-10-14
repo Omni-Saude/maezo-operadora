@@ -303,6 +303,8 @@ def _todos_os_textos() -> dict[str, str]:
     textos["ja_paguei"] = lg.texto_ja_paguei(ja_paguei, _HOJE)
     textos["ja_paguei_curto"] = lg.texto_ja_paguei_curto(ja_paguei, _HOJE)
     textos["no_prazo"] = str(lg.texto_de_esclarecimento(_estado(_NOVEMBRO, competencia="2026-11"), _HOJE))
+    # Wave 2 (14/10/2026): boleto da familia (pagador PF) e dependente.
+    textos["texto_boleto_do_titular"] = lg.TEXTO_BOLETO_DO_TITULAR
     # Rodada 12 (14/10/2026): politica de escalacao e cancelamento — textos fixos.
     for nome in (
         "TEXTO_FONTE_INDISPONIVEL",

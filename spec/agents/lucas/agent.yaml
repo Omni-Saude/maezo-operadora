@@ -63,6 +63,13 @@ kpis:
 # pela administradora do plano" + oferta de pessoa (sem caso, sem processo). Pessoa fisica -> confirma a
 # intencao UMA vez e, so' com a confirmacao do beneficiario, inicia SP-OP-CANCEL-001 (o processo decide numa
 # User Task humana); o Lucas nunca diz que o plano foi cancelado e nunca oferece retencao.
+# ADESAO E BOLETO DA FAMILIA (wave 2, decisao do dono, 14/10/2026; billing-status 0.3.0). `tipo_contratacao ==
+# coletivo_adesao` liga os textos da administradora (a deteccao pela TINA fica como reserva, so' quando o
+# tipo e' `desconhecido`). Pagador PF que e' a propria pessoa (`beneficiario_e_pagador`) ouve, em pergunta de
+# valor, a parte dela e o total do boleto da familia ("O boleto da familia, com todos os beneficiarios do
+# plano, e' de R$ Y."). Quem nao e' o pagador (dependente) ouve que o boleto e' emitido em nome do titular e
+# que a 2a via e o vencimento sao com ele, sem valor. Nenhum outro caso (empresa, adesao, desconhecido)
+# mostra total de outra fatura.
 escalation:
   process: SP-OP-ESCALATION-001
   secondary_process: SP-OP-CANCEL-001
