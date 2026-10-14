@@ -2,7 +2,8 @@
 
 ADR-0037: o Maezo NAO le o lago nem tabela crua; consome so' projecao canonica da AMH. Este port e' o
 lado do Maezo do contrato `tina` (`schemas/openapi/maezo/v1/tina.openapi.yaml` em
-`Omni-Saude/amh-data-platform`, manifest aditivo v1.2 — AINDA DRAFT em 07/10/2026). Os campos abaixo
+`Omni-Saude/amh-data-platform`, manifest aditivo v1.2, publicado em 13/10/2026) e da rota de dependentes
+(`tina-dependentes.openapi.yaml`, manifest aditivo v1.5, publicado em 13/10/2026). Os campos abaixo
 espelham o TIPO do contrato, nao o schema: o schema e' da AMH (proibicao imutavel #4) e o adaptador so'
 o usa depois de conferir o digest contra o pin.
 
@@ -90,6 +91,53 @@ class RequisicoesView:
     fonte_atualizada_em: str
 
 
+@dataclass(frozen=True, slots=True)
+class DependenteAnonimo:
+    """Um dependente ATIVO do titular, anonimo: so' a relacao, a situacao e se e' recem-nascido no plano.
+
+    Sem nome, CPF, referencia nem nascimento: o contrato nao os carrega e este tipo nao tem onde guardalos.
+    """
+
+    relacao_dependencia: str | None  # ex.: "Filho(a) até 23 anos"
+    situacao_vinculo: str | None  # `situacao_beneficiario` no contrato; ex.: "Apto"
+    rn_no_plano: bool | None  # `recem_nascido_no_plano` no contrato (nomes PHI-shaped nao entram nos ports)
+
+
+@dataclass(frozen=True, slots=True)
+class DependentesView:
+    """Dependentes do titular. `total_ativos` e' exato (pessoas distintas com vinculo ativo); `dependentes`
+    traz no maximo `MAX_DEPENDENTES` (20) itens e `lista_truncada` avisa quando ha' mais do que isso.
+
+    Quem nao e' titular recebe `eh_titular=False`, `total_ativos=0` e lista vazia.
+    """
+
+    portable_subject_ref: str
+    eh_titular: bool
+    total_ativos: int
+    lista_truncada: bool
+    dependentes: tuple[DependenteAnonimo, ...]
+    fonte_atualizada_em: str
+
+
+#: Teto da lista de dependentes no contrato (`maxItems`).
+MAX_DEPENDENTES: int = 20
+
+
+@runtime_checkable
+class TinaDependentesPort(Protocol):
+    """Leitura read-only dos dependentes do titular (contrato `tina-dependentes`). Sucesso ou recusa, nunca
+    excecao. Port separado do `TinaPort` de proposito: quem so' implementa os fatos do plano nao muda."""
+
+    async def get_dependentes(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[DependentesView]: ...
+
+
 @runtime_checkable
 class TinaPort(Protocol):
     """Leituras read-only das funcoes de LEITURA do bot TINA. Sucesso ou recusa, nunca excecao."""
@@ -126,11 +174,15 @@ class TinaPort(Protocol):
 
 
 __all__ = [
+    "MAX_DEPENDENTES",
     "CarenciaPlano",
     "CarenciasView",
+    "DependenteAnonimo",
+    "DependentesView",
     "ElegibilidadeView",
     "RequisicaoPlano",
     "RequisicoesView",
+    "TinaDependentesPort",
     "TinaPort",
     "VinculoPlano",
 ]

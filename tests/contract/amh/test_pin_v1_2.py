@@ -47,7 +47,8 @@ from maezo.adapters.amh.contract import (
 REPO_ROOT = Path(__file__).resolve().parents[3]
 LOCK_PATH = REPO_ROOT / DEFAULT_LOCK_PATH
 LOCK_REAL = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
-LOCK_SEM_V1_2 = {k: v for k, v in LOCK_REAL.items() if k != V1_2_LOCK_KEY}
+# O v1.5 (dependentes) tem o v1.2 como predecessor: sem o bloco v1.2 o lock tambem fica sem o v1.5.
+LOCK_SEM_V1_2 = {k: v for k, v in LOCK_REAL.items() if k not in (V1_2_LOCK_KEY, "manifest_v1_5")}
 
 # Publicado pela AMH (manifest v1.2, XRG-2 run 38346972222): o mesmo digest que o manifest declara.
 TINA_SHA_PUBLICADO = "320ab30360bbbe382220ba0c2cc8ee9d3dc6f8270a4e067c55b2c14a8c778a59"
@@ -187,8 +188,8 @@ def test_lock_com_bloco_v1_2_passa_e_expoe_o_digest_tina(tmp_path: Path) -> None
     pin = load_contract_pin(escreve(tmp_path, lock))
     assert pin.artifact_digests[V1_2_ARTIFACT_PATHS[0]] == TINA_SHA
     assert pin.manifest_v1_2_digest == lock[V1_2_LOCK_KEY]["manifest_pin"]["sha256"]
-    # v1 (5) + v1.1 (2) + v1.2 (1, o sintetico no lugar do real) + v1.3 (3) + v1.4 (1)
-    assert len(pin.artifact_digests) == 12
+    # v1 (5) + v1.1 (2) + v1.2 (1, o sintetico no lugar do real) + v1.3 (3) + v1.4 (1) + v1.5 (1)
+    assert len(pin.artifact_digests) == 13
     # o v1.1 nao mudou de codigo de violacao com a generalizacao
     assert check_manifest_v1_1(lock) == []
 

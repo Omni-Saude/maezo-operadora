@@ -750,7 +750,14 @@ def build_amh_interop(
         tina_executor = AmhTinaExecutor(**comum)
         # Sem o bloco `manifest_v1_2` no pin, o construtor LEVANTA `TinaContractError`: o receptor
         # recusa servir (nunca sobe "sem consultas" em silencio quando o dono as ligou).
-        tina = AmhTinaAdapter(_ler_openapi(exigidos["amh_tina_openapi_path"]), executor=tina_executor)
+        # A rota de dependentes (manifest v1.5) e' OPCIONAL: com o caminho, o bloco `manifest_v1_5` do pin e'
+        # exigido (o construtor levanta sem ele); sem o caminho, `get_dependentes` recusa fechado.
+        caminho_dependentes = getattr(settings, "amh_tina_dependentes_openapi_path", None)
+        tina = AmhTinaAdapter(
+            _ler_openapi(exigidos["amh_tina_openapi_path"]),
+            executor=tina_executor,
+            dependentes_openapi_bytes=_ler_openapi(caminho_dependentes) if caminho_dependentes else None,
+        )
         executores = (*executores, tina_executor)
     verification: AmhSubjectVerificationAdapter | None = None
     consents: AmhConsentRecordAdapter | None = None

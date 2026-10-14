@@ -559,6 +559,7 @@ _AMH_INTEROP_OPERATIONS = frozenset(
         "amh.tina_get_elegibilidade",
         "amh.tina_get_carencias",
         "amh.tina_get_requisicoes",
+        "amh.tina_get_dependentes",
         "amh.verify_subject",
         "amh.record_consent",
         "amh.resolve_by_document",
@@ -655,6 +656,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
         ("amh.tina_get_elegibilidade", "elegibilidade"),
         ("amh.tina_get_carencias", "carencias"),
         ("amh.tina_get_requisicoes", "requisicoes"),
+        ("amh.tina_get_dependentes", "dependentes"),
     ):
         results.append(
             await tina.execute(
@@ -728,7 +730,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         )
     )
-    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 9
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 10
 
 
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811

@@ -518,6 +518,16 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("MAEZO_AMH_TINA_OPENAPI_PATH", "amh_tina_openapi_path"),
     )
+    # O OpenAPI da rota de dependentes (manifest v1.5, publicado em 13/10/2026, run 38489298542), OPCIONAL:
+    # so' vale junto com `helena_consultas_amh`. Com o caminho, o adaptador TINA le o digest do bloco
+    # `manifest_v1_5` do pin (sem ele o receptor recusa servir); sem o caminho, `get_dependentes` recusa
+    # fechado.
+    amh_tina_dependentes_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH", "amh_tina_dependentes_openapi_path"
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod

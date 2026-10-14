@@ -27,6 +27,7 @@ no pin o adaptador recusa subir):
   * `GET  /interop/tina/v1/subjects/{ref}/elegibilidade`                 (`interop/tina.read`)
   * `GET  /interop/tina/v1/subjects/{ref}/carencias`                     (`interop/tina.read`)
   * `GET  /interop/tina/v1/subjects/{ref}/requisicoes`                   (`interop/tina.read`)
+  * `GET  /interop/tina/v1/subjects/{ref}/dependentes`                   (`interop/tina.read`; manifest v1.5)
 
 DECISOES DO DONO (06/10/2026, `docs/decisions-log.md`), cada uma diferente de `gateway/amh.py`:
 
@@ -120,6 +121,7 @@ from maezo.adapters.amh.subject_verification import (
 )
 from maezo.adapters.amh.tina import (
     OP_CARENCIAS,
+    OP_DEPENDENTES,
     OP_ELEGIBILIDADE,
     OP_REQUISICOES,
     AmhTinaAdapter,
@@ -157,6 +159,7 @@ SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_ELEGIBILIDADE: SCOPE_TINA,
     OP_CARENCIAS: SCOPE_TINA,
     OP_REQUISICOES: SCOPE_TINA,
+    OP_DEPENDENTES: SCOPE_TINA,
     OP_VERIFY: SCOPE_VERIFY,
     OP_RECORD: SCOPE_CONSENT_WRITE,
     OP_RESOLVE_DOCUMENT: SCOPE_RESOLVE_DOCUMENT,
@@ -184,12 +187,14 @@ _TINA_SUFFIX: Final[dict[str, str]] = {
     OP_ELEGIBILIDADE: "/elegibilidade",
     OP_CARENCIAS: "/carencias",
     OP_REQUISICOES: "/requisicoes",
+    OP_DEPENDENTES: "/dependentes",
 }
 #: Query permitida por operacao TINA (`purpose_of_use` sempre obrigatorio e igual ao da composicao).
 _TINA_QUERY: Final[dict[str, frozenset[str]]] = {
     OP_ELEGIBILIDADE: frozenset({"purpose_of_use"}),
     OP_CARENCIAS: frozenset({"purpose_of_use", "limite", "pendentes"}),
     OP_REQUISICOES: frozenset({"purpose_of_use", "limite"}),
+    OP_DEPENDENTES: frozenset({"purpose_of_use"}),
 }
 
 _SUBJECT: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
@@ -918,7 +923,7 @@ class AmhTinaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
     conferidas aqui de novo, a cada chamada: o adaptador monta o pedido, o executor nao confia nele.
     """
 
-    registered_operations = frozenset({OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES})
+    registered_operations = frozenset({OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES, OP_DEPENDENTES})
 
     def _validar(self, request: GovernedTinaRequest) -> None:
         if (

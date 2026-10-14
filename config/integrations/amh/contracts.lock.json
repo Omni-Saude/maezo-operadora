@@ -400,5 +400,47 @@
       "verified_at_utc": "2026-10-13T04:39:27Z",
       "verified_by": "Claude Code, a pedido do Márcio Filipe Filó do Carmo (CTO e owner)"
     }
+  },
+  "manifest_v1_5": {
+    "provenance": {
+      "amh_commit_sha": "02198722b1d20a89b68d5c868c5eaecb03a1758f",
+      "amh_manifest_commit_sha": "2f7975b5479ca73ad44ae8c84169b99306c2f8a1",
+      "evidence_id": "XRG2-AMH-DEV-GHA-38489298542",
+      "status": "PUBLISHED"
+    },
+    "manifest_pin": {
+      "byte_size": 6717,
+      "git_blob_sha": "00cd174f69aaf8a99b8d4456a096ccf17783bf42",
+      "path": "schemas/contracts/maezo/v1.5/contract-manifest.yaml",
+      "prepublication_sha256": "dfbe187c9fb1b3d295dcd542b22909b45be31a7e4349573f35c477a1fb550741",
+      "sha256": "262ad0826f1de32e9324346df5f933f0793bca536d6e672223f3dba0c473e923"
+    },
+    "compatibility_report": {
+      "dry_run_id": "github-actions-run-38489298542",
+      "dry_run_run_id": "38489298542",
+      "evidence_artifact_id": "11860434319",
+      "provider_contract_tests": "11 passed",
+      "result": "PASSED"
+    },
+    "publication": {
+      "environment": "dev",
+      "publication_run_id": "38489298542",
+      "published_at_utc": "2026-10-14T00:18:00Z"
+    },
+    "artifacts": [
+      {
+        "path": "schemas/openapi/maezo/v1/tina-dependentes.openapi.yaml",
+        "sha256": "0056a326dfc2eba27bfce5c0e6e81edb43e43b7297c8b1dfc2a8ad7f9e4d6dd0"
+      }
+    ],
+    "xrg3_verification": {
+      "verification_method": [
+        "manifest v1.5 + digests recalculados pelo script scripts/ci/gerar_pin_v1_1.py",
+        "sha256, git blob sha e tamanho calculados sobre os bytes publicados",
+        "1 digests OpenAPI conferidos contra o manifest publicado"
+      ],
+      "verified_at_utc": "2026-10-14T00:23:27Z",
+      "verified_by": "Claude Code, a pedido do Márcio Filipe Filó do Carmo (CTO e owner)"
+    }
   }
 }
