@@ -12,6 +12,9 @@
 !deploy/aws-ecs/envs/dev-sa-east-1/retomada.auto.tfvars
 !deploy/aws-ecs/envs/dev-sa-east-1/lucas.auto.tfvars
 !deploy/aws-ecs/envs/dev-sa-east-1/amh-interop.auto.tfvars
+# Estado vivo do dev (staff_ops/staff_install/engine_native, zona PHI, egresso Cognito desligado). O
+# apply de dev saiu de um arquivo avulso que se perdeu; este substitui. Ver o cabecalho do arquivo.
+!deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars
 
 # Python
 __pycache__/

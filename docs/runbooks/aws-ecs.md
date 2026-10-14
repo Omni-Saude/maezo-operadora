@@ -69,6 +69,29 @@ terraform init -backend-config="bucket=amh-tfstate-dev" `
 terraform --% apply -input=false -var=image_tag=<sha>
 ```
 
+### Plan/apply do dev (a partir do git, sem arquivo avulso)
+
+As variáveis de estado do dev estão TODAS versionadas em `deploy/aws-ecs/envs/dev-sa-east-1/*.auto.tfvars`
+(o Terraform as carrega sozinho), em especial `dev-vivo.auto.tfvars`: `staff_install`, `staff_ops` (inclui o
+job T1.5 que atualiza a fila do portal), `engine_native`, a zona PHI (`helena_zona_phi`,
+`phi_vendor_dpa_ref`, `phi_zone_provider`) e `portal_cognito_egress_sync` desligado. O arquivo avulso
+`atestacao-phi-viva.tfvars` com que o dev foi aplicado antes está OBSOLETO (perdeu-se e nunca foi commitado):
+não use `-var-file` nenhum. Só mudam por deploy as imagens, na linha de comando:
+
+```powershell
+terraform plan -lock=false -input=false `
+  -var image_tag=<tag> -var webhook_receiver_image_tag=<tag> -var canal_teste_image_tag=<tag> `
+  -var agents_image_digest=<sha256:...> -var worker_image_digest=<sha256:...> `
+  -var diagnostics_image_digest=<sha256:...> -var engine_image_digest=<sha256:...>
+# conferido o plano: o mesmo comando com `apply` no lugar de `plan` (sem -lock=false)
+```
+
+Pegue tag e digests do que os serviços rodam hoje (`aws ecs describe-task-definition`). Para mudar qualquer
+valor dos `.auto.tfvars`: PR que edita o arquivo, depois apply. Um plano limpo não destrói nada vivo; o ruído
+esperado é o de normalização do ECS (task definitions recriadas por `portMappings.hostPort`/`capabilities.add=[]`),
+a assinatura SNS pendente de confirmação e a task `staff-rows` na imagem do `staff_ops`. Se o plano propuser
+destruir `staff_*`, `engine_native` ou o NLB, PARE: algum `.auto.tfvars` não foi carregado.
+
 **1. O SG das tasks tem de ser liberado no Aurora — em OUTRO repositório.**
 `terraform output ecs_tasks_security_group_id` → o ID entra em
 `module.aurora_hapi.allowed_security_group_ids`, em
