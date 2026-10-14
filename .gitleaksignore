@@ -216,3 +216,9 @@ cd4b0ed4aaa1751ad6aec83eb92f8b5c2b946fa1:docs/gates/v21-durability-successor-202
 # Historical commit of THIS branch: the pre-repair .gitleaksignore comment itself quoted
 # the literal (fixed at 06634dc5); history-scan still sees it. Removable post-merge.
 99d3d15634729820b34eafd209d92eb11f86329e:.gitleaksignore:generic-api-key:211
+# PR #775 (dev-vivo.auto.tfvars): 'generic-api-key' dispara no UUID do VersionId de um segredo do Secrets Manager
+# (job_secret_version_id / native_secret_version_id). E' o identificador da versao pinada, o mesmo que ja' vive
+# em claro nas task definitions (campo `valueFrom`); o valor do segredo nunca passa pelo repo. Cobre so' o commit
+# historico que introduziu as linhas; removivel depois do merge.
+cef12c84774abd7413ccab99595d2e767da83a36:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:67
+cef12c84774abd7413ccab99595d2e767da83a36:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:88
