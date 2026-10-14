@@ -141,7 +141,11 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     # DL-0083 appends 0022 (`conversa_acesso_beneficiario`); 0023 fixes its ref CHECKs; still linear.
     # DL-0086 appends 0024 (`consulta_valores` no CHECK de `conversa_agente_ativo`); still linear.
     # Simulador (13/10/2026) appends 0025 (memoria curta do Lucas em `conversa_agente_ativo`); still linear.
-    assert script.get_heads() == ["0025"]
+    # Apresentacao do canal (14/10/2026) appends 0026 (`apresentado_em` em `conversa_acesso_beneficiario`).
+    # Lembrete de cobranca (14/10/2026) appends 0027 (idempotencia e opt-out); still linear.
+    assert script.get_heads() == ["0027"]
+    assert script.get_revision("0027").down_revision == "0026"
+    assert script.get_revision("0026").down_revision == "0025"
     assert script.get_revision("0025").down_revision == "0024"
     assert script.get_revision("0024").down_revision == "0023"
     assert script.get_revision("0023").down_revision == "0022"

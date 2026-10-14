@@ -136,7 +136,10 @@ async def _verificar(d: HelenaDispatcher) -> None:
     await d.dispatch(_m("oi", 1))
     await d.dispatch(_m("ACEITO", 2))
     r = await d.dispatch(_m(CPF, 3))
-    assert r["acesso_estado"] == "verificado" and r["response_text"] == ac.RESPOSTA_VERIFICADO
+    assert (
+        r["acesso_estado"] == "verificado"
+        and r["response_text"] == ac.TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES
+    )
 
 
 async def test_agentes_nao_rodam_antes_da_verificacao(monkeypatch: pytest.MonkeyPatch) -> None:

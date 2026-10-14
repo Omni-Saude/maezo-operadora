@@ -117,6 +117,40 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
   dependentes. Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe." Nunca "não
   consta essa informação no cadastro".
 
+## Apresentação do canal (14/10/2026)
+
+Mensagem fixa `apresentacao-canal-v1` (`platform/webhooks/whatsapp/apresentacao_canal.py`), sem nome de agente:
+
+```
+Por aqui você pode:
+• Consultar mensalidade, vencimento e coparticipação.
+• Ver os dados do seu plano: carteirinha, carências e dependentes.
+• Relatar um sintoma e ser encaminhado à equipe de saúde.
+• Questionar uma cobrança e ser encaminhado à equipe de atendimento.
+Em emergência, ligue 192. Como posso ajudar?
+```
+
+- **"dependentes" só com a fonte ligada** (`MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH` com as consultas AMH da Helena);
+  sem ela, "carteirinha e carências".
+- **Quando aparece (só dois momentos):** (1) ao concluir a verificação pela primeira vez, em mensagem própria
+  depois de "Pronto, já confirmei que é você 😊" (o emoji fica fora do texto que fala de emergência); (2) na
+  volta depois de 30 dias sem mensagens (`MAEZO_ACESSO_APRESENTACAO_DIAS`), ao fim da reverificação, uma vez só.
+  Nunca na reverificação diária, que continua "Pronto, já confirmei que é você 😊 Em que posso ajudar?".
+- **Onde fica o carimbo:** `conversa_acesso_beneficiario.apresentado_em` (migration 0026). "Pedir um atendente"
+  continua funcionando; só não é anunciado no texto.
+## Lembrete proativo de cobrança (14/10/2026)
+
+- **Primeira mensagem que o sistema manda sem ser chamado.** Texto fixo, sem modelo, três fatos e duas
+  orientações. Sem nome de agente, mês sempre com ano, frases de até 20 palavras, nenhum emoji:
+  "Sua mensalidade de outubro de 2026 (R$ 320,25) vence em 16/10. Para a 2ª via, acesse o aplicativo Austa
+  Clínicas, o portal do plano ou a central de atendimento. Para não receber lembretes, responda PARAR."
+- **PARAR:** "Você não receberá mais lembretes." (confirma e para; REVOGAR continua do fluxo de acesso).
+- **Só para quem paga a própria mensalidade** (pessoa física, acesso verificado e consentimento). Contrato
+  de empresa e coletivo por adesão nunca recebem. Fora da janela de 24 h do WhatsApp sai o template da
+  Meta, com o mesmo texto (`docs/runbooks/lembrete-cobranca.md`).
+- **Teste:** o modo de teste marca a mensagem com "[TESTE]" e usa fatos sintéticos; nunca vai a quem não está
+  na lista do ambiente.
+
 ## Nunca dizer
 
 - "portal do beneficiário", "portal da operadora", "aplicativo do plano", "site", 0800 ou qualquer canal

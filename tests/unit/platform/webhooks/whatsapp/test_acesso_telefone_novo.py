@@ -97,7 +97,10 @@ async def test_telefone_novo_unico_verifica_com_a_ref_do_documento(amb: Ambiente
     assert d.respostas == (ac.PEDIDO_NASCIMENTO,) and d.novo.estado == ac.AGUARDANDO_NASCIMENTO
     assert not d.escalar and _docs(amb).chamadas == [] and amb.verif.chamadas == []
     d = await amb.msg(NASC_TXT)
-    assert d.respostas == (ac.RESPOSTA_VERIFICADO,) and d.nova_verificacao
+    assert (
+        d.respostas == (ac.TEXTO_VERIFICADO_APRESENTACAO, ac.TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES)
+        and d.nova_verificacao
+    )
     assert d.novo.estado == ac.VERIFICADO and d.novo.portable_subject_ref == REF_NOVA
     assert d.novo.expira_em == d.novo.verificado_em + timedelta(hours=24)  # type: ignore[operator]
     [chamada] = _docs(amb).chamadas
@@ -373,6 +376,7 @@ def test_textos_e_hash_inalterados_pelo_caminho_do_documento() -> None:
     """O caminho novo nao cria texto novo: reusa PEDIDO_NASCIMENTO e os textos do #700."""
     assert set(ac.textos_fixos()) == {
         "consentimento", "pedido_cpf", "cpf_invalido", "pedido_nascimento", "pedido_cpf_e_nascimento",
-        "verificado", "falha_conferencia", "bloqueado", "bloqueado_curto", "indisponivel",
+        "verificado", "verificado_apresentacao", "apresentacao_canal", "apresentacao_canal_sem_dependentes",
+        "falha_conferencia", "bloqueado", "bloqueado_curto", "indisponivel",
         "telefone_nao_identificado", "revogado", "emergencia",
     }  # fmt: skip

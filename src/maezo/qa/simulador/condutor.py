@@ -241,7 +241,8 @@ class Condutor:
     async def _verificar(self, conversa: Conversa, plano: PlanoDeConversa) -> bool:
         for passo in ROTEIRO_DE_VERIFICACAO:
             turno = await self._enviar_com_retentativa(conversa, plano, passo)
-            if acesso_mod.RESPOSTA_VERIFICADO in turno.textos():
+            textos = turno.textos()
+            if acesso_mod.RESPOSTA_VERIFICADO in textos or acesso_mod.TEXTO_VERIFICADO_APRESENTACAO in textos:
                 return True
         return False
 
