@@ -57,13 +57,14 @@ def test_a_base_tem_exatamente_19_bootstraps_e_o_contrato_e_19() -> None:
     assert len(ALL_WORKER_BOOTSTRAPS) == EXPECTED_WORKER_BOOTSTRAP_COUNT
 
 
-def test_a_cadeia_local_e_head_linear_0025_revisando_0024() -> None:
+def test_a_cadeia_local_e_head_linear_0026_revisando_0025() -> None:
     """(b) — leitura estrutural via ScriptDirectory (não regex): uma head, e 0023 revisa 0022
     (0021 = store de supressão GP11 — VW4 wiring; 0022 = acesso do beneficiario, DL-0083;
     0023 = CHECKs da 0022; 0024 = `consulta_valores` no CHECK do roteador, DL-0086; 0025 = memoria curta
-    do Lucas no roteador, simulador 13/10/2026)."""
+    do Lucas no roteador, simulador 13/10/2026; 0026 = carimbo da apresentacao do canal no acesso)."""
     heads, edges = local_migration_chain()
-    assert heads == ("0025",)
+    assert heads == ("0026",)
+    assert edges["0026"] == "0025"
     assert edges["0025"] == "0024"
     assert edges["0024"] == "0023"
     assert edges["0023"] == "0022"

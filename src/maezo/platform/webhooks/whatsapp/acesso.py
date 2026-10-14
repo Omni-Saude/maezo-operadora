@@ -42,6 +42,14 @@ A MAQUINA (cada estado, e o que ela responde; os agentes NUNCA rodam fora de `ve
   fora de `verificado`    sinal lexical de emergencia     -> EMERGENCIA ANTES da resposta do estado (nunca no
                                                              lugar dela), sem dado de beneficiario nenhum
 
+APRESENTACAO DO CANAL (14/10/2026, `apresentacao_canal.py`). Ao concluir a verificacao com `apresentado_em`
+vazio, o fecho vira DUAS mensagens: "Pronto, ja' confirmei que e' voce" + a apresentacao do canal, e
+`apresentado_em` recebe o instante. A reverificacao diaria (apresentado_em preenchido) mantem o fecho de
+sempre. Silencio de `silencio_apresentacao` (30 dias) ou mais entre duas mensagens volta `apresentado_em`
+a vazio: a apresentacao sai ao fim da PROXIMA verificacao, uma vez so'. A validade da verificacao e'
+sempre MENOR que o silencio (o construtor exige), entao quem volta depois dele sempre reverifica.
+Idempotencia: o estado so' e' gravado DEPOIS do envio; a reentrega recalcula com as mesmas chaves de saida.
+
 TENTATIVAS E BLOQUEIO SOBREVIVEM A REVOGAR/ACEITO (revisao do PR #700, P0): so' o vencimento do prazo do
 bloqueio (ou uma verificacao bem-sucedida) zera o contador. Senao REVOGAR + ACEITO seria um "tente de novo"
 ilimitado contra um CPF de 11 digitos.
@@ -106,6 +114,12 @@ from maezo.ports.document_resolution import DocumentResolutionPort
 from maezo.ports.subject_verification import SubjectVerificationPort
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
+from .apresentacao_canal import (
+    TEXTO_APRESENTACAO_CANAL,
+    TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES,
+    TEXTO_VERIFICADO_APRESENTACAO,
+    texto_apresentacao,
+)
 from .pre_roteamento import PreRoteamento, normalizar
 
 logger = structlog.get_logger(__name__)
@@ -147,6 +161,7 @@ PEDIDO_NASCIMENTO: Final[str] = "Por segurança, me envie também sua data de na
 PEDIDO_CPF_E_NASCIMENTO: Final[str] = (
     "Por segurança, me envie seu CPF e sua data de nascimento (dd/mm/aaaa) na mesma mensagem."
 )
+#: Fecho da verificacao quando a pessoa ja viu a apresentacao do canal (reverificacao diaria).
 RESPOSTA_VERIFICADO: Final[str] = "Pronto, já confirmei que é você 😊 Em que posso ajudar?"
 FALHA_CONFERENCIA: Final[str] = "Não consegui confirmar seus dados. Pode conferir e tentar de novo?"
 BLOQUEADO: Final[str] = (
@@ -219,6 +234,8 @@ VALIDADE_HORAS_PADRAO: Final[int] = 24
 #: revogacao ser gravada no lago (apagar seria perder o pedido do titular). Quem volta depois disso consente
 #: e se verifica de novo. Varredor: `acesso_retencao.py` (no receptor e por linha de comando).
 RETENCAO_ESTADO: Final[timedelta] = timedelta(days=90)
+#: Silencio (entre duas mensagens da conversa) que faz a apresentacao do canal ser devida de novo.
+SILENCIO_APRESENTACAO_PADRAO: Final[timedelta] = timedelta(days=30)
 ANO_MINIMO_NASCIMENTO: Final[int] = 1900
 
 #: Motivo de escalonamento do bloqueio: a categoria EXISTENTE mais proxima de "uma pessoa precisa assumir" na
@@ -352,6 +369,9 @@ class EstadoAcesso:
     #: NAO zera; so' o fim da janela.
     falhas_janela: int = 0
     janela_inicio: datetime | None = None
+    #: Quando a apresentacao do canal (`apresentacao-canal-v1`) foi mostrada (migration 0026).
+    #: `None` = devida: nunca mostrada ou a pessoa voltou depois do silencio longo.
+    apresentado_em: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.estado not in ESTADOS:
@@ -531,9 +551,16 @@ class AcessoBeneficiario:
         cpfs_pendentes: _CpfsPendentes | None = None,
         aclose_fn: Callable[[], Awaitable[None]] | None = None,
         documentos: DocumentResolutionPort | None = None,
+        apresentar_dependentes: bool = False,
+        silencio_apresentacao: timedelta = SILENCIO_APRESENTACAO_PADRAO,
     ) -> None:
         if validade <= timedelta(0):
             raise ValueError("acesso: validade deve ser positiva")
+        if silencio_apresentacao <= validade:
+            raise ValueError("acesso: o silencio da apresentacao deve ser maior que a validade")
+        self._silencio_apresentacao = silencio_apresentacao
+        #: O item "dependentes" so' entra com a fonte de dependentes disponivel.
+        self._apresentacao = texto_apresentacao(com_dependentes=apresentar_dependentes)
         if not 0 < prazo_amh_s <= 30:
             raise ValueError("acesso: prazo_amh_s fora de (0, 30]")
         if not 0 < prazo_consentimento_s <= 30:
@@ -615,7 +642,12 @@ class AcessoBeneficiario:
             self._log_transicao(conversation_id, None, SEM_CONSENTIMENTO, "primeira_mensagem")
             return self._responder(novo, TEXTO_CONSENTIMENTO, emergencia=emergencia)
 
-        atual = replace(atual, ultima_mensagem_em=agora)
+        silencio_longo = agora - atual.ultima_mensagem_em >= self._silencio_apresentacao
+        atual = replace(
+            atual,
+            ultima_mensagem_em=agora,
+            apresentado_em=None if silencio_longo else atual.apresentado_em,
+        )
         atual, reiniciou = self._vencimentos(atual, agora)
         atual, escalar_revogacao = await self._regravar_pendencias(atual)
         decisao = await self._decidir(atual, agora, texto, numero_cru, reiniciou, emergencia=emergencia)
@@ -1120,6 +1152,7 @@ class AcessoBeneficiario:
                 expira_em=None,
                 bloqueado_ate=None,
                 regravacoes_falhas=0,
+                apresentado_em=None,
             )
             self._log_transicao(atual.conversation_id, atual.estado, SEM_CONSENTIMENTO, "pessoa_mudou")
             return DecisaoAcesso(
@@ -1154,9 +1187,13 @@ class AcessoBeneficiario:
                     novo, consent_ref=consent_ref, consentimento_pendente_gravacao=False, regravacoes_falhas=0
                 )
         self._log_transicao(atual.conversation_id, atual.estado, VERIFICADO, motivo)
-        return DecisaoAcesso(
-            respostas=(RESPOSTA_VERIFICADO,), prosseguir=False, novo=novo, nova_verificacao=True
-        )
+        respostas: tuple[str, ...] = (RESPOSTA_VERIFICADO,)
+        if novo.apresentado_em is None:
+            # Primeira verificacao (ou volta depois do silencio longo): a apresentacao do canal, uma vez so'.
+            respostas = (TEXTO_VERIFICADO_APRESENTACAO, self._apresentacao)
+            novo = replace(novo, apresentado_em=agora)
+            self._log_transicao(atual.conversation_id, VERIFICADO, VERIFICADO, "apresentacao_do_canal")
+        return DecisaoAcesso(respostas=respostas, prosseguir=False, novo=novo, nova_verificacao=True)
 
 
 def textos_fixos() -> dict[str, str]:
@@ -1168,6 +1205,9 @@ def textos_fixos() -> dict[str, str]:
         "pedido_nascimento": PEDIDO_NASCIMENTO,
         "pedido_cpf_e_nascimento": PEDIDO_CPF_E_NASCIMENTO,
         "verificado": RESPOSTA_VERIFICADO,
+        "verificado_apresentacao": TEXTO_VERIFICADO_APRESENTACAO,
+        "apresentacao_canal": TEXTO_APRESENTACAO_CANAL,
+        "apresentacao_canal_sem_dependentes": TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES,
         "falha_conferencia": FALHA_CONFERENCIA,
         "bloqueado": BLOQUEADO,
         "bloqueado_curto": BLOQUEADO_CURTO,
@@ -1197,6 +1237,10 @@ __all__ = [
     "VERSAO_TEXTO_CONSENTIMENTO",
     "AcessoBeneficiario",
     "RETENCAO_ESTADO",
+    "SILENCIO_APRESENTACAO_PADRAO",
+    "TEXTO_APRESENTACAO_CANAL",
+    "TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES",
+    "TEXTO_VERIFICADO_APRESENTACAO",
     "AcessoStore",
     "AcessoStoreComExpurgo",
     "AcessoStoreEmMemoria",

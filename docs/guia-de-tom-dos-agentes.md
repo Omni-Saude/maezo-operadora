@@ -117,6 +117,28 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
   dependentes. Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe." Nunca "não
   consta essa informação no cadastro".
 
+## Apresentação do canal (14/10/2026)
+
+Mensagem fixa `apresentacao-canal-v1` (`platform/webhooks/whatsapp/apresentacao_canal.py`), sem nome de agente:
+
+```
+Por aqui você pode:
+• Consultar mensalidade, vencimento e coparticipação.
+• Ver os dados do seu plano: carteirinha, carências e dependentes.
+• Relatar um sintoma e ser encaminhado à equipe de saúde.
+• Contestar uma cobrança e ser encaminhado à equipe de atendimento.
+Em emergência, ligue 192. Como posso ajudar?
+```
+
+- **"dependentes" só com a fonte ligada** (`MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH` com as consultas AMH da Helena);
+  sem ela, "carteirinha e carências".
+- **Quando aparece (só dois momentos):** (1) ao concluir a verificação pela primeira vez, em mensagem própria
+  depois de "Pronto, já confirmei que é você 😊" (o emoji fica fora do texto que fala de emergência); (2) na
+  volta depois de 30 dias sem mensagens (`MAEZO_ACESSO_APRESENTACAO_DIAS`), ao fim da reverificação, uma vez só.
+  Nunca na reverificação diária, que continua "Pronto, já confirmei que é você 😊 Em que posso ajudar?".
+- **Onde fica o carimbo:** `conversa_acesso_beneficiario.apresentado_em` (migration 0026). "Pedir um atendente"
+  continua funcionando; só não é anunciado no texto.
+
 ## Nunca dizer
 
 - "portal do beneficiário", "portal da operadora", "aplicativo do plano", "site", 0800 ou qualquer canal

@@ -2353,6 +2353,28 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n• Ver os dados do seu plano: carteirinha, carências e dependentes.\n• Relatar um sintoma e ser encaminhado à equipe de saúde.\n• Contestar uma cobrança e ser encaminhado à equipe de atendimento.\nEm emergência, ligue 192. Como posso ajudar?",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - apresentacao-canal-v1 (14/10/2026, decisao do dono): TEXTO_APRESENTACAO_CANAL; texto fixo do acesso, fora do caminho da Helena (a cerca o le como promessa sem start por causa de \"encaminhado\")",
+      "esperado": {
+        "recusa": "promessa_sem_start",
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n• Ver os dados do seu plano: carteirinha e carências.\n• Relatar um sintoma e ser encaminhado à equipe de saúde.\n• Contestar uma cobrança e ser encaminhado à equipe de atendimento.\nEm emergência, ligue 192. Como posso ajudar?",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - apresentacao-canal-v1 (14/10/2026, decisao do dono): TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES; texto fixo do acesso, fora do caminho da Helena (a cerca o le como promessa sem start por causa de \"encaminhado\")",
+      "esperado": {
+        "recusa": "promessa_sem_start",
+        "canal": null,
+        "menciona": true
+      }
     }
   ]
 }

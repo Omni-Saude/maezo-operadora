@@ -263,7 +263,11 @@ async def test_cpf_invalido_conta_tentativa(amb: Ambiente) -> None:
 
 async def test_telefone_unico_e_cpf_confere_verifica_e_registra_consentimento(amb: Ambiente) -> None:
     d = await amb.verificar_pelo_telefone()
-    assert d.respostas == (ac.RESPOSTA_VERIFICADO,) and not d.prosseguir and d.nova_verificacao
+    assert (
+        d.respostas == (ac.TEXTO_VERIFICADO_APRESENTACAO, ac.TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES)
+        and not d.prosseguir
+        and d.nova_verificacao
+    )
     assert d.novo.estado == ac.VERIFICADO and d.novo.portable_subject_ref == REF
     assert amb.verif.chamadas == [("cpf", amb.hasher.hash_cpf(CPF), REF)]  # SO' contra a ref do telefone
     assert len(amb.consent.chamadas) == 1
@@ -576,6 +580,7 @@ def test_textos_fixos_sao_exatamente_os_do_dono() -> None:
     assert t["cpf_invalido"] == "Esse CPF não parece válido. Pode conferir e enviar de novo?"
     assert t["pedido_nascimento"] == "Por segurança, me envie também sua data de nascimento (dd/mm/aaaa)."
     assert t["verificado"] == "Pronto, já confirmei que é você 😊 Em que posso ajudar?"
+    assert t["verificado_apresentacao"] == "Pronto, já confirmei que é você 😊"
     assert t["falha_conferencia"] == "Não consegui confirmar seus dados. Pode conferir e tentar de novo?"
     assert t["bloqueado"] == (
         "Não consegui confirmar que é você. Vou passar seu atendimento para alguém da nossa equipe."
