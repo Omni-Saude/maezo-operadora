@@ -117,6 +117,22 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
   dependentes. Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe." Nunca "não
   consta essa informação no cadastro".
 
+## Rodada 12 — política de escalação e cancelamento (DL-0098, 14/10/2026)
+
+Decisão do dono, sessão de 14/10/2026. O Lucas responde os fatos primeiro, sempre.
+
+- **Quando abre caso:** contestação, pedido de negociação ou parcelamento, cancelamento confirmado, pedido de
+  pessoa ou atraso real (pagador pessoa física com 2 ou mais meses sem pagamento, ou mais de 30 dias).
+- **Um mês sem pagamento, até 30 dias:** os fatos do mês e a oferta "Se quiser, posso te passar para alguém da
+  nossa equipe.", sem caso. Empresa e adesão nunca escalam pelo atraso da empresa ou da administradora.
+- **Sem dado ou fora do assunto:** texto fixo e a oferta, sem caso. Nada de "Agora não consegui consultar" com
+  caso aberto.
+- **Cancelamento, empresa ou adesão:** "O cancelamento do plano é decidido pela empresa contratante
+  (normalmente o RH)." ou "...pela administradora do plano.", com a oferta de alguém da equipe.
+- **Cancelamento, pessoa física:** uma pergunta ("Você quer pedir para cancelar o seu plano?"), sem argumento
+  de retenção e sem prazo. Só com o "SIM, QUERO CANCELAR" o pedido segue. O Lucas nunca diz que o plano foi
+  cancelado: diz que o pedido está com a equipe, que responde por aqui.
+
 ## Apresentação do canal (14/10/2026)
 
 Mensagem fixa `apresentacao-canal-v1` (`platform/webhooks/whatsapp/apresentacao_canal.py`), sem nome de agente:

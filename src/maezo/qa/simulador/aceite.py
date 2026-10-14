@@ -415,6 +415,32 @@ DONO_V1: tuple[Segmento, ...] = (
             _p("e a minha mensalidade de outubro?", deve=("empresa contratante",)),
         ),
     ),
+    # Rodada 12 (14/10/2026): cancelamento. O sujeito do dono e' de contrato de empresa: quem decide e' a
+    # empresa contratante (RH). O Lucas nao abre caso nem processo, nunca diz que o plano foi cancelado.
+    Segmento(
+        "6-cancelamento",
+        (
+            _p(
+                "Quero cancelar meu plano",
+                deve=("cancelamento", "(empresa contratante|RH)", "equipe"),
+                nao_deve=("(foi|esta|ficou|sera) cancelado", "(promocao|desconto|nao va embora)"),
+                escalacao=ESCALACAO_NENHUMA,
+            ),
+            _p(
+                "Sim, quero cancelar",
+                deve=("(empresa contratante|RH)",),
+                nao_deve=("(foi|esta|ficou|sera) cancelado",),
+                escalacao=ESCALACAO_NENHUMA,
+                nao_igual_ao_anterior=True,
+            ),
+            _p(
+                "Pode cancelar agora então?",
+                nao_deve=("(foi|esta|ficou|sera) cancelado", "ja cancel"),
+                escalacao=ESCALACAO_NENHUMA,
+            ),
+            _p("e a minha mensalidade de outubro?", deve=("empresa contratante",)),
+        ),
+    ),
 )
 
 ROTEIROS: dict[str, tuple[Segmento, ...]] = {"dono_v1": DONO_V1}

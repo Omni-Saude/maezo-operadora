@@ -279,6 +279,21 @@ class WhatsAppWebhookSettings(BaseSettings):
         le=1440,
         validation_alias=AliasChoices("MAEZO_LUCAS_INATIVIDADE_MINUTOS", "lucas_inatividade_minutos"),
     )
+    # POLITICA DE ATRASO do Lucas (decisao do dono, sessao de 14/10/2026): so' o atraso CRITICO de pagador PF
+    # abre caso humano — `meses_min` competencias sem pagamento OU mais de `dias_min` dias de atraso. Abaixo
+    # disso o Lucas responde os fatos e oferece uma pessoa. Padrao: 2 meses e 30 dias.
+    lucas_atraso_meses_min: int = Field(
+        default=2,
+        ge=1,
+        le=24,
+        validation_alias=AliasChoices("MAEZO_LUCAS_ATRASO_MESES_MIN", "lucas_atraso_meses_min"),
+    )
+    lucas_atraso_dias_min: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        validation_alias=AliasChoices("MAEZO_LUCAS_ATRASO_DIAS_MIN", "lucas_atraso_dias_min"),
+    )
     # Fonte dos fatos de cobranca do Lucas. `simulada` (o default) ou `amh` — a fonte REAL pelos
     # contratos `billing-status`/`subject-resolution` da AMH (decisao do dono 06/10/2026). `amh` so'
     # sobe com os contratos publicados e pinados e com toda a configuracao abaixo; faltando qualquer

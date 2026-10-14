@@ -1,4 +1,4 @@
-"""As 20 personas do simulador e os marcadores que o modelo da persona usa no lugar de dado real.
+"""As 22 personas do simulador e os marcadores que o modelo da persona usa no lugar de dado real.
 
 O MODELO DA PERSONA NUNCA VE CPF NEM NASCIMENTO. Quando a conversa pede um deles, a persona escreve
 o marcador (`{{CPF}}`, `{{NASCIMENTO}}`) e o simulador o troca pelo dado do roster na hora de enviar
@@ -253,6 +253,28 @@ PERSONAS: tuple[Persona, ...] = (
         estilo=_ESTILO_PADRAO,
         escalacao="permitida",
         cobranca=True,
+    ),
+    # Rodada 12 (14/10/2026): o pedido de cancelamento. O tipo do pagador vem do sujeito do roster: a mesma
+    # persona recebe o texto da empresa/administradora (PJ/adesao) ou a pergunta de confirmacao (PF).
+    Persona(
+        id="cancelamento",
+        nome="Quer cancelar o plano",
+        descricao="Pessoa que decidiu cancelar o plano e quer saber como.",
+        objetivo="Pedir o cancelamento do plano e confirmar quando o atendimento perguntar.",
+        estilo=_ESTILO_PADRAO,
+        escalacao="permitida",
+        turnos_min=3,
+        turnos_max=6,
+    ),
+    Persona(
+        id="cancelamento_empresa",
+        nome="Quer cancelar, plano da empresa",
+        descricao="Pessoa com plano pago pela empresa onde trabalha, quer cancelar.",
+        objetivo="Pedir o cancelamento do plano e depois perguntar da mensalidade do mes.",
+        estilo=_ESTILO_PADRAO,
+        escalacao="permitida",
+        turnos_min=3,
+        turnos_max=6,
     ),
 )
 

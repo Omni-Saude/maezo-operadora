@@ -219,6 +219,12 @@ async def test_prova_dmn_indisponivel_escala_em_todo_caso(caso: dict[str, Any]) 
     respondidos: nenhum vira resposta automatica, nenhum perde o caso, todos mandam um envio."""
     sem_dmn = {**caso, "dmn": "indisponivel"}
     registro = await executar_caso(sem_dmn, dmn=DmnIndisponivel())
+    if caso["perfil_fonte"] == "indisponivel" and caso["jornada"] in ("J2", "J1"):
+        # 14/10/2026: com a FONTE fora nao ha' fato nem DMN a consultar — a constante honesta, sem caso (a DMN
+        # fora do ar nao muda nada aqui).
+        assert registro["route"] == "respond_member"
+        assert registro["process_started"] is False and registro["dmn_avaliadas"] == []
+        return
     assert registro["route"] == "escalate_human"
     assert registro["process_started"] is True
     assert registro["envios"] == 1

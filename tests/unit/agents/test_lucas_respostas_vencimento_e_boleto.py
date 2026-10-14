@@ -298,13 +298,15 @@ async def test_vencimento_do_mes_citado_ausente_diz_que_nao_achou_e_da_o_proximo
     ]
 
 
-async def test_em_aberto_com_data_passada_nao_afirma_atraso_nem_data() -> None:
-    """A fonte ainda diz `em_aberto` (sem `vencida`, `dias_atraso_max=0`), mas a data ja' passou: dizer
-    "venceu" seria afirmar atraso, que e' da DMN. O texto diz que nao achou o vencimento (DL-0087: sem a
-    data da fonte, que so' acompanha um fato afirmado)."""
+async def test_em_aberto_com_data_passada_diz_o_fato_e_oferece_uma_pessoa() -> None:
+    """A fonte ainda diz `em_aberto` (sem `vencida`), mas a data ja' passou. Dono 14/10: o fato primeiro,
+    "venceu em 25/11 e ainda esta' sem pagamento", sem atraso e sem caso."""
     final, envio, _ = await _turno(_estado("vencimento", **_fatos(_em_aberto())), hoje=date(2026, 11, 26))
-    assert final["route"] == "respond_member"
-    assert envio.textos == [VENCIMENTO_NAO_ENCONTRADO]
+    assert final["route"] == "respond_member" and final["process_started"] is False
+    assert envio.textos == [
+        "A mensalidade de novembro de 2026 (R$ 8.389,53) venceu em 25/11 e ainda está sem pagamento "
+        "confirmado. Se quiser, posso te passar para alguém da nossa equipe. (dados de 08/10)"
+    ]
 
 
 @pytest.mark.parametrize("situacao", ["cancelada", "sem_titulo"])
@@ -330,9 +332,9 @@ async def test_vencimento_sem_fatos_de_valor_mantem_o_lembrete_de_antes() -> Non
     assert envio.textos == ["Lembrete: confira o vencimento no portal."]
 
 
-async def test_lembrete_com_atraso_que_chegue_ao_texto_sai_a_constante_honesta() -> None:
-    """Defesa em profundidade: se o motor ainda tiver a tabela sem `lba_r_vencimento_atraso`, o LEMBRETE
-    com atraso nos fatos nao vira texto de vencimento — sai a constante, sem data nem valor."""
+async def test_lembrete_com_mes_sem_pagamento_sai_o_texto_de_vencimento_dos_fatos() -> None:
+    """14/10/2026: o LEMBRETE com um mes `vencida` nos fatos e' texto de vencimento dos fatos (data e valor
+    do mes, "sem pagamento confirmado") — a oferta de uma pessoa entra na rota de resposta, nao aqui."""
     vencida = {**_em_aberto(), "situacao": "vencida"}
     estado = cast(
         LucasState,
@@ -341,7 +343,10 @@ async def test_lembrete_com_atraso_que_chegue_ao_texto_sai_a_constante_honesta()
     envio = _Envio()
     grafo = _grafo(_Inferencia("x"), envio)
     mensagem = await grafo._build_message(estado)
-    assert mensagem["texto"] == RESPOSTA_INFORMATIVA_RECUSADA
+    assert mensagem["texto"] == (
+        "A mensalidade de novembro de 2026 (R$ 8.389,53) venceu em 25/11 e ainda está sem pagamento "
+        "confirmado. (dados de 08/10)"
+    )
     assert mensagem["prompt_version"] == VENCIMENTO_PROMPT_VERSION
 
 
@@ -447,12 +452,15 @@ async def test_segunda_via_do_mes_pedido_fala_daquele_mes() -> None:
     assert texto == f"{_CANAIS} A mensalidade de setembro de 2026 já está paga. {_FECHO}"
 
 
-async def test_segunda_via_em_aberto_com_data_passada_nao_afirma_atraso() -> None:
+async def test_segunda_via_em_aberto_com_data_passada_diz_que_venceu_e_oferece_uma_pessoa() -> None:
     _, texto = await _segunda_via(
         _estado("2a_via", **_fatos(_em_aberto(), status_conciliado=False, valor_em_aberto="8389.53")),
         hoje=date(2026, 11, 26),
     )
-    assert texto == _CANAIS
+    assert texto == (
+        f"{_CANAIS} A mensalidade de novembro de 2026 (boleto final 0042) venceu em 25/11 e ainda está sem "
+        "pagamento confirmado. Se quiser, posso te passar para alguém da nossa equipe. (dados de 08/10)"
+    )
 
 
 async def test_segunda_via_sem_fatos_so_os_canais() -> None:
