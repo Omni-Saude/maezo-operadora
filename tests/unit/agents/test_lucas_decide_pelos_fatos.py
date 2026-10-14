@@ -25,7 +25,7 @@ import pytest
 from maezo.agents.lucas.graph import (
     ACK_ESCALACAO,
     GARANTIA_SEM_DECISAO,
-    RESPOSTA_INFORMATIVA_RECUSADA,
+    TEXTO_FONTE_INDISPONIVEL,
     LucasGraph,
     LucasState,
     texto_ack_escalacao,
@@ -133,9 +133,10 @@ async def test_fato_conciliado_responde_em_dia_sem_processo_sem_modelo_e_sem_ina
     assert final["mensagem"]["recusa_de_saida"] is False
 
 
-async def test_ciclos_em_aberto_seguem_a_escalacao_de_sempre_com_ack_fixo_sem_acusacao() -> None:
+async def test_atraso_critico_segue_a_escalacao_de_sempre_com_ack_fixo_sem_acusacao() -> None:
+    """Dois meses sem pagamento = atraso CRITICO (decisao do dono, 14/10/2026): a escalacao de sempre."""
     final, envio, inferencia = await _turno(
-        _estado(status_conciliado=False, ciclos_sem_conciliacao=1, **_FATOS_AMH)
+        _estado(status_conciliado=False, ciclos_sem_conciliacao=2, **_FATOS_AMH)
     )
 
     assert final["route"] == "escalate_human"
@@ -154,28 +155,41 @@ async def test_ciclos_em_aberto_seguem_a_escalacao_de_sempre_com_ack_fixo_sem_ac
     assert inferencia.task_kinds == []
     assert final["dossier"]["narrativa"] == (
         "Encaminhado ao atendente porque há mensalidade em aberto sem pagamento conciliado. "
-        "Pedido do beneficiário: confirmação de pagamento, competência 07/2026. Situação na fonte: há 1 mês "
-        "sem pagamento conciliado. Dados de 28/07/2026. Nenhuma decisão sobre o plano foi tomada pelo "
-        "atendimento automático."
+        "Pedido do beneficiário: confirmação de pagamento, competência 07/2026. "
+        "Situação na fonte: há 2 meses sem pagamento conciliado. Dados de 28/07/2026. "
+        "Nenhuma decisão sobre o plano foi tomada pelo atendimento automático."
     )
 
 
-async def test_fonte_indisponivel_diz_que_nao_conseguiu_consultar_e_escala_sem_afirmar_nada() -> None:
+async def test_um_mes_sem_pagamento_responde_com_o_fato_e_a_oferta_sem_abrir_caso() -> None:
+    """14/10/2026: 1 ciclo (e ate' 30 dias) NAO e' atraso critico — resposta fixa, sem caso nem modelo."""
+    final, envio, inferencia = await _turno(
+        _estado(status_conciliado=False, ciclos_sem_conciliacao=1, **_FATOS_AMH)
+    )
+    assert final["route"] == "respond_member" and final["process_started"] is False
+    assert envio.textos == [
+        "Consta uma mensalidade ainda sem pagamento confirmado (boleto final 7869). "
+        "Se quiser, posso te passar para alguém da nossa equipe. (dados de 28/07)"
+    ]
+    assert inferencia.task_kinds == []
+    assert "inadimpl" not in _sem_acento(envio.textos[0])
+
+
+async def test_fonte_indisponivel_diz_que_nao_conseguiu_consultar_sem_abrir_caso_e_sem_afirmar_nada() -> None:
     # `Indisponivel` = os campos de conciliacao AUSENTES na entrada (lucas_turno.entrada_do_lucas).
     final, envio, _ = await _turno(_estado())
 
-    assert final["route"] == "escalate_human"
-    assert final["motivo_humano"] == "ambiguidade"
-    assert final["process_started"] is True
-    assert envio.textos == ["Agora não consegui consultar a situação da sua mensalidade. " + ACK_ESCALACAO]
+    assert final["route"] == "respond_member"
+    assert final["process_started"] is False
+    assert envio.textos == [TEXTO_FONTE_INDISPONIVEL]
+    assert "caso" not in envio.textos[0]
 
 
 async def test_em_aberto_sem_ciclo_vencido_nunca_vira_inadimplencia() -> None:
     final, envio, _ = await _turno(_estado(status_conciliado=False, ciclos_sem_conciliacao=0, **_FATOS_AMH))
 
-    assert final["route"] == "escalate_human"
-    assert final["motivo_humano"] == "ambiguidade"
-    assert envio.textos == [ACK_ESCALACAO]
+    assert final["route"] == "respond_member"
+    assert "inadimpl" not in _sem_acento(envio.textos[0])
 
 
 async def test_ack_de_cancelamento_e_o_texto_fixo_neutro() -> None:
@@ -257,15 +271,12 @@ def test_so_boleto_mascarado_e_data_valida_da_fonte_entram_no_texto(
 
 
 async def test_fato_contraditorio_conciliado_com_ciclos_nao_afirma_em_dia() -> None:
-    """Conciliado mas com ciclos > 0: a DMN ainda manda RESPONDER (regra de status), mas o texto fixo
-    "em dia" so' vale com zero ciclos — aqui segue a redacao de antes."""
+    """Conciliado mas com 2 ciclos: atraso critico — a DMN escala (a duvida vai ao humano) e o ACK nunca diz
+    "em dia"."""
     final, envio, inferencia = await _turno(_estado(status_conciliado=True, ciclos_sem_conciliacao=2))
-    assert final["route"] == "respond_member"
-    assert inferencia.task_kinds == ["task_default"]
+    assert final["route"] == "escalate_human"
+    assert inferencia.task_kinds == []
     assert "em dia" not in _sem_acento(envio.textos[0])
-    # O rascunho do modelo (a frase do incidente) cai na cerca: o rotulo nunca chega ao beneficiario.
-    assert envio.textos == [RESPOSTA_INFORMATIVA_RECUSADA]
-    assert final["mensagem"]["recusa_de_saida"] is True
 
 
 @pytest.mark.parametrize("rota", ["mensagem", "ack_escalacao"])

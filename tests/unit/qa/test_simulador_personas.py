@@ -1,4 +1,4 @@
-"""As 20 personas, os marcadores e o plano de conversas."""
+"""As 22 personas, os marcadores e o plano de conversas."""
 
 from __future__ import annotations
 
@@ -12,18 +12,27 @@ from maezo.qa.simulador import personas as p
 from .apoio_simulador import CPF_SINTETICO, sujeito
 
 
-def test_sao_vinte_personas_com_ids_unicos_e_cobertura_do_desenho() -> None:
-    assert len(p.PERSONAS) == 20
+def test_sao_vinte_e_duas_personas_com_ids_unicos_e_cobertura_do_desenho() -> None:
+    assert len(p.PERSONAS) == 22
     ids = {x.id for x in p.PERSONAS}
-    assert len(ids) == 20
-    assert {"emergencia", "quer_humano", "contesta", "recusa_revoga", "cpf_errado", "terceiro"} <= ids
+    assert len(ids) == 22
+    assert {
+        "emergencia",
+        "quer_humano",
+        "contesta",
+        "recusa_revoga",
+        "cpf_errado",
+        "terceiro",
+        "cancelamento",
+        "cancelamento_empresa",
+    } <= ids
     assert {x.escalacao for x in p.PERSONAS} == {"nunca", "permitida", "exigida"}
     assert any(x.emergencia for x in p.PERSONAS)
 
 
 def test_cerca_de_dez_por_cento_exercita_o_fluxo_de_acesso() -> None:
     com_roteiro = [x for x in p.PERSONAS if x.roteiro_acesso is not None]
-    assert len(com_roteiro) == 2  # 2 de 20 = 10%
+    assert len(com_roteiro) == 2  # 2 de 22 = ~9%
     for persona in com_roteiro:
         assert p.MARCADOR_CPF in persona.roteiro_acesso  # type: ignore[operator]
 
@@ -50,10 +59,10 @@ def test_selecionar_e_por_id() -> None:
 
 
 def test_planejar_cobre_todas_antes_de_repetir_e_e_deterministico() -> None:
-    plano = p.planejar(p.PERSONAS, 25, random.Random(7))
-    assert len(plano) == 25
-    assert {x.id for x in plano[:20]} == {x.id for x in p.PERSONAS}
-    assert plano == p.planejar(p.PERSONAS, 25, random.Random(7))
+    plano = p.planejar(p.PERSONAS, 30, random.Random(7))
+    assert len(plano) == 30
+    assert {x.id for x in plano[:22]} == {x.id for x in p.PERSONAS}
+    assert plano == p.planejar(p.PERSONAS, 30, random.Random(7))
 
 
 def test_cpf_errado_tem_forma_valida_e_digito_errado() -> None:

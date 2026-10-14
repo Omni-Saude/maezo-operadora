@@ -303,6 +303,21 @@ def _todos_os_textos() -> dict[str, str]:
     textos["ja_paguei"] = lg.texto_ja_paguei(ja_paguei, _HOJE)
     textos["ja_paguei_curto"] = lg.texto_ja_paguei_curto(ja_paguei, _HOJE)
     textos["no_prazo"] = str(lg.texto_de_esclarecimento(_estado(_NOVEMBRO, competencia="2026-11"), _HOJE))
+    # Rodada 12 (14/10/2026): politica de escalacao e cancelamento — textos fixos.
+    for nome in (
+        "TEXTO_FONTE_INDISPONIVEL",
+        "TEXTO_OUTRO_ASSUNTO",
+        "OFERTA_PESSOA",
+        "TEXTO_CANCELAMENTO_EMPRESA",
+        "TEXTO_CANCELAMENTO_EMPRESA_CURTO",
+        "TEXTO_CANCELAMENTO_ADMINISTRADORA",
+        "TEXTO_CANCELAMENTO_ADMINISTRADORA_CURTO",
+        "TEXTO_CONFIRMA_CANCELAMENTO",
+        "TEXTO_CANCELAMENTO_DESISTIU",
+        "TEXTO_CANCELAMENTO_ENCAMINHADO",
+        "TEXTO_CANCELAMENTO_JA_REGISTRADO",
+    ):
+        textos[nome.lower()] = getattr(lg, nome)
     # Rodada 5 (13/10/2026): extrato, pagamento ao prestador e a reclamacao com os fatos do mes.
     for nome in ("TEXTO_EXTRATO", "TEXTO_EXTRATO_CURTO", "TEXTO_PAGAMENTO_AO_PRESTADOR"):
         textos[nome.lower()] = getattr(lg, nome)

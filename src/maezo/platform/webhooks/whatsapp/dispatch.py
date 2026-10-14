@@ -382,6 +382,31 @@ def _handoff_com_mes_do_texto(texto: str, handoff: Mapping[str, Any]) -> Mapping
     return ajustado if ajustado != dict(handoff) else handoff
 
 
+def _handoff_com_intencao(
+    texto: str, handoff: Mapping[str, Any], assunto_anterior: str | None
+) -> Mapping[str, Any]:
+    """Rodada 12 (decisao do dono, 14/10/2026): dois sinais que so' o TEXTO traz, em valor fechado.
+
+    - NEGOCIACAO ("quero parcelar"): `cobranca_negociacao=True` — o Lucas nunca negocia, abre o caso.
+    - CONFIRMACAO do cancelamento: "sim, quero cancelar" depois de o Lucas perguntar se a pessoa quer pedir o
+      cancelamento. Se o Lucas estava nesse assunto (`assunto_anterior == "cancelamento"`) a mensagem
+      afirmativa volta ao Lucas como `cancelamento` + `cobranca_confirmacao` ("confirma"/"nega"); a validade
+      (pergunta pendente) e' conferida no grafo pela referencia do ultimo texto enviado."""
+    from maezo.runtime.cobranca_intencao import decidir_confirmacao, pede_negociacao
+
+    ajustado = dict(handoff)
+    if pede_negociacao(texto):
+        ajustado["cobranca_negociacao"] = True
+    subtipo = ajustado.get("cobranca_subtipo")
+    if subtipo == "cancelamento" or assunto_anterior == "cancelamento":
+        confirmacao = decidir_confirmacao(texto)
+        fora = ("contestacao", "cobranca_recebida")
+        if confirmacao is not None and ajustado.get("cobranca_subtipo") not in fora:
+            ajustado["cobranca_subtipo"] = "cancelamento"
+            ajustado["cobranca_confirmacao"] = confirmacao
+    return ajustado if ajustado != dict(handoff) else handoff
+
+
 @dataclass
 class HelenaDispatcher:
     """Constructed once at webhook-receiver startup; builds a FRESH Helena graph per inbound
@@ -1473,6 +1498,7 @@ class HelenaDispatcher:
         handoff = await self._handoff_com_lista(message.text, conversation_id, handoff)
         handoff = _handoff_com_mes_do_texto(message.text, handoff)
         contexto = await self._contexto_do_turno_do_lucas(conversation_id)
+        handoff = _handoff_com_intencao(message.text, handoff, contexto.assunto_anterior)
         remetente = _ScopedWhatsAppSender(
             raw_to=message.from_number, expected_hash=phone_hash, client=self.whatsapp_client
         )

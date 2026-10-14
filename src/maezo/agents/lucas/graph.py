@@ -146,6 +146,7 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.agents.lucas.fonte_cobranca import PAGADOR_EMPRESA
+from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
 from maezo.platform.observability import record_resposta_recusada
 from maezo.runtime.cobranca_foco import (
     FOCO_COMO_PAGAR,
@@ -179,8 +180,11 @@ from maezo.tools.mcp_cibseven.transport import (
     AuditStartSink,
     CibSevenError,
     CibSevenTransport,
+    StartDedupGateUnavailableError,
+    StartOutcome,
     start_process_idempotent,
 )
+from maezo.tools.workers.base import CANCEL_KEY_FAMILY, mint_contract_business_key
 from maezo.tools.workers.dmn_transport import (
     DmnEvaluationError,
     DmnNoResultError,
@@ -207,6 +211,9 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 
 PROCESS_KEY = "SP-OP-ESCALATION-001"
+#: O processo de cancelamento (rodada 12, 14/10/2026): o Lucas o inicia SO' com o pedido CONFIRMADO de um
+#: beneficiario cujo titulo e' dele (pagador PF) — pelo mesmo start idempotente e auditado do escalonamento.
+CANCEL_PROCESS_KEY = "SP-OP-CANCEL-001"
 #: O `source_agent_id` com que o Lucas abre a escalacao (lido de volta para saber se o caso aberto e' dele).
 AGENT_ID_LUCAS: Final[str] = "lucas"
 
@@ -262,6 +269,7 @@ MotivoHumano = Literal[
     "ambiguidade",
     "dmn_indisponivel",
     "falha_tecnica",
+    "pedido_negociacao",
 ]
 
 # Subset of the shared SP-OP-ESCALATION-001 `motivo_categoria` domain
@@ -344,6 +352,9 @@ _OUTPUT_FIELDS_RESET: dict[str, Any] = {
     "gathered": False,
     "caso_aberto_cobranca": False,
     "avisos_de_caso_aberto": 0,
+    "cancelamento_resposta": "",
+    "iniciar_cancelamento": False,
+    "resposta_sem_dados": False,
     "resposta_memoria_ref": "",
     "billing_facts": {},
     "gather_notes": [],
@@ -408,6 +419,12 @@ class LucasState(TypedDict, total=False):
     avisos_anteriores: int
     #: Rodada 4 (13/10/2026): o TIPO da reclamacao de cobranca (`runtime/cobranca_reclamacao.py`), enum.
     cobranca_reclamacao: str
+    #: Rodada 12 (14/10/2026): o beneficiario pediu para NEGOCIAR/PARCELAR (`runtime/cobranca_intencao.py`).
+    #: O Lucas nunca negocia: abre o caso humano.
+    pedido_negociacao: bool
+    #: Rodada 12: "confirma"/"nega" — a resposta do beneficiario a "Voce quer pedir o cancelamento do seu
+    #: plano?". So' vale com a pergunta pendente (a referencia do ultimo texto enviado).
+    confirmacao_cancelamento: str
     #: 13/10/2026: o assunto (`cobranca_subtipo`) da resposta ANTERIOR do Lucas nesta conversa, quando ele
     #: ainda estava com ela; ausente caso contrario. So' enum, nunca texto.
     assunto_anterior: str
@@ -442,6 +459,13 @@ class LucasState(TypedDict, total=False):
     #: Os avisos de caso aberto dados neste caso DEPOIS deste turno (o roteador os guarda; depois de
     #: `AVISOS_DE_CASO_ABERTO_MAX`, so' o fato).
     avisos_de_caso_aberto: int
+    #: Rodada 12: o que o Lucas responde a um pedido de CANCELAMENTO sem abrir o processo: `empresa`,
+    #: `administradora` (o titulo e' de terceiro), `confirmar` (a pergunta unica) ou `desistiu`.
+    cancelamento_resposta: str
+    #: Rodada 12: o pedido foi CONFIRMADO (PF, pergunta pendente) — `start_process` inicia SP-OP-CANCEL-001.
+    iniciar_cancelamento: bool
+    #: Rodada 12: a fonte nao entregou fatos (indisponivel): a resposta e' a constante honesta, sem caso.
+    resposta_sem_dados: bool
     #: Rodada 4 (13/10/2026): a referencia que o roteador guarda deste turno — o DEGRAU da resposta na
     #: escada (`_escada`), para a proxima repeticao seguir dele. Hash truncado; nunca o texto.
     resposta_memoria_ref: str
@@ -543,6 +567,8 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "resposta_anterior_ref",
         "avisos_anteriores",
         "cobranca_reclamacao",
+        "pedido_negociacao",
+        "confirmacao_cancelamento",
         # Pre-resolved by the deterministic CNAB conciliation worker upstream — CONSUMED, never
         # computed here. These are FACTS a caller may assert; every VERDICT derived from them
         # (`admissibilidade`, `roteamento_escalacao`, `route`, `severidade`) is output-only.
@@ -892,6 +918,52 @@ _ACK_ESCALACAO_ATRASO: Final[str] = (
     f"Vou passar para alguém da nossa equipe, que vai te responder por aqui. {GARANTIA_SEM_DECISAO}"
 )
 
+#: Rodada 12 (14/10/2026): a fonte nao entregou fatos (indisponivel). Nao e' caso humano: a resposta honesta,
+#: o que fazer agora e a oferta de uma pessoa. Nunca inventa situacao.
+TEXTO_FONTE_INDISPONIVEL: Final[str] = (
+    "Agora não consegui consultar a situação da sua mensalidade. Tente de novo em alguns minutos. Se "
+    "preferir, use o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento. Se quiser, "
+    "posso te passar para alguém da nossa equipe."
+)
+#: Rodada 12: pergunta de cobranca que o Lucas nao responde (forma de pagamento, nota fiscal, informe de
+#: rendimentos...). Diz o que ele mostra e onde buscar o resto. Sem caso: pedir uma pessoa e' do beneficiario.
+TEXTO_OUTRO_ASSUNTO: Final[str] = (
+    "Sobre isso eu não consigo te ajudar por aqui. Eu mostro valor, vencimento, 2ª via e situação das suas "
+    "mensalidades. Para outros assuntos, use o aplicativo Austa Clínicas, o portal do plano ou a central de "
+    "atendimento. Se quiser, posso te passar para alguém da nossa equipe."
+)
+
+#: CANCELAMENTO (rodada 12). O titulo e' de terceiro: quem decide e' a empresa/administradora.
+TEXTO_CANCELAMENTO_EMPRESA: Final[str] = (
+    "O cancelamento do plano é decidido pela empresa contratante (normalmente o RH). Se quiser, posso te "
+    "passar para alguém da nossa equipe."
+)
+TEXTO_CANCELAMENTO_ADMINISTRADORA: Final[str] = (
+    "O cancelamento do plano é decidido pela administradora do plano. Se quiser, posso te passar para "
+    "alguém da nossa equipe."
+)
+TEXTO_CANCELAMENTO_EMPRESA_CURTO: Final[str] = "Quem decide o cancelamento é a empresa contratante, o RH."
+TEXTO_CANCELAMENTO_ADMINISTRADORA_CURTO: Final[str] = (
+    "Quem decide o cancelamento é a administradora do plano."
+)
+#: PF: a pergunta UNICA de confirmacao. Sem argumento de retencao, sem prazo.
+TEXTO_CONFIRMA_CANCELAMENTO: Final[str] = (
+    "Você quer pedir para cancelar o seu plano? Se sim, responda: SIM, QUERO CANCELAR."
+)
+TEXTO_CANCELAMENTO_DESISTIU: Final[str] = (
+    "Tudo bem, não vou registrar o pedido de cancelamento. Se precisar, é só me dizer."
+)
+#: Depois da confirmacao e do start de SP-OP-CANCEL-001: o que acontece a seguir, em termos humanos. NUNCA
+#: diz que o plano foi cancelado — a decisao e' do processo e da equipe.
+TEXTO_CANCELAMENTO_ENCAMINHADO: Final[str] = (
+    "Anotei o seu pedido de cancelamento e passei para a nossa equipe, que vai te responder por aqui. "
+    f"{GARANTIA_SEM_DECISAO}"
+)
+TEXTO_CANCELAMENTO_JA_REGISTRADO: Final[str] = (
+    "O seu pedido de cancelamento já está com a nossa equipe, que vai te responder por aqui. "
+    f"{GARANTIA_SEM_DECISAO}"
+)
+
 #: Prefixo do ACK quando a fonte NAO respondeu (`Indisponivel` -> fatos de conciliacao ausentes).
 #: Diz o que aconteceu — nao deu para consultar — e nao inventa situacao nenhuma.
 _PREFIXO_FONTE_INDISPONIVEL: Final[str] = "Agora não consegui consultar a situação da sua mensalidade."
@@ -1098,6 +1170,34 @@ def titulo_de_terceiro(state: LucasState) -> bool:
     return pagador_empresa(state) or cobranca_administradora(state)
 
 
+def atraso_critico(state: LucasState, limiares: LimiaresDeAtraso) -> bool:
+    """A entrada `atraso_critico` da DMN (rodada 12, decisao do dono de 14/10/2026): o atraso e' REAL o
+    bastante para abrir caso humano? So' para pagador PF (o titulo e' do beneficiario); contrato de empresa e
+    adesao nunca. `ciclos_sem_conciliacao` e as competencias `vencida` contam os MESES sem pagamento; o maior
+    atraso e' `dias_atraso_max`. Apurado dos fatos, nunca pelo modelo (`politica_atraso.py`)."""
+    if titulo_de_terceiro(state):
+        return False
+    vencidas = sum(1 for c in _competencias_dos_fatos(state) if c["situacao"] == "vencida")
+    meses = max(_ciclos_sem_conciliacao(state) or 0, vencidas)
+    return limiares.critico(meses_vencidos=meses, dias_atraso_max=_dias_atraso_max(state))
+
+
+def pede_cancelamento(state: LucasState) -> bool:
+    """O turno e' um pedido de CANCELAMENTO do plano (subtipo `cancelamento` ou sinal explicito)."""
+    return state.get("intencao") == "cancelamento" or state.get("pedido_cancelamento") is True
+
+
+def sem_dados_de_cobranca(state: LucasState) -> bool:
+    """A fonte nao entregou fato nenhum (indisponivel) e a pergunta e' de valor ou de status de pagamento:
+    nao ha' o que responder — a constante honesta, sem caso (rodada 12). `status_conciliado` ausente so'
+    acontece com a fonte `Indisponivel`; com ele presente a DMN decide."""
+    return (
+        state.get("tipo_solicitacao") in (TIPO_CONSULTA_VALORES, "status_pagamento")
+        and state.get("status_conciliado") is None
+        and not valores_disponiveis(state)
+    )
+
+
 #: Coletivo por adesao (13/10/2026, bateria 4): de onde vem o boleto e o que fica com a administradora.
 TEXTO_COBRANCA_ADMINISTRADORA: Final[str] = (
     "No seu plano (coletivo por adesão), o boleto é emitido pela administradora do plano: a 2ª via, o "
@@ -1287,8 +1387,55 @@ def _frase_de_valor_e_situacao(c: Mapping[str, str], hoje: date) -> str:
         return f"A mensalidade de {mes} consta com o título cancelado."
     if situacao == "sem_titulo":
         return f"A mensalidade de {mes} ainda não tem boleto emitido."
-    # `vencida` nao chega aqui (a DMN escala); se chegar, nada de afirmar atraso.
+    if situacao == "vencida":
+        # Rodada 12 (14/10/2026): o fato primeiro, sempre. Sem pagamento confirmado — nunca "inadimplente".
+        return f"A mensalidade de {mes}{_entre_parenteses(c, hoje)} ainda está sem pagamento confirmado."
     return f"Não consegui confirmar a situação da mensalidade de {mes} por aqui."
+
+
+def _resumo_valor_e_vencimento(c: Mapping[str, str], hoje: date) -> str | None:
+    """ "R$ 552,54, vencimento em 05/10" — o que o fato tem do valor e do vencimento de um mes."""
+    partes: list[str] = []
+    if "valor_total" in c:
+        partes.append(_reais(c["valor_total"]))
+    vence = _dia_mes(c.get("vencimento"), hoje)
+    if vence:
+        partes.append(f"vencimento em {vence}")
+    return ", ".join(partes) or None
+
+
+def _entre_parenteses(c: Mapping[str, str], hoje: date) -> str:
+    resumo = _resumo_valor_e_vencimento(c, hoje)
+    return f" ({resumo})" if resumo else ""
+
+
+#: A oferta que acompanha a resposta de um mes sem pagamento confirmado quando NAO abre caso (decisao do
+#: dono, 14/10/2026): um mes de atraso e' resposta com fatos, nunca caso automatico.
+OFERTA_PESSOA: Final[str] = "Se quiser, posso te passar para alguém da nossa equipe."
+
+
+_FECHO_DA_FONTE: Final[re.Pattern[str]] = re.compile(r"\s*\(dados de [^)]+\)$")
+
+
+def com_oferta_de_pessoa(texto: str) -> str:
+    """Acrescenta a oferta de uma pessoa ANTES do fecho "(dados de 08/10)", que fica por ultimo."""
+    separador = "\n" if "•" in texto else " "  # a lista termina a oferta em linha propria
+    achado = _FECHO_DA_FONTE.search(texto)
+    if achado is None:
+        return f"{texto}{separador}{OFERTA_PESSOA}"
+    return f"{texto[: achado.start()]}{separador}{OFERTA_PESSOA}{achado.group(0)}"
+
+
+def _linha_tambem_sem_pagamento(itens: object, hoje: date) -> str | None:
+    """ "Também consta sem pagamento confirmado: agosto de 2026 (R$ 552,54, vencimento em 15/08)." — os
+    outros meses sem pagamento, ate' dois, quando a pergunta era de um mes so'."""
+    if not isinstance(itens, list):
+        return None
+    meses: list[str] = []
+    for c in itens[:2]:
+        if isinstance(c, Mapping) and isinstance(c.get("competencia"), str):
+            meses.append(f"{_mes_por_extenso(c['competencia'], hoje)}{_entre_parenteses(c, hoje)}")
+    return f"Também consta sem pagamento confirmado: {'; '.join(meses)}." if meses else None
 
 
 def _frase_de_coparticipacao(c: Mapping[str, str], hoje: date) -> str:
@@ -1404,6 +1551,9 @@ def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date) -> st
         partes.append(_frase_do_vencimento(c, hoje, e_a_proxima=False) or _frase_de_valor_e_situacao(c, hoje))
     else:
         partes.append(_frase_de_valor_e_situacao(c, hoje))
+    tambem = _linha_tambem_sem_pagamento(facts.get("sem_pagamento"), hoje)
+    if tambem:
+        partes.append(tambem)
     fonte = _frase_da_fonte(state, hoje)
     if fonte:
         partes.append(fonte)
@@ -1433,7 +1583,9 @@ def _competencia_do_vencimento(competencias: list[dict[str, str]], pedida: objec
     pagas = [c for c in competencias if c["situacao"] == "paga"]
     if pagas:
         return max(pagas, key=lambda c: c["competencia"])
-    return None
+    # Rodada 12: so' ha' meses sem pagamento — o mais recente (o fato primeiro).
+    vencidas = [c for c in competencias if c["situacao"] == "vencida"]
+    return max(vencidas, key=lambda c: c["competencia"]) if vencidas else None
 
 
 def _frase_do_vencimento(c: Mapping[str, str], hoje: date, *, e_a_proxima: bool) -> str | None:
@@ -1447,10 +1599,11 @@ def _frase_do_vencimento(c: Mapping[str, str], hoje: date, *, e_a_proxima: bool)
         return None
     ja_passou = date.fromisoformat(vencimento_iso) < hoje
     mes = _mes_por_extenso(c["competencia"], hoje)
+    if c["situacao"] == "vencida" or (c["situacao"] == "em_aberto" and ja_passou):
+        # Rodada 12 (14/10/2026): o fato primeiro. A data que passou e o que consta, sem a palavra "atraso".
+        valor = f" ({_reais(c['valor_total'])})" if "valor_total" in c else ""
+        return f"A mensalidade de {mes}{valor} venceu em {vencimento} e ainda está sem pagamento confirmado."
     if c["situacao"] == "em_aberto":
-        if ja_passou:
-            # Em aberto com a data passada e' atraso pela data — e atraso e' da DMN (escala), nunca do texto.
-            return None
         valor = f", no valor de {_reais(c['valor_total'])}" if "valor_total" in c else ""
         return f"A mensalidade de {mes} vence em {vencimento}{valor}."
     if c["situacao"] == "paga":
@@ -1483,6 +1636,9 @@ def texto_vencimento(state: LucasState, facts: Mapping[str, Any], hoje: date) ->
         partes.append(VENCIMENTO_NAO_ENCONTRADO)
         return " ".join(partes)
     partes.append(frase)
+    tambem = _linha_tambem_sem_pagamento(facts.get("sem_pagamento"), hoje)
+    if tambem:
+        partes.append(tambem)
     fonte = _frase_da_fonte(state, hoje)
     if fonte:
         partes.append(fonte)
@@ -1721,6 +1877,10 @@ def _competencia_da_segunda_via(competencias: list[dict[str, str]], pedida: obje
         da_pedida = next((c for c in competencias if c["competencia"] == pedida), None)
         if da_pedida is not None:
             return da_pedida
+    # Rodada 12: a 2a via e' para PAGAR — a mais recente sem pagamento (em aberto ou vencida), se houver.
+    a_pagar = [c for c in competencias if c["situacao"] in ("em_aberto", "vencida")]
+    if a_pagar:
+        return a_pagar[0]
     return competencias[0] if competencias else None
 
 
@@ -1731,13 +1891,16 @@ def _frase_da_segunda_via(c: Mapping[str, str], hoje: date) -> str | None:
     mes = _mes_por_extenso(c["competencia"], hoje)
     if c["situacao"] == "paga":
         return f"A mensalidade de {mes} já está paga."
-    if c["situacao"] == "em_aberto":
+    if c["situacao"] in ("em_aberto", "vencida"):
         vencimento_iso = c.get("vencimento")
         vencimento = _dia_mes(vencimento_iso, hoje)
-        if vencimento_iso is None or vencimento is None or date.fromisoformat(vencimento_iso) < hoje:
+        if vencimento_iso is None or vencimento is None:
             return None
         boleto = boleto_no_texto(c.get("boleto"))
         sujeito = f"A mensalidade de {mes} ({boleto})" if boleto else f"A mensalidade de {mes}"
+        if c["situacao"] == "vencida" or date.fromisoformat(vencimento_iso) < hoje:
+            # Rodada 12: venceu — o fato, e a 2a via atualizada e' a dos canais acima.
+            return f"{sujeito} venceu em {vencimento} e ainda está sem pagamento confirmado."
         return f"{sujeito} vence em {vencimento}."
     return None
 
@@ -1748,7 +1911,7 @@ def texto_segunda_via(state: LucasState, facts: Mapping[str, Any], hoje: date) -
     a data da fonte. Atraso nos fatos nao vira texto (e' da DMN): sai so' a linha dos canais."""
     partes = [SEGUNDA_VIA_CANAIS]
     competencias: list[dict[str, str]] = list(facts.get("competencias") or [])
-    if competencias and not valores_com_atraso(state):
+    if competencias:
         frase = _frase_da_segunda_via(competencias[0], hoje)
         if frase:
             partes.append(frase)
@@ -1765,15 +1928,11 @@ def _data_iso_da_fonte(state: LucasState) -> str | None:
 
 
 def _mensalidade_em_dia(state: LucasState) -> bool:
-    """Os fatos dizem "em dia": a DMN mandou RESPONDER a uma pergunta de status de pagamento, a
-    fonte disse conciliado e nao ha' ciclo sem conciliacao. Fatos contraditorios (conciliado com
-    ciclos > 0) NAO entram aqui: seguem a redacao de antes, sem afirmar "em dia"."""
-    return (
-        state.get("admissibilidade") == "RESPONDER"
-        and state.get("tipo_solicitacao") == "status_pagamento"
-        and state.get("status_conciliado") is True
-        and _ciclos_sem_conciliacao(state) == 0
-    )
+    """A DMN mandou RESPONDER a uma pergunta de status de pagamento: a resposta e' o texto FIXO dos fatos
+    (`texto_mensalidade_em_dia`) — "esta' tudo em dia" so' quando nenhum mes esta' em aberto e, com atraso nao
+    critico (rodada 12, 14/10/2026), os fatos de cada mes e a oferta de uma pessoa. O atraso critico ja'
+    escalou na DMN, antes."""
+    return state.get("admissibilidade") == "RESPONDER" and state.get("tipo_solicitacao") == "status_pagamento"
 
 
 def texto_mensalidade_em_dia(state: LucasState, hoje: date) -> str:
@@ -1794,6 +1953,10 @@ def _texto_de_status(state: LucasState, competencias: list[dict[str, str]], hoje
     mes perguntado -> o fato DAQUELE mes; sem mes, "em dia" SO' sem nenhum mes em aberto, e "ultima" e' a
     mais recente dos fatos."""
     if not competencias:
+        if state.get("status_conciliado") is False or (_ciclos_sem_conciliacao(state) or 0) > 0:
+            boleto = boleto_no_texto(state.get("numero_boleto"))
+            detalhe = f" ({boleto})" if boleto else ""
+            return f"Consta uma mensalidade ainda sem pagamento confirmado{detalhe}."
         corpo = "O pagamento da sua última mensalidade já foi confirmado."
         return corpo if valores_com_atraso(state) else f"Está tudo em dia! {corpo}"
     pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
@@ -1836,7 +1999,7 @@ def _frase_do_mes_perguntado(c: Mapping[str, str], hoje: date, *, pergunta: bool
             return _frase_do_em_aberto(c, hoje)
         return f"A mensalidade de {mes} ainda não consta como paga."
     if situacao == "vencida":
-        return f"A mensalidade de {mes} ainda está sem pagamento confirmado."
+        return f"A mensalidade de {mes}{_entre_parenteses(c, hoje)} ainda está sem pagamento confirmado."
     if situacao == "cancelada":
         return f"A mensalidade de {mes} consta com o título cancelado."
     return f"A mensalidade de {mes} ainda não tem boleto emitido."
@@ -2303,11 +2466,14 @@ def _frase_do_boleto_que_tenho(c: Mapping[str, str], hoje: date) -> str | None:
     mes = _mes_por_extenso(c["competencia"], hoje)
     if c["situacao"] == "paga":
         return f"A mensalidade de {mes} já está paga."
-    if c["situacao"] != "em_aberto" or "vencimento" not in c or date.fromisoformat(c["vencimento"]) < hoje:
+    if c["situacao"] not in ("em_aberto", "vencida") or "vencimento" not in c:
         return None
     boleto = boleto_no_texto(c.get("boleto"))
     sujeito = f"A mensalidade de {mes} ({boleto})" if boleto else f"A mensalidade de {mes}"
     valor = f", no valor de {_reais(c['valor_total'])}" if "valor_total" in c else ""
+    if c["situacao"] == "vencida" or date.fromisoformat(c["vencimento"]) < hoje:
+        vence = _dia_mes(c["vencimento"], hoje)
+        return f"{sujeito} venceu em {vence}{valor} e ainda está sem pagamento confirmado."
     return f"{sujeito} vence em {_dia_mes(c['vencimento'], hoje)}{valor}."
 
 
@@ -2315,7 +2481,7 @@ def texto_segunda_via_repetida(state: LucasState, facts: Mapping[str, Any], hoje
     variante = _variante(state)
     partes = [_SEGUNDA_VIA_NAO_ENVIO[variante]]
     competencias: list[dict[str, str]] = list(facts.get("competencias") or [])
-    if competencias and not valores_com_atraso(state):
+    if competencias:
         frase = _frase_do_boleto_que_tenho(competencias[0], hoje)
         if frase:
             partes.append(frase)
@@ -2420,6 +2586,7 @@ _MOTIVO_NO_DOSSIE: Final[dict[str, str]] = {
     "inadimplencia_detectada": "há mensalidade em aberto sem pagamento conciliado",
     "contestacao_cobranca": "o beneficiário contesta uma cobrança",
     "pedido_cancelamento": "o beneficiário pediu cancelamento",
+    "pedido_negociacao": "o beneficiário pediu para negociar ou parcelar a cobrança",
     "falha_tecnica": "houve falha técnica no atendimento automático",
     "dmn_indisponivel": "as regras automáticas de atendimento não estavam disponíveis",
 }
@@ -2554,8 +2721,11 @@ class LucasGraph:
         whatsapp: WhatsAppSender,
         agent_version: str = "lucas@v0",
         hoje: Callable[[], date] | None = None,
+        limiares_atraso: LimiaresDeAtraso | None = None,
     ) -> None:
         self._llm = inference
+        # Rodada 12: quando o atraso abre caso humano (so' o critico). Padrao: 2 meses ou > 30 dias.
+        self._limiares_atraso = limiares_atraso or LimiaresDeAtraso()
         # Relogio injetavel (testes): so' o texto de vencimento o le' ("vence" x "venceu").
         self._hoje = hoje or _hoje_em_brasilia
         self._dmn = dmn
@@ -2670,6 +2840,13 @@ class LucasGraph:
 
         dmn_refs: dict[str, str] = {}
 
+        if state.get("pedido_negociacao") is True and not titulo_de_terceiro(state):
+            # Rodada 12: o Lucas nunca negocia nem parcela — o pedido abre o caso humano.
+            return await self._assess_escalation(state, dmn_refs, motivo="pedido_negociacao")
+
+        if pede_cancelamento(state):
+            return await self._assess_cancelamento(state, dmn_refs)
+
         if _is_escalation_intent(state):
             return await self._assess_escalation(state, dmn_refs, motivo=_escalation_motivo(state))
 
@@ -2677,6 +2854,14 @@ class LucasGraph:
         if ciclos is None:
             # Fato numerico ilegivel: nunca derruba o turno e nunca vira "sem atraso" por omissao.
             return await self._assess_escalation(state, dmn_refs, motivo="ambiguidade")
+        if sem_dados_de_cobranca(state):
+            # Rodada 12: sem fatos a resposta e' a constante honesta — falha da fonte nao e' caso humano.
+            return {
+                "admissibilidade": "RESPONDER",
+                "route": "respond_member",
+                "dmn_refs": dmn_refs,
+                "resposta_sem_dados": True,
+            }
         admis_in: dict[str, Any] = {
             "tipo_solicitacao": str(state.get("tipo_solicitacao", "")),
             "status_conciliado": bool(state.get("status_conciliado", False)),
@@ -2691,6 +2876,9 @@ class LucasGraph:
             # e a regra de atraso exige `false`: o atraso do titulo da empresa nunca escala o beneficiario.
             # 13/10/2026 (bateria 4): tambem a adesao cobrada pela administradora — o titulo e' dela.
             "pagador_empresa": titulo_de_terceiro(state),
+            # Rodada 12 (decisao do dono, 14/10/2026): so' o atraso CRITICO (>= 2 meses ou > 30 dias, PF;
+            # configuravel) abre caso. Um mes sem pagamento e' resposta com fatos e a oferta de uma pessoa.
+            "atraso_critico": atraso_critico(state, self._limiares_atraso),
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
@@ -2725,6 +2913,40 @@ class LucasGraph:
             "admissibilidade": admissibilidade,
             "route": "respond_member",
             "dmn_refs": dmn_refs,
+        }
+
+    async def _assess_cancelamento(self, state: LucasState, dmn_refs: dict[str, str]) -> dict[str, Any]:
+        """CANCELAMENTO (rodada 12, 14/10/2026; contrato SP-OP-CANCEL-001, direito do titular — L2 clerical).
+
+        - Titulo de TERCEIRO (empresa contratante / administradora da adesao): o beneficiario nao cancela o
+          contrato de outro. Texto fixo, SEM caso e SEM processo — com a oferta de uma pessoa.
+        - Pagador PF: confirma a intencao UMA vez ("Voce quer pedir o cancelamento do seu plano?"). So' com a
+          pergunta pendente (a referencia do ultimo texto enviado) e a confirmacao do beneficiario o Lucas
+          inicia SP-OP-CANCEL-001 — que decide numa User Task humana; ele NUNCA diz que o plano foi cancelado.
+        - Pagador desconhecido (fonte fora): nao ha' como saber de quem e' o titulo — o caso humano de antes.
+        """
+        if cobranca_administradora(state):
+            return self._responder_cancelamento("administradora", dmn_refs)
+        if pagador_empresa(state):
+            return self._responder_cancelamento("empresa", dmn_refs)
+        if state.get("pagador_tipo") != "pessoa_fisica":
+            return await self._assess_escalation(state, dmn_refs, motivo="pedido_cancelamento")
+        pendente = state.get("resposta_anterior_ref") == ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO)
+        confirmacao = state.get("confirmacao_cancelamento")
+        if pendente and confirmacao == "confirma":
+            escalado = await self._assess_escalation(state, dmn_refs, motivo="pedido_cancelamento")
+            return {**escalado, "iniciar_cancelamento": True}
+        if pendente and confirmacao == "nega":
+            return self._responder_cancelamento("desistiu", dmn_refs)
+        return self._responder_cancelamento("confirmar", dmn_refs)
+
+    @staticmethod
+    def _responder_cancelamento(resposta: str, dmn_refs: dict[str, str]) -> dict[str, Any]:
+        return {
+            "admissibilidade": "RESPONDER",
+            "route": "respond_member",
+            "dmn_refs": dmn_refs,
+            "cancelamento_resposta": resposta,
         }
 
     async def _assess_escalation(
@@ -2797,7 +3019,13 @@ class LucasGraph:
                 # isso — no maximo `AVISOS_DE_CASO_ABERTO_MAX` vezes por caso (rodada 3).
                 texto = f"{texto} {aviso_de_caso_aberto(state)}"
                 avisos += 1
-            if mensagem.get("prompt_version") == PAGADOR_EMPRESA_TEXTO_VERSION and mensagem.get(
+            if "sem pagamento confirmado" in texto and "nossa equipe" not in texto:
+                # Rodada 12: um mes sem pagamento que NAO abre caso — os fatos e a oferta de uma pessoa.
+                texto = com_oferta_de_pessoa(texto)
+            if mensagem.get("memoria_ref"):
+                # A pergunta de confirmacao do cancelamento: sai sempre inteira e deixa a sua referencia.
+                memoria_ref = str(mensagem["memoria_ref"])
+            elif mensagem.get("prompt_version") == PAGADOR_EMPRESA_TEXTO_VERSION and mensagem.get(
                 "empresa_chave"
             ):
                 texto, memoria_ref = self._escada_da_empresa(state, mensagem, texto)
@@ -2915,6 +3143,8 @@ class LucasGraph:
         """
         if state.get("route") == "respond_member":
             return {"process_started": False}
+        if state.get("iniciar_cancelamento") is True:
+            return await self._start_cancelamento(state)
 
         business_key = state.get("business_key") or _business_key(state)
         variables = self._escalation_variables(state)
@@ -2953,6 +3183,76 @@ class LucasGraph:
             },
         }
 
+    async def _start_cancelamento(self, state: LucasState) -> dict[str, Any]:
+        """Inicia SP-OP-CANCEL-001 (pedido do beneficiario, confirmado) pelo start idempotente e auditado.
+
+        Chave `CANCEL-{tenant}-{identidade}` pelo minter compartilhado (`base.mint_contract_business_key`): o
+        Lucas nao tem `numero_contrato`, entao ancora na identidade pseudonima (o fallback de matricula do
+        contrato — nunca o numero cru). Os fatos que o contrato chama de "pre-resolvidos por worker"
+        (`dentro_prazo`, `titularidade_confirmada`, `vinculo_ativo`, `notificacao_previa_feita`) o Lucas NAO
+        apura: seguem `false` (nao estabelecidos), o que leva a DMN `cancel_admissibility` ao catch-all
+        `ANALISE_HUMANA` — nunca a `EFETIVAR_PEDIDO` por obra do agente. `tipo_plano` e' o do pagador PF
+        (`individual`), a confirmar pela analise humana."""
+        tenant = str(state.get("tenant_id", ""))
+        pseudo = str(state.get("beneficiario_pseudo_id", ""))
+        business_key = mint_contract_business_key(
+            CANCEL_KEY_FAMILY,
+            tenant,
+            numero_contrato="",
+            matricula_beneficiario=pseudo,
+            beneficiario_pseudo_id=pseudo,
+        )
+        variables: dict[str, Any] = {
+            "tenant_id": tenant,
+            "source_agent_id": AGENT_ID_LUCAS,
+            "source_agent_version": self._agent_version,
+            "numero_contrato": "",
+            "matricula_beneficiario": pseudo,
+            "beneficiario_pseudo_id": pseudo,
+            "tipo_solicitacao": "pedido_beneficiario",
+            "origem_solicitacao": "agente_lucas",
+            "tipo_plano": "individual",
+            "dentro_prazo": False,
+            "notificacao_previa_feita": False,
+            "titularidade_confirmada": False,
+            "vinculo_ativo": False,
+            "data_solicitacao_iso": self._hoje().isoformat(),
+            "documentos_refs": [],
+        }
+        provenance = AgentDecisionProvenance(
+            agent_id="lucas",
+            agent_version=self._agent_version,
+            tenant_id=tenant,
+            model_id=self._model_id,
+            prompt_version=SYSTEM_PROMPT_VERSION,
+            decision_basis={
+                "route": state.get("route", ""),
+                "desfecho": state.get("desfecho", ""),
+                "origem_solicitacao": "agente_lucas",
+            },
+        )
+        try:
+            instance = await start_process_idempotent(
+                self._cibseven,
+                process_key=CANCEL_PROCESS_KEY,
+                business_key=business_key,
+                variables=variables,
+                audit_sink=self._audit_sink,
+                provenance=provenance,
+            )
+        except (CibSevenError, StartDedupGateUnavailableError) as exc:
+            return start_failed_state(business_key=business_key, error=start_unavailable_error(exc))
+        return {
+            "process_started": True,
+            "business_key": business_key,
+            "process_ref": {
+                "instance_id": instance.instance_id,
+                "state": instance.state,
+                "already_existed": instance.already_existed
+                or instance.start_outcome is StartOutcome.ALREADY_ACTIVE,
+            },
+        }
+
     async def send_escalation_ack(self, state: LucasState) -> dict[str, Any]:
         """LUC-05: o ACK ao beneficiario — SO depois que a escalacao existe de verdade.
 
@@ -2985,7 +3285,15 @@ class LucasGraph:
             return {"ack_pending": True}
 
         avisos = _avisos_do_turno(state)
-        if (state.get("process_ref") or {}).get("already_existed") is True or state.get(
+        if state.get("iniciar_cancelamento") is True:
+            # Rodada 12: o pedido de cancelamento entrou em SP-OP-CANCEL-001 — o que acontece a seguir, nunca
+            # "cancelado". Pedido repetido (instancia ja' viva): so' que ja' esta' com a equipe.
+            ack_text = (
+                TEXTO_CANCELAMENTO_JA_REGISTRADO
+                if (state.get("process_ref") or {}).get("already_existed") is True
+                else TEXTO_CANCELAMENTO_ENCAMINHADO
+            )
+        elif (state.get("process_ref") or {}).get("already_existed") is True or state.get(
             "caso_aberto_cobranca"
         ) is True:
             # 13/10/2026 (simulador): caso JA' com a equipe — o fato que responde a pergunta e o aviso na
@@ -3177,6 +3485,10 @@ class LucasGraph:
             "admissibilidade": state.get("admissibilidade"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
+        if state.get("cancelamento_resposta"):
+            return self._build_cancelamento(state, facts)
+        if state.get("resposta_sem_dados") is True:
+            return self._mensagem(TEXTO_FONTE_INDISPONIVEL, facts, VALORES_PROMPT_VERSION, state)
         foco_da_pergunta = _foco_da_pergunta(state)
         if foco_da_pergunta == FOCO_EXTRATO:
             mensagem = self._mensagem(TEXTO_EXTRATO, facts, VALORES_PROMPT_VERSION, state)
@@ -3202,8 +3514,11 @@ class LucasGraph:
             # 13/10/2026 (decisao do dono): contrato de EMPRESA. Antes de tudo, inclusive do "em dia", que
             # seria a situacao do titulo da empresa. Nunca o total, o boleto ou o atraso da empresa.
             return self._build_pagador_empresa(state)
+        if not state.get("tipo_solicitacao") and state.get("admissibilidade") == "RESPONDER":
+            # Rodada 12: pergunta de cobranca que o Lucas nao responde — nao e' caso humano.
+            return self._mensagem(TEXTO_OUTRO_ASSUNTO, facts, VALORES_PROMPT_VERSION, state)
         foco = _foco_da_pergunta(state)
-        if foco in (FOCO_ULTIMA, FOCO_ESCLARECIMENTO) and not valores_com_atraso(state):
+        if foco in (FOCO_ULTIMA, FOCO_ESCLARECIMENTO):
             # Rodada 3 (13/10/2026): "Essa e' a ultima? Nao e' novembro?" e "de qual ano?" tem resposta
             # PROPRIA, curta, dos fatos — nunca o texto anterior de novo.
             texto_curto = (
@@ -3310,9 +3625,39 @@ class LucasGraph:
                 lista, competencias, facts["foco"], self._hoje()
             )
             facts["competencias"] = selecionadas or competencias[:COMPETENCIAS_NO_RASCUNHO]
+        elif facts["foco"] not in ("saldo", "coparticipacao"):
+            # Rodada 12: os OUTROS meses sem pagamento tambem sao fato — "Tambem consta sem pagamento
+            # confirmado: ...". Fora do saldo (que ja' soma os meses) e da coparticipacao (e' do mes).
+            mostrados = {c["competencia"] for c in facts["competencias"]}
+            outros = [
+                c for c in competencias if c["situacao"] == "vencida" and c["competencia"] not in mostrados
+            ]
+            if outros:
+                facts["sem_pagamento"] = outros[:2]
         facts["admissibilidade"] = state.get("admissibilidade")
         facts["dmn_refs"] = state.get("dmn_refs", {})
         return facts
+
+    def _build_cancelamento(self, state: LucasState, facts: dict[str, Any]) -> dict[str, Any]:
+        """A resposta a um pedido de cancelamento que NAO abre processo (rodada 12). A pergunta de confirmacao
+        grava a propria referencia como memoria — e' o que torna a confirmacao seguinte valida."""
+        resposta = state.get("cancelamento_resposta")
+        texto = {
+            "empresa": TEXTO_CANCELAMENTO_EMPRESA,
+            "administradora": TEXTO_CANCELAMENTO_ADMINISTRADORA,
+            "confirmar": TEXTO_CONFIRMA_CANCELAMENTO,
+            "desistiu": TEXTO_CANCELAMENTO_DESISTIU,
+        }.get(str(resposta), TEXTO_CONFIRMA_CANCELAMENTO)
+        mensagem = self._mensagem(texto, facts, VALORES_PROMPT_VERSION, state)
+        if resposta == "confirmar":
+            mensagem["memoria_ref"] = ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO)
+        curta = {
+            "empresa": TEXTO_CANCELAMENTO_EMPRESA_CURTO,
+            "administradora": TEXTO_CANCELAMENTO_ADMINISTRADORA_CURTO,
+        }
+        if str(resposta) in curta:
+            mensagem["curta"] = curta[str(resposta)]
+        return mensagem
 
     def _build_pagamento_ao_prestador(self, state: LucasState, facts: dict[str, Any]) -> dict[str, Any]:
         """Rodada 5: "paguei a consulta direto ao medico e nao aparece". A coparticipacao cobrada pelo plano
@@ -3439,8 +3784,9 @@ class LucasGraph:
             "admissibilidade": state.get("admissibilidade"),
             "dmn_refs": state.get("dmn_refs", {}),
         }
-        if valores_com_atraso(state):
-            return self._mensagem(RESPOSTA_INFORMATIVA_RECUSADA, facts, VENCIMENTO_PROMPT_VERSION, state)
+        sem_pagamento = [c for c in competencias if c["situacao"] == "vencida" and c is not escolhida][:2]
+        if sem_pagamento:
+            facts["sem_pagamento"] = sem_pagamento
         texto = texto_vencimento(state, facts, self._hoje())
         return self._mensagem(texto, facts, VENCIMENTO_PROMPT_VERSION, state)
 
@@ -3476,7 +3822,7 @@ class LucasGraph:
         teria escalado), sai a constante honesta.
         """
         facts = self._fatos_de_valores(state)
-        if not valores_disponiveis(state) or valores_com_atraso(state):
+        if not valores_disponiveis(state):
             return self._mensagem(RESPOSTA_INFORMATIVA_RECUSADA, facts, VALORES_PROMPT_VERSION, state)
         return self._mensagem(texto_valores(state, facts, self._hoje()), facts, VALORES_PROMPT_VERSION, state)
 
@@ -3689,7 +4035,9 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[LucasState]:
             "injected; audit_sink is the T-C2 fence — no escalation start without a durable sink)"
         )
     agent_version = str(cfg.get("agent_version", "lucas@v0"))
+    limiares = cfg.get("limiares_atraso")
     return LucasGraph(
+        limiares_atraso=limiares if isinstance(limiares, LimiaresDeAtraso) else None,
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
         cibseven=cast(CibSevenTransport, cibseven),

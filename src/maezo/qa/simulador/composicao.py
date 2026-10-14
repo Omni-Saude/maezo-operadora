@@ -61,6 +61,8 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 PROCESSO_ESCALONAMENTO = "SP-OP-ESCALATION-001"
+#: Rodada 12: o pedido de cancelamento confirmado pelo beneficiario PF (Lucas) tambem e' interceptado.
+PROCESSO_CANCELAMENTO = "SP-OP-CANCEL-001"
 #: A faixa sintetica (a mesma de `mcp_whatsapp.server.FAIXA_SINTETICA`; repetida porque este pacote
 #: nao importa o cliente da Meta). A captura recusa qualquer destino fora dela.
 FAIXA_SINTETICA = re.compile(r"^5511900000\d{3}$")
@@ -178,10 +180,12 @@ class RegistroDeEscalonamentos:
             variables=dict(achada.variaveis),
         )
 
-    def registrar(self, business_key: str, variaveis: dict[str, Any]) -> ProcessInstance:
+    def registrar(
+        self, business_key: str, variaveis: dict[str, Any], process_key: str = PROCESSO_ESCALONAMENTO
+    ) -> ProcessInstance:
         instancia = ProcessInstance(
             instance_id=f"simulador-{next(self._sequencia)}",
-            process_key=PROCESSO_ESCALONAMENTO,
+            process_key=process_key,
             business_key=business_key,
             state="ACTIVE",
         )
@@ -193,10 +197,13 @@ class RegistroDeEscalonamentos:
         """Conversa nova no mesmo telefone: os casos simulados da anterior deixam de existir."""
         for clinico in (False, True):
             self._por_chave.pop(chave_do_escalonamento(tenant_id, conversation_id, clinico=clinico), None)
+        # Pedidos de cancelamento simulados (chave ancorada na identidade pseudonima, nao na conversa).
+        for chave in [k for k in self._por_chave if k.startswith(f"CANCEL-{tenant_id}-")]:
+            del self._por_chave[chave]
 
 
 def _e_chave_de_escalonamento(business_key: str) -> bool:
-    return business_key.startswith("ESC-")
+    return business_key.startswith(("ESC-", "CANCEL-"))
 
 
 class InterceptorDeEscalonamento:
@@ -233,16 +240,20 @@ class InterceptorDeEscalonamento:
     async def start_process_instance(
         self, process_key: str, business_key: str, variables: dict[str, Any]
     ) -> ProcessInstance:
-        if process_key != PROCESSO_ESCALONAMENTO or not _e_chave_de_escalonamento(business_key):
+        e_cancelamento = process_key == PROCESSO_CANCELAMENTO and business_key.startswith("CANCEL-")
+        e_escalonamento = process_key == PROCESSO_ESCALONAMENTO and business_key.startswith("ESC-")
+        if not (e_cancelamento or e_escalonamento):
             # Nenhum processo real nasce de conversa simulada: a recusa vira o caminho de falha do agente.
             raise CibSevenError("simulador: inicio de processo real recusado")
-        instancia = self._registro.registrar(business_key, variables)
+        instancia = self._registro.registrar(business_key, variables, process_key)
         contexto = _CONTEXTO.get()
         if contexto is not None:
             contexto.turno.escalonamentos.append(
                 EscalonamentoSimulado(
                     agente=str(variables.get("source_agent_id") or "desconhecido"),
-                    motivo=_texto_ou_none(variables.get("motivo_categoria")),
+                    motivo="cancelamento"
+                    if e_cancelamento
+                    else _texto_ou_none(variables.get("motivo_categoria")),
                     severidade=_texto_ou_none(variables.get("severidade")),
                     business_key=business_key,
                     resumo=str(variables.get("resumo_contexto") or ""),
