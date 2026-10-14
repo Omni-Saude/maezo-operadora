@@ -104,6 +104,19 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
 - **Mensagem mista (cobrança + plano):** a parte do plano vem junto da frase de passagem; o Lucas responde a
   cobrança em seguida. Nunca pedir para a pessoa reenviar.
 
+## Rodada 10 — o paciente é outra pessoa (DL-0097, 14/10/2026)
+
+- **Terceira pessoa:** se o sintoma é da filha, do bebê, da mãe, a pergunta e o aviso falam dela ("como sua
+  filha está agora?", "Se sua filha estiver com sintomas agora..."). Nunca "o que você está sentindo".
+- **Recém-nascido com sinal de sofrimento** (dor, choro que não para, febre, respiração, não mamar): a equipe
+  de saúde é acionada na hora e a frase do 192 vai junto.
+- **Aviso de pedido já com a equipe:** "Seu pedido já está com a nossa equipe. O atendente responde por aqui."
+  Nada de "abri", "aberto", "por isso não abri outro" nem outro estado interno. Só vale para o mesmo tipo de
+  caso e o mesmo assunto; assunto de saúde nunca recebe esse aviso.
+- **Dependentes e outros fatos fora das quatro consultas:** "Por aqui eu ainda não consigo consultar seus
+  dependentes. Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe." Nunca "não
+  consta essa informação no cadastro".
+
 ## Nunca dizer
 
 - "portal do beneficiário", "portal da operadora", "aplicativo do plano", "site", 0800 ou qualquer canal

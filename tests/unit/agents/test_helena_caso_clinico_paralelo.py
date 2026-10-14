@@ -112,14 +112,15 @@ async def test_com_caso_clinico_ja_aberto_nao_abre_outro(motivo_clinico: str) ->
     assert all(k != CHAVE_CLINICA for k, _ in cib.inicios)
 
 
-async def test_alerta_clinico_nao_grave_nao_abre_caso_paralelo() -> None:
+async def test_alerta_clinico_nao_grave_tambem_abre_caso_paralelo() -> None:
+    # RODADA 10 (DL-0097): a chave propria vale para QUALQUER severidade clinica, nao so' a grave.
     cib = _com_caso_aberto("cobranca")
     resultado = await _grafo(cib).escalate(
         _estado(escalation_motivo="red_flag_clinico", escalation_severidade="moderada")
     )
 
-    assert resultado["start_desfecho"] == "ja_ativo"
-    assert all(k != CHAVE_CLINICA for k, _ in cib.inicios)
+    assert resultado["start_desfecho"] == "novo"
+    assert resultado["escalation_business_key"] == CHAVE_CLINICA
 
 
 async def test_motivo_nao_clinico_nunca_abre_caso_clinico() -> None:

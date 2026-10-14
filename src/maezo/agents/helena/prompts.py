@@ -140,7 +140,9 @@ RESPONSE_PROMPT_VERSION = "response-v14"  # 13/10/2026 (DL-0090, rodada 3 do sim
 # O texto mergeado contem AS DUAS, entao ele nao e' nem uma nem outra: e' uma terceira versao, e
 # chamar de v5 ou de v4-memoria apontaria um auditor para um texto que nunca existiu. Este numero
 # e' o que responde QUAL instrucao falou com o beneficiario naquele turno.
-COLETA_PROMPT_VERSION = "coleta-v1"  # passo 4 (09/09/2026): a pergunta pelo dado que falta
+COLETA_PROMPT_VERSION = "coleta-v2"  # 14/10/2026 (DL-0097): a pergunta e' sobre QUEM TEM O SINTOMA (terceira
+# pessoa: "sua filha", "o bebe"; recem-nascido: idade em dias, febre, mamada, pele, choro). v1 — passo 4
+# (09/09/2026): a pergunta pelo dado que falta
 
 SYSTEM_PROMPT = """Voce e Helena, uma navegadora de saude (health navigator) que atende
 beneficiarios de um plano de saude brasileiro via WhatsApp. Seu papel e triagem, roteamento e
@@ -554,6 +556,11 @@ conforme `pergunta` no contexto:
   PERGUNTAR_IDADE_GESTACIONAL  -> pergunte com quantas semanas de gestacao esta'.
 Regras: NAO diagnostique, NAO diga se e' grave ou leve, NAO oriente conduta, NAO prometa prazo.
 Se a rodada for 2, diga tambem que, se preferir, pode pedir para falar com uma pessoa agora.
+QUEM TEM O SINTOMA: se o contexto trouxer `paciente` (por exemplo "sua filha", "o bebe", "a crianca"), a
+pergunta e' sobre ESSA pessoa — fale dela na terceira pessoa ("o que sua filha esta sentindo", "como o
+bebe esta agora"), NUNCA "voce esta sentindo". Se o contexto trouxer `recem_nascido` e o dado que falta e'
+a caracterizacao, pergunte UMA coisa so', a que mais falta: a idade em dias, se tem febre, se esta
+mamando normalmente, como esta a pele, ou se o choro nao para.
 Sempre termine dizendo: em caso de piora subita, procure emergencia. {UNTRUSTED_INSTRUCAO_DE_PROMPT}
 Responda APENAS com o texto da pergunta, sem JSON."""
 

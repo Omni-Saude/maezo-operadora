@@ -686,6 +686,23 @@ def _e_despedida(texto: str) -> bool:
     )
 
 
+#: RODADA 10: os motivos CLINICOS que NUNCA ficam presos a um caso de outro tipo. Com um caso administrativo
+#: (cobranca, contestacao, pedido de pessoa) ocupando a chave da conversa, o caso clinico abre na chave
+#: `-clin` — qualquer que seja a severidade (DL-0072 so' valia para a GRAVE, e uma queixa clinica
+#: moderada recebia o aviso "seu atendimento ja' esta' aberto").
+_MOTIVOS_CLINICOS_COM_CHAVE_PROPRIA: frozenset[str] = frozenset(
+    MOTIVOS_DE_ALERTA_CLINICO | {"intencao_clinica"}
+)
+
+
+def _caso_clinico_cobre_o_motivo(motivo_do_caso: str, motivo: object) -> bool:
+    """O caso aberto JA e' clinico e cobre este motivo? (alerta clinico cobre qualquer motivo clinico; uma
+    pergunta clinica aberta so' cobre outra pergunta clinica — um alerta novo abre o proprio caso.)"""
+    if motivo_do_caso in MOTIVOS_DE_ALERTA_CLINICO:
+        return True
+    return motivo == "intencao_clinica" and motivo_do_caso == "intencao_clinica"
+
+
 #: DL-0088: os motivos em que o caso vai mesmo para a equipe de SAUDE. Os outros (falha tecnica,
 #: pedido de pessoa, `outro`, motivo ausente) usam o texto neutro — falha tecnica nunca diz "saude".
 _MOTIVOS_DA_EQUIPE_DE_SAUDE: frozenset[str] = frozenset(
@@ -705,13 +722,24 @@ def _texto_de_handoff(motivo: object, *, saude: bool = False) -> str:
 
 
 def _texto_de_escalonamento(
-    motivo: MotivoCategoria | None, severidade: Severidade | None, *, saude: bool = False
+    motivo: MotivoCategoria | None,
+    severidade: Severidade | None,
+    *,
+    saude: bool = False,
+    paciente: str | None = None,
 ) -> str:
     """O texto fixo do aviso de encaminhamento, escolhido pelo MOTIVO e pela severidade do processo
-    que esta' sendo aberto (que derivam da tabela, nunca de redacao)."""
+    que esta' sendo aberto (que derivam da tabela, nunca de redacao).
+
+    RODADA 10: com `paciente` (o sintoma e' de OUTRA pessoa — "sua filha"), o "se voce estiver com
+    sintomas agora" vira "se sua filha estiver com sintomas agora"."""
     if motivo == "risco_psicossocial":
         return RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL
     if motivo == "red_flag_clinico" and severidade == "grave":
+        if paciente:
+            return RESPOSTA_ESCALONAMENTO_URGENTE.replace(
+                "Se você estiver com sintomas agora", f"Se {paciente} estiver com sintomas agora"
+            )
         return RESPOSTA_ESCALONAMENTO_URGENTE
     return _texto_de_handoff(motivo, saude=saude)
 
@@ -848,21 +876,28 @@ def _humano_acionado(estado: Mapping[str, Any]) -> bool:
 #: a emergencia na forma do guia (192) — um sintoma novo com caso aberto continua recebendo o 192.
 #: RODADA 2: sem 192 (caso aberto ADMINISTRATIVO). Caso clinico ou sinal de saude usam
 #: `RESPOSTA_CASO_ABERTO_EMERGENCIA*` (192 primeiro) ou `RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA`.
+#: RODADA 10 (teste real do dono, 14/10/2026): o aviso "seu atendimento ja' esta' aberto... por isso nao abri
+#: outro" foi dado a quem acabara de descrever um bebe chorando — sobre OUTRO assunto, e falando do estado
+#: interno do sistema. Os avisos de caso aberto agora (1) so' saem quando o caso aberto e' do MESMO tipo e a
+#: mensagem e' do mesmo assunto, (2) dizem em termos humanos o que esta' acontecendo e (3) nunca falam de
+#: "abrir"/"nao abri". Todos mantem "ja' esta' com a nossa equipe" (a mencao de encaminhamento da cerca).
 RESPOSTA_HANDOFF_JA_ABERTO: str = (
-    "Recebi sua mensagem. Seu atendimento com a nossa equipe já está aberto e "
-    "segue em andamento, por isso não abri outro."
+    "Seu pedido já está com a nossa equipe. O atendente responde por aqui, nesta conversa."
+)
+#: O mesmo aviso quando o caso aberto e' de COBRANCA (o motivo vem do proprio caso).
+RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA: str = (
+    "Seu pedido sobre cobrança já está com a nossa equipe. O atendente responde por aqui, nesta conversa."
 )
 #: O aviso de caso aberto quando o assunto e' de saude mas sem sinal de emergencia (pergunta clinica).
 RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA: str = (
-    "Recebi sua mensagem. Seu atendimento com a nossa equipe já está aberto e "
-    "segue em andamento, por isso não abri outro. Se for uma emergência, ligue agora para o 192 (SAMU) "
-    "ou vá ao pronto-socorro mais próximo."
+    "Seu pedido já está com a nossa equipe, e o atendente responde por aqui. "
+    "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
 )
 #: DL-0088: a MESMA verdade, com outra redacao, quando a ultima mensagem da Helena ja' foi o aviso de
 #: caso aberto. No teste do dono o texto saiu identico duas vezes seguidas e pareceu um robo travado.
 #: So' e' escolhida com o historico curto ligado (e' de la' que vem a ultima fala da Helena).
 RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO: str = (
-    "Entendi. Seu atendimento com a nossa equipe já está aberto e continua valendo. "
+    "Entendi. Seu pedido já está com a nossa equipe. "
     "Enquanto isso, posso te ajudar com outras dúvidas por aqui."
 )
 
@@ -890,16 +925,16 @@ RESPOSTA_CASO_ABERTO_EMERGENCIA_3: str = (
 #: Perguntas sobre o caso aberto (RODADA 2): respondidas pelo que a pessoa perguntou, sem prazo
 #: prometido (o guia proibe), sem inventar canal, e so' com 192 quando a pessoa fala de urgencia.
 RESPOSTA_CASO_ABERTO_PRAZO: str = (
-    "Seu atendimento já está aberto com a nossa equipe. Um atendente vai te responder aqui mesmo, "
+    "Seu pedido já está com a nossa equipe. Um atendente vai te responder aqui mesmo, "
     "nesta conversa. Eu não consigo prever o horário exato da resposta."
 )
 RESPOSTA_CASO_ABERTO_SUPERVISOR: str = (
-    "Seu atendimento já está aberto com a nossa equipe, por isso não abri outro. "
+    "Seu pedido já está com a nossa equipe. "
     "Quando o atendente responder aqui, você pode pedir para falar com um supervisor."
 )
 RESPOSTA_CASO_ABERTO_URGENTE: str = (
     "Se for uma urgência de saúde, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. "
-    "Para os outros assuntos, seu atendimento já está aberto, e um atendente vai te responder aqui."
+    "Para os outros assuntos, seu pedido já está com a nossa equipe, e um atendente vai te responder aqui."
 )
 
 #: RODADA 4: o recado ao atendente, sem prometer que ele le' esta conversa (o portal nao a recebe).
@@ -911,17 +946,16 @@ RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE: str = (
 )
 #: RODADA 6: pedido explicito de pessoa com o caso ja' aberto.
 RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA: str = (
-    "Seu caso já está com a nossa equipe, por isso não abri outro. "
-    "O atendente vai te responder aqui mesmo, nesta conversa."
+    "Seu pedido já está com a nossa equipe. O atendente vai te responder aqui mesmo, nesta conversa."
 )
 RESPOSTA_CASO_ABERTO_RECADO: str = (
     "Entendi o que você precisa confirmar. Quando o atendente responder aqui, conte esse pedido "
-    "para ele, por favor. Seu atendimento continua aberto."
+    "para ele, por favor. Seu pedido continua com a nossa equipe."
 )
 #: RODADA 4: depois de dois avisos de caso aberto, respostas curtas e diferentes.
-RESPOSTA_CASO_ABERTO_CURTO_1: str = "Seu atendimento continua aberto com a nossa equipe."
-RESPOSTA_CASO_ABERTO_CURTO_2: str = "Seu caso segue aberto. O atendente responde por aqui."
-RESPOSTA_CASO_ABERTO_CURTO_3: str = "Continua tudo aberto por aqui. Posso ajudar com outra coisa?"
+RESPOSTA_CASO_ABERTO_CURTO_1: str = "Seu pedido continua com a nossa equipe."
+RESPOSTA_CASO_ABERTO_CURTO_2: str = "Seu pedido segue com a equipe. O atendente responde por aqui."
+RESPOSTA_CASO_ABERTO_CURTO_3: str = "Continua com a nossa equipe por aqui. Posso ajudar com outra coisa?"
 _AVISOS_CURTOS: tuple[str, ...] = (
     RESPOSTA_CASO_ABERTO_CURTO_1,
     RESPOSTA_CASO_ABERTO_CURTO_2,
@@ -952,6 +986,13 @@ def _avisos_de_caso_aberto_ja_dados(estado: Mapping[str, Any]) -> int:
 
 #: As redacoes alternativas de um mesmo texto: `_sem_repetir` escolhe a primeira que a Helena ainda nao
 #: mandou. Texto sem entrada aqui ganha um prefixo curto ("Entendi.", "Certo.").
+def _motivo_do_caso_do_estado(estado: Mapping[str, Any]) -> str:
+    """O `motivo_categoria` do caso que JA ESTAVA aberto, lido do motor por `_start_escalation`."""
+    ref = estado.get("escalation_process_ref")
+    valor = ref.get("motivo_do_caso") if isinstance(ref, Mapping) else None
+    return valor if isinstance(valor, str) else ""
+
+
 _VARIANTES: dict[str, tuple[str, ...]] = {
     RESPOSTA_CASO_ABERTO_EMERGENCIA: (
         RESPOSTA_CASO_ABERTO_EMERGENCIA,
@@ -1142,6 +1183,14 @@ def _texto_de_caso_aberto(estado: Mapping[str, Any]) -> str | None:
         # mostra a conversa (`TaskContextPanel`: "Nome, telefone e a conversa nao aparecem aqui"), entao
         # a Helena nao diz que o atendente vai ler: reconhece o pedido e pede para repeti-lo a ele.
         return RESPOSTA_CASO_ABERTO_RECADO
+    if (
+        _motivo_do_caso_do_estado(estado) == "cobranca"
+        and pergunta is None
+        and not _recado_ao_atendente(texto)
+        and _avisos_de_caso_aberto_ja_dados(estado) < 2
+    ):
+        # RODADA 10: o caso aberto e' de COBRANCA: o aviso diz isso, em termos humanos.
+        return RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA
     avisos = _avisos_de_caso_aberto_ja_dados(estado)
     if avisos >= 2 and pergunta in (None, PERGUNTA_CASO_PRAZO):
         # RODADA 4: depois de dois avisos, respostas CURTAS e diferentes (o transcrito repetiu o mesmo aviso
@@ -3201,7 +3250,8 @@ _ASSUNTO_CLINICO_NA_FALHA = re.compile(
     r"\b(?:dor|doi|doendo|febre|sintoma\w*|sangr\w*|vomit\w*|tontura|tont[oa]|desmai\w*|respir\w*|tosse"
     r"|mal estar|passando mal|machuc\w*|ferid[oa]s?|ferimento|gravid\w*|gestante|bebe|crianca|filh[oa]s?"
     r"|o que eu tenho|remedio\w*|medicament\w*|alergi\w*|inchad\w*|incha\w*|queimad\w*|convuls\w*"
-    r"|ansiedade|ansios\w*|depress\w*|triste\w*|morrer|matar|suicid\w*|enjoo|diarreia|pressao|infec\w*)\b"
+    r"|ansiedade|ansios\w*|depress\w*|triste\w*|morrer|matar|suicid\w*|enjoo|diarreia|pressao|infec\w*"
+    r"|chor\w+|bolinh\w+|manch\w+|coceira|recem nascid[oa]|neonat\w*)\b"
 )
 
 
@@ -3379,6 +3429,182 @@ def _texto_plano_indisponivel(estado: Mapping[str, Any], *, fonte_ligada: bool =
     return _com_emergencia_se_preciso(estado, texto)
 
 
+# --- RODADA 10 (teste real do dono, 14/10/2026): o paciente e' OUTRA pessoa --------------------------------
+#
+# "minha filha, recem nascida, esta com uma alergia" -> a Helena perguntou "o que exatamente VOCE esta
+# sentindo". O sistema SABIA que era uma crianca (`population=pediatric`, tabela pediatrica), e o texto
+# falava com o adulto. Toda pergunta e todo texto clinico passa a se referir a QUEM TEM O SINTOMA.
+_RELACOES_DO_PACIENTE: tuple[tuple[re.Pattern[str], str, str], ...] = tuple(
+    (re.compile(padrao), nominativo, genitivo)
+    for padrao, nominativo, genitivo in (
+        (r"\bfilha\b", "sua filha", "da sua filha"),
+        (r"\bfilho\b", "seu filho", "do seu filho"),
+        (r"\b(?:bebe|nenem|neonato|recem nascid[oa])\b", "o bebê", "do bebê"),
+        (r"\bcrianca\b", "a criança", "da criança"),
+        (r"\bmae\b", "sua mãe", "da sua mãe"),
+        (r"\bpai\b", "seu pai", "do seu pai"),
+        (r"\b(?:esposa|mulher)\b", "sua esposa", "da sua esposa"),
+        (r"\b(?:marido|esposo)\b", "seu marido", "do seu marido"),
+        (r"\birma\b", "sua irmã", "da sua irmã"),
+        (r"\birmao\b", "seu irmão", "do seu irmão"),
+    )
+)
+#: "sou mae", "como mulher": a pessoa fala de SI.
+_SOU_A_RELACAO = re.compile(
+    r"\b(?:sou|como|enquanto) (?:a |uma |um |o )?(?:mae|pai|mulher|esposa|marido|filh[ao])\b"
+)
+_AUTO_REFERENCIA = re.compile(
+    r"\beu (?:estou|to|tou|tenho|sinto|senti)\b"
+    r"|\b(?:estou|to|tou) (?:com|sentindo|passando|mal)\b|\bme sinto\b"
+)
+
+
+def _ultima_relacao(plano: str) -> tuple[str, str] | None:
+    """A relacao mencionada MAIS RECENTEMENTE em `plano` (texto normalizado): `(nominativo, genitivo)`."""
+    plano = _SOU_A_RELACAO.sub(" ", plano)
+    achado: tuple[int, str, str] | None = None
+    for padrao, nominativo, genitivo in _RELACOES_DO_PACIENTE:
+        for m in padrao.finditer(plano):
+            if achado is None or m.start() >= achado[0]:
+                achado = (m.start(), nominativo, genitivo)
+    return (achado[1], achado[2]) if achado else None
+
+
+def _falas_do_beneficiario(estado: Mapping[str, Any]) -> list[str]:
+    historico = estado.get("historico_conversa")
+    if not isinstance(historico, list):
+        return []
+    return [
+        str(e.get("texto") or "")
+        for e in historico
+        if isinstance(e, Mapping) and e.get("papel") == "beneficiario" and e.get("texto")
+    ]
+
+
+def _paciente_da_conversa(estado: Mapping[str, Any]) -> tuple[str, str] | None:
+    """`(nominativo, genitivo)` de QUEM TEM O SINTOMA quando nao e' quem escreve ("sua filha", "da sua
+    filha"), ou `None` (a propria pessoa). A mensagem atual manda; sem relacao nela e sem fala de si, valem
+    o contexto da coleta e o historico; e `pediatric` sem relacao nenhuma e' "a crianca"."""
+    texto = _plano(str(estado.get("message_body") or ""))
+    achado = _ultima_relacao(texto)
+    if achado is not None:
+        return achado
+    if _AUTO_REFERENCIA.search(texto):
+        return None
+    contexto = " ".join([str(estado.get("coleta_contexto") or ""), *_falas_do_beneficiario(estado)[-4:]])
+    achado = _ultima_relacao(_plano(contexto))
+    if achado is not None:
+        return achado
+    return ("a criança", "da criança") if estado.get("population") == "pediatric" else None
+
+
+#: RECEM-NASCIDO (rodada 10). A tabela pediatrica so' cobre febre < 3 meses, esforco respiratorio, petequias,
+#: convulsao, letargia, desidratacao e o fail-safe "grave" — NAO cobre "recem-nascido que chora sem parar".
+#: A regra e' do GRAFO, deterministica (lexico), e nao do modelo; mudar a tabela exigiria re-ratificacao
+#  (docs/runbooks/dmn-bpmn-deployment.md §4). A tabela continua rodando; esta regra so' ACRESCENTA
+# escalonamento.
+_RECEM_NASCIDO = re.compile(
+    r"\brecem[ -]?nascid[oa]s?\b|\bneonat\w*\b"
+    r"|\b(?:\d{1,2}|um|uma|dois|duas|tres|quatro|cinco|seis|sete) (?:dias?|semanas?) de vida\b"
+    r"|\bnasceu (?:ha |faz )?(?:\d{1,2}|um|uma|dois|duas|tres|quatro)? ?(?:dias?|semanas?)\b"
+    r"|\bbebe (?:pequen[oa]|novinh[oa])\b|\bmenos de (?:um|1) mes\b"
+)
+_SINAL_NEONATAL = re.compile(
+    r"\bchor\w*(?: \w+){0,3} (?:muito|demais|sem parar|o tempo todo|nao para|nao consegue parar)\b"
+    r"|\bchoro (?:forte|constante|inconsolavel|que nao para|sem parar)\b|\binconsolavel\b|\bgrit\w+"
+    r"|\bgemend\w+|\bgemid\w+|\bdor\b|\bdoendo\b|\bfebre\b|\bfebril\b|\btemperatura\b|\bquente\b"
+    r"|\brespir\w*(?: \w+){0,2} (?:rapid\w*|mal|diferente|curt\w*|dificuldade)\b|\bfalta de ar\b"
+    r"|\bnao (?:quer|esta querendo|consegue) mamar\b|\bsem (?:mamar|querer mamar)\b"
+    r"|\brecus\w+ (?:o peito|mamar)\b"
+    r"|\bmole\b|\bleterg\w+|\broxo\b|\bamarel[oa]s?\b|\bvomit\w+"
+)
+#: "sem febre", "nao tem dor": o sinal NEGADO nao conta.
+_SINAL_NEGADO = re.compile(
+    r"\b(?:nao|sem)(?: (?:tem|teve|esta com|esta tendo|apresenta|sente|tem tido))? "
+    r"(?:febre|dor|vomito\w*|gemid\w+|falta de ar|choro)\b"
+)
+
+
+def _alerta_neonatal(
+    estado: Mapping[str, Any], extraction: Mapping[str, Any], memoria: Mapping[str, Any] | None
+) -> bool:
+    """Recem-nascido (na mensagem, no contexto da conversa ou na idade 0 mes) COM sinal de sofrimento na
+    mensagem atual (dor, choro que nao para, febre, mudanca da respiracao, nao mamar, mole, roxo...)."""
+    atual = _plano(str(estado.get("message_body") or ""))
+    contexto = " ".join(
+        [atual, str(estado.get("coleta_contexto") or ""), *_falas_do_beneficiario(estado)[-6:]]
+    )
+    recem_nascido = bool(_RECEM_NASCIDO.search(_plano(contexto)))
+    if not recem_nascido:
+        idade = extraction.get("idade_meses")
+        lembrada = memoria.get("idade_meses") if isinstance(memoria, Mapping) else None
+        recem_nascido = (idade == 0 or lembrada == 0) and extraction.get("population") == "pediatric"
+    if not recem_nascido:
+        return False
+    return bool(_SINAL_NEONATAL.search(_SINAL_NEGADO.sub(" ", atual)))
+
+
+#: CONTEUDO CLINICO no texto (rodada 10, regra B): relato de sintoma, de quadro ou de corpo — o que NUNCA vira
+#: `solicitacao_humano` (P3 administrativa) so' porque o modelo leu "pedido de pessoa".
+_CONTEUDO_CLINICO = re.compile(
+    r"\b(?:chor\w+|alergi\w*|bolinh\w+|manch\w+|coceira|vermelh\w+|pele|assadur\w*|colica|engasg\w+"
+    r"|recem nascid[oa]|sentindo dor|com dor|dor)\b"
+)
+
+
+def _conteudo_clinico(texto: str) -> bool:
+    plano = _plano(texto)
+    return bool(_ASSUNTO_CLINICO_NA_FALHA.search(plano) or _CONTEUDO_CLINICO.search(plano))
+
+
+def _memoria_em_triagem(memoria: Mapping[str, Any] | None) -> bool:
+    """A conversa JA esta' em triagem clinica (a memoria clinica guarda a populacao ou o sintoma avaliado)."""
+    if not isinstance(memoria, Mapping):
+        return False
+    populacao = memoria.get("population")
+    return bool(memoria.get(_MEMORIA_SINTOMA_AVALIADO) is not None or (populacao not in (None, "none", "")))
+
+
+#: DEPENDENTES (rodada 10, regra D): fora dos quatro subtipos da consulta do plano. O modelo improvisou
+#: "nao consta essa informacao no cadastro" — FALSO (o lago tem o dependente). Texto proprio, sem dizer
+#: que nao consta; a funcionalidade (listar dependentes) depende de uma rota nova da AMH.
+_PERGUNTA_DE_DEPENDENTES = re.compile(r"\bdependentes?\b")
+RESPOSTA_DEPENDENTES: str = (
+    "Por aqui eu ainda não consigo consultar seus dependentes. "
+    "Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe."
+)
+
+
+def _pergunta_de_dependentes(texto: str) -> bool:
+    return bool(_PERGUNTA_DE_DEPENDENTES.search(_plano(texto)))
+
+
+_FALA_COM_O_ADULTO = re.compile(
+    r"\b(?:voce|vc) (?:esta|sente|sentiu|tem|teve|precisa dizer)\b|\bo que voce\b|\bcomo voce\b|\bseu corpo\b"
+)
+_PERGUNTA_DE_TERCEIRO: dict[str, str] = {
+    "PERGUNTAR_INTENSIDADE": (
+        "Para eu encaminhar do jeito certo: como {paciente} está agora? Leve, moderado ou forte?"
+    ),
+    "PERGUNTAR_CARACTERIZACAO": (
+        "Entendi. Pode me dizer com mais detalhe o que {paciente} está sentindo e desde quando?"
+    ),
+    "PERGUNTAR_IDADE": (
+        "Para eu encaminhar do jeito certo: qual é a idade {genitivo}? Se for bebê, diga em dias ou meses."
+    ),
+    "PERGUNTAR_IDADE_GESTACIONAL": (
+        "Para eu encaminhar do jeito certo: com quantas semanas de gestação {paciente} está?"
+    ),
+    "default": "Pode me contar um pouco mais sobre o que {paciente} está sentindo?",
+}
+
+
+def _pergunta_de_terceiro(pergunta: str, paciente: tuple[str, str]) -> str:
+    """A pergunta de coleta em TERCEIRA pessoa, sobre quem tem o sintoma (rodada 10)."""
+    modelo = _PERGUNTA_DE_TERCEIRO.get(pergunta, _PERGUNTA_DE_TERCEIRO["default"])
+    return modelo.format(paciente=paciente[0], genitivo=paciente[1])
+
+
 def _ja_mostrou_dados_do_plano(estado: Mapping[str, Any]) -> bool:
     """A Helena ja' respondeu com dados do plano nesta conversa (o historico guarda so' o marcador)."""
     return any(
@@ -3424,7 +3650,10 @@ def _sem_frases_fora_do_papel(texto: str) -> str:
     mantidas = [
         f
         for f in frases
-        if not _FRASE_DE_COBRANCA.search(_plano(f)) and not _FRASE_DE_COBERTURA_SEM_FATO.search(_plano(f))
+        if not _FRASE_DE_COBRANCA.search(_plano(f))
+        and not _FRASE_DE_COBERTURA_SEM_FATO.search(_plano(f))
+        # RODADA 10: dependentes nao estao nos fatos do bloco; "sobre dependentes, nao consta" e' invencao.
+        and not _PERGUNTA_DE_DEPENDENTES.search(_plano(f))
     ]
     return " ".join(mantidas) if mantidas else texto
 
@@ -4403,6 +4632,22 @@ class HelenaGraph:
                 update, _subtipo_pelo_texto(str(state.get("message_body") or "")), None, state
             )
 
+        # DEPENDENTES (rodada 10, regra D): nao sao um dos quatro subtipos da consulta do plano. O modelo
+        # improvisou "nao consta essa informacao no cadastro" (FALSO: o lago tem o dependente). O turno vira
+        # `information` e o `inform` responde `RESPOSTA_DEPENDENTES`. Cobranca no texto continua no Lucas.
+        if (
+            _pergunta_de_dependentes(str(state.get("message_body") or ""))
+            and intent != INTENT_COBRANCA
+            and not extraction.get("sintoma_codigo")
+            and not psychosocial
+            and state.get("sinal_saude_lexico") is not True
+            and not _conteudo_clinico(str(state.get("message_body") or ""))
+        ):
+            logger.info("helena_pergunta_de_dependentes", node="classify", intent_do_modelo=intent)
+            intent = "information"
+            update.update({"intent": intent, "cobranca_subtipo": None, "cobranca_competencia": None})
+            update.pop("consulta_subtipo", None)
+
         # RODADA 3: com a fonte dos fatos do plano LIGADA, pergunta do plano ("qual o tipo do meu plano?",
         # "carencia?", "cobre parto?", "e' hospitalar ou ambulatorial?") vai a `consultar_plano` sem depender
         # de o modelo escolher `consulta_plano`. Cobranca (acima) vence numa mensagem mista.
@@ -4549,6 +4794,33 @@ class HelenaGraph:
                 update["escalation_severidade"] = _severidade_from_prioridade(prioridade)
             return update
 
+        # CONTEUDO CLINICO NUNCA VIRA `solicitacao_humano` (rodada 10, regra B). No teste real do dono, "ele
+        # deve estar sentindo dor, pois esta' chorando muito" (um recem-nascido, no meio da triagem) saiu
+        # `human_request` do modelo, abriu `solicitacao_humano` na chave ADMINISTRATIVA, achou a contestacao
+        # de
+        # cobranca ja' aberta e a pessoa leu "seu atendimento ja' esta' aberto": nenhum caso clinico, nenhuma
+        # orientacao de urgencia. Sem pedido EXPLICITO de pessoa no texto, conteudo clinico e' relato de
+        # sintoma — segue a triagem (tabela, coleta, resposta). Com pedido explicito DENTRO da triagem, o
+        # motivo e' o clinico (`intencao_clinica`), e o caso clinico abre na chave `-clin`.
+        texto_clinico = str(state.get("message_body") or "")
+        conteudo_clinico = bool(extraction.get("sintoma_codigo")) or _conteudo_clinico(texto_clinico)
+        em_triagem_clinica = bool(state.get("coleta_pendente")) or _memoria_em_triagem(memoria)
+        clinico_continua = False
+        if (
+            intent == "human_request"
+            and conteudo_clinico
+            and not _pedido_explicito_de_pessoa(texto_clinico)
+            and not psychosocial
+        ):
+            logger.info(
+                "helena_conteudo_clinico_nao_e_pedido_de_pessoa",
+                node="classify",
+                em_triagem=em_triagem_clinica,
+            )
+            intent = "symptom"
+            update["intent"] = intent
+            clinico_continua = True
+
         # GATILHO 1 (22/09/2026, CRITICO 3): A TABELA ANTES DA INTENCAO — e uma bandeira encontrada
         # MANDA no roteamento.
         #
@@ -4590,6 +4862,20 @@ class HelenaGraph:
             logger.warning(
                 "helena_alerta_com_caso_aberto", node="classify", caso_aberto=caso_aberto, intent=intent
             )
+            update["next_kind"] = "escalate"
+            update["escalation_motivo"] = "red_flag_clinico"
+            update["escalation_severidade"] = "grave"
+            return update
+
+        # RECEM-NASCIDO COM SINAL DE SOFRIMENTO (rodada 10, regra A): dor, choro que nao para, febre,
+        # mudanca da
+        # respiracao, nao mamar, mole, roxo... escala NA HORA para a equipe de saude (alerta clinico, P1) com
+        # a orientacao de emergencia. A tabela pediatrica nao tem esta linha (ver `_RECEM_NASCIDO`): a regra
+        # e'
+        # do grafo, deterministica, e a tabela continua rodando.
+        if _alerta_neonatal(state, extraction, memoria):
+            logger.warning("helena_alerta_neonatal", node="classify", intent_do_modelo=intent)
+            update["population"] = "pediatric"
             update["next_kind"] = "escalate"
             update["escalation_motivo"] = "red_flag_clinico"
             update["escalation_severidade"] = "grave"
@@ -4690,10 +4976,19 @@ class HelenaGraph:
             # intencao que o modelo deu — cobranca no texto continua indo ao Lucas (acima).
             logger.info("helena_pedido_explicito_de_pessoa", node="classify", intent_do_modelo=intent)
             pedido_lexico = True
+        if clinico_continua:
+            # RODADA 10: conteudo clinico sem pedido explicito de pessoa nao e' pedido (ver acima).
+            pedido_lexico = False
         if (intent == "human_request" or pedido_lexico) and not encerramento:
             update["next_kind"] = "escalate"
-            update["escalation_motivo"] = "solicitacao_humano"
-            update["escalation_severidade"] = "leve"
+            if em_triagem_clinica and conteudo_clinico:
+                # Pediu uma pessoa DENTRO da triagem, falando do quadro: o motivo e' clinico (enfermagem),
+                # nunca a fila administrativa — e o caso abre na chave clinica.
+                update["escalation_motivo"] = "intencao_clinica"
+                update["escalation_severidade"] = "moderada"
+            else:
+                update["escalation_motivo"] = "solicitacao_humano"
+                update["escalation_severidade"] = "leve"
             return update
 
         # Gatilho 3b (DL-0070): ameaca de reclamacao a orgao regulador. Vence a rota de fora do canal,
@@ -4998,11 +5293,19 @@ class HelenaGraph:
         rota, em vez de depender de por qual no' o turno passou.
         """
         pergunta = str(state.get("coleta_pergunta") or "")
-        contexto = {
+        paciente = _paciente_da_conversa(state)
+        contexto: dict[str, Any] = {
             "pergunta": pergunta,
             "rodada": state.get("coleta_rodadas"),
             "population": state.get("population"),
         }
+        if paciente is not None:
+            # RODADA 10: a pergunta e' sobre OUTRA pessoa ("sua filha"), nunca "voce esta sentindo".
+            contexto["paciente"] = paciente[0]
+            if _RECEM_NASCIDO.search(
+                _plano(" ".join([str(state.get("message_body") or ""), *_falas_do_beneficiario(state)]))
+            ):
+                contexto["recem_nascido"] = True
         prompt = (
             f"{coleta_prompt()}\n\ncontexto={contexto}\n"
             f"{render_untrusted_block('message_body', state.get('message_body', ''))}"
@@ -5019,6 +5322,13 @@ class HelenaGraph:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:
             text = _PERGUNTA_FALLBACK.get(pergunta, _PERGUNTA_FALLBACK["default"])
+        if paciente is not None and _FALA_COM_O_ADULTO.search(_plano(text)):
+            # RODADA 10: o modelo falou com o adulto ("o que voce esta sentindo") sobre o sintoma de outra
+            # pessoa: a pergunta de fallback, em terceira pessoa, no lugar.
+            logger.info("helena_pergunta_trocada_para_terceiro", node="collect")
+            text = _pergunta_de_terceiro(pergunta, paciente)
+        elif paciente is not None and text in _PERGUNTA_FALLBACK.values():
+            text = _pergunta_de_terceiro(pergunta, paciente)
         try:
             text = self._cercar_saida(text, "collect", node="collect")
         except RespostaRecusadaError:
@@ -5212,6 +5522,8 @@ class HelenaGraph:
             return None
         intent = estado.get("intent")
         texto = str(estado.get("message_body") or "")
+        if intent in ("information", "outside_channel", "greeting") and _pergunta_de_dependentes(texto):
+            return RESPOSTA_DEPENDENTES
         if intent in _INTENTS_QUE_VIRAM_COBRANCA:
             # RODADA 3: encerramento (inclusive ironico) e pedido do telefone da central. Com sinal de saude
             # ("ok obrigado, mas estou com sangramento") nunca e' despedida.
@@ -5599,19 +5911,23 @@ class HelenaGraph:
             state, motivo=motivo, severidade=severidade, response_kind="escalate"
         )
 
-    async def _caso_aberto_e_clinico(self, business_key: str) -> bool:
-        """O caso que ocupa a chave da conversa e' um alerta clinico? Na duvida, NAO: abrir um caso
-        clinico a mais custa um atendimento; deixar de abrir um custa o alerta (a idempotencia da
-        chave `-clin` impede que o "a mais" se repita)."""
+    async def _motivo_do_caso_aberto(self, business_key: str) -> str:
+        """O `motivo_categoria` do caso que ocupa a chave da conversa, ou `""` (na duvida / leitura que
+        falhou). Quem le' decide o lado seguro: abrir um caso clinico a mais custa um atendimento; deixar
+        de abrir um custa o alerta (a idempotencia da chave `-clin` impede que o "a mais" se repita)."""
         try:
             status = await self._cibseven.get_process_status(business_key)
         except PROGRAMMING_ERRORS:
             raise
         except CibSevenError:
-            return False
+            return ""
         except EXTERNAL_DEPENDENCY_FAILURES:
-            return False
-        return str((status.variables or {}).get("motivo_categoria") or "") in MOTIVOS_DE_ALERTA_CLINICO
+            return ""
+        return str((status.variables or {}).get("motivo_categoria") or "")
+
+    async def _caso_aberto_e_clinico(self, business_key: str) -> bool:
+        """O caso que ocupa a chave da conversa e' um alerta clinico? Na duvida, NAO."""
+        return await self._motivo_do_caso_aberto(business_key) in MOTIVOS_DE_ALERTA_CLINICO
 
     async def _start_escalation(
         self,
@@ -5685,7 +6001,13 @@ class HelenaGraph:
         if response_kind == "escalate":
             # TEXTO FIXO, sem modelo — ver `RESPOSTA_ESCALONAMENTO_URGENTE`. O modelo continua
             # redigindo so' o `schedule` (hoje sem rota de entrada, DL-0052).
-            response_text = _texto_de_escalonamento(motivo, severidade, saude=_mensagem_de_saude(state))
+            _paciente = _paciente_da_conversa(state)
+            response_text = _texto_de_escalonamento(
+                motivo,
+                severidade,
+                saude=_mensagem_de_saude(state),
+                paciente=_paciente[0] if _paciente else None,
+            )
             if motivo == "solicitacao_humano" and _PEDE_CONTATO_DA_EQUIPE.search(
                 _plano(str(state.get("message_body") or ""))
             ):
@@ -5722,12 +6044,15 @@ class HelenaGraph:
                 audit_sink=self._audit_sink,
                 provenance=provenance,
             )
+            motivo_do_caso = ""
+            ja_ativo = _start_desfecho_de(instance.start_outcome) == START_DESFECHO_JA_ATIVO
+            if ja_ativo:
+                motivo_do_caso = await self._motivo_do_caso_aberto(business_key)
             if (
-                _start_desfecho_de(instance.start_outcome) == START_DESFECHO_JA_ATIVO
-                and motivo in MOTIVOS_DE_ALERTA_CLINICO
-                and severidade == "grave"
+                ja_ativo
+                and motivo in _MOTIVOS_CLINICOS_COM_CHAVE_PROPRIA
                 and not business_key.endswith(SUFIXO_CASO_CLINICO)
-                and not await self._caso_aberto_e_clinico(business_key)
+                and not _caso_clinico_cobre_o_motivo(motivo_do_caso, motivo)
             ):
                 # DL-0072 (LU090): alerta clinico GRAVE nunca e' suprimido por um caso de outra
                 # classe. A chave da conversa esta' ocupada por cobranca (ou outro assunto): abre-se um
@@ -5748,6 +6073,7 @@ class HelenaGraph:
                     audit_sink=self._audit_sink,
                     provenance=provenance,
                 )
+                motivo_do_caso = ""
         except CibSevenError as exc:
             return {
                 "escalation_started": False,
@@ -5799,6 +6125,9 @@ class HelenaGraph:
                 "instance_id": instance.instance_id,
                 "state": instance.state,
                 "already_existed": instance.already_existed,
+                # RODADA 10: de que TIPO e' o caso que ja' estava aberto (so' o token do motivo): o aviso de
+                # caso aberto diz isso em termos humanos ("seu pedido sobre cobranca...").
+                "motivo_do_caso": motivo_do_caso,
                 # O veredito do chokepoint, verbatim, ao lado do booleano que ele corrige — quem
                 # le' o handoff no painel precisa saber se a instancia citada nasceu AGORA.
                 "start_outcome": str(getattr(instance.start_outcome, "value", instance.start_outcome)),
