@@ -77,7 +77,7 @@ ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 # src/maezo/tools/workers/adequacao_shadow.py (docstring do modulo, porta 1b).
 tabela_viva:
   path: spec/processes/dmn/triage_redflag_pediatric.dmn
-  sha256: "be381eb5263ec4aa1aeb62c4140bcda194246e4de1b7310db6cf7d5d45677815"
+  sha256: "7694854408644f88de29ee798e72ea85b58fc271dcb0bfe521d0900c42cb8226"
 
 modo_operacao: sombra
 
@@ -278,7 +278,7 @@ regras_candidatas:
   - ordem: 6
     id: r9
     candidato: true
-    origem: "NOVA (DL-0099, 14/10/2026): regra neonatal ratificada pelo dono em triage-redflag-pediatric-neonatal-ratification.yaml"
+    origem: "NOVA (DL-0101, 14/10/2026): regra neonatal ratificada pelo dono em triage-redflag-pediatric-neonatal-ratification.yaml"
     entradas: {sintoma_codigo: '"choro_inconsolavel"', intensidade: "-", idade_meses: "< 1"}
     saidas:
       red_flag: true
@@ -289,7 +289,7 @@ regras_candidatas:
   - ordem: 7
     id: r10
     candidato: true
-    origem: "NOVA (DL-0099, 14/10/2026): regra neonatal ratificada pelo dono em triage-redflag-pediatric-neonatal-ratification.yaml"
+    origem: "NOVA (DL-0101, 14/10/2026): regra neonatal ratificada pelo dono em triage-redflag-pediatric-neonatal-ratification.yaml"
     entradas: {sintoma_codigo: '"recusa_alimentar"', intensidade: "-", idade_meses: "< 1"}
     saidas:
       red_flag: true
@@ -300,7 +300,7 @@ regras_candidatas:
   - ordem: 8
     id: r11
     candidato: true
-    origem: "NOVA (DL-0099, 14/10/2026): regra neonatal ratificada pelo dono em triage-redflag-pediatric-neonatal-ratification.yaml"
+    origem: "NOVA (DL-0101, 14/10/2026): regra neonatal ratificada pelo dono em triage-redflag-pediatric-neonatal-ratification.yaml"
     entradas: {sintoma_codigo: '"hipotonia"', intensidade: "-", idade_meses: "< 1"}
     saidas:
       red_flag: true
@@ -311,7 +311,7 @@ regras_candidatas:
   - ordem: 9
     id: r12
     candidato: true
-    origem: "NOVA (DL-0099, 14/10/2026): regra neonatal ratificada pelo dono em triage-redflag-pediatric-neonatal-ratification.yaml"
+    origem: "NOVA (DL-0101, 14/10/2026): regra neonatal ratificada pelo dono em triage-redflag-pediatric-neonatal-ratification.yaml"
     entradas: {sintoma_codigo: '"cianose"', intensidade: "-", idade_meses: "< 1"}
     saidas:
       red_flag: true
@@ -322,7 +322,7 @@ regras_candidatas:
   - ordem: 10
     id: r13
     candidato: true
-    origem: "NOVA (DL-0099, 14/10/2026): regra neonatal ratificada pelo dono em triage-redflag-pediatric-neonatal-ratification.yaml"
+    origem: "NOVA (DL-0101, 14/10/2026): regra neonatal ratificada pelo dono em triage-redflag-pediatric-neonatal-ratification.yaml"
     entradas: {sintoma_codigo: '"vomitos_persistentes"', intensidade: "-", idade_meses: "< 1"}
     saidas:
       red_flag: true

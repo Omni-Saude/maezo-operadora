@@ -1240,7 +1240,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=5,
         reason=(
             "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
-            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0099) acrescentam cinco linhas de saida; nao "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
             "carrega dado do beneficiario, so' o veredito da tabela."
         ),
     ),
@@ -1252,7 +1252,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=5,
         reason=(
             "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
-            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0099) acrescentam cinco linhas de saida; nao "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
             "carrega dado do beneficiario, so' o veredito da tabela."
         ),
     ),
@@ -1264,7 +1264,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=5,
         reason=(
             "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
-            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0099) acrescentam cinco linhas de saida; nao "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
             "carrega dado do beneficiario, so' o veredito da tabela."
         ),
     ),
@@ -1276,7 +1276,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=5,
         reason=(
             "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
-            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0099) acrescentam cinco linhas de saida; nao "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
             "carrega dado do beneficiario, so' o veredito da tabela."
         ),
     ),

@@ -3543,7 +3543,7 @@ def _contexto_de_recem_nascido(estado: Mapping[str, Any]) -> bool:
 def _alerta_neonatal(
     estado: Mapping[str, Any], extraction: Mapping[str, Any], memoria: Mapping[str, Any] | None
 ) -> bool:
-    """FAIL-SAFE da regra neonatal (DL-0099): a FONTE PRIMARIA agora e' a tabela pediatrica (regras r9-r13,
+    """FAIL-SAFE da regra neonatal (DL-0101): a FONTE PRIMARIA agora e' a tabela pediatrica (regras r9-r13,
     ratificadas pelo dono); esta regra do grafo continua como cinto e suspensorio para quando o modelo nao
     devolver o codigo neonatal.
 
@@ -4431,7 +4431,7 @@ class HelenaGraph:
             and extraction.get("idade_meses") is None
             and _contexto_de_recem_nascido(state)
         ):
-            # DL-0099: recem-nascido dito em palavras ("nasceu ha 5 dias") e' idade 0 meses: e' o que
+            # DL-0101: recem-nascido dito em palavras ("nasceu ha 5 dias") e' idade 0 meses: e' o que
             # as regras neonatais da tabela pediatrica leem (`idade_meses < 1`).
             extraction["idade_meses"] = 0
             logger.info("helena_recem_nascido_idade_zero", node="classify")

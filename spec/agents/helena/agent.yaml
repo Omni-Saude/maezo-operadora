@@ -10,7 +10,7 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
   - roteamento_intencao                # classify() decide inform | schedule | escalate
   - escalonamento_humano               # SP-OP-ESCALATION-001 (unico efeito real desta jornada)
   - passagem_cobranca                  # onda (e) do numero unico (ADR-0062): cobranca -> Lucas, SO' com MAEZO_ROTEADOR_LUCAS ligado
-  # ESCOPO REAL (DL-0099, 14/10/2026; decisao do dono): a lista acima tinha so' os quatro itens originais.
+  # ESCOPO REAL (DL-0101, 14/10/2026; decisao do dono): a lista acima tinha so' os quatro itens originais.
   - consulta_fatos_do_plano            # elegibilidade, carteirinha, carencia, autorizacao e dependentes (TINA, SO' com MAEZO_HELENA_CONSULTAS_AMH ligado); resposta so' com fatos do cadastro
   - duvida_de_saude_sem_sintoma        # explica o que a Helena pode fazer; NUNCA orientacao clinica
   - pedido_explicito_de_humano         # human_request -> SP-OP-ESCALATION-001 (solicitacao_humano)
@@ -59,7 +59,7 @@ security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  classify: classify-v5.4             # 14/10/2026 (DL-0099): recem-nascido (codigos neonatais, idade 0). v5.3: 01/10/2026: privacidade e armazenamento de dados sao `outside_channel`
+  classify: classify-v5.4             # 14/10/2026 (DL-0101): recem-nascido (codigos neonatais, idade 0). v5.3: 01/10/2026: privacidade e armazenamento de dados sao `outside_channel`
                                      # (J09). v5.1: autorizacao NEGADA e status de guia (B07).
                                      # v5 — 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO
                                      # CAMPOS DIFERENTES — `sintoma_codigo`/`intensidade`
@@ -73,7 +73,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # ("estou com dor de cabeca" nao e'
                                      # cefaleia_subita_intensa), e `intensidade` nunca e'
                                      # inferida do sintoma.
-  classify_roteador: classify-v7.1   # 14/10/2026 (DL-0099): recem-nascido, como no v5.4. v7: 08/10/2026 (DL-0086): subtipo `consulta_valores` (valor, coparticipacao,
+  classify_roteador: classify-v7.1   # 14/10/2026 (DL-0101): recem-nascido, como no v5.4. v7: 08/10/2026 (DL-0086): subtipo `consulta_valores` (valor, coparticipacao,
                                      # saldo, historico, data de pagamento); pix/cartao/nota fiscal/IR seguem `outro`.
                                      # v6.2 — 02/10/2026: paragrafo de outside_channel com
                                      # autorizacao negada e privacidade (DL-0063/0059). v6: onda (e) do numero unico (ADR-0062): usado SO' com o

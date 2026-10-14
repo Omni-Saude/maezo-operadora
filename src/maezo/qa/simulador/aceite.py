@@ -38,6 +38,9 @@ _FIM_DE_FRASE = re.compile(r"[.!?\n]")
 
 #: `nao_deve` GLOBAL: vale em TODO passo de TODO segmento (regressao de frases ja corrigidas).
 NAO_DEVE_GLOBAL: tuple[str, ...] = ("por isso nao abri outro", "nao consta essa informacao")
+#: `nao_deve` GLOBAL CONDICIONAL: (padrao do TEXTO ENVIADO, padrao proibido na resposta). Vale so'
+#: nos passos cuja mensagem casa o primeiro (aqui: fala da filha/filho/bebe).
+NAO_DEVE_CONDICIONAL: tuple[tuple[str, str], ...] = (("filha|filho|bebe", "voce esta sentindo"),)
 
 #: A "persona" das conversas do roteiro (so' para o registro; nenhum modelo e' chamado).
 PERSONA_ACEITE = Persona(
@@ -90,10 +93,12 @@ class ResultadoDoSegmento:
     telefone_rotulo: str
     passos: list[ResultadoDoPasso] = field(default_factory=list)
     erro_preparo: str | None = None
+    #: Falhas do fecho do acesso (apresentacao do canal); os passos rodam mesmo assim.
+    falhas_de_acesso: list[str] = field(default_factory=list)
 
     @property
     def passou(self) -> bool:
-        return self.erro_preparo is None and all(p.passou for p in self.passos)
+        return self.erro_preparo is None and not self.falhas_de_acesso and all(p.passou for p in self.passos)
 
 
 # ================================================================================================
@@ -137,6 +142,9 @@ def avaliar_passo(
     for padrao in NAO_DEVE_GLOBAL:
         if compilar(padrao).search(texto):
             falhas.append(f"nao_deve_global{onde}: casou /{padrao}/")
+    for quando, padrao in NAO_DEVE_CONDICIONAL:
+        if compilar(quando).search(sem_acento(passo.texto)) and compilar(padrao).search(texto):
+            falhas.append(f"nao_deve_global{onde}: casou /{padrao}/ (mensagem sobre {quando})")
     if passo.primeira_frase_deve is not None:
         primeira = respostas[0][1] if respostas else ""
         if not compilar(passo.primeira_frase_deve).search(sem_acento(primeira_frase(primeira))):
@@ -219,6 +227,7 @@ def como_json(resultados: Sequence[ResultadoDoSegmento], sujeito: Sujeito) -> di
                 "nome": s.nome,
                 "passou": s.passou,
                 "erro_preparo": s.erro_preparo,
+                "falhas_de_acesso": s.falhas_de_acesso,
                 "passos": [
                     {
                         "passo": p.indice,
@@ -248,6 +257,9 @@ def secao_do_relatorio(dados: dict[str, Any], roteiro: str) -> str:
         linhas += [f"### Segmento {seg['nome']} — {'ok' if seg['passou'] else 'FALHOU'}", ""]
         if seg["erro_preparo"]:
             linhas += [f"Acesso nao concluiu: `{seg['erro_preparo']}`", ""]
+        linhas += [f"Falha no fecho do acesso: {f}" for f in seg["falhas_de_acesso"]]
+        if seg["falhas_de_acesso"]:
+            linhas.append("")
         linhas += ["| Passo | Mensagem | Resultado | Escalacao |", "|---|---|---|---|"]
         for p in seg["passos"]:
             motivos = ", ".join(str(e["motivo"]) for e in p["escalacoes"]) or "-"
@@ -274,6 +286,21 @@ def _p(texto: str, **kw: Any) -> Passo:
 
 
 _NAO_TENHO = "nao tenho outra informa"
+
+#: A pergunta de ano e' DETERMINISTICA (DL-0095): o par roda 3 vezes no segmento 1 e as 3 respostas
+#: restatam o mes com o ano.
+_PAR_COPARTICIPACAO_E_ANO: tuple[Passo, ...] = (
+    _p(
+        "Quanto foi minha coparticipação em setembro?",
+        deve=("setembro de 2026", r"R\$ ?0,00"),
+    ),
+    _p(
+        "de qual ano?",
+        deve=("setembro de 2026",),
+        nao_deve=(_NAO_TENHO,),
+        nao_igual_ao_anterior=True,
+    ),
+)
 
 DONO_V1: tuple[Segmento, ...] = (
     Segmento(
@@ -306,16 +333,9 @@ DONO_V1: tuple[Segmento, ...] = (
                 deve=("empresa contratante", "julho de 2026"),
                 nao_deve=(_NAO_TENHO,),
             ),
-            _p(
-                "Quanto foi minha coparticipação em setembro?",
-                deve=("setembro de 2026", r"R\$ ?0,00"),
-            ),
-            _p(
-                "de qual ano?",
-                deve=("setembro de 2026",),
-                nao_deve=(_NAO_TENHO,),
-                nao_igual_ao_anterior=True,
-            ),
+            *_PAR_COPARTICIPACAO_E_ANO,
+            *_PAR_COPARTICIPACAO_E_ANO,
+            *_PAR_COPARTICIPACAO_E_ANO,
             _p(
                 "Quais foram as últimas três mensalidades pagas por mim?",
                 deve=("empresa contratante",),
@@ -392,8 +412,15 @@ DONO_V1: tuple[Segmento, ...] = (
             ),
             _p(
                 "Antes, vc consegue olhar sobre meus dependentes?",
-                deve=("(nao consigo|ainda nao consigo|central|pessoa da equipe)",),
-                nao_deve=("nao consta",),
+                # Com a fonte de dependentes ligada (TINA): "No seu cadastro consta 1 dependente ativo:
+                # filho(a) ate' 23 anos (recem-nascido no plano)." Nunca CPF nem nascimento.
+                deve=("(1 dependente|um dependente)", "filh"),
+                nao_deve=(
+                    "nao consta essa informacao|ainda nao consigo consultar",
+                    r"\d{11,}",
+                    r"\d{3}\.\d{3}\.\d{3}-\d{2}",
+                    r"\d{2}/\d{2}/\d{4}",
+                ),
             ),
             _p(
                 "Digo isso, pois minha filha, recém nascida está com uma alergia",
@@ -441,6 +468,13 @@ DONO_V1: tuple[Segmento, ...] = (
             _p("e a minha mensalidade de outubro?", deve=("empresa contratante",)),
         ),
     ),
+    Segmento(
+        "7-retorno-sem-reapresentar",
+        (
+            _p("Oi", nao_deve=("por aqui voce pode",)),
+            _p("Tudo bem?", nao_deve=("por aqui voce pode",)),
+        ),
+    ),
 )
 
 ROTEIROS: dict[str, tuple[Segmento, ...]] = {"dono_v1": DONO_V1}
@@ -454,15 +488,53 @@ def validar(roteiro: Sequence[Segmento]) -> None:
                 *passo.deve,
                 *passo.nao_deve,
                 *NAO_DEVE_GLOBAL,
+                *(x for par in NAO_DEVE_CONDICIONAL for x in par),
                 *([passo.primeira_frase_deve] if passo.primeira_frase_deve else []),
             ):
                 compilar(padrao)
 
 
+# ================================================================================================
+# A apresentacao do canal (`apresentacao-canal-v1`) no fecho do acesso
+# ================================================================================================
+_CONFIRMADO = "ja confirmei que e voce"
+_APRESENTACAO = ("por aqui voce pode", "em emergencia, ligue 192")
+
+
+def conferir_apresentacao(turnos: Sequence[Turno]) -> list[str]:
+    """O fecho da PRIMEIRA verificacao (telefone sintetico novo): a resposta ao turno do nascimento traz
+    "ja confirmei que e voce" e, na mensagem SEGUINTE, a apresentacao do canal ("Por aqui voce pode" e
+    "Em emergencia, ligue 192"). Lista vazia = ok; a mensagem diz o que faltou."""
+    fecho = next(
+        (
+            t
+            for t in reversed(turnos)
+            if t.fase == "acesso" and any(_CONFIRMADO in sem_acento(x) for x in t.textos())
+        ),
+        None,
+    )
+    if fecho is None:
+        return ["apresentacao: nenhum turno do acesso trouxe 'ja confirmei que e voce'"]
+    textos = [sem_acento(x) for x in fecho.textos()]
+    i = next(k for k, x in enumerate(textos) if _CONFIRMADO in x)
+    seguintes = textos[i + 1 :]
+    if not seguintes:
+        return [
+            "apresentacao: faltou a mensagem seguinte a 'ja confirmei que e voce' (apresentacao do canal)"
+        ]
+    falhas = []
+    for trecho in _APRESENTACAO:
+        if trecho not in seguintes[0]:
+            falhas.append(f"apresentacao: a mensagem seguinte ao 'ja confirmei' nao traz '{trecho}'")
+    return falhas
+
+
 __all__ = [
     "DONO_V1",
     "ESCALACAO_NENHUMA",
+    "NAO_DEVE_CONDICIONAL",
     "NAO_DEVE_GLOBAL",
+    "conferir_apresentacao",
     "PERSONA_ACEITE",
     "ROTEIROS",
     "Passo",

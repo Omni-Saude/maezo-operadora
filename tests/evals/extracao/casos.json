@@ -2826,7 +2826,7 @@
         "idade_meses": 0,
         "idade_gestacional_semanas": null
       },
-      "porque": "DL-0099 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
+      "porque": "DL-0101 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
       "origem": "dl-0099",
       "regras": [
         "R1",
@@ -2846,7 +2846,7 @@
         "idade_meses": 0,
         "idade_gestacional_semanas": null
       },
-      "porque": "DL-0099 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
+      "porque": "DL-0101 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
       "origem": "dl-0099",
       "regras": [
         "R1",
@@ -2866,7 +2866,7 @@
         "idade_meses": 0,
         "idade_gestacional_semanas": null
       },
-      "porque": "DL-0099 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
+      "porque": "DL-0101 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
       "origem": "dl-0099",
       "regras": [
         "R1",
@@ -2886,7 +2886,7 @@
         "idade_meses": 0,
         "idade_gestacional_semanas": null
       },
-      "porque": "DL-0099 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
+      "porque": "DL-0101 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
       "origem": "dl-0099",
       "regras": [
         "R1",
@@ -2906,7 +2906,7 @@
         "idade_meses": 0,
         "idade_gestacional_semanas": null
       },
-      "porque": "DL-0099 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
+      "porque": "DL-0101 (14/10/2026): recem-nascido (menos de 28 dias) -> pediatric com idade_meses=0; o codigo neonatal alimenta as regras r9-r13 da tabela pediatrica. A intensidade nao foi dita.",
       "origem": "dl-0099",
       "regras": [
         "R1",

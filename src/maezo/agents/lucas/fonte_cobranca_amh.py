@@ -71,7 +71,7 @@ def _na_forma(valor: object, forma: re.Pattern[str]) -> str | None:
 
 
 def _competencia_como_fato(
-    c: CompetenciaBilling, pagador: str = "desconhecido"
+    c: CompetenciaBilling, pagador: str = "desconhecido", e_o_pagador: bool | None = None
 ) -> CompetenciaCobranca | None:
     """Uma competencia do contrato -> fato do Lucas, campo a campo na forma do contrato. `None` quando
     nem a competencia nem a situacao tem forma valida: sem elas o resto nao diz de que mes se trata."""
@@ -86,6 +86,12 @@ def _competencia_como_fato(
         valor_saldo=_na_forma(c.valor_saldo, _DECIMAL),
         liquidado_em=_na_forma(c.liquidado_em, _DATA),
         boleto=None if pagador == PAGADOR_EMPRESA else _na_forma(c.boleto_numero_mascarado, _MASCARA),
+        # Defesa em profundidade: o total do boleto da familia so' com pagador PF E a pessoa e' o pagador.
+        valor_boleto_pagador=(
+            _na_forma(c.valor_boleto_pagador, _DECIMAL)
+            if pagador == "pessoa_fisica" and e_o_pagador is True
+            else None
+        ),
     )
 
 
@@ -265,7 +271,15 @@ class FonteCobrancaAmh:
             return Indisponivel("fato_ausente")
         referencia = _competencia_de_referencia(view, competencia)
         pagador = _pagador(resumo.pagador_tipo)
-        administradora = pagador == "desconhecido" and await self._adesao_pela_administradora(ref)
+        tipo_contratacao = _tipo_contratacao(resumo.tipo_contratacao)
+        # Wave 2 (14/10/2026): o `tipo_contratacao` do billing-status 0.3.0 decide a ADESAO. A deteccao pela
+        # TINA (que diz so' "Coletivo") fica como reserva, SO' quando a AMH diz `desconhecido` (ausente).
+        if tipo_contratacao == "coletivo_adesao":
+            administradora = True
+        elif tipo_contratacao is None:
+            administradora = pagador == "desconhecido" and await self._adesao_pela_administradora(ref)
+        else:
+            administradora = False
         # Contrato de EMPRESA (13/10/2026): o boleto e' da empresa contratante, nunca da pessoa. A AMH ja'
         # nao o manda; aqui e' defesa em profundidade — o rotulo nao chega ao Lucas.
         boleto = (
@@ -283,12 +297,15 @@ class FonteCobrancaAmh:
                 cnab_ref=f"amh-billing:{view.fonte_atualizada_em[:10]}",
                 pagador_tipo=pagador,
                 cobranca_administradora=administradora,
-                tipo_contratacao=_tipo_contratacao(resumo.tipo_contratacao),
+                tipo_contratacao=tipo_contratacao,
             )
-        e_o_pagador = _pagador_e_o_proprio(view, pagador)
+        # Adesao: o boleto e' da administradora; o total "da familia" nunca e' mostrado.
+        e_o_pagador = None if administradora else _pagador_e_o_proprio(view, pagador)
         competencias = tuple(
             fato
-            for fato in (_competencia_como_fato(c, pagador) for c in view.competencias[:JANELA_MESES])
+            for fato in (
+                _competencia_como_fato(c, pagador, e_o_pagador) for c in view.competencias[:JANELA_MESES]
+            )
             if fato is not None
         )
         return FatosCobranca(
@@ -302,7 +319,7 @@ class FonteCobrancaAmh:
             competencias=competencias,
             pagador_tipo=pagador,
             cobranca_administradora=administradora,
-            tipo_contratacao=_tipo_contratacao(resumo.tipo_contratacao),
+            tipo_contratacao=tipo_contratacao,
             beneficiario_e_pagador=e_o_pagador,
             valor_boleto_pagador=_valor_boleto_pagador(referencia, pagador, e_o_pagador),
         )

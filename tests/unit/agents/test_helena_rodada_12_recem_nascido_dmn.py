@@ -1,4 +1,4 @@
-"""DL-0099 — rodada 12: a regra do recem-nascido vem da TABELA pediatrica (r9-r13, ratificadas pelo dono).
+"""DL-0101 — rodada 12: a regra do recem-nascido vem da TABELA pediatrica (r9-r13, ratificadas pelo dono).
 
 O grafo so' (a) preenche `idade_meses=0` quando o recem-nascido vem dito em palavras e (b) mantem a regra
 deterministica `_alerta_neonatal` como fail-safe. Quem decide o red flag e' a tabela (ADR-0012).

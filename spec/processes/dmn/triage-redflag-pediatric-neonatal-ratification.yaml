@@ -1,4 +1,4 @@
-# RATIFICACAO DO DONO — regras neonatais (r9-r13) de `triage_redflag_pediatric.dmn` (DL-0099, 14/10/2026).
+# RATIFICACAO DO DONO — regras neonatais (r9-r13) de `triage_redflag_pediatric.dmn` (DL-0101, 14/10/2026).
 #
 # O QUE ESTE ARQUIVO E'. O registro, em nome de quem decidiu, de que a regra abaixo foi lida e aceita.
 # NAO e' ratificacao medica: a base declarada e' a decisao do dono, e recomenda-se a revisao do
@@ -44,4 +44,4 @@ regra:
 
 tabela_viva:
   path: spec/processes/dmn/triage_redflag_pediatric.dmn
-  sha256: "be381eb5263ec4aa1aeb62c4140bcda194246e4de1b7310db6cf7d5d45677815"
+  sha256: "7694854408644f88de29ee798e72ea85b58fc271dcb0bfe521d0900c42cb8226"

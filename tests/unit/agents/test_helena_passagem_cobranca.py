@@ -50,11 +50,11 @@ from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
-#: sha256 do texto do `classify-v5.4` (14/10/2026, DL-0099: recem-nascido; v5.3 era 34cc3a88...;
+#: sha256 do texto do `classify-v5.4` (14/10/2026, DL-0101: recem-nascido; v5.3 era 34cc3a88...;
 #: 02/10/2026; o `classify-v5` era 5b480bd3...; v5.1 e v5.2 acrescentaram
 #: autorizacao negada e privacidade a `outside_channel`, DL-0063 e DL-0064). Desligado, o roteador NAO pode
 #: mudar um byte do que vai ao modelo: se este numero mudar, o v5 mudou, e isso e' bump de versao.
-SHA256_CLASSIFY_V5 = "cec25444d512a4546be44e768b7af2c4ad9d8593f22be6bf8a80472e389b573a"
+SHA256_CLASSIFY_V5 = "b589bb42bba9f5e1f07815164f238a75ab8b11b3eeadda6199da345ccdd1bd46"
 
 _REF = "hk1_abc123"
 #: Rascunho de handoff para as rotas que escalam (o fake devolve "" quando acaba a lista, e a

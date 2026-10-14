@@ -74,6 +74,10 @@ class CompetenciaCobranca:
     valor_saldo: str | None = None
     liquidado_em: str | None = None
     boleto: str | None = None
+    #: Total do boleto do PAGADOR da competencia (billing-status 0.3.0):
+    #: `competencias[].valor_boleto_pagador`. SO' com a pessoa como pagador PF (a familia toda num boleto).
+    #: Nunca a fatura da empresa nem o titulo da administradora. Ausente em todos os outros casos.
+    valor_boleto_pagador: str | None = None
 
     def como_fato(self) -> dict[str, str]:
         """O dicionario que vai ao estado do Lucas: so' as chaves com valor (ausente = ausente)."""
@@ -86,6 +90,7 @@ class CompetenciaCobranca:
             "valor_saldo": self.valor_saldo,
             "liquidado_em": self.liquidado_em,
             "boleto": self.boleto,
+            "valor_boleto_pagador": self.valor_boleto_pagador,
         }
         return {chave: valor for chave, valor in campos.items() if valor is not None}
 
@@ -157,6 +162,10 @@ class FatosCobranca:
             entrada["pagador_tipo"] = self.pagador_tipo
         if self.cobranca_administradora is True:
             entrada["cobranca_administradora"] = True
+        # Wave 2 (14/10/2026): a pessoa e' (ou nao) o proprio pagador PF. O total do boleto da familia viaja
+        # em cada competencia (`valor_boleto_pagador`), nunca solto.
+        if isinstance(self.beneficiario_e_pagador, bool):
+            entrada["beneficiario_e_pagador"] = self.beneficiario_e_pagador
         return entrada
 
 
