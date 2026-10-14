@@ -56,7 +56,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0025"
+    current = "0026"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)
