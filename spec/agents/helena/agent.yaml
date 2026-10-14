@@ -123,7 +123,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # para um texto que nunca existiu.
   coleta: coleta-v2                   # 14/10/2026 (DL-0097): a pergunta e' sobre QUEM TEM O SINTOMA (terceira
                                      # pessoa; recem-nascido). v1 — passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v9          # 01/10/2026: cerca de FINALIDADE do canal (DL-0063) e alegacao
+  recusa_de_saida: recusa-v10         # 01/10/2026: cerca de FINALIDADE do canal (DL-0063) e alegacao
                                       # sobre o tratamento dos dados (DL-0064).
                                       # v8 — 21/09/2026, QUINTA RODADA: negacao testada ONDE nega
                                       # (lookbehind antes da acao) + `numero` volta a ser pista

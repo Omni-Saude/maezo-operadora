@@ -5,7 +5,7 @@ Uso (na task `maezo-operadora-dev-simulador` os argumentos chegam pela variavel 
   --conversas N                quantas conversas (padrao 10)
   --concorrencia K             conversas em paralelo (padrao 3; telefones diferentes)
   --semente S                  semente do plano (padrao: o relogio; vai para o manifesto)
-  --personas a,b               so' estas personas (padrao: as 22)
+  --personas a,b               so' estas personas (padrao: as 28)
   --consentimento-terceiros M  `somente-leitura` (padrao) ou `completo`
   --repetir-falhas RUN_ID      repete so' as conversas que falharam na execucao RUN_ID
   --limpar RUN_ID              so' limpa o que a execucao RUN_ID deixou (e confere o motor)

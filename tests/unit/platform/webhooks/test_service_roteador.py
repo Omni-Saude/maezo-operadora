@@ -46,7 +46,7 @@ def test_ligado_o_despachante_recebe_o_roteador_em_sombra() -> None:
     # roteador ja' nasce sabendo que ha' quem atenda. Sem `lucas_turno` no despachante, o
     # despachante nem pede handoff (sombra da onda c).
     assert roteador._lucas_disponivel is True
-    assert roteador.versao_lexicos == "pre-roteamento-v1"
+    assert roteador.versao_lexicos == "pre-roteamento-v2"
 
 
 def test_ligado_com_lexico_invalido_recusa_no_boot(monkeypatch: pytest.MonkeyPatch) -> None:

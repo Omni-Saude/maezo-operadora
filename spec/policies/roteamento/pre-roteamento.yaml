@@ -26,7 +26,7 @@
 # =============================================================================
 
 status: DRAFT
-versao: pre-roteamento-v1
+versao: pre-roteamento-v2
 
 pedido_humano_lexico:
   - atendente
@@ -62,3 +62,60 @@ sinal_saude_lexico:
   - derrame
   - overdose
   - envenenamento
+  # --- v2 (14/10/2026): lacunas medidas no red team do portao de acesso. "meu pai desmaiou",
+  # "e emergencia", "engoliu remedio e nao acorda" nao tinham termo e, no passo do CPF, a
+  # pessoa recebia "CPF invalido" sem o 192. Falso positivo vai para o lado seguro (192 + Helena).
+  # Perda de consciencia
+  - desmaiou
+  - desmaiada
+  - desmaiado
+  - desmaiando
+  - desacordado
+  - desacordada
+  - inconsciente
+  - nao acorda
+  - nao desperta
+  # Respiracao
+  - nao esta respirando
+  - nao respira
+  - parou de respirar
+  - dificuldade para respirar
+  - dificuldade de respirar
+  - engasgado
+  - engasgada
+  - engasgou
+  - afogando
+  - afogou
+  # Sangue e trauma
+  - sangrando
+  - sangrando muito
+  - muito sangue
+  - hemorragia
+  - levei um tiro
+  - levou um tiro
+  - baleado
+  - baleada
+  - esfaqueado
+  - esfaqueada
+  - levei uma facada
+  - bateu a cabeca
+  # Ingestao e intoxicacao
+  - engoliu remedio
+  - engoliu veneno
+  - tomou veneno
+  - intoxicacao
+  - intoxicado
+  - intoxicada
+  # Cardiaco
+  - ataque cardiaco
+  - parada cardiaca
+  # A propria pessoa nomeia a emergencia. NAO usar "e emergencia" solto: casa com o termo
+  # regulatorio "urgencia e emergencia" (pergunta de cobertura) e viraria falso positivo constante.
+  - e uma emergencia
+  - isso e emergencia
+  - emergencia medica
+  - tenho uma emergencia
+  - estou numa emergencia
+  - estou em uma emergencia
+  - ambulancia
+  - socorro
