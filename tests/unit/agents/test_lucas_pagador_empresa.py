@@ -138,6 +138,7 @@ async def _dmn(**entrada: Any) -> dict[str, Any]:
         "valores_disponiveis": True,
         "valores_com_atraso": False,
         "pagador_empresa": False,
+        "atraso_critico": False,
     }
     linhas, _ = await DmnDraftLocal().evaluate("lucas_billing_admissibility", {**base, **entrada})
     return linhas[0]
@@ -158,14 +159,37 @@ async def test_dmn_empresa_responde_sem_escalar_pelo_atraso_da_empresa(
 
 
 async def test_dmn_empresa_fora_do_vocabulario_nunca_vira_inadimplencia() -> None:
+    # 14/10/2026: assunto sem tipo mapeado responde com texto fixo (sem caso) — e nunca como inadimplencia.
     linha = await _dmn(tipo_solicitacao="", ciclos_sem_conciliacao=2, pagador_empresa=True)
-    assert (linha["roteamento"], linha["categoria"]) == ("ESCALAR_HUMANO", "ambiguidade")
+    assert (linha["roteamento"], linha["categoria"]) == ("RESPONDER", "-")
 
 
 @pytest.mark.parametrize("tipo", ["consulta_valores", "status_pagamento", ""])
-async def test_dmn_pessoa_fisica_com_atraso_continua_escalando(tipo: str) -> None:
-    linha = await _dmn(tipo_solicitacao=tipo, ciclos_sem_conciliacao=1, pagador_empresa=False)
+async def test_dmn_pessoa_fisica_com_atraso_critico_continua_escalando(tipo: str) -> None:
+    linha = await _dmn(
+        tipo_solicitacao=tipo, ciclos_sem_conciliacao=2, pagador_empresa=False, atraso_critico=True
+    )
     assert (linha["roteamento"], linha["categoria"]) == ("ESCALAR_HUMANO", "inadimplencia")
+
+
+@pytest.mark.parametrize(
+    ("tipo", "esperado"),
+    [("consulta_valores", "RESPONDER"), ("status_pagamento", "RESPONDER"), ("vencimento", "LEMBRETE")],
+)
+async def test_dmn_pessoa_fisica_com_um_mes_sem_pagamento_responde(tipo: str, esperado: str) -> None:
+    linha = await _dmn(tipo_solicitacao=tipo, ciclos_sem_conciliacao=1, pagador_empresa=False)
+    assert (linha["roteamento"], linha["categoria"]) == (esperado, "-")
+
+
+async def test_empresa_nunca_e_atraso_critico_mesmo_com_o_sinal() -> None:
+    """A regra de atraso critico exige `pagador_empresa=false`: o atraso da empresa nunca escala a pessoa."""
+    linha = await _dmn(
+        tipo_solicitacao="consulta_valores",
+        ciclos_sem_conciliacao=5,
+        pagador_empresa=True,
+        atraso_critico=True,
+    )
+    assert (linha["roteamento"], linha["categoria"]) == ("RESPONDER", "-")
 
 
 # --- Grafo real ----------------------------------------------------------------------------------

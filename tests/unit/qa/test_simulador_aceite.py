@@ -194,7 +194,7 @@ def test_secao_do_relatorio_lista_as_falhas() -> None:
 def test_dono_v1_tem_a_forma_pedida_e_todo_padrao_compila() -> None:
     ac.validar(ac.ROTEIROS["dono_v1"])
     segmentos = ac.DONO_V1
-    assert [len(s.passos) for s in segmentos] == [14, 3, 3, 1, 6]
+    assert [len(s.passos) for s in segmentos] == [14, 3, 3, 1, 6, 4]
     s1 = segmentos[0].passos
     assert s1[11].texto == s1[12].texto and s1[11].escalacao == "cobranca" and s1[12].escalacao == "nenhuma"
     assert s1[7].nao_igual_ao_anterior and s1[7].texto == "de qual ano?"

@@ -37,15 +37,18 @@ def _mes(competencia: str, situacao: str, vencimento: str, **extra: str) -> dict
 
 _SETEMBRO_PAGO = _mes("2026-09", "paga", "2026-09-05", liquidado_em="2026-09-08", boleto="****0041")
 
-#: Outubro SEM pagamento confirmado (venceu em 05/10): a DMN escala.
+#: Outubro SEM pagamento confirmado (venceu em 05/10) e ATRASO CRITICO (> 30 dias, decisao do dono de
+#: 14/10/2026): a DMN escala.
 _COM_OUTUBRO_VENCIDO: dict[str, Any] = {
     "status_conciliado": False,
     "ciclos_sem_conciliacao": 1,
     "numero_boleto": "****0042",
     "valor_em_aberto": "552.54",
-    "dias_atraso_max": 8,
+    "dias_atraso_max": 31,
     "competencias_cobranca": [_mes("2026-10", "vencida", "2026-10-05"), _SETEMBRO_PAGO],
 }
+#: O mesmo mes, com 8 dias de atraso: NAO e' critico — resposta com os fatos, sem caso.
+_COM_OUTUBRO_VENCIDO_HA_8_DIAS: dict[str, Any] = {**_COM_OUTUBRO_VENCIDO, "dias_atraso_max": 8}
 #: Outubro em aberto e NO PRAZO (vence em 15/10): nada escala.
 _COM_OUTUBRO_NO_PRAZO: dict[str, Any] = {
     "status_conciliado": True,
@@ -168,3 +171,17 @@ async def test_ja_paguei_com_atraso_escala_sem_repetir_so_sem_pagamento() -> Non
     _, seguinte = await conversa.mensagem(**pergunta)
     assert "receber comprovante" in seguinte and seguinte != texto
     assert _FECHO not in seguinte or seguinte != texto
+
+
+async def test_um_mes_sem_pagamento_ha_8_dias_responde_valor_e_data_sem_abrir_caso() -> None:
+    """14/10/2026 (decisao do dono): "Valor ultima mensalidade e vencimento" com outubro vencida ha' 8 dias —
+    os FATOS (valor e vencimento), a oferta de uma pessoa e nenhum caso; o seguinte fica no mesmo mes."""
+    conversa = _Conversa(_COM_OUTUBRO_VENCIDO_HA_8_DIAS)
+    final, primeiro = await conversa.mensagem(cobranca_foco="valor")
+    assert final["route"] == "respond_member" and final["process_started"] is False
+    assert primeiro == (
+        "A mensalidade de outubro de 2026 (R$ 552,54, vencimento em 05/10) ainda está sem pagamento "
+        f"confirmado. Se quiser, posso te passar para alguém da nossa equipe. {_FECHO}"
+    )
+    _, seguinte = await conversa.mensagem(cobranca_foco="esclarecimento")
+    assert "setembro" not in seguinte and "outubro de 2026" in seguinte

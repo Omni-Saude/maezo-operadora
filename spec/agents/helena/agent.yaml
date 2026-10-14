@@ -158,7 +158,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # clinica, promessa de humano e de capacidade (PR #395).
   classify_historico: classify-historico-v1  # 07/10/2026 (DL-0080): adendo do historico curto, so' com MAEZO_HELENA_HISTORICO
   response_historico: response-historico-v1  # 07/10/2026 (DL-0080): idem, so' na redacao do inform
-  classify_consultas: classify-consultas-v2  # 14/10/2026 (DL-0098): + subtipo `dependentes`. v1: 07/10/2026 (DL de fatos do plano): ADENDO ao classify,
+  classify_consultas: classify-consultas-v2  # 14/10/2026 (DL-0100): + subtipo `dependentes`. v1: 07/10/2026 (DL de fatos do plano): ADENDO ao classify,
                                      # SO' com MAEZO_HELENA_CONSULTAS_AMH ligada: intent
                                      # `consulta_plano` + `consulta_subtipo` (elegibilidade,
                                      # carteirinha, carencia, autorizacao). Desligada, o classify

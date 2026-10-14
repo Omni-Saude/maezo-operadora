@@ -665,6 +665,7 @@ def build_amh_interop(
     """
     from maezo.adapters.amh.billing_status import ARTIFACT as ARTIFACT_BILLING
     from maezo.adapters.amh.billing_status import ARTIFACT_ATENDIMENTO as ARTIFACT_BILLING_ATENDIMENTO
+    from maezo.adapters.amh.billing_status import ARTIFACT_CONTRATACAO as ARTIFACT_BILLING_CONTRATACAO
     from maezo.adapters.amh.billing_status import AmhBillingStatusAdapter
     from maezo.adapters.amh.consent_record import AmhConsentRecordAdapter
     from maezo.adapters.amh.document_resolution import AmhDocumentResolutionAdapter
@@ -688,13 +689,19 @@ def build_amh_interop(
         "amh_subject_resolution_openapi_path": getattr(settings, "amh_subject_resolution_openapi_path", None),
         "audit_sink": audit,
     }
-    # A leitura de cobranca le' UM dos dois OpenAPI do billing-status: o 0.1.0 de sempre ou, no atendimento
-    # do WhatsApp verificado, o 0.2.0 (finalidade `atendimento_whatsapp`). Exigido so' o que sera' lido.
-    chave_billing = (
-        "amh_billing_status_atendimento_openapi_path"
-        if billing_atendimento is True
-        else "amh_billing_status_openapi_path"
+    # A leitura de cobranca le' UM dos OpenAPI do billing-status: o 0.1.0 de sempre ou, no atendimento do
+    # WhatsApp verificado, o 0.2.0 (finalidade `atendimento_whatsapp`) ou o 0.3.0.
+    # 14/10/2026 (manifest v1.6): com o caminho do 0.3.0 configurado, a cobranca do atendimento le' ELE (os
+    # tres campos de contratacao); sem o caminho, o 0.2.0 de sempre.
+    billing_contratacao = billing_atendimento is True and bool(
+        getattr(settings, "amh_billing_status_contratacao_openapi_path", None)
     )
+    if billing_contratacao:
+        chave_billing = "amh_billing_status_contratacao_openapi_path"
+    elif billing_atendimento is True:
+        chave_billing = "amh_billing_status_atendimento_openapi_path"
+    else:
+        chave_billing = "amh_billing_status_openapi_path"
     exigidos[chave_billing] = getattr(settings, chave_billing, None)
     if incluir_tina is True:
         exigidos["amh_tina_openapi_path"] = getattr(settings, "amh_tina_openapi_path", None)
@@ -788,7 +795,13 @@ def build_amh_interop(
         billing=AmhBillingStatusAdapter(
             _ler_openapi(exigidos[chave_billing]),
             executor=billing_executor,
-            artifact=ARTIFACT_BILLING_ATENDIMENTO if billing_atendimento is True else ARTIFACT_BILLING,
+            artifact=(
+                ARTIFACT_BILLING_CONTRATACAO
+                if billing_contratacao
+                else ARTIFACT_BILLING_ATENDIMENTO
+                if billing_atendimento is True
+                else ARTIFACT_BILLING
+            ),
         ),
         subjects=AmhSubjectResolutionAdapter(
             _ler_openapi(exigidos["amh_subject_resolution_openapi_path"]), executor=subjects_executor

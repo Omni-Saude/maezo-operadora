@@ -4662,7 +4662,7 @@ class HelenaGraph:
             logger.info("helena_pergunta_de_dependentes", node="classify", intent_do_modelo=intent)
             update.update({"cobranca_subtipo": None, "cobranca_competencia": None})
             if self._consultas is not None:
-                # RODADA 11 (DL-0098): com a fonte ligada, `dependentes` e' o quinto subtipo da consulta do
+                # RODADA 11 (DL-0100): com a fonte ligada, `dependentes` e' o quinto subtipo da consulta do
                 # plano — resposta deterministica (contagem e relacao). Sem a fonte (ou com o artefato da
                 # rota nao carregado) o `consultar_plano` devolve o texto provisorio da rodada 10.
                 intent = cast(Intent, INTENT_CONSULTA_PLANO)

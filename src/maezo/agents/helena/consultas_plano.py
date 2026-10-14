@@ -53,7 +53,7 @@ SUBTIPOS_REDIGIDOS: Final[frozenset[str]] = frozenset({"elegibilidade", "carteir
 
 #: Versao do ADENDO do classify (anexado ao classify v5/v6 SO' com as consultas ligadas) e do prompt
 #: de redacao da resposta com fatos. As duas entram em `graph.PROMPT_VERSIONS` e no `agent.yaml`.
-#: v2 — 14/10/2026 (DL-0098): o quinto subtipo, `dependentes`.
+#: v2 — 14/10/2026 (DL-0100): o quinto subtipo, `dependentes`.
 CLASSIFY_CONSULTAS_ADENDO_VERSION: Final[str] = "classify-consultas-v2"
 #: v2 — 10/10/2026 (DL-0087): regra 7, o tom humanizado (curto, cordial, so' o perguntado, sem emoji).
 CONSULTA_PLANO_PROMPT_VERSION: Final[str] = "consulta-plano-v2"
@@ -372,7 +372,7 @@ def segmentacao_dos_fatos(fatos: Mapping[str, Any]) -> str | None:
     return None
 
 
-#: DEPENDENTES (rodada 11, DL-0098): textos FIXOS. O que e' fato (contagem, relacao) entra por
+#: DEPENDENTES (rodada 11, DL-0100): textos FIXOS. O que e' fato (contagem, relacao) entra por
 #: `_texto_de_dependentes`; nome, CPF e nascimento nao existem no tipo nem aqui.
 RESPOSTA_DEPENDENTES_NAO_TITULAR: Final[str] = (
     "Seu cadastro consta como dependente. A consulta de dependentes é feita pelo titular do plano."

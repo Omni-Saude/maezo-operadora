@@ -34,6 +34,10 @@ class CompetenciaBilling:
     liquidado_em: str | None
     boleto_numero_mascarado: str | None  # ****1234
     boleto_disponivel_online: bool | None
+    #: Total do boleto do pagador (a mensalidade da familia inteira), SO' quando a pessoa e' o proprio
+    #: pagador PF (billing-status 0.3.0, `competencias[].valor_boleto_pagador`). `None` nas demais revisoes e
+    #: para quem nao paga: nunca a fatura da empresa nem o titulo coletivo da administradora.
+    valor_boleto_pagador: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +49,13 @@ class BillingSummary:
     pagador_tipo: str  # pessoa_fisica | pessoa_juridica | desconhecido
     #: Como `status_conciliado` foi obtido: `situacao_paga_ou_liquidada` ou `retorno_bancario`.
     criterio_conciliacao: str
+    #: billing-status 0.3.0 (`resumo.tipo_contratacao`): individual_familiar | coletivo_empresarial |
+    #: coletivo_adesao | desconhecido. `None` quando a revisao pinada nao o traz.
+    tipo_contratacao: str | None = None
+    #: billing-status 0.3.0 (`resumo.beneficiario_e_pagador`): a pessoa e' o proprio pagador PF. `None` para
+    #: PJ/adesao/desconhecido e quando a revisao pinada nao o traz. (Nome do contrato; o port nao usa o
+    #: fragmento `beneficiario` em nome de campo, por isso `eh_o_pagador`.)
+    eh_o_pagador: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)

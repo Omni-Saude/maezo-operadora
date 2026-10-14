@@ -192,7 +192,7 @@ CORPUS: tuple[Caso, ...] = (
     # DL-0088: subtipo fora do dominio deixou de ser falha (vira `consulta_valores` e vai ao Lucas —
     # `test_helena_teste_real_12_10.py`); a competencia torta continua sendo falha do classify.
     Caso("F04", "preciso da segunda via", _classify(competencia="09/2026"), "falha_classify"),
-    # DL-0098 (rodada 11): seguimento curto com o Lucas ativo e' decidido pelo TEXTO, antes do modelo.
+    # DL-0100 (rodada 11): seguimento curto com o Lucas ativo e' decidido pelo TEXTO, antes do modelo.
     # Sem sinal de saude, o classify falho nao tira a conversa do Lucas (antes: falha do classify).
     Caso("F05", "e o de setembro?", "isto nao e json", "seguimento", lucas_ativo=True),
     Caso("F06", "e o de setembro?", CAI, "seguimento", lucas_ativo=True),
@@ -353,7 +353,7 @@ async def test_caso_adversarial(caso: Caso) -> None:
         assert (r.agente, r.transicao) == ("lucas", "handoff_cobranca")
         return
     if caso.grupo == "seguimento":
-        # DL-0098: o Lucas recebe o turno (o que ele faz com ele e' do Lucas), sem frase de passagem.
+        # DL-0100: o Lucas recebe o turno (o que ele faz com ele e' do Lucas), sem frase de passagem.
         assert r.turnos_do_lucas == 1
         assert not r.frase_enviada
         return

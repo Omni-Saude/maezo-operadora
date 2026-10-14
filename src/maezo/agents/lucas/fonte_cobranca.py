@@ -52,6 +52,10 @@ MotivoIndisponivel = Literal[
 #: `resumo.pagador_tipo` do contrato `billing-status` (enum). `pessoa_juridica` = contrato de EMPRESA.
 PAGADOR_TIPOS: Final[frozenset[str]] = frozenset({"pessoa_fisica", "pessoa_juridica", "desconhecido"})
 PAGADOR_EMPRESA: Final[str] = "pessoa_juridica"
+#: `resumo.tipo_contratacao` do billing-status 0.3.0 (14/10/2026). `desconhecido` e' o mesmo que ausente.
+TIPOS_CONTRATACAO: Final[frozenset[str]] = frozenset(
+    {"individual_familiar", "coletivo_empresarial", "coletivo_adesao", "desconhecido"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +120,17 @@ class FatosCobranca:
     #: administradora/entidade e o boleto do beneficiario vem DELA. Apurado pela fonte (pagador sem tipo no
     #: billing-status + vinculo de adesao no contrato TINA); `False` quando nao se sabe.
     cobranca_administradora: bool = False
+    #: Tipo de contratacao do PLANO (`resumo.tipo_contratacao`, billing-status 0.3.0, 14/10/2026):
+    #: `individual_familiar`, `coletivo_empresarial` ou `coletivo_adesao`. Ausente (`None`) quando a
+    #: revisao pinada nao o traz ou a AMH diz `desconhecido`. Nao entra em `como_entrada_lucas`.
+    tipo_contratacao: str | None = None
+    #: A pessoa e' o proprio pagador PF do boleto (`resumo.beneficiario_e_pagador`): so' para beneficiario
+    #: VERIFICADO e so' com pagador PF; `None` quando nao se sabe. Ainda NAO entra em `como_entrada_lucas`.
+    beneficiario_e_pagador: bool | None = None
+    #: Total do boleto do pagador (`competencias[].valor_boleto_pagador`, decimal `0.00`) da competencia de
+    #: referencia: SO' quando `beneficiario_e_pagador is True` e ha' fatos de valor (verificado). Nunca a
+    #: fatura da empresa nem o titulo coletivo da administradora. Ainda NAO entra em `como_entrada_lucas`.
+    valor_boleto_pagador: str | None = None
 
     def como_entrada_lucas(self) -> dict[str, Any]:
         """As chaves de `_CALLER_INPUT_FIELDS` que estes fatos preenchem — nenhuma outra.

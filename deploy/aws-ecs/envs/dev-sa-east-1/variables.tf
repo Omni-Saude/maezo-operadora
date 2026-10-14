@@ -888,6 +888,13 @@ variable "amh_billing_status_atendimento_openapi_path" {
   nullable    = false
 }
 
+variable "amh_billing_status_contratacao_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-contratacao` (billing-status 0.3.0; digest no bloco manifest_v1_6 do pin). Lido so' com `acesso_beneficiario`: a cobranca do Lucas passa a pedir `incluir_contratacao=true` (tipo de contratacao, beneficiario e pagador, valor do boleto do pagador). Vazio = segue o 0.2.0."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
 variable "lucas_fonte_cobranca" {
   description = <<-EOT
     Fonte dos fatos de cobranca do Lucas: `simulada` (default) ou `amh` — a fonte real pelos

@@ -156,6 +156,7 @@ async def _turno(estado: LucasState, rascunho: str) -> tuple[dict[str, Any], _En
 async def _dmn(**entrada: Any) -> dict[str, Any]:
     entrada.setdefault("valores_com_atraso", False)
     entrada.setdefault("pagador_empresa", False)
+    entrada.setdefault("atraso_critico", False)
     linhas, _ = await DmnDraftLocal().evaluate("lucas_billing_admissibility", entrada)
     return linhas[0]
 
@@ -191,20 +192,21 @@ async def test_dmn_consulta_valores_sem_fatos_escala_por_ambiguidade() -> None:
 
 
 @pytest.mark.parametrize("ciclos", [1, 3])
-async def test_dmn_inadimplente_perguntando_valor_continua_escalando(ciclos: int) -> None:
+async def test_dmn_atraso_critico_perguntando_valor_escala(ciclos: int) -> None:
+    """Decisao do dono (14/10/2026): so' o atraso CRITICO escala (`atraso_critico`, apurado pelo grafo)."""
     linha = await _dmn(
         tipo_solicitacao="consulta_valores",
         status_conciliado=False,
         ciclos_sem_conciliacao=ciclos,
         valores_disponiveis=True,
+        atraso_critico=True,
     )
     assert (linha["roteamento"], linha["categoria"]) == ("ESCALAR_HUMANO", "inadimplencia")
 
 
 @pytest.mark.parametrize("ciclos", [0, 1])
-async def test_dmn_consulta_valores_com_atraso_escala_sem_afirmar_inadimplencia(ciclos: int) -> None:
-    """DL-0082 (revisao do #709): vencida ontem = `ciclos=0` — a regra de atraso nao casa, e mesmo assim
-    a pergunta de valor ESCALA, com `ambiguidade`. Com ciclo, a regra de atraso de sempre vem antes."""
+async def test_dmn_consulta_valores_com_atraso_nao_critico_responde(ciclos: int) -> None:
+    """14/10/2026 (dono): um mes sem pagamento (ate' 30 dias) e' resposta com os fatos, sem caso."""
     linha = await _dmn(
         tipo_solicitacao="consulta_valores",
         status_conciliado=False,
@@ -212,14 +214,11 @@ async def test_dmn_consulta_valores_com_atraso_escala_sem_afirmar_inadimplencia(
         valores_disponiveis=True,
         valores_com_atraso=True,
     )
-    esperado = "ambiguidade" if ciclos == 0 else "inadimplencia"
-    assert (linha["roteamento"], linha["categoria"]) == ("ESCALAR_HUMANO", esperado)
+    assert linha["roteamento"] == "RESPONDER"
 
 
 @pytest.mark.parametrize("ciclos", [0, 1])
-async def test_dmn_vencimento_com_atraso_escala_sem_afirmar_inadimplencia(ciclos: int) -> None:
-    """09/10/2026: "quando vence?" ganhou texto fixo dos fatos; com atraso nos fatos (vencida ontem,
-    `ciclos=0`) a linha `lba_r_vencimento_atraso` escala como `ambiguidade`. Com ciclo, a regra de atraso."""
+async def test_dmn_vencimento_com_atraso_nao_critico_responde_com_os_fatos(ciclos: int) -> None:
     linha = await _dmn(
         tipo_solicitacao="vencimento",
         status_conciliado=False,
@@ -227,8 +226,7 @@ async def test_dmn_vencimento_com_atraso_escala_sem_afirmar_inadimplencia(ciclos
         valores_disponiveis=True,
         valores_com_atraso=True,
     )
-    esperado = "ambiguidade" if ciclos == 0 else "inadimplencia"
-    assert (linha["roteamento"], linha["categoria"]) == ("ESCALAR_HUMANO", esperado)
+    assert linha["roteamento"] == "LEMBRETE"
 
 
 @pytest.mark.parametrize("valores", [True, False])
@@ -251,9 +249,12 @@ async def test_dmn_vencimento_sem_atraso_continua_lembrete(valores: bool) -> Non
         ("2a_via", False, 0, "RESPONDER"),
         ("boleto", True, 0, "RESPONDER"),
         ("status_pagamento", True, 0, "RESPONDER"),
-        ("status_pagamento", False, 0, "ESCALAR_HUMANO"),
-        ("", False, 0, "ESCALAR_HUMANO"),
-        ("vencimento", False, 2, "ESCALAR_HUMANO"),
+        # 14/10/2026: o status responde em qualquer estado (o atraso critico escalou antes).
+        ("status_pagamento", False, 0, "RESPONDER"),
+        ("status_pagamento", False, 1, "RESPONDER"),
+        # Assunto sem tipo mapeado: texto fixo, sem caso.
+        ("", False, 0, "RESPONDER"),
+        ("vencimento", False, 2, "LEMBRETE"),
     ],
 )
 async def test_dmn_linhas_antigas_ignoram_a_entrada_nova(
@@ -491,40 +492,39 @@ _VENCIDA_ONTEM: dict[str, Any] = {
     "fatos",
     [
         _VENCIDA_ONTEM,
-        # so' `dias_atraso_max`, sem competencia marcada vencida
-        {**_VENCIDA_ONTEM, "competencias_cobranca": [{"competencia": "2026-10", "situacao": "em_aberto"}]},
         # so' a situacao `vencida`, sem `dias_atraso_max`
         {k: v for k, v in _VENCIDA_ONTEM.items() if k != "dias_atraso_max"},
     ],
 )
-async def test_vencida_ontem_sem_ciclo_escala_e_nao_afirma_atraso(fatos: dict[str, Any]) -> None:
-    """DL-0082 (revisao do #709): `status_conciliado=false`, `ciclos=0`, vencida ontem. Nenhum texto ao
-    beneficiario fala de atraso/vencida/inadimplencia nem cita valor; nenhum modelo redige nada (o dossie
-    e' texto fixo dos fatos desde 09/10/2026)."""
+async def test_um_mes_sem_pagamento_responde_os_fatos_e_oferece_uma_pessoa(fatos: dict[str, Any]) -> None:
+    """14/10/2026 (decisao do dono): `status_conciliado=false`, `ciclos=0`, vencida ontem. Os FATOS primeiro
+    (valor, vencimento, "sem pagamento confirmado"), a oferta de uma pessoa e NENHUM caso. Nunca a palavra
+    inadimplencia; nenhum modelo redige nada."""
     estado = _estado(**fatos)
     assert valores_com_atraso(estado) is True
     final, envio, inferencia = await _turno(estado, "Sua mensalidade de R$ 320,25 esta' vencida ha' 1 dia.")
-    assert final["route"] == "escalate_human"
-    assert final["motivo_humano"] == "ambiguidade"
-    # Nenhum modelo: nem resposta de valor nem dossie (texto fixo dos fatos desde 09/10/2026).
+    assert final["route"] == "respond_member" and final["process_started"] is False
     assert inferencia.prompts == []
-    for texto in envio.textos:
-        baixo = texto.lower()
-        assert "R$" not in texto and "320" not in texto
-        assert "vencid" not in baixo and "atras" not in baixo and "inadimpl" not in baixo
+    [texto] = envio.textos
+    assert texto == (
+        "A mensalidade de outubro de 2026 (R$ 320,25, vencimento em 07/10) ainda está sem pagamento "
+        "confirmado. Se quiser, posso te passar para alguém da nossa equipe. (dados de 08/10)"
+    )
+    assert "inadimpl" not in texto.lower()
 
 
-async def test_vencimento_com_atraso_nos_fatos_escala_e_nao_cita_data_nem_valor() -> None:
-    """09/10/2026: com os fatos por competencia "quando vence?" tem texto fixo; com atraso nos fatos a DMN
-    (`lba_r_vencimento_atraso`) escala como `ambiguidade` — a data vencida nunca chega ao beneficiario."""
+async def test_vencimento_com_um_mes_sem_pagamento_diz_a_data_e_oferece_uma_pessoa() -> None:
+    """14/10/2026: com os fatos por competencia "quando vence?" tem texto fixo — inclusive para o mes que
+    ja' venceu: "venceu em 07/10 e ainda esta' sem pagamento confirmado", sem caso."""
     estado = _estado("vencimento", **_VENCIDA_ONTEM)
     final, envio, inferencia = await _turno(estado, "Lembrete: sua mensalidade venceu em 07/10/2026.")
-    assert final["route"] == "escalate_human"
-    assert final["motivo_humano"] == "ambiguidade"
-    # Nenhum modelo: nem resposta de valor nem dossie (texto fixo dos fatos desde 09/10/2026).
+    assert final["route"] == "respond_member" and final["process_started"] is False
     assert inferencia.prompts == []
-    for texto in envio.textos:
-        assert "07/10/2026" not in texto and "R$" not in texto and "vencid" not in texto.lower()
+    [texto] = envio.textos
+    assert texto == (
+        "A mensalidade de outubro de 2026 (R$ 320,25) venceu em 07/10 e ainda está sem pagamento confirmado. "
+        "Se quiser, posso te passar para alguém da nossa equipe. (dados de 08/10)"
+    )
 
 
 # --- Verificacao obrigatoria (revisao de seguranca do #709) ------------------------------------------

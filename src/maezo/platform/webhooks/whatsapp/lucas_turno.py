@@ -74,11 +74,13 @@ from maezo.agents.lucas.graph import (
     new_lucas_state,
     ref_de_resposta,
 )
+from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
 from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
 from maezo.platform.observability import record_agent_first_response
 from maezo.runtime.cobranca_foco import foco_valido
+from maezo.runtime.cobranca_intencao import confirmacao_valida
 from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
 from maezo.runtime.cobranca_reclamacao import reclamacao_valida
 from maezo.runtime.competencia import competencia_valida
@@ -105,7 +107,12 @@ CHAVES_DO_HANDOFF: Final[frozenset[str]] = frozenset(
 #: Chaves OPCIONAIS do handoff. `cobranca_lista` (12/10/2026): o pedido de varios meses
 #: (`runtime/cobranca_lista.py`), que o despachante acrescenta em `_turno_do_lucas` quando o texto pede
 #: lista. Ausente = um mes so', o comportamento de antes.
-CHAVES_OPCIONAIS_DO_HANDOFF: Final[frozenset[str]] = frozenset({"cobranca_lista", "cobranca_reclamacao"})
+#: Rodada 12 (14/10/2026): `cobranca_negociacao` (negociar/parcelar; `True`) e `cobranca_confirmacao`
+#: ("confirma"/"nega", a resposta a "Voce quer pedir o cancelamento do seu plano?") — enums fechados
+#: decididos sobre o texto (`runtime/cobranca_intencao.py`), nunca o texto.
+CHAVES_OPCIONAIS_DO_HANDOFF: Final[frozenset[str]] = frozenset(
+    {"cobranca_lista", "cobranca_reclamacao", "cobranca_negociacao", "cobranca_confirmacao"}
+)
 
 _CONVERSATION_ID: Final[re.Pattern[str]] = re.compile(r"^wa:[^:]+:hk1_[0-9a-f]+$")
 
@@ -166,6 +173,9 @@ class HandoffValidado:
     cobranca_lista: PedidoDeLista | None = None
     #: Rodada 4 (13/10/2026): o tipo da reclamacao (`runtime/cobranca_reclamacao.py`); `None` = nenhum.
     cobranca_reclamacao: str | None = None
+    #: Rodada 12: pedido de negociacao/parcelamento (`True`) e confirmacao do cancelamento (enum).
+    cobranca_negociacao: bool = False
+    cobranca_confirmacao: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +246,12 @@ def validar_handoff(handoff: Mapping[str, Any]) -> HandoffValidado:
     reclamacao = handoff.get("cobranca_reclamacao")
     if reclamacao is not None and not reclamacao_valida(reclamacao):
         raise HandoffInvalidoError("lucas_turno: cobranca_reclamacao fora do dominio")
+    negociacao = handoff.get("cobranca_negociacao")
+    if negociacao is not None and negociacao is not True:
+        raise HandoffInvalidoError("lucas_turno: cobranca_negociacao fora do dominio")
+    confirmacao = handoff.get("cobranca_confirmacao")
+    if confirmacao is not None and not confirmacao_valida(confirmacao):
+        raise HandoffInvalidoError("lucas_turno: cobranca_confirmacao fora do dominio")
     return HandoffValidado(
         cobranca_subtipo=subtipo,
         competencia=competencia,
@@ -243,6 +259,8 @@ def validar_handoff(handoff: Mapping[str, Any]) -> HandoffValidado:
         cobranca_foco=foco,
         cobranca_lista=lista,
         cobranca_reclamacao=reclamacao,
+        cobranca_negociacao=negociacao is True,
+        cobranca_confirmacao=confirmacao,
     )
 
 
@@ -289,6 +307,10 @@ def entrada_do_lucas(
         entrada["cobranca_lista"] = handoff.cobranca_lista.como_handoff()
     if handoff.cobranca_reclamacao is not None:
         entrada["cobranca_reclamacao"] = handoff.cobranca_reclamacao
+    if handoff.cobranca_negociacao:
+        entrada["pedido_negociacao"] = True
+    if handoff.cobranca_confirmacao is not None:
+        entrada["confirmacao_cancelamento"] = handoff.cobranca_confirmacao
     variante = conversa.variante_de_redacao
     entrada["variante_de_redacao"] = variante % 2 if variante >= 0 else 0
     if conversa.assunto_anterior in ENTRADA_POR_SUBTIPO:
@@ -378,6 +400,8 @@ class LucasTurno:
     hash_telefone_amh: Callable[[str], str | None] | None = field(default=None, repr=False)
     #: Drenagem dos recursos da fonte (os executores do gateway da fonte AMH). `None` na simulada.
     fonte_aclose: Callable[[], Awaitable[None]] | None = field(default=None, repr=False)
+    #: Rodada 12: quando o atraso abre caso humano (`MAEZO_LUCAS_ATRASO_MESES_MIN`/`_DIAS_MIN`).
+    limiares_atraso: LimiaresDeAtraso = field(default_factory=LimiaresDeAtraso)
 
     def __post_init__(self) -> None:
         if self.seam_context.principal != AGENT_ID or self.seam_context.tenant != self.tenant_id:
@@ -395,6 +419,7 @@ class LucasTurno:
                 "whatsapp": sender,
                 "audit_sink": self.audit_sink,
                 "agent_version": self.agent_version,
+                "limiares_atraso": self.limiares_atraso,
             }
         )
         # SEM checkpointer, explicito (§2.1): o Lucas e' de um turno so'.

@@ -390,14 +390,11 @@ async def test_escalar_humano_so_vira_inadimplencia_quando_a_tabela_diz_categori
 
 
 async def test_j2_status_unresolved_by_worker_never_assumed_inadimplente() -> None:
-    """Worker has not yet pre-resolved the conciliation (`status_conciliado=None`) — `gather`
-    records the gap; the CATCH-ALL DMN row (never Python code) decides the conservative routing
-    (never a false "admitted" outcome by assumption)."""
+    """Worker has not yet pre-resolved the conciliation (`status_conciliado=None`, a fonte nao entregou) —
+    `gather` records the gap. Rodada 12 (14/10/2026): sem fato nenhum nao ha' o que responder, mas a falha da
+    fonte NAO e' caso humano — a constante honesta ("nao consegui consultar"), sem chamar a DMN e sem NUNCA
+    assumir inadimplencia (nem um "True" adivinhado)."""
     dmn = FakeDmnTransport()
-    dmn.register(
-        "lucas_billing_admissibility",
-        [{"roteamento": "ESCALAR_HUMANO", "motivo": "catch-all", "categoria": "ambiguidade"}],
-    )
     dmn.register("lucas_escalation_routing", [{"roteamento": "ATENDIMENTO_HUMANO"}])
     graph = _graph(dmn=dmn)
 
@@ -413,10 +410,9 @@ async def test_j2_status_unresolved_by_worker_never_assumed_inadimplente() -> No
             intencao="confirmacao_pagamento", tipo_solicitacao="status_pagamento", status_conciliado=None
         )
     )
-    assert assess_result["route"] == "escalate_human"
-    # Coerced to False for the DMN call (never a computed/guessed True) — the catch-all row (not
-    # this code) is what actually decides the routing.
-    assert dmn.calls[0][1]["status_conciliado"] is False
+    assert assess_result["route"] == "respond_member"
+    assert assess_result["resposta_sem_dados"] is True
+    assert dmn.calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +463,8 @@ async def test_intencao_inadimplencia_passa_pela_dmn_com_os_fatos() -> None:
         "valores_com_atraso": False,
         # 13/10/2026: sem `pagador_tipo` no estado, nao e' contrato de empresa.
         "pagador_empresa": False,
+        # 14/10/2026: sem atraso nos fatos, o atraso nao e' critico.
+        "atraso_critico": False,
     }
 
 
