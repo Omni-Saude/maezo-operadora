@@ -20,6 +20,13 @@ O contrário disso — atribuir permission set direto à pessoa — faria cada c
 um commit, e é assim que se acaba com permissão concedida "temporariamente" que ninguém
 remove.
 
+## Avaliacao externa da arquitetura (14/10/2026)
+
+`AvaliacaoArquiteturaLeitura` (ViewOnlyAccess + SecurityAudit) atribuido ao grupo `avaliacao-arquitetura` nas 8 contas da
+organizacao: ver o que existe e como esta configurado, **sem** dado, log ou segredo. Membros: Fabio Vello e T. Laurito
+(ITCore), a pedido do Leonardo. **Revogar ao fim da avaliacao** com `delete-group-membership` (os dois) — a identidade
+continua existindo, o acesso nao.
+
 ## Adicionar uma pessoa
 
 ```bash
