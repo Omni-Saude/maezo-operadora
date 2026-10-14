@@ -1232,6 +1232,54 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "atraso (exige false); nao carrega dado do beneficiario, so' o tipo do pagador."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="red_flag",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0099) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="prioridade",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0099) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="conduta",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0099) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="motivo",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0099) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
 )
 
 
@@ -1274,7 +1322,7 @@ class TestBuckets:
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
         assert len(live_sweep.names) == expected_names == 354  # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1
-        assert len(live_sweep.refs) == expected_refs == 1691  # GP11: +34; DL-0086: +1; #709: +1; 13/10: +1
+        assert len(live_sweep.refs) == expected_refs == 1711  # GP11: +34; DL-0086: +1; #709: +1; 13/10: +1; #772: +20
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1378,7 +1426,7 @@ class TestBuckets:
                 "triage_redflag_adult.dmn:26 (dmn_input_expression)",
                 "triage_redflag_gestante.dmn:19 (dmn_input_expression)",
                 "triage_redflag_mental_health.dmn:22 (dmn_input_expression)",
-                "triage_redflag_pediatric.dmn:19 (dmn_input_expression)",
+                "triage_redflag_pediatric.dmn:22 (dmn_input_expression)",
             ],
         }
 
