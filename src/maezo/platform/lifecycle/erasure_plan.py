@@ -808,6 +808,39 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         # No probe, same reason as `conversa_agente_ativo`: a count would be a fabricated zero.
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="lembrete_cobranca",
+        tabela="lembrete_cobranca_enviado",
+        migracao="0027_lembrete_cobranca.py::upgrade (lembrete_cobranca_enviado)",
+        identificacao=(
+            "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone) + competencia "
+            "(`AAAA-MM`); the row holds only the reservation timestamp and the send channel (texto/template) "
+            "of the proactive billing reminder - no phone, no value, no text. The DSR reference "
+            "(`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so "
+            "the bridge is absent"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=39,
+        subject_column="conversation_id",
+        # No probe, same reason as `conversa_agente_ativo`: a count would be a fabricated zero.
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="lembrete_cobranca",
+        tabela="lembrete_cobranca_optout",
+        migracao="0027_lembrete_cobranca.py::upgrade (lembrete_cobranca_optout)",
+        identificacao=(
+            "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row "
+            "holds only the PARAR timestamp - no phone, no text. The DSR reference "
+            "(`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach "
+            "`conversation_id`, so the bridge is absent"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=40,
+        subject_column="conversation_id",
+        # No probe, same reason as `conversa_agente_ativo`: a count would be a fabricated zero.
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)

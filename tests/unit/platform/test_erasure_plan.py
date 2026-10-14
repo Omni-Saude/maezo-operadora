@@ -450,6 +450,9 @@ def test_a_pseudonym_reference_can_count_nothing_anywhere() -> None:
         "v21_journal_outbox",
         # DL-0083: the access-state row (consent + identity verification), keyed by conversation_id.
         "conversa_acesso_beneficiario",
+        # Lembrete de cobranca (0027): idempotencia e opt-out, keyed by conversation_id.
+        "lembrete_cobranca_enviado",
+        "lembrete_cobranca_optout",
     ]
     assert report.counted_rows == 0
     assert len(report.uncounted_layers) == len(ep.PERSISTENCE_LAYERS)
@@ -815,9 +818,9 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     # VW1-P4 grew it by one (`portal_vendor_submissions`, migration 0020, OP16).
     # VW4/GP11 wiring grew it by one (`portal_vendor_suppressions`, migration 0021, OP20 —
     # insumos aceitos pelo dono, sha ab262f7b…).
-    assert len(camadas) == 38, [entry["tabela"] for entry in camadas]
+    assert len(camadas) == 40, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 38, pendentes
+    assert len(pendentes) == 40, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

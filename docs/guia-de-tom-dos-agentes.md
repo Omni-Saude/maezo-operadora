@@ -138,6 +138,18 @@ Em emergência, ligue 192. Como posso ajudar?
   Nunca na reverificação diária, que continua "Pronto, já confirmei que é você 😊 Em que posso ajudar?".
 - **Onde fica o carimbo:** `conversa_acesso_beneficiario.apresentado_em` (migration 0026). "Pedir um atendente"
   continua funcionando; só não é anunciado no texto.
+## Lembrete proativo de cobrança (14/10/2026)
+
+- **Primeira mensagem que o sistema manda sem ser chamado.** Texto fixo, sem modelo, três fatos e duas
+  orientações. Sem nome de agente, mês sempre com ano, frases de até 20 palavras, nenhum emoji:
+  "Sua mensalidade de outubro de 2026 (R$ 320,25) vence em 16/10. Para a 2ª via, acesse o aplicativo Austa
+  Clínicas, o portal do plano ou a central de atendimento. Para não receber lembretes, responda PARAR."
+- **PARAR:** "Você não receberá mais lembretes." (confirma e para; REVOGAR continua do fluxo de acesso).
+- **Só para quem paga a própria mensalidade** (pessoa física, acesso verificado e consentimento). Contrato
+  de empresa e coletivo por adesão nunca recebem. Fora da janela de 24 h do WhatsApp sai o template da
+  Meta, com o mesmo texto (`docs/runbooks/lembrete-cobranca.md`).
+- **Teste:** o modo de teste marca a mensagem com "[TESTE]" e usa fatos sintéticos; nunca vai a quem não está
+  na lista do ambiente.
 
 ## Nunca dizer
 
