@@ -203,7 +203,9 @@ def test_ruido_de_valores_padrao_do_ecs_passa():
         volumesFrom=[],
         environment=[{"name": "A", "value": "1"}, {"name": "B", "value": "2"}],
     )
-    depois = _container(environment=[{"name": "B", "value": "2"}, {"name": "A", "value": "1"}])
+    depois = _container(
+        portMappings=[], environment=[{"name": "B", "value": "2"}, {"name": "A", "value": "1"}]
+    )
     mud = _task_def(antes, depois)
     mud["change"]["before"].update(
         {
