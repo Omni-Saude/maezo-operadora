@@ -11,6 +11,11 @@ aqui. A E/S passa por um executor do gateway (`GovernedTinaExecutor`), sem imple
 adaptador valida cada resposta contra o schema pinado e devolve sucesso ou recusa fechada
 (`PortFailureReason`); nenhuma excecao atravessa o port e nenhum detalhe do executor estrangeiro e'
 copiado. Uma resposta de OUTRO sujeito e' violacao de contrato, nunca um fato.
+
+DEPENDENTES (decisao do dono de 13/10/2026): a rota `GET .../subjects/{ref}/dependentes` vive em OUTRO
+artefato, `tina-dependentes.openapi.yaml` (manifest aditivo v1.5, bloco `manifest_v1_5` do pin). Ela e'
+OPCIONAL no adaptador: so' existe com `dependentes_openapi_bytes=` (digest conferido contra o pin); sem ele,
+`get_dependentes` recusa com `SCOPE_NOT_SUPPORTED` e o comportamento dos fatos do plano nao muda.
 """
 
 from __future__ import annotations
@@ -31,8 +36,11 @@ from maezo.adapters.amh.contract import load_contract_pin
 from maezo.adapters.amh.subject_context import _FORMATS, _MAX_BYTES, _json, _json_schema
 from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS, PortFailure, PortFailureReason, PortResult
 from maezo.ports.tina import (
+    MAX_DEPENDENTES,
     CarenciaPlano,
     CarenciasView,
+    DependenteAnonimo,
+    DependentesView,
     ElegibilidadeView,
     RequisicaoPlano,
     RequisicoesView,
@@ -40,17 +48,23 @@ from maezo.ports.tina import (
 )
 
 ARTIFACT: Final[str] = "schemas/openapi/maezo/v1/tina.openapi.yaml"
+ARTIFACT_DEPENDENTES: Final[str] = "schemas/openapi/maezo/v1/tina-dependentes.openapi.yaml"
 OP_ELEGIBILIDADE: Final[str] = "amh.tina_get_elegibilidade"
 OP_CARENCIAS: Final[str] = "amh.tina_get_carencias"
 OP_REQUISICOES: Final[str] = "amh.tina_get_requisicoes"
-OPERATIONS: Final[frozenset[str]] = frozenset({OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES})
+OP_DEPENDENTES: Final[str] = "amh.tina_get_dependentes"
+OPERATIONS: Final[frozenset[str]] = frozenset(
+    {OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES, OP_DEPENDENTES}
+)
 SERVER: Final[str] = "/interop/tina/v1"
 #: Operacao -> (caminho do contrato, schema da resposta 200).
 _ROTAS: Final[dict[str, tuple[str, str]]] = {
     OP_ELEGIBILIDADE: ("/subjects/{portable_subject_ref}/elegibilidade", "Elegibilidade"),
     OP_CARENCIAS: ("/subjects/{portable_subject_ref}/carencias", "Carencias"),
     OP_REQUISICOES: ("/subjects/{portable_subject_ref}/requisicoes", "Requisicoes"),
+    OP_DEPENDENTES: ("/subjects/{portable_subject_ref}/dependentes", "Dependentes"),
 }
+_ROTAS_FATOS: Final[tuple[str, ...]] = (OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES)
 Reason = PortFailureReason
 
 _STATUS_REASON: Final[dict[int, PortFailureReason]] = {
@@ -124,35 +138,53 @@ class AmhTinaAdapter:
         *,
         executor: GovernedTinaExecutor,
         pin_path: Path | None = None,
+        dependentes_openapi_bytes: bytes | None = None,
     ) -> None:
         try:
             if not isinstance(executor, GovernedTinaExecutor):
                 raise ValueError
             pin = load_contract_pin(pin_path)
-            if (
-                len(openapi_bytes) > _MAX_BYTES
-                or hashlib.sha256(openapi_bytes).hexdigest() != pin.artifact_digests[ARTIFACT]
-            ):
-                raise ValueError
-            document = yaml.safe_load(openapi_bytes)
-            if document["openapi"] != "3.0.3" or document["servers"][0]["url"] != SERVER:
-                raise ValueError
-            definitions = _json_schema(document["components"]["schemas"])
             self._validators: dict[str, Draft4Validator] = {}
             self._parameters: dict[str, list[dict[str, Any]]] = {}
-            for operacao, (caminho, nome) in _ROTAS.items():
-                get = document["paths"][caminho]["get"]
-                if get["responses"]["200"]["content"]["application/json"]["schema"] != {
-                    "$ref": "#/components/schemas/" + nome
-                }:
-                    raise ValueError
-                schema = {"$ref": "#/definitions/" + nome, "definitions": definitions}
-                Draft4Validator.check_schema(schema)
-                self._validators[operacao] = Draft4Validator(schema, format_checker=_FORMATS)
-                self._parameters[operacao] = _parametros(document, get)
+            self._carregar(openapi_bytes, ARTIFACT, pin.artifact_digests, _ROTAS_FATOS)
+            self._dependentes = dependentes_openapi_bytes is not None
+            if dependentes_openapi_bytes is not None:
+                self._carregar(
+                    dependentes_openapi_bytes, ARTIFACT_DEPENDENTES, pin.artifact_digests, (OP_DEPENDENTES,)
+                )
             self._executor = executor
         except Exception:
             raise TinaContractError() from None
+
+    def _carregar(
+        self,
+        openapi_bytes: bytes,
+        artefato: str,
+        digests: Any,
+        operacoes: tuple[str, ...],
+    ) -> None:
+        """Confere os bytes contra o digest do pin e monta o validador de cada rota do documento."""
+        if (
+            not isinstance(openapi_bytes, bytes)
+            or len(openapi_bytes) > _MAX_BYTES
+            or hashlib.sha256(openapi_bytes).hexdigest() != digests[artefato]
+        ):
+            raise ValueError
+        document = yaml.safe_load(openapi_bytes)
+        if document["openapi"] != "3.0.3" or document["servers"][0]["url"] != SERVER:
+            raise ValueError
+        definitions = _json_schema(document["components"]["schemas"])
+        for operacao in operacoes:
+            caminho, nome = _ROTAS[operacao]
+            get = document["paths"][caminho]["get"]
+            if get["responses"]["200"]["content"]["application/json"]["schema"] != {
+                "$ref": "#/components/schemas/" + nome
+            }:
+                raise ValueError
+            schema = {"$ref": "#/definitions/" + nome, "definitions": definitions}
+            Draft4Validator.check_schema(schema)
+            self._validators[operacao] = Draft4Validator(schema, format_checker=_FORMATS)
+            self._parameters[operacao] = _parametros(document, get)
 
     async def _consultar(
         self,
@@ -295,6 +327,27 @@ class AmhTinaAdapter:
         )
         return _converter(resultado, _requisicoes)
 
+    async def get_dependentes(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[DependentesView]:
+        """Dependentes ATIVOS do titular, anonimos (contagem exata + ate 20 itens). Sem o artefato
+        `tina-dependentes` carregado no construtor, recusa fechada (`SCOPE_NOT_SUPPORTED`)."""
+        if not self._dependentes:
+            return PortResult.refused(Reason.SCOPE_NOT_SUPPORTED)
+        resultado = await self._consultar(
+            OP_DEPENDENTES,
+            portable_subject_ref,
+            {"purpose_of_use": purpose_of_use},
+            consent_decision_ref=consent_decision_ref,
+            timeout_seconds=timeout_seconds,
+        )
+        return _converter(resultado, _dependentes)
+
 
 def _converter(resultado: PortResult[dict[str, Any]], montar: Any) -> PortResult[Any]:
     if not resultado.succeeded or resultado.value is None:
@@ -372,10 +425,40 @@ def _requisicoes(body: dict[str, Any]) -> RequisicoesView:
     )
 
 
+def _dependentes(body: dict[str, Any]) -> DependentesView:
+    itens = tuple(
+        DependenteAnonimo(
+            relacao_dependencia=d["relacao_dependencia"],
+            situacao_beneficiario=d["situacao_beneficiario"],
+            recem_nascido_no_plano=d["recem_nascido_no_plano"],
+        )
+        for d in body["dependentes"]
+    )
+    total = body["total_ativos"]
+    # Coerencia que o schema nao expressa: um desacordo e' violacao de contrato, nunca um numero "arrumado".
+    if (
+        len(itens) > MAX_DEPENDENTES
+        or total < len(itens)
+        or body["lista_truncada"] is not (total > len(itens))
+        or (not body["eh_titular"] and (total != 0 or itens))
+    ):
+        raise ValueError
+    return DependentesView(
+        portable_subject_ref=body["portable_subject_ref"],
+        eh_titular=body["eh_titular"],
+        total_ativos=total,
+        lista_truncada=body["lista_truncada"],
+        dependentes=itens,
+        fonte_atualizada_em=body["fonte_atualizada_em"],
+    )
+
+
 __all__ = [
     "ARTIFACT",
+    "ARTIFACT_DEPENDENTES",
     "OPERATIONS",
     "OP_CARENCIAS",
+    "OP_DEPENDENTES",
     "OP_ELEGIBILIDADE",
     "OP_REQUISICOES",
     "SERVER",

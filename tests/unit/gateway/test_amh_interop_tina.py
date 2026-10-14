@@ -291,3 +291,147 @@ def test_operacoes_tina_no_catalogo_e_acao_l3_nao_hard_declarada_na_helena() -> 
     helena = yaml.safe_load((raiz / "spec/agents/helena/agent.yaml").read_text(encoding="utf-8"))
     assert "read_member_plan_facts" in helena["autonomy_actions"]
     assert helena["security_zone"] == "general"
+
+
+# --- dependentes do titular (manifest v1.5): executor real e composicao com os bytes REAIS pinados ------
+
+_REAL = Path(__file__).resolve().parents[3] / "config" / "integrations" / "amh" / "openapi"
+_REF_REAL = "amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"
+_DEP_PATH = f"/interop/tina/v1/subjects/{_REF_REAL}/dependentes"
+
+
+def _corpo_dependentes() -> dict[str, Any]:
+    return {
+        "portable_subject_ref": _REF_REAL,
+        "eh_titular": True,
+        "total_ativos": 1,
+        "lista_truncada": False,
+        "dependentes": [
+            {
+                "relacao_dependencia": "Filho(a) até 23 anos",
+                "situacao_beneficiario": "Apto",
+                "recem_nascido_no_plano": False,
+            }
+        ],
+        "fonte_atualizada_em": "2026-10-13T10:00:00Z",
+    }
+
+
+async def test_dependentes_audita_antes_e_despacha_na_rota_fixa(servidor: Servidor, tokens: Any) -> None:
+    audit = Audit(servidor)
+    executor = AmhTinaExecutor(**_comum(servidor, tokens, audit))
+    resultado = await executor.execute(
+        _pedido(
+            operation=tina_mod.OP_DEPENDENTES,
+            path="/interop/tina/v1/subjects/subject1/dependentes",
+        )
+    )
+    assert resultado.succeeded, resultado.failure
+    [pedido] = servidor.ao_servico()
+    assert (
+        str(pedido.url)
+        == ORIGIN + "/interop/tina/v1/subjects/subject1/dependentes?purpose_of_use=sharing_amh_internal"
+    )
+    assert audit.pedidos_no_emit == [0]  # auditoria ANTES do despacho
+    [registro] = audit.registros
+    assert registro.action == tina_mod.OP_DEPENDENTES
+    assert SCOPE_BY_OPERATION[tina_mod.OP_DEPENDENTES] == SCOPE_TINA
+
+
+@pytest.mark.parametrize(
+    "sobre",
+    [
+        {"path": "/interop/tina/v1/subjects/subject1/elegibilidade"},  # rota de outra operacao
+        {"query": (("purpose_of_use", PURPOSE), ("limite", 5))},  # `limite` nao existe nesta rota
+        {"query": (("purpose_of_use", "outro"),)},
+        {"query": ()},
+    ],
+)
+async def test_dependentes_fora_da_forma_nunca_e_despachado(
+    servidor: Servidor, tokens: Any, sobre: dict[str, Any]
+) -> None:
+    audit = Audit()
+    executor = AmhTinaExecutor(**_comum(servidor, tokens, audit))
+    base = {
+        "operation": tina_mod.OP_DEPENDENTES,
+        "path": "/interop/tina/v1/subjects/subject1/dependentes",
+        **sobre,
+    }
+    resultado = await executor.execute(_pedido(**base))
+    assert resultado.failure is not None and resultado.failure.reason is Reason.INVALID_REQUEST
+    assert servidor.ao_servico() == [] and audit.registros == []
+
+
+def _composicao_real(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **sobre: Any) -> Any:
+    from maezo.adapters.amh import billing_status as bs
+    from maezo.adapters.amh import subject_resolution as sr
+
+    class _Adapter:
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+    monkeypatch.setattr(bs, "AmhBillingStatusAdapter", _Adapter)
+    monkeypatch.setattr(sr, "AmhSubjectResolutionAdapter", _Adapter)
+    return _settings_tina(tmp_path, amh_tina_openapi_path=str(_REAL / "tina.openapi.yaml"), **sobre)
+
+
+async def test_ponta_a_ponta_dependentes_com_o_pin_real(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, servidor: Servidor
+) -> None:
+    servidor.respostas[_DEP_PATH] = httpx.Response(200, json=_corpo_dependentes())
+    audit = Audit()
+    interop = build_amh_interop(
+        settings=_composicao_real(
+            tmp_path,
+            monkeypatch,
+            amh_tina_dependentes_openapi_path=str(_REAL / "tina-dependentes.openapi.yaml"),
+        ),
+        seam=_seam(),
+        audit=audit,
+        agent_version="helena@v0",
+        transport_factory=servidor.factory,
+        incluir_tina=True,
+    )
+    assert interop.tina is not None
+    resultado = await interop.tina.get_dependentes(
+        _REF_REAL, purpose_of_use=PURPOSE, consent_decision_ref=_BASE_LEGAL
+    )
+    assert resultado.succeeded, resultado.failure
+    assert resultado.value is not None and resultado.value.total_ativos == 1
+    assert resultado.value.dependentes[0].relacao_dependencia == "Filho(a) até 23 anos"
+    assert [r.action for r in audit.registros] == [tina_mod.OP_DEPENDENTES]
+    [token_req] = [p for p in servidor.pedidos if p not in servidor.ao_servico()]
+    assert "interop%2Ftina.read" in token_req.content.decode()
+
+
+async def test_composicao_sem_o_caminho_de_dependentes_so_recusa_a_leitura_de_dependentes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    interop = build_amh_interop(
+        settings=_composicao_real(tmp_path, monkeypatch),
+        seam=_seam(),
+        audit=Audit(),
+        agent_version="helena@v0",
+        incluir_tina=True,
+    )
+    assert interop.tina is not None
+    resultado = await interop.tina.get_dependentes(
+        _REF_REAL, purpose_of_use=PURPOSE, consent_decision_ref=_BASE_LEGAL
+    )
+    assert resultado.failure is not None and resultado.failure.reason is Reason.SCOPE_NOT_SUPPORTED
+
+
+def test_composicao_com_dependentes_fora_do_pin_recusa_servir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "d.yaml").write_bytes(b"openapi: 3.0.3\n")
+    with pytest.raises(tina_mod.TinaContractError):
+        build_amh_interop(
+            settings=_composicao_real(
+                tmp_path, monkeypatch, amh_tina_dependentes_openapi_path=str(tmp_path / "d.yaml")
+            ),
+            seam=_seam(),
+            audit=Audit(),
+            agent_version="helena@v0",
+            incluir_tina=True,
+        )

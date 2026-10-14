@@ -174,6 +174,15 @@ A troca: `helena_consultas_amh = true` em `amh-interop.auto.tfvars`. O Terraform
 `manifest_v1_2` no pin o receptor RECUSA servir (`tina_contract_invalid` no `dispatcher_error`). Rollback:
 `helena_consultas_amh = false`.
 
+**Dependentes do titular (manifest v1.5, 13/10/2026).** A AMH publicou a rota `GET /interop/tina/v1/subjects/{ref}/dependentes`
+(AMH #237/#238, run XRG-2 38489298542; OpenAPI `tina-dependentes.openapi.yaml`, digest no bloco `manifest_v1_5` do pin,
+bytes em `config/integrations/amh/openapi/tina-dependentes.openapi.yaml`). Mesmo escopo (`interop/tina.read`). O Terraform
+injeta `MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH` junto com o caminho da TINA; com o caminho, o receptor exige o bloco
+`manifest_v1_5` (sem ele recusa servir, `tina_contract_invalid`); sem o caminho, `AmhTinaAdapter.get_dependentes` recusa
+fechado (`SCOPE_NOT_SUPPORTED`). A resposta e' anonima: `eh_titular`, `total_ativos` e ate 20 itens
+`{relacao_dependencia, situacao_beneficiario, recem_nascido_no_plano}`, sem nome, CPF, ref nem nascimento do dependente.
+Ligar a Helena nisso (subtipo `dependentes`) e' outro PR.
+
 ## 7. Cobranca com a finalidade do atendimento (`atendimento_whatsapp`, manifest v1.4)
 
 Decisao do DPO de 08/10/2026 (AMH #223/#225, run XRG-2 37929182045): com `acesso_beneficiario = true` e a fonte

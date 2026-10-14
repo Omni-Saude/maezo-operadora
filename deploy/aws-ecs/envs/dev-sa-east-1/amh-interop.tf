@@ -53,6 +53,7 @@ locals {
   ))
   amh_tina_env = local.amh_interop_ligado && var.helena_consultas_amh ? [
     { name = "MAEZO_AMH_TINA_OPENAPI_PATH", value = var.amh_tina_openapi_path },
+    { name = "MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH", value = var.amh_tina_dependentes_openapi_path },
   ] : []
 
   # Env do receptor so' com a fonte AMH ligada (lista vazia = task definition intacta).

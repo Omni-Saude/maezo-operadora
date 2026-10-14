@@ -802,6 +802,13 @@ variable "amh_tina_openapi_path" {
   nullable    = false
 }
 
+variable "amh_tina_dependentes_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-dependentes` publicado (manifest v1.5; o digest tem de estar no bloco manifest_v1_5 do pin). Lido so' com helena_consultas_amh."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-dependentes.openapi.yaml"
+  nullable    = false
+}
+
 variable "acesso_beneficiario" {
   description = <<-EOT
     Acesso do beneficiario no WhatsApp (decisao do dono de 08/10/2026, DL-0083): `MAEZO_ACESSO_BENEFICIARIO`.
