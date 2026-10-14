@@ -28,7 +28,7 @@ _COLUNAS: Final[str] = (
     "conversation_id, estado, tentativas, texto_versao, texto_sha256, consentido_em, revogado_em, "
     "portable_subject_ref, consent_ref, consentimento_pendente_gravacao, revogacao_pendente, "
     "verificado_em, expira_em, bloqueado_ate, ultima_mensagem_em, regravacoes_falhas, falhas_janela, "
-    "janela_inicio"
+    "janela_inicio, apresentado_em"
 )
 _SELECT_SQL: Final[str] = f"SELECT {_COLUNAS} FROM {TABELA} WHERE tenant = $1 AND conversation_id = $2"
 _UPSERT_SQL: Final[str] = f"""
@@ -36,8 +36,8 @@ INSERT INTO {TABELA} (
     tenant, conversation_id, estado, tentativas, texto_versao, texto_sha256, consentido_em, revogado_em,
     portable_subject_ref, consent_ref, consentimento_pendente_gravacao, revogacao_pendente,
     verificado_em, expira_em, bloqueado_ate, ultima_mensagem_em, regravacoes_falhas, falhas_janela,
-    janela_inicio
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+    janela_inicio, apresentado_em
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 ON CONFLICT (tenant, conversation_id) DO UPDATE SET
     estado = EXCLUDED.estado,
     tentativas = EXCLUDED.tentativas,
@@ -55,7 +55,8 @@ ON CONFLICT (tenant, conversation_id) DO UPDATE SET
     ultima_mensagem_em = EXCLUDED.ultima_mensagem_em,
     regravacoes_falhas = EXCLUDED.regravacoes_falhas,
     falhas_janela = EXCLUDED.falhas_janela,
-    janela_inicio = EXCLUDED.janela_inicio
+    janela_inicio = EXCLUDED.janela_inicio,
+    apresentado_em = EXCLUDED.apresentado_em
 """
 
 
@@ -134,6 +135,7 @@ class PostgresAcessoStore:
             regravacoes_falhas=int(row["regravacoes_falhas"]),
             falhas_janela=int(row["falhas_janela"]),
             janela_inicio=_opcional(row["janela_inicio"]),
+            apresentado_em=_opcional(row["apresentado_em"]),
         )
 
     async def gravar(self, estado: EstadoAcesso) -> None:
@@ -161,6 +163,7 @@ class PostgresAcessoStore:
                 estado.regravacoes_falhas,
                 estado.falhas_janela,
                 estado.janela_inicio,
+                estado.apresentado_em,
             )
 
     async def expurgar_inativos(self, limite: datetime, *, lote: int = LOTE_EXPURGO) -> int:

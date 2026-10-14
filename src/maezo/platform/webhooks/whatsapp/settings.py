@@ -383,6 +383,16 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_ACESSO_VALIDADE_HORAS", "acesso_validade_horas"),
     )
 
+    # Apresentacao do canal (14/10/2026): depois de tantos dias SEM mensagens na conversa, a mensagem que diz
+    # o que o canal resolve volta a ser mostrada (ao fim da proxima verificacao). Tem de ser maior que a
+    # validade da verificacao (`acesso_validade_horas`, no maximo 168 h = 7 dias).
+    acesso_apresentacao_dias: int = Field(
+        default=30,
+        ge=8,
+        le=365,
+        validation_alias=AliasChoices("MAEZO_ACESSO_APRESENTACAO_DIAS", "acesso_apresentacao_dias"),
+    )
+
     # VALORES NA RESPOSTA DO LUCAS (DL-0086, revisao de seguranca do PR #709). DESLIGADA por padrao, e
     # desligada e' o Lucas de antes: a fonte AMH entrega so' os quatro fatos de conciliacao e a pergunta
     # de valor (`consulta_valores`) escala. Ligada, a fonte AMH entrega tambem os FATOS DE VALOR

@@ -617,6 +617,10 @@ def _build_acesso(
         aclose_fn=interop.aclose,
         # DL-0084: o telefone FORA DO CADASTRO se identifica pelo documento (risco aceito pelo dono).
         documentos=interop.documents,
+        # Apresentacao do canal (14/10/2026): "dependentes" so' com a fonte de dependentes configurada.
+        apresentar_dependentes=bool(settings.amh_tina_dependentes_openapi_path)
+        and settings.helena_consultas_amh,
+        silencio_apresentacao=timedelta(days=settings.acesso_apresentacao_dias),
     )
     logger.warning(
         "acesso_beneficiario_ligado",

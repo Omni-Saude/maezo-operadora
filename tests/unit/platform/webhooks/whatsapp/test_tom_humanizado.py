@@ -83,6 +83,7 @@ _TEXTOS_192_PRIMEIRO = (
 COM_EMOJI_PERMITIDO = frozenset(
     {
         "acesso.verificado",
+        "acesso.verificado_apresentacao",
         "acesso_cadastro.RESPOSTA_QUEM_SOU_EU",
         "graph.RESPOSTA_SAUDACAO_CURTA",
         "graph.RESPOSTA_DESPEDIDA",
