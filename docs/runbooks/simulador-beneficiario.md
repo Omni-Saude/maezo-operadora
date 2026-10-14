@@ -137,15 +137,25 @@ aws ecs run-task --cluster maezo-operadora-dev --launch-type FARGATE   --task-de
 ```
 
 - **Segmentos** sao conversas separadas (telefone sintetico novo, acesso do zero), em ordem:
-  1 plano e cobranca (14 passos), 2 pedido de atendente, 3 emergencia, 4 duvida de saude,
-  5 caso administrativo aberto + relato clinico (recem-nascida) na MESMA conversa. Entre um e
-  o seguinte, a conversa anterior e' limpa (checkpoint, roteador, acesso) e o motor e' conferido.
+  1 plano e cobranca (18 passos; o par "coparticipacao + de qual ano?" roda 3 vezes e as 3
+  respostas restatam "setembro de 2026"), 2 pedido de atendente, 3 emergencia, 4 duvida de saude,
+  5 caso administrativo aberto + relato clinico (recem-nascida) na MESMA conversa (com a fonte de
+  dependentes ligada, o passo 2 espera "1 dependente ... filho(a)", sem CPF nem nascimento),
+  6 cancelamento, 7 retorno sem reapresentar ("Oi" e "Tudo bem?" nao repetem "Por aqui voce pode").
+  Entre um e o seguinte, a conversa anterior e' limpa (checkpoint, roteador, acesso) e o motor e' conferido.
+- **Apresentacao do canal** (`apresentacao-canal-v1`) em TODO segmento: o acesso de cada um e' uma
+  primeira verificacao (telefone novo), entao a resposta ao turno do nascimento tem de trazer
+  "ja confirmei que e voce" e, na mensagem SEGUINTE, "Por aqui voce pode" e "Em emergencia, ligue 192".
+  Faltando algo, o segmento reprova com a mensagem do que faltou (`falhas_de_acesso`, no
+  `roteiro.json` e no `report.md`); os passos rodam mesmo assim. O item "dependentes" do 2o marcador
+  nao e' conferido (depende da fonte de dependentes estar ligada).
 - **Assercoes por passo**, sobre o texto concatenado das respostas do turno (ou so' as do `agente`,
   quando dado), sem acento e sem diferenca de caixa, no texto e no padrao:
   `deve` (todos casam), `nao_deve` (nenhum casa), `escalacao` (`nenhuma` = nenhum caso novo neste
   turno; ou o `motivo_categoria` do caso aberto), `escalacao_um_de` (o caso aberto tem UM destes
   motivos), mais um `nao_deve` GLOBAL em todo passo ("por isso nao abri outro",
-  "nao consta essa informacao"), `primeira_frase_deve` (primeira frase da primeira
+  "nao consta essa informacao"; e "voce esta sentindo" so' nos passos cuja mensagem fala de
+  filha/filho/bebe), `primeira_frase_deve` (primeira frase da primeira
   resposta), `nao_igual_ao_anterior`. `^` casa no inicio de cada resposta; `.` atravessa linha.
   Um passo que falha nao interrompe o segmento; a falha diz QUAL assercao reprovou (padrao, nunca o texto).
 - **Saida** em `runs/<run_id>/`: `roteiro.json` (por passo: texto enviado, respostas mascaradas com o
