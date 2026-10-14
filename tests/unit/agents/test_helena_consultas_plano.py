@@ -419,7 +419,7 @@ def test_fatos_nunca_levam_nome_nem_valor_nao_mascarado() -> None:
 
 
 def test_versoes_da_consulta_estao_no_mapa_de_prompts() -> None:
-    assert PROMPT_VERSIONS["classify_consultas"] == "classify-consultas-v1"
+    assert PROMPT_VERSIONS["classify_consultas"] == "classify-consultas-v2"
     assert PROMPT_VERSIONS["consulta_plano"] == "consulta-plano-v2"
 
 

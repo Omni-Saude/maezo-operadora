@@ -157,7 +157,7 @@ from maezo.runtime.caso_clinico import (
     SUFIXO_CASO_CLINICO,
     chave_do_escalonamento,
 )
-from maezo.runtime.cobranca_esclarecimento import e_pergunta_de_esclarecimento
+from maezo.runtime.cobranca_esclarecimento import e_pergunta_de_esclarecimento, e_seguimento_de_cobranca
 from maezo.runtime.cobranca_foco import (
     FOCO_GERAL,
     CobrancaFoco,
@@ -168,6 +168,7 @@ from maezo.runtime.cobranca_lista import decidir_lista_da_cobranca
 from maezo.runtime.competencia import (
     competencia_valida,
     hoje_em_brasilia,
+    mes_unico_do_texto,
     resolver_ano_da_competencia,
 )
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
@@ -202,8 +203,10 @@ from .consultas_plano import (
     CONSULTA_SUBTIPOS,
     INTENT_CONSULTA_PLANO,
     RESPOSTA_CONSULTA_SEM_IDENTIDADE,
+    RESPOSTA_DEPENDENTES_FALHA,
     SUBTIPOS_REDIGIDOS,
     FonteDeFatosDoPlano,
+    FonteIndisponivel,
     consulta_prompt,
     fatos_da_consulta,
     literais_dos_fatos,
@@ -3571,7 +3574,11 @@ def _memoria_em_triagem(memoria: Mapping[str, Any] | None) -> bool:
 #: DEPENDENTES (rodada 10, regra D): fora dos quatro subtipos da consulta do plano. O modelo improvisou
 #: "nao consta essa informacao no cadastro" — FALSO (o lago tem o dependente). Texto proprio, sem dizer
 #: que nao consta; a funcionalidade (listar dependentes) depende de uma rota nova da AMH.
-_PERGUNTA_DE_DEPENDENTES = re.compile(r"\bdependentes?\b")
+_PERGUNTA_DE_DEPENDENTES = re.compile(
+    r"\bdependentes?\b"
+    r"|\b(?:minha|meu|meus|minhas) (?:filh[oa]s?|conjuge|esposa|marido|netos?)"
+    r"(?: \w+){0,3} no (?:meu )?plano\b"
+)
 RESPOSTA_DEPENDENTES: str = (
     "Por aqui eu ainda não consigo consultar seus dependentes. "
     "Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe."
@@ -4353,6 +4360,10 @@ class HelenaGraph:
             # `receive`; do not re-classify over it.
             return {}
 
+        seguimento = self._seguimento_com_o_lucas(state)
+        if seguimento is not None:
+            return seguimento
+
         extraction, classify_failure = await self._classify_llm(state)
         if extraction is None:
             # Gatilho 4: classifier failure is a TECHNICAL failure -> human, NEVER read as a
@@ -4647,9 +4658,17 @@ class HelenaGraph:
             and not _conteudo_clinico(str(state.get("message_body") or ""))
         ):
             logger.info("helena_pergunta_de_dependentes", node="classify", intent_do_modelo=intent)
-            intent = "information"
-            update.update({"intent": intent, "cobranca_subtipo": None, "cobranca_competencia": None})
-            update.pop("consulta_subtipo", None)
+            update.update({"cobranca_subtipo": None, "cobranca_competencia": None})
+            if self._consultas is not None:
+                # RODADA 11 (DL-0098): com a fonte ligada, `dependentes` e' o quinto subtipo da consulta do
+                # plano — resposta deterministica (contagem e relacao). Sem a fonte (ou com o artefato da
+                # rota nao carregado) o `consultar_plano` devolve o texto provisorio da rodada 10.
+                intent = cast(Intent, INTENT_CONSULTA_PLANO)
+                update.update({"intent": intent, "consulta_subtipo": "dependentes"})
+            else:
+                intent = "information"
+                update["intent"] = intent
+                update.pop("consulta_subtipo", None)
 
         # RODADA 3: com a fonte dos fatos do plano LIGADA, pergunta do plano ("qual o tipo do meu plano?",
         # "carencia?", "cobre parto?", "e' hospitalar ou ambulatorial?") vai a `consultar_plano` sem depender
@@ -5056,6 +5075,51 @@ class HelenaGraph:
             return _rota_informativa(update)
 
         return _rota_informativa(update)
+
+    def _seguimento_com_o_lucas(self, state: Mapping[str, Any]) -> dict[str, Any] | None:
+        """SEGUIMENTO CURTO COM O LUCAS ATIVO VAI AO LUCAS, NAO IMPORTA O MODELO (rodada 11, 14/10/2026).
+
+        No teste real do dono, "de qual ano?" logo depois do Lucas (coparticipacao de setembro) foi ao Lucas
+        em duas execucoes e, na terceira, o modelo devolveu `consulta_plano`/`elegibilidade` e a Helena
+        respondeu a vigencia do plano. A regra "seguimento enquanto o Lucas esta' ativo e' cobranca" dependia
+        da intencao do modelo. Agora e' decidida ANTES dele, pelo texto: Lucas ativo (a janela de inatividade
+        ja' foi aplicada pelo despachante), mensagem curta de esclarecimento/seguimento, SEM pista de consulta
+        do plano, sem pessoa/saude, sem pedido de pessoa e sem sinal de saude do lexico. Devolve o `update`
+        do turno ja' roteado (handoff), ou `None` para o caminho de sempre."""
+        if (
+            not self._roteador_lucas_enabled
+            or state.get("agente_ativo_conversa") != "lucas"
+            or state.get("sinal_saude_lexico") is not False
+            or state.get("pedido_humano_lexico") is not False
+        ):
+            return None
+        texto = str(state.get("message_body") or "")
+        if (
+            not e_seguimento_de_cobranca(texto)
+            or _pedido_explicito_de_pessoa(texto)
+            or _conteudo_clinico(texto)
+        ):
+            return None
+        plano = _plano(texto)
+        if re.search(r"\bfoi (?:paga|pago|quitad[ao])\b", plano):
+            subtipo = "confirmacao_pagamento"
+        else:
+            subtipo = _subtipo_pelo_texto(texto)
+        hoje = hoje_em_brasilia(self._relogio())
+        mes = mes_unico_do_texto(texto)
+        logger.info("helena_seguimento_com_o_lucas", node="classify", subtipo=subtipo)
+        update: dict[str, Any] = {
+            "intent": INTENT_COBRANCA,
+            "population": "none",
+            "psychosocial_risk": False,
+            "sintoma_codigo": None,
+            "intensidade": "desconhecida",
+            "idade_anos": None,
+            "idade_meses": None,
+            "idade_gestacional_semanas": None,
+        }
+        self._preencher_cobranca(update, subtipo, f"{hoje.year:04d}-{mes:02d}" if mes else None, state)
+        return _rota_de_cobranca(update, state, roteador_ligado=True)
 
     def _continua_a_cobranca(self, state: Mapping[str, Any]) -> bool:
         """PEDIDO DE LISTA E INSISTENCIA SAO COBRANCA (DL-0088, depois do #726).
@@ -5652,7 +5716,22 @@ class HelenaGraph:
             # decidido pelo TEXTO, nunca pelo modelo: so' cede se a propria mensagem pede outro fato.
             subtipo = "elegibilidade"
         view = await self._ler_consulta(ref, subtipo)
+        if subtipo == "dependentes" and isinstance(view, FonteIndisponivel):
+            # A rota de dependentes nao esta' carregada neste ambiente: o texto provisorio da rodada 10.
+            logger.info(
+                "helena_consulta_plano",
+                node="consultar_plano",
+                subtipo=subtipo,
+                resultado="fonte_nao_carregada",
+            )
+            return {"response_text": RESPOSTA_DEPENDENTES, "response_kind": "inform"}
         fatos = fatos_da_consulta(subtipo, view)
+        if fatos is None and subtipo == "dependentes":
+            # Falha da consulta (prazo, erro, recusa): nunca "nao consta" — a verdade e' "nao consegui agora".
+            logger.info(
+                "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="indisponivel"
+            )
+            return {"response_text": RESPOSTA_DEPENDENTES_FALHA, "response_kind": "inform"}
         if fatos is None:
             logger.info(
                 "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="indisponivel"

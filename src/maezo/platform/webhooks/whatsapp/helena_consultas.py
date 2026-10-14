@@ -24,17 +24,24 @@ from typing import Any, Final
 
 import structlog
 
-from maezo.agents.helena.consultas_plano import LIMITE_CARENCIAS, LIMITE_REQUISICOES
+from maezo.agents.helena.consultas_plano import LIMITE_CARENCIAS, LIMITE_REQUISICOES, FonteIndisponivel
 from maezo.agents.lucas.fonte_cobranca_amh import FonteDeConsentimento
 from maezo.ports.errors import PortFailureReason, PortResult
-from maezo.ports.tina import CarenciasView, ElegibilidadeView, RequisicoesView, TinaPort
+from maezo.ports.tina import (
+    CarenciasView,
+    DependentesView,
+    ElegibilidadeView,
+    RequisicoesView,
+    TinaDependentesPort,
+    TinaPort,
+)
 
 logger = structlog.get_logger(__name__)
 
 #: Teto de uma consulta (base legal + uma leitura, a leitura limitada a 5s pelo port).
 PRAZO_TOTAL_S: Final[float] = 6.0
 
-_View = ElegibilidadeView | CarenciasView | RequisicoesView
+_View = ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel
 
 
 @dataclass
@@ -61,6 +68,13 @@ class ConsultasPlanoAmh:
         if subtipo == "autorizacao":
             return await self.port.get_requisicoes(
                 ref, purpose_of_use=proposito, consent_decision_ref=base_legal, limite=LIMITE_REQUISICOES
+            )
+        if subtipo == "dependentes":
+            # O mesmo adaptador TINA implementa o port de dependentes; um port sem ele = sem a fonte.
+            if not isinstance(self.port, TinaDependentesPort):
+                return PortResult.refused(PortFailureReason.SCOPE_NOT_SUPPORTED)
+            return await self.port.get_dependentes(
+                ref, purpose_of_use=proposito, consent_decision_ref=base_legal
             )
         return None
 
@@ -103,6 +117,13 @@ class ConsultasPlanoAmh:
                     elif not resultado.succeeded or resultado.value is None:
                         falha = resultado.failure
                         motivo = falha.reason.value if falha is not None else "recusa"
+                        if (
+                            subtipo == "dependentes"
+                            and falha is not None
+                            and falha.reason == PortFailureReason.SCOPE_NOT_SUPPORTED
+                        ):
+                            # A rota de dependentes nao esta' carregada: nao e' falha da consulta.
+                            view = FonteIndisponivel(subtipo)
                         if (
                             subtipo == "carencia"
                             and falha is not None
