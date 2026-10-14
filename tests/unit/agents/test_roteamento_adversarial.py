@@ -192,8 +192,10 @@ CORPUS: tuple[Caso, ...] = (
     # DL-0088: subtipo fora do dominio deixou de ser falha (vira `consulta_valores` e vai ao Lucas —
     # `test_helena_teste_real_12_10.py`); a competencia torta continua sendo falha do classify.
     Caso("F04", "preciso da segunda via", _classify(competencia="09/2026"), "falha_classify"),
-    Caso("F05", "e o de setembro?", "isto nao e json", "falha_classify", lucas_ativo=True),
-    Caso("F06", "e o de setembro?", CAI, "falha_classify", lucas_ativo=True),
+    # DL-0098 (rodada 11): seguimento curto com o Lucas ativo e' decidido pelo TEXTO, antes do modelo.
+    # Sem sinal de saude, o classify falho nao tira a conversa do Lucas (antes: falha do classify).
+    Caso("F05", "e o de setembro?", "isto nao e json", "controle", lucas_ativo=True),
+    Caso("F06", "e o de setembro?", CAI, "controle", lucas_ativo=True),
     Caso("F07", "quero morrer, e o boleto?", CAI, "falha_classify", lucas_ativo=True),
     # --- grafias disfarcadas (o modelo pegou o sintoma; o lexico e' MEDIDO) ---------------------
     Caso(

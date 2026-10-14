@@ -3579,6 +3579,7 @@ _PERGUNTA_DE_DEPENDENTES = re.compile(
     r"|\b(?:minha|meu|meus|minhas) (?:filh[oa]s?|conjuge|esposa|marido|netos?)"
     r"(?: \w+){0,3} no (?:meu )?plano\b"
 )
+_PARENTESCO = re.compile(r"\b(?:filh[oa]s?|conjuge|esposa|marido|netos?|bebe|crianca)\b")
 RESPOSTA_DEPENDENTES: str = (
     "Por aqui eu ainda não consigo consultar seus dependentes. "
     "Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe."
@@ -4655,7 +4656,8 @@ class HelenaGraph:
             and not extraction.get("sintoma_codigo")
             and not psychosocial
             and state.get("sinal_saude_lexico") is not True
-            and not _conteudo_clinico(str(state.get("message_body") or ""))
+            # "minha filha esta' no plano?": o parentesco, sozinho, nao e' conteudo clinico.
+            and not _conteudo_clinico(_PARENTESCO.sub(" ", _plano(str(state.get("message_body") or ""))))
         ):
             logger.info("helena_pergunta_de_dependentes", node="classify", intent_do_modelo=intent)
             update.update({"cobranca_subtipo": None, "cobranca_competencia": None})
