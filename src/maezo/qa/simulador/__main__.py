@@ -303,6 +303,8 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
             conversa = await condutor.preparar_conversa(plano)
             conversas.append(conversa)
             resultado = aceite.ResultadoDoSegmento(nome=segmento.nome, telefone_rotulo=plano.id)
+            if not conversa.erro_preparo:
+                resultado.falhas_de_acesso = aceite.conferir_apresentacao(conversa.turnos)
             if conversa.erro_preparo:
                 resultado.erro_preparo = conversa.erro_preparo
                 resultado.passos = aceite.segmento_sem_preparo(segmento, conversa.erro_preparo)
