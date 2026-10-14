@@ -194,7 +194,7 @@ def test_secao_do_relatorio_lista_as_falhas() -> None:
 def test_dono_v1_tem_a_forma_pedida_e_todo_padrao_compila() -> None:
     ac.validar(ac.ROTEIROS["dono_v1"])
     segmentos = ac.DONO_V1
-    assert [len(s.passos) for s in segmentos] == [14, 3, 3, 1]
+    assert [len(s.passos) for s in segmentos] == [14, 3, 3, 1, 6]
     s1 = segmentos[0].passos
     assert s1[11].texto == s1[12].texto and s1[11].escalacao == "cobranca" and s1[12].escalacao == "nenhuma"
     assert s1[7].nao_igual_ao_anterior and s1[7].texto == "de qual ano?"
@@ -249,4 +249,74 @@ def test_segmento_4_reprova_aviso_de_encaminhamento() -> None:
     assert any(
         f.startswith("escalacao")
         for f in ac.avaliar_passo(_PASSO_DUVIDA_DE_SAUDE, [("helena", ok)], aberto, None)
+    )
+
+
+# --- escalacao_um_de e nao_deve global; segmento 5 -----------------------------------------------
+def _aberto(motivo: str) -> list[dict[str, str | None]]:
+    return [{"agente": "helena", "motivo": motivo, "severidade": None}]
+
+
+def test_escalacao_um_de_aceita_qualquer_motivo_da_lista() -> None:
+    passo = ac.Passo("x", escalacao_um_de=("red_flag_clinico", "intencao_clinica"))
+    assert _falhas(passo, esc=_aberto("intencao_clinica")) == []
+    assert _falhas(passo, esc=_aberto("cobranca") + _aberto("red_flag_clinico")) == []
+    (falha,) = _falhas(passo, esc=_aberto("cobranca"))
+    assert falha.startswith("escalacao_um_de") and "['cobranca']" in falha
+    assert "abriu nenhuma" in _falhas(passo)[0]
+
+
+@pytest.mark.parametrize("frase", ["Por isso não abri outro.", "Nao consta essa informação no cadastro."])
+def test_nao_deve_global_vale_em_todo_passo(frase: str) -> None:
+    falhas = _falhas(ac.Passo("qualquer coisa"), ("helena", frase))
+    assert len(falhas) == 1 and falhas[0].startswith("nao_deve_global")
+    for segmento in ac.DONO_V1:
+        for passo in segmento.passos:
+            assert any(f.startswith("nao_deve_global") for f in _falhas(passo, ("helena", frase)))
+
+
+def _segmento5() -> tuple[ac.Passo, ...]:
+    (segmento,) = [s for s in ac.DONO_V1 if s.nome.startswith("5-")]
+    return segmento.passos
+
+
+def test_segmento_5_forma_pedida() -> None:
+    passos = _segmento5()
+    assert len(passos) == 6
+    assert passos[0].escalacao == "cobranca"
+    assert passos[4].escalacao_um_de == ("red_flag_clinico", "intencao_clinica")
+    assert passos[4].deve == ("192",)
+    assert passos[5].deve == ("empresa contratante",)
+
+
+def test_segmento_5_passo_5_aceita_a_resposta_clinica_e_reprova_o_caso_ja_aberto() -> None:
+    passo = _segmento5()[4]
+    certa = "Sinto muito. Para um recém-nascido, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro."
+    assert ac.avaliar_passo(passo, [("helena", certa)], _aberto("red_flag_clinico"), None) == []
+    errada = "Seu atendimento já está aberto e segue em andamento. Por isso não abri outro. Ligue 192."
+    falhas = ac.avaliar_passo(passo, [("helena", errada)], _aberto("cobranca"), None)
+    prefixos = {f.split(":")[0] for f in falhas}
+    assert {"nao_deve", "nao_deve_global", "escalacao_um_de"} <= prefixos
+    sem_192 = ac.avaliar_passo(passo, [("helena", "Vamos acompanhar.")], _aberto("intencao_clinica"), None)
+    assert any(f.startswith("deve") for f in sem_192)
+
+
+def test_segmento_5_passos_da_filha_reprovam_a_pergunta_sobre_o_adulto() -> None:
+    for i in (2, 3):
+        passo = _segmento5()[i]
+        boa = "Entendi, sua filha está com bolinhas vermelhas na pele. Ela tem quantos dias?"
+        assert ac.avaliar_passo(passo, [("helena", boa)], [], None) == []
+        ruim = "O que exatamente você está sentindo?"
+        assert any(f.startswith("nao_deve") for f in ac.avaliar_passo(passo, [("helena", ruim)], [], None))
+
+
+def test_segmento_5_dependentes_e_mensalidade() -> None:
+    p2, p6 = _segmento5()[1], _segmento5()[5]
+    assert (
+        ac.avaliar_passo(p2, [("helena", "Ainda não consigo ver dependentes; a central ajuda.")], [], None)
+        == []
+    )
+    assert ac.avaliar_passo(p2, [("helena", "Isso não consta no cadastro.")], [], None) != []
+    assert (
+        ac.avaliar_passo(p6, [("lucas", "A empresa contratante pagou a de outubro de 2026.")], [], None) == []
     )
