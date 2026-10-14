@@ -17,6 +17,12 @@ from tests.unit.platform.webhooks.whatsapp.test_acesso import (
     Ambiente,
 )
 
+
+@pytest.fixture
+def amb() -> Ambiente:
+    return Ambiente()
+
+
 PRIMEIRA = (ap.TEXTO_VERIFICADO_APRESENTACAO, ap.TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES)
 
 
@@ -27,7 +33,7 @@ def test_texto_exato_com_dependentes() -> None:
         "• Consultar mensalidade, vencimento e coparticipação.\n"
         "• Ver os dados do seu plano: carteirinha, carências e dependentes.\n"
         "• Relatar um sintoma e ser encaminhado à equipe de saúde.\n"
-        "• Contestar uma cobrança e ser encaminhado à equipe de atendimento.\n"
+        "• Questionar uma cobrança e ser encaminhado à equipe de atendimento.\n"
         "Em emergência, ligue 192. Como posso ajudar?"
     )
 

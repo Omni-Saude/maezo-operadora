@@ -486,6 +486,8 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
         "acesso_retencao.py",
         "acesso_store.py",
         "app.py",
+        # `apresentacao_canal.py` (14/10/2026): so' constantes de texto fixo, nenhuma chamada de logger.
+        "apresentacao_canal.py",
         "dedup.py",
         "dispatch.py",
         # `helena_consultas.py` (fatos do plano, 07/10/2026): revisado ao entrar nesta lista. Ele NAO

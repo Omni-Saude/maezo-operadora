@@ -88,7 +88,7 @@ def _estado_default_off(tmp_path: Path, **overrides: object) -> VendorPlaneTarge
     ledger.write_text("# VW5-METRICS — dashboard de contagens (baseline→pós-VW3)\n", encoding="utf-8")
     values: dict[str, object] = {
         "capabilities_deployed": "identity",
-        "migration_heads": ("0025",),
+        "migration_heads": ("0026",),
         "applied_migrations": _applied_chain(),
         "worker_bootstrap_count": EXPECTED_WORKER_BOOTSTRAP_COUNT,
         "published_vendor_memberships": 0,
@@ -306,7 +306,7 @@ def _cli_fatos(tmp_path: Path) -> list[str]:
         "--capabilities",
         "identity",
         "--migration-heads",
-        "0025",
+        "0026",
         "--applied-migrations",
         ",".join(edges),
         "--worker-count",

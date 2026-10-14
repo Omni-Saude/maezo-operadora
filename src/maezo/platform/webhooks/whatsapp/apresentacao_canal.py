@@ -32,7 +32,7 @@ _PLANO_COM_DEPENDENTES: Final[str] = "• Ver os dados do seu plano: carteirinha
 _PLANO_SEM_DEPENDENTES: Final[str] = "• Ver os dados do seu plano: carteirinha e carências.\n"
 _FECHO: Final[str] = (
     "• Relatar um sintoma e ser encaminhado à equipe de saúde.\n"
-    "• Contestar uma cobrança e ser encaminhado à equipe de atendimento.\n"
+    "• Questionar uma cobrança e ser encaminhado à equipe de atendimento.\n"
     "Em emergência, ligue 192. Como posso ajudar?"
 )
 

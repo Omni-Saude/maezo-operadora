@@ -559,7 +559,7 @@ async def test_cpf_e_nascimento_nao_aparecem_em_log_estado_nem_repr(amb: Ambient
         "conversation_id", "estado", "ultima_mensagem_em", "tentativas", "texto_versao", "texto_sha256",
         "consentido_em", "revogado_em", "portable_subject_ref", "consent_ref",
         "consentimento_pendente_gravacao", "revogacao_pendente", "verificado_em", "expira_em",
-        "bloqueado_ate", "regravacoes_falhas", "falhas_janela", "janela_inicio",
+        "bloqueado_ate", "regravacoes_falhas", "falhas_janela", "janela_inicio", "apresentado_em",
     }  # fmt: skip
 
 

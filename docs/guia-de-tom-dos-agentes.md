@@ -126,7 +126,7 @@ Por aqui você pode:
 • Consultar mensalidade, vencimento e coparticipação.
 • Ver os dados do seu plano: carteirinha, carências e dependentes.
 • Relatar um sintoma e ser encaminhado à equipe de saúde.
-• Contestar uma cobrança e ser encaminhado à equipe de atendimento.
+• Questionar uma cobrança e ser encaminhado à equipe de atendimento.
 Em emergência, ligue 192. Como posso ajudar?
 ```
 
