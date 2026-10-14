@@ -3449,6 +3449,7 @@ _RELACOES_DO_PACIENTE: tuple[tuple[re.Pattern[str], str, str], ...] = tuple(
         (r"\birmao\b", "seu irmão", "do seu irmão"),
     )
 )
+_RELACOES_GENERICAS = frozenset({"o bebê", "a criança"})
 #: "sou mae", "como mulher": a pessoa fala de SI.
 _SOU_A_RELACAO = re.compile(
     r"\b(?:sou|como|enquanto) (?:a |uma |um |o )?(?:mae|pai|mulher|esposa|marido|filh[ao])\b"
@@ -3462,12 +3463,14 @@ _AUTO_REFERENCIA = re.compile(
 def _ultima_relacao(plano: str) -> tuple[str, str] | None:
     """A relacao mencionada MAIS RECENTEMENTE em `plano` (texto normalizado): `(nominativo, genitivo)`."""
     plano = _SOU_A_RELACAO.sub(" ", plano)
-    achado: tuple[int, str, str] | None = None
+    achado: tuple[int, int, str, str] | None = None
     for padrao, nominativo, genitivo in _RELACOES_DO_PACIENTE:
+        # "minha filha recem nascida": a relacao de parentesco vence o termo generico (bebe, crianca).
+        peso = 0 if nominativo in _RELACOES_GENERICAS else 1
         for m in padrao.finditer(plano):
-            if achado is None or m.start() >= achado[0]:
-                achado = (m.start(), nominativo, genitivo)
-    return (achado[1], achado[2]) if achado else None
+            if achado is None or (peso, m.start()) >= (achado[0], achado[1]):
+                achado = (peso, m.start(), nominativo, genitivo)
+    return (achado[2], achado[3]) if achado else None
 
 
 def _falas_do_beneficiario(estado: Mapping[str, Any]) -> list[str]:

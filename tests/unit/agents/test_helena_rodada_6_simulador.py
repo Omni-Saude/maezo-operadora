@@ -11,9 +11,9 @@
 from __future__ import annotations
 
 from maezo.agents.helena.graph import (
-    RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA,
     RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA,
     RESPOSTA_HANDOFF_JA_ABERTO,
+    RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA,
     RESPOSTA_HANDOFF_RECUSADA,
     RESPOSTA_INFORM_CASO_ABERTO,
     RESPOSTA_PECA_REENVIO,
@@ -107,7 +107,7 @@ async def test_passa_pra_equipe_com_caso_aberto_diz_que_o_caso_ja_esta_com_a_equ
 
     await grafo.ainvoke(_entrada("Passa pra equipe AGORA", ["Vou chamar quem cuida da parte financeira."]))
 
-    assert whatsapp.enviados == [RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA]
+    assert whatsapp.enviados == [RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA]
     texto = whatsapp.enviados[0].lower()
     assert "vou levar" not in texto and "sou helena" not in texto
     assert _starts(cib) == antes, "o caso aberto e' reaproveitado"

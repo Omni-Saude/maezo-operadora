@@ -299,24 +299,22 @@ def test_a_pergunta_de_dependentes_so_pega_dependentes() -> None:
 
 
 async def test_transcricao_contestacao_depois_bebe_na_mesma_conversa() -> None:
-    cib = _Gravador()
-
-    # 1. a contestacao abre o caso ADMINISTRATIVO na chave da conversa.
-    grafo, whatsapp = _grafo([_classify(intent="human_request")], cib)
-    turno1 = "quero falar com uma pessoa sobre a contestação da cobrança"
-    resultado = await grafo.ainvoke(_entrada(turno1))
-    assert resultado["escalation_business_key"] == _CHAVE
-    conversa: list[tuple[str, str]] = [("beneficiario", turno1), ("helena", whatsapp.enviados[0])]
+    # 1. a contestacao de cobranca abriu o caso ADMINISTRATIVO na chave da conversa (o Lucas atende).
+    cib = _caso_administrativo("cobranca")
+    conversa: list[tuple[str, str]] = [
+        ("beneficiario", "quero contestar uma cobrança que veio errada"),
+        ("helena", "Seu pedido sobre cobrança já está com a nossa equipe. O atendente responde por aqui."),
+    ]
 
     # 2. o bebe, na MESMA conversa: alergia, sem sinal de sofrimento ainda. Nunca pedido de pessoa.
     grafo, whatsapp = _grafo([_classify(intent="human_request", population="pediatric", idade_meses=0)], cib)
     turno2 = "minha filha recém-nascida está com uma alergia, bolinhas vermelhas na pele"
     resultado = await grafo.ainvoke(_entrada(turno2, conversa))
     assert resultado.get("escalation_motivo") != "solicitacao_humano"
-    assert [c for c, _ in cib.inicios] == [_CHAVE]
+    assert cib.inicios == []
     conversa += [("beneficiario", turno2), ("helena", whatsapp.enviados[-1])]
 
-    # 3. "deve estar sentindo dor, pois esta chorando muito": o model leu como pedido de pessoa. Agora e'
+    # 3. "deve estar sentindo dor, pois esta chorando muito": o modelo leu como pedido de pessoa. Agora e'
     #    alerta clinico: caso na chave `-clin`, 192, e NUNCA o aviso de "ja esta com a equipe".
     grafo, whatsapp = _grafo([_classify(intent="human_request")], cib)
     turno3 = "ele deve estar sentindo dor, pois está chorando muito"
@@ -325,8 +323,7 @@ async def test_transcricao_contestacao_depois_bebe_na_mesma_conversa() -> None:
     assert resultado["escalation_motivo"] == "red_flag_clinico"
     assert resultado["escalation_business_key"] == _CHAVE_CLINICA
     assert resultado["start_desfecho"] == "novo"
-    chaves = [c for c, _ in cib.inicios]
-    assert chaves == [_CHAVE, _CHAVE_CLINICA]
+    assert [c for c, _ in cib.inicios] == [_CHAVE_CLINICA]
     assert dict(cib.inicios)[_CHAVE_CLINICA]["motivo_categoria"] == "red_flag_clinico"
     enviado = whatsapp.enviados[-1]
     assert "192" in enviado
@@ -334,4 +331,4 @@ async def test_transcricao_contestacao_depois_bebe_na_mesma_conversa() -> None:
     assert all(proibido not in enviado.lower() for proibido in _PROIBIDO_NO_AVISO)
     # o caso administrativo segue como estava: nada foi cancelado nem alterado.
     status = await cib.get_process_status(_CHAVE)
-    assert status.instance_id != resultado["escalation_process_ref"]["instance_id"]
+    assert status.instance_id == "caso-adm-r10"
