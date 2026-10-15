@@ -729,11 +729,16 @@ CANCELAMENTO_V1: tuple[Segmento, ...] = (
                 "Não, deixa pra lá",
                 agente="lucas",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("nao vou registrar",),
+                # Nenhum pedido registrado + pode retomar quando quiser (texto da chave ligada:
+                # "nao registrei nenhum pedido ... Se mudar de ideia, e so me avisar").
+                deve=(r"nao (vou registrar|registrei)", r"(mudar de ideia|se precisar|quando quiser)"),
                 nao_deve=(_PROTOCOLO_CAN, *_NAO_PODE_NO_PEDIDO),
             ),
         ),
-        resolveu="quem desistiu nao abriu pedido nem recebeu protocolo",
+        resolveu=(
+            "quem desistiu ouviu que nenhum pedido foi registrado e que pode retomar quando quiser; nao "
+            "abriu pedido nem recebeu protocolo, e a resposta veio do Lucas (nao da Helena)"
+        ),
     ),
 )
 

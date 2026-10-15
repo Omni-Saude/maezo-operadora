@@ -192,7 +192,9 @@ Emergência: `terraform apply ... -var=cancel_pf_v1=false` com os mesmos `-targe
 - **Roteiro de aceite `cancelamento_v1`** (`src/maezo/qa/simulador/aceite.py`), com a chave ligada:
   `SIMULADOR_ARGS="--roteiro cancelamento_v1 --roster <chave do roster PF>"`
   (`docs/runbooks/simulador-beneficiario.md`). Cenários: titular PF pede, recebe a pergunta única, confirma,
-  recebe o protocolo e o próximo passo; pede de novo e recebe o mesmo caso; e o titular que desiste. Critério
+  recebe o protocolo e o próximo passo; pede de novo e recebe o mesmo caso; e o titular que desiste (com a
+  pergunta pendente, "não"/"deixa pra lá" vai ao Lucas, que diz que nenhum pedido foi registrado e que pode
+  retomar; a Helena não responde esse turno). Critério
   "RESOLVEU?" por segmento no relatório. **Nenhum cancelamento real**: o interceptador finge
   SP-OP-CANCEL-001 (com `instancia_de_teste=true`) e a limpeza do fim pergunta ao motor REAL se alguma chave
   CANCEL do roteiro tem instância viva (`cancelamentos_no_motor` tem de ser 0; se não for, o roteiro reprova).

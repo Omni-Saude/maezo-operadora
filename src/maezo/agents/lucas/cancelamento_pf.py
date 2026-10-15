@@ -85,6 +85,11 @@ TEXTO_DEPENDENTE: Final[str] = (
     "nossa equipe."
 )
 TEXTO_DEPENDENTE_CURTO: Final[str] = "Quem pede o cancelamento é o titular do plano."
+#: Desistencia com a confirmacao pendente (so' com a chave ligada): nenhum pedido registrado e a porta
+#: aberta para retomar. Sem pressao, sem retencao, sem desconto.
+TEXTO_DESISTENCIA: Final[str] = (
+    "Tudo bem, não registrei nenhum pedido de cancelamento. Se mudar de ideia, é só me avisar."
+)
 #: Retorno: a pessoa do cadastro concluiu "cancelamento executado no sistema" (historico conferido).
 TEXTO_CANCELADO: Final[str] = (
     "Seu plano foi cancelado a partir de {data}. Protocolo: {protocolo}. "
@@ -344,6 +349,7 @@ __all__ = [
     "TEXTO_CANCELADO",
     "TEXTO_DEPENDENTE",
     "TEXTO_DEPENDENTE_CURTO",
+    "TEXTO_DESISTENCIA",
     "TEXTO_INFO_SOLICITADA",
     "TEXTO_MANTIDO",
     "TEXTO_PEDIDO_JA_REGISTRADO",

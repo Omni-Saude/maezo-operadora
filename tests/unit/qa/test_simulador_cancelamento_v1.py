@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from maezo.agents.lucas import cancelamento_pf as cpf
-from maezo.agents.lucas.graph import TEXTO_CANCELAMENTO_DESISTIU, TEXTO_CONFIRMA_CANCELAMENTO
+from maezo.agents.lucas.graph import TEXTO_CONFIRMA_CANCELAMENTO
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.cibseven import gate_cibseven
 from maezo.gateway.tool_registry import build_agent_seam_context
@@ -49,7 +49,7 @@ _RESPOSTAS = {
     ("1-titular-pf-pede-cancelamento", 3): TEXTO_CONFIRMA_CANCELAMENTO,
     ("1-titular-pf-pede-cancelamento", 4): cpf.TEXTO_PEDIDO_JA_REGISTRADO.format(protocolo=_P),
     ("2-titular-pf-desiste", 1): TEXTO_CONFIRMA_CANCELAMENTO,
-    ("2-titular-pf-desiste", 2): TEXTO_CANCELAMENTO_DESISTIU,
+    ("2-titular-pf-desiste", 2): cpf.TEXTO_DESISTENCIA,
 }
 _ESCALACOES = {("1-titular-pf-pede-cancelamento", 2): [{"motivo": "cancelamento"}]}
 
