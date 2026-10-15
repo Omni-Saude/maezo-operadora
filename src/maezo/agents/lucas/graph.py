@@ -195,8 +195,8 @@ from maezo.tools.workers.dmn_transport import (
 from .cancelamento_pf import (
     TEXTO_DEPENDENTE,
     TEXTO_DEPENDENTE_CURTO,
-    TEXTO_PEDIDO_NAO_REGISTRADO,
     TEXTO_PEDIDO_JA_REGISTRADO,
+    TEXTO_PEDIDO_NAO_REGISTRADO,
     TEXTO_PEDIDO_RECEBIDO,
     TIPOS_PLANO_PF,
     protocolo_do_cancelamento,

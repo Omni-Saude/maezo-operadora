@@ -2,8 +2,8 @@
 
 O defeito (roteiro `cancelamento_v1`, 15/10/2026): "Nao, deixa pra la" depois de "Voce quer pedir para
 cancelar o seu plano?" era lido pela Helena como encerramento e ela agradecia, sem confirmar nada. Com a chave
-ligada e a pergunta pendente, a desistencia vai ao Lucas ANTES da Helena (atalho deterministico). Sem pendencia,
-ou com a chave desligada, o caminho de sempre.
+ligada e a pergunta pendente, a desistencia vai ao Lucas ANTES da Helena (atalho deterministico). Sem
+pendencia, ou com a chave desligada, o caminho de sempre.
 """
 
 from __future__ import annotations

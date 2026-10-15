@@ -1432,7 +1432,8 @@ class HelenaDispatcher:
         texto) ou `None` — chave desligada, sem pendencia, com sinal de saude ou de pessoa, ou falha de
         leitura: o caminho de sempre, intacto."""
         lucas = self.lucas_turno
-        # `getattr`: os envelopes do `LucasTurno` (espioes de teste, composicao do simulador) so' repassam `executar`.
+        # `getattr`: os envelopes do `LucasTurno` (espioes de teste, composicao do simulador) so'
+        # repassam `executar`.
         ligada = getattr(lucas, "cancelamento_pf_v1", False) is True
         if lucas is None or not ligada or not self._roteamento_completo:
             return None
@@ -1446,9 +1447,8 @@ class HelenaDispatcher:
         from maezo.agents.lucas.graph import TEXTO_CONFIRMA_CANCELAMENTO, ref_de_resposta
 
         contexto = await self._contexto_do_turno_do_lucas(conversation_id)
-        if (
-            contexto.assunto_anterior != "cancelamento"
-            or contexto.memoria.resposta_ref != ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO)
+        if contexto.assunto_anterior != "cancelamento" or contexto.memoria.resposta_ref != ref_de_resposta(
+            TEXTO_CONFIRMA_CANCELAMENTO
         ):
             return None
         from maezo.agents.helena.graph import INTENT_COBRANCA, RESPONSE_KIND_HANDOFF
