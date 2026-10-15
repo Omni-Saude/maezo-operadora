@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_helena_triage_admissibility"
+             name="Admissibilidade da triagem da Helena (nova triagem, experimento em dev)"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    helena_triage_admissibility v0.1.0 — status: DRAFT — EXPERIMENTO EM DEV, atras da chave
+    `MAEZO_HELENA_TRIAGEM_V2` (default false). CONTEUDO CLINICO: DRAFT — pendente de ratificacao do
+    medico-auditor. Decisao do dono registrada em `docs/decisions-log.md` (DL-0104).
+
+    FONTE: o catalogo `Catalogo_Necessidades_Helena_Lucas.xlsx` (14/10/2026), aba "2 Tabela de
+    decisao" (regras R01-R24 da Helena). Cada regra abaixo cita o R-ID do catalogo e, quando o
+    comportamento diverge do catalogo, diz por que na propria descricao da regra.
+
+    O QUE ESTA TABELA DECIDE: depois que o grafo da Helena ja' passou pelos portoes que CONTINUAM NO
+    CODIGO, NA MESMA ORDEM DE HOJE (falha do classificador R01; risco psicossocial R02; tabelas de
+    alarme triage_redflag_* R03/R06/R07; emergencia com caso aberto R05; recem-nascido R04; pedido
+    explicito de pessoa R09/R10; ameaca de queixa a ANS/Procon R11; consulta do plano R19; cobranca
+    para o Lucas R08), esta tabela decide a SAIDA do turno para o que sobrou: sintoma sem alarme
+    (ficha minima), pergunta clinica sem sintoma, exame/receita/atestado, navegacao e necessidade nao
+    clara. Ela NUNCA decide se ha' alarme (isso continua sendo das quatro tabelas triage_redflag_*,
+    consultadas antes) e NUNCA diagnostica, orienta conduta ou indica remedio (L0, ADR-0005/0008/0012).
+
+    AS LINHAS DE ALARME/RISCO/PEDIDO (htr_r02, htr_r03, htr_r10) SAO REDE DE SEGURANCA: com a ordem de
+    hoje o grafo nunca chega aqui com `sinal_alarme`, `risco_psicossocial` ou `pedido_pessoa`
+    verdadeiros (o portao no codigo ja' abriu o caso). Elas existem para que uma reordenacao futura
+    do codigo nunca transforme alarme ou pedido de pessoa numa resposta automatica.
+
+    ENTRADAS (apuradas pelo grafo, nunca pelo modelo): `necessidade` (codigo do catalogo, aba 1:
+    S01 sintoma, S04 sintoma em gestante, S05 sintoma em crianca, S06 remedio/diagnostico/conduta,
+    S08 resultado de exame, S09 receita/atestado/laudo, S10 onde ir, A05 nao identificada,
+    COBRANCA reservado para a passagem ao Lucas); `sinal_alarme`; `risco_psicossocial`;
+    `pedido_pessoa`; `ficha_completa`; `rodadas` (perguntas da ficha ja' feitas nesta conversa);
+    `esclarecimento_pedido` (a pergunta de esclarecimento ja' foi feita nesta conversa).
+
+    SAIDAS: `decisao` (vocabulario FECHADO: ABRIR_CASO_EMERGENCIA, ABRIR_CASO, PERGUNTAR_MAIS,
+    ESCLARECER_NECESSIDADE, ORIENTAR_CAMINHO_SEM_CASO, RESPONDER_SEM_CASO, PASSAR_AO_LUCAS — valor
+    fora dele e' falha tecnica no codigo); `motivo_categoria` (so' valores do enum do contrato
+    SP-OP-ESCALATION-001 quando abre caso; "-" quando NAO abre caso); `severidade` (grave, moderada,
+    leve quando abre caso; "-" quando nao abre); `texto` (o ID do texto da aba "5 Textos" que a
+    Helena envia; "-" quando o texto vem de outro lugar: aviso de encaminhamento ou pergunta da ficha).
+
+    DIVERGENCIAS DO CATALOGO (decisao do coordenador para o experimento; ver DL-0104 e o runbook
+    `docs/runbooks/helena-triagem-v2.md`):
+      * R13 (ficha esgotada): o catalogo abre caso; aqui ORIENTA o caminho e OFERECE uma pessoa, sem
+        abrir caso automaticamente (pedido de pessoa continua abrindo, RN 623/2024 art. 9, III).
+      * R24 (catch-all): o catalogo abre caso P3; aqui RESPONDE sem caso oferecendo uma pessoa —
+        preserva o comportamento atual (a Helena de hoje termina sem caso) ate' a decisao D08.
+      * R17 (S07, duvida geral): sem conteudo de fonte publica aprovado (D10 pendente), a duvida
+        geral recebe o mesmo texto da R15.
+      * R12/R13: o limite passa de 2 para 3 rodadas (aba 4 "no maximo 3-4"; D02 segue pendente).
+      * Prazos da ANS (RN 566/2022): so' o valor marcado como conferido no texto-base (aba 6):
+        consulta basica em ate' 7 dias uteis (art. 3, I). Prazos que dependem da retificacao (alta
+        complexidade, urgencia/emergencia) ficam fora dos textos.
+
+    NOTA hitPolicy: FIRST (catch-all como ultima linha) — o mesmo padrao de
+    lucas_billing_admissibility / triage_sufficiency: a ordem das linhas E' a regra, e uma tabela
+    FIRST sem catch-all devolveria vazio (o codigo trataria como falha tecnica).
+  </description>
+
+  <decision id="helena_triage_admissibility" name="Admissibilidade da triagem da Helena" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_helena_triage_admissibility" hitPolicy="FIRST">
+
+      <input id="hta_in_necessidade" label="Necessidade do catalogo (necessidade)">
+        <inputExpression id="hta_ie_necessidade" typeRef="string"><text>necessidade</text></inputExpression>
+      </input>
+      <input id="hta_in_sinal_alarme" label="Tabela de alarme acusou sinal neste turno (sinal_alarme)">
+        <inputExpression id="hta_ie_sinal_alarme" typeRef="boolean"><text>sinal_alarme</text></inputExpression>
+      </input>
+      <input id="hta_in_risco_psicossocial" label="Risco psicossocial neste turno (risco_psicossocial)">
+        <inputExpression id="hta_ie_risco_psicossocial" typeRef="boolean"><text>risco_psicossocial</text></inputExpression>
+      </input>
+      <input id="hta_in_pedido_pessoa" label="Pediu uma pessoa explicitamente (pedido_pessoa)">
+        <inputExpression id="hta_ie_pedido_pessoa" typeRef="boolean"><text>pedido_pessoa</text></inputExpression>
+      </input>
+      <input id="hta_in_ficha_completa" label="Ficha minima completa (ficha_completa)">
+        <inputExpression id="hta_ie_ficha_completa" typeRef="boolean"><text>ficha_completa</text></inputExpression>
+      </input>
+      <input id="hta_in_rodadas" label="Perguntas da ficha ja feitas nesta conversa (rodadas)">
+        <inputExpression id="hta_ie_rodadas" typeRef="integer"><text>rodadas</text></inputExpression>
+      </input>
+      <input id="hta_in_esclarecimento" label="Pergunta de esclarecimento ja feita nesta conversa (esclarecimento_pedido)">
+        <inputExpression id="hta_ie_esclarecimento" typeRef="boolean"><text>esclarecimento_pedido</text></inputExpression>
+      </input>
+
+      <output id="hta_out_decisao" label="decisao" name="decisao" typeRef="string"/>
+      <output id="hta_out_motivo" label="motivo_categoria" name="motivo_categoria" typeRef="string"/>
+      <output id="hta_out_severidade" label="severidade" name="severidade" typeRef="string"/>
+      <output id="hta_out_texto" label="texto" name="texto" typeRef="string"/>
+
+      <rule id="hta_r02_risco_psicossocial">
+        <description>Catalogo R02 (IGUAL AO REPO; fonte: Gatilho 5 do grafo; MS, CAB 28 Vol. II p.229-231). Risco psicossocial vence tudo: acolhimento, 192 e caso P1. Rede de seguranca: o codigo ja' abre o caso antes desta tabela.</description>
+        <inputEntry id="hta_r02_i1"><text>-</text></inputEntry>
+        <inputEntry id="hta_r02_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r02_i3"><text>true</text></inputEntry>
+        <inputEntry id="hta_r02_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r02_i5"><text>-</text></inputEntry>
+        <inputEntry id="hta_r02_i6"><text>-</text></inputEntry>
+        <inputEntry id="hta_r02_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r02_o1"><text>"ABRIR_CASO_EMERGENCIA"</text></outputEntry>
+        <outputEntry id="hta_r02_o2"><text>"risco_psicossocial"</text></outputEntry>
+        <outputEntry id="hta_r02_o3"><text>"grave"</text></outputEntry>
+        <outputEntry id="hta_r02_o4"><text>"-"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r03_sinal_alarme">
+        <description>Catalogo R03 (IGUAL AO REPO; fonte: Lei 9.656/1998 art. 35-C; tabelas triage_redflag_*). Sinal de alarme: 192 primeiro e caso para o plantao. Rede de seguranca: o codigo ja' abre o caso, com a prioridade que a tabela de alarme emitiu, antes desta tabela.</description>
+        <inputEntry id="hta_r03_i1"><text>-</text></inputEntry>
+        <inputEntry id="hta_r03_i2"><text>true</text></inputEntry>
+        <inputEntry id="hta_r03_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r03_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r03_i5"><text>-</text></inputEntry>
+        <inputEntry id="hta_r03_i6"><text>-</text></inputEntry>
+        <inputEntry id="hta_r03_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r03_o1"><text>"ABRIR_CASO_EMERGENCIA"</text></outputEntry>
+        <outputEntry id="hta_r03_o2"><text>"red_flag_clinico"</text></outputEntry>
+        <outputEntry id="hta_r03_o3"><text>"grave"</text></outputEntry>
+        <outputEntry id="hta_r03_o4"><text>"-"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r10_pedido_pessoa">
+        <description>Catalogo R10 (IGUAL AO REPO; fonte: ANS RN 623/2024 art. 9, III). Pedido explicito de pessoa e' sempre atendido. Rede de seguranca: o Gatilho 3 do codigo ja' abre o caso (e a R09, pedido dentro da triagem falando do quadro, segue no codigo como intencao_clinica).</description>
+        <inputEntry id="hta_r10_i1"><text>-</text></inputEntry>
+        <inputEntry id="hta_r10_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r10_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r10_i4"><text>true</text></inputEntry>
+        <inputEntry id="hta_r10_i5"><text>-</text></inputEntry>
+        <inputEntry id="hta_r10_i6"><text>-</text></inputEntry>
+        <inputEntry id="hta_r10_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r10_o1"><text>"ABRIR_CASO"</text></outputEntry>
+        <outputEntry id="hta_r10_o2"><text>"solicitacao_humano"</text></outputEntry>
+        <outputEntry id="hta_r10_o3"><text>"leve"</text></outputEntry>
+        <outputEntry id="hta_r10_o4"><text>"-"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r08_cobranca">
+        <description>Catalogo R08 (IGUAL AO REPO; fonte: ADR-0062, DL-0053). Cobranca e' do Lucas, pela precondicao de duas camadas do grafo. Reservada: hoje a cobranca e' decidida no codigo antes desta tabela.</description>
+        <inputEntry id="hta_r08_i1"><text>"COBRANCA"</text></inputEntry>
+        <inputEntry id="hta_r08_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r08_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r08_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r08_i5"><text>-</text></inputEntry>
+        <inputEntry id="hta_r08_i6"><text>-</text></inputEntry>
+        <inputEntry id="hta_r08_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r08_o1"><text>"PASSAR_AO_LUCAS"</text></outputEntry>
+        <outputEntry id="hta_r08_o2"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r08_o3"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r08_o4"><text>"-"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r12_perguntar_mais">
+        <description>Catalogo R12 (MUDA EM RELACAO AO REPO; fonte: aba 4 Ficha minima; MS, CAB 28 Vol. II, fluxogramas por queixa). Sintoma sem alarme e ficha incompleta: mais uma pergunta da ficha (por tipo de queixa, reaproveitando triage_sufficiency). Limite de 3 rodadas (catalogo: 2 hoje, 3-4 na aba 4; decisao D02 pendente).</description>
+        <inputEntry id="hta_r12_i1"><text>"S01","S04","S05"</text></inputEntry>
+        <inputEntry id="hta_r12_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r12_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r12_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r12_i5"><text>false</text></inputEntry>
+        <inputEntry id="hta_r12_i6"><text>&lt; 3</text></inputEntry>
+        <inputEntry id="hta_r12_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r12_o1"><text>"PERGUNTAR_MAIS"</text></outputEntry>
+        <outputEntry id="hta_r12_o2"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r12_o3"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r12_o4"><text>"-"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r13_ficha_esgotada">
+        <description>Catalogo R13 (DIVERGE: o catalogo abre caso solicitacao_humano P3; aqui, por decisao do coordenador para o experimento, a Helena orienta o caminho e OFERECE uma pessoa, sem abrir caso automaticamente — quem aceitar a oferta pede e cai na R10). Ficha esgotada (3 rodadas) sem alarme.</description>
+        <inputEntry id="hta_r13_i1"><text>"S01","S04","S05"</text></inputEntry>
+        <inputEntry id="hta_r13_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r13_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r13_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r13_i5"><text>false</text></inputEntry>
+        <inputEntry id="hta_r13_i6"><text>&gt;= 3</text></inputEntry>
+        <inputEntry id="hta_r13_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r13_o1"><text>"ORIENTAR_CAMINHO_SEM_CASO"</text></outputEntry>
+        <outputEntry id="hta_r13_o2"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r13_o3"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r13_o4"><text>"T05"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r14_ficha_completa">
+        <description>Catalogo R14 (PROPOSTA; fonte: ANS RN 566/2022 art. 3, I — 7 dias uteis, texto-base conferido). Sintoma sem alarme com ficha completa: orientar ONDE ir e em que prazo (texto T05), sem caso, oferecendo uma pessoa.</description>
+        <inputEntry id="hta_r14_i1"><text>"S01","S04","S05"</text></inputEntry>
+        <inputEntry id="hta_r14_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r14_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r14_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r14_i5"><text>true</text></inputEntry>
+        <inputEntry id="hta_r14_i6"><text>-</text></inputEntry>
+        <inputEntry id="hta_r14_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r14_o1"><text>"ORIENTAR_CAMINHO_SEM_CASO"</text></outputEntry>
+        <outputEntry id="hta_r14_o2"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r14_o3"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r14_o4"><text>"T05"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r15_conduta">
+        <description>Catalogo R15 (MUDA EM RELACAO AO REPO — a maior mudanca: deixa de abrir caso intencao_clinica P2 automatico; fonte: L0-core clinical_decision; Resolucao CFM 2.314/2022 arts. 1, 11 e 13; decisao final D01 pendente). Pergunta de remedio, diagnostico, exame ou conduta SEM sintoma: texto que nao avalia, mostra o caminho e oferece uma pessoa (T08). Tambem cobre S07 (duvida geral) ate' a D10.</description>
+        <inputEntry id="hta_r15_i1"><text>"S06"</text></inputEntry>
+        <inputEntry id="hta_r15_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r15_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r15_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r15_i5"><text>-</text></inputEntry>
+        <inputEntry id="hta_r15_i6"><text>-</text></inputEntry>
+        <inputEntry id="hta_r15_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r15_o1"><text>"RESPONDER_SEM_CASO"</text></outputEntry>
+        <outputEntry id="hta_r15_o2"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r15_o3"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r15_o4"><text>"T08"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r16_exame_receita">
+        <description>Catalogo R16 (PROPOSTA; fonte: Resolucao CFM 2.314/2022 art. 13; Lei 12.842/2013 art. 4, XIII). Resultado de exame, receita, atestado ou laudo: quem interpreta e emite e' o medico; a Helena mostra o caminho ate' ele (T09), sem caso.</description>
+        <inputEntry id="hta_r16_i1"><text>"S08","S09"</text></inputEntry>
+        <inputEntry id="hta_r16_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r16_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r16_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r16_i5"><text>-</text></inputEntry>
+        <inputEntry id="hta_r16_i6"><text>-</text></inputEntry>
+        <inputEntry id="hta_r16_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r16_o1"><text>"ORIENTAR_CAMINHO_SEM_CASO"</text></outputEntry>
+        <outputEntry id="hta_r16_o2"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r16_o3"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r16_o4"><text>"T09"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r18_navegacao">
+        <description>Catalogo R18 (IGUAL AO REPO no texto: T12 = RESPOSTA_NAVEGACAO; os prazos da RN 566 no texto de navegacao ficam para a D11). Pergunta de onde ir, sem sintoma: navegacao, sem caso.</description>
+        <inputEntry id="hta_r18_i1"><text>"S10"</text></inputEntry>
+        <inputEntry id="hta_r18_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r18_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r18_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r18_i5"><text>-</text></inputEntry>
+        <inputEntry id="hta_r18_i6"><text>-</text></inputEntry>
+        <inputEntry id="hta_r18_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r18_o1"><text>"ORIENTAR_CAMINHO_SEM_CASO"</text></outputEntry>
+        <outputEntry id="hta_r18_o2"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r18_o3"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r18_o4"><text>"T12"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r23_esclarecer">
+        <description>Catalogo R23 (PROPOSTA; decisao D09 pendente). Necessidade nao clara pela primeira vez: UMA pergunta de esclarecimento com opcoes (T11), sem caso.</description>
+        <inputEntry id="hta_r23_i1"><text>"A05"</text></inputEntry>
+        <inputEntry id="hta_r23_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r23_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r23_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r23_i5"><text>-</text></inputEntry>
+        <inputEntry id="hta_r23_i6"><text>-</text></inputEntry>
+        <inputEntry id="hta_r23_i7"><text>false</text></inputEntry>
+        <outputEntry id="hta_r23_o1"><text>"ESCLARECER_NECESSIDADE"</text></outputEntry>
+        <outputEntry id="hta_r23_o2"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r23_o3"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r23_o4"><text>"T11"</text></outputEntry>
+      </rule>
+
+      <rule id="hta_r24_catchall">
+        <description>Catalogo R24 (DIVERGE: o catalogo abre caso solicitacao_humano P3 no catch-all; aqui a Helena RESPONDE sem caso e OFERECE uma pessoa, preservando o comportamento atual de nao abrir caso — decisao D08 pendente). Nada acima casou, inclusive depois da pergunta de esclarecimento.</description>
+        <inputEntry id="hta_r24_i1"><text>-</text></inputEntry>
+        <inputEntry id="hta_r24_i2"><text>-</text></inputEntry>
+        <inputEntry id="hta_r24_i3"><text>-</text></inputEntry>
+        <inputEntry id="hta_r24_i4"><text>-</text></inputEntry>
+        <inputEntry id="hta_r24_i5"><text>-</text></inputEntry>
+        <inputEntry id="hta_r24_i6"><text>-</text></inputEntry>
+        <inputEntry id="hta_r24_i7"><text>-</text></inputEntry>
+        <outputEntry id="hta_r24_o1"><text>"RESPONDER_SEM_CASO"</text></outputEntry>
+        <outputEntry id="hta_r24_o2"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r24_o3"><text>"-"</text></outputEntry>
+        <outputEntry id="hta_r24_o4"><text>"OFERTA_PESSOA"</text></outputEntry>
+      </rule>
+
+    </decisionTable>
+  </decision>
+</definitions>

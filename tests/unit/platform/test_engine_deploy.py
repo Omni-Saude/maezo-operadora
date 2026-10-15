@@ -129,7 +129,9 @@ class TestCollectArtifacts:
         # 62 -> 63: `triage_sufficiency.dmn` (Frente 2.2) entrou na arvore. O arquivo e' nomeado
         # na entrada #407 do CORPUS_DELTA_LOG (test_validation_phi_completeness), com os sete
         # nomes que ele traz e o balde de cada um.
-        assert len(dmn) == 64  # VW4/GP11: +suppression_routing
+        # 64 -> 65: `helena_triage_admissibility.dmn` (nova triagem da Helena, DL-0104, experimento
+        # em dev atras de `MAEZO_HELENA_TRIAGEM_V2`) — publicada pelo deploy-processes como as demais.
+        assert len(dmn) == 65  # VW4/GP11: +suppression_routing; DL-0104: +helena_triage_admissibility
 
     def test_empty_tree_raises(self, tmp_path: Path) -> None:
         with pytest.raises(EngineDeployError, match="nothing to deploy"):

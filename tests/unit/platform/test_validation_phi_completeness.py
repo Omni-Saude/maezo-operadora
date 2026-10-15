@@ -137,7 +137,8 @@ class TestNonVacuity:
         assert len({p for p in touched if p.suffix == ".bpmn"}) == 17  # VW4/GP11: +SP-OP-SUPP-001
         # 62 -> 63 com `triage_sufficiency.dmn` (Frente 2.2) — ver a entrada #407 do
         # CORPUS_DELTA_LOG, que nomeia o arquivo e os sete nomes que ele traz.
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 64  # VW4/GP11: +suppression_routing
+        # 64 -> 65 com `helena_triage_admissibility.dmn` (DL-0104) — ver as entradas do CORPUS_DELTA_LOG.
+        assert len({p for p in touched if p.suffix == ".dmn"}) == 65  # VW4/GP11: +suppression_routing
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -1293,6 +1294,149 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "le' (escala); nao carrega dado do beneficiario, so' o resultado da comparacao."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="necessidade",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: vocabulario FECHADO de codigos do catalogo (S01, S04, S05, S06, S08, "
+            "S09, S10, A05, COBRANCA) apurado pelo grafo, nunca texto do beneficiario. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="sinal_alarme",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: booleano (a tabela de alarme acusou sinal neste turno?). Nao carrega "
+            "qual sinal nem qual sintoma (esses seguem em `sintoma_codigo`, ja suspeito). Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="risco_psicossocial",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: booleano do classificador validado (`psychosocial_risk`). Ja' circulava "
+            "como VALOR do `motivo_categoria`; como nome de variavel e' novo. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="pedido_pessoa",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: booleano (pediu uma pessoa explicitamente?), do lexico deterministico e "
+            "do classificador. Sem texto da pessoa. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="ficha_completa",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: booleano de PRESENCA (a ficha minima esta completa?), apurado pelo "
+            "grafo; nao carrega nenhuma resposta da ficha. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="esclarecimento_pedido",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: booleano (a pergunta de esclarecimento ja foi feita nesta conversa?). "
+            "Sem dado do beneficiario. Arquivo novo: `spec/processes/dmn/helena_triage_admissibility.dmn` "
+            "(DL-0104, nova triagem da Helena, experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, "
+            "conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="rodadas",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Nome ja existente (triage_sufficiency): mais uma ocorrencia, como ENTRADA da tabela "
+            "nova; o mesmo contador inteiro de perguntas da ficha. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="decisao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. SAIDA nova: vocabulario FECHADO de sete valores (ABRIR_CASO_EMERGENCIA ... "
+            "PASSAR_AO_LUCAS) validado no codigo; valor fora dele vira falha tecnica. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="motivo_categoria",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Nome ja existente (contrato SP-OP-ESCALATION-001): mais uma ocorrencia, como SAIDA da "
+            "tabela nova, so' com valores do enum do contrato ou '-' quando nao abre caso. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="severidade",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Nome ja existente (contrato SP-OP-ESCALATION-001): mais uma ocorrencia, como SAIDA da "
+            "tabela nova (grave/moderada/leve, ou '-' quando nao abre caso). Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="texto",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. SAIDA nova: o ID do texto da aba '5 Textos' do catalogo (T05, T08, T09, T11, T12, "
+            "OFERTA_PESSOA) que a Helena envia; um rotulo fechado, nunca o texto da pessoa. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
 )
 
 
@@ -1304,8 +1448,9 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
         assert (
-            expected_clean == 339
+            expected_clean == 347
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
+        # DL-0104 (helena_triage_admissibility): +8
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -1335,9 +1480,11 @@ class TestBuckets:
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
         # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1
-        assert len(live_sweep.names) == expected_names == 355
+        # DL-0104 (helena_triage_admissibility): +8
+        assert len(live_sweep.names) == expected_names == 363
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
-        assert len(live_sweep.refs) == expected_refs == 1712
+        # DL-0104 (helena_triage_admissibility): +11
+        assert len(live_sweep.refs) == expected_refs == 1723
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1465,8 +1612,9 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (339)" in rendered
+            f"## {CLEAN} (347)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
+        # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

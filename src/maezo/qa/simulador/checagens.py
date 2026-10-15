@@ -1,4 +1,4 @@
-"""Checagens DETERMINISTICAS D1..D12 sobre uma conversa simulada (sem modelo, sem rede).
+"""Checagens DETERMINISTICAS D1..D13 sobre uma conversa simulada (sem modelo, sem rede).
 
 Cada checagem devolve `ResultadoChecagem` (aplicavel? achados?). Os achados citam so' o que o
 simulador sabe dizer (valor, data, palavra proibida); o texto inteiro do beneficiario nunca entra
@@ -19,6 +19,9 @@ num motivo, e todo motivo ainda passa pelo mascarador antes de sair do processo.
   D11 pergunta de cobranca respondida pelo Lucas
   D12 sem `falha_tecnica` na conversa (a parte da execucao — p95 de latencia e taxa — fica em
       `checar_execucao`)
+  D13 CASO EVITAVEL (nova triagem da Helena, DL-0104): SO' com `MAEZO_HELENA_TRIAGEM_V2` ligada e so'
+      nas personas marcadas (`caso_evitavel_com_triagem_v2`), caso aberto sem alarme, sem risco e sem
+      pedido explicito de pessoa conta como indevido. Com a chave desligada a checagem nao se aplica.
 """
 
 from __future__ import annotations
@@ -52,6 +55,7 @@ CHECAGENS: tuple[str, ...] = (
     "D10",
     "D11",
     "D12",
+    "D13",
 )
 
 DESCRICOES: dict[str, str] = {
@@ -67,6 +71,7 @@ DESCRICOES: dict[str, str] = {
     "D10": "palavras proibidas do Lucas",
     "D11": "cobranca respondida pelo Lucas",
     "D12": "sem falha_tecnica",
+    "D13": "caso evitavel (nova triagem da Helena)",
 }
 
 # --- D2: dinheiro e datas ------------------------------------------------------------------------
@@ -541,8 +546,40 @@ _TODAS: tuple[Callable[[Conversa, Persona], ResultadoChecagem], ...] = (
 )
 
 
-def checar_conversa(conversa: Conversa, persona: Persona) -> list[ResultadoChecagem]:
-    return [checagem(conversa, persona) for checagem in _TODAS]
+# ================================================================================================
+# D13 — caso evitavel (nova triagem da Helena, DL-0104)
+# ================================================================================================
+#: Motivos que NUNCA sao "evitaveis": alarme e risco sao a tabela de seguranca falando (a nova triagem nao
+#: mexe neles), e `falha_tecnica` ja' e' contada pela D12.
+_MOTIVOS_NUNCA_EVITAVEIS = frozenset({"red_flag_clinico", "risco_psicossocial", "falha_tecnica"})
+
+
+def d13_caso_evitavel(conversa: Conversa, persona: Persona, *, triagem_v2: bool = False) -> ResultadoChecagem:
+    """Com a nova triagem ligada, um caso aberto numa persona de sintoma leve / duvida de saude, sem alarme,
+    sem risco e antes de qualquer pedido explicito de pessoa, e' um caso que uma resposta resolveria."""
+    novo = _achar("D13")
+    if not (triagem_v2 and persona.caso_evitavel_com_triagem_v2):
+        return ResultadoChecagem("D13", False, [])
+    achados = []
+    pediu = False
+    for t in conversa.turnos:
+        pediu = pediu or (t.fase == "persona" and _pedido_explicito(t.texto))
+        if pediu:
+            continue
+        for e in t.escalonamentos:
+            if e.motivo in _MOTIVOS_NUNCA_EVITAVEIS:
+                continue
+            achados.append(novo(f"caso evitavel aberto ({e.motivo or 'sem motivo'})", t.indice, e.agente))
+    return ResultadoChecagem("D13", True, achados)
+
+
+def checar_conversa(
+    conversa: Conversa, persona: Persona, *, triagem_v2: bool = False
+) -> list[ResultadoChecagem]:
+    """D1..D12 sempre; D13 so' se aplica com a nova triagem da Helena ligada (`triagem_v2`)."""
+    return [checagem(conversa, persona) for checagem in _TODAS] + [
+        d13_caso_evitavel(conversa, persona, triagem_v2=triagem_v2)
+    ]
 
 
 @dataclass(frozen=True)

@@ -114,6 +114,8 @@ locals {
       { name = "MAEZO_HELENA_IDENTIDADE_AMH", value = tostring(var.helena_identidade_amh) },
       # DL-0080: historico curto da conversa na Helena (default `false`; liga junto o modo coleta).
       { name = "MAEZO_HELENA_HISTORICO", value = tostring(var.helena_historico) },
+      # DL-0104: nova triagem da Helena (default `false`; so' dev, ver `helena_triagem_v2`).
+      { name = "MAEZO_HELENA_TRIAGEM_V2", value = tostring(var.helena_triagem_v2) },
       # Fatos do plano na Helena (07/10/2026): desligado por default; ver `helena_consultas_amh`.
       { name = "MAEZO_HELENA_CONSULTAS_AMH", value = tostring(var.helena_consultas_amh) },
       # Acesso do beneficiario (08/10/2026, DL-0083): desligado por default; ver `acesso_beneficiario`.

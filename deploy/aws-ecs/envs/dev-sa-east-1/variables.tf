@@ -776,6 +776,19 @@ variable "helena_historico" {
   nullable    = false
 }
 
+variable "helena_triagem_v2" {
+  description = <<-EOT
+    Nova triagem da Helena (DL-0104, 14/10/2026): `MAEZO_HELENA_TRIAGEM_V2`. Default `false` = a Helena
+    de antes, byte a byte. Ligada, a tabela `helena_triage_admissibility` decide a saida do turno depois
+    dos portoes de seguranca (pergunta clinica sem sintoma deixa de abrir caso; sintoma faz ficha de ate'
+    3 perguntas). EXPERIMENTO SO' EM DEV: conteudo clinico DRAFT, pendente do medico-auditor.
+    Runbook: docs/runbooks/helena-triagem-v2.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "helena_consultas_amh" {
   description = <<-EOT
     Fatos do plano na Helena pelo contrato TINA da AMH (decisao do dono de 07/10/2026):

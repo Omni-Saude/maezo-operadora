@@ -94,6 +94,13 @@ orphans:
     KPI has been invented; the table is the versioned place for an SME to put
     real ones. PERMANENT orphan from crossref's perspective; NOT ratified
     (juridico/contratos + financas + medico auditor — docs/review-queue.md).
+  helena_triage_admissibility: >-
+    Agent-consumed: evaluated directly by the Helena agent via DmnTransport.evaluate
+    (ADR-0028 seam; agents/helena/graph.py::TRIAGEM_V2_DMN_KEY), not through a BPMN
+    businessRuleTask — same shape as triage_sufficiency below. Experiment in dev ONLY,
+    behind MAEZO_HELENA_TRIAGEM_V2 (default false; DL-0104): decides the turn's exit after
+    the red-flag/psychosocial/person/billing gates that stay in code. CLINICAL CONTENT DRAFT,
+    pending the medico-auditor's ratification (docs/runbooks/helena-triagem-v2.md).
   lucas_billing_admissibility: >-
     Agent-consumed: evaluated directly by the Lucas agent via
     DmnTransport.evaluate (ADR-0028 seam; agents/lucas/graph.py), not through a

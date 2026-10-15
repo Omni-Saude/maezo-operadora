@@ -1426,10 +1426,11 @@ class TestLiveTree:
     def test_the_non_chain_corpus_is_the_size_it_should_be(self) -> None:
         """Guards the clean-outside proof against a silently shrinking corpus."""
         # 78 -> 79: `triage_sufficiency.dmn` (Frente 2.2). Ver a entrada #407 do CORPUS_DELTA_LOG.
-        assert len(_tier_a_paths()) == 81  # VW4/GP11 (#691): +SP-OP-SUPP-001 +suppression_routing
+        # 81 -> 82: `helena_triage_admissibility.dmn` (DL-0104), que nao e' artefato de cadeia.
+        assert len(_tier_a_paths()) == 82  # VW4/GP11 (#691): +SP-OP-SUPP-001 +suppression_routing
         assert len([p for p in _tier_a_paths() if p.suffix == ".bpmn"]) == 17  # VW4/GP11: +SP-OP-SUPP-001
         # 71 -> 72 pela mesma razao: `triage_sufficiency.dmn` nao e' artefato de cadeia.
-        assert len(_tier_a_paths()) - len(_CHAIN_ARTIFACTS & set(_tier_a_names())) == 74  # idem
+        assert len(_tier_a_paths()) - len(_CHAIN_ARTIFACTS & set(_tier_a_names())) == 75  # idem; DL-0104: +1
 
     def test_tier_b_hit_lines_are_pinned(self) -> None:
         """The gate's own Tier-B re-measurement, line by line — now EMPTY.
