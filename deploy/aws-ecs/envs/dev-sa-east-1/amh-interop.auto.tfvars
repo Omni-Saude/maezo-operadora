@@ -39,8 +39,9 @@ helena_historico = true
 // Nova triagem da Helena (DL-0104, 14/10/2026): a tabela `helena_triage_admissibility` decide a saida do
 // turno depois dos portoes de seguranca; pergunta clinica sem sintoma deixa de abrir caso. EXPERIMENTO so'
 // em dev, decisao do dono; conteudo clinico DRAFT (medico-auditor pendente). Voltar: false (runbook
-// docs/runbooks/helena-triagem-v2.md).
-helena_triagem_v2 = true
+// docs/runbooks/helena-triagem-v2.md). DESLIGADA em 15/10/2026 a pedido do dono: o teste mostrou respostas
+// genericas que nao resolviam a necessidade; o desenho sera refeito (catalogo v2) antes de religar.
+helena_triagem_v2 = false
 
 # Acesso do beneficiario (DL-0083/DL-0084) LIGADO no dev em 08/10/2026 23:10 UTC, decisao do dono; testado
 # ponta a ponta no mesmo dia (aceite, CPF, Helena -> Lucas, revogacao, consentimento gravado no lago).
