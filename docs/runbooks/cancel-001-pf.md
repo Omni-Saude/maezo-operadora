@@ -75,7 +75,9 @@ com a chave manda (`aviso_beneficiario_whatsapp`, `conversation_id`), nenhum avi
    # e, para a definicao, no mesmo estilo: GET /engine-rest/process-definition/key/SP-OP-CANCEL-001
    ```
 3. **Serviços com a imagem nova** (o código mudou neles): `worker-runtime` (grava a data de efeito),
-   `agent-resume` (retorno ao beneficiário), `webhook-receiver` (Lucas) e a task do simulador.
+   `agent-resume` (retorno ao beneficiário), `webhook-receiver` (Lucas), a task do simulador, o **motor
+   `cibseven`** (plugin humano com o binding `cancel_execucao` — ANTES do catálogo da seção 3.3) e o `portal`
+   (formulário de conclusão, PR do portal).
 
 ### 3.2 Ligar a chave (apply direcionado)
 
