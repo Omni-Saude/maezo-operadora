@@ -1432,7 +1432,9 @@ class HelenaDispatcher:
         texto) ou `None` — chave desligada, sem pendencia, com sinal de saude ou de pessoa, ou falha de
         leitura: o caminho de sempre, intacto."""
         lucas = self.lucas_turno
-        if lucas is None or lucas.cancelamento_pf_v1 is not True or not self._roteamento_completo:
+        # `getattr`: os envelopes do `LucasTurno` (espioes de teste, composicao do simulador) so' repassam `executar`.
+        ligada = getattr(lucas, "cancelamento_pf_v1", False) is True
+        if lucas is None or not ligada or not self._roteamento_completo:
             return None
         from maezo.runtime.cobranca_intencao import e_desistencia_do_cancelamento
 
