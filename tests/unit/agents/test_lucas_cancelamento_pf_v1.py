@@ -593,7 +593,7 @@ def test_a_chave_so_e_ligada_no_dev_pelo_terraform() -> None:
 
 
 # =================================================================================================
-# Desistencia com a confirmacao pendente (defeito do roteiro `cancelamento_v1`, 15/10/2026)
+# Recuo com a confirmacao pendente (defeito do roteiro `cancelamento_v1`, 15/10/2026)
 # =================================================================================================
 
 
@@ -607,14 +607,14 @@ async def test_desistencia_com_pendencia_limpa_e_diz_que_nada_foi_registrado(fat
     }[fatos]
     estado = _estado(confirmacao="nega", pendente=True, **_fatos_pf(), **extra)
     final, envio, motor = await _turno(estado, v1=True)
-    assert envio.textos == [cpf.TEXTO_DESISTENCIA]
+    assert envio.textos == [cpf.TEXTO_PEDIDO_NAO_REGISTRADO]
     assert final["process_started"] is False and not motor._history  # nenhum processo, nenhum caso
     # A pendencia some: a memoria do turno deixa de ser a da pergunta (um "sim" depois nao confirma nada).
     assert final["resposta_memoria_ref"] != ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO)
 
 
 def test_texto_da_desistencia_cabe_na_regua_de_tom_e_nao_pressiona() -> None:
-    texto = cpf.TEXTO_DESISTENCIA
+    texto = cpf.TEXTO_PEDIDO_NAO_REGISTRADO
     assert "nenhum pedido de cancelamento" in texto and "mudar de ideia" in texto
     assert not frases_longas(texto) and not palavras_proibidas(texto) and not problemas_de_tom(texto)
     for proibida in ("desconto", "promoc", "multa", "cancelado"):

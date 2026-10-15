@@ -1203,10 +1203,10 @@ class HelenaDispatcher:
         # `dmn_decision_ref`) from here into `HelenaState` — the caller-planted read-through class
         # is unreachable at the construction seam, not just neutralized inside `receive`.
         sinais = self._pre_rotear(message.text, conversation_id) if self.roteador is not None else None
-        # DL-0111 (`MAEZO_CANCEL_PF_V1`): desistencia do cancelamento com a pergunta de confirmacao pendente
+        # DL-0111 (`MAEZO_CANCEL_PF_V1`): recuo do cancelamento com a pergunta de confirmacao pendente
         # vai ao Lucas ANTES do classificador e do encerramento da Helena ("deixa pra la" lia como despedida).
         # Chave desligada (ou sem pendencia): `None` e nada muda.
-        atalho_desistencia = await self._atalho_de_desistencia(message.text, conversation_id, sinais)
+        atalho_recuo = await self._atalho_de_recuo(message.text, conversation_id, sinais)
         # DL-0077: o numero cru so' existe aqui (o hash `amh-phone-lookup-v1` nasce e morre dentro de
         # `IdentidadeHelena.resolver_com_desfecho`). Nunca levanta: sem identidade, a Helena de sempre.
         # DL-0078: junto vem o desfecho FECHADO (`reconhecido`/`nao_encontrado`/`indeterminado`) que decide
@@ -1269,12 +1269,12 @@ class HelenaDispatcher:
         # `thread_config` scopes the checkpoint thread when a saver is attached; None (stateless
         # compile) is passed through as a no-op config, so this call site is single-path.
         try:
-            if atalho_desistencia is not None:
+            if atalho_recuo is not None:
                 # Sem turno da Helena: o handoff e' o do atalho (a frase de passagem nao se aplica, o Lucas
                 # ja' esta' com a conversa) e o Lucas responde logo abaixo, pelo caminho de sempre.
                 result = {
-                    **atalho_desistencia,
-                    "handoff": {**atalho_desistencia["handoff"], "message_ref": message_pseudonym},
+                    **atalho_recuo,
+                    "handoff": {**atalho_recuo["handoff"], "message_ref": message_pseudonym},
                 }
             else:
                 result = await compiled.ainvoke(initial_state, thread_config)
@@ -1419,10 +1419,10 @@ class HelenaDispatcher:
             )
         return dict(result)
 
-    async def _atalho_de_desistencia(
+    async def _atalho_de_recuo(
         self, texto: str, conversation_id: str, sinais: SinaisLexicos | None
     ) -> dict[str, Any] | None:
-        """DL-0111 (`MAEZO_CANCEL_PF_V1`): desistencia do cancelamento, DETERMINISTICA, antes da Helena.
+        """DL-0111 (`MAEZO_CANCEL_PF_V1`): recuo do cancelamento, DETERMINISTICA, antes da Helena.
 
         Com a chave ligada, o Lucas ainda com a conversa e a pergunta de confirmacao PENDENTE (a referencia do
         ultimo texto enviado e' a da pergunta), uma resposta que desiste ("nao", "deixa pra la", "esquece",
@@ -1436,12 +1436,12 @@ class HelenaDispatcher:
         ligada = getattr(lucas, "cancelamento_pf_v1", False) is True
         if lucas is None or not ligada or not self._roteamento_completo:
             return None
-        from maezo.runtime.cobranca_intencao import e_desistencia_do_cancelamento
+        from maezo.runtime.cobranca_intencao import e_recuo_do_cancelamento
 
         # FAIL-CLOSED: lexico que falhou, pedido de pessoa ou sinal de saude seguem o caminho da Helena.
         if sinais is None or sinais.pedido_humano or sinais.sinal_saude:
             return None
-        if not e_desistencia_do_cancelamento(texto):
+        if not e_recuo_do_cancelamento(texto):
             return None
         from maezo.agents.lucas.graph import TEXTO_CONFIRMA_CANCELAMENTO, ref_de_resposta
 
@@ -1455,7 +1455,7 @@ class HelenaDispatcher:
         from maezo.runtime.cobranca_foco import FOCO_GERAL
 
         logger.info(
-            "lucas_desistencia_do_cancelamento",
+            "lucas_recuo_do_cancelamento",
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
         )

@@ -67,10 +67,10 @@ _MELHOR_NAO: Final[re.Pattern[str]] = re.compile(r"\bmelhor nao\b|\bnao quero ma
 _SIM: Final[re.Pattern[str]] = re.compile(r"\bsim\b")
 
 
-def e_desistencia_do_cancelamento(texto: object) -> bool:
+def e_recuo_do_cancelamento(texto: object) -> bool:
     """O texto DESISTE do cancelamento ("nao", "deixa pra la", "esquece", "melhor nao", "mudei de ideia",
     "nao quero mais")? Usado so' com a pergunta de confirmacao pendente (chave `MAEZO_CANCEL_PF_V1`). Um
-    "sim" no texto nunca e' desistencia: segue o caminho de sempre."""
+    "sim" no texto nunca e' recuo: segue o caminho de sempre."""
     if not isinstance(texto, str):
         return False
     plano = _normalizar(texto)
@@ -88,6 +88,6 @@ __all__ = [
     "Confirmacao",
     "confirmacao_valida",
     "decidir_confirmacao",
-    "e_desistencia_do_cancelamento",
+    "e_recuo_do_cancelamento",
     "pede_negociacao",
 ]

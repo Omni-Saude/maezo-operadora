@@ -195,7 +195,7 @@ from maezo.tools.workers.dmn_transport import (
 from .cancelamento_pf import (
     TEXTO_DEPENDENTE,
     TEXTO_DEPENDENTE_CURTO,
-    TEXTO_DESISTENCIA,
+    TEXTO_PEDIDO_NAO_REGISTRADO,
     TEXTO_PEDIDO_JA_REGISTRADO,
     TEXTO_PEDIDO_RECEBIDO,
     TIPOS_PLANO_PF,
@@ -3018,7 +3018,7 @@ class LucasGraph:
             and state.get("resposta_anterior_ref") == ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO)
             and state.get("confirmacao_cancelamento") == "nega"
         ):
-            # Desistencia com a pergunta pendente: ANTES de qualquer leitura de fatos. Nenhum processo, nenhum
+            # Recuo com a pergunta pendente: ANTES de qualquer leitura de fatos. Nenhum processo, nenhum
             # caso — so' o texto que diz que nada foi registrado (a pendencia some: a memoria passa a ser
             # a deste texto).
             return self._responder_cancelamento("desistiu", dmn_refs)
@@ -3815,7 +3815,7 @@ class LucasGraph:
             "empresa": TEXTO_CANCELAMENTO_EMPRESA,
             "administradora": TEXTO_CANCELAMENTO_ADMINISTRADORA,
             "confirmar": TEXTO_CONFIRMA_CANCELAMENTO,
-            "desistiu": TEXTO_DESISTENCIA if self._cancel_pf_v1 else TEXTO_CANCELAMENTO_DESISTIU,
+            "desistiu": TEXTO_PEDIDO_NAO_REGISTRADO if self._cancel_pf_v1 else TEXTO_CANCELAMENTO_DESISTIU,
             # DL-0111 (so' com a chave): o pedido e' do titular; oferta de pessoa, sem processo.
             "dependente": TEXTO_DEPENDENTE,
         }.get(str(resposta), TEXTO_CONFIRMA_CANCELAMENTO)

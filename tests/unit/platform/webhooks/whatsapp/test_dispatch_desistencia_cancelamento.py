@@ -1,4 +1,4 @@
-"""DL-0111 (`MAEZO_CANCEL_PF_V1`): desistencia do cancelamento com a pergunta de confirmacao pendente.
+"""DL-0111 (`MAEZO_CANCEL_PF_V1`): recuo do cancelamento com a pergunta de confirmacao pendente.
 
 O defeito (roteiro `cancelamento_v1`, 15/10/2026): "Nao, deixa pra la" depois de "Voce quer pedir para
 cancelar o seu plano?" era lido pela Helena como encerramento e ela agradecia, sem confirmar nada. Com a chave
@@ -16,7 +16,7 @@ from maezo.agents.lucas.graph import TEXTO_CONFIRMA_CANCELAMENTO, ref_de_respost
 from maezo.platform.webhooks.whatsapp.dispatch import HelenaDispatcher
 from maezo.platform.webhooks.whatsapp.pre_roteamento import SinaisLexicos
 from maezo.platform.webhooks.whatsapp.roteamento import ContextoDoTurno, MemoriaDoLucas
-from maezo.runtime.cobranca_intencao import e_desistencia_do_cancelamento
+from maezo.runtime.cobranca_intencao import e_recuo_do_cancelamento
 
 _CONVERSA = "wa:amh:hk1_desistencia"
 
@@ -72,7 +72,7 @@ def _dispatcher(*, v1: bool, contexto: ContextoDoTurno | None = None) -> tuple[H
 )
 async def test_desistencia_com_confirmacao_pendente_vai_direto_ao_lucas(texto: str) -> None:
     dispatcher, _ = _dispatcher(v1=True)
-    atalho: Any = await dispatcher._atalho_de_desistencia(texto, _CONVERSA, _sinais())
+    atalho: Any = await dispatcher._atalho_de_recuo(texto, _CONVERSA, _sinais())
     assert atalho is not None
     handoff = atalho["handoff"]
     assert handoff["para"] == "lucas" and handoff["cobranca_subtipo"] == "cancelamento"
@@ -82,14 +82,14 @@ async def test_desistencia_com_confirmacao_pendente_vai_direto_ao_lucas(texto: s
 
 async def test_chave_desligada_nao_tem_atalho() -> None:
     dispatcher, roteador = _dispatcher(v1=False)
-    assert await dispatcher._atalho_de_desistencia("Não, deixa pra lá", _CONVERSA, _sinais()) is None
+    assert await dispatcher._atalho_de_recuo("Não, deixa pra lá", _CONVERSA, _sinais()) is None
     assert roteador.leituras == 0
 
 
 @pytest.mark.parametrize("contexto", [ContextoDoTurno(), ContextoDoTurno(assunto_anterior="cancelamento")])
 async def test_nao_sem_confirmacao_pendente_segue_o_fluxo_normal(contexto: ContextoDoTurno) -> None:
     dispatcher, _ = _dispatcher(v1=True, contexto=contexto)
-    assert await dispatcher._atalho_de_desistencia("Não", _CONVERSA, _sinais()) is None
+    assert await dispatcher._atalho_de_recuo("Não", _CONVERSA, _sinais()) is None
 
 
 async def test_assunto_anterior_de_outro_tema_nao_ativa_o_atalho() -> None:
@@ -98,13 +98,13 @@ async def test_assunto_anterior_de_outro_tema_nao_ativa_o_atalho() -> None:
         memoria=MemoriaDoLucas(ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO), 0),
     )
     dispatcher, _ = _dispatcher(v1=True, contexto=contexto)
-    assert await dispatcher._atalho_de_desistencia("Não", _CONVERSA, _sinais()) is None
+    assert await dispatcher._atalho_de_recuo("Não", _CONVERSA, _sinais()) is None
 
 
 @pytest.mark.parametrize("texto", ["SIM, QUERO CANCELAR", "sim", "quero cancelar", "obrigado"])
 async def test_resposta_afirmativa_ou_outra_mensagem_nao_e_desistencia(texto: str) -> None:
     dispatcher, roteador = _dispatcher(v1=True)
-    assert await dispatcher._atalho_de_desistencia(texto, _CONVERSA, _sinais()) is None
+    assert await dispatcher._atalho_de_recuo(texto, _CONVERSA, _sinais()) is None
     assert roteador.leituras == 0
 
 
@@ -113,7 +113,7 @@ async def test_sinal_de_saude_ou_pedido_de_pessoa_ou_lexico_falho_seguem_a_helen
     sinais: SinaisLexicos | None,
 ) -> None:
     dispatcher, _ = _dispatcher(v1=True)
-    assert await dispatcher._atalho_de_desistencia("Não", _CONVERSA, sinais) is None
+    assert await dispatcher._atalho_de_recuo("Não", _CONVERSA, sinais) is None
 
 
 @pytest.mark.parametrize(
@@ -133,4 +133,4 @@ async def test_sinal_de_saude_ou_pedido_de_pessoa_ou_lexico_falho_seguem_a_helen
     ],
 )
 def test_lexico_da_desistencia(texto: str, esperado: bool) -> None:
-    assert e_desistencia_do_cancelamento(texto) is esperado
+    assert e_recuo_do_cancelamento(texto) is esperado

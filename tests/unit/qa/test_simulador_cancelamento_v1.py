@@ -49,7 +49,7 @@ _RESPOSTAS = {
     ("1-titular-pf-pede-cancelamento", 3): TEXTO_CONFIRMA_CANCELAMENTO,
     ("1-titular-pf-pede-cancelamento", 4): cpf.TEXTO_PEDIDO_JA_REGISTRADO.format(protocolo=_P),
     ("2-titular-pf-desiste", 1): TEXTO_CONFIRMA_CANCELAMENTO,
-    ("2-titular-pf-desiste", 2): cpf.TEXTO_DESISTENCIA,
+    ("2-titular-pf-desiste", 2): cpf.TEXTO_PEDIDO_NAO_REGISTRADO,
 }
 _ESCALACOES = {("1-titular-pf-pede-cancelamento", 2): [{"motivo": "cancelamento"}]}
 
