@@ -11,11 +11,12 @@ from __future__ import annotations
 
 from maezo.agents.helena.graph import RESPOSTA_DUVIDA_DE_SAUDE, RESPOSTA_HANDOFF_RECUSADA, RESPOSTA_NAVEGACAO
 from maezo.agents.helena.triagem_v2 import (
-    PERGUNTAS_DA_FICHA,
     RESPOSTA_TRIAGEM_ESCLARECER,
     RESPOSTA_TRIAGEM_OFERTA_PESSOA,
     RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO,
+    RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
     RESPOSTA_TRIAGEM_SEM_CONDUTA,
+    pergunta_da_ficha,
 )
 from maezo.qa.simulador import aceite as ac
 from maezo.qa.simulador import checagens as ch
@@ -38,6 +39,8 @@ def test_triagem_v2_existe_ao_lado_do_dono_v1_e_todo_padrao_compila() -> None:
         "7-necessidade-nao-clara",
         "8-pedido-de-pessoa",
         "9-alarme-durante-a-ficha",
+        "10-dor-nas-costas-nao-pergunta-o-local",
+        "11-filha-de-6-anos-nao-pergunta-a-idade",
     ]
     textos = [p.texto for s in ac.TRIAGEM_V2 for p in s.passos]
     for exemplo in (
@@ -58,15 +61,19 @@ def test_os_textos_fixos_da_chave_ligada_passam_nos_passos_do_roteiro() -> None:
         "Quero tirar uma dúvida sobre minha saúde": (RESPOSTA_DUVIDA_DE_SAUDE, None),
         "Posso tomar dipirona?": (RESPOSTA_TRIAGEM_SEM_CONDUTA, None),
         "Preciso ir ao médico?": (RESPOSTA_NAVEGACAO, None),
-        "O que vc acha que pode ser, uma dor muito forte ao urinar?": (PERGUNTAS_DA_FICHA["URINARIO"], None),
-        "Minha filha está com dor": (PERGUNTAS_DA_FICHA["CRIANCA"], None),
-        "Ela tem 6 anos, está comendo e fazendo xixi normal, não está mole": (
-            RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO,
+        "O que vc acha que pode ser, uma dor muito forte ao urinar?": (
+            pergunta_da_ficha("PERGUNTAR_FICHA_URINARIO:1,3"),
             None,
         ),
-        "Estou com dor nas costas": (PERGUNTAS_DA_FICHA["DOR"], None),
+        "Minha filha está com dor": (pergunta_da_ficha("PERGUNTAR_FICHA_CRIANCA@filha"), None),
+        "Minha filha de 6 anos está com dor": (pergunta_da_ficha("PERGUNTAR_FICHA_CRIANCA:2,3@filha"), None),
+        "Ela tem 6 anos, está comendo e fazendo xixi normal, não está mole": (
+            RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
+            None,
+        ),
+        "Estou com dor nas costas": (pergunta_da_ficha("PERGUNTAR_FICHA_DOR:2,3"), None),
         "É na lombar, média, começou ontem": (RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO, None),
-        "Meu filho está com tosse": (PERGUNTAS_DA_FICHA["CRIANCA"], None),
+        "Meu filho está com tosse": (pergunta_da_ficha("PERGUNTAR_FICHA_CRIANCA@filho"), None),
         "Oi, preciso de ajuda": (RESPOSTA_TRIAGEM_ESCLARECER, None),
         "preciso de ajuda": (RESPOSTA_TRIAGEM_OFERTA_PESSOA, None),
         "4": (RESPOSTA_HANDOFF_RECUSADA, "solicitacao_humano"),
@@ -80,6 +87,7 @@ def test_os_textos_fixos_da_chave_ligada_passam_nos_passos_do_roteiro() -> None:
         anterior = None
         for passo in segmento.passos:
             texto, motivo = certos[passo.texto]
+            assert texto is not None, passo.texto
             escalacoes = [{"agente": "helena", "motivo": motivo, "severidade": None}] if motivo else []
             assert ac.avaliar_passo(passo, [("helena", texto)], escalacoes, anterior) == [], passo.texto
 

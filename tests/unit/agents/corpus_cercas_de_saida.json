@@ -2388,10 +2388,43 @@
       }
     },
     {
-      "texto": "Obrigada pelas informações. Eu não avalio sintomas, mas posso te mostrar o caminho. Você pode marcar consulta com um médico da rede do plano. Use o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento do plano. Pelas regras da ANS, o plano deve oferecer essa consulta em até 7 dias úteis. Isso vale para clínico geral, pediatra, ginecologista ou cirurgião geral. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento. Se for uma emergência, ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com clínico geral deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": false,
-      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO (T05)",
+      "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO (T05, adulto: clinico geral; enxuto)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com pediatra deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA (T05, crianca: pediatra)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com obstetra ou ginecologista deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE (T05, gestante: obstetra ou ginecologista)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Obrigada pelas respostas. Eu não avalio sintomas. O bebê ainda é bem pequeno. Se quiser falar agora com uma pessoa da nossa equipe de saúde, é só me pedir. Se piorar, procure um pronto-atendimento. Se for emergência, ligue agora para o 192 (SAMU).",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_BEBE_PEQUENO (bebe com menos de 3 meses sem alarme; DECISAO CLINICA PENDENTE)",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -2465,7 +2498,7 @@
       }
     },
     {
-      "texto": "Em que parte do corpo é a dor? Ela está fraca, média ou forte? Começou de repente?",
+      "texto": "Em que parte do corpo é a dor? A dor está fraca, média ou forte? Começou de repente?",
       "rota": "collect",
       "start_aconteceu": false,
       "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['DOR'] (aba 4)",

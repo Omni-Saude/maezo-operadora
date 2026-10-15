@@ -28,6 +28,7 @@ import pytest
 
 from maezo.agents.helena.graph import (
     RESPOSTA_DUVIDA_DE_SAUDE,
+    RESPOSTA_FORA_DO_CANAL,
     RESPOSTA_NAVEGACAO,
     RESPOSTA_PECA_REENVIO,
     HelenaGraph,
@@ -38,19 +39,30 @@ from maezo.agents.helena.prompts import motivo_de_canal_nao_confirmado, motivo_d
 from maezo.agents.helena.triagem_v2 import (
     COLETA_MAX_RODADAS_TRIAGEM_V2,
     PERGUNTAS_DA_FICHA,
+    RESPOSTA_TRIAGEM_BEBE_PEQUENO,
     RESPOSTA_TRIAGEM_ESCLARECER,
     RESPOSTA_TRIAGEM_EXAME_RECEITA,
     RESPOSTA_TRIAGEM_OFERTA_PESSOA,
     RESPOSTA_TRIAGEM_OPCAO_PLANO,
     RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO,
+    RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
+    RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE,
     RESPOSTA_TRIAGEM_SEM_CONDUTA,
     TEXTOS_NOVOS,
     TRIAGEM_V2_DMN_KEY,
+    bebe_pequeno,
+    codigo_da_ficha,
     grupo_da_queixa,
+    itens_ja_respondidos,
+    itens_que_faltam,
     necessidade_da_pergunta_clinica,
     necessidade_vaga,
+    paciente_da_conversa,
+    pergunta_da_ficha,
     relata_sintoma,
+    resposta_curta,
     resposta_numerada,
+    texto_de_orientacao,
 )
 from maezo.qa.simulador.checagens import frases_longas
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance
@@ -143,7 +155,7 @@ def _classify(**campos: Any) -> str:
 
 
 def _grafo(
-    respostas: list[str], *, v2: bool = True, dmn: _DmnReal | None = None
+    respostas: list[str], *, v2: bool = True, dmn: _DmnReal | None = None, roteador: bool = False
 ) -> tuple[Any, _Gravador, _DmnReal, _Modelo]:
     cib = _Gravador()
     tabelas = dmn or _DmnReal()
@@ -157,6 +169,7 @@ def _grafo(
         historico_enabled=True,
         coleta_enabled=True,
         triagem_v2_enabled=v2,
+        roteador_lucas_enabled=roteador,
         relogio=lambda: datetime(2026, 10, 14, 15, 0, tzinfo=UTC),
     )
     return grafo.compile_graph().compile(), cib, tabelas, modelo
@@ -194,7 +207,10 @@ async def _turno(
 ) -> tuple[dict[str, Any], _Gravador, _DmnReal, _Modelo]:
     v2 = kw.pop("v2", True)
     dmn = kw.pop("dmn", None)
-    grafo, cib, tabelas, modelo = _grafo([extracao], v2=v2, dmn=dmn)
+    roteador = kw.pop("roteador", False)
+    rascunho = kw.pop("rascunho", None)
+    respostas = [extracao] if rascunho is None else [extracao, rascunho]
+    grafo, cib, tabelas, modelo = _grafo(respostas, v2=v2, dmn=dmn, roteador=roteador)
     resultado = await grafo.ainvoke(_entrada(mensagem, **kw))
     return resultado, cib, tabelas, modelo
 
@@ -266,7 +282,8 @@ async def test_b_dor_ao_urinar_sem_intensidade_grave_vira_ficha_urinaria_sem_cas
     assert cib.inicios == []
     assert resultado["intent"] == "symptom"
     assert resultado["next_kind"] == "collect"
-    assert resultado["response_text"] == PERGUNTAS_DA_FICHA["URINARIO"]
+    # "muito forte" ja' respondeu "A dor e' forte?": a ficha pergunta so' o que falta.
+    assert resultado["response_text"] == "Tem febre? Apareceu sangue no xixi?"
     assert "triage_redflag_adult" in tabelas.chaves(), "a tabela de alarme roda antes da ficha"
 
 
@@ -337,6 +354,141 @@ async def test_c_numero_sem_esclarecimento_antes_nao_e_opcao() -> None:
     assert TRIAGEM_V2_DMN_KEY not in tabelas.chaves()
 
 
+# --- As opcoes do T11 depois da oferta (aceite em dev, 15/10/2026) ----------------------------------
+#: A conversa do aceite: T11, depois "Ainda nao entendi..." (catch-all) — a oferta continua recente.
+_OFERTA_E_CATCH_ALL = [RESPOSTA_TRIAGEM_ESCLARECER, RESPOSTA_TRIAGEM_OFERTA_PESSOA]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent_do_modelo", ["information", "human_request", "greeting"])
+async def test_opcao_4_depois_do_ainda_nao_entendi_abre_solicitacao_humano(intent_do_modelo: str) -> None:
+    """O defeito do aceite: "4" depois do catch-all saiu `human_request`, virou `information` (sem pedido
+    explicito no texto) e a Helena disse "Entendi que voce quer falar com uma pessoa... e' so' me pedir"
+    sem abrir caso. A escolha da opcao 4 e' decidida antes da intencao do modelo."""
+    resultado, cib, _, _ = await _turno(
+        "4", _classify(intent=intent_do_modelo), helena_disse=_OFERTA_E_CATCH_ALL
+    )
+
+    assert resultado["escalation_motivo"] == "solicitacao_humano"
+    assert resultado["escalation_severidade"] == "leve"
+    assert [v["motivo_categoria"] for v in cib.inicios] == ["solicitacao_humano"]
+    assert "entendi que você quer" not in str(resultado.get("response_text") or "").lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mensagem", ["4)", "opção 4", "a 4", "quatro", "Falar com uma pessoa"])
+async def test_variacoes_da_opcao_4_abrem_solicitacao_humano(mensagem: str) -> None:
+    resultado, cib, _, _ = await _turno(
+        mensagem, _classify(intent="information"), helena_disse=_OFERTA_E_CATCH_ALL
+    )
+
+    assert resultado["escalation_motivo"] == "solicitacao_humano"
+    assert [v["motivo_categoria"] for v in cib.inicios] == ["solicitacao_humano"]
+
+
+@pytest.mark.asyncio
+async def test_opcao_3_passa_ao_lucas_pelo_handoff_de_cobranca() -> None:
+    resultado, cib, _, _ = await _turno(
+        "3", _classify(intent="information"), helena_disse=_OFERTA_E_CATCH_ALL, roteador=True
+    )
+
+    assert cib.inicios == []
+    assert resultado["intent"] == "cobranca"
+    assert resultado["next_kind"] == "handoff"
+    assert resultado.get("handoff"), "o handoff nasce no no' `handoff_cobranca`, depois da precondicao"
+
+
+@pytest.mark.asyncio
+async def test_opcao_3_sem_o_roteador_e_fora_do_canal_sem_caso() -> None:
+    resultado, cib, _, _ = await _turno(
+        "3", _classify(intent="information"), helena_disse=[RESPOSTA_TRIAGEM_ESCLARECER]
+    )
+
+    assert cib.inicios == []
+    assert resultado["response_text"] == RESPOSTA_FORA_DO_CANAL
+
+
+@pytest.mark.asyncio
+async def test_opcao_2_depois_do_ainda_nao_entendi_segue_a_consulta_do_plano() -> None:
+    resultado, cib, _, _ = await _turno(
+        "2", _classify(intent="information"), helena_disse=_OFERTA_E_CATCH_ALL
+    )
+
+    assert cib.inicios == []
+    assert resultado["next_kind"] == "inform"
+    assert resultado["response_text"] == RESPOSTA_TRIAGEM_OPCAO_PLANO
+
+
+@pytest.mark.asyncio
+async def test_opcao_1_convida_a_contar_o_que_sente() -> None:
+    resultado, cib, _, _ = await _turno(
+        "1", _classify(intent="information"), helena_disse=_OFERTA_E_CATCH_ALL
+    )
+
+    assert cib.inicios == []
+    assert resultado["next_kind"] == "inform"
+    assert resultado["response_text"] == RESPOSTA_DUVIDA_DE_SAUDE
+
+
+@pytest.mark.asyncio
+async def test_opcao_1_com_sintoma_ja_relatado_segue_para_a_ficha() -> None:
+    resultado, cib, _, _ = await _turno(
+        "1",
+        _classify(intent="information", population="adult", sintoma_codigo="febre"),
+        helena_disse=[RESPOSTA_TRIAGEM_ESCLARECER],
+    )
+
+    assert cib.inicios == []
+    assert resultado["intent"] == "symptom"
+    assert resultado["next_kind"] == "collect"
+
+
+@pytest.mark.asyncio
+async def test_numero_com_oferta_antiga_segue_o_fluxo_normal() -> None:
+    """A oferta so' vale enquanto recente (ultimas falas da Helena): depois, "4" e' mensagem comum."""
+    antigas = [RESPOSTA_TRIAGEM_ESCLARECER, "Certo.", "Combinado.", "Tudo bem."]
+    _, cib, _, _ = await _turno("4", _classify(intent="information"), helena_disse=antigas)
+
+    assert cib.inicios == []
+
+
+@pytest.mark.asyncio
+async def test_numero_sem_oferta_e_com_a_chave_desligada_nao_vira_opcao() -> None:
+    _, cib, _, _ = await _turno(
+        "4", _classify(intent="information"), helena_disse=_OFERTA_E_CATCH_ALL, v2=False
+    )
+
+    assert cib.inicios == [], "chave desligada: nada muda"
+
+
+_RASCUNHO_CONTRADITORIO = "Entendi que você quer falar com uma pessoa da equipe. Se quiser, é só me pedir."
+
+
+@pytest.mark.asyncio
+async def test_rascunho_que_entendeu_pedido_de_pessoa_abre_o_caso() -> None:
+    """A frase do aceite nao sai mais: se a Helena entendeu pedido de pessoa, o caso abre."""
+    resultado, cib, _, _ = await _turno(
+        "hum, sei la",
+        _classify(intent="information"),
+        rascunho=_RASCUNHO_CONTRADITORIO,
+    )
+
+    assert [v["motivo_categoria"] for v in cib.inicios] == ["solicitacao_humano"]
+    assert resultado["response_text"] != _RASCUNHO_CONTRADITORIO
+
+
+@pytest.mark.asyncio
+async def test_chave_desligada_o_rascunho_segue_como_hoje() -> None:
+    _, cib, _, _ = await _turno(
+        "hum, sei la",
+        _classify(intent="information"),
+        rascunho=_RASCUNHO_CONTRADITORIO,
+        v2=False,
+    )
+
+    assert cib.inicios == [], "chave desligada: nada muda"
+
+
 # =================================================================================================
 # d) a ficha: por tipo de queixa, ate' 3 rodadas, e o caminho sem caso
 # =================================================================================================
@@ -344,24 +496,248 @@ async def test_c_numero_sem_esclarecimento_antes_nao_e_opcao() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("mensagem", "extracao", "grupo"),
+    ("mensagem", "extracao", "esperado"),
     [
-        ("Estou com dor nas costas", _classify(intent="symptom", population="adult"), "DOR"),
-        ("Minha filha está com dor", _classify(intent="symptom", population="pediatric"), "CRIANCA"),
-        ("Meu filho está com tosse", _classify(intent="symptom", population="pediatric"), "CRIANCA"),
-        ("Estou com tosse e catarro", _classify(intent="symptom", population="adult"), "RESPIRATORIO"),
+        (
+            "Estou com dor nas costas",
+            _classify(intent="symptom", population="adult"),
+            "A dor está fraca, média ou forte? Começou de repente?",
+        ),
+        (
+            "Minha filha está com dor",
+            _classify(intent="symptom", population="pediatric"),
+            "Qual é a idade da sua filha? Se for bebê, diga em meses ou dias. "
+            "Sua filha está mamando ou comendo e fazendo xixi como de costume? "
+            "Ela está muito mole ou sonolenta?",
+        ),
+        (
+            "Meu filho está com tosse",
+            _classify(intent="symptom", population="pediatric"),
+            "Qual é a idade do seu filho? Se for bebê, diga em meses ou dias. "
+            "Seu filho está mamando ou comendo e fazendo xixi como de costume? "
+            "Ele está muito mole ou sonolento?",
+        ),
+        (
+            "A criança está com dor",
+            _classify(intent="symptom", population="pediatric"),
+            PERGUNTAS_DA_FICHA["CRIANCA"],
+        ),
+        (
+            "Estou com tosse e catarro",
+            _classify(intent="symptom", population="adult"),
+            PERGUNTAS_DA_FICHA["RESPIRATORIO"],
+        ),
     ],
 )
 async def test_d_primeira_rodada_e_a_pergunta_da_ficha_por_tipo_de_queixa(
-    mensagem: str, extracao: str, grupo: str
+    mensagem: str, extracao: str, esperado: str
 ) -> None:
     resultado, cib, _, _ = await _turno(mensagem, extracao)
 
     assert cib.inicios == []
     assert resultado["next_kind"] == "collect"
     assert resultado["coleta_rodadas"] == 1
-    assert resultado["response_text"] == PERGUNTAS_DA_FICHA[grupo]
+    assert resultado["response_text"] == esperado
     assert "você está sentindo" not in resultado["response_text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_d_dor_nas_costas_nao_pergunta_o_local() -> None:
+    """Aceite em dev (15/10/2026): "costas" ja' diz onde e' a dor."""
+    resultado, cib, _, _ = await _turno(
+        "Estou com dor nas costas", _classify(intent="symptom", population="adult")
+    )
+
+    assert cib.inicios == []
+    assert resultado["next_kind"] == "collect"
+    assert not re.search(r"em que parte", resultado["response_text"], re.IGNORECASE)
+    assert "forte" in resultado["response_text"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("idade_na_extracao", [False, True])
+async def test_d_filha_de_6_anos_nao_pergunta_a_idade(idade_na_extracao: bool) -> None:
+    """A idade dita na mensagem (pelo lexico, ou pela extracao do classificador) sai da pergunta."""
+    extras: dict[str, Any] = {"idade_anos": 6} if idade_na_extracao else {}
+    resultado, cib, _, _ = await _turno(
+        "minha filha de 6 anos está com dor",
+        _classify(intent="symptom", population="pediatric", **extras),
+    )
+
+    assert cib.inicios == []
+    assert resultado["next_kind"] == "collect"
+    assert "idade" not in resultado["response_text"].lower()
+    assert resultado["response_text"] == (
+        "Sua filha está mamando ou comendo e fazendo xixi como de costume? Ela está muito mole ou sonolenta?"
+    )
+
+
+@pytest.mark.asyncio
+async def test_d_ficha_toda_respondida_na_mensagem_vai_direto_ao_caminho() -> None:
+    """Local, intensidade e inicio ja' ditos: nada a perguntar -> veredito (T05), sem caso."""
+    resultado, cib, _, _ = await _turno(
+        "Estou com dor de cabeça forte desde ontem", _classify(intent="symptom", population="adult")
+    )
+
+    assert cib.inicios == []
+    assert resultado["response_text"] == RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO
+
+
+# --- dono_v1, segmento 5 com a chave ligada (aceite de 15/10/2026) -----------------------------------
+_RECEM_NASCIDA = "Digo isso, pois minha filha, recém nascida está com uma alergia"
+_BOLINHAS = "São umas bolinhas vermelhas, tipo uma irritação na pele."
+
+
+def _passo_do_dono_v1(texto: str) -> Any:
+    from maezo.qa.simulador import aceite as ac
+
+    segmento = next(s for s in ac.DONO_V1 if s.nome == "5-caso-administrativo-aberto-e-clinico")
+    return next(p for p in segmento.passos if p.texto == texto)
+
+
+@pytest.mark.asyncio
+async def test_recem_nascida_nao_pergunta_a_idade_e_fala_da_sua_filha() -> None:
+    """Item 3: "recem nascida" e' idade informada (DL-0101) e a ficha fala do paciente como foi dito.
+    E' a expectativa EXATA do passo 3 do segmento 5 do `dono_v1`."""
+    from maezo.qa.simulador import aceite as ac
+
+    resultado, cib, _, _ = await _turno(_RECEM_NASCIDA, _classify(intent="symptom", population="pediatric"))
+
+    assert cib.inicios == []
+    assert resultado["next_kind"] == "collect"
+    texto = resultado["response_text"]
+    assert "idade" not in texto.lower()
+    assert texto == (
+        "Sua filha está mamando ou comendo e fazendo xixi como de costume? Ela está muito mole ou sonolenta?"
+    )
+    assert ac.avaliar_passo(_passo_do_dono_v1(_RECEM_NASCIDA), [("helena", texto)], [], None) == []
+
+
+@pytest.mark.asyncio
+async def test_ficha_nao_conclui_sem_resposta_e_pergunta_de_novo_so_o_que_faltou() -> None:
+    """Item 4: a pessoa respondeu outra coisa ("bolinhas vermelhas"): o que foi perguntado e nao respondido
+    volta, curto, sem repetir o resto — e nunca "suficiente" com T05. Passo 4 do segmento 5 do `dono_v1`."""
+    from maezo.qa.simulador import aceite as ac
+
+    resultado, cib, _, _ = await _turno(
+        _BOLINHAS,
+        _classify(intent="symptom", population="pediatric"),
+        ficha={
+            "coleta_rodadas": 1,
+            "coleta_pendente": "PERGUNTAR_FICHA_CRIANCA:2,3@filha",
+            "coleta_contexto": _RECEM_NASCIDA,
+        },
+    )
+
+    assert cib.inicios == []
+    assert resultado["next_kind"] == "collect"
+    assert resultado["coleta_rodadas"] == 2
+    texto = resultado["response_text"]
+    assert texto == (
+        "Só para eu entender: sua filha está mamando ou comendo e fazendo xixi como de costume? "
+        "Ela está muito mole ou sonolenta?"
+    )
+    assert "7 dias" not in texto
+    anterior = ("helena", "Sua filha está mamando ou comendo e fazendo xixi como de costume?")
+    assert ac.avaliar_passo(_passo_do_dono_v1(_BOLINHAS), [("helena", texto)], [], anterior[1]) == []
+
+
+@pytest.mark.asyncio
+async def test_resposta_parcial_volta_so_o_item_que_faltou() -> None:
+    resultado, _, _, _ = await _turno(
+        "está mamando bem e fazendo xixi",
+        _classify(intent="symptom", population="pediatric"),
+        ficha={
+            "coleta_rodadas": 1,
+            "coleta_pendente": "PERGUNTAR_FICHA_CRIANCA:2,3@filha",
+            "coleta_contexto": _RECEM_NASCIDA,
+        },
+    )
+
+    assert resultado["response_text"] == "Só para eu entender: ela está muito mole ou sonolenta?"
+
+
+@pytest.mark.asyncio
+async def test_resposta_curta_cobre_o_que_foi_perguntado() -> None:
+    """ "nao" depois de "Esta' muito mole ou sonolenta?" responde: a ficha segue para o veredito."""
+    resultado, cib, _, _ = await _turno(
+        "não",
+        _classify(intent="symptom", population="pediatric", idade_meses=24),
+        ficha={
+            "coleta_rodadas": 2,
+            "coleta_pendente": "PERGUNTAR_FICHA_CRIANCA:3@filho#de_novo",
+            "coleta_contexto": "meu filho de 2 anos está com dor | está comendo e fazendo xixi",
+        },
+    )
+
+    assert cib.inicios == []
+    assert resultado["response_text"] == RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA
+
+
+@pytest.mark.asyncio
+async def test_bebe_com_menos_de_3_meses_sem_alarme_recebe_a_oferta_da_equipe_e_nao_o_prazo() -> None:
+    """Item 5 (DECISAO CLINICA PENDENTE): ficha esgotada num recem-nascido sem alarme -> oferta clara de
+    falar agora com a equipe de saude, sem abrir caso, com pronto-atendimento/192."""
+    resultado, cib, _, _ = await _turno(
+        "não sei dizer",
+        _classify(intent="symptom", population="pediatric"),
+        ficha={
+            "coleta_rodadas": 3,
+            "coleta_pendente": "PERGUNTAR_FICHA_CRIANCA:2,3@filha#de_novo",
+            "coleta_contexto": _RECEM_NASCIDA,
+        },
+    )
+
+    assert cib.inicios == [], "a oferta nao abre caso sozinha"
+    assert resultado["response_text"] == RESPOSTA_TRIAGEM_BEBE_PEQUENO
+    assert "7 dias" not in resultado["response_text"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mensagem", "extracao", "contexto", "esperado"),
+    [
+        (
+            "continua igual",
+            _classify(intent="symptom", population="pediatric", idade_meses=72),
+            "minha filha de 6 anos está com dor",
+            RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
+        ),
+        (
+            "continua igual",
+            _classify(intent="symptom", population="gestante", idade_gestacional_semanas=20),
+            "estou gravida de 20 semanas com dor",
+            RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE,
+        ),
+        (
+            "continua igual",
+            _classify(intent="symptom", population="adult", sintoma_codigo="febre"),
+            "febre",
+            RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO,
+        ),
+    ],
+)
+async def test_o_caminho_no_fim_da_ficha_e_o_da_populacao(
+    mensagem: str, extracao: str, contexto: str, esperado: str
+) -> None:
+    resultado, cib, _, _ = await _turno(
+        mensagem,
+        extracao,
+        ficha={"coleta_rodadas": 3, "coleta_pendente": "PERGUNTAR_INTENSIDADE", "coleta_contexto": contexto},
+    )
+
+    assert cib.inicios == []
+    assert resultado["response_text"] == esperado
+
+
+@pytest.mark.asyncio
+async def test_chave_desligada_dor_nas_costas_e_a_coleta_de_sempre() -> None:
+    resultado, _, tabelas, _ = await _turno(
+        "Estou com dor nas costas", _classify(intent="symptom", population="adult"), v2=False
+    )
+
+    assert TRIAGEM_V2_DMN_KEY not in tabelas.chaves()
+    assert not str(resultado.get("coleta_pergunta") or "").startswith("PERGUNTAR_FICHA_")
 
 
 @pytest.mark.asyncio
@@ -386,7 +762,7 @@ async def test_d_ficha_respondida_orienta_o_caminho_com_o_prazo_da_ans_sem_caso(
 async def test_d_codigo_sem_intensidade_pergunta_a_intensidade_na_segunda_rodada() -> None:
     """Reaproveita `triage_sufficiency`: sintoma reconhecido sem intensidade -> PERGUNTAR_INTENSIDADE."""
     resultado, cib, _, _ = await _turno(
-        "estou com febre desde ontem",
+        "tenho 40 anos, sem manchas, febre desde ontem",
         _classify(intent="symptom", population="adult", sintoma_codigo="febre"),
         ficha={"coleta_rodadas": 1, "coleta_pendente": "PERGUNTAR_FICHA_FEBRE", "coleta_contexto": "febre"},
     )
@@ -531,7 +907,7 @@ async def test_tabela_nova_fora_do_ar_em_mensagem_vaga_pede_para_mandar_de_novo(
 @pytest.mark.asyncio
 async def test_suficiencia_fora_do_ar_na_ficha_escala_falha_tecnica() -> None:
     resultado, cib, _, _ = await _turno(
-        "continua",
+        "tenho 40 anos, sem manchas",
         _classify(intent="symptom", population="adult", sintoma_codigo="febre"),
         ficha={"coleta_rodadas": 1, "coleta_pendente": "PERGUNTAR_FICHA_FEBRE", "coleta_contexto": "febre"},
         dmn=_DmnReal(fora_do_ar=frozenset({"triage_sufficiency"})),
@@ -706,7 +1082,24 @@ def test_necessidade_vaga(plano: str, esperado: bool) -> None:
 
 
 @pytest.mark.parametrize(
-    ("plano", "esperado"), [("4", "4"), ("opcao 2", "2"), ("a 1", "1"), ("5", None), ("quatro", None)]
+    ("plano", "esperado"),
+    [
+        ("4", "4"),
+        ("opcao 2", "2"),
+        ("a 1", "1"),
+        ("a opcao 4 por favor", "4"),
+        ("quatro", "4"),
+        ("tres", "3"),
+        ("4 falar com uma pessoa", "4"),
+        ("falar com uma pessoa", "4"),
+        ("boleto", "3"),
+        ("o plano", "2"),
+        ("um sintoma", "1"),
+        ("5", None),
+        ("4 dias de febre", None),
+        ("quero 4", None),
+        ("2 falar com uma pessoa", None),
+    ],
 )
 def test_resposta_numerada(plano: str, esperado: str | None) -> None:
     assert resposta_numerada(plano) == esperado
@@ -725,3 +1118,127 @@ def test_resposta_numerada(plano: str, esperado: str | None) -> None:
 )
 def test_grupo_da_queixa(populacao: str, codigo: str | None, plano: str, esperado: str | None) -> None:
     assert grupo_da_queixa(populacao, codigo, plano) == esperado
+
+
+@pytest.mark.parametrize(
+    ("plano", "extracao", "esperado"),
+    [
+        ("estou com dor nas costas", {}, {"LOCAL"}),
+        ("dor de cabeca forte desde ontem", {}, {"LOCAL", "INTENSIDADE", "INICIO"}),
+        ("minha filha de 6 anos esta com dor", {}, {"IDADE"}),
+        ("meu filho esta com febre", {"idade_meses": 8}, {"IDADE", "FEBRE"}),
+        # DURACAO nao e' idade: sem idade, a ficha pergunta (lado seguro).
+        ("minha filha esta com dor ha 2 meses", {}, {"INICIO"}),
+        ("dor ha mais de 2 meses", {}, {"INICIO"}),
+        ("estou com dor", {"intensidade": "moderada"}, {"INTENSIDADE"}),
+        ("gestante de 30 semanas com dor", {}, {"SEMANAS"}),
+        ("estou com dor", {"sintoma_codigo": "dor_toracica"}, {"LOCAL"}),
+    ],
+)
+def test_itens_ja_respondidos(plano: str, extracao: dict[str, Any], esperado: set[str]) -> None:
+    assert itens_ja_respondidos(plano, extracao) == esperado
+
+
+def test_o_codigo_da_ficha_leva_so_o_que_falta() -> None:
+    assert itens_que_faltam("DOR", "", frozenset()) == (1, 2, 3)
+    assert itens_que_faltam("DOR", "", frozenset({"LOCAL"})) == (2, 3)
+    assert itens_que_faltam("DOR", "", frozenset({"LOCAL", "INTENSIDADE", "INICIO"})) == ()
+    # O sinal de alarme so' sai quando a pessoa falou do assunto dele.
+    assert itens_que_faltam("CRIANCA", "minha filha", frozenset({"IDADE"})) == (2, 3)
+    assert itens_que_faltam("CRIANCA", "esta mamando bem", frozenset({"IDADE"})) == (3,)
+    assert codigo_da_ficha("DOR", (1, 2, 3)) == "PERGUNTAR_FICHA_DOR"
+    assert codigo_da_ficha("DOR", (2, 3)) == "PERGUNTAR_FICHA_DOR:2,3"
+    assert codigo_da_ficha("CRIANCA", (2, 3), paciente="filha") == "PERGUNTAR_FICHA_CRIANCA:2,3@filha"
+    assert codigo_da_ficha("CRIANCA", (3,), paciente="filho", de_novo=True) == (
+        "PERGUNTAR_FICHA_CRIANCA:3@filho#de_novo"
+    )
+    assert pergunta_da_ficha("PERGUNTAR_FICHA_DOR") == PERGUNTAS_DA_FICHA["DOR"]
+    assert (
+        pergunta_da_ficha("PERGUNTAR_FICHA_DOR:2,3")
+        == "A dor está fraca, média ou forte? Começou de repente?"
+    )
+    assert pergunta_da_ficha("PERGUNTAR_FICHA_CRIANCA:3@filho#de_novo") == (
+        "Só para eu entender: ele está muito mole ou sonolento?"
+    )
+    for invalida in (
+        "PERGUNTAR_FICHA_DOR:3,2",
+        "PERGUNTAR_FICHA_DOR:4",
+        "PERGUNTAR_FICHA_DOR:",
+        "PERGUNTAR_FICHA_X",
+        "PERGUNTAR_FICHA_CRIANCA@tia",
+    ):
+        assert pergunta_da_ficha(invalida) is None, invalida
+
+
+@pytest.mark.parametrize(
+    ("plano", "esperado"),
+    [
+        ("minha filha recem nascida esta com uma alergia", "filha"),
+        ("meu filho esta com tosse", "filho"),
+        ("o bebe esta com febre", "bebe"),
+        ("a crianca esta com dor", None),
+    ],
+)
+def test_paciente_da_conversa(plano: str, esperado: str | None) -> None:
+    assert paciente_da_conversa(plano) == esperado
+
+
+@pytest.mark.parametrize(
+    ("plano", "idade_meses", "esperado"),
+    [
+        ("minha filha recem nascida", None, True),
+        ("o bebe nasceu ha 5 dias", None, True),
+        ("bebe de 2 meses com febre", None, True),
+        ("minha filha de 6 anos", None, False),
+        ("meu filho com tosse", 1, True),
+        ("meu filho com tosse", 8, False),
+    ],
+)
+def test_bebe_pequeno(plano: str, idade_meses: int | None, esperado: bool) -> None:
+    assert bebe_pequeno(plano, idade_meses) is esperado
+
+
+@pytest.mark.parametrize(
+    ("plano", "esperado"),
+    [("nao", True), ("sim normal", True), ("tudo bem", True), ("sao umas bolinhas vermelhas", False)],
+)
+def test_resposta_curta(plano: str, esperado: bool) -> None:
+    assert resposta_curta(plano) is esperado
+
+
+def test_o_texto_de_orientacao_e_da_populacao() -> None:
+    adulto = texto_de_orientacao("adult", bebe_com_menos_de_3_meses=False)
+    crianca = texto_de_orientacao("pediatric", bebe_com_menos_de_3_meses=False)
+    gestante = texto_de_orientacao("gestante", bebe_com_menos_de_3_meses=False)
+    bebe = texto_de_orientacao("pediatric", bebe_com_menos_de_3_meses=True)
+    assert "clínico geral" in adulto and "pediatra" not in adulto
+    assert "pediatra" in crianca
+    assert "ginecologista" not in crianca and "cirurgião" not in crianca and "clínico" not in crianca
+    assert "obstetra" in gestante and "pediatra" not in gestante
+    assert bebe == RESPOSTA_TRIAGEM_BEBE_PEQUENO
+    assert "7 dias" not in bebe, "bebe com menos de 3 meses nao recebe o prazo de consulta"
+    assert "equipe de saúde" in bebe and "192" in bebe and "pronto-atendimento" in bebe
+    for texto in (adulto, crianca, gestante):
+        assert "7 dias úteis" in texto
+        assert len(re.findall(r"[.!?](?:\s|$)", texto)) <= 6, "T05 enxuto: no maximo 6 frases"
+
+
+@pytest.mark.parametrize("grupo", sorted(PERGUNTAS_DA_FICHA))
+def test_toda_combinacao_de_itens_que_faltam_passa_nas_cercas(grupo: str) -> None:
+    from itertools import combinations
+
+    from maezo.agents.helena.triagem_v2 import ITENS_DA_FICHA
+
+    total = len(ITENS_DA_FICHA[grupo])
+    pacientes = (None, "filha", "filho", "bebe") if grupo == "CRIANCA" else (None,)
+    for tamanho in range(1, total + 1):
+        for escolhidos in combinations(range(1, total + 1), tamanho):
+            for paciente in pacientes:
+                for de_novo in (False, True):
+                    codigo = codigo_da_ficha(grupo, escolhidos, paciente=paciente, de_novo=de_novo)
+                    texto = pergunta_da_ficha(codigo)
+                    assert texto, codigo
+                    assert motivo_de_canal_nao_confirmado(texto) is None, codigo
+                    assert motivo_de_recusa(texto, "collect") is None, codigo
+                    assert frases_longas(texto) == [], codigo
+                    assert "helena" not in texto.lower()

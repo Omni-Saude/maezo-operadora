@@ -260,24 +260,37 @@ from .triagem_v2 import (
     DECISAO_PASSAR_AO_LUCAS,
     DECISAO_PERGUNTAR_MAIS,
     DECISOES_QUE_ABREM_CASO,
+    ITEM_IDADE,
+    ITEM_INTENSIDADE,
+    ITEM_SEMANAS,
     NECESSIDADE_NAO_CLARA,
     NECESSIDADES_DE_SINTOMA,
     PREFIXO_PERGUNTA_DA_FICHA,
+    RESPOSTA_TRIAGEM_BEBE_PEQUENO,
     RESPOSTA_TRIAGEM_ESCLARECER,
-    RESPOSTA_TRIAGEM_OPCAO_COBRANCA,
     RESPOSTA_TRIAGEM_OPCAO_PLANO,
+    RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
+    RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE,
     TEXTOS_POR_ID,
     TRIAGEM_V2_DMN_KEY,
     SaidaInvalidaError,
+    bebe_pequeno,
+    codigo_da_ficha,
     grupo_da_queixa,
+    itens_ja_respondidos,
+    itens_que_faltam,
+    ler_codigo_da_ficha,
     ler_linha,
     linha_da_ficha,
     necessidade_da_pergunta_clinica,
     necessidade_do_sintoma,
     necessidade_vaga,
+    paciente_da_conversa,
     pergunta_da_ficha,
     relata_sintoma,
+    resposta_curta,
     resposta_numerada,
+    texto_de_orientacao,
 )
 
 logger = structlog.get_logger(__name__)
@@ -3240,8 +3253,10 @@ RESPOSTA_NAVEGACAO_CASO_ABERTO: str = (
 _TEXTOS_FIXOS_DA_TRIAGEM_V2: frozenset[str] = frozenset(
     {
         *TEXTOS_POR_ID.values(),
+        RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
+        RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE,
+        RESPOSTA_TRIAGEM_BEBE_PEQUENO,
         RESPOSTA_TRIAGEM_OPCAO_PLANO,
-        RESPOSTA_TRIAGEM_OPCAO_COBRANCA,
         RESPOSTA_NAVEGACAO,
         RESPOSTA_NAVEGACAO_CASO_ABERTO,
         RESPOSTA_DUVIDA_DE_SAUDE,
@@ -3968,6 +3983,16 @@ def _inform_recusado(estado: Mapping[str, Any]) -> str | None:
 
 #: NOVA TRIAGEM (DL-0104): o token de erro quando a tabela nova responde fora do vocabulario fechado.
 ERRO_TRIAGEM_V2_FORA_DO_VOCABULARIO: str = f"{TRIAGEM_V2_DMN_KEY}: saida fora do vocabulario"
+#: NOVA TRIAGEM (DL-0104): o rascunho do `inform` que diz ter ENTENDIDO um pedido de pessoa ("Entendi que
+#: voce quer falar com uma pessoa da equipe") — com a chave ligada, isso abre o caso em vez de sair.
+_ENTENDEU_PEDIDO_DE_PESSOA = re.compile(
+    r"\bentendi que (?:voce )?(?:quer|queria|gostaria de|deseja|prefere|precisa) "
+    r"(?:falar|conversar|ser atendid[oa]) (?:com|por) (?:uma |um |a |o |alguem d[ae] )?"
+    r"(?:pessoa|atendente|equipe|humano|humana|alguem)\b"
+)
+#: NOVA TRIAGEM (DL-0104): a oferta de opcoes (T11) vale enquanto estiver entre as ultimas falas da Helena
+#: — cobre a resposta logo depois do T11 e depois do "Ainda nao entendi" que a segue.
+_FALAS_DA_OFERTA_RECENTE: int = 3
 
 
 def _entrada_de_suficiencia(update: Mapping[str, Any], rodadas: int) -> dict[str, Any]:
@@ -5008,6 +5033,27 @@ class HelenaGraph:
             update["escalation_severidade"] = "grave"
             return update
 
+        # NOVA TRIAGEM (DL-0104): a ESCOLHA DE UMA OPCAO do T11 ("4", "opcao 4", "quatro", "falar com uma
+        # pessoa") e' decidida AQUI, deterministicamente, enquanto a oferta de opcoes estiver recente — depois
+        # dos portoes de risco, alarme e emergencia (acima) e ANTES de qualquer leitura da intencao do
+        # modelo. Aceite em dev (15/10/2026): "4" depois do "Ainda nao entendi" saiu `human_request`, foi
+        # rebaixado a `information` (sem pedido explicito no texto) e a Helena respondeu "Entendi que voce
+        # quer falar com uma pessoa da equipe. Se quiser, e' so' me pedir." sem abrir o caso.
+        if self._triagem_v2:
+            opcao = self._opcao_do_esclarecimento(state, texto_do_turno)
+            if opcao is not None:
+                decidido = self._triagem_v2_opcao(
+                    opcao,
+                    state,
+                    update,
+                    pessoa_dentro_da_triagem=em_triagem_clinica and conteudo_clinico,
+                )
+                if decidido is not None:
+                    return decidido
+                # Opcao 1 com sintoma ja' relatado nesta conversa: segue como sintoma (alarme ja' triado
+                # acima, porque ha' `sintoma_codigo`) e a tabela nova leva a ficha.
+                intent = "symptom"
+
         # RODADA 2: pergunta sobre o PLANO (cobertura, carencia, tipo) com a fonte do plano desligada nao
         # e' pergunta clinica: "o plano cobre dermatologista?" recebe onde ver, sem abrir caso.
         if (
@@ -5440,9 +5486,62 @@ class HelenaGraph:
         return any(_sem_prefixo(f).startswith(inicio) for f in _falas_da_helena(state))
 
     @staticmethod
-    def _ultima_fala_foi_esclarecimento(state: Mapping[str, Any]) -> bool:
-        falas = _falas_da_helena(state)
-        return bool(falas) and _sem_prefixo(falas[-1]).startswith(RESPOSTA_TRIAGEM_ESCLARECER[:60])
+    def _opcao_do_esclarecimento(state: Mapping[str, Any], texto: str) -> str | None:
+        """A opcao ("1".."4") que a mensagem escolhe, SO' com a oferta de opcoes (T11) RECENTE: entre as
+        ultimas `_FALAS_DA_OFERTA_RECENTE` falas da Helena no historico curto (DL-0080) — inclusive depois
+        do "Ainda nao entendi" (catch-all). Sem oferta recente, um numero solto segue o fluxo normal."""
+        numero = resposta_numerada(_plano(texto))
+        if numero is None:
+            return None
+        inicio = RESPOSTA_TRIAGEM_ESCLARECER[:60]
+        recentes = _falas_da_helena(state)[-_FALAS_DA_OFERTA_RECENTE:]
+        if not any(_sem_prefixo(f).startswith(inicio) for f in recentes):
+            return None
+        return numero
+
+    def _triagem_v2_opcao(
+        self,
+        opcao: str,
+        state: HelenaState,
+        update: dict[str, Any],
+        *,
+        pessoa_dentro_da_triagem: bool,
+    ) -> dict[str, Any] | None:
+        """O turno ja' roteado para a OPCAO escolhida do T11, ou `None` (opcao 1 com sintoma ja' relatado:
+        o turno segue como sintoma e a tabela nova leva a ficha).
+
+          1 -> convite a contar o que sente (`RESPOSTA_DUVIDA_DE_SAUDE`), sem caso;
+          2 -> o caminho da consulta do plano pela Helena (`RESPOSTA_TRIAGEM_OPCAO_PLANO`), sem caso;
+          3 -> o Lucas pela passagem de cobranca de sempre (`_rota_de_cobranca`, precondicao de 2
+               camadas; o handoff so' nasce no no' `handoff_cobranca`). Sem o roteador, fora do canal;
+          4 -> pedido de pessoa (RN 623/2024, art. 9, III): abre o caso como o pedido explicito —
+               `solicitacao_humano`/`leve`; dentro da triagem, falando do quadro, `intencao_clinica`.
+        """
+        logger.info("helena_triagem_v2_opcao", node="classify", opcao=opcao)
+        if opcao == "4":
+            update["intent"] = "human_request"
+            update["next_kind"] = "escalate"
+            if pessoa_dentro_da_triagem:
+                update["escalation_motivo"] = "intencao_clinica"
+                update["escalation_severidade"] = "moderada"
+            else:
+                update["escalation_motivo"] = "solicitacao_humano"
+                update["escalation_severidade"] = "leve"
+            return update
+        if opcao == "1" and update.get("sintoma_codigo"):
+            update["intent"] = "symptom"
+            return None
+        if opcao == "3" and self._roteador_lucas_enabled:
+            update["intent"] = INTENT_COBRANCA
+            subtipo = _subtipo_pelo_texto(str(state.get("message_body") or ""))
+            self._preencher_cobranca(update, subtipo, None, state)
+            return _rota_de_cobranca(update, state, roteador_ligado=self._roteador_lucas_enabled)
+        update["intent"] = "information"
+        update["response_text"] = {
+            "1": RESPOSTA_DUVIDA_DE_SAUDE,
+            "2": RESPOSTA_TRIAGEM_OPCAO_PLANO,
+        }.get(opcao, RESPOSTA_FORA_DO_CANAL)
+        return _rota_informativa(update)
 
     async def _triagem_v2_decidir(
         self,
@@ -5468,35 +5567,13 @@ class HelenaGraph:
         texto = str(state.get("message_body") or "")
         plano = _plano(texto)
 
-        # Resposta numerada ao T11 ("4"): so' logo depois do T11. A opcao 4 e' pedido de pessoa, e a tabela
-        # decide (R10); as outras recebem o texto da opcao, sem caso.
-        pedido_pessoa = False
-        numero = resposta_numerada(plano) if self._ultima_fala_foi_esclarecimento(state) else None
-        if numero is not None and not update.get("sintoma_codigo"):
-            if numero == "4":
-                pedido_pessoa = True
-            else:
-                logger.info("helena_triagem_v2_opcao", node="classify", opcao=numero)
-                update["intent"] = "information"
-                if numero == "1":
-                    update["response_text"] = RESPOSTA_DUVIDA_DE_SAUDE
-                elif numero == "2":
-                    update["response_text"] = RESPOSTA_TRIAGEM_OPCAO_PLANO
-                else:
-                    update["response_text"] = (
-                        RESPOSTA_TRIAGEM_OPCAO_COBRANCA
-                        if self._roteador_lucas_enabled
-                        else RESPOSTA_FORA_DO_CANAL
-                    )
-                return _rota_informativa(update)
-
+        # A escolha de uma opcao do T11 ("4") ja' foi decidida em `classify` (`_triagem_v2_opcao`), antes
+        # dos portoes de intencao: aqui `pedido_pessoa` e' sempre falso.
         sintoma = intent == "symptom" or bool(update.get("sintoma_codigo"))
         if intent == "clinical_question" and not sintoma and relata_sintoma(plano, update.get("intensidade")):
             sintoma = True
         ficha: dict[str, Any] = {"completa": False, "pergunta": None, "rodadas": 0}
-        if pedido_pessoa:
-            necessidade = NECESSIDADE_NAO_CLARA
-        elif sintoma:
+        if sintoma:
             if intent != "symptom":
                 # (b) "o que pode ser essa dor ao urinar?" e' relato de sintoma: tabela de alarme + ficha.
                 logger.info(
@@ -5523,10 +5600,11 @@ class HelenaGraph:
         entrada: dict[str, Any] = {
             "necessidade": necessidade,
             # REDE DE SEGURANCA: com a ordem de hoje, chegar aqui ja' significa sem alarme e sem risco (os
-            # portoes acima escalaram). `pedido_pessoa` so' e' verdadeiro na opcao "4" do T11.
+            # portoes acima escalaram), e sem pedido de pessoa (o portao de pessoa e a opcao "4" do T11,
+            # acima, escalaram).
             "sinal_alarme": False,
             "risco_psicossocial": bool(update.get("psychosocial_risk")),
-            "pedido_pessoa": pedido_pessoa,
+            "pedido_pessoa": False,
             "ficha_completa": bool(ficha["completa"]),
             "rodadas": int(ficha["rodadas"]),
             "esclarecimento_pedido": self._esclarecimento_ja_pedido(state),
@@ -5584,6 +5662,16 @@ class HelenaGraph:
         # ORIENTAR / RESPONDER / ESCLARECER: texto FIXO escolhido pela tabela, sem caso.
         if texto_id == "T12":
             update["response_text"] = self._texto_de_navegacao(state)
+        elif texto_id == "T05":
+            # O caminho da POPULACAO (aceite de 15/10/2026): crianca -> pediatra (bebe com menos de 3 meses ->
+            # oferta da equipe de saude agora, DECISAO CLINICA PENDENTE); gestante -> obstetra; adulto ->
+            # clinico geral.
+            contexto_da_ficha = _plano(f"{state.get('coleta_contexto') or ''} {texto}")
+            update["response_text"] = texto_de_orientacao(
+                update.get("population"),
+                bebe_com_menos_de_3_meses=_contexto_de_recem_nascido(state)
+                or bebe_pequeno(contexto_da_ficha, update.get("idade_meses")),
+            )
         else:
             update["response_text"] = TEXTOS_POR_ID[str(texto_id)]
         if update.get("intent") == "symptom":
@@ -5628,16 +5716,54 @@ class HelenaGraph:
           3. sintoma sem codigo da allowlist ja' descrito (uma rodada feita): a caracterizacao nao tem como
              casar um codigo, entao conta como respondida — perguntar de novo seria interrogatorio;
           4. 3 rodadas feitas: ficha esgotada (a tabela nova decide o que fazer).
+
+        NAO PERGUNTA O QUE JA' FOI DITO (aceite em dev, 15/10/2026: "Estou com dor nas costas" ouviu "Em
+        que parte do corpo e' a dor?"). `itens_ja_respondidos` junta a extracao (com a memoria clinica
+        fundida), o recem-nascido dito em palavras (DL-0101) e o lexico sobre o texto acumulado da ficha: a
+        pergunta da aba 4 leva SO' as frases que faltam, falando do paciente como a pessoa disse ("sua
+        filha"); com a ficha da queixa toda respondida ja' na primeira mensagem, conta como caracterizada e
+        o veredito segue sem perguntar. E NAO CONCLUI SEM RESPOSTA: item perguntado e nao respondido volta
+        na rodada seguinte ("So' para eu entender: ..."), dentro do limite de 3 rodadas. Na
+        `triage_sufficiency`, intensidade/idade/semanas ditas no texto contam como informadas — so' para ela
+        nao mandar perguntar de novo; as tabelas de alarme ja' rodaram com a extracao e nao mudam.
         """
         rodadas = _rodadas_de_coleta(state.get("coleta_rodadas", 0), teto=COLETA_MAX_RODADAS_TRIAGEM_V2)
         if rodadas >= COLETA_MAX_RODADAS_TRIAGEM_V2:
             logger.info("helena_triagem_v2_ficha_esgotada", rodadas=rodadas, node="classify")
             return {"completa": False, "pergunta": None, "rodadas": rodadas}
+        atual = _plano(str(state.get("message_body") or ""))
         contexto = _plano(f"{state.get('coleta_contexto') or ''} {state.get('message_body') or ''}")
         grupo = grupo_da_queixa(update.get("population"), update.get("sintoma_codigo"), contexto)
-        if rodadas == 0 and grupo is not None:
-            return {"completa": False, "pergunta": f"{PREFIXO_PERGUNTA_DA_FICHA}{grupo}", "rodadas": rodadas}
+        respondidos = itens_ja_respondidos(contexto, update)
+        if _contexto_de_recem_nascido(state):
+            # DL-0101: recem-nascido dito em palavras e' idade informada (`idade_meses = 0`).
+            respondidos = respondidos | {ITEM_IDADE}
+        paciente = paciente_da_conversa(contexto)
+        if grupo is not None:
+            anterior = ler_codigo_da_ficha(state.get("coleta_pendente"))
+            faltam: tuple[int, ...] = ()
+            if rodadas == 0:
+                faltam = itens_que_faltam(grupo, contexto, respondidos)
+            elif anterior is not None and anterior.grupo == grupo and not resposta_curta(atual):
+                # PERGUNTADO E NAO RESPONDIDO volta na rodada seguinte, so' ele (aceite de 15/10/2026: a
+                # pessoa respondeu outra coisa e a ficha concluiu "suficiente"). Uma resposta curta ("nao",
+                # "tudo normal") cobre o que foi perguntado.
+                faltam = itens_que_faltam(grupo, contexto, respondidos, anterior.indices)
+            if faltam:
+                codigo = codigo_da_ficha(grupo, faltam, paciente=paciente, de_novo=rodadas > 0)
+                return {"completa": False, "pergunta": codigo, "rodadas": rodadas}
+            if rodadas == 0:
+                logger.info("helena_triagem_v2_ficha_ja_respondida", grupo=grupo, node="classify")
+        # Caracterizado: uma rodada ja' feita, ou a ficha da queixa toda respondida na propria mensagem.
+        caracterizado = rodadas >= 1 or grupo is not None
         entrada = _entrada_de_suficiencia(update, min(rodadas, COLETA_MAX_RODADAS - 1))
+        if ITEM_INTENSIDADE in respondidos:
+            entrada["intensidade_informada"] = True
+        population = entrada["population"]
+        if (population in ("adult", "pediatric") and ITEM_IDADE in respondidos) or (
+            population == "gestante" and ITEM_SEMANAS in respondidos
+        ):
+            entrada["campo_populacao_disponivel"] = True
         try:
             rows, version = await self._dmn.evaluate(SUFFICIENCY_DMN_KEY, entrada)
             row = first_row(rows, SUFFICIENCY_DMN_KEY, entrada)
@@ -5659,7 +5785,7 @@ class HelenaGraph:
             node="classify",
         )
         if veredito == COLETA_VEREDITO_SUFICIENTE or (
-            veredito == "PERGUNTAR_CARACTERIZACAO" and rodadas >= 1
+            veredito == "PERGUNTAR_CARACTERIZACAO" and caracterizado
         ):
             return {"completa": True, "pergunta": None, "rodadas": rodadas}
         if veredito in COLETA_VEREDITOS_PERGUNTA:
@@ -5883,6 +6009,17 @@ class HelenaGraph:
             abertura = RESPOSTA_SAUDACAO_CURTA if ja_se_apresentou else RESPOSTA_SAUDACAO_ABERTURA
             return {"response_text": abertura, "response_kind": "inform"}
         text = await self._redigir_resposta(state, "inform")
+        if self._triagem_v2 and _ENTENDEU_PEDIDO_DE_PESSOA.search(_plano(text)):
+            # NOVA TRIAGEM (DL-0104), aceite em dev (15/10/2026): "Entendi que voce quer falar com uma pessoa
+            # da equipe. Se quiser, e' so' me pedir." e' contraditoria — se a Helena entendeu pedido de
+            # pessoa, o caso abre (RN 623/2024, art. 9, III), pelo MESMO start de sempre.
+            logger.warning("helena_triagem_v2_pedido_de_pessoa_no_rascunho", node="inform")
+            return await self._start_escalation(
+                state,
+                motivo="solicitacao_humano",
+                severidade="leve",
+                response_kind="escalate",
+            )
         try:
             text = self._cercar_saida(text, "inform", node="inform")
             if _conduta_clinica(text):

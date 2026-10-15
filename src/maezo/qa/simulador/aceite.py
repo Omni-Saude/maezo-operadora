@@ -488,6 +488,11 @@ _SEM_CONDUTA = (
 _ENCAMINHOU = r"encaminhamos (o )?seu caso"
 #: O caminho sem caso (T05/T08/T09/T12): rede do plano, UBS ou pronto-atendimento.
 _CAMINHO = r"(rede do plano|UBS|pronto-atendimento)"
+#: A ficha nao pergunta o que a mensagem ja' disse (aceite em dev, 15/10/2026).
+_PERGUNTA_O_LOCAL = r"em que parte"
+_PERGUNTA_A_IDADE = r"(qual (e )?a idade|quantos anos)"
+#: A frase contraditoria do aceite de 15/10/2026: se a Helena entendeu pedido de pessoa, o caso abre.
+_ENTENDEU_E_NAO_ABRIU = r"entendi que voce quer falar com uma pessoa"
 
 TRIAGEM_V2: tuple[Segmento, ...] = (
     Segmento(
@@ -551,11 +556,12 @@ TRIAGEM_V2: tuple[Segmento, ...] = (
     Segmento(
         "5-dor-nas-costas",
         (
+            # "costas" ja' diz o local: a ficha pergunta so' o que falta (intensidade, inicio).
             _p(
                 "Estou com dor nas costas",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("(parte do corpo|fraca, media ou forte)",),
-                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA),
+                deve=("(fraca, media ou forte|de repente)",),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, _PERGUNTA_O_LOCAL),
             ),
             _p(
                 "É na lombar, média, começou ontem",
@@ -591,7 +597,7 @@ TRIAGEM_V2: tuple[Segmento, ...] = (
                 deve=("pessoa",),
                 nao_deve=(_ENCAMINHOU,),
             ),
-            _p("4", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
+            _p("4", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,), nao_deve=(_ENTENDEU_E_NAO_ABRIU,)),
         ),
     ),
     Segmento(
@@ -604,6 +610,28 @@ TRIAGEM_V2: tuple[Segmento, ...] = (
         (
             _p("Estou com dor nas costas", escalacao=ESCALACAO_NENHUMA, nao_deve=(_ENCAMINHOU,)),
             _p("agora estou com dor no peito e falta de ar", escalacao="red_flag_clinico", deve=("192",)),
+        ),
+    ),
+    # A ficha nao repete o que a mensagem ja' disse (aceite em dev, 15/10/2026): uma conversa nova para
+    # cada caso, sem ficha anterior.
+    Segmento(
+        "10-dor-nas-costas-nao-pergunta-o-local",
+        (
+            _p(
+                "Estou com dor nas costas",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, _PERGUNTA_O_LOCAL),
+            ),
+        ),
+    ),
+    Segmento(
+        "11-filha-de-6-anos-nao-pergunta-a-idade",
+        (
+            _p(
+                "Minha filha de 6 anos está com dor",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, _PERGUNTA_A_IDADE),
+            ),
         ),
     ),
 )
