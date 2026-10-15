@@ -342,6 +342,15 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_HISTORICO", "helena_historico"),
     )
+    # NOVA TRIAGEM DA HELENA (DL-0104, 14/10/2026): experimento em DEV. DESLIGADA por padrao, e desligada
+    # e' a Helena de antes byte a byte. Ligada, a tabela `helena_triage_admissibility` decide a saida do
+    # turno depois dos portoes de seguranca (alarme, risco, pessoa, ANS/Procon, cobranca, plano): pergunta
+    # clinica sem sintoma deixa de abrir caso, sintoma faz ficha de ate' 3 perguntas e recebe o caminho.
+    # CONTEUDO CLINICO DRAFT, pendente do medico-auditor — nao ligar fora de dev sem a ratificacao.
+    helena_triagem_v2: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_TRIAGEM_V2", "helena_triagem_v2"),
+    )
     # AVISO DE IDENTIDADE (DL-0078, decisao do dono 07/10/2026): o nome de EXIBICAO da operadora nos
     # textos fixos de identidade da Helena ("Reconheci este numero no cadastro de beneficiarios da
     # {nome}..."). So' tem efeito com `helena_identidade_amh` ligada. Texto curto e simples (letras,

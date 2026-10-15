@@ -2386,6 +2386,182 @@
         "canal": null,
         "menciona": true
       }
+    },
+    {
+      "texto": "Obrigada pelas informações. Eu não avalio sintomas, mas posso te mostrar o caminho. Você pode marcar consulta com um médico da rede do plano. Use o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento do plano. Pelas regras da ANS, o plano deve oferecer essa consulta em até 7 dias úteis. Isso vale para clínico geral, pediatra, ginecologista ou cirurgião geral. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento. Se for uma emergência, ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO (T05)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não consigo dizer o que você tem nem qual remédio tomar: isso é feito por um médico, numa consulta. Você pode marcar consulta na rede do plano. Use o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento do plano. A UBS, pelo SUS, também atende. Se for uma emergência, ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da nossa equipe de saúde, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_SEM_CONDUTA (T08)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quem interpreta resultado de exame e faz receita ou atestado é o médico, numa consulta. Leve o resultado ao médico que pediu o exame, ou marque consulta na rede do plano. Use o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento do plano. Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_EXAME_RECEITA (T09)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Para eu te ajudar melhor, me diga sobre o que é a sua mensagem:\n1) um sintoma ou dúvida de saúde\n2) o plano (cobertura, carteirinha, autorização)\n3) mensalidade ou boleto\n4) falar com uma pessoa\nPode responder com o número.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ESCLARECER (T11)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Ainda não entendi o que você precisa. Se quiser falar com uma pessoa da equipe, é só me pedir. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_OFERTA_PESSOA (catch-all)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Certo, é sobre o plano. Me conte o que você quer saber: cobertura, carência, carteirinha ou autorização.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_OPCAO_PLANO (opcao 2 do T11)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Certo, é sobre mensalidade ou boleto. Me conte o que você quer saber, por exemplo o valor ou o vencimento.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_OPCAO_COBRANCA (opcao 3 do T11)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Em que parte do corpo é a dor? Ela está fraca, média ou forte? Começou de repente?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['DOR'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quem está com febre e qual a idade? Se for bebê, diga em meses. Apareceram manchinhas vermelhas na pele?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['FEBRE'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Está com falta de ar? Consegue falar uma frase inteira sem parar para respirar? Tem febre?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['RESPIRATORIO'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Inchou o rosto, a boca ou a língua? Está difícil respirar? As manchas vieram junto com febre?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['PELE'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tem sangue no vômito ou nas fezes, ou as fezes estão pretas? Está conseguindo beber água e fazer xixi?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['GASTRO'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tem febre? A dor é forte? Apareceu sangue no xixi?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['URINARIO'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quer me contar um pouco do que está sentindo? Desde quando está assim?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['MENTAL'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "De quantas semanas é a gestação? Está tendo sangramento, perda de líquido ou o bebê está mexendo menos?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['GESTANTE'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Qual é a idade da criança? Se for bebê, diga em meses ou dias. Está mamando ou comendo e fazendo xixi como de costume? Está muito mole ou sonolenta?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['CRIANCA'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

@@ -45,6 +45,9 @@ class Persona:
     emergencia: bool = False
     #: Mensagens fixas do fluxo de acesso (`None` = o simulador verifica a pessoa antes, fora da persona).
     roteiro_acesso: tuple[str, ...] | None = None
+    #: NOVA TRIAGEM DA HELENA (DL-0104): com `MAEZO_HELENA_TRIAGEM_V2` ligada, caso aberto sem alarme, sem
+    #: risco e sem pedido de pessoa nesta persona conta como CASO EVITAVEL (checagem D13). Desligada, nada.
+    caso_evitavel_com_triagem_v2: bool = False
 
     def __post_init__(self) -> None:
         if not 1 <= self.turnos_min <= self.turnos_max <= 12:
@@ -164,6 +167,7 @@ PERSONAS: tuple[Persona, ...] = (
         objetivo="Perguntar de quanto em quanto tempo fazer check-up e exame de colesterol.",
         estilo=_ESTILO_PADRAO,
         escalacao="permitida",
+        caso_evitavel_com_triagem_v2=True,
     ),
     Persona(
         id="sintoma_leve",
@@ -172,6 +176,7 @@ PERSONAS: tuple[Persona, ...] = (
         objetivo="Saber se deve procurar atendimento e onde.",
         estilo=_ESTILO_PADRAO,
         escalacao="permitida",
+        caso_evitavel_com_triagem_v2=True,
     ),
     Persona(
         id="emergencia",

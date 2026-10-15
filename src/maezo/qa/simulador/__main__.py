@@ -165,10 +165,11 @@ async def _planos_de_repeticao(
     return planos, manifesto["roster"]
 
 
-def _item(conversa: Conversa, avaliacao: Avaliacao | None) -> ItemDaExecucao:
+def _item(conversa: Conversa, avaliacao: Avaliacao | None, *, triagem_v2: bool = False) -> ItemDaExecucao:
     persona = por_id(conversa.persona_id)
     mascarador = Mascarador(conversa.sujeito)
-    resultados = checar_conversa(conversa, persona)
+    # D13 (caso evitavel) so' se aplica com a nova triagem da Helena ligada no ambiente (DL-0104).
+    resultados = checar_conversa(conversa, persona, triagem_v2=triagem_v2)
     for r in resultados:
         r.achados = [
             Achado(checagem=a.checagem, motivo=mascarador.texto(a.motivo), turno=a.turno, agente=a.agente)
@@ -462,7 +463,8 @@ async def executar(args: argparse.Namespace) -> int:
             )
         )
         avaliacoes = await _julgar(juiz, conversas, args.concorrencia)
-        itens = [_item(c, avaliacoes.get(c.id)) for c in conversas]
+        triagem_v2 = getattr(composicao.estado.settings, "helena_triagem_v2", False) is True
+        itens = [_item(c, avaliacoes.get(c.id), triagem_v2=triagem_v2) for c in conversas]
         execucao = checar_execucao(conversas, Limites(args.latencia_p95_max_s, args.taxa_falha_tecnica_max))
         dados = resumo(
             itens,

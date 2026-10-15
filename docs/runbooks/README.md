@@ -37,6 +37,7 @@ the established convention rather than introducing a second language into this d
 | [`simulador-beneficiario.md`](simulador-beneficiario.md) | Simulador de beneficiario no dev: roster real no S3, task avulsa que compoe o receptor real com as bordas trocadas (captura, ESC interceptado), checagens D1..D12 + juiz, relatorio mascarado, limpeza | Plataforma, QA, dono do produto |
 | [`lembrete-cobranca.md`](lembrete-cobranca.md) | Lembrete proativo de cobranca (job agendado): quem recebe, texto fixo, dry-run, allowlist em dev, modo de teste `--simular`, template da Meta fora da janela de 24 h, PARAR, como ligar e desligar | Plataforma, dono do produto |
 | [`metricas-do-canal.md`](metricas-do-canal.md) | O coletor de metricas em dev (ECS/Cloud Map -> workspace gerenciado), os quatro numeros do canal, e a rotina semanal de leitura humana das respostas da Helena (Frente 5) | Plataforma, SRE, dono clinico |
+| [`helena-triagem-v2.md`](helena-triagem-v2.md) | Nova triagem da Helena (experimento em dev, DL-0104): a chave `MAEZO_HELENA_TRIAGEM_V2`, como ligar/desligar no dev (Terraform + apply direcionado), como desfazer de vez, como verificar (logs, roteiro `triagem_v2`, D13) e as decisoes pendentes do catalogo | Plataforma, dono do produto, medico-auditor |
 
 ## Alert runbooks
 

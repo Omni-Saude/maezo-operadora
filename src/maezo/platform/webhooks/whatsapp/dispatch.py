@@ -456,6 +456,10 @@ class HelenaDispatcher:
     #: Default `False` = a Helena de antes byte a byte. Ligado, liga TAMBEM o modo coleta
     #: (`coleta_enabled`), para a Helena poder fazer a pergunta de esclarecimento que ja' existe.
     historico_enabled: bool = False
+    #: NOVA TRIAGEM DA HELENA (DL-0104, settings `helena_triagem_v2` / `MAEZO_HELENA_TRIAGEM_V2`). Default
+    #: `False` = a Helena de antes byte a byte. Ligada (so' em dev), a tabela `helena_triage_admissibility`
+    #: decide a saida do turno depois dos portoes de seguranca; o modo coleta liga junto (a ficha).
+    triagem_v2_enabled: bool = False
     #: TETO DE VOLUME (Frente 7.1). `None` = sem teto, que e' o comportamento anterior e continua
     #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
     #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
@@ -828,6 +832,8 @@ class HelenaDispatcher:
                 # DL-0080: o historico curto e, com ele, o modo coleta — os dois so' com a flag.
                 "historico_enabled": self.historico_enabled,
                 "coleta_enabled": self.historico_enabled,
+                # DL-0104: a nova triagem (tabela `helena_triage_admissibility`), so' com a flag.
+                "triagem_v2_enabled": self.triagem_v2_enabled,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
                 "consultas_plano": self.consultas_plano,
             }
@@ -1035,6 +1041,7 @@ class HelenaDispatcher:
             memoria_clinica_enabled=self.memoria_clinica_enabled,
             roteador_lucas_enabled=self._roteamento_completo,
             historico_enabled=self.historico_enabled,
+            triagem_v2_enabled=self.triagem_v2_enabled,
         )
         estado: dict[str, Any] = {
             "tenant_id": self.tenant_id,
@@ -1671,6 +1678,7 @@ class HelenaDispatcher:
             memoria_clinica_enabled=self.memoria_clinica_enabled,
             roteador_lucas_enabled=True,
             historico_enabled=self.historico_enabled,
+            triagem_v2_enabled=self.triagem_v2_enabled,
         )
         estado: dict[str, Any] = {
             **resultado_helena,

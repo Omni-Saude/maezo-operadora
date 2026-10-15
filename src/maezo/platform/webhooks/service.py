@@ -289,6 +289,8 @@ def _build_dispatcher(
         memoria_clinica_enabled=settings.memoria_clinica_enabled,
         # HISTORICO CURTO DA CONVERSA (DL-0080): `MAEZO_HELENA_HISTORICO`, default `false`.
         historico_enabled=settings.helena_historico,
+        # NOVA TRIAGEM DA HELENA (DL-0104): `MAEZO_HELENA_TRIAGEM_V2`, default `false` (experimento em dev).
+        triagem_v2_enabled=settings.helena_triagem_v2,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the
