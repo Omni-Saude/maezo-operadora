@@ -862,3 +862,19 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: "PENDENTE-RATIFICACAO-DPO: execucao de contrato (lembrete de mensalidade a beneficiario com acesso verificado e consentimento), sem decisao ratificada"
     retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo de retencao ratificado; ainda sem varredor"
+  - camada: acesso_beneficiario
+    tabela: acesso_falhas_por_cpf
+    migracao: "0028_acesso_falhas_por_cpf.py::upgrade (acesso_falhas_por_cpf)"
+    identificacao: "tenant + chave (SHA-256 de um rotulo + o hash de verificacao do CPF: uma derivacao que so' serve a este limite, nao o hash que a AMH recebe); the row holds only the failure count, the window start and the last-failure timestamp - no CPF, no birth date, no name, no phone, no text (D-04). The key is a derivation of the CPF, so it reaches neither `conversation_id` nor the DSR reference (`beneficiario_pseudo_id`): no bridge, and no subject column"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 41
+    tensao: null
+    notas: >-
+      D-04 (limite de falhas de verificacao por CPF, decisao do dono de 15/10/2026): 3 falhas por CPF em 6 h,
+      de qualquer conversa. A linha so' vale enquanto a janela de 6 h vale e e' APAGADA sozinha pelo
+      varredor do acesso (`PostgresLimitePorCpf.expurgar`, chamado por `expurgar_inativos`); nao ha'
+      o que reter depois. Sem CPF, nascimento, nome, telefone ou texto. Segue marcada PENDENTE porque este
+      artefato e' o DRAFT do DPO e so' a ratificacao dele o torna o plano formal.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: legitimo interesse na seguranca do acesso aos dados de saude (LGPD art. 7o, IX, e art. 46), prevencao de tentativa de acesso indevido por adivinhacao de data de nascimento; sem decisao ratificada"
+    retencao: "PENDENTE-RATIFICACAO-DPO: 6 horas desde a primeira falha da janela, apagada pelo varredor do acesso (decisao do dono ja implementada)"

@@ -841,6 +841,23 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         # No probe, same reason as `conversa_agente_ativo`: a count would be a fabricated zero.
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="acesso_beneficiario",
+        tabela="acesso_falhas_por_cpf",
+        migracao="0028_acesso_falhas_por_cpf.py::upgrade (acesso_falhas_por_cpf)",
+        identificacao=(
+            "tenant + chave (SHA-256 de um rotulo + o hash de verificacao do CPF: uma derivacao que so' "
+            "serve a este limite, nao o hash que a AMH recebe); the row holds only the failure count, the "
+            "window start and the "
+            "last-failure timestamp - no CPF, no birth date, no name, no phone, no text (D-04). The key is a "
+            "derivation of the CPF, so it reaches neither `conversation_id` nor the DSR reference "
+            "(`beneficiario_pseudo_id`): no bridge, and no subject column"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=41,
+        subject_column=None,
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)

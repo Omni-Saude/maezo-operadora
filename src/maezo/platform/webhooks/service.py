@@ -576,6 +576,7 @@ def _build_acesso(
     from maezo.gateway.tool_registry import build_amh_interop
     from maezo.platform.webhooks.whatsapp import pre_roteamento
     from maezo.platform.webhooks.whatsapp.acesso import AcessoBeneficiario
+    from maezo.platform.webhooks.whatsapp.acesso_limite_cpf import PostgresLimitePorCpf
     from maezo.platform.webhooks.whatsapp.acesso_store import PostgresAcessoStore
 
     if dispatcher.seam_context is None or dispatcher.seam_context.principal != "helena":
@@ -623,6 +624,8 @@ def _build_acesso(
         apresentar_dependentes=bool(settings.amh_tina_dependentes_openapi_path)
         and settings.helena_consultas_amh,
         silencio_apresentacao=timedelta(days=settings.acesso_apresentacao_dias),
+        # D-04 (decisao do dono, 15/10/2026): 3 falhas por CPF em 6 h, somadas entre as conversas.
+        limite_cpf=PostgresLimitePorCpf(dsn=settings.database_url, tenant=settings.tenant_id),
     )
     logger.warning(
         "acesso_beneficiario_ligado",
