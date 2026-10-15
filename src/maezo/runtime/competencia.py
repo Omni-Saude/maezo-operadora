@@ -32,6 +32,11 @@ _ESTE_ANO: Final[re.Pattern[str]] = re.compile(r"\b(?:d?este|d?esse) ano\b")
 _PISTA_DO_PROXIMO: Final[re.Pattern[str]] = re.compile(
     r"\blancad|\bgerad|\bno sistema\b|\bproxim|\bvai vencer\b|\bvence\b|\bvencimento\b|\bja saiu\b"
     r"|\bja veio\b|\bja chegou\b|\bemitid|\bultim|\bmais recente\b|\bja tem\b|\bja ta\b|\bja esta\b"
+    # Simulador, 15/10/2026 (L-01): "esse ainda nao venceu" e "manda a linha digitavel do boleto de novembro,
+    # preciso pagar hoje" em outubro viraram novembro de 2025, ja' paga. Tempo futuro ou pagamento por fazer.
+    r"|\bnao venceu\b|\bainda nao venc\w+|\ba vencer\b|\bpagar (?:hoje|ainda|agora)\b"
+    r"|\b(?:preciso|quero|vou|posso) pagar\b|\blinha digitavel\b|\bcodigo de barras\b"
+    r"|\bse (?:eu )?nao pagar\b"
 )
 
 

@@ -54,6 +54,38 @@ def test_o_ano_vem_do_texto_ou_da_ocorrencia_mais_recente(do_modelo: str, texto:
     assert resolver_ano_da_competencia(do_modelo, texto, _HOJE) == esperado
 
 
+@pytest.mark.parametrize(
+    "texto",
+    [
+        # L-01 (simulador, 15/10/2026): os dois textos que viraram novembro de 2025, ja' paga.
+        "Esse ainda nao venceu. Se eu nao pagar, quando cancela?",
+        "Manda so' a linha digitavel do boleto de novembro aqui, por favor? Preciso pagar hoje ainda.",
+        # as marcas de futuro isoladas
+        "o de novembro ainda não venceu",
+        "quero pagar o de novembro",
+        "me passa o código de barras de novembro",
+        "se eu não pagar novembro, o que acontece?",
+        "novembro está a vencer?",
+    ],
+)
+def test_mes_sem_ano_com_marca_de_futuro_e_o_deste_ano(texto: str) -> None:
+    """Hoje 10/10/2026: novembro com tempo futuro ou pagamento por fazer e' 2026-11, nao 2025-11."""
+    assert resolver_ano_da_competencia("2025-11", texto, _HOJE) == "2026-11"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "e a de novembro?",
+        "boleto de novembro",  # decisao do dono: sem marca de futuro, a ocorrencia mais recente
+        "quanto foi a de novembro?",
+        "já paguei a de novembro?",
+    ],
+)
+def test_mes_sem_ano_e_sem_marca_de_futuro_segue_sendo_o_mais_recente(texto: str) -> None:
+    assert resolver_ano_da_competencia("2026-11", texto, _HOJE) == "2025-11"
+
+
 @pytest.mark.parametrize("ausente", [None, "07/2024", "2024-13", 202407])
 def test_competencia_ausente_ou_fora_da_forma_volta_como_veio(ausente: Any) -> None:
     """Quem valida e recusa e' o chamador (`_validate_extraction`); aqui nada e' inventado."""

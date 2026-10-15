@@ -30,6 +30,8 @@ CobrancaFoco = Literal[
     "pagamento_ao_prestador",
     "como_pagar",
     "ja_paguei",
+    "consequencia_do_atraso",
+    "link_suspeito",
 ]
 
 #: O dominio FECHADO do foco. `geral` e' o default (nenhum termo do lexico no texto).
@@ -48,6 +50,13 @@ FOCO_PAGAMENTO_AO_PRESTADOR: Final[str] = "pagamento_ao_prestador"
 #: Rodada 6 (13/10/2026): "como faco pra pagar depois do vencimento?" e "ja' paguei dia 06, e o comprovante?".
 FOCO_COMO_PAGAR: Final[str] = "como_pagar"
 FOCO_JA_PAGUEI: Final[str] = "ja_paguei"
+#: Red team 15/10/2026 (L-02 e L-04). "Se eu nao pagar novembro, em que dia exato o plano cai?" nao tem
+#: resposta do Lucas (suspender ou cancelar e' de um humano, L0 hard): recebia o lembrete de vencimento 5
+#: vezes seguidas. E "Paguei por este link que voces mandaram: http://... Esta' certo?" recebia "Esta' tudo
+#: em dia!", que a vitima de golpe le' como "sim, esta' certo". Os dois tem texto proprio e fixo, nunca o
+#: do mes.
+FOCO_CONSEQUENCIA_DO_ATRASO: Final[str] = "consequencia_do_atraso"
+FOCO_LINK_SUSPEITO: Final[str] = "link_suspeito"
 
 _MESES_DO_ANO: Final[str] = (
     "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro"
@@ -55,6 +64,29 @@ _MESES_DO_ANO: Final[str] = (
 
 #: Lexico na ordem de precedencia, sobre o texto sem acento e minusculo.
 _LEXICO: Final[tuple[tuple[CobrancaFoco, re.Pattern[str]], ...]] = (
+    # Um link (URL, ou "este/esse link") vem ANTES de tudo: "paguei por este link" e' sobre o link, nao sobre
+    # o pagamento. "me manda o link" NAO casa: pedir um link e' pedir boleto, e tem resposta propria.
+    (
+        "link_suspeito",
+        re.compile(
+            r"\bhttps?://|\bwww\.|\b(?:este|esse|aquele|neste|nesse) link\b"
+            r"|\blink que (?:voces|vcs|recebi|chegou)\b"
+        ),
+    ),
+    # A CONSEQUENCIA de nao pagar ("se eu nao pagar", "quando cancela", "vao cortar meu plano"). Pedir o
+    # cancelamento ("quero cancelar meu plano") NAO casa: e' outro assunto, com caminho proprio.
+    (
+        "consequencia_do_atraso",
+        re.compile(
+            r"\bse (?:eu )?(?:nao pagar|atrasar|deixar de pagar)\b"
+            r"|\bquando (?:cancela|cancelam|corta|cortam|suspende|suspendem"
+            r"|vao (?:cancelar|cortar|suspender))\b"
+            r"|\bvao (?:me )?(?:cortar|cancelar|suspender)\b"
+            r"|\bperd(?:er|o|erei) (?:o |a |meu |minha )?(?:plano|cobertura)\b"
+            r"|\bdata (?:exata )?do cancelamento\b|\bdia (?:exato )?do cancelamento\b"
+            r"|\bplano (?:cai|e cancelado)\b"
+        ),
+    ),
     ("extrato", re.compile(r"\bextrato\b|\bdemonstrativo\b|\bdetalhad")),
     ("ja_paguei", re.compile(r"\bpaguei (?:no )?dia\b|\bcomprovante\b|\bpaguei ontem\b|\bpaguei hoje\b")),
     (
@@ -124,10 +156,12 @@ def foco_valido(valor: object) -> bool:
 __all__ = [
     "COBRANCA_FOCOS",
     "FOCO_COMO_PAGAR",
+    "FOCO_CONSEQUENCIA_DO_ATRASO",
     "FOCO_ESCLARECIMENTO",
     "FOCO_EXTRATO",
     "FOCO_GERAL",
     "FOCO_JA_PAGUEI",
+    "FOCO_LINK_SUSPEITO",
     "FOCO_PAGAMENTO_AO_PRESTADOR",
     "FOCO_ULTIMA",
     "CobrancaFoco",
