@@ -26,7 +26,7 @@ def test_o_dominio_e_fechado_e_e_o_do_dono() -> None:
                 # Rodada 6: como pagar (depois do vencimento) e "ja' paguei dia 06".
                 "como_pagar",
                 "ja_paguei",
-                # Red team de 15/10/2026 (L-02 e L-04): consequencia de nao pagar e link de pagamento suspeito.
+                # Red team de 15/10/2026 (L-02 e L-04): consequencia de nao pagar e link suspeito.
                 "consequencia_do_atraso",
                 "link_suspeito",
             }

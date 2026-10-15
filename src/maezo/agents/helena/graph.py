@@ -3108,6 +3108,14 @@ _PERGUNTA_DE_COBRANCA = re.compile(
     r"|codigo de barras|linha digitavel|coparticipac\w*|cobrancas?|cobrad[oa]s?|debitos?|quanto (?:eu )?devo"
     r"|paguei|pagamentos?|pagar|pagando|estorno|estornar|valor extra|multa|duplicad[oa]"
     r"|nao devo|(?:valor|preco) (?:da|do) (?:mensalidade|plano|boleto)|valor(?: \w+){0,3} quanto)\b"
+    # L-03 (15/10/2026): "Lucas" e' o agente de cobranca; quem o cita ("o Lucas me garantiu R$ 50", "chama
+    # o Lucas") esta' falando da cobranca, e a Helena nao tem o que responder: o Lucas contesta e escala.
+    # So' as formas que o tratam como o agente: Lucas tambem e' nome de gente ("meu filho Lucas esta com
+    # febre").
+    r"|\bo lucas (?:me )?(?:falou|disse|garantiu|prometeu|mandou|respondeu)\b"
+    r"|\blucas me (?:falou|disse|garantiu|prometeu|mandou|respondeu)\b"
+    r"|\bfalar com (?:o )?lucas\b|\blucas (?:ta|esta) ai\b"
+    r"|\b(?:chama|chamar|chame|traz|traga|pede|pedir|peca)(?: \w+){0,2} (?:pro|para o|pra|ao|o) lucas\b"
 )
 _SUBTIPO_POR_TERMO: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(?:segunda via|2a via|codigo de barras|linha digitavel)\b"), "boleto_2via"),
