@@ -1437,6 +1437,62 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=4,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN, mesmo literal de "
+            "sempre: +4 inputParameter."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=4,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN: +4 inputParameter; "
+            "so' tenant_id/agent_id/conversation_id/resultado ou chaves de negocio, nunca PHI."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="resultado",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN: +3 inputParameter "
+            "LITERAL (cancelamento_executado/info_solicitada/mantido), rotulo fechado do aviso, nunca texto."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="event_fase",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN: +1 inputParameter "
+            "LITERAL `execucao_cadastro` em cancel.sla_breached (fase do estouro), nunca dado pessoal."
+        ),
+    ),
 )
 
 
@@ -1484,7 +1540,8 @@ class TestBuckets:
         assert len(live_sweep.names) == expected_names == 363
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
-        assert len(live_sweep.refs) == expected_refs == 1723
+        # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12
+        assert len(live_sweep.refs) == expected_refs == 1735
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
