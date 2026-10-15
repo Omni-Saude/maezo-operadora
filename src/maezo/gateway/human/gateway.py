@@ -29,13 +29,12 @@ from maezo.portal.contracts.queues import (
 
 from .completion import (
     COMPLETION_FORM_KEY,
-    COMPLETION_OUTCOMES,
-    COMPLETION_VARIABLES,
+    COMPLETION_FORMS,
+    AnyCompletionOutcome,
     CompletedTask,
     CompletionAck,
     CompletionAuditEntry,
     CompletionAuditSink,
-    CompletionOutcome,
     CompletionRefusal,
     pseudonymize_notes,
 )
@@ -757,7 +756,14 @@ class HumanGateway:
             raise ReadRefusalError("read_dependency_unavailable") from None
 
     async def complete_task(
-        self, *, session_secret: str, csrf_token: str, task_id: str, resultado: str, notas_resolucao: str
+        self,
+        *,
+        session_secret: str,
+        csrf_token: str,
+        task_id: str,
+        resultado: str,
+        notas_resolucao: str,
+        form_key: str = COMPLETION_FORM_KEY,
     ) -> CompletedTask:
         """INTERIM (DL-0049): authorize a human, scrub the note, claim the revision, complete.
 
@@ -792,19 +798,26 @@ class HumanGateway:
             task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
         except Exception:
             raise ReadRefusalError("invalid_request") from None
-        if resultado not in COMPLETION_OUTCOMES or not notas_resolucao.strip():
-            # Belt: the route's closed contract already refused this with 422.
+        form = COMPLETION_FORMS.get(form_key)
+        if (
+            form is None
+            or resultado not in form.outcomes
+            or (form.note_variable is not None and not notas_resolucao.strip())
+            or (form.note_variable is None and notas_resolucao)
+        ):
+            # Belt: the route's closed contract already refused this with 422. DL-0111: a form
+            # without a note (`cancel_execucao`) never carries free text to the engine.
             raise ReadRefusalError("invalid_request")
-        outcome: CompletionOutcome = resultado  # type: ignore[assignment]
+        outcome: AnyCompletionOutcome = resultado  # type: ignore[assignment]
         first = await self._read_session(session_secret)
         if not csrf_token or not secrets.compare_digest(csrf_token, first.record.csrf_token):
             raise ReadRefusalError("session_unavailable")
         audit = self._completion_audit
         if audit is None or audit.scope != self._scope:
             raise GatewayRefusalError("production_capabilities_unavailable")
-        notes = pseudonymize_notes(notas_resolucao)
+        notes = pseudonymize_notes(notas_resolucao) if form.note_variable is not None else None
         task, authority = await self._authorized(first, task_id)
-        self._completion_contract(task, first)
+        self._completion_contract(task, first, form_key=form_key)
         current = await self._read_session(session_secret)
         if current.principal != first.principal:
             raise GatewayRefusalError("revision_conflict")
@@ -822,7 +835,7 @@ class HumanGateway:
             snapshot=snap,
             authority_revision=task.authority_revision,
             resultado=outcome,
-            notes_digest=notes.digest,
+            notes_digest=notes.digest if notes is not None else None,
         )
         try:
             intent_ref, deduped = await audit.record(entry)
@@ -841,6 +854,7 @@ class HumanGateway:
             resultado=outcome,
             notes=notes,
             expected_task_revision=snap.task_revision,
+            form_key=form_key,
         )
         if (
             type(acknowledgement) is not CompletionAck
@@ -860,7 +874,7 @@ class HumanGateway:
                     snapshot=snap,
                     authority_revision=task.authority_revision,
                     resultado=outcome,
-                    notes_digest=notes.digest,
+                    notes_digest=notes.digest if notes is not None else None,
                     outcome="completed",
                 )
             )
@@ -954,8 +968,14 @@ class HumanGateway:
         raise GatewayRefusalError("authority_unavailable")
 
     @staticmethod
-    def _completion_contract(task: AuthoritativeTask, resolved: ResolvedHumanSession) -> None:
+    def _completion_contract(
+        task: AuthoritativeTask, resolved: ResolvedHumanSession, *, form_key: str = COMPLETION_FORM_KEY
+    ) -> None:
         """Only an ESCALATION human task whose form contract declares these two outputs.
+
+        DL-0111: or a CANCEL v0.2.0 registry execution task (`cancel_execucao`, one closed output).
+        The submitted form MUST be the task's own form: an escalation body never closes a CANCEL
+        task and vice versa.
 
         The form key and `allowed_inputs` come from the authoritative snapshot, which
         `portal/contracts/models.py::_INPUTS_BY_FORM` maps to exactly
@@ -970,9 +990,10 @@ class HumanGateway:
         """
         snap = task.snapshot
         if (
-            snap.form_key != COMPLETION_FORM_KEY
+            form_key not in COMPLETION_FORMS
+            or snap.form_key != form_key
             or snap.form_source_status != "BPMN_FORMDATA"
-            or not set(COMPLETION_VARIABLES).issubset(snap.allowed_inputs)
+            or not set(COMPLETION_FORMS[form_key].variables).issubset(snap.allowed_inputs)
             or (snap.assignee_ref is not None and snap.assignee_ref != resolved.principal.principal_ref)
         ):
             raise GatewayRefusalError("operation_forbidden")

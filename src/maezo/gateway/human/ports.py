@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from maezo.portal.contracts.models import HumanPrincipal
 
-from .completion import CompletionAck, CompletionOutcome, PseudonymizedNotes
+from .completion import COMPLETION_FORM_KEY, AnyCompletionOutcome, CompletionAck, PseudonymizedNotes
 from .errors import GatewayRefusalError
 from .models import (
     AuthoritativeTask,
@@ -38,9 +38,10 @@ class HumanTaskTransport(ABC):
         self,
         task_id: str,
         *,
-        resultado: CompletionOutcome,
-        notes: PseudonymizedNotes,
+        resultado: AnyCompletionOutcome,
+        notes: PseudonymizedNotes | None,
         expected_task_revision: int,
+        form_key: str = COMPLETION_FORM_KEY,
     ) -> CompletionAck:
         """INTERIM (DL-0049): close an ESCALATION task the caller already read and was
         authorized for, in THIS request.

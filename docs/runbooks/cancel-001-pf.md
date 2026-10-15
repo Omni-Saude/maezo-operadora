@@ -146,7 +146,15 @@ Depois do deploy do BPMN (o `process_definition_id` muda a cada versão), na pr�
 
 Pessoas reais nos grupos ficam para a operação.
 
-### 3.5 Enquanto o portal não conclui as tarefas do cancelamento (atalho de TESTE, só dev)
+### 3.5 Concluir pelo portal (DL-0112) e o atalho de TESTE (só dev)
+
+Com o PR do portal (DL-0112) e a imagem nova do portal, a pessoa do grupo `cadastro-beneficiarios` abre a
+tarefa na fila e conclui com **"Cancelamento executado no sistema"** ou **"Impedido"** (conclusão direta do
+DL-0049, já ligada no dev: `MAEZO_PORTAL_DIRECT_COMPLETION=true` em `service-portal.tf`). As decisões do jurídico
+(`UT_AnaliseRescisao`) continuam só leitura no portal; para testar os retornos de informação/manter use o atalho
+abaixo.
+
+Atalho de teste
 
 `scripts/ops/cancel_pf_dev.py`, rodado na task `bateria` (sem senha; o SG dela alcança o `engine-rest`, aberto
 só em dev — decisão N5). Mesma natureza do atalho do DL-0049: sem assinatura, **só para teste**.
@@ -221,8 +229,9 @@ Emergência: `terraform apply ... -var=cancel_pf_v1=false` com os mesmos `-targe
 
 ## 8. Pendências e riscos
 
-- Portal: concluir `UT_ExecutarCancelamentoCadastro` pelo portal exige o binding da tarefa nova (Python e
-  plugin Java) e o formulário — PR do portal. Até lá, o atalho de teste da seção 3.5.
+- Portal: a conclusão da execução pelo portal (DL-0112) é o atalho interino do DL-0049 (sem envelope assinado,
+  só dev). A decisão do jurídico (`UT_AnaliseRescisao`) segue só leitura no portal (caminho de decisão assinado
+  não cobre o CANCEL).
 - Jurídico: prazo de 5 dias da execução, `dentro_prazo=true` para todo pedido (RN 412), data de efeito = data
   do pedido, textos. DPO: uso dos dados de elegibilidade para o cancelamento. Operação: pessoas nos grupos.
 - Meta: retorno fora da janela de 24 h precisa de template aprovado (hoje só o aviso à equipe).
