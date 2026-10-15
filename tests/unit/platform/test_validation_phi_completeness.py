@@ -1493,6 +1493,18 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "LITERAL `execucao_cadastro` em cancel.sla_breached (fase do estouro), nunca dado pessoal."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="execucao_cadastro",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN. SAIDA nova (DL-0111, SP-OP-CANCEL-001 v0.2.0): `camunda:formField` ENUM fechado "
+            "(EXECUTADO/IMPEDIDO) de UT_ExecutarCancelamentoCadastro e UT_CoordenacaoExecucaoCadastro, o "
+            "formulario `cancel_execucao` do portal; nenhum texto livre, nenhum dado pessoal."
+        ),
+    ),
 )
 
 
@@ -1504,7 +1516,7 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
         assert (
-            expected_clean == 347
+            expected_clean == 348
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
         assert {key: len(value) for key, value in buckets.items()} == {
@@ -1537,11 +1549,12 @@ class TestBuckets:
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
         # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1
         # DL-0104 (helena_triage_admissibility): +8
-        assert len(live_sweep.names) == expected_names == 363
+        # #786 (DL-0111): +1 (execucao_cadastro)
+        assert len(live_sweep.names) == expected_names == 364
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
-        # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12
-        assert len(live_sweep.refs) == expected_refs == 1735
+        # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
+        assert len(live_sweep.refs) == expected_refs == 1737
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep

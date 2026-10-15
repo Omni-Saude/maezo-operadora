@@ -41,7 +41,7 @@ def _http(metodo: str, caminho: str, corpo: dict[str, Any] | None = None) -> Any
     req = urllib.request.Request(
         BASE + caminho, data=dados, method=metodo, headers={"Content-Type": "application/json"}
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310 - URL interna fixa da VPC de dev
+    with urllib.request.urlopen(req, timeout=20) as resp:  # URL interna fixa da VPC de dev
         bruto = resp.read()
     return json.loads(bruto) if bruto else None
 

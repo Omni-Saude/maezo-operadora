@@ -101,9 +101,12 @@ Confira no plan que a ÚNICA diferença de ambiente é `MAEZO_CANCEL_PF_V1` (e a
 
 A fila do portal só mostra pares (definição do processo, tarefa) **admitidos** no material staff assinado
 (segredo `staff-job`: `job/task-catalog.json` + `job/task-admission.json`), e o motor só aceita a tarefa que
-tem binding compilado no plugin humano. Hoje o binding existe para `UT_AnaliseRescisao` e
-`UT_CoordenacaoCancelamento` (formulário `cancel_decisao`, só leitura). As tarefas novas
-(`UT_ExecutarCancelamentoCadastro`, `UT_CoordenacaoExecucaoCadastro`) precisam do PR do portal (seção 8).
+tem binding compilado no plugin humano. `UT_AnaliseRescisao`/`UT_CoordenacaoCancelamento` usam o formulário
+`cancel_decisao` (só leitura no portal); este PR acrescenta o formulário `cancel_execucao` (`BPMN_FORMDATA`, um
+campo fechado `execucao_cadastro`) para `UT_ExecutarCancelamentoCadastro`/`UT_CoordenacaoExecucaoCadastro` no
+contrato Python e no `COMPILED` do plugin Java. **Ordem obrigatória:** primeiro a imagem nova do motor (plugin
+com o binding), depois o catálogo — um catálogo com tarefa que o plugin não conhece derruba TODAS as filas (503).
+A conclusão pelo portal (botão) vem no PR do portal (seção 8); a leitura na fila não depende dele.
 
 Depois do deploy do BPMN (o `process_definition_id` muda a cada versão), na próxima renovação do material
 (`docs/runbooks/renovar-material-staff-dev.md`, seções 4 a 7 — a janela atual vence em 22/10/2026):
@@ -113,8 +116,10 @@ Depois do deploy do BPMN (o `process_definition_id` muda a cada versão), na pr�
    - `UT_AnaliseRescisao`, `UT_CoordenacaoCancelamento`: `form_key=cancel_decisao`,
      `form_source_status=BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY`, `group_domain.kind=static`, grupos
      `juridico-contratos`, `gestao-contratos` (e `coordenacao-contratos` para a coordenação);
-   - `UT_ExecutarCancelamentoCadastro`: grupo `cadastro-beneficiarios`; `UT_CoordenacaoExecucaoCadastro`:
-     `coordenacao-contratos` (formulário do PR do portal).
+   - `UT_ExecutarCancelamentoCadastro`: `form_key=cancel_execucao`, `form_source_status=BPMN_FORMDATA`,
+     `allowed_inputs=["execucao_cadastro"]`, grupo `cadastro-beneficiarios`; `UT_CoordenacaoExecucaoCadastro`:
+     o mesmo formulário, grupo `coordenacao-contratos`. O catálogo também precisa do artefato do formulário em
+     `forms[]` (`artifact_ref=cancel_execucao`, como `read-form-escalation` em `deploy/c1-local/c1/h1_task.py`).
    O `gerar` de hoje copia o catálogo anterior ("mesmo catálogo"): edite o JSON do catálogo no `estado/` da
    renovação antes de rodar (o `review_catalog` exige que catálogo e admissão cubram exatamente os mesmos
    pares e que os grupos admitidos estejam no `group_domain`).

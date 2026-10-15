@@ -154,6 +154,17 @@ Saida: execucao_cadastro in {EXECUTADO, IMPEDIDO}. EXECUTADO = "cancelamento exe
 qualquer outro valor/ausente, flow default) -> volta a analise humana (UT_AnaliseRescisao): NUNCA nega nem mantem
 por automacao. Prazo: BT_PrazoExecucao (P5D — prazo a confirmar pelo juridico) -> coordenacao assume.
 ]]></bpmn:documentation>
+      <bpmn:extensionElements>
+        <!-- Formulario fechado do portal (`cancel_execucao`, BPMN_FORMDATA): um so' campo, sem texto livre.
+             Sem a restricao `required` de proposito: quem garante o valor fechado e' o portal; uma conclusao
+             sem a variavel cai no flow default de GW_ExecucaoCadastro (analise humana), nunca num erro. -->
+        <camunda:formData>
+          <camunda:formField id="execucao_cadastro" label="Cancelamento no sistema" type="enum">
+            <camunda:value id="EXECUTADO" name="Cancelamento executado no sistema"/>
+            <camunda:value id="IMPEDIDO" name="Impedido (volta para a analise humana)"/>
+          </camunda:formField>
+        </camunda:formData>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_GW_EfetivarPedido</bpmn:incoming>
       <bpmn:incoming>Flow_GWDec_EfetivarPedido</bpmn:incoming>
       <bpmn:outgoing>Flow_UTExecucao_GW</bpmn:outgoing>
@@ -184,6 +195,17 @@ por automacao. Prazo: BT_PrazoExecucao (P5D — prazo a confirmar pelo juridico)
     <bpmn:userTask id="UT_CoordenacaoExecucaoCadastro" name="Coordenacao assume a execucao do cancelamento"
                    camunda:candidateGroups="coordenacao-contratos">
       <bpmn:documentation>Escalonamento do prazo da execucao no cadastro (BT_PrazoExecucao). Mesma saida de UT_ExecutarCancelamentoCadastro: execucao_cadastro in {EXECUTADO, IMPEDIDO}. A natureza da tarefa nao muda por estouro de prazo (execucao, nunca decisao adversa).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <!-- Formulario fechado do portal (`cancel_execucao`, BPMN_FORMDATA): um so' campo, sem texto livre.
+             Sem a restricao `required` de proposito: quem garante o valor fechado e' o portal; uma conclusao
+             sem a variavel cai no flow default de GW_ExecucaoCadastro (analise humana), nunca num erro. -->
+        <camunda:formData>
+          <camunda:formField id="execucao_cadastro" label="Cancelamento no sistema" type="enum">
+            <camunda:value id="EXECUTADO" name="Cancelamento executado no sistema"/>
+            <camunda:value id="IMPEDIDO" name="Impedido (volta para a analise humana)"/>
+          </camunda:formField>
+        </camunda:formData>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_PubExecAtrasada_UTCoordExec</bpmn:incoming>
       <bpmn:outgoing>Flow_UTCoordExec_GW</bpmn:outgoing>
     </bpmn:userTask>
