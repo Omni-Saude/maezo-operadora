@@ -23,12 +23,23 @@ A nova triagem segue o catálogo do dono (`Catalogo_Necessidades_Helena_Lucas.xl
    - **pergunta clínica com sintoma** ("o que pode ser essa dor ao urinar?") → é tratada como sintoma:
      tabela de alarme e ficha. Não escala na hora (a não ser que a tabela de alarme acuse).
    - **sintoma sem alarme** → **ficha mínima** de até **3 perguntas** (antes eram 2), por tipo de
-     queixa (aba "4 Ficha mínima"). Ficha completa → a Helena mostra o caminho com o prazo da ANS
-     (consulta básica em até 7 dias úteis) e oferece uma pessoa. Ficha esgotada → o mesmo texto,
-     **sem abrir caso**.
+     queixa (aba "4 Ficha mínima"). A ficha **não pergunta o que a pessoa já disse** ("dor nas
+     costas" não ouve "em que parte do corpo?"; "minha filha de 6 anos" ou "recém-nascida" não ouve
+     "qual a idade?"), fala do paciente como a pessoa disse ("sua filha", "seu filho", "o bebê") e,
+     se a pessoa responder outra coisa, **pergunta de novo só o que faltou** na rodada seguinte
+     ("Só para eu entender: ..."). Ficha completa → a Helena mostra o caminho com o prazo da ANS
+     (consulta básica em até 7 dias úteis) **da população**: adulto → clínico geral; criança →
+     pediatra; gestante → obstetra ou ginecologista. Ficha esgotada → o mesmo texto, **sem abrir
+     caso**.
+   - **bebê com menos de 3 meses (inclusive recém-nascido) sem alarme** no fim da ficha → **não**
+     recebe o prazo de 7 dias: recebe a oferta clara de falar agora com a equipe de saúde (sem abrir
+     caso sozinho), com pronto-atendimento/192 se piorar. **Decisão clínica pendente** (seção 7).
    - **necessidade não clara** ("preciso de ajuda") → UMA pergunta com opções (1 saúde, 2 plano,
      3 mensalidade, 4 falar com uma pessoa). Se continuar sem clareza → oferece uma pessoa, **sem
-     abrir caso**. Respondendo "4" → abre caso (pedido de pessoa).
+     abrir caso**. A resposta à oferta ("4", "4)", "opção 4", "a 4", "quatro", "falar com uma
+     pessoa"), logo depois dela ou depois do "Ainda não entendi", é decidida no código: 1 → convida a
+     contar o que sente; 2 → consulta do plano; 3 → Lucas (cobrança); **4 → abre caso** (pedido de
+     pessoa). Um número solto sem oferta recente segue o fluxo normal.
 3. **A cada mensagem da ficha**, a checagem de alarme e de risco continua valendo: "agora estou com
    dor no peito" no meio da ficha abre o caso P1 com o 192, como hoje.
 4. Quando um caso abre, o resumo que o atendente lê traz a ficha coletada.
@@ -102,7 +113,8 @@ Em emergência dá para pular o PR: `terraform apply ... -var=helena_triagem_v2=
   (`docs/runbooks/simulador-beneficiario.md`, seção do roteiro de aceite). Cenários: dúvida de saúde,
   pergunta clínica sem sintoma, "preciso ir ao médico?", dor ao urinar, filha com dor, dor nas
   costas, filho com tosse, necessidade não clara (pergunta, oferta de pessoa, opção 4), pedido de
-  pessoa e alarme no meio da ficha.
+  pessoa, alarme no meio da ficha, e a ficha que não repete o que foi dito (dor nas costas sem "em que
+  parte"; filha de 6 anos sem "qual a idade").
 - **Simulador com personas**: com a chave ligada a checagem **D13 "caso evitável"** passa a valer nas
   personas `sintoma_leve` e `duvida_saude`: caso aberto sem alarme, sem risco e sem pedido de pessoa
   conta como falha. Com a chave desligada a D13 não se aplica.
@@ -121,7 +133,8 @@ Em emergência dá para pular o PR: `terraform apply ... -var=helena_triagem_v2=
 | D09 | Pergunta de esclarecimento | Texto T11 (rascunho), uma vez por conversa (pelo histórico curto) |
 | D10 | Informação geral de saúde (S07) | Sem conteúdo aprovado: recebe o mesmo texto da R15 |
 | D11 | Prazos da RN 566 nos textos | Só o valor conferido (7 dias úteis, consulta básica) |
-| D14 | Textos novos | T05, T08, T09, T11, oferta de pessoa e perguntas da ficha: **RASCUNHO** |
+| D14 | Textos novos | T05 (adulto/criança/gestante), T08, T09, T11, oferta de pessoa, bebê pequeno e perguntas da ficha: **RASCUNHO** |
+| — (DL-0105) | Bebê com menos de 3 meses sem alarme ao fim da ficha | **Decisão clínica pendente (médico-auditor)**: oferta explícita de falar agora com a equipe de saúde, sem o prazo de 7 dias e sem abrir caso sozinho; o corte de 3 meses é do pedido do dono |
 
 Todos os textos novos estão marcados no código como "RASCUNHO — pendente de aprovação do dono"; o
 texto enviado ao beneficiário não leva essa marca.
