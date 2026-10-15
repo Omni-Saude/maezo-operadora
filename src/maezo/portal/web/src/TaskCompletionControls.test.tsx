@@ -218,3 +218,48 @@ it("dá ao texto altura de escrita, e não as duas linhas do padrão do navegado
   render(controls());
   expect(screen.getByLabelText(/Instrução \/ notas de resolução/)).toHaveAttribute("rows", "4");
 });
+
+// DL-0111: a execução do cancelamento a pedido no cadastro (`cancel_execucao`).
+function cancelCompletion(resultado = "EXECUTADO") {
+  return {
+    ...completion(resultado),
+    process_definition_key: "SP-OP-CANCEL-001",
+    task_definition_key: "UT_ExecutarCancelamentoCadastro",
+    form_key: "cancel_execucao",
+  };
+}
+
+it("cancel_execucao: dois valores fechados do contrato e nenhum campo de texto", () => {
+  render(controls({ formKey: "cancel_execucao" }));
+  expect(screen.getAllByRole("radio")).toHaveLength(2);
+  expect(screen.getByRole("radio", { name: "Cancelamento executado no sistema" })).toBeTruthy();
+  expect(screen.getByRole("radio", { name: "Impedido (volta para a análise do jurídico)" })).toBeTruthy();
+  expect(screen.queryByLabelText(/Instrução \/ notas de resolução/)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Concluir tarefa" })).toBeDisabled();
+});
+
+it("cancel_execucao: envia só execucao_cadastro e mostra o desfecho registrado", async () => {
+  const user = userEvent.setup();
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(cancelCompletion()));
+  render(controls({ formKey: "cancel_execucao" }));
+
+  await user.click(screen.getByRole("radio", { name: "Cancelamento executado no sistema" }));
+  await user.click(screen.getByRole("button", { name: "Concluir tarefa" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Tarefa concluída" })).toBeTruthy());
+  const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+  expect(JSON.parse(init.body as string)).toEqual({ execucao_cadastro: "EXECUTADO" });
+  expect(screen.getByRole("status")).toHaveTextContent("Cancelamento executado no sistema");
+});
+
+it("cancel_execucao: resposta com outro desfecho não vira sucesso", async () => {
+  const user = userEvent.setup();
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(cancelCompletion("IMPEDIDO")));
+  render(controls({ formKey: "cancel_execucao" }));
+
+  await user.click(screen.getByRole("radio", { name: "Cancelamento executado no sistema" }));
+  await user.click(screen.getByRole("button", { name: "Concluir tarefa" }));
+
+  await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+  expect(screen.queryByRole("heading", { name: "Tarefa concluída" })).not.toBeInTheDocument();
+});

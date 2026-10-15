@@ -81,6 +81,18 @@ export const taskReadBindings = [
     "source": "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"
   },
   {
+    "process": "SP-OP-CANCEL-001",
+    "task": "UT_CoordenacaoExecucaoCadastro",
+    "form": "cancel_execucao",
+    "source": "BPMN_FORMDATA"
+  },
+  {
+    "process": "SP-OP-CANCEL-001",
+    "task": "UT_ExecutarCancelamentoCadastro",
+    "form": "cancel_execucao",
+    "source": "BPMN_FORMDATA"
+  },
+  {
     "process": "SP-OP-CONTAS-001",
     "task": "UT_AnalistaContas",
     "form": "contas_decisao",
@@ -314,6 +326,9 @@ export const taskReadInputs = {
     "fundamentacao_contratual",
     "referencia_regulatoria",
     "comprovacao_notificacao_previa"
+  ],
+  "cancel_execucao": [
+    "execucao_cadastro"
   ],
   "contas_coordenacao": [
     "decisao_contas",
