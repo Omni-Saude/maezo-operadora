@@ -192,6 +192,14 @@ from maezo.tools.workers.dmn_transport import (
     first_row,
 )
 
+from .cancelamento_pf import (
+    TEXTO_DEPENDENTE,
+    TEXTO_DEPENDENTE_CURTO,
+    TEXTO_PEDIDO_JA_REGISTRADO,
+    TEXTO_PEDIDO_RECEBIDO,
+    TIPOS_PLANO_PF,
+    protocolo_do_cancelamento,
+)
 from .prompts import (
     COBRANCA_ADMINISTRADORA_TEXTO_VERSION,
     DOSSIE_TEXTO_VERSION,
@@ -453,6 +461,13 @@ class LucasState(TypedDict, total=False):
     #: Wave 2 (14/10/2026): a pessoa e' o proprio pagador PF do boleto (`True`) ou nao (`False`, dependente).
     #: Ausente quando a fonte nao sabe. O total do boleto da familia viaja em cada competencia.
     beneficiario_e_pagador: bool
+    #: DL-0111 (chave `MAEZO_CANCEL_PF_V1`): os FATOS do cancelamento apurados da AMH
+    #: (`cancelamento_pf.FatosCancelamento.como_entrada_lucas`). AUSENTES com a chave desligada ou quando a
+    #: fonte nao afirma. Fato, nunca veredito: a DMN do processo e as pessoas decidem.
+    cancelamento_titular: bool
+    cancelamento_tipo_plano: str
+    cancelamento_vinculo_ativo: bool
+    cancelamento_identidade_verificada: bool
 
     # Filled by `gather`.
     gathered: bool
@@ -591,6 +606,11 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "cobranca_administradora",
         # Wave 2 (14/10/2026): a pessoa e' (ou nao) o pagador PF do boleto (booleano da fonte).
         "beneficiario_e_pagador",
+        # DL-0111 (`MAEZO_CANCEL_PF_V1`): fatos do cancelamento da AMH (fatos, nunca veredito).
+        "cancelamento_titular",
+        "cancelamento_tipo_plano",
+        "cancelamento_vinculo_ativo",
+        "cancelamento_identidade_verificada",
     }
 )
 
@@ -2781,8 +2801,11 @@ class LucasGraph:
         agent_version: str = "lucas@v0",
         hoje: Callable[[], date] | None = None,
         limiares_atraso: LimiaresDeAtraso | None = None,
+        cancelamento_pf_v1: bool = False,
     ) -> None:
         self._llm = inference
+        # DL-0111: `MAEZO_CANCEL_PF_V1`. Desligada (o padrao), NENHUM ramo novo roda: byte a byte o de antes.
+        self._cancel_pf_v1 = cancelamento_pf_v1 is True
         # Rodada 12: quando o atraso abre caso humano (so' o critico). Padrao: 2 meses ou > 30 dias.
         self._limiares_atraso = limiares_atraso or LimiaresDeAtraso()
         # Relogio injetavel (testes): so' o texto de vencimento o le' ("vence" x "venceu").
@@ -2983,12 +3006,21 @@ class LucasGraph:
           pergunta pendente (a referencia do ultimo texto enviado) e a confirmacao do beneficiario o Lucas
           inicia SP-OP-CANCEL-001 — que decide numa User Task humana; ele NUNCA diz que o plano foi cancelado.
         - Pagador desconhecido (fonte fora): nao ha' como saber de quem e' o titulo — o caso humano de antes.
+
+        DL-0111 (`MAEZO_CANCEL_PF_V1` ligada): o tipo de contratacao da AMH tambem decide empresa/adesao, um
+        DEPENDENTE ouve que o pedido e' do titular (sem processo), e o plano individual/familiar segundo a AMH
+        conta como PF mesmo sem o pagador. Desligada, nada disto roda.
         """
-        if cobranca_administradora(state):
+        v1 = self._cancel_pf_v1
+        tipo_plano = state.get("cancelamento_tipo_plano") if v1 else None
+        if cobranca_administradora(state) or tipo_plano == "coletivo_adesao":
             return self._responder_cancelamento("administradora", dmn_refs)
-        if pagador_empresa(state):
+        if pagador_empresa(state) or tipo_plano == "coletivo_empresarial":
             return self._responder_cancelamento("empresa", dmn_refs)
-        if state.get("pagador_tipo") != "pessoa_fisica":
+        if v1 and (state.get("cancelamento_titular") is False or dependente_do_titular(state)):
+            return self._responder_cancelamento("dependente", dmn_refs)
+        pessoa_fisica = state.get("pagador_tipo") == "pessoa_fisica" or tipo_plano in TIPOS_PLANO_PF
+        if not pessoa_fisica:
             return await self._assess_escalation(state, dmn_refs, motivo="pedido_cancelamento")
         pendente = state.get("resposta_anterior_ref") == ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO)
         confirmacao = state.get("confirmacao_cancelamento")
@@ -3242,6 +3274,34 @@ class LucasGraph:
             },
         }
 
+    def _variaveis_do_cancelamento_v1(self, state: LucasState, variables: dict[str, Any]) -> dict[str, Any]:
+        """DL-0111: os fatos REAIS apurados da AMH e as chaves do aviso ao beneficiario.
+
+        - `tipo_plano`: o da AMH quando PF (`individual`/`familiar`); senao `""` (nao afirmado -> a DMN cai
+          no catch-all `ANALISE_HUMANA`, nunca em EFETIVAR_PEDIDO por omissao).
+        - `titularidade_confirmada`: titular segundo a AMH E identidade verificada no acesso (DL-0083).
+        - `vinculo_ativo`: vinculo sem data de cancelamento e situacao apta/ativa segundo a AMH.
+        - `dentro_prazo=True`: RN 412 — o pedido de cancelamento pode ser feito a qualquer tempo. A confirmar
+          pelo juridico (a DMN continua exigindo o fato; o contrato o registra como DRAFT/verify).
+        - `notificacao_previa_feita=False`: nao se aplica ao pedido do beneficiario (so' a inadimplencia).
+        - `aviso_beneficiario_whatsapp`/`agent_id`/`conversation_id`: ligam os avisos do BPMN v0.2.0, que a
+          retomada (`agent_resume`) entrega nesta conversa.
+        """
+        tipo_plano = state.get("cancelamento_tipo_plano")
+        return {
+            **variables,
+            "tipo_plano": tipo_plano if tipo_plano in TIPOS_PLANO_PF else "",
+            "titularidade_confirmada": state.get("cancelamento_titular") is True
+            and state.get("cancelamento_identidade_verificada") is True,
+            "vinculo_ativo": state.get("cancelamento_vinculo_ativo") is True,
+            # RN 412: pedido a qualquer tempo — a confirmar pelo juridico.
+            "dentro_prazo": True,
+            "notificacao_previa_feita": False,
+            "aviso_beneficiario_whatsapp": True,
+            "agent_id": AGENT_ID_LUCAS,
+            "conversation_id": str(state.get("conversation_id", "")),
+        }
+
     async def _start_cancelamento(self, state: LucasState) -> dict[str, Any]:
         """Inicia SP-OP-CANCEL-001 (pedido do beneficiario, confirmado) pelo start idempotente e auditado.
 
@@ -3278,6 +3338,8 @@ class LucasGraph:
             "data_solicitacao_iso": self._hoje().isoformat(),
             "documentos_refs": [],
         }
+        if self._cancel_pf_v1:
+            variables = self._variaveis_do_cancelamento_v1(state, variables)
         provenance = AgentDecisionProvenance(
             agent_id="lucas",
             agent_version=self._agent_version,
@@ -3290,6 +3352,12 @@ class LucasGraph:
                 "origem_solicitacao": "agente_lucas",
             },
         )
+        # DL-0111 (com a chave): so' a indisponibilidade do MOTOR vira "falhou ao iniciar". O portao de dedup
+        # nao avaliavel (`StartDedupGateUnavailableError`) e' defeito do controle e PROPAGA, alto, como
+        # no escalonamento da Helena — nunca vira "uma falha tecnica a mais" (defeito conhecido da rodada 12).
+        falhas_de_start: tuple[type[Exception], ...] = (
+            (CibSevenError,) if self._cancel_pf_v1 else (CibSevenError, StartDedupGateUnavailableError)
+        )
         try:
             instance = await start_process_idempotent(
                 self._cibseven,
@@ -3299,7 +3367,7 @@ class LucasGraph:
                 audit_sink=self._audit_sink,
                 provenance=provenance,
             )
-        except (CibSevenError, StartDedupGateUnavailableError) as exc:
+        except falhas_de_start as exc:
             return start_failed_state(business_key=business_key, error=start_unavailable_error(exc))
         return {
             "process_started": True,
@@ -3344,7 +3412,11 @@ class LucasGraph:
             return {"ack_pending": True}
 
         avisos = _avisos_do_turno(state)
-        if state.get("iniciar_cancelamento") is True:
+        if state.get("iniciar_cancelamento") is True and self._cancel_pf_v1:
+            # DL-0111: o recebimento com o PROTOCOLO (derivado do id da instancia, sem PII). Pedido repetido
+            # reencontra a instancia viva: o mesmo protocolo. Nunca "cancelado".
+            ack_text = self._texto_de_cancelamento_recebido(state)
+        elif state.get("iniciar_cancelamento") is True:
             # Rodada 12: o pedido de cancelamento entrou em SP-OP-CANCEL-001 — o que acontece a seguir, nunca
             # "cancelado". Pedido repetido (instancia ja' viva): so' que ja' esta' com a equipe.
             ack_text = (
@@ -3382,6 +3454,21 @@ class LucasGraph:
             "resposta_memoria_ref": memoria_ref,
         }
 
+    @staticmethod
+    def _texto_de_cancelamento_recebido(state: LucasState) -> str:
+        ref = state.get("process_ref") or {}
+        instance_id = ref.get("instance_id")
+        if not isinstance(instance_id, str) or not instance_id:
+            # Sem id nao ha' protocolo: o texto de antes (honesto), nunca um protocolo inventado.
+            return (
+                TEXTO_CANCELAMENTO_JA_REGISTRADO
+                if ref.get("already_existed") is True
+                else TEXTO_CANCELAMENTO_ENCAMINHADO
+            )
+        protocolo = protocolo_do_cancelamento(instance_id)
+        modelo = TEXTO_PEDIDO_JA_REGISTRADO if ref.get("already_existed") is True else TEXTO_PEDIDO_RECEBIDO
+        return modelo.format(protocolo=protocolo)
+
     async def notify_start_failure(self, state: LucasState) -> dict[str, Any]:
         """CC-01: o start FALHOU — grava o desfecho de erro e ALERTA, em vez de seguir calado.
 
@@ -3398,10 +3485,16 @@ class LucasGraph:
         business key, entao uma retentativa reencontra a instancia viva em vez de abrir
         uma segunda.
         """
+        # DL-0111 (com a chave): o aviso cita o processo que de fato falhou (antes, sempre o ESCALATION).
+        process_key = (
+            CANCEL_PROCESS_KEY
+            if self._cancel_pf_v1 and state.get("iniciar_cancelamento") is True
+            else PROCESS_KEY
+        )
         return emit_start_failure_notice(
             dict(state),
             agent_id="lucas",
-            process_key=PROCESS_KEY,
+            process_key=process_key,
             extra={"mensagem_enviada": False, "ack_pending": True, "retryable_error": True},
         )
 
@@ -3713,6 +3806,8 @@ class LucasGraph:
             "administradora": TEXTO_CANCELAMENTO_ADMINISTRADORA,
             "confirmar": TEXTO_CONFIRMA_CANCELAMENTO,
             "desistiu": TEXTO_CANCELAMENTO_DESISTIU,
+            # DL-0111 (so' com a chave): o pedido e' do titular; oferta de pessoa, sem processo.
+            "dependente": TEXTO_DEPENDENTE,
         }.get(str(resposta), TEXTO_CONFIRMA_CANCELAMENTO)
         mensagem = self._mensagem(texto, facts, VALORES_PROMPT_VERSION, state)
         if resposta == "confirmar":
@@ -3720,6 +3815,7 @@ class LucasGraph:
         curta = {
             "empresa": TEXTO_CANCELAMENTO_EMPRESA_CURTO,
             "administradora": TEXTO_CANCELAMENTO_ADMINISTRADORA_CURTO,
+            "dependente": TEXTO_DEPENDENTE_CURTO,
         }
         if str(resposta) in curta:
             mensagem["curta"] = curta[str(resposta)]
@@ -4103,6 +4199,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[LucasState]:
     agent_version = str(cfg.get("agent_version", "lucas@v0"))
     limiares = cfg.get("limiares_atraso")
     return LucasGraph(
+        # DL-0111: `MAEZO_CANCEL_PF_V1` (so' `True` literal liga; qualquer outra coisa e' desligada).
+        cancelamento_pf_v1=cfg.get("cancelamento_pf_v1") is True,
         limiares_atraso=limiares if isinstance(limiares, LimiaresDeAtraso) else None,
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),

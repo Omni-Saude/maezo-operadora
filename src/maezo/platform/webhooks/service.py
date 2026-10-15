@@ -346,6 +346,7 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
         seam_context = build_agent_seam_context(tenant=settings.tenant_id, agent_id="lucas")
         fonte: FonteCobranca = FonteCobrancaSimulada()
         amh_interop: AmhInteropComposition | None = None
+        fonte_cancelamento = None
         if settings.lucas_fonte_cobranca == "amh":
             fonte, amh_interop = _build_fonte_cobranca_amh(
                 settings,
@@ -353,6 +354,10 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
                 audit=seams.get("audit_sink"),
                 refs=dispatcher.refs_verificadas,
             )
+            if settings.cancel_pf_v1 is True:
+                fonte_cancelamento = _build_fonte_cancelamento_amh(
+                    settings, amh_interop, refs=dispatcher.refs_verificadas
+                )
         lucas_turno = LucasTurno(
             tenant_id=settings.tenant_id,
             inference=seams["inference"],
@@ -367,11 +372,16 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
             limiares_atraso=LimiaresDeAtraso(
                 meses_minimo=settings.lucas_atraso_meses_min, dias_minimo=settings.lucas_atraso_dias_min
             ),
+            # DL-0111: `MAEZO_CANCEL_PF_V1` (default desligada; desligada = o Lucas de antes byte a byte).
+            cancelamento_pf_v1=settings.cancel_pf_v1 is True,
+            fonte_cancelamento=fonte_cancelamento,
         )
         logger.warning(
             "lucas_turno_construido",
             tenant_id=settings.tenant_id,
             fonte_cobranca=settings.lucas_fonte_cobranca,
+            cancelamento_pf_v1=settings.cancel_pf_v1 is True,
+            fatos_do_cancelamento="tina" if fonte_cancelamento is not None else "billing-status",
             detail="entrada do Lucas pronta; o despachante so' a chama a partir da onda (e)",
         )
     return lucas_turno
@@ -460,6 +470,46 @@ def _build_fonte_cobranca_amh(
         fatos_de_valor=fatos_de_valor,
     )
     return fonte, interop
+
+
+def _build_fonte_cancelamento_amh(
+    settings: WhatsAppWebhookSettings,
+    interop: AmhInteropComposition,
+    *,
+    refs: RefsVerificadas | None = None,
+) -> Any:
+    """DL-0111 (`MAEZO_CANCEL_PF_V1`): os fatos do cancelamento (TINA elegibilidade) pelo MESMO resolvedor
+    da cobranca do Lucas — a ref. VERIFICADA do acesso quando ele esta' ligado (DL-0083), senao o telefone
+    (que identifica mas NAO verifica: `titularidade_confirmada` fica `false` e o pedido vai a analise
+    humana). Sem o adaptador TINA na composicao (`MAEZO_HELENA_CONSULTAS_AMH` desligada), devolve `None` e o
+    Lucas segue com o tipo de contratacao do billing-status: o pedido nunca e' efetivado sem titular."""
+    if interop.tina is None:
+        logger.warning(
+            "lucas_fonte_cancelamento_sem_tina",
+            tenant_id=settings.tenant_id,
+            detail="sem o contrato TINA o titular nao e' apurado; todo pedido vai a analise humana",
+        )
+        return None
+    from maezo.agents.lucas.cancelamento_pf import FonteCancelamentoAmh
+    from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, ResolvedorDeSujeitoAmh
+
+    resolvedor: Any = ResolvedorDeSujeitoAmh(
+        port=interop.subjects,
+        amh_tenant=interop.amh_tenant,
+        hash_scheme=interop.hash_scheme,
+        purpose_of_use=interop.purpose_of_use,
+    )
+    if refs is not None:
+        from maezo.platform.webhooks.whatsapp.acesso_ponte import ResolvedorVerificado
+
+        resolvedor = ResolvedorVerificado(refs)
+    return FonteCancelamentoAmh(
+        tina=interop.tina,
+        resolvedor=resolvedor,
+        # A mesma base legal das consultas do plano da Helena (execucao de contrato), nunca consentimento.
+        consentimento=BaseLegalExecucaoDeContrato(),
+        purpose_of_use=interop.purpose_of_use,
+    )
 
 
 def _build_helena_identidade(

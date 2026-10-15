@@ -38,6 +38,7 @@ the established convention rather than introducing a second language into this d
 | [`lembrete-cobranca.md`](lembrete-cobranca.md) | Lembrete proativo de cobranca (job agendado): quem recebe, texto fixo, dry-run, allowlist em dev, modo de teste `--simular`, template da Meta fora da janela de 24 h, PARAR, como ligar e desligar | Plataforma, dono do produto |
 | [`metricas-do-canal.md`](metricas-do-canal.md) | O coletor de metricas em dev (ECS/Cloud Map -> workspace gerenciado), os quatro numeros do canal, e a rotina semanal de leitura humana das respostas da Helena (Frente 5) | Plataforma, SRE, dono clinico |
 | [`helena-triagem-v2.md`](helena-triagem-v2.md) | Nova triagem da Helena (experimento em dev, DL-0104): a chave `MAEZO_HELENA_TRIAGEM_V2`, como ligar/desligar no dev (Terraform + apply direcionado), como desfazer de vez, como verificar (logs, roteiro `triagem_v2`, D13) e as decisoes pendentes do catalogo | Plataforma, dono do produto, medico-auditor |
+| [`cancel-001-pf.md`](cancel-001-pf.md) | Cancelamento a pedido do beneficiario pessoa fisica (dev, DL-0111): a chave `MAEZO_CANCEL_PF_V1`, o que o Lucas e o SP-OP-CANCEL-001 v0.2.0 fazem, o passo a passo de AWS/portal para ligar (processos, apply direcionado, admissao das tarefas, grupo `cadastro-beneficiarios`, usuario de teste), desligar/desfazer, testar (roteiro `cancelamento_v1`) e o atalho de teste so' dev | Plataforma, dono do produto, juridico |
 
 ## Alert runbooks
 

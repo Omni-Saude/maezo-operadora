@@ -105,7 +105,7 @@ rows:
   nome_real: ''
 - grupo_declarado: juridico-contratos
   arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
-  linha: 261
+  linha: 362
   processo: SP-OP-CANCEL-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_AnaliseRescisao
@@ -116,7 +116,7 @@ rows:
   nome_real: ''
 - grupo_declarado: gestao-contratos
   arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
-  linha: 261
+  linha: 362
   processo: SP-OP-CANCEL-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_AnaliseRescisao (co-candidate)
@@ -127,13 +127,33 @@ rows:
   nome_real: ''
 - grupo_declarado: coordenacao-contratos
   arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
-  linha: 319
+  linha: 420
   processo: SP-OP-CANCEL-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoCancelamento
   sla_ato: contrato Sec.Papeis linha 249 -- SLA de analise estourado
   proposto: true
   notas: caveat PROPOSTO contrato linha 241-243
+  nome_real: ''
+- grupo_declarado: cadastro-beneficiarios
+  arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
+  linha: 143
+  processo: SP-OP-CANCEL-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_ExecutarCancelamentoCadastro
+  sla_ato: contrato v0.2.0 Sec.Papeis -- execucao do cancelamento a pedido no Tasy (P5D, a confirmar pelo juridico)
+  proposto: true
+  notas: grupo NOVO (DL-0111, 15/10/2026, so' dev); pessoas reais ficam para a operacao
+  nome_real: ''
+- grupo_declarado: coordenacao-contratos
+  arquivo: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
+  linha: 185
+  processo: SP-OP-CANCEL-001
+  em_escopo: true
+  tarefa_ou_regra_dmn: UT_CoordenacaoExecucaoCadastro
+  sla_ato: contrato v0.2.0 Sec.Papeis -- prazo da execucao no cadastro estourado
+  proposto: true
+  notas: DL-0111; mesmo grupo de UT_CoordenacaoCancelamento
   nome_real: ''
 - grupo_declarado: auditoria-contas
   arquivo: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn

@@ -71,6 +71,9 @@ class Passo:
 class Segmento:
     nome: str
     passos: tuple[Passo, ...]
+    #: Criterio "RESOLVEU?" do segmento em linguagem do dono (DL-0111). Vazio = nao declarado. O veredito
+    #: e' o dos passos: SIM so' com todos aprovados; o texto diz O QUE foi conferido.
+    resolveu: str = ""
 
 
 @dataclass
@@ -214,7 +217,14 @@ def segmento_sem_preparo(segmento: Segmento, erro: str) -> list[ResultadoDoPasso
 # ================================================================================================
 # Saida (mascarada)
 # ================================================================================================
-def como_json(resultados: Sequence[ResultadoDoSegmento], sujeito: Sujeito) -> dict[str, Any]:
+def como_json(
+    resultados: Sequence[ResultadoDoSegmento],
+    sujeito: Sujeito,
+    *,
+    criterios: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """`criterios` (DL-0111): o "RESOLVEU?" declarado por segmento (`Segmento.resolveu`), por nome."""
+    criterios = criterios or {}
     m = Mascarador(sujeito)
     passos_total = sum(len(s.passos) for s in resultados)
     passos_ok = sum(1 for s in resultados for p in s.passos if p.passou)
@@ -226,6 +236,7 @@ def como_json(resultados: Sequence[ResultadoDoSegmento], sujeito: Sujeito) -> di
             {
                 "nome": s.nome,
                 "passou": s.passou,
+                **({"resolveu": criterios[s.nome]} if criterios.get(s.nome) else {}),
                 "erro_preparo": s.erro_preparo,
                 "falhas_de_acesso": s.falhas_de_acesso,
                 "passos": [
@@ -255,6 +266,8 @@ def secao_do_relatorio(dados: dict[str, Any], roteiro: str) -> str:
     ]
     for seg in dados["segmentos"]:
         linhas += [f"### Segmento {seg['nome']} — {'ok' if seg['passou'] else 'FALHOU'}", ""]
+        if seg.get("resolveu"):
+            linhas += [f"**RESOLVEU? {'SIM' if seg['passou'] else 'NAO'}** — {seg['resolveu']}", ""]
         if seg["erro_preparo"]:
             linhas += [f"Acesso nao concluiu: `{seg['erro_preparo']}`", ""]
         linhas += [f"Falha no fecho do acesso: {f}" for f in seg["falhas_de_acesso"]]
@@ -636,7 +649,101 @@ TRIAGEM_V2: tuple[Segmento, ...] = (
     ),
 )
 
-ROTEIROS: dict[str, tuple[Segmento, ...]] = {"dono_v1": DONO_V1, "triagem_v2": TRIAGEM_V2}
+# ================================================================================================
+# Roteiro `cancelamento_v1` (DL-0111, chave MAEZO_CANCEL_PF_V1 ligada no ambiente)
+# ================================================================================================
+#: O protocolo do pedido (`cancelamento_pf.protocolo_do_cancelamento`), no texto sem acento e minusculo.
+_PROTOCOLO_CAN = r"protocolo:? can-[0-9a-f]{4}-[0-9a-f]{4}"
+#: O que NUNCA pode sair no pedido: dizer que ja' cancelou, ameaca, retencao, cobranca de multa.
+_NAO_PODE_NO_PEDIDO: tuple[str, ...] = (
+    r"(foi|esta|ficou|sera) cancelad",
+    "cancelamos",
+    "(multa|suspens|negativ)",
+    "(promocao|desconto|nao va embora)",
+)
+_PERGUNTA_UNICA = "sim, quero cancelar"
+
+#: O beneficiario do roteiro: TITULAR de plano INDIVIDUAL/FAMILIAR (nao o dono, cujo contrato e' de empresa).
+#: O `__main__` usa o primeiro beneficiario do roster que resolveu na AMH e NAO e' o dono — o roster deste
+#: roteiro e' montado com `roster_cancelamento_pf.sql` (so' titulares PF). NENHUM cancelamento real
+#: acontece: o interceptador finge SP-OP-CANCEL-001 e a limpeza confere o motor real no fim.
+SUJEITO_PF_TITULAR = "pf_titular"
+
+CANCELAMENTO_V1: tuple[Segmento, ...] = (
+    Segmento(
+        "1-titular-pf-pede-cancelamento",
+        (
+            _p(
+                "Quero cancelar o meu plano",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PERGUNTA_UNICA,),
+                nao_deve=(_PROTOCOLO_CAN, *_NAO_PODE_NO_PEDIDO),
+            ),
+            _p(
+                "Sim, quero cancelar",
+                agente="lucas",
+                escalacao="cancelamento",
+                deve=(
+                    "recebemos o seu pedido de cancelamento",
+                    _PROTOCOLO_CAN,
+                    "concluir o pedido",
+                    "confirmacao",
+                ),
+                nao_deve=_NAO_PODE_NO_PEDIDO,
+            ),
+            # Pedido repetido: a mesma instancia (o mesmo protocolo), nenhum caso novo.
+            _p(
+                "Quero cancelar o meu plano",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PERGUNTA_UNICA,),
+                nao_deve=_NAO_PODE_NO_PEDIDO,
+            ),
+            _p(
+                "Sim, quero cancelar",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("ja esta com a nossa equipe", _PROTOCOLO_CAN),
+                nao_deve=_NAO_PODE_NO_PEDIDO,
+            ),
+        ),
+        resolveu=(
+            "o titular PF recebeu UMA pergunta de confirmacao e, confirmado, o recebimento com protocolo "
+            "(CAN-XXXX-XXXX) e o proximo passo (a equipe conclui e ele recebe a confirmacao); o pedido "
+            "repetido devolveu o mesmo caso; nenhum texto disse que o plano ja' foi cancelado, ameacou ou "
+            "tentou reter"
+        ),
+    ),
+    Segmento(
+        "2-titular-pf-desiste",
+        (
+            _p(
+                "Quero cancelar o meu plano",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PERGUNTA_UNICA,),
+                nao_deve=_NAO_PODE_NO_PEDIDO,
+            ),
+            _p(
+                "Não, deixa pra lá",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("nao vou registrar",),
+                nao_deve=(_PROTOCOLO_CAN, *_NAO_PODE_NO_PEDIDO),
+            ),
+        ),
+        resolveu="quem desistiu nao abriu pedido nem recebeu protocolo",
+    ),
+)
+
+ROTEIROS: dict[str, tuple[Segmento, ...]] = {
+    "dono_v1": DONO_V1,
+    "triagem_v2": TRIAGEM_V2,
+    "cancelamento_v1": CANCELAMENTO_V1,
+}
+#: Quem conversa em cada roteiro. Ausente = o dono (primeira linha do roster), como sempre.
+SUJEITO_DO_ROTEIRO: dict[str, str] = {"cancelamento_v1": SUJEITO_PF_TITULAR}
 
 
 def validar(roteiro: Sequence[Segmento]) -> None:
@@ -689,6 +796,9 @@ def conferir_apresentacao(turnos: Sequence[Turno]) -> list[str]:
 
 
 __all__ = [
+    "CANCELAMENTO_V1",
+    "SUJEITO_DO_ROTEIRO",
+    "SUJEITO_PF_TITULAR",
     "DONO_V1",
     "TRIAGEM_V2",
     "ESCALACAO_NENHUMA",

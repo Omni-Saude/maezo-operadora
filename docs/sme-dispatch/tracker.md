@@ -22,7 +22,7 @@ here.
 | 2 | SP-OP-ANS-CRON-001 | DRAFT (v0.2.0) | REG, PO | owner action — due 2026-09-19 | none | 0 | no |
 | 3 | SP-OP-ANS-SUBMIT-001 | DRAFT (v0.1.0) | JU, REG, DPO, PO | owner action — due 2026-09-19 | none | 0 | no |
 | 4 | SP-OP-AUTH-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | owner action — due 2026-09-19 | none | 0 | no |
-| 5 | SP-OP-CANCEL-001 | DRAFT (v0.1.0) | JU, REG, DPO, PO | owner action — due 2026-09-19 | none | 0 | no |
+| 5 | SP-OP-CANCEL-001 | DRAFT (v0.2.0) | JU, REG, DPO, PO | owner action — due 2026-09-19 | none | 0 | no |
 | 6 | SP-OP-CONTAS-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | owner action — due 2026-09-19 | none | 0 | no |
 | 7 | SP-OP-CRED-001 | DRAFT (v0.1.0) | MA (secondary), JU, REG, PO | owner action — due 2026-09-19 | none | 0 | no |
 | 8 | SP-OP-ESCALATION-001 | **FINAL (v1.0.0)** | MA, REG, PO (retro-verification) | owner action — due 2026-09-19 | none | 0 | **NO — see flag below** |

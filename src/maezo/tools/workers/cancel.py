@@ -148,6 +148,10 @@ class CancelEffectuationResult:
     member_request_effectuated: bool = False
     numero_contrato: str = ""
     matricula_beneficiario: str = ""
+    #: v0.2.0 (DL-0111): a data de EFEITO do cancelamento a pedido = a data do pedido (RN 412: efeito a
+    #: partir da ciencia da operadora — a confirmar pelo juridico). E' a data que o aviso ao beneficiario
+    #: cita ("cancelado a partir de DD/MM/AAAA").
+    data_efeito_iso: str = ""
 
 
 @dataclass
@@ -345,6 +349,11 @@ def effectuate_member_request(input_data: CancelInput) -> CancelEffectuationResu
     inadimplencia/for_cause_operadora/fraude_referida can never reach this worker via
     decisao_cancelamento, mirroring GW_Manter's tipo_solicitacao gate). NUNCA rescinde for-cause;
     NUNCA produz negativa do pedido. TASY write DROP (ADR-0013) — consumes CDC, never writes back.
+
+    v0.2.0 (DL-0111): este passo so' roda DEPOIS que a pessoa do cadastro concluiu
+    `UT_ExecutarCancelamentoCadastro` com `execucao_cadastro=EXECUTADO` (o cancelamento foi executado
+    no Tasy por ela, nao pelo Maezo). Ele REGISTRA o fato e grava `data_efeito_iso`: a data do pedido
+    (`data_solicitacao_iso`, RN 412 — a confirmar pelo juridico); sem data valida no pedido, a de hoje.
     """
     logger.info(
         "cancel.effectuate_member_request.start",
@@ -355,6 +364,7 @@ def effectuate_member_request(input_data: CancelInput) -> CancelEffectuationResu
         member_request_effectuated=True,
         numero_contrato=input_data.numero_contrato,
         matricula_beneficiario=input_data.matricula_beneficiario,
+        data_efeito_iso=_data_iso_ou_hoje(input_data.data_solicitacao_iso),
     )
     logger.info(
         "cancel.effectuate_member_request.complete",
@@ -593,6 +603,18 @@ def _current_date_iso() -> str:
     import time
 
     return time.strftime("%Y-%m-%d")
+
+
+def _data_iso_ou_hoje(valor: object) -> str:
+    """`AAAA-MM-DD` valida como veio; qualquer outra forma (ausente, texto, data impossivel) -> hoje."""
+    from datetime import date
+
+    if isinstance(valor, str):
+        try:
+            return date.fromisoformat(valor.strip()).isoformat()
+        except ValueError:
+            pass
+    return _current_date_iso()
 
 
 # ---------------------------------------------------------------------------

@@ -63,6 +63,8 @@ logger = structlog.get_logger(__name__)
 PROCESSO_ESCALONAMENTO = "SP-OP-ESCALATION-001"
 #: Rodada 12: o pedido de cancelamento confirmado pelo beneficiario PF (Lucas) tambem e' interceptado.
 PROCESSO_CANCELAMENTO = "SP-OP-CANCEL-001"
+#: DL-0111: o marcador gravado nas instancias de cancelamento fingidas (`instancia_de_teste=True`).
+MARCADOR_DE_TESTE = "SIMULADOR-QA"
 #: A faixa sintetica (a mesma de `mcp_whatsapp.server.FAIXA_SINTETICA`; repetida porque este pacote
 #: nao importa o cliente da Meta). A captura recusa qualquer destino fora dela.
 FAIXA_SINTETICA = re.compile(r"^5511900000\d{3}$")
@@ -162,6 +164,9 @@ class RegistroDeEscalonamentos:
     _por_chave: dict[str, _InstanciaSimulada] = field(default_factory=dict)
     _sequencia: Iterator[int] = field(default_factory=lambda: itertools.count(1))
     total: int = 0
+    #: DL-0111: TODA chave `CANCEL-...` que o interceptador fingiu abrir nesta execucao (nao some com
+    #: `esquecer`): a limpeza pergunta por elas ao motor REAL no fim — tem de ser zero instancia viva.
+    cancelamentos_registrados: set[str] = field(default_factory=set)
 
     def ativa(self, business_key: str) -> ProcessInstance | None:
         achada = self._por_chave.get(business_key)
@@ -191,6 +196,8 @@ class RegistroDeEscalonamentos:
         )
         self._por_chave[business_key] = _InstanciaSimulada(instancia, dict(variaveis))
         self.total += 1
+        if process_key == PROCESSO_CANCELAMENTO:
+            self.cancelamentos_registrados.add(business_key)
         return instancia
 
     def esquecer(self, tenant_id: str, conversation_id: str) -> None:
@@ -225,6 +232,18 @@ class InterceptorDeEscalonamento:
         return achada
 
     async def find_any_instance(self, business_key: str, *, process_key: str = "") -> ProcessInstance | None:
+        if business_key.startswith("CANCEL-") and self._registro.ativa(business_key) is None:
+            # DL-0111: SP-OP-CANCEL-001 e' EXCLUSIVE no portao de dedup (`transport.py`). A reivindicacao
+            # duravel de uma execucao ANTERIOR do simulador continua no Postgres, mas o caso fingido dela
+            # sumiu com o registro: sem esta resposta o portao veria "reivindicacao sem instancia" e
+            # travaria o turno. Para o simulador, a geracao anterior ENCERROU (nenhuma instancia real
+            # jamais existiu) — o portao segue para o start, que este interceptador tambem finge.
+            return ProcessInstance(
+                instance_id="simulador-geracao-encerrada",
+                process_key=PROCESSO_CANCELAMENTO,
+                business_key=business_key,
+                state="COMPLETED",
+            )
         if _e_chave_de_escalonamento(business_key):
             return self._registro.ativa(business_key)
         achada: ProcessInstance | None = await self._inner.find_any_instance(
@@ -245,6 +264,10 @@ class InterceptorDeEscalonamento:
         if not (e_cancelamento or e_escalonamento):
             # Nenhum processo real nasce de conversa simulada: a recusa vira o caminho de falha do agente.
             raise CibSevenError("simulador: inicio de processo real recusado")
+        if e_cancelamento:
+            # DL-0111: o pedido de cancelamento simulado leva o MARCADOR DE TESTE (nunca chega ao motor: o
+            # interceptador e' a unica porta; o marcador e' para o registro e o relatorio dizerem o que e').
+            variables = {**variables, "instancia_de_teste": True, "marcador_teste": MARCADOR_DE_TESTE}
         instancia = self._registro.registrar(business_key, variables, process_key)
         contexto = _CONTEXTO.get()
         if contexto is not None:

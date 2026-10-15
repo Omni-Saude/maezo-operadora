@@ -854,6 +854,26 @@ variable "lucas_consulta_valores" {
   }
 }
 
+variable "cancel_pf_v1" {
+  description = <<-EOT
+    Cancelamento a pedido do beneficiario PESSOA FISICA (DL-0111, SP-OP-CANCEL-001 v0.2.0):
+    `MAEZO_CANCEL_PF_V1`. Default `false` = o Lucas de antes, byte a byte (o pedido abre o processo com
+    fatos `false` e tudo vai a analise humana). Ligada, o Lucas le' os fatos nos contratos AMH ja' pinados
+    (TINA elegibilidade + billing-status), dependente nao abre o processo, o titular PF abre com os fatos
+    reais e recebe o protocolo, e o processo devolve o resultado pela retomada. Aprovado pelo dono em
+    15/10/2026 SO' para dev; revisao juridica/regulatoria, DPO e operacao antes de producao. Exige
+    `lucas_fonte_cobranca = "amh"` (validado aqui). Runbook: docs/runbooks/cancel-001-pf.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.cancel_pf_v1 || var.lucas_fonte_cobranca == "amh"
+    error_message = "cancel_pf_v1 exige lucas_fonte_cobranca = \"amh\" (os fatos do cancelamento vem dos contratos da AMH)."
+  }
+}
+
 variable "acesso_validade_horas" {
   description = "Validade, em horas, da verificacao de identidade do acesso (`MAEZO_ACESSO_VALIDADE_HORAS`, 1..168). Vencida, a proxima mensagem recomeca no CPF (o consentimento fica)."
   type        = number
