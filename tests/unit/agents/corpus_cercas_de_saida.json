@@ -2421,7 +2421,7 @@
       }
     },
     {
-      "texto": "Para eu te ajudar melhor, me diga sobre o que é a sua mensagem:\n1) um sintoma ou dúvida de saúde\n2) o plano (cobertura, carteirinha, autorização)\n3) mensalidade ou boleto\n4) falar com uma pessoa\nPode responder com o número.",
+      "texto": "Para te ajudar melhor, sua mensagem é sobre:\n1) um sintoma ou dúvida de saúde.\n2) o plano (cobertura, carteirinha, autorização).\n3) mensalidade ou boleto.\n4) falar com uma pessoa.\nPode responder com o número.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ESCLARECER (T11)",

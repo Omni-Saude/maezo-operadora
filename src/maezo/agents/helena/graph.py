@@ -3966,6 +3966,10 @@ def _inform_recusado(estado: Mapping[str, Any]) -> str | None:
     return None
 
 
+#: NOVA TRIAGEM (DL-0104): o token de erro quando a tabela nova responde fora do vocabulario fechado.
+ERRO_TRIAGEM_V2_FORA_DO_VOCABULARIO: str = f"{TRIAGEM_V2_DMN_KEY}: saida fora do vocabulario"
+
+
 def _entrada_de_suficiencia(update: Mapping[str, Any], rodadas: int) -> dict[str, Any]:
     """As entradas de `triage_sufficiency` (FATOS sobre o que foi apurado, nunca o texto). Extraida de
     `_avaliar_suficiencia` sem mudar uma linha (DL-0104), para a ficha da nova triagem consultar a MESMA
@@ -5531,8 +5535,14 @@ class HelenaGraph:
             rows, version = await self._dmn.evaluate(TRIAGEM_V2_DMN_KEY, entrada)
             row = first_row(rows, TRIAGEM_V2_DMN_KEY, entrada)
             decisao, motivo, severidade, texto_id = ler_linha(row)
-        except (DmnEvaluationError, DmnNoResultError, SaidaInvalidaError) as exc:
-            return self._triagem_v2_falhou(update, necessidade, exc)
+        except (DmnEvaluationError, DmnNoResultError) as exc:
+            # O erro e' montado AQUI pelo helper sancionado (token de classe, nunca o texto cru da excecao;
+            # cerca LUC-06/NEW-01) e so' a string segue para o fallback.
+            return self._triagem_v2_falhou(
+                update, necessidade, dmn_unavailable_error(TRIAGEM_V2_DMN_KEY, exc)
+            )
+        except SaidaInvalidaError:
+            return self._triagem_v2_falhou(update, necessidade, ERRO_TRIAGEM_V2_FORA_DO_VOCABULARIO)
         logger.info(
             "helena_triagem_v2_decisao",
             node="classify",
@@ -5556,9 +5566,7 @@ class HelenaGraph:
             pergunta = ficha["pergunta"]
             if not (necessidade in NECESSIDADES_DE_SINTOMA and isinstance(pergunta, str) and pergunta):
                 # A tabela mandou perguntar, mas a ficha nao tem pergunta: estado injustificado -> humano.
-                return self._triagem_v2_falhou(
-                    update, necessidade, SaidaInvalidaError("perguntar sem pergunta")
-                )
+                return self._triagem_v2_falhou(update, necessidade, ERRO_TRIAGEM_V2_FORA_DO_VOCABULARIO)
             update.update(
                 {
                     "coleta_veredito": COLETA_VEREDITO_PERGUNTAR_MAIS,
@@ -5590,16 +5598,13 @@ class HelenaGraph:
         return _rota_informativa(update)
 
     @staticmethod
-    def _triagem_v2_falhou(update: dict[str, Any], necessidade: str, exc: Exception) -> dict[str, Any]:
+    def _triagem_v2_falhou(update: dict[str, Any], necessidade: str, erro: str) -> dict[str, Any]:
         """FALLBACK SEGURO quando a tabela nova nao responde (ou responde fora do vocabulario): o
         comportamento de falha de hoje, nunca silencio. Assunto de SAUDE -> `falha_tecnica` (humano), com a
-        severidade derivada da intensidade; necessidade nao clara -> pedir para a pessoa mandar de novo."""
-        logger.warning(
-            "helena_triagem_v2_tabela_indisponivel",
-            node="classify",
-            necessidade=necessidade,
-            classe=type(exc).__name__,
-        )
+        severidade derivada da intensidade; necessidade nao clara -> pedir para a pessoa mandar de novo.
+
+        `erro` ja' chega como TOKEN montado no `except` de quem chamou (nunca a excecao)."""
+        logger.warning("helena_triagem_v2_tabela_indisponivel", node="classify", necessidade=necessidade)
         if necessidade == NECESSIDADE_NAO_CLARA and not update.get("sintoma_codigo"):
             update["intent"] = "information"
             update["response_text"] = RESPOSTA_PECA_REENVIO
@@ -5608,10 +5613,7 @@ class HelenaGraph:
         update["next_kind"] = "escalate"
         update["escalation_motivo"] = "falha_tecnica"
         update["escalation_severidade"] = _severidade_de_intensidade(update.get("intensidade"))
-        if isinstance(exc, SaidaInvalidaError):
-            update["error"] = f"{TRIAGEM_V2_DMN_KEY}: saida fora do vocabulario"
-        else:
-            update["error"] = dmn_unavailable_error(TRIAGEM_V2_DMN_KEY, exc)
+        update["error"] = erro
         return update
 
     async def _ficha_v2(self, state: HelenaState, update: dict[str, Any]) -> dict[str, Any]:

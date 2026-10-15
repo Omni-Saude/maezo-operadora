@@ -139,11 +139,11 @@ RESPOSTA_TRIAGEM_EXAME_RECEITA: Final[str] = (
 #: T11 — pergunta de esclarecimento com opcoes (R23). RASCUNHO — pendente de aprovacao do dono (D09).
 #: Em lista (uma opcao por linha) para caber na regua de CLAREZA.
 RESPOSTA_TRIAGEM_ESCLARECER: Final[str] = (
-    "Para eu te ajudar melhor, me diga sobre o que é a sua mensagem:\n"
-    "1) um sintoma ou dúvida de saúde\n"
-    "2) o plano (cobertura, carteirinha, autorização)\n"
-    "3) mensalidade ou boleto\n"
-    "4) falar com uma pessoa\n"
+    "Para te ajudar melhor, sua mensagem é sobre:\n"
+    "1) um sintoma ou dúvida de saúde.\n"
+    "2) o plano (cobertura, carteirinha, autorização).\n"
+    "3) mensalidade ou boleto.\n"
+    "4) falar com uma pessoa.\n"
     "Pode responder com o número."
 )
 #: Catch-all (R24 com a divergencia do experimento): oferecer uma pessoa, sem abrir caso.
