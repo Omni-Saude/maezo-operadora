@@ -1,4 +1,4 @@
-# Test spec — SP-OP-CANCEL-001 (DRAFT — acompanha o processo)
+# Test spec — SP-OP-CANCEL-001 (DRAFT v0.2.0 — acompanha o processo)
 
 Stubs de integracao (pytest, marker `integration`) contra **CIB Seven real** (doutrina
 "nunca mockar o engine" — Phase 0/1). Arquivo alvo:
@@ -124,11 +124,13 @@ lote/origem `TESTE`. Business key `CANCEL-amh-CONTRATO-TESTE-0001`.
 - **Given** `tipo_solicitacao=pedido_beneficiario`, `tipo_plano=individual`,
   `titularidade_confirmada=true`, `dentro_prazo=true`
 - **When** instancia percorre
-- **Then** DMN `cancel_admissibility` retorna `EFETIVAR_PEDIDO`;
-  `operadora.cancel.effectuate_member_request` executado; `cancel.completed` com
-  `desfecho=cancelado_beneficiario`; fim `End_CanceladoBeneficiario`; **NENHUMA User Task
-  adversa criada** (direito do titular). `operadora.cancel.send_cancellation_notice` NUNCA
-  invocado.
+- **Then** DMN `cancel_admissibility` retorna `EFETIVAR_PEDIDO`; **v0.2.0:** abre SO'
+  `UT_ExecutarCancelamentoCadastro` (`cadastro-beneficiarios`) — **NENHUMA User Task adversa**
+  (direito do titular) e nada efetivado antes dela; concluida com `execucao_cadastro=EXECUTADO`,
+  `operadora.cancel.effectuate_member_request` executado e grava `data_efeito_iso` = data do pedido;
+  `cancel.completed` com `desfecho=cancelado_beneficiario`; fim `End_CanceladoBeneficiario`; sem
+  `aviso_beneficiario_whatsapp`, nenhum `agents.events.process_completed`.
+  `operadora.cancel.send_cancellation_notice` NUNCA invocado.
 
 ### test_happy_path_rescisao_pela_operadora_humano
 - **Given** `tipo_solicitacao=inadimplencia`, `notificacao_previa_feita=true` ->
@@ -224,3 +226,46 @@ lote/origem `TESTE`. Business key `CANCEL-amh-CONTRATO-TESTE-0001`.
 - **Then** `agents.events.cancel.completed` publicado com `payload.desfecho` correspondente
   ANTES do fim (auditoria dupla); para os tres terminais adversos, o payload carrega
   `responsavel_id`.
+
+## v0.2.0 (DL-0111) — execucao no cadastro e retorno ao beneficiario
+
+Aprovado pelo dono em 15/10/2026 para uso em dev; revisao juridica/regulatoria (RN 593/RN 412), DPO e
+operacao antes de producao. As variaveis do Lucas (`aviso_beneficiario_whatsapp=true`, `agent_id=lucas`,
+`conversation_id` keyed sintetico) so' existem nas instancias abertas com `MAEZO_CANCEL_PF_V1` ligada.
+
+### test_v020_execucao_impedida_volta_para_analise_humana
+- **Given** pedido PF titular -> `UT_ExecutarCancelamentoCadastro`
+- **When** cadastro conclui `execucao_cadastro=IMPEDIDO`
+- **Then** `UT_AnaliseRescisao` (juridico) reabre; nenhum terminal; nada efetivado; L0 intacto.
+
+### test_v020_conclusao_sem_variavel_cai_no_default_humano
+- **When** a execucao e' concluida SEM `execucao_cadastro`
+- **Then** flow default -> analise humana (sem erro de expressao, sem efetivacao).
+
+### test_v020_prazo_da_execucao_coordenacao_assume_e_executa
+- **When** `BT_PrazoExecucao` (P5D, a confirmar pelo juridico) dispara
+- **Then** `cancel.sla_breached` com `fase=execucao_cadastro`; `UT_ExecutarCancelamentoCadastro`
+  cancelada; `UT_CoordenacaoExecucaoCadastro` (`coordenacao-contratos`) aberta; concluida
+  `EXECUTADO` -> `End_CanceladoBeneficiario`.
+
+### test_v020_aviso_ao_beneficiario_quando_executado
+- **Given** instancia do Lucas (aviso ligado)
+- **Then** nenhum aviso antes da execucao humana; depois de `EXECUTADO`, UM
+  `agents.events.process_completed` com `resultado=cancelamento_executado`, `agent_id=lucas`,
+  `conversation_id`, `tenant_id`, `_business_key`, `_process_instance_id` — e NENHUMA chave de
+  `PHI_PROCESS_VARS`.
+
+### test_v020_juridico_efetiva_pedido_vai_para_execucao_no_cadastro
+- **Given** fatos nao confirmados -> `UT_AnaliseRescisao`
+- **When** juridico decide `EFETIVAR_PEDIDO`
+- **Then** abre `UT_ExecutarCancelamentoCadastro`; nada efetivado ainda.
+
+### test_v020_aviso_de_informacao_solicitada_e_o_caso_segue_esperando
+- **When** juridico decide `SOLICITAR_INFO` numa instancia do Lucas
+- **Then** UM aviso `resultado=cancelamento_info_solicitada`; instancia ATIVA esperando
+  `msg.cancel.info_received`; a correlacao reabre `UT_AnaliseRescisao`.
+
+### test_v020_aviso_de_plano_mantido_so_depois_da_decisao_humana
+- **When** juridico decide `MANTER` (com fundamentacao) num pedido do Lucas
+- **Then** `End_PedidoCancelamentoNegado` SO' depois da UT humana e do guard
+  `confirm_maintained_decision`; UM aviso `resultado=cancelamento_mantido`; L0 intacto.

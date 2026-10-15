@@ -27,3 +27,9 @@ lucas_fonte_cobranca = "amh" // ligada em 07/10/2026 (pin v1.1 #679); voltar: "s
 // acesso_beneficiario=true e fonte amh (validacao no Terraform). Ligado em dev em 09/10/2026 pelo
 // diretor; registrado aqui para uma promocao da main nao desligar. Voltar: false.
 lucas_consulta_valores = true
+
+// Cancelamento a pedido PESSOA FISICA (DL-0111, SP-OP-CANCEL-001 v0.2.0): o Lucas abre o processo com os fatos
+// reais da AMH e o processo devolve o resultado ao beneficiario. Aprovado pelo dono em 15/10/2026 SO' para dev
+// (revisao juridica/regulatoria, DPO e operacao antes de producao). Exige lucas_fonte_cobranca = "amh".
+// Voltar: false (runbook docs/runbooks/cancel-001-pf.md).
+cancel_pf_v1 = true

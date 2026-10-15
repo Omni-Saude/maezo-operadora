@@ -464,7 +464,8 @@
               "ans_coordenacao",
               "ans_pendencia",
               "ans_nack",
-              "suppression_encarregado"
+              "suppression_encarregado",
+              "cancel_execucao"
             ],
             "title": "Form Key",
             "type": "string"
@@ -1047,7 +1048,8 @@
               "ans_coordenacao",
               "ans_pendencia",
               "ans_nack",
-              "suppression_encarregado"
+              "suppression_encarregado",
+              "cancel_execucao"
             ],
             "title": "Form Key",
             "type": "string"
@@ -1070,6 +1072,7 @@
                 "auth_junta": "#/components/schemas/AuthJuntaInputs",
                 "auth_pendencia": "#/components/schemas/AuthPendingInputs",
                 "cancel_decisao": "#/components/schemas/CancelDecisionInputs",
+                "cancel_execucao": "#/components/schemas/CancelExecucaoInputs",
                 "contas_coordenacao": "#/components/schemas/ContasCoordinationInputs",
                 "contas_decisao": "#/components/schemas/ContasDecisionInputs",
                 "cred_cred": "#/components/schemas/CredCredentialingInputs",
@@ -1134,6 +1137,9 @@
               },
               {
                 "$ref": "#/components/schemas/CancelDecisionInputs"
+              },
+              {
+                "$ref": "#/components/schemas/CancelExecucaoInputs"
               },
               {
                 "$ref": "#/components/schemas/InadDecisionInputs"
@@ -1323,6 +1329,31 @@
           "decisao_cancelamento"
         ],
         "title": "CancelDecisionInputs",
+        "type": "object"
+      },
+      "CancelExecucaoInputs": {
+        "additionalProperties": false,
+        "description": "CANCEL v0.2.0 execution task (DL-0111), shared by the registry task and its SLA coordination.\n\nSP-OP-CANCEL-001 v0.2.0 ``UT_ExecutarCancelamentoCadastro``/``UT_CoordenacaoExecucaoCadastro``\ndeclare ONE closed ``camunda:formField`` (``execucao_cadastro``). This is EXECUTION of a right\nalready recognised (the member's own request), never a decision against the member: ``IMPEDIDO``\nsends the case back to the human legal analysis, it neither denies nor maintains anything.",
+        "properties": {
+          "execucao_cadastro": {
+            "enum": [
+              "EXECUTADO",
+              "IMPEDIDO"
+            ],
+            "title": "Execucao Cadastro",
+            "type": "string"
+          },
+          "kind": {
+            "const": "cancel_execucao",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "execucao_cadastro"
+        ],
+        "title": "CancelExecucaoInputs",
         "type": "object"
       },
       "CaseDetail": {
@@ -1851,7 +1882,8 @@
               "ans_coordenacao",
               "ans_pendencia",
               "ans_nack",
-              "suppression_encarregado"
+              "suppression_encarregado",
+              "cancel_execucao"
             ],
             "title": "Form Key",
             "type": "string"
@@ -2736,7 +2768,8 @@
                 "dataset_complete",
                 "schema_valid",
                 "lgpd_anonimizado",
-                "decisao_nack"
+                "decisao_nack",
+                "execucao_cadastro"
               ],
               "type": "string"
             },
@@ -2827,7 +2860,8 @@
               "ans_coordenacao",
               "ans_pendencia",
               "ans_nack",
-              "suppression_encarregado"
+              "suppression_encarregado",
+              "cancel_execucao"
             ],
             "title": "Form Key",
             "type": "string"
@@ -3449,7 +3483,8 @@
               "ans_coordenacao",
               "ans_pendencia",
               "ans_nack",
-              "suppression_encarregado"
+              "suppression_encarregado",
+              "cancel_execucao"
             ],
             "title": "Form Key",
             "type": "string"
@@ -3724,7 +3759,8 @@
               "ans_coordenacao",
               "ans_pendencia",
               "ans_nack",
-              "suppression_encarregado"
+              "suppression_encarregado",
+              "cancel_execucao"
             ],
             "title": "Form Key",
             "type": "string"
@@ -5808,7 +5844,8 @@
                 "dataset_complete",
                 "schema_valid",
                 "lgpd_anonimizado",
-                "decisao_nack"
+                "decisao_nack",
+                "execucao_cadastro"
               ],
               "type": "string"
             },
@@ -5899,7 +5936,8 @@
               "ans_coordenacao",
               "ans_pendencia",
               "ans_nack",
-              "suppression_encarregado"
+              "suppression_encarregado",
+              "cancel_execucao"
             ],
             "title": "Form Key",
             "type": "string"
@@ -6523,7 +6561,8 @@
               "ans_coordenacao",
               "ans_pendencia",
               "ans_nack",
-              "suppression_encarregado"
+              "suppression_encarregado",
+              "cancel_execucao"
             ],
             "title": "Form Key",
             "type": "string"
@@ -7050,7 +7089,8 @@
               "ans_coordenacao",
               "ans_pendencia",
               "ans_nack",
-              "suppression_encarregado"
+              "suppression_encarregado",
+              "cancel_execucao"
             ],
             "title": "Form Key",
             "type": "string"

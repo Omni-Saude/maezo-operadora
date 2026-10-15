@@ -66,6 +66,12 @@ from typing import Any, Final, Protocol
 
 import structlog
 
+from maezo.agents.lucas.cancelamento_pf import (
+    FatosCancelamento,
+    FatosIndisponiveis,
+    FonteCancelamento,
+    tipo_plano_do_billing,
+)
 from maezo.agents.lucas.fonte_cobranca import FatosCobranca, FonteCobranca
 from maezo.agents.lucas.graph import (
     LucasState,
@@ -288,10 +294,16 @@ def exigir_zona_geral(agent_id: str) -> None:
 
 
 def entrada_do_lucas(
-    handoff: HandoffValidado, conversa: ConversaDoTurno, *, tenant_id: str, fatos: FatosCobranca | None
+    handoff: HandoffValidado,
+    conversa: ConversaDoTurno,
+    *,
+    tenant_id: str,
+    fatos: FatosCobranca | None,
+    fatos_cancelamento: FatosCancelamento | None = None,
 ) -> LucasState:
     """A entrada ESTRITA do turno (`new_lucas_state`): identificadores, a linha de §2.5 e os fatos
-    da fonte. Nenhuma chave de texto existe para ser preenchida."""
+    da fonte. Nenhuma chave de texto existe para ser preenchida. `fatos_cancelamento` (DL-0111) so' chega
+    com a chave `MAEZO_CANCEL_PF_V1` ligada e num pedido de cancelamento; `None` = nenhuma chave nova."""
     entrada: dict[str, Any] = {
         "tenant_id": tenant_id,
         "conversation_id": conversa.conversation_id,
@@ -324,6 +336,8 @@ def entrada_do_lucas(
     entrada["avisos_anteriores"] = memoria.avisos_caso_aberto
     if fatos is not None:
         entrada.update(fatos.como_entrada_lucas())
+    if fatos_cancelamento is not None:
+        entrada.update(fatos_cancelamento.como_entrada_lucas())
     return new_lucas_state(entrada)
 
 
@@ -402,6 +416,11 @@ class LucasTurno:
     fonte_aclose: Callable[[], Awaitable[None]] | None = field(default=None, repr=False)
     #: Rodada 12: quando o atraso abre caso humano (`MAEZO_LUCAS_ATRASO_MESES_MIN`/`_DIAS_MIN`).
     limiares_atraso: LimiaresDeAtraso = field(default_factory=LimiaresDeAtraso)
+    #: DL-0111: `MAEZO_CANCEL_PF_V1`. Desligada (o padrao), o turno e' o de antes byte a byte.
+    cancelamento_pf_v1: bool = False
+    #: DL-0111: a fonte dos fatos do cancelamento (TINA elegibilidade). So' com a chave e a fonte AMH;
+    #: `None` = so' o tipo de contratacao do billing-status (sem titular: o pedido vai a analise humana).
+    fonte_cancelamento: FonteCancelamento | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.seam_context.principal != AGENT_ID or self.seam_context.tenant != self.tenant_id:
@@ -420,6 +439,7 @@ class LucasTurno:
                 "audit_sink": self.audit_sink,
                 "agent_version": self.agent_version,
                 "limiares_atraso": self.limiares_atraso,
+                "cancelamento_pf_v1": self.cancelamento_pf_v1 is True,
             }
         )
         # SEM checkpointer, explicito (§2.1): o Lucas e' de um turno so'.
@@ -479,6 +499,31 @@ class LucasTurno:
         )
         return None
 
+    async def _fatos_do_cancelamento(
+        self, conversa: ConversaDoTurno, handoff: HandoffValidado, fatos: FatosCobranca | None
+    ) -> FatosCancelamento | None:
+        """DL-0111: os fatos do cancelamento, SO' com a chave ligada e num pedido de cancelamento. Nunca
+        levanta: fonte fora vira os fatos do billing-status (sem titular), e o pedido vai a analise humana."""
+        if self.cancelamento_pf_v1 is not True or handoff.cobranca_subtipo != "cancelamento":
+            return None
+        tipo_billing = fatos.tipo_contratacao if fatos is not None else None
+        if self.fonte_cancelamento is None:
+            return FatosCancelamento(tipo_plano=tipo_plano_do_billing(tipo_billing))
+        resultado = await self.fonte_cancelamento.fatos(
+            conversa.beneficiario_pseudo_id,
+            phone_hash=conversa.phone_hash_amh,
+            tipo_contratacao_billing=tipo_billing,
+        )
+        if isinstance(resultado, FatosIndisponiveis):
+            logger.warning(
+                "lucas_turno_fatos_cancelamento_indisponiveis",
+                tenant_id=self.tenant_id,
+                conversation_id=conversa.conversation_id,
+                motivo=resultado.motivo,
+            )
+            return FatosCancelamento(tipo_plano=tipo_plano_do_billing(tipo_billing))
+        return resultado
+
     async def executar(
         self, handoff: Mapping[str, Any], conversa: ConversaDoTurno, sender: RemetenteDoTurno
     ) -> dict[str, Any]:
@@ -494,8 +539,13 @@ class LucasTurno:
             validado = validar_handoff(handoff)
             self._conferir_conversa(conversa)
             self._conferir_mensagem(validado, conversa)
+            fatos = await self._fatos(conversa, validado)
             estado = entrada_do_lucas(
-                validado, conversa, tenant_id=self.tenant_id, fatos=await self._fatos(conversa, validado)
+                validado,
+                conversa,
+                tenant_id=self.tenant_id,
+                fatos=fatos,
+                fatos_cancelamento=await self._fatos_do_cancelamento(conversa, validado, fatos),
             )
         except Exception as exc:
             # A falha ANTES do grafo (forma do handoff/conversa, fonte) tambem e' erro do agente

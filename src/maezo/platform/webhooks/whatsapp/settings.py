@@ -413,6 +413,16 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_LUCAS_CONSULTA_VALORES", "lucas_consulta_valores"),
     )
+    # CANCELAMENTO A PEDIDO, PESSOA FISICA (DL-0111, aprovado pelo dono em 15/10/2026 para uso em dev;
+    # revisao juridica/regulatoria, DPO e operacao antes de producao). DESLIGADA por padrao, e desligada
+    # e' o Lucas de antes byte a byte (SP-OP-CANCEL-001 com fatos `false` -> analise humana). Ligada: o
+    # Lucas le os fatos do cancelamento nos contratos AMH ja' pinados (TINA elegibilidade + billing-status),
+    # dependente nao abre o processo, o titular PF abre SP-OP-CANCEL-001 com os fatos reais, o aviso de
+    # recebimento traz o protocolo e o processo devolve o resultado pela retomada (`agent_resume`).
+    cancel_pf_v1: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_CANCEL_PF_V1", "cancel_pf_v1"),
+    )
 
     @model_validator(mode="after")
     def _consultas_exigem_identidade(self) -> WhatsAppWebhookSettings:

@@ -172,6 +172,10 @@ _CANCEL_COMPLETED = "agents.events.cancel.completed"
 
 _UT_ANALISE = "UT_AnaliseRescisao"
 _UT_COORDENACAO = "UT_CoordenacaoCancelamento"
+# v0.2.0 (DL-0111): a execucao do cancelamento a pedido no cadastro (e a coordenacao no prazo).
+_UT_EXECUCAO = "UT_ExecutarCancelamentoCadastro"
+_UT_COORDENACAO_EXECUCAO = "UT_CoordenacaoExecucaoCadastro"
+_PROCESS_COMPLETED = "agents.events.process_completed"
 
 _END_RESCINDIDO = "End_ContratoRescindido"
 _END_SUSPENSO = "End_ContratoSuspenso"
@@ -445,6 +449,40 @@ async def _drive_to_analise(engine: EngineRest, probe: CancelEngineProbe, iid: s
     return await engine.await_user_task(iid, _UT_ANALISE)
 
 
+async def _drive_to_execucao(engine: EngineRest, probe: CancelEngineProbe, iid: str) -> Any:
+    """v0.2.0: drena ate a tarefa de EXECUCAO no cadastro surgir (EFETIVAR_PEDIDO)."""
+    await probe.drain()
+    return await engine.await_user_task(iid, _UT_EXECUCAO)
+
+
+#: v0.2.0 (DL-0111): as variaveis que o Lucas manda com a chave MAEZO_CANCEL_PF_V1 ligada e que
+#: ligam o aviso ao beneficiario. Sinteticas: `conversation_id` keyed de teste, nunca telefone.
+_AVISO_LUCAS: dict[str, Any] = {
+    "aviso_beneficiario_whatsapp": True,
+    "agent_id": "lucas",
+    "source_agent_id": "lucas",
+    "conversation_id": "wa:amh:hk1_0000000000000000000000000000teste",
+    "origem_solicitacao": "agente_lucas",
+}
+
+_PEDIDO_PF_TITULAR: dict[str, Any] = {
+    "tipo_solicitacao": "pedido_beneficiario",
+    "tipo_plano": "individual",
+    "titularidade_confirmada": True,
+    "vinculo_ativo": True,
+    "dentro_prazo": True,
+    "notificacao_previa_feita": False,
+}
+
+
+def _avisos(probe: CancelEngineProbe, resultado: str) -> list[dict[str, Any]]:
+    return [
+        e["payload"]
+        for e in probe.events_on(_PROCESS_COMPLETED)
+        if e["payload"].get("resultado") == resultado
+    ]
+
+
 # ===========================================================================
 # INVARIANTE L0 — DoD deliverable (varredura de inputs da DMN cancel_admissibility)
 # ===========================================================================
@@ -645,12 +683,26 @@ async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     )
     iid = inst["id"]
 
+    # v0.2.0 (DL-0111): EFETIVAR_PEDIDO vira a tarefa de EXECUCAO no cadastro — nenhuma User Task
+    # adversa (juridico) nasce, e nada e' "efetivado" antes da pessoa do cadastro concluir.
+    ut_exec = await _drive_to_execucao(engine, cancel_probe, iid)
+    assert set(ut_exec.candidate_groups) == {"cadastro-beneficiarios"}
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert open_keys == {_UT_EXECUCAO}, f"Pedido do titular L2 nao cria User Task adversa. open={open_keys}"
+    assert "ST_EffectuateMemberRequest" not in await engine.activity_instances_ended(iid)
+
+    await engine.complete_task_as_human(ut_exec.id, {"execucao_cadastro": "EXECUTADO"})
     await cancel_probe.drain()
     ended = await _await_end(engine, iid)
 
     assert _END_CANCELADO_BENEFICIARIO in ended, f"Deve atingir End_CanceladoBeneficiario. ended={ended}"
-    assert not await engine.list_user_tasks(iid), "Pedido do titular L2 nao cria User Task adversa"
+    assert not await engine.list_user_tasks(iid)
     assert cancel_probe.has_event(_CANCEL_RECEIVED)
+    data_efeito = await engine.get_history_variable(iid, "data_efeito_iso")
+    assert data_efeito == "2026-06-01", f"data de efeito = data do pedido (RN 412); veio {data_efeito!r}"
+    # Sem `aviso_beneficiario_whatsapp` (instancia que nao veio do Lucas com a chave ligada): calado.
+    assert not cancel_probe.events_on(_PROCESS_COMPLETED)
+    assert "ST_AvisarCancelado" not in ended
     assert cancel_probe.has_event(_CANCEL_COMPLETED, desfecho="cancelado_beneficiario")
     assert "ST_EffectuateMemberRequest" in ended, (
         "effectuate_member_request deve ter executado nesta instancia"
@@ -663,6 +715,182 @@ async def test_happy_path_cancelamento_a_pedido_beneficiario_l2(
     assert (
         "ST_SendCancellationNoticeRescisao" not in ended and "ST_SendCancellationNoticeSuspensao" not in ended
     ), "Cancelamento a pedido NUNCA emite notificacao de rescisao (L0)"
+
+
+# ===========================================================================
+# v0.2.0 (DL-0111) — execucao no cadastro + retorno ao beneficiario
+# ===========================================================================
+
+
+async def test_v020_execucao_impedida_volta_para_analise_humana(
+    engine: EngineRest,
+    cancel_probe: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """IMPEDIDO (ou qualquer conclusao sem EXECUTADO) nunca encerra o caso: volta ao juridico."""
+    inst = await start_cancel(**_PEDIDO_PF_TITULAR)
+    iid = inst["id"]
+
+    ut_exec = await _drive_to_execucao(engine, cancel_probe, iid)
+    await engine.complete_task_as_human(ut_exec.id, {"execucao_cadastro": "IMPEDIDO"})
+    ut = await _drive_to_analise(engine, cancel_probe, iid)
+    assert "juridico-contratos" in ut.candidate_groups
+
+    ended = await engine.activity_instances_ended(iid)
+    assert _END_CANCELADO_BENEFICIARIO not in ended
+    assert "ST_EffectuateMemberRequest" not in ended
+    assert not (ended & _ENDS_ADVERSOS), "Execucao impedida nunca nega nem mantem por automacao (L0)"
+    await _assert_no_adverse_without_human_task(engine, iid)
+
+
+async def test_v020_conclusao_sem_variavel_cai_no_default_humano(
+    engine: EngineRest,
+    cancel_probe: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """Concluir a execucao SEM `execucao_cadastro` nao prende a instancia nem efetiva: default humano."""
+    inst = await start_cancel(**_PEDIDO_PF_TITULAR)
+    iid = inst["id"]
+
+    ut_exec = await _drive_to_execucao(engine, cancel_probe, iid)
+    await engine.complete_task_as_human(ut_exec.id, {})
+    ut = await _drive_to_analise(engine, cancel_probe, iid)
+    assert "juridico-contratos" in ut.candidate_groups
+    assert "ST_EffectuateMemberRequest" not in await engine.activity_instances_ended(iid)
+
+
+async def test_v020_prazo_da_execucao_coordenacao_assume_e_executa(
+    engine: EngineRest,
+    cancel_probe: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """BT_PrazoExecucao (interruptivo, P5D a confirmar pelo juridico): a coordenacao assume a MESMA
+    execucao; o estouro so' publica cancel.sla_breached(fase=execucao_cadastro) e nunca decide nada."""
+    inst = await start_cancel(**_PEDIDO_PF_TITULAR)
+    iid = inst["id"]
+
+    await _drive_to_execucao(engine, cancel_probe, iid)
+    job = await engine.await_timer_job(iid, "BT_PrazoExecucao")
+    await engine.execute_job(job.id)
+    await cancel_probe.drain()
+
+    assert cancel_probe.has_event(_CANCEL_SLA_BREACHED, fase="execucao_cadastro")
+    ut_coord = await engine.await_user_task(iid, _UT_COORDENACAO_EXECUCAO)
+    assert "coordenacao-contratos" in ut_coord.candidate_groups
+    open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+    assert _UT_EXECUCAO not in open_keys, "UT_ExecutarCancelamentoCadastro deve ser cancelada (interruptivo)"
+    assert _END_CANCELADO_BENEFICIARIO not in await engine.activity_instances_ended(iid)
+
+    await engine.complete_task_as_human(ut_coord.id, {"execucao_cadastro": "EXECUTADO"})
+    await cancel_probe.drain()
+    ended = await _await_end(engine, iid)
+    assert _END_CANCELADO_BENEFICIARIO in ended
+    assert cancel_probe.has_event(_CANCEL_COMPLETED, desfecho="cancelado_beneficiario")
+
+
+async def test_v020_aviso_ao_beneficiario_quando_executado(
+    engine: EngineRest,
+    cancel_probe: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """Instancia do Lucas (chave ligada): ao concluir EXECUTADO, publica process_completed
+    (resultado=cancelamento_executado) SO' com identificadores estruturais — nunca PHI."""
+    from maezo.tools.workers.phi_vars import PHI_PROCESS_VARS
+
+    inst = await start_cancel(**_PEDIDO_PF_TITULAR, **_AVISO_LUCAS)
+    iid = inst["id"]
+
+    ut_exec = await _drive_to_execucao(engine, cancel_probe, iid)
+    assert not cancel_probe.events_on(_PROCESS_COMPLETED), "nenhum aviso antes da execucao humana"
+    await engine.complete_task_as_human(ut_exec.id, {"execucao_cadastro": "EXECUTADO"})
+    await cancel_probe.drain()
+    ended = await _await_end(engine, iid)
+
+    assert _END_CANCELADO_BENEFICIARIO in ended
+    assert "ST_AvisarCancelado" in ended
+    avisos = _avisos(cancel_probe, "cancelamento_executado")
+    assert len(avisos) == 1, cancel_probe.events_on(_PROCESS_COMPLETED)
+    aviso = avisos[0]
+    assert aviso["agent_id"] == "lucas"
+    assert aviso["conversation_id"] == _AVISO_LUCAS["conversation_id"]
+    assert aviso["tenant_id"] == "amh"
+    assert aviso["_business_key"] == inst["businessKey"]
+    assert aviso["_process_instance_id"] == iid
+    assert not (set(aviso) & PHI_PROCESS_VARS), f"aviso carrega PHI: {sorted(set(aviso) & PHI_PROCESS_VARS)}"
+
+
+async def test_v020_juridico_efetiva_pedido_vai_para_execucao_no_cadastro(
+    engine: EngineRest,
+    cancel_probe: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """Fatos nao confirmados -> analise humana; o juridico decide EFETIVAR_PEDIDO -> execucao no cadastro."""
+    inst = await start_cancel(**{**_PEDIDO_PF_TITULAR, "titularidade_confirmada": False})
+    iid = inst["id"]
+
+    ut = await _drive_to_analise(engine, cancel_probe, iid)
+    await engine.complete_task_as_human(ut.id, {"decisao_cancelamento": "EFETIVAR_PEDIDO"})
+    ut_exec = await _drive_to_execucao(engine, cancel_probe, iid)
+    assert set(ut_exec.candidate_groups) == {"cadastro-beneficiarios"}
+    assert _END_CANCELADO_BENEFICIARIO not in await engine.activity_instances_ended(iid)
+
+
+async def test_v020_aviso_de_informacao_solicitada_e_o_caso_segue_esperando(
+    engine: EngineRest,
+    cancel_probe: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """SOLICITAR_INFO numa instancia do Lucas: aviso (resultado=cancelamento_info_solicitada) e a
+    instancia CONTINUA esperando a informacao — o aviso nunca encerra o caso."""
+    inst = await start_cancel(**{**_PEDIDO_PF_TITULAR, "titularidade_confirmada": False}, **_AVISO_LUCAS)
+    iid = inst["id"]
+
+    ut = await _drive_to_analise(engine, cancel_probe, iid)
+    await engine.complete_task_as_human(ut.id, {"decisao_cancelamento": "SOLICITAR_INFO"})
+    await cancel_probe.drain()
+
+    assert len(_avisos(cancel_probe, "cancelamento_info_solicitada")) == 1
+    assert await engine.history_state(iid) == "ACTIVE", "o caso segue aberto, esperando a informacao"
+    ended = await engine.activity_instances_ended(iid)
+    assert "ST_AvisarInfoSolicitada" in ended
+    assert not (ended & _ENDS_ADVERSOS)
+
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message", json={"messageName": "msg.cancel.info_received", "businessKey": inst["businessKey"]}
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+    ut2 = await engine.await_user_task(iid, _UT_ANALISE)
+    assert "juridico-contratos" in ut2.candidate_groups
+
+
+async def test_v020_aviso_de_plano_mantido_so_depois_da_decisao_humana(
+    engine: EngineRest,
+    cancel_probe: CancelEngineProbe,
+    start_cancel: Callable[..., Any],
+) -> None:
+    """MANTER (com fundamentacao) numa instancia do Lucas: aviso resultado=cancelamento_mantido, SO'
+    depois da UT humana e do guard confirm_maintained_decision."""
+    inst = await start_cancel(**{**_PEDIDO_PF_TITULAR, "titularidade_confirmada": False}, **_AVISO_LUCAS)
+    iid = inst["id"]
+
+    ut = await _drive_to_analise(engine, cancel_probe, iid)
+    assert not cancel_probe.events_on(_PROCESS_COMPLETED)
+    await engine.complete_task_as_human(
+        ut.id,
+        {
+            "decisao_cancelamento": "MANTER",
+            "fundamentacao_contratual": "Fundamentacao sintetica (teste v0.2.0)",
+            "responsavel_id": "juridico-sintetico-001",
+        },
+    )
+    await cancel_probe.drain()
+    ended = await _await_end(engine, iid)
+
+    assert _END_PEDIDO_NEGADO in ended
+    assert "ST_AvisarPedidoMantido" in ended
+    assert len(_avisos(cancel_probe, "cancelamento_mantido")) == 1
+    await _assert_no_adverse_without_human_task(engine, iid)
 
 
 # FLIPPED (part4 R1 live validation, engine cibseven 2.1.0): XPASS(strict) live. Engine history:
