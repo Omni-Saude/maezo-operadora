@@ -563,6 +563,8 @@ _AMH_INTEROP_OPERATIONS = frozenset(
         "amh.verify_subject",
         "amh.record_consent",
         "amh.resolve_by_document",
+        "amh.get_billing_detalhamento",
+        "amh.get_billing_segunda_via",
     }
 )
 
@@ -611,6 +613,22 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
     verificacao = amh_interop.AmhSubjectVerificationExecutor(amh_tenant="omni", **comum)
     consentimentos = amh_interop.AmhConsentRecordExecutor(amh_tenant="omni", **comum)
     documentos = amh_interop.AmhDocumentResolutionExecutor(amh_tenant="omni", **comum)
+    # Catalogo v4 do Lucas (DL-0114): o executor tem a finalidade FIXA do atendimento e o token da 2a via a
+    # parte.
+    from maezo.agents.lucas.fonte_v4 import PedidoGovernado
+
+    tokens_segunda_via = amh_interop.CognitoClientCredentials(
+        token_url="https://cognito.invalid/oauth2/token",
+        client_id="client2",
+        client_secret="secret2",
+        scopes=("interop/billing.boleto",),
+        transport_factory=_transport,
+    )
+    v4 = amh_interop.AmhV4Executor(
+        tokens_segunda_via=tokens_segunda_via,
+        **{**comum, "purpose_of_use": "atendimento_whatsapp"},
+    )
+    atendimento = (("purpose_of_use", "atendimento_whatsapp"),)
     purpose = (("purpose_of_use", "sharing_amh_internal"),)
     results = [
         await billing.execute(
@@ -730,7 +748,35 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         )
     )
-    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 10
+    results.append(
+        await v4.execute(
+            PedidoGovernado(
+                operation="amh.get_billing_detalhamento",
+                path="/interop/billing-status/v1/subjects/subject1/billing/status",
+                query=(
+                    *atendimento,
+                    ("incluir_detalhamento", "true"),
+                    ("somente_pagador", "true"),
+                ),
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                request_ref=None,
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    results.append(
+        await v4.execute(
+            PedidoGovernado(
+                operation="amh.get_billing_segunda_via",
+                path="/interop/billing-status/v1/subjects/subject1/billing/segunda-via",
+                query=atendimento,
+                consent_decision_ref=None,
+                request_ref="req-sintetico-0001",
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 12
 
 
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811

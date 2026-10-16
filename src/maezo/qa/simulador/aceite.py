@@ -1115,6 +1115,12 @@ HELENA_V4: tuple[Segmento, ...] = (
 _DINHEIRO = r"r\$ ?\d"
 _SEM_DINHEIRO = _DINHEIRO
 _RESPONSAVEL = "responsavel financeiro"
+#: Uma linha do detalhe por beneficiario (billing-status 0.4.0), SEM nome: rotulo (voce|titular|dependente N),
+#: o pre-estabelecido, a coparticipacao e o total da pessoa. O texto chega sem acento e minusculo.
+_LINHA_DO_DETALHE = (
+    r"(voce|titular|dependente( \d+)?): pre-estabelecido r\$ ?\d[\d.,]* \+ coparticipacao r\$ ?\d[\d.,]*"
+    r"[^\n]*= r\$ ?\d"
+)
 #: O texto do PF que NAO e' o pagador (decisao do dono): o responsavel financeiro e' o titular, sem nome.
 _TEXTO_NAO_PAGADOR = (
     "o responsavel financeiro pelo contrato e o titular do contrato",
@@ -1184,9 +1190,19 @@ LUCAS_V4_PAGADOR: tuple[Segmento, ...] = (
                 deve=(
                     "valor total da mensalidade",
                     "soma todos os beneficiarios",
-                    "(detalhe por beneficiario:|sai pelo aplicativo austa clinicas)",
+                    # Com o sinal ligado o detalhe por beneficiario e' EXIGIDO (nao basta "sai pelo
+                    # aplicativo"): a linha de cada pessoa tem so' o rotulo (voce/titular/dependente N).
+                    "detalhe por beneficiario:",
+                    _LINHA_DO_DETALHE,
                 ),
-                nao_deve=("empresa contratante", _RESPONSAVEL, "somente ele"),
+                nao_deve=(
+                    "empresa contratante",
+                    _RESPONSAVEL,
+                    "somente ele",
+                    "sai pelo aplicativo austa clinicas",
+                    # nenhuma linha de detalhe com outro rotulo que nao voce/titular/dependente N
+                    r"^• (?!voce|titular|dependente)",
+                ),
             ),
         ),
         resolveu=(

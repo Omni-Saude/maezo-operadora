@@ -1,7 +1,7 @@
 """Lucas, catalogo v4 (DL-0114): detalhamento da mensalidade do pagador e 2a via com codigo de barras.
 
 Atras da chave `MAEZO_LUCAS_V4` e de um SEGUNDO SINAL, `fonte_detalhamento_habilitada`, que so' liga quando
-os dois contratos novos da AMH estiverem PUBLICADOS e PINADOS (XRG-3):
+os dois contratos novos da AMH estiverem PUBLICADOS e PINADOS (XRG-3) e houver um executor governado:
 
   * billing-status 0.4.0 (manifest v1.10): a relacao do responsavel financeiro (sem nome) e, so' para o
     pagador PF, o total do pagador com o detalhamento por beneficiario (rotulos `voce`, `titular`,
@@ -11,7 +11,8 @@ os dois contratos novos da AMH estiverem PUBLICADOS e PINADOS (XRG-3):
 
 Este modulo e' o lado do Maezo desses contratos: os DOIS portos (`BillingDetalhamentoPort`,
 `BillingSegundaViaPort`), um transporte com interface (`ExecutorGovernado`, sem implementacao padrao: a E/S
-real e' do gateway, ainda nao escrita) e adaptadores que conferem cada resposta CAMPO A CAMPO contra a forma
+real e' do gateway, `gateway/amh_interop.py::AmhV4Executor`) e adaptadores que conferem cada resposta
+CAMPO A CAMPO contra a forma
 do contrato (fail-closed: forma errada = `CONTRACT_VIOLATION`, nunca um dado "consertado"). Nos testes o
 transporte e' um FAKE.
 
@@ -54,6 +55,7 @@ Reason = PortFailureReason
 MARCADOR_CODIGO: Final[str] = "{{CODIGO_DE_BARRAS}}"
 
 #: Os artefatos dos contratos novos (caminhos no repositorio da AMH) e os blocos do pin que os trazem.
+#: Publicados em 16/10/2026 (manifests v1.10 e v1.11).
 ARTIFACT_DETALHAMENTO: Final[str] = "schemas/openapi/maezo/v1/billing-status-detalhamento.openapi.yaml"
 ARTIFACT_SEGUNDA_VIA: Final[str] = "schemas/openapi/maezo/v1/billing-segunda-via.openapi.yaml"
 LOCK_KEY_DETALHAMENTO: Final[str] = "manifest_v1_10"
@@ -189,7 +191,7 @@ class BillingSegundaViaPort(Protocol):
 
 
 # ================================================================================================
-# O transporte (interface; a E/S real e' do gateway e nao existe ainda — os testes usam um FAKE)
+# O transporte (interface; a E/S real e' do gateway, `AmhV4Executor` — os testes de unidade usam um FAKE)
 # ================================================================================================
 @dataclass(frozen=True, slots=True, repr=False)
 class PedidoGovernado:

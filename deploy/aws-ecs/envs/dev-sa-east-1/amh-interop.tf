@@ -42,6 +42,8 @@ locals {
   amh_acesso_secrets = var.acesso_beneficiario ? [
     { name = "MAEZO_AMH_SUBJECT_VERIFY_KEY", valueFrom = data.aws_secretsmanager_secret.amh_subject_verify_key[0].arn },
   ] : []
+  amh_v4_secret_arns     = local.amh_v4_ligado ? [data.aws_secretsmanager_secret.amh_interop_boleto_cognito[0].arn] : []
+  amh_v4_kms_key_ids     = local.amh_v4_ligado ? [data.aws_secretsmanager_secret.amh_interop_boleto_cognito[0].kms_key_id] : []
   amh_acesso_secret_arns = var.acesso_beneficiario ? [data.aws_secretsmanager_secret.amh_subject_verify_key[0].arn] : []
   amh_acesso_kms_key_ids = var.acesso_beneficiario ? [data.aws_secretsmanager_secret.amh_subject_verify_key[0].kms_key_id] : []
 
@@ -60,6 +62,21 @@ locals {
     { name = "MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH", value = var.amh_tina_dependentes_openapi_path },
   ] : []
 
+  # Lucas v4 (DL-0114; manifests v1.10 e v1.11 PUBLISHED em 16/10/2026): o executor governado do detalhamento do pagador e
+  # da 2a via. SO' com a chave `lucas_v4` E o cliente Cognito DEDICADO da 2a via informado: entram os dois OpenAPI
+  # (digest conferido contra o pin no boot), o client id e o segredo (`amh/cognito/dev/maezo-operadora-interop-boleto`,
+  # injetado INTEIRO; so' o cofre de agente o le'). Desligado, a task definition e' a de antes, byte a byte. O escopo
+  # `interop/billing.boleto` NAO entra em `MAEZO_AMH_INTEROP_SCOPES`: o token da 2a via e' do cliente dedicado.
+  amh_v4_ligado = local.amh_interop_ligado && var.lucas_v4 && var.amh_interop_boleto_client_id != ""
+  amh_v4_env = local.amh_v4_ligado ? [
+    { name = "MAEZO_AMH_BILLING_STATUS_DETALHAMENTO_OPENAPI_PATH", value = var.amh_billing_status_detalhamento_openapi_path },
+    { name = "MAEZO_AMH_BILLING_SEGUNDA_VIA_OPENAPI_PATH", value = var.amh_billing_segunda_via_openapi_path },
+    { name = "MAEZO_AMH_INTEROP_BOLETO_CLIENT_ID", value = var.amh_interop_boleto_client_id },
+  ] : []
+  amh_v4_secrets = local.amh_v4_ligado ? [
+    { name = "MAEZO_AMH_INTEROP_BOLETO_CLIENT_SECRET", valueFrom = data.aws_secretsmanager_secret.amh_interop_boleto_cognito[0].arn },
+  ] : []
+
   # Env do receptor so' com a fonte AMH ligada (lista vazia = task definition intacta).
   amh_interop_env = local.amh_interop_ligado ? [
     { name = "MAEZO_AMH_INTEROP_BASE_URL", value = var.amh_interop_base_url },
@@ -75,24 +92,31 @@ locals {
   amh_interop_secrets = concat(local.amh_interop_ligado ? [
     { name = "MAEZO_AMH_INTEROP_CLIENT_SECRET", valueFrom = data.aws_secretsmanager_secret.amh_interop_cognito[0].arn },
     { name = "MAEZO_AMH_PHONE_LOOKUP_KEY", valueFrom = data.aws_secretsmanager_secret.amh_phone_lookup_key[0].arn },
-  ] : [], local.amh_acesso_secrets)
+  ] : [], local.amh_acesso_secrets, local.amh_v4_secrets)
 
   amh_interop_secret_arns = concat(local.amh_interop_ligado ? [
     data.aws_secretsmanager_secret.amh_interop_cognito[0].arn,
     data.aws_secretsmanager_secret.amh_phone_lookup_key[0].arn,
-  ] : [], local.amh_acesso_secret_arns)
+  ] : [], local.amh_acesso_secret_arns, local.amh_v4_secret_arns)
 
   # Os segredos da AMH podem estar sob a CMK compartilhada do env de dados (como o do Cognito FHIR):
   # sem `kms:Decrypt` o GetSecretValue falha com AccessDenied. Vazio com a chave padrao.
   amh_interop_secret_kms_key_ids = concat(local.amh_interop_ligado ? [
     data.aws_secretsmanager_secret.amh_interop_cognito[0].kms_key_id,
     data.aws_secretsmanager_secret.amh_phone_lookup_key[0].kms_key_id,
-  ] : [], local.amh_acesso_kms_key_ids)
+  ] : [], local.amh_acesso_kms_key_ids, local.amh_v4_kms_key_ids)
 }
 
 data "aws_secretsmanager_secret" "amh_interop_cognito" {
   count = local.amh_interop_ligado ? 1 : 0
   name  = var.amh_interop_cognito_secret_name
+}
+
+# Segredo do cliente Cognito DEDICADO da 2a via do boleto (`maezo-operadora-interop-boleto`, unico escopo
+# `interop/billing.boleto`): criado pelo Terraform da AMH junto do cliente, LIDO aqui so' com o v4 ligado.
+data "aws_secretsmanager_secret" "amh_interop_boleto_cognito" {
+  count = local.amh_v4_ligado ? 1 : 0
+  name  = var.amh_interop_boleto_cognito_secret_name
 }
 
 data "aws_secretsmanager_secret" "amh_phone_lookup_key" {

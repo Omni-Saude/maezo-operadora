@@ -527,6 +527,20 @@ class WhatsAppWebhookSettings(BaseSettings):
         repr=False,
         exclude=True,
     )
+    # Lucas v4 (DL-0114): cliente Cognito DEDICADO da 2a via do boleto (`maezo-operadora-interop-boleto`,
+    # unico escopo
+    # `interop/billing.boleto`; o codigo de barras e' CREDENCIAL DE PAGAMENTO). O segredo chega so' pelo
+    # cofre.
+    amh_interop_boleto_client_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_BOLETO_CLIENT_ID", "amh_interop_boleto_client_id"),
+    )
+    amh_interop_boleto_client_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_BOLETO_CLIENT_SECRET"),
+        repr=False,
+        exclude=True,
+    )
     # Chave DEDICADA do hash `amh-subject-verify-v1` (segredo `amh/interop/subject-verify-key`), que cobre
     # CPF e CPF+nascimento na verificacao do acesso (DL-0083). Lida SO' com `acesso_beneficiario` ligada.
     # Nao e' o `PHI_HMAC_KEY` nem a chave do telefone. Mesmo tratamento dos segredos acima.
@@ -598,6 +612,26 @@ class WhatsAppWebhookSettings(BaseSettings):
             "MAEZO_AMH_CONSENT_RECORD_OPENAPI_PATH", "amh_consent_record_openapi_path"
         ),
     )
+    # Lucas v4 (DL-0114): os OpenAPI do billing-status 0.4.0 (manifest v1.10, publicado em 16/10/2026) e da
+    # 2a via
+    # (billing-segunda-via 0.1.0, manifest v1.11). Lidos SO' com `lucas_v4` ligada; os bytes so' valem com o
+    # digest
+    # dos blocos `manifest_v1_10`/`manifest_v1_11` do pin. Sem os dois caminhos nao ha' executor e o segundo
+    # sinal
+    # (`fonte_v4.fonte_detalhamento_habilitada`) fica desligado.
+    amh_billing_status_detalhamento_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_BILLING_STATUS_DETALHAMENTO_OPENAPI_PATH",
+            "amh_billing_status_detalhamento_openapi_path",
+        ),
+    )
+    amh_billing_segunda_via_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_BILLING_SEGUNDA_VIA_OPENAPI_PATH", "amh_billing_segunda_via_openapi_path"
+        ),
+    )
     # O OpenAPI TINA (fatos do plano), lido SO' com `helena_consultas_amh` ligada; os bytes so' valem
     # com o digest no bloco `manifest_v1_2` do pin (publicado pela AMH em 13/10/2026, run 38346972222).
     amh_tina_openapi_path: str | None = Field(
@@ -634,6 +668,7 @@ class WhatsAppWebhookSettings(BaseSettings):
                 ("amh_interop_client_secret", "MAEZO_AMH_INTEROP_CLIENT_SECRET"),
                 ("amh_phone_lookup_key", "MAEZO_AMH_PHONE_LOOKUP_KEY"),
                 ("amh_subject_verify_key", "MAEZO_AMH_SUBJECT_VERIFY_KEY"),
+                ("amh_interop_boleto_client_secret", "MAEZO_AMH_INTEROP_BOLETO_CLIENT_SECRET"),
             ):
                 if field_name in data:
                     data[canonical] = data.pop(field_name)

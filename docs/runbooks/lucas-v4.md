@@ -152,32 +152,37 @@ O código de barras é **credencial de pagamento**: quem o tem paga — ou desvi
 - **Dev ponta a ponta (WhatsApp real):** com os números de teste do dono (PJ), de um titular PF pagador e de um
   dependente, todos verificados no acesso.
 
-## 7. O que falta para ligar de verdade (o detalhamento e o código de barras)
+## 7. Ligar de verdade (o detalhamento e o código de barras) — estado em 16/10/2026
 
-1. **Publicar os contratos** (AMH `amh-data-platform`, PRs #245–#249: billing-status 0.4.0/manifest v1.10 e
-   billing-segunda-via/manifest v1.11; e as golds da mensalidade e do código de barras do pagador, PRs #245/#246):
-   **cada artefato só com a aprovação do dono**; a rota **ligada** no serviço interop (padrão é desligada: 404), o
-   cliente da 2ª via na lista de clientes e o escopo `interop/billing.boleto` no client Cognito do Maezo (pedido
-   pelo Terraform em `amh-interop.tf`, junto de `interop/billing.read`).
-2. **Pin** — FEITO em 16/10/2026 (AMH #253, runs 38866305412 e 38866403032; commit f7fa458a): os blocos
-   `manifest_v1_10` e `manifest_v1_11` (e `manifest_v1_7` a `_v1_9`, TINA) estão no lock, com os OpenAPI vendorizados em
-   `config/integrations/amh/openapi/`; o pin só reconhece os contratos, `contratos_v4_pinados` já lê `True` e o boot
-   passa a logar `lucas_v4_contratos_pinados_sem_executor` (nada liga sem o item 3). Texto original do passo: blocos `manifest_v1_10` e `manifest_v1_11`, com
-   `artifacts[]` `path`+`sha256`), o OpenAPI vendorizado em `config/integrations/amh/openapi/`, as chaves
-   `V1_10_LOCK_KEY`/`V1_11_LOCK_KEY` no `adapters/amh/contract.py` e o gate `scripts/ci/verify_amh_contract_pin.py`
-   (o pin só entra **depois** da publicação, XRG-3). O segundo sinal lê exatamente esses blocos
-   (`agents/lucas/fonte_v4.py::contratos_v4_pinados`).
-3. **Executor governado do gateway** para as duas operações (`amh.get_billing_detalhamento`,
-   `amh.get_billing_segunda_via`): GET com token M2M e escopo próprio, `X-Amh-Request-Ref`, `purpose_of_use=
-   atendimento_whatsapp`, `no-store`, **corpo da 2ª via nunca em log/telemetria/cache**, registro em
-   `gateway/tool_registry.py` e exposição em `interop.executor_v4` (o `service.py::_build_fonte_v4_amh` já o espera).
-   Conferir o digest do OpenAPI contra o pin ao construir (como `AmhBillingStatusAdapter`).
-4. **Terraform:** variável/escopo no client Cognito, caminho do OpenAPI novo na task definition (como
-   `amh_billing_status_openapi_path`), nada de segredo novo.
-5. **Cliente/escopo na AMH** e a ratificação do **DPO** para produção (código de barras = credencial) e do
-   **jurídico** (textos; base legal: execução de contrato, como o billing-status).
-6. Só então: `contratos_v4_pinados` passa a `True`, o boot loga `fonte_detalhamento_habilitada=true` e os passos
-   `pendente_de_contrato` dos roteiros passam a rodar.
+**LIGADO NO DEV** (decisão direta do dono — CTO, owner e DPO — em 16/10/2026; produção continua pendente de DPO e
+jurídico). O que existe e como se liga:
+
+1. **Contratos publicados e pinados** (AMH #245–#249 e #253): billing-status 0.4.0 (manifest v1.10) e
+   billing-segunda-via (manifest v1.11), com os OpenAPI vendorizados em `config/integrations/amh/openapi/`.
+2. **Executor governado** — `gateway/amh_interop.py::AmhV4Executor` (`interop.executor_v4` da composição,
+   `tool_registry.build_amh_interop(incluir_v4=True)`): `GET` com token M2M e `purpose_of_use=atendimento_whatsapp`.
+   Detalhamento: token do cliente de cobrança (`interop/billing.read`) com `incluir_detalhamento=true` e
+   `somente_pagador=true`. **2ª via: cliente Cognito dedicado** (`maezo-operadora-interop-boleto`, único escopo
+   `interop/billing.boleto`; segredo `amh/cognito/dev/maezo-operadora-interop-boleto`), `X-Amh-Request-Ref` opaco, resposta
+   sem `Cache-Control: no-store` recusada, **corpo nunca em log/auditoria/repr**. Os bytes dos dois OpenAPI têm de bater com o
+   digest do pin (`manifest_v1_10` e `manifest_v1_11`); senão o receptor recusa servir.
+3. **Catálogo de ações:** `amh.get_billing_detalhamento` e `amh.get_billing_segunda_via` em `gateway/effect_classes.py`
+   (classe `leitura_phi_clinica`, C2, `tool_id=None`, shadow) e em `spec/policies/autonomy/action-approvals.yaml`. O
+   detalhamento usa a ação `read_member_billing_identity`; a 2ª via, a ação própria **`read_member_payment_credential`** (L3 em
+   `L0-core.yaml`, declarada no `agent.yaml` do Lucas), para a governança poder desligá-la sem tocar a cobrança.
+4. **Terraform** (`deploy/aws-ecs/envs/dev-sa-east-1`): `amh_billing_status_detalhamento_openapi_path`,
+   `amh_billing_segunda_via_openapi_path` (em `amh-interop.auto.tfvars`) e `amh_interop_boleto_client_id`; só com
+   `lucas_v4` **e** o client id preenchido entram na task definition as três envs e o segredo (`secrets`, execution role e CMK).
+   Vazio = o Lucas v4 segue sem o segundo sinal (log `lucas_v4_contratos_pinados_sem_executor`).
+5. **AMH:** rotas ligadas no interop dev (cobertura no serviço geral; 2ª via no **serviço dedicado**, papel e workgroup
+   próprios), cliente/escopo no Cognito, grants do Lake Formation e **auditoria durável** (S3, antes da resposta).
+6. **Sinal:** com tudo isso o boot loga `lucas_turno_construido ... fonte_detalhamento_habilitada=true`, e os passos
+   `pendente_de_contrato` dos roteiros passam a valer (o relatório sai sem pendentes). O roteiro `lucas_v4_pagador` exige o
+   total primeiro **e** o detalhe por beneficiário sem nome, e a 2ª via com o código no texto real (mascarado no relatório);
+   `lucas_v4_nao_pagador`, sem valor nem código.
+
+**Para produção, ainda falta:** ratificação do DPO (código de barras = credencial de pagamento) e do jurídico (textos, base
+legal), e a decisão do dono de levar `lucas_v4` além do dev.
 
 ## 8. Logs
 

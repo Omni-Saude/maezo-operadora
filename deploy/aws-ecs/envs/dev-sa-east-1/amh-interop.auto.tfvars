@@ -58,3 +58,13 @@ acesso_beneficiario = true
 // publicacao do manifest v1.2 pela AMH (XRG-2 run 38346972222, AMH #232) e do pin `manifest_v1_2`.
 // Base legal LGPD para fora do dev segue PENDENTE de ratificacao do DPO (DL-0081). Voltar: false.
 helena_consultas_amh = true
+
+// Lucas v4 (DL-0114; manifests v1.10 e v1.11 PUBLISHED em 16/10/2026): os OpenAPI do detalhamento do pagador e da
+// 2a via (digest conferido contra o pin no boot). O executor so' e' composto quando `amh_interop_boleto_client_id`
+// (o cliente Cognito DEDICADO da 2a via, criado pela AMH) estiver preenchido: ate' la o segundo sinal fica desligado.
+// `maezo-operadora-interop-boleto` (unico escopo interop/billing.boleto), criado em 16/10/2026 (AMH #255); o client id e'
+// publico por desenho, o segredo vive em `amh/cognito/dev/maezo-operadora-interop-boleto` (Secrets Manager).
+// Voltar: "" (o Lucas v4 segue sem o segundo sinal).
+amh_interop_boleto_client_id                 = "558ecnfomm33qbj6cd030rmlbh"
+amh_billing_status_detalhamento_openapi_path = "/app/config/integrations/amh/openapi/billing-status-detalhamento.openapi.yaml"
+amh_billing_segunda_via_openapi_path         = "/app/config/integrations/amh/openapi/billing-segunda-via.openapi.yaml"
