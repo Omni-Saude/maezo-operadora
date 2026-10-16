@@ -1029,7 +1029,7 @@ async def test_filho_com_tosse_usa_as_perguntas_da_crianca_e_o_resumo_diz_que_e_
     "extracao",
     [
         # O que o modelo pode devolver para "2" olhando a conversa: o codigo/a intensidade da queixa anterior.
-        _classify(intent="symptom", population="pediatric", sintoma_codigo="tosse", intensidade="grave"),
+        _classify(intent="symptom", population="pediatric", sintoma_codigo="febre", intensidade="grave"),
         _classify(
             intent="symptom",
             population="pediatric",

@@ -258,7 +258,7 @@ async def test_desligada_a_mesma_pergunta_continua_fora_do_canal() -> None:
 
 async def test_ligada_com_identidade_consulta_a_fonte_e_responde_o_rascunho_sobre_os_fatos() -> None:
     rascunho = (
-        "Pelo que consta no cadastro, seu plano PLANO SINTETICO ENFERMARIA está ativo, com segmentação "
+        "Pelo que consta no cadastro, seu plano PLANO SINTETICO ENFERMARIA está ativo. Com segmentação "
         "Ambulatorial + Hospitalar e acomodação em enfermaria, vigência desde 01/03/2024. Se quiser falar "
         "com uma pessoa da equipe, é só me pedir."
     )
