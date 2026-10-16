@@ -789,6 +789,20 @@ variable "helena_triagem_v2" {
   nullable    = false
 }
 
+variable "helena_v4" {
+  description = <<-EOT
+    Helena v4 (DL-0115, 16/10/2026): `MAEZO_HELENA_V4`. Default `false` = a Helena de antes, byte a byte.
+    Ligada, o especialista (cardiologista, dermatologista...) e a carteirinha recebem texto fixo (onde marcar,
+    prazo da ANS, dados mascarados) e o sintoma leve recebe so' perguntas de alerta antes do caminho. Com ela
+    ligada a nova triagem (`helena_triagem_v2`) fica inerte. EXPERIMENTO SO' EM DEV: conteudo clinico DRAFT
+    (medico-auditor pendente) e prazo de 14 dias uteis a confirmar pelo juridico.
+    Runbook: docs/runbooks/helena-v4.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "helena_consultas_amh" {
   description = <<-EOT
     Fatos do plano na Helena pelo contrato TINA da AMH (decisao do dono de 07/10/2026):

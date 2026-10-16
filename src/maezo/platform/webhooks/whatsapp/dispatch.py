@@ -460,6 +460,10 @@ class HelenaDispatcher:
     #: `False` = a Helena de antes byte a byte. Ligada (so' em dev), a tabela `helena_triage_admissibility`
     #: decide a saida do turno depois dos portoes de seguranca; o modo coleta liga junto (a ficha).
     triagem_v2_enabled: bool = False
+    #: HELENA V4 (DL-0115, settings `helena_v4` / `MAEZO_HELENA_V4`). Default `False` = a Helena de antes byte
+    #: a byte. Ligada (so' em dev): especialista e carteirinha com texto fixo; sintoma leve so' com
+    #: perguntas de alerta. Com ela ligada a nova triagem (v2) fica inerte.
+    helena_v4_enabled: bool = False
     #: TETO DE VOLUME (Frente 7.1). `None` = sem teto, que e' o comportamento anterior e continua
     #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
     #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
@@ -834,6 +838,8 @@ class HelenaDispatcher:
                 "coleta_enabled": self.historico_enabled,
                 # DL-0104: a nova triagem (tabela `helena_triage_admissibility`), so' com a flag.
                 "triagem_v2_enabled": self.triagem_v2_enabled,
+                # DL-0115: a Helena v4 (catalogo de necessidades v4), so' com a flag.
+                "helena_v4_enabled": self.helena_v4_enabled,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
                 "consultas_plano": self.consultas_plano,
             }
@@ -1042,6 +1048,7 @@ class HelenaDispatcher:
             roteador_lucas_enabled=self._roteamento_completo,
             historico_enabled=self.historico_enabled,
             triagem_v2_enabled=self.triagem_v2_enabled,
+            helena_v4_enabled=self.helena_v4_enabled,
         )
         estado: dict[str, Any] = {
             "tenant_id": self.tenant_id,
@@ -1744,6 +1751,7 @@ class HelenaDispatcher:
             roteador_lucas_enabled=True,
             historico_enabled=self.historico_enabled,
             triagem_v2_enabled=self.triagem_v2_enabled,
+            helena_v4_enabled=self.helena_v4_enabled,
         )
         estado: dict[str, Any] = {
             **resultado_helena,

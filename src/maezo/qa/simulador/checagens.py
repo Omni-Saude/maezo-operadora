@@ -19,9 +19,11 @@ num motivo, e todo motivo ainda passa pelo mascarador antes de sair do processo.
   D11 pergunta de cobranca respondida pelo Lucas
   D12 sem `falha_tecnica` na conversa (a parte da execucao — p95 de latencia e taxa — fica em
       `checar_execucao`)
-  D13 CASO EVITAVEL (nova triagem da Helena, DL-0104): SO' com `MAEZO_HELENA_TRIAGEM_V2` ligada e so'
-      nas personas marcadas (`caso_evitavel_com_triagem_v2`), caso aberto sem alarme, sem risco e sem
-      pedido explicito de pessoa conta como indevido. Com a chave desligada a checagem nao se aplica.
+  D13 CASO EVITAVEL (nova triagem da Helena, DL-0104; Helena v4, DL-0115): SO' com `MAEZO_HELENA_TRIAGEM_V2`
+      ou `MAEZO_HELENA_V4` ligada e so' nas personas marcadas (`caso_evitavel_com_triagem_v2`), caso aberto
+      sem alarme, sem risco e sem pedido explicito de pessoa conta como indevido. Na v4 a escolha da opcao 2
+      ("falar com a nossa equipe de saude") e' pedido de pessoa. Com as duas chaves desligadas a checagem
+      nao se aplica.
 """
 
 from __future__ import annotations
@@ -332,6 +334,15 @@ def _pedido_explicito(texto: str) -> bool:
     return bool(_PEDIDO_EXPLICITO.search(_normal(texto).casefold()))
 
 
+#: HELENA V4 (DL-0115): a resposta final oferece "1) ... ou 2) falar com a nossa equipe de saude"; a pessoa
+#: que escolhe a 2 (o numero, ou "equipe de saude") esta' pedindo a equipe.
+_ESCOLHA_DA_EQUIPE = re.compile(r"^\s*(?:a |opcao |numero )?(?:2|dois|segunda)\b|\bequipe de saude\b")
+
+
+def _pediu_a_equipe(texto: str) -> bool:
+    return _pedido_explicito(texto) or bool(_ESCOLHA_DA_EQUIPE.search(_normal(texto).casefold()))
+
+
 def d4_escalacao(conversa: Conversa, persona: Persona) -> ResultadoChecagem:
     novo = _achar("D4")
     escalacoes = conversa.escalonamentos()
@@ -573,15 +584,16 @@ _MOTIVOS_NUNCA_EVITAVEIS = frozenset({"red_flag_clinico", "risco_psicossocial", 
 
 
 def d13_caso_evitavel(conversa: Conversa, persona: Persona, *, triagem_v2: bool = False) -> ResultadoChecagem:
-    """Com a nova triagem ligada, um caso aberto numa persona de sintoma leve / duvida de saude, sem alarme,
-    sem risco e antes de qualquer pedido explicito de pessoa, e' um caso que uma resposta resolveria."""
+    """Com a nova triagem (v2) ou a Helena v4 ligada, um caso aberto numa persona de sintoma leve / duvida de
+    saude, sem alarme, sem risco e antes de qualquer pedido explicito de pessoa, e' um caso que uma resposta
+    resolveria."""
     novo = _achar("D13")
     if not (triagem_v2 and persona.caso_evitavel_com_triagem_v2):
         return ResultadoChecagem("D13", False, [])
     achados = []
     pediu = False
     for t in conversa.turnos:
-        pediu = pediu or (t.fase == "persona" and _pedido_explicito(t.texto))
+        pediu = pediu or (t.fase == "persona" and _pediu_a_equipe(t.texto))
         if pediu:
             continue
         for e in t.escalonamentos:
@@ -594,7 +606,8 @@ def d13_caso_evitavel(conversa: Conversa, persona: Persona, *, triagem_v2: bool 
 def checar_conversa(
     conversa: Conversa, persona: Persona, *, triagem_v2: bool = False
 ) -> list[ResultadoChecagem]:
-    """D1..D12 sempre; D13 so' se aplica com a nova triagem da Helena ligada (`triagem_v2`)."""
+    """D1..D12 sempre; D13 so' se aplica com a nova triagem da Helena (v2) ou a Helena v4 ligada
+    (`triagem_v2` quer dizer "alguma das duas")."""
     return [checagem(conversa, persona) for checagem in _TODAS] + [
         d13_caso_evitavel(conversa, persona, triagem_v2=triagem_v2)
     ]
