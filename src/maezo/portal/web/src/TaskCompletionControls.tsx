@@ -28,6 +28,10 @@ const failureMessages: Readonly<Record<CompletionFailure, string>> = {
   revision_conflict: "A tarefa mudou desde a consulta. Consulte novamente antes de concluir.",
   completion_unavailable: "A conclusão pelo portal está desligada neste ambiente.",
   completion_dependency_unavailable: "Uma dependência não respondeu.",
+  // P3 (16/10/2026): a nota cabe no limite, mas passa dele DEPOIS da pseudonimização (telefone,
+  // e-mail e CPF viram marcadores mais longos). Nada foi gravado nem enviado.
+  notes_too_long:
+    "A instrução ficou longa demais depois que telefones, e-mails e documentos foram ocultados. Encurte o texto e envie de novo.",
   "invalid-response": "O portal recusou uma resposta inesperada.",
   "outcome-unknown": "O resultado do envio é desconhecido.",
 };

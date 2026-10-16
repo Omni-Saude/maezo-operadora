@@ -2415,7 +2415,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "invalid_request" | "invalid_completion" | "session_unavailable" | "employee_access_required" | "resource_unavailable" | "revision_conflict" | "completion_unavailable" | "completion_dependency_unavailable";
+            code: "invalid_request" | "invalid_completion" | "session_unavailable" | "employee_access_required" | "resource_unavailable" | "revision_conflict" | "completion_unavailable" | "completion_dependency_unavailable" | "notes_too_long";
             /**
              * Schema
              * @default portal-completion-error.v1

@@ -153,6 +153,20 @@ it("diz que a conclusão está desligada quando o portão responde 501", async (
   );
 });
 
+it("explica o 422 notes_too_long: a nota passou do limite depois de ocultar telefone, e-mail e documento", async () => {
+  const user = userEvent.setup();
+  vi.mocked(fetch).mockResolvedValueOnce(
+    jsonResponse({ schema: "portal-completion-error.v1", code: "notes_too_long" }, 422),
+  );
+  render(controls());
+
+  await fill(user);
+  await user.click(screen.getByRole("button", { name: "Concluir tarefa" }));
+
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Encurte o texto"));
+  expect(screen.queryByRole("heading", { name: "Tarefa concluída" })).toBeNull();
+});
+
 it("trata dependência indisponível como desfecho DESCONHECIDO, nunca como falha limpa", async () => {
   const user = userEvent.setup();
   vi.mocked(fetch).mockResolvedValueOnce(

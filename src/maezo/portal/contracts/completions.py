@@ -37,10 +37,12 @@ CANCEL_EXECUCAO_OUTCOMES: tuple[str, ...] = get_args(
     CancelExecucaoInputs.model_fields["execucao_cadastro"].annotation
 )
 
-#: Bounded transport allocation for one free-text note, in the spirit of `decisions.py`'s
-#: `_MAX_BODY`: a wire limit, NOT a clinical or regulatory bound. The note that actually
-#: reaches the engine is additionally capped by `phi_vars.redact_free_text` (500 characters),
-#: which is the pseudonymization contract, not this number.
+#: THE limit of one free-text note, in characters — a transport/product bound, NOT a clinical or
+#: regulatory one. ONE number, three places (P3/P4, 16/10/2026): the wire schema (`maxLength` of
+#: `notas_resolucao`, what the browser counts against), and the note AFTER the scrub
+#: (`gateway/human/completion.py::pseudonymize_notes` refuses a scrubbed note longer than this with
+#: `notes_too_long`, because the `[REDACTED_*]` tokens make the text longer). Nothing cuts the
+#: note: before 16/10/2026 `redact_free_text` cut it at 500 characters plus `...[TRUNCATED]`.
 MAX_NOTES = 2000
 
 #: The completion taxonomy. `completion_unavailable` is the DECLARED interim gate being off —
@@ -55,6 +57,9 @@ CompletionErrorCode = Literal[
     "revision_conflict",
     "completion_unavailable",
     "completion_dependency_unavailable",
+    # P3 (16/10/2026): the note fits the wire limit but NOT after the scrub (the `[REDACTED_*]`
+    # tokens are longer than what they replace). Refused before the audit intent and the engine.
+    "notes_too_long",
 ]
 
 

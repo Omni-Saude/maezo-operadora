@@ -41,7 +41,7 @@ const errorStatus: Readonly<Record<number, readonly CompletionFailure[]>> = {
   403: ["employee_access_required"],
   404: ["resource_unavailable"],
   409: ["revision_conflict"],
-  422: ["invalid_completion"],
+  422: ["invalid_completion", "notes_too_long"],
   501: ["completion_unavailable"],
   503: ["completion_dependency_unavailable"],
 };

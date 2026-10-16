@@ -81,7 +81,11 @@ código de `EscalationDecisionInputs`, não redigitado.
 
 **`notas_resolucao` é pseudonimizada no servidor antes de ir ao motor**, com o mesmo
 `phi_vars.redact_free_text` que a Helena roda na entrada: e-mail, CPF/CNPJ, telefone BR e
-sequências de 11+ dígitos viram tokens de classe, e o texto é limitado a 500 caracteres. A página
+sequências de 11+ dígitos viram tokens de classe. **O texto nunca é cortado** (até 16/10/2026 ele
+era cortado em 500 caracteres + `...[TRUNCATED]`): o limite de 2000 caracteres vale para o texto
+DEPOIS da pseudonimização, e como os tokens são mais longos que o que substituem, uma nota abaixo de
+2000 pode passar do limite depois dela — nesse caso a resposta é **422 `notes_too_long`**, antes de
+qualquer registro de auditoria e sem chamar o motor. A página
 **não** precisa (e não deve) tentar reproduzir isso — mas saiba que o que chega ao motor pode ser
 diferente do que foi digitado, e que é isso que o painel "O QUE O PORTAL VÊ" deveria mostrar.
 
@@ -136,6 +140,7 @@ Todos com o mesmo formato:
 | 404 | `resource_unavailable` | A tarefa não existe, não está ativa, ou o snapshot não é corrente | Recarregar a fila. |
 | 409 | `revision_conflict` | Tarefa já concluída, revisão mudou, membership mudou entre a leitura e o efeito, ou outra conclusão da mesma revisão já foi reivindicada | Recarregar a tarefa e decidir de novo. **Nunca** retentar automaticamente. |
 | 422 | `invalid_completion` | `resultado` ausente/fora dos três valores, `notas_resolucao` vazia/longa demais, campo extra | Bug da página ou do formulário. |
+| 422 | `notes_too_long` | `notas_resolucao` cabe em 2000 caracteres, mas passa de 2000 DEPOIS da pseudonimização (telefone, e-mail, CPF viram tokens mais longos) | Pedir ao colaborador para encurtar a nota. Nada foi gravado nem enviado. |
 | **501** | `completion_unavailable` | **A flag `MAEZO_PORTAL_DIRECT_COMPLETION` está desligada** | Mostrar o botão "Concluir pelo portal" desabilitado, com o motivo: a conclusão direta não está habilitada neste ambiente. É o estado padrão, não um erro. |
 | 503 | `completion_dependency_unavailable` | Autoridade/motor/auditoria indisponível, ou resposta do motor que não prova nem conclusão nem conflito | **Efeito INCERTO.** Não afirmar "falhou": recarregar a tarefa e olhar o estado real antes de qualquer coisa. |
 
