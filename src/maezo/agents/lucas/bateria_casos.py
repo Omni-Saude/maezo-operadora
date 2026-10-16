@@ -17,11 +17,25 @@ Chaves de `esperado` (todas opcionais):
   rejeitado    True        -> a borda de entrada recusa o estado (ValueError em `new_lucas_state`)
   valores_permitidos True  -> (DL-0086) o texto pode citar R$: o valor vem dos fatos e a cerca do grafo
                               confere que e' o deles
+  chave        prefixo da chave de negocio do processo iniciado (`ESC-` escalonamento, `CANCEL-` pedido de
+               cancelamento — SP-OP-CANCEL-001)
+  texto_contem trecho que tem de aparecer no texto ao beneficiario (sempre uma constante do grafo, nunca
+               digitado aqui)
+
+Chave opcional do CASO (fora de `esperado`):
+  chaves       interruptores do grafo ligados SO' para este caso (`cancelamento_pf_v1`, `lucas_v4`); a
+               bateria monta um grafo por combinacao (`bateria.chaves_do_caso`). Ausente = desligadas.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from maezo.agents.lucas.graph import (
+    TEXTO_COBRANCA_ADMINISTRADORA,
+    TEXTO_CONFIRMA_CANCELAMENTO,
+    ref_de_resposta,
+)
 
 BASE: dict[str, Any] = {
     "tenant_id": "amh",
@@ -39,8 +53,9 @@ def _c(
     nota: str = "",
     *,
     base: bool = True,
+    chaves: dict[str, bool] | None = None,
 ) -> dict[str, Any]:
-    return {
+    caso: dict[str, Any] = {
         "id": id,
         "familia": familia,
         "descricao": descricao,
@@ -48,6 +63,9 @@ def _c(
         "esperado": esperado,
         "nota": nota,
     }
+    if chaves:
+        caso["chaves"] = dict(chaves)
+    return caso
 
 
 INFO = "A. Informativo (J1): boleto, 2a via, vencimento"
@@ -55,6 +73,15 @@ PAGTO = "B. Confirmacao de pagamento (J2)"
 HUMANO = "C. Sempre humano (J3): inadimplencia, cancelamento, contestacao"
 BORDA = "D. Borda de entrada e robustez"
 VALORES = "E. Pergunta de valor respondida pelos fatos do billing-status (DL-0086)"
+TITULO = "F. De quem e' o titulo: negociacao, cancelamento PF (DL-0111) e adesao (16/10/2026)"
+
+#: Pagador PF que e' o proprio beneficiario, em dia (fatos da fonte; nenhum veredito).
+_PF_EM_DIA: dict[str, Any] = {
+    "pagador_tipo": "pessoa_fisica",
+    "beneficiario_e_pagador": True,
+    "status_conciliado": True,
+    "ciclos_sem_conciliacao": 0,
+}
 
 #: Fatos de valor SINTETICOS na forma do contrato `billing-status` (o que `FatosCobranca` entrega).
 _COMPETENCIAS_SINTETICAS: list[dict[str, str]] = [
@@ -532,5 +559,62 @@ CASOS: list[dict[str, Any]] = [
         dict(route="respond_member", processo=False),
         "Texto fixo: 'Voce pagou a mensalidade de agosto de 2026 em "
         "09/08. (dados de 30/09)' — so' a data pedida.",
+    ),
+    # --- F. de quem e' o titulo (16/10/2026, frente D do SP-OP-ESCALATION-001) ----------------------
+    _c(
+        "L37",
+        TITULO,
+        "Pedido de negociacao do pagador PF (o titulo e' dele)",
+        dict(intencao="cobranca_info", tipo_solicitacao="boleto", pedido_negociacao=True, **_PF_EM_DIA),
+        dict(route="escalate_human", motivo="pedido_negociacao", processo=True, chave="ESC-"),
+        "Rodada 12: o Lucas nunca negocia nem parcela — o pedido do pagador abre o caso humano "
+        "(graph.py `assess`, `pedido_negociacao` sem titulo de terceiro).",
+    ),
+    _c(
+        "L38",
+        TITULO,
+        "Pedido de negociacao num contrato de EMPRESA (o titulo e' da empresa)",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="boleto",
+            pedido_negociacao=True,
+            pagador_tipo="pessoa_juridica",
+            status_conciliado=True,
+            ciclos_sem_conciliacao=0,
+        ),
+        dict(route="respond_member", processo=False),
+        "O beneficiario nao negocia o titulo da empresa: resposta fixa, sem caso humano.",
+    ),
+    _c(
+        "L39",
+        TITULO,
+        "Cancelamento PF confirmado, plano individual segundo a AMH (MAEZO_CANCEL_PF_V1 ligada)",
+        dict(
+            intencao="cancelamento",
+            cancelamento_tipo_plano="individual",
+            cancelamento_titular=True,
+            cancelamento_vinculo_ativo=True,
+            cancelamento_identidade_verificada=True,
+            resposta_anterior_ref=ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO),
+            confirmacao_cancelamento="confirma",
+        ),
+        dict(route="escalate_human", motivo="pedido_cancelamento", processo=True, chave="CANCEL-"),
+        "DL-0111: com a chave, o tipo de plano da AMH conta como PF mesmo sem o pagador, e a confirmacao "
+        "abre SP-OP-CANCEL-001 (chave CANCEL-...). Sem a chave, o mesmo estado vira caso humano ESC-.",
+        chaves={"cancelamento_pf_v1": True},
+    ),
+    _c(
+        "L40",
+        TITULO,
+        "Duvida de boleto num coletivo por ADESAO cobrado pela administradora",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="boleto",
+            cobranca_administradora=True,
+            status_conciliado=True,
+            ciclos_sem_conciliacao=0,
+        ),
+        dict(route="respond_member", processo=False, texto_contem=TEXTO_COBRANCA_ADMINISTRADORA),
+        "13/10/2026 (bateria 4): o boleto e' da administradora — texto fixo dela, sem caso humano.",
     ),
 ]

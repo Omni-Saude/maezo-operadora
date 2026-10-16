@@ -30,13 +30,29 @@ import re
 import sys
 import time
 import unicodedata
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from maezo.agents.lucas.bateria_casos import CASOS
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
 FAIXA_SINTETICA = "5511900000"
+
+#: Os interruptores do grafo que um caso pode ligar (`bateria_casos`, chave `chaves`), com o MESMO nome
+#: que `lucas.graph.build` le' do `deps` (DL-0111 `MAEZO_CANCEL_PF_V1`, DL-0114 `MAEZO_LUCAS_V4`). Ausente
+#: no caso = desligado, como no grafo. Um nome fora daqui e' erro: um caso que pensa ligar uma chave que o
+#: grafo nao conhece rodaria com ela desligada e o veredito mentiria.
+CHAVES_DO_GRAFO: tuple[str, ...] = ("cancelamento_pf_v1", "lucas_v4")
+
+
+def chaves_do_caso(caso: Mapping[str, Any]) -> dict[str, bool]:
+    """As chaves que o caso liga (so' `True` literal liga). Levanta `ValueError` para nome desconhecido."""
+    pedidas: Mapping[str, Any] = caso.get("chaves") or {}
+    desconhecidas = sorted(set(pedidas) - set(CHAVES_DO_GRAFO))
+    if desconhecidas:
+        raise ValueError(f"caso {caso.get('id')}: chave(s) do grafo desconhecida(s) {desconhecidas}")
+    return {nome: pedidas[nome] is True for nome in CHAVES_DO_GRAFO if nome in pedidas}
+
 
 #: Campos do estado final que interessam a quem le a bateria. Nada de texto de beneficiario: o
 #: Lucas nao recebe nenhum, so' fatos de cobranca.
@@ -157,13 +173,23 @@ async def executar_caso(
 
 
 async def executar(
-    grafo: Any, gravador: GravadorDeEnvios, casos: Sequence[Mapping[str, Any]]
+    montar: Callable[[Mapping[str, bool]], tuple[Any, GravadorDeEnvios]],
+    casos: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Roda os casos; `montar(chaves)` constroi o grafo de cada combinacao de chaves (uma vez so')."""
     execucao = time.strftime("%m%d%H%M%S", time.gmtime())
     resultados: list[dict[str, Any]] = []
+    grafos: dict[tuple[tuple[str, bool], ...], tuple[Any, GravadorDeEnvios]] = {}
     print(f"LOTE_INI {execucao} casos={len(casos)}", flush=True)
     for indice, caso in enumerate(casos):
+        chaves = chaves_do_caso(caso)
+        assinatura = tuple(sorted(chaves.items()))
+        if assinatura not in grafos:
+            grafos[assinatura] = montar(chaves)
+        grafo, gravador = grafos[assinatura]
         resultado = await executar_caso(grafo, gravador, caso, indice=indice, execucao=execucao)
+        if chaves:
+            resultado["chaves"] = chaves
         resultados.append(resultado)
         print("CASE " + json.dumps(resultado, ensure_ascii=False, default=str), flush=True)
     print("LOTE_FIM", flush=True)
@@ -204,12 +230,17 @@ def veredito(caso: Mapping[str, Any], resultado: Mapping[str, Any]) -> tuple[str
             div.append(f"{campo_real}={final.get(campo_real)!r}; esperado {esperado[campo_esperado]!r}")
     if "processo" in esperado and bool(final.get("process_started")) != esperado["processo"]:
         div.append(f"process_started={bool(final.get('process_started'))}; esperado {esperado['processo']}")
+    if "chave" in esperado and not str(final.get("business_key") or "").startswith(esperado["chave"]):
+        # So' o prefixo esperado entra na divergencia: a chave inteira carrega a conversa.
+        div.append(f"a chave de negocio do processo nao comeca com {esperado['chave']!r}")
 
     # --- invariantes do Lucas -------------------------------------------------------------------
     dossie = resultado.get("dossie")
     if dossie and dossie.get("decisao_cancelamento") is not None:
         div.append("o dossie traz decisao de cancelamento (o Lucas nunca decide)")
     textos = [t for t in [resultado.get("mensagem"), *(resultado.get("enviados") or [])] if t]
+    if "texto_contem" in esperado and not any(str(esperado["texto_contem"]) in t for t in textos):
+        div.append("o texto ao beneficiario nao traz o trecho fixo esperado")
     proibido = _PROIBIDO_SEM_MOEDA if esperado.get("valores_permitidos") else _PROIBIDO
     for texto in textos:
         achado = proibido.search(_norm(texto))
@@ -229,8 +260,11 @@ def veredito(caso: Mapping[str, Any], resultado: Mapping[str, Any]) -> tuple[str
 
 
 # ------------------------------------------------------------------------------ montagem real
-def montar_grafo_real() -> tuple[Any, GravadorDeEnvios]:
-    """O grafo do Lucas com os seams GATED reais — a mesma montagem dos demais agentes."""
+def montar_grafo_real(chaves: Mapping[str, bool] | None = None) -> tuple[Any, GravadorDeEnvios]:
+    """O grafo do Lucas com os seams GATED reais — a mesma montagem dos demais agentes.
+
+    `chaves` (16/10/2026): os interruptores do caso (`chaves_do_caso`), repassados ao `deps` com o nome que
+    `lucas.graph.build` le'. Sem elas o grafo e' o de sempre (chaves desligadas)."""
     from maezo.agents.lucas import graph as lucas_graph
     from maezo.gateway.tool_registry import build_agent_seam_context, build_agent_seams, build_inference_seam
     from maezo.runtime.agent_runtime.settings import AgentRuntimeSettings
@@ -246,6 +280,7 @@ def montar_grafo_real() -> tuple[Any, GravadorDeEnvios]:
     gravador = GravadorDeEnvios(deps["whatsapp"])
     deps["whatsapp"] = gravador
     deps["agent_version"] = "lucas@bateria"
+    deps.update(chaves or {})
     return lucas_graph.build(deps).compile(), gravador
 
 
@@ -261,12 +296,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         faltando = sorted(escolhidos - {c["id"] for c in casos})
         print(f"ids desconhecidos: {faltando}", file=sys.stderr)
         return 2
+    for caso in casos:
+        chaves_do_caso(caso)  # chave desconhecida falha ANTES de qualquer efeito
     if args.listar:
         for caso in casos:
             print(f"{caso['id']}\t{caso['familia']}\t{caso['descricao']}")
         return 0
-    grafo, gravador = montar_grafo_real()
-    asyncio.run(executar(grafo, gravador, casos))
+    asyncio.run(executar(montar_grafo_real, casos))
     return 0
 
 
