@@ -3,8 +3,8 @@
 
 Runbook: `docs/runbooks/material-staff-na-aws.md` (DL-0113: tudo na AWS, sem Docker no notebook; a task
 `staff-material` monta o diretorio dos segredos vivos e chama `gerar`; `publicar --s3` le a saida do S3).
-Os passos de banco, applies e verificacao seguem `docs/runbooks/renovar-material-staff-dev.md`. Plano: `docs/plans/portal-autoridade-nativa-dev.md`
-(Ondas 4-10, emenda N1 de 25/09 e D-L). A delegacao N1 vale SO em dev: o agente usa a raiz
+Os passos de banco, applies e verificacao seguem `docs/runbooks/renovar-material-staff-dev.md`.
+Plano: `docs/plans/portal-autoridade-nativa-dev.md` (Ondas 4-10, emenda N1 de 25/09 e D-L). A delegacao N1 vale SO em dev: o agente usa a raiz
 `installation-root` do volume e assina designacao, admissoes e dono da atribuicao DENTRO do container.
 Producao exige aprovador humano.
 
@@ -425,6 +425,8 @@ def gerar(args: argparse.Namespace) -> int:
         staff_public_manifest_sha256=digest(manifesto),
         staff_designation_sha256=desig,
         staff_native_configuration_sha256=config,
+        # Troca de raiz (DL-0113): o pin do verify e o da raiz que assinou (no-op com a mesma).
+        staff_root_key_sha256=sha(raiz_der),
     )
     pins_raw = json.dumps(pins).encode()
     publico("approver-pins.json", pins_raw)
