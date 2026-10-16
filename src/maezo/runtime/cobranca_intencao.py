@@ -63,6 +63,22 @@ def decidir_confirmacao(texto: object) -> Confirmacao | None:
     return None
 
 
+_MELHOR_NAO: Final[re.Pattern[str]] = re.compile(r"\bmelhor nao\b|\bnao quero mais\b")
+_SIM: Final[re.Pattern[str]] = re.compile(r"\bsim\b")
+
+
+def e_recuo_do_cancelamento(texto: object) -> bool:
+    """O texto DESISTE do cancelamento ("nao", "deixa pra la", "esquece", "melhor nao", "mudei de ideia",
+    "nao quero mais")? Usado so' com a pergunta de confirmacao pendente (chave `MAEZO_CANCEL_PF_V1`). Um
+    "sim" no texto nunca e' recuo: segue o caminho de sempre."""
+    if not isinstance(texto, str):
+        return False
+    plano = _normalizar(texto)
+    if _SIM.search(plano):
+        return False
+    return decidir_confirmacao(texto) == "nega" or _MELHOR_NAO.search(plano) is not None
+
+
 def confirmacao_valida(valor: object) -> bool:
     return isinstance(valor, str) and valor in CONFIRMACOES
 
@@ -72,5 +88,6 @@ __all__ = [
     "Confirmacao",
     "confirmacao_valida",
     "decidir_confirmacao",
+    "e_recuo_do_cancelamento",
     "pede_negociacao",
 ]

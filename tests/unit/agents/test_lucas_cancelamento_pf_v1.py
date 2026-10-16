@@ -590,3 +590,65 @@ def test_a_chave_so_e_ligada_no_dev_pelo_terraform() -> None:
         if outro.is_dir() and outro.name != "dev-sa-east-1":
             for arquivo in outro.rglob("*.tf*"):
                 assert "cancel_pf_v1" not in arquivo.read_text(encoding="utf-8"), arquivo
+
+
+# =================================================================================================
+# Recuo com a confirmacao pendente (defeito do roteiro `cancelamento_v1`, 15/10/2026)
+# =================================================================================================
+
+
+@pytest.mark.parametrize("fatos", ["titular", "sem_fatos_da_amh", "dependente", "empresa"])
+async def test_desistencia_com_pendencia_limpa_e_diz_que_nada_foi_registrado(fatos: str) -> None:
+    extra: dict[str, Any] = {
+        "titular": _titular_verificado(),
+        "sem_fatos_da_amh": {},
+        "dependente": {**_titular_verificado(), "cancelamento_titular": False},
+        "empresa": {"cancelamento_tipo_plano": "coletivo_empresarial"},
+    }[fatos]
+    estado = _estado(confirmacao="nega", pendente=True, **_fatos_pf(), **extra)
+    final, envio, motor = await _turno(estado, v1=True)
+    assert envio.textos == [cpf.TEXTO_PEDIDO_NAO_REGISTRADO]
+    assert final["process_started"] is False and not motor._history  # nenhum processo, nenhum caso
+    # A pendencia some: a memoria do turno deixa de ser a da pergunta (um "sim" depois nao confirma nada).
+    assert final["resposta_memoria_ref"] != ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO)
+
+
+def test_texto_da_desistencia_cabe_na_regua_de_tom_e_nao_pressiona() -> None:
+    texto = cpf.TEXTO_PEDIDO_NAO_REGISTRADO
+    assert "nenhum pedido de cancelamento" in texto and "mudar de ideia" in texto
+    assert not frases_longas(texto) and not palavras_proibidas(texto) and not problemas_de_tom(texto)
+    for proibida in ("desconto", "promoc", "multa", "cancelado"):
+        assert proibida not in texto.lower()
+
+
+async def test_sim_sem_a_pergunta_pendente_nao_inicia_nada_depois_da_desistencia() -> None:
+    """Depois da desistencia a pendencia some: "sim" SEM a pergunta pendente nao inicia nada."""
+    final, envio, motor = await _turno(
+        _estado(confirmacao="confirma", **_fatos_pf(), **_titular_verificado()), v1=True
+    )
+    assert envio.textos == [TEXTO_CONFIRMA_CANCELAMENTO] and not motor._history
+    assert final["process_started"] is False
+
+
+async def test_sim_quero_cancelar_com_pendencia_continua_iniciando_o_pedido() -> None:
+    final, envio, _ = await _turno(_confirmado(**_fatos_pf(), **_titular_verificado()), v1=True)
+    assert final["process_started"] is True
+    assert envio.textos and envio.textos[0].startswith("Recebemos o seu pedido de cancelamento")
+
+
+async def test_nao_sem_pendencia_segue_o_fluxo_normal_e_pergunta() -> None:
+    final, envio, motor = await _turno(
+        _estado(confirmacao="nega", **_fatos_pf(), **_titular_verificado()), v1=True
+    )
+    assert envio.textos == [TEXTO_CONFIRMA_CANCELAMENTO] and not motor._history
+    assert final["process_started"] is False
+
+
+@pytest.mark.parametrize("v1", [None, False])
+async def test_chave_desligada_a_desistencia_mantem_o_texto_antigo(v1: bool | None) -> None:
+    from maezo.agents.lucas.graph import TEXTO_CANCELAMENTO_DESISTIU
+
+    _, envio, motor = await _turno(
+        _estado(confirmacao="nega", pendente=True, **_fatos_pf(), **_titular_verificado()), v1=v1
+    )
+    assert envio.textos == [TEXTO_CANCELAMENTO_DESISTIU] and not motor._history

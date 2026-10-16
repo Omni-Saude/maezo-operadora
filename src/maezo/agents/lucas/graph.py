@@ -196,6 +196,7 @@ from .cancelamento_pf import (
     TEXTO_DEPENDENTE,
     TEXTO_DEPENDENTE_CURTO,
     TEXTO_PEDIDO_JA_REGISTRADO,
+    TEXTO_PEDIDO_NAO_REGISTRADO,
     TEXTO_PEDIDO_RECEBIDO,
     TIPOS_PLANO_PF,
     protocolo_do_cancelamento,
@@ -3012,6 +3013,15 @@ class LucasGraph:
         conta como PF mesmo sem o pagador. Desligada, nada disto roda.
         """
         v1 = self._cancel_pf_v1
+        if (
+            v1
+            and state.get("resposta_anterior_ref") == ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO)
+            and state.get("confirmacao_cancelamento") == "nega"
+        ):
+            # Recuo com a pergunta pendente: ANTES de qualquer leitura de fatos. Nenhum processo, nenhum
+            # caso — so' o texto que diz que nada foi registrado (a pendencia some: a memoria passa a ser
+            # a deste texto).
+            return self._responder_cancelamento("desistiu", dmn_refs)
         tipo_plano = state.get("cancelamento_tipo_plano") if v1 else None
         if cobranca_administradora(state) or tipo_plano == "coletivo_adesao":
             return self._responder_cancelamento("administradora", dmn_refs)
@@ -3805,7 +3815,7 @@ class LucasGraph:
             "empresa": TEXTO_CANCELAMENTO_EMPRESA,
             "administradora": TEXTO_CANCELAMENTO_ADMINISTRADORA,
             "confirmar": TEXTO_CONFIRMA_CANCELAMENTO,
-            "desistiu": TEXTO_CANCELAMENTO_DESISTIU,
+            "desistiu": TEXTO_PEDIDO_NAO_REGISTRADO if self._cancel_pf_v1 else TEXTO_CANCELAMENTO_DESISTIU,
             # DL-0111 (so' com a chave): o pedido e' do titular; oferta de pessoa, sem processo.
             "dependente": TEXTO_DEPENDENTE,
         }.get(str(resposta), TEXTO_CONFIRMA_CANCELAMENTO)
