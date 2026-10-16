@@ -1109,6 +1109,8 @@ _TEXTOS_DE_CASO_ADMINISTRATIVO: tuple[str, ...] = (
 )
 CASO_ABERTO_CLINICO: str = "clinico"
 CASO_ABERTO_ADMINISTRATIVO: str = "administrativo"
+#: DL-0116: as falhas da leitura do caso no motor que viram "nao confirmado" (nunca erro de programacao).
+_FALHAS_DA_LEITURA_DO_CASO: tuple[type[Exception], ...] = (CibSevenError, *EXTERNAL_DEPENDENCY_FAILURES)
 
 
 def _falas_da_helena(estado: Mapping[str, Any]) -> list[str]:
@@ -1777,6 +1779,11 @@ class HelenaState(TypedDict, total=False):
     #: `receive` o preserva SO' com a flag ligada e dentro da janela de 6 h desde `ultima_mensagem_em`;
     #: so' `respond` o estende, com a mensagem do turno e o texto que SAIU. Nunca telefone/identidade.
     historico_conversa: list[dict[str, str]] | None
+    #: DL-0116 (frente C do SP-OP-ESCALATION-001): o caso aberto CONFIRMADO PELO MOTOR neste turno —
+    #: `CASO_ABERTO_CLINICO`, `CASO_ABERTO_ADMINISTRATIVO` ou `None`. Escrito so' por `receive`
+    #: (`_conferir_caso_aberto`), e so' quando o historico curto traz indicio de caso. Os textos que
+    #: AFIRMAM caso aberto leem este campo; o historico continua indicio para seguranca e rota.
+    caso_aberto_confirmado: str | None
 
     # Turn output.
     response_text: str
@@ -1903,6 +1910,8 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "aviso_identidade_dado": False,
     # DL-0080: memoria de conversa com portao proprio (a flag do historico) — ver `receive`.
     "historico_conversa": None,
+    # DL-0116: na duvida, nenhum caso afirmado. So' `receive` o preenche, depois de ler o motor.
+    "caso_aberto_confirmado": None,
     "response_text": None,
     "response_kind": None,
     "desfecho": "",
@@ -4532,7 +4541,42 @@ class HelenaGraph:
         if not state.get("conversation_id") or not state.get("tenant_id"):
             reset["next_kind"] = "escalate"
             reset["error"] = "missing runtime context (tenant_id/conversation_id)"
+        # DL-0116: o caso aberto que os textos podem AFIRMAR, confirmado no motor (historico = indicio).
+        reset["caso_aberto_confirmado"] = await self._conferir_caso_aberto(
+            cast(HelenaState, {**state, **reset})
+        )
         return reset
+
+    async def _conferir_caso_aberto(self, state: HelenaState) -> str | None:
+        """DL-0116: `CASO_ABERTO_CLINICO`, `CASO_ABERTO_ADMINISTRATIVO` ou `None`, pelo MOTOR.
+
+        So' le' o motor quando o historico curto traz indicio de caso (`_caso_aberto_no_historico`): sem
+        indicio, nenhuma leitura. Confirma pela instancia ATIVA de SP-OP-ESCALATION-001 nas chaves desta
+        conversa (`-clin` primeiro: o caso clinico paralelo vence). A classe vem da chave `-clin` ou do
+        `motivo_categoria` da instancia (`_motivo_do_caso_aberto`). Instancia concluida, transporte sem
+        leitura ou leitura que FALHA = `None` (nunca afirma); a falha vai ao log so' com o tipo do erro.
+        """
+        if _caso_aberto_no_historico(state) is None:
+            return None
+        buscar = getattr(self._cibseven, "find_active_instance", None)
+        tenant = str(state.get("tenant_id") or "")
+        conversa = str(state.get("conversation_id") or "")
+        if not callable(buscar) or not tenant or not conversa:
+            return None
+        chave = chave_do_escalonamento(tenant, conversa)
+        try:
+            if await buscar(chave_do_escalonamento(tenant, conversa, clinico=True)) is not None:
+                return CASO_ABERTO_CLINICO
+            if await buscar(chave) is None:
+                return None
+        except PROGRAMMING_ERRORS:
+            raise
+        except _FALHAS_DA_LEITURA_DO_CASO as exc:
+            logger.warning("helena_caso_aberto_leitura_falhou", error_type=type(exc).__name__)
+            return None
+        if await self._motivo_do_caso_aberto(chave) in MOTIVOS_DE_ALERTA_CLINICO:
+            return CASO_ABERTO_CLINICO
+        return CASO_ABERTO_ADMINISTRATIVO
 
     async def classify(self, state: HelenaState) -> dict[str, Any]:
         """Classify intent + normalize any symptom, then ALWAYS evaluate the red-flag DMN for a
