@@ -87,7 +87,10 @@ from maezo.platform.integrations.notifications_bridge import (
     BridgeKafkaConsumer,
     MalformedBridgeMessageError,
 )
-from maezo.tools.workers.escalation import NOTIFY_TEAM_NOTIFICATION_TYPE
+from maezo.tools.workers.escalation import (
+    NOTIFY_SUPERVISOR_NOTIFICATION_TYPE,
+    NOTIFY_TEAM_NOTIFICATION_TYPE,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -155,6 +158,13 @@ class TeamNotice:
     severidade: str | None = None
     prioridade: str | None = None
     motivo_categoria: str | None = None
+    #: Which notification this line came from. `escalation.notify_team` (default) or
+    #: `escalation.notify_supervisor` (DL-0117). NOT a column: it only enters the digest below,
+    #: and only for the supervisor notice.
+    notice_type: str = NOTIFY_TEAM_NOTIFICATION_TYPE
+    #: The supervisor notice's reason (`sla_ack_breached` / `notificacao_primaria_falhou`, BPMN
+    #: literals). Digest-only, like `notice_type`; always `None` for a team notice.
+    motivo_alerta: str | None = None
 
     @property
     def audience(self) -> str:
@@ -176,20 +186,28 @@ class TeamNotice:
         `sort_keys` + compact separators is the canonicalisation this repo already uses for
         digests it must be able to recompute (`portal/engine/profile.py::canonicalize`, the audit
         chain), so the same notice hashes identically in any process.
+
+        DL-0117 — SUPERVISOR NOTICES ONLY add `type` and `motivo_alerta` to the canonical content.
+        The two supervisor alerts the BPMN can raise for ONE case (channel fallback
+        `notificacao_primaria_falhou` and ack deadline `sla_ack_breached`) carry otherwise identical
+        columns; without the reason in the digest the second would collapse into the first as a
+        `DUPLICATE` and the supervisor would never see it. A TEAM notice's canonical content is
+        left byte-for-byte as it was, so every `notice_ref` already in the table stays valid and a
+        redelivered team notice still converges on its existing row (pinned by a fixed-value test).
         """
-        canonical = json.dumps(
-            {
-                "tenant_id": self.tenant_id,
-                "business_key": self.business_key,
-                "audience": self.audience,
-                "grupo_atendimento": self.grupo_atendimento,
-                "severidade": self.severidade,
-                "prioridade": self.prioridade,
-                "motivo_categoria": self.motivo_categoria,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        content: dict[str, Any] = {
+            "tenant_id": self.tenant_id,
+            "business_key": self.business_key,
+            "audience": self.audience,
+            "grupo_atendimento": self.grupo_atendimento,
+            "severidade": self.severidade,
+            "prioridade": self.prioridade,
+            "motivo_categoria": self.motivo_categoria,
+        }
+        if self.notice_type == NOTIFY_SUPERVISOR_NOTIFICATION_TYPE:
+            content["type"] = self.notice_type
+            content["motivo_alerta"] = self.motivo_alerta
+        canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -240,7 +258,8 @@ def parse_team_notice(value: Any) -> TeamNotice | None:
 
     Three outcomes, and the distinction between the last two is the whole point:
 
-      * `None` — the message is not an `escalation.notify_team` notification. This topic is shared
+      * `None` — the message is neither `escalation.notify_team` nor (DL-0117)
+        `escalation.notify_supervisor` (see `_parse_supervisor_notice`). This topic is shared
         with the SLA-risk alerts and every other internal notification, so a foreign `type` is the
         NORMAL case, not an error. Skipped silently; the offset may advance.
       * `TeamNotice` — a well-formed notice, ready to record.
@@ -259,6 +278,8 @@ def parse_team_notice(value: Any) -> TeamNotice | None:
             value,
             code=REASON_NOT_A_JSON_OBJECT,
         )
+    if value.get("type") == NOTIFY_SUPERVISOR_NOTIFICATION_TYPE:
+        return _parse_supervisor_notice(value)
     if value.get("type") != NOTIFY_TEAM_NOTIFICATION_TYPE:
         return None
 
@@ -295,6 +316,45 @@ def parse_team_notice(value: Any) -> TeamNotice | None:
         severidade=_non_blank(value, "severidade"),
         prioridade=_optional_label(value, "prioridade"),
         motivo_categoria=_optional_label(value, "motivo_categoria"),
+    )
+
+
+def _parse_supervisor_notice(value: dict[str, Any]) -> TeamNotice:
+    """`escalation.notify_supervisor` -> a line in the SAME table, addressed to the supervisor group.
+
+    DL-0117. The row's `grupo_atendimento` is the notice's `alert_to` (`supervisao-atendimento`,
+    set by the publisher as a constant) — the group that must act — not the payload's own
+    `grupo_atendimento`, which names the team that was (or should have been) on the hook. The
+    payload carries only identifiers and closed labels (`type`, `tenant_id`, `business_key`,
+    `alert_to`, `grupo_atendimento`, `severidade`, `prioridade`, `motivo_alerta`): no free text
+    (ADR-0006). No `business_key` (or no `alert_to`) names no case/queue -> dead letter, exactly like
+    an anchorless team notice.
+    """
+    tenant_id = _non_blank(value, "tenant_id")
+    business_key = _non_blank(value, "business_key")
+    grupo = _non_blank(value, "alert_to")
+    missing = [
+        name
+        for name, present in (("tenant_id", tenant_id), ("business_key", business_key), ("alert_to", grupo))
+        if present is None
+    ]
+    if missing:
+        raise MalformedTeamNoticeError(
+            f"{NOTIFY_SUPERVISOR_NOTIFICATION_TYPE} notification is missing required anchors: "
+            f"{sorted(missing)} — it names no case and/or no queue, so it cannot become an "
+            "actionable inbox line",
+            value,
+            code=REASON_MISSING_ESCALATION_ANCHOR,
+        )
+    return TeamNotice(
+        tenant_id=tenant_id or "",
+        business_key=business_key or "",
+        grupo_atendimento=grupo or "",
+        severidade=_non_blank(value, "severidade"),
+        prioridade=_optional_label(value, "prioridade"),
+        motivo_categoria=None,
+        notice_type=NOTIFY_SUPERVISOR_NOTIFICATION_TYPE,
+        motivo_alerta=_optional_label(value, "motivo_alerta"),
     )
 
 
