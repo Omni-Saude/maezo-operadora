@@ -1,5 +1,11 @@
 # Runbook: renovar o material staff/human do portal nativo em DEV (a cada 14 dias)
 
+> **Desde 15/10/2026 (DL-0113) a geracao e a publicacao NAO rodam mais no Docker do notebook.** Use
+> `docs/runbooks/material-staff-na-aws.md` (task Fargate `staff-material`, raiz e estado no S3 de dev, publicacao com a
+> OAAR sem Docker). As secoes 2 a 5 abaixo ficam como historico do metodo antigo (volume `maezo-onda2b-materials`); as
+> secoes 6 a 10 (linhas no banco, task definitions, emissor, verificacao, rollback) continuam valendo e sao
+> referenciadas pelo runbook novo.
+
 Plano: `docs/plans/portal-autoridade-nativa-dev.md` (Ondas 4-10, decisao N2 = 14 dias, emenda N1 de
 25/09 e D-L). **So dev.** Em dev o agente usa a raiz `installation-root` do volume e assina
 designacao, admissoes e dono da atribuicao DENTRO do container; a chave privada da raiz nunca sai do
@@ -76,14 +82,16 @@ JSON (`public/resumo.json` no volume).
 ## 5. Publicar os segredos (OAAR; o SSO adm-dev nao cria versao por causa da SCP)
 
 A credencial da `OrganizationAccountAccessRole` NUNCA vai para arquivo: fica em variaveis de um
-subshell e entra no container por `-e NOME` (sem valor na linha de comando). O `tr -d ''` e
+subshell e entra no container por `-e NOME` (sem valor na linha de comando). O `tr -d '
+'` e
 obrigatorio no Git Bash: a aws.exe termina a linha com CR e o token com CR quebra o header do boto3
 (que ecoa o header no traceback). O container monta SO `ops-secrets/` e `public/` da saida
 (`volume-subpath`, Docker 29): a raiz e a senha dela nao ficam visiveis para o processo que fala com a AWS.
 
 ```bash
 O=ondaNN-renovacao-AAAAMMDD
-( read A B C < <(aws sts assume-role --profile adm-mgmt     --role-arn arn:aws:iam::203312548462:role/OrganizationAccountAccessRole --role-session-name renovacao-staff     --duration-seconds 900 --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text | tr -d '')
+( read A B C < <(aws sts assume-role --profile adm-mgmt     --role-arn arn:aws:iam::203312548462:role/OrganizationAccountAccessRole --role-session-name renovacao-staff     --duration-seconds 900 --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text | tr -d '
+')
   export AWS_ACCESS_KEY_ID=$A AWS_SECRET_ACCESS_KEY=$B AWS_SESSION_TOKEN=$C MSYS_NO_PATHCONV=1
   docker run --rm --user 0 -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION=sa-east-1     -v $REPO:/repo:ro     --mount type=volume,src=maezo-onda2b-materials,dst=/out/ops-secrets,volume-subpath=$O/ops-secrets,readonly     --mount type=volume,src=maezo-onda2b-materials,dst=/out/public,volume-subpath=$O/public,readonly     maezo-staff-runner:AAAAMMDD python /repo/scripts/ops/staff_material_renovar_dev.py publicar --out /out     native-materials.json staff-materials.json portal-human.json job.json rows.json syn-fixture.json )
 ```

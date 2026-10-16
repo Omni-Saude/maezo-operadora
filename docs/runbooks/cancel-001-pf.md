@@ -113,6 +113,11 @@ A conclusão pelo portal (botão) vem no PR do portal (seção 8); a leitura na 
 Depois do deploy do BPMN (o `process_definition_id` muda a cada versão), na próxima renovação do material
 (`docs/runbooks/renovar-material-staff-dev.md`, seções 4 a 7 — a janela atual vence em 22/10/2026):
 
+> **Na AWS (DL-0113, sem Docker no notebook):** o catálogo novo e as entradas `human` sobem em `insumos/` do S3 de estado
+> e entram no `gerar` por `MATERIAL_CATALOGO` / `MATERIAL_ENTRADAS_HUMANAS`
+> (`docs/runbooks/material-staff-na-aws.md`, passo 5); o `gerar` troca o catálogo, atualiza o `catalog_digest` e
+> acrescenta as entradas, e o `review_admission` confere tudo antes de assinar. O `estado/` do volume local não existe mais.
+
 1. **Catálogo** (`job/task-catalog.json`): acrescentar uma entrada por tarefa, com o `process_definition_id`
    e o `process_definition_digest` (sha256 dos bytes do BPMN publicado) da versão nova:
    - `UT_AnaliseRescisao`, `UT_CoordenacaoCancelamento`: `form_key=cancel_decisao`,
