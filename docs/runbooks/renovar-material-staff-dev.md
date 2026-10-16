@@ -188,6 +188,67 @@ curl -s -o /dev/null -w '%{http_code}\n' https://portal-maezo-dev.austa.com.br/a
 #   (/ecs/maezo-operadora-dev/cloudflared) sem "Unable to reach the origin" depois do motor subir.
 ```
 
+## 9a. Fila vazia ou indisponivel no portal (diagnostico SO' LEITURA)
+
+Sintoma: o atendente nao ve tarefa de `SP-OP-ESCALATION-001` que existe no motor, ou a fila responde
+indisponivel. Hipotese principal (H1): o processo foi reimplantado e a versao viva NAO e' a que a
+admissao Q2 nomeia (`human.entries[].process_definition_id`); o job T1.5 pulava essas tarefas EM
+SILENCIO ate 16/10/2026 e agora emite `human_task_skipped` (abaixo). Nada desta secao escreve: as
+consultas rodam dentro de `BEGIN TRANSACTION READ ONLY; ... ROLLBACK;`, por um login que LE as tabelas
+do motor (o login do job, `portal_task_source_amh`, so' le colunas de `act_ru_task`; para (a) e (c)
+use `scripts/ops/run-db-task.ps1` com um script que abre a transacao READ ONLY e so' faz `SELECT`).
+NAO rode `deploy-processes`, NAO reassine material e NAO conclua tarefa para "testar": se H1 se
+confirmar, o caminho e' o repin/reassinatura da admissao (decisao do dono, secoes 4-8).
+
+```sql
+BEGIN TRANSACTION READ ONLY;
+-- (a) versoes implantadas do processo: qual e' a viva, e se ha' mais de uma
+SELECT id_, version_, deployment_id_ FROM cibseven.act_re_procdef
+ WHERE key_='SP-OP-ESCALATION-001' AND tenant_id_='amh' ORDER BY version_;
+-- (b) tarefas humanas vivas por definicao: compare proc_def_id_ com o id admitido
+SELECT proc_def_id_, task_def_key_, count(*) FROM cibseven.act_ru_task
+ WHERE tenant_id_='amh' AND task_def_key_ IN ('UT_TratarEscalonamento','UT_SupervisorAssume')
+ GROUP BY 1,2;
+-- (c) deployments na janela suspeita (13/10 18:00 a 14/10 03:00, horario de Brasilia). O motor grava
+--     deploy_time_ SEM fuso: confira antes com `SELECT now(), current_setting('TimeZone')`; se o
+--     relogio do motor for UTC, a janela e' '2026-10-13 21:00' a '2026-10-14 06:00'.
+SELECT id_, name_, deploy_time_, source_, tenant_id_ FROM cibseven.act_re_deployment
+ WHERE deploy_time_ BETWEEN '2026-10-13 18:00' AND '2026-10-14 03:00' ORDER BY deploy_time_;
+ROLLBACK;
+```
+
+(d) O job T1.5 no CloudWatch desde 13/10 18h de Brasilia (21:00Z = epoch `1791925200`):
+
+```bash
+export AWS_PROFILE=adm-dev AWS_REGION=sa-east-1 MSYS_NO_PATHCONV=1
+aws logs filter-log-events --log-group-name /ecs/maezo-operadora-dev/staff-job \
+  --start-time 1791925200000 --filter-pattern '?T15_RESULT ?"publication refused"' \
+  --query 'events[].[timestamp,message]' --output text
+# eventos novos (a partir do deploy desta mudanca):
+aws logs filter-log-events --log-group-name /ecs/maezo-operadora-dev/staff-job \
+  --start-time 1791925200000 --filter-pattern '?human_task_skipped ?human_publication_refused' \
+  --query 'events[].[timestamp,message]' --output text
+```
+
+Como ler:
+- `T15_RESULT ok=true` com a linha anterior trazendo `"tasks_skipped": N` (N > 0) = o job rodou e
+  DEIXOU tarefas de fora; os `human_task_skipped` dizem quais e por que.
+- `human_task_skipped` com `reason=definition_not_admitted`: a tarefa viva e' de
+  `process_definition_id` que NAO esta' em `admitted_process_definition_ids`. Compare com (a) e (b):
+  se o id vivo e' o da versao nova, H1 esta' confirmada (repin + reassinatura da admissao, decisao do
+  dono). `task_id_format_not_admitted`: o id da tarefa nao tem o formato admitido (uuid/decimal).
+  `task_changed_during_publication`: a tarefa foi concluida ou migrada durante a rodada (normal,
+  isolado; repetido em toda rodada nao e').
+- `publication refused: <Tipo>:<motivo>` (ultima linha antes de `T15_RESULT ok=false`) e o evento
+  `human_publication_refused`: o motivo e' do vocabulario fechado `UnavailableReason`
+  (`src/maezo/gateway/human/read_credentials.py`), por exemplo `catalog_not_admitted` (o catalogo do
+  arquivo nao e' o da admissao), `authority_counter_behind_ledger` (contador do motor abaixo do ledger:
+  outro banco ou restore), `too_many_live_tasks`, `native_source_failed` (login/consulta do motor),
+  `secret_file_invalid`. `unclassified` = a recusa nao disse o motivo (ex.: `KeyError` de variavel
+  de ambiente): o tipo da excecao e' a pista.
+- Os eventos so' trazem identificadores (ids de tarefa e de definicao, chave da tarefa, motivo). Se
+  aparecer texto livre num deles, e' defeito: abra incidente (a cerca e' `publication_events.render`).
+
 ## 10. Rollback
 
 - Segredos: as versoes anteriores continuam (AWSPREVIOUS). Mas o material anterior esta vencido:
