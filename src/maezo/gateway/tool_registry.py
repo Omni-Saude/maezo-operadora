@@ -239,10 +239,9 @@ AGENT_CREDENTIAL_FIELDS: Final[dict[str, str]] = {
     "amh_phone_lookup_key": "amh_phone_lookup_key",
     # DL-0083 (acesso do beneficiario): chave DEDICADA do hash `amh-subject-verify-v1` (CPF e CPF+nascimento).
     "amh_subject_verify_key": "amh_subject_verify_key",
-    # DL-0114 (Lucas v4): segredo do cliente Cognito DEDICADO da 2a via do boleto
-    # (`maezo-operadora-interop-boleto`,
-    # unico escopo `interop/billing.boleto`). Credencial de pagamento: cliente e segredo separados do de
-    # cobranca.
+    # DL-0114 (Lucas v4): segredo do cliente Cognito DEDICADO da 2a via do boleto (`maezo-operadora-interop-
+    # boleto`, unico escopo `interop/billing.boleto`). Credencial de pagamento: cliente e segredo separados
+    # do de cobranca.
     "amh_interop_boleto_client_secret": "amh_interop_boleto_client_secret",
 }
 

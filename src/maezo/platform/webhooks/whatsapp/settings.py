@@ -536,9 +536,8 @@ class WhatsAppWebhookSettings(BaseSettings):
         exclude=True,
     )
     # Lucas v4 (DL-0114): cliente Cognito DEDICADO da 2a via do boleto (`maezo-operadora-interop-boleto`,
-    # unico escopo
-    # `interop/billing.boleto`; o codigo de barras e' CREDENCIAL DE PAGAMENTO). O segredo chega so' pelo
-    # cofre.
+    # unico escopo `interop/billing.boleto`; o codigo de barras e' CREDENCIAL DE PAGAMENTO). O segredo chega
+    # so' pelo cofre.
     amh_interop_boleto_client_id: str | None = Field(
         default=None,
         validation_alias=AliasChoices("MAEZO_AMH_INTEROP_BOLETO_CLIENT_ID", "amh_interop_boleto_client_id"),
@@ -621,12 +620,9 @@ class WhatsAppWebhookSettings(BaseSettings):
         ),
     )
     # Lucas v4 (DL-0114): os OpenAPI do billing-status 0.4.0 (manifest v1.10, publicado em 16/10/2026) e da
-    # 2a via
-    # (billing-segunda-via 0.1.0, manifest v1.11). Lidos SO' com `lucas_v4` ligada; os bytes so' valem com o
-    # digest
-    # dos blocos `manifest_v1_10`/`manifest_v1_11` do pin. Sem os dois caminhos nao ha' executor e o segundo
-    # sinal
-    # (`fonte_v4.fonte_detalhamento_habilitada`) fica desligado.
+    # 2a via (billing-segunda-via 0.1.0, manifest v1.11). Lidos SO' com `lucas_v4` ligada; os bytes so'
+    # valem com o digest dos blocos `manifest_v1_10`/`manifest_v1_11` do pin. Sem os dois caminhos nao ha'
+    # executor e o segundo sinal (`fonte_v4.fonte_detalhamento_habilitada`) fica desligado.
     amh_billing_status_detalhamento_openapi_path: str | None = Field(
         default=None,
         validation_alias=AliasChoices(

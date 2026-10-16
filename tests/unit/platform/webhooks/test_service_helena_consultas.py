@@ -311,3 +311,12 @@ async def test_fonte_nunca_levanta() -> None:
 
     assert await _fonte(_Quebrado()).consultar(REF, "elegibilidade") is None
     assert await _fonte(_Port()).consultar(REF, "boleto") is None
+
+
+async def test_o_prazo_total_cobre_as_duas_leituras_do_caminho_sem_carencias() -> None:
+    """"Estou em carencia?" sem linha de carencia le' a carencia E confirma o sujeito pela elegibilidade: duas leituras de
+    ate' 5 s cada (o prazo do port). Com o teto de 6 s o roteiro `dono_v1` reprovou 1 em 3 rodadas no dev (16/10/2026)."""
+    from maezo.platform.webhooks.whatsapp import helena_consultas
+    from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS
+
+    assert helena_consultas.PRAZO_TOTAL_S >= 2 * DEFAULT_PORT_TIMEOUT_SECONDS
