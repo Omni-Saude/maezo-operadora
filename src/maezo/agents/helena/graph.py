@@ -220,6 +220,7 @@ from .helena_v4 import (
     ECO_GENERICO,
     ETAPA_ALERTA,
     ETAPA_CASO_EQUIPE,
+    ETAPA_CASO_PEDIU_PESSOA,
     ETAPA_CASO_SEM_RESPOSTA,
     ETAPA_CASO_SIM,
     ETAPA_ESCOLHA,
@@ -5059,6 +5060,24 @@ class HelenaGraph:
         # SEM `sintoma_codigo` NADA MUDA: uma pergunta clinica sem sintoma ("o plano cobre
         # fisioterapia?") nao tem o que triar, e uma tabela de red flag sobre um codigo nulo nao
         # responde nada que valha uma chamada ao motor.
+        # HELENA V4 (aceite de 16/10/2026): QUEM PEDE UMA PESSOA NO MEIO DAS PERGUNTAS DE ALERTA nao e'
+        # obrigado a respondê-las. O modelo, vendo a conversa, devolvia o `sintoma_codigo` da queixa
+        # anterior para "Quero falar com uma pessoa" e a tabela de alarme (sem intensidade) abria
+        # `red_flag_clinico` com o texto de emergencia. A MENSAGEM, sozinha, nao traz sintoma (sem
+        # vocabulario clinico, sem sinal de emergencia):
+        # abre o caso clinico `intencao_clinica` (enfermagem, a mesma regra de "pedido de pessoa DENTRO da
+        # triagem", rodada 10) com o resumo da queixa, sem passar pela tabela. Risco psicossocial, e qualquer
+        # sinal clinico na propria mensagem, seguem pelos portoes de seguranca de sempre.
+        if pend_v4 is not None and self._v4_pede_pessoa_no_alerta(state, pend_v4, texto_clinico):
+            logger.info("helena_v4_pediu_pessoa_no_alerta", node="classify")
+            return self._v4_abrir_caso(
+                update,
+                pend_v4,
+                str(state.get("coleta_contexto") or ""),
+                ETAPA_CASO_PEDIU_PESSOA,
+                motivo="intencao_clinica",
+                severidade="moderada",
+            )
         ja_triado = bool(extraction.get("sintoma_codigo"))
         if ja_triado and await self._triar_red_flag(extraction, update):
             return update
@@ -5906,6 +5925,23 @@ class HelenaGraph:
             or _pedido_explicito_com_verbo(texto)
             or _ameaca_regulatoria(texto)
             or _pergunta_de_cobranca(texto)
+        )
+
+    def _v4_pede_pessoa_no_alerta(self, state: Mapping[str, Any], pend: Pendente, texto: str) -> bool:
+        """A pessoa pediu EXPLICITAMENTE uma pessoa quando a v4 esperava a resposta de alerta, e a mensagem em
+        si nao traz queixa, emergencia, cobranca nem recusa? So' entao a v4 abre o caso sem rodar a tabela."""
+        if not self._v4 or pend.etapa != ETAPA_ALERTA:
+            return False
+        plano = _plano(texto)
+        return bool(
+            _pedido_explicito_de_pessoa(texto)
+            and not _RECUSA_DE_PESSOA.search(plano)
+            and not _conteudo_clinico(texto)
+            and state.get("sinal_saude_lexico") is not True
+            and not _sinal_forte_de_emergencia(texto)
+            and not _sinal_fraco_de_emergencia(texto)
+            and not _pergunta_de_cobranca(texto)
+            and not _ameaca_regulatoria(texto)
         )
 
     @staticmethod

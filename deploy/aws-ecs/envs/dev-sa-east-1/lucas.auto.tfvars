@@ -40,3 +40,8 @@ cancel_pf_v1 = true
 // sinal no codigo). Aprovado pelo dono em 16/10/2026 SO' para dev (juridico e DPO antes de producao). Exige
 // lucas_consulta_valores = true. Voltar: false (runbook docs/runbooks/lucas-v4.md).
 lucas_v4 = true
+
+// billing-status 0.3.0 (manifest v1.6): `beneficiario_e_pagador` e `valor_boleto_pagador`. O Lucas v4 SO' sabe quem e' o
+// pagador com ele; sem o caminho a cobranca le' o 0.2.0, que nao traz o sinal (achado do aceite de 16/10/2026: o
+// dependente ouviu valores do pagador). Exigido pela validacao de `lucas_v4`. Voltar: nao ha' (so' junto de lucas_v4 = false).
+amh_billing_status_contratacao_openapi_path = "/app/config/integrations/amh/openapi/billing-status-contratacao.openapi.yaml"

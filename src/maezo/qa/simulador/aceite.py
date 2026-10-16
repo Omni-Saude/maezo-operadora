@@ -15,7 +15,7 @@ ASSERCOES de um passo (todas sobre o texto concatenado das respostas DAQUELE tur
   escalacao_um_de       o caso aberto neste turno tem UM destes motivos (ex.: clinico)
   escalacao             "nenhuma" = nenhum caso novo aberto neste turno; outro valor = um caso com
                         esse `motivo_categoria` foi aberto neste turno; `None` = nao confere
-  primeira_frase_deve   padrao sobre a primeira frase da primeira resposta
+  primeira_frase_deve   padrao sobre a primeira frase da primeira resposta (do `agente`, quando ele e' dado)
   nao_igual_ao_anterior as respostas deste turno nao podem ser iguais as do passo anterior
   condicao              `sempre` (padrao), `sem_sinal` ou `com_sinal`. O SINAL e' o
                         `fonte_detalhamento_habilitada` do Lucas v4 (contratos novos da AMH pinados).
@@ -167,7 +167,11 @@ def avaliar_passo(
         if compilar(quando).search(sem_acento(passo.texto)) and compilar(padrao).search(texto):
             falhas.append(f"nao_deve_global{onde}: casou /{padrao}/ (mensagem sobre {quando})")
     if passo.primeira_frase_deve is not None:
-        primeira = respostas[0][1] if respostas else ""
+        # Com `agente`, a "primeira resposta" e' a PRIMEIRA DAQUELE AGENTE: o Lucas e' acionado pela
+        # Helena, que
+        # abre o turno com "Vou chamar quem cuida da parte financeira." (aceite de 16/10/2026).
+        do_agente = [t for a, t in respostas if passo.agente is None or a == passo.agente]
+        primeira = do_agente[0] if do_agente else ""
         if not compilar(passo.primeira_frase_deve).search(sem_acento(primeira_frase(primeira))):
             falhas.append(f"primeira_frase_deve: a primeira frase nao casa /{passo.primeira_frase_deve}/")
     if passo.escalacao is not None:
@@ -440,6 +444,23 @@ _PAR_COPARTICIPACAO_E_ANO: tuple[Passo, ...] = (
     ),
 )
 
+#: A carteirinha NUNCA traz o codigo inteiro, CNS, nome nem nascimento. O codigo inteiro tem 13+ digitos (a
+#: carteira tem 15; o CNS tambem). `\d{9,}` reprovava o NUMERO ANS DO PLANO (9 digitos, dado publico
+#: que o dono quer mostrar: aceite de 16/10/2026). O codigo so' pode aparecer MASCARADO
+#: (`*****NNNN`, conferido no `deve`).
+_CODIGO_INTEIRO_NAO_DEVE = (
+    r"\d{13,}",
+    r"\d(?:[ .-]?\d){14,}",  # o mesmo codigo com separadores
+    r"codigo: ?\d",  # o codigo sem mascara
+)
+_CARTEIRINHA_NAO_DEVE = (
+    *_CODIGO_INTEIRO_NAO_DEVE,
+    r"\bcns\b",
+    "nascimento",
+    r"nome:",
+    r"cpf",
+)
+
 DONO_V1: tuple[Segmento, ...] = (
     Segmento(
         "1-plano-e-cobranca",
@@ -463,7 +484,7 @@ DONO_V1: tuple[Segmento, ...] = (
             _p(
                 "Qual o número da minha carteirinha?",
                 deve=(r"\*{3,}\d{3,5}",),
-                nao_deve=(r"\d{9,}",),
+                nao_deve=_CODIGO_INTEIRO_NAO_DEVE,
             ),
             _p("Qual é o meu nome?", deve=("nao mostro",), escalacao=ESCALACAO_NENHUMA),
             _p(
@@ -888,8 +909,6 @@ _ONDE_MARCAR = (
     "nao pesquiso especialistas",
     "uma pessoa da equipe",
 )
-#: A carteirinha NUNCA traz CNS, codigo inteiro (9+ digitos seguidos), nome nem nascimento.
-_CARTEIRINHA_NAO_DEVE = (r"\d{9,}", r"\bcns\b", "nascimento", r"nome:", r"cpf")
 
 HELENA_V4: tuple[Segmento, ...] = (
     Segmento(

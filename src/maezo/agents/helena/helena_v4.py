@@ -450,8 +450,17 @@ ETAPA_ESCOLHA: Final[str] = "ESCOLHA"
 ETAPA_CASO_SIM: Final[str] = "CASO_SIM"
 ETAPA_CASO_EQUIPE: Final[str] = "CASO_EQUIPE"
 ETAPA_CASO_SEM_RESPOSTA: Final[str] = "CASO_SEM_RESPOSTA"
+#: A pessoa pediu uma pessoa no meio das perguntas de alerta (nao e' obrigada a responde-las).
+ETAPA_CASO_PEDIU_PESSOA: Final[str] = "CASO_PEDIU_PESSOA"
 _ETAPAS: Final[frozenset[str]] = frozenset(
-    {ETAPA_ALERTA, ETAPA_ESCOLHA, ETAPA_CASO_SIM, ETAPA_CASO_EQUIPE, ETAPA_CASO_SEM_RESPOSTA}
+    {
+        ETAPA_ALERTA,
+        ETAPA_ESCOLHA,
+        ETAPA_CASO_SIM,
+        ETAPA_CASO_EQUIPE,
+        ETAPA_CASO_SEM_RESPOSTA,
+        ETAPA_CASO_PEDIU_PESSOA,
+    }
 )
 PREFIXO_PENDENTE: Final[str] = "V4_"
 _SUFIXO_DE_NOVO: Final[str] = "#de_novo"
@@ -572,7 +581,12 @@ def resumo_do_caso(pendente: object, relato: object) -> str | None:
     (nunca o que ela falou antes, sobre outros assuntos), o que a Helena perguntou e o que foi respondido.
     (O resumo ainda passa pelo `redact_free_text` de `_start_escalation`.)"""
     lido = ler_pendente(pendente)
-    if lido is None or lido.etapa not in (ETAPA_CASO_SIM, ETAPA_CASO_EQUIPE, ETAPA_CASO_SEM_RESPOSTA):
+    if lido is None or lido.etapa not in (
+        ETAPA_CASO_SIM,
+        ETAPA_CASO_EQUIPE,
+        ETAPA_CASO_SEM_RESPOSTA,
+        ETAPA_CASO_PEDIU_PESSOA,
+    ):
         return None
     cru = relato_cru(str(relato or "")) if relato else ""
     quem = "do filho(a) ou bebê" if lido.populacao == POPULACAO_CRIANCA else "da própria pessoa"
@@ -587,6 +601,11 @@ def resumo_do_caso(pendente: object, relato: object) -> str | None:
         corpo = (
             f"A Helena perguntou por sinais de alerta ({sinais}) e a resposta foi não. "
             "A pessoa escolheu falar com a equipe de saúde."
+        )
+    elif lido.etapa == ETAPA_CASO_PEDIU_PESSOA:
+        corpo = (
+            f"A Helena perguntou por sinais de alerta ({sinais}) e, em vez de responder, a pessoa pediu para "
+            "falar com uma pessoa da equipe."
         )
     else:
         corpo = (
@@ -620,6 +639,7 @@ __all__ = [
     "ECO_GENERICO",
     "ETAPA_ALERTA",
     "ETAPA_CASO_EQUIPE",
+    "ETAPA_CASO_PEDIU_PESSOA",
     "ETAPA_CASO_SEM_RESPOSTA",
     "ETAPA_CASO_SIM",
     "ETAPA_ESCOLHA",

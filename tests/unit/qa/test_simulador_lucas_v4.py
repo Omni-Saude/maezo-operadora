@@ -26,6 +26,7 @@ from maezo.agents.lucas.graph import (
     TEXTO_NAO_PAGADOR_V4,
     TEXTO_NAO_PAGADOR_V4_CURTO,
     TEXTO_PAGADOR_EMPRESA,
+    TEXTO_PAGADOR_NAO_CONFIRMADO_V4,
     TEXTO_SEM_CODIGO_V4,
     texto_segunda_via_com_codigo_v4,
 )
@@ -197,6 +198,22 @@ def test_pagador_sem_o_sinal_o_total_vem_primeiro_e_a_2a_via_e_a_de_antes() -> N
     pagador = aceite.LUCAS_V4_PAGADOR
     assert _falhas(pagador[0], 0, _TOTAL_PRIMEIRO, fatos=[_FATOS_BILLING]) == []
     assert _falhas(pagador[1], 0, SEGUNDA_VIA_CANAIS) == []
+
+
+def test_a_primeira_frase_e_a_do_lucas_e_nao_a_abertura_da_helena() -> None:
+    """Aceite de 16/10/2026: a Helena abre o turno com 'Vou chamar quem cuida da parte financeira.';
+    a primeira frase conferida e' a da primeira resposta DO LUCAS (o `agente` do passo)."""
+    passo = _passo(aceite.LUCAS_V4_PAGADOR[0], 0)
+    abertura = ("helena", "Vou chamar quem cuida da parte financeira.")
+    assert aceite.avaliar_passo(passo, [abertura, ("lucas", _TOTAL_PRIMEIRO)], [], None) == []
+    antigo = "Sua mensalidade de outubro de 2026 é de R$ 751,41, com vencimento em 15/10. (dados de 08/10)"
+    falhas = aceite.avaliar_passo(passo, [abertura, ("lucas", antigo)], [], None)
+    assert any(f.startswith("primeira_frase_deve") for f in falhas)
+
+
+def test_sem_o_sinal_do_pagador_o_roteiro_do_nao_pagador_reprova_em_vez_de_passar_calado() -> None:
+    (segmento,) = aceite.LUCAS_V4_NAO_PAGADOR
+    assert _falhas(segmento, 0, TEXTO_PAGADOR_NAO_CONFIRMADO_V4) != []
 
 
 def test_pagador_com_o_sinal_o_detalhe_por_beneficiario_e_o_codigo_passam() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from maezo.qa.simulador.mascaramento import (
     TOKEN_BOLETO,
+    TOKEN_CARTEIRINHA_MASCARADA,
     TOKEN_CPF,
     TOKEN_NASCIMENTO,
     TOKEN_NOME,
@@ -40,6 +41,24 @@ def test_boleto_e_telefone() -> None:
     assert m.texto("boleto final 0037") == f"boleto final {TOKEN_BOLETO}"
     assert m.texto("rotulo ****1234") == f"rotulo {TOKEN_BOLETO}"
     assert TOKEN_TELEFONE in m.texto("ligue (11) 98765-4321")
+
+
+def test_a_carteirinha_ja_mascarada_nao_vira_boleto() -> None:
+    """Aceite de 16/10/2026: 'Codigo: [BOLETO]' escondia o que a Helena mandou. 5+ asteriscos e' a carteirinha
+    mascarada pela AMH; o rotulo do boleto do Lucas (`****NNNN`, 4 asteriscos) continua [BOLETO]."""
+    m = Mascarador()
+    for mascara in ("*****1708", "******4567", "*****"):
+        assert m.texto(f"- Código: {mascara}\n- Plano: X") == (
+            f"- Código: {TOKEN_CARTEIRINHA_MASCARADA}\n- Plano: X"
+        ), mascara
+    assert TOKEN_BOLETO not in m.texto("- Código: *****1708")
+    assert m.texto("rotulo ****1234") == f"rotulo {TOKEN_BOLETO}"
+    assert m.texto("Nº ANS do plano: 457636085") == "Nº ANS do plano: 457636085"
+
+
+def test_o_codigo_inteiro_da_carteirinha_continua_mascarado_no_relatorio() -> None:
+    m = Mascarador()
+    assert "123456789012345" not in m.texto("- Código: 123456789012345")
 
 
 def test_valor_competencia_e_vencimento_ficam() -> None:
