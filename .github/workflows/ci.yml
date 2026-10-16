@@ -199,7 +199,7 @@ jobs:
       # cancelado nao deixava prova nenhuma. Nao toca no cache: e so upload.
       - name: Upload offline fixture preparation evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: quality-offline-fixture-preparation
           path: |
@@ -238,7 +238,7 @@ jobs:
 
       - name: Upload shard results (coverage data + junit)
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: unit-shard-${{ matrix.shard }}
           path: |
@@ -344,7 +344,7 @@ jobs:
       # cancelado nao deixava prova nenhuma. Nao toca no cache: e so upload.
       - name: Upload offline fixture preparation evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: quality-offline-fixture-preparation
           path: |
@@ -397,7 +397,7 @@ jobs:
 
       - name: Upload unit test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: unit-test-results
           path: |
@@ -528,7 +528,7 @@ jobs:
 
       - name: Retain journey evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: portal-journey-evidence
           path: ${{ runner.temp }}/portal-journey
@@ -666,7 +666,7 @@ jobs:
 
       - name: Retain operational ledger proofs and refusal diagnostics
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: ledger-operational-proofs-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ledger-operational-proofs/
@@ -784,7 +784,7 @@ jobs:
 
       - name: Upload strict-xfail census
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: xfail-census
           path: docs/xfail-census.json
@@ -1003,7 +1003,7 @@ jobs:
 
       - name: Upload release-floor unit diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: release-floor-unit-diagnostics
           path: ${{ runner.temp }}/release-floor-unit-evidence/
@@ -1012,7 +1012,7 @@ jobs:
 
       - name: Upload offline fixture preparation evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: release-floor-offline-fixture-preparation
           path: |
@@ -1707,7 +1707,7 @@ jobs:
 
       - name: Upload integration test results
         if: always() && steps.gate.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           # Um artefato POR SHARD: com a matriz, um nome unico por `github.sha` colidiria e o
           # upload perderia o JUnit dos outros shards — que e' exatamente a evidencia que
@@ -1727,7 +1727,7 @@ jobs:
 
       - name: Upload failure logs
         if: failure() && steps.guard.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: docker-compose-failure-logs-${{ github.sha }}-${{ matrix.shard }}
           path: docker-compose-failure.log
@@ -1944,7 +1944,7 @@ jobs:
 
       - name: Upload chaos test results
         if: always() && steps.guard.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: chaos-test-results-${{ github.sha }}
           path: |
@@ -1961,7 +1961,7 @@ jobs:
 
       - name: Upload failure logs
         if: failure() && steps.guard.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: chaos-postgres-failure-logs-${{ github.sha }}
           path: chaos-postgres-failure.log
@@ -2080,7 +2080,7 @@ jobs:
 
       - name: Upload simulator failure logs
         if: failure() && steps.guard.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: simulator-failure-logs-${{ github.sha }}
           path: simulator-failure.log
@@ -2225,7 +2225,7 @@ jobs:
 
       - name: Upload eval results
         if: always() && steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: eval-results-${{ github.sha }}
           path: .pytest_cache/
@@ -2347,7 +2347,7 @@ jobs:
 
       - name: Upload nightly eval results
         if: always() && steps.guard.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: nightly-eval-results-${{ github.sha }}
           path: .pytest_cache/
