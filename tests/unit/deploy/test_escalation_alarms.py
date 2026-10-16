@@ -261,7 +261,7 @@ def test_prazo_estourado_e_por_hora_com_ok_actions() -> None:
 @pytest.mark.parametrize("alarme", sorted(a for a, _, _ in _PARES.values()))
 def test_cada_alarme_aponta_runbook_especifico_que_existe_e_cita_o_evento(alarme: str) -> None:
     descricao = attr_raw(direct_attrs(_recurso("aws_cloudwatch_metric_alarm", alarme)), "alarm_description")
-    achado = re.search(r"Runbook: (docs/runbooks/alerts/[A-Za-z0-9_-]+\.md)", descricao)
+    achado = re.search(r"Runbook: (docs/runbooks/cloudwatch-alarms/[A-Za-z0-9_-]+\.md)", descricao)
     assert achado is not None, descricao
     caminho = _REPO / achado.group(1)
     assert caminho.is_file(), caminho

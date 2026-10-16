@@ -53,7 +53,7 @@ resource "aws_cloudwatch_log_metric_filter" "agent_resume_falha" {
 resource "aws_cloudwatch_metric_alarm" "agent_resume_falha" {
   count               = local.resume_alarms_ativo
   alarm_name          = "${local.name}-agent-resume-falha"
-  alarm_description   = "Retomada pos-humano falhou (motor, envio, aviso a equipe ou outro) e o evento volta para reentrega; a pessoa ainda nao recebeu a instrucao. Runbook: docs/runbooks/alerts/EscalationAgentResumeFalha.md"
+  alarm_description   = "Retomada pos-humano falhou (motor, envio, aviso a equipe ou outro) e o evento volta para reentrega; a pessoa ainda nao recebeu a instrucao. Runbook: docs/runbooks/cloudwatch-alarms/EscalationAgentResumeFalha.md"
   namespace           = local.escalation_alarms_namespace
   metric_name         = "AgentResumeFalha"
   statistic           = "Sum"
@@ -82,7 +82,7 @@ resource "aws_cloudwatch_log_metric_filter" "agent_resume_fila_morta" {
 resource "aws_cloudwatch_metric_alarm" "agent_resume_fila_morta" {
   count               = local.resume_alarms_ativo
   alarm_name          = "${local.name}-agent-resume-fila-morta"
-  alarm_description   = "Evento de retomada desviado para agents.events.process_completed.dlq (malformado, sem lastro no historico ou sem destinatario). Runbook: docs/runbooks/alerts/EscalationAgentResumeFilaMorta.md"
+  alarm_description   = "Evento de retomada desviado para agents.events.process_completed.dlq (malformado, sem lastro no historico ou sem destinatario). Runbook: docs/runbooks/cloudwatch-alarms/EscalationAgentResumeFilaMorta.md"
   namespace           = local.escalation_alarms_namespace
   metric_name         = "AgentResumeFilaMorta"
   statistic           = "Sum"
@@ -111,7 +111,7 @@ resource "aws_cloudwatch_log_metric_filter" "escalation_aviso_falhou" {
 resource "aws_cloudwatch_metric_alarm" "escalation_aviso_falhou" {
   count               = local.escalation_alarms_ativo
   alarm_name          = "${local.name}-escalation-aviso-falhou"
-  alarm_description   = "O aviso de escalonamento (equipe ou supervisor) nao foi publicado no topico interno; o processo seguiu pelo fallback ERR_ESC_NOTIFY_FAILED. Runbook: docs/runbooks/alerts/EscalationAvisoFalhou.md"
+  alarm_description   = "O aviso de escalonamento (equipe ou supervisor) nao foi publicado no topico interno; o processo seguiu pelo fallback ERR_ESC_NOTIFY_FAILED. Runbook: docs/runbooks/cloudwatch-alarms/EscalationAvisoFalhou.md"
   namespace           = local.escalation_alarms_namespace
   metric_name         = "EscalationAvisoFalhou"
   statistic           = "Sum"
@@ -140,7 +140,7 @@ resource "aws_cloudwatch_log_metric_filter" "escalation_supervisor_alertado" {
 resource "aws_cloudwatch_metric_alarm" "escalation_supervisor_alertado" {
   count               = local.escalation_alarms_ativo
   alarm_name          = "${local.name}-escalation-prazo-estourado"
-  alarm_description   = "Ao menos um caso de escalonamento estourou o prazo de ciencia na ultima hora e o supervisor foi alertado. Runbook: docs/runbooks/alerts/EscalationSupervisorAlertado.md"
+  alarm_description   = "Ao menos um caso de escalonamento estourou o prazo de ciencia na ultima hora e o supervisor foi alertado. Runbook: docs/runbooks/cloudwatch-alarms/EscalationSupervisorAlertado.md"
   namespace           = local.escalation_alarms_namespace
   metric_name         = "EscalationSupervisorAlertadoPrazo"
   statistic           = "Sum"
