@@ -128,7 +128,11 @@ async def test_broker_narrative_never_reaches_diagnostics(
             assert "WorkerBpmnError" in caplog.text
             assert _NARRATIVE not in caplog.text
         elif sink == "stdlib":
-            records = [record for record in caplog.records if record.name == _LOGGER]
+            todos = [record for record in caplog.records if record.name == _LOGGER]
+            # Alem do evento de diagnostico, o worker emite o fato fechado `escalation.aviso_falhou`
+            # (alarme): a cerca de privacidade abaixo vale para TODOS os registros do logger.
+            assert _NARRATIVE not in repr([record.__dict__ for record in todos])
+            records = [record for record in todos if _EVENTS[kind] in record.getMessage()]
             assert len(records) == 1
             assert _EVENTS[kind] in records[0].getMessage()
             assert _NARRATIVE not in caplog.text + repr([record.__dict__ for record in records])
