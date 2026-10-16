@@ -54,6 +54,38 @@ def test_o_ano_vem_do_texto_ou_da_ocorrencia_mais_recente(do_modelo: str, texto:
     assert resolver_ano_da_competencia(do_modelo, texto, _HOJE) == esperado
 
 
+@pytest.mark.parametrize(
+    "texto",
+    [
+        # L-01 (simulador, 15/10/2026): os dois textos que viraram novembro de 2025, ja' paga.
+        "Esse ainda nao venceu. Se eu nao pagar, quando cancela?",
+        "Manda so' a linha digitavel do boleto de novembro aqui, por favor? Preciso pagar hoje ainda.",
+        # as marcas de futuro isoladas
+        "o de novembro ainda não venceu",
+        "quero pagar o de novembro",
+        "me passa o código de barras de novembro",
+        "se eu não pagar novembro, o que acontece?",
+        "novembro está a vencer?",
+    ],
+)
+def test_mes_sem_ano_com_marca_de_futuro_e_o_deste_ano(texto: str) -> None:
+    """Hoje 10/10/2026: novembro com tempo futuro ou pagamento por fazer e' 2026-11, nao 2025-11."""
+    assert resolver_ano_da_competencia("2025-11", texto, _HOJE) == "2026-11"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "e a de novembro?",
+        "boleto de novembro",  # decisao do dono: sem marca de futuro, a ocorrencia mais recente
+        "quanto foi a de novembro?",
+        "já paguei a de novembro?",
+    ],
+)
+def test_mes_sem_ano_e_sem_marca_de_futuro_segue_sendo_o_mais_recente(texto: str) -> None:
+    assert resolver_ano_da_competencia("2026-11", texto, _HOJE) == "2025-11"
+
+
 @pytest.mark.parametrize("ausente", [None, "07/2024", "2024-13", 202407])
 def test_competencia_ausente_ou_fora_da_forma_volta_como_veio(ausente: Any) -> None:
     """Quem valida e recusa e' o chamador (`_validate_extraction`); aqui nada e' inventado."""
@@ -146,3 +178,33 @@ async def test_o_handoff_ao_lucas_leva_a_competencia_resolvida(
 ) -> None:
     handoff = await _handoff(texto, do_modelo)
     assert handoff["competencia"] == esperado
+
+
+# --- Revisao do #784: a pista so' puxa o mes de hoje ou o seguinte (virada de ano) ----------------------
+
+
+@pytest.mark.parametrize(
+    ("do_modelo", "texto", "hoje", "esperado"),
+    [
+        # O defeito: em fev/2027 a pista levava dezembro para 2027-12, mes que ainda nao existe.
+        ("2027-12", "preciso pagar o boleto de dezembro", date(2027, 2, 10), "2026-12"),
+        ("2027-12", "manda a linha digitavel de dezembro", date(2027, 2, 10), "2026-12"),
+        ("2027-11", "o codigo de barras de novembro, por favor", date(2027, 2, 10), "2026-11"),
+        ("2027-12", "dezembro ja ta lancado?", date(2027, 2, 10), "2026-12"),
+        # Janeiro: dezembro e' do ano anterior, com ou sem pista.
+        ("2027-12", "quero pagar o de dezembro", date(2027, 1, 15), "2026-12"),
+        ("2027-12", "boleto de dezembro", date(2027, 1, 15), "2026-12"),
+        # O mes seguinte com a pista continua sendo o que vem.
+        ("2025-11", "preciso pagar o de novembro", date(2026, 10, 10), "2026-11"),
+        ("2027-02", "quero pagar o de fevereiro", date(2027, 1, 15), "2027-02"),
+        ("2026-01", "preciso pagar janeiro", date(2026, 12, 10), "2027-01"),
+        # O mes de hoje com a pista.
+        ("2026-02", "vou pagar o de fevereiro", date(2027, 2, 10), "2027-02"),
+        # Dois meses a frente com a pista: fora da janela, vale o que ja' passou.
+        ("2026-12", "preciso pagar o boleto de dezembro", date(2026, 10, 10), "2025-12"),
+    ],
+)
+def test_a_pista_so_puxa_o_mes_de_hoje_ou_o_seguinte(
+    do_modelo: str, texto: str, hoje: date, esperado: str
+) -> None:
+    assert resolver_ano_da_competencia(do_modelo, texto, hoje) == esperado

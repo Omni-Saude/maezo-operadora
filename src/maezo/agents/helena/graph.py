@@ -3145,6 +3145,25 @@ _PERGUNTA_DE_COBRANCA = re.compile(
     r"|codigo de barras|linha digitavel|coparticipac\w*|cobrancas?|cobrad[oa]s?|debitos?|quanto (?:eu )?devo"
     r"|paguei|pagamentos?|pagar|pagando|estorno|estornar|valor extra|multa|duplicad[oa]"
     r"|nao devo|(?:valor|preco) (?:da|do) (?:mensalidade|plano|boleto)|valor(?: \w+){0,3} quanto)\b"
+    # L-03 (15/10/2026): "Lucas" e' o agente de cobranca; quem o cita ("o Lucas me garantiu R$ 50", "chama
+    # o Lucas") esta' falando da cobranca, e a Helena nao tem o que responder: o Lucas contesta e escala.
+    # So' as formas que o tratam como o agente: Lucas tambem e' nome de gente ("meu filho Lucas esta com
+    # febre"). O relato ("o Lucas me disse...") so' conta com assunto de cobranca junto
+    # (`_RELATO_DO_LUCAS` + `_ASSUNTO_DO_RELATO`): "o Lucas disse que vai me buscar" e' o Lucas de casa.
+    r"|\bfalar com (?:o )?lucas\b|\blucas (?:ta|esta) ai\b"
+    r"|\b(?:chama|chamar|chame|traz|traga|pede|pedir|peca)(?: \w+){0,2} (?:pro|para o|pra|ao|o) lucas\b"
+)
+#: O relato do que "o Lucas" disse (revisao do #784): sozinho nao e' cobranca — "o Lucas disse que vai me
+#: buscar" fala de alguem da familia. Vira cobranca so' com `_ASSUNTO_DO_RELATO` na mesma mensagem.
+_RELATO_DO_LUCAS = re.compile(
+    r"\bo lucas (?:me )?(?:falou|disse|garantiu|prometeu|mandou|respondeu)\b"
+    r"|\blucas me (?:falou|disse|garantiu|prometeu|mandou|respondeu)\b"
+)
+#: Assunto de cobranca do relato: valor em reais ("R$50" vira "r 50" no texto plano), saldo zerado,
+#: desconto, valor/preco, cobranca. Os termos fortes de `_PERGUNTA_DE_COBRANCA` ja' bastam sozinhos.
+_ASSUNTO_DO_RELATO = re.compile(
+    r"\br \d|\b\d+ reais\b|\breais\b|\bzerad[oa]s?\b|\bquitad[oa]s?\b|\bdescontos?\b|\bvalor(?:es)?\b"
+    r"|\bprecos?\b|\bcobr\w*|\bdividas?\b|\bsaldo\b"
 )
 _SUBTIPO_POR_TERMO: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(?:segunda via|2a via|codigo de barras|linha digitavel)\b"), "boleto_2via"),
@@ -3844,7 +3863,10 @@ def _plano(texto: str) -> str:
 
 
 def _pergunta_de_cobranca(texto: str) -> bool:
-    return bool(_PERGUNTA_DE_COBRANCA.search(_plano(texto)))
+    plano = _plano(texto)
+    if _PERGUNTA_DE_COBRANCA.search(plano):
+        return True
+    return bool(_RELATO_DO_LUCAS.search(plano) and _ASSUNTO_DO_RELATO.search(plano))
 
 
 def _subtipo_pelo_texto(texto: str) -> str:
