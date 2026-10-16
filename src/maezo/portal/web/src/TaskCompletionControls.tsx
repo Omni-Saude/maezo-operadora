@@ -201,7 +201,11 @@ export function TaskCompletionControls({
         </label>
         <p className="field-hint">
           Obrigatória. Em “devolvo ao agente”, é o texto que o agente repassa ao beneficiário.
-          Até {maxNotes} caracteres.
+          Até {maxNotes} caracteres, contados depois de ocultar telefones, e-mails e documentos
+          (cada um ocupa mais espaço depois de ocultado).
+        </p>
+        <p className="field-hint" data-testid="notas-contador" aria-live="polite">
+          {notes.length}/{maxNotes}
         </p>
         </>
         )}

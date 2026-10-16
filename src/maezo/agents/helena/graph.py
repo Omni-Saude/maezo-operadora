@@ -1560,11 +1560,14 @@ ERRO_RETOMADA_SEM_INSTRUCOES: str = "retomada sem instrucoes humanas"
 #: `error` do turno de retomada cujas instrucoes excedem o teto de envio. Token de classe.
 ERRO_RETOMADA_INSTRUCOES_LONGAS: str = "retomada: instrucoes excedem o limite de envio"
 
-#: Teto das instrucoes aceitas para envio. O portal ja' limita `notas_resolucao` a 2000
-#: (`portal/contracts/completions.py::MAX_NOTES`) e a Cloud API do WhatsApp aceita 4096 no corpo;
-#: o teto aqui fica entre os dois para que o template nunca empurre a mensagem para uma recusa do
-#: provedor. Instrucao maior e' RECUSADA (nunca truncada em silencio: cortar a instrucao de um
-#: humano no meio mudaria o que ela diz).
+#: Teto das instrucoes aceitas para envio. A nota que vem do PORTAL tem no maximo
+#: `portal/contracts/completions.py::MAX_NOTES` (2000) caracteres medidos DEPOIS da pseudonimizacao:
+#: acima disso o portal recusa com `notes_too_long` e nunca corta (P3, 16/10/2026; antes ela chegava
+#: aqui cortada em 500 + `...[TRUNCATED]`). A conclusao direta no motor (`engine-rest`, DL-0049) NAO
+#: passa pelo portal, entao este teto e' a cerca que vale para ela. A Cloud API do WhatsApp aceita
+#: 4096 no corpo; o teto fica entre os dois, e o template com uma nota de 2000 cabe em 4096
+#: (`tests/unit/portal/test_completion_notes_wire_limit.py`). Instrucao maior que o teto e' RECUSADA
+#: (nunca truncada em silencio: cortar a instrucao de um humano no meio mudaria o que ela diz).
 RETOMADA_MAX_INSTRUCOES: int = 3000
 
 #: REDACAO APROVADA PELO DONO (opcao B, 25/09/2026 — spec da diretoria, secao 6). A instrucao do

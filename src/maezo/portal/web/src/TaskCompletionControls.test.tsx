@@ -67,6 +67,17 @@ it("oferece os desfechos do contrato, e não uma lista escrita na tela", () => {
   expect(screen.getByLabelText(/Instrução \/ notas de resolução/)).toHaveAttribute("maxLength", String(maxNotes));
 });
 
+it("mostra o contador N/limite com o limite do contrato (o mesmo maxLength do fio)", async () => {
+  const user = userEvent.setup();
+  render(controls());
+  // O limite vem do OpenAPI gerado (`notas_resolucao.maxLength`), o mesmo número que o servidor
+  // aplica depois da pseudonimização (`MAX_NOTES`); nunca um literal desta tela.
+  expect(maxNotes).toBeGreaterThan(0);
+  expect(screen.getByTestId("notas-contador")).toHaveTextContent(`0/${maxNotes}`);
+  await user.type(screen.getByLabelText(/Instrução \/ notas de resolução/), "abc");
+  expect(screen.getByTestId("notas-contador")).toHaveTextContent(`3/${maxNotes}`);
+});
+
 it("exige desfecho e instrução antes de permitir o envio", async () => {
   const user = userEvent.setup();
   render(controls());
