@@ -23,23 +23,25 @@ portal read), so the check is the Helena's for every `devolvido_agente`: today t
 only agent with a resume port for SP-OP-ESCALATION-001 (`agent_resume`, "hoje so' a Helena tem porta
 de retomada"); the Lucas is out of this scope.
 
-Architecture, measured (not assumed): nothing in the repository forbids `gateway/human` from
-importing `maezo.agents.helena` (no import contract, no fence test). The cost is real and declared:
-`maezo.agents.helena.graph` drags `maezo.runtime` (langgraph and the LLM SDK module, never a
-credential) into the portal process, which loaded none of them before. See DL-0117.
+Architecture: the two functions live in LIGHT modules (`agents/helena/retomada_saida.py` and
+`agents/helena/cerca_de_saida.py`, moved verbatim out of `graph.py`/`prompts.py`, which re-export
+them). They import only the standard library: the portal process does NOT load `maezo.runtime`,
+langgraph or the LLM SDK (`tests/unit/gateway/human/test_retomada_precheck_footprint.py`, measured
+in a fresh interpreter). Importing `graph.py`/`prompts.py` here would have dragged all three in,
+because `maezo/runtime/__init__.py` imports the inference and the checkpoint. See DL-0117.
 """
 
 from __future__ import annotations
 
 from typing import Final, get_args
 
-from maezo.agents.helena.graph import compor_mensagem_de_retomada, motivo_de_recusa_da_retomada
-from maezo.agents.helena.prompts import (
+from maezo.agents.helena.cerca_de_saida import (
     RECUSA_CANAL_NAO_CONFIRMADO,
     RECUSA_NEGATIVA_CLINICA,
     RECUSA_PROMESSA_DE_CAPACIDADE,
     RECUSA_PROMESSA_SEM_START,
 )
+from maezo.agents.helena.retomada_saida import compor_mensagem_de_retomada, motivo_de_recusa_da_retomada
 from maezo.portal.contracts.completions import ResumptionRefusalGroup
 
 __all__ = ["RESULTADO_QUE_RETOMA", "ResumptionRefusedError", "check_resumption_note"]

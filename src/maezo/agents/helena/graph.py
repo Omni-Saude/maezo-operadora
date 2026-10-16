@@ -201,6 +201,17 @@ from maezo.tools.workers.dmn_transport import (
 )
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
+# P5 (16/10/2026): a cerca de saida e a mensagem da retomada moram em modulos leves (o portal as usa).
+from .cerca_de_saida import (
+    RECUSA_DE_SAIDA_VERSION,
+    RECUSA_ESCALONAMENTO_JA_ABERTO,
+    RECUSA_HANDOFF_SEM_MENCAO,
+    RECUSA_NEGATIVA_CLINICA,
+    menciona_encaminhamento,
+    motivo_de_canal_nao_confirmado,
+    motivo_de_recusa,
+)
+from .cerca_de_saida import _normalizar as _normalizar_texto
 from .consultas_plano import (
     ADENDO_CLASSIFY_CONSULTAS,
     CLASSIFY_CONSULTAS_ADENDO_VERSION,
@@ -267,10 +278,6 @@ from .prompts import (
     CLASSIFY_PROMPT_VERSION,
     CLASSIFY_PROMPT_VERSION_ROTEADOR,
     COLETA_PROMPT_VERSION,
-    RECUSA_DE_SAIDA_VERSION,
-    RECUSA_ESCALONAMENTO_JA_ABERTO,
-    RECUSA_HANDOFF_SEM_MENCAO,
-    RECUSA_NEGATIVA_CLINICA,
     RESPONSE_HISTORICO_VERSION,
     RESPONSE_PROMPT_VERSION,
     RESPOSTA_NAO_CONSIGO_IDENTIFICAR,
@@ -280,16 +287,14 @@ from .prompts import (
     classify_historico_adendo,
     classify_prompt,
     coleta_prompt,
-    menciona_encaminhamento,
-    motivo_de_canal_nao_confirmado,
-    motivo_de_recusa,
     response_historico_adendo,
     response_prompt,
     sintoma_em_palavras,
 )
-from .prompts import (
-    _normalizar as _normalizar_texto,
-)
+from .retomada_saida import RESPONSE_KIND_RETOMADA as RESPONSE_KIND_RETOMADA
+from .retomada_saida import RETOMADA_TEMPLATE as RETOMADA_TEMPLATE
+from .retomada_saida import compor_mensagem_de_retomada as compor_mensagem_de_retomada
+from .retomada_saida import motivo_de_recusa_da_retomada as motivo_de_recusa_da_retomada
 from .triagem_v2 import (
     COLETA_MAX_RODADAS_TRIAGEM_V2,
     COLETA_VEREDITO_PERGUNTAR_MAIS,
@@ -1542,9 +1547,6 @@ ORIGEM_BENEFICIARIO: str = "beneficiario"
 #: `origem_do_turno` de um turno de retomada. SO' `new_helena_resume_state` o grava.
 ORIGEM_RETOMADA: str = "retomada"
 
-#: `response_kind` (e rota de telemetria) do turno de retomada.
-RESPONSE_KIND_RETOMADA: str = "retomada"
-
 #: Desfechos do turno de retomada — declarados tambem em `runtime/turn_telemetry.py` (vocabulario
 #: da helena); `test_helena_retomada.py` impede a divergencia.
 DESFECHO_RETOMADA_ENVIADA: str = "retomada_enviada"
@@ -1570,15 +1572,6 @@ ERRO_RETOMADA_INSTRUCOES_LONGAS: str = "retomada: instrucoes excedem o limite de
 #: (nunca truncada em silencio: cortar a instrucao de um humano no meio mudaria o que ela diz).
 RETOMADA_MAX_INSTRUCOES: int = 3000
 
-#: REDACAO APROVADA PELO DONO (opcao B, 25/09/2026 — spec da diretoria, secao 6). A instrucao do
-#: humano vai ENTRE ASPAS e atribuida a "um profissional da nossa equipe": quem le sabe que a
-#: orientacao e' de uma pessoa, e que a Helena so' a repassa. Trocar a redacao e' editar ESTA
-#: constante (e o teste que a fixa).
-RETOMADA_TEMPLATE: str = (
-    "Olá, aqui é a Helena, a assistente virtual do seu plano. Um profissional da nossa equipe "
-    'revisou o seu caso e pediu que eu repassasse: "{instrucoes}". Posso ajudar com mais alguma coisa?'
-)
-
 #: AGUARDA APROVACAO DE PRODUTO — o texto enviado quando as instrucoes humanas foram BARRADAS pela cerca
 #: de saida. Nao repete nada da nota (foi ela que a cerca barrou), nao promete humano (o caso
 #: acabou de ser devolvido), nao cita canal. Passa nas cercas por construcao; o teste o fixa.
@@ -1587,10 +1580,6 @@ RETOMADA_RECUSADA_PLACEHOLDER: str = (
     "Se quiser continuar, responda esta mensagem. Se voce estiver passando por uma emergencia, "
     "procure o servico de emergencia mais proximo."
 )
-
-#: Caracteres de controle (menos quebra de linha e tab) removidos da nota antes do template: nao
-#: tem significado numa mensagem e sao o veiculo classico de texto que se disfarca na tela.
-_CONTROLE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 class RetomadaEnvioFalhouError(RuntimeError):
@@ -1602,33 +1591,6 @@ class RetomadaEnvioFalhouError(RuntimeError):
     instrucao do humano se perderia sem rastro. Falha fechada: o evento volta e o envio e' tentado
     de novo (a chave de idempotencia do envio e' por instancia de escalonamento).
     """
-
-
-def compor_mensagem_de_retomada(instrucoes: str) -> str:
-    """A mensagem ao beneficiario a partir das instrucoes humanas. PURA (template aprovado, opcao B).
-
-    Deterministica de proposito: a instrucao do humano chega ao beneficiario COMO ESCRITA (menos
-    caracteres de controle), sem um modelo no meio para parafrasear, omitir ou "melhorar" uma
-    orientacao que outra pessoa assinou. Se produto preferir uma redacao pelo modelo, e' uma troca
-    local aqui — as cercas continuam depois, em `HelenaGraph.resume`.
-    """
-    limpo = _CONTROLE.sub("", instrucoes).strip()
-    return RETOMADA_TEMPLATE.format(instrucoes=limpo)
-
-
-def motivo_de_recusa_da_retomada(texto: str) -> tuple[str, str] | None:
-    """As cercas de saida aplicadas ao texto de retomada. `(grupo, padrao)` ou `None`. PURA.
-
-    As MESMAS duas cercas de `HelenaGraph._cercar_saida`, na mesma ordem (canal primeiro), com o
-    fato de start declarado: `start_aconteceu=False`, porque neste turno nenhum humano esta' com o
-    caso — ele acabou de ser devolvido. Assim a promessa de humano e' barrada em qualquer forma,
-    inclusive a mencao de encaminhamento que o humano tenha escrito na nota.
-    """
-    # `cerca_de_autorizacao=False`: o texto da retomada e' escrito por um ATENDENTE ("sua guia foi
-    # liberada" e' fato dele, nao rascunho de modelo); a cerca de afirmacao existe para o modelo.
-    return motivo_de_canal_nao_confirmado(texto) or motivo_de_recusa(
-        texto, RESPONSE_KIND_RETOMADA, start_aconteceu=False, cerca_de_autorizacao=False
-    )
 
 
 class WhatsAppSender(Protocol):

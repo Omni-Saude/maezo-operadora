@@ -36,7 +36,7 @@ from typing import Any, Final
 
 import structlog
 
-from maezo.agents.helena.graph import motivo_de_recusa_da_retomada
+from maezo.agents.helena.retomada_saida import motivo_de_recusa_da_retomada
 from maezo.agents.lucas.prompts import motivo_de_recusa
 from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
 from maezo.gateway.pseudonymizer import Pseudonymizer
