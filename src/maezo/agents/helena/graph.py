@@ -5078,6 +5078,17 @@ class HelenaGraph:
                 motivo="intencao_clinica",
                 severidade="moderada",
             )
+        # HELENA V4 (aceite de 16/10/2026, `helena_v4` segmento 7): a ESCOLHA PURA de uma opcao ("2") depois
+        # da oferta de opcoes tambem nao pode rodar a tabela. Sozinha, a mensagem nao traz sintoma; o modelo,
+        # vendo a conversa, as vezes devolve o codigo/a intensidade da queixa anterior e a tabela
+        # pediatrica (conservadora) abria `red_flag_clinico` grave em vez de `intencao_clinica`. A pessoa ja'
+        # respondeu "nao" as perguntas de alarme no turno anterior; sinal de emergencia ou conteudo clinico
+        # NA PROPRIA mensagem continuam pela tabela.
+        if pend_v4 is not None and self._v4_escolha_pura(state, pend_v4, texto_clinico):
+            logger.info("helena_v4_escolha_pura", node="classify")
+            decidido = self._v4_seguimento(state, update, pend_v4, texto_clinico)
+            if decidido is not None:
+                return decidido
         ja_triado = bool(extraction.get("sintoma_codigo"))
         if ja_triado and await self._triar_red_flag(extraction, update):
             return update
@@ -5942,6 +5953,20 @@ class HelenaGraph:
             and not _sinal_fraco_de_emergencia(texto)
             and not _pergunta_de_cobranca(texto)
             and not _ameaca_regulatoria(texto)
+        )
+
+    def _v4_escolha_pura(self, state: Mapping[str, Any], pend: Pendente, texto: str) -> bool:
+        """A mensagem e' SO' a escolha de uma opcao da oferta da v4 ("2", "opcao 2", "falar com a equipe") e
+        nao traz queixa, emergencia nem sinal de saude? Entao a escolha vale sem passar pela tabela."""
+        if not self._v4 or pend.etapa != ETAPA_ESCOLHA:
+            return False
+        plano = _plano(texto)
+        return bool(
+            escolha_da_resposta(plano) is not None
+            and not _conteudo_clinico(texto)
+            and state.get("sinal_saude_lexico") is not True
+            and not _sinal_forte_de_emergencia(texto)
+            and not _sinal_fraco_de_emergencia(texto)
         )
 
     @staticmethod

@@ -1026,6 +1026,54 @@ async def test_filho_com_tosse_usa_as_perguntas_da_crianca_e_o_resumo_diz_que_e_
 
 
 @pytest.mark.parametrize(
+    "extracao",
+    [
+        # O que o modelo pode devolver para "2" olhando a conversa: o codigo/a intensidade da queixa anterior.
+        _classify(intent="symptom", population="pediatric", sintoma_codigo="tosse", intensidade="grave"),
+        _classify(
+            intent="symptom",
+            population="pediatric",
+            sintoma_codigo="dificuldade_respiratoria",
+            intensidade="desconhecida",
+        ),
+        _classify(intent="symptom", population="pediatric", intensidade="grave"),
+    ],
+)
+async def test_a_opcao_2_do_filho_com_tosse_e_intencao_clinica_mesmo_se_o_modelo_herdar_a_queixa(
+    extracao: str,
+) -> None:
+    """Aceite de 16/10/2026 (`helena_v4`, segmento 7, run 00d355): 'Meu filho esta com tosse' -> 'Nao' -> '2'
+    saiu `red_flag_clinico` grave porque o modelo devolveu sintoma/intensidade da queixa anterior para o
+    '2' e a tabela pediatrica, conservadora, escalou. A escolha pura nao roda a tabela."""
+    conversa = _Conversa()
+    await conversa.diz("Meu filho está com tosse", _SINTOMA_CRIANCA)
+    await conversa.diz("Não")
+    chamadas_antes = len(conversa.dmn.chaves())
+    resultado = await conversa.diz("2", extracao)
+
+    assert conversa.motivos == ["intencao_clinica"]
+    assert resultado["escalation_motivo"] == "intencao_clinica"
+    assert resultado["escalation_severidade"] == "moderada"
+    novas = conversa.dmn.chaves()[chamadas_antes:]
+    assert not [c for c in novas if c.startswith("triage_redflag")]
+
+
+async def test_escolha_pura_com_sinal_de_alarme_na_mensagem_continua_pela_tabela() -> None:
+    """A excecao so' vale para a mensagem que e' SO' a escolha: 'opcao 2, ele esta roxo' e' alarme."""
+    conversa = _Conversa()
+    await conversa.diz("Meu filho está com tosse", _SINTOMA_CRIANCA)
+    await conversa.diz("Não")
+    resultado = await conversa.diz(
+        "2, ele está roxo e não respira",
+        _classify(
+            intent="symptom", population="pediatric", sintoma_codigo="cianose", intensidade="grave"
+        ),
+    )
+
+    assert resultado["escalation_motivo"] == "red_flag_clinico"
+
+
+@pytest.mark.parametrize(
     ("mensagem", "pergunta"),
     [
         ("Estou com dor de cabeça", "A dor de cabeça começou de repente e é a pior que você já sentiu?"),
