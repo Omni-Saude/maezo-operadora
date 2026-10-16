@@ -108,13 +108,15 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Final, Literal, Protocol
 
 import structlog
+from prometheus_client import Counter
 
+from maezo.platform.observability import get_metrics_collector
 from maezo.ports.consent_record import ConsentRecordPort
 from maezo.ports.document_resolution import DocumentResolutionPort
 from maezo.ports.subject_verification import SubjectVerificationPort
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
-from .acesso_limite_cpf import LimitePorCpf, chave_do_cpf
+from .acesso_limite_cpf import LimitePorCpf, chave_do_cpf, marca_do_alarme
 from .apresentacao_canal import (
     TEXTO_APRESENTACAO_CANAL,
     TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES,
@@ -124,6 +126,16 @@ from .apresentacao_canal import (
 from .pre_roteamento import PreRoteamento, normalizar
 
 logger = structlog.get_logger(__name__)
+
+#: Alarme do risco aceito do DL-0109 (revisao do #785): o MESMO CPF bloqueado em duas janelas seguidas de
+#: 6 h e' o sinal de alguem re-travando a verificacao de outra pessoa. Sem rotulo de CPF/hash: so' o tenant.
+#: Registrado uma vez, no import, no registro dedicado do `MetricsCollector` (o mesmo que `/metrics` expoe).
+ACESSO_CPF_BLOQUEIO_REINCIDENTE_TOTAL = Counter(
+    "maezo_acesso_cpf_bloqueio_reincidente_total",
+    "Mesmo CPF bloqueado pelo limite de verificacao em duas janelas seguidas",
+    ["tenant"],
+    registry=get_metrics_collector().registry,
+)
 
 # --- Estados (CHECK da migration 0022 repete esta lista) -------------------------------------------
 SEM_CONSENTIMENTO: Final[str] = "sem_consentimento"
@@ -1059,7 +1071,7 @@ class AcessoBeneficiario:
             return self._responder(atual, INDISPONIVEL, emergencia=emergencia)
         if veredito == "verificado" and ref is not None:
             return await self._sucesso(atual, agora, ref)
-        await self._registrar_falha_por_cpf(chave_cpf, agora)
+        await self._registrar_falha_por_cpf(chave_cpf, agora, atual.conversation_id)
         return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
 
     async def _passo_nascimento(
@@ -1106,7 +1118,7 @@ class AcessoBeneficiario:
             return await self._sucesso(
                 atual, agora, ref, motivo="verificado_por_documento" if documento else "verificado"
             )
-        await self._registrar_falha_por_cpf(chave_cpf, agora)
+        await self._registrar_falha_por_cpf(chave_cpf, agora, atual.conversation_id)
         return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
 
     def _chave_do_limite(self, cpf: str) -> str | None:
@@ -1131,10 +1143,23 @@ class AcessoBeneficiario:
         self._log_transicao(atual.conversation_id, atual.estado, BLOQUEADO_HUMANO, "limite_por_cpf")
         return self._responder(novo, BLOQUEADO, emergencia=emergencia, escalar=True)
 
-    async def _registrar_falha_por_cpf(self, chave: str | None, agora: datetime) -> None:
-        """Uma falha de VERIFICACAO contra um CPF valido (nao formato invalido, nao AMH fora)."""
-        if chave is not None and self._limite_cpf is not None:
-            await self._limite_cpf.registrar_falha(chave, agora)
+    async def _registrar_falha_por_cpf(
+        self, chave: str | None, agora: datetime, conversation_id: str
+    ) -> None:
+        """Uma falha de VERIFICACAO contra um CPF valido (nao formato invalido, nao AMH fora).
+
+        Se ESTA falha bloqueou o CPF pela segunda janela seguida, dispara o alarme do risco aceito (DL-0109):
+        log + metrica, com uma marca curta da chave derivada — nunca CPF nem hash."""
+        if chave is None or self._limite_cpf is None:
+            return
+        if await self._limite_cpf.registrar_falha(chave, agora):
+            ACESSO_CPF_BLOQUEIO_REINCIDENTE_TOTAL.labels(tenant=self._tenant_amh).inc()
+            logger.warning(
+                "acesso_cpf_bloqueio_reincidente",
+                conversation_id=conversation_id,
+                marca=marca_do_alarme(chave),
+                janelas_seguidas=2,
+            )
 
     def _falha(self, atual: EstadoAcesso, agora: datetime, texto: str, *, emergencia: bool) -> DecisaoAcesso:
         """Uma tentativa gasta (formato invalido ou nao confere). Conta em DOIS lugares: as tentativas

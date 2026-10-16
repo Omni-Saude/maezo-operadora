@@ -392,6 +392,14 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_ACESSO_VALIDADE_HORAS", "acesso_validade_horas"),
     )
 
+    # Limite de falhas de verificacao POR CPF (D-04, DL-0109): 3 em 6 h, somadas entre as conversas. LIGADO
+    # por padrao. A chave existe so' para DESLIGAR sem reverter codigo (revisao do #785), se o risco aceito
+    # (re-travar a verificacao de outra pessoa) virar incidente: desligado, vale so' o limite por conversa.
+    acesso_limite_cpf: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("MAEZO_ACESSO_LIMITE_CPF", "acesso_limite_cpf"),
+    )
+
     # Apresentacao do canal (14/10/2026): depois de tantos dias SEM mensagens na conversa, a mensagem que diz
     # o que o canal resolve volta a ser mostrada (ao fim da proxima verificacao). Tem de ser maior que a
     # validade da verificacao (`acesso_validade_horas`, no maximo 168 h = 7 dias).

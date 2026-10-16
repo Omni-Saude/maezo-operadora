@@ -848,8 +848,8 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         identificacao=(
             "tenant + chave (SHA-256 de um rotulo + o hash de verificacao do CPF: uma derivacao que so' "
             "serve a este limite, nao o hash que a AMH recebe); the row holds only the failure count, the "
-            "window start and the "
-            "last-failure timestamp - no CPF, no birth date, no name, no phone, no text (D-04). The key is a "
+            "window start, the last-failure timestamp and whether the previous window ended blocked - no "
+            "CPF, no birth date, no name, no phone, no text (D-04). The key is a "
             "derivation of the CPF, so it reaches neither `conversation_id` nor the DSR reference "
             "(`beneficiario_pseudo_id`): no bridge, and no subject column"
         ),

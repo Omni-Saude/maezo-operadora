@@ -293,9 +293,9 @@ escopo_b:
       motivo: >-
         fora do escopo B; 0028 (limite de falhas de verificacao por CPF, D-04, decisao do dono de
         15/10/2026: 3 falhas por CPF em 6 h) guarda so' uma chave derivada do hash de verificacao, a
-        contagem e dois carimbos — nenhum CPF, nascimento, nome, telefone ou texto; sem coluna de
+        contagem, dois carimbos e se a janela anterior bloqueou — nenhum CPF, nascimento, nome, telefone ou texto; sem coluna de
         titular e sem ponte (a chave e' uma derivacao do CPF, nao alcanca conversation_id nem a
-        referencia DSR); a linha e' apagada sozinha quando a janela de 6 h passa
+        referencia DSR); a linha e' apagada sozinha uma janela depois de a de 6 h passar (12 h)
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

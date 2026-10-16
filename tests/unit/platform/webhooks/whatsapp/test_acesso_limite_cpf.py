@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 
 import maezo
 from maezo.gateway.amh_interop import AmhSubjectVerifyHasher
@@ -213,7 +214,11 @@ async def test_sem_o_limite_o_comportamento_e_o_de_antes_quarta_conversa_verific
 async def test_a_retencao_apaga_a_linha_quando_a_janela_passa(amb: AmbienteComLimite) -> None:
     await amb.falhar(1)
     assert len(amb.limite._linhas) == 1
+    # Uma janela a mais (a seguinte le' se esta bloqueou, para o alarme): ainda esta' la' com 7 h.
     amb.relogio.avancar(hours=7)
+    await amb.servico.expurgar_inativos()
+    assert len(amb.limite._linhas) == 1
+    amb.relogio.avancar(hours=5)
     await amb.servico.expurgar_inativos()
     assert amb.limite._linhas == {}
 
@@ -297,7 +302,26 @@ async def test_postgres_registra_com_o_tenant_a_chave_o_instante_e_a_janela() ->
     await limite.registrar_falha(CHAVE_HEX, T0)
     [(sql, args)] = conn.chamadas
     assert "ON CONFLICT (tenant, chave) DO UPDATE" in sql  # uma instrucao atomica
-    assert args == ("amh", CHAVE_HEX, T0, JANELA_POR_CPF)
+    assert "RETURNING falhas, janela_anterior_bloqueada" in sql
+    assert args == ("amh", CHAVE_HEX, T0, JANELA_POR_CPF, MAX_FALHAS_POR_CPF)
+
+
+@pytest.mark.parametrize(
+    ("linha", "alarme"),
+    [
+        ({"falhas": 3, "janela_anterior_bloqueada": True}, True),
+        ({"falhas": 3, "janela_anterior_bloqueada": False}, False),
+        ({"falhas": 2, "janela_anterior_bloqueada": True}, False),
+        # Ja' bloqueado (4a falha): o alarme dispara uma vez, na transicao, nao a cada falha.
+        ({"falhas": 4, "janela_anterior_bloqueada": True}, False),
+    ],
+)
+async def test_postgres_alarme_so_na_falha_que_bloqueia_a_segunda_janela_seguida(
+    linha: dict[str, Any], alarme: bool
+) -> None:
+    conn = _Conexao(linha)
+    limite = PostgresLimitePorCpf(dsn="postgresql://u:p@h/db", tenant="amh", pool=_Pool(conn))
+    assert await limite.registrar_falha(CHAVE_HEX, T0) is alarme
 
 
 async def test_postgres_bloqueia_com_tres_falhas_dentro_da_janela_e_so_ate_o_fim_dela() -> None:
@@ -328,6 +352,7 @@ async def test_postgres_expurga_pela_janela_vencida_e_devolve_quantas() -> None:
     assert await limite.expurgar(T0) == 2
     [(sql, args)] = conn.chamadas
     assert sql.strip().startswith("DELETE FROM acesso_falhas_por_cpf") and args == ("amh", T0, JANELA_POR_CPF)
+    assert "janela_inicio + 2 * $3::interval <= $2" in sql  # uma janela a mais, para o alarme
 
 
 # --------------------------------------------------------------------------- a migration
@@ -353,9 +378,11 @@ def test_a_tabela_so_tem_chave_contagem_e_carimbos() -> None:
     criacao = re.search(r"CREATE TABLE acesso_falhas_por_cpf \((.*?)\n        \)\n", _CODIGO, re.DOTALL)
     assert criacao
     colunas = set(
-        re.findall(r"^\s{12}([a-z_]+) (?:text|smallint|timestamptz)\b", criacao.group(1), re.MULTILINE)
+        re.findall(
+            r"^\s{12}([a-z_]+) (?:text|smallint|timestamptz|boolean)\b", criacao.group(1), re.MULTILINE
+        )
     )
-    assert colunas == {"tenant", "chave", "falhas", "janela_inicio", "ultima_em"}
+    assert colunas == {"tenant", "chave", "falhas", "janela_inicio", "ultima_em", "janela_anterior_bloqueada"}
     proibidas = {"cpf", "nascimento", "nome", "telefone", "phone", "texto", "hash", "conversation_id"}
     assert colunas.isdisjoint(proibidas)
 
@@ -368,3 +395,63 @@ def test_a_chave_so_aceita_64_hexadecimais_e_a_tabela_e_revogada_do_publico() ->
 
 def test_o_downgrade_apaga_a_tabela_porque_ela_e_descartavel() -> None:
     assert "DROP TABLE acesso_falhas_por_cpf" in _CODIGO.split("def downgrade", 1)[1]
+
+
+# ------------------------------------------------------------------------- o alarme do risco aceito (DL-0109)
+
+
+async def test_memoria_alarme_so_quando_bloqueia_duas_janelas_seguidas() -> None:
+    limite = LimitePorCpfEmMemoria()
+    chave = "c" * 64
+    # 1a janela: bloqueia, sem alarme (nao havia janela anterior).
+    assert [await limite.registrar_falha(chave, T0 + timedelta(minutes=m)) for m in (0, 1, 2)] == [
+        False,
+        False,
+        False,
+    ]
+    # 2a janela, logo depois da 1a: a falha que bloqueia dispara o alarme, uma vez so'.
+    j2 = T0 + timedelta(hours=7)
+    assert [await limite.registrar_falha(chave, j2 + timedelta(minutes=m)) for m in (0, 1, 2, 3)] == [
+        False,
+        False,
+        True,
+        False,
+    ]
+
+
+async def test_memoria_sem_alarme_se_a_janela_anterior_nao_bloqueou_ou_ficou_longe() -> None:
+    limite = LimitePorCpfEmMemoria()
+    chave = "d" * 64
+    await limite.registrar_falha(chave, T0)  # 1a janela: so' 1 falha, nao bloqueou
+    j2 = T0 + timedelta(hours=7)
+    assert [await limite.registrar_falha(chave, j2 + timedelta(minutes=m)) for m in (0, 1, 2)] == [
+        False,
+        False,
+        False,
+    ]
+    # 3a janela, mais de uma janela depois do fim da 2a (que bloqueou): nao e' "seguida".
+    j3 = j2 + timedelta(hours=13)
+    assert [await limite.registrar_falha(chave, j3 + timedelta(minutes=m)) for m in (0, 1, 2)] == [
+        False,
+        False,
+        False,
+    ]
+
+
+async def test_o_servico_loga_e_conta_o_rebloqueio_sem_cpf_nem_hash(amb: AmbienteComLimite) -> None:
+    metrica = ac.ACESSO_CPF_BLOQUEIO_REINCIDENTE_TOTAL.labels(tenant=TENANT_AMH)
+    antes = metrica._value.get()
+    with structlog.testing.capture_logs() as logs:
+        for i in (1, 2, 3):
+            await amb.falhar(i)
+        amb.relogio.avancar(hours=7)
+        for i in (4, 5, 6):
+            await amb.falhar(i)
+    alarmes = [e for e in logs if e["event"] == "acesso_cpf_bloqueio_reincidente"]
+    assert len(alarmes) == 1
+    assert metrica._value.get() == antes + 1
+    hash_cpf = AmhSubjectVerifyHasher(key=CHAVE, amh_tenant=TENANT_AMH).hash_cpf(CPF)
+    assert hash_cpf is not None
+    assert alarmes[0]["marca"] == chave_do_cpf(hash_cpf)[:8]
+    rendido = repr(alarmes)
+    assert CPF not in rendido and hash_cpf not in rendido and chave_do_cpf(hash_cpf) not in rendido

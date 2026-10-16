@@ -1112,12 +1112,14 @@ class HelenaDispatcher:
             )
             identidade = resolvida.identidade
         texto = resposta_de_cadastro(tipo, identidade, fonte_ligada=self.identidade is not None)
-        # D-01 (red team): quem fala de outra pessoa recebe o aviso de que so' o PROPRIO cadastro e' mostrado.
-        texto = com_aviso_se_for_de_outra_pessoa(message.text, texto)
         if self.consultas_plano is not None and texto == RESPOSTA_PLANO_POR_CANAIS:
             # RODADA 8: com os fatos do plano (TINA) ligados e a pessoa verificada, "ainda nao estao
             # disponiveis por este chat" nunca sai: o fato ausente do perfil segue para o grafo, que consulta.
+            # A comparacao vem ANTES do aviso de terceiro (revisao do #785): com o aviso colado, o texto
+            # deixava de ser igual e o "nao estao disponiveis" saia ao beneficiario.
             return None
+        # D-01 (red team): quem fala de outra pessoa recebe o aviso de que so' o PROPRIO cadastro e' mostrado.
+        texto = com_aviso_se_for_de_outra_pessoa(message.text, texto)
         await sender.send(phone_hash, texto)
         logger.info(
             "acesso_cadastro_respondido",

@@ -17,10 +17,17 @@ zera o contador, pelo mesmo motivo da janela por conversa (#700): quem acerta o 
 limpar as tentativas feitas contra o de outra pessoa. A janela e' FIXA, aberta pela primeira falha.
 
 O QUE FICA NO BANCO: so' uma chave DERIVADA do hash de verificacao (nunca o CPF, nunca o hash que a AMH
-recebe: se a tabela vazasse, nao serviria para consultar a AMH), a contagem e dois carimbos. A linha some
-sozinha
-quando a janela passa (`expurgar`). Falha de banco PROPAGA: o turno falha e a Meta reentrega —
+recebe: se a tabela vazasse, nao serviria para consultar a AMH), a contagem, dois carimbos e se a janela
+ANTERIOR terminou bloqueada. A linha some sozinha uma janela depois de a sua passar (`expurgar`): a janela
+seguinte precisa saber se a anterior bloqueou. Falha de banco PROPAGA: o turno falha e a Meta reentrega —
 nunca "sem limite".
+
+RISCO ACEITO (DL-0109, revisao do #785): quem conhece o CPF de alguem pode re-travar a verificacao dessa
+pessoa indefinidamente (3 datas erradas a cada 6 h, de qualquer numero, inclusive pelo caminho de
+documento). Mitigacao: o bloqueio abre atendente. ALARME: o MESMO CPF bloqueado em duas janelas seguidas
+(`registrar_falha` devolve `True`) vira o log `acesso_cpf_bloqueio_reincidente` + a metrica
+`maezo_acesso_cpf_bloqueio_reincidente_total`, com uma MARCA curta (8 hex da chave, que ja' deriva do HMAC
+de verificacao) — nunca o CPF nem o hash.
 """
 
 from __future__ import annotations
@@ -40,6 +47,14 @@ JANELA_POR_CPF: Final[timedelta] = timedelta(hours=6)
 TABELA: Final[str] = "acesso_falhas_por_cpf"
 _ROTULO_DA_CHAVE: Final[bytes] = b"acesso-limite-cpf:v1:"
 _PREFIXO_HEX: Final[int] = 64
+#: A marca do alarme: so' o comeco da chave (32 bits), o bastante para correlacionar dois alarmes do mesmo
+#: CPF no log, pouco para servir de chave de qualquer coisa.
+_TAMANHO_DA_MARCA: Final[int] = 8
+
+
+def marca_do_alarme(chave: str) -> str:
+    """A marca curta que o alarme de re-bloqueio leva ao log: os 8 primeiros hex da chave derivada."""
+    return chave[:_TAMANHO_DA_MARCA]
 
 
 def chave_do_cpf(hash_de_verificacao: str) -> str:
@@ -58,7 +73,10 @@ class LimitePorCpf(Protocol):
         """O fim do bloqueio, se o CPF esta' bloqueado AGORA; `None` se pode tentar."""
         ...
 
-    async def registrar_falha(self, chave: str, agora: datetime) -> None: ...
+    async def registrar_falha(self, chave: str, agora: datetime) -> bool:
+        """Soma uma falha. `True` so' quando ESTA falha bloqueou o CPF (chegou ao limite) e a janela
+        anterior tambem terminou bloqueada: o alarme de re-bloqueio (revisao do #785)."""
+        ...
 
     async def expurgar(self, agora: datetime) -> int:
         """Apaga as linhas cuja janela ja' passou (so' servem enquanto a janela vale). Devolve quantas."""
@@ -71,7 +89,8 @@ class LimitePorCpfEmMemoria:
     def __init__(self, *, max_falhas: int = MAX_FALHAS_POR_CPF, janela: timedelta = JANELA_POR_CPF) -> None:
         self._max = max_falhas
         self._janela = janela
-        self._linhas: dict[str, tuple[int, datetime]] = {}
+        #: chave -> (falhas, inicio da janela, a janela anterior terminou bloqueada)
+        self._linhas: dict[str, tuple[int, datetime, bool]] = {}
 
     def __repr__(self) -> str:
         return "LimitePorCpfEmMemoria(<redacted>)"
@@ -80,39 +99,56 @@ class LimitePorCpfEmMemoria:
         linha = self._linhas.get(chave)
         if linha is None:
             return None
-        falhas, inicio = linha
+        falhas, inicio, _ = linha
         fim = inicio + self._janela
         return fim if falhas >= self._max and agora < fim else None
 
-    async def registrar_falha(self, chave: str, agora: datetime) -> None:
+    async def registrar_falha(self, chave: str, agora: datetime) -> bool:
         linha = self._linhas.get(chave)
-        if linha is None or agora >= linha[1] + self._janela:
-            self._linhas[chave] = (1, agora)
-            return
-        self._linhas[chave] = (linha[0] + 1, linha[1])
+        if linha is None:
+            novo = (1, agora, False)
+        elif agora >= linha[1] + self._janela:
+            # Janela nova: lembra se a anterior terminou bloqueada e se esta comeca logo depois dela.
+            seguida = linha[0] >= self._max and agora < linha[1] + 2 * self._janela
+            novo = (1, agora, seguida)
+        else:
+            novo = (linha[0] + 1, linha[1], linha[2])
+        self._linhas[chave] = novo
+        return novo[0] == self._max and novo[2]
 
     async def expurgar(self, agora: datetime) -> int:
-        vencidas = [c for c, (_, inicio) in self._linhas.items() if agora >= inicio + self._janela]
+        vencidas = [c for c, (_, inicio, _) in self._linhas.items() if agora >= inicio + 2 * self._janela]
         for chave in vencidas:
             del self._linhas[chave]
         return len(vencidas)
 
 
 # A atualizacao e' UMA instrucao atomica: duas conversas falhando ao mesmo tempo nao perdem contagem. Janela
-# vencida reabre com 1 e o carimbo novo; dentro dela soma 1 e mantem o carimbo (a janela e' fixa).
+# vencida reabre com 1 e o carimbo novo, e grava se a anterior terminou bloqueada (falhas >= $5) e se esta
+# comeca dentro de uma janela depois dela; dentro da janela soma 1 e mantem o carimbo (a janela e' fixa).
+# Os SETs leem a linha ANTIGA (semantica do UPDATE), entao a ordem entre eles nao importa.
 _REGISTRAR_SQL: Final[str] = f"""
-INSERT INTO {TABELA} (tenant, chave, falhas, janela_inicio, ultima_em)
-VALUES ($1, $2, 1, $3, $3)
+INSERT INTO {TABELA} (tenant, chave, falhas, janela_inicio, ultima_em, janela_anterior_bloqueada)
+VALUES ($1, $2, 1, $3, $3, false)
 ON CONFLICT (tenant, chave) DO UPDATE SET
     falhas = CASE WHEN {TABELA}.janela_inicio + $4::interval <= $3 THEN 1 ELSE {TABELA}.falhas + 1 END,
     janela_inicio = CASE
         WHEN {TABELA}.janela_inicio + $4::interval <= $3 THEN $3
         ELSE {TABELA}.janela_inicio
     END,
+    janela_anterior_bloqueada = CASE
+        WHEN {TABELA}.janela_inicio + $4::interval <= $3
+            THEN {TABELA}.falhas >= $5 AND {TABELA}.janela_inicio + 2 * $4::interval > $3
+        ELSE {TABELA}.janela_anterior_bloqueada
+    END,
     ultima_em = $3
+RETURNING falhas, janela_anterior_bloqueada
 """
 _LER_SQL: Final[str] = f"SELECT falhas, janela_inicio FROM {TABELA} WHERE tenant = $1 AND chave = $2"
-_EXPURGO_SQL: Final[str] = f"DELETE FROM {TABELA} WHERE tenant = $1 AND janela_inicio + $3::interval <= $2"
+# Uma janela a mais: a seguinte precisa ler se esta bloqueou (o alarme de re-bloqueio).
+_EXPURGO_SQL: Final[str] = (
+    f"DELETE FROM {TABELA} WHERE tenant = $1 AND janela_inicio + 2 * $3::interval <= $2"
+)
 
 
 class LimitePorCpfStoreError(RuntimeError):
@@ -168,11 +204,14 @@ class PostgresLimitePorCpf:
         fim = linha["janela_inicio"] + self._janela
         return fim if int(linha["falhas"]) >= self._max and agora < fim else None
 
-    async def registrar_falha(self, chave: str, agora: datetime) -> None:
+    async def registrar_falha(self, chave: str, agora: datetime) -> bool:
         self._conferir(chave)
         pool = await self._ensure_pool()
         async with pool.acquire() as conn:
-            await conn.execute(_REGISTRAR_SQL, self._tenant, chave, agora, self._janela)
+            linha = await conn.fetchrow(_REGISTRAR_SQL, self._tenant, chave, agora, self._janela, self._max)
+        if linha is None:  # pragma: no cover - INSERT ... RETURNING sempre devolve a linha
+            return False
+        return int(linha["falhas"]) == self._max and bool(linha["janela_anterior_bloqueada"])
 
     async def expurgar(self, agora: datetime) -> int:
         pool = await self._ensure_pool()
@@ -193,4 +232,5 @@ __all__ = [
     "LimitePorCpfStoreError",
     "PostgresLimitePorCpf",
     "chave_do_cpf",
+    "marca_do_alarme",
 ]
