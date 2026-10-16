@@ -27,11 +27,28 @@ coparticipação" e "2ª via do boleto") ensina o Lucas a responder só a quem p
 
 | Comportamento | Depende de | Hoje (chave ligada) |
 |---|---|---|
-| PF que não é o pagador ouve o texto do responsável financeiro, sem valor, em valor/vencimento/situação/2ª via; atraso do título do responsável nunca abre caso | billing-status **0.3.0** (`beneficiario_e_pagador`, já no ar em dev) | **funciona** |
+| PF que não é o pagador ouve o texto do responsável financeiro, sem valor, em valor/vencimento/situação/2ª via; atraso do título do responsável nunca abre caso | billing-status **0.3.0** (`beneficiario_e_pagador`, já no ar em dev) **lido pelo receptor**: exige `amh_billing_status_contratacao_openapi_path` (`lucas.auto.tfvars`; sem ele a cobrança lê o 0.2.0, sem o sinal) | **funciona** com o caminho; **sem o sinal, FALHA FECHADA** (ver 2.1) |
 | Plano de empresa → RH (e adesão → administradora) | billing-status 0.3.0 (`pagador_tipo`, `tipo_contratacao`) | **funciona** (igual a antes) |
 | Pagador ouve o **valor total primeiro** e depois a parte dele | billing-status 0.3.0 (`valor_boleto_pagador`) | **funciona** |
 | Pagador ouve o **detalhe por beneficiário** (sem nome) | billing-status **0.4.0** (manifest v1.10, `incluir_detalhamento`/`somente_pagador`) | espera o contrato (cai no "total primeiro") |
 | Pagador recebe o **código de barras** | billing-segunda-via **0.1.0** (manifest v1.11, contrato separado) | espera o contrato (cai no texto de antes: os canais da 2ª via) |
+
+### 2.1 Falha fechada (achado do aceite de 16/10/2026)
+
+Só o sinal `beneficiario_e_pagador = true` (billing-status 0.3.0) com `pagador_tipo = pessoa_fisica` comprova que a
+pessoa É o pagador. Com a chave ligada, **valor, vencimento, situação do pagamento, "já paguei?", "é a última?" e 2ª via
+só saem com esse sinal**:
+
+- sinal `false` (dependente) -> "O responsável financeiro pelo contrato é o titular do contrato. Somente ele pode
+  solicitar essa informação.";
+- sinal ausente, nulo, não booleano ou pagador desconhecido -> "Não consegui confirmar se você é o responsável
+  financeiro do contrato, então não mostro valores por aqui" + os canais (aplicativo, portal, central). Não afirma quem
+  é o responsável e **não abre caso**;
+- empresa (RH) e adesão (administradora) seguem com o texto próprio de antes.
+
+Causa do achado: a task do dev não tinha `MAEZO_AMH_BILLING_STATUS_CONTRATACAO_OPENAPI_PATH` (variável opcional, vazia
+por padrão), então a cobrança lia o 0.2.0 (sem `beneficiario_e_pagador`) e um dependente recebeu valores como pagador.
+Agora a variável é exigida pela validação de `lucas_v4` no Terraform e o receptor loga `lucas_v4_sem_billing_status_0_3_0`.
 
 **O segundo sinal (`fonte_detalhamento_habilitada`).** Os dois contratos novos estão **UNPUBLISHED** na AMH (PRs
 #245–#249 de `amh-data-platform`). O código só liga o detalhamento e o código de barras quando, ao mesmo tempo:

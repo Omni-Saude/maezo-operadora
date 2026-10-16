@@ -1130,6 +1130,79 @@ async def test_pedido_de_pessoa_no_meio_da_pergunta_de_alerta_nao_exige_responde
 @pytest.mark.parametrize(
     "extracao",
     [
+        # O que o modelo real devolveu no aceite de 16/10/2026: o codigo da queixa ANTERIOR.
+        _classify(
+            intent="symptom",
+            population="adult",
+            sintoma_codigo="cefaleia_subita_intensa",
+            intensidade="desconhecida",
+        ),
+        _classify(
+            intent="human_request",
+            population="adult",
+            sintoma_codigo="cefaleia_subita_intensa",
+            intensidade="desconhecida",
+        ),
+        _classify(intent="symptom", population="adult", intensidade="desconhecida"),
+    ],
+)
+async def test_pedido_de_pessoa_no_alerta_abre_o_caso_clinico_sem_rodar_a_tabela_de_alarme(
+    extracao: str,
+) -> None:
+    """Aceite de 16/10/2026 (`helena_v4`, segmento 11): 'Quero falar com uma pessoa' depois de
+    'Estou com dor de cabeca' saiu `red_flag_clinico` com o texto de emergencia, porque o modelo devolveu
+    o codigo da queixa anterior e a tabela, sem intensidade, escalou. A mensagem, sozinha, so' pede uma
+    pessoa."""
+    conversa = _Conversa()
+    await conversa.diz(
+        "Estou com dor de cabeça", _classify(intent="symptom", population="adult", intensidade="leve")
+    )
+    chamadas_antes = len(conversa.dmn.chaves())
+    resultado = await conversa.diz("Quero falar com uma pessoa", extracao)
+
+    assert conversa.motivos == ["intencao_clinica"], "um caso, clinico (enfermagem), nunca red_flag"
+    assert resultado["escalation_motivo"] == "intencao_clinica"
+    assert resultado["escalation_severidade"] == "moderada"
+    novas = conversa.dmn.chaves()[chamadas_antes:]
+    assert not [c for c in novas if c.startswith("triage_redflag")], "a tabela de alarme nao roda aqui"
+    resumo = conversa.cib.inicios[0]["resumo_contexto"]
+    assert 'A pessoa relatou (queixa da própria pessoa): "Estou com dor de cabeça".' in resumo
+    assert "em vez de responder, a pessoa pediu para falar com uma pessoa da equipe" in resumo
+    assert "não avaliou sintomas nem deu orientação clínica" in resumo
+
+
+async def test_pedido_de_pessoa_junto_com_sinal_de_alarme_continua_red_flag() -> None:
+    """A excecao so' vale para a mensagem SEM queixa: 'dor no peito, quero falar com uma pessoa' e' alarme."""
+    conversa = _Conversa()
+    await conversa.diz(
+        "Estou com dor de cabeça", _classify(intent="symptom", population="adult", intensidade="leve")
+    )
+    resultado = await conversa.diz(
+        "Estou com dor no peito, quero falar com uma pessoa",
+        _classify(intent="symptom", population="adult", sintoma_codigo="dor_toracica", intensidade="grave"),
+    )
+
+    assert resultado["escalation_motivo"] == "red_flag_clinico"
+    assert conversa.motivos == ["red_flag_clinico"]
+
+
+async def test_sem_a_pergunta_de_alerta_pendente_o_pedido_de_pessoa_e_o_de_sempre() -> None:
+    conversa = _Conversa()
+    resultado = await conversa.diz("Quero falar com uma pessoa", _classify(intent="human_request"))
+
+    assert resultado["escalation_motivo"] == "solicitacao_humano"
+
+
+def test_o_resumo_do_pedido_de_pessoa_no_alerta_e_legivel() -> None:
+    codigo = v4.codigo_pendente(v4.ETAPA_CASO_PEDIU_PESSOA, v4.GRUPO_GERAL, v4.POPULACAO_ADULTO)
+    assert v4.ler_pendente(codigo) is not None
+    resumo = v4.resumo_do_caso(codigo, "Estou com dor nas costas")
+    assert resumo is not None and "pediu para falar com uma pessoa da equipe" in resumo
+
+
+@pytest.mark.parametrize(
+    "extracao",
+    [
         _classify(intent="symptom", population="gestante", idade_gestacional_semanas=30, intensidade="leve"),
         _classify(intent="symptom", population="pediatric", idade_meses=1, intensidade="leve"),
     ],

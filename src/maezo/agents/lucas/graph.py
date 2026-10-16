@@ -1499,6 +1499,17 @@ TEXTO_NAO_PAGADOR_V4: Final[str] = (
     "informação."
 )
 TEXTO_NAO_PAGADOR_V4_CURTO: Final[str] = "Somente o responsável financeiro do contrato pode pedir isso."
+#: FALHA FECHADA (achado do aceite de 16/10/2026): o Lucas v4 nao consegue afirmar que a pessoa E o pagador (o
+#: sinal `beneficiario_e_pagador` nao veio, ou veio sem `pagador_tipo` conhecido). Sem o sinal ninguem recebe
+#: valor, vencimento, situacao nem 2a via: so' os canais. Nao afirma quem e' o responsavel (nao sabemos).
+TEXTO_PAGADOR_NAO_CONFIRMADO_V4: Final[str] = (
+    "Não consegui confirmar se você é o responsável financeiro do contrato, então não mostro valores por "
+    "aqui. Você consegue essas informações pelo aplicativo Austa Clínicas, pelo portal do plano ou pela "
+    "central de atendimento."
+)
+TEXTO_PAGADOR_NAO_CONFIRMADO_V4_CURTO: Final[str] = (
+    "Sem confirmar o responsável financeiro, não mostro valores. Use o aplicativo, o portal ou a central."
+)
 #: Pagador sem codigo de barras para entregar (sem bloqueto, formato nao reconhecido, valor diverge...).
 TEXTO_SEM_CODIGO_V4: Final[str] = (
     "Não encontrei o código de barras deste boleto. Você consegue a 2ª via pelo aplicativo Austa Clínicas, "
@@ -1514,11 +1525,23 @@ TEXTO_DETALHE_NO_APP_V4: Final[str] = "O detalhe por beneficiário sai pelo apli
 
 def pergunta_so_do_pagador_v4(state: LucasState) -> bool:
     """A pergunta e' de valor, vencimento, situacao do pagamento ou 2a via? So' o pagador a faz."""
-    return (
-        state.get("tipo_solicitacao")
-        in (TIPO_CONSULTA_VALORES, "vencimento", "status_pagamento", "boleto", "2a_via")
-        or _foco_da_pergunta(state) == FOCO_JA_PAGUEI
-    )
+    return state.get("tipo_solicitacao") in (
+        TIPO_CONSULTA_VALORES,
+        "vencimento",
+        "status_pagamento",
+        "boleto",
+        "2a_via",
+    ) or _foco_da_pergunta(state) in (FOCO_JA_PAGUEI, FOCO_ULTIMA, FOCO_ESCLARECIMENTO)
+
+
+def pagador_nao_comprovado_v4(state: LucasState) -> bool:
+    """FALHA FECHADA (DL-0114): o Lucas NAO consegue afirmar que a pessoa e' o pagador PF do contrato?
+
+    So' o pagador pede valores, vencimento, situacao e 2a via, e so' o sinal `beneficiario_e_pagador is True`
+    (billing-status 0.3.0) com `pagador_tipo=pessoa_fisica` o comprova. Sinal falso, ausente, nulo ou fora do
+    tipo booleano, ou pagador desconhecido: `True` (nada de valor). Empresa e adesao NAO entram aqui: tem o
+    texto proprio (RH / administradora), que continua como antes."""
+    return not titulo_de_terceiro(state) and not mostra_boleto_da_familia(state)
 
 
 def _abertura_do_total_v4(c: Mapping[str, str], total: str, hoje: date) -> str:
@@ -3120,9 +3143,10 @@ class LucasGraph:
         return isinstance(variaveis, Mapping) and variaveis.get("source_agent_id") == AGENT_ID_LUCAS
 
     def _nao_pagador_v4(self, state: LucasState) -> bool:
-        """DL-0114: com a chave ligada, o PF que NAO e' o pagador (`beneficiario_e_pagador=False`) e a
-        pergunta e' so' do pagador. Desligada: sempre `False` (o comportamento de antes)."""
-        return self._v4 and dependente_do_titular(state) and pergunta_so_do_pagador_v4(state)
+        """DL-0114: com a chave ligada, quem o Lucas NAO consegue afirmar que e' o pagador PF
+        (`beneficiario_e_pagador` falso OU ausente: falha fechada) e a pergunta e' so' do pagador. Empresa e
+        adesao seguem o texto proprio. Desligada: sempre `False` (o comportamento de antes)."""
+        return self._v4 and pagador_nao_comprovado_v4(state) and pergunta_so_do_pagador_v4(state)
 
     async def assess(self, state: LucasState) -> dict[str, Any]:
         """Evaluate the deterministic DMN tables and decide the ROUTE (respond vs escalate).
@@ -3887,8 +3911,15 @@ class LucasGraph:
         if self._nao_pagador_v4(state) and state.get("admissibilidade") in ("RESPONDER", "LEMBRETE"):
             # DL-0114: quem nao e' o pagador nao recebe valor, vencimento, situacao nem 2a via: o responsavel
             # financeiro do contrato (SEM nome) e' quem pode pedir.
-            mensagem = self._mensagem(TEXTO_NAO_PAGADOR_V4, facts, VALORES_PROMPT_VERSION, state)
-            mensagem["curta"] = TEXTO_NAO_PAGADOR_V4_CURTO
+            if state.get("beneficiario_e_pagador") is False:
+                mensagem = self._mensagem(TEXTO_NAO_PAGADOR_V4, facts, VALORES_PROMPT_VERSION, state)
+                mensagem["curta"] = TEXTO_NAO_PAGADOR_V4_CURTO
+            else:
+                # Sem o sinal (fonte sem o billing-status 0.3.0, campo nulo): falha fechada, so' os canais.
+                mensagem = self._mensagem(
+                    TEXTO_PAGADOR_NAO_CONFIRMADO_V4, facts, VALORES_PROMPT_VERSION, state
+                )
+                mensagem["curta"] = TEXTO_PAGADOR_NAO_CONFIRMADO_V4_CURTO
             return mensagem
         if foco_da_pergunta == FOCO_JA_PAGUEI:
             facts["competencias"] = _competencias_dos_fatos(state)

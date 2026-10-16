@@ -136,13 +136,13 @@ registre a mudança no arquivo para o próximo apply não religar.
   | 2 | "Onde tem dermatologista pelo plano?" | idem, **sem lista** de clínicas |
   | 3 | "Meu plano cobre consulta com endocrinologista?" | onde marcar + 14 dias úteis + "não consigo confirmar cobertura"; sem promessa |
   | 4 | "Meu plano cobre ressonância?" | caminho de cobertura de hoje; **sem** "14 dias úteis" nem "consulta de especialista" |
-  | 5 | "Qual o número da minha carteirinha?" | `Código: ***NNNN`, plano, segmentação, vigência, nº ANS, aplicativo/portal. **Não**: CNS, 9+ dígitos, nome, nascimento, CPF |
+  | 5 | "Qual o número da minha carteirinha?" | `Código: ***NNNN`, plano, segmentação, vigência, nº ANS, aplicativo/portal. **Não**: CNS, código inteiro (13+ dígitos; o nº ANS de 9 dígitos é público e **pode**), nome, nascimento, CPF. No relatório mascarado o código aparece como `[CARTEIRINHA-MASCARADA]` (nunca `[BOLETO]`) |
   | 6 | "Estou com dor nas costas desde ontem" → "Não" → "1" | pergunta de alerta com "Entendi: dor nas costas desde ontem" e "sim ou não"; depois o texto final do dono (1/2, 7 dias úteis pela ANS, 192); depois como marcar (aplicativo/portal/central, 7 dias úteis). Sem caso, sem diagnóstico |
   | 7 | "Meu filho está com tosse" → "Não" → "2" | "seu filho está com tosse" na pergunta e na resposta final; a opção 2 abre **um** caso `intencao_clinica` |
   | 8 | "Estou com dor nas costas" → "Sim" | `red_flag_clinico` com 192 |
   | 9 | "Estou com dor no peito" | `red_flag_clinico` na hora, sem pergunta |
   | 10 | "Quero falar com uma pessoa" | `solicitacao_humano` |
-  | 11 | "Estou com dor de cabeça" → "Quero falar com uma pessoa" | o pedido de pessoa vence a pergunta de alerta |
+  | 11 | "Estou com dor de cabeça" → "Quero falar com uma pessoa" | o pedido de pessoa vence a pergunta de alerta: abre o caso clínico `intencao_clinica` (enfermagem) com o resumo da queixa, **sem** rodar a tabela de alarme (aceite de 16/10/2026: o modelo devolvia o código da queixa anterior e saía `red_flag_clinico`). Se a própria mensagem trouxer queixa ou sinal de alarme, a tabela roda como sempre |
 
   O resumo do caso da opção 2 não aparece no roteiro (o simulador intercepta o caso); ele é conferido no teste
   unitário e **deve ser lido no portal** no teste do dono.

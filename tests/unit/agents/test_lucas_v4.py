@@ -27,6 +27,8 @@ from maezo.agents.lucas.graph import (
     TEXTO_NAO_PAGADOR_V4,
     TEXTO_NAO_PAGADOR_V4_CURTO,
     TEXTO_OUTROS_BOLETOS_V4,
+    TEXTO_PAGADOR_NAO_CONFIRMADO_V4,
+    TEXTO_PAGADOR_NAO_CONFIRMADO_V4_CURTO,
     TEXTO_PDF_V4,
     TEXTO_SEM_CODIGO_V4,
     TEXTO_TOTAL_SOMA_V4,
@@ -192,6 +194,99 @@ async def test_a_pergunta_repetida_do_nao_pagador_nao_repete_o_mesmo_texto() -> 
     )
     assert primeira == [TEXTO_NAO_PAGADOR_V4]
     assert segunda == [TEXTO_NAO_PAGADOR_V4_CURTO]
+
+
+# --- 2b. FALHA FECHADA: sem o sinal de que a pessoa E o pagador, ninguem recebe valor -----------------------
+# Achado do aceite de 16/10/2026: o dev lia o billing-status 0.2.0 (sem `beneficiario_e_pagador`) e um
+# dependente ouviu valor, vencimento e "ja' paga" como se fosse o pagador.
+_SEM_SINAL = {"pagador_tipo": "pessoa_fisica"}
+_SINAL_NULO = {"pagador_tipo": "pessoa_fisica", "beneficiario_e_pagador": None}
+_SINAL_NAO_BOOLEANO = {"pagador_tipo": "pessoa_fisica", "beneficiario_e_pagador": "true"}
+_PAGADOR_DESCONHECIDO = {"pagador_tipo": "desconhecido", "beneficiario_e_pagador": True}
+_SEM_NADA: dict[str, Any] = {}
+
+
+@pytest.mark.parametrize(
+    "extra", [_SEM_SINAL, _SINAL_NULO, _SINAL_NAO_BOOLEANO, _PAGADOR_DESCONHECIDO, _SEM_NADA]
+)
+@pytest.mark.parametrize("tipo", _TIPOS)
+async def test_sem_o_sinal_do_pagador_nao_ha_valor_nem_boleto_e_nao_abre_caso(
+    tipo: str, extra: dict[str, Any]
+) -> None:
+    final, textos = await _turno(_estado(tipo, **extra))
+    assert final["route"] == "respond_member" and final["process_started"] is False
+    assert textos == [TEXTO_PAGADOR_NAO_CONFIRMADO_V4]
+    assert "R$" not in textos[0] and MARCADOR_CODIGO not in textos[0]
+
+
+@pytest.mark.parametrize("extra", [_SEM_SINAL, _SINAL_NULO, _SEM_NADA])
+async def test_sem_o_sinal_o_atraso_do_titulo_nunca_abre_caso_nem_mostra_valor(extra: dict[str, Any]) -> None:
+    atraso = [
+        {
+            "competencia": "2026-08",
+            "situacao": "vencida",
+            "vencimento": "2026-08-10",
+            "valor_total": "320.25",
+            "valor_saldo": "320.25",
+        },
+        {
+            "competencia": "2026-09",
+            "situacao": "vencida",
+            "vencimento": "2026-09-10",
+            "valor_total": "320.25",
+            "valor_saldo": "320.25",
+        },
+    ]
+    final, textos = await _turno(
+        _estado(
+            "consulta_valores", competencias=atraso, ciclos_sem_conciliacao=2, dias_atraso_max=61, **extra
+        )
+    )
+    assert final["route"] == "respond_member" and final["process_started"] is False
+    assert textos == [TEXTO_PAGADOR_NAO_CONFIRMADO_V4]
+
+
+@pytest.mark.parametrize("foco", ["ja_paguei", "ultima", "esclarecimento"])
+async def test_sem_o_sinal_os_focos_de_acompanhamento_tambem_nao_mostram_valor(foco: str) -> None:
+    _, textos = await _turno(_estado("consulta_valores", cobranca_foco=foco, **_SEM_SINAL))
+    assert textos == [TEXTO_PAGADOR_NAO_CONFIRMADO_V4]
+
+
+async def test_sem_o_sinal_a_pergunta_repetida_sai_curta() -> None:
+    final, primeira = await _turno(_estado("consulta_valores", **_SEM_SINAL))
+    _, segunda = await _turno(
+        _estado("consulta_valores", resposta_anterior_ref=final["resposta_memoria_ref"], **_SEM_SINAL)
+    )
+    assert primeira == [TEXTO_PAGADOR_NAO_CONFIRMADO_V4]
+    assert segunda == [TEXTO_PAGADOR_NAO_CONFIRMADO_V4_CURTO]
+
+
+async def test_so_o_sinal_falso_afirma_quem_e_o_responsavel() -> None:
+    _, falso = await _turno(_estado("consulta_valores", **_NAO_PAGADOR))
+    _, ausente = await _turno(_estado("consulta_valores", **_SEM_SINAL))
+    assert falso == [TEXTO_NAO_PAGADOR_V4] and "titular" in falso[0]
+    assert "titular" not in ausente[0] and ausente != falso
+
+
+@pytest.mark.parametrize("tipo", _TIPOS)
+async def test_adesao_e_empresa_nao_mudam_com_ou_sem_o_sinal(tipo: str) -> None:
+    for extra in (_EMPRESA, {**_EMPRESA, "beneficiario_e_pagador": None}):
+        _, antes = await _turno(_estado(tipo, **extra), v4=None)
+        _, ligada = await _turno(_estado(tipo, **extra), v4=True)
+        assert ligada == antes
+    _, adm = await _turno(_estado(tipo, cobranca_administradora=True, **_SEM_SINAL))
+    assert TEXTO_PAGADOR_NAO_CONFIRMADO_V4 not in adm and "R$" not in adm[0]
+
+
+@pytest.mark.parametrize("tipo", _TIPOS)
+async def test_o_pagador_confirmado_continua_recebendo_a_resposta_de_antes(tipo: str) -> None:
+    _, antes = await _turno(_estado(tipo, **_PAGADOR_PF), v4=None)
+    _, ligada = await _turno(_estado(tipo, **_PAGADOR_PF), v4=True)
+    assert TEXTO_PAGADOR_NAO_CONFIRMADO_V4 not in ligada and TEXTO_NAO_PAGADOR_V4 not in ligada
+    if tipo in ("vencimento", "boleto", "2a_via"):
+        assert ligada == antes
+    if tipo == "consulta_valores":
+        assert "R$" in ligada[0]
 
 
 @pytest.mark.parametrize("tipo", _TIPOS)
@@ -434,6 +529,8 @@ def test_o_boleto_do_estado_nao_tem_nenhum_campo_de_credencial() -> None:
 _TEXTOS_FIXOS = [
     TEXTO_NAO_PAGADOR_V4,
     TEXTO_NAO_PAGADOR_V4_CURTO,
+    TEXTO_PAGADOR_NAO_CONFIRMADO_V4,
+    TEXTO_PAGADOR_NAO_CONFIRMADO_V4_CURTO,
     TEXTO_SEM_CODIGO_V4,
     TEXTO_PDF_V4,
     TEXTO_OUTROS_BOLETOS_V4,

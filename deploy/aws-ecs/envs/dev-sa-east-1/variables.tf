@@ -906,6 +906,14 @@ variable "lucas_v4" {
     condition     = !var.lucas_v4 || var.lucas_consulta_valores
     error_message = "lucas_v4 exige lucas_consulta_valores = true (sem os fatos de valor nao ha' como saber quem e' o pagador)."
   }
+
+  # Achado do aceite de 16/10/2026: sem o billing-status 0.3.0 (`beneficiario_e_pagador`) o Lucas nao tem como
+  # afirmar quem e' o pagador. O codigo FALHA FECHADO (nao mostra valor), mas a chave ligada sem o 0.3.0 so'
+  # entrega a negativa: recusar aqui evita ligar a v4 "pela metade".
+  validation {
+    condition     = !var.lucas_v4 || var.amh_billing_status_contratacao_openapi_path != ""
+    error_message = "lucas_v4 exige amh_billing_status_contratacao_openapi_path (billing-status 0.3.0: beneficiario_e_pagador e valor_boleto_pagador)."
+  }
 }
 
 variable "acesso_validade_horas" {

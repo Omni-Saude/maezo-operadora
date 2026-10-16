@@ -139,6 +139,70 @@ def test_os_textos_fixos_da_v4_passam_nos_passos_do_roteiro() -> None:
     assert certo(nome, 2, equipe, "intencao_clinica") == []
 
 
+def _vinculo_realista(mascara: str = "*****1708", ans: str = "457636085") -> ElegibilidadeView:
+    """ANS de 9 digitos e codigo mascarado de 5 asteriscos, como o dev devolveu no aceite de 16/10/2026."""
+    return ElegibilidadeView(
+        portable_subject_ref="amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+        ativo=True,
+        vinculos=(
+            VinculoPlano(
+                carteirinha_mascarada=mascara,
+                plano="COLETIVO EMPRESARIAL STANDARD C/COPART C/PATROCINIO C/VINCULO",
+                registro_ans_plano=ans,
+                segmentacao="Ambulatorial + Hospitalar com Obstetrícia",
+                acomodacao=None,
+                tipo_contratacao=None,
+                vigencia_inicio="2019-06-01",
+                cancelamento=None,
+                atendimento_liberado=True,
+                situacao_vinculo="Ativo",
+                situacao_contrato="Ativo",
+                titular=True,
+                relacao_dependencia=None,
+                titular_ref=None,
+            ),
+        ),
+        fonte_atualizada_em="2026-10-06T10:00:00Z",
+        campos_ausentes=frozenset(),
+    )
+
+
+def test_a_carteirinha_com_ans_de_9_digitos_e_codigo_mascarado_passa_no_dono_v1_e_no_helena_v4() -> None:
+    """Aceite de 16/10/2026: a regra de 9+ digitos reprovava o numero ANS do plano (publico). So' o codigo
+    inteiro (13+ digitos) e o codigo sem mascara reprovam; o codigo mascarado e' conferido no `deve`."""
+    texto = v4.texto_da_carteirinha(v4.fatos_da_carteirinha(_vinculo_realista()))
+    assert "Código: *****1708" in texto and "Nº ANS do plano: 457636085" in texto
+    helena = {s.nome: s for s in ac.HELENA_V4}["5-carteirinha"].passos[0]
+    dono = ac.DONO_V1[0].passos[3]
+    assert dono.texto == "Qual o número da minha carteirinha?"
+    for passo in (helena, dono):
+        assert ac.avaliar_passo(passo, [("helena", texto)], [], None) == [], passo.texto
+
+
+@pytest.mark.parametrize(
+    "vazamento",
+    [
+        "- Código: 123456789012345",
+        "- Código: 1234 5678 9012 345",
+        "- Código: 123.456.789.012.345",
+        "- Código: 12345\n- CNS: 700123456789012",
+    ],
+)
+def test_o_codigo_inteiro_da_carteirinha_reprova_o_roteiro(vazamento: str) -> None:
+    helena = {s.nome: s for s in ac.HELENA_V4}["5-carteirinha"].passos[0]
+    dono = ac.DONO_V1[0].passos[3]
+    cabecalho = "Pelo cadastro do plano, estes são os dados da sua carteirinha:"
+    texto = f"{cabecalho}\n{vazamento}\n- Nº ANS do plano: 457636085"
+    for passo in (helena, dono):
+        assert ac.avaliar_passo(passo, [("helena", texto)], [], None) != [], (passo.texto, vazamento)
+
+
+def test_a_carteirinha_sem_o_codigo_mascarado_reprova_o_roteiro() -> None:
+    texto = v4.texto_da_carteirinha(v4.fatos_da_carteirinha(_vinculo_realista(mascara="")))
+    helena = {s.nome: s for s in ac.HELENA_V4}["5-carteirinha"].passos[0]
+    assert ac.avaliar_passo(helena, [("helena", texto)], [], None) != []
+
+
 def test_o_roteiro_reprova_o_texto_que_nao_usa_o_que_a_pessoa_disse() -> None:
     nome = "6-sintoma-leve-nao-e-opcao-1"
     passo = {s.nome: s for s in ac.HELENA_V4}[nome].passos[1]

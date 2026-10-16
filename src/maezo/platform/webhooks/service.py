@@ -441,6 +441,18 @@ def _build_fonte_cobranca_amh(
         # nao diz quem paga. Sem ele, o comportamento de antes.
         incluir_tina=settings.helena_consultas_amh is True,
     )
+    if settings.lucas_v4 is True and not getattr(
+        settings, "amh_billing_status_contratacao_openapi_path", None
+    ):
+        # Achado do aceite de 16/10/2026: sem o billing-status 0.3.0 a fonte nao traz
+        # `beneficiario_e_pagador`.
+        # O Lucas v4 FALHA FECHADO (ninguem recebe valor nem 2a via), mas a chave ligada assim so' entrega a
+        # negativa: o log chama a atencao de quem opera.
+        logger.error(
+            "lucas_v4_sem_billing_status_0_3_0",
+            tenant_id=settings.tenant_id,
+            detail="sem o sinal beneficiario_e_pagador o Lucas v4 nao mostra valores a ninguem",
+        )
     resolvedor: ResolvedorDeSujeito = ResolvedorDeSujeitoAmh(
         port=interop.subjects,
         amh_tenant=interop.amh_tenant,
