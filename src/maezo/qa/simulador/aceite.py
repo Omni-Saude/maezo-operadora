@@ -742,10 +742,233 @@ CANCELAMENTO_V1: tuple[Segmento, ...] = (
     ),
 )
 
+# ================================================================================================
+# Roteiro `helena_v4` (DL-0114, chave MAEZO_HELENA_V4 ligada no ambiente)
+# ================================================================================================
+# LICAO DO TESTE DE 15/10/2026 (nova triagem v2): o roteiro conferia "nao abriu caso", nao "RESOLVEU?". Cada
+# passo aqui confere o CONTEUDO util esperado (`deve`) e o que nao pode aparecer (`nao_deve`), e cada
+# segmento declara o criterio em `resolveu`.
+#: Nenhuma promessa de cobertura em nenhum passo.
+_COBERTURA_PROMETIDA = r"(esta coberto|cobre sim|cobertura garantida|com certeza|tem cobertura)"
+#: O especialista: a Helena NAO pesquisa nem agenda — nada de nome de medico, clinica, endereco ou telefone.
+_PESQUISOU_ESPECIALISTA = (
+    r"(dr\.|dra\.|doutor|doutora|clinica [a-z]|hospital [a-z]|rua |avenida|encontrei|encontramos"
+    r"|agendei|marquei sua consulta|\(\d{2}\) ?\d)"
+)
+#: O especialista recebe onde marcar (aplicativo, portal e central), o prazo da ANS e a oferta de pessoa.
+_ONDE_MARCAR = (
+    "aplicativo austa clinicas",
+    "portal do plano",
+    "central de atendimento do plano",
+    "nao pesquiso especialistas",
+    "uma pessoa da equipe",
+)
+#: A carteirinha NUNCA traz CNS, codigo inteiro (9+ digitos seguidos), nome nem nascimento.
+_CARTEIRINHA_NAO_DEVE = (r"\d{9,}", r"\bcns\b", "nascimento", r"nome:", r"cpf")
+
+HELENA_V4: tuple[Segmento, ...] = (
+    Segmento(
+        "1-especialista-cardiologista",
+        (
+            _p(
+                "Preciso consultar com um cardiologista",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("consulta com cardiologista", *_ONDE_MARCAR, r"14 dias uteis"),
+                nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _SEM_CONDUTA, _ENCAMINHOU),
+            ),
+        ),
+        resolveu=(
+            "a pessoa que pediu cardiologista ouviu onde marcar (aplicativo Austa Clinicas, portal do plano "
+            "ou central), o prazo da ANS (14 dias uteis, RASCUNHO a confirmar pelo juridico) e que pode "
+            "falar com "
+            "uma pessoa; a Helena disse que nao pesquisa nem agenda, nao prometeu cobertura, nao citou nome "
+            "de medico/clinica e nao abriu caso"
+        ),
+    ),
+    Segmento(
+        "2-especialista-dermatologista",
+        (
+            _p(
+                "Onde tem dermatologista pelo plano?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("consulta com dermatologista", *_ONDE_MARCAR, r"14 dias uteis"),
+                nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _SEM_CONDUTA, _ENCAMINHOU),
+            ),
+        ),
+        resolveu=(
+            "a pergunta 'onde tem' recebeu onde marcar e o prazo, SEM lista de clinicas, endereco ou nome: a "
+            "Helena nao pesquisa especialidade neste canal"
+        ),
+    ),
+    Segmento(
+        "3-especialista-pergunta-de-cobertura-da-consulta",
+        (
+            _p(
+                "Meu plano cobre consulta com endocrinologista?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(
+                    "consulta com endocrinologista",
+                    r"14 dias uteis",
+                    "(aplicativo|portal|central)",
+                    "nao consigo confirmar cobertura",
+                ),
+                nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _ENCAMINHOU),
+            ),
+        ),
+        resolveu=(
+            "a pergunta de cobertura da consulta recebeu onde marcar e o prazo, e a frase de que a cobertura "
+            "se confirma na central ou com uma pessoa; nenhuma promessa de cobertura"
+        ),
+    ),
+    # O limite do especialista: cobertura de PROCEDIMENTO segue o caminho de hoje (nao e' consulta).
+    Segmento(
+        "4-cobertura-de-exame-nao-e-especialista",
+        (
+            _p(
+                "Meu plano cobre ressonância?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("(central|aplicativo|portal|pessoa da equipe)",),
+                nao_deve=(_COBERTURA_PROMETIDA, r"14 dias uteis", "consulta de especialista"),
+            ),
+        ),
+        resolveu=(
+            "a pergunta de cobertura de exame NAO virou texto de especialista (sem prazo de 14 dias) e "
+            "continuou no caminho de cobertura: onde confirmar, sem promessa"
+        ),
+    ),
+    Segmento(
+        "5-carteirinha",
+        (
+            _p(
+                "Qual o número da minha carteirinha?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(
+                    r"codigo: \*{3,}\d{3,5}",
+                    "plano:",
+                    "segmentacao:",
+                    "vigencia:",
+                    "ans do plano:",
+                    "aplicativo austa clinicas",
+                    "portal do plano",
+                ),
+                nao_deve=_CARTEIRINHA_NAO_DEVE,
+            ),
+        ),
+        resolveu=(
+            "a carteirinha trouxe plano, segmentacao, vigencia e numero ANS, com o codigo MASCARADO, e "
+            "mandou o cartao completo para o aplicativo Austa Clinicas e o portal; nunca CNS, codigo "
+            "inteiro, nome nem "
+            "nascimento"
+        ),
+    ),
+    Segmento(
+        "6-sintoma-leve-nao-e-opcao-1",
+        (
+            _p(
+                "Estou com dor nas costas desde ontem",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(
+                    "entendi: dor nas costas desde ontem",
+                    "(dor no peito|falta de ar)",
+                    "responda sim ou nao",
+                ),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, r"(7|14) dias uteis", "o que voce esta sentindo"),
+            ),
+            _p(
+                "Não",
+                escalacao=ESCALACAO_NENHUMA,
+                primeira_frase_deve="^entendi: dor nas costas desde ontem",
+                deve=(
+                    "nao avalio sintomas, mas te ajudo com o caminho",
+                    r"1\) saber onde marcar consulta pelo plano",
+                    r"clinico geral ou pediatra: ate 7 dias uteis pela ans",
+                    r"2\) falar com a nossa equipe de saude",
+                    "se piorar, procure um pronto-atendimento",
+                    "ligue 192",
+                ),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA),
+            ),
+            _p(
+                "1",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("(aplicativo|portal|central)", r"7 dias uteis", "nao avalio sintomas", "192"),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA),
+            ),
+        ),
+        resolveu=(
+            "o sintoma leve recebeu SO' a pergunta de alerta, depois do 'nao' a resposta com o que a pessoa "
+            "disse ('dor nas costas desde ontem') e as opcoes 1/2 do dono com 192, e a opcao 1 mostrou como "
+            "marcar pelo plano (aplicativo/portal/central, 7 dias uteis) sem diagnostico e sem abrir caso"
+        ),
+    ),
+    Segmento(
+        "7-filho-com-tosse-opcao-2",
+        (
+            _p(
+                "Meu filho está com tosse",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("entendi: seu filho esta com tosse", "(respirar|sonolent)", "responda sim ou nao"),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, r"(7|14) dias uteis"),
+            ),
+            _p(
+                "Não",
+                escalacao=ESCALACAO_NENHUMA,
+                primeira_frase_deve="^entendi: seu filho esta com tosse",
+                deve=(r"1\) saber onde marcar", r"2\) falar com a nossa equipe de saude", "ligue 192"),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA),
+            ),
+            _p(
+                "2",
+                escalacao="intencao_clinica",
+                deve=("encaminhamos", "equipe de saude"),
+                nao_deve=(_SEM_CONDUTA,),
+            ),
+        ),
+        resolveu=(
+            "a queixa de uma crianca ('seu filho esta com tosse') recebeu a pergunta de alerta pediatrica, o "
+            "'nao' trouxe as opcoes e a opcao 2 abriu UM caso para a equipe de saude (o resumo sai so' com o "
+            "relato desta queixa, conferido no teste unitario)"
+        ),
+    ),
+    # "Sim" a pergunta de alerta escala como sempre.
+    Segmento(
+        "8-alerta-respondido-sim-escala",
+        (
+            _p("Estou com dor nas costas", escalacao=ESCALACAO_NENHUMA, deve=("responda sim ou nao",)),
+            _p("Sim", escalacao="red_flag_clinico", deve=("192",)),
+        ),
+        resolveu="o 'sim' a pergunta de alerta abriu o alerta clinico com a orientacao de emergencia (192)",
+    ),
+    # As travas de seguranca continuam ANTES da v4.
+    Segmento(
+        "9-alarme-direto-continua-escalando",
+        (_p("Estou com dor no peito", escalacao="red_flag_clinico", deve=("192",)),),
+        resolveu="dor no peito escalou na hora (tabela de alarme), sem pergunta nem opcao",
+    ),
+    Segmento(
+        "10-pedido-de-pessoa-continua-abrindo-caso",
+        (_p("Quero falar com uma pessoa", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),),
+        resolveu="o pedido de pessoa abriu o caso (RN 623/2024, art. 9, III), como sempre",
+    ),
+    Segmento(
+        "11-pedido-de-pessoa-no-meio-da-pergunta-de-alerta",
+        (
+            _p("Estou com dor de cabeça", escalacao=ESCALACAO_NENHUMA, deve=("responda sim ou nao",)),
+            _p(
+                "Quero falar com uma pessoa",
+                escalacao_um_de=("intencao_clinica", "solicitacao_humano"),
+                deve=(_ENCAMINHOU,),
+            ),
+        ),
+        resolveu="quem pede uma pessoa no meio das perguntas de alerta nao e' obrigado a responde-las",
+    ),
+)
+
 ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "dono_v1": DONO_V1,
     "triagem_v2": TRIAGEM_V2,
     "cancelamento_v1": CANCELAMENTO_V1,
+    "helena_v4": HELENA_V4,
 }
 #: Quem conversa em cada roteiro. Ausente = o dono (primeira linha do roster), como sempre.
 SUJEITO_DO_ROTEIRO: dict[str, str] = {"cancelamento_v1": SUJEITO_PF_TITULAR}
@@ -805,6 +1028,7 @@ __all__ = [
     "SUJEITO_DO_ROTEIRO",
     "SUJEITO_PF_TITULAR",
     "DONO_V1",
+    "HELENA_V4",
     "TRIAGEM_V2",
     "ESCALACAO_NENHUMA",
     "NAO_DEVE_CONDICIONAL",

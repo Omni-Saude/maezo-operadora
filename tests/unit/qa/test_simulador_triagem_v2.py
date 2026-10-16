@@ -26,7 +26,8 @@ from .apoio_simulador import conversa, escalonamento, turno
 
 
 def test_triagem_v2_existe_ao_lado_do_dono_v1_e_todo_padrao_compila() -> None:
-    assert set(ac.ROTEIROS) == {"dono_v1", "triagem_v2", "cancelamento_v1"}  # DL-0111: + cancelamento_v1
+    # DL-0111: + cancelamento_v1; DL-0114: + helena_v4
+    assert set(ac.ROTEIROS) == {"dono_v1", "triagem_v2", "cancelamento_v1", "helena_v4"}
     ac.validar(ac.ROTEIROS["triagem_v2"])
     nomes = [s.nome for s in ac.TRIAGEM_V2]
     assert nomes == [

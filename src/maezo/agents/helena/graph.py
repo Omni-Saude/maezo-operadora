@@ -152,6 +152,7 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
+from maezo.ports.tina import ElegibilidadeView
 from maezo.runtime.caso_clinico import (
     MOTIVOS_DE_ALERTA_CLINICO,
     SUFIXO_CASO_CLINICO,
@@ -214,6 +215,36 @@ from .consultas_plano import (
     resposta_deterministica,
     segmentacao_dos_fatos,
     texto_para_cerca,
+)
+from .helena_v4 import (
+    ECO_GENERICO,
+    ETAPA_ALERTA,
+    ETAPA_CASO_EQUIPE,
+    ETAPA_CASO_SEM_RESPOSTA,
+    ETAPA_CASO_SIM,
+    ETAPA_ESCOLHA,
+    PREFIXO_PENDENTE,
+    RESPOSTA_NAO,
+    RESPOSTA_SIM,
+    Pendente,
+    codigo_pendente,
+    e_texto_da_v4,
+    eco_do_relato,
+    escolha_da_resposta,
+    especialidade_pedida,
+    fatos_da_carteirinha,
+    grupo_do_sintoma,
+    ler_pendente,
+    pede_carteirinha,
+    populacao_da_v4,
+    relato_cru,
+    resposta_ao_alerta,
+    resumo_do_caso,
+    texto_da_carteirinha,
+    texto_da_opcao_1,
+    texto_da_pergunta_de_alerta,
+    texto_do_especialista,
+    texto_final_do_sintoma,
 )
 from .historico import (
     CHAVE_RESPOSTA_COM_DADOS_DO_PLANO,
@@ -4337,8 +4368,15 @@ class HelenaGraph:
         consultas_plano: FonteDeFatosDoPlano | None = None,
         relogio: Callable[[], datetime] | None = None,
         triagem_v2_enabled: bool = False,
+        helena_v4_enabled: bool = False,
     ) -> None:
         self._llm = inference
+        # HELENA V4 (DL-0114, `MAEZO_HELENA_V4`): DESLIGADA por default, e desligada e' o grafo de antes byte
+        # a byte. Ligada (so' em dev), a Helena responde o especialista e a carteirinha com texto fixo e faz
+        # so' perguntas de ALERTA no sintoma leve (`_v4_*`). A v4 SUBSTITUI a nova triagem (v2): com as duas
+        # ligadas manda a v4 e a v2 fica inerte (o catalogo v4 e' o desenho que a v2 nao entregou).
+        self._v4 = helena_v4_enabled is True
+        triagem_v2_enabled = triagem_v2_enabled is True and not self._v4
         # NOVA TRIAGEM (DL-0104, `MAEZO_HELENA_TRIAGEM_V2`): DESLIGADA por default, e desligada e' o
         # grafo de antes byte a byte. Ligada (so' em dev), a tabela `helena_triage_admissibility` decide a
         # saida do turno DEPOIS dos portoes que continuam no codigo (`_triagem_v2`), a ficha vai a 3
@@ -4409,12 +4447,17 @@ class HelenaGraph:
         reset: dict[str, Any] = dict(_HELENA_NEUTRAL_OUTPUTS)
         # Memoria de coleta so' e' preservada com a feature ligada. O helper estrito
         # recusa bool, negativos e valores malformados como rodadas esgotadas.
-        if self._coleta_enabled:
+        if self._coleta_enabled or self._v4:
             for chave in _MEMORIA_DE_COLETA:
                 if chave in state:
                     reset[chave] = state[chave]  # type: ignore[literal-required]
             if "coleta_rodadas" in state:
                 reset["coleta_rodadas"] = _rodadas_de_coleta(state["coleta_rodadas"], teto=self._coleta_teto)
+            if not self._v4 and str(reset.get("coleta_pendente") or "").startswith(PREFIXO_PENDENTE):
+                # Resto de uma conversa da v4 com a chave ja' desligada: a pergunta da v4 nao existe mais.
+                reset["coleta_pendente"] = None
+                reset["coleta_contexto"] = ""
+                reset["coleta_rodadas"] = 0
         # F6 (21/09/2026): o cartao de apresentacao e' uma vez por CONVERSA. Preservado sem portao
         # de feature — e' um bool que so' anda para True, e o unico efeito e' o prompt nao repetir
         # "Sou Helena..." no segundo turno.
@@ -4561,6 +4604,14 @@ class HelenaGraph:
             "idade_meses": extraction.get("idade_meses"),
             "idade_gestacional_semanas": extraction.get("idade_gestacional_semanas"),
         }
+        # HELENA V4 (DL-0114): a pergunta/oferta da v4 do turno anterior vale SO' para ESTE turno. Ela e' lida
+        # aqui (`pend_v4`) e a memoria da coleta zera ja', para que QUALQUER saida deste turno (inclusive os
+        # portoes de seguranca, que respondem antes da v4) nao deixe uma pergunta velha esperando.
+        pend_v4 = ler_pendente(state.get("coleta_pendente")) if self._v4 else None
+        if pend_v4 is not None:
+            update["coleta_pendente"] = None
+            update["coleta_contexto"] = ""
+            update["coleta_rodadas"] = 0
         if intent == INTENT_COBRANCA:
             # Onda (e): so' existe com o roteador ligado (o validador recusa `cobranca` desligado),
             # e os dois valores ja' passaram pelo dominio fechado de `_validate_extraction`.
@@ -4809,13 +4860,25 @@ class HelenaGraph:
             and intent in (*_INTENTS_QUE_VIRAM_COBRANCA, "clinical_question")
             and not extraction.get("sintoma_codigo")
             and not psychosocial
-            and (_pergunta_do_plano(texto_da_mensagem) or _pergunta_da_carteirinha(texto_da_mensagem))
+            and (
+                _pergunta_do_plano(texto_da_mensagem)
+                or _pergunta_da_carteirinha(texto_da_mensagem)
+                # HELENA V4: "me manda a carteirinha", "perdi minha carteirinha" — o pedido do cartao.
+                # A v4 responde com os dados mascarados e manda o cartao completo para o aplicativo/portal.
+                or (self._v4 and pede_carteirinha(_plano(texto_da_mensagem)))
+            )
             and not _pergunta_de_navegacao(texto_da_mensagem)
         ):
             logger.info("helena_pergunta_do_plano_vai_a_consulta", node="classify", intent_do_modelo=intent)
             intent = cast(Intent, INTENT_CONSULTA_PLANO)
             update["intent"] = intent
-            update["consulta_subtipo"] = _subtipo_da_consulta(texto_da_mensagem)
+            update["consulta_subtipo"] = (
+                "carteirinha"
+                if self._v4
+                and pede_carteirinha(_plano(texto_da_mensagem))
+                and not _pergunta_de_cobertura(texto_da_mensagem)
+                else _subtipo_da_consulta(texto_da_mensagem)
+            )
 
         # CONVERSA SEM RELATO CLINICO (DL-0088) — ver `_conversa_sem_relato_clinico`. A mensagem e'
         # feita SO' de palavras de conversa ("quero tirar uma duvida sobre minha saude", "nao quero
@@ -5033,6 +5096,14 @@ class HelenaGraph:
             update["escalation_severidade"] = "grave"
             return update
 
+        # HELENA V4 (DL-0114): DEPOIS dos portoes de seguranca (classificador, risco psicossocial, tabela de
+        # alarme, emergencia com caso aberto, recem-nascido) e ANTES dos gatilhos de intencao e de pessoa: a
+        # resposta da pessoa a uma pergunta/oferta da v4 e o pedido de especialista.
+        if self._v4:
+            decidido_v4 = await self._v4_antes_dos_gatilhos(state, update, extraction, pend_v4)
+            if decidido_v4 is not None:
+                return decidido_v4
+
         # NOVA TRIAGEM (DL-0104): a ESCOLHA DE UMA OPCAO do T11 ("4", "opcao 4", "quatro", "falar com uma
         # pessoa") e' decidida AQUI, deterministicamente, enquanto a oferta de opcoes estiver recente — depois
         # dos portoes de risco, alarme e emergencia (acima) e ANTES de qualquer leitura da intencao do
@@ -5223,6 +5294,13 @@ class HelenaGraph:
         if intent == "symptom":
             if not ja_triado and await self._triar_red_flag(extraction, update):
                 return update
+            if self._v4:
+                # HELENA V4 (DL-0114): a tabela de alarme ja' disse que nao ha' bandeira; o sintoma leve
+                # recebe so' perguntas de ALERTA (1 ou 2) antes do caminho. `None` = nao e' da v4
+                # (gestante, saude mental, bebe pequeno): segue o caminho de hoje.
+                decidido_v4 = self._v4_sintoma_leve(state, update)
+                if decidido_v4 is not None:
+                    return decidido_v4
             # COLETA (passo 4): SO' aqui — a red flag ja' disse `false`. Antes desta linha nada
             # muda: emergencia nunca espera pergunta. A partir dela, "sem bandeira" deixa de
             # significar "pode responder" e passa a significar "pode responder SE os dados
@@ -5801,6 +5879,232 @@ class HelenaGraph:
             "error": f"{SUFFICIENCY_DMN_KEY}: veredito fora do vocabulario",
         }
 
+    # -- HELENA V4 (DL-0114, `MAEZO_HELENA_V4`) --------------------------------------------------------
+    #
+    # SO' alcancavel com a chave ligada (`self._v4`). Tres necessidades do catalogo v4 do dono (16/10/2026),
+    # todas DEPOIS dos portoes de seguranca que continuam no codigo (classificador, risco psicossocial,
+    # tabela de alarme, emergencia com caso aberto, recem-nascido) e, no especialista e no seguimento,
+    # sem passar por cima do pedido de pessoa:
+    #
+    #   * ESPECIALISTA: texto fixo da coluna "HOJE" (onde marcar + prazo da ANS + oferta de pessoa), sem
+    #     pesquisar especialidade, sem agendar, sem prometer cobertura;
+    #   * CARTEIRINHA: dados mascarados da consulta do plano (`consultar_plano`) e o cartao no aplicativo;
+    #   * SINTOMA LEVE: so' perguntas de ALERTA; "nao" -> a resposta final com as opcoes 1/2 do dono;
+    #     "sim" ou sinal de alarme -> escala como sempre.
+    #
+    # ONDE A CONVERSA PAROU vai em `coleta_pendente` (`helena_v4.codigo_pendente`) e o relato da pessoa em
+    # `coleta_contexto`: a memoria de coleta que ja' sobrevive entre turnos. Vale SO' para o turno seguinte
+    # (ver `pend_v4` em `classify`).
+
+    @staticmethod
+    def _v4_pede_pessoa(state: Mapping[str, Any], texto: str) -> bool:
+        """A mensagem pede uma pessoa (ou ameaca ANS/Procon, ou e' cobranca)? Entao a v4 NAO responde: o
+        gatilho de sempre (pedido de pessoa, RN 623/2024 art. 9, III; ANS/Procon; Lucas) decide."""
+        return bool(
+            state.get("pedido_humano_lexico") is True
+            or _pedido_explicito_de_pessoa(texto)
+            or _pedido_explicito_com_verbo(texto)
+            or _ameaca_regulatoria(texto)
+            or _pergunta_de_cobranca(texto)
+        )
+
+    @staticmethod
+    def _v4_eco(relato: str) -> str:
+        """O eco do que a pessoa disse ("dor nas costas desde ontem"), passado pelas cercas de saida: se uma
+        delas barrar o trecho, volta o generico."""
+        eco = eco_do_relato(relato)
+        if eco != ECO_GENERICO and (motivo_de_canal_nao_confirmado(eco) or motivo_de_recusa(eco, "inform")):
+            logger.info("helena_v4_eco_barrado", node="classify")
+            return ECO_GENERICO
+        return eco
+
+    async def _v4_antes_dos_gatilhos(
+        self,
+        state: HelenaState,
+        update: dict[str, Any],
+        extraction: dict[str, Any],
+        pend: Pendente | None,
+    ) -> dict[str, Any] | None:
+        """O que a v4 decide ANTES dos gatilhos de intencao: a resposta da pessoa ao que a v4 perguntou/
+        ofereceu no turno anterior, e o pedido de especialista. `None` = o turno segue o caminho de sempre."""
+        texto = str(state.get("message_body") or "")
+        if pend is not None:
+            decidido = self._v4_seguimento(state, update, pend, texto)
+            if decidido is not None:
+                return decidido
+        return await self._v4_especialista(state, update, extraction, texto)
+
+    def _v4_abrir_caso(
+        self,
+        update: dict[str, Any],
+        pend: Pendente,
+        relato: str,
+        etapa: str,
+        *,
+        motivo: str,
+        severidade: str,
+    ) -> dict[str, Any]:
+        """Abre o caso pelo no' `escalate` de sempre. O codigo da etapa fica em `coleta_pendente` e o
+        relato em `coleta_contexto` SO' neste turno: `_resumo_contexto` os le' para o resumo do atendente."""
+        update["intent"] = "symptom" if etapa == ETAPA_CASO_SIM else "human_request"
+        update["next_kind"] = "escalate"
+        update["escalation_motivo"] = motivo
+        update["escalation_severidade"] = severidade
+        update["coleta_pendente"] = codigo_pendente(etapa, pend.grupo, pend.populacao)
+        update["coleta_contexto"] = relato
+        logger.info("helena_v4_caso", node="classify", etapa=etapa, motivo=motivo)
+        return update
+
+    def _v4_seguimento(
+        self, state: HelenaState, update: dict[str, Any], pend: Pendente, texto: str
+    ) -> dict[str, Any] | None:
+        """A resposta da pessoa ao que a v4 perguntou (ALERTA) ou ofereceu (ESCOLHA) no turno anterior.
+
+        ESCOLHA: "1" -> como marcar pelo plano, sem diagnostico; "2" -> abre o caso com o resumo pronto.
+        ALERTA: "nao" -> a resposta final do dono; "sim" (ou duvida) -> alerta clinico, P1; nao deu para
+        entender -> pergunta UMA vez de novo e, se continuar sem resposta, abre o caso por precaucao.
+        Pedido de pessoa, outro assunto e tudo o que nao e' resposta -> `None` (o caminho de sempre)."""
+        plano = _plano(texto)
+        relato = str(state.get("coleta_contexto") or "")
+        if pend.etapa == ETAPA_ESCOLHA:
+            escolha = escolha_da_resposta(plano)
+            if escolha == "1":
+                logger.info("helena_v4_escolha", node="classify", opcao="1")
+                update["intent"] = "information"
+                update["sintoma_codigo"] = None
+                update["response_text"] = texto_da_opcao_1(pend.populacao)
+                return _rota_informativa(update)
+            if escolha == "2":
+                logger.info("helena_v4_escolha", node="classify", opcao="2")
+                return self._v4_abrir_caso(
+                    update, pend, relato, ETAPA_CASO_EQUIPE, motivo="intencao_clinica", severidade="moderada"
+                )
+            return None
+        if pend.etapa != ETAPA_ALERTA or self._v4_pede_pessoa(state, texto):
+            return None
+        resposta = resposta_ao_alerta(plano)
+        if resposta == RESPOSTA_NAO:
+            logger.info("helena_v4_alerta", node="classify", resposta="nao")
+            update["intent"] = "information"
+            update["sintoma_codigo"] = None
+            update["response_text"] = texto_final_do_sintoma(self._v4_eco(relato))
+            update["coleta_pendente"] = codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao)
+            update["coleta_contexto"] = relato
+            return _rota_informativa(update)
+        if resposta == RESPOSTA_SIM:
+            logger.warning("helena_v4_alerta", node="classify", resposta="sim")
+            return self._v4_abrir_caso(
+                update, pend, relato, ETAPA_CASO_SIM, motivo="red_flag_clinico", severidade="grave"
+            )
+        # Nao deu para entender. So' insiste se a mensagem parece uma resposta (curta ou ainda falando do
+        # sintoma); outro assunto segue o caminho de sempre.
+        parece_resposta = relata_sintoma(plano) or len(plano.split()) <= 4
+        if not parece_resposta:
+            return None
+        if pend.repetida:
+            return self._v4_abrir_caso(
+                update,
+                pend,
+                relato,
+                ETAPA_CASO_SEM_RESPOSTA,
+                motivo="intencao_clinica",
+                severidade="moderada",
+            )
+        codigo = codigo_pendente(ETAPA_ALERTA, pend.grupo, pend.populacao, repetida=True)
+        logger.info("helena_v4_alerta", node="classify", resposta="repete")
+        update.update(
+            {
+                "coleta_veredito": COLETA_VEREDITO_PERGUNTAR_MAIS,
+                "coleta_pergunta": codigo,
+                "coleta_pendente": codigo,
+                "coleta_contexto": relato,
+                "coleta_rodadas": 2,
+                "next_kind": "collect",
+            }
+        )
+        return update
+
+    def _v4_sintoma_leve(self, state: HelenaState, update: dict[str, Any]) -> dict[str, Any] | None:
+        """O sintoma que passou pela tabela de alarme sem bandeira: UMA mensagem com 1 ou 2 perguntas de
+        ALERTA do tipo de queixa (`helena_v4.ALERTAS`). `None` quando a v4 nao trata (gestante, saude
+        mental, recem-nascido ou bebe com menos de 3 meses): o caminho de hoje."""
+        texto = str(state.get("message_body") or "")
+        plano = _plano(texto)
+        populacao = populacao_da_v4(update.get("population"), plano)
+        if populacao is None or _contexto_de_recem_nascido(state):
+            return None
+        if bebe_pequeno(plano, update.get("idade_meses")):
+            return None
+        grupo = grupo_do_sintoma(populacao, plano)
+        codigo = codigo_pendente(ETAPA_ALERTA, grupo, populacao)
+        logger.info("helena_v4_sintoma_leve", node="classify", grupo=grupo, populacao=populacao)
+        update.update(
+            {
+                "coleta_veredito": COLETA_VEREDITO_PERGUNTAR_MAIS,
+                "coleta_pergunta": codigo,
+                "coleta_pendente": codigo,
+                # So' o relato DESTA queixa: o que a pessoa falou antes, de outro assunto, nao entra.
+                "coleta_contexto": relato_cru(texto),
+                "coleta_rodadas": 1,
+                "next_kind": "collect",
+            }
+        )
+        return update
+
+    async def _v4_especialista(
+        self,
+        state: HelenaState,
+        update: dict[str, Any],
+        extraction: dict[str, Any],
+        texto: str,
+    ) -> dict[str, Any] | None:
+        """Pedido de especialista ("Preciso consultar com um cardiologista", "Onde tem dermatologista pelo
+        plano?"): o texto fixo do catalogo v4. NAO pesquisa especialidade nem agenda; NAO e' sintoma, pedido
+        de pessoa nem pergunta de cobertura de procedimento ("cobre ressonancia?" segue o caminho de hoje).
+
+        A INTENCAO do modelo nao decide: "preciso de um cardiologista" pode sair `symptom`, `scheduling` ou
+        `clinical_question`. Decide o TEXTO — sem codigo de sintoma e sem palavra de sintoma, e' consulta."""
+        plano = _plano(texto)
+        achado = especialidade_pedida(plano)
+        if achado is None:
+            return None
+        if (
+            extraction.get("sintoma_codigo")
+            or relata_sintoma(plano, extraction.get("intensidade"))
+            or self._v4_pede_pessoa(state, texto)
+        ):
+            return None
+        nome, basica = achado
+        frase_segmentacao, literais = await self._v4_frase_de_segmentacao(state)
+        logger.info(
+            "helena_v4_especialista", node="classify", basica=basica, com_segmentacao=literais is not None
+        )
+        update["intent"] = "information"
+        update["sintoma_codigo"] = None
+        update.pop("consulta_subtipo", None)
+        update["response_text"] = texto_do_especialista(
+            nome,
+            basica=basica,
+            frase_segmentacao=frase_segmentacao,
+            frase_cobertura=RESPOSTA_COBERTURA_ESPECIFICA if _pergunta_de_cobertura(texto) else None,
+        )
+        if literais is not None:
+            update["consulta_literais"] = literais
+            update["resposta_com_dados_do_plano"] = True
+        return _rota_informativa(update)
+
+    async def _v4_frase_de_segmentacao(self, state: HelenaState) -> tuple[str | None, tuple[str, ...] | None]:
+        """ "No cadastro, seu plano consta com segmentacao X." quando a fonte do plano esta' ligada, a pessoa
+        e' a verificada e o cadastro traz a segmentacao; senao `(None, None)` e o texto sai sem ela."""
+        ref = self._ref_verificada(state)
+        if ref is None:
+            return None, None
+        fatos = fatos_da_consulta("elegibilidade", await self._ler_consulta(ref, "elegibilidade"))
+        segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
+        if fatos is None or segmentacao is None:
+            return None, None
+        return MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=segmentacao), literais_dos_fatos(fatos)
+
     async def collect(self, state: HelenaState) -> dict[str, Any]:
         """Redige UMA pergunta ao beneficiario sobre o dado que falta (`coleta_pergunta`).
 
@@ -5840,6 +6144,21 @@ class HelenaGraph:
         rota, em vez de depender de por qual no' o turno passou.
         """
         pergunta = str(state.get("coleta_pergunta") or "")
+        lida_v4 = ler_pendente(pergunta) if self._v4 else None
+        if lida_v4 is not None and lida_v4.etapa == ETAPA_ALERTA:
+            # HELENA V4 (DL-0114): as perguntas de ALERTA do tipo de queixa sao TEXTO FIXO, sem modelo, e
+            # passam pelas mesmas cercas; recusada (nao deveria: o teste fixa as constantes), cai na
+            # pergunta generica.
+            fixa_v4 = texto_da_pergunta_de_alerta(
+                lida_v4.grupo,
+                self._v4_eco(str(state.get("coleta_contexto") or "")),
+                repetida=lida_v4.repetida,
+            )
+            try:
+                fixa_v4 = self._cercar_saida(fixa_v4, "collect", node="collect")
+            except RespostaRecusadaError:
+                fixa_v4 = _PERGUNTA_FALLBACK["default"]
+            return {"response_text": fixa_v4, "response_kind": "collect"}
         if self._triagem_v2 and pergunta.startswith(PREFIXO_PERGUNTA_DA_FICHA):
             # NOVA TRIAGEM (DL-0104): a pergunta da ficha POR TIPO DE QUEIXA (aba 4) e' TEXTO FIXO, sem
             # modelo. Passa pelas mesmas cercas; recusada (nao deveria: o teste fixa as constantes), cai na
@@ -5958,6 +6277,10 @@ class HelenaGraph:
         if state.get("response_text") == RESPOSTA_PECA_REENVIO:
             # RODADA 6: o classificador falhou neste turno (ver `classify`); o texto ja' vem pronto.
             return {"response_text": RESPOSTA_PECA_REENVIO, "response_kind": "inform"}
+        if self._v4 and e_texto_da_v4(state.get("response_text")):
+            # HELENA V4 (DL-0114): o texto FIXO que `classify` deixou pronto (especialista, resposta final do
+            # sintoma leve, opcao 1), sem modelo.
+            return {"response_text": str(state.get("response_text")), "response_kind": "inform"}
         if self._triagem_v2 and state.get("response_text") in _TEXTOS_FIXOS_DA_TRIAGEM_V2:
             # NOVA TRIAGEM (DL-0104): o texto FIXO que a tabela nova escolheu em `classify` (aba 5 do
             # catalogo), sem modelo. A frase de confirmacao de dado lembrado (F5), se houver, vai na frente.
@@ -6251,6 +6574,18 @@ class HelenaGraph:
             return {
                 "response_text": _texto_plano_indisponivel(state, fonte_ligada=True),
                 "response_kind": "inform",
+            }
+        if self._v4 and subtipo == "carteirinha" and isinstance(view, ElegibilidadeView):
+            # HELENA V4 (DL-0114): plano, segmentacao, vigencia e numero ANS com o codigo MASCARADO, e o
+            # cartao no aplicativo/portal. Texto deterministico (sem modelo) sobre uma lista FECHADA de
+            # fatos: nunca CNS, codigo inteiro, nome nem data de nascimento.
+            fatos_v4 = fatos_da_carteirinha(view)
+            logger.info("helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="v4")
+            return {
+                "response_text": texto_da_carteirinha(fatos_v4),
+                "response_kind": "inform",
+                "consulta_literais": literais_dos_fatos(fatos_v4),
+                "resposta_com_dados_do_plano": True,
             }
         texto: str | None = None
         if _pergunta_de_cobertura(mensagem_do_turno) and subtipo == "elegibilidade":
@@ -7812,6 +8147,12 @@ class HelenaGraph:
         raise RespostaRecusadaError(grupo, padrao, response_kind)
 
     async def _resumo_contexto(self, state: HelenaState, motivo: MotivoCategoria | None) -> str:
+        if self._v4:
+            # HELENA V4 (DL-0114): o caso aberto pela v4 tem resumo FIXO e legivel (so' o relato desta queixa,
+            # o que foi perguntado e respondido), sem modelo.
+            resumo_v4 = resumo_do_caso(state.get("coleta_pendente"), state.get("coleta_contexto"))
+            if resumo_v4 is not None:
+                return resumo_v4
         # Token somente de exibicao; motivo_categoria continua None na ausencia.
         motivo_label = motivo or "nao_classificado"
         # HEL-06: este resumo e' lido por um ATENDENTE HUMANO e aterra em variaveis de processo
@@ -7955,6 +8296,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     consultas = cfg.get("consultas_plano")
     # NOVA TRIAGEM (DL-0104): como a coleta, `True` SO' quando a composicao disser explicitamente.
     triagem_v2_enabled = cfg.get("triagem_v2_enabled", False) is True
+    # HELENA V4 (DL-0114): como a coleta, `True` SO' quando a composicao disser explicitamente.
+    helena_v4_enabled = cfg.get("helena_v4_enabled", False) is True
     return HelenaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
@@ -7969,6 +8312,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         historico_enabled=historico_enabled,
         consultas_plano=consultas if isinstance(consultas, FonteDeFatosDoPlano) else None,
         triagem_v2_enabled=triagem_v2_enabled,
+        helena_v4_enabled=helena_v4_enabled,
     ).compile_graph()
 
 

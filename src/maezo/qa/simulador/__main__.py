@@ -477,7 +477,11 @@ async def executar(args: argparse.Namespace) -> int:
             )
         )
         avaliacoes = await _julgar(juiz, conversas, args.concorrencia)
-        triagem_v2 = getattr(composicao.estado.settings, "helena_triagem_v2", False) is True
+        # D13 (caso evitavel) vale com a nova triagem (v2) OU a Helena v4 ligada (DL-0104, DL-0114).
+        triagem_v2 = (
+            getattr(composicao.estado.settings, "helena_triagem_v2", False) is True
+            or getattr(composicao.estado.settings, "helena_v4", False) is True
+        )
         itens = [_item(c, avaliacoes.get(c.id), triagem_v2=triagem_v2) for c in conversas]
         execucao = checar_execucao(conversas, Limites(args.latencia_p95_max_s, args.taxa_falha_tecnica_max))
         dados = resumo(
