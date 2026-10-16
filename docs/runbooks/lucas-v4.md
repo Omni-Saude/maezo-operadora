@@ -159,7 +159,10 @@ O código de barras é **credencial de pagamento**: quem o tem paga — ou desvi
    **cada artefato só com a aprovação do dono**; a rota **ligada** no serviço interop (padrão é desligada: 404), o
    cliente da 2ª via na lista de clientes e o escopo `interop/billing.boleto` no client Cognito do Maezo (pedido
    pelo Terraform em `amh-interop.tf`, junto de `interop/billing.read`).
-2. **Pin** no `config/integrations/amh/contracts.lock.json` (blocos `manifest_v1_10` e `manifest_v1_11`, com
+2. **Pin** — FEITO em 16/10/2026 (AMH #253, runs 38866305412 e 38866403032; commit f7fa458a): os blocos
+   `manifest_v1_10` e `manifest_v1_11` (e `manifest_v1_7` a `_v1_9`, TINA) estão no lock, com os OpenAPI vendorizados em
+   `config/integrations/amh/openapi/`; o pin só reconhece os contratos, `contratos_v4_pinados` já lê `True` e o boot
+   passa a logar `lucas_v4_contratos_pinados_sem_executor` (nada liga sem o item 3). Texto original do passo: blocos `manifest_v1_10` e `manifest_v1_11`, com
    `artifacts[]` `path`+`sha256`), o OpenAPI vendorizado em `config/integrations/amh/openapi/`, as chaves
    `V1_10_LOCK_KEY`/`V1_11_LOCK_KEY` no `adapters/amh/contract.py` e o gate `scripts/ci/verify_amh_contract_pin.py`
    (o pin só entra **depois** da publicação, XRG-3). O segundo sinal lê exatamente esses blocos
