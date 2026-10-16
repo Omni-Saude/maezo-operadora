@@ -42,6 +42,34 @@ def test_qualquer_outra_coisa_aborta(designacao: dict, raiz: bytes, pins: str) -
         trava_dev(designacao, raiz, pins)
 
 
+_NOVA = hashlib.sha256(_RAIZ).hexdigest()
+
+
+def test_nova_raiz_aprovada_dispensa_o_pin_do_terraform() -> None:
+    """DL-0113 (troca de ancora, so dev): o pin ainda e o da raiz antiga; vale o hash que o dono aprovou."""
+    trava_dev(_DEV, _RAIZ, "", nova_raiz_sha256=_NOVA)
+    trava_dev(_DEV, _RAIZ, _PINS.replace(_NOVA, "0" * 64), nova_raiz_sha256=_NOVA)
+
+
+@pytest.mark.parametrize(
+    ("designacao", "raiz", "aprovado"),
+    [
+        (_DEV, b"outra raiz", _NOVA),  # raiz carregada nao e a aprovada
+        (_DEV, _RAIZ, "0" * 64),  # aprovacao de outra raiz
+        (_DEV, _RAIZ, "zz"),  # nao e SHA-256 hex
+        (_DEV, _RAIZ, _NOVA.upper()),  # hex maiusculo nao passa (formato canonico minusculo)
+        ({"scope": {"tenant": "amh", "environment": "prod"}}, _RAIZ, _NOVA),  # prod nunca
+        ({"scope": {"tenant": "outro", "environment": "dev"}}, _RAIZ, _NOVA),
+        ({}, _RAIZ, _NOVA),
+    ],
+)
+def test_nova_raiz_recusa_o_que_nao_e_exatamente_a_aprovada_em_dev_amh(
+    designacao: dict, raiz: bytes, aprovado: str
+) -> None:
+    with pytest.raises(SystemExit):
+        trava_dev(designacao, raiz, "", nova_raiz_sha256=aprovado)
+
+
 def test_o_pin_versionado_e_lido() -> None:
     texto = (_REPO_ROOT / PINS_PORTAL).read_text(encoding="utf-8")
     raiz_de_outro = b"\x30\x2a" + b"x" * 42
@@ -79,3 +107,17 @@ def test_syn_troca_so_o_certificado_do_auth() -> None:
     pem = cert.public_bytes(serialization.Encoding.PEM)
     assert novo["files"] == {"result_certificate": base64.b64encode(pem).decode(), "native_ca": "y"}
     assert novo["config"] == syn["config"] and syn["files"]["result_certificate"] == "x"
+
+
+def test_spec_dos_segredos_devolve_as_conexoes_como_o_assemble_as_le() -> None:
+    import json
+
+    from scripts.ops.staff_material_renovar_dev import _SpecDosSegredos
+
+    bruto = json.dumps({"session_lock": {"login": "lock", "host": "h"}, "native_witness": {"login": "wit"}})
+    spec = _SpecDosSegredos(bruto.encode())
+    assert spec.native_witness_connection.login == "wit"
+    assert spec.session_lock_connection.validated("session-lock-ca.pem").wire() == {
+        "login": "lock",
+        "host": "h",
+    }

@@ -316,9 +316,20 @@ _STAFF_OPS_NAMES: tuple[str, ...] = (
     "STAFF_JOB_LEDGER_KEY",
     "MAEZO_DEV_SYN_AWS_ACCOUNT_ID",
     "MAEZO_DEV_SYN_ENVIRONMENT",
+    # task-staff-material.tf (DL-0113): lidos por `tools/staff_ops/material.py` (ARNs, nome do bucket de
+    # estado e modo; nenhum segredo). Padrao `MATERIAL_MODO=verificar` = dry-run sem efeito.
+    "MATERIAL_MODO",
+    "MATERIAL_BUCKET",
+    "MATERIAL_KMS_KEY_ARN",
+    "MATERIAL_SECRET_NATIVE",
+    "MATERIAL_SECRET_STAFF",
+    "MATERIAL_SECRET_JOB",
+    "MATERIAL_SECRET_ROWS",
+    "MATERIAL_SECRET_ASSIGNMENT",
+    "MATERIAL_SECRET_SYN",
 )
 _STAFF_OPS_REASON = (
-    "inputs of the staff operation tasks (deploy/aws-ecs/envs/dev-sa-east-1/task-staff-ops.tf and the "
+    "inputs of the staff operation tasks (deploy/aws-ecs/envs/dev-sa-east-1/task-staff-ops.tf, task-staff-material.tf and the "
     "portal human init), consumed by tools/staff_ops and tools/dev_syn_fixture inside the ops image "
     "(deploy/ops/staff-install.Dockerfile) - tooling outside src/, never the application"
 )

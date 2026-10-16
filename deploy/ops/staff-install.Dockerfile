@@ -17,6 +17,9 @@ COPY --chown=0:0 tools/staff_materials/ ./tools/staff_materials/
 COPY --chown=0:0 tools/staff_install/ ./tools/staff_install/
 COPY --chown=0:0 tools/staff_ops/ ./tools/staff_ops/
 COPY --chown=0:0 tools/dev_syn_fixture/ ./tools/dev_syn_fixture/
+# DL-0113: a renovacao do material staff roda NA AWS (task `staff-material`); o `gerar`/`publicar` versionado
+# vai na imagem (so o arquivo: `scripts/` nao e pacote). Nenhum segredo, nenhuma raiz.
+COPY --chown=0:0 scripts/ops/staff_material_renovar_dev.py ./scripts/ops/staff_material_renovar_dev.py
 COPY --chown=0:0 src/maezo/portal/engine/java/src/main/resources/external-case-schema-postgres.sql ./src/maezo/portal/engine/java/src/main/resources/external-case-schema-postgres.sql
 
 USER 1000:1000
