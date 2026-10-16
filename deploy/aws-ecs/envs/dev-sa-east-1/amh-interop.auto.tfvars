@@ -65,6 +65,6 @@ helena_consultas_amh = true
 // `maezo-operadora-interop-boleto` (unico escopo interop/billing.boleto), criado em 16/10/2026 (AMH #255); o client id e'
 // publico por desenho, o segredo vive em `amh/cognito/dev/maezo-operadora-interop-boleto` (Secrets Manager).
 // Voltar: "" (o Lucas v4 segue sem o segundo sinal).
-amh_interop_boleto_client_id = "558ecnfomm33qbj6cd030rmlbh"
+amh_interop_boleto_client_id                 = "558ecnfomm33qbj6cd030rmlbh"
 amh_billing_status_detalhamento_openapi_path = "/app/config/integrations/amh/openapi/billing-status-detalhamento.openapi.yaml"
 amh_billing_segunda_via_openapi_path         = "/app/config/integrations/amh/openapi/billing-segunda-via.openapi.yaml"
