@@ -189,7 +189,8 @@ def test_lock_com_bloco_v1_2_passa_e_expoe_o_digest_tina(tmp_path: Path) -> None
     assert pin.artifact_digests[V1_2_ARTIFACT_PATHS[0]] == TINA_SHA
     assert pin.manifest_v1_2_digest == lock[V1_2_LOCK_KEY]["manifest_pin"]["sha256"]
     # v1 (5) + v1.1 (2) + v1.2 (1, o sintetico no lugar do real) + v1.3 (3) + v1.4 (1) + v1.5 (1) + v1.6 (1)
-    assert len(pin.artifact_digests) == 14
+    # + v1.7 a v1.11 (5)
+    assert len(pin.artifact_digests) == 19
     # o v1.1 nao mudou de codigo de violacao com a generalizacao
     assert check_manifest_v1_1(lock) == []
 

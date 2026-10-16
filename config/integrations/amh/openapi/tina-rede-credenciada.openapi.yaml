@@ -1,0 +1,279 @@
+# tina-rede-credenciada.openapi.yaml — PROPOSTA de rota ADITIVA da TINA: rede credenciada do plano do beneficiário
+# (artefato novo; manifest v1.8, UNPUBLISHED — NÃO publicado).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# O tina.openapi.yaml 0.1.0 (v1.2), o tina-dependentes.openapi.yaml 0.1.0 (v1.5) e o rascunho tina-identificacao-cadastro
+# (v1.7) NÃO mudam um byte: esta é ARQUIVO NOVO.
+# PROPOSTA ESTACIONADA (15/10/2026): contrato pronto, NÃO prioritário. O v4 diz que o canal não pesquisa especialista e os dados de
+# rede estão defasados (ingestão de 10/08; PJ completos só 14%; vigência não confiável). Ver PROPOSTA-tina-rede-e-cobertura.md §7.
+# Objetivo: o beneficiário pergunta "onde tem cardiologista pelo plano?" e o agente responde com clínicas/hospitais da
+# rede do PLANO DELE. ATENÇÃO (catálogo v4, 15/10/2026): o texto v4 da Helena diz que neste canal NÃO se pesquisa
+# especialidade nem se agenda; esta rota existe como CAPACIDADE preparada, desligada por padrão, e só deve ser ligada se
+# o produto decidir mudar essa orientação.
+# REGRAS DE DESENHO:
+#  * chave = `portable_subject_ref`; o plano do beneficiário é resolvido NO SERVIÇO (nunca recebido do chamador);
+#  * MINIMIZAÇÃO: só estabelecimento com CNPJ (clínica, hospital, laboratório) traz nome, endereço e telefone. Profissional
+#    PESSOA FÍSICA não tem nome, endereço nem telefone aqui — só uma CONTAGEM ("há N profissionais cuja identificação não
+#    está disponível neste canal"), para não afirmar por omissão que a rede é menor do que é;
+#  * `especialidade` é OBRIGATÓRIA (impede listar a rede inteira); `municipio` filtra; paginação CURTA (no máximo 10
+#    por página e 20 páginas);
+#  * a resposta é FATO do cadastro na data da fonte: não é agendamento, não garante vaga nem atendimento;
+#  * campo ausente é estado válido (`null`); o consumidor nunca o completa.
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH TINA Rede Credenciada (leitura)
+  version: 0.1.0
+  description: |
+    Estabelecimentos (pessoa jurídica) da rede credenciada que atendem o PLANO do beneficiário, por especialidade e
+    município. Fonte: golds derivadas da `rede_credenciada` (só vínculo vigente), já MINIMIZADAS no lago:
+    `tina_rede_estabelecimento` (somente pessoa jurídica, sem CNPJ) e `tina_rede_profissional_contagem` (só a quantidade
+    de profissionais pessoa física por plano e especialidade, sem linha de pessoa); o plano do beneficiário vem de
+    `tina_carencia_tipo`. O serviço NÃO lê a tabela com linha de profissional. Mesma base legal do `tina.openapi.yaml` (execução de contrato, LGPD art. 7º,
+    V; ratificação do DPO pendente); finalidade única `atendimento_whatsapp`.
+    FRESCOR: foto do lago (gold reconstruída por demanda); `fonte_atualizada_em` informa a idade.
+    NÃO É AGENDAMENTO: o contrato não reserva, não confirma e não garante atendimento.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/tina/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11).
+security:
+  - bearerAuth: []
+tags:
+  - name: tina
+    description: Leituras do bot TINA da operadora.
+paths:
+  /subjects/{portable_subject_ref}/rede-credenciada:
+    get:
+      tags: [tina]
+      operationId: getRedeCredenciada
+      summary: Clínicas e hospitais da rede do plano do beneficiário, por especialidade (e município)
+      description: |
+        Pré-condições (qualquer falha = nenhum dado):
+        1. token M2M com escopo `interop/tina.read`;
+        2. `purpose_of_use=atendimento_whatsapp`;
+        3. a rota estar LIGADA no serviço (padrão: desligada, responde 404);
+        4. o sujeito ter plano conhecido (senão 404, mesma resposta de sujeito inexistente).
+        A leitura é registrada em auditoria estruturada (cliente, finalidade, resumo da ref e contagem; nunca o
+        conteúdo). Paginação curta: `limite` (1 a 10, padrão 5) e `pagina` (1 a 20, padrão 1); `tem_mais` diz se há
+        próxima página. Ordenação estável: município, nome.
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - $ref: '#/components/parameters/Especialidade'
+        - $ref: '#/components/parameters/Municipio'
+        - $ref: '#/components/parameters/Limite'
+        - $ref: '#/components/parameters/Pagina'
+      responses:
+        '200':
+          description: Estabelecimentos da página pedida (pode ser lista vazia).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedeCredenciada'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo `interop/tina.read` — fail-closed.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05).
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD — OBRIGATÓRIO. Único valor aceito nesta rota; qualquer outro é 400.
+      schema:
+        type: string
+        enum: [atendimento_whatsapp]
+      example: atendimento_whatsapp
+    Especialidade:
+      name: especialidade
+      in: query
+      required: true
+      description: >-
+        Especialidade (texto livre, sem acento obrigatório; a busca ignora maiúsculas e acentos). Obrigatória: a rota
+        não lista a rede inteira. Só letras, números e espaço (3 a 60 caracteres).
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 60
+        pattern: '^[A-Za-zÀ-ÿ0-9 ]{3,60}$'
+      example: cardiologia
+    Municipio:
+      name: municipio
+      in: query
+      required: false
+      description: Município do estabelecimento (texto, ignora maiúsculas e acentos). Só letras, números e espaço.
+      schema:
+        type: string
+        minLength: 2
+        maxLength: 60
+        pattern: '^[A-Za-zÀ-ÿ0-9 ]{2,60}$'
+      example: Sao Jose do Rio Preto
+    Limite:
+      name: limite
+      in: query
+      required: false
+      description: Estabelecimentos por página.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 10
+        default: 5
+    Pagina:
+      name: pagina
+      in: query
+      required: false
+      description: Página (a partir de 1).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 20
+        default: 1
+  schemas:
+    RedeCredenciada:
+      type: object
+      required: [portable_subject_ref, pagina, limite, tem_mais, estabelecimentos, profissionais_sem_identificacao, fonte_atualizada_em, qualidade]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          description: A ref do próprio sujeito consultado.
+        pagina:
+          type: integer
+          minimum: 1
+        limite:
+          type: integer
+          minimum: 1
+          maximum: 10
+        tem_mais:
+          type: boolean
+          description: Há estabelecimentos além desta página. O consumidor deve oferecer refinar (município) antes de paginar.
+        estabelecimentos:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Estabelecimento'
+        profissionais_sem_identificacao:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: >-
+            Quantidade APROXIMADA de profissionais PESSOA FÍSICA do plano que atendem a especialidade e NÃO são
+            identificados neste canal (sem nome, endereço nem telefone, por minimização). Aproximada porque é contada por
+            especialidade: se a busca casa mais de uma, um profissional com duas especialidades conta duas vezes. Só na
+            página 1; `null` nas demais.
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+          description: Quando a fonte (lago) foi atualizada pela última vez. O consumidor informa a idade ao beneficiário.
+        qualidade:
+          $ref: '#/components/schemas/DataQuality'
+      example:
+        portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+        pagina: 1
+        limite: 5
+        tem_mais: false
+        estabelecimentos:
+          - nome: Clinica Exemplo Cardio
+            endereco: Rua Exemplo, 100
+            bairro: Centro
+            municipio: Sao Jose do Rio Preto
+            uf: SP
+            telefone: '1700000000'
+            especialidades: [Cardiologia]
+        profissionais_sem_identificacao: 12
+        fonte_atualizada_em: '2026-10-11T12:00:00Z'
+        qualidade:
+          campos_ausentes: []
+    Estabelecimento:
+      type: object
+      required: [nome, endereco, bairro, municipio, uf, telefone, especialidades]
+      additionalProperties: false
+      description: >-
+        Um estabelecimento com CNPJ. Sem CNPJ, sem CPF, sem identificador interno do prestador: só o que o beneficiário
+        precisa para ir ou ligar.
+      properties:
+        nome: { type: string, nullable: true }
+        endereco: { type: string, nullable: true }
+        bairro: { type: string, nullable: true }
+        municipio: { type: string, nullable: true }
+        uf: { type: string, nullable: true, maxLength: 2 }
+        telefone: { type: string, nullable: true }
+        especialidades:
+          type: array
+          maxItems: 20
+          description: Especialidades do estabelecimento que casam com a busca.
+          items: { type: string }
+    DataQuality:
+      type: object
+      required: [campos_ausentes]
+      additionalProperties: false
+      properties:
+        campos_ausentes:
+          type: array
+          description: Campos (de algum estabelecimento) que a fonte não tem. Lista fechada; o consumidor nunca os completa.
+          items:
+            type: string
+            enum: [nome, endereco, municipio, telefone]
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional SEM PHI. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada (finalidade, especialidade, município, limite ou página inválidos).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: FAIL-CLOSED — escopo ou finalidade não permitidos; nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Rota desligada, sujeito desconhecido/sem plano (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Limite de consultas por sujeito excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno (sem detalhe no corpo).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
