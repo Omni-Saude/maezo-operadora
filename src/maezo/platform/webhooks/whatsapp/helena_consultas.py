@@ -38,10 +38,10 @@ from maezo.ports.tina import (
 
 logger = structlog.get_logger(__name__)
 
-#: Teto de uma consulta: a base legal e ate DUAS leituras em sequencia (cada uma limitada a 5 s pelo port). Duas porque
-#: "estou em carencia?" sem linha de carencia (`not_found`) confirma o sujeito pela elegibilidade (`_sem_carencias`).
-#: Eram 6 s: com cada consulta Athena da AMH levando de 1 a 5 s, o roteiro `dono_v1` reprovou 1 em 3 rodadas
-#: (16/10/2026, `prazo_estourado` aos 6 s exatos) mesmo com as duas leituras respondendo.
+#: Teto de uma consulta: a base legal e ate DUAS leituras em sequencia (cada uma limitada a 5 s pelo port).
+#: Duas porque "estou em carencia?" sem linha de carencia (`not_found`) confirma o sujeito pela elegibilidade
+#: (`_sem_carencias`). Eram 6 s: com cada consulta Athena da AMH levando de 1 a 5 s, o roteiro `dono_v1`
+#: reprovou 1 de 3 rodadas (16/10/2026, `prazo_estourado` aos 6 s exatos) com as duas leituras respondendo.
 PRAZO_TOTAL_S: Final[float] = 12.0
 
 _View = ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel
