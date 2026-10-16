@@ -60,6 +60,21 @@ CompletionErrorCode = Literal[
     # P3 (16/10/2026): the note fits the wire limit but NOT after the scrub (the `[REDACTED_*]`
     # tokens are longer than what they replace). Refused before the audit intent and the engine.
     "notes_too_long",
+    # P5 (16/10/2026): `devolvido_agente` with a note the Helena's output fence would bar (it would
+    # never reach the beneficiary). Refused before the audit intent and the engine; the response
+    # carries the GROUP of the rule (`refusal_group`), never the pattern nor the text.
+    "resumption_refused",
+]
+
+#: The closed families of the Helena's resume output fence (`agents/helena/prompts.py` `RECUSA_*`,
+#: the ones `motivo_de_recusa_da_retomada` can return), plus `outra_regra` for a family the Helena
+#: adds later (still refused). `gateway/human/retomada_precheck.py` fails at IMPORT if they drift.
+ResumptionRefusalGroup = Literal[
+    "negativa_clinica",
+    "promessa_de_capacidade",
+    "promessa_sem_start",
+    "canal_nao_confirmado",
+    "outra_regra",
 ]
 
 
@@ -127,6 +142,15 @@ class PortalCompletionError(ClosedRead):
         default="portal-completion-error.v1", alias="schema"
     )
     code: CompletionErrorCode
+    #: Only with `resumption_refused` (and always with it): WHICH family of the fence barred the
+    #: note. Absent from every other error (the route dumps with `exclude_none`).
+    refusal_group: ResumptionRefusalGroup | None = None
+
+    @model_validator(mode="after")
+    def group_only_with_its_code(self) -> Self:
+        if (self.code == "resumption_refused") != (self.refusal_group is not None):
+            raise ValueError("refusal_group goes with resumption_refused and only with it")
+        return self
 
 
 if get_args(CancelExecucaoOutcome) != CANCEL_EXECUCAO_OUTCOMES:  # pragma: no cover - import-time fence

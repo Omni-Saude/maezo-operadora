@@ -2415,7 +2415,9 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "invalid_request" | "invalid_completion" | "session_unavailable" | "employee_access_required" | "resource_unavailable" | "revision_conflict" | "completion_unavailable" | "completion_dependency_unavailable" | "notes_too_long";
+            code: "invalid_request" | "invalid_completion" | "session_unavailable" | "employee_access_required" | "resource_unavailable" | "revision_conflict" | "completion_unavailable" | "completion_dependency_unavailable" | "notes_too_long" | "resumption_refused";
+            /** Refusal Group */
+            refusal_group?: ("negativa_clinica" | "promessa_de_capacidade" | "promessa_sem_start" | "canal_nao_confirmado" | "outra_regra") | null;
             /**
              * Schema
              * @default portal-completion-error.v1

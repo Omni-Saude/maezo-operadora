@@ -28,12 +28,14 @@ from maezo.gateway.human.completion import NotesTooLongError
 from maezo.gateway.human.errors import GatewayRefusalError
 from maezo.gateway.human.gateway import HumanGateway
 from maezo.gateway.human.queue import ReadRefusalError
+from maezo.gateway.human.retomada_precheck import ResumptionRefusedError
 from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.session import HumanSessionResolver
 from maezo.portal.contracts.completions import (
     CancelExecucaoCompletionSubmission,
     CompletionErrorCode,
     PortalCompletionError,
+    ResumptionRefusalGroup,
     TaskCompletionResponse,
     TaskCompletionSubmission,
 )
@@ -180,6 +182,8 @@ _COMPLETION_STATUS: dict[CompletionErrorCode, int] = {
     # The body was well formed; its note, once scrubbed, is over `MAX_NOTES`. The colleague
     # shortens it and sends again — nothing was recorded and nothing reached the engine.
     "notes_too_long": 422,
+    # P5: the note would be barred by the Helena's output fence; the body names the rule FAMILY.
+    "resumption_refused": 422,
 }
 _COMPLETION_ERRORS: dict[int | str, dict[str, Any]] = {
     status: {"model": PortalCompletionError} for status in _COMPLETION_STATUS.values()
@@ -224,9 +228,13 @@ class CompletionPolicy:
     origins: frozenset[str]
 
 
-def completion_error(code: CompletionErrorCode) -> JSONResponse:
+def completion_error(
+    code: CompletionErrorCode, refusal_group: ResumptionRefusalGroup | None = None
+) -> JSONResponse:
     return JSONResponse(
-        PortalCompletionError(code=code).model_dump(by_alias=True),
+        PortalCompletionError(code=code, refusal_group=refusal_group).model_dump(
+            by_alias=True, exclude_none=True
+        ),
         status_code=_COMPLETION_STATUS[code],
     )
 
@@ -362,6 +370,8 @@ async def complete_task(
         )
     except NotesTooLongError:
         return completion_error("notes_too_long")
+    except ResumptionRefusedError as exc:
+        return completion_error("resumption_refused", exc.group)
     except ReadRefusalError as exc:
         return completion_error(_FROM_READ_REFUSAL.get(exc.code, "completion_dependency_unavailable"))
     except GatewayRefusalError as exc:

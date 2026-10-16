@@ -178,6 +178,44 @@ it("explica o 422 notes_too_long: a nota passou do limite depois de ocultar tele
   expect(screen.queryByRole("heading", { name: "Tarefa concluída" })).toBeNull();
 });
 
+it.each([
+  ["promessa_sem_start", "entraremos em contato"],
+  ["negativa_clinica", "avaliação clínica"],
+  ["promessa_de_capacidade", "encaminhar, registrar, emitir ou agendar"],
+  ["canal_nao_confirmado", "não está confirmado"],
+  ["outra_regra", "regra de segurança"],
+])("explica em português o 422 resumption_refused do grupo %s", async (group, trecho) => {
+  const user = userEvent.setup();
+  const onCompleted = vi.fn();
+  vi.mocked(fetch).mockResolvedValueOnce(
+    jsonResponse({ schema: "portal-completion-error.v1", code: "resumption_refused", refusal_group: group }, 422),
+  );
+  render(controls({ onCompleted }));
+
+  await fill(user);
+  await user.click(screen.getByRole("button", { name: "Concluir tarefa" }));
+
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("não enviaria esta instrução"));
+  expect(screen.getByRole("alert").textContent).toContain(trecho);
+  expect(screen.queryByRole("heading", { name: "Tarefa concluída" })).toBeNull();
+  expect(onCompleted).not.toHaveBeenCalled();
+  // O rascunho continua para ser reescrito.
+  expect(screen.getByLabelText(/Instrução \/ notas de resolução/)).toHaveValue("procure o pronto-socorro");
+});
+
+it("um resumption_refused sem o grupo não cumpre o contrato e não vira sucesso", async () => {
+  const user = userEvent.setup();
+  vi.mocked(fetch).mockResolvedValueOnce(
+    jsonResponse({ schema: "portal-completion-error.v1", code: "resumption_refused" }, 422),
+  );
+  render(controls());
+
+  await fill(user);
+  await user.click(screen.getByRole("button", { name: "Concluir tarefa" }));
+
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("resposta inesperada"));
+});
+
 it("trata dependência indisponível como desfecho DESCONHECIDO, nunca como falha limpa", async () => {
   const user = userEvent.setup();
   vi.mocked(fetch).mockResolvedValueOnce(

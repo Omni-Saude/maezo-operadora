@@ -10,6 +10,7 @@ import {
   type CompletionOutcome,
   type CompletionResponse,
   type CompletionSubmission,
+  type ResumptionRefusalGroup,
 } from "./completionClient";
 
 type SubmitState =
@@ -17,7 +18,7 @@ type SubmitState =
   | { kind: "sending" }
   | { kind: "completed"; value: CompletionResponse }
   | { kind: "unknown" }
-  | { kind: "error"; failure: CompletionFailure };
+  | { kind: "error"; failure: CompletionFailure; group?: ResumptionRefusalGroup };
 
 const failureMessages: Readonly<Record<CompletionFailure, string>> = {
   invalid_request: "A solicitação foi recusada. Consulte a tarefa novamente.",
@@ -32,8 +33,25 @@ const failureMessages: Readonly<Record<CompletionFailure, string>> = {
   // e-mail e CPF viram marcadores mais longos). Nada foi gravado nem enviado.
   notes_too_long:
     "A instrução ficou longa demais depois que telefones, e-mails e documentos foram ocultados. Encurte o texto e envie de novo.",
+  // P5 (16/10/2026): a mesma cerca que a Helena aplica antes de enviar barraria a instrução.
+  resumption_refused:
+    "O agente não enviaria esta instrução ao beneficiário. Reescreva e envie de novo; nada foi gravado nem enviado.",
   "invalid-response": "O portal recusou uma resposta inesperada.",
   "outcome-unknown": "O resultado do envio é desconhecido.",
+};
+
+//: P5: por que a instrução seria barrada, por FAMÍLIA da regra (o servidor nunca manda o trecho).
+//: Uma família nova chega como `outra_regra` até ganhar texto aqui.
+const resumptionRefusalMessages: Readonly<Record<ResumptionRefusalGroup, string>> = {
+  negativa_clinica:
+    "Ela diz que não é grave ou que a pessoa não precisa de atendimento: isso é avaliação clínica e o agente não repassa.",
+  promessa_de_capacidade:
+    "Ela promete que o agente vai encaminhar, registrar, emitir ou agendar algo, e o agente não faz isso por mensagem.",
+  promessa_sem_start:
+    "Ela promete contato ou retorno da equipe (“entraremos em contato”), mas o caso está sendo devolvido e ninguém ficará com ele.",
+  canal_nao_confirmado:
+    "Ela cita um aplicativo, portal ou canal que não está confirmado, ou um canal para um assunto que ele não resolve.",
+  outra_regra: "Ela foi barrada por uma regra de segurança das mensagens do agente.",
 };
 
 //: Rótulos de tela. O VALOR vem do contrato (`completionOutcomes`); só o texto mora aqui, e um
@@ -122,6 +140,10 @@ export function TaskCompletionControls({
     if (result.kind === "success") {
       setState({ kind: "completed", value: result.value });
       onCompleted?.();
+      return;
+    }
+    if (result.kind === "resumption_refused") {
+      setState({ kind: "error", failure: result.kind, group: result.group });
       return;
     }
     if (result.kind === "session_unavailable") {
@@ -227,7 +249,12 @@ export function TaskCompletionControls({
           antes de enviar de novo — reenviar pode registrar um segundo desfecho.
         </p>
       )}
-      {state.kind === "error" && <p role="alert" className="queue-error">{failureMessages[state.failure]}</p>}
+      {state.kind === "error" && (
+        <p role="alert" className="queue-error">
+          {failureMessages[state.failure]}
+          {state.group !== undefined && <> {resumptionRefusalMessages[state.group]}</>}
+        </p>
+      )}
     </section>
   );
 }

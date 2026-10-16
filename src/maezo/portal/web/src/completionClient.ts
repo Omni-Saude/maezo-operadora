@@ -13,9 +13,12 @@ export type CompletionFailure =
   | Schemas["PortalCompletionError"]["code"]
   | "invalid-response"
   | "outcome-unknown";
+// P5 (16/10/2026): a familia da regra que barraria a instrucao na Helena. Nunca o padrao nem o texto.
+export type ResumptionRefusalGroup = NonNullable<Schemas["PortalCompletionError"]["refusal_group"]>;
 export type CompletionResult =
   | { kind: "success"; value: CompletionResponse }
-  | { kind: CompletionFailure };
+  | { kind: "resumption_refused"; group: ResumptionRefusalGroup }
+  | { kind: Exclude<CompletionFailure, "resumption_refused"> };
 
 const prefix = "/api/v1/portal";
 const submissionSchema = wireSchema("TaskCompletionSubmission");
@@ -116,8 +119,13 @@ export async function completeTask(
   }
 
   if (validWire(value, wireSchema("PortalCompletionError"))) {
-    const code = (value as Schemas["PortalCompletionError"]).code;
-    if (errorStatus[response.status]?.includes(code)) {
+    const error = value as Schemas["PortalCompletionError"];
+    const code = error.code;
+    if (code === "resumption_refused" && response.status === 422) {
+      // Nada foi gravado nem enviado. Sem o grupo a resposta nao cumpre o contrato.
+      return error.refusal_group ? { kind: code, group: error.refusal_group } : { kind: "invalid-response" };
+    }
+    if (code !== "resumption_refused" && errorStatus[response.status]?.includes(code)) {
       // DL-0049: the interim path commits `portal_direct_completion.intent` BEFORE the effect,
       // and the engine's completion REST accepts no expected revision. A dependency that did
       // not answer is therefore NOT proof that the task stayed open — the same discipline the
