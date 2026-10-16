@@ -19,6 +19,7 @@ import pickle
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 
@@ -180,7 +181,7 @@ async def test_detalhamento_aceita_a_resposta_do_contrato_e_pergunta_so_o_necess
     assert [b.rotulo for b in grupo.beneficiarios] == ["você", "dependente 1"]
     (pedido,) = executor.pedidos
     assert pedido.operation == OPERATION_DETALHAMENTO and pedido.method == "GET"
-    assert pedido.path == f"/interop/billing-status/v1/subjects/{REF}/billing/status"
+    assert pedido.path == f"/interop/billing-status/v1/subjects/{quote(REF, safe='')}/billing/status"
     assert dict(pedido.query) == {
         "purpose_of_use": "atendimento_whatsapp",
         "incluir_contratacao": "true",
@@ -354,7 +355,7 @@ async def test_segunda_via_aceita_o_contrato_e_manda_o_request_ref_sem_consentim
     assert primeiro.linha_digitavel == LINHA and primeiro.codigo_barras == CODIGO and segundo.disponivel
     (pedido,) = executor.pedidos
     assert pedido.operation == OPERATION_SEGUNDA_VIA
-    assert pedido.path == f"/interop/billing-status/v1/subjects/{REF}/billing/segunda-via"
+    assert pedido.path == f"/interop/billing-status/v1/subjects/{quote(REF, safe='')}/billing/segunda-via"
     assert dict(pedido.query) == {"purpose_of_use": "atendimento_whatsapp", "competencia": "2026-10"}
     assert pedido.request_ref == REQUEST_REF and pedido.consent_decision_ref is None
 
