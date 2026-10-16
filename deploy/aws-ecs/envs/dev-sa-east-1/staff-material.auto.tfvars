@@ -8,7 +8,7 @@
 // Os ARNs sao os dos segredos VIVOS (nomes com sufixo): so leitura (a role nunca grava segredo).
 //
 staff_material = {
-  image_digest          = "sha256:b5c4dbf186b542fdbddf225bb0b797fa0e15f43faf1588dd0f4ce7c3a262e0ef" // imagem de operacao 075eed3a-staff-ops (base: app c29a88ea)
+  image_digest          = "sha256:2e63f7c50bfe31c076c6537a3424757326bd0b98b4ab1a7ca0463c53d81c900d" // imagem de operacao a400531c-staff-ops (base: app c29a88ea); a 075eed3a-staff-ops tinha o pin da raiz do verify errado
   native_secret_arn     = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-XoACan"
   staff_secret_arn      = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/staff-materials-R8JeAL"
   job_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-job/materials-glnOol"
