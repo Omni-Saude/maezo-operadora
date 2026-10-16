@@ -514,6 +514,16 @@ def gerar(args: argparse.Namespace) -> int:
     cfg = json.loads(cfg_ant)
     cfg["publication"]["not_after"] = fim
     cfg["authority"]["not_after"] = fim
+    if catalogo_novo is not None:
+        # O job so oferece o catalogo cujo SHA-256 e o `admitted_catalog_digest` (e a revisao do catalogo e
+        # insert-only no engine: tem de ficar ACIMA da ultima ja publicada, `--catalog-revision`).
+        cfg["catalog"]["admitted_catalog_digest"] = sha(catalogo)
+        revisao = getattr(args, "catalog_revision", None)
+        if revisao is None:
+            raise SystemExit("--catalogo exige --catalog-revision (acima da ultima revisao publicada)")
+        if int(revisao) <= int(cfg["catalog"]["catalog_revision"]):
+            raise SystemExit("--catalog-revision tem de ser maior que a do segredo vivo")
+        cfg["catalog"]["catalog_revision"] = str(int(revisao))
     job = {k: v for k, v in job_ant.items() if k.startswith("job/")}
     job["job/config.json"] = b64(jcs_ou_dumps(cfg_ant, cfg))
     job["job/task-admission.json"] = b64(reg_raw)
@@ -631,6 +641,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     g.add_argument("--code-engine", default=None, help="SHA-256 do JAR do engine da imagem NOVA do motor")
     g.add_argument("--code-provider", default=None, help="SHA-256 do JAR do provedor Q2 da imagem NOVA")
+    g.add_argument("--catalog-revision", type=int, default=None, help="revisao do catalogo novo (> ultima publicada)")
     g.add_argument("--catalogo", type=Path, default=None, help="job/task-catalog.json novo (troca o vivo)")
     g.add_argument(
         "--entradas-humanas",

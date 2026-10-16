@@ -121,3 +121,53 @@ def test_spec_dos_segredos_devolve_as_conexoes_como_o_assemble_as_le() -> None:
         "login": "lock",
         "host": "h",
     }
+
+
+def test_catalogo_do_cancel_acrescenta_4_tarefas_e_2_formularios() -> None:
+    from scripts.ops.staff_material_cancel_catalogo import TAREFAS, montar
+
+    politica = {"artifact_ref": "SYN-x", "digest": "a" * 64}
+    entrada = {
+        "process_definition_id": "SP-OP-ESCALATION-001:2:x",
+        "allowed_inputs": ["resultado"],
+        "task_definition_key": "UT_TratarEscalonamento",
+        "required_roles": ["r"],
+        "disclosure_policy": politica,
+    }
+    vivo = {
+        "entries": [entrada],
+        "forms": [{"artifact_ref": "escalation", "bytes_base64": "eA==", "digest": "b" * 64}],
+    }
+    humano = {
+        "candidate_groups": ["g"],
+        "classification": {"classification_ref": "SYN-c", "policy_ref": "SYN-x", "policy_digest": "a" * 64},
+        "identity_policy": politica,
+        "process_definition_id": "SP-OP-ESCALATION-001:2:x",
+        "task_definition_key": "UT_TratarEscalonamento",
+        "task_id_format": "uuid",
+        "user_candidates": "refused",
+    }
+    catalogo, entradas = montar(
+        vivo,
+        {"human": {"entries": [humano]}},
+        "SP-OP-CANCEL-001:2:" + "1" * 8 + "-" + "2" * 4 + "-" + "3" * 4 + "-" + "4" * 4 + "-" + "5" * 12,
+        "c" * 64,
+    )
+    assert len(catalogo["entries"]) == 1 + len(TAREFAS) and len(entradas) == len(TAREFAS)
+    assert {f["artifact_ref"] for f in catalogo["forms"]} == {
+        "escalation",
+        "cancel_decisao",
+        "cancel_execucao",
+    }
+    novas = {e["task_definition_key"]: e for e in catalogo["entries"][1:]}
+    assert novas["UT_ExecutarCancelamentoCadastro"]["allowed_inputs"] == ["execucao_cadastro"]
+    assert novas["UT_ExecutarCancelamentoCadastro"]["form_source_status"] == "BPMN_FORMDATA"
+    assert novas["UT_AnaliseRescisao"]["group_domain"]["groups"] == ["juridico-contratos", "gestao-contratos"]
+    assert {e["task_definition_key"] for e in entradas} == set(novas)
+
+
+def test_catalogo_do_cancel_recusa_id_ruim() -> None:
+    from scripts.ops.staff_material_cancel_catalogo import montar
+
+    with pytest.raises(SystemExit):
+        montar({"entries": [{}], "forms": []}, {"human": {"entries": [{}]}}, "SP-OP-OUTRO:1:x", "c" * 64)
