@@ -993,7 +993,8 @@ def test_a_chave_so_e_ligada_no_dev_pelo_terraform() -> None:
     envs = _REPO / "deploy" / "aws-ecs" / "envs"
     dev = envs / "dev-sa-east-1"
     tfvars = (dev / "amh-interop.auto.tfvars").read_text(encoding="utf-8")
-    assert re.search(r"^helena_triagem_v2 = true$", tfvars, re.MULTILINE)
+    # O dev declara a chave explicitamente (ligada ou desligada: desligada em 15/10/2026 a pedido do dono).
+    assert re.search(r"^helena_triagem_v2 = (true|false)$", tfvars, re.MULTILINE)
     receptor = (dev / "service-webhook-receiver.tf").read_text(encoding="utf-8")
     assert '{ name = "MAEZO_HELENA_TRIAGEM_V2", value = tostring(var.helena_triagem_v2) }' in receptor
     variaveis = (dev / "variables.tf").read_text(encoding="utf-8")
