@@ -442,9 +442,8 @@ def _build_fonte_cobranca_amh(
         # nao diz quem paga. Sem ele, o comportamento de antes.
         incluir_tina=settings.helena_consultas_amh is True,
         # DL-0114: o executor governado do catalogo v4 (detalhamento do pagador e 2a via) so' entra com a
-        # chave ligada E
-        # a configuracao dele presente; configurado pela metade, `build_amh_interop` LEVANTA e o receptor
-        # recusa servir.
+        # chave ligada E a configuracao dele presente; configurado pela metade, `build_amh_interop` LEVANTA
+        # e o receptor recusa servir.
         incluir_v4=_lucas_v4_configurado(settings),
     )
     if settings.lucas_v4 is True and not getattr(
