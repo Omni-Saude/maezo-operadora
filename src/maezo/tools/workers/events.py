@@ -87,7 +87,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 
@@ -136,6 +136,20 @@ _ESCALATION_PUBLISH_BPMN_ERROR_TOPICS = frozenset(
         _ESCALATION_PROCESS_COMPLETED_TOPIC,
     }
 )
+
+#: DL-0117 — the RESOLUTION deadline of SP-OP-ESCALATION-001 (`BT_SlaResolucao`, interrupting)
+#: never passes through `notify_supervisor`: the BPMN routes it to `ST_PublishResolBreach` (THIS
+#: worker, `event_topic=agents.events.escalation.sla_breached`, `event_fase=resolucao`) and then to
+#: `UT_SupervisorAssume`. This structured fact is emitted the moment that task reaches the worker —
+#: BEFORE the publish, because the deadline has already been breached whether or not the domain
+#: event makes it to the broker (a failed publish still routes to `UT_SupervisorAssume` via
+#: `BE_PubResolBreachFailed`). Closed token, NO fields: no business key, no payload value. The
+#: CloudWatch alarm in `deploy/aws-ecs/envs/dev-sa-east-1/escalation-alarms.tf` counts it; its test
+#: IMPORTS this constant.
+EVENTO_SLA_RESOLUCAO_ESTOURADA: Final[str] = "escalation.sla_resolucao_estourada"
+#: The `event_fase` literal the BPMN sets on `ST_PublishResolBreach` (pinned against the BPMN by test).
+SLA_FASE_RESOLUCAO: Final[str] = "resolucao"
+SLA_BREACHED_TOPIC: Final[str] = _ESCALATION_SLA_BREACHED_TOPIC
 
 # ADR-0030 Tier-0: the module's consumption-covered, production-enabled BPMN error code(s).
 # The boundary-proof gate (`scripts/ci/check_bpmn_error_allowlist.py`) proves
@@ -277,6 +291,9 @@ def make_publish_event_handler(
             # ValueError` -> `failure(retries=0)`) WITHOUT an uncatalogued `bpmnError` code —
             # identical outcome, and clean under the gate.
             raise ValueError("operadora.events.publish: `event_topic` ausente nas variaveis")
+
+        if str(event_topic) == SLA_BREACHED_TOPIC and task.variables.get("event_fase") == SLA_FASE_RESOLUCAO:
+            logger.warning(EVENTO_SLA_RESOLUCAO_ESTOURADA)
 
         payload_vars = _parse_payload_vars(task.variables.get("event_payload_vars"))
         payload: dict[str, Any] = {

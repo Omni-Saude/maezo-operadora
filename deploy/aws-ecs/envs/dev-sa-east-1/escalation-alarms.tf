@@ -12,6 +12,9 @@
 #     supervisor nao foi publicado (o BPMN segue pelo fallback modelado ERR_ESC_NOTIFY_FAILED).
 #   * `escalation.supervisor_alertado` com `motivo_alerta=sla_ack_breached`
 #     (escalation.EVENTO_SUPERVISOR_ALERTADO / MOTIVO_ALERTA_SLA_ACK): prazo de ciencia estourado.
+#   * `escalation.sla_resolucao_estourada` (events.EVENTO_SLA_RESOLUCAO_ESTOURADA): prazo de
+#     RESOLUCAO estourado (`BT_SlaResolucao` -> `ST_PublishResolBreach` -> `UT_SupervisorAssume`;
+#     esse caminho nunca passa por `notify_supervisor`).
 #
 # DESLIGADO: `escalation_alarms_enabled` default false. Com false NENHUM recurso deste arquivo
 # existe e o plan do ambiente nao muda. Os alarmes da retomada so existem se o servico
@@ -143,6 +146,36 @@ resource "aws_cloudwatch_metric_alarm" "escalation_supervisor_alertado" {
   alarm_description   = "Ao menos um caso de escalonamento estourou o prazo de ciencia na ultima hora e o supervisor foi alertado. Runbook: docs/runbooks/cloudwatch-alarms/EscalationSupervisorAlertado.md"
   namespace           = local.escalation_alarms_namespace
   metric_name         = "EscalationSupervisorAlertadoPrazo"
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.escalation_alarm_sns
+  ok_actions          = local.escalation_alarm_sns
+  tags                = local.base_tags
+}
+
+# ------------------------------------------------------------------ escalonamento: prazo de resolucao estourado
+resource "aws_cloudwatch_log_metric_filter" "escalation_sla_resolucao_estourada" {
+  count          = local.escalation_alarms_ativo
+  name           = "${local.name}-escalation-sla-resolucao-estourada"
+  log_group_name = aws_cloudwatch_log_group.worker.name
+  pattern        = "\"escalation.sla_resolucao_estourada\""
+  metric_transformation {
+    name      = "EscalationSlaResolucaoEstourada"
+    namespace = local.escalation_alarms_namespace
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "escalation_sla_resolucao_estourada" {
+  count               = local.escalation_alarms_ativo
+  alarm_name          = "${local.name}-escalation-prazo-resolucao-estourado"
+  alarm_description   = "Ao menos um caso de escalonamento estourou o prazo de RESOLUCAO na ultima hora: a tarefa foi interrompida e entregue a supervisao-atendimento (UT_SupervisorAssume). Runbook: docs/runbooks/cloudwatch-alarms/EscalationSlaResolucaoEstourada.md"
+  namespace           = local.escalation_alarms_namespace
+  metric_name         = "EscalationSlaResolucaoEstourada"
   statistic           = "Sum"
   period              = 3600
   evaluation_periods  = 1

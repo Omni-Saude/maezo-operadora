@@ -30,6 +30,7 @@ from maezo.platform.integrations.notifications_bridge import (
     FakeBridgeKafkaConsumer,
 )
 from maezo.tools.workers import escalation as esc
+from maezo.tools.workers import events as ev
 from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher, WorkerBpmnError
 from tests.support.audit_fakes import FakeStartAuditSink
 from tests.unit.deploy._hcl_probe import attr_raw, block_body, direct_attrs, strip_comments
@@ -47,6 +48,11 @@ _PARES: Final[dict[str, tuple[str, str, str]]] = {
     ),
     "escalation_aviso_falhou": (
         "escalation_aviso_falhou",
+        "aws_cloudwatch_log_group.worker.name",
+        "escalation",
+    ),
+    "escalation_sla_resolucao_estourada": (
+        "escalation_sla_resolucao_estourada",
         "aws_cloudwatch_log_group.worker.name",
         "escalation",
     ),
@@ -252,8 +258,9 @@ def test_destino_e_o_topico_de_alertas_do_staff() -> None:
     assert attr_raw(locais, "escalation_alarm_sns") == "[for topic in aws_sns_topic.staff_alerts : topic.arn]"
 
 
-def test_prazo_estourado_e_por_hora_com_ok_actions() -> None:
-    alarme = direct_attrs(_recurso("aws_cloudwatch_metric_alarm", "escalation_supervisor_alertado"))
+@pytest.mark.parametrize("nome", ["escalation_supervisor_alertado", "escalation_sla_resolucao_estourada"])
+def test_prazo_estourado_e_por_hora_com_ok_actions(nome: str) -> None:
+    alarme = direct_attrs(_recurso("aws_cloudwatch_metric_alarm", nome))
     assert attr_raw(alarme, "period") == "3600"
     assert attr_raw(alarme, "ok_actions") == "local.escalation_alarm_sns"
 
@@ -271,5 +278,54 @@ def test_cada_alarme_aponta_runbook_especifico_que_existe_e_cita_o_evento(alarme
         "agent_resume_fila_morta": ar.EVENTO_RESUME_FILA_MORTA,
         "escalation_aviso_falhou": esc.EVENTO_AVISO_FALHOU,
         "escalation_supervisor_alertado": esc.EVENTO_SUPERVISOR_ALERTADO,
+        "escalation_sla_resolucao_estourada": ev.EVENTO_SLA_RESOLUCAO_ESTOURADA,
     }[alarme]
     assert evento in caminho.read_text(encoding="utf-8")
+
+
+async def _evento_sla_resolucao() -> dict[str, Any]:
+    """O evento REAL: a tarefa `ST_PublishResolBreach` com os inputs que o BPMN declara."""
+    import re as _re
+
+    bpmn = (_REPO / "spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn").read_text(
+        encoding="utf-8"
+    )
+    inicio = bpmn.index('id="ST_PublishResolBreach"')
+    bloco = bpmn[inicio : bpmn.index("</bpmn:serviceTask>", inicio)]
+
+    def _inp(nome: str) -> str:
+        achado = _re.search(rf'name="{nome}">([^<]+)<', bloco)
+        assert achado is not None
+        return achado.group(1).strip()
+
+    task = ExternalTask(
+        task_id="t",
+        topic="operadora.events.publish",
+        process_instance_id="p",
+        business_key="ESC-amh-conv-1",
+        worker_id="w",
+        variables={
+            "event_topic": _inp("event_topic"),
+            "event_fase": _inp("event_fase"),
+            "event_payload_vars": _inp("event_payload_vars"),
+            "tenant_id": "amh",
+            "conversation_id": "conv-1",
+            "motivo_categoria": "red_flag_clinico",
+            "severidade": "grave",
+        },
+        process_definition_key="SP-OP-ESCALATION-001",
+        activity_id="ST_PublishResolBreach",
+    )
+    with capture_logs() as logs:
+        await ev.make_publish_event_handler(FakeKafkaPublisher())(task)
+    (evento,) = [e for e in logs if e["event"] == ev.EVENTO_SLA_RESOLUCAO_ESTOURADA]
+    return evento
+
+
+async def test_padrao_do_prazo_de_resolucao_casa_com_o_evento_real() -> None:
+    linha = _renderizar(await _evento_sla_resolucao())
+    assert _termos_do_padrao("escalation_sla_resolucao_estourada") == [ev.EVENTO_SLA_RESOLUCAO_ESTOURADA]
+    assert _casa("escalation_sla_resolucao_estourada", linha), linha
+    assert not _casa("escalation_supervisor_alertado", linha)
+    prazo_ciencia = _renderizar(await _evento_supervisor(motivo="sla_ack_breached"))
+    assert not _casa("escalation_sla_resolucao_estourada", prazo_ciencia)
