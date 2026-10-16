@@ -17,9 +17,10 @@ from maezo.portal.contracts.queues import TaskQueueRequest
 from maezo.portal.engine.profile import canonicalize
 
 from .completion import (
+    COMPLETION_FORM_KEY,
+    AnyCompletionOutcome,
     CompletionAck,
     CompletionAuditSink,
-    CompletionOutcome,
     DirectTaskCompletion,
     PseudonymizedNotes,
 )
@@ -284,9 +285,10 @@ class EngineHumanTaskTransport(HumanTaskTransport):
         self,
         task_id: str,
         *,
-        resultado: CompletionOutcome,
-        notes: PseudonymizedNotes,
+        resultado: AnyCompletionOutcome,
+        notes: PseudonymizedNotes | None,
         expected_task_revision: int,
+        form_key: str = COMPLETION_FORM_KEY,
     ) -> CompletionAck:
         """INTERIM (DL-0049): the one write this Q2 read transport performs.
 
@@ -323,6 +325,7 @@ class EngineHumanTaskTransport(HumanTaskTransport):
                 resultado=resultado,
                 notes=notes,
                 expected_task_revision=expected_task_revision,
+                form_key=form_key,
             )
             if (
                 type(ack) is not CompletionAck

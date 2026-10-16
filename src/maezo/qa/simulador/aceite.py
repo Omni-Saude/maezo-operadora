@@ -15,8 +15,17 @@ ASSERCOES de um passo (todas sobre o texto concatenado das respostas DAQUELE tur
   escalacao_um_de       o caso aberto neste turno tem UM destes motivos (ex.: clinico)
   escalacao             "nenhuma" = nenhum caso novo aberto neste turno; outro valor = um caso com
                         esse `motivo_categoria` foi aberto neste turno; `None` = nao confere
-  primeira_frase_deve   padrao sobre a primeira frase da primeira resposta
+  primeira_frase_deve   padrao sobre a primeira frase da primeira resposta (do `agente`, quando ele e' dado)
   nao_igual_ao_anterior as respostas deste turno nao podem ser iguais as do passo anterior
+  condicao              `sempre` (padrao), `sem_sinal` ou `com_sinal`. O SINAL e' o
+                        `fonte_detalhamento_habilitada` do Lucas v4 (contratos novos da AMH pinados).
+                        `com_sinal` sem o sinal = o passo NAO roda e sai como `pendente_de_contrato`;
+                        `sem_sinal` com o sinal = nao roda (omitido).
+  espera_codigo         o passo tem de entregar o codigo de barras (linha digitavel ou 44 digitos)
+Os segmentos com `rigor_v4` conferem, alem dos padroes, o que o dono pediu para o Lucas v4 (DL-0114): nenhum
+nome ou dado do beneficiario, nenhuma palavra proibida ("multa", "juros"...), R$ e datas do Lucas dentro dos
+FATOS do turno (a D2 do simulador) e NENHUM codigo de barras fora do passo que o espera. O codigo entregue
+nunca vai ao relatorio: o mascarador troca qualquer codigo, linha digitavel ou sequencia longa de digitos.
 Os padroes usam `re.search` com MULTILINE (cada resposta e' uma linha: `^` casa no inicio de cada
 resposta) e DOTALL (`.` atravessa linha). Uma falha diz QUAL assercao falhou, nunca ecoa o texto.
 """
@@ -28,7 +37,8 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from .mascaramento import Mascarador, sem_acento
+from .checagens import datas_sem_fato, palavras_proibidas, quantias_no_texto, quantias_permitidas
+from .mascaramento import Mascarador, contem_dado_do_sujeito, sem_acento
 from .personas import Persona
 from .registro import Sujeito, Turno
 
@@ -65,12 +75,21 @@ class Passo:
     primeira_frase_deve: str | None = None
     nao_igual_ao_anterior: bool = False
     agente: str | None = None
+    #: DL-0114: `sempre`, `sem_sinal` ou `com_sinal` (ver o docstring do modulo).
+    condicao: str = "sempre"
+    #: DL-0114: o passo tem de entregar o codigo de barras da 2a via.
+    espera_codigo: bool = False
 
 
 @dataclass(frozen=True)
 class Segmento:
     nome: str
     passos: tuple[Passo, ...]
+    #: DL-0114: confere nome, palavras proibidas, R$ e datas contra os fatos e codigo de barras.
+    rigor_v4: bool = False
+    #: Criterio "RESOLVEU?" do segmento em linguagem do dono (DL-0111). Vazio = nao declarado. O veredito
+    #: e' o dos passos: SIM so' com todos aprovados; o texto diz O QUE foi conferido.
+    resolveu: str = ""
 
 
 @dataclass
@@ -81,6 +100,8 @@ class ResultadoDoPasso:
     respostas: list[tuple[str, str]] = field(default_factory=list)
     escalacoes: list[dict[str, str | None]] = field(default_factory=list)
     falhas: list[str] = field(default_factory=list)
+    #: DL-0114: o passo depende dos contratos novos da AMH e o sinal esta' desligado: nao foi enviado.
+    pendente_de_contrato: bool = False
 
     @property
     def passou(self) -> bool:
@@ -146,7 +167,11 @@ def avaliar_passo(
         if compilar(quando).search(sem_acento(passo.texto)) and compilar(padrao).search(texto):
             falhas.append(f"nao_deve_global{onde}: casou /{padrao}/ (mensagem sobre {quando})")
     if passo.primeira_frase_deve is not None:
-        primeira = respostas[0][1] if respostas else ""
+        # Com `agente`, a "primeira resposta" e' a PRIMEIRA DAQUELE AGENTE: o Lucas e' acionado pela
+        # Helena, que
+        # abre o turno com "Vou chamar quem cuida da parte financeira." (aceite de 16/10/2026).
+        do_agente = [t for a, t in respostas if passo.agente is None or a == passo.agente]
+        primeira = do_agente[0] if do_agente else ""
         if not compilar(passo.primeira_frase_deve).search(sem_acento(primeira_frase(primeira))):
             falhas.append(f"primeira_frase_deve: a primeira frase nao casa /{passo.primeira_frase_deve}/")
     if passo.escalacao is not None:
@@ -177,18 +202,97 @@ def _escalacoes_do_turno(turno: Turno) -> list[dict[str, str | None]]:
     ]
 
 
+#: Um codigo de barras no texto: a linha digitavel (47 digitos, com ou sem a pontuacao) ou os 44 digitos.
+_CODIGO_DE_BARRAS = re.compile(
+    r"(?<!\d)(?:\d{5}[.\s]?\d{5}[.\s]+\d{5}[.\s]?\d{6}[.\s]+\d{5}[.\s]?\d{6}[.\s]+\d[.\s]+\d{14}|\d{44})(?!\d)"
+)
+#: Qualquer sequencia de 20+ digitos (com um separador entre eles): nenhuma resposta do Lucas tem isso, a
+#: menos que seja uma credencial de pagamento.
+_DIGITOS_DE_CREDENCIAL = re.compile(r"(?<!\d)\d(?:[.\s-]?\d){19,}(?!\d)")
+#: O marcador do grafo: o remetente o troca pelo codigo; se chegar ao beneficiario, o envio falhou.
+_MARCADOR_CRU = "{{codigo_de_barras}}"
+_SEM_CODIGO = "nao encontrei o codigo de barras"
+
+
+def avaliar_rigor_v4(passo: Passo, turno: Turno, sujeito: Sujeito | None) -> list[str]:
+    """Conferencias do Lucas v4 (DL-0114) sobre os textos do LUCAS no turno. Nunca ecoa texto nem codigo."""
+    falhas: list[str] = []
+    textos = turno.textos("lucas")
+    permitidas = quantias_permitidas(turno.fatos)
+    entregou_codigo = False
+    for texto in textos:
+        if sujeito is not None:
+            for dado in contem_dado_do_sujeito(texto, sujeito):
+                falhas.append(f"rigor: a resposta ecoa {dado} do beneficiario (nunca nome, so' a relacao)")
+        for palavra in palavras_proibidas(texto):
+            falhas.append(f"rigor: palavra proibida '{palavra}'")
+        for q in quantias_no_texto(texto):
+            if q not in permitidas:
+                falhas.append(f"rigor/D2: valor R$ {q} fora dos fatos do turno")
+        for d in datas_sem_fato(texto, turno.fatos):
+            falhas.append(f"rigor/D2: data {d} fora dos fatos do turno")
+        plano = sem_acento(texto)
+        if _MARCADOR_CRU in plano:
+            falhas.append("rigor: o marcador do codigo de barras chegou ao beneficiario (a troca falhou)")
+        if _CODIGO_DE_BARRAS.search(texto) or _DIGITOS_DE_CREDENCIAL.search(texto):
+            entregou_codigo = True
+            if not passo.espera_codigo:
+                falhas.append("rigor: apareceu um codigo de barras onde nenhum era esperado")
+    if passo.espera_codigo and not entregou_codigo:
+        sem_codigo = any(_SEM_CODIGO in sem_acento(t) for t in textos)
+        falhas.append(
+            "rigor: o codigo de barras nao foi entregue"
+            + (
+                " (a resposta foi 'nao encontrei': este pagador nao tem codigo; escolha outro do roster)"
+                if sem_codigo
+                else ""
+            )
+        )
+    return falhas
+
+
 Enviar = Callable[[str], Awaitable[Turno]]
 
 
-async def executar_passos(segmento: Segmento, enviar: Enviar) -> list[ResultadoDoPasso]:
-    """Envia os passos em ordem e avalia cada um. Um passo que falha NAO interrompe o segmento."""
+def _condicao_atendida(passo: Passo, sinal_v4: bool) -> bool | None:
+    """`True` = roda; `False` = omitido; `None` = pendente de contrato (precisa do sinal, desligado)."""
+    if passo.condicao == "sempre":
+        return True
+    if passo.condicao == "sem_sinal":
+        return not sinal_v4
+    if passo.condicao == "com_sinal":
+        return True if sinal_v4 else None
+    raise ValueError(f"aceite: condicao de passo desconhecida ({passo.condicao!r})")
+
+
+async def executar_passos(
+    segmento: Segmento,
+    enviar: Enviar,
+    *,
+    sujeito: Sujeito | None = None,
+    sinal_v4: bool = False,
+) -> list[ResultadoDoPasso]:
+    """Envia os passos em ordem e avalia cada um. Um passo que falha NAO interrompe o segmento.
+
+    DL-0114: `sinal_v4` e' o `fonte_detalhamento_habilitada` do Lucas; `sujeito` serve so' ao `rigor_v4`."""
     resultados: list[ResultadoDoPasso] = []
     anterior: str | None = None
-    for i, passo in enumerate(segmento.passos, start=1):
+    indice = 0
+    for passo in segmento.passos:
+        atendida = _condicao_atendida(passo, sinal_v4)
+        if atendida is False:
+            continue
+        indice += 1
+        i = indice
+        if atendida is None:
+            resultados.append(ResultadoDoPasso(segmento.nome, i, passo.texto, pendente_de_contrato=True))
+            continue
         turno = await enviar(passo.texto)
         respostas = _respostas_do_turno(turno)
         escalacoes = _escalacoes_do_turno(turno)
         falhas = avaliar_passo(passo, respostas, escalacoes, anterior, erro_do_turno=turno.erro)
+        if segmento.rigor_v4:
+            falhas += avaliar_rigor_v4(passo, turno, sujeito)
         resultados.append(
             ResultadoDoPasso(
                 segmento=segmento.nome,
@@ -214,18 +318,28 @@ def segmento_sem_preparo(segmento: Segmento, erro: str) -> list[ResultadoDoPasso
 # ================================================================================================
 # Saida (mascarada)
 # ================================================================================================
-def como_json(resultados: Sequence[ResultadoDoSegmento], sujeito: Sujeito) -> dict[str, Any]:
+def como_json(
+    resultados: Sequence[ResultadoDoSegmento],
+    sujeito: Sujeito,
+    *,
+    criterios: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """`criterios` (DL-0111): o "RESOLVEU?" declarado por segmento (`Segmento.resolveu`), por nome."""
+    criterios = criterios or {}
     m = Mascarador(sujeito)
-    passos_total = sum(len(s.passos) for s in resultados)
-    passos_ok = sum(1 for s in resultados for p in s.passos if p.passou)
-    return {
+    passos_total = sum(1 for s in resultados for p in s.passos if not p.pendente_de_contrato)
+    passos_ok = sum(1 for s in resultados for p in s.passos if p.passou and not p.pendente_de_contrato)
+    pendentes = sum(1 for s in resultados for p in s.passos if p.pendente_de_contrato)
+    dados: dict[str, Any] = {
         "roteiro_passou": all(s.passou for s in resultados),
         "passos": passos_total,
         "passos_aprovados": passos_ok,
+        **({"passos_pendentes_de_contrato": pendentes} if pendentes else {}),
         "segmentos": [
             {
                 "nome": s.nome,
                 "passou": s.passou,
+                **({"resolveu": criterios[s.nome]} if criterios.get(s.nome) else {}),
                 "erro_preparo": s.erro_preparo,
                 "falhas_de_acesso": s.falhas_de_acesso,
                 "passos": [
@@ -235,6 +349,7 @@ def como_json(resultados: Sequence[ResultadoDoSegmento], sujeito: Sujeito) -> di
                         "respostas": [{"agente": a, "texto": m.texto(t)} for a, t in p.respostas],
                         "escalacoes": p.escalacoes,
                         "passou": p.passou,
+                        **({"pendente_de_contrato": True} if p.pendente_de_contrato else {}),
                         "falhas": p.falhas,
                     }
                     for p in s.passos
@@ -243,6 +358,22 @@ def como_json(resultados: Sequence[ResultadoDoSegmento], sujeito: Sujeito) -> di
             for s in resultados
         ],
     }
+    # DL-0114: o relatorio NUNCA leva um codigo de barras. O mascarador ja' troca; isto e' o cinto: se algo
+    # escapar, o relatorio nao e' gravado.
+    if credencial_no_relatorio(dados):
+        raise RuntimeError("aceite: um codigo de barras escapou do mascaramento; relatorio nao gravado")
+    return dados
+
+
+def credencial_no_relatorio(dados: Any) -> bool:
+    """Ha' um codigo de barras (ou 20+ digitos) em algum texto do relatorio, ja' mascarado?"""
+    if isinstance(dados, str):
+        return bool(_CODIGO_DE_BARRAS.search(dados) or _DIGITOS_DE_CREDENCIAL.search(dados))
+    if isinstance(dados, dict):
+        return any(credencial_no_relatorio(v) for v in dados.values())
+    if isinstance(dados, list | tuple):
+        return any(credencial_no_relatorio(v) for v in dados)
+    return False
 
 
 def secao_do_relatorio(dados: dict[str, Any], roteiro: str) -> str:
@@ -250,11 +381,19 @@ def secao_do_relatorio(dados: dict[str, Any], roteiro: str) -> str:
         f"## Roteiro de aceite `{roteiro}`",
         "",
         f"- Resultado: **{'APROVADO' if dados['roteiro_passou'] else 'REPROVADO'}** "
-        f"({dados['passos_aprovados']}/{dados['passos']} passos)",
+        f"({dados['passos_aprovados']}/{dados['passos']} passos"
+        + (
+            f"; {dados['passos_pendentes_de_contrato']} pendentes dos contratos novos da AMH"
+            if dados.get("passos_pendentes_de_contrato")
+            else ""
+        )
+        + ")",
         "",
     ]
     for seg in dados["segmentos"]:
         linhas += [f"### Segmento {seg['nome']} — {'ok' if seg['passou'] else 'FALHOU'}", ""]
+        if seg.get("resolveu"):
+            linhas += [f"**RESOLVEU? {'SIM' if seg['passou'] else 'NAO'}** — {seg['resolveu']}", ""]
         if seg["erro_preparo"]:
             linhas += [f"Acesso nao concluiu: `{seg['erro_preparo']}`", ""]
         linhas += [f"Falha no fecho do acesso: {f}" for f in seg["falhas_de_acesso"]]
@@ -263,9 +402,12 @@ def secao_do_relatorio(dados: dict[str, Any], roteiro: str) -> str:
         linhas += ["| Passo | Mensagem | Resultado | Escalacao |", "|---|---|---|---|"]
         for p in seg["passos"]:
             motivos = ", ".join(str(e["motivo"]) for e in p["escalacoes"]) or "-"
-            linhas.append(
-                f"| {p['passo']} | {p['texto']} | {'ok' if p['passou'] else 'FALHOU'} | {motivos} |"
+            resultado = (
+                "pendente_de_contrato"
+                if p.get("pendente_de_contrato")
+                else ("ok" if p["passou"] else "FALHOU")
             )
+            linhas.append(f"| {p['passo']} | {p['texto']} | {resultado} | {motivos} |")
         linhas.append("")
         for p in seg["passos"]:
             if p["passou"]:
@@ -302,6 +444,23 @@ _PAR_COPARTICIPACAO_E_ANO: tuple[Passo, ...] = (
     ),
 )
 
+#: A carteirinha NUNCA traz o codigo inteiro, CNS, nome nem nascimento. O codigo inteiro tem 13+ digitos (a
+#: carteira tem 15; o CNS tambem). `\d{9,}` reprovava o NUMERO ANS DO PLANO (9 digitos, dado publico
+#: que o dono quer mostrar: aceite de 16/10/2026). O codigo so' pode aparecer MASCARADO
+#: (`*****NNNN`, conferido no `deve`).
+_CODIGO_INTEIRO_NAO_DEVE = (
+    r"\d{13,}",
+    r"\d(?:[ .-]?\d){14,}",  # o mesmo codigo com separadores
+    r"codigo: ?\d",  # o codigo sem mascara
+)
+_CARTEIRINHA_NAO_DEVE = (
+    *_CODIGO_INTEIRO_NAO_DEVE,
+    r"\bcns\b",
+    "nascimento",
+    r"nome:",
+    r"cpf",
+)
+
 DONO_V1: tuple[Segmento, ...] = (
     Segmento(
         "1-plano-e-cobranca",
@@ -325,7 +484,7 @@ DONO_V1: tuple[Segmento, ...] = (
             _p(
                 "Qual o número da minha carteirinha?",
                 deve=(r"\*{3,}\d{3,5}",),
-                nao_deve=(r"\d{9,}",),
+                nao_deve=_CODIGO_INTEIRO_NAO_DEVE,
             ),
             _p("Qual é o meu nome?", deve=("nao mostro",), escalacao=ESCALACAO_NENHUMA),
             _p(
@@ -636,7 +795,504 @@ TRIAGEM_V2: tuple[Segmento, ...] = (
     ),
 )
 
-ROTEIROS: dict[str, tuple[Segmento, ...]] = {"dono_v1": DONO_V1, "triagem_v2": TRIAGEM_V2}
+# ================================================================================================
+# Roteiro `cancelamento_v1` (DL-0111, chave MAEZO_CANCEL_PF_V1 ligada no ambiente)
+# ================================================================================================
+#: O protocolo do pedido (`cancelamento_pf.protocolo_do_cancelamento`), no texto sem acento e minusculo.
+_PROTOCOLO_CAN = r"protocolo:? can-[0-9a-f]{4}-[0-9a-f]{4}"
+#: O que NUNCA pode sair no pedido: dizer que ja' cancelou, ameaca, retencao, cobranca de multa.
+_NAO_PODE_NO_PEDIDO: tuple[str, ...] = (
+    r"(foi|esta|ficou|sera) cancelad",
+    "cancelamos",
+    "(multa|suspens|negativ)",
+    "(promocao|desconto|nao va embora)",
+)
+_PERGUNTA_UNICA = "sim, quero cancelar"
+
+#: O beneficiario do roteiro: TITULAR de plano INDIVIDUAL/FAMILIAR (nao o dono, cujo contrato e' de empresa).
+#: O `__main__` usa o primeiro beneficiario do roster que resolveu na AMH e NAO e' o dono — o roster deste
+#: roteiro e' montado com `roster_cancelamento_pf.sql` (so' titulares PF). NENHUM cancelamento real
+#: acontece: o interceptador finge SP-OP-CANCEL-001 e a limpeza confere o motor real no fim.
+SUJEITO_PF_TITULAR = "pf_titular"
+
+CANCELAMENTO_V1: tuple[Segmento, ...] = (
+    Segmento(
+        "1-titular-pf-pede-cancelamento",
+        (
+            _p(
+                "Quero cancelar o meu plano",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PERGUNTA_UNICA,),
+                nao_deve=(_PROTOCOLO_CAN, *_NAO_PODE_NO_PEDIDO),
+            ),
+            _p(
+                "Sim, quero cancelar",
+                agente="lucas",
+                escalacao="cancelamento",
+                deve=(
+                    "recebemos o seu pedido de cancelamento",
+                    _PROTOCOLO_CAN,
+                    "concluir o pedido",
+                    "confirmacao",
+                ),
+                nao_deve=_NAO_PODE_NO_PEDIDO,
+            ),
+            # Pedido repetido: a mesma instancia (o mesmo protocolo), nenhum caso novo.
+            _p(
+                "Quero cancelar o meu plano",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PERGUNTA_UNICA,),
+                nao_deve=_NAO_PODE_NO_PEDIDO,
+            ),
+            _p(
+                "Sim, quero cancelar",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("ja esta com a nossa equipe", _PROTOCOLO_CAN),
+                nao_deve=_NAO_PODE_NO_PEDIDO,
+            ),
+        ),
+        resolveu=(
+            "o titular PF recebeu UMA pergunta de confirmacao e, confirmado, o recebimento com protocolo "
+            "(CAN-XXXX-XXXX) e o proximo passo (a equipe conclui e ele recebe a confirmacao); o pedido "
+            "repetido devolveu o mesmo caso; nenhum texto disse que o plano ja' foi cancelado, ameacou ou "
+            "tentou reter"
+        ),
+    ),
+    Segmento(
+        "2-titular-pf-desiste",
+        (
+            _p(
+                "Quero cancelar o meu plano",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PERGUNTA_UNICA,),
+                nao_deve=_NAO_PODE_NO_PEDIDO,
+            ),
+            _p(
+                "Não, deixa pra lá",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                # Nenhum pedido registrado + pode retomar quando quiser (texto da chave ligada:
+                # "nao registrei nenhum pedido ... Se mudar de ideia, e so me avisar").
+                deve=(r"nao (vou registrar|registrei)", r"(mudar de ideia|se precisar|quando quiser)"),
+                nao_deve=(_PROTOCOLO_CAN, *_NAO_PODE_NO_PEDIDO),
+            ),
+        ),
+        resolveu=(
+            "quem desistiu ouviu que nenhum pedido foi registrado e que pode retomar quando quiser; nao "
+            "abriu pedido nem recebeu protocolo, e a resposta veio do Lucas (nao da Helena)"
+        ),
+    ),
+)
+
+# ================================================================================================
+# Roteiro `helena_v4` (DL-0115, chave MAEZO_HELENA_V4 ligada no ambiente)
+# ================================================================================================
+# LICAO DO TESTE DE 15/10/2026 (nova triagem v2): o roteiro conferia "nao abriu caso", nao "RESOLVEU?". Cada
+# passo aqui confere o CONTEUDO util esperado (`deve`) e o que nao pode aparecer (`nao_deve`), e cada
+# segmento declara o criterio em `resolveu`.
+#: Nenhuma promessa de cobertura em nenhum passo.
+_COBERTURA_PROMETIDA = r"(esta coberto|cobre sim|cobertura garantida|com certeza|tem cobertura)"
+#: O especialista: a Helena NAO pesquisa nem agenda — nada de nome de medico, clinica, endereco ou telefone.
+_PESQUISOU_ESPECIALISTA = (
+    r"(dr\.|dra\.|doutor|doutora|clinica [a-z]|hospital [a-z]|rua |avenida|encontrei|encontramos"
+    r"|agendei|marquei sua consulta|\(\d{2}\) ?\d)"
+)
+#: O especialista recebe onde marcar (aplicativo, portal e central), o prazo da ANS e a oferta de pessoa.
+_ONDE_MARCAR = (
+    "aplicativo austa clinicas",
+    "portal do plano",
+    "central de atendimento do plano",
+    "nao pesquiso especialistas",
+    "uma pessoa da equipe",
+)
+
+HELENA_V4: tuple[Segmento, ...] = (
+    Segmento(
+        "1-especialista-cardiologista",
+        (
+            _p(
+                "Preciso consultar com um cardiologista",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("consulta com cardiologista", *_ONDE_MARCAR, r"14 dias uteis"),
+                nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _SEM_CONDUTA, _ENCAMINHOU),
+            ),
+        ),
+        resolveu=(
+            "a pessoa que pediu cardiologista ouviu onde marcar (aplicativo Austa Clinicas, portal do plano "
+            "ou central), o prazo da ANS (14 dias uteis, RASCUNHO a confirmar pelo juridico) e que pode "
+            "falar com "
+            "uma pessoa; a Helena disse que nao pesquisa nem agenda, nao prometeu cobertura, nao citou nome "
+            "de medico/clinica e nao abriu caso"
+        ),
+    ),
+    Segmento(
+        "2-especialista-dermatologista",
+        (
+            _p(
+                "Onde tem dermatologista pelo plano?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("consulta com dermatologista", *_ONDE_MARCAR, r"14 dias uteis"),
+                nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _SEM_CONDUTA, _ENCAMINHOU),
+            ),
+        ),
+        resolveu=(
+            "a pergunta 'onde tem' recebeu onde marcar e o prazo, SEM lista de clinicas, endereco ou nome: a "
+            "Helena nao pesquisa especialidade neste canal"
+        ),
+    ),
+    Segmento(
+        "3-especialista-pergunta-de-cobertura-da-consulta",
+        (
+            _p(
+                "Meu plano cobre consulta com endocrinologista?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(
+                    "consulta com endocrinologista",
+                    r"14 dias uteis",
+                    "(aplicativo|portal|central)",
+                    "nao consigo confirmar cobertura",
+                ),
+                nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _ENCAMINHOU),
+            ),
+        ),
+        resolveu=(
+            "a pergunta de cobertura da consulta recebeu onde marcar e o prazo, e a frase de que a cobertura "
+            "se confirma na central ou com uma pessoa; nenhuma promessa de cobertura"
+        ),
+    ),
+    # O limite do especialista: cobertura de PROCEDIMENTO segue o caminho de hoje (nao e' consulta).
+    Segmento(
+        "4-cobertura-de-exame-nao-e-especialista",
+        (
+            _p(
+                "Meu plano cobre ressonância?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("(central|aplicativo|portal|pessoa da equipe)",),
+                nao_deve=(_COBERTURA_PROMETIDA, r"14 dias uteis", "consulta de especialista"),
+            ),
+        ),
+        resolveu=(
+            "a pergunta de cobertura de exame NAO virou texto de especialista (sem prazo de 14 dias) e "
+            "continuou no caminho de cobertura: onde confirmar, sem promessa"
+        ),
+    ),
+    Segmento(
+        "5-carteirinha",
+        (
+            _p(
+                "Qual o número da minha carteirinha?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(
+                    r"codigo: \*{3,}\d{3,5}",
+                    "plano:",
+                    "segmentacao:",
+                    "vigencia:",
+                    "ans do plano:",
+                    "aplicativo austa clinicas",
+                    "portal do plano",
+                ),
+                nao_deve=_CARTEIRINHA_NAO_DEVE,
+            ),
+        ),
+        resolveu=(
+            "a carteirinha trouxe plano, segmentacao, vigencia e numero ANS, com o codigo MASCARADO, e "
+            "mandou o cartao completo para o aplicativo Austa Clinicas e o portal; nunca CNS, codigo "
+            "inteiro, nome nem "
+            "nascimento"
+        ),
+    ),
+    Segmento(
+        "6-sintoma-leve-nao-e-opcao-1",
+        (
+            _p(
+                "Estou com dor nas costas desde ontem",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(
+                    "entendi: dor nas costas desde ontem",
+                    "(dor no peito|falta de ar)",
+                    "responda sim ou nao",
+                ),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, r"(7|14) dias uteis", "o que voce esta sentindo"),
+            ),
+            _p(
+                "Não",
+                escalacao=ESCALACAO_NENHUMA,
+                primeira_frase_deve="^entendi: dor nas costas desde ontem",
+                deve=(
+                    "nao avalio sintomas, mas te ajudo com o caminho",
+                    r"1\) saber onde marcar consulta pelo plano",
+                    r"clinico geral ou pediatra: ate 7 dias uteis pela ans",
+                    r"2\) falar com a nossa equipe de saude",
+                    "se piorar, procure um pronto-atendimento",
+                    "ligue 192",
+                ),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA),
+            ),
+            _p(
+                "1",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("(aplicativo|portal|central)", r"7 dias uteis", "nao avalio sintomas", "192"),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA),
+            ),
+        ),
+        resolveu=(
+            "o sintoma leve recebeu SO' a pergunta de alerta, depois do 'nao' a resposta com o que a pessoa "
+            "disse ('dor nas costas desde ontem') e as opcoes 1/2 do dono com 192, e a opcao 1 mostrou como "
+            "marcar pelo plano (aplicativo/portal/central, 7 dias uteis) sem diagnostico e sem abrir caso"
+        ),
+    ),
+    Segmento(
+        "7-filho-com-tosse-opcao-2",
+        (
+            _p(
+                "Meu filho está com tosse",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("entendi: seu filho esta com tosse", "(respirar|sonolent)", "responda sim ou nao"),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, r"(7|14) dias uteis"),
+            ),
+            _p(
+                "Não",
+                escalacao=ESCALACAO_NENHUMA,
+                primeira_frase_deve="^entendi: seu filho esta com tosse",
+                deve=(r"1\) saber onde marcar", r"2\) falar com a nossa equipe de saude", "ligue 192"),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA),
+            ),
+            _p(
+                "2",
+                escalacao="intencao_clinica",
+                deve=("encaminhamos", "equipe de saude"),
+                nao_deve=(_SEM_CONDUTA,),
+            ),
+        ),
+        resolveu=(
+            "a queixa de uma crianca ('seu filho esta com tosse') recebeu a pergunta de alerta pediatrica, o "
+            "'nao' trouxe as opcoes e a opcao 2 abriu UM caso para a equipe de saude (o resumo sai so' com o "
+            "relato desta queixa, conferido no teste unitario)"
+        ),
+    ),
+    # "Sim" a pergunta de alerta escala como sempre.
+    Segmento(
+        "8-alerta-respondido-sim-escala",
+        (
+            _p("Estou com dor nas costas", escalacao=ESCALACAO_NENHUMA, deve=("responda sim ou nao",)),
+            _p("Sim", escalacao="red_flag_clinico", deve=("192",)),
+        ),
+        resolveu="o 'sim' a pergunta de alerta abriu o alerta clinico com a orientacao de emergencia (192)",
+    ),
+    # As travas de seguranca continuam ANTES da v4.
+    Segmento(
+        "9-alarme-direto-continua-escalando",
+        (_p("Estou com dor no peito", escalacao="red_flag_clinico", deve=("192",)),),
+        resolveu="dor no peito escalou na hora (tabela de alarme), sem pergunta nem opcao",
+    ),
+    Segmento(
+        "10-pedido-de-pessoa-continua-abrindo-caso",
+        (_p("Quero falar com uma pessoa", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),),
+        resolveu="o pedido de pessoa abriu o caso (RN 623/2024, art. 9, III), como sempre",
+    ),
+    Segmento(
+        "11-pedido-de-pessoa-no-meio-da-pergunta-de-alerta",
+        (
+            _p("Estou com dor de cabeça", escalacao=ESCALACAO_NENHUMA, deve=("responda sim ou nao",)),
+            _p(
+                "Quero falar com uma pessoa",
+                escalacao_um_de=("intencao_clinica", "solicitacao_humano"),
+                deve=(_ENCAMINHOU,),
+            ),
+        ),
+        resolveu="quem pede uma pessoa no meio das perguntas de alerta nao e' obrigado a responde-las",
+    ),
+)
+
+# ================================================================================================
+# Roteiros do Lucas v4 (DL-0114, chave MAEZO_LUCAS_V4 ligada no ambiente) — criterio "RESOLVEU?"
+# ================================================================================================
+#: Dinheiro no texto ("R$ 123"): proibido onde so' o pagador recebe valor e esperado para o pagador.
+_DINHEIRO = r"r\$ ?\d"
+_SEM_DINHEIRO = _DINHEIRO
+_RESPONSAVEL = "responsavel financeiro"
+#: O texto do PF que NAO e' o pagador (decisao do dono): o responsavel financeiro e' o titular, sem nome.
+_TEXTO_NAO_PAGADOR = (
+    "o responsavel financeiro pelo contrato e o titular do contrato",
+    "somente ele pode solicitar",
+)
+#: (a) O dono: beneficiario de plano EMPRESARIAL (CPF 42853296890, s000). Nenhum valor: e' o RH da empresa.
+LUCAS_V4: tuple[Segmento, ...] = (
+    Segmento(
+        "1-empresarial-mensalidade-vai-para-o-rh",
+        (
+            _p(
+                "Quanto está minha mensalidade?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("empresa contratante", "(rh|empresa)"),
+                nao_deve=(_SEM_DINHEIRO, _RESPONSAVEL, "titular do contrato"),
+            ),
+            _p(
+                "Qual o código de barras do meu boleto?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("(2a via|segunda via|boleto)", "empresa contratante", "(rh|empresa)"),
+                nao_deve=(_SEM_DINHEIRO, _RESPONSAVEL),
+            ),
+            _p(
+                "Quando vence a minha mensalidade?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("empresa contratante",),
+                nao_deve=(_SEM_DINHEIRO, _RESPONSAVEL),
+            ),
+        ),
+        resolveu=(
+            "o beneficiario de plano empresarial ouviu que a mensalidade, o vencimento e a 2a via sao com a "
+            "empresa contratante (normalmente o RH), SEM nenhum valor, vencimento ou codigo de barras; "
+            "nenhum "
+            "caso aberto, nenhum nome, nenhuma palavra proibida"
+        ),
+        rigor_v4=True,
+    ),
+)
+
+#: (b) PF PAGADOR (titular que paga o contrato) e (c) a 2a via. O sujeito e' o primeiro do roster PF que
+#: resolveu na AMH e NAO e' o dono (`SUJEITO_PF_TITULAR`). O passo do codigo de barras so' roda com o SINAL
+#: ligado (contratos novos da AMH pinados): sem ele sai `pendente_de_contrato` e o roteiro cobre o texto
+#: atual da 2a via.
+LUCAS_V4_PAGADOR: tuple[Segmento, ...] = (
+    Segmento(
+        "1-pagador-valor-total-primeiro",
+        (
+            _p(
+                "Quanto está minha mensalidade?",
+                agente="lucas",
+                condicao="sem_sinal",
+                escalacao=ESCALACAO_NENHUMA,
+                primeira_frase_deve="^o valor total da mensalidade de",
+                deve=("valor total da mensalidade", _DINHEIRO, "soma todos os beneficiarios"),
+                nao_deve=("empresa contratante", _RESPONSAVEL, "somente ele"),
+            ),
+            # Com os contratos novos: o total e, em seguida, o detalhe por beneficiario, SEM nome.
+            _p(
+                "Quanto está minha mensalidade?",
+                agente="lucas",
+                condicao="com_sinal",
+                escalacao=ESCALACAO_NENHUMA,
+                primeira_frase_deve="^o valor total da mensalidade de",
+                deve=(
+                    "valor total da mensalidade",
+                    "soma todos os beneficiarios",
+                    "(detalhe por beneficiario:|sai pelo aplicativo austa clinicas)",
+                ),
+                nao_deve=("empresa contratante", _RESPONSAVEL, "somente ele"),
+            ),
+        ),
+        resolveu=(
+            "o pagador ouviu PRIMEIRO o valor total da mensalidade (soma de todos os beneficiarios do "
+            "contrato) e "
+            "so' depois a parte dele; com os contratos novos, o detalhe por beneficiario sem nome "
+            "(titular/voce/dependente N: pre-estabelecido + coparticipacao = total); nenhum valor fora "
+            "dos fatos "
+            "do turno, nenhum nome, nenhuma palavra proibida"
+        ),
+        rigor_v4=True,
+    ),
+    Segmento(
+        "2-pagador-2a-via",
+        (
+            _p(
+                "Qual o código de barras do boleto?",
+                agente="lucas",
+                condicao="sem_sinal",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("(2a via|segunda via)", "aplicativo austa clinicas"),
+                nao_deve=(_RESPONSAVEL, "somente ele"),
+            ),
+            # `pendente_de_contrato` enquanto o contrato billing-segunda-via nao estiver pinado e ligado.
+            _p(
+                "Qual o código de barras do boleto?",
+                agente="lucas",
+                condicao="com_sinal",
+                espera_codigo=True,
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("codigo de barras", "pdf", "aplicativo austa clinicas"),
+                nao_deve=(_RESPONSAVEL, "somente ele", "nao encontrei"),
+            ),
+        ),
+        resolveu=(
+            "o pagador recebeu o CODIGO DE BARRAS do boleto em aberto (mes, valor e vencimento dos fatos) "
+            "e a "
+            "orientacao de baixar o PDF pelo aplicativo Austa Clinicas; o codigo nao aparece no "
+            "relatorio. Sem os "
+            "contratos novos: os canais da 2a via (texto atual), sem nenhum codigo"
+        ),
+        rigor_v4=True,
+    ),
+)
+
+#: PF que NAO e' o pagador (dependente ou nao responsavel financeiro): o roster do roteiro e' o de NAO
+#: pagadores (ver o runbook `lucas-v4`, "Como escolher o sujeito"). Nenhum valor, nenhum nome: so' a relacao.
+LUCAS_V4_NAO_PAGADOR: tuple[Segmento, ...] = (
+    Segmento(
+        "1-nao-pagador-so-o-responsavel-pede",
+        (
+            _p(
+                "Quanto está minha mensalidade?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=_TEXTO_NAO_PAGADOR,
+                nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
+            ),
+            _p(
+                "Qual o código de barras do boleto?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_RESPONSAVEL, "somente"),
+                nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
+            ),
+            _p(
+                "Quando vence a minha mensalidade?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_RESPONSAVEL, "somente"),
+                nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
+            ),
+            _p(
+                "A mensalidade de setembro foi paga?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_RESPONSAVEL, "somente"),
+                nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
+            ),
+        ),
+        resolveu=(
+            "quem nao e' o pagador ouviu que o responsavel financeiro pelo contrato e' o titular do "
+            "contrato e que "
+            "somente ele pode pedir (valor, vencimento, situacao e 2a via), SEM nenhum valor, nenhum nome "
+            "e sem "
+            "abrir caso"
+        ),
+        rigor_v4=True,
+    ),
+)
+
+ROTEIROS: dict[str, tuple[Segmento, ...]] = {
+    "dono_v1": DONO_V1,
+    "triagem_v2": TRIAGEM_V2,
+    "cancelamento_v1": CANCELAMENTO_V1,
+    "helena_v4": HELENA_V4,
+    "lucas_v4": LUCAS_V4,
+    "lucas_v4_pagador": LUCAS_V4_PAGADOR,
+    "lucas_v4_nao_pagador": LUCAS_V4_NAO_PAGADOR,
+}
+#: Quem conversa em cada roteiro. Ausente = o dono (primeira linha do roster), como sempre.
+SUJEITO_DO_ROTEIRO: dict[str, str] = {
+    "cancelamento_v1": SUJEITO_PF_TITULAR,
+    "lucas_v4_pagador": SUJEITO_PF_TITULAR,
+    "lucas_v4_nao_pagador": SUJEITO_PF_TITULAR,
+}
 
 
 def validar(roteiro: Sequence[Segmento]) -> None:
@@ -689,7 +1345,16 @@ def conferir_apresentacao(turnos: Sequence[Turno]) -> list[str]:
 
 
 __all__ = [
+    "CANCELAMENTO_V1",
+    "LUCAS_V4",
+    "LUCAS_V4_NAO_PAGADOR",
+    "LUCAS_V4_PAGADOR",
+    "avaliar_rigor_v4",
+    "credencial_no_relatorio",
+    "SUJEITO_DO_ROTEIRO",
+    "SUJEITO_PF_TITULAR",
     "DONO_V1",
+    "HELENA_V4",
     "TRIAGEM_V2",
     "ESCALACAO_NENHUMA",
     "NAO_DEVE_CONDICIONAL",

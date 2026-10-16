@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Renova o material staff/human do portal nativo em DEV (N2: 14 dias), sem mudar o desenho.
 
-Runbook: `docs/runbooks/renovar-material-staff-dev.md`. Plano: `docs/plans/portal-autoridade-nativa-dev.md`
-(Ondas 4-10, emenda N1 de 25/09 e D-L). A delegacao N1 vale SO em dev: o agente usa a raiz
+Runbook: `docs/runbooks/material-staff-na-aws.md` (DL-0113: tudo na AWS, sem Docker no notebook; a task
+`staff-material` monta o diretorio dos segredos vivos e chama `gerar`; `publicar --s3` le a saida do S3).
+Os passos de banco, applies e verificacao seguem `docs/runbooks/renovar-material-staff-dev.md`.
+Plano: `docs/plans/portal-autoridade-nativa-dev.md` (Ondas 4-10, emenda N1 de 25/09 e D-L). A delegacao N1 vale SO em dev: o agente usa a raiz
 `installation-root` do volume e assina designacao, admissoes e dono da atribuicao DENTRO do container.
 Producao exige aprovador humano.
 
@@ -148,20 +150,59 @@ def entrada_nativa(nativo: dict[str, str], *, inicio: str, fim: str, politica: s
     return canonicalize(valor)
 
 
-def trava_dev(designacao: dict[str, Any], raiz_der: bytes, pins_portal: str) -> None:
+def trava_dev(
+    designacao: dict[str, Any],
+    raiz_der: bytes,
+    pins_portal: str,
+    *,
+    nova_raiz_sha256: str | None = None,
+) -> None:
     """Fail-closed: a delegacao N1 (o agente assina com a raiz) so vale em DEV, tenant amh, com a raiz
     que o portal de dev pina (`root_key_sha256` de `portal.auto.tfvars`). Qualquer outra coisa aborta
-    ANTES de abrir a chave privada."""
+    ANTES de abrir a chave privada.
+
+    Troca de ancora (DL-0113, aprovada pelo dono em 15/10/2026, so dev): com `nova_raiz_sha256` o pin do
+    Terraform AINDA e o da raiz antiga, entao a trava compara a raiz carregada com o hash que o dono
+    aprovou explicitamente (impresso pela `raiz-gerar`). O escopo dev/amh continua obrigatorio."""
     import re
 
     escopo = designacao.get("scope") or {}
     if escopo.get("environment") != "dev" or escopo.get("tenant") != "amh":
         raise SystemExit("recusado: a renovacao delegada (N1) so roda em dev/amh")
+    if nova_raiz_sha256 is not None:
+        if not re.fullmatch(r"[0-9a-f]{64}", nova_raiz_sha256):
+            raise SystemExit("recusado: --nova-raiz-sha256 nao e um SHA-256 hex")
+        if sha(raiz_der) != nova_raiz_sha256:
+            raise SystemExit("recusado: a raiz carregada nao e a que o dono aprovou (--nova-raiz-sha256)")
+        return
     pins = re.findall(r'^\s*root_key_sha256\s*=\s*"([0-9a-f]{64})"', pins_portal, re.MULTILINE)
     if len(pins) != 1:
         raise SystemExit("recusado: portal.auto.tfvars sem exatamente um root_key_sha256")
     if sha(raiz_der) != pins[0]:
         raise SystemExit("recusado: a raiz do volume nao e a que o portal de dev pina")
+
+
+class _Conexao:
+    """Os dois `ConnectionSpec` que o `assemble` le do spec do generate, vindos do manifesto vivo."""
+
+    def __init__(self, wire: dict[str, Any]) -> None:
+        self._wire = wire
+        self.login = wire["login"]
+
+    def validated(self, _ca_file: str) -> _Conexao:
+        return self
+
+    def wire(self) -> dict[str, Any]:
+        return dict(self._wire)
+
+
+class _SpecDosSegredos:
+    """Substitui `load_spec(spec.r2.json)` (so no volume local): o `assemble` usa so as duas conexoes."""
+
+    def __init__(self, bruto: bytes) -> None:
+        dados = json.loads(bruto)
+        self.session_lock_connection = _Conexao(dados["session_lock"])
+        self.native_witness_connection = _Conexao(dados["native_witness"])
 
 
 def renovar_syn(syn: dict[str, Any], nativo: dict[str, str]) -> dict[str, Any]:
@@ -215,12 +256,19 @@ def gerar(args: argparse.Namespace) -> int:
     resumo: dict[str, Any] = {"janela": [inicio, fim]}
 
     raiz_der = (args.approver / "root/installation-root.der").read_bytes()
-    trava_dev(ler("designation.json"), raiz_der, (args.repo / PINS_PORTAL).read_text(encoding="utf-8"))
+    nova_raiz = getattr(args, "nova_raiz_sha256", None)
+    pins_texto = "" if nova_raiz else (args.repo / PINS_PORTAL).read_text(encoding="utf-8")
+    trava_dev(ler("designation.json"), raiz_der, pins_texto, nova_raiz_sha256=nova_raiz)
     resumo["root_key_sha256"] = sha(raiz_der)
+    arquivo_senha = args.approver / "root-passphrase.txt"
     raiz = approver.load_root(
         args.approver / "root/installation-root-key.pem",
-        approver._passphrase(args.approver / "root-passphrase.txt"),
+        approver._passphrase(arquivo_senha) if arquivo_senha.is_file() else None,
     )
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    if raiz.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo) != raiz_der:
+        raise SystemExit("recusado: a chave privada da raiz nao corresponde ao installation-root.der")
 
     out = new_private_directory(args.out)
     pub, sec = subdirectory(out, "public"), subdirectory(out, "ops-secrets")
@@ -321,6 +369,9 @@ def gerar(args: argparse.Namespace) -> int:
             nativo.setdefault(nome, valor)
     nativo["staff-issuer/designation.json"] = b64(desig_raw)
     nativo["staff-issuer/installation-proof.json"] = b64(prova)
+    # O sidecar do emissor verifica a prova da designacao contra ESTE arquivo (`run_round`): com raiz
+    # nova ele nao pode continuar com o da copia anterior (DL-0113). Com a mesma raiz e no-op.
+    nativo["staff-issuer/installation-root.der"] = b64(raiz_der)
     comp_ant = base64.b64decode(nativo_ant["staff-issuer/composition.json"])
     comp = json.loads(comp_ant)
     comp["designation_digest"] = desig
@@ -350,12 +401,18 @@ def gerar(args: argparse.Namespace) -> int:
         )
     )
     publico("assemble-input.json", ent_raw)
+    if args.generate_spec is not None:
+        spec_generate: Any = load_spec(args.generate_spec.read_bytes())
+    elif getattr(args, "conexoes", None) is not None:
+        spec_generate = _SpecDosSegredos(args.conexoes.read_bytes())
+    else:
+        raise SystemExit("informe --generate-spec ou --conexoes")
     portal, aprov_arquivos, gsum = read_directories(materiais, aprov)
     manifesto, staff = assemble(
         portal,
         aprov_arquivos,
         gsum,
-        load_spec(args.generate_spec.read_bytes()),
+        spec_generate,
         load_assemble(ent_raw),
         designation=desig_raw,
     )
@@ -368,6 +425,8 @@ def gerar(args: argparse.Namespace) -> int:
         staff_public_manifest_sha256=digest(manifesto),
         staff_designation_sha256=desig,
         staff_native_configuration_sha256=config,
+        # Troca de raiz (DL-0113): o pin do verify e o da raiz que assinou (no-op com a mesma).
+        staff_root_key_sha256=sha(raiz_der),
     )
     pins_raw = json.dumps(pins).encode()
     publico("approver-pins.json", pins_raw)
@@ -378,6 +437,9 @@ def gerar(args: argparse.Namespace) -> int:
     # 8. admissao Q2 N+1 (mesmo catalogo, trust e janela novos)
     job_ant = segredo("job.json")
     catalogo = base64.b64decode(job_ant["job/task-catalog.json"])
+    catalogo_novo = getattr(args, "catalogo", None)
+    if catalogo_novo is not None:
+        catalogo = catalogo_novo.read_bytes()
     reg = json.loads(base64.b64decode(job_ant["job/task-admission.json"]))
     reg.update(
         admission_revision=str(int(reg["admission_revision"]) + 1),
@@ -385,6 +447,14 @@ def gerar(args: argparse.Namespace) -> int:
         not_before=inicio,
         valid_until=fim,
     )
+    if catalogo_novo is not None:
+        reg["catalog"] = dict(reg["catalog"], catalog_digest=sha(catalogo))
+    entradas_novas = getattr(args, "entradas_humanas", None)
+    if entradas_novas is not None:
+        extra = json.loads(entradas_novas.read_bytes())
+        if not isinstance(extra, list) or not extra:
+            raise SystemExit("--entradas-humanas: esperado uma lista nao vazia de entradas `human`")
+        reg["human"] = dict(reg["human"], entries=[*reg["human"]["entries"], *extra])
     reg["continuity_keys"] = [dict(k, not_before=inicio, not_after=fim) for k in reg["continuity_keys"]]
     if reg["continuity_keys"][0]["commitment"] != nsum["continuity"]["commitment"]:
         raise SystemExit("commitment de continuidade mudou: a admissao nao descreve o segredo nativo")
@@ -435,6 +505,8 @@ def gerar(args: argparse.Namespace) -> int:
     job = {k: v for k, v in job_ant.items() if k.startswith("job/")}
     job["job/config.json"] = b64(jcs_ou_dumps(cfg_ant, cfg))
     job["job/task-admission.json"] = b64(reg_raw)
+    if catalogo_novo is not None:
+        job["job/task-catalog.json"] = b64(catalogo)
     job.update(humano)
     if set(job) != set(job_ant):
         raise SystemExit("conjunto de arquivos do segredo do job mudou")
@@ -443,6 +515,7 @@ def gerar(args: argparse.Namespace) -> int:
     # 12. segredo de linhas (designacao N+1, admissao N+1, instalacao da atribuicao)
     linhas = segredo("rows.json")
     linhas.update(
+        root_public_key_b64=b64(raiz_der),  # o `rows` verifica prova e admissao contra ESTA raiz
         designation_revision=int(resumo["designation_revision"]),
         designation_b64=b64(desig_raw),
         designation_sha256=desig,
@@ -474,17 +547,38 @@ def gerar(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ler_saida(args: argparse.Namespace) -> tuple[dict[str, Any], Any]:
+    """(resumo, leitor `nome -> bytes`): do diretorio montado (`--out`) ou do S3 de estado (`--s3`).
+
+    Do S3 nada vai para disco: os bytes ficam em memoria e seguem direto para o `put_secret_value`."""
+    if args.s3 is None:
+        resumo = json.loads((args.out / "public/resumo.json").read_bytes())
+        return resumo, lambda nome: (args.out / "ops-secrets" / nome).read_bytes()
+    import boto3
+
+    if not args.s3.startswith("s3://") or args.s3.count("/") < 3:
+        raise SystemExit("--s3: esperado s3://<bucket>/<prefixo-da-saida>/")
+    bucket, _, prefixo = args.s3.removeprefix("s3://").partition("/")
+    prefixo = prefixo.rstrip("/")
+    cliente = boto3.client("s3", region_name="sa-east-1")
+
+    def ler(chave: str) -> bytes:
+        return bytes(cliente.get_object(Bucket=bucket, Key=f"{prefixo}/{chave}")["Body"].read())
+
+    return json.loads(ler("public/resumo.json")), lambda nome: ler(f"ops-secrets/{nome}")
+
+
 def publicar(args: argparse.Namespace) -> int:
     import boto3
 
-    resumo = json.loads((args.out / "public/resumo.json").read_bytes())
+    resumo, ler = _ler_saida(args)
     tokens = {
         "staff-materials.json": resumo["staff_material_version_id"],
         "portal-human.json": resumo["human_material_version_id"],
     }
     sm = boto3.client("secretsmanager", region_name="sa-east-1")
     for nome in args.nomes:
-        corpo = (args.out / "ops-secrets" / nome).read_bytes()
+        corpo = ler(nome)
         texto = corpo.decode("utf-8")
         resp = sm.put_secret_value(
             SecretId=SEGREDOS[nome],
@@ -510,13 +604,28 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--anterior", type=Path, required=True, help="estado/ da renovacao anterior")
     g.add_argument("--materials", type=Path, default=Path("/m/materials"), help="saida do generate (Onda 2)")
     g.add_argument("--approver", type=Path, default=Path("/m/approver"), help="raiz installation-root (dev)")
-    g.add_argument("--generate-spec", type=Path, required=True, help="spec do generate (conexoes)")
+    g.add_argument("--generate-spec", type=Path, default=None, help="spec do generate (conexoes)")
+    g.add_argument("--conexoes", type=Path, default=None, help="conexoes-staff.json (de `restaurar`)")
     g.add_argument("--assignment-source", type=Path, required=True, help="assignment-source.json publico")
     g.add_argument("--sufixo", required=True, help="AAAAMMDD dos key_id humanos novos")
     g.add_argument("--out", type=Path, required=True, help="diretorio NOVO no volume")
     g.add_argument("--repo", type=Path, default=Path("/repo"), help="checkout (le o pin da raiz)")
+    g.add_argument(
+        "--nova-raiz-sha256",
+        default=None,
+        help="TROCA DE ANCORA (DL-0113): SHA-256 da raiz que o dono aprovou; dispensa o pin do Terraform",
+    )
+    g.add_argument("--catalogo", type=Path, default=None, help="job/task-catalog.json novo (troca o vivo)")
+    g.add_argument(
+        "--entradas-humanas",
+        type=Path,
+        default=None,
+        help="JSON: lista de entradas `human` a acrescentar na admissao (ex.: as do cancelamento)",
+    )
     s = cmds.add_parser("publicar")
-    s.add_argument("--out", type=Path, required=True, help="monte SO ops-secrets/ e public/ da saida")
+    src = s.add_mutually_exclusive_group(required=True)
+    src.add_argument("--out", type=Path, help="monte SO ops-secrets/ e public/ da saida")
+    src.add_argument("--s3", help="s3://<bucket>/<prefixo-da-saida>/ gerado pela tarefa `staff-material`")
     s.add_argument("nomes", nargs="+", choices=sorted(SEGREDOS))
     args = p.parse_args(argv)
     return gerar(args) if args.cmd == "gerar" else publicar(args)

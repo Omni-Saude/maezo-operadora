@@ -184,6 +184,7 @@ async def test_o_0_2_0_continua_rejeitando_campo_novo_na_resposta() -> None:
 def test_lock_sem_o_bloco_v1_6_o_0_3_0_recusa(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     lock = json.loads((REPO_ROOT / CONTRACT_PIN_RELATIVE_PATH).read_text(encoding="utf-8"))
     lock.pop(V1_6_LOCK_KEY)
+    lock.pop("manifest_v1_10")  # o v1.10 tem o v1.6 como predecessor
     sem_v1_6 = tmp_path / "contracts.lock.json"
     sem_v1_6.write_text(json.dumps(lock), encoding="utf-8")
     pin = load_contract_pin(sem_v1_6)

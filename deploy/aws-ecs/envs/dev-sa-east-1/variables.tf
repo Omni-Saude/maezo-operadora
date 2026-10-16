@@ -789,6 +789,20 @@ variable "helena_triagem_v2" {
   nullable    = false
 }
 
+variable "helena_v4" {
+  description = <<-EOT
+    Helena v4 (DL-0115, 16/10/2026): `MAEZO_HELENA_V4`. Default `false` = a Helena de antes, byte a byte.
+    Ligada, o especialista (cardiologista, dermatologista...) e a carteirinha recebem texto fixo (onde marcar,
+    prazo da ANS, dados mascarados) e o sintoma leve recebe so' perguntas de alerta antes do caminho. Com ela
+    ligada a nova triagem (`helena_triagem_v2`) fica inerte. EXPERIMENTO SO' EM DEV: conteudo clinico DRAFT
+    (medico-auditor pendente) e prazo de 14 dias uteis a confirmar pelo juridico.
+    Runbook: docs/runbooks/helena-v4.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "helena_consultas_amh" {
   description = <<-EOT
     Fatos do plano na Helena pelo contrato TINA da AMH (decisao do dono de 07/10/2026):
@@ -851,6 +865,54 @@ variable "lucas_consulta_valores" {
   validation {
     condition     = !var.lucas_consulta_valores || (var.acesso_beneficiario && var.lucas_fonte_cobranca == "amh")
     error_message = "lucas_consulta_valores exige acesso_beneficiario = true e lucas_fonte_cobranca = \"amh\" (valor so' para beneficiario verificado)."
+  }
+}
+
+variable "cancel_pf_v1" {
+  description = <<-EOT
+    Cancelamento a pedido do beneficiario PESSOA FISICA (DL-0111, SP-OP-CANCEL-001 v0.2.0):
+    `MAEZO_CANCEL_PF_V1`. Default `false` = o Lucas de antes, byte a byte (o pedido abre o processo com
+    fatos `false` e tudo vai a analise humana). Ligada, o Lucas le' os fatos nos contratos AMH ja' pinados
+    (TINA elegibilidade + billing-status), dependente nao abre o processo, o titular PF abre com os fatos
+    reais e recebe o protocolo, e o processo devolve o resultado pela retomada. Aprovado pelo dono em
+    15/10/2026 SO' para dev; revisao juridica/regulatoria, DPO e operacao antes de producao. Exige
+    `lucas_fonte_cobranca = "amh"` (validado aqui). Runbook: docs/runbooks/cancel-001-pf.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.cancel_pf_v1 || var.lucas_fonte_cobranca == "amh"
+    error_message = "cancel_pf_v1 exige lucas_fonte_cobranca = \"amh\" (os fatos do cancelamento vem dos contratos da AMH)."
+  }
+}
+
+variable "lucas_v4" {
+  description = <<-EOT
+    Lucas do catalogo v4 (DL-0114, aprovado pelo dono em 16/10/2026 SO' para dev; revisao juridica e do DPO antes
+    de producao): `MAEZO_LUCAS_V4`. Default `false` = o Lucas de antes, byte a byte. Ligada: so' o pagador PF
+    recebe valores e 2a via; o PF que nao e' o pagador ouve que o responsavel financeiro do contrato (sem nome)
+    e' quem pode pedir; o pagador ouve o valor TOTAL da mensalidade primeiro; plano de empresa segue para o RH.
+    O detalhamento por beneficiario e o codigo de barras da 2a via so' ligam quando os contratos novos da AMH
+    (billing-status 0.4.0 e billing-segunda-via) estiverem publicados e pinados (segundo sinal no codigo). Exige
+    `lucas_consulta_valores = true` (validado aqui e no boot). Runbook: docs/runbooks/lucas-v4.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.lucas_v4 || var.lucas_consulta_valores
+    error_message = "lucas_v4 exige lucas_consulta_valores = true (sem os fatos de valor nao ha' como saber quem e' o pagador)."
+  }
+
+  # Achado do aceite de 16/10/2026: sem o billing-status 0.3.0 (`beneficiario_e_pagador`) o Lucas nao tem como
+  # afirmar quem e' o pagador. O codigo FALHA FECHADO (nao mostra valor), mas a chave ligada sem o 0.3.0 so'
+  # entrega a negativa: recusar aqui evita ligar a v4 "pela metade".
+  validation {
+    condition     = !var.lucas_v4 || var.amh_billing_status_contratacao_openapi_path != ""
+    error_message = "lucas_v4 exige amh_billing_status_contratacao_openapi_path (billing-status 0.3.0: beneficiario_e_pagador e valor_boleto_pagador)."
   }
 }
 

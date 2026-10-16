@@ -255,11 +255,23 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
             raise RuntimeError("simulador: o acesso do beneficiario nao esta' ligado neste ambiente")
         roster_chave = args.roster or await roster_mais_recente(armazenamento)
         lidos = ler_roster_csv(await armazenamento.ler(roster_chave))
-        sujeitos, descartados = await preflight(lidos, composicao.resolver, limite=1)
-        if not sujeitos or not sujeitos[0].dono:
-            raise RuntimeError("simulador: o dono (primeira linha do roster) nao resolveu na AMH")
-        dono = sujeitos[0]
-        autorizar_consentimento(composicao, frozenset({dono.ref} if dono.ref else ()))
+        alvo = aceite.SUJEITO_DO_ROTEIRO.get(args.roteiro, "dono")
+        if alvo == aceite.SUJEITO_PF_TITULAR:
+            # DL-0111 (`cancelamento_v1`): o beneficiario e' o primeiro do roster que resolveu na AMH e NAO e'
+            # o dono (contrato de empresa). O roster deste roteiro e' o de titulares PF
+            # (`roster_cancelamento_pf.sql`). Terceiro: o consentimento NAO e' gravado na AMH (somente
+            # leitura) e nenhum cancelamento real acontece (interceptador + conferencia do motor no fim).
+            sujeitos, descartados = await preflight(lidos, composicao.resolver, limite=2)
+            terceiros = [s for s in sujeitos if not s.dono]
+            if not terceiros:
+                raise RuntimeError("simulador: nenhum titular PF do roster resolveu na AMH")
+            dono = terceiros[0]
+        else:
+            sujeitos, descartados = await preflight(lidos, composicao.resolver, limite=1)
+            if not sujeitos or not sujeitos[0].dono:
+                raise RuntimeError("simulador: o dono (primeira linha do roster) nao resolveu na AMH")
+            dono = sujeitos[0]
+            autorizar_consentimento(composicao, frozenset({dono.ref} if dono.ref else ()))
         condutor = Condutor(
             dispatcher=composicao.dispatcher,
             beneficiario=BeneficiarioLLM(
@@ -314,7 +326,13 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
                 async def enviar(texto: str, _c: Conversa = conversa, _p: PlanoDeConversa = plano) -> Turno:
                     return await condutor.enviar_texto(_c, _p, texto)
 
-                resultado.passos = await aceite.executar_passos(segmento, enviar)
+                resultado.passos = await aceite.executar_passos(
+                    segmento,
+                    enviar,
+                    sujeito=dono,
+                    # DL-0114: o SINAL do Lucas v4 (contratos novos da AMH pinados e fonte v4 montada).
+                    sinal_v4=getattr(composicao.estado.lucas_turno, "fonte_v4", None) is not None,
+                )
             resultados.append(resultado)
             # limpeza da conversa que acabou, ANTES do proximo segmento
             parcial = await limpeza.limpar_execucao([cid])
@@ -328,7 +346,9 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
     try:
         if dono is None:
             raise RuntimeError("simulador: roteiro sem dono")
-        dados = aceite.como_json(resultados, dono)
+        dados = aceite.como_json(
+            resultados, dono, criterios={s.nome: s.resolveu for s in roteiro if s.resolveu}
+        )
         dados["limpeza"] = resultado_limpeza.como_dict() if resultado_limpeza else None
         await _gravar_json(armazenamento, run_id, "roteiro.json", dados)
         mascarador = Mascarador(dono)
@@ -463,7 +483,11 @@ async def executar(args: argparse.Namespace) -> int:
             )
         )
         avaliacoes = await _julgar(juiz, conversas, args.concorrencia)
-        triagem_v2 = getattr(composicao.estado.settings, "helena_triagem_v2", False) is True
+        # D13 (caso evitavel) vale com a nova triagem (v2) OU a Helena v4 ligada (DL-0104, DL-0115).
+        triagem_v2 = (
+            getattr(composicao.estado.settings, "helena_triagem_v2", False) is True
+            or getattr(composicao.estado.settings, "helena_v4", False) is True
+        )
         itens = [_item(c, avaliacoes.get(c.id), triagem_v2=triagem_v2) for c in conversas]
         execucao = checar_execucao(conversas, Limites(args.latencia_p95_max_s, args.taxa_falha_tecnica_max))
         dados = resumo(

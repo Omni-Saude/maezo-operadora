@@ -260,8 +260,8 @@ def test_all_43_actual_bpmn_tasks_have_closed_source_shapes_only() -> None:
                 (process.attrib["id"], task.attrib["id"]) for task in process.findall(".//b:userTask", ns)
             )
     assert tasks == set(_BINDINGS)
-    assert len(tasks) == 44  # VW4/GP11: +UT_RotearEncarregado (SP-OP-SUPP-001)
-    assert len(_INPUTS_BY_FORM) == 32  # VW4/GP11: +suppression_encarregado
+    assert len(tasks) == 46  # VW4/GP11: +UT_RotearEncarregado; DL-0111: +2 tarefas de execucao do CANCEL
+    assert len(_INPUTS_BY_FORM) == 33  # VW4/GP11: +suppression_encarregado; DL-0111: +cancel_execucao
     # Ratchet F7 (gate Tier-2 #691, re-gate #2): o catalogo FECHADO manda - nenhuma
     # forma/input pode existir fora de FormKey/AllowedInput (a evasao de catalogo que
     # este PR introduziu e o reparo F7 fecha, com guarda para nunca mais voltar).

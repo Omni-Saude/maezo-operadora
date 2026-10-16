@@ -228,3 +228,64 @@ class LucasRetomada:
         )
         self._emitir(desfecho, enviada=True)
         return {"desfecho": desfecho}
+
+    async def retomar_cancelamento(
+        self,
+        *,
+        conversation_id: str,
+        resultado: str,
+        protocolo: str,
+        data_efeito_iso: object,
+        raw_to: str,
+        resume_ref: str,
+    ) -> dict[str, Any]:
+        """DL-0111 (`MAEZO_CANCEL_PF_V1`): o RETORNO do pedido de cancelamento (SP-OP-CANCEL-001 v0.2.0).
+
+        Texto FIXO de `cancelamento_pf.texto_do_retorno` (aprovado pelo dono para dev em 15/10/2026; revisao
+        juridica antes de producao) — nenhum texto de atendente, nenhum modelo. O `ResumeHandler` ja' conferiu
+        no HISTORICO do motor que o fato aconteceu (EXECUTADO com data de efeito, SOLICITAR_INFO, MANTER):
+        por isso "Seu plano foi cancelado a partir de ..." pode sair aqui, e so' aqui — as cercas do grafo
+        (que barram essa frase em qualquer rota do Lucas) nao se aplicam a um fato registrado por humano.
+
+        Mesmo destino conferido e mesmo gate do principal `lucas` da `resume`. Chave de saida propria
+        (`lucas-cancel:{resume_ref}`, instancia + resultado): uma reentrega do evento nao reenvia. Levanta
+        `ValueError` (destino, ou fato que o texto afirmaria ausente) ANTES de qualquer envio e
+        `RetomadaDoLucasEnvioFalhouError` quando o envio falha (o offset nao anda).
+        """
+        from maezo.agents.lucas.cancelamento_pf import texto_do_retorno
+
+        phone_hash = self._conferir_destino(conversation_id, raw_to)
+        texto = texto_do_retorno(resultado, protocolo=protocolo, data_efeito_iso=data_efeito_iso)
+        inicio = time.monotonic()
+
+        from .dispatch import _ScopedWhatsAppSender
+
+        chave = self._dedup.outbound_key(f"lucas-cancel:{resume_ref}", occurrence=1)
+        remetente = gate_whatsapp(
+            _RemetenteDaRetomada(
+                inner=_ScopedWhatsAppSender(raw_to=raw_to, expected_hash=phone_hash, client=self._client),
+                chave=chave,
+            ),
+            self._seam_context,
+        )
+        try:
+            await remetente.send(phone_hash, texto, idempotency_key=chave)
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES as exc:
+            from maezo.platform.observability import record_agent_error
+
+            record_agent_error(agent=AGENT_ID, error_type=classify_agent_error_type(exc))
+            self._emitir(DESFECHO_RETOMADA_FALHA_ENVIO, enviada=False)
+            raise RetomadaDoLucasEnvioFalhouError(
+                f"lucas resume: falha ao enviar o retorno do cancelamento ({type(exc).__name__})"
+            ) from exc
+        logger.info(
+            "lucas_retorno_cancelamento_enviado",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            resultado=resultado,
+            ms=int((time.monotonic() - inicio) * 1000),
+        )
+        self._emitir(DESFECHO_RETOMADA_ENVIADA, enviada=True)
+        return {"desfecho": DESFECHO_RETOMADA_ENVIADA, "resultado": resultado}

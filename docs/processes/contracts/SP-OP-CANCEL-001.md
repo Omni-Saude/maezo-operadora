@@ -1,6 +1,10 @@
 # Contrato — SP-OP-CANCEL-001 (Cancelamento / Rescisao Contratual)
 
-**Status:** DRAFT (v0.1.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
+**Status:** DRAFT (v0.2.0) — `DRAFT — requires human review before any deploy` (docs/review-queue.md)
+**Aprovacao (v0.2.0):** aprovado pelo dono em 15/10/2026 para uso em dev (DL-0111, `docs/decisions-log.md`);
+revisao juridica/regulatoria (RN 593/RN 412), DPO e operacao antes de producao. A aprovacao cobre este
+contrato, o uso dos dados descrito em §Dados do beneficiario (v0.2.0) e o uso dos contratos de dados AMH ja
+pinados; nao e' sign-off de promocao (o contrato segue em rascunho, sem `signoffs/`).
 **Fase:** 2 (Wave C — WC.1) · **BPMN:** `spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn` (GAP-FAB-NOTIF fix: o nome anterior citado aqui, `..._Cancelamento_Contratual.bpmn`, nao existe — `ls spec/processes/bpmn/ | grep -i cancel` confirma o unico arquivo real; drift ja sinalizado em `docs/sme-dispatch/juridico/PACKAGE.md:139`)
 **Gatilho regulatorio:** RN 593/2023 (regras de cancelamento/rescisao e suspensao por inadimplencia — consolida/substitui RN 412/2016: **DRAFT/verify**), RN 412/2016 (cancelamento a pedido do beneficiario: **DRAFT/verify**), Lei 9.656/1998 art. 13 (rescisao unilateral / rol taxativo de hipoteses). **TODAS as citacoes e prazos sao DRAFT/verify <RN> com regulatorio/juridico antes de qualquer timer em producao.**
 
@@ -22,6 +26,19 @@ admissibilidade clerical (`cancel_admissibility`) e nunca produz, por automacao,
 *negativa do pedido* nem uma *rescisao pela operadora*. Qualquer ambiguidade (titularidade,
 notificacao previa pendente, vinculo coletivo/empresarial, retencao) -> `ANALISE_HUMANA`.
 
+**v0.2.0 — execucao HUMANA no cadastro (DL-0111).** O Maezo nao grava no Tasy (ADR-0013; TASY write
+DROP). Por isso `EFETIVAR_PEDIDO` (da DMN ou da decisao humana) NAO efetiva nada sozinho: ele cria a User
+Task de EXECUCAO `UT_ExecutarCancelamentoCadastro` (grupo `cadastro-beneficiarios`), com tudo para executar
+no Tasy (business key, identidade pseudonima do beneficiario, data do pedido e data de efeito). So' a
+conclusao dela com `execucao_cadastro=EXECUTADO` ("cancelamento executado no sistema") leva ao registro
+(`ST_EffectuateMemberRequest`, que grava `data_efeito_iso`), a `cancel.completed(cancelado_beneficiario)` e
+ao aviso ao beneficiario. `IMPEDIDO` — ou qualquer conclusao sem `EXECUTADO` (flow default) — volta para a
+analise humana (`UT_AnaliseRescisao`); nunca nega nem mantem por automacao. Prazo da execucao:
+`BT_PrazoExecucao` = `P5D` (**prazo a confirmar pelo juridico**), interruptivo, publica
+`cancel.sla_breached` (`fase=execucao_cadastro`) e a coordenacao (`UT_CoordenacaoExecucaoCadastro`,
+`coordenacao-contratos`) assume a MESMA execucao. A tarefa de execucao NAO e' decisao adversa: ela nao
+aparece entre os terminais adversos e o teste de invariante L0 continua o mesmo.
+
 ## Terminais humano-gated (no-denial — §4-bis-F)
 
 | End event | Natureza | So alcancavel via |
@@ -29,7 +46,7 @@ notificacao previa pendente, vinculo coletivo/empresarial, retencao) -> `ANALISE
 | `End_ContratoRescindido` | **ADVERSO** — rescisao unilateral pela operadora | `UT_AnaliseRescisao` (ou `UT_CoordenacaoCancelamento`) com `decisao_cancelamento=RESCINDIR` humano |
 | `End_PedidoCancelamentoNegado` | **ADVERSO** — negativa do pedido de cancelamento do beneficiario (ex.: titularidade nao comprovada, contrato coletivo cuja rescisao cabe ao estipulante) | `UT_AnaliseRescisao` com `decisao_cancelamento=MANTER` humano + guard `operadora.cancel.confirm_maintained_decision` (`ERR_CANCEL_MANTER_NOT_HUMAN`, GAP-CANCEL-3) |
 | `End_ContratoSuspenso` | **ADVERSO** — suspensao por inadimplencia (RN 593) | `UT_AnaliseRescisao` com `decisao_cancelamento=SUSPENDER` humano |
-| `End_CanceladoBeneficiario` | neutro — cancelamento a pedido efetivado (direito do titular) | caminho clerical L2 (DMN favoravel) OU User Task |
+| `End_CanceladoBeneficiario` | neutro — cancelamento a pedido efetivado (direito do titular) | v0.2.0: SO' depois de `UT_ExecutarCancelamentoCadastro` (ou `UT_CoordenacaoExecucaoCadastro`) concluida com `execucao_cadastro=EXECUTADO`; a origem continua o caminho clerical L2 (DMN favoravel) OU a decisao humana `EFETIVAR_PEDIDO` |
 | `End_ContratoMantido` | neutro — vinculo mantido | qualquer caminho (mesmo guard `confirm_maintained_decision` acima, mesma UT) |
 | `End_ManterNaoConfirmado` | neutro — confirmacao MANTER **barrada** pelo guard (nada registrado; espelha `End_FundamentacaoIncompletaBloqueada` de AUTH) | boundary `BE_ManterNaoConfirmado` captura `ERR_CANCEL_MANTER_NOT_HUMAN` lancado por `confirm_maintained_decision` (GAP-CANCEL-3) |
 
@@ -43,7 +60,10 @@ CANCEL-{tenant_id}-{numero_contrato}
 ```
 
 Variante por beneficiario (planos individuais/familiares onde a chave operacional e a
-matricula): `CANCEL-{tenant_id}-{matricula_beneficiario}`. Uma instancia ativa por
+matricula): `CANCEL-{tenant_id}-{matricula_beneficiario}`. v0.2.0: o Lucas nao recebe numero de
+contrato nem matricula crus da AMH (so' identificadores opacos — ver §Dados do beneficiario); a chave
+dele e' `CANCEL-{tenant_id}-{beneficiario_pseudo_id}`, pelo minter compartilhado
+(`tools/workers/base.py::mint_contract_business_key`). Uma instancia ativa por
 contrato/beneficiario; reenvio da mesma solicitacao retorna a instancia ativa
 (`mcp-cibseven.start_process` consulta a business key antes de iniciar — start idempotente,
 sem duplicar cancelamento/rescisao).
@@ -67,6 +87,26 @@ sem duplicar cancelamento/rescisao).
 | `data_solicitacao_iso` | string | sim | Data (YYYY-MM-DD) da solicitacao |
 | `documentos_refs` | json | sim | Referencias de anexos/comprovantes (pode ser vazio) |
 
+**Entradas acrescidas na v0.2.0 (DL-0111) — so' nas instancias abertas pelo Lucas com a chave
+`MAEZO_CANCEL_PF_V1` ligada; ausentes, o processo se comporta como antes:**
+
+| Variavel | Tipo | Obrigatoria | Descricao |
+|---|---|---|---|
+| `aviso_beneficiario_whatsapp` | boolean | nao | `true` liga os tres avisos ao beneficiario (`GW_Aviso*`). Ausente/`false` = calado (flow default) |
+| `conversation_id` | string | se aviso | Conversa keyed do WhatsApp (`wa:{tenant}:hk1_...`) — chave da retomada; nunca telefone |
+| `agent_id` | string | se aviso | `lucas` — o agente que retoma a conversa (consumidor `agent_resume`) |
+| `source_agent_id` / `source_agent_version` | string | nao | proveniencia do inicio (ADR-0007) |
+| `beneficiario_pseudo_id` | string | nao | pseudonimo do beneficiario (Zona Geral, ADR-0006) |
+
+Com a chave ligada o Lucas manda os fatos REAIS (apurados dos contratos AMH pinados, ver §Dados do
+beneficiario): `tipo_plano` (`individual` quando a AMH diz `individual_familiar` — a DMN trata
+`individual` e `familiar` igual; `""` quando nao da' para afirmar -> catch-all `ANALISE_HUMANA`),
+`titularidade_confirmada` (titular segundo a AMH E identidade verificada no acesso), `vinculo_ativo`
+(vinculo sem data de cancelamento e situacao apta/ativa), `dentro_prazo=true` (RN 412: o pedido pode ser
+feito a qualquer tempo — **a confirmar pelo juridico**), `notificacao_previa_feita=false` (nao se aplica ao
+pedido) e `data_solicitacao_iso` (hoje). Dependente nao inicia o processo (o pedido e' do titular).
+Desligada, os fatos seguem `false` e tudo cai em `ANALISE_HUMANA`, como na v0.1.0.
+
 ‡ **Nunca fabricado por worker** (GAP-INAD-8): `operadora.cancel.request_notification` (`dispatch_prior_notice`) retorna `{}` e nao afirma nada sobre a notificacao. O fato entra pelo payload do handoff de SP-OP-INADIMPLENCIA-001 (derivado da comprovacao humana) ou pela correlacao `msg.cancel.notification_ack` (GAP-CANCEL-4), e e normalizado com `is True` estrito por `validate_cancel` / `assess_admissibility` — ausente ou malformado ⇒ `false` ⇒ `PENDENTE_NOTIFICACAO` (espera nao adversa), nunca `SEGUE_ANALISE`.
 
 > Nota: `meses_inadimplencia` e `integer` (contagem). NUNCA `number`. Valores monetarios de
@@ -81,7 +121,8 @@ sem duplicar cancelamento/rescisao).
 | `referencia_regulatoria` | string | **Obrigatoria** se `RESCINDIR`/`SUSPENDER` (ex.: RN 593 — DRAFT/verify) |
 | `comprovacao_notificacao_previa` | string | **Obrigatoria** se `RESCINDIR`/`SUSPENDER` (referencia ao comprovante) |
 | `responsavel_id` | string | Id do humano que decidiu (cadeia de auditoria ADR-0007) — preenchido no complete da User Task |
-| `data_efeito_iso` | string | Data de efeito do desfecho (rescisao/cancelamento/suspensao) |
+| `data_efeito_iso` | string | Data de efeito do desfecho (rescisao/cancelamento/suspensao). v0.2.0: no cancelamento a pedido e' gravada por `ST_EffectuateMemberRequest` = `data_solicitacao_iso` (RN 412: efeito a partir do pedido — **a confirmar pelo juridico**) |
+| `execucao_cadastro` | string | v0.2.0: `EXECUTADO` \| `IMPEDIDO` (User Task `UT_ExecutarCancelamentoCadastro`/`UT_CoordenacaoExecucaoCadastro` — tarefa de EXECUCAO, nao de decisao). Qualquer outro valor/ausente = `IMPEDIDO` (volta a analise humana) |
 
 ## Topicos
 
@@ -93,6 +134,8 @@ Convencao `{dominio}.{contexto}.{acao}` (ADR-0016 portado). Contexto = `cancel`.
 | Kafka | `agents.events.cancel.pended` | produz | pendencia de notificacao previa / documentacao aberta |
 | Kafka | `agents.events.cancel.sla_breached` | produz | SLA de analise estourado |
 | Kafka | `agents.events.cancel.completed` | produz | fim (payload.desfecho = `rescindido_operadora` \| `cancelado_beneficiario` \| `mantido` \| `suspenso` \| `pedido_negado`) |
+| Kafka | `agents.events.cancel.sla_breached` (`fase=execucao_cadastro`) | produz | v0.2.0: prazo da execucao no cadastro estourado (`BT_PrazoExecucao`) |
+| Kafka | `agents.events.process_completed` | produz | v0.2.0, SO' com `aviso_beneficiario_whatsapp=true`: aviso ao beneficiario. Payload = `tenant_id`, `agent_id`, `conversation_id`, `resultado` (`cancelamento_executado` \| `cancelamento_info_solicitada` \| `cancelamento_mantido`) + `_business_key`/`_process_instance_id` do worker. Sem PHI; o texto e' fixo e sai do consumidor `agent_resume`, que confere o historico do motor antes de enviar. Falha de publicacao (`ERR_EVENT_PUBLISH_FAILED`) segue o caminho feliz (`BE_Aviso*Falhou`) |
 | External task | `operadora.events.publish` | consome (worker) | publicador generico de eventos de dominio (todos os SP-OP) |
 | External task | `operadora.cancel.resolve_facts` | consome (worker) | pre-resolve fatos clericais (prazo, notificacao previa, titularidade, vinculo, inadimplencia) — fatos, nunca decisao |
 | External task | `operadora.cancel.prepare_dossier` | consome (worker) | monta dossie de analise para a User Task (narrativa/montagem — sem decidir; alvo de delegacao a agente futuro) |
@@ -246,7 +289,8 @@ diretamente e ecoa no dossie; nenhum gateway ou worker downstream consome esta s
 |---|---|---|
 | `juridico-contratos` | Juridico/contratos | `UT_AnaliseRescisao` (**rescisao/negativa/suspensao SO aqui**) — `decisao_cancelamento ∈ {RESCINDIR, MANTER, SUSPENDER, EFETIVAR_PEDIDO, SOLICITAR_INFO}` |
 | `gestao-contratos` | Gestao de contratos | `UT_AnaliseRescisao` (co-candidate group para casos de pedido/efetivacao clerical revisada) |
-| `coordenacao-contratos` | Coordenacao de contratos | `UT_CoordenacaoCancelamento` (SLA de analise estourado — assume a decisao, que continua humana) |
+| `coordenacao-contratos` | Coordenacao de contratos | `UT_CoordenacaoCancelamento` (SLA de analise estourado — assume a decisao, que continua humana); v0.2.0: tambem `UT_CoordenacaoExecucaoCadastro` (prazo da execucao estourado) |
+| `cadastro-beneficiarios` | Cadastro de beneficiarios (NOVO, v0.2.0, so' dev — pessoas reais ficam para a operacao) | `UT_ExecutarCancelamentoCadastro` — executa no Tasy o cancelamento a pedido ja' reconhecido e conclui `EXECUTADO`/`IMPEDIDO`; nunca decide rescisao/negativa |
 
 Toda `<bpmn:userTask>` traz `camunda:candidateGroups` (gate D1). A decisao adversa NUNCA
 muda de natureza por estouro de SLA: `UT_CoordenacaoCancelamento` herda as mesmas regras de
@@ -258,6 +302,7 @@ campos obrigatorios de `UT_AnaliseRescisao`.
 |---|---|---|---|
 | Analise (`${cancel_sla.sla_analise}`, ex. P10D) | interruptivo -> `agents.events.cancel.sla_breached` + `UT_CoordenacaoCancelamento` assume | RN 593 — **DRAFT/verify** |
 | Alerta de risco (`${cancel_sla.sla_alerta}`, ~60-70%) | nao-interruptivo -> `operadora.cancel.notify_sla_risk` | politica interna — **DRAFT** |
+| Execucao no cadastro (`BT_PrazoExecucao`, `P5D`) | interruptivo -> `cancel.sla_breached(fase=execucao_cadastro)` + `UT_CoordenacaoExecucaoCadastro` assume | **prazo a confirmar pelo juridico** (v0.2.0) |
 | Notificacao previa (`${cancel_sla.prazo_notificacao_previa}`) | event gateway: `msg.cancel.notification_ack` **vs** timer -> `UT_AnaliseRescisao` (humano decide; expiracao NUNCA auto-rescinde) | RN 593 (notificacao/purga de inadimplencia) — **DRAFT/verify** |
 
 > O event gateway de notificacao previa **substitui/INVERTE** qualquer padrao de
@@ -278,6 +323,26 @@ campos obrigatorios de `UT_AnaliseRescisao`.
 > sem User Task humana, o worker recusa. O teste de invariante (parte 5) verifica que isto
 > nunca acontece consultando a history do engine.
 
+## Dados do beneficiario (v0.2.0 — DL-0111)
+
+O que o Lucas usa, todo de contratos AMH JA' pinados em `config/integrations/amh/contracts.lock.json`
+(nenhum campo novo foi pedido a AMH):
+
+- `billing-status` 0.3.0 (`billing-status-contratacao.openapi.yaml`): `resumo.tipo_contratacao`
+  (`individual_familiar` | `coletivo_empresarial` | `coletivo_adesao` | `desconhecido`) e `resumo.pagador_tipo`.
+- `tina` 0.1.0 (`/subjects/{ref}/elegibilidade`): por vinculo, `titular`, `tipo_contratacao` (texto do Tasy,
+  reserva), `cancelamento` (data), `situacao_beneficiario`/`situacao_contrato`; e `ativo`.
+- Identidade: `portable_subject_ref` opaco (resolvedor verificado do acesso do beneficiario, DL-0083).
+
+O que NAO chega: numero do contrato e matricula/carteirinha em claro (a AMH entrega a carteirinha
+mascarada). A instancia carrega so' o pseudonimo (`matricula_beneficiario` = `beneficiario_pseudo_id`, como na
+v0.1.0) — nunca um identificador cru no motor. **Lacuna (decisao do dono/AMH, nao implementada):** para a
+pessoa do cadastro achar o beneficiario no Tasy e' indispensavel uma rota NOVA da AMH, na Zona PHI e so' para
+staff (ex.: `GET /subjects/{portable_subject_ref}/identificacao-cadastro`, finalidade
+`execucao-cancelamento`: `numero_contrato`, `matricula`/`carteirinha` sem mascara, `titular`), e o Maezo gravar
+na instancia o `portable_subject_ref` opaco para o portal consulta-la. Ate' la', so' teste em dev com
+beneficiario de teste conhecido.
+
 ## Pendencias para promocao a FINAL
 
 - DI (diagrama BPMN);
@@ -296,4 +361,8 @@ campos obrigatorios de `UT_AnaliseRescisao`.
 - interacao com SP-OP-LGPD-DSR-001 (eliminacao de dados pos-rescisao vs retencao legal de
   prontuario — ja referenciado em LGPD-DSR §promocao a FINAL) e com a futura
   SP-OP-INADIMPLENCIA-001 (Phase 3);
-- politica de re-adesao / reativacao apos cancelamento a pedido.
+- politica de re-adesao / reativacao apos cancelamento a pedido;
+- v0.2.0: prazo real de `BT_PrazoExecucao` (hoje `P5D`, provisorio), `dentro_prazo=true` para todo pedido
+  (RN 412 — juridico), data de efeito = data do pedido (juridico), textos ao beneficiario (juridico), nomes
+  reais do grupo `cadastro-beneficiarios` e das pessoas (operacao), DPO sobre o uso dos dados de §Dados do
+  beneficiario; template aprovado da Meta para avisos fora da janela de 24h.

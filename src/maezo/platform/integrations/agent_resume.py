@@ -67,6 +67,17 @@ enviado: o turno registra `retomada_fora_da_janela` na telemetria e a equipe e' 
 caminho de notificacao existente (`escalation.notify_team` em `operadora.notifications.internal`,
 que o inbox de escalonamento ja' consome), para alguem contatar por outro canal.
 
+**Retorno do pedido de cancelamento (DL-0111, `MAEZO_CANCEL_PF_V1`).** SP-OP-CANCEL-001 v0.2.0 publica
+neste MESMO topico tres `resultado` proprios — `cancelamento_executado`, `cancelamento_info_solicitada`,
+`cancelamento_mantido` — SO' nas instancias que o Lucas abriu com a chave ligada
+(`aviso_beneficiario_whatsapp=true`). Chave `CANCEL-{tenant}-...` (nao a da conversa), `agent_id=lucas`, e o
+mesmo cruzamento com o historico: a instancia e' de SP-OP-CANCEL-001, a chave e a conversa batem, o aviso
+estava ligado e o historico registra o fato (`execucao_cadastro=EXECUTADO` com `data_efeito_iso`;
+`decisao_cancelamento=SOLICITAR_INFO`/`MANTER`). O texto e' FIXO (`agents/lucas/cancelamento_pf.py`), nenhuma
+nota de atendente viaja. Mesma custodia, mesma janela de 24h, mesmo aviso a equipe. Sem a fonte de
+historico do cancelamento ou sem o retomador do Lucas, o evento e' confirmado com WARNING (como um agente
+sem porta). Com a chave desligada nenhum desses eventos existe: o comportamento e' o de antes.
+
 **Fail-closed, sem engolir erro.** Offset confirmado SO' depois de: retomada concluida (a mensagem
 saiu), evento filtrado/ignorado com log, ou malformacao CONFIRMADA na fila morta com fato de
 auditoria. Falha de motor, de envio (`RetomadaEnvioFalhouError`) ou de checkpoint PROPAGA: o
@@ -93,6 +104,14 @@ import structlog
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from maezo.agents.lucas.cancelamento_pf import (
+    RESULTADO_EXECUTADO,
+    RESULTADO_INFO_SOLICITADA,
+    RESULTADO_MANTIDO,
+    RESULTADOS_DO_CANCELAMENTO,
+    data_br,
+    protocolo_do_cancelamento,
+)
 from maezo.gateway.recipient_custody import (
     DEFAULT_TTL_DAYS,
     RecipientRecord,
@@ -138,6 +157,18 @@ RESULTADOS_DO_CONTRATO: Final[frozenset[str]] = frozenset(
 
 #: As variaveis que o consumidor le do historico — e SO' elas saem do motor.
 _HISTORY_NAMES: Final[tuple[str, ...]] = ("notas_resolucao", "resultado")
+
+#: DL-0111: o processo do retorno do cancelamento e o que se le do historico dele (nenhuma variavel PHI).
+PROCESS_KEY_CANCELAMENTO: Final[str] = "SP-OP-CANCEL-001"
+_CANCEL_HISTORY_NAMES: Final[tuple[str, ...]] = (
+    "aviso_beneficiario_whatsapp",
+    "conversation_id",
+    "execucao_cadastro",
+    "data_efeito_iso",
+    "decisao_cancelamento",
+)
+#: O agente que abre o pedido de cancelamento e o recebe de volta.
+AGENT_ID_CANCELAMENTO: Final[str] = "lucas"
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +259,8 @@ def parse_process_completed(value: Any, *, tenant_id: str) -> ProcessCompletedEv
             f"missing/blank field(s) {ausentes}", {"missing": ausentes}, code=REASON_RESUME_MISSING_ANCHOR
         )
     resultado = str(campos["resultado"])
-    if resultado not in RESULTADOS_DO_CONTRATO:
+    e_cancelamento = resultado in RESULTADOS_DO_CANCELAMENTO
+    if resultado not in RESULTADOS_DO_CONTRATO and not e_cancelamento:
         raise MalformedResumeEventError(
             "resultado outside the contract's three outcomes",
             {"resultado_len": len(resultado)},
@@ -241,7 +273,20 @@ def parse_process_completed(value: Any, *, tenant_id: str) -> ProcessCompletedEv
         raise MalformedResumeEventError(
             "event tenant is not this daemon's tenant", {}, code=REASON_RESUME_ANCHOR_MISMATCH
         )
-    if not chave_e_da_conversa(business_key, evento_tenant, conversation_id):
+    if e_cancelamento:
+        # DL-0111: o retorno do cancelamento ancora na chave do PEDIDO (CANCEL-{tenant}-...), nao na conversa;
+        # a conversa e' conferida contra o historico da instancia (`EngineHistoryCancelamentoSource`).
+        if (
+            not business_key.startswith(f"CANCEL-{evento_tenant}-")
+            or str(campos["agent_id"]) != AGENT_ID_CANCELAMENTO
+            or not conversation_id.startswith(f"wa:{evento_tenant}:")
+        ):
+            raise MalformedResumeEventError(
+                "cancel resume anchors are not CANCEL-{tenant_id}-... / agent lucas / wa conversation",
+                {},
+                code=REASON_RESUME_ANCHOR_MISMATCH,
+            )
+    elif not chave_e_da_conversa(business_key, evento_tenant, conversation_id):
         raise MalformedResumeEventError(
             "_business_key is not ESC-{tenant_id}-{conversation_id}[-clin]",
             {},
@@ -311,6 +356,104 @@ class EngineHistoryInstructionSource:
                 "engine history has no notas_resolucao to relay", {}, code=REASON_RESUME_HISTORY_MISMATCH
             )
         return notas
+
+
+@dataclass(frozen=True, slots=True)
+class AvisoDeCancelamento:
+    """O retorno do cancelamento ja' conferido contra o historico. So' fatos estruturais, nenhum texto."""
+
+    resultado: str
+    protocolo: str
+    data_efeito_iso: str | None
+
+
+class CancelamentoSource(Protocol):
+    """De onde vem o fato do retorno do cancelamento para um evento ja' validado."""
+
+    async def fetch(self, event: ProcessCompletedEvent) -> AvisoDeCancelamento: ...
+
+
+class EngineHistoryCancelamentoSource:
+    """DL-0111: o fato do retorno do cancelamento, do HISTORICO do motor, cruzado com o evento.
+
+    Mesma costura cercada de `EngineHistoryInstructionSource`. Le' SO' `_CANCEL_HISTORY_NAMES` (nenhuma e'
+    Zona PHI). Divergencia (instancia ausente, outro processo, outra chave, outra conversa, aviso desligado,
+    fato que nao bate com o `resultado`) -> fila morta. EXECUTADO sem data de efeito valida e' conclusao
+    LEGITIMA sem como entregar: `ResumeUndeliverableError` (a equipe e' avisada).
+    """
+
+    def __init__(self, transport: Any) -> None:
+        if not isinstance(transport, HistoricVariableReadingTransport):
+            raise TypeError(
+                "EngineHistoryCancelamentoSource: transport must implement `read_historic_variables` "
+                "(HistoricVariableReadingTransport)"
+            )
+        self._transport = transport
+
+    async def fetch(self, event: ProcessCompletedEvent) -> AvisoDeCancelamento:
+        historico = await self._transport.read_historic_variables(
+            event.process_instance_id, _CANCEL_HISTORY_NAMES
+        )
+        if historico is None:
+            raise MalformedResumeEventError(
+                "process instance not found in engine history", {}, code=REASON_RESUME_HISTORY_MISMATCH
+            )
+        variaveis = historico.variables
+        divergencias = [
+            nome
+            for nome, ok in (
+                ("business_key", historico.business_key == event.business_key),
+                ("process_key", historico.process_key == PROCESS_KEY_CANCELAMENTO),
+                ("aviso", variaveis.get("aviso_beneficiario_whatsapp") is True),
+                ("conversation_id", variaveis.get("conversation_id") == event.conversation_id),
+                ("fato", _fato_do_resultado(event.resultado, variaveis)),
+            )
+            if not ok
+        ]
+        if divergencias:
+            raise MalformedResumeEventError(
+                "engine history does not back this cancel notice",
+                {"divergencias": divergencias},
+                code=REASON_RESUME_HISTORY_MISMATCH,
+            )
+        data = variaveis.get("data_efeito_iso")
+        if event.resultado == RESULTADO_EXECUTADO and data_br(data) is None:
+            raise ResumeUndeliverableError(
+                "cancelamento executado sem data de efeito valida no historico",
+                {},
+                code=REASON_RESUME_HISTORY_MISMATCH,
+            )
+        return AvisoDeCancelamento(
+            resultado=event.resultado,
+            protocolo=protocolo_do_cancelamento(event.process_instance_id),
+            data_efeito_iso=data if isinstance(data, str) else None,
+        )
+
+
+def _fato_do_resultado(resultado: str, variaveis: Mapping[str, Any]) -> bool:
+    if resultado == RESULTADO_EXECUTADO:
+        return variaveis.get("execucao_cadastro") == "EXECUTADO"
+    if resultado == RESULTADO_INFO_SOLICITADA:
+        return variaveis.get("decisao_cancelamento") == "SOLICITAR_INFO"
+    if resultado == RESULTADO_MANTIDO:
+        return variaveis.get("decisao_cancelamento") == "MANTER"
+    return False
+
+
+@runtime_checkable
+class CancelamentoResumer(Protocol):
+    """A porta do retorno do cancelamento. `LucasRetomada.retomar_cancelamento` satisfaz esta forma."""
+
+    async def retomar_cancelamento(
+        self,
+        *,
+        conversation_id: str,
+        resultado: str,
+        protocolo: str,
+        data_efeito_iso: object,
+        raw_to: str,
+        resume_ref: str,
+    ) -> Mapping[str, Any]: ...
 
 
 class RecipientResolver(Protocol):
@@ -458,6 +601,9 @@ class ResumeHandler:
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
     administrative_binding: JourneyBinding | None = None
+    #: DL-0111: o fato do retorno do cancelamento (historico do motor). `None` = o retorno do cancelamento
+    #: e' confirmado com WARNING, sem envio (como um agente sem porta).
+    cancelamentos: CancelamentoSource | None = None
 
     async def resume_administrative(
         self, stimulus: RuntimeResumeStimulus
@@ -563,8 +709,76 @@ class ResumeHandler:
         except Exception:
             return CapabilityRefusalReason.AUTHORITY_UNPROVEN
 
+    async def _retomar_cancelamento(self, event: ProcessCompletedEvent) -> ResumeReceipt:
+        """DL-0111: historico -> destinatario -> janela -> texto fixo do Lucas. Mesma postura da retomada."""
+        resumer = self.resumers.get(event.agent_id)
+        if self.cancelamentos is None or not isinstance(resumer, CancelamentoResumer):
+            logger.warning(
+                "agent_resume.cancel_notice_without_port",
+                tenant_id=event.tenant_id,
+                agent_id=event.agent_id,
+                resultado=event.resultado,
+                detail="retorno do cancelamento sem fonte de historico ou sem retomador; nada enviado",
+            )
+            return ResumeReceipt(ResumeOutcome.SKIPPED_NO_RESUMER, event.agent_id, event.resultado)
+        try:
+            aviso = await self.cancelamentos.fetch(event)
+            contato = await self.recipients.lookup(
+                tenant_id=event.tenant_id, conversation_id=event.conversation_id
+            )
+            if contato is None or not contato.phone:
+                raise ResumeUndeliverableError(
+                    "recipient custody has no number for this conversation",
+                    {},
+                    code=REASON_RESUME_RECIPIENT_UNAVAILABLE,
+                )
+        except ResumeUndeliverableError as exc:
+            await self.alerter.alert_undeliverable(event)
+            logger.warning(
+                "agent_resume.cancel_notice_undeliverable_team_alerted",
+                tenant_id=event.tenant_id,
+                conversation_id=event.conversation_id,
+                reason=exc.code,
+            )
+            raise
+        if not dentro_da_janela(contato.last_inbound_at):
+            # Fora da janela da Meta: nada sai (um template aprovado seria preciso). A equipe e' avisada.
+            await self.alerter.alert_outside_window(event)
+            _emit_fora_da_janela(event.agent_id)
+            logger.warning(
+                "agent_resume.cancel_notice_outside_meta_window",
+                tenant_id=event.tenant_id,
+                conversation_id=event.conversation_id,
+                resultado=event.resultado,
+            )
+            return ResumeReceipt(
+                ResumeOutcome.OUTSIDE_WINDOW,
+                event.agent_id,
+                event.resultado,
+                DESFECHO_RETOMADA_FORA_DA_JANELA,
+            )
+        resultado = await resumer.retomar_cancelamento(
+            conversation_id=event.conversation_id,
+            resultado=aviso.resultado,
+            protocolo=aviso.protocolo,
+            data_efeito_iso=aviso.data_efeito_iso,
+            raw_to=contato.phone,
+            resume_ref=f"{event.process_instance_id}:{aviso.resultado}",
+        )
+        desfecho = str(resultado.get("desfecho") or "")
+        logger.info(
+            "agent_resume.cancel_notice_sent",
+            tenant_id=event.tenant_id,
+            conversation_id=event.conversation_id,
+            resultado=event.resultado,
+            desfecho=desfecho,
+        )
+        return ResumeReceipt(ResumeOutcome.RESUMED, event.agent_id, event.resultado, desfecho)
+
     async def handle(self, value: Any) -> ResumeReceipt:
         event = parse_process_completed(value, tenant_id=self.tenant_id)
+        if event.resultado in RESULTADOS_DO_CANCELAMENTO:
+            return await self._retomar_cancelamento(event)
         if event.resultado != RESULTADO_DEVOLVIDO_AGENTE:
             # `resolvido_humano` / `emergencia_acionada` ENCERRAM o caso: nao acordam agente.
             logger.info(
@@ -800,6 +1014,8 @@ async def main() -> None:  # pragma: no cover - composition root, exercised by i
         recipients=recipients,
         resumers=resumers,
         alerter=NotifyTeamAlerter(build_notifications_publisher(settings.kafka_bootstrap_servers)),
+        # DL-0111: o retorno do pedido de cancelamento (so' existe com `MAEZO_CANCEL_PF_V1` no receptor).
+        cancelamentos=EngineHistoryCancelamentoSource(state.dispatcher.cibseven),
     )
     # The DLQ publisher is a fenced effect class (§8.1): built ONLY through the bridge's own
     # sanctioned constructor (`build_dlq_shunt`), exactly as the bridge's own root does.

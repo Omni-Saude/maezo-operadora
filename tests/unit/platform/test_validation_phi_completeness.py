@@ -1437,6 +1437,74 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=4,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN, mesmo literal de "
+            "sempre: +4 inputParameter."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=4,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN: +4 inputParameter; "
+            "so' tenant_id/agent_id/conversation_id/resultado ou chaves de negocio, nunca PHI."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="resultado",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN: +3 inputParameter "
+            "LITERAL (cancelamento_executado/info_solicitada/mantido), rotulo fechado do aviso, nunca texto."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="event_fase",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN: +1 inputParameter "
+            "LITERAL `execucao_cadastro` em cancel.sla_breached (fase do estouro), nunca dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="execucao_cadastro",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN. SAIDA nova (DL-0111, SP-OP-CANCEL-001 v0.2.0): `camunda:formField` ENUM fechado "
+            "(EXECUTADO/IMPEDIDO) de UT_ExecutarCancelamentoCadastro e UT_CoordenacaoExecucaoCadastro, o "
+            "formulario `cancel_execucao` do portal; nenhum texto livre, nenhum dado pessoal."
+        ),
+    ),
 )
 
 
@@ -1448,7 +1516,7 @@ class TestBuckets:
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
         assert (
-            expected_clean == 347
+            expected_clean == 348
         )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
         # DL-0104 (helena_triage_admissibility): +8
         assert {key: len(value) for key, value in buckets.items()} == {
@@ -1481,10 +1549,12 @@ class TestBuckets:
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
         # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1
         # DL-0104 (helena_triage_admissibility): +8
-        assert len(live_sweep.names) == expected_names == 363
+        # #786 (DL-0111): +1 (execucao_cadastro)
+        assert len(live_sweep.names) == expected_names == 364
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
-        assert len(live_sweep.refs) == expected_refs == 1723
+        # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
+        assert len(live_sweep.refs) == expected_refs == 1737
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1612,9 +1682,10 @@ class TestBuckets:
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
         assert (
-            f"## {CLEAN} (347)" in rendered
+            f"## {CLEAN} (348)" in rendered
         )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
         # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
+        # #786 (DL-0111): +1 (`execucao_cadastro`).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to

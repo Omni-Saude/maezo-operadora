@@ -351,6 +351,16 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_TRIAGEM_V2", "helena_triagem_v2"),
     )
+    # HELENA V4 (DL-0115, 16/10/2026): catalogo de necessidades v4 do dono, SO' em DEV. DESLIGADA por
+    # padrao, e desligada e' a Helena de antes byte a byte. Ligada: o especialista e a carteirinha recebem
+    # texto fixo (onde marcar, prazo da ANS, dados mascarados) e o sintoma leve recebe so' perguntas de alerta
+    # antes do caminho. Com ela ligada a nova triagem (`helena_triagem_v2`) fica inerte. CONTEUDO CLINICO
+    # DRAFT, pendente do medico-auditor; o prazo de 14 dias uteis (especialista) e' RASCUNHO a confirmar
+    # pelo juridico.
+    helena_v4: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_V4", "helena_v4"),
+    )
     # AVISO DE IDENTIDADE (DL-0078, decisao do dono 07/10/2026): o nome de EXIBICAO da operadora nos
     # textos fixos de identidade da Helena ("Reconheci este numero no cadastro de beneficiarios da
     # {nome}..."). So' tem efeito com `helena_identidade_amh` ligada. Texto curto e simples (letras,
@@ -421,6 +431,38 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_LUCAS_CONSULTA_VALORES", "lucas_consulta_valores"),
     )
+    # CANCELAMENTO A PEDIDO, PESSOA FISICA (DL-0111, aprovado pelo dono em 15/10/2026 para uso em dev;
+    # revisao juridica/regulatoria, DPO e operacao antes de producao). DESLIGADA por padrao, e desligada
+    # e' o Lucas de antes byte a byte (SP-OP-CANCEL-001 com fatos `false` -> analise humana). Ligada: o
+    # Lucas le os fatos do cancelamento nos contratos AMH ja' pinados (TINA elegibilidade + billing-status),
+    # dependente nao abre o processo, o titular PF abre SP-OP-CANCEL-001 com os fatos reais, o aviso de
+    # recebimento traz o protocolo e o processo devolve o resultado pela retomada (`agent_resume`).
+    cancel_pf_v1: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_CANCEL_PF_V1", "cancel_pf_v1"),
+    )
+
+    # LUCAS V4 (DL-0114, catalogo v4, aprovado pelo dono em 16/10/2026 para uso em dev; revisao juridica e do
+    # DPO antes de producao). DESLIGADA por padrao, e desligada e' o Lucas de antes byte a byte. Ligada: so' o
+    # pagador PF recebe valores e 2a via; o PF que nao e' o pagador ouve que o responsavel financeiro do
+    # contrato (sem nome) e' quem pode pedir; o pagador ouve o valor TOTAL da mensalidade primeiro. O
+    # detalhamento por beneficiario e o codigo de barras da 2a via dependem dos contratos novos da AMH
+    # (billing-status 0.4.0 e billing-segunda-via): so' ligam com o SEGUNDO SINAL
+    # (`fonte_v4.fonte_detalhamento_habilitada`), que exige os dois pinados em `contracts.lock.json`. EXIGE
+    # `lucas_consulta_valores` (sem fatos de valor nao ha' como saber quem e' o pagador).
+    lucas_v4: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_LUCAS_V4", "lucas_v4"),
+    )
+
+    @model_validator(mode="after")
+    def _lucas_v4_exige_valores(self) -> WhatsAppWebhookSettings:
+        if self.lucas_v4 and not self.lucas_consulta_valores:
+            raise ValueError(
+                "MAEZO_LUCAS_V4 exige MAEZO_LUCAS_CONSULTA_VALORES ligada "
+                "(sem os fatos de valor nao ha' como saber quem e' o pagador, DL-0114)"
+            )
+        return self
 
     @model_validator(mode="after")
     def _consultas_exigem_identidade(self) -> WhatsAppWebhookSettings:

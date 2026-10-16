@@ -11,6 +11,13 @@ linhas do acesso (`conversa_acesso_beneficiario`) de todas as conversas da execu
 `conferir_motor` pergunta ao motor REAL se existe algum caso ESC dessas conversas (ativo ou no
 historico): tem de ser zero, porque o interceptador nunca deixou um start passar.
 
+PEDIDOS DE CANCELAMENTO (DL-0111, roteiro `cancelamento_v1`). A chave `CANCEL-{tenant}-{pseudonimo}` e'
+do BENEFICIARIO, nao da conversa: a conferencia usa as chaves que o interceptador registrou nesta execucao
+(`RegistroDeEscalonamentos.cancelamentos_registrados`) e pergunta ao motor REAL se alguma tem instancia
+VIVA. Tem de ser zero — o roteiro usa beneficiarios reais do roster e NUNCA pode deixar tarefa falsa na
+fila do cadastro. Uma instancia viva achada (ex.: um teste manual do mesmo beneficiario ainda aberto)
+deixa o motor "nao limpo" e o roteiro reprovado, para alguem olhar antes de repetir.
+
 So' `conversation_id` keyed (`wa:{tenant}:hk1_...`) entra aqui. Nenhum telefone, CPF ou texto.
 """
 
@@ -38,11 +45,17 @@ class ResultadoDaLimpeza:
     linhas_roteador: int = 0
     linhas_acesso: int = 0
     casos_no_motor: int = 0
+    #: DL-0111: pedidos de cancelamento VIVOS no motor real com as chaves que o interceptador viu.
+    cancelamentos_no_motor: int = 0
     erros: list[str] = field(default_factory=list)
 
     @property
     def motor_limpo(self) -> bool:
-        return self.casos_no_motor == 0 and not any(e.startswith("motor:") for e in self.erros)
+        return (
+            self.casos_no_motor == 0
+            and self.cancelamentos_no_motor == 0
+            and not any(e.startswith("motor:") for e in self.erros)
+        )
 
     def como_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +64,7 @@ class ResultadoDaLimpeza:
             "linhas_roteador": self.linhas_roteador,
             "linhas_acesso": self.linhas_acesso,
             "casos_no_motor": self.casos_no_motor,
+            "cancelamentos_no_motor": self.cancelamentos_no_motor,
             "motor_limpo": self.motor_limpo,
             "erros": list(self.erros),
         }
@@ -157,6 +171,7 @@ class Limpeza:
             linhas_roteador=resultado.linhas_roteador,
             linhas_acesso=resultado.linhas_acesso,
             casos_no_motor=resultado.casos_no_motor,
+            cancelamentos_no_motor=resultado.cancelamentos_no_motor,
             motor_limpo=resultado.motor_limpo,
             erros=len(resultado.erros),
         )
@@ -178,6 +193,16 @@ class Limpeza:
                         resultado.casos_no_motor += 1
                 except Exception as exc:
                     resultado.erros.append(f"motor:{type(exc).__name__}")
+        # DL-0111: os pedidos de cancelamento que o interceptador fingiu: nenhum pode existir de verdade.
+        cancelamentos = getattr(self._escalonamentos, "cancelamentos_registrados", None) or ()
+        for chave in sorted(cancelamentos):
+            if not chave.startswith(f"CANCEL-{self._tenant}-"):
+                continue
+            try:
+                if await procurar(chave) is not None:
+                    resultado.cancelamentos_no_motor += 1
+            except Exception as exc:
+                resultado.erros.append(f"motor:{type(exc).__name__}")
 
     async def aclose(self) -> None:
         if self._pool is not None:

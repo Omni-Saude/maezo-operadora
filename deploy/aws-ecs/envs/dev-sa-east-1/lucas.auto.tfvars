@@ -27,3 +27,21 @@ lucas_fonte_cobranca = "amh" // ligada em 07/10/2026 (pin v1.1 #679); voltar: "s
 // acesso_beneficiario=true e fonte amh (validacao no Terraform). Ligado em dev em 09/10/2026 pelo
 // diretor; registrado aqui para uma promocao da main nao desligar. Voltar: false.
 lucas_consulta_valores = true
+
+// Cancelamento a pedido PESSOA FISICA (DL-0111, SP-OP-CANCEL-001 v0.2.0): o Lucas abre o processo com os fatos
+// reais da AMH e o processo devolve o resultado ao beneficiario. Aprovado pelo dono em 15/10/2026 SO' para dev
+// (revisao juridica/regulatoria, DPO e operacao antes de producao). Exige lucas_fonte_cobranca = "amh".
+// Voltar: false (runbook docs/runbooks/cancel-001-pf.md).
+cancel_pf_v1 = true
+
+// Lucas do catalogo v4 (DL-0114): so' o pagador PF recebe valores e 2a via; quem nao e' o pagador ouve que o
+// responsavel financeiro do contrato (sem nome) e' quem pode pedir; o pagador ouve o total primeiro. O
+// detalhamento por beneficiario e o codigo de barras so' ligam com os contratos novos da AMH pinados (segundo
+// sinal no codigo). Aprovado pelo dono em 16/10/2026 SO' para dev (juridico e DPO antes de producao). Exige
+// lucas_consulta_valores = true. Voltar: false (runbook docs/runbooks/lucas-v4.md).
+lucas_v4 = true
+
+// billing-status 0.3.0 (manifest v1.6): `beneficiario_e_pagador` e `valor_boleto_pagador`. O Lucas v4 SO' sabe quem e' o
+// pagador com ele; sem o caminho a cobranca le' o 0.2.0, que nao traz o sinal (achado do aceite de 16/10/2026: o
+// dependente ouviu valores do pagador). Exigido pela validacao de `lucas_v4`. Voltar: nao ha' (so' junto de lucas_v4 = false).
+amh_billing_status_contratacao_openapi_path = "/app/config/integrations/amh/openapi/billing-status-contratacao.openapi.yaml"

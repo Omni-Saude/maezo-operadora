@@ -28,11 +28,12 @@ from maezo.gateway.audit import AuditRecord
 from maezo.gateway.audit_postgres import PostgresAuditSink
 
 from .completion import (
-    COMPLETION_OUTCOMES,
+    COMPLETION_FORM_KEY,
+    COMPLETION_FORMS,
+    AnyCompletionOutcome,
     CompletionAck,
     CompletionAuditEntry,
     CompletionAuditSink,
-    CompletionOutcome,
     DirectTaskCompletion,
     PseudonymizedNotes,
 )
@@ -141,27 +142,35 @@ class EngineRestTaskCompletion(DirectTaskCompletion):
         self,
         *,
         task_id: str,
-        resultado: CompletionOutcome,
-        notes: PseudonymizedNotes,
+        resultado: AnyCompletionOutcome,
+        notes: PseudonymizedNotes | None,
         expected_task_revision: int,
+        form_key: str = COMPLETION_FORM_KEY,
     ) -> CompletionAck:
+        form = COMPLETION_FORMS.get(form_key)
+        nota_ok = (
+            type(notes) is PseudonymizedNotes and bool(notes.text.strip())
+            if form is not None and form.note_variable
+            else notes is None
+        )
         if (
             self._closed
-            or resultado not in COMPLETION_OUTCOMES
-            or type(notes) is not PseudonymizedNotes
-            or not notes.text.strip()
+            or form is None
+            or resultado not in form.outcomes
+            or not nota_ok
             or type(expected_task_revision) is not int
             or expected_task_revision < 0
             or not task_id
             or any(c in task_id for c in "/?#\\%")
         ):
             raise GatewayRefusalError("task_unavailable")
+        # Variable names from the CLOSED server-side form (DL-0049; DL-0111 for `cancel_execucao`).
+        variables: dict[str, dict[str, str]] = {form.outcome_variable: {"value": resultado, "type": "String"}}
+        if form.note_variable and notes is not None:
+            variables[form.note_variable] = {"value": notes.text, "type": "String"}
         body = json.dumps(
             {
-                "variables": {
-                    "resultado": {"value": resultado, "type": "String"},
-                    "notas_resolucao": {"value": notes.text, "type": "String"},
-                },
+                "variables": variables,
                 "withVariablesInReturn": False,
             },
             allow_nan=False,
@@ -260,9 +269,13 @@ def completion_audit_record(entry: CompletionAuditEntry, *, workload_ref: str) -
         "evidence_revision": snap.evidence_revision,
         "evidence_digest": snap.evidence_digest,
         "operation": "completion",
-        "resultado": entry.resultado,
-        "notas_resolucao_digest": entry.notes_digest,
     }
+    if snap.form_key == COMPLETION_FORM_KEY:
+        details["resultado"] = entry.resultado
+        details["notas_resolucao_digest"] = entry.notes_digest
+    else:
+        # DL-0111: the form's own closed outcome variable; no note exists on this form.
+        details[COMPLETION_FORMS[snap.form_key].outcome_variable] = entry.resultado
     if entry.outcome is not None:
         details["outcome"] = entry.outcome
     return AuditRecord(
