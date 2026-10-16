@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import InitVar, dataclass, field
 from datetime import UTC, datetime
-from typing import Literal, Never
+from typing import Literal, Never, get_args
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCMSIV
@@ -19,9 +19,45 @@ from .models import Closed, Scope
 from .queue import ReadRefusalError
 from .read_profile import Requester
 
+#: WHY a read/publication dependency refused, as a CLOSED vocabulary (P1 of the ESCALATION portal
+#: follow-up, 16/10/2026). Operator-facing only: the wire code stays `read_dependency_unavailable`,
+#: and the reason travels on `ReadRefusalError.reason` to the job's stderr/events. A reason never
+#: carries a value, a row, a DSN or a key: it is one of these tokens, nothing else.
+UnavailableReason = Literal[
+    "unclassified",
+    "configuration_invalid",
+    "secret_file_invalid",
+    "tenant_mismatch",
+    "admission_invalid",
+    "catalog_invalid",
+    "catalog_not_admitted",
+    "catalog_admission_mismatch",
+    "native_source_failed",
+    "authority_counter_invalid",
+    "authority_counter_behind_ledger",
+    "too_many_live_tasks",
+    "ledger_invalid",
+    "ledger_cas_mismatch",
+    "membership_row_absent",
+    "membership_row_changed",
+    "source_window_closed",
+    "source_not_staged",
+    "source_staged_twice",
+    "source_cannot_verify_membership",
+    "source_out_of_scope",
+    "authority_publish_failed",
+    "authority_receipt_mismatch",
+    "evidence_not_recorded",
+]
+UNAVAILABLE_REASONS: frozenset[str] = frozenset(get_args(UnavailableReason))
 
-def unavailable() -> ReadRefusalError:
-    return ReadRefusalError("read_dependency_unavailable")
+
+def unavailable(reason: UnavailableReason = "unclassified") -> ReadRefusalError:
+    # A reason outside the vocabulary degrades to `unclassified`: the token set stays closed even
+    # if a caller passes something else at runtime.
+    return ReadRefusalError(
+        "read_dependency_unavailable", reason=reason if reason in UNAVAILABLE_REASONS else "unclassified"
+    )
 
 
 class ReadAdmission(Closed):
