@@ -1137,6 +1137,11 @@ def _caso_aberto_no_historico(estado: Mapping[str, Any]) -> str | None:
 
     Sem consultar o motor: e' o historico curto que diz que um encaminhamento saiu nesta conversa (e o
     start e' idempotente, entao um escalonamento repetido nunca duplica o caso). Clinico vence.
+
+    DL-0116: INDICIO para seguranca e rota, nunca afirmacao. O caso pode ja' ter sido encerrado pelo
+    atendente: quem AFIRMA caso aberto ao beneficiario le `_caso_aberto_afirmavel` (confirmado no motor
+    em `receive`). Continuam aqui so' o alerta de emergencia com caso aberto (DL-0072) e a rota da
+    cobranca curta ao Lucas, que nunca esperam o motor.
     """
     achado: str | None = None
     for fala in _falas_da_helena(estado):
@@ -1146,6 +1151,13 @@ def _caso_aberto_no_historico(estado: Mapping[str, Any]) -> str | None:
         if any(fala.startswith(t[:200]) for t in _TEXTOS_DE_CASO_ADMINISTRATIVO):
             achado = CASO_ABERTO_ADMINISTRATIVO
     return achado
+
+
+def _caso_aberto_afirmavel(estado: Mapping[str, Any]) -> str | None:
+    """DL-0116: o caso aberto que a Helena pode AFIRMAR — o confirmado no motor por `receive`
+    (`caso_aberto_confirmado`), ou `None`. Nunca o historico: ele e' so' indicio."""
+    confirmado = estado.get("caso_aberto_confirmado")
+    return confirmado if confirmado in (CASO_ABERTO_CLINICO, CASO_ABERTO_ADMINISTRATIVO) else None
 
 
 def _ja_dito(texto: str, falas: list[str]) -> bool:
@@ -6568,7 +6580,7 @@ class HelenaGraph:
             # rascunho barrado — `helena_resposta_recusada` traz o grupo). Com assunto de saude ou de
             # canal na mensagem, sai o texto fixo daquele assunto.
             mensagem = str(state.get("message_body") or "")
-            if _caso_aberto_no_historico(state) is not None:
+            if _caso_aberto_afirmavel(state) is not None:
                 # RODADA 3 (log de 13/10): com caso aberto o modelo escreve "ja encaminhamos" / "vai entrar
                 # em contato" e a cerca barra; o que e' verdade e' que o caso continua com a equipe.
                 substituto = RESPOSTA_INFORM_CASO_ABERTO
@@ -6608,7 +6620,7 @@ class HelenaGraph:
             if _e_encerramento(texto) and not _mensagem_de_saude(estado):
                 return (
                     RESPOSTA_DESPEDIDA_CASO_ABERTO
-                    if _caso_aberto_no_historico(estado) is not None
+                    if _caso_aberto_afirmavel(estado) is not None
                     else RESPOSTA_DESPEDIDA
                 )
             if _pede_telefone(texto):
@@ -6640,7 +6652,7 @@ class HelenaGraph:
     def _texto_de_navegacao(estado: Mapping[str, Any]) -> str:
         """RODADA 3: as opcoes de cuidado (rede do plano, UBS, pronto-atendimento, 192), com o caso de saude
         mencionado quando ele esta' aberto."""
-        if _caso_aberto_no_historico(estado) == CASO_ABERTO_CLINICO:
+        if _caso_aberto_afirmavel(estado) == CASO_ABERTO_CLINICO:
             return RESPOSTA_NAVEGACAO_CASO_ABERTO
         return RESPOSTA_NAVEGACAO
 
@@ -8237,7 +8249,7 @@ class HelenaGraph:
         if a_confirmar:
             context["memoria_a_confirmar"] = a_confirmar
         # RODADA 3: com caso aberto o modelo escrevia "ja encaminhamos" num turno informativo (barrado).
-        if _caso_aberto_no_historico(state) is not None:
+        if _caso_aberto_afirmavel(state) is not None:
             context["caso_aberto"] = True
         # HEL-06: mesma fronteira do `_classify_llm`. Aqui o poder da injecao seria sobre o
         # TEXTO enviado ao beneficiario (a rota ja esta decidida), o que nao a torna menos
