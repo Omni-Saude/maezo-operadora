@@ -4,7 +4,8 @@
 Runbook: `docs/runbooks/material-staff-na-aws.md` (DL-0113: tudo na AWS, sem Docker no notebook; a task
 `staff-material` monta o diretorio dos segredos vivos e chama `gerar`; `publicar --s3` le a saida do S3).
 Os passos de banco, applies e verificacao seguem `docs/runbooks/renovar-material-staff-dev.md`.
-Plano: `docs/plans/portal-autoridade-nativa-dev.md` (Ondas 4-10, emenda N1 de 25/09 e D-L). A delegacao N1 vale SO em dev: o agente usa a raiz
+Plano: `docs/plans/portal-autoridade-nativa-dev.md` (Ondas 4-10, emenda N1 de 25/09 e D-L).
+A delegacao N1 vale SO em dev: o agente usa a raiz
 `installation-root` do volume e assina designacao, admissoes e dono da atribuicao DENTRO do container.
 Producao exige aprovador humano.
 
@@ -449,6 +450,17 @@ def gerar(args: argparse.Namespace) -> int:
     )
     if catalogo_novo is not None:
         reg["catalog"] = dict(reg["catalog"], catalog_digest=sha(catalogo))
+    # Imagem nova do motor = JARs novos: a admissao Q2 pina o SHA-256 dos JARs CARREGADOS (engine e provedor)
+    # e a qualificacao AUTH pina o do JAR nativo (= o do engine). Sem isto o provedor recusa a admissao.
+    code_engine, code_provider = getattr(args, "code_engine", None), getattr(args, "code_provider", None)
+    if (code_engine is None) != (code_provider is None):
+        raise SystemExit("--code-engine e --code-provider andam juntos")
+    if code_engine is not None:
+        import re
+
+        if not all(re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in (code_engine, code_provider)):
+            raise SystemExit("--code-engine/--code-provider: SHA-256 hex")
+        reg["code_digests"] = {"engine": code_engine, "provider": code_provider}
     entradas_novas = getattr(args, "entradas_humanas", None)
     if entradas_novas is not None:
         extra = json.loads(entradas_novas.read_bytes())
@@ -525,6 +537,8 @@ def gerar(args: argparse.Namespace) -> int:
         admission_signature_b64=assinatura.decode("ascii"),
         admission_sha256=sha(reg_raw),
     )
+    if code_engine is not None:
+        linhas["auth"] = dict(linhas["auth"], native_code_digest=code_engine)
     linhas["assignment"]["installation"] = dict(
         linhas["assignment"]["installation"],
         configuration_digest=atrib,
@@ -615,6 +629,8 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="TROCA DE ANCORA (DL-0113): SHA-256 da raiz que o dono aprovou; dispensa o pin do Terraform",
     )
+    g.add_argument("--code-engine", default=None, help="SHA-256 do JAR do engine da imagem NOVA do motor")
+    g.add_argument("--code-provider", default=None, help="SHA-256 do JAR do provedor Q2 da imagem NOVA")
     g.add_argument("--catalogo", type=Path, default=None, help="job/task-catalog.json novo (troca o vivo)")
     g.add_argument(
         "--entradas-humanas",
