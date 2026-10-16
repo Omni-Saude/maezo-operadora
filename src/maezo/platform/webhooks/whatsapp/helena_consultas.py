@@ -38,11 +38,13 @@ from maezo.ports.tina import (
 
 logger = structlog.get_logger(__name__)
 
-#: Teto de uma consulta: a base legal e ate DUAS leituras em sequencia (cada uma limitada a 5 s pelo port).
-#: Duas porque "estou em carencia?" sem linha de carencia (`not_found`) confirma o sujeito pela elegibilidade
-#: (`_sem_carencias`). Eram 6 s: com cada consulta Athena da AMH levando de 1 a 5 s, o roteiro `dono_v1`
-#: reprovou 1 de 3 rodadas (16/10/2026, `prazo_estourado` aos 6 s exatos) com as duas leituras respondendo.
-PRAZO_TOTAL_S: Final[float] = 12.0
+#: Prazo de CADA leitura da AMH (o `timeout_seconds` do port). A consulta Athena do interop leva de 1 a
+#: 10 s (o prazo dela e' 10 s); com os 5 s do padrao do port, o roteiro `dono_v1` reprovou em 16/10/2026 por
+#: `timeout` em dependentes e em carencia com a AMH respondendo.
+PRAZO_LEITURA_S: Final[float] = 9.0
+#: Teto de uma consulta: a base legal e ate DUAS leituras em sequencia ("estou em carencia?" sem linha de
+#: carencia confirma o sujeito pela elegibilidade, `_sem_carencias`): duas de `PRAZO_LEITURA_S` mais folga.
+PRAZO_TOTAL_S: Final[float] = 20.0
 
 _View = ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel
 
@@ -62,22 +64,36 @@ class ConsultasPlanoAmh:
         proposito = self.purpose_of_use
         if subtipo in ("elegibilidade", "carteirinha"):
             return await self.port.get_elegibilidade(
-                ref, purpose_of_use=proposito, consent_decision_ref=base_legal
+                ref,
+                purpose_of_use=proposito,
+                consent_decision_ref=base_legal,
+                timeout_seconds=PRAZO_LEITURA_S,
             )
         if subtipo == "carencia":
             return await self.port.get_carencias(
-                ref, purpose_of_use=proposito, consent_decision_ref=base_legal, limite=LIMITE_CARENCIAS
+                ref,
+                purpose_of_use=proposito,
+                consent_decision_ref=base_legal,
+                limite=LIMITE_CARENCIAS,
+                timeout_seconds=PRAZO_LEITURA_S,
             )
         if subtipo == "autorizacao":
             return await self.port.get_requisicoes(
-                ref, purpose_of_use=proposito, consent_decision_ref=base_legal, limite=LIMITE_REQUISICOES
+                ref,
+                purpose_of_use=proposito,
+                consent_decision_ref=base_legal,
+                limite=LIMITE_REQUISICOES,
+                timeout_seconds=PRAZO_LEITURA_S,
             )
         if subtipo == "dependentes":
             # O mesmo adaptador TINA implementa o port de dependentes; um port sem ele = sem a fonte.
             if not isinstance(self.port, TinaDependentesPort):
                 return PortResult.refused(PortFailureReason.SCOPE_NOT_SUPPORTED)
             return await self.port.get_dependentes(
-                ref, purpose_of_use=proposito, consent_decision_ref=base_legal
+                ref,
+                purpose_of_use=proposito,
+                consent_decision_ref=base_legal,
+                timeout_seconds=PRAZO_LEITURA_S,
             )
         return None
 
@@ -91,7 +107,10 @@ class ConsultasPlanoAmh:
         "nenhuma carencia" sobre um sujeito que a AMH nao reconheceu. A data da fonte e' a da
         elegibilidade."""
         confirmada = await self.port.get_elegibilidade(
-            ref, purpose_of_use=self.purpose_of_use, consent_decision_ref=base_legal
+            ref,
+            purpose_of_use=self.purpose_of_use,
+            consent_decision_ref=base_legal,
+            timeout_seconds=PRAZO_LEITURA_S,
         )
         if not confirmada.succeeded or confirmada.value is None:
             return None
@@ -152,4 +171,4 @@ class ConsultasPlanoAmh:
             await self.aclose_fn()
 
 
-__all__ = ["PRAZO_TOTAL_S", "ConsultasPlanoAmh"]
+__all__ = ["PRAZO_LEITURA_S", "PRAZO_TOTAL_S", "ConsultasPlanoAmh"]
