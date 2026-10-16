@@ -71,8 +71,11 @@ def resolver_ano_da_competencia(competencia: str | None, texto: object, hoje: da
     - sem ano no texto: a ocorrencia MAIS RECENTE do mes que nao esta' no futuro em relacao a `hoje`
       (hoje 10/10/2026: julho -> 2026-07, outubro -> 2026-10, novembro -> 2025-11);
     - sem ano, mas com PISTA de mensalidade que vem ou mais recente ("ja' ta' lancado?", "quando vence",
-      "proxima", "ultima" — `_PISTA_DO_PROXIMO`): o mes deste ano, ou o do ano que vem quando ele e' o
-      seguinte a dezembro (hoje 13/10/2026: novembro -> 2026-11; hoje 10/12/2026: janeiro -> 2027-01).
+      "proxima", "ultima", "preciso pagar" — `_PISTA_DO_PROXIMO`) E o mes e' o de hoje ou o seguinte: a
+      ocorrencia desse mes no ano dele (hoje 13/10/2026: novembro -> 2026-11; hoje 10/12/2026: janeiro ->
+      2027-01). Fora dessa janela a pista nao puxa nada e vale a ocorrencia mais recente que ja' passou
+      (revisao do #784: em fev/2027 "preciso pagar o boleto de dezembro" virava 2027-12, mes que nao
+      existe ainda, em vez de 2026-12).
 
     Competencia ausente ou fora da forma volta como veio: quem valida e recusa e' o chamador.
     """
@@ -90,7 +93,8 @@ def resolver_ano_da_competencia(competencia: str | None, texto: object, hoje: da
         return f"{hoje.year - 1:04d}-{mes_texto}"
     if _ESTE_ANO.search(normalizado):
         return f"{hoje.year:04d}-{mes_texto}"
-    if _PISTA_DO_PROXIMO.search(normalizado):
+    proximo_mes = 1 if hoje.month == 12 else hoje.month + 1
+    if mes in (hoje.month, proximo_mes) and _PISTA_DO_PROXIMO.search(normalizado):
         ano = hoje.year + 1 if hoje.month == 12 and mes == 1 else hoje.year
         return f"{ano:04d}-{mes_texto}"
     ano = hoje.year if mes <= hoje.month else hoje.year - 1

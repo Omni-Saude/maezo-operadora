@@ -178,3 +178,33 @@ async def test_o_handoff_ao_lucas_leva_a_competencia_resolvida(
 ) -> None:
     handoff = await _handoff(texto, do_modelo)
     assert handoff["competencia"] == esperado
+
+
+# --- Revisao do #784: a pista so' puxa o mes de hoje ou o seguinte (virada de ano) ----------------------
+
+
+@pytest.mark.parametrize(
+    ("do_modelo", "texto", "hoje", "esperado"),
+    [
+        # O defeito: em fev/2027 a pista levava dezembro para 2027-12, mes que ainda nao existe.
+        ("2027-12", "preciso pagar o boleto de dezembro", date(2027, 2, 10), "2026-12"),
+        ("2027-12", "manda a linha digitavel de dezembro", date(2027, 2, 10), "2026-12"),
+        ("2027-11", "o codigo de barras de novembro, por favor", date(2027, 2, 10), "2026-11"),
+        ("2027-12", "dezembro ja ta lancado?", date(2027, 2, 10), "2026-12"),
+        # Janeiro: dezembro e' do ano anterior, com ou sem pista.
+        ("2027-12", "quero pagar o de dezembro", date(2027, 1, 15), "2026-12"),
+        ("2027-12", "boleto de dezembro", date(2027, 1, 15), "2026-12"),
+        # O mes seguinte com a pista continua sendo o que vem.
+        ("2025-11", "preciso pagar o de novembro", date(2026, 10, 10), "2026-11"),
+        ("2027-02", "quero pagar o de fevereiro", date(2027, 1, 15), "2027-02"),
+        ("2026-01", "preciso pagar janeiro", date(2026, 12, 10), "2027-01"),
+        # O mes de hoje com a pista.
+        ("2026-02", "vou pagar o de fevereiro", date(2027, 2, 10), "2027-02"),
+        # Dois meses a frente com a pista: fora da janela, vale o que ja' passou.
+        ("2026-12", "preciso pagar o boleto de dezembro", date(2026, 10, 10), "2025-12"),
+    ],
+)
+def test_a_pista_so_puxa_o_mes_de_hoje_ou_o_seguinte(
+    do_modelo: str, texto: str, hoje: date, esperado: str
+) -> None:
+    assert resolver_ano_da_competencia(do_modelo, texto, hoje) == esperado

@@ -93,6 +93,9 @@ def test_citar_o_lucas_como_agente_e_assunto_de_cobranca(texto: str) -> None:
         "o Lucas da minha turma tem febre",
         "Lucas é o nome do meu sobrinho e ele está com dor no peito",
         "qual a carência do meu plano?",
+        # Revisao do #784: o relato sem assunto de cobranca e' o Lucas de casa.
+        "o Lucas disse que vai me buscar",
+        "o Lucas me falou que a febre passou",
     ],
 )
 def test_lucas_nome_de_gente_nao_vira_cobranca(texto: str) -> None:
