@@ -332,11 +332,15 @@ async def test_falha_de_start_cita_o_processo_de_cancelamento() -> None:
     assert falhas and {e["process_key"] for e in falhas} == {"SP-OP-CANCEL-001"}
 
 
-async def test_falha_de_start_com_a_chave_desligada_mantem_o_aviso_de_antes() -> None:
+async def test_falha_de_start_com_a_chave_desligada_tambem_cita_o_processo_de_cancelamento() -> None:
+    """DL-0116: desligada, o start tentado tambem e' o SP-OP-CANCEL-001 (`_start_cancelamento` nao depende
+    da chave). O aviso de antes citava o SP-OP-ESCALATION-001, que nem foi tentado — era o defeito."""
     with capture_logs() as logs:
-        await _turno(_confirmado(**_fatos_pf()), v1=False, motor=_MotorFora())
+        final, envio, _ = await _turno(_confirmado(**_fatos_pf()), v1=False, motor=_MotorFora())
+    assert final.get("iniciar_cancelamento") is True and final.get("start_failed") is True
+    assert envio.textos == []
     falhas = [e for e in logs if e.get("event") == "agent_process_start_failed"]
-    assert falhas and {e["process_key"] for e in falhas} == {"SP-OP-ESCALATION-001"}
+    assert falhas and {e["process_key"] for e in falhas} == {"SP-OP-CANCEL-001"}
 
 
 def test_os_fatos_novos_sao_entradas_classificadas_e_sem_texto() -> None:
