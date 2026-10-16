@@ -537,7 +537,7 @@ class AdaptadorSegundaVia:
 # ================================================================================================
 def contratos_v4_pinados(pin_path: Path | None) -> bool:
     """`True` so' quando o pin (`contracts.lock.json`) traz os DOIS blocos, v1.10 e v1.11, cada um com o seu
-    artefato. Desde 16/10/2026 os manifests estao PUBLISHED e pinados (XRG-3); o sinal so' basta com o executor.
+    artefato. Desde 16/10/2026 os manifests estao PUBLISHED e pinados (XRG-3); o sinal so' basta com executor.
     Sem caminho de pin ou com pin ilegivel: `False`, nunca levanta. (Quem resolve o caminho e' a
     composicao da plataforma; os agentes nao importam adaptadores.)"""
     if pin_path is None:
