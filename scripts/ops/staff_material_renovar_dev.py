@@ -425,6 +425,8 @@ def gerar(args: argparse.Namespace) -> int:
         staff_public_manifest_sha256=digest(manifesto),
         staff_designation_sha256=desig,
         staff_native_configuration_sha256=config,
+        # Troca de raiz (DL-0113): o pin do verify e o da raiz que assinou (no-op com a mesma).
+        staff_root_key_sha256=sha(raiz_der),
     )
     pins_raw = json.dumps(pins).encode()
     publico("approver-pins.json", pins_raw)
