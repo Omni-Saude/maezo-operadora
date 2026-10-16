@@ -274,8 +274,9 @@ async def test_adesao_e_empresa_nao_mudam_com_ou_sem_o_sinal(tipo: str) -> None:
         _, antes = await _turno(_estado(tipo, **extra), v4=None)
         _, ligada = await _turno(_estado(tipo, **extra), v4=True)
         assert ligada == antes
+    _, adm_antes = await _turno(_estado(tipo, cobranca_administradora=True, **_SEM_SINAL), v4=None)
     _, adm = await _turno(_estado(tipo, cobranca_administradora=True, **_SEM_SINAL))
-    assert TEXTO_PAGADOR_NAO_CONFIRMADO_V4 not in adm and "R$" not in adm[0]
+    assert adm == adm_antes and TEXTO_PAGADOR_NAO_CONFIRMADO_V4 not in adm
 
 
 @pytest.mark.parametrize("tipo", _TIPOS)
