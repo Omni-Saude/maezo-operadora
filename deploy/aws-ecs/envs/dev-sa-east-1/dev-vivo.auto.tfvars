@@ -67,11 +67,11 @@ staff_ops = {
   rows_secret_arn       = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-install/rows-R8q4LK"
   syn_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-install/syn-fixture-wt3sOm"
   job_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-job/materials-glnOol"
-  job_secret_version_id = "0660dd69-f333-4df9-82f5-5123a1c5e682"
+  job_secret_version_id = "ece58f11-9f81-4034-95e2-504307b24a60"
 
   // Pins publicos do pacote humano (os mesmos de `portal.human` em `portal.auto.tfvars`).
-  human_material_version_id = "amh-dev-human-1dced1fcdb361e47e278952fef"
-  human_manifest_sha256     = "96f43b71f3b91907b0e50cd356f1ce740ca7bad39e2d6d2ecf1621727a99d2de"
+  human_material_version_id = "amh-dev-human-16d34f91f2a37ec3f0512adb53"
+  human_manifest_sha256     = "992858ec56e69996a42c941fde42f3aee91aa055bb1f9f6694e62e061b961449"
 
   job_schedule_enabled = true
 
@@ -88,7 +88,7 @@ staff_ops = {
 // ---------------------------------------------------------------------------
 engine_native = {
   native_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-XoACan"
-  native_secret_version_id = "d3c6dc4f-9ada-4f0f-b8f4-f9ae95aac8c9"
+  native_secret_version_id = "25c14f6b-400e-4175-9399-3eea268ebd41"
   kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/49a1f9f2-9f92-44ad-9b5a-d5de269fee73" // alias/maezo-operadora-dev-engine-native
   app_image_digest         = "sha256:c29a88eafcf568b64b4ea455c954aa499964bc07e8d65088754dacce2c463d14"     // init e sidecar (imagem do app 6bd559ec)
   staff_case_issuer        = true

@@ -12,8 +12,6 @@
 #              MATERIAL_SAIDA_ID=onda12-20261016 MATERIAL_SUFIXO=20261016
 set -euo pipefail
 export AWS_REGION=sa-east-1
-# No Git Bash do Windows, MSYS_NO_PATHCONV=1 evita reescrever o `s3://`/caminhos dos argumentos.
-export MSYS_NO_PATHCONV=1
 MODO=${1:?uso: staff_material_run.sh <verificar|ensaio|raiz-gerar|gerar> [CHAVE=valor...]}
 shift
 case "$MODO" in verificar | ensaio | raiz-gerar | gerar) ;; *) echo "modo invalido: $MODO" >&2; exit 64 ;; esac
@@ -46,8 +44,22 @@ CODIGO=$(aws ecs describe-tasks --cluster maezo-operadora-dev --tasks "$TA" \
   --query "tasks[0].containers[?name=='staff-material'].exitCode | [0]" --output text)
 sleep 5 # o CloudWatch Logs leva alguns segundos para expor o fim do stream
 # Stream: <prefixo>/<container>/<taskId>. Filtra pelo id da task: o grupo e compartilhado entre execucoes.
-aws logs filter-log-events --log-group-name "/ecs/maezo-operadora-dev/staff-material" \
-  --start-time $(( ($(date +%s) - 1800) * 1000 )) --query 'events[].[logStreamName,message]' --output text \
-  | grep "${TA##*/}" | cut -f2
+# Via boto3: no Git Bash do Windows o `/ecs/...` na linha de comando da aws virava um caminho `C:/...`, e
+# `MSYS_NO_PATHCONV=1` quebra a propria aws; o boto3 nao passa pelo shell.
+python - "${TA##*/}" <<'PY'
+import sys, time
+
+import boto3
+
+task = sys.argv[1]
+logs = boto3.client("logs", region_name="sa-east-1")
+inicio = int((time.time() - 1800) * 1000)
+for pagina in logs.get_paginator("filter_log_events").paginate(
+    logGroupName="/ecs/maezo-operadora-dev/staff-material", startTime=inicio
+):
+    for evento in pagina["events"]:
+        if task in evento["logStreamName"]:
+            print(evento["message"])
+PY
 echo "exitCode do staff-material: $CODIGO"
 test "$CODIGO" = "0"

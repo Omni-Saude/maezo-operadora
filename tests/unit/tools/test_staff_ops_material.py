@@ -119,6 +119,7 @@ def test_argumentos_do_gerar_apontam_para_a_arvore_restaurada(tmp_path: Path) ->
     assert args.generate_spec is None
     assert args.conexoes == tmp_path / "fontes" / "conexoes-staff.json"
     assert args.nova_raiz_sha256 == "a" * 64
+    assert args.code_engine is None and args.code_provider is None
 
 
 def test_dispatch_conhece_o_comando_material(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,3 +127,17 @@ def test_dispatch_conhece_o_comando_material(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.delenv("MATERIAL_MODO", raising=False)
     assert dispatch(["material"]) == 1  # recusa (sem MATERIAL_MODO), nao "comando desconhecido" (64)
+
+
+def test_digests_do_motor_novo_vao_para_o_gerar(tmp_path: Path) -> None:
+    args = material.argumentos_gerar(
+        tmp_path,
+        sufixo="20261016",
+        saida=tmp_path / "s",
+        raiz_sha256="a" * 64,
+        catalogo=None,
+        entradas=None,
+        code_engine="b" * 64,
+        code_provider="c" * 64,
+    )
+    assert (args.code_engine, args.code_provider) == ("b" * 64, "c" * 64)

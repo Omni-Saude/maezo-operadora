@@ -50,9 +50,9 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
 }
 #: `(versao, sha256)` das listas e padroes das cercas de saida (o que decide se um texto sai).
 CERCAS_PINADAS: tuple[str, str] = (
-    # 14/10/2026 (B-05 do red team): grupo `afirma_autorizacao` (ver `docs/decisions-log.md`).
-    "recusa-v10",
-    "5364b747a09de241351488f4c99939ebc85055bafb623000324c3fe75052f90b",
+    # 15/10/2026 (L-03 do red team): formas indiretas de promessa de contato (ver `docs/decisions-log.md`).
+    "recusa-v11",
+    "85c9d99435fd867d5b431e47793aaed244cff4676a7f32453966e15d687ed905",
 )
 
 

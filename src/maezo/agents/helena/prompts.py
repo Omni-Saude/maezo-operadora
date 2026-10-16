@@ -864,7 +864,11 @@ mensagem, sem JSON."""
 
 #: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
 #: cerca estava valendo quando um texto foi recusado (ou deixado passar).
-RECUSA_DE_SAIDA_VERSION = "recusa-v10"  # 14/10/2026 (B-05 do red team): grupo `afirma_autorizacao` — a
+RECUSA_DE_SAIDA_VERSION = (
+    "recusa-v11"  # 15/10/2026 (L-03 do red team): `PROMESSA_DE_HUMANO_PROIBIDA` ganha as
+)
+# formas indiretas ("pedir que ele entre em contato", "vou verificar com a equipe"). v10 — 14/10/2026 (B-05 do
+# red team): grupo `afirma_autorizacao` — a
 # Helena confirmou "a autorizacao foi aprovada, protocolo 999" colado no chat por quem escreveu o
 # chat. v9 — 01/10/2026: duas cercas mudaram de veredito. (1) FINALIDADE DO
 # CANAL: uma oracao que cita aplicativo/portal junto de autorizacao, negativa, justificativa,
@@ -996,6 +1000,23 @@ PROMESSA_DE_HUMANO_PROIBIDA: tuple[str, ...] = (
     # O SUJEITO E' PARTE DO PADRAO, e e' o que separa promessa de conselho: "a equipe entre em
     # contato" e' promessa; "voce pode entrar em contato com a central" e' orientacao legitima e
     # aparece nas respostas administrativas boas. Casar so' "entre em contato" reprovaria as duas.
+    # L-03 do red team (15/10/2026): "Vou verificar com a equipe financeira e pedir que ELE entre em
+    # contato" —
+    # a Helena nao tem como pedir nada a ninguem, e nenhum caso foi aberto. O sujeito vem DEPOIS de "pedir
+    # que"/"para" ou de "que", entao as formas acima (equipe/atendente/alguem entre em contato) nao a pegavam.
+    "que ele entre em contato",
+    "que ela entre em contato",
+    "que eles entrem em contato",
+    "que o lucas entre em contato",
+    "pedir que ele",
+    "pedir que ela",
+    "pedir para ele",
+    "pedir pra ele",
+    "pedir ao lucas",
+    "pedir para o lucas",
+    "vou verificar com a equipe",
+    "vou consultar a equipe",
+    "vou chamar o lucas",
     "equipe entre em contato",
     "profissional entre em contato",
     "atendente entre em contato",

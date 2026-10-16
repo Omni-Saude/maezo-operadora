@@ -21,7 +21,9 @@ Modo (variavel `MATERIAL_MODO`; parametros por `containerOverrides.environment`,
 
 Variaveis: ``MATERIAL_BUCKET``, ``MATERIAL_KMS_KEY_ARN``, ``MATERIAL_SECRET_{NATIVE,STAFF,JOB,ROWS,
 ASSIGNMENT,SYN}`` (ARN; SYN opcional), ``MATERIAL_RAIZ_ID``, ``MATERIAL_RAIZ_SHA256``, ``MATERIAL_SAIDA_ID``,
-``MATERIAL_SUFIXO`` (AAAAMMDD), ``MATERIAL_CATALOGO`` / ``MATERIAL_ENTRADAS_HUMANAS`` (chaves em `insumos/`).
+``MATERIAL_SUFIXO`` (AAAAMMDD), ``MATERIAL_CATALOGO`` / ``MATERIAL_ENTRADAS_HUMANAS`` (chaves em `insumos/`),
+``MATERIAL_CODE_ENGINE`` / ``MATERIAL_CODE_PROVIDER`` (SHA-256 dos JARs da imagem NOVA do motor),
+``MATERIAL_CATALOG_REVISION`` (com ``MATERIAL_CATALOGO``).
 """
 
 from __future__ import annotations
@@ -119,7 +121,16 @@ def imprimir_relatorio(restaurado: Any) -> None:
 
 
 def argumentos_gerar(
-    base: Path, *, sufixo: str, saida: Path, raiz_sha256: str, catalogo: Path | None, entradas: Path | None
+    base: Path,
+    *,
+    sufixo: str,
+    saida: Path,
+    raiz_sha256: str,
+    catalogo: Path | None,
+    entradas: Path | None,
+    code_engine: str | None = None,
+    code_provider: str | None = None,
+    catalog_revision: int | None = None,
 ) -> Any:
     from argparse import Namespace
 
@@ -137,6 +148,9 @@ def argumentos_gerar(
         nova_raiz_sha256=raiz_sha256,
         catalogo=catalogo,
         entradas_humanas=entradas,
+        code_engine=code_engine,
+        code_provider=code_provider,
+        catalog_revision=catalog_revision,
     )
 
 
@@ -356,6 +370,11 @@ def modo_gerar() -> int:
             raiz_sha256=aprovado,
             catalogo=insumo("MATERIAL_CATALOGO", "task-catalog.json"),
             entradas=insumo("MATERIAL_ENTRADAS_HUMANAS", "entradas-humanas.json"),
+            code_engine=os.environ.get("MATERIAL_CODE_ENGINE") or None,
+            code_provider=os.environ.get("MATERIAL_CODE_PROVIDER") or None,
+            catalog_revision=int(os.environ["MATERIAL_CATALOG_REVISION"])
+            if os.environ.get("MATERIAL_CATALOG_REVISION")
+            else None,
         )
     )
     conferir_linhas(saida)
