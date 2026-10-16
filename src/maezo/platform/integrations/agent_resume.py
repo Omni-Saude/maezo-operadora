@@ -90,7 +90,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import signal
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, Protocol, runtime_checkable
@@ -169,6 +169,54 @@ _CANCEL_HISTORY_NAMES: Final[tuple[str, ...]] = (
 )
 #: O agente que abre o pedido de cancelamento e o recebe de volta.
 AGENT_ID_CANCELAMENTO: Final[str] = "lucas"
+
+#: Evento estruturado emitido pelo laco ANTES de propagar uma falha nao-malformada (o offset fica).
+#: E' o texto que o filtro de metrica do alarme procura (`deploy/.../escalation-alarms.tf`): o
+#: teste do alarme IMPORTA esta constante, ninguem a digita de novo.
+EVENTO_RESUME_FALHA: Final[str] = "agent_resume.falha"
+#: Evento estruturado emitido DEPOIS que uma malformacao foi confirmada na fila morta (`reason` =
+#: codigo fechado de `BRIDGE_DLQ_REASONS`).
+EVENTO_RESUME_FILA_MORTA: Final[str] = "agent_resume.fila_morta"
+
+#: O conjunto FECHADO de motivos de `agent_resume.falha` — nunca texto livre, nunca identificador.
+MOTIVO_FALHA_MOTOR: Final[str] = "motor_indisponivel"
+MOTIVO_FALHA_ENVIO: Final[str] = "envio_falhou"
+MOTIVO_FALHA_AVISO_EQUIPE: Final[str] = "aviso_equipe_falhou"
+MOTIVO_FALHA_OUTRO: Final[str] = "outro"
+MOTIVOS_FALHA_RESUME: Final[frozenset[str]] = frozenset(
+    {MOTIVO_FALHA_MOTOR, MOTIVO_FALHA_ENVIO, MOTIVO_FALHA_AVISO_EQUIPE, MOTIVO_FALHA_OUTRO}
+)
+
+#: Onde a etapa que falhou e' anotada na excecao (o TIPO da excecao nao muda: quem a recebe ve a
+#: mesma classe de sempre). A etapa — nao o tipo — decide o motivo: o mesmo `ConnectionError`
+#: significa motor fora numa leitura de historico e aviso perdido numa publicacao Kafka.
+_ATRIBUTO_MOTIVO: Final[str] = "_maezo_agent_resume_motivo"
+
+
+def _anotar_motivo(exc: BaseException, motivo: str) -> None:
+    """Anota a etapa na excecao, sem sobrescrever uma anotacao mais interna."""
+    if getattr(exc, _ATRIBUTO_MOTIVO, None) is not None:
+        return
+    with contextlib.suppress(AttributeError, TypeError):
+        setattr(exc, _ATRIBUTO_MOTIVO, motivo)
+
+
+def motivo_da_falha(exc: BaseException) -> str:
+    """O motivo fechado de uma falha nao-malformada. Sem anotacao -> `outro`."""
+    motivo = getattr(exc, _ATRIBUTO_MOTIVO, None)
+    return motivo if motivo in MOTIVOS_FALHA_RESUME else MOTIVO_FALHA_OUTRO
+
+
+@contextlib.asynccontextmanager
+async def _etapa(motivo: str) -> AsyncIterator[None]:
+    """Anota `motivo` em qualquer falha NAO-malformada que atravesse o bloco, e a deixa seguir."""
+    try:
+        yield
+    except MalformedBridgeMessageError:
+        raise
+    except Exception as exc:
+        _anotar_motivo(exc, motivo)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -722,7 +770,8 @@ class ResumeHandler:
             )
             return ResumeReceipt(ResumeOutcome.SKIPPED_NO_RESUMER, event.agent_id, event.resultado)
         try:
-            aviso = await self.cancelamentos.fetch(event)
+            async with _etapa(MOTIVO_FALHA_MOTOR):
+                aviso = await self.cancelamentos.fetch(event)
             contato = await self.recipients.lookup(
                 tenant_id=event.tenant_id, conversation_id=event.conversation_id
             )
@@ -733,7 +782,8 @@ class ResumeHandler:
                     code=REASON_RESUME_RECIPIENT_UNAVAILABLE,
                 )
         except ResumeUndeliverableError as exc:
-            await self.alerter.alert_undeliverable(event)
+            async with _etapa(MOTIVO_FALHA_AVISO_EQUIPE):
+                await self.alerter.alert_undeliverable(event)
             logger.warning(
                 "agent_resume.cancel_notice_undeliverable_team_alerted",
                 tenant_id=event.tenant_id,
@@ -743,7 +793,8 @@ class ResumeHandler:
             raise
         if not dentro_da_janela(contato.last_inbound_at):
             # Fora da janela da Meta: nada sai (um template aprovado seria preciso). A equipe e' avisada.
-            await self.alerter.alert_outside_window(event)
+            async with _etapa(MOTIVO_FALHA_AVISO_EQUIPE):
+                await self.alerter.alert_outside_window(event)
             _emit_fora_da_janela(event.agent_id)
             logger.warning(
                 "agent_resume.cancel_notice_outside_meta_window",
@@ -757,14 +808,15 @@ class ResumeHandler:
                 event.resultado,
                 DESFECHO_RETOMADA_FORA_DA_JANELA,
             )
-        resultado = await resumer.retomar_cancelamento(
-            conversation_id=event.conversation_id,
-            resultado=aviso.resultado,
-            protocolo=aviso.protocolo,
-            data_efeito_iso=aviso.data_efeito_iso,
-            raw_to=contato.phone,
-            resume_ref=f"{event.process_instance_id}:{aviso.resultado}",
-        )
+        async with _etapa(MOTIVO_FALHA_ENVIO):
+            resultado = await resumer.retomar_cancelamento(
+                conversation_id=event.conversation_id,
+                resultado=aviso.resultado,
+                protocolo=aviso.protocolo,
+                data_efeito_iso=aviso.data_efeito_iso,
+                raw_to=contato.phone,
+                resume_ref=f"{event.process_instance_id}:{aviso.resultado}",
+            )
         desfecho = str(resultado.get("desfecho") or "")
         logger.info(
             "agent_resume.cancel_notice_sent",
@@ -799,7 +851,8 @@ class ResumeHandler:
             )
             return ResumeReceipt(ResumeOutcome.SKIPPED_NO_RESUMER, event.agent_id, event.resultado)
         try:
-            instrucoes = await self.instructions.fetch(event)
+            async with _etapa(MOTIVO_FALHA_MOTOR):
+                instrucoes = await self.instructions.fetch(event)
             contato = await self.recipients.lookup(
                 tenant_id=event.tenant_id, conversation_id=event.conversation_id
             )
@@ -812,7 +865,8 @@ class ResumeHandler:
         except ResumeUndeliverableError as exc:
             # Avisa ANTES de deixar a excecao seguir para a fila morta. Se o aviso falhar, a excecao
             # DELE propaga e o offset nao anda (`best_effort=False`): reentregar tenta de novo.
-            await self.alerter.alert_undeliverable(event)
+            async with _etapa(MOTIVO_FALHA_AVISO_EQUIPE):
+                await self.alerter.alert_undeliverable(event)
             logger.warning(
                 "agent_resume.undeliverable_team_alerted",
                 tenant_id=event.tenant_id,
@@ -824,7 +878,8 @@ class ResumeHandler:
         if not dentro_da_janela(contato.last_inbound_at):
             # Janela da Meta fechada: NADA sai pelo WhatsApp. Avisa a equipe (propaga se falhar)
             # e so' depois conta o desfecho — um aviso que nao saiu nao pode ser contado.
-            await self.alerter.alert_outside_window(event)
+            async with _etapa(MOTIVO_FALHA_AVISO_EQUIPE):
+                await self.alerter.alert_outside_window(event)
             _emit_fora_da_janela(event.agent_id)
             logger.warning(
                 "agent_resume.outside_meta_window",
@@ -838,12 +893,13 @@ class ResumeHandler:
                 event.resultado,
                 DESFECHO_RETOMADA_FORA_DA_JANELA,
             )
-        resultado = await resumer.resume(
-            conversation_id=event.conversation_id,
-            instrucoes=instrucoes,
-            raw_to=contato.phone,
-            resume_ref=event.process_instance_id,
-        )
+        async with _etapa(MOTIVO_FALHA_ENVIO):
+            resultado = await resumer.resume(
+                conversation_id=event.conversation_id,
+                instrucoes=instrucoes,
+                raw_to=contato.phone,
+                resume_ref=event.process_instance_id,
+            )
         desfecho = str(resultado.get("desfecho") or "")
         logger.info(
             "agent_resume.resumed",
@@ -874,20 +930,38 @@ async def run_resume_loop(
     auditoria. O braco da fila morta e' estreito como nos irmaos: SO' `MalformedBridgeMessageError`
     (deterministico). Motor fora, envio falho, checkpoint falho — tudo o mais PROPAGA e o offset
     fica. Com `dlq=None` a malformacao tambem propaga e nada e' confirmado.
+
+    Dois fatos estruturados para o alarme (`deploy/aws-ecs/envs/dev-sa-east-1/escalation-alarms.tf`):
+    `agent_resume.falha` (`motivo` no conjunto fechado `MOTIVOS_FALHA_RESUME`, ANTES de propagar; o
+    offset continua NAO confirmado) e `agent_resume.fila_morta` (`reason` = codigo de
+    `BRIDGE_DLQ_REASONS`, SO' depois do desvio confirmado). Nenhum dos dois leva texto de excecao
+    nem identificador.
     """
     async for message in consumer:
         try:
-            if message.parse_error:
-                raise MalformedResumeEventError(
-                    message.parse_error, message.raw, code=message.parse_code or REASON_NOT_A_JSON_OBJECT
+            try:
+                if message.parse_error:
+                    raise MalformedResumeEventError(
+                        message.parse_error, message.raw, code=message.parse_code or REASON_NOT_A_JSON_OBJECT
+                    )
+                receipt = await handler.handle(message.value)
+            except MalformedBridgeMessageError as exc:
+                if dlq is None:
+                    raise
+                await dlq.shunt(message, exc)
+                # So' DEPOIS da fila morta confirmar: o fato contado e' o desvio que aconteceu.
+                logger.warning(EVENTO_RESUME_FILA_MORTA, reason=exc.code)
+            else:
+                logger.info(
+                    "agent_resume.dispatched", outcome=str(receipt.outcome), agent_id=receipt.agent_id
                 )
-            receipt = await handler.handle(message.value)
-        except MalformedBridgeMessageError as exc:
-            if dlq is None:
-                raise
-            await dlq.shunt(message, exc)
-        else:
-            logger.info("agent_resume.dispatched", outcome=str(receipt.outcome), agent_id=receipt.agent_id)
+        except MalformedBridgeMessageError:
+            raise
+        except Exception as exc:
+            # O evento volta (offset NAO confirmado). Antes de propagar, deixa um fato com motivo
+            # FECHADO — sem texto da excecao, sem identificador — para o alarme contar.
+            logger.error(EVENTO_RESUME_FALHA, motivo=motivo_da_falha(exc))
+            raise
         await consumer.commit()
         if stop_event is not None and stop_event.is_set():
             break
