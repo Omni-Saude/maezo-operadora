@@ -211,6 +211,7 @@ from .consultas_plano import (
     consulta_prompt,
     fatos_da_consulta,
     literais_dos_fatos,
+    motivo_de_omissao_da_elegibilidade,
     motivo_de_recusa_da_consulta,
     resposta_deterministica,
     segmentacao_dos_fatos,
@@ -6659,6 +6660,9 @@ class HelenaGraph:
         elif subtipo in SUBTIPOS_REDIGIDOS:
             texto = await self._redigir_consulta(state, subtipo, fatos)
             recusa = motivo_de_recusa_da_consulta(texto, fatos) if isinstance(texto, str) else "sem_rascunho"
+            if recusa is None and subtipo == "elegibilidade" and isinstance(texto, str):
+                # Rascunho sem a segmentacao/acomodacao que o cadastro tem: volta ao texto deterministico.
+                recusa = motivo_de_omissao_da_elegibilidade(texto, fatos)
         else:
             # Autorizacao e carencia (revisao do #690): SEMPRE a resposta deterministica, sem modelo.
             recusa = "subtipo_deterministico"

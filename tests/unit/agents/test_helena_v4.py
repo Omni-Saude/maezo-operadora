@@ -1065,9 +1065,7 @@ async def test_escolha_pura_com_sinal_de_alarme_na_mensagem_continua_pela_tabela
     await conversa.diz("Não")
     resultado = await conversa.diz(
         "2, ele está roxo e não respira",
-        _classify(
-            intent="symptom", population="pediatric", sintoma_codigo="cianose", intensidade="grave"
-        ),
+        _classify(intent="symptom", population="pediatric", sintoma_codigo="cianose", intensidade="grave"),
     )
 
     assert resultado["escalation_motivo"] == "red_flag_clinico"
