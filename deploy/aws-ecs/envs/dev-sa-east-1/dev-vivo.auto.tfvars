@@ -59,10 +59,13 @@ staff_install = {
 // de metrica e o ledger S3: e' o refresher da fila de casos do portal. Sem isto a fila do portal para.
 // ---------------------------------------------------------------------------
 staff_ops = {
-  // Digest UNICO das 4 tasks staff-ops (rows/syn/assignment/job): imagem de operacao 1ded30e7-staff-ops.
+  // 16/10/2026: imagem de operacao 182e11b7-staff-material (base: app 8819f3fb). O job T1.5 valida o catalogo no modelo
+  // `ReadCatalogArtifact` da imagem; a base antiga (c29a88ea) nao conhece o formulario `cancel_execucao` (#788) e recusa
+  // o catalogo do SP-OP-CANCEL-001 v0.2.0 (`ReadRefusalError read_dependency_unavailable`). Era 1ded30e7-staff-ops (e92a4e5e).
+  // Digest UNICO das 4 tasks staff-ops (rows/syn/assignment/job).
   // Mesmas camadas-base que 6bd559ec-staff-ops (a20b2597); entre as duas so mudou deploy/sql/portal-human-plane-grants.sql
   // (#558: INSERT do outbox na cadeia de auditoria); tools/staff_ops, staff_install, staff_materials e dev_syn_fixture identicos.
-  image_digest = "sha256:e92a4e5e663dc7beca4833fe8e3306cfed485e461485034bcefb8e2eb6e04dae"
+  image_digest = "sha256:bb19425cda659598c3947f6ecfc7997826b2c91796418edc1e020274c9ddf384"
 
   rows_secret_arn       = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-install/rows-R8q4LK"
   syn_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-install/syn-fixture-wt3sOm"
