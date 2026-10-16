@@ -117,6 +117,7 @@ from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
+from maezo.runtime.terceiro_no_texto import com_aviso_se_for_de_outra_pessoa
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import DmnTransport
@@ -1121,7 +1122,11 @@ class HelenaDispatcher:
         if self.consultas_plano is not None and texto == RESPOSTA_PLANO_POR_CANAIS:
             # RODADA 8: com os fatos do plano (TINA) ligados e a pessoa verificada, "ainda nao estao
             # disponiveis por este chat" nunca sai: o fato ausente do perfil segue para o grafo, que consulta.
+            # A comparacao vem ANTES do aviso de terceiro (revisao do #785): com o aviso colado, o texto
+            # deixava de ser igual e o "nao estao disponiveis" saia ao beneficiario.
             return None
+        # D-01 (red team): quem fala de outra pessoa recebe o aviso de que so' o PROPRIO cadastro e' mostrado.
+        texto = com_aviso_se_for_de_outra_pessoa(message.text, texto)
         await sender.send(phone_hash, texto)
         logger.info(
             "acesso_cadastro_respondido",

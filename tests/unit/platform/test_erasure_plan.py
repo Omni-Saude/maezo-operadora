@@ -818,9 +818,10 @@ def test_the_dpo_review_scope_did_not_shrink() -> None:
     # VW1-P4 grew it by one (`portal_vendor_submissions`, migration 0020, OP16).
     # VW4/GP11 wiring grew it by one (`portal_vendor_suppressions`, migration 0021, OP20 —
     # insumos aceitos pelo dono, sha ab262f7b…).
-    assert len(camadas) == 40, [entry["tabela"] for entry in camadas]
+    # D-04 (15/10/2026) grew it by one (`acesso_falhas_por_cpf`, migration 0028).
+    assert len(camadas) == 41, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 40, pendentes
+    assert len(pendentes) == 41, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

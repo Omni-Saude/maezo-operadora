@@ -77,6 +77,7 @@ if TYPE_CHECKING:
     from maezo.gateway.seams import SeamContext
 
     from .whatsapp.acesso import AcessoBeneficiario
+    from .whatsapp.acesso_limite_cpf import PostgresLimitePorCpf
     from .whatsapp.acesso_ponte import RefsVerificadas
     from .whatsapp.helena_consultas import ConsultasPlanoAmh
     from .whatsapp.helena_identidade import IdentidadeHelena
@@ -718,6 +719,19 @@ def _build_helena_amh(
     return identidade, consultas
 
 
+def _limite_cpf_do_acesso(settings: WhatsAppWebhookSettings) -> PostgresLimitePorCpf | None:
+    """O limite por CPF (D-04), ou `None` com `MAEZO_ACESSO_LIMITE_CPF=false` (revisao do #785: desligar sem
+    reverter codigo). Desligado, sobra o limite por conversa; o boot avisa em WARNING."""
+    if not settings.acesso_limite_cpf:
+        logger.warning("acesso_limite_cpf_desligado", tenant_id=settings.tenant_id)
+        return None
+    from maezo.platform.webhooks.whatsapp.acesso_limite_cpf import PostgresLimitePorCpf
+
+    if not settings.database_url:
+        raise ValueError("acesso: DATABASE_URL ausente (o limite por CPF e' persistido no Postgres)")
+    return PostgresLimitePorCpf(dsn=settings.database_url, tenant=settings.tenant_id)
+
+
 def _build_acesso(
     settings: WhatsAppWebhookSettings, dispatcher: HelenaDispatcher
 ) -> AcessoBeneficiario | None:
@@ -787,6 +801,8 @@ def _build_acesso(
         apresentar_dependentes=bool(settings.amh_tina_dependentes_openapi_path)
         and settings.helena_consultas_amh,
         silencio_apresentacao=timedelta(days=settings.acesso_apresentacao_dias),
+        # D-04 (decisao do dono, 15/10/2026): 3 falhas por CPF em 6 h, somadas entre as conversas.
+        limite_cpf=_limite_cpf_do_acesso(settings),
     )
     logger.warning(
         "acesso_beneficiario_ligado",
