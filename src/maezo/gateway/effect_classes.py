@@ -373,6 +373,23 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_billing_identity",
     ),
+    # -- Catalogo v4 do Lucas (DL-0114; manifests v1.10 e v1.11 PUBLISHED em 16/10/2026; executor
+    # `gateway/amh_interop.py::AmhV4Executor`). MESMA classe `leitura_phi_clinica` (C2, o degrau de leitura de
+    # maior sensibilidade; as 15 classes sao um contrato fechado) e `tool_id=None`. O DETALHAMENTO (total do
+    # pagador e valor por beneficiario, SEM nome) reusa a acao `read_member_billing_identity`; a 2a VIA
+    # (codigo de barras = CREDENCIAL DE PAGAMENTO, so' ao pagador PF verificado) tem acao PROPRIA,
+    # `read_member_payment_credential` (L3, declarada no `agent.yaml` do Lucas), para que a governanca possa
+    # desliga-la sem tocar a cobranca.
+    OperationSpec(
+        operation="amh.get_billing_detalhamento",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_billing_identity",
+    ),
+    OperationSpec(
+        operation="amh.get_billing_segunda_via",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_payment_credential",
+    ),
     # -- Fatos do plano na Helena pelo contrato TINA da AMH (manifest aditivo v1.2, DRAFT; executor
     # `gateway/amh_interop.py::AmhTinaExecutor`; DL de 07/10/2026). Mesma classe e mesma postura das
     # leituras acima (C2, `tool_id=None`), com acao PROPRIA (`read_member_plan_facts`, L3, declarada

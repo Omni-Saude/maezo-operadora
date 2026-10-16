@@ -119,8 +119,10 @@ from maezo.adapters.amh.subject_verification import OP_VERIFY
 from maezo.gateway.amh import AmhRuntime, AmhSubjectContextExecutor, GatedAmhContext
 from maezo.gateway.amh_interop import (
     HASH_SCHEME,
+    OPERATION_DETALHAMENTO,
     PURPOSE_ATENDIMENTO_WHATSAPP,
     SCOPE_BY_OPERATION,
+    SCOPE_SEGUNDA_VIA,
     SCOPE_TINA,
     AmhBillingStatusExecutor,
     AmhConsentRecordExecutor,
@@ -132,7 +134,9 @@ from maezo.gateway.amh_interop import (
     AmhSubjectVerificationExecutor,
     AmhSubjectVerifyHasher,
     AmhTinaExecutor,
+    AmhV4Executor,
     CognitoClientCredentials,
+    conferir_artefatos_v4,
 )
 from maezo.gateway.credential_vault import (
     AgentCredentialView,
@@ -235,6 +239,11 @@ AGENT_CREDENTIAL_FIELDS: Final[dict[str, str]] = {
     "amh_phone_lookup_key": "amh_phone_lookup_key",
     # DL-0083 (acesso do beneficiario): chave DEDICADA do hash `amh-subject-verify-v1` (CPF e CPF+nascimento).
     "amh_subject_verify_key": "amh_subject_verify_key",
+    # DL-0114 (Lucas v4): segredo do cliente Cognito DEDICADO da 2a via do boleto
+    # (`maezo-operadora-interop-boleto`,
+    # unico escopo `interop/billing.boleto`). Credencial de pagamento: cliente e segredo separados do de
+    # cobranca.
+    "amh_interop_boleto_client_secret": "amh_interop_boleto_client_secret",
 }
 
 #: Settings fields that carry a HUMAN-RESTRICTED credential, and the ADR-0005 partition each one
@@ -630,6 +639,7 @@ def build_amh_interop(
     incluir_tina: bool = False,
     incluir_acesso: bool = False,
     billing_atendimento: bool = False,
+    incluir_v4: bool = False,
 ) -> AmhInteropComposition:
     """A fonte REAL de cobranca/identidade do Lucas: executores do gateway -> adaptadores pinados.
 
@@ -662,6 +672,16 @@ def build_amh_interop(
     `amh_billing_status_atendimento_openapi_path` (o 0.1.0 nao e' lido) e o executor de cobranca declara
     `purpose_of_use=atendimento_whatsapp`; os outros executores seguem com `amh_interop_purpose_of_use`. Sem o
     bloco `manifest_v1_4` no pin o adaptador LEVANTA e o receptor recusa servir. `False` = a de sempre.
+
+    `incluir_v4=True` (SO' com `MAEZO_LUCAS_V4` ligada e a configuracao do catalogo v4 presente, DL-0114)
+    acrescenta o
+    executor governado `executor_v4` (`AmhV4Executor`): exige `amh_billing_status_detalhamento_openapi_path`,
+    `amh_billing_segunda_via_openapi_path` (os bytes tem de bater com o digest dos blocos `manifest_v1_10` e
+    `manifest_v1_11` do pin, senao LEVANTA), o cliente Cognito DEDICADO da 2a via
+    (`amh_interop_boleto_client_id` e
+    o segredo `amh_interop_boleto_client_secret`) e o escopo `interop/billing.read` em `amh_interop_scopes`.
+    `False` =
+    a composicao de antes, sem nada do catalogo v4.
     """
     from maezo.adapters.amh.billing_status import ARTIFACT as ARTIFACT_BILLING
     from maezo.adapters.amh.billing_status import ARTIFACT_ATENDIMENTO as ARTIFACT_BILLING_ATENDIMENTO
@@ -716,6 +736,17 @@ def build_amh_interop(
         exigidos["amh_document_resolution_openapi_path"] = getattr(
             settings, "amh_document_resolution_openapi_path", None
         )
+    if incluir_v4 is True:
+        exigidos["amh_billing_status_detalhamento_openapi_path"] = getattr(
+            settings, "amh_billing_status_detalhamento_openapi_path", None
+        )
+        exigidos["amh_billing_segunda_via_openapi_path"] = getattr(
+            settings, "amh_billing_segunda_via_openapi_path", None
+        )
+        exigidos["amh_interop_boleto_client_id"] = getattr(settings, "amh_interop_boleto_client_id", None)
+        exigidos["amh_interop_boleto_client_secret"] = agent_credential(
+            credentials, "amh_interop_boleto_client_secret"
+        )
     ausentes = sorted(nome for nome, valor in exigidos.items() if not valor)
     if ausentes:
         raise AmhInteropCompositionError("amh_interop_config_ausente: " + ",".join(ausentes))
@@ -727,6 +758,8 @@ def build_amh_interop(
     if incluir_acesso is True and not {SCOPE_BY_OPERATION[OP_VERIFY], SCOPE_BY_OPERATION[OP_RECORD]} <= set(
         scopes
     ):
+        raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
+    if incluir_v4 is True and SCOPE_BY_OPERATION[OPERATION_DETALHAMENTO] not in scopes:
         raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
     tokens = CognitoClientCredentials(
         token_url=exigidos["amh_interop_token_url"],
@@ -791,6 +824,26 @@ def build_amh_interop(
         )
         verify_hasher = AmhSubjectVerifyHasher(key=str(verify_key), amh_tenant=exigidos["amh_interop_tenant"])
         executores = (*executores, verification_executor, consent_executor, document_executor)
+    executor_v4: AmhV4Executor | None = None
+    if incluir_v4 is True:
+        # Os bytes dos DOIS OpenAPI do catalogo v4 tem de bater com o digest do pin (blocos `manifest_v1_10` e
+        # `manifest_v1_11`); qualquer divergencia ou bloco ausente LEVANTA e o receptor recusa servir.
+        conferir_artefatos_v4(
+            detalhamento=_ler_openapi(exigidos["amh_billing_status_detalhamento_openapi_path"]),
+            segunda_via=_ler_openapi(exigidos["amh_billing_segunda_via_openapi_path"]),
+        )
+        tokens_segunda_via = CognitoClientCredentials(
+            token_url=exigidos["amh_interop_token_url"],
+            client_id=exigidos["amh_interop_boleto_client_id"],
+            client_secret=exigidos["amh_interop_boleto_client_secret"],
+            scopes=(SCOPE_SEGUNDA_VIA,),
+            transport_factory=transport_factory,
+        )
+        executor_v4 = AmhV4Executor(
+            tokens_segunda_via=tokens_segunda_via,
+            **{**comum, "purpose_of_use": PURPOSE_ATENDIMENTO_WHATSAPP},
+        )
+        executores = (*executores, executor_v4)
     return AmhInteropComposition(
         billing=AmhBillingStatusAdapter(
             _ler_openapi(exigidos[chave_billing]),
@@ -818,6 +871,7 @@ def build_amh_interop(
         verify_hasher=verify_hasher,
         documents=documents,
         billing_purpose_of_use=billing_purpose,
+        executor_v4=executor_v4,
     )
 
 

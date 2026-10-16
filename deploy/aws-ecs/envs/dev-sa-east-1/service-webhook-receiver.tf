@@ -144,7 +144,7 @@ locals {
       # Fonte AMH do Lucas: `environment_amh` (abaixo; amh-interop.tf) e' vazia com a fonte
       # `simulada`, entao esta task definition fica byte a byte igual enquanto ela nao for ligada.
     ])
-    environment_amh = concat(local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env, local.amh_billing_contratacao_env)
+    environment_amh = concat(local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env, local.amh_billing_contratacao_env, local.amh_v4_env)
     secrets_app = concat(local.db_secrets_maezo, [
       # Sem esta o Pseudonymizer falha FECHADO (ADR-0035) — e o receptor e' quem pseudonimiza
       # o numero e o wamid antes de qualquer coisa tocar o texto.

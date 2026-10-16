@@ -223,6 +223,42 @@ def test_pagador_com_o_sinal_o_detalhe_por_beneficiario_e_o_codigo_passam() -> N
     assert _falhas(pagador[1], 1, _texto_com_codigo(), fatos=[_FATOS_BILLING, _FATOS_2A_VIA]) == []
 
 
+def test_com_o_sinal_o_pagador_exige_o_detalhe_por_beneficiario_sem_nome() -> None:
+    """Com os contratos novos ligados nao basta "o detalhe sai pelo aplicativo": reprova sem o detalhe."""
+    pagador = aceite.LUCAS_V4_PAGADOR
+    fatos = [_FATOS_BILLING, FatosV4().como_entrada_lucas() | {"detalhamento_pagador": [_DETALHE]}]
+    sem_detalhe = (
+        "O valor total da mensalidade de outubro de 2026 é de R$ 720,00, com vencimento em 20/10. "
+        "Esse total soma todos os beneficiários do contrato. "
+        "O detalhe por beneficiário sai pelo aplicativo Austa Clínicas. (dados de 12/10)"
+    )
+    assert _falhas(pagador[0], 1, sem_detalhe, fatos=fatos) != []
+    assert _falhas(pagador[0], 1, _TOTAL_PRIMEIRO, fatos=[_FATOS_BILLING]) != []
+    # o detalhe com NOME no lugar do rotulo tambem reprova (so' voce/titular/dependente N)
+    com_nome = _TEXTO_DETALHADO.replace("• Dependente 1:", "• Joao:")
+    assert _falhas(pagador[0], 1, com_nome, fatos=fatos) != []
+    assert _falhas(pagador[0], 1, _TEXTO_DETALHADO, fatos=fatos) == []
+
+
+def test_com_o_sinal_a_2a_via_do_pagador_exige_o_codigo_no_texto_real_e_nao_aceita_o_texto_de_canais() -> (
+    None
+):
+    pagador = aceite.LUCAS_V4_PAGADOR
+    fatos = [_FATOS_BILLING, _FATOS_2A_VIA]
+    assert _falhas(pagador[1], 1, SEGUNDA_VIA_CANAIS, fatos=fatos) != []
+    sem_codigo = _texto_com_codigo().replace(LINHA, "")
+    assert _falhas(pagador[1], 1, sem_codigo, fatos=fatos) != []
+    assert _falhas(pagador[1], 1, _texto_com_codigo(), fatos=fatos) == []
+
+
+def test_o_nao_pagador_nao_recebe_valor_nem_codigo_nem_com_o_sinal() -> None:
+    (segmento,) = aceite.LUCAS_V4_NAO_PAGADOR
+    assert _falhas(segmento, 1, _texto_com_codigo(), fatos=[_FATOS_BILLING, _FATOS_2A_VIA]) != []
+    assert _falhas(segmento, 0, _TEXTO_DETALHADO) != []
+    for i in range(len(segmento.passos)):
+        assert _falhas(segmento, i, TEXTO_NAO_PAGADOR_V4) == []
+
+
 def test_nao_pagador_so_ouve_o_responsavel_financeiro_em_toda_pergunta() -> None:
     (segmento,) = aceite.LUCAS_V4_NAO_PAGADOR
     for i in range(len(segmento.passos)):

@@ -970,6 +970,39 @@ variable "amh_billing_status_contratacao_openapi_path" {
   nullable    = false
 }
 
+variable "amh_billing_status_detalhamento_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-detalhamento` (billing-status 0.4.0, manifest v1.10; digest no bloco manifest_v1_10 do pin). Lido so' com `lucas_v4` e `amh_interop_boleto_client_id`."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_billing_segunda_via_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-segunda-via` (0.1.0, manifest v1.11; digest no bloco manifest_v1_11 do pin). Lido so' com `lucas_v4` e `amh_interop_boleto_client_id`."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_boleto_client_id" {
+  description = "client_id do app client Cognito DEDICADO da 2a via (`maezo-operadora-interop-boleto`, unico escopo interop/billing.boleto; criado pela AMH). Vazio = o executor do Lucas v4 nao e' composto e o segundo sinal fica desligado."
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    condition     = var.amh_interop_boleto_client_id == "" || can(regex("^[a-z0-9]{20,40}$", var.amh_interop_boleto_client_id))
+    error_message = "amh_interop_boleto_client_id tem de ser vazio ou um client_id do Cognito (alfanumerico minusculo)."
+  }
+}
+
+variable "amh_interop_boleto_cognito_secret_name" {
+  description = "Segredo (criado pela AMH) com o client secret do app client dedicado da 2a via (maezo-operadora-interop-boleto)."
+  type        = string
+  default     = "amh/cognito/dev/maezo-operadora-interop-boleto"
+  nullable    = false
+}
+
 variable "lucas_fonte_cobranca" {
   description = <<-EOT
     Fonte dos fatos de cobranca do Lucas: `simulada` (default) ou `amh` — a fonte real pelos

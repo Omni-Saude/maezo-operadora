@@ -163,3 +163,68 @@ def test_a_chave_desligada_o_pin_nao_liga_nada(monkeypatch: pytest.MonkeyPatch, 
     desligada = SimpleNamespace(lucas_v4=False, tenant_id="amh", lucas_cobranca_prazo_s=15.0)
     interop = SimpleNamespace(executor_v4=_Executor())
     assert svc._build_fonte_v4_amh(desligada, interop, refs=RefsVerificadas()) is None  # type: ignore[arg-type]
+
+
+# --- 4. o executor v4 (DL-0114): quando a composicao o pede -----------------------------------------------
+@pytest.mark.parametrize(
+    "campo",
+    [
+        "amh_billing_status_detalhamento_openapi_path",
+        "amh_billing_segunda_via_openapi_path",
+        "amh_interop_boleto_client_id",
+        "amh_interop_boleto_client_secret",
+    ],
+)
+def test_qualquer_peca_do_v4_configurada_com_a_chave_liga_a_composicao_do_executor(campo: str) -> None:
+    """Configurado pela metade, a composicao EXIGE tudo (e o boot recusa): nunca sobe calado sem a 2a via."""
+    settings = SimpleNamespace(lucas_v4=True, **{campo: "x"})
+    assert svc._lucas_v4_configurado(settings) is True  # type: ignore[arg-type]
+
+
+def test_sem_a_chave_ou_sem_nenhuma_peca_nao_ha_composicao_do_executor() -> None:
+    desligada = SimpleNamespace(lucas_v4=False, amh_interop_boleto_client_id="x")
+    assert svc._lucas_v4_configurado(desligada) is False  # type: ignore[arg-type]
+    assert svc._lucas_v4_configurado(SimpleNamespace(lucas_v4=True)) is False  # type: ignore[arg-type]
+    vazia = SimpleNamespace(lucas_v4=True, amh_interop_boleto_client_id="")
+    assert svc._lucas_v4_configurado(vazia) is False  # type: ignore[arg-type]
+
+
+def test_terraform_o_executor_v4_so_entra_com_a_chave_e_o_cliente_dedicado() -> None:
+    interop = (_DEV / "amh-interop.tf").read_text(encoding="utf-8")
+    assert (
+        "amh_v4_ligado = local.amh_interop_ligado && var.lucas_v4 && var.amh_interop_boleto_client_id"
+        in interop
+    )
+    for env in (
+        "MAEZO_AMH_BILLING_STATUS_DETALHAMENTO_OPENAPI_PATH",
+        "MAEZO_AMH_BILLING_SEGUNDA_VIA_OPENAPI_PATH",
+        "MAEZO_AMH_INTEROP_BOLETO_CLIENT_ID",
+    ):
+        assert interop.count(env) == 1
+    # o segredo do cliente da 2a via vai por `secrets` (Secrets Manager), nunca em `environment`
+    assert interop.count("MAEZO_AMH_INTEROP_BOLETO_CLIENT_SECRET") == 1
+    segredo = r'name = "MAEZO_AMH_INTEROP_BOLETO_CLIENT_SECRET", valueFrom = data\.aws_secretsmanager_secret'
+    assert re.search(segredo, interop)
+    receptor = (_DEV / "service-webhook-receiver.tf").read_text(encoding="utf-8")
+    assert "local.amh_v4_env" in receptor and "amh_v4_secrets" in interop
+    # o segredo entra na leitura IAM da execution role e na CMK, junto dos outros segredos da AMH
+    assert "local.amh_v4_secret_arns" in interop and "local.amh_v4_kms_key_ids" in interop
+    # nada de segredo no tfvars versionado
+    tfvars = (_DEV / "amh-interop.auto.tfvars").read_text(encoding="utf-8")
+    assert (
+        "billing-status-detalhamento.openapi.yaml" in tfvars and "billing-segunda-via.openapi.yaml" in tfvars
+    )
+    assert not re.search(r"(?im)^\s*\w*secret\w*\s*=", tfvars)
+
+
+def test_terraform_variaveis_do_v4_tem_default_vazio_e_o_client_id_e_validado() -> None:
+    variaveis = (_DEV / "variables.tf").read_text(encoding="utf-8")
+    for nome in (
+        "amh_billing_status_detalhamento_openapi_path",
+        "amh_billing_segunda_via_openapi_path",
+        "amh_interop_boleto_client_id",
+    ):
+        bloco = variaveis.split(f'variable "{nome}"', 1)[1].split("\n}\n", 1)[0]
+        assert 'default     = ""' in bloco and "nullable    = false" in bloco
+    bloco_id = variaveis.split('variable "amh_interop_boleto_client_id"', 1)[1].split("\n}\n", 1)[0]
+    assert "can(regex(" in bloco_id

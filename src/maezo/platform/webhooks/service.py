@@ -440,6 +440,11 @@ def _build_fonte_cobranca_amh(
         # a cobranca le' a elegibilidade para saber se o plano e' COLETIVO POR ADESAO quando o billing-status
         # nao diz quem paga. Sem ele, o comportamento de antes.
         incluir_tina=settings.helena_consultas_amh is True,
+        # DL-0114: o executor governado do catalogo v4 (detalhamento do pagador e 2a via) so' entra com a
+        # chave ligada E
+        # a configuracao dele presente; configurado pela metade, `build_amh_interop` LEVANTA e o receptor
+        # recusa servir.
+        incluir_v4=_lucas_v4_configurado(settings),
     )
     if settings.lucas_v4 is True and not getattr(
         settings, "amh_billing_status_contratacao_openapi_path", None
@@ -497,6 +502,24 @@ def _build_fonte_cobranca_amh(
     return fonte, interop
 
 
+def _lucas_v4_configurado(settings: WhatsAppWebhookSettings) -> bool:
+    """A chave do Lucas v4 esta' ligada e ALGUMA peca do executor v4 foi configurada (caminho dos OpenAPI ou
+    cliente da
+    2a via)? Entao a composicao exige TODAS. Sem nenhuma, o Lucas v4 segue sem o segundo sinal (log de
+    boot)."""
+    if settings.lucas_v4 is not True:
+        return False
+    return any(
+        getattr(settings, nome, None)
+        for nome in (
+            "amh_billing_status_detalhamento_openapi_path",
+            "amh_billing_segunda_via_openapi_path",
+            "amh_interop_boleto_client_id",
+            "amh_interop_boleto_client_secret",
+        )
+    )
+
+
 def _build_fonte_v4_amh(
     settings: WhatsAppWebhookSettings,
     interop: AmhInteropComposition | None,
@@ -508,10 +531,14 @@ def _build_fonte_v4_amh(
 
     O SEGUNDO SINAL, `fonte_detalhamento_habilitada`, exige: a chave, os DOIS contratos publicados e pinados
     (blocos `manifest_v1_10` e `manifest_v1_11` do `contracts.lock.json`), a fonte de cobranca AMH, o acesso
-    do beneficiario (identidade verificada) e um executor governado do gateway para as duas rotas. Hoje os
-    manifests estao UNPUBLISHED na AMH e o executor real nao existe: devolve `None` e o Lucas v4 faz so' o
-    que a rota billing-status 0.3.0 ja' sustenta (pagador/nao pagador sem nomes, empresa -> RH, total do
-    boleto)."""
+    do beneficiario (identidade verificada) e um executor governado do gateway para as duas rotas
+    (`AmhV4Executor`, `interop.executor_v4`, composto por
+    `tool_registry.build_amh_interop(incluir_v4=True)`). Os
+    manifests v1.10/v1.11 estao PUBLISHED e pinados desde 16/10/2026; faltando qualquer peca devolve `None`
+    e o
+    Lucas v4 faz so' o que a rota billing-status 0.3.0 ja' sustenta (pagador/nao pagador sem nomes, empresa
+    -> RH,
+    total do boleto)."""
     from maezo.adapters.amh.contract import AmhContractPinError, resolve_contract_pin_path
     from maezo.agents.lucas.fonte_v4 import fonte_detalhamento_habilitada
 
@@ -543,7 +570,10 @@ def _build_fonte_v4_amh(
         logger.error(
             "lucas_v4_contratos_pinados_sem_executor",
             tenant_id=settings.tenant_id,
-            detail="o executor governado do gateway para as rotas novas ainda nao existe (runbook lucas-v4)",
+            detail=(
+                "sem executor v4: faltam os OpenAPI do catalogo v4 e o cliente Cognito da 2a via "
+                "(runbook lucas-v4)"
+            ),
         )
         return None
     adaptador_detalhamento = AdaptadorDetalhamento(executor)
