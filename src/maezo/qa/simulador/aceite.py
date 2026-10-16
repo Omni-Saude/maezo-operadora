@@ -17,6 +17,15 @@ ASSERCOES de um passo (todas sobre o texto concatenado das respostas DAQUELE tur
                         esse `motivo_categoria` foi aberto neste turno; `None` = nao confere
   primeira_frase_deve   padrao sobre a primeira frase da primeira resposta
   nao_igual_ao_anterior as respostas deste turno nao podem ser iguais as do passo anterior
+  condicao              `sempre` (padrao), `sem_sinal` ou `com_sinal`. O SINAL e' o
+                        `fonte_detalhamento_habilitada` do Lucas v4 (contratos novos da AMH pinados).
+                        `com_sinal` sem o sinal = o passo NAO roda e sai como `pendente_de_contrato`;
+                        `sem_sinal` com o sinal = nao roda (omitido).
+  espera_codigo         o passo tem de entregar o codigo de barras (linha digitavel ou 44 digitos)
+Os segmentos com `rigor_v4` conferem, alem dos padroes, o que o dono pediu para o Lucas v4 (DL-0114): nenhum
+nome ou dado do beneficiario, nenhuma palavra proibida ("multa", "juros"...), R$ e datas do Lucas dentro dos
+FATOS do turno (a D2 do simulador) e NENHUM codigo de barras fora do passo que o espera. O codigo entregue
+nunca vai ao relatorio: o mascarador troca qualquer codigo, linha digitavel ou sequencia longa de digitos.
 Os padroes usam `re.search` com MULTILINE (cada resposta e' uma linha: `^` casa no inicio de cada
 resposta) e DOTALL (`.` atravessa linha). Uma falha diz QUAL assercao falhou, nunca ecoa o texto.
 """
@@ -28,7 +37,8 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from .mascaramento import Mascarador, sem_acento
+from .checagens import datas_sem_fato, palavras_proibidas, quantias_no_texto, quantias_permitidas
+from .mascaramento import Mascarador, contem_dado_do_sujeito, sem_acento
 from .personas import Persona
 from .registro import Sujeito, Turno
 
@@ -65,12 +75,18 @@ class Passo:
     primeira_frase_deve: str | None = None
     nao_igual_ao_anterior: bool = False
     agente: str | None = None
+    #: DL-0114: `sempre`, `sem_sinal` ou `com_sinal` (ver o docstring do modulo).
+    condicao: str = "sempre"
+    #: DL-0114: o passo tem de entregar o codigo de barras da 2a via.
+    espera_codigo: bool = False
 
 
 @dataclass(frozen=True)
 class Segmento:
     nome: str
     passos: tuple[Passo, ...]
+    #: DL-0114: confere nome, palavras proibidas, R$ e datas contra os fatos e codigo de barras.
+    rigor_v4: bool = False
     #: Criterio "RESOLVEU?" do segmento em linguagem do dono (DL-0111). Vazio = nao declarado. O veredito
     #: e' o dos passos: SIM so' com todos aprovados; o texto diz O QUE foi conferido.
     resolveu: str = ""
@@ -84,6 +100,8 @@ class ResultadoDoPasso:
     respostas: list[tuple[str, str]] = field(default_factory=list)
     escalacoes: list[dict[str, str | None]] = field(default_factory=list)
     falhas: list[str] = field(default_factory=list)
+    #: DL-0114: o passo depende dos contratos novos da AMH e o sinal esta' desligado: nao foi enviado.
+    pendente_de_contrato: bool = False
 
     @property
     def passou(self) -> bool:
@@ -180,18 +198,97 @@ def _escalacoes_do_turno(turno: Turno) -> list[dict[str, str | None]]:
     ]
 
 
+#: Um codigo de barras no texto: a linha digitavel (47 digitos, com ou sem a pontuacao) ou os 44 digitos.
+_CODIGO_DE_BARRAS = re.compile(
+    r"(?<!\d)(?:\d{5}[.\s]?\d{5}[.\s]+\d{5}[.\s]?\d{6}[.\s]+\d{5}[.\s]?\d{6}[.\s]+\d[.\s]+\d{14}|\d{44})(?!\d)"
+)
+#: Qualquer sequencia de 20+ digitos (com um separador entre eles): nenhuma resposta do Lucas tem isso, a
+#: menos que seja uma credencial de pagamento.
+_DIGITOS_DE_CREDENCIAL = re.compile(r"(?<!\d)\d(?:[.\s-]?\d){19,}(?!\d)")
+#: O marcador do grafo: o remetente o troca pelo codigo; se chegar ao beneficiario, o envio falhou.
+_MARCADOR_CRU = "{{codigo_de_barras}}"
+_SEM_CODIGO = "nao encontrei o codigo de barras"
+
+
+def avaliar_rigor_v4(passo: Passo, turno: Turno, sujeito: Sujeito | None) -> list[str]:
+    """Conferencias do Lucas v4 (DL-0114) sobre os textos do LUCAS no turno. Nunca ecoa texto nem codigo."""
+    falhas: list[str] = []
+    textos = turno.textos("lucas")
+    permitidas = quantias_permitidas(turno.fatos)
+    entregou_codigo = False
+    for texto in textos:
+        if sujeito is not None:
+            for dado in contem_dado_do_sujeito(texto, sujeito):
+                falhas.append(f"rigor: a resposta ecoa {dado} do beneficiario (nunca nome, so' a relacao)")
+        for palavra in palavras_proibidas(texto):
+            falhas.append(f"rigor: palavra proibida '{palavra}'")
+        for q in quantias_no_texto(texto):
+            if q not in permitidas:
+                falhas.append(f"rigor/D2: valor R$ {q} fora dos fatos do turno")
+        for d in datas_sem_fato(texto, turno.fatos):
+            falhas.append(f"rigor/D2: data {d} fora dos fatos do turno")
+        plano = sem_acento(texto)
+        if _MARCADOR_CRU in plano:
+            falhas.append("rigor: o marcador do codigo de barras chegou ao beneficiario (a troca falhou)")
+        if _CODIGO_DE_BARRAS.search(texto) or _DIGITOS_DE_CREDENCIAL.search(texto):
+            entregou_codigo = True
+            if not passo.espera_codigo:
+                falhas.append("rigor: apareceu um codigo de barras onde nenhum era esperado")
+    if passo.espera_codigo and not entregou_codigo:
+        sem_codigo = any(_SEM_CODIGO in sem_acento(t) for t in textos)
+        falhas.append(
+            "rigor: o codigo de barras nao foi entregue"
+            + (
+                " (a resposta foi 'nao encontrei': este pagador nao tem codigo; escolha outro do roster)"
+                if sem_codigo
+                else ""
+            )
+        )
+    return falhas
+
+
 Enviar = Callable[[str], Awaitable[Turno]]
 
 
-async def executar_passos(segmento: Segmento, enviar: Enviar) -> list[ResultadoDoPasso]:
-    """Envia os passos em ordem e avalia cada um. Um passo que falha NAO interrompe o segmento."""
+def _condicao_atendida(passo: Passo, sinal_v4: bool) -> bool | None:
+    """`True` = roda; `False` = omitido; `None` = pendente de contrato (precisa do sinal, desligado)."""
+    if passo.condicao == "sempre":
+        return True
+    if passo.condicao == "sem_sinal":
+        return not sinal_v4
+    if passo.condicao == "com_sinal":
+        return True if sinal_v4 else None
+    raise ValueError(f"aceite: condicao de passo desconhecida ({passo.condicao!r})")
+
+
+async def executar_passos(
+    segmento: Segmento,
+    enviar: Enviar,
+    *,
+    sujeito: Sujeito | None = None,
+    sinal_v4: bool = False,
+) -> list[ResultadoDoPasso]:
+    """Envia os passos em ordem e avalia cada um. Um passo que falha NAO interrompe o segmento.
+
+    DL-0114: `sinal_v4` e' o `fonte_detalhamento_habilitada` do Lucas; `sujeito` serve so' ao `rigor_v4`."""
     resultados: list[ResultadoDoPasso] = []
     anterior: str | None = None
-    for i, passo in enumerate(segmento.passos, start=1):
+    indice = 0
+    for passo in segmento.passos:
+        atendida = _condicao_atendida(passo, sinal_v4)
+        if atendida is False:
+            continue
+        indice += 1
+        i = indice
+        if atendida is None:
+            resultados.append(ResultadoDoPasso(segmento.nome, i, passo.texto, pendente_de_contrato=True))
+            continue
         turno = await enviar(passo.texto)
         respostas = _respostas_do_turno(turno)
         escalacoes = _escalacoes_do_turno(turno)
         falhas = avaliar_passo(passo, respostas, escalacoes, anterior, erro_do_turno=turno.erro)
+        if segmento.rigor_v4:
+            falhas += avaliar_rigor_v4(passo, turno, sujeito)
         resultados.append(
             ResultadoDoPasso(
                 segmento=segmento.nome,
@@ -226,12 +323,14 @@ def como_json(
     """`criterios` (DL-0111): o "RESOLVEU?" declarado por segmento (`Segmento.resolveu`), por nome."""
     criterios = criterios or {}
     m = Mascarador(sujeito)
-    passos_total = sum(len(s.passos) for s in resultados)
-    passos_ok = sum(1 for s in resultados for p in s.passos if p.passou)
-    return {
+    passos_total = sum(1 for s in resultados for p in s.passos if not p.pendente_de_contrato)
+    passos_ok = sum(1 for s in resultados for p in s.passos if p.passou and not p.pendente_de_contrato)
+    pendentes = sum(1 for s in resultados for p in s.passos if p.pendente_de_contrato)
+    dados: dict[str, Any] = {
         "roteiro_passou": all(s.passou for s in resultados),
         "passos": passos_total,
         "passos_aprovados": passos_ok,
+        **({"passos_pendentes_de_contrato": pendentes} if pendentes else {}),
         "segmentos": [
             {
                 "nome": s.nome,
@@ -246,6 +345,7 @@ def como_json(
                         "respostas": [{"agente": a, "texto": m.texto(t)} for a, t in p.respostas],
                         "escalacoes": p.escalacoes,
                         "passou": p.passou,
+                        **({"pendente_de_contrato": True} if p.pendente_de_contrato else {}),
                         "falhas": p.falhas,
                     }
                     for p in s.passos
@@ -254,6 +354,22 @@ def como_json(
             for s in resultados
         ],
     }
+    # DL-0114: o relatorio NUNCA leva um codigo de barras. O mascarador ja' troca; isto e' o cinto: se algo
+    # escapar, o relatorio nao e' gravado.
+    if credencial_no_relatorio(dados):
+        raise RuntimeError("aceite: um codigo de barras escapou do mascaramento; relatorio nao gravado")
+    return dados
+
+
+def credencial_no_relatorio(dados: Any) -> bool:
+    """Ha' um codigo de barras (ou 20+ digitos) em algum texto do relatorio, ja' mascarado?"""
+    if isinstance(dados, str):
+        return bool(_CODIGO_DE_BARRAS.search(dados) or _DIGITOS_DE_CREDENCIAL.search(dados))
+    if isinstance(dados, dict):
+        return any(credencial_no_relatorio(v) for v in dados.values())
+    if isinstance(dados, list | tuple):
+        return any(credencial_no_relatorio(v) for v in dados)
+    return False
 
 
 def secao_do_relatorio(dados: dict[str, Any], roteiro: str) -> str:
@@ -261,7 +377,13 @@ def secao_do_relatorio(dados: dict[str, Any], roteiro: str) -> str:
         f"## Roteiro de aceite `{roteiro}`",
         "",
         f"- Resultado: **{'APROVADO' if dados['roteiro_passou'] else 'REPROVADO'}** "
-        f"({dados['passos_aprovados']}/{dados['passos']} passos)",
+        f"({dados['passos_aprovados']}/{dados['passos']} passos"
+        + (
+            f"; {dados['passos_pendentes_de_contrato']} pendentes dos contratos novos da AMH"
+            if dados.get("passos_pendentes_de_contrato")
+            else ""
+        )
+        + ")",
         "",
     ]
     for seg in dados["segmentos"]:
@@ -276,9 +398,12 @@ def secao_do_relatorio(dados: dict[str, Any], roteiro: str) -> str:
         linhas += ["| Passo | Mensagem | Resultado | Escalacao |", "|---|---|---|---|"]
         for p in seg["passos"]:
             motivos = ", ".join(str(e["motivo"]) for e in p["escalacoes"]) or "-"
-            linhas.append(
-                f"| {p['passo']} | {p['texto']} | {'ok' if p['passou'] else 'FALHOU'} | {motivos} |"
+            resultado = (
+                "pendente_de_contrato"
+                if p.get("pendente_de_contrato")
+                else ("ok" if p["passou"] else "FALHOU")
             )
+            linhas.append(f"| {p['passo']} | {p['texto']} | {resultado} | {motivos} |")
         linhas.append("")
         for p in seg["passos"]:
             if p["passou"]:
@@ -964,14 +1089,191 @@ HELENA_V4: tuple[Segmento, ...] = (
     ),
 )
 
+# ================================================================================================
+# Roteiros do Lucas v4 (DL-0114, chave MAEZO_LUCAS_V4 ligada no ambiente) — criterio "RESOLVEU?"
+# ================================================================================================
+#: Dinheiro no texto ("R$ 123"): proibido onde so' o pagador recebe valor e esperado para o pagador.
+_DINHEIRO = r"r\$ ?\d"
+_SEM_DINHEIRO = _DINHEIRO
+_RESPONSAVEL = "responsavel financeiro"
+#: O texto do PF que NAO e' o pagador (decisao do dono): o responsavel financeiro e' o titular, sem nome.
+_TEXTO_NAO_PAGADOR = (
+    "o responsavel financeiro pelo contrato e o titular do contrato",
+    "somente ele pode solicitar",
+)
+#: (a) O dono: beneficiario de plano EMPRESARIAL (CPF 42853296890, s000). Nenhum valor: e' o RH da empresa.
+LUCAS_V4: tuple[Segmento, ...] = (
+    Segmento(
+        "1-empresarial-mensalidade-vai-para-o-rh",
+        (
+            _p(
+                "Quanto está minha mensalidade?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("empresa contratante", "(rh|empresa)"),
+                nao_deve=(_SEM_DINHEIRO, _RESPONSAVEL, "titular do contrato"),
+            ),
+            _p(
+                "Qual o código de barras do meu boleto?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("(2a via|segunda via|boleto)", "empresa contratante", "(rh|empresa)"),
+                nao_deve=(_SEM_DINHEIRO, _RESPONSAVEL),
+            ),
+            _p(
+                "Quando vence a minha mensalidade?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("empresa contratante",),
+                nao_deve=(_SEM_DINHEIRO, _RESPONSAVEL),
+            ),
+        ),
+        resolveu=(
+            "o beneficiario de plano empresarial ouviu que a mensalidade, o vencimento e a 2a via sao com a "
+            "empresa contratante (normalmente o RH), SEM nenhum valor, vencimento ou codigo de barras; "
+            "nenhum "
+            "caso aberto, nenhum nome, nenhuma palavra proibida"
+        ),
+        rigor_v4=True,
+    ),
+)
+
+#: (b) PF PAGADOR (titular que paga o contrato) e (c) a 2a via. O sujeito e' o primeiro do roster PF que
+#: resolveu na AMH e NAO e' o dono (`SUJEITO_PF_TITULAR`). O passo do codigo de barras so' roda com o SINAL
+#: ligado (contratos novos da AMH pinados): sem ele sai `pendente_de_contrato` e o roteiro cobre o texto
+#: atual da 2a via.
+LUCAS_V4_PAGADOR: tuple[Segmento, ...] = (
+    Segmento(
+        "1-pagador-valor-total-primeiro",
+        (
+            _p(
+                "Quanto está minha mensalidade?",
+                agente="lucas",
+                condicao="sem_sinal",
+                escalacao=ESCALACAO_NENHUMA,
+                primeira_frase_deve="^o valor total da mensalidade de",
+                deve=("valor total da mensalidade", _DINHEIRO, "soma todos os beneficiarios"),
+                nao_deve=("empresa contratante", _RESPONSAVEL, "somente ele"),
+            ),
+            # Com os contratos novos: o total e, em seguida, o detalhe por beneficiario, SEM nome.
+            _p(
+                "Quanto está minha mensalidade?",
+                agente="lucas",
+                condicao="com_sinal",
+                escalacao=ESCALACAO_NENHUMA,
+                primeira_frase_deve="^o valor total da mensalidade de",
+                deve=(
+                    "valor total da mensalidade",
+                    "soma todos os beneficiarios",
+                    "(detalhe por beneficiario:|sai pelo aplicativo austa clinicas)",
+                ),
+                nao_deve=("empresa contratante", _RESPONSAVEL, "somente ele"),
+            ),
+        ),
+        resolveu=(
+            "o pagador ouviu PRIMEIRO o valor total da mensalidade (soma de todos os beneficiarios do "
+            "contrato) e "
+            "so' depois a parte dele; com os contratos novos, o detalhe por beneficiario sem nome "
+            "(titular/voce/dependente N: pre-estabelecido + coparticipacao = total); nenhum valor fora "
+            "dos fatos "
+            "do turno, nenhum nome, nenhuma palavra proibida"
+        ),
+        rigor_v4=True,
+    ),
+    Segmento(
+        "2-pagador-2a-via",
+        (
+            _p(
+                "Qual o código de barras do boleto?",
+                agente="lucas",
+                condicao="sem_sinal",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("(2a via|segunda via)", "aplicativo austa clinicas"),
+                nao_deve=(_RESPONSAVEL, "somente ele"),
+            ),
+            # `pendente_de_contrato` enquanto o contrato billing-segunda-via nao estiver pinado e ligado.
+            _p(
+                "Qual o código de barras do boleto?",
+                agente="lucas",
+                condicao="com_sinal",
+                espera_codigo=True,
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("codigo de barras", "pdf", "aplicativo austa clinicas"),
+                nao_deve=(_RESPONSAVEL, "somente ele", "nao encontrei"),
+            ),
+        ),
+        resolveu=(
+            "o pagador recebeu o CODIGO DE BARRAS do boleto em aberto (mes, valor e vencimento dos fatos) "
+            "e a "
+            "orientacao de baixar o PDF pelo aplicativo Austa Clinicas; o codigo nao aparece no "
+            "relatorio. Sem os "
+            "contratos novos: os canais da 2a via (texto atual), sem nenhum codigo"
+        ),
+        rigor_v4=True,
+    ),
+)
+
+#: PF que NAO e' o pagador (dependente ou nao responsavel financeiro): o roster do roteiro e' o de NAO
+#: pagadores (ver o runbook `lucas-v4`, "Como escolher o sujeito"). Nenhum valor, nenhum nome: so' a relacao.
+LUCAS_V4_NAO_PAGADOR: tuple[Segmento, ...] = (
+    Segmento(
+        "1-nao-pagador-so-o-responsavel-pede",
+        (
+            _p(
+                "Quanto está minha mensalidade?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=_TEXTO_NAO_PAGADOR,
+                nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
+            ),
+            _p(
+                "Qual o código de barras do boleto?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_RESPONSAVEL, "somente"),
+                nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
+            ),
+            _p(
+                "Quando vence a minha mensalidade?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_RESPONSAVEL, "somente"),
+                nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
+            ),
+            _p(
+                "A mensalidade de setembro foi paga?",
+                agente="lucas",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_RESPONSAVEL, "somente"),
+                nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
+            ),
+        ),
+        resolveu=(
+            "quem nao e' o pagador ouviu que o responsavel financeiro pelo contrato e' o titular do "
+            "contrato e que "
+            "somente ele pode pedir (valor, vencimento, situacao e 2a via), SEM nenhum valor, nenhum nome "
+            "e sem "
+            "abrir caso"
+        ),
+        rigor_v4=True,
+    ),
+)
+
 ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "dono_v1": DONO_V1,
     "triagem_v2": TRIAGEM_V2,
     "cancelamento_v1": CANCELAMENTO_V1,
     "helena_v4": HELENA_V4,
+    "lucas_v4": LUCAS_V4,
+    "lucas_v4_pagador": LUCAS_V4_PAGADOR,
+    "lucas_v4_nao_pagador": LUCAS_V4_NAO_PAGADOR,
 }
 #: Quem conversa em cada roteiro. Ausente = o dono (primeira linha do roster), como sempre.
-SUJEITO_DO_ROTEIRO: dict[str, str] = {"cancelamento_v1": SUJEITO_PF_TITULAR}
+SUJEITO_DO_ROTEIRO: dict[str, str] = {
+    "cancelamento_v1": SUJEITO_PF_TITULAR,
+    "lucas_v4_pagador": SUJEITO_PF_TITULAR,
+    "lucas_v4_nao_pagador": SUJEITO_PF_TITULAR,
+}
 
 
 def validar(roteiro: Sequence[Segmento]) -> None:
@@ -1025,6 +1327,11 @@ def conferir_apresentacao(turnos: Sequence[Turno]) -> list[str]:
 
 __all__ = [
     "CANCELAMENTO_V1",
+    "LUCAS_V4",
+    "LUCAS_V4_NAO_PAGADOR",
+    "LUCAS_V4_PAGADOR",
+    "avaliar_rigor_v4",
+    "credencial_no_relatorio",
     "SUJEITO_DO_ROTEIRO",
     "SUJEITO_PF_TITULAR",
     "DONO_V1",

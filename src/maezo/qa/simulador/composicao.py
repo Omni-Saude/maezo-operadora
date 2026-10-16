@@ -356,6 +356,38 @@ class FonteGravada:
         return getattr(self._inner, nome)
 
 
+class FonteV4Gravada:
+    """`FonteV4` (DL-0114) que devolve EXATAMENTE o que a fonte devolveu e guarda, no turno, os fatos que ela
+    entrega ao Lucas (gabarito do D2: total e detalhamento do pagador, valor do titulo da 2a via). A
+    CREDENCIAL (codigo de barras) nunca e' gravada: `FatosV4.como_entrada_lucas` nao a tem, e o objeto
+    `CredenciaisDoTurno` so' passa adiante."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    @staticmethod
+    def _gravar(fatos: Any) -> None:
+        contexto = _CONTEXTO.get()
+        como_entrada = getattr(fatos, "como_entrada_lucas", None)
+        if contexto is not None and como_entrada is not None:
+            gravado = como_entrada()
+            if gravado:
+                contexto.turno.fatos.append(gravado)
+
+    async def detalhamento(self, *args: Any, **kwargs: Any) -> Any:
+        resultado = await self._inner.detalhamento(*args, **kwargs)
+        self._gravar(resultado)
+        return resultado
+
+    async def segunda_via(self, *args: Any, **kwargs: Any) -> Any:
+        fatos, credenciais = await self._inner.segunda_via(*args, **kwargs)
+        self._gravar(fatos)
+        return fatos, credenciais
+
+    def __getattr__(self, nome: str) -> Any:
+        return getattr(self._inner, nome)
+
+
 # ================================================================================================
 # 4. Identidade da Helena
 # ================================================================================================
@@ -527,6 +559,8 @@ def trocar_bordas(
     if lucas is not None:
         lucas.cibseven = _reembrulhar_motor(lucas.cibseven, registro)
         lucas.fonte = FonteGravada(lucas.fonte)
+        if getattr(lucas, "fonte_v4", None) is not None:
+            lucas.fonte_v4 = FonteV4Gravada(lucas.fonte_v4)  # type: ignore[assignment]
     if dispatcher.identidade is not None:
         dispatcher.identidade = IdentidadeGravada(dispatcher.identidade)  # type: ignore[assignment]
 
@@ -598,6 +632,7 @@ __all__ = [
     "ContextoDoTurno",
     "DestinoForaDaFaixaError",
     "FonteGravada",
+    "FonteV4Gravada",
     "IdentidadeGravada",
     "InterceptorDeEscalonamento",
     "ModoConsentimento",

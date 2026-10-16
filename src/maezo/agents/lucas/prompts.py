@@ -335,7 +335,21 @@ _MOEDA: re.Pattern[str] = re.compile(
 #: lavava "R$ 2.026,09" (medido). So' estas chaves justificam quantia, em qualquer nivel do dicionario
 #: de fatos (as competencias do contrato `billing-status` chegam como lista de dicionarios, DL-0086).
 _FATOS_MONETARIOS: frozenset[str] = frozenset(
-    {"valor_em_aberto", "valor_total", "valor_coparticipacao", "valor_saldo", "valor_boleto_pagador"}
+    {
+        "valor_em_aberto",
+        "valor_total",
+        "valor_coparticipacao",
+        "valor_saldo",
+        "valor_boleto_pagador",
+        # DL-0114 (`MAEZO_LUCAS_V4`, billing-status 0.4.0): o detalhamento do pagador por beneficiario.
+        "valor_pre_estabelecido",
+        "valor_adicionais",
+        "valor_outros",
+        "total_mensalidade",
+        "total_pre_estabelecido",
+        "total_coparticipacao",
+        "total_adicionais",
+    }
 )
 
 #: DATA SEM FATO (grupo 6, DL-0086). As chaves de fato que PODEM justificar uma data no texto (ISO

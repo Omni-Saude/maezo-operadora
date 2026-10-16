@@ -78,7 +78,25 @@ DESCRICOES: dict[str, str] = {
 
 # --- D2: dinheiro e datas ------------------------------------------------------------------------
 _MOEDA = re.compile(r"(?:r\s*\$|brl)\s*(\d[\d.,]*\d|\d)|(\d[\d.,]*\d|\d)\s*reais\b", re.IGNORECASE)
-_FATOS_MONETARIOS = frozenset({"valor_em_aberto", "valor_total", "valor_coparticipacao", "valor_saldo"})
+_FATOS_MONETARIOS = frozenset(
+    {
+        "valor_em_aberto",
+        "valor_total",
+        "valor_coparticipacao",
+        "valor_saldo",
+        # DL-0114 (`MAEZO_LUCAS_V4`): o total do pagador, o detalhamento por beneficiario (billing-status
+        # 0.4.0) e o valor do titulo da 2a via (o fato do turno o guarda como `valor_boleto_pagador`).
+        "valor_boleto_pagador",
+        "valor_titulo",
+        "valor_pre_estabelecido",
+        "valor_adicionais",
+        "valor_outros",
+        "total_mensalidade",
+        "total_pre_estabelecido",
+        "total_coparticipacao",
+        "total_adicionais",
+    }
+)
 _FATOS_DE_DATA = frozenset({"vencimento", "liquidado_em", "vencimento_referencia", "dados_de"})
 _CNAB_DATADO = re.compile(r"^amh-billing:(\d{4})-(\d{2})-(\d{2})$")
 _DATA_BARRA = re.compile(r"(?<!\d)(\d{1,2})/(\d{1,2})/(\d{4})(?!\d)")

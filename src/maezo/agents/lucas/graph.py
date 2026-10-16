@@ -146,6 +146,12 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.agents.lucas.fonte_cobranca import PAGADOR_EMPRESA
+from maezo.agents.lucas.fonte_v4 import (
+    MARCADOR_CODIGO,
+    MAX_BENEFICIARIOS_NO_TEXTO,
+    SEGUNDA_VIA_COM_CODIGO,
+    SEGUNDA_VIA_SEM_CODIGO,
+)
 from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
 from maezo.platform.observability import record_resposta_recusada
 from maezo.runtime.cobranca_foco import (
@@ -462,6 +468,13 @@ class LucasState(TypedDict, total=False):
     #: Wave 2 (14/10/2026): a pessoa e' o proprio pagador PF do boleto (`True`) ou nao (`False`, dependente).
     #: Ausente quando a fonte nao sabe. O total do boleto da familia viaja em cada competencia.
     beneficiario_e_pagador: bool
+    #: DL-0114 (chave `MAEZO_LUCAS_V4`): fatos dos contratos novos da AMH (billing-status 0.4.0 e
+    #: billing-segunda-via), AUSENTES enquanto eles nao estiverem publicados, pinados e ligados. Nenhum e'
+    #: credencial: o codigo de barras NUNCA entra no estado (so' o marcador no texto, `fonte_v4`).
+    responsavel_financeiro: str  # voce | outra_pessoa | empresa | administradora | desconhecido
+    detalhamento_pagador: list[dict[str, Any]]  # total e beneficiarios SEM nome, por competencia
+    segunda_via_estado: str  # com_codigo | sem_codigo
+    segunda_via_boletos: list[dict[str, Any]]  # competencia, vencimento, situacao, valor_titulo
     #: DL-0111 (chave `MAEZO_CANCEL_PF_V1`): os FATOS do cancelamento apurados da AMH
     #: (`cancelamento_pf.FatosCancelamento.como_entrada_lucas`). AUSENTES com a chave desligada ou quando a
     #: fonte nao afirma. Fato, nunca veredito: a DMN do processo e as pessoas decidem.
@@ -607,6 +620,11 @@ _CALLER_INPUT_FIELDS: frozenset[str] = frozenset(
         "cobranca_administradora",
         # Wave 2 (14/10/2026): a pessoa e' (ou nao) o pagador PF do boleto (booleano da fonte).
         "beneficiario_e_pagador",
+        # DL-0114 (`MAEZO_LUCAS_V4`): fatos dos contratos novos da AMH (sem credencial, sem nome).
+        "responsavel_financeiro",
+        "detalhamento_pagador",
+        "segunda_via_estado",
+        "segunda_via_boletos",
         # DL-0111 (`MAEZO_CANCEL_PF_V1`): fatos do cancelamento da AMH (fatos, nunca veredito).
         "cancelamento_titular",
         "cancelamento_tipo_plano",
@@ -1469,6 +1487,189 @@ def _frase_de_valor_da_familia(c: Mapping[str, str], hoje: date) -> str | None:
     return f"Sua parte da mensalidade de {mes} é de {parte}{com_vencimento}. " + familia.format(verbo="é de")
 
 
+# --- LUCAS V4 (DL-0114, chave `MAEZO_LUCAS_V4`, decisao do dono de 15-16/10/2026) ------------------------
+#
+# So' o PAGADOR (o responsavel financeiro do contrato) pede valores, vencimento, situacao e 2a via; nunca se
+# mostra nome de outro beneficiario nem do pagador (so' a relacao: "voce", "titular", "dependente N").
+# Textos RASCUNHO aprovados pelo dono para dev; revisao juridica e do DPO antes de producao.
+
+#: PF que NAO e' o pagador (`beneficiario_e_pagador=False`): quem responde pelo contrato, sem nome.
+TEXTO_NAO_PAGADOR_V4: Final[str] = (
+    "O responsável financeiro pelo contrato é o titular do contrato. Somente ele pode solicitar essa "
+    "informação."
+)
+TEXTO_NAO_PAGADOR_V4_CURTO: Final[str] = "Somente o responsável financeiro do contrato pode pedir isso."
+#: Pagador sem codigo de barras para entregar (sem bloqueto, formato nao reconhecido, valor diverge...).
+TEXTO_SEM_CODIGO_V4: Final[str] = (
+    "Não encontrei o código de barras deste boleto. Você consegue a 2ª via pelo aplicativo Austa Clínicas, "
+    "pelo portal do plano ou pela central."
+)
+TEXTO_PDF_V4: Final[str] = "Para baixar o boleto em PDF, use o aplicativo Austa Clínicas."
+TEXTO_OUTROS_BOLETOS_V4: Final[str] = "Há outros boletos em aberto. Se quiser, me diga o mês."
+TEXTO_CODIGO_V4_ROTULO: Final[str] = "Código de barras (copie e cole no aplicativo do seu banco):"
+TEXTO_TOTAL_SOMA_V4: Final[str] = "Esse total soma todos os beneficiários do contrato."
+TEXTO_DETALHE_V4_TITULO: Final[str] = "Detalhe por beneficiário:"
+TEXTO_DETALHE_NO_APP_V4: Final[str] = "O detalhe por beneficiário sai pelo aplicativo Austa Clínicas."
+
+
+def pergunta_so_do_pagador_v4(state: LucasState) -> bool:
+    """A pergunta e' de valor, vencimento, situacao do pagamento ou 2a via? So' o pagador a faz."""
+    return (
+        state.get("tipo_solicitacao")
+        in (TIPO_CONSULTA_VALORES, "vencimento", "status_pagamento", "boleto", "2a_via")
+        or _foco_da_pergunta(state) == FOCO_JA_PAGUEI
+    )
+
+
+def _abertura_do_total_v4(c: Mapping[str, str], total: str, hoje: date) -> str:
+    """ "O valor total da mensalidade de <mes> e' de R$ X, com vencimento em DD/MM." (ou "foi de ... ja' esta'
+    paga"): o total primeiro. So' para `paga` e `em_aberto`."""
+    mes = _mes_por_extenso(c["competencia"], hoje)
+    if c["situacao"] == "paga":
+        pagou = _dia_mes(c.get("liquidado_em"), hoje)
+        quando = f" (você pagou em {pagou})" if pagou else ""
+        return f"O valor total da mensalidade de {mes} foi de {_reais(total)} e já está paga{quando}."
+    vence = _dia_mes(c.get("vencimento"), hoje)
+    com_vencimento = f", com vencimento em {vence}" if vence else ""
+    return f"O valor total da mensalidade de {mes} é de {_reais(total)}{com_vencimento}."
+
+
+def _frase_de_valor_do_pagador_v4(c: Mapping[str, str], hoje: date) -> str | None:
+    """Pagador PF: o valor TOTAL da mensalidade primeiro (todos os beneficiarios do contrato) e depois a
+    parte dele. `None` sem o total ou fora de paga/em aberto (as outras situacoes mantem a frase de
+    sempre)."""
+    total = c.get("valor_boleto_pagador")
+    if total is None or c["situacao"] not in ("paga", "em_aberto"):
+        return None
+    partes = [_abertura_do_total_v4(c, total, hoje), TEXTO_TOTAL_SOMA_V4]
+    parte = c.get("valor_total")
+    if parte is not None and parte != total:
+        verbo = "foi" if c["situacao"] == "paga" else "é"
+        partes.append(f"A sua parte {verbo} de {_reais(parte)}.")
+    return " ".join(partes)
+
+
+def _boleto_da_segunda_via_v4(state: LucasState) -> dict[str, Any] | None:
+    """O boleto da 2a via que o estado traz (um so'), na forma do contrato; `fato` e' o que a cerca confere.
+    NENHUM campo e' credencial. `None` quando nao tem a forma (o grafo segue com o texto de antes)."""
+    bruto = state.get("segunda_via_boletos")
+    if not isinstance(bruto, list) or not bruto or not isinstance(bruto[0], Mapping):
+        return None
+    item = bruto[0]
+    competencia = _na_forma(item.get("competencia"), _COMPETENCIA_DO_FATO)
+    situacao = item.get("situacao")
+    if competencia is None or situacao not in ("em_aberto", "vencida"):
+        return None
+    vencimento = _na_forma(item.get("vencimento"), _DATA_DO_FATO)
+    valor = _na_forma(item.get("valor_titulo"), _DECIMAL_DO_FATO)
+    outros = item.get("outros")
+    fato: dict[str, str] = {"competencia": competencia, "situacao": str(situacao)}
+    if vencimento is not None:
+        fato["vencimento"] = vencimento
+    if valor is not None:
+        # O valor do titulo e' o total do boleto do pagador: a chave que a cerca de saida ja' reconhece.
+        fato["valor_boleto_pagador"] = valor
+    return {
+        "fato": fato,
+        "situacao": str(situacao),
+        "valor": valor,
+        "vencimento": vencimento,
+        "competencia": competencia,
+        "outros": outros if isinstance(outros, int) and not isinstance(outros, bool) and outros > 0 else 0,
+    }
+
+
+def texto_segunda_via_com_codigo_v4(boleto: Mapping[str, Any], hoje: date) -> str:
+    """A 2a via do pagador COM codigo: o boleto (mes, valor, vencimento), o codigo (MARCADOR) em linha
+    propria e a orientacao do PDF pelo aplicativo. Nenhuma ameaca nem calculo: depois do vencimento so'
+    diz que o valor a pagar pode ser diferente do valor do titulo."""
+    mes = _mes_por_extenso(str(boleto["competencia"]), hoje)
+    vence = _dia_mes(boleto.get("vencimento"), hoje)
+    detalhes: list[str] = []
+    if boleto.get("valor"):
+        detalhes.append(_reais(str(boleto["valor"])))
+    if vence:
+        detalhes.append(f"vence em {vence}" if boleto["situacao"] == "em_aberto" else f"venceu em {vence}")
+    entre_parenteses = f" ({', '.join(detalhes)})" if detalhes else ""
+    if boleto["situacao"] == "em_aberto":
+        abertura = f"O boleto da mensalidade de {mes}{entre_parenteses} está em aberto."
+    else:
+        abertura = (
+            f"O boleto da mensalidade de {mes}{entre_parenteses} ainda não consta como pago. "
+            "Depois do vencimento, o valor a pagar pode ser diferente do valor do boleto."
+        )
+    linhas = [abertura, TEXTO_CODIGO_V4_ROTULO, MARCADOR_CODIGO, TEXTO_PDF_V4]
+    if boleto.get("outros"):
+        linhas.append(TEXTO_OUTROS_BOLETOS_V4)
+    return "\n".join(linhas)
+
+
+def _linhas_do_detalhamento_v4(grupo: Mapping[str, Any]) -> list[str] | None:
+    """Uma linha por beneficiario, SEM nome: "Titular: pré-estabelecido R$ X + coparticipação R$ Y
+    (+ outros R$ Z) = R$ T". `None` quando o detalhamento nao fecha (a AMH diz `fecha=false`), falta valor ou
+    ha' beneficiarios demais: nunca se apresenta uma soma por pessoa que nao bate."""
+    beneficiarios = grupo.get("beneficiarios")
+    if (
+        grupo.get("fecha") is not True
+        or not isinstance(beneficiarios, list)
+        or not 0 < len(beneficiarios) <= MAX_BENEFICIARIOS_NO_TEXTO
+    ):
+        return None
+    linhas: list[str] = []
+    for item in beneficiarios:
+        if not isinstance(item, Mapping):
+            return None
+        rotulo = item.get("rotulo")
+        pre = _na_forma(item.get("valor_pre_estabelecido"), _DECIMAL_DO_FATO)
+        copart = _na_forma(item.get("valor_coparticipacao"), _DECIMAL_DO_FATO)
+        total = _na_forma(item.get("valor_total"), _DECIMAL_DO_FATO)
+        adicional = _na_forma(item.get("valor_adicionais"), _DECIMAL_DO_FATO)
+        outros = item.get("valor_outros")
+        if (
+            not isinstance(rotulo, str)
+            or not re.fullmatch(r"(você|titular|dependente( [0-9]+)?)", rotulo)
+            or pre is None
+            or copart is None
+            or total is None
+            or outros not in (None, "0.00")
+        ):
+            return None
+        extra = f" (+ outros {_reais(adicional)})" if adicional is not None and adicional != "0.00" else ""
+        linhas.append(
+            f"• {rotulo.capitalize()}: pré-estabelecido {_reais(pre)} + coparticipação {_reais(copart)}"
+            f"{extra} = {_reais(total)}"
+        )
+    return linhas
+
+
+def _detalhamento_da_competencia_v4(state: LucasState, competencia: str) -> dict[str, Any] | None:
+    """O grupo do pagador da competencia (so' com o contrato billing-status 0.4.0 ligado e fato valido)."""
+    bruto = state.get("detalhamento_pagador")
+    if not isinstance(bruto, list):
+        return None
+    for item in bruto:
+        if isinstance(item, Mapping) and item.get("competencia") == competencia:
+            return dict(item)
+    return None
+
+
+def _texto_do_detalhamento_v4(
+    c: Mapping[str, str], grupo: Mapping[str, Any] | None, hoje: date
+) -> str | None:
+    """O total primeiro e, em seguida, o detalhe por beneficiario (sem nome). `None` sem grupo valido ou fora
+    de paga/em aberto. Detalhamento que nao fecha: so' o total e a orientacao do aplicativo."""
+    if grupo is None or c["situacao"] not in ("paga", "em_aberto"):
+        return None
+    total = _na_forma(grupo.get("total_mensalidade"), _DECIMAL_DO_FATO)
+    if total is None:
+        return None
+    primeira = f"{_abertura_do_total_v4(c, total, hoje)} {TEXTO_TOTAL_SOMA_V4}"
+    linhas = _linhas_do_detalhamento_v4(grupo)
+    if linhas is None:
+        return f"{primeira} {TEXTO_DETALHE_NO_APP_V4}"
+    return "\n".join([primeira, TEXTO_DETALHE_V4_TITULO, *linhas])
+
+
 def _resumo_valor_e_vencimento(c: Mapping[str, str], hoje: date) -> str | None:
     """ "R$ 552,54, vencimento em 05/10" — o que o fato tem do valor e do vencimento de um mes."""
     partes: list[str] = []
@@ -1589,7 +1790,7 @@ def _frase_de_pagamento(c: Mapping[str, str], hoje: date) -> str:
     return _frase_de_valor_e_situacao(c, hoje)
 
 
-def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
+def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date, *, v4: bool = False) -> str:
     """DL-0086/DL-0087: a resposta a `consulta_valores` em TEXTO FIXO montado dos fatos, SO' do campo
     perguntado (`facts["foco"]`, decidido pela Helena sobre o texto da pessoa).
 
@@ -1606,6 +1807,7 @@ def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date) -> st
     c = competencias[0] if competencias else None
     e_a_pedida = c is not None and pedida is not None and c["competencia"] == pedida
     partes: list[str] = []
+    em_linhas = False
     if pedida and not e_a_pedida:
         # Rodada 3 (13/10/2026): o mes pedido DEPOIS do mais recente ("novembro ta' lancado?") ainda nao
         # foi gerado — nunca "nao encontrei" nem o mesmo mes do ano passado.
@@ -1625,6 +1827,14 @@ def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date) -> st
         partes.append(_frase_de_pagamento(c, hoje))
     elif foco == "vencimento":
         partes.append(_frase_do_vencimento(c, hoje, e_a_proxima=False) or _frase_de_valor_e_situacao(c, hoje))
+    elif v4 and mostra_boleto_da_familia(state):
+        # DL-0114: o PAGADOR ouve o valor TOTAL primeiro (e, com o contrato 0.4.0, o detalhe por beneficiario
+        # sem nome); so' depois a parte dele.
+        detalhe = _texto_do_detalhamento_v4(c, facts.get("detalhamento"), hoje)
+        em_linhas = detalhe is not None and "•" in detalhe
+        partes.append(
+            detalhe or _frase_de_valor_do_pagador_v4(c, hoje) or _frase_de_valor_e_situacao(c, hoje)
+        )
     else:
         familia = _frase_de_valor_da_familia(c, hoje) if mostra_boleto_da_familia(state) else None
         partes.append(familia or _frase_de_valor_e_situacao(c, hoje))
@@ -1636,7 +1846,8 @@ def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date) -> st
     fonte = _frase_da_fonte(state, hoje)
     if fonte:
         partes.append(fonte)
-    return " ".join(partes)
+    # A lista por beneficiario termina em linha propria: a data da fonte nao gruda na ultima linha.
+    return ("\n" if em_linhas else " ").join(partes)
 
 
 def _mais_recente(facts: Mapping[str, Any]) -> list[dict[str, str]]:
@@ -2803,8 +3014,11 @@ class LucasGraph:
         hoje: Callable[[], date] | None = None,
         limiares_atraso: LimiaresDeAtraso | None = None,
         cancelamento_pf_v1: bool = False,
+        lucas_v4: bool = False,
     ) -> None:
         self._llm = inference
+        # DL-0114: `MAEZO_LUCAS_V4`. Desligada (o padrao), NENHUM ramo novo roda: byte a byte o de antes.
+        self._v4 = lucas_v4 is True
         # DL-0111: `MAEZO_CANCEL_PF_V1`. Desligada (o padrao), NENHUM ramo novo roda: byte a byte o de antes.
         self._cancel_pf_v1 = cancelamento_pf_v1 is True
         # Rodada 12: quando o atraso abre caso humano (so' o critico). Padrao: 2 meses ou > 30 dias.
@@ -2905,6 +3119,11 @@ class LucasGraph:
         variaveis = getattr(status, "variables", None)
         return isinstance(variaveis, Mapping) and variaveis.get("source_agent_id") == AGENT_ID_LUCAS
 
+    def _nao_pagador_v4(self, state: LucasState) -> bool:
+        """DL-0114: com a chave ligada, o PF que NAO e' o pagador (`beneficiario_e_pagador=False`) e a
+        pergunta e' so' do pagador. Desligada: sempre `False` (o comportamento de antes)."""
+        return self._v4 and dependente_do_titular(state) and pergunta_so_do_pagador_v4(state)
+
     async def assess(self, state: LucasState) -> dict[str, Any]:
         """Evaluate the deterministic DMN tables and decide the ROUTE (respond vs escalate).
 
@@ -2958,10 +3177,13 @@ class LucasGraph:
             # 13/10/2026 (decisao do dono): contrato de EMPRESA. A primeira linha responde com o texto fixo
             # e a regra de atraso exige `false`: o atraso do titulo da empresa nunca escala o beneficiario.
             # 13/10/2026 (bateria 4): tambem a adesao cobrada pela administradora — o titulo e' dela.
-            "pagador_empresa": titulo_de_terceiro(state),
+            # DL-0114 (`MAEZO_LUCAS_V4`): o titulo do PF que NAO e' o pagador tambem e' de terceiro (o do
+            # responsavel financeiro): o atraso dele nunca escala quem nao e' o pagador.
+            "pagador_empresa": titulo_de_terceiro(state) or self._nao_pagador_v4(state),
             # Rodada 12 (decisao do dono, 14/10/2026): so' o atraso CRITICO (>= 2 meses ou > 30 dias, PF;
             # configuravel) abre caso. Um mes sem pagamento e' resposta com fatos e a oferta de uma pessoa.
-            "atraso_critico": atraso_critico(state, self._limiares_atraso),
+            "atraso_critico": atraso_critico(state, self._limiares_atraso)
+            and not self._nao_pagador_v4(state),
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
@@ -3662,6 +3884,12 @@ class LucasGraph:
             mensagem = self._mensagem(TEXTO_COMO_PAGAR, facts, VALORES_PROMPT_VERSION, state)
             mensagem["curta"] = TEXTO_COMO_PAGAR_CURTO
             return mensagem
+        if self._nao_pagador_v4(state) and state.get("admissibilidade") in ("RESPONDER", "LEMBRETE"):
+            # DL-0114: quem nao e' o pagador nao recebe valor, vencimento, situacao nem 2a via: o responsavel
+            # financeiro do contrato (SEM nome) e' quem pode pedir.
+            mensagem = self._mensagem(TEXTO_NAO_PAGADOR_V4, facts, VALORES_PROMPT_VERSION, state)
+            mensagem["curta"] = TEXTO_NAO_PAGADOR_V4_CURTO
+            return mensagem
         if foco_da_pergunta == FOCO_JA_PAGUEI:
             facts["competencias"] = _competencias_dos_fatos(state)
             mensagem = self._mensagem(
@@ -3803,6 +4031,12 @@ class LucasGraph:
             ]
             if outros:
                 facts["sem_pagamento"] = outros[:2]
+        if self._v4 and mostra_boleto_da_familia(state) and lista is None and facts["competencias"]:
+            # DL-0114: o detalhamento por beneficiario (SEM nome) da competencia respondida, quando a AMH o
+            # entregou (billing-status 0.4.0). Os valores dele entram nos fatos para a cerca conferi-los.
+            detalhe = _detalhamento_da_competencia_v4(state, facts["competencias"][0]["competencia"])
+            if detalhe is not None:
+                facts["detalhamento"] = detalhe
         facts["admissibilidade"] = state.get("admissibilidade")
         facts["dmn_refs"] = state.get("dmn_refs", {})
         return facts
@@ -3967,6 +4201,18 @@ class LucasGraph:
 
         Os fatos levam SO' a competencia de referencia (a que a frase cita), para a cerca de saida conferir
         a data e o boleto contra ela. Sem fatos por competencia, so' os canais."""
+        if (
+            self._v4
+            and mostra_boleto_da_familia(state)
+            and state.get("segunda_via_estado")
+            in (
+                SEGUNDA_VIA_COM_CODIGO,
+                SEGUNDA_VIA_SEM_CODIGO,
+            )
+        ):
+            mensagem_v4 = self._build_segunda_via_v4(state)
+            if mensagem_v4 is not None:
+                return mensagem_v4
         competencias = _competencias_dos_fatos(state)
         pedida = state.get("competencia") or None
         escolhida = _competencia_da_segunda_via(competencias, pedida)
@@ -3985,6 +4231,33 @@ class LucasGraph:
             texto = texto_segunda_via(state, facts, self._hoje())
         return self._mensagem(texto, facts, SEGUNDA_VIA_TEXTO_VERSION, state)
 
+    def _build_segunda_via_v4(self, state: LucasState) -> dict[str, Any] | None:
+        """DL-0114: a 2a via do PAGADOR, em TEXTO FIXO. Com codigo, o texto leva o MARCADOR: o codigo de
+        barras NUNCA entra no estado, na mensagem do grafo nem na referencia da memoria — `LucasTurno` o poe
+        no texto no ultimo passo, dentro do remetente (`fonte_v4.CredenciaisDoTurno`). Sem codigo, o texto de
+        "nao encontrei" com os canais. `None` quando o fato do estado nao tem a forma esperada (segue o de
+        antes)."""
+        facts: dict[str, Any] = {
+            "tipo_solicitacao": state.get("tipo_solicitacao"),
+            "competencia_pedida": state.get("competencia") or None,
+            "competencias": [],
+            "admissibilidade": state.get("admissibilidade"),
+            "dmn_refs": state.get("dmn_refs", {}),
+        }
+        if state.get("segunda_via_estado") == SEGUNDA_VIA_SEM_CODIGO:
+            return self._mensagem(TEXTO_SEM_CODIGO_V4, facts, SEGUNDA_VIA_TEXTO_VERSION, state)
+        boleto = _boleto_da_segunda_via_v4(state)
+        if boleto is None:
+            return None
+        facts["competencias"] = [boleto["fato"]]
+        texto = texto_segunda_via_com_codigo_v4(boleto, self._hoje())
+        mensagem = self._mensagem(texto, facts, SEGUNDA_VIA_TEXTO_VERSION, state)
+        if not mensagem.get("recusa_de_saida"):
+            # Sai sempre inteira (nunca a escada de repeticao: "nao envio o boleto" contradiria o codigo) e
+            # deixa so' a referencia do texto COM o marcador.
+            mensagem["memoria_ref"] = ref_de_resposta(str(mensagem["texto"]))
+        return mensagem
+
     async def _build_valores(self, state: LucasState) -> dict[str, Any]:
         """DL-0086: a resposta a pergunta de VALOR, em TEXTO FIXO montado dos fatos do turno.
 
@@ -3996,7 +4269,9 @@ class LucasGraph:
         facts = self._fatos_de_valores(state)
         if not valores_disponiveis(state):
             return self._mensagem(RESPOSTA_INFORMATIVA_RECUSADA, facts, VALORES_PROMPT_VERSION, state)
-        return self._mensagem(texto_valores(state, facts, self._hoje()), facts, VALORES_PROMPT_VERSION, state)
+        return self._mensagem(
+            texto_valores(state, facts, self._hoje(), v4=self._v4), facts, VALORES_PROMPT_VERSION, state
+        )
 
     def _mensagem(
         self, texto: str, facts: dict[str, Any], prompt_version: str, state: LucasState | None = None
@@ -4211,6 +4486,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[LucasState]:
     return LucasGraph(
         # DL-0111: `MAEZO_CANCEL_PF_V1` (so' `True` literal liga; qualquer outra coisa e' desligada).
         cancelamento_pf_v1=cfg.get("cancelamento_pf_v1") is True,
+        # DL-0114: `MAEZO_LUCAS_V4` (so' `True` literal liga).
+        lucas_v4=cfg.get("lucas_v4") is True,
         limiares_atraso=limiares if isinstance(limiares, LimiaresDeAtraso) else None,
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
