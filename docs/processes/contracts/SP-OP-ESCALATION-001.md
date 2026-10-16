@@ -323,6 +323,28 @@ alem do desfecho:
 Em ambos os casos a regra e a mesma e nao e negociavel: **nao se promete ao beneficiario um
 humano que nao foi acionado.**
 
+### Leitura do estado do caso pelo agente (DL-0116, 2026-10-16)
+
+O agente so' AFIRMA ao beneficiario que ha' um caso aberto ("seu atendimento continua com a equipe")
+quando o MOTOR confirma uma instancia ATIVA deste processo numa chave desta conversa
+(`ESC-{tenant}-{conversation_id}` ou o caso clinico paralelo `ESC-{tenant}-{conversation_id}-clin`,
+`src/maezo/runtime/caso_clinico.py::chave_do_escalonamento`). A confirmacao e' a leitura
+`src/maezo/gateway/seams/cibseven.py::GatedCibSevenTransport.find_active_instance` (operacao
+catalogada `cibseven.find_active_instance`), feita no inicio do turno e SO' quando o historico curto
+da conversa traz indicio de caso (sem indicio, nenhuma leitura). A classe do caso (clinico ou
+administrativo) vem da chave `-clin` ativa ou do `motivo_categoria` da instancia
+(`src/maezo/runtime/caso_clinico.py::MOTIVOS_DE_ALERTA_CLINICO`).
+
+* Instancia concluida (por exemplo `UT_TratarEscalonamento` com `resultado=resolvido_humano`) ou
+  inexistente: o agente NAO afirma caso aberto (despedida comum, nunca "seu caso continua").
+* Leitura que FALHA (motor fora, portao do gateway): NAO afirma. A falha nao derruba o turno e vai ao
+  log so' com o tipo do erro.
+* O historico curto continua valendo como INDICIO para seguranca e rota, nunca como afirmacao: o
+  sinal de emergencia com caso aberto (alerta `red_flag_clinico`, DL-0072) e o roteamento da cobranca
+  curta ao Lucas seguem pelo historico, sem esperar o motor — uma leitura falha ou atrasada nunca
+  rebaixa um alerta clinico.
+* Nenhuma variavel de processo, BPMN ou DMN muda: e' uma leitura do lado do agente.
+
 
 ## Codigos de erro
 

@@ -310,6 +310,22 @@ campos obrigatorios de `UT_AnaliseRescisao`.
 > expiracao do prazo de notificacao roteia para a User Task humana, nunca para um terminal
 > adverso automatico.
 
+## Desfecho de agente: falha de start (DL-0116, 2026-10-16)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `erro_inicio_processo` | **estado do agente lucas** — NAO e variavel de processo | `src/maezo/agents/lucas/graph.py::LucasGraph.notify_start_failure`, via o helper unico `src/maezo/runtime/start_outcome.py::notify_start_failure` | o Lucas TENTOU iniciar este processo (pedido de cancelamento confirmado, `iniciar_cancelamento=true`) pelo chokepoint `start_process_idempotent` e o motor recusou. NENHUMA instancia nasceu |
+
+* O evento `agent_process_start_failed` traz `process_key=SP-OP-CANCEL-001` com a chave
+  `MAEZO_CANCEL_PF_V1` ligada OU desligada (antes, desligada, citava SP-OP-ESCALATION-001, que nem foi
+  tentado). Quais excecoes viram falha de start nao muda (DL-0111).
+* Roteamento da conversa: start falho NAO e' "o Lucas terminou escalando". A linha do roteador volta a
+  `helena` com `transicao_motivo=retorno_falha` (nunca `lucas_encerrou`), como as demais falhas do turno
+  do Lucas.
+* Nenhum texto novo ao beneficiario: o que dizer a quem teve a abertura do cancelamento falha e'
+  decisao do dono (hoje nada e' enviado nesse turno).
+* Nada muda no BPMN: o processo nao nasceu.
+
 ## Codigos de erro
 
 | Codigo | Onde | Tratamento |
