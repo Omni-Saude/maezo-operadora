@@ -1331,6 +1331,25 @@
         "title": "CancelDecisionInputs",
         "type": "object"
       },
+      "CancelExecucaoCompletionSubmission": {
+        "additionalProperties": false,
+        "description": "DL-0111: \"cancelamento executado no sistema\" (or impeded). One closed field, no note.",
+        "properties": {
+          "execucao_cadastro": {
+            "enum": [
+              "EXECUTADO",
+              "IMPEDIDO"
+            ],
+            "title": "Execucao Cadastro",
+            "type": "string"
+          }
+        },
+        "required": [
+          "execucao_cadastro"
+        ],
+        "title": "CancelExecucaoCompletionSubmission",
+        "type": "object"
+      },
       "CancelExecucaoInputs": {
         "additionalProperties": false,
         "description": "CANCEL v0.2.0 execution task (DL-0111), shared by the registry task and its SLA coordination.\n\nSP-OP-CANCEL-001 v0.2.0 ``UT_ExecutarCancelamentoCadastro``/``UT_CoordenacaoExecucaoCadastro``\ndeclare ONE closed ``camunda:formField`` (``execucao_cadastro``). This is EXECUTION of a right\nalready recognised (the member's own request), never a decision against the member: ``IMPEDIDO``\nsends the case back to the human legal analysis, it neither denies nor maintains anything.",
@@ -7108,13 +7127,24 @@
             "type": "string"
           },
           "resultado": {
-            "enum": [
-              "resolvido_humano",
-              "devolvido_agente",
-              "emergencia_acionada"
+            "anyOf": [
+              {
+                "enum": [
+                  "resolvido_humano",
+                  "devolvido_agente",
+                  "emergencia_acionada"
+                ],
+                "type": "string"
+              },
+              {
+                "enum": [
+                  "EXECUTADO",
+                  "IMPEDIDO"
+                ],
+                "type": "string"
+              }
             ],
-            "title": "Resultado",
-            "type": "string"
+            "title": "Resultado"
           },
           "schema": {
             "const": "portal-task-completion.v1",
@@ -10323,7 +10353,7 @@
     },
     "/api/v1/portal/tasks/{task_id}/completion": {
       "post": {
-        "description": "INTERIM (DL-0049): close an ESCALATION task from the portal.\n\nThis handler owns no authorization logic. It resolves the same gateway the two GETs use\n(`task_read_service_factory`) and calls `HumanGateway.complete_task`, which proves the\n`staff` audience, role and candidate group coinciding in one membership, the candidate\ngroup against the task, and re-resolves the session after the remote reads. What lives\nhere is transport: the declared gate, the origin allowlist, the closed body, the error map.",
+        "description": "INTERIM (DL-0049): close an ESCALATION task from the portal.\n\nDL-0111: the same route also closes the CANCEL v0.2.0 registry execution task with the closed\n`CancelExecucaoCompletionSubmission` body (`execucao_cadastro`, no note). The two bodies are\ndisjoint; the gateway refuses a body whose form is not the task's own form.\n\nThis handler owns no authorization logic. It resolves the same gateway the two GETs use\n(`task_read_service_factory`) and calls `HumanGateway.complete_task`, which proves the\n`staff` audience, role and candidate group coinciding in one membership, the candidate\ngroup against the task, and re-resolves the session after the remote reads. What lives\nhere is transport: the declared gate, the origin allowlist, the closed body, the error map.",
         "operationId": "complete_task_api_v1_portal_tasks__task_id__completion_post",
         "parameters": [
           {
@@ -10340,7 +10370,15 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TaskCompletionSubmission"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TaskCompletionSubmission"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CancelExecucaoCompletionSubmission"
+                  }
+                ],
+                "title": "Body"
               }
             }
           },

@@ -30,6 +30,7 @@ from maezo.gateway.human.queue import ReadRefusalError
 from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.session import HumanSessionResolver
 from maezo.portal.contracts.completions import (
+    CancelExecucaoCompletionSubmission,
     CompletionErrorCode,
     PortalCompletionError,
     TaskCompletionResponse,
@@ -289,8 +290,14 @@ def _policy(request: Request) -> CompletionPolicy:
     status_code=200,
     responses=_COMPLETION_ERRORS,
 )
-async def complete_task(request: Request, task_id: str, body: TaskCompletionSubmission) -> Response:
+async def complete_task(
+    request: Request, task_id: str, body: TaskCompletionSubmission | CancelExecucaoCompletionSubmission
+) -> Response:
     """INTERIM (DL-0049): close an ESCALATION task from the portal.
+
+    DL-0111: the same route also closes the CANCEL v0.2.0 registry execution task with the closed
+    `CancelExecucaoCompletionSubmission` body (`execucao_cadastro`, no note). The two bodies are
+    disjoint; the gateway refuses a body whose form is not the task's own form.
 
     This handler owns no authorization logic. It resolves the same gateway the two GETs use
     (`task_read_service_factory`) and calls `HumanGateway.complete_task`, which proves the
@@ -315,12 +322,18 @@ async def complete_task(request: Request, task_id: str, body: TaskCompletionSubm
             return completion_error("session_unavailable")
         secret = _secret(request)
         service = _service(request)
+        resultado: str
+        if isinstance(body, CancelExecucaoCompletionSubmission):
+            resultado, notas, form_key = body.execucao_cadastro, "", "cancel_execucao"
+        else:
+            resultado, notas, form_key = body.resultado, body.notas_resolucao, "escalation"
         result = await service.complete_task(
             session_secret=secret,
             csrf_token=request.headers["x-csrf-token"],
             task_id=task_id,
-            resultado=body.resultado,
-            notas_resolucao=body.notas_resolucao,
+            resultado=resultado,
+            notas_resolucao=notas,
+            form_key=form_key,
         )
         snapshot = result.snapshot
         value = TaskCompletionResponse(

@@ -1,12 +1,15 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 import {
+  cancelExecucaoOutcomes,
   completeTask,
   completionOutcomes,
   maxNotes,
+  type CancelExecucaoOutcome,
   type CompletionFailure,
   type CompletionOutcome,
   type CompletionResponse,
+  type CompletionSubmission,
 } from "./completionClient";
 
 type SubmitState =
@@ -35,7 +38,13 @@ const outcomeLabels: Readonly<Record<string, string>> = {
   resolvido_humano: "Resolvi o caso",
   devolvido_agente: "Devolvo ao agente, com instrução",
   emergencia_acionada: "Acionei emergência",
+  // DL-0111: execução do cancelamento a pedido no cadastro.
+  EXECUTADO: "Cancelamento executado no sistema",
+  IMPEDIDO: "Impedido (volta para a análise do jurídico)",
 };
+
+//: DL-0111: o formulário da execução do cancelamento (`cancel_execucao`): um campo fechado, sem nota.
+const CANCEL_EXECUCAO = "cancel_execucao";
 
 function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("pt-BR", {
@@ -46,18 +55,22 @@ function formatTimestamp(value: string) {
 
 export function TaskCompletionControls({
   taskId,
+  formKey = "escalation",
   csrfToken,
   sessionBinding,
   onSessionUnavailable,
   onCompleted,
 }: {
   taskId: string;
+  formKey?: string;
   csrfToken: string;
   sessionBinding: string;
   onSessionUnavailable: () => void;
   onCompleted?: () => void;
 }) {
-  const [outcome, setOutcome] = useState<CompletionOutcome | "">("");
+  const [outcome, setOutcome] = useState<string>("");
+  const execucao = formKey === CANCEL_EXECUCAO;
+  const options: readonly string[] = execucao ? cancelExecucaoOutcomes : completionOutcomes;
   const [notes, setNotes] = useState("");
   const [state, setState] = useState<SubmitState>({ kind: "idle" });
   const controller = useRef<AbortController | null>(null);
@@ -69,12 +82,14 @@ export function TaskCompletionControls({
     setOutcome("");
     setNotes("");
     setState({ kind: "idle" });
-  }, [taskId, sessionBinding]);
+  }, [taskId, sessionBinding, formKey]);
 
   useEffect(() => () => controller.current?.abort(), []);
 
   const notesTrimmed = notes.trim();
-  const ready = outcome !== "" && notesTrimmed.length > 0 && notesTrimmed.length <= maxNotes;
+  const ready = execucao
+    ? outcome !== ""
+    : outcome !== "" && notesTrimmed.length > 0 && notesTrimmed.length <= maxNotes;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -86,12 +101,10 @@ export function TaskCompletionControls({
 
     let result;
     try {
-      result = await completeTask(
-        taskId,
-        { resultado: outcome as CompletionOutcome, notas_resolucao: notesTrimmed },
-        csrfToken,
-        current.signal,
-      );
+      const submission: CompletionSubmission = execucao
+        ? { execucao_cadastro: outcome as CancelExecucaoOutcome }
+        : { resultado: outcome as CompletionOutcome, notas_resolucao: notesTrimmed };
+      result = await completeTask(taskId, submission, csrfToken, current.signal);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       // Relancar aqui deixava o formulario preso em "enviando" para sempre: o campo e o
@@ -140,14 +153,21 @@ export function TaskCompletionControls({
   return (
     <section className="task-completion" aria-labelledby={`${fieldId}-heading`}>
       <h3 id={`${fieldId}-heading`}>Concluir a tarefa</h3>
-      <p className="read-only-note">
-        A conclusão encerra a tarefa no engine. Só <strong>devolver ao agente</strong> devolve a
-        conversa ao beneficiário; os outros dois desfechos encerram o caso.
-      </p>
+      {execucao ? (
+        <p className="read-only-note">
+          Execute o cancelamento no sistema antes de concluir. <strong>Cancelamento executado</strong>{" "}
+          encerra o pedido e o beneficiário é avisado; <strong>impedido</strong> devolve o caso ao jurídico.
+        </p>
+      ) : (
+        <p className="read-only-note">
+          A conclusão encerra a tarefa no engine. Só <strong>devolver ao agente</strong> devolve a
+          conversa ao beneficiário; os outros dois desfechos encerram o caso.
+        </p>
+      )}
       <form onSubmit={(event) => void submit(event)}>
         <fieldset disabled={state.kind === "sending"}>
           <legend>Desfecho</legend>
-          {completionOutcomes.map((value) => (
+          {options.map((value) => (
             <label key={value} htmlFor={`${fieldId}-${value}`}>
               <input
                 id={`${fieldId}-${value}`}
@@ -161,6 +181,8 @@ export function TaskCompletionControls({
             </label>
           ))}
         </fieldset>
+        {!execucao && (
+        <>
         <label htmlFor={`${fieldId}-notes`}>
           Instrução / notas de resolução
           <textarea
@@ -177,6 +199,8 @@ export function TaskCompletionControls({
           Obrigatória. Em “devolvo ao agente”, é o texto que o agente repassa ao beneficiário.
           Até {maxNotes} caracteres.
         </p>
+        </>
+        )}
         {outcome === "devolvido_agente" && (
           <p className="field-hint" data-testid="devolucao-filtro">
             Por segurança, o sistema <strong>não envia</strong> uma instrução que prometa contato ou

@@ -4,7 +4,10 @@ import { validWire, wireSchema } from "./decisionSchema";
 type Schemas = components["schemas"];
 
 export type CompletionOutcome = Schemas["TaskCompletionSubmission"]["resultado"];
-export type CompletionSubmission = Schemas["TaskCompletionSubmission"];
+// DL-0111: a execucao do cancelamento no cadastro (`cancel_execucao`): um campo fechado, sem nota.
+export type CancelExecucaoOutcome = Schemas["CancelExecucaoCompletionSubmission"]["execucao_cadastro"];
+export type CancelExecucaoSubmission = Schemas["CancelExecucaoCompletionSubmission"];
+export type CompletionSubmission = Schemas["TaskCompletionSubmission"] | CancelExecucaoSubmission;
 export type CompletionResponse = Schemas["TaskCompletionResponse"];
 export type CompletionFailure =
   | Schemas["PortalCompletionError"]["code"]
@@ -26,6 +29,12 @@ export const completionOutcomes = Object.freeze(
 );
 export const maxNotes: number = submissionSchema.properties?.notas_resolucao?.maxLength ?? 0;
 
+const cancelExecucaoSchema = wireSchema("CancelExecucaoCompletionSubmission");
+//: DL-0111: os dois valores do formulario `cancel_execucao`, lidos do OpenAPI revisado.
+export const cancelExecucaoOutcomes = Object.freeze(
+  (cancelExecucaoSchema.properties?.execucao_cadastro?.enum ?? []) as readonly CancelExecucaoOutcome[],
+);
+
 const errorStatus: Readonly<Record<number, readonly CompletionFailure[]>> = {
   400: ["invalid_request"],
   401: ["session_unavailable"],
@@ -38,7 +47,11 @@ const errorStatus: Readonly<Record<number, readonly CompletionFailure[]>> = {
 };
 
 export function validCompletionSubmission(value: unknown): value is CompletionSubmission {
-  return validWire(value, submissionSchema);
+  return validWire(value, submissionSchema) || validWire(value, cancelExecucaoSchema);
+}
+
+function submittedOutcome(submission: CompletionSubmission): string {
+  return "execucao_cadastro" in submission ? submission.execucao_cadastro : submission.resultado;
 }
 
 function validateResponse(value: unknown, taskId: string, submission: CompletionSubmission): CompletionResponse | null {
@@ -49,7 +62,7 @@ function validateResponse(value: unknown, taskId: string, submission: Completion
   return completion.schema === "portal-task-completion.v1" &&
     completion.task_id === taskId &&
     completion.state === "completed" &&
-    completion.resultado === submission.resultado
+    completion.resultado === submittedOutcome(submission)
     ? completion
     : null;
 }

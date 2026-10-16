@@ -514,6 +514,10 @@ export interface paths {
          * Complete Task
          * @description INTERIM (DL-0049): close an ESCALATION task from the portal.
          *
+         *     DL-0111: the same route also closes the CANCEL v0.2.0 registry execution task with the closed
+         *     `CancelExecucaoCompletionSubmission` body (`execucao_cadastro`, no note). The two bodies are
+         *     disjoint; the gateway refuses a body whose form is not the task's own form.
+         *
          *     This handler owns no authorization logic. It resolves the same gateway the two GETs use
          *     (`task_read_service_factory`) and calls `HumanGateway.complete_task`, which proves the
          *     `staff` audience, role and candidate group coinciding in one membership, the candidate
@@ -1059,6 +1063,17 @@ export interface components {
             kind: "cancel_decisao";
             /** Referencia Regulatoria */
             referencia_regulatoria?: string | null;
+        };
+        /**
+         * CancelExecucaoCompletionSubmission
+         * @description DL-0111: "cancelamento executado no sistema" (or impeded). One closed field, no note.
+         */
+        CancelExecucaoCompletionSubmission: {
+            /**
+             * Execucao Cadastro
+             * @enum {string}
+             */
+            execucao_cadastro: "EXECUTADO" | "IMPEDIDO";
         };
         /**
          * CancelExecucaoInputs
@@ -3081,11 +3096,8 @@ export interface components {
             process_definition_key: string;
             /** Process Definition Version */
             process_definition_version: string;
-            /**
-             * Resultado
-             * @enum {string}
-             */
-            resultado: "resolvido_humano" | "devolvido_agente" | "emergencia_acionada";
+            /** Resultado */
+            resultado: ("resolvido_humano" | "devolvido_agente" | "emergencia_acionada") | ("EXECUTADO" | "IMPEDIDO");
             /**
              * Schema
              * @default portal-task-completion.v1
@@ -5512,7 +5524,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TaskCompletionSubmission"];
+                "application/json": components["schemas"]["TaskCompletionSubmission"] | components["schemas"]["CancelExecucaoCompletionSubmission"];
             };
         };
         responses: {
