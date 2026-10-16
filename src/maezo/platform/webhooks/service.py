@@ -358,6 +358,12 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
                 fonte_cancelamento = _build_fonte_cancelamento_amh(
                     settings, amh_interop, refs=dispatcher.refs_verificadas
                 )
+        # DL-0114: `MAEZO_LUCAS_V4` + o SEGUNDO SINAL (contratos novos pinados). Sem o sinal, `None`.
+        fonte_v4 = (
+            _build_fonte_v4_amh(settings, amh_interop, refs=dispatcher.refs_verificadas)
+            if settings.lucas_v4 is True
+            else None
+        )
         lucas_turno = LucasTurno(
             tenant_id=settings.tenant_id,
             inference=seams["inference"],
@@ -375,12 +381,17 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
             # DL-0111: `MAEZO_CANCEL_PF_V1` (default desligada; desligada = o Lucas de antes byte a byte).
             cancelamento_pf_v1=settings.cancel_pf_v1 is True,
             fonte_cancelamento=fonte_cancelamento,
+            # DL-0114: `MAEZO_LUCAS_V4` (default desligada; desligada = o Lucas de antes byte a byte).
+            lucas_v4=settings.lucas_v4 is True,
+            fonte_v4=fonte_v4,
         )
         logger.warning(
             "lucas_turno_construido",
             tenant_id=settings.tenant_id,
             fonte_cobranca=settings.lucas_fonte_cobranca,
             cancelamento_pf_v1=settings.cancel_pf_v1 is True,
+            lucas_v4=settings.lucas_v4 is True,
+            fonte_detalhamento_habilitada=fonte_v4 is not None,
             fatos_do_cancelamento="tina" if fonte_cancelamento is not None else "billing-status",
             detail="entrada do Lucas pronta; o despachante so' a chama a partir da onda (e)",
         )
@@ -470,6 +481,65 @@ def _build_fonte_cobranca_amh(
         fatos_de_valor=fatos_de_valor,
     )
     return fonte, interop
+
+
+def _build_fonte_v4_amh(
+    settings: WhatsAppWebhookSettings,
+    interop: AmhInteropComposition | None,
+    *,
+    refs: RefsVerificadas | None = None,
+) -> Any:
+    """DL-0114 (`MAEZO_LUCAS_V4` ligada): a fonte dos contratos novos da AMH (detalhamento do pagador e 2a via
+    com codigo de barras), ou `None`.
+
+    O SEGUNDO SINAL, `fonte_detalhamento_habilitada`, exige: a chave, os DOIS contratos publicados e pinados
+    (blocos `manifest_v1_10` e `manifest_v1_11` do `contracts.lock.json`), a fonte de cobranca AMH, o acesso
+    do beneficiario (identidade verificada) e um executor governado do gateway para as duas rotas. Hoje os
+    manifests estao UNPUBLISHED na AMH e o executor real nao existe: devolve `None` e o Lucas v4 faz so' o
+    que a rota billing-status 0.3.0 ja' sustenta (pagador/nao pagador sem nomes, empresa -> RH, total do
+    boleto)."""
+    from maezo.adapters.amh.contract import AmhContractPinError, resolve_contract_pin_path
+    from maezo.agents.lucas.fonte_v4 import fonte_detalhamento_habilitada
+
+    try:
+        pin_path = resolve_contract_pin_path()
+    except AmhContractPinError:
+        pin_path = None
+    if not fonte_detalhamento_habilitada(chave_ligada=settings.lucas_v4 is True, pin_path=pin_path):
+        logger.warning(
+            "lucas_v4_sem_contratos_novos",
+            tenant_id=settings.tenant_id,
+            fonte_detalhamento_habilitada=False,
+            detail="billing-status 0.4.0 e billing-segunda-via nao estao pinados; so' o que a 0.3.0 entrega",
+        )
+        return None
+    if interop is None or refs is None:
+        logger.error(
+            "lucas_v4_contratos_pinados_sem_fonte_amh",
+            tenant_id=settings.tenant_id,
+            detail="exige MAEZO_LUCAS_FONTE_COBRANCA=amh e o acesso do beneficiario",
+        )
+        return None
+    from maezo.agents.lucas.fonte_v4 import AdaptadorDetalhamento, AdaptadorSegundaVia, FonteV4
+    from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato
+    from maezo.platform.webhooks.whatsapp.acesso_ponte import ConsentimentoDoAcesso, ResolvedorVerificado
+
+    executor = getattr(interop, "executor_v4", None)
+    if executor is None:
+        logger.error(
+            "lucas_v4_contratos_pinados_sem_executor",
+            tenant_id=settings.tenant_id,
+            detail="o executor governado do gateway para as rotas novas ainda nao existe (runbook lucas-v4)",
+        )
+        return None
+    adaptador_detalhamento = AdaptadorDetalhamento(executor)
+    return FonteV4(
+        resolvedor=ResolvedorVerificado(refs),
+        consentimento=ConsentimentoDoAcesso(refs, BaseLegalExecucaoDeContrato()),
+        detalhamento=adaptador_detalhamento,
+        segunda_via=AdaptadorSegundaVia(executor),
+        timeout_seconds=settings.lucas_cobranca_prazo_s,
+    )
 
 
 def _build_fonte_cancelamento_amh(

@@ -326,7 +326,13 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
                 async def enviar(texto: str, _c: Conversa = conversa, _p: PlanoDeConversa = plano) -> Turno:
                     return await condutor.enviar_texto(_c, _p, texto)
 
-                resultado.passos = await aceite.executar_passos(segmento, enviar)
+                resultado.passos = await aceite.executar_passos(
+                    segmento,
+                    enviar,
+                    sujeito=dono,
+                    # DL-0114: o SINAL do Lucas v4 (contratos novos da AMH pinados e fonte v4 montada).
+                    sinal_v4=getattr(composicao.estado.lucas_turno, "fonte_v4", None) is not None,
+                )
             resultados.append(resultado)
             # limpeza da conversa que acabou, ANTES do proximo segmento
             parcial = await limpeza.limpar_execucao([cid])

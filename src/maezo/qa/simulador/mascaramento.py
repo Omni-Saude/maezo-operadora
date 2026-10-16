@@ -28,7 +28,15 @@ TOKEN_NOME = "[NOME]"
 TOKEN_BOLETO = "[BOLETO]"
 TOKEN_NUMERO = "[NUMERO]"
 TOKEN_TELEFONE = "[TELEFONE]"
+# DL-0114: o codigo de barras do boleto (linha digitavel de 47 digitos ou 44 digitos) e' CREDENCIAL DE
+# PAGAMENTO: nunca vai ao relatorio, ao transcript nem ao log do simulador.
+TOKEN_CODIGO_DE_BARRAS = "[CODIGO-DE-BARRAS]"
 
+_CODIGO_DE_BARRAS = re.compile(
+    r"(?<!\d)(?:\d{5}[.\s]?\d{5}[.\s]+\d{5}[.\s]?\d{6}[.\s]+\d{5}[.\s]?\d{6}[.\s]+\d[.\s]+\d{14}|\d{44})(?!\d)"
+)
+# Rede de seguranca: 20+ digitos seguidos (com UM separador entre eles) nao sao CPF, telefone, valor nem data.
+_DIGITOS_DE_CREDENCIAL = re.compile(r"(?<!\d)\d(?:[.\s-]?\d){19,}(?!\d)")
 _CPF = re.compile(r"(?<!\d)\d{3}[.\s]?\d{3}[.\s]?\d{3}[-.\s]?\d{2}(?!\d)")
 _TELEFONE = re.compile(r"(?<!\d)(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}[-\s]?\d{4}(?!\d)")
 _BOLETO_ASTERISCO = re.compile(r"\*{2,}\s?\d{2,6}(?!\d)")
@@ -96,6 +104,9 @@ class Mascarador:
         saida = valor
         for padrao in self._datas:
             saida = padrao.sub(TOKEN_NASCIMENTO, saida)
+        # O codigo de barras ANTES do CPF: o padrao do CPF morderia um pedaco da linha digitavel.
+        saida = _CODIGO_DE_BARRAS.sub(TOKEN_CODIGO_DE_BARRAS, saida)
+        saida = _DIGITOS_DE_CREDENCIAL.sub(TOKEN_CODIGO_DE_BARRAS, saida)
         saida = _BOLETO_ASTERISCO.sub(TOKEN_BOLETO, saida)
         saida = _BOLETO_FINAL.sub(lambda m: m.group(1) + TOKEN_BOLETO, saida)
         saida = _CPF.sub(TOKEN_CPF, saida)
@@ -142,6 +153,7 @@ def mascarar_todos(textos: Iterable[str], sujeito: Sujeito | None) -> list[str]:
 
 __all__ = [
     "TOKEN_BOLETO",
+    "TOKEN_CODIGO_DE_BARRAS",
     "TOKEN_CPF",
     "TOKEN_NASCIMENTO",
     "TOKEN_NOME",
