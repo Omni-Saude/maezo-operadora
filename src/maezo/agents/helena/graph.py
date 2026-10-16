@@ -5389,7 +5389,8 @@ class HelenaGraph:
         INTERMITENTE medido no `dono_v1` (16/10/2026, segmento 5): com o caso clinico do recem-nascido aberto,
         "e a minha mensalidade de outubro?" saiu do modelo, as vezes,
         como `symptom` (com o `sintoma_codigo` do HISTORICO): a tabela de alarme abria `red_flag_clinico` e a
-        pessoa lia o texto de EMERGENCIA (192) para uma pergunta de mensalidade. Decisao do dono (12/10): caso de saude aberto nao trava a conversa.
+        pessoa lia o texto de EMERGENCIA (192) para uma pergunta de mensalidade.
+        Decisao do dono (12/10): caso de saude aberto nao trava a conversa.
 
         Decidido ANTES do modelo, pelo texto: caso CLINICO aberto no historico, mensagem curta de cobranca
         (lexico de cobranca/financeiro) sem pista de plano, pessoa/saude, discordancia ou cancelamento,
