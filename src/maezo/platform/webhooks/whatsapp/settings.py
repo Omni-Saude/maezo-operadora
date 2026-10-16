@@ -424,6 +424,28 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_CANCEL_PF_V1", "cancel_pf_v1"),
     )
 
+    # LUCAS V4 (DL-0114, catalogo v4, aprovado pelo dono em 16/10/2026 para uso em dev; revisao juridica e do
+    # DPO antes de producao). DESLIGADA por padrao, e desligada e' o Lucas de antes byte a byte. Ligada: so' o
+    # pagador PF recebe valores e 2a via; o PF que nao e' o pagador ouve que o responsavel financeiro do
+    # contrato (sem nome) e' quem pode pedir; o pagador ouve o valor TOTAL da mensalidade primeiro. O
+    # detalhamento por beneficiario e o codigo de barras da 2a via dependem dos contratos novos da AMH
+    # (billing-status 0.4.0 e billing-segunda-via): so' ligam com o SEGUNDO SINAL
+    # (`fonte_v4.fonte_detalhamento_habilitada`), que exige os dois pinados em `contracts.lock.json`. EXIGE
+    # `lucas_consulta_valores` (sem fatos de valor nao ha' como saber quem e' o pagador).
+    lucas_v4: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_LUCAS_V4", "lucas_v4"),
+    )
+
+    @model_validator(mode="after")
+    def _lucas_v4_exige_valores(self) -> WhatsAppWebhookSettings:
+        if self.lucas_v4 and not self.lucas_consulta_valores:
+            raise ValueError(
+                "MAEZO_LUCAS_V4 exige MAEZO_LUCAS_CONSULTA_VALORES ligada "
+                "(sem os fatos de valor nao ha' como saber quem e' o pagador, DL-0114)"
+            )
+        return self
+
     @model_validator(mode="after")
     def _consultas_exigem_identidade(self) -> WhatsAppWebhookSettings:
         if self.helena_consultas_amh and not self.helena_identidade_amh:

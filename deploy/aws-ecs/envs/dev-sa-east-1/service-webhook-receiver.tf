@@ -125,6 +125,8 @@ locals {
       { name = "MAEZO_LUCAS_CONSULTA_VALORES", value = tostring(var.lucas_consulta_valores) },
       # DL-0111: cancelamento a pedido PF (default `false`; so' dev, ver `cancel_pf_v1`).
       { name = "MAEZO_CANCEL_PF_V1", value = tostring(var.cancel_pf_v1) },
+      # DL-0114: Lucas do catalogo v4 (default `false`; so' dev, ver `lucas_v4`).
+      { name = "MAEZO_LUCAS_V4", value = tostring(var.lucas_v4) },
 
       # DEVOLVE O TURNO NO CORPO DO ACK (12/09/2026). Com isto, a resposta 200 de `/webhook`
       # ganha `resposta` (o texto que a Helena redigiu) e `conversation_id`. Sem isto o corpo

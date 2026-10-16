@@ -33,3 +33,10 @@ lucas_consulta_valores = true
 // (revisao juridica/regulatoria, DPO e operacao antes de producao). Exige lucas_fonte_cobranca = "amh".
 // Voltar: false (runbook docs/runbooks/cancel-001-pf.md).
 cancel_pf_v1 = true
+
+// Lucas do catalogo v4 (DL-0114): so' o pagador PF recebe valores e 2a via; quem nao e' o pagador ouve que o
+// responsavel financeiro do contrato (sem nome) e' quem pode pedir; o pagador ouve o total primeiro. O
+// detalhamento por beneficiario e o codigo de barras so' ligam com os contratos novos da AMH pinados (segundo
+// sinal no codigo). Aprovado pelo dono em 16/10/2026 SO' para dev (juridico e DPO antes de producao). Exige
+// lucas_consulta_valores = true. Voltar: false (runbook docs/runbooks/lucas-v4.md).
+lucas_v4 = true

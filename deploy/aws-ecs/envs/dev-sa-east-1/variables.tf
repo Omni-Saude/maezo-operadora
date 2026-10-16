@@ -874,6 +874,26 @@ variable "cancel_pf_v1" {
   }
 }
 
+variable "lucas_v4" {
+  description = <<-EOT
+    Lucas do catalogo v4 (DL-0114, aprovado pelo dono em 16/10/2026 SO' para dev; revisao juridica e do DPO antes
+    de producao): `MAEZO_LUCAS_V4`. Default `false` = o Lucas de antes, byte a byte. Ligada: so' o pagador PF
+    recebe valores e 2a via; o PF que nao e' o pagador ouve que o responsavel financeiro do contrato (sem nome)
+    e' quem pode pedir; o pagador ouve o valor TOTAL da mensalidade primeiro; plano de empresa segue para o RH.
+    O detalhamento por beneficiario e o codigo de barras da 2a via so' ligam quando os contratos novos da AMH
+    (billing-status 0.4.0 e billing-segunda-via) estiverem publicados e pinados (segundo sinal no codigo). Exige
+    `lucas_consulta_valores = true` (validado aqui e no boot). Runbook: docs/runbooks/lucas-v4.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.lucas_v4 || var.lucas_consulta_valores
+    error_message = "lucas_v4 exige lucas_consulta_valores = true (sem os fatos de valor nao ha' como saber quem e' o pagador)."
+  }
+}
+
 variable "acesso_validade_horas" {
   description = "Validade, em horas, da verificacao de identidade do acesso (`MAEZO_ACESSO_VALIDADE_HORAS`, 1..168). Vencida, a proxima mensagem recomeca no CPF (o consentimento fica)."
   type        = number
