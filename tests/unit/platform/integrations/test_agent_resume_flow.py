@@ -85,12 +85,16 @@ class _WhatsApp(WhatsAppServer):
 class _Alerter:
     def __init__(self) -> None:
         self.alerts: list[str] = []
+        self.refused: list[str] = []
 
     async def alert_outside_window(self, event: Any) -> None:
         self.alerts.append(event.business_key)
 
     async def alert_undeliverable(self, event: Any) -> None:
         self.alerts.append(event.business_key)
+
+    async def alert_resumption_refused(self, event: Any) -> None:
+        self.refused.append(event.business_key)
 
 
 class _DlqPublisher:
@@ -234,17 +238,20 @@ async def test_instrucao_com_conteudo_proibido_passa_pela_cerca_e_nao_sai() -> N
     dispatcher, engine, whatsapp, _, conv, pid = await _escalar()
     _humano_devolve(engine, conv, pid, "Fique tranquilo, nao e nada grave.")
     enviados_antes = len(whatsapp.sent)
+    alerter = _Alerter()
     handler = ResumeHandler(
         tenant_id="amh",
         instructions=EngineHistoryInstructionSource(dispatcher.cibseven),
         recipients=_COFRES[conv],
-        alerter=_Alerter(),
+        alerter=alerter,
         resumers={"helena": dispatcher},
     )
     receipt = await handler.handle(_evento(conv, pid, "devolvido_agente"))
     # 4. a cerca barrou: sai o placeholder de recusa, nunca a nota.
     assert receipt.desfecho == DESFECHO_RETOMADA_RECUSADA
     assert whatsapp.sent[enviados_antes:] == [(_PHONE, RETOMADA_RECUSADA_PLACEHOLDER)]
+    # P6 (16/10/2026): e a equipe e' avisada de que o recado nao chegou (antes: silencio).
+    assert alerter.refused == [f"ESC-amh-{conv}"] and alerter.alerts == []
 
 
 async def test_destinatario_que_nao_bate_com_a_conversa_e_recusado() -> None:
