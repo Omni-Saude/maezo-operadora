@@ -743,7 +743,7 @@ CANCELAMENTO_V1: tuple[Segmento, ...] = (
 )
 
 # ================================================================================================
-# Roteiro `helena_v4` (DL-0114, chave MAEZO_HELENA_V4 ligada no ambiente)
+# Roteiro `helena_v4` (DL-0115, chave MAEZO_HELENA_V4 ligada no ambiente)
 # ================================================================================================
 # LICAO DO TESTE DE 15/10/2026 (nova triagem v2): o roteiro conferia "nao abriu caso", nao "RESOLVEU?". Cada
 # passo aqui confere o CONTEUDO util esperado (`deve`) e o que nao pode aparecer (`nao_deve`), e cada

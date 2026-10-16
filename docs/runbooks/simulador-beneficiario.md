@@ -186,7 +186,7 @@ aws ecs run-task --cluster maezo-operadora-dev --launch-type FARGATE   --task-de
   na AMH (o preflight para na primeira pessoa); senao o modo recusa rodar.
 
 - **Outros roteiros** (`--roteiro NOME`, mesmas regras): `triagem_v2` (DL-0104, chave `MAEZO_HELENA_TRIAGEM_V2`),
-  `cancelamento_v1` (DL-0111) e `helena_v4` (DL-0114, chave `MAEZO_HELENA_V4` ligada no ambiente). O `helena_v4`
+  `cancelamento_v1` (DL-0111) e `helena_v4` (DL-0115, chave `MAEZO_HELENA_V4` ligada no ambiente). O `helena_v4`
   declara o critério **"RESOLVEU?"** por segmento e confere o conteúdo útil da resposta (ver
   `docs/runbooks/helena-v4.md`, seção 6).
 

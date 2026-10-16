@@ -477,7 +477,7 @@ async def executar(args: argparse.Namespace) -> int:
             )
         )
         avaliacoes = await _julgar(juiz, conversas, args.concorrencia)
-        # D13 (caso evitavel) vale com a nova triagem (v2) OU a Helena v4 ligada (DL-0104, DL-0114).
+        # D13 (caso evitavel) vale com a nova triagem (v2) OU a Helena v4 ligada (DL-0104, DL-0115).
         triagem_v2 = (
             getattr(composicao.estado.settings, "helena_triagem_v2", False) is True
             or getattr(composicao.estado.settings, "helena_v4", False) is True

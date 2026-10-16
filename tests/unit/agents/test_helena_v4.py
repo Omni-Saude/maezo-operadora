@@ -1,4 +1,4 @@
-"""HELENA V4 (DL-0114) — o catalogo de necessidades v4 do dono atras da chave `MAEZO_HELENA_V4`.
+"""HELENA V4 (DL-0115) — o catalogo de necessidades v4 do dono atras da chave `MAEZO_HELENA_V4`.
 
 As tabelas de alarme sao as REAIS do repositorio (`spec/processes/dmn/*.dmn`), avaliadas pelo leitor
 FIRST-hit de `tests/support/dmn_first_hit.py`. O modelo e' um fake com a classificacao GRAVADA de cada

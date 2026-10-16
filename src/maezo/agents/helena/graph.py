@@ -4371,7 +4371,7 @@ class HelenaGraph:
         helena_v4_enabled: bool = False,
     ) -> None:
         self._llm = inference
-        # HELENA V4 (DL-0114, `MAEZO_HELENA_V4`): DESLIGADA por default, e desligada e' o grafo de antes byte
+        # HELENA V4 (DL-0115, `MAEZO_HELENA_V4`): DESLIGADA por default, e desligada e' o grafo de antes byte
         # a byte. Ligada (so' em dev), a Helena responde o especialista e a carteirinha com texto fixo e faz
         # so' perguntas de ALERTA no sintoma leve (`_v4_*`). A v4 SUBSTITUI a nova triagem (v2): com as duas
         # ligadas manda a v4 e a v2 fica inerte (o catalogo v4 e' o desenho que a v2 nao entregou).
@@ -4604,7 +4604,7 @@ class HelenaGraph:
             "idade_meses": extraction.get("idade_meses"),
             "idade_gestacional_semanas": extraction.get("idade_gestacional_semanas"),
         }
-        # HELENA V4 (DL-0114): a pergunta/oferta da v4 do turno anterior vale SO' para ESTE turno. Ela e' lida
+        # HELENA V4 (DL-0115): a pergunta/oferta da v4 do turno anterior vale SO' para ESTE turno. Ela e' lida
         # aqui (`pend_v4`) e a memoria da coleta zera ja', para que QUALQUER saida deste turno (inclusive os
         # portoes de seguranca, que respondem antes da v4) nao deixe uma pergunta velha esperando.
         pend_v4 = ler_pendente(state.get("coleta_pendente")) if self._v4 else None
@@ -5096,7 +5096,7 @@ class HelenaGraph:
             update["escalation_severidade"] = "grave"
             return update
 
-        # HELENA V4 (DL-0114): DEPOIS dos portoes de seguranca (classificador, risco psicossocial, tabela de
+        # HELENA V4 (DL-0115): DEPOIS dos portoes de seguranca (classificador, risco psicossocial, tabela de
         # alarme, emergencia com caso aberto, recem-nascido) e ANTES dos gatilhos de intencao e de pessoa: a
         # resposta da pessoa a uma pergunta/oferta da v4 e o pedido de especialista.
         if self._v4:
@@ -5295,7 +5295,7 @@ class HelenaGraph:
             if not ja_triado and await self._triar_red_flag(extraction, update):
                 return update
             if self._v4:
-                # HELENA V4 (DL-0114): a tabela de alarme ja' disse que nao ha' bandeira; o sintoma leve
+                # HELENA V4 (DL-0115): a tabela de alarme ja' disse que nao ha' bandeira; o sintoma leve
                 # recebe so' perguntas de ALERTA (1 ou 2) antes do caminho. `None` = nao e' da v4
                 # (gestante, saude mental, bebe pequeno): segue o caminho de hoje.
                 decidido_v4 = self._v4_sintoma_leve(state, update)
@@ -5879,7 +5879,7 @@ class HelenaGraph:
             "error": f"{SUFFICIENCY_DMN_KEY}: veredito fora do vocabulario",
         }
 
-    # -- HELENA V4 (DL-0114, `MAEZO_HELENA_V4`) --------------------------------------------------------
+    # -- HELENA V4 (DL-0115, `MAEZO_HELENA_V4`) --------------------------------------------------------
     #
     # SO' alcancavel com a chave ligada (`self._v4`). Tres necessidades do catalogo v4 do dono (16/10/2026),
     # todas DEPOIS dos portoes de seguranca que continuam no codigo (classificador, risco psicossocial,
@@ -6147,7 +6147,7 @@ class HelenaGraph:
         pergunta = str(state.get("coleta_pergunta") or "")
         lida_v4 = ler_pendente(pergunta) if self._v4 else None
         if lida_v4 is not None and lida_v4.etapa == ETAPA_ALERTA:
-            # HELENA V4 (DL-0114): as perguntas de ALERTA do tipo de queixa sao TEXTO FIXO, sem modelo, e
+            # HELENA V4 (DL-0115): as perguntas de ALERTA do tipo de queixa sao TEXTO FIXO, sem modelo, e
             # passam pelas mesmas cercas; recusada (nao deveria: o teste fixa as constantes), cai na
             # pergunta generica.
             fixa_v4 = texto_da_pergunta_de_alerta(
@@ -6279,7 +6279,7 @@ class HelenaGraph:
             # RODADA 6: o classificador falhou neste turno (ver `classify`); o texto ja' vem pronto.
             return {"response_text": RESPOSTA_PECA_REENVIO, "response_kind": "inform"}
         if self._v4 and e_texto_da_v4(state.get("response_text")):
-            # HELENA V4 (DL-0114): o texto FIXO que `classify` deixou pronto (especialista, resposta final do
+            # HELENA V4 (DL-0115): o texto FIXO que `classify` deixou pronto (especialista, resposta final do
             # sintoma leve, opcao 1), sem modelo.
             return {"response_text": str(state.get("response_text")), "response_kind": "inform"}
         if self._triagem_v2 and state.get("response_text") in _TEXTOS_FIXOS_DA_TRIAGEM_V2:
@@ -6577,7 +6577,7 @@ class HelenaGraph:
                 "response_kind": "inform",
             }
         if self._v4 and subtipo == "carteirinha" and isinstance(view, ElegibilidadeView):
-            # HELENA V4 (DL-0114): plano, segmentacao, vigencia e numero ANS com o codigo MASCARADO, e o
+            # HELENA V4 (DL-0115): plano, segmentacao, vigencia e numero ANS com o codigo MASCARADO, e o
             # cartao no aplicativo/portal. Texto deterministico (sem modelo) sobre uma lista FECHADA de
             # fatos: nunca CNS, codigo inteiro, nome nem data de nascimento.
             fatos_v4 = fatos_da_carteirinha(view)
@@ -8149,7 +8149,7 @@ class HelenaGraph:
 
     async def _resumo_contexto(self, state: HelenaState, motivo: MotivoCategoria | None) -> str:
         if self._v4:
-            # HELENA V4 (DL-0114): o caso aberto pela v4 tem resumo FIXO e legivel (so' o relato desta queixa,
+            # HELENA V4 (DL-0115): o caso aberto pela v4 tem resumo FIXO e legivel (so' o relato desta queixa,
             # o que foi perguntado e respondido), sem modelo.
             resumo_v4 = resumo_do_caso(state.get("coleta_pendente"), state.get("coleta_contexto"))
             if resumo_v4 is not None:
@@ -8297,7 +8297,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     consultas = cfg.get("consultas_plano")
     # NOVA TRIAGEM (DL-0104): como a coleta, `True` SO' quando a composicao disser explicitamente.
     triagem_v2_enabled = cfg.get("triagem_v2_enabled", False) is True
-    # HELENA V4 (DL-0114): como a coleta, `True` SO' quando a composicao disser explicitamente.
+    # HELENA V4 (DL-0115): como a coleta, `True` SO' quando a composicao disser explicitamente.
     helena_v4_enabled = cfg.get("helena_v4_enabled", False) is True
     return HelenaGraph(
         inference=cast(InferenceProvider, inference),

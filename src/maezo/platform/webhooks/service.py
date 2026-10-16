@@ -291,7 +291,7 @@ def _build_dispatcher(
         historico_enabled=settings.helena_historico,
         # NOVA TRIAGEM DA HELENA (DL-0104): `MAEZO_HELENA_TRIAGEM_V2`, default `false` (experimento em dev).
         triagem_v2_enabled=settings.helena_triagem_v2,
-        # HELENA V4 (DL-0114): `MAEZO_HELENA_V4`, default `false` (so' dev).
+        # HELENA V4 (DL-0115): `MAEZO_HELENA_V4`, default `false` (so' dev).
         helena_v4_enabled=settings.helena_v4,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of

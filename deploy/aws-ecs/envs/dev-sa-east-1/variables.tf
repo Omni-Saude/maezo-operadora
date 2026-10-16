@@ -791,7 +791,7 @@ variable "helena_triagem_v2" {
 
 variable "helena_v4" {
   description = <<-EOT
-    Helena v4 (DL-0114, 16/10/2026): `MAEZO_HELENA_V4`. Default `false` = a Helena de antes, byte a byte.
+    Helena v4 (DL-0115, 16/10/2026): `MAEZO_HELENA_V4`. Default `false` = a Helena de antes, byte a byte.
     Ligada, o especialista (cardiologista, dermatologista...) e a carteirinha recebem texto fixo (onde marcar,
     prazo da ANS, dados mascarados) e o sintoma leve recebe so' perguntas de alerta antes do caminho. Com ela
     ligada a nova triagem (`helena_triagem_v2`) fica inerte. EXPERIMENTO SO' EM DEV: conteudo clinico DRAFT

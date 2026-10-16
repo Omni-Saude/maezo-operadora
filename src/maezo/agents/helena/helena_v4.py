@@ -1,4 +1,4 @@
-"""HELENA V4 (DL-0114) — o catalogo de necessidades v4 do dono, atras da chave `MAEZO_HELENA_V4`.
+"""HELENA V4 (DL-0115) — o catalogo de necessidades v4 do dono, atras da chave `MAEZO_HELENA_V4`.
 
 Este modulo guarda SO' o que e' puro: os lexicos deterministicos, os textos fixos e a leitura do codigo
 de "onde a conversa parou". Quem decide a rota e monta o estado e' `graph.py` (`HelenaGraph._v4_*`).

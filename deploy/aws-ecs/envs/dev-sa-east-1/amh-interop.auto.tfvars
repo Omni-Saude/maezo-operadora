@@ -42,7 +42,7 @@ helena_historico = true
 // docs/runbooks/helena-triagem-v2.md).
 helena_triagem_v2 = true
 
-// Helena v4 (DL-0114, 16/10/2026): catalogo de necessidades v4 do dono. Especialista e carteirinha com texto
+// Helena v4 (DL-0115, 16/10/2026): catalogo de necessidades v4 do dono. Especialista e carteirinha com texto
 // fixo; sintoma leve so' com perguntas de alerta antes do caminho. Com ela ligada a nova triagem (v2) fica
 // inerte. EXPERIMENTO so' em dev, decisao do dono; conteudo clinico DRAFT (medico-auditor pendente) e prazo de
 // 14 dias uteis a confirmar pelo juridico. Voltar: false (runbook docs/runbooks/helena-v4.md).

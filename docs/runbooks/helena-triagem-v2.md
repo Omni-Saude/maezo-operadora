@@ -1,7 +1,7 @@
 # Nova triagem da Helena (experimento em dev) — `MAEZO_HELENA_TRIAGEM_V2`
 
 **Status:** experimento SÓ no ambiente de desenvolvimento (dev), decisão do dono registrada no
-`docs/decisions-log.md` (DL-0104). **A Helena v4 (`docs/runbooks/helena-v4.md`, DL-0114) substitui esta
+`docs/decisions-log.md` (DL-0104). **A Helena v4 (`docs/runbooks/helena-v4.md`, DL-0115) substitui esta
 triagem:** com `MAEZO_HELENA_V4` ligada a v2 fica inerte. **Conteúdo clínico DRAFT — pendente de ratificação do
 médico-auditor.** Não ligar em outro ambiente sem essa ratificação.
 

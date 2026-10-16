@@ -19,7 +19,7 @@ num motivo, e todo motivo ainda passa pelo mascarador antes de sair do processo.
   D11 pergunta de cobranca respondida pelo Lucas
   D12 sem `falha_tecnica` na conversa (a parte da execucao — p95 de latencia e taxa — fica em
       `checar_execucao`)
-  D13 CASO EVITAVEL (nova triagem da Helena, DL-0104; Helena v4, DL-0114): SO' com `MAEZO_HELENA_TRIAGEM_V2`
+  D13 CASO EVITAVEL (nova triagem da Helena, DL-0104; Helena v4, DL-0115): SO' com `MAEZO_HELENA_TRIAGEM_V2`
       ou `MAEZO_HELENA_V4` ligada e so' nas personas marcadas (`caso_evitavel_com_triagem_v2`), caso aberto
       sem alarme, sem risco e sem pedido explicito de pessoa conta como indevido. Na v4 a escolha da opcao 2
       ("falar com a nossa equipe de saude") e' pedido de pessoa. Com as duas chaves desligadas a checagem
@@ -316,7 +316,7 @@ def _pedido_explicito(texto: str) -> bool:
     return bool(_PEDIDO_EXPLICITO.search(_normal(texto).casefold()))
 
 
-#: HELENA V4 (DL-0114): a resposta final oferece "1) ... ou 2) falar com a nossa equipe de saude"; a pessoa
+#: HELENA V4 (DL-0115): a resposta final oferece "1) ... ou 2) falar com a nossa equipe de saude"; a pessoa
 #: que escolhe a 2 (o numero, ou "equipe de saude") esta' pedindo a equipe.
 _ESCOLHA_DA_EQUIPE = re.compile(r"^\s*(?:a |opcao |numero )?(?:2|dois|segunda)\b|\bequipe de saude\b")
 

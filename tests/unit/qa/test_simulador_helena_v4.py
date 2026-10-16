@@ -1,4 +1,4 @@
-"""Simulador da HELENA V4 (DL-0114): D13 "caso evitavel" continua valendo para sintoma leve e duvida de saude.
+"""Simulador da HELENA V4 (DL-0115): D13 "caso evitavel" continua valendo para sintoma leve e duvida de saude.
 
 * a checagem D13 vale com a v2 OU a v4 ligada (o parametro `triagem_v2` quer dizer "alguma das duas") e o
   `__main__` a liga pelas duas chaves do ambiente;

@@ -1,7 +1,7 @@
 # Helena v4 (catálogo de necessidades v4, só em dev) — `MAEZO_HELENA_V4`
 
 **Status:** experimento SÓ no ambiente de desenvolvimento (dev), decisão do dono registrada no
-`docs/decisions-log.md` (DL-0114). Textos **aprovados pelo dono para dev** (16/10/2026); **revisão
+`docs/decisions-log.md` (DL-0115). Textos **aprovados pelo dono para dev** (16/10/2026); **revisão
 jurídica/clínica antes de produção**. **Conteúdo clínico DRAFT** (ainda não há médico-auditor) e o prazo de
 **14 dias úteis** do especialista é **RASCUNHO, a confirmar pelo jurídico**. Não ligar em outro ambiente.
 

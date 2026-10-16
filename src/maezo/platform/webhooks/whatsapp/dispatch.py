@@ -460,7 +460,7 @@ class HelenaDispatcher:
     #: `False` = a Helena de antes byte a byte. Ligada (so' em dev), a tabela `helena_triage_admissibility`
     #: decide a saida do turno depois dos portoes de seguranca; o modo coleta liga junto (a ficha).
     triagem_v2_enabled: bool = False
-    #: HELENA V4 (DL-0114, settings `helena_v4` / `MAEZO_HELENA_V4`). Default `False` = a Helena de antes byte
+    #: HELENA V4 (DL-0115, settings `helena_v4` / `MAEZO_HELENA_V4`). Default `False` = a Helena de antes byte
     #: a byte. Ligada (so' em dev): especialista e carteirinha com texto fixo; sintoma leve so' com
     #: perguntas de alerta. Com ela ligada a nova triagem (v2) fica inerte.
     helena_v4_enabled: bool = False
@@ -838,7 +838,7 @@ class HelenaDispatcher:
                 "coleta_enabled": self.historico_enabled,
                 # DL-0104: a nova triagem (tabela `helena_triage_admissibility`), so' com a flag.
                 "triagem_v2_enabled": self.triagem_v2_enabled,
-                # DL-0114: a Helena v4 (catalogo de necessidades v4), so' com a flag.
+                # DL-0115: a Helena v4 (catalogo de necessidades v4), so' com a flag.
                 "helena_v4_enabled": self.helena_v4_enabled,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
                 "consultas_plano": self.consultas_plano,
