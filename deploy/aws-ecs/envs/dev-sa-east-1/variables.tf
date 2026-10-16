@@ -251,6 +251,22 @@ variable "bridge_desired_count" {
   default     = 1
 }
 
+variable "notifications_inbox_desired_count" {
+  description = <<-EOT
+    Replicas do inbox duravel de avisos de escalonamento (`service-notifications-inbox.tf`:
+    `operadora.notifications.internal` -> linha em `escalation_team_notice`). DEFAULT 0, e com 0
+    nenhum recurso daquele arquivo existe. Teto 1 enquanto a ponte for singleton declarado (SC-04-b).
+    Ligar e' decisao do dono.
+  EOT
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.notifications_inbox_desired_count >= 0 && var.notifications_inbox_desired_count <= 1
+    error_message = "notifications_inbox_desired_count aceita 0 ou 1."
+  }
+}
+
 variable "agent_resume_desired_count" {
   description = <<-EOT
     Replicas do consumidor de retomada (GAP-XHITL-4: `agents.events.process_completed` ->
