@@ -359,21 +359,21 @@ def test_o_eco_tem_no_maximo_doze_palavras() -> None:
 @pytest.mark.parametrize(
     ("plano", "esperado"),
     [
-        ("nao", v4.RESPOSTA_NAO),
-        ("nao nenhum", v4.RESPOSTA_NAO),
-        ("nao tenho nada disso", v4.RESPOSTA_NAO),
-        ("nao tenho falta de ar", v4.RESPOSTA_NAO),
-        ("nenhum", v4.RESPOSTA_NAO),
-        ("nada disso", v4.RESPOSTA_NAO),
-        ("sim", v4.RESPOSTA_SIM),
-        ("sim tenho falta de ar", v4.RESPOSTA_SIM),
-        ("tenho sim", v4.RESPOSTA_SIM),
+        ("nao", v4.LEITURA_NAO),
+        ("nao nenhum", v4.LEITURA_NAO),
+        ("nao tenho nada disso", v4.LEITURA_NAO),
+        ("nao tenho falta de ar", v4.LEITURA_NAO),
+        ("nenhum", v4.LEITURA_NAO),
+        ("nada disso", v4.LEITURA_NAO),
+        ("sim", v4.LEITURA_SIM),
+        ("sim tenho falta de ar", v4.LEITURA_SIM),
+        ("tenho sim", v4.LEITURA_SIM),
         # Lado seguro: duvida, meio-termo, agravamento e incapacidade valem como "sim".
-        ("nao sei", v4.RESPOSTA_SIM),
-        ("um pouco", v4.RESPOSTA_SIM),
-        ("talvez", v4.RESPOSTA_SIM),
-        ("nao consigo respirar", v4.RESPOSTA_SIM),
-        ("nao e nao piorou", v4.RESPOSTA_SIM),
+        ("nao sei", v4.LEITURA_SIM),
+        ("um pouco", v4.LEITURA_SIM),
+        ("talvez", v4.LEITURA_SIM),
+        ("nao consigo respirar", v4.LEITURA_SIM),
+        ("nao e nao piorou", v4.LEITURA_SIM),
         # Nao deu para entender.
         ("hmm", None),
         ("nao mas agora ele esta com febre", None),
@@ -480,14 +480,12 @@ def _textos_da_v4() -> list[str]:
     textos.append(v4.texto_final_do_sintoma(v4.ECO_GENERICO))
     textos.append(v4.texto_da_opcao_1(v4.POPULACAO_ADULTO))
     textos.append(v4.texto_da_opcao_1(v4.POPULACAO_CRIANCA))
-    segmentacao = "No cadastro, seu plano consta com segmentação Ambulatorial + Hospitalar."
+    segmentacao = "Ambulatorial + Hospitalar"
     for nome, basica in (("cardiologista", False), ("ginecologista", True)):
         for seg in (None, segmentacao):
             for cobertura in (None, RESPOSTA_COBERTURA_ESPECIFICA):
                 textos.append(
-                    v4.texto_do_especialista(
-                        nome, basica=basica, frase_segmentacao=seg, frase_cobertura=cobertura
-                    )
+                    v4.texto_do_especialista(nome, basica=basica, segmentacao=seg, frase_cobertura=cobertura)
                 )
     textos.append(v4.texto_da_carteirinha(v4.fatos_da_carteirinha(_elegibilidade())))
     textos.append(v4.texto_da_carteirinha({"vinculos": []}))
@@ -520,7 +518,7 @@ def test_o_texto_do_especialista_e_o_da_coluna_hoje_sem_prometer_nada() -> None:
     texto = v4.texto_do_especialista(
         "cardiologista",
         basica=False,
-        frase_segmentacao="No cadastro, seu plano consta com segmentação Ambulatorial + Hospitalar.",
+        segmentacao="No cadastro, seu plano consta com segmentação Ambulatorial + Hospitalar.",
         frase_cobertura=None,
     )
     assert texto.startswith(
@@ -540,9 +538,7 @@ def test_o_texto_do_especialista_e_o_da_coluna_hoje_sem_prometer_nada() -> None:
 
 
 def test_ginecologista_e_consulta_basica_com_7_dias_nao_14() -> None:
-    texto = v4.texto_do_especialista(
-        "ginecologista", basica=True, frase_segmentacao=None, frase_cobertura=None
-    )
+    texto = v4.texto_do_especialista("ginecologista", basica=True, segmentacao=None, frase_cobertura=None)
     assert "consulta básica" in texto and "7 dias úteis" in texto and "14" not in texto
 
 

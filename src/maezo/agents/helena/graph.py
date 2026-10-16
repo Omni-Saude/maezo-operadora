@@ -223,9 +223,9 @@ from .helena_v4 import (
     ETAPA_CASO_SEM_RESPOSTA,
     ETAPA_CASO_SIM,
     ETAPA_ESCOLHA,
+    LEITURA_NAO,
+    LEITURA_SIM,
     PREFIXO_PENDENTE,
-    RESPOSTA_NAO,
-    RESPOSTA_SIM,
     Pendente,
     codigo_pendente,
     e_texto_da_v4,
@@ -5983,7 +5983,7 @@ class HelenaGraph:
         if pend.etapa != ETAPA_ALERTA or self._v4_pede_pessoa(state, texto):
             return None
         resposta = resposta_ao_alerta(plano)
-        if resposta == RESPOSTA_NAO:
+        if resposta == LEITURA_NAO:
             logger.info("helena_v4_alerta", node="classify", resposta="nao")
             update["intent"] = "information"
             update["sintoma_codigo"] = None
@@ -5991,7 +5991,7 @@ class HelenaGraph:
             update["coleta_pendente"] = codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao)
             update["coleta_contexto"] = relato
             return _rota_informativa(update)
-        if resposta == RESPOSTA_SIM:
+        if resposta == LEITURA_SIM:
             logger.warning("helena_v4_alerta", node="classify", resposta="sim")
             return self._v4_abrir_caso(
                 update, pend, relato, ETAPA_CASO_SIM, motivo="red_flag_clinico", severidade="grave"
@@ -6075,7 +6075,7 @@ class HelenaGraph:
         ):
             return None
         nome, basica = achado
-        frase_segmentacao, literais = await self._v4_frase_de_segmentacao(state)
+        segmentacao, literais = await self._v4_segmentacao(state)
         logger.info(
             "helena_v4_especialista", node="classify", basica=basica, com_segmentacao=literais is not None
         )
@@ -6085,7 +6085,7 @@ class HelenaGraph:
         update["response_text"] = texto_do_especialista(
             nome,
             basica=basica,
-            frase_segmentacao=frase_segmentacao,
+            segmentacao=segmentacao,
             frase_cobertura=RESPOSTA_COBERTURA_ESPECIFICA if _pergunta_de_cobertura(texto) else None,
         )
         if literais is not None:
@@ -6093,9 +6093,10 @@ class HelenaGraph:
             update["resposta_com_dados_do_plano"] = True
         return _rota_informativa(update)
 
-    async def _v4_frase_de_segmentacao(self, state: HelenaState) -> tuple[str | None, tuple[str, ...] | None]:
-        """ "No cadastro, seu plano consta com segmentacao X." quando a fonte do plano esta' ligada, a pessoa
-        e' a verificada e o cadastro traz a segmentacao; senao `(None, None)` e o texto sai sem ela."""
+    async def _v4_segmentacao(self, state: HelenaState) -> tuple[str | None, tuple[str, ...] | None]:
+        """A segmentacao REGISTRADA no cadastro (e os literais do cadastro, para as cercas) quando a fonte do
+        plano esta' ligada, a pessoa e' a verificada e o cadastro a traz; senao `(None, None)` e o texto sai
+        sem ela."""
         ref = self._ref_verificada(state)
         if ref is None:
             return None, None
@@ -6103,7 +6104,7 @@ class HelenaGraph:
         segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
         if fatos is None or segmentacao is None:
             return None, None
-        return MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=segmentacao), literais_dos_fatos(fatos)
+        return segmentacao, literais_dos_fatos(fatos)
 
     async def collect(self, state: HelenaState) -> dict[str, Any]:
         """Redige UMA pergunta ao beneficiario sobre o dado que falta (`coleta_pergunta`).

@@ -113,11 +113,12 @@ def especialidade_pedida(plano: str) -> tuple[str, bool] | None:
 
 
 def texto_do_especialista(
-    especialidade: str, *, basica: bool, frase_segmentacao: str | None, frase_cobertura: str | None
+    especialidade: str, *, basica: bool, segmentacao: str | None, frase_cobertura: str | None
 ) -> str:
     """O texto da coluna "HOJE" da v4 (RASCUNHO aprovado para dev pelo dono, 16/10/2026).
 
-    `frase_segmentacao`: "No cadastro, seu plano consta com segmentacao X." (so' quando o cadastro a traz).
+    `segmentacao`: o valor REGISTRADO no cadastro (so' quando o cadastro a traz); entra como "No cadastro,
+    seu plano consta com segmentacao X.".
     `frase_cobertura`: a frase de "onde confirmar cobertura" ja' aprovada, so' quando a pessoa PERGUNTOU de
     cobertura. Nenhuma frase promete cobertura; nenhuma cita nome de medico, clinica ou endereco.
     """
@@ -135,7 +136,7 @@ def texto_do_especialista(
         )
     partes = [
         abertura,
-        frase_segmentacao,
+        f"No cadastro, seu plano consta com segmentação {segmentacao}." if segmentacao else None,
         "Por aqui eu não pesquiso especialistas nem marco consulta.",
         "Você marca pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de atendimento "
         "do plano.",
@@ -486,8 +487,8 @@ def ler_pendente(valor: object) -> Pendente | None:
 
 
 # --- Ler a resposta da pessoa -----------------------------------------------------------------------
-RESPOSTA_NAO: Final[str] = "nao"
-RESPOSTA_SIM: Final[str] = "sim"
+LEITURA_NAO: Final[str] = "nao"
+LEITURA_SIM: Final[str] = "sim"
 #: Palavras que dizem "nao" quando a mensagem COMECA por elas.
 _NEGATIVAS: Final[frozenset[str]] = frozenset({"nao", "nenhum", "nenhuma", "nada", "negativo", "nem"})
 #: Duvida ou meio-termo: lado seguro, vale como "sim" (a equipe olha).
@@ -508,7 +509,7 @@ _MAX_PALAVRAS_DA_RESPOSTA: Final[int] = 14
 
 
 def resposta_ao_alerta(plano: str) -> str | None:
-    """`RESPOSTA_NAO` / `RESPOSTA_SIM` / `None` (nao deu para entender) sobre a mensagem normalizada.
+    """`LEITURA_NAO` / `LEITURA_SIM` / `None` (nao deu para entender) sobre a mensagem normalizada.
 
     DETERMINISTICO e do LADO SEGURO: so' e' "nao" quando a mensagem COMECA por uma negativa, e' curta, nao
     tem ressalva ("nao, mas...") e nao traz agravamento ou incapacidade ("nao consigo respirar", "piorou");
@@ -517,11 +518,11 @@ def resposta_ao_alerta(plano: str) -> str | None:
     if not palavras or len(palavras) > _MAX_PALAVRAS_DA_RESPOSTA:
         return None
     if _INCERTEZA.search(plano) or _AGRAVANTE.search(plano) or "sim" in palavras:
-        return RESPOSTA_SIM
+        return LEITURA_SIM
     if palavras[0] in _NEGATIVAS:
-        return None if _RESSALVA.search(plano) else RESPOSTA_NAO
+        return None if _RESSALVA.search(plano) else LEITURA_NAO
     if palavras[0] in _AFIRMATIVAS_INICIAIS:
-        return RESPOSTA_SIM
+        return LEITURA_SIM
     return None
 
 
@@ -633,8 +634,8 @@ __all__ = [
     "PRAZO_CONSULTA_BASICA_DIAS_UTEIS",
     "PRAZO_ESPECIALISTA_DIAS_UTEIS",
     "PREFIXO_PENDENTE",
-    "RESPOSTA_NAO",
-    "RESPOSTA_SIM",
+    "LEITURA_NAO",
+    "LEITURA_SIM",
     "TEXTOS_FIXOS_V4",
     "AlertaDoGrupo",
     "Pendente",

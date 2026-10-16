@@ -70,7 +70,7 @@ def test_os_textos_fixos_da_v4_passam_nos_passos_do_roteiro() -> None:
     """A resposta CERTA de cada passo (os textos que a Helena manda com a chave ligada) nao reprova."""
     seg = {s.nome: s for s in ac.HELENA_V4}
     eco = "dor nas costas desde ontem"
-    segmentacao = "No cadastro, seu plano consta com segmentação Ambulatorial + Hospitalar."
+    segmentacao = "Ambulatorial + Hospitalar"
 
     def certo(nome: str, indice: int, texto: str, motivo: str | None = None) -> list[str]:
         passo = seg[nome].passos[indice]
@@ -78,17 +78,17 @@ def test_os_textos_fixos_da_v4_passam_nos_passos_do_roteiro() -> None:
         return ac.avaliar_passo(passo, [("helena", texto)], escalacoes, None)
 
     cardiologista = v4.texto_do_especialista(
-        "cardiologista", basica=False, frase_segmentacao=segmentacao, frase_cobertura=None
+        "cardiologista", basica=False, segmentacao=segmentacao, frase_cobertura=None
     )
     assert certo("1-especialista-cardiologista", 0, cardiologista) == []
     dermatologista = v4.texto_do_especialista(
-        "dermatologista", basica=False, frase_segmentacao=None, frase_cobertura=None
+        "dermatologista", basica=False, segmentacao=None, frase_cobertura=None
     )
     assert certo("2-especialista-dermatologista", 0, dermatologista) == []
     endocrino = v4.texto_do_especialista(
         "endocrinologista",
         basica=False,
-        frase_segmentacao=segmentacao,
+        segmentacao=segmentacao,
         frase_cobertura=RESPOSTA_COBERTURA_ESPECIFICA,
     )
     assert certo("3-especialista-pergunta-de-cobertura-da-consulta", 0, endocrino) == []
