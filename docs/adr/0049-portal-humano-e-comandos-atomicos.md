@@ -121,6 +121,9 @@ Os identificadores estáticos existentes são preservados literalmente:
 `juridico-contratos`, `juridico-fraude`, `juridico-rede`, `juridico-regulatorio`,
 `medico-auditor`, `regulatorio-ans`, `supervisao-atendimento`.
 
+Acrescido em 15/10/2026 (DL-0111, so' dev): `cadastro-beneficiarios`, o grupo da execucao do
+cancelamento a pedido no Tasy (SP-OP-CANCEL-001 v0.2.0, `UT_ExecutarCancelamentoCadastro`).
+
 As expressões `${grupo_humano}`, `${pagto_alcada.grupo_aprovador}`,
 `${roteamento.grupo_atendimento}` e `${roteamento_dsr.grupo_revisor}` são resolvidas no servidor
 a partir do estado autoritativo do engine e intersectadas com membership autenticado. Não se

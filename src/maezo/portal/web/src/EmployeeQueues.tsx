@@ -208,6 +208,8 @@ export function EmployeeQueues({
   // em menos de um minuto; escrever uma instrucao para o beneficiario demora mais do que
   // isso. Preso ao detalhe, o formulario sumia no meio da frase e levava o texto junto.
   const [completionTask, setCompletionTask] = useState<string | null>(null);
+  // DL-0111: o formulario da tarefa aberta decide qual conclusao aparece (escalation ou cancel_execucao).
+  const [completionForm, setCompletionForm] = useState<string>("escalation");
   // INTERIM (DL-0050). The case context follows the OPENED task, like the completion above, and for
   // the same reason: the detail snapshot lives under a minute and the attendant is still reading
   // the reason and the deadlines while writing the instruction. Only escalation tasks have one.
@@ -381,6 +383,7 @@ export function EmployeeQueues({
           });
           setOwnershipTask(taskId);
           setCompletionTask(taskId);
+          setCompletionForm(result.value.task.form_key);
           setContextTask(result.value.task.form_key === "escalation" ? taskId : null);
         } else if (result.kind === "session_unavailable") {
           clearForSessionFailure();
@@ -504,6 +507,7 @@ export function EmployeeQueues({
         <TaskCompletionControls
           key={`conclusao\u0000${sessionBinding}\u0000${completionTask}`}
           taskId={completionTask}
+          formKey={completionForm}
           csrfToken={csrfToken}
           sessionBinding={sessionBinding}
           onSessionUnavailable={clearForSessionFailure}

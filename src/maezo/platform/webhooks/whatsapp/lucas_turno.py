@@ -66,8 +66,16 @@ from typing import Any, Final, Protocol
 
 import structlog
 
+from maezo.agents.lucas.cancelamento_pf import (
+    FatosCancelamento,
+    FatosIndisponiveis,
+    FonteCancelamento,
+    tipo_plano_do_billing,
+)
 from maezo.agents.lucas.fonte_cobranca import FatosCobranca, FonteCobranca
+from maezo.agents.lucas.fonte_v4 import MARCADOR_CODIGO, CredenciaisDoTurno, FatosV4, FonteV4
 from maezo.agents.lucas.graph import (
+    TEXTO_SEM_CODIGO_V4,
     LucasState,
     build,
     competencias_da_resposta,
@@ -79,11 +87,12 @@ from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
 from maezo.platform.observability import record_agent_first_response
-from maezo.runtime.cobranca_foco import foco_valido
+from maezo.runtime.cobranca_foco import FOCO_GERAL, foco_valido
 from maezo.runtime.cobranca_intencao import confirmacao_valida
 from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
 from maezo.runtime.cobranca_reclamacao import reclamacao_valida
 from maezo.runtime.competencia import competencia_valida
+from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -288,10 +297,17 @@ def exigir_zona_geral(agent_id: str) -> None:
 
 
 def entrada_do_lucas(
-    handoff: HandoffValidado, conversa: ConversaDoTurno, *, tenant_id: str, fatos: FatosCobranca | None
+    handoff: HandoffValidado,
+    conversa: ConversaDoTurno,
+    *,
+    tenant_id: str,
+    fatos: FatosCobranca | None,
+    fatos_cancelamento: FatosCancelamento | None = None,
+    fatos_v4: FatosV4 | None = None,
 ) -> LucasState:
     """A entrada ESTRITA do turno (`new_lucas_state`): identificadores, a linha de §2.5 e os fatos
-    da fonte. Nenhuma chave de texto existe para ser preenchida."""
+    da fonte. Nenhuma chave de texto existe para ser preenchida. `fatos_cancelamento` (DL-0111) so' chega
+    com a chave `MAEZO_CANCEL_PF_V1` ligada e num pedido de cancelamento; `None` = nenhuma chave nova."""
     entrada: dict[str, Any] = {
         "tenant_id": tenant_id,
         "conversation_id": conversa.conversation_id,
@@ -324,6 +340,11 @@ def entrada_do_lucas(
     entrada["avisos_anteriores"] = memoria.avisos_caso_aberto
     if fatos is not None:
         entrada.update(fatos.como_entrada_lucas())
+    if fatos_cancelamento is not None:
+        entrada.update(fatos_cancelamento.como_entrada_lucas())
+    if fatos_v4 is not None:
+        # DL-0114: fatos dos contratos novos (sem nome, SEM credencial de pagamento).
+        entrada.update(fatos_v4.como_entrada_lucas())
     return new_lucas_state(entrada)
 
 
@@ -360,10 +381,19 @@ class _RemetenteDoLucas:
     """O `WhatsAppSender` que o grafo do Lucas recebe: troca a chave do grafo pela chave por
     entrega (`lucas:{message_id}`, ordinal n) e entrega ao remetente do turno."""
 
-    def __init__(self, *, inner: RemetenteDoTurno, dedup: WhatsAppDedupGuard, message_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        inner: RemetenteDoTurno,
+        dedup: WhatsAppDedupGuard,
+        message_id: str,
+        credenciais: CredenciaisDoTurno | None = None,
+    ) -> None:
         self._inner = inner
         self._dedup = dedup
         self._message_id = message_id
+        #: DL-0114: a credencial de pagamento deste turno (so' a 2a via do pagador). Fica SO' aqui.
+        self._credenciais = credenciais
         self._envios = 0
         #: O ultimo texto ENTREGUE ao remetente neste turno (so' para a referencia da memoria; nunca log).
         self.ultimo_texto: str | None = None
@@ -374,7 +404,15 @@ class _RemetenteDoLucas:
     async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
         del idempotency_key  # a do grafo (impressao digital); ver docstring do modulo
         self._envios += 1
-        resultado = await self._inner.send(to_hash, text, idempotency_key=self.chave(self._envios))
+        a_enviar = text
+        if MARCADOR_CODIGO in text:
+            # DL-0114: o ULTIMO passo antes do WhatsApp, depois do gate e da cerca de saida. O codigo de
+            # barras so' existe aqui; sem credencial, o texto de "nao encontrei" — nunca o marcador cru.
+            a_enviar = (self._credenciais or CredenciaisDoTurno(None)).preencher(
+                text, sem_codigo=TEXTO_SEM_CODIGO_V4
+            )
+        resultado = await self._inner.send(to_hash, a_enviar, idempotency_key=self.chave(self._envios))
+        # Guarda o texto do GRAFO (com o marcador): e' dele que sai a referencia da memoria, nunca o codigo.
         self.ultimo_texto = text
         return resultado
 
@@ -402,6 +440,17 @@ class LucasTurno:
     fonte_aclose: Callable[[], Awaitable[None]] | None = field(default=None, repr=False)
     #: Rodada 12: quando o atraso abre caso humano (`MAEZO_LUCAS_ATRASO_MESES_MIN`/`_DIAS_MIN`).
     limiares_atraso: LimiaresDeAtraso = field(default_factory=LimiaresDeAtraso)
+    #: DL-0111: `MAEZO_CANCEL_PF_V1`. Desligada (o padrao), o turno e' o de antes byte a byte.
+    cancelamento_pf_v1: bool = False
+    #: DL-0111: a fonte dos fatos do cancelamento (TINA elegibilidade). So' com a chave e a fonte AMH;
+    #: `None` = so' o tipo de contratacao do billing-status (sem titular: o pedido vai a analise humana).
+    fonte_cancelamento: FonteCancelamento | None = field(default=None, repr=False)
+    #: DL-0114: `MAEZO_LUCAS_V4`. Desligada (o padrao), o turno e' o de antes byte a byte.
+    lucas_v4: bool = False
+    #: DL-0114: a fonte dos contratos novos (detalhamento do pagador e 2a via). So' com a chave E com o
+    #: segundo sinal (`fonte_detalhamento_habilitada`: contratos publicados e pinados); `None` = so' o que
+    #: a rota billing-status 0.3.0 ja' entrega (pagador/nao pagador, texto sem nome, empresa -> RH).
+    fonte_v4: FonteV4 | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.seam_context.principal != AGENT_ID or self.seam_context.tenant != self.tenant_id:
@@ -420,6 +469,8 @@ class LucasTurno:
                 "audit_sink": self.audit_sink,
                 "agent_version": self.agent_version,
                 "limiares_atraso": self.limiares_atraso,
+                "cancelamento_pf_v1": self.cancelamento_pf_v1 is True,
+                "lucas_v4": self.lucas_v4 is True,
             }
         )
         # SEM checkpointer, explicito (§2.1): o Lucas e' de um turno so'.
@@ -479,6 +530,82 @@ class LucasTurno:
         )
         return None
 
+    async def _fatos_do_cancelamento(
+        self, conversa: ConversaDoTurno, handoff: HandoffValidado, fatos: FatosCobranca | None
+    ) -> FatosCancelamento | None:
+        """DL-0111: os fatos do cancelamento, SO' com a chave ligada e num pedido de cancelamento. Nunca
+        levanta: fonte fora vira os fatos do billing-status (sem titular), e o pedido vai a analise humana."""
+        if self.cancelamento_pf_v1 is not True or handoff.cobranca_subtipo != "cancelamento":
+            return None
+        tipo_billing = fatos.tipo_contratacao if fatos is not None else None
+        if self.fonte_cancelamento is None:
+            return FatosCancelamento(tipo_plano=tipo_plano_do_billing(tipo_billing))
+        resultado = await self.fonte_cancelamento.fatos(
+            conversa.beneficiario_pseudo_id,
+            phone_hash=conversa.phone_hash_amh,
+            tipo_contratacao_billing=tipo_billing,
+        )
+        if isinstance(resultado, FatosIndisponiveis):
+            logger.warning(
+                "lucas_turno_fatos_cancelamento_indisponiveis",
+                tenant_id=self.tenant_id,
+                conversation_id=conversa.conversation_id,
+                motivo=resultado.motivo,
+            )
+            return FatosCancelamento(tipo_plano=tipo_plano_do_billing(tipo_billing))
+        return resultado
+
+    async def _fatos_v4(
+        self, conversa: ConversaDoTurno, handoff: HandoffValidado, fatos: FatosCobranca | None
+    ) -> tuple[FatosV4 | None, CredenciaisDoTurno | None]:
+        """DL-0114: os fatos dos contratos novos, SO' com a chave, a fonte v4 e o PAGADOR PF verificado
+        (o fato `beneficiario_e_pagador` do billing-status). Dependente, empresa e administradora: nada e'
+        pedido.
+        Nunca levanta: falha da fonte = sem fato (o Lucas segue com o texto de antes)."""
+        if self.lucas_v4 is not True or self.fonte_v4 is None or fatos is None:
+            return None, None
+        if (
+            fatos.pagador_tipo != "pessoa_fisica"
+            or fatos.beneficiario_e_pagador is not True
+            or fatos.cobranca_administradora
+        ):
+            return None, None
+        try:
+            if handoff.cobranca_subtipo == "boleto_2via":
+                return await self.fonte_v4.segunda_via(
+                    conversa.beneficiario_pseudo_id,
+                    handoff.competencia,
+                    phone_hash=conversa.phone_hash_amh,
+                    # Identificador OPACO da solicitacao (auditoria da AMH): o pseudonimo keyed da entrega.
+                    request_ref=self.dedup.pseudonym(conversa.message_id)[:64],
+                )
+            if (
+                handoff.cobranca_subtipo == "consulta_valores"
+                and handoff.cobranca_lista is None
+                and handoff.cobranca_foco in ("valor", FOCO_GERAL)
+            ):
+                competencia = handoff.competencia or (
+                    fatos.competencias[0].competencia if fatos.competencias else None
+                )
+                if competencia is None:
+                    return None, None
+                return (
+                    await self.fonte_v4.detalhamento(
+                        conversa.beneficiario_pseudo_id, competencia, phone_hash=conversa.phone_hash_amh
+                    ),
+                    None,
+                )
+        except PROGRAMMING_ERRORS:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "lucas_turno_fonte_v4_falhou",
+                tenant_id=self.tenant_id,
+                conversation_id=conversa.conversation_id,
+                error_type=type(exc).__name__,
+            )
+        return None, None
+
     async def executar(
         self, handoff: Mapping[str, Any], conversa: ConversaDoTurno, sender: RemetenteDoTurno
     ) -> dict[str, Any]:
@@ -494,8 +621,15 @@ class LucasTurno:
             validado = validar_handoff(handoff)
             self._conferir_conversa(conversa)
             self._conferir_mensagem(validado, conversa)
+            fatos = await self._fatos(conversa, validado)
+            fatos_v4, credenciais = await self._fatos_v4(conversa, validado, fatos)
             estado = entrada_do_lucas(
-                validado, conversa, tenant_id=self.tenant_id, fatos=await self._fatos(conversa, validado)
+                validado,
+                conversa,
+                tenant_id=self.tenant_id,
+                fatos=fatos,
+                fatos_cancelamento=await self._fatos_do_cancelamento(conversa, validado, fatos),
+                fatos_v4=fatos_v4,
             )
         except Exception as exc:
             # A falha ANTES do grafo (forma do handoff/conversa, fonte) tambem e' erro do agente
@@ -505,7 +639,9 @@ class LucasTurno:
 
             record_agent_error(agent=AGENT_ID, error_type=classify_agent_error_type(exc))
             raise
-        remetente_do_lucas = _RemetenteDoLucas(inner=sender, dedup=self.dedup, message_id=conversa.message_id)
+        remetente_do_lucas = _RemetenteDoLucas(
+            inner=sender, dedup=self.dedup, message_id=conversa.message_id, credenciais=credenciais
+        )
         remetente = gate_whatsapp(remetente_do_lucas, self.seam_context)
         compilado = self._compilar(remetente)
         logger.info(

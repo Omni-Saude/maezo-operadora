@@ -26,6 +26,7 @@ from maezo.agents.helena.consultas_plano import (
     RESPOSTA_CONSULTA_SEM_IDENTIDADE,
     fatos_da_consulta,
     literais_dos_fatos,
+    motivo_de_omissao_da_elegibilidade,
     motivo_de_recusa_da_consulta,
     resposta_deterministica,
     texto_para_cerca,
@@ -257,8 +258,9 @@ async def test_desligada_a_mesma_pergunta_continua_fora_do_canal() -> None:
 
 async def test_ligada_com_identidade_consulta_a_fonte_e_responde_o_rascunho_sobre_os_fatos() -> None:
     rascunho = (
-        "Pelo que consta no cadastro, seu plano PLANO SINTETICO ENFERMARIA está ativo, com vigência "
-        "desde 01/03/2024. Se quiser falar com uma pessoa da equipe, é só me pedir."
+        "Pelo que consta no cadastro, seu plano PLANO SINTETICO ENFERMARIA está ativo. Com segmentação "
+        "Ambulatorial + Hospitalar e acomodação em enfermaria, vigência desde 01/03/2024. Se quiser falar "
+        "com uma pessoa da equipe, é só me pedir."
     )
     inferencia = _FakeInference([_classify(), rascunho])
     fonte = _Fonte()
@@ -294,6 +296,53 @@ async def test_rascunho_recusado_vira_resposta_deterministica_so_com_os_fatos(ra
         "elegibilidade", fatos_da_consulta("elegibilidade", ELEGIBILIDADE)
     )
     assert "PLANO SINTETICO ENFERMARIA" in enviado and "01/03/2024" in enviado
+
+
+@pytest.mark.parametrize(
+    "rascunho",
+    [
+        # O que o modelo escreveu no aceite de 16/10/2026: plano e acomodacao, sem a segmentacao.
+        "Seu plano PLANO SINTETICO ENFERMARIA está ativo e com atendimento liberado na acomodação em "
+        "enfermaria. Se quiser falar com uma pessoa da equipe, é só pedir.",
+        # Segmentacao pela metade: falta "Hospitalar".
+        "Seu plano é ambulatorial, na acomodação enfermaria.",
+        # Sem a acomodacao.
+        "Seu plano está ativo, com segmentação Ambulatorial + Hospitalar.",
+    ],
+)
+async def test_rascunho_que_omite_segmentacao_ou_acomodacao_vira_resposta_deterministica(
+    rascunho: str,
+) -> None:
+    inferencia = _FakeInference([_classify(), rascunho])
+    compilado, sender, _ = _grafo(inferencia, _Fonte())
+    await compilado.ainvoke(_entrada())
+    enviado = sender.sent[-1]
+    assert enviado == resposta_deterministica(
+        "elegibilidade", fatos_da_consulta("elegibilidade", ELEGIBILIDADE)
+    )
+    assert "Ambulatorial + Hospitalar" in enviado and "Enfermaria" in enviado
+
+
+def test_omissao_so_vale_para_o_que_o_cadastro_tem() -> None:
+    fatos = fatos_da_consulta("elegibilidade", ELEGIBILIDADE)
+    assert fatos is not None
+    completo = "Segmentação Ambulatorial + Hospitalar, acomodação em enfermaria."
+    assert motivo_de_omissao_da_elegibilidade(completo, fatos) is None
+    assert motivo_de_omissao_da_elegibilidade("Acomodação em enfermaria.", fatos) == "omite_segmentacao"
+    assert motivo_de_omissao_da_elegibilidade("Segmentação Ambulatorial + Hospitalar.", fatos) == (
+        "omite_acomodacao"
+    )
+    # Campo ausente no cadastro: nada a exigir.
+    vazio = ElegibilidadeView(
+        portable_subject_ref=REF,
+        ativo=True,
+        vinculos=(_vinculo(segmentacao=None, acomodacao=None),),
+        fonte_atualizada_em="2026-10-06T10:00:00Z",
+        campos_ausentes=frozenset({"segmentacao", "acomodacao"}),
+    )
+    fatos_vazios = fatos_da_consulta("elegibilidade", vazio)
+    assert fatos_vazios is not None
+    assert motivo_de_omissao_da_elegibilidade("Seu plano está ativo.", fatos_vazios) is None
 
 
 async def test_autorizacao_com_status_do_cadastro_em_analise_sai_inteiro() -> None:

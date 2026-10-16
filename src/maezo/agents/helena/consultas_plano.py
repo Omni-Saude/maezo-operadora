@@ -554,6 +554,31 @@ def motivo_de_recusa_da_consulta(texto: str, fatos: Mapping[str, Any]) -> str | 
     return None
 
 
+#: Palavras do cadastro (segmentacao, acomodacao) que a resposta de "qual o meu tipo de plano" tem de trazer.
+_PALAVRA_DO_CADASTRO: Final[re.Pattern[str]] = re.compile(r"[a-z]{5,}")
+
+
+def motivo_de_omissao_da_elegibilidade(texto: str, fatos: Mapping[str, Any]) -> str | None:
+    """`"omite_segmentacao"` / `"omite_acomodacao"` quando o rascunho do modelo DEIXA DE FORA um dado que o
+    cadastro tem, ou `None`. PURA. So' para o subtipo `elegibilidade`.
+
+    Aceite de 16/10/2026 (`dono_v1`, passo 1, run 0b58bf): a fonte devolveu segmentacao e acomodacao (a
+    cobertura e a carteirinha do MESMO minuto mostraram a segmentacao), mas o modelo de redacao escreveu so'
+    plano e acomodacao, e a resposta passou nas cercas por nao ter nada errado — so' faltava. Quem pergunta o
+    tipo de plano precisa da segmentacao e da acomodacao: o que faltar volta para a resposta deterministica,
+    que traz os dois. Cada PALAVRA (5+ letras) do valor do cadastro tem de aparecer no texto."""
+    plano = _sem_acento(texto).lower()
+    for v in fatos.get("vinculos") or []:
+        for campo, token in (("segmentacao", "omite_segmentacao"), ("acomodacao", "omite_acomodacao")):
+            valor = v.get(campo)
+            if not isinstance(valor, str) or not valor.strip():
+                continue
+            palavras = _PALAVRA_DO_CADASTRO.findall(_sem_acento(valor).lower())
+            if palavras and not all(p in plano for p in palavras):
+                return token
+    return None
+
+
 def _sem_zero(numero: str) -> str:
     return numero.lstrip("0") or "0"
 
@@ -596,6 +621,7 @@ __all__ = [
     "consulta_prompt",
     "fatos_da_consulta",
     "literais_dos_fatos",
+    "motivo_de_omissao_da_elegibilidade",
     "motivo_de_recusa_da_consulta",
     "resposta_deterministica",
     "segmentacao_dos_fatos",

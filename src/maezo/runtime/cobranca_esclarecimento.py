@@ -101,9 +101,35 @@ def e_seguimento_de_cobranca(texto: object) -> bool:
     return bool(_SEGUIMENTO.search(plano) or _E_A_DE.search(plano))
 
 
+#: Mensagem de cobranca "limpa" (16/10/2026, `dono_v1` segmento 5): curta, sem pista de plano, sem pessoa ou
+#: quadro de saude, sem discordancia (contestacao tem o caminho dela) e sem cancelamento.
+_MAX_PALAVRAS_DA_COBRANCA_CURTA: Final[int] = 12
+_CANCELAMENTO: Final[re.Pattern[str]] = re.compile(r"\bcancel\w*")
+
+
+def e_mensagem_curta_sem_ruido_de_cobranca(texto: object) -> bool:
+    """`True` quando a mensagem e' curta e NAO traz pista de plano, pessoa/saude,
+    discordancia nem cancelamento.
+
+    Nao diz que o assunto e' cobranca (isso e' do lexico de cobranca do chamador): so' afasta o que faria a
+    mensagem ser outra coisa. Decide por TEXTO, nunca pelo modelo."""
+    if not isinstance(texto, str):
+        return False
+    plano = _normalizar(texto).strip(" ?!.,")
+    if not plano or len(plano.split()) > _MAX_PALAVRAS_DA_COBRANCA_CURTA:
+        return False
+    return not (
+        _PISTA_DE_PLANO.search(plano)
+        or _PESSOA_OU_SAUDE.search(plano)
+        or _DISCORDANCIA.search(plano)
+        or _CANCELAMENTO.search(plano)
+    )
+
+
 __all__ = [
     "SUBTIPOS_QUE_NAO_SE_SOBRESCREVEM",
     "SUBTIPOS_REAPROVEITAVEIS",
+    "e_mensagem_curta_sem_ruido_de_cobranca",
     "e_pergunta_de_esclarecimento",
     "e_seguimento_de_cobranca",
 ]

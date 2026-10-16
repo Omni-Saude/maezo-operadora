@@ -460,6 +460,10 @@ class HelenaDispatcher:
     #: `False` = a Helena de antes byte a byte. Ligada (so' em dev), a tabela `helena_triage_admissibility`
     #: decide a saida do turno depois dos portoes de seguranca; o modo coleta liga junto (a ficha).
     triagem_v2_enabled: bool = False
+    #: HELENA V4 (DL-0115, settings `helena_v4` / `MAEZO_HELENA_V4`). Default `False` = a Helena de antes byte
+    #: a byte. Ligada (so' em dev): especialista e carteirinha com texto fixo; sintoma leve so' com
+    #: perguntas de alerta. Com ela ligada a nova triagem (v2) fica inerte.
+    helena_v4_enabled: bool = False
     #: TETO DE VOLUME (Frente 7.1). `None` = sem teto, que e' o comportamento anterior e continua
     #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
     #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
@@ -834,6 +838,8 @@ class HelenaDispatcher:
                 "coleta_enabled": self.historico_enabled,
                 # DL-0104: a nova triagem (tabela `helena_triage_admissibility`), so' com a flag.
                 "triagem_v2_enabled": self.triagem_v2_enabled,
+                # DL-0115: a Helena v4 (catalogo de necessidades v4), so' com a flag.
+                "helena_v4_enabled": self.helena_v4_enabled,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
                 "consultas_plano": self.consultas_plano,
             }
@@ -1042,6 +1048,7 @@ class HelenaDispatcher:
             roteador_lucas_enabled=self._roteamento_completo,
             historico_enabled=self.historico_enabled,
             triagem_v2_enabled=self.triagem_v2_enabled,
+            helena_v4_enabled=self.helena_v4_enabled,
         )
         estado: dict[str, Any] = {
             "tenant_id": self.tenant_id,
@@ -1203,6 +1210,10 @@ class HelenaDispatcher:
         # `dmn_decision_ref`) from here into `HelenaState` — the caller-planted read-through class
         # is unreachable at the construction seam, not just neutralized inside `receive`.
         sinais = self._pre_rotear(message.text, conversation_id) if self.roteador is not None else None
+        # DL-0111 (`MAEZO_CANCEL_PF_V1`): recuo do cancelamento com a pergunta de confirmacao pendente
+        # vai ao Lucas ANTES do classificador e do encerramento da Helena ("deixa pra la" lia como despedida).
+        # Chave desligada (ou sem pendencia): `None` e nada muda.
+        atalho_recuo = await self._atalho_de_recuo(message.text, conversation_id, sinais)
         # DL-0077: o numero cru so' existe aqui (o hash `amh-phone-lookup-v1` nasce e morre dentro de
         # `IdentidadeHelena.resolver_com_desfecho`). Nunca levanta: sem identidade, a Helena de sempre.
         # DL-0078: junto vem o desfecho FECHADO (`reconhecido`/`nao_encontrado`/`indeterminado`) que decide
@@ -1265,7 +1276,15 @@ class HelenaDispatcher:
         # `thread_config` scopes the checkpoint thread when a saver is attached; None (stateless
         # compile) is passed through as a no-op config, so this call site is single-path.
         try:
-            result = await compiled.ainvoke(initial_state, thread_config)
+            if atalho_recuo is not None:
+                # Sem turno da Helena: o handoff e' o do atalho (a frase de passagem nao se aplica, o Lucas
+                # ja' esta' com a conversa) e o Lucas responde logo abaixo, pelo caminho de sempre.
+                result = {
+                    **atalho_recuo,
+                    "handoff": {**atalho_recuo["handoff"], "message_ref": message_pseudonym},
+                }
+            else:
+                result = await compiled.ainvoke(initial_state, thread_config)
         except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a. This receiver is the SECOND turn-execution seam in the
             # repo — it compiles and invokes Helena's graph directly rather than through
@@ -1406,6 +1425,59 @@ class HelenaDispatcher:
                 conversation_id, sinais, result, handoff=handoff, lucas_escalou=lucas_escalou
             )
         return dict(result)
+
+    async def _atalho_de_recuo(
+        self, texto: str, conversation_id: str, sinais: SinaisLexicos | None
+    ) -> dict[str, Any] | None:
+        """DL-0111 (`MAEZO_CANCEL_PF_V1`): recuo do cancelamento, DETERMINISTICA, antes da Helena.
+
+        Com a chave ligada, o Lucas ainda com a conversa e a pergunta de confirmacao PENDENTE (a referencia do
+        ultimo texto enviado e' a da pergunta), uma resposta que desiste ("nao", "deixa pra la", "esquece",
+        "melhor nao", "mudei de ideia", "nao quero mais") vai ao Lucas, que limpa a pendencia e diz que nenhum
+        pedido foi registrado. Antes, o classificador da Helena lia "deixa pra la" como encerramento e ela
+        agradecia, sem confirmar nada. Devolve o resultado sintetico do turno (so' o handoff e tokens, sem
+        texto) ou `None` — chave desligada, sem pendencia, com sinal de saude ou de pessoa, ou falha de
+        leitura: o caminho de sempre, intacto."""
+        lucas = self.lucas_turno
+        # `getattr`: os envelopes do `LucasTurno` (espioes de teste, composicao do simulador) so'
+        # repassam `executar`.
+        ligada = getattr(lucas, "cancelamento_pf_v1", False) is True
+        if lucas is None or not ligada or not self._roteamento_completo:
+            return None
+        from maezo.runtime.cobranca_intencao import e_recuo_do_cancelamento
+
+        # FAIL-CLOSED: lexico que falhou, pedido de pessoa ou sinal de saude seguem o caminho da Helena.
+        if sinais is None or sinais.pedido_humano or sinais.sinal_saude:
+            return None
+        if not e_recuo_do_cancelamento(texto):
+            return None
+        from maezo.agents.lucas.graph import TEXTO_CONFIRMA_CANCELAMENTO, ref_de_resposta
+
+        contexto = await self._contexto_do_turno_do_lucas(conversation_id)
+        if contexto.assunto_anterior != "cancelamento" or contexto.memoria.resposta_ref != ref_de_resposta(
+            TEXTO_CONFIRMA_CANCELAMENTO
+        ):
+            return None
+        from maezo.agents.helena.graph import INTENT_COBRANCA, RESPONSE_KIND_HANDOFF
+        from maezo.runtime.cobranca_foco import FOCO_GERAL
+
+        logger.info(
+            "lucas_recuo_do_cancelamento",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+        )
+        return {
+            "intent": INTENT_COBRANCA,
+            "response_kind": RESPONSE_KIND_HANDOFF,
+            "response_text": "",
+            "handoff": {
+                "para": "lucas",
+                "cobranca_subtipo": "cancelamento",
+                "competencia": None,
+                "cobranca_foco": FOCO_GERAL,
+                "cobranca_confirmacao": "nega",
+            },
+        }
 
     async def _agente_ativo(self, conversation_id: str) -> str:
         """Quem esta' com a conversa ANTES deste turno, lido da tabela do roteador. Uma falha de
@@ -1679,6 +1751,7 @@ class HelenaDispatcher:
             roteador_lucas_enabled=True,
             historico_enabled=self.historico_enabled,
             triagem_v2_enabled=self.triagem_v2_enabled,
+            helena_v4_enabled=self.helena_v4_enabled,
         )
         estado: dict[str, Any] = {
             **resultado_helena,

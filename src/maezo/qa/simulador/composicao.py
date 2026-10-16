@@ -63,6 +63,8 @@ logger = structlog.get_logger(__name__)
 PROCESSO_ESCALONAMENTO = "SP-OP-ESCALATION-001"
 #: Rodada 12: o pedido de cancelamento confirmado pelo beneficiario PF (Lucas) tambem e' interceptado.
 PROCESSO_CANCELAMENTO = "SP-OP-CANCEL-001"
+#: DL-0111: o marcador gravado nas instancias de cancelamento fingidas (`instancia_de_teste=True`).
+MARCADOR_DE_TESTE = "SIMULADOR-QA"
 #: A faixa sintetica (a mesma de `mcp_whatsapp.server.FAIXA_SINTETICA`; repetida porque este pacote
 #: nao importa o cliente da Meta). A captura recusa qualquer destino fora dela.
 FAIXA_SINTETICA = re.compile(r"^5511900000\d{3}$")
@@ -162,6 +164,9 @@ class RegistroDeEscalonamentos:
     _por_chave: dict[str, _InstanciaSimulada] = field(default_factory=dict)
     _sequencia: Iterator[int] = field(default_factory=lambda: itertools.count(1))
     total: int = 0
+    #: DL-0111: TODA chave `CANCEL-...` que o interceptador fingiu abrir nesta execucao (nao some com
+    #: `esquecer`): a limpeza pergunta por elas ao motor REAL no fim — tem de ser zero instancia viva.
+    cancelamentos_registrados: set[str] = field(default_factory=set)
 
     def ativa(self, business_key: str) -> ProcessInstance | None:
         achada = self._por_chave.get(business_key)
@@ -191,6 +196,8 @@ class RegistroDeEscalonamentos:
         )
         self._por_chave[business_key] = _InstanciaSimulada(instancia, dict(variaveis))
         self.total += 1
+        if process_key == PROCESSO_CANCELAMENTO:
+            self.cancelamentos_registrados.add(business_key)
         return instancia
 
     def esquecer(self, tenant_id: str, conversation_id: str) -> None:
@@ -225,6 +232,18 @@ class InterceptorDeEscalonamento:
         return achada
 
     async def find_any_instance(self, business_key: str, *, process_key: str = "") -> ProcessInstance | None:
+        if business_key.startswith("CANCEL-") and self._registro.ativa(business_key) is None:
+            # DL-0111: SP-OP-CANCEL-001 e' EXCLUSIVE no portao de dedup (`transport.py`). A reivindicacao
+            # duravel de uma execucao ANTERIOR do simulador continua no Postgres, mas o caso fingido dela
+            # sumiu com o registro: sem esta resposta o portao veria "reivindicacao sem instancia" e
+            # travaria o turno. Para o simulador, a geracao anterior ENCERROU (nenhuma instancia real
+            # jamais existiu) — o portao segue para o start, que este interceptador tambem finge.
+            return ProcessInstance(
+                instance_id="simulador-geracao-encerrada",
+                process_key=PROCESSO_CANCELAMENTO,
+                business_key=business_key,
+                state="COMPLETED",
+            )
         if _e_chave_de_escalonamento(business_key):
             return self._registro.ativa(business_key)
         achada: ProcessInstance | None = await self._inner.find_any_instance(
@@ -245,6 +264,10 @@ class InterceptorDeEscalonamento:
         if not (e_cancelamento or e_escalonamento):
             # Nenhum processo real nasce de conversa simulada: a recusa vira o caminho de falha do agente.
             raise CibSevenError("simulador: inicio de processo real recusado")
+        if e_cancelamento:
+            # DL-0111: o pedido de cancelamento simulado leva o MARCADOR DE TESTE (nunca chega ao motor: o
+            # interceptador e' a unica porta; o marcador e' para o registro e o relatorio dizerem o que e').
+            variables = {**variables, "instancia_de_teste": True, "marcador_teste": MARCADOR_DE_TESTE}
         instancia = self._registro.registrar(business_key, variables, process_key)
         contexto = _CONTEXTO.get()
         if contexto is not None:
@@ -328,6 +351,38 @@ class FonteGravada:
             else:
                 contexto.turno.fonte_indisponivel.append(str(getattr(resultado, "motivo", "desconhecido")))
         return resultado
+
+    def __getattr__(self, nome: str) -> Any:
+        return getattr(self._inner, nome)
+
+
+class FonteV4Gravada:
+    """`FonteV4` (DL-0114) que devolve EXATAMENTE o que a fonte devolveu e guarda, no turno, os fatos que ela
+    entrega ao Lucas (gabarito do D2: total e detalhamento do pagador, valor do titulo da 2a via). A
+    CREDENCIAL (codigo de barras) nunca e' gravada: `FatosV4.como_entrada_lucas` nao a tem, e o objeto
+    `CredenciaisDoTurno` so' passa adiante."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    @staticmethod
+    def _gravar(fatos: Any) -> None:
+        contexto = _CONTEXTO.get()
+        como_entrada = getattr(fatos, "como_entrada_lucas", None)
+        if contexto is not None and como_entrada is not None:
+            gravado = como_entrada()
+            if gravado:
+                contexto.turno.fatos.append(gravado)
+
+    async def detalhamento(self, *args: Any, **kwargs: Any) -> Any:
+        resultado = await self._inner.detalhamento(*args, **kwargs)
+        self._gravar(resultado)
+        return resultado
+
+    async def segunda_via(self, *args: Any, **kwargs: Any) -> Any:
+        fatos, credenciais = await self._inner.segunda_via(*args, **kwargs)
+        self._gravar(fatos)
+        return fatos, credenciais
 
     def __getattr__(self, nome: str) -> Any:
         return getattr(self._inner, nome)
@@ -504,6 +559,8 @@ def trocar_bordas(
     if lucas is not None:
         lucas.cibseven = _reembrulhar_motor(lucas.cibseven, registro)
         lucas.fonte = FonteGravada(lucas.fonte)
+        if getattr(lucas, "fonte_v4", None) is not None:
+            lucas.fonte_v4 = FonteV4Gravada(lucas.fonte_v4)  # type: ignore[assignment]
     if dispatcher.identidade is not None:
         dispatcher.identidade = IdentidadeGravada(dispatcher.identidade)  # type: ignore[assignment]
 
@@ -575,6 +632,7 @@ __all__ = [
     "ContextoDoTurno",
     "DestinoForaDaFaixaError",
     "FonteGravada",
+    "FonteV4Gravada",
     "IdentidadeGravada",
     "InterceptorDeEscalonamento",
     "ModoConsentimento",

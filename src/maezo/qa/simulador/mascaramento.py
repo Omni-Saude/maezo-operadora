@@ -26,11 +26,24 @@ TOKEN_CPF = "[CPF]"
 TOKEN_NASCIMENTO = "[NASCIMENTO]"
 TOKEN_NOME = "[NOME]"
 TOKEN_BOLETO = "[BOLETO]"
+#: O codigo da CARTEIRINHA ja' vindo mascarado pela AMH (`******4567`: 5 ou mais asteriscos e no maximo 4
+#: caracteres do fim). NAO e' boleto: o relatorio do aceite de 16/10/2026 mostrava "Codigo: [BOLETO]" e
+#: ninguem conseguia ver se a Helena mandou so' o mascarado. Continua sem os ultimos digitos no relatorio.
+TOKEN_CARTEIRINHA_MASCARADA = "[CARTEIRINHA-MASCARADA]"
 TOKEN_NUMERO = "[NUMERO]"
 TOKEN_TELEFONE = "[TELEFONE]"
+# DL-0114: o codigo de barras do boleto (linha digitavel de 47 digitos ou 44 digitos) e' CREDENCIAL DE
+# PAGAMENTO: nunca vai ao relatorio, ao transcript nem ao log do simulador.
+TOKEN_CODIGO_DE_BARRAS = "[CODIGO-DE-BARRAS]"
 
+_CODIGO_DE_BARRAS = re.compile(
+    r"(?<!\d)(?:\d{5}[.\s]?\d{5}[.\s]+\d{5}[.\s]?\d{6}[.\s]+\d{5}[.\s]?\d{6}[.\s]+\d[.\s]+\d{14}|\d{44})(?!\d)"
+)
+# Rede de seguranca: 20+ digitos seguidos (com UM separador entre eles) nao sao CPF, telefone, valor nem data.
+_DIGITOS_DE_CREDENCIAL = re.compile(r"(?<!\d)\d(?:[.\s-]?\d){19,}(?!\d)")
 _CPF = re.compile(r"(?<!\d)\d{3}[.\s]?\d{3}[.\s]?\d{3}[-.\s]?\d{2}(?!\d)")
 _TELEFONE = re.compile(r"(?<!\d)(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}[-\s]?\d{4}(?!\d)")
+_CARTEIRINHA_MASCARADA = re.compile(r"(?<!\*)\*{5,}[0-9A-Za-z]{0,4}(?![0-9A-Za-z])")
 _BOLETO_ASTERISCO = re.compile(r"\*{2,}\s?\d{2,6}(?!\d)")
 _BOLETO_FINAL = re.compile(r"(\bfinal:?\s+)\d{2,6}(?!\d)", re.IGNORECASE)
 _DIGITOS_LONGOS = re.compile(r"\d[\d.\s-]{11,}\d")
@@ -96,6 +109,11 @@ class Mascarador:
         saida = valor
         for padrao in self._datas:
             saida = padrao.sub(TOKEN_NASCIMENTO, saida)
+        # O codigo de barras ANTES do CPF: o padrao do CPF morderia um pedaco da linha digitavel.
+        saida = _CODIGO_DE_BARRAS.sub(TOKEN_CODIGO_DE_BARRAS, saida)
+        saida = _DIGITOS_DE_CREDENCIAL.sub(TOKEN_CODIGO_DE_BARRAS, saida)
+        # A carteirinha mascarada (5+ asteriscos) ANTES do rotulo do boleto (2 a 4 asteriscos + digitos).
+        saida = _CARTEIRINHA_MASCARADA.sub(TOKEN_CARTEIRINHA_MASCARADA, saida)
         saida = _BOLETO_ASTERISCO.sub(TOKEN_BOLETO, saida)
         saida = _BOLETO_FINAL.sub(lambda m: m.group(1) + TOKEN_BOLETO, saida)
         saida = _CPF.sub(TOKEN_CPF, saida)
@@ -142,6 +160,8 @@ def mascarar_todos(textos: Iterable[str], sujeito: Sujeito | None) -> list[str]:
 
 __all__ = [
     "TOKEN_BOLETO",
+    "TOKEN_CARTEIRINHA_MASCARADA",
+    "TOKEN_CODIGO_DE_BARRAS",
     "TOKEN_CPF",
     "TOKEN_NASCIMENTO",
     "TOKEN_NOME",

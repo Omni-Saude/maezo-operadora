@@ -291,6 +291,8 @@ def _build_dispatcher(
         historico_enabled=settings.helena_historico,
         # NOVA TRIAGEM DA HELENA (DL-0104): `MAEZO_HELENA_TRIAGEM_V2`, default `false` (experimento em dev).
         triagem_v2_enabled=settings.helena_triagem_v2,
+        # HELENA V4 (DL-0115): `MAEZO_HELENA_V4`, default `false` (so' dev).
+        helena_v4_enabled=settings.helena_v4,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the
@@ -346,6 +348,7 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
         seam_context = build_agent_seam_context(tenant=settings.tenant_id, agent_id="lucas")
         fonte: FonteCobranca = FonteCobrancaSimulada()
         amh_interop: AmhInteropComposition | None = None
+        fonte_cancelamento = None
         if settings.lucas_fonte_cobranca == "amh":
             fonte, amh_interop = _build_fonte_cobranca_amh(
                 settings,
@@ -353,6 +356,16 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
                 audit=seams.get("audit_sink"),
                 refs=dispatcher.refs_verificadas,
             )
+            if settings.cancel_pf_v1 is True:
+                fonte_cancelamento = _build_fonte_cancelamento_amh(
+                    settings, amh_interop, refs=dispatcher.refs_verificadas
+                )
+        # DL-0114: `MAEZO_LUCAS_V4` + o SEGUNDO SINAL (contratos novos pinados). Sem o sinal, `None`.
+        fonte_v4 = (
+            _build_fonte_v4_amh(settings, amh_interop, refs=dispatcher.refs_verificadas)
+            if settings.lucas_v4 is True
+            else None
+        )
         lucas_turno = LucasTurno(
             tenant_id=settings.tenant_id,
             inference=seams["inference"],
@@ -367,11 +380,21 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
             limiares_atraso=LimiaresDeAtraso(
                 meses_minimo=settings.lucas_atraso_meses_min, dias_minimo=settings.lucas_atraso_dias_min
             ),
+            # DL-0111: `MAEZO_CANCEL_PF_V1` (default desligada; desligada = o Lucas de antes byte a byte).
+            cancelamento_pf_v1=settings.cancel_pf_v1 is True,
+            fonte_cancelamento=fonte_cancelamento,
+            # DL-0114: `MAEZO_LUCAS_V4` (default desligada; desligada = o Lucas de antes byte a byte).
+            lucas_v4=settings.lucas_v4 is True,
+            fonte_v4=fonte_v4,
         )
         logger.warning(
             "lucas_turno_construido",
             tenant_id=settings.tenant_id,
             fonte_cobranca=settings.lucas_fonte_cobranca,
+            cancelamento_pf_v1=settings.cancel_pf_v1 is True,
+            lucas_v4=settings.lucas_v4 is True,
+            fonte_detalhamento_habilitada=fonte_v4 is not None,
+            fatos_do_cancelamento="tina" if fonte_cancelamento is not None else "billing-status",
             detail="entrada do Lucas pronta; o despachante so' a chama a partir da onda (e)",
         )
     return lucas_turno
@@ -418,6 +441,18 @@ def _build_fonte_cobranca_amh(
         # nao diz quem paga. Sem ele, o comportamento de antes.
         incluir_tina=settings.helena_consultas_amh is True,
     )
+    if settings.lucas_v4 is True and not getattr(
+        settings, "amh_billing_status_contratacao_openapi_path", None
+    ):
+        # Achado do aceite de 16/10/2026: sem o billing-status 0.3.0 a fonte nao traz
+        # `beneficiario_e_pagador`.
+        # O Lucas v4 FALHA FECHADO (ninguem recebe valor nem 2a via), mas a chave ligada assim so' entrega a
+        # negativa: o log chama a atencao de quem opera.
+        logger.error(
+            "lucas_v4_sem_billing_status_0_3_0",
+            tenant_id=settings.tenant_id,
+            detail="sem o sinal beneficiario_e_pagador o Lucas v4 nao mostra valores a ninguem",
+        )
     resolvedor: ResolvedorDeSujeito = ResolvedorDeSujeitoAmh(
         port=interop.subjects,
         amh_tenant=interop.amh_tenant,
@@ -460,6 +495,105 @@ def _build_fonte_cobranca_amh(
         fatos_de_valor=fatos_de_valor,
     )
     return fonte, interop
+
+
+def _build_fonte_v4_amh(
+    settings: WhatsAppWebhookSettings,
+    interop: AmhInteropComposition | None,
+    *,
+    refs: RefsVerificadas | None = None,
+) -> Any:
+    """DL-0114 (`MAEZO_LUCAS_V4` ligada): a fonte dos contratos novos da AMH (detalhamento do pagador e 2a via
+    com codigo de barras), ou `None`.
+
+    O SEGUNDO SINAL, `fonte_detalhamento_habilitada`, exige: a chave, os DOIS contratos publicados e pinados
+    (blocos `manifest_v1_10` e `manifest_v1_11` do `contracts.lock.json`), a fonte de cobranca AMH, o acesso
+    do beneficiario (identidade verificada) e um executor governado do gateway para as duas rotas. Hoje os
+    manifests estao UNPUBLISHED na AMH e o executor real nao existe: devolve `None` e o Lucas v4 faz so' o
+    que a rota billing-status 0.3.0 ja' sustenta (pagador/nao pagador sem nomes, empresa -> RH, total do
+    boleto)."""
+    from maezo.adapters.amh.contract import AmhContractPinError, resolve_contract_pin_path
+    from maezo.agents.lucas.fonte_v4 import fonte_detalhamento_habilitada
+
+    try:
+        pin_path = resolve_contract_pin_path()
+    except AmhContractPinError:
+        pin_path = None
+    if not fonte_detalhamento_habilitada(chave_ligada=settings.lucas_v4 is True, pin_path=pin_path):
+        logger.warning(
+            "lucas_v4_sem_contratos_novos",
+            tenant_id=settings.tenant_id,
+            fonte_detalhamento_habilitada=False,
+            detail="billing-status 0.4.0 e billing-segunda-via nao estao pinados; so' o que a 0.3.0 entrega",
+        )
+        return None
+    if interop is None or refs is None:
+        logger.error(
+            "lucas_v4_contratos_pinados_sem_fonte_amh",
+            tenant_id=settings.tenant_id,
+            detail="exige MAEZO_LUCAS_FONTE_COBRANCA=amh e o acesso do beneficiario",
+        )
+        return None
+    from maezo.agents.lucas.fonte_v4 import AdaptadorDetalhamento, AdaptadorSegundaVia, FonteV4
+    from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato
+    from maezo.platform.webhooks.whatsapp.acesso_ponte import ConsentimentoDoAcesso, ResolvedorVerificado
+
+    executor = getattr(interop, "executor_v4", None)
+    if executor is None:
+        logger.error(
+            "lucas_v4_contratos_pinados_sem_executor",
+            tenant_id=settings.tenant_id,
+            detail="o executor governado do gateway para as rotas novas ainda nao existe (runbook lucas-v4)",
+        )
+        return None
+    adaptador_detalhamento = AdaptadorDetalhamento(executor)
+    return FonteV4(
+        resolvedor=ResolvedorVerificado(refs),
+        consentimento=ConsentimentoDoAcesso(refs, BaseLegalExecucaoDeContrato()),
+        detalhamento=adaptador_detalhamento,
+        segunda_via=AdaptadorSegundaVia(executor),
+        timeout_seconds=settings.lucas_cobranca_prazo_s,
+    )
+
+
+def _build_fonte_cancelamento_amh(
+    settings: WhatsAppWebhookSettings,
+    interop: AmhInteropComposition,
+    *,
+    refs: RefsVerificadas | None = None,
+) -> Any:
+    """DL-0111 (`MAEZO_CANCEL_PF_V1`): os fatos do cancelamento (TINA elegibilidade) pelo MESMO resolvedor
+    da cobranca do Lucas — a ref. VERIFICADA do acesso quando ele esta' ligado (DL-0083), senao o telefone
+    (que identifica mas NAO verifica: `titularidade_confirmada` fica `false` e o pedido vai a analise
+    humana). Sem o adaptador TINA na composicao (`MAEZO_HELENA_CONSULTAS_AMH` desligada), devolve `None` e o
+    Lucas segue com o tipo de contratacao do billing-status: o pedido nunca e' efetivado sem titular."""
+    if interop.tina is None:
+        logger.warning(
+            "lucas_fonte_cancelamento_sem_tina",
+            tenant_id=settings.tenant_id,
+            detail="sem o contrato TINA o titular nao e' apurado; todo pedido vai a analise humana",
+        )
+        return None
+    from maezo.agents.lucas.cancelamento_pf import FonteCancelamentoAmh
+    from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, ResolvedorDeSujeitoAmh
+
+    resolvedor: Any = ResolvedorDeSujeitoAmh(
+        port=interop.subjects,
+        amh_tenant=interop.amh_tenant,
+        hash_scheme=interop.hash_scheme,
+        purpose_of_use=interop.purpose_of_use,
+    )
+    if refs is not None:
+        from maezo.platform.webhooks.whatsapp.acesso_ponte import ResolvedorVerificado
+
+        resolvedor = ResolvedorVerificado(refs)
+    return FonteCancelamentoAmh(
+        tina=interop.tina,
+        resolvedor=resolvedor,
+        # A mesma base legal das consultas do plano da Helena (execucao de contrato), nunca consentimento.
+        consentimento=BaseLegalExecucaoDeContrato(),
+        purpose_of_use=interop.purpose_of_use,
+    )
 
 
 def _build_helena_identidade(

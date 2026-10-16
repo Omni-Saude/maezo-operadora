@@ -13,17 +13,29 @@ Nothing in this module is a capability: no key, no connection, no HTTP client an
 sink. It holds the closed value types, the two abstract ports the gateway calls, and the one
 free-text scrub the BPMN contract requires. The concrete adapters live in `completion_engine.py`
 and are installed only by an explicit composition.
+
+DL-0111 (SP-OP-CANCEL-001 v0.2.0, dev only, same gate): the SAME interim path also closes the CANCEL
+registry execution task (`cancel_execucao`: one closed variable `execucao_cadastro`, no note). The
+set of forms is CLOSED (`COMPLETION_FORMS`): variable names live in server code, one outcome variable
+plus at most one pseudonymized note per form, and a body can only close a task of its own form.
 """
 
 from __future__ import annotations
 
 import hashlib
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from types import MappingProxyType
 from typing import Literal
 
-from maezo.portal.contracts.completions import COMPLETION_OUTCOMES, CompletionOutcome
+from maezo.portal.contracts.completions import (
+    CANCEL_EXECUCAO_OUTCOMES,
+    COMPLETION_OUTCOMES,
+    CancelExecucaoOutcome,
+    CompletionOutcome,
+)
 from maezo.portal.contracts.models import TaskSnapshot
 from maezo.tools.workers.phi_vars import redact_free_text
 
@@ -36,6 +48,10 @@ from .models import Scope
 #: emergencia_acionada}; notas_resolucao (texto livre, pseudonimizado)."
 #: There is no default: a completion without an explicit outcome is refused, never guessed.
 __all__ = [
+    "CANCEL_EXECUCAO_FORM_KEY",
+    "COMPLETION_FORMS",
+    "AnyCompletionOutcome",
+    "CompletionForm",
     "COMPLETION_FORM_KEY",
     "COMPLETION_OUTCOMES",
     "COMPLETION_VARIABLES",
@@ -55,6 +71,41 @@ __all__ = [
 #: this path completes ESCALATION human tasks, not "whatever the engine will accept".
 COMPLETION_FORM_KEY = "escalation"
 COMPLETION_VARIABLES: tuple[str, str] = ("resultado", "notas_resolucao")
+
+#: DL-0111: the CANCEL v0.2.0 registry execution form (`UT_ExecutarCancelamentoCadastro` and its
+#: SLA coordination). One closed outcome variable, NO note: nothing free-text reaches the engine.
+CANCEL_EXECUCAO_FORM_KEY = "cancel_execucao"
+
+#: The outcome of any form this path may close.
+AnyCompletionOutcome = CompletionOutcome | CancelExecucaoOutcome
+
+
+@dataclass(frozen=True, slots=True)
+class CompletionForm:
+    """One form the interim path may close: the outcome variable, its closed values and the
+    optional pseudonymized note variable. Server-owned: nothing here comes from the browser."""
+
+    form_key: str
+    outcome_variable: str
+    outcomes: tuple[str, ...]
+    note_variable: str | None
+
+    @property
+    def variables(self) -> tuple[str, ...]:
+        return (self.outcome_variable,) + ((self.note_variable,) if self.note_variable else ())
+
+
+#: The CLOSED set of forms the interim completion may close (DL-0049, extended by DL-0111).
+COMPLETION_FORMS: Mapping[str, CompletionForm] = MappingProxyType(
+    {
+        COMPLETION_FORM_KEY: CompletionForm(
+            COMPLETION_FORM_KEY, "resultado", COMPLETION_OUTCOMES, "notas_resolucao"
+        ),
+        CANCEL_EXECUCAO_FORM_KEY: CompletionForm(
+            CANCEL_EXECUCAO_FORM_KEY, "execucao_cadastro", CANCEL_EXECUCAO_OUTCOMES, None
+        ),
+    }
+)
 
 #: The decision-log row that authorises this module's existence. Quoted in the audit trail and
 #: in the endpoint's refusal path so the shortcut is one `grep` away from its own registration.
@@ -105,7 +156,7 @@ class CompletionAck:
     """
 
     task_id: str
-    resultado: CompletionOutcome
+    resultado: AnyCompletionOutcome
     consumed_task_revision: int
     completed_at: datetime
 
@@ -121,7 +172,7 @@ class CompletedTask:
     """
 
     snapshot: TaskSnapshot = field(repr=False)
-    resultado: CompletionOutcome
+    resultado: AnyCompletionOutcome
     authority_revision: int
     consumed_task_revision: int
     completed_at: datetime
@@ -154,8 +205,9 @@ class CompletionAuditEntry:
     membership_revision: int
     snapshot: TaskSnapshot = field(repr=False)
     authority_revision: int
-    resultado: CompletionOutcome
-    notes_digest: str
+    resultado: AnyCompletionOutcome
+    #: `None` for a form without a note (DL-0111 `cancel_execucao`).
+    notes_digest: str | None
     #: `None` no elo de intent. No elo de result: `"completed"` quando o motor confirmou, ou um
     #: dos dois de RECUSA quando a revalidacao imediatamente antes do efeito barrou e NADA foi
     #: enviado (DL-0049 review, P1). Eles existem para a claim de intent nao ficar pendurada:
@@ -209,9 +261,10 @@ class DirectTaskCompletion(ABC):
         self,
         *,
         task_id: str,
-        resultado: CompletionOutcome,
-        notes: PseudonymizedNotes,
+        resultado: AnyCompletionOutcome,
+        notes: PseudonymizedNotes | None,
         expected_task_revision: int,
+        form_key: str = COMPLETION_FORM_KEY,
     ) -> CompletionAck:
         raise NotImplementedError
 
