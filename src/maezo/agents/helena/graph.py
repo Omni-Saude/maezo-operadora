@@ -158,7 +158,11 @@ from maezo.runtime.caso_clinico import (
     SUFIXO_CASO_CLINICO,
     chave_do_escalonamento,
 )
-from maezo.runtime.cobranca_esclarecimento import e_pergunta_de_esclarecimento, e_seguimento_de_cobranca
+from maezo.runtime.cobranca_esclarecimento import (
+    e_mensagem_curta_sem_ruido_de_cobranca,
+    e_pergunta_de_esclarecimento,
+    e_seguimento_de_cobranca,
+)
 from maezo.runtime.cobranca_foco import (
     FOCO_GERAL,
     CobrancaFoco,
@@ -4528,6 +4532,9 @@ class HelenaGraph:
         seguimento = self._seguimento_com_o_lucas(state)
         if seguimento is not None:
             return seguimento
+        cobranca_com_caso = self._cobranca_com_caso_de_saude_aberto(state)
+        if cobranca_com_caso is not None:
+            return cobranca_com_caso
 
         extraction, classify_failure = await self._classify_llm(state)
         if extraction is None:
@@ -5374,6 +5381,49 @@ class HelenaGraph:
             or _conteudo_clinico(texto)
         ):
             return None
+        return self._handoff_deterministico_ao_lucas(state, texto, "helena_seguimento_com_o_lucas")
+
+    def _cobranca_com_caso_de_saude_aberto(self, state: Mapping[str, Any]) -> dict[str, Any] | None:
+        """CASO DE SAUDE ABERTO NAO TRAVA A CONVERSA: COBRANCA CURTA VAI AO LUCAS, NAO IMPORTA O MODELO.
+
+        INTERMITENTE medido no `dono_v1` (16/10/2026, segmento 5): com o caso clinico do recem-nascido aberto,
+        "e a minha mensalidade de outubro?" saiu do modelo, as vezes,
+        como `symptom` (com o `sintoma_codigo` do HISTORICO): a tabela de alarme abria `red_flag_clinico` e a
+        pessoa lia o texto de EMERGENCIA (192) para uma pergunta de mensalidade.
+        Decisao do dono (12/10): caso de saude aberto nao trava a conversa.
+
+        Decidido ANTES do modelo, pelo texto: caso CLINICO aberto no historico, mensagem curta de cobranca
+        (lexico de cobranca/financeiro) sem pista de plano, pessoa/saude, discordancia ou cancelamento,
+        sem pedido de pessoa, sem pergunta sobre o caso, e SEM sinal de saude ou emergencia na PROPRIA
+        mensagem (lexico do roteador, sinal forte/fraco, conteudo clinico). Emergencia/saude na propria
+        mensagem seguem vencendo: a mensagem cai no caminho de sempre. Devolve o `update` ja' roteado
+        (handoff) ou `None`."""
+        if (
+            not self._roteador_lucas_enabled
+            or state.get("sinal_saude_lexico") is not False
+            or state.get("pedido_humano_lexico") is not False
+            or _caso_aberto_no_historico(state) != CASO_ABERTO_CLINICO
+        ):
+            return None
+        texto = str(state.get("message_body") or "")
+        plano = _plano(texto)
+        if (
+            not (_PERGUNTA_DE_COBRANCA.search(plano) or _ASSUNTO_FINANCEIRO.search(plano))
+            or not e_mensagem_curta_sem_ruido_de_cobranca(texto)
+            or _PERGUNTA_DO_PLANO.search(plano)
+            or _mensagem_de_saude({"message_body": texto})
+            or _conteudo_clinico(texto)
+            or _pedido_explicito_de_pessoa(texto)
+            or _recado_ao_atendente(texto)
+            or _pergunta_sobre_caso_aberto(texto) is not None
+        ):
+            return None
+        return self._handoff_deterministico_ao_lucas(state, texto, "helena_cobranca_com_caso_de_saude_aberto")
+
+    def _handoff_deterministico_ao_lucas(
+        self, state: Mapping[str, Any], texto: str, evento: str
+    ) -> dict[str, Any]:
+        """O `update` de cobranca ja' roteado ao Lucas (`_rota_de_cobranca`), sem passar pelo modelo."""
         plano = _plano(texto)
         if re.search(r"\bfoi (?:paga|pago|quitad[ao])\b", plano):
             subtipo = "confirmacao_pagamento"
@@ -5381,7 +5431,7 @@ class HelenaGraph:
             subtipo = _subtipo_pelo_texto(texto)
         hoje = hoje_em_brasilia(self._relogio())
         mes = mes_unico_do_texto(texto)
-        logger.info("helena_seguimento_com_o_lucas", node="classify", subtipo=subtipo)
+        logger.info(evento, node="classify", subtipo=subtipo)
         update: dict[str, Any] = {
             "intent": INTENT_COBRANCA,
             "population": "none",
