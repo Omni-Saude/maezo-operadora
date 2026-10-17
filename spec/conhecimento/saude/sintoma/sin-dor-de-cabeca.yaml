@@ -1,0 +1,53 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: sin-dor-de-cabeca
+categoria: sintoma
+titulo: Dor de cabeça
+sinonimos:
+- dor de cabeca
+- dor de cabeça
+- cefaleia
+- cefaléia
+- enxaqueca
+- cabeca doendo
+- cabeça doendo
+- dor na cabeca
+- dor na cabeça
+texto: Sem sinais de alarme, o caminho é marcar uma consulta com clínico geral ou médico de família. Se a dor de cabeça for frequente, o neurologista também pode avaliar. Se aparecer algum sinal de alarme, procure um pronto-socorro na hora ou ligue 192 (SAMU).
+tipo_texto: proprio
+fontes:
+- nome: Tabela de sinais de alarme do adulto (spec/processes/dmn/triage_redflag_adult.dmn) e planilha Catálogo de Necessidades, aba 3
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_adult.dmn
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-17
+- nome: Tabela de sinais de alarme da gestante (spec/processes/dmn/triage_redflag_gestante.dmn)
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_gestante.dmn
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+- nome: Saúde de A a Z — AVC (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/a/avc
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+perguntas_alerta:
+- A dor começou de repente e é a mais forte que você já sentiu na vida?
+- Está com a boca torta, fraqueza de um lado do corpo ou fala enrolada?
+- Você está grávida e, junto com a dor, a visão ficou embaçada ou com pontos brilhantes?
+sinais_alarme:
+- dor de cabeça súbita e muito forte
+- pior dor de cabeça da vida
+- boca torta
+- fraqueza de um lado do corpo
+- formigamento de um lado do corpo
+- fala enrolada
+- dificuldade para falar
+- desmaio
+- dor de cabeça com visão embaçada na gravidez
+populacao: adulto
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

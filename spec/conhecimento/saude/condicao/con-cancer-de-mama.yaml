@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-cancer-de-mama
+categoria: condicao
+titulo: Câncer de mama
+sinonimos:
+- cancer de mama
+- câncer de mama
+- tumor de mama
+- nodulo na mama
+- nódulo na mama
+- caroco no seio
+- caroço no seio
+texto: O câncer de mama não tem somente uma causa. A maior parte dos cânceres de mama é descoberta pelas próprias mulheres. Um nódulo ou outro sintoma suspeito nas mamas deve ser investigado para confirmar se é ou não câncer de mama. São vários subtipos de câncer de mama e cada um requer tratamento específico e individualizado.
+tipo_texto: citacao_literal
+fontes:
+- nome: 'INCA — Câncer de mama: versão para população'
+  url: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/mama/versao-para-populacao
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: 830bee54fd2e55f5ae4e4fa4acc3bab0f1dfa57fb27b14eaaedeb55dca9b295b
+link_leitura: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/mama/versao-para-populacao
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17
