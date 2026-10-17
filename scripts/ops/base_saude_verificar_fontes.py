@@ -82,9 +82,9 @@ def achados_de_revisao(base: b.BaseSaude, *, hoje: date, dias: int) -> list[Acha
 
 
 def _baixar(url: str) -> tuple[int | None, str]:
-    pedido = urllib.request.Request(url, headers={"User-Agent": _AGENTE})  # noqa: S310 (https conferido no schema)
+    pedido = urllib.request.Request(url, headers={"User-Agent": _AGENTE})
     try:
-        with urllib.request.urlopen(pedido, timeout=_TIMEOUT_S) as resposta:  # noqa: S310
+        with urllib.request.urlopen(pedido, timeout=_TIMEOUT_S) as resposta:
             corpo = resposta.read(3_000_000).decode("utf-8", errors="replace")
             return int(resposta.status), corpo
     except urllib.error.HTTPError as erro:

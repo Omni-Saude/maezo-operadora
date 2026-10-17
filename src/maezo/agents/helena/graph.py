@@ -3087,9 +3087,9 @@ RESPOSTA_RECUSA_DE_EQUIPE: str = (
 # recem-nascido) NUNCA e' encerrado por aqui: a pessoa ouve que o caso precisa de avaliacao e o 192.
 #: O codigo de "onde a conversa parou" (em `coleta_pendente`): vocabulario fechado, sem texto da pessoa.
 PENDENTE_ENCERRAR_CASO: str = "BS_ENCERRAR_CASO"
-#: A recusa/desistencia explicita (sobre o texto normalizado). A forma "cancelar o PLANO/contrato" NAO casa
+#: A recusa explicita ou o pedido de encerrar (sobre o texto normalizado). "Cancelar o PLANO/contrato" NAO casa
 #: (cancelamento de contrato tem caminho proprio, com o Lucas): o alvo tem de ser atendimento/caso/chamado.
-_DESISTENCIA_DO_ATENDIMENTO = re.compile(
+_PEDIDO_DE_ENCERRAR_O_ATENDIMENTO = re.compile(
     r"\b(?:pode |podem |quero |favor )?(?:cancel\w*|encerr\w*|fech\w*|finaliz\w*)"
     r" (?:o |a |meu |minha |esse |essa |este |esta )?"
     r"(?:atendimento|caso|chamado|solicitacao|pedido de atendimento)\b"
@@ -3130,8 +3130,8 @@ TEXTOS_FIXOS_DO_ENCERRAMENTO: frozenset[str] = frozenset(
     }
 )
 #: A mensagem BPMN e o `resultado` da emenda v1.1.0 do contrato SP-OP-ESCALATION-001.
-NOME_DA_MENSAGEM_DE_DESISTENCIA: str = "msg.escalation.withdrawn"
-RESULTADO_DESISTENCIA: str = "encerrado_a_pedido_beneficiario"
+NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO: str = "msg.escalation.withdrawn"
+RESULTADO_ENCERRADO_A_PEDIDO: str = "encerrado_a_pedido_beneficiario"
 
 
 #: BASE DE SAUDE (ADR-0064): a saida LITERAL da regra fail-safe r10 de `triage_redflag_adult.dmn` ("sintoma
@@ -3142,12 +3142,12 @@ MOTIVO_FAILSAFE_ADULTO: str = "Sintoma nao mapeado com intensidade grave — fai
 _DOR_NO_RELATO = re.compile(r"\b(?:dor|dores|doi|doendo|doer|doida|doido)\b")
 
 
-def desistencia_do_atendimento(texto: str) -> bool:
-    """A mensagem RECUSA a equipe ou DESISTE do atendimento (ADR-0064)? Inclui a recusa do DL-0088."""
+def pede_para_encerrar_o_atendimento(texto: str) -> bool:
+    """A mensagem RECUSA a equipe ou pede para ENCERRAR o atendimento (ADR-0064)? Inclui a do DL-0088."""
     plano = _sem_pontuacao(_normalizar_texto(texto or ""))
     if _conversa_sem_relato_clinico(texto) == CONVERSA_RECUSA_DE_EQUIPE:
         return True
-    return bool(_DESISTENCIA_DO_ATENDIMENTO.search(plano))
+    return bool(_PEDIDO_DE_ENCERRAR_O_ATENDIMENTO.search(plano))
 
 
 def caso_grave_para_encerrar(motivo: object, severidade: object) -> bool:
@@ -6531,9 +6531,9 @@ class HelenaGraph:
         if pend_v4 is not None:
             # A pessoa esta' respondendo a v4 (alerta/opcao): quem decide e' a v4.
             return None
-        # (2) RECUSA/DESISTENCIA explicita com caso aberto: pergunta de confirmacao.
-        if desistencia_do_atendimento(texto) and not _pedido_explicito_com_verbo(
-            _DESISTENCIA_DO_ATENDIMENTO.sub(" ", _RECUSA_DE_EQUIPE.sub(" ", plano))
+        # (2) RECUSA explicita / pedido de encerrar com caso aberto: pergunta de confirmacao.
+        if pede_para_encerrar_o_atendimento(texto) and not _pedido_explicito_com_verbo(
+            _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO.sub(" ", _RECUSA_DE_EQUIPE.sub(" ", plano))
         ):
             if await self._casos_abertos_da_conversa(state):
                 logger.info("helena_base_saude_confirma_encerramento", node="classify")
@@ -6726,11 +6726,11 @@ class HelenaGraph:
             await correlate_message_audited(
                 self._cibseven,
                 process_key=PROCESS_KEY,
-                message_name=NOME_DA_MENSAGEM_DE_DESISTENCIA,
+                message_name=NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO,
                 business_key=business_key,
                 instance_id=instancia.instance_id,
                 variables={
-                    "resultado": RESULTADO_DESISTENCIA,
+                    "resultado": RESULTADO_ENCERRADO_A_PEDIDO,
                     "encerramento_origem": "beneficiario_canal",
                 },
                 audit_sink=self._audit_sink,

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from maezo.agents.helena.graph import (
-    NOME_DA_MENSAGEM_DE_DESISTENCIA,
+    NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO,
     RESPOSTA_CASO_ENCERRADO,
     RESPOSTA_CONFIRMA_ENCERRAMENTO,
 )
@@ -96,7 +96,7 @@ def test_as_respostas_certas_da_base_passam_e_as_erradas_reprovam() -> None:
 def test_a_confirmacao_e_o_encerramento_passam_nos_passos() -> None:
     assert (
         ac.avaliar_passo(
-            _passo("10-pede-pessoa-desiste-e-encerra", 1),
+            _passo("10-pede-pessoa-recusa-e-encerra", 1),
             [("helena", RESPOSTA_CONFIRMA_ENCERRAMENTO)],
             [],
             None,
@@ -105,7 +105,7 @@ def test_a_confirmacao_e_o_encerramento_passam_nos_passos() -> None:
     )
     assert (
         ac.avaliar_passo(
-            _passo("10-pede-pessoa-desiste-e-encerra", 2), [("helena", RESPOSTA_CASO_ENCERRADO)], [], None
+            _passo("10-pede-pessoa-recusa-e-encerra", 2), [("helena", RESPOSTA_CASO_ENCERRADO)], [], None
         )
         == []
     )
@@ -122,7 +122,7 @@ def _contexto() -> comp.ContextoDoTurno:
 
 
 async def test_o_motor_simulado_encerra_a_instancia_e_registra_no_turno() -> None:
-    assert comp.MENSAGEM_DESISTENCIA_DO_ESCALONAMENTO == NOME_DA_MENSAGEM_DE_DESISTENCIA
+    assert comp.MENSAGEM_ENCERRAMENTO_A_PEDIDO == NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO
     registro = comp.RegistroDeEscalonamentos()
     real = FakeCibSevenTransport()
     motor = gate_cibseven(comp.InterceptorDeEscalonamento(real, registro), _seam())
@@ -131,17 +131,17 @@ async def test_o_motor_simulado_encerra_a_instancia_e_registra_no_turno() -> Non
     contexto = _contexto()
     with comp.no_turno(contexto):
         await motor.correlate_message(
-            NOME_DA_MENSAGEM_DE_DESISTENCIA, chave, {"resultado": "encerrado_a_pedido_beneficiario"}
+            NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO, chave, {"resultado": "encerrado_a_pedido_beneficiario"}
         )
     assert registro.ativa(chave) is None, "a instancia nao esta mais ativa"
     assert contexto.turno.encerramentos == [chave]
     assert real.correlate_calls == [], "o motor real nunca ve a conversa simulada"
     with comp.no_turno(_contexto()), pytest.raises(CibSevenError):
-        await motor.correlate_message(NOME_DA_MENSAGEM_DE_DESISTENCIA, chave, {})
+        await motor.correlate_message(NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO, chave, {})
 
 
 async def test_o_passo_caso_encerrado_reprova_sem_encerramento_e_o_inverso() -> None:
-    passo = _passo("10-pede-pessoa-desiste-e-encerra", 2)
+    passo = _passo("10-pede-pessoa-recusa-e-encerra", 2)
 
     async def sem_encerrar(texto: str) -> Turno:
         t = Turno(1, "persona", texto, "outro")

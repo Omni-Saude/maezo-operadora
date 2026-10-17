@@ -202,7 +202,7 @@ class RegistroDeEscalonamentos:
 
     def encerrar(self, business_key: str) -> bool:
         """ADR-0064/DL-0118: a instancia viva da chave TERMINA (o motor real a encerra pelo event subprocess
-        de desistencia do SP-OP-ESCALATION-001 v1.1.0). `False` = nao havia instancia viva."""
+        de encerramento a pedido do SP-OP-ESCALATION-001 v1.1.0). `False` = nao havia instancia viva."""
         return self._por_chave.pop(business_key, None) is not None
 
     def esquecer(self, tenant_id: str, conversation_id: str) -> None:
@@ -214,8 +214,8 @@ class RegistroDeEscalonamentos:
             del self._por_chave[chave]
 
 
-#: ADR-0064/DL-0118: a mensagem de desistencia do SP-OP-ESCALATION-001 v1.1.0 (a mesma do grafo da Helena).
-MENSAGEM_DESISTENCIA_DO_ESCALONAMENTO = "msg.escalation.withdrawn"
+#: ADR-0064/DL-0118: a mensagem de encerramento a pedido do SP-OP-ESCALATION-001 v1.1.0 (a do grafo da Helena).
+MENSAGEM_ENCERRAMENTO_A_PEDIDO = "msg.escalation.withdrawn"
 
 
 def _e_chave_de_escalonamento(business_key: str) -> bool:
@@ -309,11 +309,11 @@ class InterceptorDeEscalonamento:
     ) -> None:
         if _e_chave_de_escalonamento(business_key):
             logger.info("simulador_correlacao_interceptada", mensagem=message_name)
-            if message_name == MENSAGEM_DESISTENCIA_DO_ESCALONAMENTO and business_key.startswith("ESC-"):
-                # ADR-0064/DL-0118: como o motor com o BPMN v1.1.0 — a desistencia ENCERRA a instancia viva;
+            if message_name == MENSAGEM_ENCERRAMENTO_A_PEDIDO and business_key.startswith("ESC-"):
+                # ADR-0064/DL-0118: como o motor com o BPMN v1.1.0 — o encerramento a pedido ENCERRA a instancia;
                 # sem instancia viva o motor recusa (400), e o agente ouve a falha.
                 if not self._registro.encerrar(business_key):
-                    raise CibSevenError("simulador: nenhuma instancia viva para a desistencia")
+                    raise CibSevenError("simulador: nenhuma instancia viva para o encerramento a pedido")
                 contexto = _CONTEXTO.get()
                 if contexto is not None and self._registro.ativa(business_key) is None:
                     contexto.turno.encerramentos.append(business_key)

@@ -33,17 +33,17 @@ from maezo.agents.helena import graph as graph_module
 from maezo.agents.helena.graph import (
     _HELENA_MEMORIA_DE_CONVERSA,
     MOTIVO_FAILSAFE_ADULTO,
-    NOME_DA_MENSAGEM_DE_DESISTENCIA,
+    NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO,
     RESPOSTA_CASO_ENCERRADO,
     RESPOSTA_CASO_GRAVE_NAO_ENCERRA,
     RESPOSTA_CONFIRMA_ENCERRAMENTO,
     RESPOSTA_ENCERRAMENTO_MANTIDO,
     RESPOSTA_RECUSA_DE_EQUIPE,
-    RESULTADO_DESISTENCIA,
+    RESULTADO_ENCERRADO_A_PEDIDO,
     HelenaGraph,
     caso_grave_para_encerrar,
-    desistencia_do_atendimento,
     new_helena_state,
+    pede_para_encerrar_o_atendimento,
 )
 from maezo.agents.helena.prompts import (
     menciona_encaminhamento,
@@ -458,15 +458,15 @@ async def test_o_fail_safe_continua_fora_do_caso_aprovado(
     "mensagem",
     ["Não quero falar com ninguém", "Pode cancelar o atendimento", "Não preciso mais", "Cancela o caso"],
 )
-def test_as_formas_de_desistencia(mensagem: str) -> None:
-    assert desistencia_do_atendimento(mensagem)
+def test_as_formas_do_pedido_de_encerrar(mensagem: str) -> None:
+    assert pede_para_encerrar_o_atendimento(mensagem)
 
 
 @pytest.mark.parametrize(
     "mensagem", ["Quero cancelar meu plano", "Não quero pagar o boleto", "Cancela a consulta"]
 )
-def test_o_que_nao_e_desistencia_do_atendimento(mensagem: str) -> None:
-    assert not desistencia_do_atendimento(mensagem)
+def test_o_que_nao_e_pede_para_encerrar_o_atendimento(mensagem: str) -> None:
+    assert not pede_para_encerrar_o_atendimento(mensagem)
 
 
 def test_o_que_e_grave_nao_se_encerra() -> None:
@@ -493,14 +493,15 @@ async def test_pedido_de_pessoa_depois_recusa_e_sim_encerra_o_caso_no_motor() ->
     assert conversa.whatsapp.enviados[-2:] == [RESPOSTA_CONFIRMA_ENCERRAMENTO, RESPOSTA_CASO_ENCERRADO]
     assert await conversa.cib.find_active_instance(_BK) is None, "a instancia nao esta mais ativa no motor"
     [chamada] = conversa.cib.correlate_calls
-    assert chamada["message_name"] == NOME_DA_MENSAGEM_DE_DESISTENCIA
+    assert chamada["message_name"] == NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO
     assert chamada["business_key"] == _BK
-    assert chamada["variables"]["resultado"] == RESULTADO_DESISTENCIA
+    assert chamada["variables"]["resultado"] == RESULTADO_ENCERRADO_A_PEDIDO
     # AUDITORIA ANTES DO EFEITO: o registro do encerramento existe, com a chave de dedup da instancia.
     registro, dedup = conversa.auditoria.calls[-1]
-    assert registro.action == f"correlate_message:SP-OP-ESCALATION-001:{NOME_DA_MENSAGEM_DE_DESISTENCIA}"
+    acao = f"correlate_message:SP-OP-ESCALATION-001:{NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO}"
+    assert registro.action == acao
     assert dedup == correlate_dedup_key(
-        "amh", "SP-OP-ESCALATION-001", NOME_DA_MENSAGEM_DE_DESISTENCIA, _BK, f"fake-{_BK}"
+        "amh", "SP-OP-ESCALATION-001", NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO, _BK, f"fake-{_BK}"
     )
     assert _BK not in json.dumps(registro.details), "a business key nunca vai ao registro em claro"
     assert len(conversa.cib.inicios) == 1, "encerrar nao abre caso novo"

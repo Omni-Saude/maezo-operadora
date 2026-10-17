@@ -1230,7 +1230,7 @@ HELENA_BASE_SAUDE: tuple[Segmento, ...] = (
         resolveu="o sinal grave continuou escalando na hora (tabela de alarme) com o 192",
     ),
     Segmento(
-        "10-pede-pessoa-desiste-e-encerra",
+        "10-pede-pessoa-recusa-e-encerra",
         (
             _p("Quero falar com uma pessoa", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
             _p(

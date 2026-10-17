@@ -1,6 +1,6 @@
 # Contrato — SP-OP-ESCALATION-001 (Escalonamento Humano Universal)
 
-**Status:** FINAL (v1.1.0 — emenda DL-0118/ADR-0064, 17/10/2026: encerramento a pedido do beneficiario; v1.0.0 sem ela) · **Fase:** 0 · **BPMN:** `spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn`
+**Status:** FINAL (v1.1.0) · **Emenda:** DL-0118/ADR-0064, 17/10/2026 — encerramento a pedido do beneficiario (a v1.0.0 nao a tem) · **Fase:** 0 · **BPMN:** `spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn`
 **Gatilho regulatorio:** seguranca assistencial — Lei 9.656/1998 art. 35-C (urgencia = imediato); ADR-0005/0008 (decisao clinica por agente: L0 hard).
 
 ## Business key (idempotencia)
