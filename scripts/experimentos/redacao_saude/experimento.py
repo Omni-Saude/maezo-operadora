@@ -557,7 +557,7 @@ class Bedrock:
                         inferenceConfig=config,
                         **adicionais,
                     )
-                except Exception as exc:  # noqa: BLE001 — classificado abaixo
+                except Exception as exc:  # classificado abaixo (servico x programacao)
                     codigo = _codigo_do_erro(exc)
                     chamada.erro = codigo
                     if codigo in _CODIGOS_DE_SERVICO or codigo.startswith("rede:"):
@@ -921,7 +921,7 @@ class Saida:
         if self.e_s3:
             try:
                 r = self._s3.get_object(Bucket=self._bucket, Key=f"{self._prefixo}/{nome}")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if _codigo_do_erro(exc) in {"NoSuchKey", "404", "AccessDenied"}:
                     return None
                 raise
