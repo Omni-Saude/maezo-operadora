@@ -118,6 +118,8 @@ locals {
       { name = "MAEZO_HELENA_TRIAGEM_V2", value = tostring(var.helena_triagem_v2) },
       # DL-0115: Helena v4 (catalogo de necessidades v4; default `false`; so' dev, ver `helena_v4`).
       { name = "MAEZO_HELENA_V4", value = tostring(var.helena_v4) },
+      # DL-0118: base de conhecimento de saude da Helena (ADR-0064; default `false`; so' dev, ver `helena_base_saude`).
+      { name = "MAEZO_HELENA_BASE_SAUDE", value = tostring(var.helena_base_saude) },
       # Fatos do plano na Helena (07/10/2026): desligado por default; ver `helena_consultas_amh`.
       { name = "MAEZO_HELENA_CONSULTAS_AMH", value = tostring(var.helena_consultas_amh) },
       # Acesso do beneficiario (08/10/2026, DL-0083): desligado por default; ver `acesso_beneficiario`.

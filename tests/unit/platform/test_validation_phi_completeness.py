@@ -1505,6 +1505,30 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "formulario `cancel_execucao` do portal; nenhum texto livre, nenhum dado pessoal."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-17",
+        pr="#816",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "SP-OP-ESCALATION-001 v1.1.0 (DL-0118, ADR-0064): o event subprocess de encerramento a pedido do "
+            "beneficiario publica `agents.events.escalation.resolved` antes do fim (ST_PublishWithdrawn, "
+            "worker operadora.events.publish). CLEAN: +1 inputParameter LITERAL do topico, nunca dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-17",
+        pr="#816",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "SP-OP-ESCALATION-001 v1.1.0 (DL-0118, ADR-0064): a mesma ST_PublishWithdrawn declara o payload "
+            "do fato (tenant_id,conversation_id,resultado) — identico ao de ST_PublishResolved, sem "
+            "notas_resolucao (GAP-ESC-3). CLEAN: +1 inputParameter LITERAL, nenhum texto livre."
+        ),
+    ),
 )
 
 
@@ -1554,7 +1578,8 @@ class TestBuckets:
         # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
-        assert len(live_sweep.refs) == expected_refs == 1737
+        # #816 (DL-0118, SP-OP-ESCALATION-001 v1.1.0): +2 (event_topic, event_payload_vars)
+        assert len(live_sweep.refs) == expected_refs == 1739
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -2663,4 +2688,5 @@ class TestNotWiredYet:
             for element in re.findall(r"<bpmn:message\s[^>]*>", source):
                 assert set(re.findall(r"([\w:]+)=", element)) <= {"id", "name"}, element
         # WP-BPMN-J1 added `msg.auth.start` (AUTH intake message start). Still id/name only.
-        assert messages == 22
+        # DL-0118 added `msg.escalation.withdrawn` (SP-OP-ESCALATION-001 v1.1.0). Still id/name only.
+        assert messages == 23

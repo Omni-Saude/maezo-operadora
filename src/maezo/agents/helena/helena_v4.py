@@ -408,9 +408,12 @@ _PEDIDO_DE_RESPOSTA: Final[str] = "Responda sim ou não."
 _ABERTURA_DA_REPETICAO: Final[str] = "Só para eu entender:"
 
 
-def texto_da_pergunta_de_alerta(grupo: str, eco: str, *, repetida: bool = False) -> str:
-    """A mensagem com as perguntas de ALERTA do grupo (texto fixo, sem modelo)."""
-    perguntas = " ".join(ALERTAS.get(grupo, ALERTAS[GRUPO_GERAL]).perguntas)
+def texto_da_pergunta_de_alerta(
+    grupo: str, eco: str, *, repetida: bool = False, alerta: AlertaDoGrupo | None = None
+) -> str:
+    """A mensagem com as perguntas de ALERTA do grupo (texto fixo, sem modelo). `alerta` (BASE DE SAUDE,
+    ADR-0064): as perguntas de um arquivo `sin-*` da base, no lugar das do grupo."""
+    perguntas = " ".join((alerta or ALERTAS.get(grupo, ALERTAS[GRUPO_GERAL])).perguntas)
     if repetida:
         # A abertura termina em ":", entao a primeira pergunta continua em minuscula.
         return f"{_ABERTURA_DA_REPETICAO} {perguntas[:1].lower()}{perguntas[1:]} {_PEDIDO_DE_RESPOSTA}"
@@ -463,6 +466,10 @@ _ETAPAS: Final[frozenset[str]] = frozenset(
     }
 )
 PREFIXO_PENDENTE: Final[str] = "V4_"
+#: BASE DE SAUDE (ADR-0064): o grupo pode ser o id de um arquivo `sin-*` da base (so' com a chave
+#: `MAEZO_HELENA_BASE_SAUDE` ligada alguem grava um codigo assim). Vocabulario fechado: kebab, sem
+#: texto livre.
+_GRUPO_DA_BASE: Final[re.Pattern[str]] = re.compile(r"sin-[a-z0-9]+(?:-[a-z0-9]+)*")
 _SUFIXO_DE_NOVO: Final[str] = "#de_novo"
 
 
@@ -490,7 +497,8 @@ def ler_pendente(valor: object) -> Pendente | None:
     if len(partes) != 3:
         return None
     etapa, grupo, populacao = partes
-    if etapa not in _ETAPAS or grupo not in ALERTAS or populacao not in (POPULACAO_ADULTO, POPULACAO_CRIANCA):
+    grupo_valido = grupo in ALERTAS or _GRUPO_DA_BASE.fullmatch(grupo) is not None
+    if etapa not in _ETAPAS or not grupo_valido or populacao not in (POPULACAO_ADULTO, POPULACAO_CRIANCA):
         return None
     return Pendente(etapa, grupo, populacao, repetida)
 
@@ -575,7 +583,7 @@ def escolha_da_resposta(plano: str) -> str | None:
 
 
 # --- O resumo do caso para o atendente --------------------------------------------------------------
-def resumo_do_caso(pendente: object, relato: object) -> str | None:
+def resumo_do_caso(pendente: object, relato: object, *, alerta: AlertaDoGrupo | None = None) -> str | None:
     """O resumo LEGIVEL e deterministico de um caso aberto pela v4 (sem modelo, sem asteriscos, sem ficha
     tecnica), ou `None` quando o turno nao e' um caso da v4. Contem SO' o relato da pessoa sobre ESTA queixa
     (nunca o que ela falou antes, sobre outros assuntos), o que a Helena perguntou e o que foi respondido.
@@ -591,7 +599,7 @@ def resumo_do_caso(pendente: object, relato: object) -> str | None:
     cru = relato_cru(str(relato or "")) if relato else ""
     quem = "do filho(a) ou bebê" if lido.populacao == POPULACAO_CRIANCA else "da própria pessoa"
     queixa = f'A pessoa relatou (queixa {quem}): "{cru}".' if cru else "A pessoa relatou uma queixa de saúde."
-    sinais = ALERTAS[lido.grupo].sinais
+    sinais = (alerta or ALERTAS.get(lido.grupo, ALERTAS[GRUPO_GERAL])).sinais
     if lido.etapa == ETAPA_CASO_SIM:
         corpo = (
             f"A Helena perguntou por sinais de alerta ({sinais}) e a pessoa respondeu sim ou deu a entender "

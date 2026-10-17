@@ -79,6 +79,9 @@ class Passo:
     condicao: str = "sempre"
     #: DL-0114: o passo tem de entregar o codigo de barras da 2a via.
     espera_codigo: bool = False
+    #: ADR-0064/DL-0118: neste turno o caso aberto tem de ser ENCERRADO no motor (a instancia nao esta' mais
+    #: ativa depois da mensagem `msg.escalation.withdrawn`).
+    caso_encerrado: bool = False
 
 
 @dataclass(frozen=True)
@@ -293,6 +296,12 @@ async def executar_passos(
         falhas = avaliar_passo(passo, respostas, escalacoes, anterior, erro_do_turno=turno.erro)
         if segmento.rigor_v4:
             falhas += avaliar_rigor_v4(passo, turno, sujeito)
+        if passo.caso_encerrado and not turno.encerramentos:
+            falhas.append(
+                "caso_encerrado: nenhum caso foi encerrado no motor neste turno (instancia ainda ativa)"
+            )
+        if not passo.caso_encerrado and turno.encerramentos:
+            falhas.append("caso_encerrado: um caso foi encerrado num turno que nao pedia isso")
         resultados.append(
             ResultadoDoPasso(
                 segmento=segmento.nome,
@@ -1109,6 +1118,154 @@ HELENA_V4: tuple[Segmento, ...] = (
 )
 
 # ================================================================================================
+# Roteiro `helena_base_saude` (ADR-0064/DL-0118, chave MAEZO_HELENA_BASE_SAUDE ligada no ambiente)
+# ================================================================================================
+# Usa a BASE REAL (`spec/conhecimento/saude`, escrita por outra frente): so' passa depois que o conteudo
+# dos assuntos abaixo estiver no main e no dev. Roda no dev (task do simulador), nunca no CI. Criterio
+# "RESOLVEU?": confere o CONTEUDO (texto da base, credito, aviso), nao so' "nao abriu caso".
+#: Dose, posologia, "tome": nunca numa resposta da base (ADR-0064).
+_SEM_DOSE = r"(\d+ ?(mg|ml|gotas?)\b|\bdoses?\b|\btome\b|pode tomar|posologia|de \d+ em \d+ horas)"
+#: A linha de credito de toda resposta da base.
+_CREDITO = r"(fonte: |texto da operadora com base em )"
+_AVISO = "esta informacao e geral e nao substitui avaliacao medica"
+_SEM_INFORMACAO = "nao tenho uma informacao aprovada"
+#: O resultado pessoal nunca e' interpretado (nem "voce tem", nem "e' cancer", nem "nao e' nada").
+_INTERPRETOU = r"(\bvoce tem\b|\be cancer\b|\bnao e nada\b)"
+
+
+def _informativa(texto: str, assunto: str) -> Passo:
+    return _p(
+        texto,
+        escalacao=ESCALACAO_NENHUMA,
+        deve=(assunto, _CREDITO, _AVISO),
+        nao_deve=(_SEM_DOSE, _SEM_CONDUTA, _ENCAMINHOU, _SEM_INFORMACAO),
+    )
+
+
+HELENA_BASE_SAUDE: tuple[Segmento, ...] = (
+    Segmento(
+        "1-pra-que-serve-dipirona",
+        (
+            _p(
+                "Pra que serve dipirona?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("dipirona", _CREDITO, r"(para ler mais: https://|bula)", _AVISO),
+                nao_deve=(_SEM_DOSE, _SEM_CONDUTA, _ENCAMINHOU, _SEM_INFORMACAO),
+            ),
+        ),
+        resolveu=(
+            "a pessoa ouviu para que serve a dipirona pelo texto aprovado da base, com o credito da fonte "
+            "e o link da bula, SEM dose nem 'tome', e sem abrir caso"
+        ),
+    ),
+    Segmento(
+        "2-o-que-e-psa",
+        (_informativa("O que é PSA?", "psa"),),
+        resolveu="o PSA foi explicado pelo texto da base (fonte creditada), com o aviso padrao e sem caso",
+    ),
+    Segmento(
+        "3-resultado-pessoal-de-psa",
+        (
+            _p(
+                "Meu PSA deu fora dos parâmetros, o que me sugere?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("psa", _CREDITO, "leve o resultado", _AVISO),
+                nao_deve=(_SEM_DOSE, _SEM_CONDUTA, _ENCAMINHOU, _INTERPRETOU),
+            ),
+        ),
+        resolveu=(
+            "o resultado pessoal recebeu SO' a informacao geral do PSA e 'leve o resultado ao seu medico', "
+            "com a oferta de pessoa; nenhuma interpretacao do resultado e nenhum caso automatico"
+        ),
+    ),
+    Segmento(
+        "4-o-que-e-cardiologista",
+        (_informativa("O que é cardiologista?", "cardiolog"),),
+        resolveu="a especialidade foi explicada pelo texto da base (nao virou o texto de onde marcar)",
+    ),
+    Segmento(
+        "5-o-que-e-angioplastia",
+        (_informativa("O que é angioplastia?", "angioplastia"),),
+        resolveu="o procedimento foi explicado pelo texto proprio da base, com a fonte em que se apoia",
+    ),
+    Segmento(
+        "6-o-que-e-stent",
+        (_informativa("O que é stent?", "stent"),),
+        resolveu="o material foi explicado pelo texto proprio da base, com a fonte em que se apoia",
+    ),
+    Segmento(
+        "7-o-que-e-depressao",
+        (_informativa("O que é depressão?", "depress"),),
+        resolveu="a condicao foi explicada pelo texto da base, sem diagnostico, com o aviso e sem caso",
+    ),
+    Segmento(
+        "8-muita-dor-de-cabeca-sem-alarme",
+        (
+            _p(
+                "Estou com muita dor de cabeça desde ontem",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("responda sim ou nao",),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, _SEM_DOSE),
+            ),
+            _p(
+                "Não",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(
+                    r"1\) saber onde marcar consulta pelo plano",
+                    r"2\) falar com a nossa equipe de saude",
+                    "ligue 192",
+                ),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, _SEM_DOSE),
+            ),
+        ),
+        resolveu=(
+            "a dor forte SEM sinal de alarme recebeu primeiro as perguntas de alerta (nao abriu caso na "
+            "hora); com 'nao', a orientacao do sintoma e as opcoes 1) onde marcar e 2) equipe de saude, "
+            "com 192"
+        ),
+    ),
+    Segmento(
+        "9-dor-no-peito-e-falta-de-ar",
+        (_p("Estou com dor no peito e falta de ar", escalacao="red_flag_clinico", deve=("192",)),),
+        resolveu="o sinal grave continuou escalando na hora (tabela de alarme) com o 192",
+    ),
+    Segmento(
+        "10-pede-pessoa-desiste-e-encerra",
+        (
+            _p("Quero falar com uma pessoa", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
+            _p(
+                "Não quero falar com ninguém",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("quer que eu encerre o seu atendimento", "responda sim para encerrar"),
+            ),
+            _p(
+                "SIM",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("pronto, encerrei o seu atendimento",),
+                caso_encerrado=True,
+            ),
+        ),
+        resolveu=(
+            "o pedido de pessoa abriu o caso; a recusa recebeu a pergunta de confirmacao; o SIM ENCERROU o "
+            "caso no motor (a instancia nao esta mais ativa) e a pessoa ouviu 'Pronto, encerrei o seu "
+            "atendimento'"
+        ),
+    ),
+    Segmento(
+        "11-assunto-inexistente",
+        (
+            _p(
+                "O que é xyzabc?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_SEM_INFORMACAO,),
+                nao_deve=(_ENCAMINHOU, _SEM_DOSE),
+            ),
+        ),
+        resolveu="o assunto fora da base recebeu 'nao tenho uma informacao aprovada', onde buscar e a oferta",
+    ),
+)
+
+# ================================================================================================
 # Roteiros do Lucas v4 (DL-0114, chave MAEZO_LUCAS_V4 ligada no ambiente) — criterio "RESOLVEU?"
 # ================================================================================================
 #: Dinheiro no texto ("R$ 123"): proibido onde so' o pagador recebe valor e esperado para o pagador.
@@ -1299,6 +1456,7 @@ ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "triagem_v2": TRIAGEM_V2,
     "cancelamento_v1": CANCELAMENTO_V1,
     "helena_v4": HELENA_V4,
+    "helena_base_saude": HELENA_BASE_SAUDE,
     "lucas_v4": LUCAS_V4,
     "lucas_v4_pagador": LUCAS_V4_PAGADOR,
     "lucas_v4_nao_pagador": LUCAS_V4_NAO_PAGADOR,
@@ -1370,6 +1528,7 @@ __all__ = [
     "SUJEITO_DO_ROTEIRO",
     "SUJEITO_PF_TITULAR",
     "DONO_V1",
+    "HELENA_BASE_SAUDE",
     "HELENA_V4",
     "TRIAGEM_V2",
     "ESCALACAO_NENHUMA",

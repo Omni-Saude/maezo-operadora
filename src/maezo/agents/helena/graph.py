@@ -151,6 +151,7 @@ from typing import Any, Literal, Protocol, TypedDict, cast, get_args
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.conhecimento import base_saude as _bs
 from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
 from maezo.ports.tina import ElegibilidadeView
 from maezo.runtime.caso_clinico import (
@@ -191,7 +192,9 @@ from maezo.tools.mcp_cibseven.transport import (
     AuditStartSink,
     CibSevenError,
     CibSevenTransport,
+    ProcessInstance,
     StartOutcome,
+    correlate_message_audited,
     start_process_idempotent,
 )
 from maezo.tools.workers.dmn_transport import (
@@ -223,6 +226,7 @@ from .consultas_plano import (
     texto_para_cerca,
 )
 from .helena_v4 import (
+    ALERTAS,
     ECO_GENERICO,
     ETAPA_ALERTA,
     ETAPA_CASO_EQUIPE,
@@ -230,9 +234,13 @@ from .helena_v4 import (
     ETAPA_CASO_SEM_RESPOSTA,
     ETAPA_CASO_SIM,
     ETAPA_ESCOLHA,
+    GRUPO_GERAL,
     LEITURA_NAO,
     LEITURA_SIM,
+    POPULACAO_ADULTO,
+    POPULACAO_CRIANCA,
     PREFIXO_PENDENTE,
+    AlertaDoGrupo,
     Pendente,
     codigo_pendente,
     e_texto_da_v4,
@@ -3068,6 +3076,90 @@ RESPOSTA_RECUSA_DE_EQUIPE: str = (
 )
 
 
+# --- ENCERRAR O CASO A PEDIDO DA PESSOA (ADR-0064, so' com `MAEZO_HELENA_BASE_SAUDE`) ----------------------
+#
+# A RECUSA EXPLICITA com caso aberto ("nao quero falar com ninguem", "pode cancelar o atendimento", "nao
+# preciso mais", "cancela o caso") recebe UMA pergunta de confirmacao; com SIM, o caso ESCALATION aberto da
+# conversa (e o `-clin` paralelo, pela mesma regra) e' ENCERRADO pela mensagem BPMN `msg.escalation.withdrawn`
+# (SP-OP-ESCALATION-001 v1.1.0: fim `End_EncerradoAPedidoDoBeneficiario`,
+# `resultado=encerrado_a_pedido_beneficiario`) —
+# SE o caso nao for P1/grave. Caso grave (`risco_psicossocial`, ou severidade `grave`: red flag P1,
+# recem-nascido) NUNCA e' encerrado por aqui: a pessoa ouve que o caso precisa de avaliacao e o 192.
+#: O codigo de "onde a conversa parou" (em `coleta_pendente`): vocabulario fechado, sem texto da pessoa.
+PENDENTE_ENCERRAR_CASO: str = "BS_ENCERRAR_CASO"
+#: A recusa/desistencia explicita (sobre o texto normalizado). A forma "cancelar o PLANO/contrato" NAO casa
+#: (cancelamento de contrato tem caminho proprio, com o Lucas): o alvo tem de ser atendimento/caso/chamado.
+_DESISTENCIA_DO_ATENDIMENTO = re.compile(
+    r"\b(?:pode |podem |quero |favor )?(?:cancel\w*|encerr\w*|fech\w*|finaliz\w*)"
+    r" (?:o |a |meu |minha |esse |essa |este |esta )?"
+    r"(?:atendimento|caso|chamado|solicitacao|pedido de atendimento)\b"
+    r"|\bnao (?:preciso|quero) mais"
+    r"(?: (?:de )?(?:atendimento|ajuda|falar com (?:ninguem|a equipe|uma pessoa)))?$"
+    r"|\bnao (?:preciso|quero) mais (?:o|do|esse|desse) atendimento\b"
+)
+_RESPOSTA_SIM = re.compile(
+    r"^(?:sim|s|pode|pode sim|sim pode|pode encerrar|sim pode encerrar|isso|encerra|encerre)$"
+)
+_RESPOSTA_NAO = re.compile(
+    r"^(?:nao|n|nao obrigado|nao obrigada|deixa|deixa aberto|nao encerra|nao encerre)$"
+)
+RESPOSTA_CONFIRMA_ENCERRAMENTO: str = (
+    "Quer que eu encerre o seu atendimento com a equipe? Responda SIM para encerrar."
+)
+RESPOSTA_CASO_ENCERRADO: str = "Pronto, encerrei o seu atendimento. Se precisar, é só me chamar."
+RESPOSTA_CASO_GRAVE_NAO_ENCERRA: str = (
+    "Seu caso é de saúde e precisa de avaliação. Não posso encerrá-lo por aqui. Se for emergência, ligue 192."
+)
+RESPOSTA_ENCERRAMENTO_MANTIDO: str = "Tudo bem, o seu atendimento continua aberto com a equipe."
+RESPOSTA_ENCERRAMENTO_FALHOU: str = (
+    "Não consegui encerrar o seu atendimento agora. Ele continua aberto com a equipe. "
+    "Se quiser, me peça de novo daqui a pouco."
+)
+RESPOSTA_SEM_CASO_PARA_ENCERRAR: str = (
+    "Não encontrei um atendimento aberto para encerrar. Se precisar, é só me chamar."
+)
+#: Os textos FIXOS do encerramento que `inform` deixa passar (com a chave da base ligada).
+TEXTOS_FIXOS_DO_ENCERRAMENTO: frozenset[str] = frozenset(
+    {
+        RESPOSTA_CONFIRMA_ENCERRAMENTO,
+        RESPOSTA_CASO_ENCERRADO,
+        RESPOSTA_CASO_GRAVE_NAO_ENCERRA,
+        RESPOSTA_ENCERRAMENTO_MANTIDO,
+        RESPOSTA_ENCERRAMENTO_FALHOU,
+        RESPOSTA_SEM_CASO_PARA_ENCERRAR,
+    }
+)
+#: A mensagem BPMN e o `resultado` da emenda v1.1.0 do contrato SP-OP-ESCALATION-001.
+NOME_DA_MENSAGEM_DE_DESISTENCIA: str = "msg.escalation.withdrawn"
+RESULTADO_DESISTENCIA: str = "encerrado_a_pedido_beneficiario"
+
+
+#: BASE DE SAUDE (ADR-0064): a saida LITERAL da regra fail-safe r10 de `triage_redflag_adult.dmn` ("sintoma
+#: nao mapeado com intensidade grave"). O grafo so' intercepta ESTA saida (P2, ESCALATE_NURSE), e o teste
+#: amarra o literal ao arquivo da tabela: mudar a tabela sem mudar aqui deixa o teste vermelho.
+MOTIVO_FAILSAFE_ADULTO: str = "Sintoma nao mapeado com intensidade grave — fail-safe"
+#: DOR no relato (sobre o texto normalizado): o unico tipo de queixa em que o fail-safe e' relaxado.
+_DOR_NO_RELATO = re.compile(r"\b(?:dor|dores|doi|doendo|doer|doida|doido)\b")
+
+
+def desistencia_do_atendimento(texto: str) -> bool:
+    """A mensagem RECUSA a equipe ou DESISTE do atendimento (ADR-0064)? Inclui a recusa do DL-0088."""
+    plano = _sem_pontuacao(_normalizar_texto(texto or ""))
+    if _conversa_sem_relato_clinico(texto) == CONVERSA_RECUSA_DE_EQUIPE:
+        return True
+    return bool(_DESISTENCIA_DO_ATENDIMENTO.search(plano))
+
+
+def caso_grave_para_encerrar(motivo: object, severidade: object) -> bool:
+    """P1/grave NAO se encerra por aqui: risco psicossocial (sempre P1 pela `escalation_routing`), ou
+    severidade `grave` (red flag P1, recem-nascido), ou o que nao se consegue ler (na duvida, grave)."""
+    if not isinstance(motivo, str) or not motivo:
+        return True
+    if motivo == "risco_psicossocial":
+        return True
+    return severidade == "grave"
+
+
 # --- O QUE A HELENA SABE DA PESSOA (DL-0088) ----------------------------------------------------------
 #
 # O QUE FOI MEDIDO. "Voce e capaz de responder quais informacoes sobre mim?" recebeu do modelo "Por aqui
@@ -4404,8 +4496,33 @@ class HelenaGraph:
         relogio: Callable[[], datetime] | None = None,
         triagem_v2_enabled: bool = False,
         helena_v4_enabled: bool = False,
+        helena_base_saude_enabled: bool = False,
+        base_saude: _bs.BaseSaude | None = None,
     ) -> None:
         self._llm = inference
+        # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, `MAEZO_HELENA_BASE_SAUDE`): DESLIGADA por default,
+        # e desligada e' o grafo de antes byte a byte (`self._base_saude` falso: nenhum ramo `_base_*` roda).
+        # Ligada (so' em dev): a Helena INFORMA perguntas gerais de saude a partir da base curada versionada
+        # (`spec/conhecimento/saude`), sem abrir caso; dor sem sinal de alarme recebe perguntas de alerta
+        # antes
+        # do caso; e a recusa explicita com caso aberto encerra o caso P2/P3 com confirmacao. A base que nao
+        # carrega (schema invalido, diretorio ausente) DESLIGA a chave: falha fechada para o comportamento de
+        # antes, com log de erro — nunca uma base meio carregada.
+        self._base_saude = helena_base_saude_enabled is True
+        self._base: _bs.BaseSaude = _bs.BASE_VAZIA
+        self._base_do_dia: tuple[str, _bs.BaseSaude] | None = None
+        if self._base_saude:
+            if isinstance(base_saude, _bs.BaseSaude):
+                self._base = base_saude
+            else:
+                try:
+                    self._base = _bs.carregar_base(_bs.raiz_padrao())
+                except (_bs.BaseSaudeInvalidaError, OSError, RuntimeError) as exc:
+                    logger.error(
+                        "helena_base_saude_invalida",
+                        erro=type(exc).__name__,
+                    )
+                    self._base_saude = False
         # HELENA V4 (DL-0115, `MAEZO_HELENA_V4`): DESLIGADA por default, e desligada e' o grafo de antes byte
         # a byte. Ligada (so' em dev), a Helena responde o especialista e a carteirinha com texto fixo e faz
         # so' perguntas de ALERTA no sintoma leve (`_v4_*`). A v4 SUBSTITUI a nova triagem (v2): com as duas
@@ -4482,7 +4599,7 @@ class HelenaGraph:
         reset: dict[str, Any] = dict(_HELENA_NEUTRAL_OUTPUTS)
         # Memoria de coleta so' e' preservada com a feature ligada. O helper estrito
         # recusa bool, negativos e valores malformados como rodadas esgotadas.
-        if self._coleta_enabled or self._v4:
+        if self._coleta_enabled or self._v4 or self._base_saude:
             for chave in _MEMORIA_DE_COLETA:
                 if chave in state:
                     reset[chave] = state[chave]  # type: ignore[literal-required]
@@ -4493,6 +4610,9 @@ class HelenaGraph:
                 reset["coleta_pendente"] = None
                 reset["coleta_contexto"] = ""
                 reset["coleta_rodadas"] = 0
+            if not self._base_saude and reset.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO:
+                # Resto de uma confirmacao de encerramento (ADR-0064) com a chave da base ja' desligada.
+                reset["coleta_pendente"] = None
         # F6 (21/09/2026): o cartao de apresentacao e' uma vez por CONVERSA. Preservado sem portao
         # de feature — e' um bool que so' anda para True, e o unico efeito e' o prompt nao repetir
         # "Sou Helena..." no segundo turno.
@@ -4650,6 +4770,10 @@ class HelenaGraph:
             update["coleta_pendente"] = None
             update["coleta_contexto"] = ""
             update["coleta_rodadas"] = 0
+        # BASE DE SAUDE (ADR-0064): a confirmacao de encerramento do turno anterior vale SO' para ESTE turno.
+        pend_encerrar = self._base_saude and state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
+        if pend_encerrar:
+            update["coleta_pendente"] = None
         if intent == INTENT_COBRANCA:
             # Onda (e): so' existe com o roteador ligado (o validador recusa `cobranca` desligado),
             # e os dois valores ja' passaram pelo dominio fechado de `_validate_extraction`.
@@ -5105,6 +5229,14 @@ class HelenaGraph:
         # abre o caso clinico `intencao_clinica` (enfermagem, a mesma regra de "pedido de pessoa DENTRO da
         # triagem", rodada 10) com o resumo da queixa, sem passar pela tabela. Risco psicossocial, e qualquer
         # sinal clinico na propria mensagem, seguem pelos portoes de seguranca de sempre.
+        # BASE DE SAUDE (ADR-0064): a RESPOSTA PURA ("sim"/"nao") a confirmacao de encerramento do turno
+        # anterior e' decidida aqui, sem passar pela tabela (a mensagem, sozinha, nao traz sintoma — o modelo,
+        # vendo a conversa, pode devolver o codigo da queixa anterior). Risco psicossocial ja' venceu acima;
+        # sinal de emergencia ou conteudo clinico NA PROPRIA mensagem seguem pelo caminho de sempre.
+        if pend_encerrar:
+            decidido_enc = await self._base_confirmacao_de_encerramento(state, update, texto_clinico)
+            if decidido_enc is not None:
+                return decidido_enc
         if pend_v4 is not None and self._v4_pede_pessoa_no_alerta(state, pend_v4, texto_clinico):
             logger.info("helena_v4_pediu_pessoa_no_alerta", node="classify")
             return self._v4_abrir_caso(
@@ -5128,7 +5260,19 @@ class HelenaGraph:
                 return decidido
         ja_triado = bool(extraction.get("sintoma_codigo"))
         if ja_triado and await self._triar_red_flag(extraction, update):
-            return update
+            # BASE DE SAUDE (ADR-0064, DL-0118 — MUDANCA DE REGRA CLINICA aprovada pelo dono SO' para dev): o
+            # fail-safe da tabela de ADULTO ("sintoma nao mapeado com intensidade grave", r10) deixa de abrir
+            # caso NA HORA quando e' DOR sem sinal de alarme — o turno segue para as perguntas de ALERTA da
+            # Helena v4 ("sim" escala com 192). So' com as chaves da base E da v4 ligadas; qualquer outra
+            # regra da tabela (dor no peito, falta de ar, AVC, sangramento, alergia grave, sincope, febre em
+            # idoso, dor abdominal grave) continua escalando como sempre. A DMN nao muda: o grafo intercepta
+            # SO' a saida exata da r10 (ver `_base_dor_sem_alarme`).
+            if not self._base_dor_sem_alarme(state, update, pend_v4):
+                return update
+            for chave in ("next_kind", "escalation_motivo", "escalation_severidade"):
+                update.pop(chave, None)
+            intent = "symptom"
+            update["intent"] = intent
 
         # RODADA 2 — CRITICO DE SEGURANCA: com caso aberto nesta conversa, sinal de emergencia NO TEXTO
         # ("ELE TA ROXO", "PARANDO DE RESPIRAR", e — com caso clinico — "ambulancia"/"192") mantem o turno
@@ -5162,6 +5306,18 @@ class HelenaGraph:
             update["escalation_motivo"] = "red_flag_clinico"
             update["escalation_severidade"] = "grave"
             return update
+
+        # BASE DE SAUDE (ADR-0064): DEPOIS dos portoes de seguranca (classificador, risco psicossocial,
+        # tabela de
+        # alarme, emergencia com caso aberto, recem-nascido). Tres decisoes, nesta ordem: (1) QUEIXA com um
+        # termo de alarme de um arquivo `sin-*` escala na hora (192), como a tabela; (2) RECUSA explicita com
+        # caso aberto pede confirmacao para encerrar; (3) pergunta INFORMATIVA de saude (ou resultado pessoal)
+        # responde da base, SEM caso. Pedido de pessoa, ANS/Procon, cobranca e consulta do plano NAO entram
+        # aqui (vencem a base, como vencem a v4).
+        if self._base_saude:
+            decidido_base = await self._base_antes_dos_gatilhos(state, update, extraction, pend_v4, conversa)
+            if decidido_base is not None:
+                return decidido_base
 
         # HELENA V4 (DL-0115): DEPOIS dos portoes de seguranca (classificador, risco psicossocial, tabela de
         # alarme, emergencia com caso aberto, recem-nascido) e ANTES dos gatilhos de intencao e de pessoa: a
@@ -5360,7 +5516,12 @@ class HelenaGraph:
         # em que a tabela ainda tem de ser perguntada (o catch-all dela e' quem responde).
         if intent == "symptom":
             if not ja_triado and await self._triar_red_flag(extraction, update):
-                return update
+                # BASE DE SAUDE (ADR-0064): o mesmo relaxamento do fail-safe de DOR sem alarme do gatilho 1
+                # (la' para sintoma com codigo; aqui, sintoma SEM codigo — "muita dor de cabeca desde ontem").
+                if not self._base_dor_sem_alarme(state, update, pend_v4):
+                    return update
+                for chave in ("next_kind", "escalation_motivo", "escalation_severidade"):
+                    update.pop(chave, None)
             if self._v4:
                 # HELENA V4 (DL-0115): a tabela de alarme ja' disse que nao ha' bandeira; o sintoma leve
                 # recebe so' perguntas de ALERTA (1 ou 2) antes do caminho. `None` = nao e' da v4
@@ -6128,7 +6289,12 @@ class HelenaGraph:
             logger.info("helena_v4_alerta", node="classify", resposta="nao")
             update["intent"] = "information"
             update["sintoma_codigo"] = None
-            update["response_text"] = texto_final_do_sintoma(self._v4_eco(relato))
+            assunto_sin = self._base_assunto_do_grupo(pend.grupo)
+            update["response_text"] = (
+                _bs.texto_final_do_sintoma_com_orientacao(self._v4_eco(relato), assunto_sin)
+                if assunto_sin is not None
+                else texto_final_do_sintoma(self._v4_eco(relato))
+            )
             update["coleta_pendente"] = codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao)
             update["coleta_contexto"] = relato
             return _rota_informativa(update)
@@ -6177,6 +6343,12 @@ class HelenaGraph:
         if bebe_pequeno(plano, update.get("idade_meses")):
             return None
         grupo = grupo_do_sintoma(populacao, plano)
+        if self._base_saude:
+            # BASE DE SAUDE (ADR-0064): um arquivo `sin-*` da base para ESTA queixa (e esta populacao) traz as
+            # perguntas de alerta proprias; sem arquivo, as genericas do grupo (v4).
+            assunto_sin = self._base_sintoma_do_texto(texto, populacao)
+            if assunto_sin is not None:
+                grupo = assunto_sin.id
         codigo = codigo_pendente(ETAPA_ALERTA, grupo, populacao)
         logger.info("helena_v4_sintoma_leve", node="classify", grupo=grupo, populacao=populacao)
         update.update(
@@ -6247,6 +6419,355 @@ class HelenaGraph:
             return None, None
         return segmentacao, literais_dos_fatos(fatos)
 
+    # -- BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, `MAEZO_HELENA_BASE_SAUDE`) ---------------------
+    #
+    # SO' alcancavel com a chave ligada (`self._base_saude`). Ordem de decisao (ver `classify`): os portoes de
+    # seguranca de sempre vem ANTES e intactos (classificador, risco psicossocial com CVV 188, tabela de
+    # alarme, emergencia com caso aberto, recem-nascido); depois, `_base_antes_dos_gatilhos`: alarme de um
+    # arquivo `sin-*` na queixa -> escala (192); recusa com caso aberto -> confirmacao de encerramento;
+    # pergunta informativa/resultado pessoal -> resposta da base, SEM caso. Pedido de pessoa, ANS/Procon,
+    # cobranca e consulta do plano nunca sao respondidos pela base.
+
+    def _base_hoje(self) -> _bs.BaseSaude:
+        """A base APLICAVEL hoje (sem os assuntos com `revisar_ate` vencido ou outro problema de politica),
+        recalculada uma vez por dia (o relogio e' o injetavel do grafo)."""
+        hoje = self._relogio().date()
+        chave = hoje.isoformat()
+        if self._base_do_dia is None or self._base_do_dia[0] != chave:
+            self._base_do_dia = (chave, _bs.base_aplicavel(self._base, hoje=hoje))
+        return self._base_do_dia[1]
+
+    def _base_assunto_do_grupo(self, grupo: str) -> _bs.Assunto | None:
+        """O arquivo `sin-*` de um grupo que e' id da base (`None` para os grupos da v4 ou id ausente)."""
+        if not self._base_saude or not grupo.startswith("sin-"):
+            return None
+        assunto = self._base_hoje().get(grupo)
+        return assunto if assunto is not None and assunto.categoria == _bs.CATEGORIA_SINTOMA else None
+
+    def _base_alerta_do_grupo(self, grupo: str) -> AlertaDoGrupo | None:
+        """As perguntas de alerta do arquivo `sin-*` (ou, se o id sumiu da base, as GERAIS da v4); `None`
+        para os grupos da propria v4 (o texto de sempre)."""
+        if not grupo.startswith("sin-"):
+            return None
+        assunto = self._base_assunto_do_grupo(grupo)
+        if assunto is None:
+            return ALERTAS[GRUPO_GERAL]
+        return AlertaDoGrupo(tuple(assunto.perguntas_alerta or ()), ", ".join(assunto.sinais_alarme or ()))
+
+    def _base_sintoma_do_texto(self, texto: str, populacao: str) -> _bs.Assunto | None:
+        """O arquivo `sin-*` da queixa, so' quando a busca e' DETERMINISTICA (sem modelo) e a populacao do
+        arquivo cobre a da conversa."""
+        busca = _bs.buscar(self._base_hoje(), texto, categorias=(_bs.CATEGORIA_SINTOMA,))
+        if busca.achado is None:
+            return None
+        assunto = self._base_hoje().get(busca.achado)
+        if assunto is None:
+            return None
+        compativel = {POPULACAO_ADULTO: ("adulto", "todos"), POPULACAO_CRIANCA: ("crianca", "todos")}
+        return assunto if assunto.populacao in compativel.get(populacao, ()) else None
+
+    def _base_dor_sem_alarme(
+        self, state: Mapping[str, Any], update: Mapping[str, Any], pend: Pendente | None
+    ) -> bool:
+        """A tabela escalou SO' pelo fail-safe de intensidade (r10 da tabela de ADULTO) uma DOR sem sinal de
+        alarme? So' entao (chaves da base e da v4 ligadas) o turno segue para as perguntas de alerta.
+
+        Conferido, TUDO: a tabela e' a de adulto; a saida e' EXATAMENTE a da r10 (`MOTIVO_FAILSAFE_ADULTO`,
+        P2, ESCALATE_NURSE — o teste amarra o literal ao arquivo da DMN); a populacao e' adulto (nao gestante,
+        nao saude mental, nao crianca); o relato (esta mensagem, ou a queixa que esta' sendo perguntada) fala
+        de DOR; e nao ha' sinal de emergencia do lexico nem termo de alarme dos arquivos `sin-*`."""
+        if not (self._base_saude and self._v4):
+            return False
+        if update.get("dmn_table") != _DMN_BY_POPULATION["adult"]:
+            return False
+        decisao = update.get("dmn_decision") or {}
+        if not (
+            str(decisao.get("motivo", "")) == MOTIVO_FAILSAFE_ADULTO
+            and str(decisao.get("prioridade", "")) == "P2"
+            and str(decisao.get("conduta", "")) == "ESCALATE_NURSE"
+        ):
+            return False
+        texto = str(state.get("message_body") or "")
+        relato = texto
+        if pend is not None and pend.etapa == ETAPA_ALERTA:
+            relato = f"{state.get('coleta_contexto') or ''} {texto}"
+        plano = _plano(relato)
+        if populacao_da_v4(update.get("population"), plano) != POPULACAO_ADULTO:
+            return False
+        if not _DOR_NO_RELATO.search(plano):
+            return False
+        if (
+            _sinal_forte_de_emergencia(relato)
+            or _sinal_fraco_de_emergencia(relato)
+            or _bs.alarme_no_texto(self._base_hoje(), relato)
+        ):
+            return False
+        logger.warning("helena_base_saude_failsafe_de_dor_sem_alarme", node="classify")
+        return True
+
+    async def _base_antes_dos_gatilhos(
+        self,
+        state: HelenaState,
+        update: dict[str, Any],
+        extraction: dict[str, Any],
+        pend_v4: Pendente | None,
+        conversa: str | None,
+    ) -> dict[str, Any] | None:
+        """O que a base decide depois dos portoes de seguranca e antes dos gatilhos de intencao/pessoa.
+        `None` = o turno segue o caminho de sempre (inclusive a v4)."""
+        texto = str(state.get("message_body") or "")
+        plano = _plano(texto)
+        base = self._base_hoje()
+        informativa = _bs.pergunta_informativa(plano)
+        queixa = relata_sintoma(plano, None) and _bs.primeira_pessoa(plano)
+        # (1) ALARME de um arquivo `sin-*` numa QUEIXA: escala na hora, como a tabela (192 no texto).
+        if (queixa or extraction.get("sintoma_codigo")) and _bs.alarme_no_texto(base, texto):
+            logger.warning("helena_base_saude_alarme_do_sintoma", node="classify")
+            update["intent"] = "symptom"
+            update["next_kind"] = "escalate"
+            update["escalation_motivo"] = "red_flag_clinico"
+            update["escalation_severidade"] = "grave"
+            return update
+        if pend_v4 is not None:
+            # A pessoa esta' respondendo a v4 (alerta/opcao): quem decide e' a v4.
+            return None
+        # (2) RECUSA/DESISTENCIA explicita com caso aberto: pergunta de confirmacao.
+        if desistencia_do_atendimento(texto) and not _pedido_explicito_com_verbo(
+            _DESISTENCIA_DO_ATENDIMENTO.sub(" ", _RECUSA_DE_EQUIPE.sub(" ", plano))
+        ):
+            if await self._casos_abertos_da_conversa(state):
+                logger.info("helena_base_saude_confirma_encerramento", node="classify")
+                return self._base_texto_fixo(
+                    update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO
+                )
+            return None
+        # (3) PERGUNTA INFORMATIVA / RESULTADO PESSOAL. Nunca por cima de pedido de pessoa, ANS/Procon,
+        # cobranca, consulta/cobertura do plano ou pedido de especialista (a v4 responde onde marcar).
+        if self._v4_pede_pessoa(state, texto) or conversa is not None:
+            return None
+        if update.get("intent") in (INTENT_COBRANCA, INTENT_CONSULTA_PLANO, "human_request"):
+            return None
+        if _pergunta_do_plano(texto) or _pergunta_de_cobertura(texto):
+            return None
+        pessoal = _bs.resultado_pessoal(plano)
+        if queixa:
+            # QUEIXA ATUAL (sintoma dito em primeira pessoa ou de um familiar: "estou com", "meu filho esta'
+            # com dor"): nunca e' "duvida geral" nem "resultado pessoal" — segue a tabela/v4 (alerta).
+            return None
+        if extraction.get("sintoma_codigo") and not (informativa or pessoal):
+            return None
+        clinica = update.get("intent") == "clinical_question"
+        if not (informativa or pessoal or clinica):
+            return None
+        if not informativa and especialidade_pedida(plano) is not None:
+            return None  # "preciso de um cardiologista": o texto de onde marcar (v4), nao "o que e'"
+        assunto = await self._base_achar_assunto(state, base, texto)
+        if assunto is None:
+            if not (informativa or clinica):
+                return None  # "minha ... esta ..." sem assunto da base e sem pergunta de saude: o de sempre
+            logger.info("helena_base_saude_nao_encontrado", node="classify", pessoal=pessoal)
+            return self._base_texto_fixo(
+                update, _bs.RESPOSTA_RESULTADO_NAO_ENCONTRADO if pessoal else _bs.RESPOSTA_NAO_ENCONTRADO
+            )
+        logger.info("helena_base_saude_responde", node="classify", assunto=assunto.id, pessoal=pessoal)
+        return self._base_texto_fixo(
+            update,
+            _bs.resposta_de_resultado_pessoal(assunto) if pessoal else _bs.resposta_informativa(assunto),
+        )
+
+    async def _base_achar_assunto(
+        self, state: HelenaState, base: _bs.BaseSaude, texto: str
+    ) -> _bs.Assunto | None:
+        """Busca DETERMINISTICA primeiro; so' quando ela fica ambigua o modelo escolhe UM id da lista fechada
+        de candidatos (ou "nenhum"). Falha do modelo = nenhum (o texto de 'nao tenho informacao aprovada')."""
+        busca = _bs.buscar(base, texto)
+        if busca.achado is not None:
+            return base.get(busca.achado)
+        if not busca.candidatos:
+            return None
+        prompt = _bs.prompt_de_classificacao(
+            base, busca.candidatos, render_untrusted_block("message_body", texto)
+        )
+        try:
+            bruto = await self._llm.generate(
+                prompt,
+                phi=True,
+                agent_id="helena",
+                tenant_id=state.get("tenant_id", ""),
+                task_kind="task_default",
+            )
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            logger.warning("helena_base_saude_classificacao_falhou", node="classify")
+            return None
+        escolhido = _bs.ler_classificacao(str(bruto), busca.candidatos)
+        logger.info(
+            "helena_base_saude_classificacao",
+            node="classify",
+            candidatos=len(busca.candidatos),
+            escolhido=escolhido or _bs.NENHUM,
+        )
+        return base.get(escolhido) if escolhido else None
+
+    @staticmethod
+    def _base_texto_fixo(
+        update: dict[str, Any], texto: str, *, pendente: str | None = None
+    ) -> dict[str, Any]:
+        update["intent"] = "information"
+        update["sintoma_codigo"] = None
+        update.pop("consulta_subtipo", None)
+        update["response_text"] = texto
+        if pendente is not None:
+            update["coleta_pendente"] = pendente
+        return _rota_informativa(update)
+
+    def _chaves_da_conversa(self, state: Mapping[str, Any]) -> tuple[str, str]:
+        tenant, conversa = str(state.get("tenant_id", "")), str(state.get("conversation_id", ""))
+        return (
+            chave_do_escalonamento(tenant, conversa),
+            chave_do_escalonamento(tenant, conversa, clinico=True),
+        )
+
+    async def _caso_ativo(self, business_key: str) -> ProcessInstance | None:
+        """A instancia VIVA da chave, ou `None`. Leitura que falha = `None` (quem chama decide o lado
+        seguro: sem caso legivel, nada e' encerrado)."""
+        try:
+            return await self._cibseven.find_active_instance(business_key)
+        except PROGRAMMING_ERRORS:
+            raise
+        except CibSevenError:
+            return None
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            return None
+
+    async def _casos_abertos_da_conversa(self, state: Mapping[str, Any]) -> list[str]:
+        abertos = []
+        for chave in self._chaves_da_conversa(state):
+            if await self._caso_ativo(chave) is not None:
+                abertos.append(chave)
+        return abertos
+
+    async def _base_confirmacao_de_encerramento(
+        self, state: HelenaState, update: dict[str, Any], texto: str
+    ) -> dict[str, Any] | None:
+        """A resposta a "Quer que eu encerre o seu atendimento com a equipe? Responda SIM para encerrar."
+
+        "sim" -> encerra cada caso VIVO da conversa (a chave da conversa e a `-clin`) que NAO seja grave; se
+        algum for grave, ele fica e a pessoa ouve o texto do caso grave com 192. "nao" -> o caso continua.
+        Qualquer outra coisa (inclusive conteudo clinico ou sinal de emergencia) -> `None`: o de sempre."""
+        plano = _plano(texto)
+        if (
+            _conteudo_clinico(texto)
+            or state.get("sinal_saude_lexico") is True
+            or _sinal_forte_de_emergencia(texto)
+            or _sinal_fraco_de_emergencia(texto)
+        ):
+            return None
+        if _RESPOSTA_NAO.match(plano):
+            logger.info("helena_base_saude_encerramento", node="classify", resposta="nao")
+            return self._base_texto_fixo(update, RESPOSTA_ENCERRAMENTO_MANTIDO)
+        if not _RESPOSTA_SIM.match(plano):
+            return None
+        encerrados, graves, falhas = 0, 0, 0
+        for chave in self._chaves_da_conversa(state):
+            instancia = await self._caso_ativo(chave)
+            if instancia is None:
+                continue
+            motivo, severidade = await self._motivo_e_severidade(chave)
+            if caso_grave_para_encerrar(motivo, severidade):
+                graves += 1
+                continue
+            if await self._retirar_caso(state, chave, motivo=motivo, severidade=severidade):
+                encerrados += 1
+            else:
+                falhas += 1
+        logger.info(
+            "helena_base_saude_encerramento",
+            node="classify",
+            resposta="sim",
+            encerrados=encerrados,
+            graves=graves,
+            falhas=falhas,
+        )
+        if graves:
+            return self._base_texto_fixo(update, RESPOSTA_CASO_GRAVE_NAO_ENCERRA)
+        if falhas:
+            return self._base_texto_fixo(update, RESPOSTA_ENCERRAMENTO_FALHOU)
+        if encerrados:
+            return self._base_texto_fixo(update, RESPOSTA_CASO_ENCERRADO)
+        return self._base_texto_fixo(update, RESPOSTA_SEM_CASO_PARA_ENCERRAR)
+
+    async def _retirar_caso(
+        self, state: HelenaState, business_key: str, *, motivo: str, severidade: object
+    ) -> bool:
+        """Encerra UM caso nao grave pela mensagem `msg.escalation.withdrawn` (SP-OP-ESCALATION-001 v1.1.0),
+        com AUDITORIA ANTES DO EFEITO (`correlate_message_audited`, ADR-0007). Releitura da instancia logo
+        antes (ela pode ter terminado no meio) e a confirmacao DEPOIS: so' conta como encerrado quando o
+        motor nao tem mais instancia viva na chave. `False` = nao encerrou (a pessoa ouve que o caso
+        continua aberto)."""
+        instancia = await self._caso_ativo(business_key)
+        if instancia is None:
+            return False
+        provenance = AgentDecisionProvenance(
+            agent_id="helena",
+            agent_version=self._agent_version,
+            tenant_id=state.get("tenant_id", ""),
+            model_id=self._model_id,
+            prompt_version=SYSTEM_PROMPT_VERSION,
+            decision_basis={
+                "acao": "encerramento_a_pedido_do_beneficiario",
+                "motivo_do_caso": motivo,
+                "severidade_do_caso": str(severidade) if severidade is not None else "",
+                "confirmacao": "sim",
+            },
+        )
+        try:
+            await correlate_message_audited(
+                self._cibseven,
+                process_key=PROCESS_KEY,
+                message_name=NOME_DA_MENSAGEM_DE_DESISTENCIA,
+                business_key=business_key,
+                instance_id=instancia.instance_id,
+                variables={
+                    "resultado": RESULTADO_DESISTENCIA,
+                    "encerramento_origem": "beneficiario_canal",
+                },
+                audit_sink=self._audit_sink,
+                provenance=provenance,
+            )
+        except PROGRAMMING_ERRORS:
+            raise
+        except CibSevenError:
+            logger.warning(
+                "helena_base_saude_encerramento_falhou", node="classify", business_key=business_key
+            )
+            return False
+        ainda_viva = await self._caso_ativo(business_key)
+        if ainda_viva is not None and ainda_viva.instance_id == instancia.instance_id:
+            logger.warning(
+                "helena_base_saude_encerramento_nao_confirmado", node="classify", business_key=business_key
+            )
+            return False
+        logger.info(
+            "helena_base_saude_caso_encerrado", node="classify", business_key=business_key, motivo=motivo
+        )
+        return True
+
+    async def _motivo_e_severidade(self, business_key: str) -> tuple[str, object]:
+        """`motivo_categoria` e `severidade` do caso vivo. Leitura que falha -> `("", None)`, que
+        `caso_grave_para_encerrar` trata como GRAVE (na duvida, nao encerra)."""
+        try:
+            status = await self._cibseven.get_process_status(business_key)
+        except PROGRAMMING_ERRORS:
+            raise
+        except CibSevenError:
+            return "", None
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            return "", None
+        variaveis = status.variables or {}
+        return str(variaveis.get("motivo_categoria") or ""), variaveis.get("severidade")
+
     async def collect(self, state: HelenaState) -> dict[str, Any]:
         """Redige UMA pergunta ao beneficiario sobre o dado que falta (`coleta_pergunta`).
 
@@ -6295,6 +6816,7 @@ class HelenaGraph:
                 lida_v4.grupo,
                 self._v4_eco(str(state.get("coleta_contexto") or "")),
                 repetida=lida_v4.repetida,
+                alerta=self._base_alerta_do_grupo(lida_v4.grupo),
             )
             try:
                 fixa_v4 = self._cercar_saida(fixa_v4, "collect", node="collect")
@@ -6419,6 +6941,13 @@ class HelenaGraph:
         if state.get("response_text") == RESPOSTA_PECA_REENVIO:
             # RODADA 6: o classificador falhou neste turno (ver `classify`); o texto ja' vem pronto.
             return {"response_text": RESPOSTA_PECA_REENVIO, "response_kind": "inform"}
+        if self._base_saude and (
+            _bs.e_texto_da_base(state.get("response_text"), self._base)
+            or state.get("response_text") in TEXTOS_FIXOS_DO_ENCERRAMENTO
+        ):
+            # BASE DE SAUDE (ADR-0064): o texto que `classify` montou da base (texto do arquivo + credito +
+            # link + aviso), ou um texto fixo do encerramento do caso — sem modelo.
+            return {"response_text": str(state.get("response_text")), "response_kind": "inform"}
         if self._v4 and e_texto_da_v4(state.get("response_text")):
             # HELENA V4 (DL-0115): o texto FIXO que `classify` deixou pronto (especialista, resposta final do
             # sintoma leve, opcao 1), sem modelo.
@@ -8298,7 +8827,12 @@ class HelenaGraph:
         if self._v4:
             # HELENA V4 (DL-0115): o caso aberto pela v4 tem resumo FIXO e legivel (so' o relato desta queixa,
             # o que foi perguntado e respondido), sem modelo.
-            resumo_v4 = resumo_do_caso(state.get("coleta_pendente"), state.get("coleta_contexto"))
+            pend_resumo = ler_pendente(state.get("coleta_pendente"))
+            resumo_v4 = resumo_do_caso(
+                state.get("coleta_pendente"),
+                state.get("coleta_contexto"),
+                alerta=self._base_alerta_do_grupo(pend_resumo.grupo) if pend_resumo is not None else None,
+            )
             if resumo_v4 is not None:
                 return resumo_v4
         # Token somente de exibicao; motivo_categoria continua None na ausencia.
@@ -8455,6 +8989,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     triagem_v2_enabled = cfg.get("triagem_v2_enabled", False) is True
     # HELENA V4 (DL-0115): como a coleta, `True` SO' quando a composicao disser explicitamente.
     helena_v4_enabled = cfg.get("helena_v4_enabled", False) is True
+    # BASE DE SAUDE (ADR-0064, DL-0118): como a coleta, `True` SO' quando a composicao disser explicitamente.
+    helena_base_saude_enabled = cfg.get("helena_base_saude_enabled", False) is True
     return HelenaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
@@ -8470,6 +9006,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         consultas_plano=consultas if isinstance(consultas, FonteDeFatosDoPlano) else None,
         triagem_v2_enabled=triagem_v2_enabled,
         helena_v4_enabled=helena_v4_enabled,
+        helena_base_saude_enabled=helena_base_saude_enabled,
     ).compile_graph()
 
 

@@ -6,7 +6,7 @@ de agente (AGJ-*), documentada no `agent.yaml` de cada agente.
 
 | ID | Nome | Gatilho regulatorio | Fase | Status |
 |---|---|---|---|---|
-| SP-OP-ESCALATION-001 | Escalonamento humano universal | Seguranca assistencial | 0 | modelado FINAL v1.0.0 (SLAs em review-queue) |
+| SP-OP-ESCALATION-001 | Escalonamento humano universal | Seguranca assistencial | 0 | modelado FINAL v1.1.0 (emenda DL-0118: encerramento a pedido do beneficiario; SLAs em review-queue) |
 | SP-OP-AUTH-001 | Autorizacao previa | RN 259; negativa = medico auditor (L0 hard) | 1 | DRAFT — requires human review before any deploy |
 | SP-OP-LGPD-DSR-001 | Direitos do titular | LGPD art. 18 (15 dias) | 1 | DRAFT — requires human review before any deploy |
 | SP-OP-CONTAS-001 | Análise e adjudicação de conta médica (glosa) | Padrão TISS (RN 501/2022 — DRAFT/verify); prazo contratual; Lei 9.656 art. 18 | 2 | modelado (suite de integração planejada — T3.1) |

@@ -21,7 +21,7 @@
   <bpmn:process id="SP-OP-ESCALATION-001" name="SP-OP-ESCALATION-001 Escalonamento Humano Universal"
                 isExecutable="true" camunda:historyTimeToLive="1825">
     <bpmn:documentation><![CDATA[
-SP-OP-ESCALATION-001 — Escalonamento humano universal. Status: FINAL (v1.0.0).
+SP-OP-ESCALATION-001 — Escalonamento humano universal. Status: FINAL (v1.1.0; emenda DL-0118: encerramento a pedido).
 
 PROPOSITO: caminho unico pelo qual QUALQUER agente entrega uma conversa/caso a um humano
 dentro de SLA. Phase 0: disparado por Helena (red flag clinico via triage_redflag_*,
@@ -48,7 +48,7 @@ VARIAVEIS DE ENTRADA (contrato completo: docs/processes/contracts/SP-OP-ESCALATI
   beneficiario_pseudo_id (Zona Geral — SEMPRE pseudonimizado, ADR-0006), canal,
   motivo_categoria, severidade, resumo_contexto, dmn_decision_ref (opcional).
 
-SAIDA: resultado in {resolvido_humano, devolvido_agente, emergencia_acionada}, notas_resolucao.
+SAIDA: resultado in {resolvido_humano, devolvido_agente, emergencia_acionada, encerrado_a_pedido_beneficiario}, notas_resolucao.
 ]]></bpmn:documentation>
 
     <!-- ============ INICIO ============ -->
@@ -398,7 +398,53 @@ Valores clinicos dos SLAs: DRAFT — validar com gestao assistencial (docs/revie
     <bpmn:sequenceFlow id="Flow_BEPubResolBreach_UTSup" sourceRef="BE_PubResolBreachFailed" targetRef="UT_SupervisorAssume"/>
     <bpmn:sequenceFlow id="Flow_BEPubResolved_GW" sourceRef="BE_PubResolvedFailed" targetRef="GW_Resultado"/>
     <bpmn:sequenceFlow id="Flow_BEPubProcessCompleted_End" sourceRef="BE_PubProcessCompletedFailed" targetRef="End_DevolvidoAoAgente"/>
+
+    <!-- ============ ENCERRAMENTO A PEDIDO DO BENEFICIARIO (v1.1.0, DL-0118, ADR-0064) ============
+         O agente de origem (Helena, com a chave MAEZO_HELENA_BASE_SAUDE) correlaciona
+         `msg.escalation.withdrawn` pela BUSINESS KEY da instancia quando a pessoa recusa a equipe /
+         pede para encerrar o atendimento E confirma com SIM. SO' para caso NAO grave: o agente nunca correlaciona
+         em caso P1 (severidade grave) nem em risco psicossocial — a regra mora no agente e esta
+         registrada no contrato (secao "Encerramento a pedido do beneficiario"). As variaveis da correlacao trazem
+         `resultado=encerrado_a_pedido_beneficiario` e `encerramento_origem`.
+         EVENT SUBPROCESS INTERRUPTIVO (e nao boundary nas User Tasks): a mensagem vale em QUALQUER ponto
+         em que a instancia esteja viva (publish, roteamento, notificacao, User Task, SLA), e interrompe
+         tudo — inclusive o ramo nao-interruptivo do SLA de ciencia. A User Task some da fila do portal
+         (leitura ao vivo de ACT_RU_TASK). Como todo fim deste processo, o fim a pedido do beneficiario publica
+         `agents.events.escalation.resolved` (payload.resultado) ANTES; falha de publish nao impede o fim
+         (GAP-ESC-5). NAO publica process_completed: a conversa nao e' devolvida ao agente por um humano. -->
+    <bpmn:subProcess id="ESP_EncerramentoAPedido" name="Encerramento a pedido do beneficiario" triggeredByEvent="true">
+      <bpmn:startEvent id="Start_EncerramentoAPedido" name="msg.escalation.withdrawn" isInterrupting="true">
+        <bpmn:outgoing>Flow_EncPedido_Pub</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MED_EncerramentoAPedido" messageRef="Msg_EscalationWithdrawn"/>
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="ST_PublishWithdrawn" name="Publicar evento: escalation.resolved (encerrado a pedido)"
+                        camunda:type="external" camunda:topic="operadora.events.publish">
+        <bpmn:extensionElements>
+          <camunda:inputOutput>
+            <camunda:inputParameter name="event_topic">agents.events.escalation.resolved</camunda:inputParameter>
+            <camunda:inputParameter name="event_payload_vars">tenant_id,conversation_id,resultado</camunda:inputParameter>
+          </camunda:inputOutput>
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_EncPedido_Pub</bpmn:incoming>
+        <bpmn:outgoing>Flow_PubWithdrawn_End</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:boundaryEvent id="BE_PubWithdrawnFailed" name="ERR_EVENT_PUBLISH_FAILED" attachedToRef="ST_PublishWithdrawn">
+        <bpmn:outgoing>Flow_BEPubWithdrawn_End</bpmn:outgoing>
+        <bpmn:errorEventDefinition id="ED_PubWithdrawnFailed" errorRef="Error_EscPublishFailed"/>
+      </bpmn:boundaryEvent>
+      <bpmn:endEvent id="End_EncerradoAPedidoDoBeneficiario" name="Encerramento a pedido do beneficiario">
+        <bpmn:documentation>Evento de dominio escalation.resolved (resultado=encerrado_a_pedido_beneficiario) publicado antes deste fim.</bpmn:documentation>
+        <bpmn:incoming>Flow_PubWithdrawn_End</bpmn:incoming>
+        <bpmn:incoming>Flow_BEPubWithdrawn_End</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_EncPedido_Pub" sourceRef="Start_EncerramentoAPedido" targetRef="ST_PublishWithdrawn"/>
+      <bpmn:sequenceFlow id="Flow_PubWithdrawn_End" sourceRef="ST_PublishWithdrawn" targetRef="End_EncerradoAPedidoDoBeneficiario"/>
+      <bpmn:sequenceFlow id="Flow_BEPubWithdrawn_End" sourceRef="BE_PubWithdrawnFailed" targetRef="End_EncerradoAPedidoDoBeneficiario"/>
+    </bpmn:subProcess>
   </bpmn:process>
+
+  <!-- v1.1.0 (DL-0118): a mensagem de encerramento a pedido, correlacionada pela business key ESC-{tenant}-{conversa}. -->
+  <bpmn:message id="Msg_EscalationWithdrawn" name="msg.escalation.withdrawn"/>
 
   <!-- ============ DIAGRAMA ============ -->
   <bpmndi:BPMNDiagram id="Diagram_SP_OP_ESCALATION_001">
@@ -557,6 +603,30 @@ Valores clinicos dos SLAs: DRAFT — validar com gestao assistencial (docs/revie
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_BEPubProcessCompleted_End" bpmnElement="Flow_BEPubProcessCompleted_End">
         <di:waypoint x="1170" y="478"/><di:waypoint x="1170" y="500"/><di:waypoint x="1290" y="500"/><di:waypoint x="1290" y="438"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_ESP_EncerramentoAPedido" bpmnElement="ESP_EncerramentoAPedido" isExpanded="true">
+        <dc:Bounds x="160" y="700" width="420" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_EncerramentoAPedido" bpmnElement="Start_EncerramentoAPedido">
+        <dc:Bounds x="192" y="762" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_PubWithdrawn" bpmnElement="ST_PublishWithdrawn">
+        <dc:Bounds x="280" y="740" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_PubWithdrawnFailed" bpmnElement="BE_PubWithdrawnFailed">
+        <dc:Bounds x="312" y="802" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_EncerradoAPedido" bpmnElement="End_EncerradoAPedidoDoBeneficiario">
+        <dc:Bounds x="452" y="762" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_EncPedido_Pub" bpmnElement="Flow_EncPedido_Pub">
+        <di:waypoint x="228" y="780"/><di:waypoint x="280" y="780"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_PubWithdrawn_End" bpmnElement="Flow_PubWithdrawn_End">
+        <di:waypoint x="380" y="780"/><di:waypoint x="452" y="780"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_BEPubWithdrawn_End" bpmnElement="Flow_BEPubWithdrawn_End">
+        <di:waypoint x="330" y="838"/><di:waypoint x="330" y="850"/><di:waypoint x="470" y="850"/><di:waypoint x="470" y="798"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
