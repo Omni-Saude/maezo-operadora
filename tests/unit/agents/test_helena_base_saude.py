@@ -490,6 +490,7 @@ async def test_pedido_de_pessoa_depois_recusa_e_sim_encerra_o_caso_no_motor() ->
 
     fim = await conversa.diz("SIM", _INFO)
     assert _texto(fim) == RESPOSTA_CASO_ENCERRADO
+    assert conversa.whatsapp.enviados[-2:] == [RESPOSTA_CONFIRMA_ENCERRAMENTO, RESPOSTA_CASO_ENCERRADO]
     assert await conversa.cib.find_active_instance(_BK) is None, "a instancia nao esta mais ativa no motor"
     [chamada] = conversa.cib.correlate_calls
     assert chamada["message_name"] == NOME_DA_MENSAGEM_DE_DESISTENCIA
@@ -526,6 +527,7 @@ async def test_caso_grave_nao_e_encerrado_e_recebe_o_192() -> None:
 
     resultado = await conversa.diz("sim", _INFO)
     assert _texto(resultado) == RESPOSTA_CASO_GRAVE_NAO_ENCERRA
+    assert conversa.whatsapp.enviados[-1] == RESPOSTA_CASO_GRAVE_NAO_ENCERRA
     assert "192" in _texto(resultado)
     assert motor.correlate_calls == []
     assert await motor.find_active_instance(_BK) is not None

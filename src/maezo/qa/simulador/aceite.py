@@ -1160,7 +1160,7 @@ HELENA_BASE_SAUDE: tuple[Segmento, ...] = (
     ),
     Segmento(
         "2-o-que-e-psa",
-        (_informativa("O que é PSA?", "psa"),),
+        (_informativa("O que é PSA?", "(psa|prostata)"),),
         resolveu="o PSA foi explicado pelo texto da base (fonte creditada), com o aviso padrao e sem caso",
     ),
     Segmento(
