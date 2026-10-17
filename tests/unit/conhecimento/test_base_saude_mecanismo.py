@@ -415,6 +415,9 @@ def test_resposta_de_resultado_pessoal_leva_ao_medico() -> None:
 
 def test_alarme_de_sintoma_da_base() -> None:
     base = _base()
-    assert b.alarme_no_texto(base, "estou com a pior dor da vida")
+    assert b.alarme_no_texto(base, "estou com dor de cabeça, a pior dor da vida")
     assert b.alarme_no_texto(base, "dor de cabeça e rigidez no pescoço")
     assert not b.alarme_no_texto(base, "estou com muita dor de cabeça desde ontem")
+    # A lista e' a do arquivo DESTA queixa: sem arquivo citado, nenhum alarme da base (a tabela decide).
+    assert [a.id for a in b.sintomas_citados(base, "minha enxaqueca voltou")] == ["sin-dor-de-cabeca"]
+    assert not b.alarme_no_texto(base, "estou com dor nas costas e boca torta")

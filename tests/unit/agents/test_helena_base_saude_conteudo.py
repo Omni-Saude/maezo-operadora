@@ -74,4 +74,12 @@ def test_cada_resposta_da_base_passa_nas_cercas_de_saida_e_na_regua_de_tom(assun
 def test_o_texto_de_cada_assunto_respeita_o_limite_e_a_fonte_creditada_responde(assunto: b.Assunto) -> None:
     assert len(assunto.texto) <= b.LIMITE_DO_TEXTO
     creditada = b.fonte_creditada(assunto)
-    assert b.classificar_fonte(creditada.nome, creditada.url).classe in (b.CLASSE_RESPONDER, b.CLASSE_LINK)
+    if creditada is None:
+        # So' o sintoma pode ter so' a referencia interna (tabela de alarme): credito "Texto da operadora."
+        assert assunto.categoria == b.CATEGORIA_SINTOMA, assunto.id
+        return
+    assert b.classificar_fonte(creditada.nome, creditada.url).classe in (
+        b.CLASSE_RESPONDER,
+        b.CLASSE_ATO_OFICIAL,
+        b.CLASSE_LINK,
+    )

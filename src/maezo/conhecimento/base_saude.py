@@ -793,15 +793,30 @@ def e_texto_da_base(texto: object, base: BaseSaude) -> bool:
 
 
 # --- Sintoma: sinais de alarme da base --------------------------------------------------------------------
-def sinais_de_alarme(base: BaseSaude) -> tuple[str, ...]:
-    """Todos os termos de alarme (normalizados) de todos os arquivos `sin-*`."""
-    termos = {normalizar(t) for a in base.sintomas() for t in (a.sinais_alarme or ())}
+def _contem(plano: str, termo: str) -> bool:
+    return bool(termo) and re.search(rf"(?<!\w){re.escape(termo)}(?!\w)", plano) is not None
+
+
+def sintomas_citados(base: BaseSaude, texto: str) -> tuple[Assunto, ...]:
+    """Os arquivos `sin-*` cujo titulo ou algum sinonimo aparece INTEIRO na mensagem (normalizada)."""
+    plano = normalizar(texto)
+    return tuple(
+        a for a in base.sintomas() if any(_contem(plano, normalizar(t)) for t in (*a.sinonimos, a.titulo))
+    )
+
+
+def sinais_de_alarme(base: BaseSaude, texto: str) -> tuple[str, ...]:
+    """Os termos de alarme (normalizados) dos arquivos `sin-*` DESTA queixa (`sintomas_citados`): a lista do
+    arquivo do sintoma, como pede o ADR-0064 — nao a uniao de todos (um "dor muito forte" que e' alarme na
+    dor nas costas nao vira alarme da dor de cabeca). Sem arquivo citado, nenhum: a tabela de alarme e o
+    lexico de emergencia continuam valendo (rodam antes)."""
+    termos = {normalizar(t) for a in sintomas_citados(base, texto) for t in (a.sinais_alarme or ())}
     return tuple(sorted(t for t in termos if t))
 
 
 def alarme_no_texto(base: BaseSaude, texto: str) -> bool:
     plano = normalizar(texto)
-    return any(re.search(rf"(?<!\w){re.escape(t)}(?!\w)", plano) for t in sinais_de_alarme(base))
+    return any(_contem(plano, t) for t in sinais_de_alarme(base, texto))
 
 
 __all__ = [
@@ -853,6 +868,7 @@ __all__ = [
     "resposta_informativa",
     "resultado_pessoal",
     "sinais_de_alarme",
+    "sintomas_citados",
     "termos_proibidos_no_texto",
     "texto_final_do_sintoma_com_orientacao",
     "textos_da_base",

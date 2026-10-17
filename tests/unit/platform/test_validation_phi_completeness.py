@@ -1514,7 +1514,8 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         reason=(
             "SP-OP-ESCALATION-001 v1.1.0 (DL-0118, ADR-0064): o event subprocess de encerramento a pedido do "
             "beneficiario publica `agents.events.escalation.resolved` antes do fim (ST_PublishWithdrawn, "
-            "worker operadora.events.publish). CLEAN: +1 inputParameter LITERAL do topico, nunca dado pessoal."
+            "worker operadora.events.publish). CLEAN: +1 inputParameter LITERAL do topico, nunca dado "
+            "pessoal."
         ),
     ),
     CorpusDelta(

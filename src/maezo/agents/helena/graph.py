@@ -6561,7 +6561,7 @@ class HelenaGraph:
             return None
         if not informativa and especialidade_pedida(plano) is not None:
             return None  # "preciso de um cardiologista": o texto de onde marcar (v4), nao "o que e'"
-        assunto = await self._base_achar_assunto(state, base, texto)
+        assunto = await self._base_achar_assunto(state, base)
         if assunto is None:
             if not (informativa or clinica):
                 return None  # "minha ... esta ..." sem assunto da base e sem pergunta de saude: o de sempre
@@ -6575,11 +6575,11 @@ class HelenaGraph:
             _bs.resposta_de_resultado_pessoal(assunto) if pessoal else _bs.resposta_informativa(assunto),
         )
 
-    async def _base_achar_assunto(
-        self, state: HelenaState, base: _bs.BaseSaude, texto: str
-    ) -> _bs.Assunto | None:
+    async def _base_achar_assunto(self, state: HelenaState, base: _bs.BaseSaude) -> _bs.Assunto | None:
         """Busca DETERMINISTICA primeiro; so' quando ela fica ambigua o modelo escolhe UM id da lista fechada
-        de candidatos (ou "nenhum"). Falha do modelo = nenhum (o texto de 'nao tenho informacao aprovada')."""
+        de candidatos (ou "nenhum"). Falha do modelo = nenhum (o texto de 'nao tenho informacao aprovada').
+        A mensagem vai ao prompt DEMARCADA (`render_untrusted_block`, HEL-06)."""
+        texto = str(state.get("message_body") or "")
         busca = _bs.buscar(base, texto)
         if busca.achado is not None:
             return base.get(busca.achado)

@@ -526,9 +526,12 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     # fatos (`graph.py::texto_valores`, revisao de seguranca do #709) — nenhuma chamada LLM nova.
     # 15/15 desde 09/10/2026: a narrativa do dossie do Lucas virou texto fixo dos fatos
     # (`graph.py::texto_dossie`) — o sitio `_build_dossier` deixou de chamar o modelo.
-    assert (total, com_entrada) == (15, 15), (
+    # 16/16 desde 17/10/2026 (DL-0118, ADR-0064): a Helena ganhou a CLASSIFICACAO restrita da base de saude
+    # (`graph.py::_base_achar_assunto`: o modelo so' escolhe um id de uma lista fechada; a mensagem vai
+    # demarcada como `message_body`).
+    assert (total, com_entrada) == (16, 16), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 15/15 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 16/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )
