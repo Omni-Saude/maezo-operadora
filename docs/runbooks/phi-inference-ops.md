@@ -204,7 +204,13 @@ Estado desde 17/10/2026 (DL-0117): `phi_model_id = "zai.glm-5"` no dev (experime
    `"mistral.mistral-large-3-675b-instruct"`) e registra o DL. Merge com CI limpo.
 2. `terraform plan` na pasta do dev com as `-var` de imagem VIVAS (ler das task definitions atuais);
    conferir que so' mudam as task definitions/servicos que citam o modelo e a policy IAM da zona PHI.
-3. `terraform apply -target=...` direcionado nesses recursos (nunca apply completo), depois
+3. `terraform apply -target=...` direcionado nesses recursos (nunca apply completo). ATENCAO: o ARN do modelo
+   vive em `data.aws_iam_policy_document.task_bedrock`, anexado a QUATRO papeis; todos entram no alvo, senao o
+   papel que ficou de fora e' negado e o turno cai em falha tecnica (aprendido na troca de 17/10/2026):
+   `aws_iam_role_policy.task_bedrock`, `aws_iam_role_policy.webhook_receiver_bedrock`,
+   `aws_iam_role_policy.agent_resume_bedrock` e `aws_iam_role_policy.simulador_bedrock`; mais as task
+   definitions e servicos de webhook-receiver, agente (helena/marina/rafael), agent-resume e a task do
+   simulador. Depois
    `aws ecs wait services-stable` e conferir `MAEZO_INFERENCE_MODEL` nas task definitions ativas.
 
 **Compatibilidade do GLM-5 (medida em 17/10/2026):** `get-foundation-model` ACTIVE/ON_DEMAND/TEXT;
@@ -212,3 +218,10 @@ Converse devolve um unico bloco `text`; o transporte pula blocos que nao tenham 
 `reasoningContent`) e le o primeiro `text`; a atestacao e' contratual (endpoint/regiao do cliente +
 referencia do instrumento), nao vem da resposta, entao nao depende do modelo. Latencia ~1,3-1,6 s para o
 prompt de classificacao (~3 mil tokens de entrada).
+
+**Resultado da bateria com o GLM-5 no dev (17/10/2026, simulador, 6 roteiros x 2 rodadas):** 100% dos
+passos (dono_v1 37/37, cancelamento_v1 6/6, helena_v4 17/17, lucas_v4 3/3, lucas_v4_pagador 2/2,
+lucas_v4_nao_pagador 4/4), igual a linha de base do Mistral; zero erros de servidor/cliente/throttling no
+Bedrock; latencia por chamada p50 1,46 s / p95 1,68 s (Mistral: 0,75 s / 0,92 s); ~3,7 mil tokens de
+entrada e ~96 de saida por chamada. As respostas ao beneficiario sao quase todas gabarito (a mesma redacao
+nos dois modelos): o modelo so' classifica/extrai e redige poucas perguntas de coleta.
