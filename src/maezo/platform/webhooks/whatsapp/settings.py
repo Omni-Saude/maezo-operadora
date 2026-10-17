@@ -361,6 +361,16 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_V4", "helena_v4"),
     )
+    # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, SO' em DEV.
+    # DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: a Helena INFORMA (sem
+    # diagnosticar, sem conduta, sem dose) perguntas gerais de saude a partir da base curada versionada
+    # (`spec/conhecimento/saude`), sem abrir caso; dor sem sinal de alarme recebe perguntas de alerta antes do
+    # caso (com a v4 ligada); e a recusa explicita com caso aberto encerra o caso P2/P3 com confirmacao.
+    # Revisao medica e juridica pendentes antes de producao.
+    helena_base_saude: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_BASE_SAUDE", "helena_base_saude"),
+    )
     # AVISO DE IDENTIDADE (DL-0078, decisao do dono 07/10/2026): o nome de EXIBICAO da operadora nos
     # textos fixos de identidade da Helena ("Reconheci este numero no cadastro de beneficiarios da
     # {nome}..."). So' tem efeito com `helena_identidade_amh` ligada. Texto curto e simples (letras,

@@ -96,7 +96,8 @@ _TOOL_WIRE_ALIASES: Final[dict[str, tuple[str, ...]]] = {
     "mcp-dmn.evaluate": ("_dmn.evaluate(",),
     "mcp-cibseven.start_process": ("start_process_idempotent(",),
     "mcp-cibseven.get_process_status": ("get_process_status(",),
-    "mcp-cibseven.correlate_process_message": ("correlate_process_message(",),
+    # DL-0118: a Helena correlaciona pelo chokepoint auditado `correlate_message_audited(`.
+    "mcp-cibseven.correlate_process_message": ("correlate_process_message(", "correlate_message_audited("),
     "mcp-whatsapp.send_message": ("_whatsapp.send(",),
     "mcp-fhir.read_patient": ("read_patient(",),
     "mcp-fhir.read_patient_summary": ("read_patient_summary(",),

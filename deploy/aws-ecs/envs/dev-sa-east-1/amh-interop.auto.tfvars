@@ -49,6 +49,14 @@ helena_triagem_v2 = false
 // 14 dias uteis a confirmar pelo juridico. Voltar: false (runbook docs/runbooks/helena-v4.md).
 helena_v4 = true
 
+// Base de conhecimento de saude da Helena (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, so' em dev.
+// A Helena INFORMA (sem diagnosticar, sem conduta, sem dose) perguntas gerais de saude pela base curada
+// `spec/conhecimento/saude`, sem abrir caso; dor sem alarme recebe perguntas de alerta (com a v4); recusa com
+// caso aberto encerra o caso P2/P3 com confirmacao (msg.escalation.withdrawn, SP-OP-ESCALATION-001 v1.1.0 —
+// deploy-processes ANTES de ligar). Revisao medica e juridica antes de producao. Voltar: false (runbook
+// docs/runbooks/helena-base-saude.md).
+helena_base_saude = true
+
 # Acesso do beneficiario (DL-0083/DL-0084) LIGADO no dev em 08/10/2026 23:10 UTC, decisao do dono; testado
 # ponta a ponta no mesmo dia (aceite, CPF, Helena -> Lucas, revogacao, consentimento gravado no lago).
 acesso_beneficiario = true

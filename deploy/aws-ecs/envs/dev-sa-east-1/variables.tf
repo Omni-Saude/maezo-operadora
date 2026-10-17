@@ -803,6 +803,21 @@ variable "helena_v4" {
   nullable    = false
 }
 
+variable "helena_base_saude" {
+  description = <<-EOT
+    Base de conhecimento de saude da Helena (ADR-0064, DL-0118, 17/10/2026): `MAEZO_HELENA_BASE_SAUDE`.
+    Default `false` = a Helena de antes, byte a byte. Ligada, a Helena informa perguntas gerais de saude a
+    partir da base curada `spec/conhecimento/saude` (sem diagnostico, conduta nem dose; sem abrir caso), faz
+    perguntas de alerta na dor sem sinal de alarme (com `helena_v4` ligada) e encerra o caso P2/P3 a pedido
+    da pessoa, com confirmacao (mensagem `msg.escalation.withdrawn` do SP-OP-ESCALATION-001 v1.1.0: rode o
+    deploy-processes ANTES de ligar). MODELO DE TESTE SO' EM DEV: revisao medica e juridica antes de producao.
+    Runbook: docs/runbooks/helena-base-saude.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "helena_consultas_amh" {
   description = <<-EOT
     Fatos do plano na Helena pelo contrato TINA da AMH (decisao do dono de 07/10/2026):

@@ -90,7 +90,10 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: 09/10/2026: 33 — `LucasGraph._build_dossier` deixou de chamar o LLM: a narrativa do dossie de
 #: escalacao virou texto fixo montado com os fatos (`texto_dossie`), e o `try` estreitado em volta do
 #: modelo saiu junto (o modelo lia `contesta_cobranca=False` como contestacao registrada).
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 33
+#: 17/10/2026: 36 — base de saude da Helena (DL-0118, ADR-0064): `_base_achar_assunto` (classificacao restrita
+#: a lista fechada; falha do modelo = "nenhum"), `_caso_ativo` e `_motivo_e_severidade` (leituras do motor
+#: antes de encerrar o caso; falha = nada e' encerrado). Os tres estreitados como os demais.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 36
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:

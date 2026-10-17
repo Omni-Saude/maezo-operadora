@@ -294,6 +294,8 @@ def _build_dispatcher(
         triagem_v2_enabled=settings.helena_triagem_v2,
         # HELENA V4 (DL-0115): `MAEZO_HELENA_V4`, default `false` (so' dev).
         helena_v4_enabled=settings.helena_v4,
+        # BASE DE SAUDE (DL-0118, ADR-0064): `MAEZO_HELENA_BASE_SAUDE`, default `false` (so' dev).
+        helena_base_saude_enabled=settings.helena_base_saude,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the

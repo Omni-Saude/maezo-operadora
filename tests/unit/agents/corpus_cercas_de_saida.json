@@ -2595,6 +2595,116 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Quer que eu encerre o seu atendimento com a equipe? Responda SIM para encerrar.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_CONFIRMA_ENCERRAMENTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Pronto, encerrei o seu atendimento. Se precisar, é só me chamar.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_CASO_ENCERRADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu caso é de saúde e precisa de avaliação. Não posso encerrá-lo por aqui. Se for emergência, ligue 192.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_CASO_GRAVE_NAO_ENCERRA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tudo bem, o seu atendimento continua aberto com a equipe.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_ENCERRAMENTO_MANTIDO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não consegui encerrar o seu atendimento agora. Ele continua aberto com a equipe. Se quiser, me peça de novo daqui a pouco.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_ENCERRAMENTO_FALHOU",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não encontrei um atendimento aberto para encerrar. Se precisar, é só me chamar.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_SEM_CASO_PARA_ENCERRAR",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Esta informação é geral e não substitui avaliação médica. Se quiser, posso te passar para a equipe de saúde.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): AVISO_PADRAO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não tenho uma informação aprovada sobre isso por aqui. Para saber mais, converse com o seu médico ou procure o Saúde de A a Z, do Ministério da Saúde. Se quiser, posso te passar para a equipe de saúde.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_NAO_ENCONTRADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não tenho uma informação aprovada sobre isso por aqui. Quem pode avaliar o seu resultado é o seu médico: leve o resultado a ele. Se quiser, posso te passar para a equipe de saúde.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_RESULTADO_NAO_ENCONTRADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quem pode avaliar o seu resultado é o seu médico: leve o resultado a ele.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): FRASE_LEVE_AO_MEDICO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }
