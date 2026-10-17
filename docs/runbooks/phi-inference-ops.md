@@ -188,3 +188,27 @@ and **fail-safe** (a metering defect degrades to a skipped emission, never an ex
 could break or stall the LLM call). Mock providers (`NoopInferenceProvider`,
 `PhiZoneMockProvider`) never emit metering — they make no real API call, so there is nothing to
 meter.
+
+## 6. Trocar ou voltar o modelo da zona PHI (dev)
+
+O modelo da zona PHI vem de uma variavel so': `phi_model_id` (default em
+`deploy/aws-ecs/envs/dev-sa-east-1/variables.tf` = Mistral; o dev sobrescreve em
+`dev-vivo.auto.tfvars`). Ela alimenta `MAEZO_INFERENCE_MODEL` (webhook-receiver, agentes, agent-resume)
+e o ARN da policy IAM da zona PHI (`secrets.tf`, regiao fixa `sa-east-1`).
+
+Estado desde 17/10/2026 (DL-0117): `phi_model_id = "zai.glm-5"` no dev (experimento autorizado pelo dono).
+
+**Voltar ao Mistral** (passo a passo curto):
+
+1. PR que apaga a linha `phi_model_id` de `dev-vivo.auto.tfvars` (ou repoe
+   `"mistral.mistral-large-3-675b-instruct"`) e registra o DL. Merge com CI limpo.
+2. `terraform plan` na pasta do dev com as `-var` de imagem VIVAS (ler das task definitions atuais);
+   conferir que so' mudam as task definitions/servicos que citam o modelo e a policy IAM da zona PHI.
+3. `terraform apply -target=...` direcionado nesses recursos (nunca apply completo), depois
+   `aws ecs wait services-stable` e conferir `MAEZO_INFERENCE_MODEL` nas task definitions ativas.
+
+**Compatibilidade do GLM-5 (medida em 17/10/2026):** `get-foundation-model` ACTIVE/ON_DEMAND/TEXT;
+Converse devolve um unico bloco `text`; o transporte pula blocos que nao tenham `text` (ex.:
+`reasoningContent`) e le o primeiro `text`; a atestacao e' contratual (endpoint/regiao do cliente +
+referencia do instrumento), nao vem da resposta, entao nao depende do modelo. Latencia ~1,3-1,6 s para o
+prompt de classificacao (~3 mil tokens de entrada).
