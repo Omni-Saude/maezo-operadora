@@ -62,6 +62,28 @@ helena_carteirinha_completa = true
 // docs/runbooks/helena-base-saude.md).
 helena_base_saude = true
 
+// SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
+// informativas de saude, com checagem antes de enviar, pela rota PROPRIA
+// `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono
+// AUTORIZOU COMO DPO so' para a conversa DELE e as conversas sinteticas do simulador (roteiro
+// `helena_saude_gerativa`, telefones 5511900000790..799), so' em dev, como teste reversivel. A Tania e todos os
+// outros: a Helena de antes. Desligar ("desligue a saude gerativa"): false + apply direcionado (runbook
+// docs/runbooks/helena-base-saude.md §10).
+helena_saude_gerativa = true
+helena_saude_gerativa_conversas = [
+  "wa:amh:hk1_34d934f10c9167de002295ee0412fe6cf4eb0ba9885aef3a5f9ab7029e53e8f6", // o dono
+  "wa:amh:hk1_41a907864e3b318fe11d8124e2eed5d8a0ad8d076a8cf69449e60e28043290d7", // simulador ...790
+  "wa:amh:hk1_c416ceac7076a3946bcacc8c0ca3c5c68083ee7d5c3d3cdbc0335bedf5f0d086", // simulador ...791
+  "wa:amh:hk1_dbae14094dd97675d3564309f70861c3f644d3134704cbe25f80e1dbb95956e5", // simulador ...792
+  "wa:amh:hk1_0909c2f1979a1326c2210f50c38ac2da42b9f1462c36fe6f5bddb268acedc69a", // simulador ...793
+  "wa:amh:hk1_2c6d769d38c68af9df7dad00393e8caed88e3f852b1c68f3aac2105c11ce3514", // simulador ...794
+  "wa:amh:hk1_779f711a77180fa0ec38b23f7fe83848344447e1ed131e4c6c2cff2af784dbed", // simulador ...795
+  "wa:amh:hk1_e4e695ffef67a87c66dfb14c14a38a2a7db4258ee10a642133e05c8f0fb04d31", // simulador ...796
+  "wa:amh:hk1_c9a42214bf91e285a511878d57f169a2af5a67cbd964f194b6b1e7811698f9dd", // simulador ...797
+  "wa:amh:hk1_298020f13ddf83ff5cc1e695591075729db2e5614775c824e192cbe1359363a0", // simulador ...798
+  "wa:amh:hk1_1af788a6ccaa52b4135ae61ac2e816608024fc6307b04c2caf5303a1f606581f", // simulador ...799
+]
+
 # Acesso do beneficiario (DL-0083/DL-0084) LIGADO no dev em 08/10/2026 23:10 UTC, decisao do dono; testado
 # ponta a ponta no mesmo dia (aceite, CPF, Helena -> Lucas, revogacao, consentimento gravado no lago).
 acesso_beneficiario = true

@@ -283,12 +283,18 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
             run_id=run_id,
             config=ConfigDoCondutor(concorrencia=1, intervalo_min_s=args.intervalo_min_s),
         )
+        # ADR-0065: um roteiro com telefones PROPRIOS (a allowlist da saude gerativa) nao usa a faixa comum.
+        proprios = aceite.TELEFONES_DO_ROTEIRO.get(args.roteiro)
+        if proprios is not None and len(proprios) < len(roteiro):
+            raise RuntimeError("simulador: o roteiro tem mais segmentos que telefones proprios")
         planos = [
             PlanoDeConversa(
                 id=f"r{i + 1}",
                 persona=aceite.PERSONA_ACEITE,
                 sujeito=dono,
-                telefone=telefone(FAIXA_ACESSO[i % len(FAIXA_ACESSO)]),
+                telefone=telefone(
+                    proprios[i] if proprios is not None else FAIXA_ACESSO[i % len(FAIXA_ACESSO)]
+                ),
                 semente=i,
             )
             for i in range(len(roteiro))

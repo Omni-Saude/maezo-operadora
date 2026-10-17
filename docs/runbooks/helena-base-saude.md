@@ -114,3 +114,45 @@ opcionalmente deploy-processes da v1.0.0 do `SP-OP-ESCALATION-001`.
   "Texto da operadora.").
 - Achado do piloto: `exa-mamografia` diz que o Ministério da Saúde recomenda o rastreio "a cada dois anos".
   O CI não reprova (é informação atribuída à fonte), mas fica para a revisão médica.
+
+## 10. Saúde gerativa (ADR-0065, DL-0119) — o Haiku 5.5 redige, só na allowlist
+
+**O que é.** Com `helena_saude_gerativa = true` (e a base ligada), para as conversas de
+`helena_saude_gerativa_conversas` o Claude Haiku 5.5 REDIGE a resposta das perguntas informativas de saúde (no
+lugar do texto fixo da base) e a orientação da queixa sem alarme (resposta "não" ou contexto às perguntas de
+alerta), com checagem antes de enviar. A chamada sai pela rota PRÓPRIA
+**`experimento_global_autorizado_dpo_2026-10-17`** — perfil GLOBAL do Bedrock, **pode processar fora do
+Brasil**; o dono autorizou COMO DPO só para a conversa dele e as do simulador, só em dev. Classificação,
+alarme/P1 (192), saúde mental com risco (CVV 188), plano, carteirinha, cobrança, cancelamento e casos seguem no
+GLM-5 em sa-east-1, decididos ANTES da redação.
+
+**Quem está na allowlist (dev):** a conversa do dono (`wa:amh:hk1_34d934f1…`) e as conversas sintéticas dos
+telefones `5511900000790..799` (roteiro `helena_saude_gerativa`; o segmento 10 roda no `…789`, FORA da lista,
+para provar que nada mudou). Para incluir alguém: só com autorização do DPO, PR no tfvars.
+
+**O que vai ao modelo:** a mensagem e até 2 mensagens anteriores da pessoa, com CPF, nome dito, carteirinha,
+telefone, e-mail e datas trocados por `[dado removido]`; nunca as falas da Helena, nunca dado do cadastro.
+
+**Como sai:** rascunho → checagem (cercas da Helena, termos proibidos da base, regras: dose, mandar usar/não
+usar/parar/continuar/dobrar, dose esquecida, combinação, minimizar, diagnóstico, promessa, gênero, pediatra para
+adulto, 192 nos modos de sintoma, ~100 palavras, link/fonte não fornecidos) → 1 reescrita → senão a resposta
+segura padrão ("Não consigo te responder isso com segurança por aqui…"). Erro/prazo do modelo → a mesma resposta
+segura (nunca silêncio). Logs: `helena_saude_gerativa_redigida` (rota, modelo, modo, desfecho, regras —
+nunca o texto) e `rota_global_experimental_chamada`/`_falhou`.
+
+**Recursos Terraform:** env `MAEZO_HELENA_SAUDE_GERATIVA` e `MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS` em
+`environment_app` (receptor, simulador e lembrete de cobrança herdam); IAM em
+`experimento-saude-gerativa.tf` (`aws_iam_role_policy.task_saude_gerativa`, `.webhook_receiver_saude_gerativa[0]`,
+`.agent_resume_saude_gerativa[0]`, `.simulador_saude_gerativa`).
+
+**Desligar** (frase do dono: "desligue a saúde gerativa"): `helena_saude_gerativa = false` em
+`amh-interop.auto.tfvars` (PR) + apply direcionado das task definitions/serviço do receptor e da task do
+simulador (e do lembrete, se existir), como na seção 3. Em emergência: o mesmo apply com
+`-var=helena_saude_gerativa=false` e depois registrar no arquivo. Desligada, o processo nem constrói o cliente
+da rota global; a Helena volta ao texto fixo da base.
+
+**Desfazer** ("desfaça"): desligar + `git revert` dos PRs desta entrega + apply direcionado que REMOVE as 4
+políticas IAM (o plan mostra 4 destroys) + build/deploy.
+
+**Verificar:** roteiro `--roteiro helena_saude_gerativa` no simulador (utilidade: "resolveu a dúvida?"); logs
+acima no grupo `/ecs/maezo-operadora-dev/webhook-receiver`.
