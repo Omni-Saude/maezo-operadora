@@ -361,6 +361,15 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_V4", "helena_v4"),
     )
+    # CARTEIRINHA COMPLETA E VINCULO ATIVO (decisao do dono de 17/10/2026, "modelo de teste" SO' em DEV,
+    # reversivel). DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: no tipo de
+    # plano (`elegibilidade`) e na carteirinha a Helena mostra SO' os vinculos ATIVOS, e a carteirinha (sempre
+    # deterministica) traz o NUMERO COMPLETO do proprio beneficiario verificado, por texto fixo, quando a rota
+    # `tina-carteirinha` (manifest v1.12, escopo `interop/tina.carteirinha`) responde — senao, o mascarado.
+    helena_carteirinha_completa: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_CARTEIRINHA_COMPLETA", "helena_carteirinha_completa"),
+    )
     # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, SO' em DEV.
     # DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: a Helena INFORMA (sem
     # diagnosticar, sem conduta, sem dose) perguntas gerais de saude a partir da base curada versionada
@@ -660,6 +669,15 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=None,
         validation_alias=AliasChoices(
             "MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH", "amh_tina_dependentes_openapi_path"
+        ),
+    )
+    # O OpenAPI da rota da CARTEIRINHA COMPLETA (`tina-carteirinha`, manifest v1.12), lido SO' com
+    # `helena_consultas_amh` E `helena_carteirinha_completa` ligadas. Os bytes so' valem com o digest no bloco
+    # `manifest_v1_12` do pin (sem ele o receptor recusa servir); sem a chave, nem o caminho e' lido.
+    amh_tina_carteirinha_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_CARTEIRINHA_OPENAPI_PATH", "amh_tina_carteirinha_openapi_path"
         ),
     )
 

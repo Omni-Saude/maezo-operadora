@@ -15,7 +15,7 @@ vem SO' mascaradas. Carencia e' o que consta no cadastro, nunca promessa de cobe
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS, PortResult
@@ -123,6 +123,54 @@ class DependentesView:
 MAX_DEPENDENTES: int = 20
 
 
+@dataclass(frozen=True, slots=True)
+class CarteirinhaCompleta:
+    """O numero COMPLETO da carteirinha de UM vinculo ATIVO do proprio sujeito (contrato `tina-carteirinha`,
+    manifest v1.12; decisao do dono de 17/10/2026, so' dev).
+
+    O numero e' IDENTIFICADOR DE USO do plano: fora do `repr` (nunca vai a log por acidente) e o consumidor
+    so' o entrega por TEXTO FIXO ao proprio beneficiario verificado. `carteirinha_mascarada` e' a MESMA
+    mascara da rota `elegibilidade`: e' por ela que o consumidor casa o numero com o vinculo de la'.
+    """
+
+    carteirinha_numero: str = field(repr=False)
+    carteirinha_mascarada: str
+    vinculo_principal: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CarteirinhasView:
+    """As carteirinhas dos vinculos ATIVOS do proprio sujeito (1..10). Sem vinculo ativo, a rota responde
+    404."""
+
+    portable_subject_ref: str
+    carteirinhas: tuple[CarteirinhaCompleta, ...]
+    fonte_atualizada_em: str
+
+
+#: Teto da lista de carteirinhas no contrato (`maxItems`).
+MAX_CARTEIRINHAS: int = 10
+
+
+@runtime_checkable
+class TinaCarteirinhaPort(Protocol):
+    """Leitura read-only do numero completo da carteirinha (contrato `tina-carteirinha`). Sucesso ou recusa,
+    nunca excecao. Port separado: quem so' implementa os fatos do plano nao muda.
+
+    `request_ref` e' o `X-Amh-Request-Ref`: identificador OPACO da solicitacao (auditoria da AMH), nunca CPF,
+    telefone ou nome."""
+
+    async def get_carteirinha(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        request_ref: str,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[CarteirinhasView]: ...
+
+
 @runtime_checkable
 class TinaDependentesPort(Protocol):
     """Leitura read-only dos dependentes do titular (contrato `tina-dependentes`). Sucesso ou recusa, nunca
@@ -174,14 +222,18 @@ class TinaPort(Protocol):
 
 
 __all__ = [
+    "MAX_CARTEIRINHAS",
     "MAX_DEPENDENTES",
     "CarenciaPlano",
+    "CarteirinhaCompleta",
+    "CarteirinhasView",
     "CarenciasView",
     "DependenteAnonimo",
     "DependentesView",
     "ElegibilidadeView",
     "RequisicaoPlano",
     "RequisicoesView",
+    "TinaCarteirinhaPort",
     "TinaDependentesPort",
     "TinaPort",
     "VinculoPlano",

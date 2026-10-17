@@ -486,8 +486,8 @@ def test_no_port_value_type_has_a_phi_shaped_field() -> None:
     """Fence (iv), value types: the ports are OPAQUE (they parse nothing), so the only structural
     guarantee against PHI crossing the boundary is that no PHI-shaped SLOT exists at all."""
     value_types = _value_types()
-    assert len(value_types) == 37, (
-        f"expected 37 port value types, found {sorted(value_types)} — update this non-vacuity pin "
+    assert len(value_types) == 39, (
+        f"expected 39 port value types, found {sorted(value_types)} — update this non-vacuity pin "
         "when a value type is deliberately added or removed"
     )
     offenders: dict[str, list[str]] = {}
@@ -509,7 +509,7 @@ def test_no_port_method_has_a_phi_shaped_parameter() -> None:
     ARGUMENT would let a caller push identifying data across the boundary even though no value
     type holds it."""
     protocols = _protocol_types()
-    assert len(protocols) == 12, f"expected exactly 12 port Protocols, found {sorted(protocols)}"
+    assert len(protocols) == 13, f"expected exactly 13 port Protocols, found {sorted(protocols)}"
     offenders: dict[str, list[str]] = {}
     for qualname, proto in protocols.items():
         for method_name, member in inspect.getmembers(proto, callable):

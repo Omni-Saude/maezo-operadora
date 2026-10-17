@@ -145,7 +145,7 @@ import asyncio
 import json
 import re
 from collections.abc import Callable, Hashable, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Literal, Protocol, TypedDict, cast, get_args
 
 import structlog
@@ -214,15 +214,19 @@ from .consultas_plano import (
     RESPOSTA_CONSULTA_SEM_IDENTIDADE,
     RESPOSTA_DEPENDENTES_FALHA,
     SUBTIPOS_REDIGIDOS,
+    CarteirinhasDoTurno,
     FonteDeFatosDoPlano,
     FonteIndisponivel,
     consulta_prompt,
     fatos_da_consulta,
+    ler_carteirinhas_completas,
     literais_dos_fatos,
     motivo_de_omissao_da_elegibilidade,
     motivo_de_recusa_da_consulta,
     resposta_deterministica,
     segmentacao_dos_fatos,
+    sem_marcador_de_carteirinha,
+    so_deterministica,
     texto_para_cerca,
 )
 from .helena_v4 import (
@@ -4496,10 +4500,18 @@ class HelenaGraph:
         relogio: Callable[[], datetime] | None = None,
         triagem_v2_enabled: bool = False,
         helena_v4_enabled: bool = False,
+        helena_carteirinha_completa_enabled: bool = False,
         helena_base_saude_enabled: bool = False,
         base_saude: _bs.BaseSaude | None = None,
     ) -> None:
         self._llm = inference
+        # VINCULO ATIVO E CARTEIRINHA COMPLETA (dono, 17/10/2026, `MAEZO_HELENA_CARTEIRINHA_COMPLETA`):
+        # DESLIGADA por default, e desligada e' o grafo de antes byte a byte. Ligada (so' em dev):
+        # elegibilidade e carteirinha so' com os vinculos ATIVOS, e a carteirinha (sempre deterministica)
+        # com o numero completo do proprio verificado. O numero vive so' em `_carteirinhas_do_turno` (em
+        # memoria, ate' o envio de `respond`).
+        self._carteirinha_completa = helena_carteirinha_completa_enabled is True
+        self._carteirinhas_do_turno: dict[str, CarteirinhasDoTurno] = {}
         # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, `MAEZO_HELENA_BASE_SAUDE`): DESLIGADA por default,
         # e desligada e' o grafo de antes byte a byte (`self._base_saude` falso: nenhum ramo `_base_*` roda).
         # Ligada (so' em dev): a Helena INFORMA perguntas gerais de saude a partir da base curada versionada
@@ -6413,7 +6425,12 @@ class HelenaGraph:
         ref = self._ref_verificada(state)
         if ref is None:
             return None, None
-        fatos = fatos_da_consulta("elegibilidade", await self._ler_consulta(ref, "elegibilidade"))
+        fatos = fatos_da_consulta(
+            "elegibilidade",
+            await self._ler_consulta(ref, "elegibilidade"),
+            so_ativos=self._carteirinha_completa,
+            hoje=self._hoje_dos_vinculos(),
+        )
         segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
         if fatos is None or segmentacao is None:
             return None, None
@@ -7228,7 +7245,9 @@ class HelenaGraph:
                 resultado="fonte_nao_carregada",
             )
             return {"response_text": RESPOSTA_DEPENDENTES, "response_kind": "inform"}
-        fatos = fatos_da_consulta(subtipo, view)
+        fatos = fatos_da_consulta(
+            subtipo, view, so_ativos=self._carteirinha_completa, hoje=self._hoje_dos_vinculos()
+        )
         if fatos is None and subtipo == "dependentes":
             # Falha da consulta (prazo, erro, recusa): nunca "nao consta" — a verdade e' "nao consegui agora".
             logger.info(
@@ -7246,14 +7265,27 @@ class HelenaGraph:
                 "response_text": _texto_plano_indisponivel(state, fonte_ligada=True),
                 "response_kind": "inform",
             }
+        # Carteirinha completa (chave ligada): o numero do PROPRIO verificado (a `ref` acima), so' na
+        # memoria do turno; o texto leva o marcador e `respond` o troca no envio. Falha da rota = mascarado.
+        numeros = CarteirinhasDoTurno({})
+        if self._carteirinha_completa and subtipo == "carteirinha":
+            numeros = await ler_carteirinhas_completas(
+                self._consultas, ref, state.get("message_ref"), fatos, prazo_s=CONSULTA_PRAZO_S
+            )
+            logger.info("helena_carteirinha_completa", node="consultar_plano", com_numero=bool(numeros))
+            self._guardar_carteirinhas(state, numeros)
         if self._v4 and subtipo == "carteirinha" and isinstance(view, ElegibilidadeView):
             # HELENA V4 (DL-0115): plano, segmentacao, vigencia e numero ANS com o codigo MASCARADO, e o
             # cartao no aplicativo/portal. Texto deterministico (sem modelo) sobre uma lista FECHADA de
             # fatos: nunca CNS, codigo inteiro, nome nem data de nascimento.
-            fatos_v4 = fatos_da_carteirinha(view)
+            fatos_v4 = fatos_da_carteirinha(
+                view, so_ativos=self._carteirinha_completa, hoje=self._hoje_dos_vinculos()
+            )
             logger.info("helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="v4")
             return {
-                "response_text": texto_da_carteirinha(fatos_v4),
+                "response_text": texto_da_carteirinha(
+                    fatos_v4, completos=numeros.mascaras, so_ativos=self._carteirinha_completa
+                ),
                 "response_kind": "inform",
                 "consulta_literais": literais_dos_fatos(fatos_v4),
                 "resposta_com_dados_do_plano": True,
@@ -7265,7 +7297,9 @@ class HelenaGraph:
             # inteiro do plano (o dono perguntou so' a cobertura). Texto deterministico, sem modelo.
             texto = _texto_de_cobertura(fatos)
             recusa: str | None = "cobertura_deterministica"
-        elif subtipo in SUBTIPOS_REDIGIDOS:
+        elif subtipo in SUBTIPOS_REDIGIDOS and not so_deterministica(
+            subtipo, fatos, carteirinha_completa=self._carteirinha_completa
+        ):
             texto = await self._redigir_consulta(state, subtipo, fatos)
             recusa = motivo_de_recusa_da_consulta(texto, fatos) if isinstance(texto, str) else "sem_rascunho"
             if recusa is None and subtipo == "elegibilidade" and isinstance(texto, str):
@@ -7277,7 +7311,9 @@ class HelenaGraph:
         if recusa == "cobertura_deterministica" and isinstance(texto, str):
             pass
         elif recusa is not None or not isinstance(texto, str):
-            texto = resposta_deterministica(subtipo, fatos)
+            texto = resposta_deterministica(
+                subtipo, fatos, completos=numeros.mascaras, so_ativos=self._carteirinha_completa
+            )
         else:
             # RODADA 4: sem frase de pagamento (papel do Lucas) nem "nao consta" sobre cobertura.
             texto = _frases_curtas(_sem_frases_fora_do_papel(texto))
@@ -7306,6 +7342,32 @@ class HelenaGraph:
             # Onda 0 (historico): a resposta carrega dados do plano -> o historico grava so' um marcador.
             "resposta_com_dados_do_plano": True,
         }
+
+    def _hoje_dos_vinculos(self) -> date | None:
+        """O dia (Brasilia) da regra de vinculo ativo, so' com a chave da carteirinha completa (`None` sem
+        ela)."""
+        return hoje_em_brasilia(self._relogio()) if self._carteirinha_completa else None
+
+    @staticmethod
+    def _chave_do_turno(state: Mapping[str, Any]) -> str:
+        return f"{state.get('conversation_id') or ''}|{state.get('message_ref') or ''}"
+
+    def _guardar_carteirinhas(self, state: Mapping[str, Any], numeros: CarteirinhasDoTurno) -> None:
+        """Guarda os numeros completos do turno SO' em memoria (nunca no estado): `respond` os tira daqui."""
+        chave = self._chave_do_turno(state)
+        self._carteirinhas_do_turno.pop(chave, None)
+        if numeros:
+            while len(self._carteirinhas_do_turno) >= 16:
+                self._carteirinhas_do_turno.pop(next(iter(self._carteirinhas_do_turno)))
+            self._carteirinhas_do_turno[chave] = numeros
+
+    def _texto_do_envio(self, state: Mapping[str, Any], texto: str) -> str:
+        """O texto ENVIADO: com a chave da carteirinha completa, os marcadores viram o numero do turno (ou a
+        mascara, sem numero). Desligada, o texto como esta' (byte a byte)."""
+        if not self._carteirinha_completa:
+            return texto
+        numeros = self._carteirinhas_do_turno.pop(self._chave_do_turno(state), None)
+        return numeros.preencher(texto) if numeros else sem_marcador_de_carteirinha(texto)
 
     async def _ler_consulta(self, ref: str, subtipo: str) -> Any:
         """UMA leitura da fonte do plano, com o prazo do turno. Falha de rede/servico/prazo = `None`; bug
@@ -7344,10 +7406,19 @@ class HelenaGraph:
         if ref is None:
             return (RESPOSTA_COBERTURA_NA_PASSAGEM, {})
         subtipo = "elegibilidade" if cobertura else _subtipo_da_consulta(mensagem)
-        fatos = fatos_da_consulta(subtipo, await self._ler_consulta(ref, subtipo))
+        fatos = fatos_da_consulta(
+            subtipo,
+            await self._ler_consulta(ref, subtipo),
+            so_ativos=self._carteirinha_completa,
+            hoje=self._hoje_dos_vinculos(),
+        )
         if fatos is None:
             return (RESPOSTA_COBERTURA_ESPECIFICA if cobertura else RESPOSTA_PLANO_FALHA_NA_PASSAGEM, {})
-        texto = _texto_de_cobertura(fatos) if cobertura else resposta_deterministica(subtipo, fatos)
+        texto = (
+            _texto_de_cobertura(fatos)
+            if cobertura
+            else resposta_deterministica(subtipo, fatos, so_ativos=self._carteirinha_completa)
+        )
         return (
             texto,
             {"consulta_literais": literais_dos_fatos(fatos), "resposta_com_dados_do_plano": True},
@@ -7840,7 +7911,9 @@ class HelenaGraph:
         aviso_enviado, aviso_na_resposta = await self._aviso_de_identidade(state, text)
         enviada = False
         try:
-            await self._whatsapp.send(_to_hash_from_state(state), text)
+            # Carteirinha completa: o numero entra AQUI, no ultimo passo, depois de todas as cercas; `text`
+            # (o que fica no estado e no historico) continua com o marcador.
+            await self._whatsapp.send(_to_hash_from_state(state), self._texto_do_envio(state, text))
             enviada = True
         except PROGRAMMING_ERRORS:
             raise
@@ -8989,6 +9062,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     triagem_v2_enabled = cfg.get("triagem_v2_enabled", False) is True
     # HELENA V4 (DL-0115): como a coleta, `True` SO' quando a composicao disser explicitamente.
     helena_v4_enabled = cfg.get("helena_v4_enabled", False) is True
+    # Vinculo ativo e carteirinha completa (dono, 17/10/2026): `True` SO' quando a composicao disser.
+    helena_carteirinha_completa_enabled = cfg.get("helena_carteirinha_completa_enabled", False) is True
     # BASE DE SAUDE (ADR-0064, DL-0118): como a coleta, `True` SO' quando a composicao disser explicitamente.
     helena_base_saude_enabled = cfg.get("helena_base_saude_enabled", False) is True
     return HelenaGraph(
@@ -9006,6 +9081,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         consultas_plano=consultas if isinstance(consultas, FonteDeFatosDoPlano) else None,
         triagem_v2_enabled=triagem_v2_enabled,
         helena_v4_enabled=helena_v4_enabled,
+        helena_carteirinha_completa_enabled=helena_carteirinha_completa_enabled,
         helena_base_saude_enabled=helena_base_saude_enabled,
     ).compile_graph()
 

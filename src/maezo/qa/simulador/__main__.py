@@ -332,6 +332,11 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
                     sujeito=dono,
                     # DL-0114: o SINAL do Lucas v4 (contratos novos da AMH pinados e fonte v4 montada).
                     sinal_v4=getattr(composicao.estado.lucas_turno, "fonte_v4", None) is not None,
+                    # Dono, 17/10/2026: a chave da carteirinha completa decide qual passo da carteirinha roda.
+                    carteirinha_completa=getattr(
+                        composicao.estado.settings, "helena_carteirinha_completa", False
+                    )
+                    is True,
                 )
             resultados.append(resultado)
             # limpeza da conversa que acabou, ANTES do proximo segmento

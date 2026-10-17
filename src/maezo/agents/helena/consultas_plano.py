@@ -20,25 +20,43 @@ AS REGRAS DO TEXTO, e onde cada uma e' garantida:
     recusa sequencia de 11 digitos.
 Qualquer recusa da cerca (ou falha do modelo) troca o rascunho pela resposta DETERMINISTICA, montada
 so' com os fatos — nunca por um segundo rascunho.
+
+VINCULO ATIVO E CARTEIRINHA COMPLETA (decisao do dono de 17/10/2026, "modelo de teste" so' em dev, chave
+`MAEZO_HELENA_CARTEIRINHA_COMPLETA`; desligada, nada desta secao e' alcancado e os textos sao byte a byte
+os de antes). Ligada:
+  * elegibilidade e carteirinha so' com os vinculos ATIVOS (`vinculo_ativo`): a AMH devolve tambem o plano
+    cancelado anos atras, e a Helena mostrava os dois. Cancelamento agendado (data futura) e' ativo e sai como
+    "cancelamento previsto". Nenhum ativo = `RESPOSTA_SEM_VINCULO_ATIVO` (texto fixo);
+  * a carteirinha do PROPRIO beneficiario verificado sai com o NUMERO COMPLETO (rota `tina-carteirinha`,
+    manifest v1.12), casado com o vinculo pela MASCARA. O numero NUNCA entra nos fatos, no prompt, nos
+    literais das cercas, no estado do grafo, no historico nem em log: o texto leva um MARCADOR
+    (`marcador_da_carteirinha`) e o numero vive so' em `CarteirinhasDoTurno` (repr redigido, nao
+    serializavel), trocado no ULTIMO passo, dentro de `respond`, imediatamente antes do envio — o mesmo
+    desenho do codigo de barras do Lucas v4 (`agents/lucas/fonte_v4.py::MARCADOR_CODIGO`).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import unicodedata
+import uuid
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Any, Final, Literal, Protocol, get_args, runtime_checkable
 
 from maezo.ports.tina import (
     MAX_DEPENDENTES,
     CarenciasView,
+    CarteirinhasView,
     DependentesView,
     ElegibilidadeView,
     RequisicoesView,
+    VinculoPlano,
 )
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT, render_untrusted_block
 
 from .prompts import SYSTEM_PROMPT, motivo_de_canal_nao_confirmado, motivo_de_recusa
@@ -94,6 +112,19 @@ class FonteDeFatosDoPlano(Protocol):
     async def consultar(
         self, portable_subject_ref: str, subtipo: str
     ) -> ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel | None: ...
+
+
+@runtime_checkable
+class FonteDeCarteirinhaCompleta(Protocol):
+    """A fonte que TAMBEM le' o numero completo da carteirinha (rota `tina-carteirinha`, manifest v1.12).
+
+    Protocolo SEPARADO: a fonte de sempre nao muda, e o grafo so' pede o numero quando a fonte injetada o
+    implementa E a chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` esta' ligada. Nunca levanta; falha = `None`
+    (o grafo cai no mascarado). `request_ref` e' o id OPACO da solicitacao (`X-Amh-Request-Ref`)."""
+
+    async def consultar_carteirinha(
+        self, portable_subject_ref: str, request_ref: str
+    ) -> CarteirinhasView | None: ...
 
 
 # --------------------------------------------------------------------------------------------
@@ -199,16 +230,64 @@ def _data(valor: object) -> str | None:
         return None
 
 
+#: VINCULO ATIVO (decisao do dono de 17/10/2026; regra medida nos dados do dev): a situacao do beneficiario,
+#: sem acento e sem caixa, que conta como ativa. "Suspenso", "Adesao futura" e "Inapto" NAO sao ativos.
+SITUACOES_ATIVAS: Final[frozenset[str]] = frozenset({"apto", "ativo"})
+#: Nenhum vinculo ATIVO no cadastro (chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` ligada): texto FIXO, sem
+#: modelo.
+RESPOSTA_SEM_VINCULO_ATIVO: Final[str] = (
+    "No cadastro do plano não consta nenhum vínculo ativo para você. "
+    "Se quiser falar com uma pessoa da equipe, é só me pedir."
+)
+
+
+def vinculo_ativo(v: VinculoPlano, hoje: date) -> bool:
+    """O vinculo esta' ATIVO hoje? PURA.
+
+    (a) sem cancelamento, OU cancelamento DEPOIS de hoje (cancelamento agendado: medido em 374 vinculos "Apto"
+    com data futura no dev); um cancelamento que nao e' data legivel conta como cancelado (fail-closed:
+    mostrar um vinculo cancelado foi o defeito); E
+    (b) situacao do beneficiario em `SITUACOES_ATIVAS` (sem acento/caixa), ou, SO' com a situacao ausente,
+    `atendimento_liberado is True`.
+    """
+    cancelamento = v.cancelamento
+    if cancelamento is not None and not (isinstance(cancelamento, str) and not cancelamento.strip()):
+        iso = _data(cancelamento)
+        if iso is None or date.fromisoformat(iso) <= hoje:
+            return False
+    situacao = _texto(v.situacao_vinculo)
+    if situacao is not None:
+        return _sem_acento(situacao).lower() in SITUACOES_ATIVAS
+    return v.atendimento_liberado is True
+
+
+def so_vinculos_ativos(view: ElegibilidadeView, hoje: date) -> ElegibilidadeView:
+    """A view com SO' os vinculos ativos, na ordem da AMH; `ativo` passa a ser "ha' algum vinculo ativo"
+    (coerente com a lista que vai ao texto)."""
+    ativos = tuple(v for v in view.vinculos if vinculo_ativo(v, hoje))
+    return replace(view, vinculos=ativos, ativo=bool(ativos))
+
+
 def fatos_da_consulta(
     subtipo: str,
     view: ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel | None,
+    *,
+    so_ativos: bool = False,
+    hoje: date | None = None,
 ) -> dict[str, Any] | None:
     """Os fatos que PODEM ir ao texto, por subtipo, ou `None` (view ausente ou de outro tipo).
 
     Lista FECHADA por subtipo: o que nao esta' aqui nunca chega ao modelo nem ao beneficiario —
     em particular `medico_solicitante` (nome de pessoa), `titular_ref` e `relacao_dependencia`.
+
+    `so_ativos=True` (chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA`): elegibilidade e carteirinha so' com os
+    vinculos ATIVOS em `hoje` (`vinculo_ativo`), e a data de cancelamento (sempre futura entao) vai como
+    `cancelamento_previsto`. `False` (o default) = os fatos de antes, byte a byte.
     """
     if subtipo in ("elegibilidade", "carteirinha") and isinstance(view, ElegibilidadeView):
+        if so_ativos:
+            view = so_vinculos_ativos(view, hoje or date.today())
+        chave_cancelamento = "cancelamento_previsto" if so_ativos else "cancelamento"
         vinculos: list[dict[str, Any]] = []
         for v in view.vinculos:
             if subtipo == "carteirinha":
@@ -216,7 +295,7 @@ def fatos_da_consulta(
                     "carteirinha_mascarada": _mascarado(v.carteirinha_mascarada),
                     "plano": _texto(v.plano),
                     "vigencia_inicio": _data(v.vigencia_inicio),
-                    "cancelamento": _data(v.cancelamento),
+                    chave_cancelamento: _data(v.cancelamento),
                     "titular": _bool(v.titular),
                 }
             else:
@@ -226,7 +305,7 @@ def fatos_da_consulta(
                     "acomodacao": _texto(v.acomodacao),
                     "tipo_contratacao": _texto(v.tipo_contratacao),
                     "vigencia_inicio": _data(v.vigencia_inicio),
-                    "cancelamento": _data(v.cancelamento),
+                    chave_cancelamento: _data(v.cancelamento),
                     "atendimento_liberado": _bool(v.atendimento_liberado),
                     "situacao_beneficiario": _texto(v.situacao_vinculo),
                     "situacao_contrato": _texto(v.situacao_contrato),
@@ -419,10 +498,23 @@ def _texto_de_dependentes(fatos: Mapping[str, Any]) -> str:
     return f"{corpo} {_DEPENDENTES_SEM_NOMES}"
 
 
-def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
-    """A resposta montada SO' com os fatos. E' o caminho quando o modelo falha ou a cerca recusa."""
+def resposta_deterministica(
+    subtipo: str,
+    fatos: Mapping[str, Any],
+    *,
+    completos: frozenset[str] = frozenset(),
+    so_ativos: bool = False,
+) -> str:
+    """A resposta montada SO' com os fatos. E' o caminho quando o modelo falha ou a cerca recusa.
+
+    Chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA`: `so_ativos=True` (os fatos ja' so' com os vinculos ativos)
+    sem vinculo = `RESPOSTA_SEM_VINCULO_ATIVO`; `completos` = as MASCARAS cujo numero completo este turno
+    tem — nessas linhas da carteirinha sai "número da carteirinha" com o MARCADOR (o numero entra so' no
+    envio). Os defaults = o texto de antes."""
     if subtipo == "dependentes":
         return _texto_de_dependentes(fatos)
+    if so_ativos and subtipo in ("elegibilidade", "carteirinha") and not fatos.get("vinculos"):
+        return RESPOSTA_SEM_VINCULO_ATIVO
     atualizado = _br(fatos.get("fonte_atualizada_em"))
     abertura = "Pelo que consta no cadastro do plano" + (
         f" (atualizado em {atualizado})" if atualizado else ""
@@ -431,12 +523,19 @@ def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
     if subtipo in ("elegibilidade", "carteirinha"):
         for v in fatos.get("vinculos") or []:
             if subtipo == "carteirinha":
+                mascarada = v.get("carteirinha_mascarada")
+                codigo = (
+                    ("número da carteirinha", marcador_da_carteirinha(mascarada))
+                    if isinstance(mascarada, str) and mascarada in completos
+                    else ("carteirinha", mascarada)
+                )
                 linha = _linha(
                     (
-                        ("carteirinha", v.get("carteirinha_mascarada")),
+                        codigo,
                         ("plano", v.get("plano")),
                         ("vigência desde", _br(v.get("vigencia_inicio"))),
                         ("cancelamento", _br(v.get("cancelamento"))),
+                        ("cancelamento previsto", _br(v.get("cancelamento_previsto"))),
                     )
                 )
             else:
@@ -447,6 +546,7 @@ def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
                         ("acomodação", v.get("acomodacao")),
                         ("vigência desde", _br(v.get("vigencia_inicio"))),
                         ("cancelamento", _br(v.get("cancelamento"))),
+                        ("cancelamento previsto", _br(v.get("cancelamento_previsto"))),
                         ("situação", v.get("situacao_beneficiario")),
                         ("atendimento liberado", _sim_nao(v.get("atendimento_liberado"))),
                     )
@@ -498,6 +598,137 @@ def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
     else:
         return RESPOSTA_CONSULTA_SEM_IDENTIDADE
     return f"{abertura}, {corpo}\n{_FECHO}"
+
+
+# --------------------------------------------------------------------------------------------
+# Carteirinha completa: o MARCADOR no texto e o numero so' no envio (decisao do dono de 17/10/2026)
+# --------------------------------------------------------------------------------------------
+
+#: O marcador leva a MASCARA (nunca o numero): sem o numero no turno, o envio troca o marcador pela mascara.
+_PREFIXO_MARCADOR: Final[str] = "{{CARTEIRINHA:"
+_MARCADOR_CARTEIRINHA: Final[re.Pattern[str]] = re.compile(r"\{\{CARTEIRINHA:(\*{3,}[0-9A-Za-z]{0,4})\}\}")
+#: O numero completo do contrato (`^[0-9A-Za-z]{8,24}$`). Fora disso, o numero nao e' usado.
+_NUMERO_COMPLETO: Final[re.Pattern[str]] = re.compile(r"[0-9A-Za-z]{8,24}\Z")
+
+
+def marcador_da_carteirinha(mascarada: str) -> str:
+    """O marcador que o texto leva no lugar do numero completo (a mascara dentro, nunca o numero)."""
+    return f"{_PREFIXO_MARCADOR}{mascarada}}}}}"
+
+
+def tem_marcador_de_carteirinha(texto: object) -> bool:
+    return isinstance(texto, str) and _MARCADOR_CARTEIRINHA.search(texto) is not None
+
+
+class CarteirinhasDoTurno:
+    """Os numeros completos de UM turno, em memoria, ate' o envio. Nunca em estado, fatos, log ou historico.
+
+    `repr`/`str` redigidos; nao serializavel (`__reduce__` recusa). Chave: a mascara do vinculo."""
+
+    __slots__ = ("_numeros",)
+
+    def __init__(self, numeros: Mapping[str, str]) -> None:
+        self._numeros = dict(numeros)
+
+    def __repr__(self) -> str:
+        return "CarteirinhasDoTurno(<redigido>)"
+
+    __str__ = __repr__
+
+    def __reduce__(self) -> Any:
+        raise TypeError("CarteirinhasDoTurno: o numero da carteirinha nao e' serializavel")
+
+    def __bool__(self) -> bool:
+        return bool(self._numeros)
+
+    @property
+    def mascaras(self) -> frozenset[str]:
+        return frozenset(self._numeros)
+
+    def preencher(self, texto: str) -> str:
+        """O texto com cada marcador trocado pelo numero completo (ou pela mascara, sem numero)."""
+        return _MARCADOR_CARTEIRINHA.sub(lambda m: self._numeros.get(m.group(1), m.group(1)), texto)
+
+
+def sem_marcador_de_carteirinha(texto: str) -> str:
+    """O texto com cada marcador trocado pela PROPRIA mascara (sem numero no turno): nunca o marcador cru."""
+    return _MARCADOR_CARTEIRINHA.sub(lambda m: m.group(1), texto)
+
+
+def numeros_por_mascara(
+    mascaras: Sequence[object], carteirinhas: CarteirinhasView | None, portable_subject_ref: str
+) -> CarteirinhasDoTurno:
+    """Casa cada vinculo ATIVO (pela mascara da elegibilidade) com o item da rota da carteirinha que tem a
+    MESMA mascara. PURA.
+
+    So' casa o que e' inequivoco: a resposta tem de ser do MESMO sujeito; uma mascara repetida (nos vinculos
+    ou na rota) nao casa; um numero fora do padrao do contrato nao e' usado. Sem casamento = mascarado."""
+    if carteirinhas is None or carteirinhas.portable_subject_ref != portable_subject_ref:
+        return CarteirinhasDoTurno({})
+    dos_vinculos = [m for m in mascaras if isinstance(m, str) and _MASCARADO.fullmatch(m)]
+    da_rota = [c.carteirinha_mascarada for c in carteirinhas.carteirinhas]
+    numeros: dict[str, str] = {}
+    for item in carteirinhas.carteirinhas:
+        mascara = item.carteirinha_mascarada
+        numero = item.carteirinha_numero
+        if (
+            isinstance(mascara, str)
+            and isinstance(numero, str)
+            and _NUMERO_COMPLETO.fullmatch(numero)
+            and dos_vinculos.count(mascara) == 1
+            and da_rota.count(mascara) == 1
+        ):
+            numeros[mascara] = numero
+    return CarteirinhasDoTurno(numeros)
+
+
+#: O padrao do `X-Amh-Request-Ref` do contrato (id OPACO da solicitacao).
+_REF_DA_SOLICITACAO: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_.:-]{8,64}\Z")
+
+
+def ref_da_solicitacao(message_ref: object) -> str:
+    """O id OPACO da solicitacao: o `message_ref` do turno (pseudonimo keyed do wamid, ja' opaco) quando ele
+    cabe no padrao do contrato; senao um id aleatorio. Nunca CPF, telefone ou nome."""
+    if isinstance(message_ref, str) and _REF_DA_SOLICITACAO.fullmatch(message_ref):
+        return message_ref
+    return f"hel_{uuid.uuid4().hex}"
+
+
+def so_deterministica(subtipo: str, fatos: Mapping[str, Any], *, carteirinha_completa: bool) -> bool:
+    """Com a chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` a carteirinha e' SEMPRE a resposta deterministica (o
+    numero completo so' entra por texto fixo), e a elegibilidade sem vinculo ativo tambem (texto fixo).
+    Desligada, `False` sempre: o caminho de antes."""
+    if not carteirinha_completa:
+        return False
+    return subtipo == "carteirinha" or (subtipo == "elegibilidade" and not fatos.get("vinculos"))
+
+
+async def ler_carteirinhas_completas(
+    fonte: object,
+    portable_subject_ref: str,
+    message_ref: object,
+    fatos: Mapping[str, Any],
+    *,
+    prazo_s: float,
+) -> CarteirinhasDoTurno:
+    """Os numeros completos dos vinculos ATIVOS dos `fatos` (subtipo `carteirinha`), lidos da fonte que
+    implementa `FonteDeCarteirinhaCompleta`, ou nenhum. NUNCA levanta por falha da fonte (rede, prazo, 404):
+    sem numero, o texto sai mascarado. So' quem ja' conferiu a identidade VERIFICADA chama isto, e so' com a
+    referencia do PROPRIO sujeito."""
+    mascaras = [v.get("carteirinha_mascarada") for v in fatos.get("vinculos") or [] if isinstance(v, Mapping)]
+    if not isinstance(fonte, FonteDeCarteirinhaCompleta) or not any(isinstance(m, str) for m in mascaras):
+        return CarteirinhasDoTurno({})
+    view: object = None
+    try:
+        async with asyncio.timeout(prazo_s):
+            view = await fonte.consultar_carteirinha(portable_subject_ref, ref_da_solicitacao(message_ref))
+    except PROGRAMMING_ERRORS:
+        raise
+    except EXTERNAL_DEPENDENCY_FAILURES:
+        view = None
+    return numeros_por_mascara(
+        mascaras, view if isinstance(view, CarteirinhasView) else None, portable_subject_ref
+    )
 
 
 # --------------------------------------------------------------------------------------------
@@ -614,16 +845,29 @@ __all__ = [
     "RESPOSTA_DEPENDENTES_FALHA",
     "RESPOSTA_DEPENDENTES_NAO_TITULAR",
     "RESPOSTA_DEPENDENTES_NENHUM",
+    "RESPOSTA_SEM_VINCULO_ATIVO",
+    "SITUACOES_ATIVAS",
     "SUBTIPOS_REDIGIDOS",
+    "CarteirinhasDoTurno",
     "ConsultaSubtipo",
+    "FonteDeCarteirinhaCompleta",
     "FonteDeFatosDoPlano",
     "FonteIndisponivel",
     "consulta_prompt",
     "fatos_da_consulta",
+    "ler_carteirinhas_completas",
     "literais_dos_fatos",
+    "marcador_da_carteirinha",
     "motivo_de_omissao_da_elegibilidade",
     "motivo_de_recusa_da_consulta",
     "resposta_deterministica",
+    "numeros_por_mascara",
+    "ref_da_solicitacao",
     "segmentacao_dos_fatos",
+    "sem_marcador_de_carteirinha",
+    "so_deterministica",
+    "so_vinculos_ativos",
+    "tem_marcador_de_carteirinha",
     "texto_para_cerca",
+    "vinculo_ativo",
 ]

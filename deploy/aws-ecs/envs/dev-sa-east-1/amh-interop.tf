@@ -52,15 +52,23 @@ locals {
   # Acesso do beneficiario (DL-0083, revisao do #700 P1-a): `interop/subject.verify` e `interop/consent.write`
   # SO' com `acesso_beneficiario` — o Cognito recusa o token INTEIRO se o client nao tiver um escopo pedido, e
   # pedi-los sempre derrubaria identidade, cobranca e TINA. Desligadas as duas flags, o valor e' o de antes.
+  # Carteirinha completa (decisao do dono de 17/10/2026, so' dev; manifest v1.12): SO' com as consultas E a chave
+  # `helena_carteirinha_completa` (e o caminho do OpenAPI nao vazio) o escopo PROPRIO `interop/tina.carteirinha`
+  # entra no pedido de token e o caminho do OpenAPI `tina-carteirinha` entra na env. O Cognito recusa o token
+  # INTEIRO se o client `maezo-operadora-interop` nao tiver o escopo: a AMH tem de concede-lo ANTES de ligar.
+  amh_tina_carteirinha_ligada = var.helena_consultas_amh && var.helena_carteirinha_completa && var.amh_tina_carteirinha_openapi_path != ""
   amh_interop_scopes_efetivos = join(" ", concat(
     [var.amh_interop_scopes],
     var.helena_consultas_amh ? ["interop/tina.read"] : [],
+    local.amh_tina_carteirinha_ligada ? ["interop/tina.carteirinha"] : [],
     var.acesso_beneficiario ? ["interop/subject.verify", "interop/consent.write"] : [],
   ))
-  amh_tina_env = local.amh_interop_ligado && var.helena_consultas_amh ? [
+  amh_tina_env = local.amh_interop_ligado && var.helena_consultas_amh ? concat([
     { name = "MAEZO_AMH_TINA_OPENAPI_PATH", value = var.amh_tina_openapi_path },
     { name = "MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH", value = var.amh_tina_dependentes_openapi_path },
-  ] : []
+    ], local.amh_tina_carteirinha_ligada ? [
+    { name = "MAEZO_AMH_TINA_CARTEIRINHA_OPENAPI_PATH", value = var.amh_tina_carteirinha_openapi_path },
+  ] : []) : []
 
   # Lucas v4 (DL-0114; manifests v1.10 e v1.11 PUBLISHED em 16/10/2026): o executor governado do detalhamento do pagador e
   # da 2a via. SO' com a chave `lucas_v4` E o cliente Cognito DEDICADO da 2a via informado: entram os dois OpenAPI

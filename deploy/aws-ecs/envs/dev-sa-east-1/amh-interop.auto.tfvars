@@ -49,6 +49,11 @@ helena_triagem_v2 = false
 // 14 dias uteis a confirmar pelo juridico. Voltar: false (runbook docs/runbooks/helena-v4.md).
 helena_v4 = true
 
+// Vinculo ativo e carteirinha completa na Helena (decisao do dono de 17/10/2026, "modelo de teste" reversivel,
+// so' dev): tipo de plano e carteirinha so' com os vinculos ATIVOS, e o numero COMPLETO da carteirinha do proprio
+// beneficiario verificado (rota `tina-carteirinha`, manifest v1.12, escopo `interop/tina.carteirinha`). Exige o
+// bloco `manifest_v1_12` no pin (sem ele o receptor recusa servir). Voltar: false.
+helena_carteirinha_completa = true
 // Base de conhecimento de saude da Helena (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, so' em dev.
 // A Helena INFORMA (sem diagnosticar, sem conduta, sem dose) perguntas gerais de saude pela base curada
 // `spec/conhecimento/saude`, sem abrir caso; dor sem alarme recebe perguntas de alerta (com a v4); recusa com

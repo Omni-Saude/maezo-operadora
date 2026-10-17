@@ -34,6 +34,7 @@ def test_triagem_v2_existe_ao_lado_do_dono_v1_e_todo_padrao_compila() -> None:
         "lucas_v4_pagador",
         "lucas_v4_nao_pagador",
         "helena_v4",  # DL-0115
+        "helena_carteirinha_completa",  # dono, 17/10/2026
         "helena_base_saude",  # DL-0118
     }
     ac.validar(ac.ROTEIROS["triagem_v2"])
