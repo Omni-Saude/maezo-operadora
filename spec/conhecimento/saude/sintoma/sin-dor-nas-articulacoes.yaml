@@ -25,7 +25,8 @@ fontes:
 perguntas_alerta:
 - A dor é muito forte, a pior que você já sentiu?
 sinais_alarme:
-- dor muito forte
+- pior dor que ja senti
+- pior dor da vida
 populacao: adulto
 revisao:
   status: rascunho_dono_aprovado_dev
