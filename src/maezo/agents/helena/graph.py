@@ -3087,7 +3087,7 @@ RESPOSTA_RECUSA_DE_EQUIPE: str = (
 # recem-nascido) NUNCA e' encerrado por aqui: a pessoa ouve que o caso precisa de avaliacao e o 192.
 #: O codigo de "onde a conversa parou" (em `coleta_pendente`): vocabulario fechado, sem texto da pessoa.
 PENDENTE_ENCERRAR_CASO: str = "BS_ENCERRAR_CASO"
-#: A recusa explicita ou o pedido de encerrar (sobre o texto normalizado). "Cancelar o PLANO/contrato" NAO casa
+#: A recusa explicita ou o pedido de encerrar (texto normalizado). "Cancelar o PLANO/contrato" NAO casa
 #: (cancelamento de contrato tem caminho proprio, com o Lucas): o alvo tem de ser atendimento/caso/chamado.
 _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO = re.compile(
     r"\b(?:pode |podem |quero |favor )?(?:cancel\w*|encerr\w*|fech\w*|finaliz\w*)"

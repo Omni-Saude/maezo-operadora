@@ -214,7 +214,7 @@ class RegistroDeEscalonamentos:
             del self._por_chave[chave]
 
 
-#: ADR-0064/DL-0118: a mensagem de encerramento a pedido do SP-OP-ESCALATION-001 v1.1.0 (a do grafo da Helena).
+#: ADR-0064/DL-0118: a mensagem de encerramento a pedido do SP-OP-ESCALATION-001 v1.1.0 (a do grafo).
 MENSAGEM_ENCERRAMENTO_A_PEDIDO = "msg.escalation.withdrawn"
 
 
@@ -310,7 +310,7 @@ class InterceptorDeEscalonamento:
         if _e_chave_de_escalonamento(business_key):
             logger.info("simulador_correlacao_interceptada", mensagem=message_name)
             if message_name == MENSAGEM_ENCERRAMENTO_A_PEDIDO and business_key.startswith("ESC-"):
-                # ADR-0064/DL-0118: como o motor com o BPMN v1.1.0 — o encerramento a pedido ENCERRA a instancia;
+                # ADR-0064/DL-0118: como o motor (BPMN v1.1.0), o encerramento a pedido termina a instancia;
                 # sem instancia viva o motor recusa (400), e o agente ouve a falha.
                 if not self._registro.encerrar(business_key):
                     raise CibSevenError("simulador: nenhuma instancia viva para o encerramento a pedido")
