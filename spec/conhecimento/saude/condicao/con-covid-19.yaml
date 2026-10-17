@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-covid-19
+categoria: condicao
+titulo: Covid-19
+sinonimos:
+- covid
+- covid-19
+- covid 19
+- coronavirus
+- coronavírus
+- sars-cov-2
+texto: 'A covid-19 é uma infecção respiratória aguda causada pelo coronavírus SARS-CoV-2, potencialmente grave, de elevada transmissibilidade e de distribuição global. Os sinais e sintomas mais comuns incluem: febre ou calafrios, tosse, fadiga, anorexia, dispneia, mialgia e dor de cabeça.'
+tipo_texto: citacao_literal
+fontes:
+- nome: Saúde de A a Z — Covid-19 (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/c/covid-19
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: c292dca49116b82438535f33e4184f9c94e10a7092f4235ef2053e891a633913
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/c/covid-19
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

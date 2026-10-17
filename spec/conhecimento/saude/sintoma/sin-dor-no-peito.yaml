@@ -1,0 +1,48 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: sin-dor-no-peito
+categoria: sintoma
+titulo: Dor no peito
+sinonimos:
+- dor no peito
+- aperto no peito
+- dor toracica
+- dor torácica
+- pressao no peito
+- pressão no peito
+- dor no coracao
+- dor no coração
+- peito doendo
+texto: Dor no peito sempre merece atenção. Se a dor já passou e não há sinal de alarme, marque logo uma consulta com clínico geral ou cardiologista. Se a dor voltar, mesmo fraca, procure um pronto-socorro na hora ou ligue 192 (SAMU).
+tipo_texto: proprio
+fontes:
+- nome: Tabela de sinais de alarme do adulto (spec/processes/dmn/triage_redflag_adult.dmn) e planilha Catálogo de Necessidades, aba 3
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_adult.dmn
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-17
+- nome: Saúde de A a Z — Infarto (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/i/infarto
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+perguntas_alerta:
+- Você está com dor, aperto ou pressão no peito agora?
+- Está com falta de ar, suor frio ou sensação de desmaio?
+sinais_alarme:
+- dor no peito
+- aperto no peito
+- pressão no peito
+- peso no peito
+- dor no peito que vai para o braço, costas ou queixo
+- falta de ar
+- suor frio
+- sensação de desmaio
+- desmaio
+populacao: adulto
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

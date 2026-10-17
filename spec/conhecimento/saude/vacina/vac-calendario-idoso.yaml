@@ -1,0 +1,27 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: vac-calendario-idoso
+categoria: vacina
+titulo: Vacinas do idoso (Calendário Nacional)
+sinonimos:
+- vacina de idoso
+- vacinas do idoso
+- vacina da terceira idade
+- vacina da gripe idoso
+texto: A vacinação promove uma vida saudável e contribui para a qualidade de vida e o bem-estar da pessoa idosa. Em todas as idades, as vacinas são essenciais para prevenir doenças graves. Os idosos devem manter o Cartão de Vacinas atualizado, seguindo o Calendário Nacional de Vacinação - Idoso.
+tipo_texto: citacao_literal
+fontes:
+- nome: Ministério da Saúde — Calendário Nacional de Vacinação
+  url: https://www.gov.br/saude/pt-br/vacinacao/calendario
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: 43231e5225d3e2041aa677d8ef29dfb223afad5813e7e9e736b77aeef08a9f38
+link_leitura: https://www.gov.br/saude/pt-br/vacinacao/calendario
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17
