@@ -30,6 +30,13 @@ helena_zona_phi = true
 phi_vendor_dpa_ref = "AWS-SERVICE-TERMS-BEDROCK-sa-east-1 (Contrato AWS vigente da AMH; atestado no apply de 20/08/2026 por autorizacao do dono do produto)"
 phi_zone_provider  = "bedrock_br"
 
+// Modelo da zona PHI no DEV: EXPERIMENTO com `zai.glm-5` (GLM-5, Z.AI), autorizado pelo dono em 17/10/2026
+// (DL-0117). Direto em sa-east-1 (ON_DEMAND), mesma atestacao regional/retencao zero do Mistral. SO' o dev;
+// o default de `variables.tf` continua o Mistral. ROLLBACK: apagar esta linha (ou repor
+// "mistral.mistral-large-3-675b-instruct"), PR, merge e apply direcionado -- ver
+// `docs/runbooks/phi-inference-ops.md`, secao "Trocar ou voltar o modelo da zona PHI".
+phi_model_id = "zai.glm-5"
+
 // Sincronizacao automatica do egresso Cognito (portal-egresso-cognito-sync.tf): NAO esta aplicada na
 // conta (nao ha a Lambda nem o schedule). O default `enabled = true` criaria Lambda, role, schedule e
 // alarme no proximo apply. Fica DESLIGADA ate' o time decidir aplica-la (PR que troca para `true`); ate'
