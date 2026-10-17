@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: med-anticoncepcional-oral
+categoria: medicamento
+titulo: Anticoncepcional oral (pílula)
+sinonimos:
+- anticoncepcional
+- pilula
+- pílula
+- pilula anticoncepcional
+- pílula anticoncepcional
+- contraceptivo oral
+- anticoncepcional oral
+texto: O anticoncepcional oral, a pílula, contém hormônios que evitam a gravidez. Existem vários tipos. Ele não protege contra infecções sexualmente transmissíveis. O uso deve seguir a orientação de um profissional de saúde e a bula.
+tipo_texto: proprio
+fontes:
+- nome: Bula do paciente — Anticoncepcional oral (pílula) (Bulário Eletrônico ANVISA)
+  url: https://consultas.anvisa.gov.br/#/bulario/
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-17
+link_leitura: https://consultas.anvisa.gov.br/#/bulario/
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17
