@@ -152,6 +152,7 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.conhecimento import base_saude as _bs
+from maezo.conhecimento import saude_gerativa as _sg
 from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
 from maezo.ports.tina import ElegibilidadeView
 from maezo.runtime.caso_clinico import (
@@ -4503,6 +4504,7 @@ class HelenaGraph:
         helena_carteirinha_completa_enabled: bool = False,
         helena_base_saude_enabled: bool = False,
         base_saude: _bs.BaseSaude | None = None,
+        saude_gerativa: _sg.RedatorDeSaude | None = None,
     ) -> None:
         self._llm = inference
         # VINCULO ATIVO E CARTEIRINHA COMPLETA (dono, 17/10/2026, `MAEZO_HELENA_CARTEIRINHA_COMPLETA`):
@@ -4535,6 +4537,21 @@ class HelenaGraph:
                         erro=type(exc).__name__,
                     )
                     self._base_saude = False
+        # SAUDE GERATIVA (ADR-0065, DL-0119, `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist por conversa):
+        # DESLIGADA
+        # por default (`None`), e desligada e' o grafo de antes byte a byte. So' existe com a BASE DE SAUDE
+        # ligada (e' ela que decide QUAIS turnos sao pergunta de saude) e so' vale para as conversas da
+        # allowlist (`_gerativa_para`): fora dela, nenhum ramo `_gerativa_*` roda. A redacao vai a ROTA
+        # PROPRIA
+        # `experimento_global_autorizado_dpo_2026-10-17` (perfil global do Bedrock, autorizado pelo DPO so'
+        # para
+        # estas conversas), nunca ao roteador de zonas; classificacao, alarme e o resto seguem no GLM-5.
+        self._gerativa: _sg.RedatorDeSaude | None = (
+            saude_gerativa if isinstance(saude_gerativa, _sg.RedatorDeSaude) and self._base_saude else None
+        )
+        #: Os textos redigidos NESTE turno (em memoria, nunca no estado): `inform` so' deixa passar sem modelo
+        #: o texto que a propria rota gerativa guardou aqui (um `response_text` plantado nao passa).
+        self._gerativas_do_turno: dict[str, str] = {}
         # HELENA V4 (DL-0115, `MAEZO_HELENA_V4`): DESLIGADA por default, e desligada e' o grafo de antes byte
         # a byte. Ligada (so' em dev), a Helena responde o especialista e a carteirinha com texto fixo e faz
         # so' perguntas de ALERTA no sintoma leve (`_v4_*`). A v4 SUBSTITUI a nova triagem (v2): com as duas
@@ -6242,6 +6259,13 @@ class HelenaGraph:
         """O que a v4 decide ANTES dos gatilhos de intencao: a resposta da pessoa ao que a v4 perguntou/
         ofereceu no turno anterior, e o pedido de especialista. `None` = o turno segue o caminho de sempre."""
         texto = str(state.get("message_body") or "")
+        if pend is not None and pend.etapa == ETAPA_ALERTA and self._gerativa_para(state):
+            # SAUDE GERATIVA (ADR-0065), so' na allowlist: o "nao" e o CONTEXTO sem alarme recebem a
+            # orientacao
+            # redigida; o resto ("sim", duvida, alarme, pedido de pessoa) segue a v4 de sempre, logo abaixo.
+            decidido_g = await self._gerativa_no_alerta(state, update, pend, texto)
+            if decidido_g is not None:
+                return decidido_g
         if pend is not None:
             decidido = self._v4_seguimento(state, update, pend, texto)
             if decidido is not None:
@@ -6571,13 +6595,27 @@ class HelenaGraph:
             # QUEIXA ATUAL (sintoma dito em primeira pessoa ou de um familiar: "estou com", "meu filho esta'
             # com dor"): nunca e' "duvida geral" nem "resultado pessoal" — segue a tabela/v4 (alerta).
             return None
-        if extraction.get("sintoma_codigo") and not (informativa or pessoal):
+        # SAUDE GERATIVA (ADR-0065), so' na allowlist: mais formas de pergunta de saude ("como tratar?",
+        # "quais
+        # os sintomas?") e o SEGUIMENTO curto de uma pergunta de saude anterior ("E osteoporose?").
+        gerativa = self._gerativa_para(state)
+        seguimento = False
+        if gerativa:
+            informativa = informativa or _sg.pergunta_de_saude(plano)
+            seguimento = _sg.e_seguimento(plano, self._falas_da_pessoa(state))
+        if extraction.get("sintoma_codigo") and not (informativa or pessoal or seguimento):
             return None
         clinica = update.get("intent") == "clinical_question"
-        if not (informativa or pessoal or clinica):
+        if not (informativa or pessoal or clinica or seguimento):
             return None
         if not informativa and especialidade_pedida(plano) is not None:
             return None  # "preciso de um cardiologista": o texto de onde marcar (v4), nao "o que e'"
+        if gerativa:
+            decidido_g = await self._gerativa_informar(
+                state, update, base, modo=_sg.MODO_RESULTADO if pessoal else _sg.MODO_INFORMAR
+            )
+            if decidido_g is not None:
+                return decidido_g
         assunto = await self._base_achar_assunto(state, base)
         if assunto is None:
             if not (informativa or clinica):
@@ -6637,6 +6675,155 @@ class HelenaGraph:
         update["response_text"] = texto
         if pendente is not None:
             update["coleta_pendente"] = pendente
+        return _rota_informativa(update)
+
+    # -- SAUDE GERATIVA (ADR-0065, DL-0119, `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist) ----------------------
+    #
+    # SO' alcancavel com a chave ligada E a conversa na allowlist (`_gerativa_para`). Os portoes de seguranca
+    # de sempre ja' rodaram (classificador, risco psicossocial com CVV 188, tabela de alarme, emergencia com
+    # caso aberto, recem-nascido, alarme dos arquivos `sin-*`); pedido de pessoa, ANS/Procon, cobranca e
+    # consulta do plano ja' sairam. O que chega aqui e' SO' a redacao de uma resposta informativa de saude ou
+    # da orientacao de uma queixa sem alarme — o modelo (rota global autorizada pelo DPO) redige, a checagem
+    # confere, e o que reprova vira a resposta segura padrao.
+
+    def _gerativa_para(self, state: Mapping[str, Any]) -> bool:
+        return self._gerativa is not None and self._gerativa.autorizada(state.get("conversation_id"))
+
+    @staticmethod
+    def _falas_da_pessoa(state: Mapping[str, Any]) -> list[str]:
+        """As mensagens ANTERIORES da pessoa no historico curto (DL-0080), da mais antiga para a mais recente.
+        As falas da Helena NUNCA entram (podem ter dado do plano/carteirinha)."""
+        historico = state.get("historico_conversa")
+        if not isinstance(historico, list):
+            return []
+        return [
+            str(e.get("texto") or "")
+            for e in historico
+            if isinstance(e, Mapping) and e.get("papel") == "beneficiario" and e.get("texto")
+        ]
+
+    @staticmethod
+    def _cercas_da_helena(texto: str) -> list[str]:
+        """As cercas de saida da Helena sobre um texto redigido (rotulos, nunca o texto): canal nao
+        confirmado, recusa de saida (promessa, negativa clinica...), conduta clinica, negativa de acesso e
+        promessa de repasse."""
+        rotulos: list[str] = []
+        canal = motivo_de_canal_nao_confirmado(texto)
+        if canal is not None:
+            rotulos.append(str(canal[0]))
+        recusa = motivo_de_recusa(texto, "inform")
+        if recusa is not None:
+            rotulos.append(str(recusa[0]))
+        if _conduta_clinica(texto):
+            rotulos.append("conduta_clinica")
+        if _nega_acesso(texto):
+            rotulos.append("nega_acesso")
+        if _PROMESSA_DE_REPASSE.search(_plano(texto)):
+            rotulos.append("promessa_de_repasse")
+        return rotulos
+
+    def _guardar_gerativa(self, state: Mapping[str, Any], texto: str) -> None:
+        chave = self._chave_do_turno(state)
+        while len(self._gerativas_do_turno) >= 16:
+            self._gerativas_do_turno.pop(next(iter(self._gerativas_do_turno)))
+        self._gerativas_do_turno[chave] = texto
+
+    def _e_gerativa_do_turno(self, state: Mapping[str, Any]) -> bool:
+        texto = state.get("response_text")
+        return (
+            self._gerativa is not None
+            and isinstance(texto, str)
+            and bool(texto)
+            and self._gerativas_do_turno.get(self._chave_do_turno(state)) == texto
+        )
+
+    @staticmethod
+    def _gerativa_e_crianca(update: Mapping[str, Any], plano: str) -> bool:
+        return populacao_da_v4(update.get("population"), plano) == POPULACAO_CRIANCA
+
+    async def _gerativa_informar(
+        self, state: HelenaState, update: dict[str, Any], base: _bs.BaseSaude, *, modo: str
+    ) -> dict[str, Any] | None:
+        """Pergunta informativa / resultado pessoal: o modelo redige (com o apoio da base quando o assunto
+        casa de verdade). `None` = a rota recusou a mensagem (risco): o turno segue o caminho da base."""
+        assert self._gerativa is not None
+        texto = str(state.get("message_body") or "")
+        anteriores = _sg.contexto_da_pessoa(self._falas_da_pessoa(state))
+        contexto = " ".join((*anteriores, texto))
+        pedido = _sg.Pedido(
+            modo=modo,
+            mensagem=_sg.minimizar(texto),
+            anteriores=anteriores,
+            apoio=_sg.apoio_para(base, texto),
+            crianca=self._gerativa_e_crianca(update, _plano(contexto)),
+        )
+        redacao = await self._gerativa.redigir(pedido, cercas=self._cercas_da_helena)
+        if redacao is None:
+            return None
+        self._guardar_gerativa(state, redacao.texto)
+        logger.info("helena_saude_gerativa_responde", node="classify", modo=modo, desfecho=redacao.desfecho)
+        return self._base_texto_fixo(update, redacao.texto)
+
+    async def _gerativa_no_alerta(
+        self, state: HelenaState, update: dict[str, Any], pend: Pendente, texto: str
+    ) -> dict[str, Any] | None:
+        """A resposta da pessoa as perguntas de ALERTA (so' na allowlist): "nao" -> a orientacao redigida
+        (no lugar do texto fixo com o eco truncado e o "clinico geral ou pediatra"); CONTEXTO sem sinal de
+        alarme ("comecou hoje, ja usei X e nao melhorou") -> a orientacao redigida com os sinais que pedem 192
+        (no lugar de repetir a pergunta). "Sim", duvida, agravamento, alarme, pedido de pessoa ou outro
+        assunto
+        -> `None` (a v4 de sempre decide). O fecho com as opcoes 1/2 e' FIXO e a escolha seguinte, da v4."""
+        assert self._gerativa is not None
+        if self._v4_pede_pessoa(state, texto):
+            return None
+        plano = _plano(texto)
+        relato = str(state.get("coleta_contexto") or "")
+        leitura = resposta_ao_alerta(plano)
+        if leitura == LEITURA_SIM:
+            return None
+        if leitura == LEITURA_NAO:
+            modo = _sg.MODO_SINTOMA_SEM_ALARME
+        else:
+            junto = f"{relato} {texto}"
+            if (
+                _sinal_forte_de_emergencia(texto)
+                or _sinal_fraco_de_emergencia(texto)
+                or _bs.alarme_no_texto(self._base_hoje(), junto)
+                or _pergunta_do_plano(texto)
+                or _pergunta_de_cobertura(texto)
+                or not _sg.traz_contexto_da_queixa(plano)
+            ):
+                return None
+            modo = _sg.MODO_SINTOMA_CONTEXTO
+        assunto_sin = self._base_assunto_do_grupo(pend.grupo)
+        if assunto_sin is not None:
+            apoio = _sg.apoio_de_sintoma(assunto_sin)
+            sinais = ", ".join((assunto_sin.sinais_alarme or ())[:4])
+        else:
+            alerta = ALERTAS.get(pend.grupo, ALERTAS[GRUPO_GERAL])
+            apoio = _sg.apoio_de_sinais(alerta.sinais)
+            sinais = alerta.sinais
+        anteriores = _sg.contexto_da_pessoa(self._falas_da_pessoa(state) or [relato])
+        crianca = pend.populacao == POPULACAO_CRIANCA
+        pedido = _sg.Pedido(
+            modo=modo,
+            mensagem=_sg.minimizar(texto),
+            anteriores=anteriores,
+            apoio=apoio,
+            crianca=crianca,
+            sinais=sinais,
+        )
+        redacao = await self._gerativa.redigir(pedido, cercas=self._cercas_da_helena)
+        if redacao is None:
+            return None
+        final = f"{redacao.texto}\n{_sg.opcoes_do_sintoma(crianca)}"
+        self._guardar_gerativa(state, final)
+        logger.info("helena_saude_gerativa_responde", node="classify", modo=modo, desfecho=redacao.desfecho)
+        update["intent"] = "information"
+        update["sintoma_codigo"] = None
+        update["response_text"] = final
+        update["coleta_pendente"] = codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao)
+        update["coleta_contexto"] = relato
         return _rota_informativa(update)
 
     def _chaves_da_conversa(self, state: Mapping[str, Any]) -> tuple[str, str]:
@@ -6829,12 +7016,24 @@ class HelenaGraph:
             # HELENA V4 (DL-0115): as perguntas de ALERTA do tipo de queixa sao TEXTO FIXO, sem modelo, e
             # passam pelas mesmas cercas; recusada (nao deveria: o teste fixa as constantes), cai na
             # pergunta generica.
-            fixa_v4 = texto_da_pergunta_de_alerta(
-                lida_v4.grupo,
-                self._v4_eco(str(state.get("coleta_contexto") or "")),
-                repetida=lida_v4.repetida,
-                alerta=self._base_alerta_do_grupo(lida_v4.grupo),
-            )
+            if self._gerativa_para(state):
+                # SAUDE GERATIVA (ADR-0065), so' na allowlist: as MESMAS perguntas, sem o eco truncado do
+                # relato, sem a de gravidez fora de contexto e no maximo duas (teste do dono de 17/10/2026).
+                alerta_g = self._base_alerta_do_grupo(lida_v4.grupo) or ALERTAS.get(
+                    lida_v4.grupo, ALERTAS[GRUPO_GERAL]
+                )
+                fixa_v4 = _sg.pergunta_de_alerta_curta(
+                    alerta_g.perguntas,
+                    repetida=lida_v4.repetida,
+                    contexto=f"{state.get('coleta_contexto') or ''} {state.get('message_body') or ''}",
+                )
+            else:
+                fixa_v4 = texto_da_pergunta_de_alerta(
+                    lida_v4.grupo,
+                    self._v4_eco(str(state.get("coleta_contexto") or "")),
+                    repetida=lida_v4.repetida,
+                    alerta=self._base_alerta_do_grupo(lida_v4.grupo),
+                )
             try:
                 fixa_v4 = self._cercar_saida(fixa_v4, "collect", node="collect")
             except RespostaRecusadaError:
@@ -6958,6 +7157,11 @@ class HelenaGraph:
         if state.get("response_text") == RESPOSTA_PECA_REENVIO:
             # RODADA 6: o classificador falhou neste turno (ver `classify`); o texto ja' vem pronto.
             return {"response_text": RESPOSTA_PECA_REENVIO, "response_kind": "inform"}
+        if self._e_gerativa_do_turno(state):
+            # SAUDE GERATIVA (ADR-0065): o texto que a rota gerativa redigiu e CHECOU neste turno (ou a
+            # resposta
+            # segura padrao dela) — sem segundo modelo.
+            return {"response_text": str(state.get("response_text")), "response_kind": "inform"}
         if self._base_saude and (
             _bs.e_texto_da_base(state.get("response_text"), self._base)
             or state.get("response_text") in TEXTOS_FIXOS_DO_ENCERRAMENTO
@@ -7878,6 +8082,11 @@ class HelenaGraph:
             saida.update(cerca)
         # RODADA 2: nunca o mesmo texto longo duas vezes seguidas (ver `_sem_repetir`).
         varia = _sem_repetir(state, text)
+        if self._gerativa_para(state):
+            # SAUDE GERATIVA (ADR-0065), so' na allowlist: "Entendi. Entendi: ..." (o prefixo de variacao
+            # sobre
+            # um texto que ja' comeca por "Entendi", teste do dono de 17/10/2026) sai uma vez so'.
+            varia = _sg.sem_abertura_repetida(varia)
         if varia != text:
             logger.info("helena_texto_variado", node="respond", response_kind=state.get("response_kind"))
             text = varia
@@ -9066,6 +9275,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     helena_carteirinha_completa_enabled = cfg.get("helena_carteirinha_completa_enabled", False) is True
     # BASE DE SAUDE (ADR-0064, DL-0118): como a coleta, `True` SO' quando a composicao disser explicitamente.
     helena_base_saude_enabled = cfg.get("helena_base_saude_enabled", False) is True
+    # SAUDE GERATIVA (ADR-0065, DL-0119): o redator SO' quando a composicao o passar (chave ligada).
+    saude_gerativa = cfg.get("saude_gerativa")
     return HelenaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
@@ -9083,6 +9294,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         helena_v4_enabled=helena_v4_enabled,
         helena_carteirinha_completa_enabled=helena_carteirinha_completa_enabled,
         helena_base_saude_enabled=helena_base_saude_enabled,
+        saude_gerativa=saude_gerativa if isinstance(saude_gerativa, _sg.RedatorDeSaude) else None,
     ).compile_graph()
 
 

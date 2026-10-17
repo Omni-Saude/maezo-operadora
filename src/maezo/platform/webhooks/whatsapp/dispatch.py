@@ -476,6 +476,13 @@ class HelenaDispatcher:
     #: base curada, faz perguntas de alerta na dor sem alarme e encerra o caso P2/P3 a pedido, com
     #: confirmacao.
     helena_base_saude_enabled: bool = False
+    #: SAUDE GERATIVA (ADR-0065/DL-0119, settings `helena_saude_gerativa` +
+    #: `helena_saude_gerativa_conversas`).
+    #: `None` (default) = desligada, a Helena de antes byte a byte. A raiz de composicao so' passa o redator
+    #: (`maezo.conhecimento.saude_gerativa.RedatorDeSaude`, com a allowlist e a rota global experimental) com
+    #: a
+    #: chave ligada; o grafo so' o usa nas conversas da allowlist.
+    saude_gerativa: Any = None
     #: TETO DE VOLUME (Frente 7.1). `None` = sem teto, que e' o comportamento anterior e continua
     #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
     #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
@@ -856,6 +863,8 @@ class HelenaDispatcher:
                 "helena_carteirinha_completa_enabled": self.helena_carteirinha_completa_enabled,
                 # DL-0118: a base de conhecimento de saude (ADR-0064), so' com a flag.
                 "helena_base_saude_enabled": self.helena_base_saude_enabled,
+                # DL-0119: a saude gerativa (ADR-0065), so' com a chave; `None` = desligada (grafo de antes).
+                "saude_gerativa": self.saude_gerativa,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
                 "consultas_plano": self.consultas_plano,
             }

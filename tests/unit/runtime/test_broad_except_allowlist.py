@@ -206,6 +206,12 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         1,
         "emissor de metrica de tier: telemetria nunca pode quebrar uma geracao",
     ),
+    "src/maezo/runtime/inference/experimento_global.py::TransporteGlobalExperimental::conversar": (
+        1,
+        "firewall de SDK da rota experimental global (ADR-0065, DL-0119): PROGRAMMING_ERRORS re-levanta "
+        "antes; qualquer excecao do botocore vira FalhaDaRotaGlobalError (so' o nome da classe, nunca a "
+        "mensagem, que pode ecoar o prompt) e quem chama devolve a resposta segura padrao",
+    ),
     "src/maezo/runtime/inference/br_regional.py::BedrockBrRegionalTransport::send": (
         2,
         "firewall de SDK, nas DUAS pernas: (1) a excecao do botocore no envio vira "

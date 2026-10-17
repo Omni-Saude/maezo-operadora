@@ -832,6 +832,34 @@ variable "helena_base_saude" {
   nullable    = false
 }
 
+variable "helena_saude_gerativa" {
+  description = <<-EOT
+    SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): `MAEZO_HELENA_SAUDE_GERATIVA`. Default `false` =
+    a Helena de antes, byte a byte. Ligada (e com `helena_base_saude`), o Claude Haiku 5.5 REDIGE a resposta a
+    perguntas informativas de saude (com checagem antes de enviar e resposta segura padrao) SO' para as conversas
+    de `helena_saude_gerativa_conversas`, pela rota PROPRIA `experimento_global_autorizado_dpo_2026-10-17`
+    (perfil GLOBAL do Bedrock: pode processar FORA DO BRASIL). Autorizado pelo dono COMO DPO so' para a conversa
+    dele e as do simulador, so' em dev, como teste reversivel. Runbook: docs/runbooks/helena-base-saude.md §10.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_saude_gerativa_conversas" {
+  description = <<-EOT
+    A ALLOWLIST da saude gerativa (ADR-0065): `conversation_id` keyed (`wa:<tenant>:hk1_<64 hex>`). Fora dela, a
+    Helena de antes. Vira `MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS` (separados por virgula). Vazia = ninguem.
+  EOT
+  type        = list(string)
+  default     = []
+  nullable    = false
+  validation {
+    condition     = alltrue([for c in var.helena_saude_gerativa_conversas : can(regex("^wa:[a-z0-9][a-z0-9_-]{0,31}:hk1_[0-9a-f]{64}$", c))])
+    error_message = "helena_saude_gerativa_conversas: so' conversation_id keyed (wa:<tenant>:hk1_<64 hex>)."
+  }
+}
+
 variable "helena_consultas_amh" {
   description = <<-EOT
     Fatos do plano na Helena pelo contrato TINA da AMH (decisao do dono de 07/10/2026):

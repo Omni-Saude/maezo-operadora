@@ -380,6 +380,22 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_BASE_SAUDE", "helena_base_saude"),
     )
+    # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
+    # informativas de saude (com checagem antes de enviar), pela ROTA PROPRIA
+    # `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono
+    # autorizou como DPO SO' para as conversas da allowlist abaixo, SO' em dev. DESLIGADA por padrao; so' tem
+    # efeito com `helena_base_saude` ligada. Fora da allowlist, a Helena de antes byte a byte.
+    helena_saude_gerativa: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_SAUDE_GERATIVA", "helena_saude_gerativa"),
+    )
+    # A allowlist: `conversation_id` keyed (`wa:{tenant}:hk1_...`), separados por virgula. Vazia = ninguem.
+    helena_saude_gerativa_conversas: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", "helena_saude_gerativa_conversas"
+        ),
+    )
     # AVISO DE IDENTIDADE (DL-0078, decisao do dono 07/10/2026): o nome de EXIBICAO da operadora nos
     # textos fixos de identidade da Helena ("Reconheci este numero no cadastro de beneficiarios da
     # {nome}..."). So' tem efeito com `helena_identidade_amh` ligada. Texto curto e simples (letras,
