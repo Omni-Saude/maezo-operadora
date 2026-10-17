@@ -560,6 +560,7 @@ _AMH_INTEROP_OPERATIONS = frozenset(
         "amh.tina_get_carencias",
         "amh.tina_get_requisicoes",
         "amh.tina_get_dependentes",
+        "amh.tina_get_carteirinha",
         "amh.verify_subject",
         "amh.record_consent",
         "amh.resolve_by_document",
@@ -687,6 +688,29 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
                 )
             )
         )
+    # Carteirinha completa (dono, 17/10/2026): executor PROPRIO, finalidade fixa, escopo proprio e id opaco.
+    tokens_carteirinha = amh_interop.CognitoClientCredentials(
+        token_url="https://cognito.invalid/oauth2/token",
+        client_id="client1",
+        client_secret="secret1",
+        scopes=("interop/tina.read", "interop/tina.carteirinha"),
+        transport_factory=_transport,
+    )
+    carteirinha = amh_interop.AmhTinaCarteirinhaExecutor(
+        **{**comum, "tokens": tokens_carteirinha, "purpose_of_use": "atendimento_whatsapp"}
+    )
+    results.append(
+        await carteirinha.execute(
+            GovernedTinaRequest(
+                operation="amh.tina_get_carteirinha",
+                path="/interop/tina/v1/subjects/subject1/carteirinha",
+                query=atendimento,
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                timeout_seconds=5.0,
+                request_ref="hk1_msg_seam_proof",
+            )
+        )
+    )
     results.append(
         await verificacao.execute(
             GovernedSubjectVerificationRequest(
@@ -776,7 +800,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         )
     )
-    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 12
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 13
 
 
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811

@@ -417,6 +417,17 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_plan_facts",
     ),
+    # Carteirinha COMPLETA do proprio beneficiario verificado (decisao do dono de 17/10/2026, so' dev;
+    # manifest
+    # aditivo v1.12; executor `gateway/amh_interop.py::AmhTinaCarteirinhaExecutor`). O numero e' IDENTIFICADOR
+    # DE USO do plano: acao PROPRIA (`read_member_card_number`, L3, declarada no `agent.yaml` da Helena),
+    # como a
+    # 2a via do Lucas, para a governanca poder desliga-la sem tocar os fatos do plano.
+    OperationSpec(
+        operation="amh.tina_get_carteirinha",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_card_number",
+    ),
     # -- Acesso do beneficiario (DL-0083, 08/10/2026; manifest aditivo v1.3, DRAFT; executores em
     # `gateway/amh_interop.py`). A CONFERENCIA tem a mesma classe e postura das leituras acima (C2,
     # `tool_id=None`): so' manda o HASH do fator (nunca CPF/nascimento) contra uma referencia candidata e a

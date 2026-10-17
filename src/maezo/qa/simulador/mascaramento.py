@@ -7,7 +7,11 @@ reconhecer de quem era. O que e' mascarado:
   * a data de nascimento do sujeito da conversa, em qualquer das formas que a pessoa digita;
   * as partes do nome do sujeito (3+ letras, sem diferenciar acento nem caixa);
   * rotulo de boleto (`****1234`, `final 1234`) e sequencias longas de digitos (linha digitavel);
-  * telefone (inclusive o sintetico).
+  * telefone (inclusive o sintetico);
+  * o NUMERO COMPLETO da carteirinha (decisao do dono de 17/10/2026: a Helena o mostra ao proprio
+    beneficiario verificado) — o valor depois de "Número da carteirinha:" em qualquer forma, e, como rede de
+    seguranca, QUALQUER sequencia de 8+ digitos que sobrar (menos o numero ANS do plano, dado publico que o
+    relatorio precisa mostrar). O relatorio nunca exibe o numero completo.
 
 Valor em reais, competencia e data de vencimento NAO sao mascarados: sozinhos nao identificam
 ninguem e sao exatamente o que o relatorio precisa mostrar para explicar uma falha do D2.
@@ -32,6 +36,9 @@ TOKEN_BOLETO = "[BOLETO]"
 TOKEN_CARTEIRINHA_MASCARADA = "[CARTEIRINHA-MASCARADA]"
 TOKEN_NUMERO = "[NUMERO]"
 TOKEN_TELEFONE = "[TELEFONE]"
+#: O numero COMPLETO da carteirinha (decisao do dono de 17/10/2026). Nunca no relatorio, no transcript nem
+#: no log.
+TOKEN_CARTEIRINHA = "[CARTEIRINHA]"
 # DL-0114: o codigo de barras do boleto (linha digitavel de 47 digitos ou 44 digitos) e' CREDENCIAL DE
 # PAGAMENTO: nunca vai ao relatorio, ao transcript nem ao log do simulador.
 TOKEN_CODIGO_DE_BARRAS = "[CODIGO-DE-BARRAS]"
@@ -47,6 +54,14 @@ _CARTEIRINHA_MASCARADA = re.compile(r"(?<!\*)\*{5,}[0-9A-Za-z]{0,4}(?![0-9A-Za-z
 _BOLETO_ASTERISCO = re.compile(r"\*{2,}\s?\d{2,6}(?!\d)")
 _BOLETO_FINAL = re.compile(r"(\bfinal:?\s+)\d{2,6}(?!\d)", re.IGNORECASE)
 _DIGITOS_LONGOS = re.compile(r"\d[\d.\s-]{11,}\d")
+#: O valor rotulado como numero da carteirinha (o texto fixo da Helena), com letras ou digitos.
+_CARTEIRINHA_ROTULADA = re.compile(
+    r"(n[uú]mero da carteirinha\s*:\s*)[0-9A-Za-z]{4,24}(?![0-9A-Za-z])", re.IGNORECASE
+)
+#: Rede de seguranca: 8+ digitos seguidos que nenhuma regra acima trocou (numero de carteirinha, CNS...).
+_DIGITOS_8_OU_MAIS = re.compile(r"(?<![\d*])\d{8,}(?!\d)")
+#: O numero ANS do plano e' publico e o relatorio precisa dele: o rotulo do texto fixo o preserva.
+_ROTULO_ANS = re.compile(r"ans do plano\s*:\s*$", re.IGNORECASE)
 #: Palavras curtas e comuns que, sendo parte de um nome ("de", "da", "dos"), nao sao mascaradas.
 _PARTICULAS = frozenset({"de", "da", "do", "das", "dos", "e"})
 
@@ -110,6 +125,8 @@ class Mascarador:
         for padrao in self._datas:
             saida = padrao.sub(TOKEN_NASCIMENTO, saida)
         # O codigo de barras ANTES do CPF: o padrao do CPF morderia um pedaco da linha digitavel.
+        # A carteirinha ROTULADA antes de tudo: o numero pode ter 11 digitos (seria [CPF]) ou letras.
+        saida = _CARTEIRINHA_ROTULADA.sub(lambda m: m.group(1) + TOKEN_CARTEIRINHA, saida)
         saida = _CODIGO_DE_BARRAS.sub(TOKEN_CODIGO_DE_BARRAS, saida)
         saida = _DIGITOS_DE_CREDENCIAL.sub(TOKEN_CODIGO_DE_BARRAS, saida)
         # A carteirinha mascarada (5+ asteriscos) ANTES do rotulo do boleto (2 a 4 asteriscos + digitos).
@@ -119,6 +136,7 @@ class Mascarador:
         saida = _CPF.sub(TOKEN_CPF, saida)
         saida = _DIGITOS_LONGOS.sub(TOKEN_NUMERO, saida)
         saida = _TELEFONE.sub(TOKEN_TELEFONE, saida)
+        saida = _DIGITOS_8_OU_MAIS.sub(_digitos_ou_ans, saida)
         for padrao in self._nomes:
             saida = padrao.sub(TOKEN_NOME, saida)
         return saida
@@ -137,6 +155,13 @@ class Mascarador:
         if chave in {"numero_boleto", "boleto"} and isinstance(valor, str) and valor:
             return TOKEN_BOLETO
         return self.objeto(valor)
+
+
+def _digitos_ou_ans(m: re.Match[str]) -> str:
+    """8+ digitos -> `[CARTEIRINHA]`, salvo o numero ANS do plano (rotulado, publico)."""
+    if _ROTULO_ANS.search(m.string[max(0, m.start() - 24) : m.start()]):
+        return m.group(0)
+    return TOKEN_CARTEIRINHA
 
 
 def contem_dado_do_sujeito(texto: str, sujeito: Sujeito) -> list[str]:
@@ -160,6 +185,7 @@ def mascarar_todos(textos: Iterable[str], sujeito: Sujeito | None) -> list[str]:
 
 __all__ = [
     "TOKEN_BOLETO",
+    "TOKEN_CARTEIRINHA",
     "TOKEN_CARTEIRINHA_MASCARADA",
     "TOKEN_CODIGO_DE_BARRAS",
     "TOKEN_CPF",

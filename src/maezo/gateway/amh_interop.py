@@ -29,6 +29,12 @@ no pin o adaptador recusa subir):
   * `GET  /interop/tina/v1/subjects/{ref}/requisicoes`                   (`interop/tina.read`)
   * `GET  /interop/tina/v1/subjects/{ref}/dependentes`                   (`interop/tina.read`; manifest v1.5)
 
+e, SO' com `MAEZO_HELENA_CARTEIRINHA_COMPLETA` tambem ligada (decisao do dono de 17/10/2026, so' dev; manifest
+aditivo v1.12, ainda nao pinado — `AmhTinaCarteirinhaExecutor`):
+
+  * `GET  /interop/tina/v1/subjects/{ref}/carteirinha`                   (`interop/tina.carteirinha`;
+                                                                         `X-Amh-Request-Ref`, `no-store`)
+
 e, SO' com `MAEZO_LUCAS_V4` ligada e os dois artefatos do catalogo v4 configurados (DL-0114; manifests v1.10
 e v1.11,
 publicados em 16/10/2026 — `AmhV4Executor`, `executor_v4` da composicao):
@@ -135,9 +141,11 @@ from maezo.adapters.amh.subject_verification import (
 )
 from maezo.adapters.amh.tina import (
     OP_CARENCIAS,
+    OP_CARTEIRINHA,
     OP_DEPENDENTES,
     OP_ELEGIBILIDADE,
     OP_REQUISICOES,
+    PURPOSE_CARTEIRINHA,
     AmhTinaAdapter,
     GovernedTinaExecutor,
     GovernedTinaRequest,
@@ -168,6 +176,9 @@ logger = structlog.get_logger(__name__)
 HASH_SCHEME: Final[str] = "amh-phone-lookup-v1"
 #: Escopo das tres leituras TINA (fatos do plano). Pedido SO' com as consultas da Helena ligadas.
 SCOPE_TINA: Final[str] = "interop/tina.read"
+#: Escopo PROPRIO da carteirinha completa (manifest v1.12): `interop/tina.read` NAO basta. Pedido SO' com
+#: `MAEZO_HELENA_CARTEIRINHA_COMPLETA` ligada (o Cognito recusa o token INTEIRO se o client nao o tiver).
+SCOPE_TINA_CARTEIRINHA: Final[str] = "interop/tina.carteirinha"
 #: Esquema do hash de VERIFICACAO do acesso do beneficiario (DL-0083). Nome do contrato da AMH.
 HASH_SCHEME_VERIFICACAO: Final[str] = "amh-subject-verify-v1"
 #: Escopos do acesso do beneficiario (DL-0083): verificacao por fator e registro de consentimento.
@@ -186,6 +197,7 @@ SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_CARENCIAS: SCOPE_TINA,
     OP_REQUISICOES: SCOPE_TINA,
     OP_DEPENDENTES: SCOPE_TINA,
+    OP_CARTEIRINHA: SCOPE_TINA_CARTEIRINHA,
     OP_VERIFY: SCOPE_VERIFY,
     OP_RECORD: SCOPE_CONSENT_WRITE,
     OP_RESOLVE_DOCUMENT: SCOPE_RESOLVE_DOCUMENT,
@@ -222,6 +234,7 @@ _TINA_SUFFIX: Final[dict[str, str]] = {
     OP_CARENCIAS: "/carencias",
     OP_REQUISICOES: "/requisicoes",
     OP_DEPENDENTES: "/dependentes",
+    OP_CARTEIRINHA: "/carteirinha",
 }
 #: Query permitida por operacao TINA (`purpose_of_use` sempre obrigatorio e igual ao da composicao).
 _TINA_QUERY: Final[dict[str, frozenset[str]]] = {
@@ -229,6 +242,7 @@ _TINA_QUERY: Final[dict[str, frozenset[str]]] = {
     OP_CARENCIAS: frozenset({"purpose_of_use", "limite", "pendentes"}),
     OP_REQUISICOES: frozenset({"purpose_of_use", "limite"}),
     OP_DEPENDENTES: frozenset({"purpose_of_use"}),
+    OP_CARTEIRINHA: frozenset({"purpose_of_use"}),
 }
 
 _SUBJECT: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
@@ -992,6 +1006,8 @@ class AmhTinaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
             type(request) is not GovernedTinaRequest
             or request.method != "GET"
             or request.operation not in self.registered_operations
+            # So' a rota da carteirinha (executor proprio) leva o id da solicitacao.
+            or request.request_ref is not None
         ):
             raise ValueError
         self._sujeito(request.path, _TINA_PREFIX, _TINA_SUFFIX[request.operation])
@@ -1021,6 +1037,66 @@ class AmhTinaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
             body=None,
             consent_ref=request.consent_decision_ref,
             timeout_seconds=request.timeout_seconds,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedTinaResponse(status, raw))
+
+
+class AmhTinaCarteirinhaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
+    """`GovernedTinaExecutor` real da CARTEIRINHA COMPLETA (decisao do dono de 17/10/2026, so' dev;
+    manifest v1.12).
+
+    So' UMA operacao (`amh.tina_get_carteirinha`), com o que ela tem de diferente das outras leituras
+    TINA: finalidade FIXA `atendimento_whatsapp` (a composicao recusa outra), o `X-Amh-Request-Ref`
+    OPACO obrigatorio (padrao do contrato; so' o hash dele entra na auditoria), o escopo PROPRIO
+    `interop/tina.carteirinha` no token (conferido na composicao) e a resposta 200 SEM
+    `Cache-Control: no-store` recusada (`CONTRACT_VIOLATION`). O corpo (com o numero completo) so'
+    atravessa em `GovernedTinaResponse` (`repr=False`): nunca vai a log.
+    """
+
+    registered_operations = frozenset({OP_CARTEIRINHA})
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if self._purpose != PURPOSE_CARTEIRINHA or SCOPE_TINA_CARTEIRINHA not in self._tokens.scopes:
+            raise AmhInteropCompositionError()
+
+    def _validar(self, request: GovernedTinaRequest) -> None:
+        if (
+            type(request) is not GovernedTinaRequest
+            or request.method != "GET"
+            or request.operation != OP_CARTEIRINHA
+            or type(request.request_ref) is not str
+            or not _REQUEST_REF.fullmatch(request.request_ref)
+        ):
+            raise ValueError
+        self._sujeito(request.path, _TINA_PREFIX, _TINA_SUFFIX[OP_CARTEIRINHA])
+        self._query(request.query, _TINA_QUERY[OP_CARTEIRINHA])
+        ref = request.consent_decision_ref
+        if type(ref) is not str or not ref.strip() or len(ref) > 4096:
+            raise ValueError
+        if not _prazo_valido(request.timeout_seconds):
+            raise ValueError
+
+    async def execute(self, request: GovernedTinaRequest) -> PortResult[GovernedTinaResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="GET",
+            path=request.path,
+            query=request.query,
+            body=None,
+            consent_ref=request.consent_decision_ref,
+            timeout_seconds=request.timeout_seconds,
+            request_ref=request.request_ref,
+            exigir_no_store=True,
         )
         if not resultado.succeeded or resultado.value is None:
             return PortResult.refused(
@@ -1426,12 +1502,14 @@ __all__ = [
     "AmhInteropCompositionError",
     "AmhPhoneLookupHasher",
     "AmhSubjectResolutionExecutor",
+    "AmhTinaCarteirinhaExecutor",
     "AmhTinaExecutor",
     "AmhV4Executor",
     "OPERATION_DETALHAMENTO",
     "OPERATION_SEGUNDA_VIA",
     "SCOPE_SEGUNDA_VIA",
     "SCOPE_TINA",
+    "SCOPE_TINA_CARTEIRINHA",
     "CognitoClientCredentials",
     "InteropAuditSink",
     "conferir_artefatos_v4",

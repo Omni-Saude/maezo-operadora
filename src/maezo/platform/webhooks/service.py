@@ -294,6 +294,9 @@ def _build_dispatcher(
         triagem_v2_enabled=settings.helena_triagem_v2,
         # HELENA V4 (DL-0115): `MAEZO_HELENA_V4`, default `false` (so' dev).
         helena_v4_enabled=settings.helena_v4,
+        # Vinculo ativo e carteirinha completa (dono, 17/10/2026): `MAEZO_HELENA_CARTEIRINHA_COMPLETA`,
+        # default `false` (so' dev).
+        helena_carteirinha_completa_enabled=settings.helena_carteirinha_completa,
         # BASE DE SAUDE (DL-0118, ADR-0064): `MAEZO_HELENA_BASE_SAUDE`, default `false` (so' dev).
         helena_base_saude_enabled=settings.helena_base_saude,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
@@ -504,6 +507,16 @@ def _build_fonte_cobranca_amh(
     return fonte, interop
 
 
+def _carteirinha_completa_configurada(settings: WhatsAppWebhookSettings) -> bool:
+    """A rota da carteirinha completa entra na composicao da Helena? So' com as consultas do plano, a chave
+    `MAEZO_HELENA_CARTEIRINHA_COMPLETA` e o caminho do OpenAPI `tina-carteirinha` presentes."""
+    return (
+        settings.helena_consultas_amh is True
+        and settings.helena_carteirinha_completa is True
+        and bool(getattr(settings, "amh_tina_carteirinha_openapi_path", None))
+    )
+
+
 def _lucas_v4_configurado(settings: WhatsAppWebhookSettings) -> bool:
     """A chave do Lucas v4 esta' ligada e ALGUMA peca do executor v4 foi configurada (caminho dos OpenAPI ou
     cliente da
@@ -674,6 +687,13 @@ def _build_helena_amh(
         audit=dispatcher.audit_sink,
         agent_version=_HELENA_AGENT_VERSION,
         incluir_tina=consultas_ligadas,
+        # Carteirinha completa (dono, 17/10/2026, so' dev): a rota `tina-carteirinha` so' entra com as
+        # consultas
+        # E a chave ligadas E o caminho do OpenAPI configurado (como os dependentes). Com o caminho, o bloco
+        # `manifest_v1_12` do pin e o escopo `interop/tina.carteirinha` sao exigidos (sem eles o receptor
+        # recusa
+        # servir); sem o caminho, a Helena so' filtra os vinculos ativos e a carteirinha sai mascarada.
+        incluir_tina_carteirinha=_carteirinha_completa_configurada(settings),
     )
     consultas: ConsultasPlanoAmh | None = None
     if consultas_ligadas:

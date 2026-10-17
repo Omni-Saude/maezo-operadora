@@ -20,7 +20,9 @@ ASSERCOES de um passo (todas sobre o texto concatenado das respostas DAQUELE tur
   condicao              `sempre` (padrao), `sem_sinal` ou `com_sinal`. O SINAL e' o
                         `fonte_detalhamento_habilitada` do Lucas v4 (contratos novos da AMH pinados).
                         `com_sinal` sem o sinal = o passo NAO roda e sai como `pendente_de_contrato`;
-                        `sem_sinal` com o sinal = nao roda (omitido).
+                        `sem_sinal` com o sinal = nao roda (omitido). Tambem `sem_carteirinha_completa` /
+                        `com_carteirinha_completa`: a chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` do ambiente
+                        (decisao do dono de 17/10/2026); o passo da condicao contraria e' omitido.
   espera_codigo         o passo tem de entregar o codigo de barras (linha digitavel ou 44 digitos)
 Os segmentos com `rigor_v4` conferem, alem dos padroes, o que o dono pediu para o Lucas v4 (DL-0114): nenhum
 nome ou dado do beneficiario, nenhuma palavra proibida ("multa", "juros"...), R$ e datas do Lucas dentro dos
@@ -75,7 +77,8 @@ class Passo:
     primeira_frase_deve: str | None = None
     nao_igual_ao_anterior: bool = False
     agente: str | None = None
-    #: DL-0114: `sempre`, `sem_sinal` ou `com_sinal` (ver o docstring do modulo).
+    #: DL-0114: `sempre`, `sem_sinal` ou `com_sinal`; `sem_carteirinha_completa` ou `com_carteirinha_completa`
+    #: (ver o docstring do modulo).
     condicao: str = "sempre"
     #: DL-0114: o passo tem de entregar o codigo de barras da 2a via.
     espera_codigo: bool = False
@@ -257,10 +260,14 @@ def avaliar_rigor_v4(passo: Passo, turno: Turno, sujeito: Sujeito | None) -> lis
 Enviar = Callable[[str], Awaitable[Turno]]
 
 
-def _condicao_atendida(passo: Passo, sinal_v4: bool) -> bool | None:
+def _condicao_atendida(passo: Passo, sinal_v4: bool, carteirinha_completa: bool = False) -> bool | None:
     """`True` = roda; `False` = omitido; `None` = pendente de contrato (precisa do sinal, desligado)."""
     if passo.condicao == "sempre":
         return True
+    if passo.condicao == "sem_carteirinha_completa":
+        return not carteirinha_completa
+    if passo.condicao == "com_carteirinha_completa":
+        return carteirinha_completa
     if passo.condicao == "sem_sinal":
         return not sinal_v4
     if passo.condicao == "com_sinal":
@@ -274,15 +281,17 @@ async def executar_passos(
     *,
     sujeito: Sujeito | None = None,
     sinal_v4: bool = False,
+    carteirinha_completa: bool = False,
 ) -> list[ResultadoDoPasso]:
     """Envia os passos em ordem e avalia cada um. Um passo que falha NAO interrompe o segmento.
 
-    DL-0114: `sinal_v4` e' o `fonte_detalhamento_habilitada` do Lucas; `sujeito` serve so' ao `rigor_v4`."""
+    DL-0114: `sinal_v4` e' o `fonte_detalhamento_habilitada` do Lucas; `sujeito` serve so' ao `rigor_v4`.
+    `carteirinha_completa`: a chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` do ambiente (dono, 17/10/2026)."""
     resultados: list[ResultadoDoPasso] = []
     anterior: str | None = None
     indice = 0
     for passo in segmento.passos:
-        atendida = _condicao_atendida(passo, sinal_v4)
+        atendida = _condicao_atendida(passo, sinal_v4, carteirinha_completa)
         if atendida is False:
             continue
         indice += 1
@@ -494,6 +503,9 @@ DONO_V1: tuple[Segmento, ...] = (
                 "Qual o número da minha carteirinha?",
                 deve=(r"\*{3,}\d{3,5}",),
                 nao_deve=_CODIGO_INTEIRO_NAO_DEVE,
+                # Com a chave da carteirinha completa o numero inteiro e' o esperado: roteiro
+                # `helena_carteirinha_completa`.
+                condicao="sem_carteirinha_completa",
             ),
             _p("Qual é o meu nome?", deve=("nao mostro",), escalacao=ESCALACAO_NENHUMA),
             _p(
@@ -1005,6 +1017,8 @@ HELENA_V4: tuple[Segmento, ...] = (
                     "portal do plano",
                 ),
                 nao_deve=_CARTEIRINHA_NAO_DEVE,
+                # Com a chave da carteirinha completa: roteiro `helena_carteirinha_completa`.
+                condicao="sem_carteirinha_completa",
             ),
         ),
         resolveu=(
@@ -1451,11 +1465,72 @@ LUCAS_V4_NAO_PAGADOR: tuple[Segmento, ...] = (
     ),
 )
 
+# ================================================================================================
+# Roteiro `helena_carteirinha_completa` (decisao do dono de 17/10/2026; chave
+# MAEZO_HELENA_CARTEIRINHA_COMPLETA ligada no ambiente)
+# ================================================================================================
+# O beneficiario verificado pede a carteirinha e o tipo de plano: a Helena mostra SO' o(s) vinculo(s)
+# ATIVO(S) e o NUMERO COMPLETO da carteirinha dele. Todas as conferencias sao por padrao/booleano: o
+# relatorio nunca imprime o numero (o mascarador troca o valor rotulado e qualquer 8+ digitos por
+# `[CARTEIRINHA]`).
+#: Um vinculo CANCELADO listado: a linha de cancelamento com data (o agendado sai como "cancelamento
+#: previsto").
+_VINCULO_CANCELADO = r"\bcancelamento: \d"
+#: O marcador do grafo chegou cru ao beneficiario (a troca no envio falhou).
+_MARCADOR_DA_CARTEIRINHA_CRU = r"\{\{carteirinha"
+
+HELENA_CARTEIRINHA_COMPLETA: tuple[Segmento, ...] = (
+    Segmento(
+        "1-carteirinha-completa-so-do-vinculo-ativo",
+        (
+            _p(
+                "Qual o número da minha carteirinha?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(
+                    r"numero da carteirinha: [0-9a-z]{8,24}",
+                    "aplicativo austa clinicas",
+                    "portal do plano",
+                ),
+                nao_deve=(
+                    _VINCULO_CANCELADO,
+                    _MARCADOR_DA_CARTEIRINHA_CRU,
+                    "nao mostro o codigo inteiro",
+                    r"\bcns\b",
+                    "nascimento",
+                    r"nome:",
+                    "nao consta nenhum vinculo ativo",
+                ),
+            ),
+        ),
+        resolveu=(
+            "a carteirinha trouxe o NUMERO COMPLETO do proprio beneficiario verificado, so' do(s) "
+            "vinculo(s) ativo(s) (nenhum vinculo cancelado listado), com o cartao no aplicativo/portal; "
+            "nunca CNS, nome nem nascimento"
+        ),
+    ),
+    Segmento(
+        "2-tipo-de-plano-so-do-vinculo-ativo",
+        (
+            _p(
+                "Qual é o tipo do meu plano?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("plano",),
+                nao_deve=(_VINCULO_CANCELADO, r"\d{8,}", _MARCADOR_DA_CARTEIRINHA_CRU),
+            ),
+        ),
+        resolveu=(
+            "o tipo de plano veio so' do(s) vinculo(s) ativo(s): nenhum plano cancelado listado e nenhum "
+            "numero de carteirinha no texto"
+        ),
+    ),
+)
+
 ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "dono_v1": DONO_V1,
     "triagem_v2": TRIAGEM_V2,
     "cancelamento_v1": CANCELAMENTO_V1,
     "helena_v4": HELENA_V4,
+    "helena_carteirinha_completa": HELENA_CARTEIRINHA_COMPLETA,
     "helena_base_saude": HELENA_BASE_SAUDE,
     "lucas_v4": LUCAS_V4,
     "lucas_v4_pagador": LUCAS_V4_PAGADOR,
@@ -1528,6 +1603,7 @@ __all__ = [
     "SUJEITO_DO_ROTEIRO",
     "SUJEITO_PF_TITULAR",
     "DONO_V1",
+    "HELENA_CARTEIRINHA_COMPLETA",
     "HELENA_BASE_SAUDE",
     "HELENA_V4",
     "TRIAGEM_V2",

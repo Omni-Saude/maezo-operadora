@@ -13,6 +13,12 @@ consentimento). Devolve a view do contrato ou `None`. NUNCA levanta e nunca pass
 
 LOG. So' o subtipo, o motivo (token fechado) e booleanos. Nunca a referencia, os fatos nem o telefone —
 este modulo nem recebe o telefone ou o wamid.
+
+CARTEIRINHA COMPLETA (decisao do dono de 17/10/2026, so' dev): `consultar_carteirinha` le' o numero completo
+da carteirinha do PROPRIO sujeito pela rota `tina-carteirinha` (manifest v1.12), com a finalidade FIXA
+`atendimento_whatsapp` e o id OPACO da solicitacao. Implementa `FonteDeCarteirinhaCompleta`; o grafo so' a
+chama com a chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` ligada e a identidade verificada. O numero NUNCA vai a
+log: so' o motivo (token fechado) e quantos itens vieram.
 """
 
 from __future__ import annotations
@@ -29,9 +35,11 @@ from maezo.agents.lucas.fonte_cobranca_amh import FonteDeConsentimento
 from maezo.ports.errors import PortFailureReason, PortResult
 from maezo.ports.tina import (
     CarenciasView,
+    CarteirinhasView,
     DependentesView,
     ElegibilidadeView,
     RequisicoesView,
+    TinaCarteirinhaPort,
     TinaDependentesPort,
     TinaPort,
 )
@@ -47,6 +55,8 @@ PRAZO_LEITURA_S: Final[float] = 9.0
 PRAZO_TOTAL_S: Final[float] = 20.0
 
 _View = ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel
+#: A UNICA finalidade da rota da carteirinha completa (enum do contrato `tina-carteirinha`).
+PURPOSE_CARTEIRINHA: Final[str] = "atendimento_whatsapp"
 
 
 @dataclass
@@ -166,9 +176,54 @@ class ConsultasPlanoAmh:
         logger.info("helena_consultas_lidas", subtipo=subtipo, motivo=motivo, fatos=view is not None)
         return view
 
+    async def consultar_carteirinha(
+        self, portable_subject_ref: str, request_ref: str
+    ) -> CarteirinhasView | None:
+        """O numero COMPLETO da carteirinha dos vinculos ATIVOS do proprio sujeito, ou `None`. NUNCA levanta.
+
+        `None` = a rota nao esta' carregada (o port nao e' `TinaCarteirinhaPort` ou recusa
+        `scope_not_supported`), 404 (sem vinculo ativo / rota desligada), qualquer outra recusa, prazo, ou
+        resposta de OUTRO sujeito."""
+        motivo = "ok"
+        view: CarteirinhasView | None = None
+        try:
+            async with asyncio.timeout(PRAZO_TOTAL_S):
+                if not isinstance(self.port, TinaCarteirinhaPort):
+                    motivo = "rota_nao_carregada"
+                else:
+                    base_legal = await self.consentimento.decisao(portable_subject_ref, PURPOSE_CARTEIRINHA)
+                    if base_legal is None:
+                        motivo = "sem_base_legal"
+                    else:
+                        resultado = await self.port.get_carteirinha(
+                            portable_subject_ref,
+                            purpose_of_use=PURPOSE_CARTEIRINHA,
+                            consent_decision_ref=base_legal,
+                            request_ref=request_ref,
+                            timeout_seconds=PRAZO_LEITURA_S,
+                        )
+                        if not resultado.succeeded or resultado.value is None:
+                            falha = resultado.failure
+                            motivo = falha.reason.value if falha is not None else "recusa"
+                        elif getattr(resultado.value, "portable_subject_ref", None) != portable_subject_ref:
+                            motivo = "fatos_de_outro_sujeito"
+                        else:
+                            view = resultado.value
+        except TimeoutError:
+            motivo = "prazo_estourado"
+        except Exception as exc:
+            logger.warning("helena_carteirinha_falhou", error_type=type(exc).__name__)
+            return None
+        logger.info(
+            "helena_carteirinha_lida",
+            motivo=motivo,
+            itens=len(view.carteirinhas) if view is not None else 0,
+        )
+        return view
+
     async def aclose(self) -> None:
         if self.aclose_fn is not None:
             await self.aclose_fn()
 
 
-__all__ = ["PRAZO_LEITURA_S", "PRAZO_TOTAL_S", "ConsultasPlanoAmh"]
+__all__ = ["PRAZO_LEITURA_S", "PRAZO_TOTAL_S", "PURPOSE_CARTEIRINHA", "ConsultasPlanoAmh"]
