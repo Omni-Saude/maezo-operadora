@@ -1497,7 +1497,9 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
         (
             _gerativa(
                 "Infecção urinária (cistite) tem tratamento?",
-                r"(bexiga|urin)",
+                # Correcao do roteiro (run 20261018T142036Z-95c627): o Haiku varia as palavras; a resposta certa falou
+                # de cistite e urologista sem "bexiga"/"urina". O apoio errado (manchas na pele) continua barrado.
+                r"(bexiga|urin|urolog|cistite)",
                 r"(medic|tratamento)",
                 nao_deve=("mancha", r"\bpele\b"),
             ),
