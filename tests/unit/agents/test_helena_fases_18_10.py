@@ -269,13 +269,13 @@ _BASE_BUSCA = _base(
 
 
 async def test_cistite_casa_infeccao_urinaria_nao_manchas_na_pele() -> None:
-    busca = bsem.BuscaSemantica(transporte=_Embeddings(), limiar=0.6)
+    busca = bsem.BuscaSemantica(transporte=_Embeddings(), bloquear_no_indice=True, limiar=0.6)
     achado = await busca.buscar(_BASE_BUSCA, "infecção urinária (cistite) tem cura?")
     assert achado is not None and achado.assunto_id == "sin-dor-ao-urinar"
 
 
 async def test_bebe_com_febre_casa_febre_infantil_com_o_filtro_de_populacao() -> None:
-    busca = bsem.BuscaSemantica(transporte=_Embeddings(), limiar=0.6)
+    busca = bsem.BuscaSemantica(transporte=_Embeddings(), bloquear_no_indice=True, limiar=0.6)
     achado = await busca.buscar(
         _BASE_BUSCA, "meu bebê está com febre", filtro=lambda a: a.populacao in (None, "todos", "crianca")
     )
@@ -284,19 +284,21 @@ async def test_bebe_com_febre_casa_febre_infantil_com_o_filtro_de_populacao() ->
 
 async def test_abaixo_do_limiar_nao_ha_apoio_e_o_indice_e_montado_uma_vez() -> None:
     emb = _Embeddings()
-    busca = bsem.BuscaSemantica(transporte=emb, limiar=0.9)
+    busca = bsem.BuscaSemantica(transporte=emb, bloquear_no_indice=True, limiar=0.9)
     assert await busca.buscar(_BASE_BUSCA, "qual o horário da farmácia?") is None
     assert await busca.buscar(_BASE_BUSCA, "outra pergunta qualquer") is None
     assert [c for c in emb.chamadas if not c[1]] == [(4, False)], "o indice dos assuntos so' uma vez"
 
 
 async def test_falha_do_modelo_de_embeddings_volta_none() -> None:
-    busca = bsem.BuscaSemantica(transporte=_Embeddings(falha=True))
+    busca = bsem.BuscaSemantica(transporte=_Embeddings(falha=True), bloquear_no_indice=True)
     assert await busca.buscar(_BASE_BUSCA, "febre") is None
 
 
 async def test_o_lexico_desempata_quando_o_significado_fica_proximo() -> None:
-    busca = bsem.BuscaSemantica(transporte=_Embeddings(), limiar=0.1, margem_do_lexico=0.5)
+    busca = bsem.BuscaSemantica(
+        transporte=_Embeddings(), bloquear_no_indice=True, limiar=0.1, margem_do_lexico=0.5
+    )
     achado = await busca.buscar(_BASE_BUSCA, "manchas e febre")
     assert achado is not None and achado.como in ("significado", "lexico_desempate")
 
@@ -474,3 +476,16 @@ async def test_o_grafo_responde_a_cobertura_so_na_allowlist() -> None:
     assert "ROL DE PROCEDIMENTOS 2021 - RN Nº 465/2021" in resposta["consulta_literais"]
     fora: Any = {"conversation_id": _OUTRA, "message_body": "Meu plano cobre vasectomia?"}
     assert await grafo._cobertura_do_procedimento(fora, "amh:psr:v1:x") is None
+
+
+async def test_sem_indice_pronto_a_busca_nao_espera_e_monta_em_segundo_plano() -> None:
+    import asyncio
+
+    emb = _Embeddings()
+    busca = bsem.BuscaSemantica(transporte=emb, limiar=0.6)
+    assert await busca.buscar(_BASE_BUSCA, "infecção urinária (cistite)") is None, "o lexico vale neste turno"
+    await asyncio.sleep(0)
+    assert busca._montando is not None
+    await busca._montando
+    achado = await busca.buscar(_BASE_BUSCA, "infecção urinária (cistite)")
+    assert achado is not None and achado.assunto_id == "sin-dor-ao-urinar"

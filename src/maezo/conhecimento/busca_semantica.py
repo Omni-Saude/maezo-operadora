@@ -46,7 +46,7 @@ MODELO_TITAN_V2: Final[str] = "amazon.titan-embed-text-v2:0"
 MODELOS_ADMITIDOS: Final[frozenset[str]] = frozenset({MODELO_COHERE_MULTILINGUE, MODELO_TITAN_V2})
 REGIAO: Final[str] = "sa-east-1"
 #: Similaridade minima (cosseno) para o assunto virar APOIO. Calibrado em dev; ver o relatorio da fase 3.
-LIMIAR_PADRAO: Final[float] = 0.45
+LIMIAR_PADRAO: Final[float] = 0.33
 #: Diferenca de similaridade em que o LEXICO (exato/contido) desempata contra o melhor do significado.
 MARGEM_DO_LEXICO: Final[float] = 0.05
 PRAZO_CONSULTA_S: Final[float] = 3.0
@@ -54,6 +54,7 @@ PRAZO_INDICE_S: Final[float] = 60.0
 _LOTE_COHERE: Final[int] = 90
 _CARACTERES_DO_TEXTO: Final[int] = 240
 _TEMPO_DE_ESPERA_APOS_FALHA_S: Final[float] = 300.0
+_PARALELO_TITAN: Final[int] = 8
 
 
 class TransporteDeEmbeddings(Protocol):
@@ -110,9 +111,20 @@ class TransporteBedrockRegional:
                 resp = self._invocar({"texts": lote, "input_type": tipo, "truncate": "END"})
                 saida.extend([float(x) for x in v] for v in resp.get("embeddings") or [])
         else:
-            for t in textos:
+            # Titan: um texto por chamada; o indice (~300 assuntos) vai em paralelo (medido em dev em
+            # 18/10/2026:
+            # ~21 s em serie).
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _um(t: str) -> list[float]:
                 resp = self._invocar({"inputText": t[:8000], "dimensions": 512, "normalize": True})
-                saida.append([float(x) for x in resp.get("embedding") or []])
+                return [float(x) for x in resp.get("embedding") or []]
+
+            if len(textos) == 1:
+                saida.append(_um(textos[0]))
+            else:
+                with ThreadPoolExecutor(max_workers=_PARALELO_TITAN) as pool:
+                    saida.extend(pool.map(_um, textos))
         if len(saida) != len(textos) or any(not v for v in saida):
             raise FalhaDeEmbeddingsError("resposta_incompleta")
         return saida
@@ -172,6 +184,11 @@ class BuscaSemantica:
     _impressao: str | None = None
     _trava: asyncio.Lock | None = None
     _falhou_em: float | None = None
+    #: `False` (producao): sem indice pronto, a busca devolve `None` NA HORA (o lexico vale neste turno) e o
+    #: indice e' montado em segundo plano — a primeira pergunta de saude nunca espera o indice. `True`:
+    #: espera.
+    bloquear_no_indice: bool = False
+    _montando: asyncio.Task[bool] | None = None
 
     async def _garantir_indice(self, base: bs.BaseSaude) -> bool:
         impressao = impressao_da_base(base)
@@ -225,7 +242,13 @@ class BuscaSemantica:
     ) -> Achado | None:
         """O assunto mais parecido ACIMA do limiar, ou `None` (abaixo do limiar, indice indisponivel, falha ou
         prazo). `consulta` ja' minimizada. `filtro` exclui assuntos (ex.: populacao incompativel)."""
-        if not consulta.strip() or not await self._garantir_indice(base):
+        if not consulta.strip():
+            return None
+        if not self.bloquear_no_indice and not (self._impressao == impressao_da_base(base) and self._indice):
+            if self._montando is None or self._montando.done():
+                self._montando = asyncio.create_task(self._garantir_indice(base))
+            return None
+        if not await self._garantir_indice(base):
             return None
         inicio = self.relogio()
         try:

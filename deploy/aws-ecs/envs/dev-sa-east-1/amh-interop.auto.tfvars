@@ -96,6 +96,10 @@ helena_saude_gerativa_conversas = [
 // (sem perfil global) escolhem o apoio da saude gerativa, so' para a allowlist acima. Desligar ("desligue a busca por
 // significado"): false + apply direcionado (runbook docs/runbooks/helena-base-saude.md §13).
 helena_busca_semantica = true
+// Calibrado em dev em 18/10/2026 (13/13 casos de aceite; o Cohere multilingue nao respondeu na conta):
+// Titan v2, menor nota certa 0,365, maior nota fora da base 0,205.
+helena_busca_semantica_modelo = "amazon.titan-embed-text-v2:0"
+helena_busca_semantica_limiar = 0.33
 
 acesso_beneficiario = true
 
