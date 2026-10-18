@@ -875,7 +875,7 @@ variable "helena_busca_semantica" {
 variable "helena_busca_semantica_modelo" {
   description = "Modelo de embeddings REGIONAL (sa-east-1) da busca por significado: cohere.embed-multilingual-v3 ou amazon.titan-embed-text-v2:0."
   type        = string
-  default     = "cohere.embed-multilingual-v3"
+  default     = "amazon.titan-embed-text-v2:0"
   nullable    = false
   validation {
     condition     = contains(["cohere.embed-multilingual-v3", "amazon.titan-embed-text-v2:0"], var.helena_busca_semantica_modelo)
@@ -886,7 +886,7 @@ variable "helena_busca_semantica_modelo" {
 variable "helena_busca_semantica_limiar" {
   description = "Similaridade minima (cosseno, 0..1) para o assunto da busca por significado virar apoio (calibrado em dev)."
   type        = number
-  default     = 0.45
+  default     = 0.33
   nullable    = false
   validation {
     condition     = var.helena_busca_semantica_limiar >= 0 && var.helena_busca_semantica_limiar <= 1

@@ -187,7 +187,7 @@ com 188; com caso grave aberto, o texto do caso grave com 192). Desfazer: revert
 
 **O que é.** Só na allowlist da saúde gerativa: o APOIO da redação (o trecho da fonte que vai junto) é escolhido
 por SIGNIFICADO — embeddings de um modelo REGIONAL do Bedrock em sa-east-1 (`helena_busca_semantica_modelo`,
-padrão `cohere.embed-multilingual-v3`; alternativa `amazon.titan-embed-text-v2:0`), chamado pelo id do modelo de
+padrão `amazon.titan-embed-text-v2:0` (calibrado em 18/10/2026: 13/13, limiar 0,33, ~60 ms por busca); alternativa `cohere.embed-multilingual-v3` (não respondeu na conta)), chamado pelo id do modelo de
 base (sem perfil de inferência, sem perfil global). O índice dos assuntos da base (~220) é montado em memória na
 primeira busca de cada processo e refeito se a base mudar (impressão digital dos textos); assuntos novos da base
 entram sozinhos na próxima subida. A similaridade (cosseno) só vira apoio acima do limiar

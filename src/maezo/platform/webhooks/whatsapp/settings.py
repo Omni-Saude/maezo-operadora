@@ -404,11 +404,11 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA", "helena_busca_semantica"),
     )
     helena_busca_semantica_modelo: str = Field(
-        default="cohere.embed-multilingual-v3",
+        default="amazon.titan-embed-text-v2:0",
         validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA_MODELO", "helena_busca_semantica_modelo"),
     )
     helena_busca_semantica_limiar: float = Field(
-        default=0.45,
+        default=0.33,
         ge=0.0,
         le=1.0,
         validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA_LIMIAR", "helena_busca_semantica_limiar"),

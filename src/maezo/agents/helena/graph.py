@@ -7390,6 +7390,27 @@ class HelenaGraph:
         return {"response_text": text, "response_kind": "collect"}
 
     async def inform(self, state: HelenaState) -> dict[str, Any]:
+        """O `inform` de sempre; com SOFRIMENTO na mensagem e sem risco marcado, o acolhimento (CVV 188, 192)
+        vem PRIMEIRO (dossie de seguranca, 18/10/2026: "o plano cobre psiquiatra? ando muito mal" caia no
+        texto do plano sem acolhimento)."""
+        resultado = await self._inform_sem_acolhimento(state)
+        return self._com_acolhimento(state, resultado)
+
+    @staticmethod
+    def _com_acolhimento(state: Mapping[str, Any], resultado: dict[str, Any]) -> dict[str, Any]:
+        texto = resultado.get("response_text")
+        if (
+            isinstance(texto, str)
+            and texto
+            and RESPOSTA_ACOLHIMENTO not in texto
+            and "188" not in texto
+            and _SOFRIMENTO.search(_plano(str(state.get("message_body") or "")))
+        ):
+            logger.info("helena_acolhimento_antes_da_resposta", node="inform")
+            return {**resultado, "response_text": f"{RESPOSTA_ACOLHIMENTO} {texto}"}
+        return resultado
+
+    async def _inform_sem_acolhimento(self, state: HelenaState) -> dict[str, Any]:
         """Administrative response (no clinical guidance, no red flag).
 
         RECUSA DE SAIDA — A DECISAO E' POR GRUPO, NAO POR ROTA (22/09/2026, CRITICO 1). Entre
@@ -7662,15 +7683,7 @@ class HelenaGraph:
         o acolhimento (com o CVV 188 e o 192) vem PRIMEIRO (dossie de seguranca, 18/10/2026). O portao de
         risco ja' rodou em `classify` (risco psicossocial vence a consulta)."""
         resultado = await self._consultar_plano_sem_acolhimento(state)
-        texto = resultado.get("response_text")
-        if (
-            isinstance(texto, str)
-            and texto
-            and _SOFRIMENTO.search(_plano(str(state.get("message_body") or "")))
-        ):
-            logger.info("helena_acolhimento_antes_da_consulta", node="consultar_plano")
-            resultado = {**resultado, "response_text": f"{RESPOSTA_ACOLHIMENTO} {texto}"}
-        return resultado
+        return self._com_acolhimento(state, resultado)
 
     async def _consultar_plano_sem_acolhimento(self, state: HelenaState) -> dict[str, Any]:
         """CONSULTA DO PLANO (DL de 07/10/2026): fatos do cadastro do PROPRIO beneficiario.

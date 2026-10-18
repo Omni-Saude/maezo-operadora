@@ -41,6 +41,7 @@ _SEM_RISCO = _classify(intent="symptom", population="adult", psychosocial_risk=F
         ("tô com dor de barriga do lado direito embaixo faz umas 6 horas e piorando", _ADULTO),
         ("Nao sei se e urgente, minha filha de 2 anos esta com febre e meio molinha.", _CRIANCA),
         ("meu filho engoliu um monte de comprimido da avó", _CRIANCA),
+        ("comi camarão e minha boca e garganta tão inchando", _ADULTO),
     ],
 )
 async def test_alarme_pelo_texto_escala_na_hora_com_192_imperativo(
@@ -145,3 +146,11 @@ async def test_sofrimento_com_pergunta_do_plano_acolhe_primeiro() -> None:
     assert com["response_text"] == f"{RESPOSTA_ACOLHIMENTO} Texto do plano."
     sem = await grafo.consultar_plano({"message_body": "Meu plano cobre psiquiatra?"})  # type: ignore[arg-type]
     assert sem["response_text"] == "Texto do plano."
+
+
+async def test_sofrimento_com_pergunta_do_plano_no_inform_tambem_acolhe() -> None:
+    conversa = _Conversa(conversa=_OUTRA)
+    resultado = await conversa.diz(
+        "Meu plano cobre psiquiatra? Ando muito mal, sem vontade de nada.", _classify()
+    )
+    assert _texto(resultado).startswith(RESPOSTA_ACOLHIMENTO)

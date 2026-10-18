@@ -25,6 +25,7 @@ ALARME_PRESSAO: Final[str] = "pressao"
 ALARME_CRIANCA: Final[str] = "crianca_febre_prostrada"
 ALARME_INTOXICACAO: Final[str] = "intoxicacao"
 ALARME_ABDOME: Final[str] = "abdome_direito"
+ALARME_ALERGIA: Final[str] = "reacao_alergica_grave"
 
 _GESTACAO_NO_TEXTO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:gravida|gestante|gravidez|gestacao|semanas de gestacao|gestando|bebe na barriga)\b"
@@ -75,6 +76,12 @@ _ABDOME_DIREITO: Final[re.Pattern[str]] = re.compile(
     r"\bdor\b[^.?!]{0,30}\b(?:barriga|abdomen|abdominal|pe da barriga)\b[^.?!]{0,30}\blado direito\b"
     r"|\blado direito\b[^.?!]{0,30}\b(?:barriga|abdomen)\b"
 )
+#: Inchaco de boca/garganta/lingua/rosto: reacao alergica grave.
+_ALERGIA_GRAVE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:boca|garganta|lingua|labios?|rosto|cara|olhos)\b[^.?!]{0,30}\b(?:inchand\w*|inchad\w*|inchou"
+    r"|inchaco|fechando)\b"
+    r"|\b(?:inchaco|inchou|inchando|inchad\w*)\b[^.?!]{0,20}\b(?:boca|garganta|lingua|labios?|rosto)\b"
+)
 _PIORANDO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:piorando|piora|pior|cada vez mais|so aumenta|aumentando|insuportavel|muito forte)\b"
     r"|\b(?:faz|ha|desde) (?:umas? )?\d+ ?(?:h|horas?)\b"
@@ -109,6 +116,8 @@ def alarme_no_relato(plano: str) -> str | None:
         return ALARME_CRIANCA
     if _INTOXICACAO.search(plano):
         return ALARME_INTOXICACAO
+    if _ALERGIA_GRAVE.search(plano):
+        return ALARME_ALERGIA
     if _ABDOME_DIREITO.search(plano) and _PIORANDO.search(plano):
         return ALARME_ABDOME
     return None
@@ -123,6 +132,7 @@ POPULACAO_DO_ALARME: Final[dict[str, str]] = {
 
 __all__ = [
     "ALARME_ABDOME",
+    "ALARME_ALERGIA",
     "ALARME_CRIANCA",
     "ALARME_GESTACAO",
     "ALARME_INTOXICACAO",
