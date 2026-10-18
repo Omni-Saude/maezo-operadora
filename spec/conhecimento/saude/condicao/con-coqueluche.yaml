@@ -1,0 +1,28 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-coqueluche
+categoria: condicao
+titulo: Coqueluche
+sinonimos:
+- coqueluche
+- tosse comprida
+- pertussis
+- coqueluxe
+- bordetella pertussis
+texto: A coqueluche é uma infecção respiratória causada por uma bactéria. Ela passa de pessoa para pessoa por gotículas da tosse, do espirro ou da fala. Sua marca são as crises de tosse seca, que podem causar vômitos e dificuldade para respirar. Começa parecida com um resfriado e depois a tosse fica mais intensa. O tratamento é definido pelo médico, e clínico geral, pediatra ou infectologista costumam cuidar dela.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Coqueluche (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/c/coqueluche
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/c/coqueluche
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

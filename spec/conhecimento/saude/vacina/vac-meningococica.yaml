@@ -1,0 +1,35 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: vac-meningococica
+categoria: vacina
+titulo: Vacina meningocócica
+sinonimos:
+- vacina meningite
+- meningocócica
+- meningococo
+- vacina meningo
+- meningocócica c
+- meningocócica acwy
+- vacina contra meningite
+- vacina meningocócica
+texto: A vacina meningocócica protege contra infecções causadas pela bactéria meningococo, que podem provocar meningite e outras formas graves de doença. Existem vacinas que protegem contra diferentes tipos da bactéria, chamados sorogrupos, como o C e o ACWY. O Calendário Nacional de Vacinação define quem pode receber cada uma delas. Para saber se é o seu caso, procure uma unidade de saúde ou o seu médico.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Meningite (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/m/meningite
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+- nome: Ministério da Saúde — Calendário Nacional de Vacinação
+  url: https://www.gov.br/saude/pt-br/vacinacao/calendario
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/m/meningite
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-doenca-renal-cronica
+categoria: condicao
+titulo: Doença renal crônica
+sinonimos:
+- doença renal crônica
+- drc
+- insuficiência renal crônica
+- insuficiencia renal
+- rins doentes
+- falência dos rins
+- doenca renal cronica
+texto: A doença renal crônica é a perda gradual da capacidade dos rins de filtrar o sangue. Com isso, resíduos e excesso de água se acumulam no corpo. Muitas vezes ela evolui sem sintomas no início. Diabetes, pressão alta e casos na família são fatores de risco. O tratamento é definido pelo médico e pode envolver mudança de hábitos, remédios ou diálise. O nefrologista costuma cuidar dessa condição.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Doenças Renais Crônicas (DRC) (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/drc
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/drc
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

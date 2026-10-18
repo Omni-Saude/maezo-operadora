@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-colesterol-alto
+categoria: condicao
+titulo: Colesterol alto (dislipidemia)
+sinonimos:
+- colesterol alto
+- dislipidemia
+- hipercolesterolemia
+- triglicerídeos altos
+- triglicerides altos
+- gordura no sangue
+- colesterol elevado
+- colesterol alto (dislipidemia)
+texto: Colesterol alto, ou dislipidemia, é o aumento de gorduras no sangue, como o colesterol e os triglicerídeos. Em geral, não causa sintomas e costuma ser descoberto em exames de sangue. Com o tempo, pode contribuir para problemas no coração e nos vasos sanguíneos. O tratamento é definido pelo médico e pode envolver mudança de hábitos, como alimentação e atividade física, ou remédios. Clínico geral, cardiologista e endocrinologista costumam cuidar desse assunto.
+tipo_texto: proprio
+fontes:
+- nome: Sem página leiga oficial na lista fechada (FONTES.md) — texto próprio, conferir na revisão médica
+  url: null
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

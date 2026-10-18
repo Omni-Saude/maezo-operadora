@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: exa-enzimas-do-figado
+categoria: exame
+titulo: TGO e TGP (enzimas do fígado)
+sinonimos:
+- tgo
+- tgp
+- tgo e tgp
+- transaminases
+- enzimas do fígado
+- ast e alt
+- alt e ast
+- transaminase oxalacética
+- tgo e tgp (enzimas do fígado)
+texto: TGO e TGP são exames de sangue que medem enzimas presentes principalmente no fígado. Quando as células do fígado sofrem algum tipo de agressão, essas enzimas podem aparecer em maior quantidade no sangue. O exame costuma ser pedido para investigar ou acompanhar problemas no fígado, ou o efeito de certos remédios. Em geral, é feito com uma pequena amostra de sangue coletada do braço. O médico avalia o resultado junto com outros dados da saúde de cada pessoa.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)
