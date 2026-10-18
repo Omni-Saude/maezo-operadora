@@ -850,10 +850,7 @@ def _texto_de_escalonamento(
     if motivo == "red_flag_clinico":
         # DOSSIE (18/10/2026): todo alerta clinico da tabela e' ALARME — o texto imperativo com 192, qualquer
         # que seja a severidade (antes, o P2 recebia o aviso generico com "se for uma emergencia").
-        if paciente:
-            return RESPOSTA_ESCALONAMENTO_URGENTE.replace(
-                "ou vá ao pronto-socorro.", f"ou leve {paciente} ao pronto-socorro.", 1
-            )
+        # RODADA DO DONO (18/10/2026): texto NEUTRO — nunca supor genero/parentesco ("leve sua esposa").
         return RESPOSTA_ESCALONAMENTO_URGENTE
     return _texto_de_handoff(motivo, saude=saude)
 
@@ -1404,6 +1401,8 @@ ERRO_HANDOFF_RECUSADO: str = "handoff recusado"
 #: curso.
 FRASE_PASSAGEM_COBRANCA: str = "Vou te passar para o Lucas, nosso assistente financeiro."
 _FRASE_PASSAGEM_ANTERIOR: str = "Vou chamar quem cuida da parte financeira."
+#: RODADA DO DONO (18/10/2026): cancelamento nao e' "financeiro".
+FRASE_PASSAGEM_CANCELAMENTO: str = "Vou te passar para o Lucas, que cuida de pedidos do seu plano."
 #: `response_kind` do turno que passou a conversa ao Lucas.
 RESPONSE_KIND_HANDOFF: str = "handoff"
 #: Desfechos do turno de passagem. Declarados tambem em `runtime/turn_telemetry.py` (vocabulario da
@@ -3653,13 +3652,59 @@ def _pergunta_de_outro_fato_do_plano(texto: str) -> bool:
     return bool(_PEDE_OUTRO_FATO_DO_PLANO.search(_plano(texto)))
 
 
-def _texto_de_cobertura(fatos: Mapping[str, Any] | None) -> str:
-    """A resposta a "meu plano cobre X?": a SEGMENTACAO registrada (fato do cadastro) e onde confirmar um
-    procedimento especifico — nunca a promessa de cobertura. Sem segmentacao, so' o onde confirmar."""
+#: RODADA DO DONO (18/10/2026): o que cada SEGMENTACAO abrange pela regra da ANS (Lei 9.656/98, art. 12;
+#: RN 465/2021), em linhas gerais — nunca a promessa de um procedimento.
+_O_QUE_A_SEGMENTACAO_ABRANGE: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"\breferencia\b"),
+        "o plano-referência reúne as partes ambulatorial, hospitalar e de obstetrícia",
+    ),
+    (
+        re.compile(r"\bambulatorial\b"),
+        "a parte ambulatorial abrange consultas, exames e terapias sem internação",
+    ),
+    (re.compile(r"\bhospitalar\b"), "a hospitalar abrange internações e cirurgias"),
+    (re.compile(r"\bobstetric\w*"), "com obstetrícia, inclui o pré-natal e o parto"),
+    (re.compile(r"\bodonto\w*"), "a odontológica abrange o atendimento com dentista"),
+)
+AVISO_DA_SEGMENTACAO: str = (
+    "Isso vale para o que está no Rol da ANS; cada procedimento depende de carência, autorização e indicação "
+    "médica."
+)
+
+
+def explicacao_da_segmentacao(segmentacao: str) -> str | None:
+    """Em linhas gerais, pela regra da ANS, o que a segmentacao registrada abrange, ou `None`."""
+    plano = _plano(segmentacao)
+    partes = [texto for padrao, texto in _O_QUE_A_SEGMENTACAO_ABRANGE if padrao.search(plano)]
+    if not partes:
+        return None
+    if partes[0].startswith("o plano-referência"):
+        partes = partes[:1]
+    frase = "Pela regra da ANS, " + "; ".join(partes) + "."
+    return f"{frase} {AVISO_DA_SEGMENTACAO}"
+
+
+#: A pergunta GERAL de cobertura ("o que ele cobre?", "qual a cobertura do meu plano?") — nao a de um
+#: procedimento ("cobre parto?").
+_PERGUNTA_GERAL_DE_COBERTURA = re.compile(
+    r"\bo que (?:ele |o (?:meu )?plano |meu plano |o plano )?(?:cobre|abrange|inclui)\b"
+    r"|\bqual (?:e )?a cobertura\b|\bo que (?:esta|ta) coberto\b|\bcobre o que\b"
+)
+
+
+def _texto_de_cobertura(fatos: Mapping[str, Any] | None, *, geral: bool = False) -> str:
+    """A resposta a "meu plano cobre X?": a SEGMENTACAO registrada (fato do cadastro), o que ela abrange em
+    linhas gerais pela regra da ANS, e onde confirmar um procedimento especifico — nunca a promessa de
+    cobertura. Sem segmentacao, so' o onde confirmar."""
     segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
     if segmentacao is None:
         return RESPOSTA_COBERTURA_ESPECIFICA
-    return f"{MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=segmentacao)} {RESPOSTA_COBERTURA_ESPECIFICA}"
+    explicacao = explicacao_da_segmentacao(segmentacao) if geral else None
+    cadastro = MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=segmentacao)
+    if explicacao:
+        return f"{cadastro} {explicacao} {RESPOSTA_COBERTURA_ESPECIFICA}"
+    return f"{cadastro} {RESPOSTA_COBERTURA_ESPECIFICA}"
 
 
 def _texto_plano_indisponivel(estado: Mapping[str, Any], *, fonte_ligada: bool = False) -> str:
@@ -4023,7 +4068,8 @@ def _frase_de_passagem_ja_dita(estado: Mapping[str, Any]) -> bool:
     dez vezes seguidas quando o Lucas escalava ou soltava a conversa e a pergunta seguinte era de novo de
     cobranca. Ela so' sai quando a conversa troca de agente pela primeira vez na janela do historico."""
     return any(
-        f.startswith((FRASE_PASSAGEM_COBRANCA, _FRASE_PASSAGEM_ANTERIOR)) for f in _falas_da_helena(estado)
+        f.startswith((FRASE_PASSAGEM_COBRANCA, _FRASE_PASSAGEM_ANTERIOR, FRASE_PASSAGEM_CANCELAMENTO))
+        for f in _falas_da_helena(estado)
     )
 
 
@@ -5352,7 +5398,19 @@ class HelenaGraph:
             if decidido is not None:
                 return decidido
         ja_triado = bool(extraction.get("sintoma_codigo"))
-        if ja_triado and await self._triar_red_flag(extraction, update):
+        # RODADA DO DONO (18/10/2026), so' na allowlist: DUVIDA EDUCATIVA ("os sintomas de problemas cardiacos
+        # em
+        # mulheres podem ser diferentes? o que devo observar alem da dor no peito?") nao e' quadro atual. A
+        # tabela
+        # de alarme roda SEMPRE, mas so' ESCALA com quadro atual; a duvida vai a redacao. Com sinal grave
+        # explicito e presente ("estou com dor no peito e falta de ar") e' quadro: escala (o lado seguro).
+        duvida_educativa = self._gerativa_para(state) and _sg.e_duvida_educativa(_plano(texto_clinico))
+        triou = ja_triado and await self._triar_red_flag(extraction, update)
+        if triou and duvida_educativa and update.get("escalation_motivo") == "red_flag_clinico":
+            logger.info("helena_duvida_educativa_nao_escala", node="classify")
+            for chave in ("next_kind", "escalation_motivo", "escalation_severidade"):
+                update.pop(chave, None)
+        elif triou:
             # BASE DE SAUDE (ADR-0064, DL-0118 — MUDANCA DE REGRA CLINICA aprovada pelo dono SO' para dev): o
             # fail-safe da tabela de ADULTO ("sintoma nao mapeado com intensidade grave", r10) deixa de abrir
             # caso NA HORA quando e' DOR sem sinal de alarme — o turno segue para as perguntas de ALERTA da
@@ -5374,9 +5432,13 @@ class HelenaGraph:
         # rebaixa: sem caso aberto, quem decide continua sendo a tabela.
         caso_aberto = _caso_aberto_no_historico(state)
         texto_do_turno = str(state.get("message_body") or "")
-        if caso_aberto is not None and (
-            _sinal_forte_de_emergencia(texto_do_turno)
-            or (caso_aberto == CASO_ABERTO_CLINICO and _sinal_fraco_de_emergencia(texto_do_turno))
+        if (
+            caso_aberto is not None
+            and not duvida_educativa
+            and (
+                _sinal_forte_de_emergencia(texto_do_turno)
+                or (caso_aberto == CASO_ABERTO_CLINICO and _sinal_fraco_de_emergencia(texto_do_turno))
+            )
         ):
             logger.warning(
                 "helena_alerta_com_caso_aberto", node="classify", caso_aberto=caso_aberto, intent=intent
@@ -6705,21 +6767,38 @@ class HelenaGraph:
         plano = _plano(texto)
         base = self._base_hoje()
         informativa = _bs.pergunta_informativa(plano)
-        queixa = relata_sintoma(plano, None) and _bs.primeira_pessoa(plano)
+        gerativa = self._gerativa_para(state)
+        # RODADA DO DONO (18/10/2026), so' na allowlist: DUVIDA EDUCATIVA com palavras de sintoma ("alteracoes
+        # no
+        # fluxo, colicas intensas... sao normais ou podem indicar endometriose?") nao e' queixa atual: vai a
+        # redacao, sem perguntas de alerta, sem caso.
+        duvida = gerativa and _sg.e_duvida_educativa(plano)
+        if duvida:
+            informativa = True
+        queixa = relata_sintoma(plano, None) and _bs.primeira_pessoa(plano) and not duvida
         # (1) ALARME de um arquivo `sin-*` numa QUEIXA: escala na hora, como a tabela (192 no texto).
-        if (queixa or extraction.get("sintoma_codigo")) and _bs.alarme_no_texto(base, texto):
+        if not duvida and (queixa or extraction.get("sintoma_codigo")) and _bs.alarme_no_texto(base, texto):
             logger.warning("helena_base_saude_alarme_do_sintoma", node="classify")
             update["intent"] = "symptom"
             update["next_kind"] = "escalate"
             update["escalation_motivo"] = "red_flag_clinico"
             update["escalation_severidade"] = "grave"
             return update
-        gerativa = self._gerativa_para(state)
+        pergunta_nova = (
+            # RODADA DO DONO (18/10/2026): com as perguntas de ALERTA pendentes, uma PERGUNTA NOVA (nao
+            # sim/nao,
+            # sem quadro atual) sai do alerta e e' tratada como nova — nunca vira caso.
+            pend_v4 is not None
+            and pend_v4.etapa == ETAPA_ALERTA
+            and resposta_ao_alerta(plano) is None
+            and (duvida or ("?" in texto and not _sg.queixa_atual(plano)))
+        )
         if pend_v4 is not None and not (
             # FASE 2 (18/10/2026), so' na allowlist: depois das OPCOES 1/2, uma mensagem que NAO e' a escolha
             # ("tenho SOP, e' a mesma coisa que cisto?") e' uma pergunta nova, nao resposta a v4. Antes ela
             # caia no gatilho 2 (`intencao_clinica`, caso P2 na enfermagem — teste do dono de 17/10, 22:28).
-            gerativa and pend_v4.etapa == ETAPA_ESCOLHA and escolha_da_resposta(plano) is None
+            gerativa
+            and ((pend_v4.etapa == ETAPA_ESCOLHA and escolha_da_resposta(plano) is None) or pergunta_nova)
         ):
             # A pessoa esta' respondendo a v4 (alerta/opcao): quem decide e' a v4.
             return None
@@ -6745,7 +6824,7 @@ class HelenaGraph:
         if queixa:
             # QUEIXA ATUAL (sintoma dito em primeira pessoa ou de um familiar: "estou com", "meu filho esta'
             # com dor"): nunca e' "duvida geral" nem "resultado pessoal" — segue a tabela/v4 (alerta).
-            if gerativa and update.get("intent") == "clinical_question":
+            if gerativa and update.get("intent") == "clinical_question" and _sg.queixa_atual(plano):
                 # ROTEIRO helena_fases_18_10 (18/10/2026), so' na allowlist: "estou com dor nas costas, e'
                 # grave?" e' QUEIXA com uma pergunta junto — vai a tabela e as perguntas de alerta como
                 # sintoma,
@@ -6783,6 +6862,8 @@ class HelenaGraph:
             return None
         if not (informativa or pessoal or clinica or seguimento):
             return None
+        if pergunta_nova and not (informativa or pessoal or clinica or seguimento):
+            informativa = True
         if not informativa and especialidade_pedida(plano) is not None:
             return None  # "preciso de um cardiologista": o texto de onde marcar (v4), nao "o que e'"
         if gerativa:
@@ -6920,7 +7001,10 @@ class HelenaGraph:
 
     @staticmethod
     def _gerativa_e_crianca(update: Mapping[str, Any], plano: str) -> bool:
-        return populacao_da_v4(update.get("population"), plano) == POPULACAO_CRIANCA
+        # RODADA DO DONO (18/10/2026): a populacao vale SO' para a pergunta atual (ou quando a pessoa a cita)
+        # —
+        # "existe alguma pilula que eu possa substituir..." herdou "crianca" do assunto anterior (o bebe).
+        return populacao_da_v4("none", plano) == POPULACAO_CRIANCA
 
     async def _busca_semantica(
         self, state: Mapping[str, Any], base: _bs.BaseSaude, texto: str, *, crianca: bool | None = None
@@ -6995,13 +7079,10 @@ class HelenaGraph:
         """FASE 3: a populacao em vocabulario fechado para o resumo da redacao."""
         if crianca:
             return "crianca"
-        memoria = state.get("memoria_clinica") if isinstance(state.get("memoria_clinica"), Mapping) else {}
-        populacao = update.get("population") or (memoria or {}).get("population")
-        if populacao == "gestante" or re.search(
-            r"\b(?:gravida|gestante|gravidez|gestacao)\b", _plano(contexto)
-        ):
+        # RODADA DO DONO (18/10/2026): so' o que a pergunta atual diz (nunca a memoria de outro assunto).
+        if re.search(r"\b(?:gravida|gestante|gravidez|gestacao)\b", _plano(contexto)):
             return "gestante"
-        idade = update.get("idade_anos") or (memoria or {}).get("idade_anos")
+        idade = update.get("idade_anos")
         if isinstance(idade, int) and idade >= 60:
             return "idoso"
         return "adulto"
@@ -7022,7 +7103,12 @@ class HelenaGraph:
         plano = _plano(texto)
         anteriores = _sg.contexto_da_pessoa(self._falas_da_pessoa(state))
         contexto = " ".join((*anteriores, texto))
-        crianca = self._gerativa_e_crianca(update, _plano(contexto))
+        crianca = self._gerativa_e_crianca(update, plano)
+        if not crianca:
+            # As mensagens anteriores que falam de crianca nao entram numa pergunta nova de adulto.
+            anteriores = tuple(
+                a for a in anteriores if populacao_da_v4("none", _plano(a)) != POPULACAO_CRIANCA
+            )
         apoio = await self._apoio_da_pergunta(state, base, texto, crianca=crianca)
         anteriores, assunto_anterior = self._contexto_do_mesmo_assunto(state, base, anteriores, apoio, plano)
         pedido = _sg.Pedido(
@@ -7818,7 +7904,9 @@ class HelenaGraph:
             # RODADA 8 (teste real do dono): "Meu plano cobre parto?" — a segmentacao REGISTRADA (com
             # obstetricia, se houver) e onde confirmar o procedimento; nunca a promessa e nunca o bloco
             # inteiro do plano (o dono perguntou so' a cobertura). Texto deterministico, sem modelo.
-            texto = _texto_de_cobertura(fatos)
+            texto = _texto_de_cobertura(
+                fatos, geral=bool(_PERGUNTA_GERAL_DE_COBERTURA.search(_plano(mensagem_do_turno)))
+            )
             recusa: str | None = "cobertura_deterministica"
         elif subtipo in SUBTIPOS_REDIGIDOS and not so_deterministica(
             subtipo, fatos, carteirinha_completa=self._carteirinha_completa
@@ -8043,6 +8131,8 @@ class HelenaGraph:
         # seguidas quando o Lucas escalava e a conversa voltava). E, quando a mensagem tambem pergunta do
         # plano (com a fonte do plano desligada), a Helena diz onde ver a cobertura.
         frase = "" if lucas_ativo or _frase_de_passagem_ja_dita(state) else FRASE_PASSAGEM_COBRANCA
+        if frase and handoff["cobranca_subtipo"] == "cancelamento":
+            frase = FRASE_PASSAGEM_CANCELAMENTO
         mensagem = str(state.get("message_body") or "")
         nota, extras = await self._plano_na_passagem(state) if _pergunta_do_plano(mensagem) else ("", {})
         logger.info(

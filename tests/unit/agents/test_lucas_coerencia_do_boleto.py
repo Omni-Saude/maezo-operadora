@@ -413,3 +413,17 @@ def test_mes_vencido_responde_o_valor_do_boleto_primeiro_e_o_atraso_depois() -> 
         == "Ela venceu em 15/10 e ainda está sem pagamento confirmado."
     )
     assert _frase_de_atraso_do_pagador(_OUTUBRO, date(2026, 10, 17)) is None
+
+
+def test_segunda_via_sem_boleto_em_aberto_diz_que_ja_foi_paga() -> None:
+    """Rodada do dono (18/10/2026): outubro pago e a 2a via sem titulo — "nao ha' boleto em aberto", nunca
+    "nao encontrei o codigo de barras" (falha ao obter o codigo e' outra coisa)."""
+    from maezo.agents.lucas.graph import _sem_boleto_em_aberto
+
+    pago = {**_OUTUBRO, "situacao": "paga", "liquidado_em": "2026-10-09"}
+    estado: Any = {"competencias_cobranca": [pago, _SETEMBRO]}
+    achado = _sem_boleto_em_aberto(estado, date(2026, 10, 18))
+    assert achado is not None
+    assert achado[0] == "Não há boleto em aberto: a mensalidade de outubro de 2026 já foi paga em 09/10."
+    com_aberto: Any = {"competencias_cobranca": [_OUTUBRO, _SETEMBRO]}
+    assert _sem_boleto_em_aberto(com_aberto, date(2026, 10, 18)) is None

@@ -235,6 +235,44 @@ _PRIMEIRA_PESSOA_AMPLA: Final[re.Pattern[str]] = re.compile(
 )
 
 
+#: RODADA DO DONO (18/10/2026, teste com a Tania): QUADRO ATUAL = primeira pessoa/terceiro com marcador de
+#: presente ou de tempo ("estou com", "sinto agora", "desde ontem", "minha filha esta' com", "comecou hoje").
+_QUADRO_ATUAL: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:estou|to|tou|ando|eu estou) (?:com|sentindo|tendo|perdendo|passando mal)\b"
+    r"|\b(?:esta|ta|tá|estao|tao) (?:com|sentindo|tendo)\b|\bsinto agora\b|\bestou sentindo\b"
+    r"|\bdesde (?:ontem|hoje|anteontem|cedo|a noite|de manha|\d+|o dia|a semana|segunda|terca|quarta|quinta"
+    r"|sexta|sabado|domingo)\b|\bcomec\w* (?:hoje|agora|ontem|ha|de repente|faz)\b"
+    r"|\b(?:ha|faz) (?:\d+|um|uma|dois|duas|tres|alguns|algumas) (?:minutos?|horas?|dias?|semanas?)\b"
+    r"|\b(?:agora|neste momento|nesse momento|de repente)\b|\b(?:me|minha|meu) \w+ (?:doi|doendo)\b"
+    r"|\bestou gravida\b[^.?!]{0,40}\b(?:sangr|dor|perd)"
+)
+#: DUVIDA EDUCATIVA: pergunta sobre o assunto em geral ("pode indicar", "e' normal", "quais os sintomas", "o
+#: que
+#: devo observar", "como saber se", "afetam o risco", "podem ser diferentes").
+_DUVIDA_EDUCATIVA: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:pode|podem|poderia|poderiam) (?:indicar|significar|ser sinal|ser sintoma|ser diferentes?|causar"
+    r"|aumentar|afetar|virar)\b|\b(?:e|sao|eh) norma(?:l|is)\b|\bnormais\b"
+    r"|\bquais (?:sao )?(?:os |as )?(?:sintomas|sinais|exames|causas|riscos|fatores)\b"
+    r"|\bo que (?:devo|devemos|preciso|precisa) (?:observar|saber|fazer para (?:prevenir|evitar))\b"
+    r"|\bcomo (?:saber|sei|identificar|reconhecer|diferenciar|prevenir|evitar)\b"
+    r"|\b(?:afeta|afetam|aumenta|aumentam|influencia|influenciam|interfere|interferem)\b[^.?!]{0,40}\brisco\b"
+    r"|\brisco de\b|\b(?:sao|e) diferentes?\b|\bdiferenca entre\b|\bqual a diferenca\b"
+    r"|\bem (?:mulheres|homens|criancas|idosos)\b|\bpara a minha (?:idade|faixa etaria)\b"
+    r"|\bminha faixa etaria\b|\brastreamento\b|\bsubstituir\b"
+)
+
+
+def queixa_atual(plano: str) -> bool:
+    """A mensagem (normalizada) descreve um QUADRO ATUAL (presente ou tempo de inicio)?"""
+    return bool(_QUADRO_ATUAL.search(plano))
+
+
+def e_duvida_educativa(plano: str) -> bool:
+    """A mensagem (normalizada) e' uma DUVIDA EDUCATIVA sobre o assunto, SEM quadro atual? Com quadro atual
+    (presente), vale o quadro: a tabela e as perguntas de alerta, como sempre (o lado seguro)."""
+    return bool(_DUVIDA_EDUCATIVA.search(plano)) and not queixa_atual(plano)
+
+
 def pergunta_pessoal_de_saude(plano: str, bruto: str, *, assunto_de_saude: bool) -> bool:
     """A mensagem (normalizada) e' uma DUVIDA sobre um diagnostico/condicao/resultado DA PESSOA, sem queixa
     atual ("tenho SOP, e' a mesma coisa que cisto?", "fui diagnosticada com mioma, e' perigoso?"). Quem chama
@@ -541,10 +579,18 @@ _FALA_DE_VACINA: Final[re.Pattern[str]] = re.compile(
 _FRASES: Final[re.Pattern[str]] = re.compile(r"(?<=[.!?\n])\s+")
 
 
+#: RODADA DO DONO (18/10/2026): a UNIDADE de laboratorio sozinha ("a glicemia e' medida em mg/dL") nao e'
+#: quantidade de remedio (a checagem "quantidade de medicamento" reprovava a resposta sobre exames).
+_UNIDADE_DE_EXAME: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:g|mg|mcg|ng|pg|ui|mui|meq|mmol|umol)\s?/\s?(?:dl|l|ml|mm3|ul|h)\b", re.IGNORECASE
+)
+
+
 def texto_para_as_cercas(texto: str) -> str:
     """O texto que as cercas de DOSE/CONDUTA leem: sem os valores de exame com unidade de laboratorio e sem a
     frequencia anual nas frases de vacina. O texto ENVIADO nao muda."""
     t = _VALOR_DE_EXAME.sub(" [valor de exame] ", texto)
+    t = _UNIDADE_DE_EXAME.sub(" [unidade de exame] ", t)
     frases = _FRASES.split(t)
     return " ".join(_FREQUENCIA_ANUAL.sub(" ", f) if _FALA_DE_VACINA.search(f) else f for f in frases)
 

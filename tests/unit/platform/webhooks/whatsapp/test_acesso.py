@@ -199,12 +199,19 @@ def test_hoje_e_aceito_mas_futuro_nao() -> None:
     assert ac.ler_nascimento("09/10/2026", hoje=HOJE).nascimento is None
 
 
-@pytest.mark.parametrize("texto", ["ACEITO", "aceito", "Aceito.", "aceito!", "  ÁCEITO ", "Aceitó"])
+@pytest.mark.parametrize(
+    "texto",
+    [
+        *("ACEITO", "aceito", "Aceito.", "aceito!", "  ÁCEITO ", "Aceitó"),
+        # Rodada do dono (18/10/2026, DL-0124): as variacoes inequivocas.
+        *("Aceitar", "aceito sim", "Sim, aceito", "Concordo", "pode", "Eu aceito"),
+    ],
+)
 def test_aceito_variantes(texto: str) -> None:
     assert ac.eh_aceito(texto)
 
 
-@pytest.mark.parametrize("texto", ["aceito sim", "nao aceito", "ok", "", "aceitar"])
+@pytest.mark.parametrize("texto", ["nao aceito", "ok", "", "sim", "pode ser", "aceito, mas", "talvez"])
 def test_nao_e_aceito(texto: str) -> None:
     assert not ac.eh_aceito(texto)
 
@@ -242,7 +249,8 @@ async def test_nao_aceito_repete_o_pedido_e_agentes_nao_rodam(amb: Ambiente) -> 
     await amb.msg("oi")
     for texto in ("quero falar do boleto", "nao", "123"):
         d = await amb.msg(texto)
-        assert d.respostas == (ac.TEXTO_CONSENTIMENTO,) and not d.prosseguir
+        # Rodada do dono (18/10/2026): o texto inteiro ja' saiu no "oi"; agora so' o lembrete curto.
+        assert d.respostas == (ac.LEMBRETE_CONSENTIMENTO,) and not d.prosseguir
         assert d.novo.estado == ac.SEM_CONSENTIMENTO
 
 

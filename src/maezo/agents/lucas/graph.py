@@ -1701,6 +1701,23 @@ def _frase_de_valor_do_pagador_v4(c: Mapping[str, str], hoje: date) -> str | Non
     return " ".join(partes)
 
 
+def _sem_boleto_em_aberto(state: LucasState, hoje: date) -> tuple[str, dict[str, str]] | None:
+    """Nenhuma competencia em aberto/vencida nos fatos e a pedida (ou a mais recente) PAGA: "Nao ha' boleto em
+    aberto: a mensalidade de <mes> ja' foi paga em DD/MM." (com o fato, para a cerca). `None` caso contrario
+    (o texto de "nao encontrei o codigo" de sempre)."""
+    competencias = _competencias_dos_fatos(state)
+    if not competencias or any(c["situacao"] in ("em_aberto", "vencida") for c in competencias):
+        return None
+    pedida = state.get("competencia") or None
+    c = next((x for x in competencias if x["competencia"] == pedida), competencias[0])
+    if c["situacao"] != "paga":
+        return None
+    mes = _mes_por_extenso(c["competencia"], hoje)
+    pagou = _dia_mes(c.get("liquidado_em"), hoje)
+    quando = f" em {pagou}" if pagou else ""
+    return f"Não há boleto em aberto: a mensalidade de {mes} já foi paga{quando}.", dict(c)
+
+
 def _boleto_da_segunda_via_v4(state: LucasState) -> dict[str, Any] | None:
     """O boleto da 2a via que o estado traz (um so'), na forma do contrato; `fato` e' o que a cerca confere.
     NENHUM campo e' credencial. `None` quando nao tem a forma (o grafo segue com o texto de antes)."""
@@ -4574,6 +4591,13 @@ class LucasGraph:
             "dmn_refs": state.get("dmn_refs", {}),
         }
         if state.get("segunda_via_estado") == SEGUNDA_VIA_SEM_CODIGO:
+            # RODADA DO DONO (18/10/2026): "nao ha' titulo em aberto" e' diferente de "falha ao obter o
+            # codigo".
+            sem_aberto = _sem_boleto_em_aberto(state, self._hoje())
+            if sem_aberto is not None:
+                texto_pago, fato = sem_aberto
+                facts["competencias"] = [fato]
+                return self._mensagem(texto_pago, facts, SEGUNDA_VIA_TEXTO_VERSION, state)
             return self._mensagem(TEXTO_SEM_CODIGO_V4, facts, SEGUNDA_VIA_TEXTO_VERSION, state)
         boleto = _boleto_da_segunda_via_v4(state)
         if boleto is None:

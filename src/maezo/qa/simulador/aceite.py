@@ -1528,6 +1528,76 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
             "carencia/autorizacao/indicacao"
         ),
     ),
+    # RODADA DO DONO (18/10/2026, teste com a Tania): duvida educativa com palavras de sintoma, faixa etaria,
+    # populacao herdada. Textos LITERAIS do teste.
+    Segmento(
+        "7-duvida-cardiaca-em-mulheres",
+        (
+            _gerativa(
+                "Os sintomas de problemas cardíacos em mulheres podem ser diferentes? O que devo observar "
+                "além da dor no peito?",
+                r"(mulher|sintoma)",
+                nao_deve=("esposa", r"responda sim ou nao", r"ligue 192 \(samu\) agora"),
+            ),
+        ),
+        resolveu="a duvida educativa foi respondida (sem P1, sem caso, sem supor parentesco)",
+    ),
+    Segmento(
+        "8-hormonios-e-risco",
+        (
+            _gerativa(
+                "Como os hormônios femininos (ou a chegada da menopausa) afetam o meu risco de infarto, AVC "
+                "e pressão alta?",
+                r"(hormon|menopausa|estrogen)",
+                nao_deve=(r"responda sim ou nao",),
+            ),
+        ),
+        resolveu="hormonios x risco cardiovascular foi explicado, sem 'encaminhamos seu caso'",
+    ),
+    Segmento(
+        "9-fluxo-menstrual-endometriose",
+        (
+            _gerativa(
+                "Alterações no meu fluxo menstrual, cólicas intensas ou dor na relação sexual são normais ou "
+                "podem indicar endometriose/mioma?",
+                r"(endometriose|mioma)",
+                r"(ginecolog|medic)",
+                nao_deve=(r"responda sim ou nao", r"vomit"),
+            ),
+        ),
+        resolveu="a duvida sobre endometriose/mioma foi respondida, sem as perguntas de alerta de barriga",
+    ),
+    Segmento(
+        "10-rastreamento-por-idade",
+        (
+            _gerativa(
+                "Quais exames de rastreamento (como colonoscopia) são obrigatórios para a minha faixa "
+                "etária?",
+                r"(rastreamento|colonoscopia|exame)",
+                nao_deve=(r"faixa etaria no cadastro", r"sua faixa etaria .{0,20}e: "),
+            ),
+            _gerativa("Sim, mas quais exames?", r"(exame|colonoscopia|mamografia|papanicolau|preventivo)"),
+        ),
+        resolveu="rastreamento por idade explicado em geral (nunca o cadastro) e o seguimento respondido",
+    ),
+    Segmento(
+        "11-populacao-nao-herdada",
+        (
+            _gerativa("O que é febre em bebê?", r"(bebe|febre)"),
+            _gerativa(
+                "Existe alguma pílula que eu possa substituir por mudanças na alimentação ou hábitos "
+                "físicos?",
+                r"(alimenta|habito|medic)",
+                nao_deve=(r"\bpediatra\b", r"\ba crianca\b", r"\bo bebe\b"),
+            ),
+        ),
+        resolveu="a pergunta nova de adulto nao herdou 'crianca/pediatra' do assunto anterior",
+    ),
+    Segmento(
+        "12-contraprova-alarme",
+        (_p("estou com dor no peito e falta de ar", escalacao="red_flag_clinico", deve=("ligue 192",)),),
+        resolveu="o quadro atual com sinal grave continuou escalando na hora com 192",
+    ),
 )
 
 #: Os telefones (sufixo da faixa do simulador) de cada segmento, quando o roteiro precisa de telefones
@@ -1535,7 +1605,7 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
 #: `helena_saude_gerativa`: 790..798 estao na allowlist do dev (tfvars), o 789 NAO (segmento 10).
 TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
     "helena_saude_gerativa": (790, 791, 792, 793, 794, 795, 796, 797, 798, 789),
-    "helena_fases_18_10": (790, 791, 792, 793, 794, 795),
+    "helena_fases_18_10": (790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792),
 }
 
 # ================================================================================================

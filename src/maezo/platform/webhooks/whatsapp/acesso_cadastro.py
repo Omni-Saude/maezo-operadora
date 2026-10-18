@@ -70,7 +70,12 @@ _FAIXAS: Final[dict[str, str]] = {
 # (cobranca/saude/pessoa).
 _MISTURA: Final[re.Pattern[str]] = re.compile(
     r"\b(?:boletos?|faturas?|cobrancas?|mensalidades?|pagamentos?|pagar|paguei|pix|debito|vencimento|reembolso"
-    r"|atendente|humano|pessoa|dor|febre|sintoma\w*|sangr\w+|emergencia|urgencia)\b"
+    r"|atendente|humano|pessoa|dor|febre|sintoma\w*|sangr\w+|emergencia|urgencia"
+    # RODADA DO DONO (18/10/2026): "faixa etaria" dentro de uma pergunta de SAUDE ("quais exames de
+    # rastreamento
+    # sao obrigatorios para a minha faixa etaria?") e' assunto da Helena, nunca o cadastro.
+    r"|exames?|rastreamento|colonoscopia|mamografia|preventiv\w*|check ?up|vacina\w*|risco|doencas?|cancer"
+    r"|cirurgias?|procedimentos?|consultas?|medic\w*|remedios?|tratamentos?)\b"
 )
 _PLANO_ATIVO: Final[re.Pattern[str]] = re.compile(
     r"\bplano\b.{0,30}\b(?:ativo|ativa|vigente|valido|valida|cancelado|cancelada|em dia)\b"
