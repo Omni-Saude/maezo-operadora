@@ -1385,6 +1385,10 @@ ERRO_CONSULTA_RECUSADA: str = "consulta recusada"
 NEXT_KIND_CONSULTA_PLANO: str = "consulta_plano"
 #: Teto do tempo que a consulta a AMH soma ao turno (cada leitura ja' e' limitada pelo port).
 CONSULTA_PRAZO_S: float = 6.0
+#: ROTEIRO helena_fases_18_10 (18/10/2026): a busca de cobertura da AMH (termo no Rol x plano) passou dos 6 s
+#: da
+#: consulta do plano; o leitor ja' tem o proprio teto (`helena_consultas.PRAZO_TOTAL_S`, 20 s).
+COBERTURA_PRAZO_S: float = 18.0
 #: Onda (e): o prefixo do `error` quando `_handoff_recusado` barrou a passagem ao Lucas. Mesmo
 #: formato do de cima: o sufixo e' o TOKEN DE CLASSE da precondicao violada, nunca texto.
 ERRO_HANDOFF_RECUSADO: str = "handoff recusado"
@@ -5407,6 +5411,7 @@ class HelenaGraph:
             decidido_base = await self._base_antes_dos_gatilhos(state, update, extraction, pend_v4, conversa)
             if decidido_base is not None:
                 return decidido_base
+            intent = cast(Intent, update.get("intent") or intent)
 
         # HELENA V4 (DL-0115): DEPOIS dos portoes de seguranca (classificador, risco psicossocial, tabela de
         # alarme, emergencia com caso aberto, recem-nascido) e ANTES dos gatilhos de intencao e de pessoa: a
@@ -6740,6 +6745,13 @@ class HelenaGraph:
         if queixa:
             # QUEIXA ATUAL (sintoma dito em primeira pessoa ou de um familiar: "estou com", "meu filho esta'
             # com dor"): nunca e' "duvida geral" nem "resultado pessoal" — segue a tabela/v4 (alerta).
+            if gerativa and update.get("intent") == "clinical_question":
+                # ROTEIRO helena_fases_18_10 (18/10/2026), so' na allowlist: "estou com dor nas costas, e'
+                # grave?" e' QUEIXA com uma pergunta junto — vai a tabela e as perguntas de alerta como
+                # sintoma,
+                # nunca ao gatilho 2 (`intencao_clinica`, o transbordo falso que o dono quer eliminar).
+                logger.info("helena_queixa_com_pergunta_vira_sintoma", node="classify")
+                update["intent"] = "symptom"
             return None
         # SAUDE GERATIVA (ADR-0065), so' na allowlist: mais formas de pergunta de saude ("como tratar?",
         # "quais
@@ -7880,7 +7892,7 @@ class HelenaGraph:
             logger.info("helena_cobertura_rol", node="consultar_plano", resultado="sem_termo")
             return None
         try:
-            async with asyncio.timeout(CONSULTA_PRAZO_S):
+            async with asyncio.timeout(COBERTURA_PRAZO_S):
                 view = await leitor(ref, termo)
         except PROGRAMMING_ERRORS:
             raise
