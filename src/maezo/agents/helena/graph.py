@@ -152,6 +152,7 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.conhecimento import base_saude as _bs
+from maezo.conhecimento import jornadas as _jornadas
 from maezo.conhecimento import saude_gerativa as _sg
 from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
 from maezo.ports.tina import ElegibilidadeView
@@ -728,9 +729,9 @@ RESPOSTA_ACOLHIMENTO: str = (
     "(ligação gratuita, 24h). Se estiver em perigo agora, ligue 192."
 )
 RESPOSTA_ESCALONAMENTO_URGENTE: str = (
-    "Ligue 192 (SAMU) agora ou vá ao pronto-socorro. Em uma emergência, não espere o nosso "
-    "contato. Também encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar "
-    "continuidade ao seu atendimento."
+    "Ligue 192 (SAMU) agora ou vá ao pronto-socorro. Não dirija: peça para alguém te levar ou chame o "
+    "SAMU. Em uma emergência, não espere o nosso contato. Também encaminhamos o seu caso para a nossa "
+    "equipe de saúde, e um profissional vai dar continuidade ao seu atendimento."
 )
 RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL: str = (
     "Sinto muito que você esteja passando por isso. Você pode conversar agora com o CVV, no 188 "
@@ -7111,6 +7112,9 @@ class HelenaGraph:
             )
         apoio = await self._apoio_da_pergunta(state, base, texto, crianca=crianca)
         anteriores, assunto_anterior = self._contexto_do_mesmo_assunto(state, base, anteriores, apoio, plano)
+        # TINA (18/10/2026): no maximo UM passo da jornada do plano (texto fixo da operadora, acrescentado no
+        # fim).
+        jornada = _jornadas.jornada_da_pergunta(plano, apoio.categoria if apoio is not None else None)
         pedido = _sg.Pedido(
             modo=modo,
             mensagem=_sg.minimizar(texto),
@@ -7122,13 +7126,20 @@ class HelenaGraph:
             forma_da_oferta=len(_falas_da_helena(state)),
             populacao=self._populacao_do_resumo(state, update, contexto, crianca),
             assunto_anterior=assunto_anterior,
+            # TINA (18/10/2026): o que a PROPRIA pessoa disse de si antes (fuma, bebe...), so' dela.
+            fatos_da_pessoa=_sg.fatos_ditos_pela_pessoa(self._falas_da_pessoa(state)),
+            com_jornada=jornada is not None,
         )
         redacao = await self._gerativa.redigir(pedido, cercas=self._cercas_da_helena)
         if redacao is None:
             return None
-        self._guardar_gerativa(state, redacao.texto)
+        texto_final = redacao.texto
+        if jornada is not None and redacao.desfecho not in ("padrao", "falha"):
+            texto_final = f"{texto_final}\n{_jornadas.TEXTOS[jornada]}"
+            logger.info("helena_jornada_do_plano", node="classify", jornada=jornada)
+        self._guardar_gerativa(state, texto_final)
         logger.info("helena_saude_gerativa_responde", node="classify", modo=modo, desfecho=redacao.desfecho)
-        return self._base_texto_fixo(update, redacao.texto)
+        return self._base_texto_fixo(update, texto_final)
 
     async def _gerativa_no_alerta(
         self, state: HelenaState, update: dict[str, Any], pend: Pendente, texto: str

@@ -273,6 +273,36 @@ def e_duvida_educativa(plano: str) -> bool:
     return bool(_DUVIDA_EDUCATIVA.search(plano)) and not queixa_atual(plano)
 
 
+#: TINA (18/10/2026): fatos que a PROPRIA pessoa diz de si (primeira pessoa), vocabulario fechado.
+_FATOS_DA_PESSOA: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
+    (
+        "fuma",
+        re.compile(
+            r"\b(?:eu )?(?:fumo|sou fumante|fumo cigarro|fumo \w+ cigarros?|uso cigarro|fumo todo dia)\b"
+        ),
+    ),
+    (
+        "bebe álcool",
+        re.compile(r"\b(?:eu )?(?:bebo|tomo) (?:cerveja|vinho|cachaca|destilad\w*|bebida|alcool|todo)\b"),
+    ),
+    ("tem pressão alta", re.compile(r"\b(?:tenho pressao alta|sou hipertens\w*|tenho hipertensao)\b")),
+    ("tem diabetes", re.compile(r"\b(?:tenho diabetes|sou diabetic\w*)\b")),
+    ("não faz atividade física", re.compile(r"\b(?:nao faco (?:exercicio|atividade)|sou sedentari\w*)\b")),
+    ("tem colesterol alto", re.compile(r"\btenho colesterol alto\b")),
+)
+
+
+def fatos_ditos_pela_pessoa(mensagens: Sequence[str]) -> tuple[str, ...]:
+    """Os fatos (vocabulario fechado) que a PROPRIA pessoa disse de si nas mensagens anteriores dela."""
+    achados: dict[str, None] = {}
+    for m in mensagens:
+        plano = bs.normalizar(m)
+        for rotulo, padrao in _FATOS_DA_PESSOA:
+            if padrao.search(plano):
+                achados.setdefault(rotulo, None)
+    return tuple(achados)
+
+
 def pergunta_pessoal_de_saude(plano: str, bruto: str, *, assunto_de_saude: bool) -> bool:
     """A mensagem (normalizada) e' uma DUVIDA sobre um diagnostico/condicao/resultado DA PESSOA, sem queixa
     atual ("tenho SOP, e' a mesma coisa que cisto?", "fui diagnosticada com mioma, e' perigoso?"). Quem chama
@@ -407,6 +437,11 @@ envolver…".
 - Dizer quando procurar atendimento e qual especialidade costuma cuidar disso.
 - Em exame: dizer o que ele mede e a faixa de referência geral, com a unidade do exame (por exemplo \
 g/dL ou mg/dL), sem concluir nada sobre a pessoa.
+- Se perguntarem se algo "é normal", responda direto, em geral: diga se aquilo costuma ou não ser \
+considerado normal (por exemplo: "cólica forte que atrapalha a rotina não costuma ser considerada normal e \
+merece avaliação"), sem concluir o que a pessoa tem.
+- Se vier um bloco com o que a própria pessoa contou antes na conversa (por exemplo, que fuma), use quando \
+for relevante ("como você comentou que fuma, ..."), sem concluir nada sobre ela.
 
 O QUE VOCÊ NUNCA FAZ
 - Nunca diagnostica nem sugere o que a pessoa tem ("você tem", "deve ser", "parece ser", "provavelmente é").
@@ -416,8 +451,8 @@ farmacêutico, e a bula traz as orientações.
 - Nunca manda usar, não usar, dar, não dar, parar, continuar, trocar, dobrar ou pular remédio, e nunca diz \
 que uma combinação de remédios (ou remédio com bebida) está liberada ou proibida: oriente falar com o \
 médico ou o farmacêutico.
-- Nunca diz que algo "não é grave", "é normal", "não se preocupe", nem que "não há sinais de alarme" ou \
-que a pessoa está "sem sinais de alerta".
+- Nunca tranquiliza dizendo que o que a pessoa sente "não é grave", "é normal" ou "não se preocupe", nem \
+que "não há sinais de alarme" ou que a pessoa está "sem sinais de alerta".
 - Nunca conclui o que o resultado de exame da pessoa significa para ela: explica o exame em geral, diz \
 que vários fatores influenciam e orienta levar o resultado ao médico.
 - Nunca diz com que frequência a pessoa deve fazer exame, vacina ou consulta.
@@ -458,6 +493,10 @@ _SEM_OFERTA: Final[str] = (
     "Termine na própria informação."
 )
 _SEM_OPCOES: Final[str] = "NÃO ofereça opções no final: o sistema acrescenta as opções."
+_SEM_OFERTA_JORNADA: Final[str] = (
+    "NÃO termine oferecendo consulta, equipe ou ajuda: o sistema acrescenta, no fim, o passo de como usar o "
+    "plano. Não cite nome de médico, clínica ou laboratório."
+)
 
 
 def fecho_de_oferta(forma: int) -> str:
@@ -512,6 +551,13 @@ class Pedido:
     populacao: str = ""
     alarme_negado: bool = False
     assunto_anterior: str = ""
+    #: TINA (18/10/2026): fatos que a PROPRIA pessoa disse antes na conversa (vocabulario fechado: "fuma",
+    #: "bebe alcool"...), nunca prontuario nem dado de outra pessoa (ADR-0052).
+    fatos_da_pessoa: tuple[str, ...] = ()
+    #: TINA (18/10/2026): ha' um passo da jornada do plano que o SISTEMA acrescenta no fim (o modelo nao
+    #: oferece
+    #: nada no final).
+    com_jornada: bool = False
 
 
 def _oferece(pedido: Pedido) -> bool:
@@ -533,6 +579,8 @@ def mensagem_do_usuario(pedido: Pedido) -> str:
     instrucao = _INSTRUCAO_DO_MODO[pedido.modo]
     if pedido.modo not in _MODOS_DE_SINTOMA:
         fecho = fecho_de_oferta(pedido.forma_da_oferta) if _oferece(pedido) else _SEM_OFERTA
+        if pedido.com_jornada:
+            fecho = _SEM_OFERTA_JORNADA
         instrucao = f"{instrucao} {fecho}"
     partes: list[str] = [f"[Tipo]\n{instrucao}"]
     populacao = pedido.populacao or ("crianca" if pedido.crianca else "")
@@ -542,6 +590,8 @@ def mensagem_do_usuario(pedido: Pedido) -> str:
         resumo.append("a pessoa já respondeu que NÃO tem os sinais de alarme perguntados")
     if pedido.assunto_anterior:
         resumo.append(f"assunto anterior da conversa: {pedido.assunto_anterior}")
+    if pedido.fatos_da_pessoa:
+        resumo.append("a própria pessoa contou antes nesta conversa que " + ", ".join(pedido.fatos_da_pessoa))
     if resumo:
         partes.append("[Resumo da conversa]\n" + "; ".join(resumo) + ".")
     if pedido.anteriores:
