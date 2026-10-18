@@ -80,7 +80,8 @@ atinge mulheres ou homens, como fato, pode.
 
 SINÔNIMOS: de 3 a 8 termos que a pessoa poderia digitar para falar deste assunto: nome popular, sigla, \
 grafia sem acento, erro comum de digitação. Em minúsculas. Nada genérico demais ("dor", "exame", "vacina", \
-"cirurgia", "doença").
+"cirurgia", "doença"). NUNCA um sintoma ("dor pélvica", "cólica forte", "falta de ar") nem outra condição \
+parecida ("cistos no ovário" não é SOP): o sinônimo leva a pessoa a ESTE texto.
 
 Responda SÓ com JSON: {"texto": "...", "sinonimos": ["...", "..."]}
 """

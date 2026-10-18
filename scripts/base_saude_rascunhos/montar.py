@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -41,58 +42,27 @@ CABECALHO = (
 )
 #: Termos genericos demais para serem sinonimo de UM assunto (parte do corpo, palavra de categoria).
 GENERICOS = frozenset(
-    {
-        *(
-            "dor",
-            "dores",
-            "exame",
-            "exames",
-            "vacina",
-            "vacinas",
-            "cirurgia",
-            "operacao",
-            "doenca",
-            "remedio",
-        ),
-        *(
-            "tireoide",
-            "figado",
-            "rim",
-            "rins",
-            "utero",
-            "ovario",
-            "ovarios",
-            "pele",
-            "sangue",
-            "fezes",
-            "urina",
-        ),
-        *("coluna", "olho", "olhos", "ouvido", "intestino", "prostata", "mama", "seio", "pulmao", "coracao"),
-        *(
-            "joelho",
-            "osso",
-            "ossos",
-            "cabeca",
-            "barriga",
-            "estomago",
-            "nariz",
-            "garganta",
-            "virus",
-            "infeccao",
-        ),
-        *(
-            "cancer",
-            "tumor",
-            "alergia",
-            "hormonio",
-            "gravidez",
-            "menstruacao",
-            "sono",
-            "ansiedade",
-            "depressao",
-        ),
-    }
+    "dor dores exame exames vacina vacinas cirurgia operacao doenca remedio tireoide figado rim rins utero "
+    "ovario ovarios pele sangue fezes urina coluna olho olhos ouvido intestino prostata mama seio pulmao "
+    "coracao joelho osso ossos cabeca barriga estomago nariz garganta virus infeccao cancer tumor alergia "
+    "hormonio gravidez menstruacao sono ansiedade depressao".split()
 )
+#: Sinonimo com cara de SINTOMA levaria a queixa ao texto de uma doenca (sintoma e' das perguntas de alerta).
+_SINTOMA = re.compile(
+    r"^(?:dor|dores|colica|febre(?! amarela)|tosse(?! comprida)|sangramento|cisto|cistos|falta de ar|coceira)\b|sintoma"
+)
+#: Sinonimos ESPECIFICOS que hoje moram num assunto GERAL e passam ao novo assunto especifico (o calendario do
+#: adolescente tinha "vacina hpv"; agora existe `vac-hpv`). A linha sai do arquivo antigo.
+TRANSFERIR: dict[str, str] = {"vacina hpv": "vac-hpv", "vacina contra hpv": "vac-hpv"}
+
+
+def _tirar_sinonimo(raiz: Path, assunto_id: str, termo: str) -> None:
+    """Tira a linha `- <termo>` dos sinonimos do arquivo de `assunto_id` (edicao de TEXTO: o arquivo antigo
+    mantem cabecalho, ancoras e ordem)."""
+    for caminho in raiz.glob(f"*/{assunto_id}.yaml"):
+        texto = caminho.read_bytes().decode("utf-8")
+        novo = re.sub(rf"(?m)^- {re.escape(termo)}\n", "", texto, count=1)
+        caminho.write_bytes(novo.encode("utf-8"))
 
 
 def _normalizar(texto: str) -> str:
@@ -193,6 +163,15 @@ def main(argv: list[str] | None = None) -> int:
         tirados: list[str] = []
         for s in [*r["sinonimos"], r["titulo"].lower()]:
             n = _normalizar(s)
+            if TRANSFERIR.get(n) == r["id"] and n in ocupados and ocupados[n] != r["id"]:
+                _tirar_sinonimo(args.raiz, ocupados[n], s)
+                relatorio.setdefault("sinonimos_transferidos", []).append(
+                    {"de": ocupados[n], "para": r["id"], "termo": s}
+                )
+                del ocupados[n]
+            if _SINTOMA.search(n):
+                tirados.append(s)
+                continue
             if not n or len(n) < 2 or n in GENERICOS or (n in ocupados and ocupados[n] != r["id"]):
                 tirados.append(s)
                 continue
