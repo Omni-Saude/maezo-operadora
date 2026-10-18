@@ -184,16 +184,20 @@ async def test_empresa_explica_uma_vez_responde_o_ano_e_nunca_repete() -> None:
     # "de qual ano?"
     _, ano = await conversa.mensagem(**julho, cobranca_foco="esclarecimento")
     assert ano == "É julho de 2026. O pagamento dela é feito pela empresa contratante."
-    # "como assim?"
+    # "como assim?" — FASE 4 (18/10/2026): a curta, e a oferta de uma pessoa (a resposta anterior nao a teve).
     _, de_novo = await conversa.mensagem(**julho, cobranca_foco="esclarecimento")
-    assert (
-        de_novo
-        == "A confirmação do pagamento de julho de 2026 é com a empresa contratante, normalmente pelo RH."
+    assert de_novo == (
+        "A confirmação do pagamento de julho de 2026 é com a empresa contratante, normalmente pelo RH. "
+        "Se quiser, posso te passar para alguém da nossa equipe."
     )
-    # "julho 2026 foi paga ou nao?", "foi paga pela empresa ou nao?", ...
-    for _ in range(4):
-        _, texto = await conversa.mensagem(**julho, cobranca_foco="pagamento")
-        assert texto in NAO_CONSIGO
+    # "julho 2026 foi paga ou nao?", "foi paga pela empresa ou nao?", ...: as outras curtas e so' entao as
+    # duas honestas, alternadas. Nunca a abertura de novo; a oferta no maximo uma vez a cada duas respostas.
+    seguintes = [(await conversa.mensagem(**julho, cobranca_foco="pagamento"))[1] for _ in range(5)]
+    assert all(not t.startswith(TEXTO_PAGADOR_EMPRESA) for t in seguintes)
+    assert seguintes[0] not in NAO_CONSIGO and seguintes[1] not in NAO_CONSIGO
+    assert seguintes[2:] == [NAO_CONSIGO[1], NAO_CONSIGO[0], NAO_CONSIGO[1]]
+    ofertas = ["nossa equipe" in t for t in conversa.textos]
+    assert not any(a and b for a, b in zip(ofertas, ofertas[1:], strict=False)), conversa.textos
     _sem_repeticao(conversa.textos)
     # A coparticipacao e' da pessoa: continua respondida.
     _, copart = await conversa.mensagem(competencia="2026-07", cobranca_foco="coparticipacao")

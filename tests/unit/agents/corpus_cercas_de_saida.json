@@ -1453,7 +1453,7 @@
       }
     },
     {
-      "texto": "Vou chamar quem cuida da parte financeira.",
+      "texto": "Vou te passar para o Lucas, nosso assistente financeiro.",
       "rota": "handoff",
       "start_aconteceu": false,
       "origem": "constante FRASE_PASSAGEM_COBRANCA (onda e do numero unico, ADR-0062; plano §2.4): a rota real da frase, `respond` sem start",
@@ -1464,7 +1464,7 @@
       }
     },
     {
-      "texto": "Vou chamar quem cuida da parte financeira.",
+      "texto": "Vou te passar para o Lucas, nosso assistente financeiro.",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "constante FRASE_PASSAGEM_COBRANCA (onda e do numero unico, ADR-0062; plano §2.4): a mesma frase julgada como `inform`, para provar que o veredito nao depende da rota nova",
@@ -1651,7 +1651,7 @@
       }
     },
     {
-      "texto": "Olá! Sou a Helena, navegadora de saúde. Por aqui eu cuido de sintomas e de encaminhar você para a equipe de saúde. Em que posso ajudar?",
+      "texto": "Olá! Sou a Helena, navegadora de saúde. Por aqui eu tiro dúvidas de saúde e te ajudo a encontrar o atendimento certo. Em que posso ajudar?",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "DL-0065 (01/10/2026): RESPOSTA_SAUDACAO_ABERTURA, cartao de abertura fixo (primeira saudacao)",
@@ -2366,25 +2366,25 @@
       }
     },
     {
-      "texto": "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n• Ver os dados do seu plano: carteirinha, carências e dependentes.\n• Relatar um sintoma e ser encaminhado à equipe de saúde.\n• Questionar uma cobrança e ser encaminhado à equipe de atendimento.\nEm emergência, ligue 192. Como posso ajudar?",
+      "texto": "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n• Ver os dados do seu plano: carteirinha, carências e dependentes.\n• Tirar dúvidas de saúde e saber onde buscar atendimento.\n• Falar com a nossa equipe sobre saúde ou cobrança, quando precisar.\nEm emergência, ligue 192. Como posso ajudar?",
       "rota": "inform",
       "start_aconteceu": false,
-      "origem": "constante - apresentacao-canal-v1 (14/10/2026, decisao do dono): TEXTO_APRESENTACAO_CANAL; texto fixo do acesso, fora do caminho da Helena (a cerca o le como promessa sem start por causa de \"encaminhado\")",
+      "origem": "constante - apresentacao-canal-v2 (18/10/2026, texto do dono): TEXTO_APRESENTACAO_CANAL; texto fixo do acesso, fora do caminho da Helena",
       "esperado": {
-        "recusa": "promessa_sem_start",
+        "recusa": null,
         "canal": null,
-        "menciona": true
+        "menciona": false
       }
     },
     {
-      "texto": "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n• Ver os dados do seu plano: carteirinha e carências.\n• Relatar um sintoma e ser encaminhado à equipe de saúde.\n• Questionar uma cobrança e ser encaminhado à equipe de atendimento.\nEm emergência, ligue 192. Como posso ajudar?",
+      "texto": "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n• Ver os dados do seu plano: carteirinha e carências.\n• Tirar dúvidas de saúde e saber onde buscar atendimento.\n• Falar com a nossa equipe sobre saúde ou cobrança, quando precisar.\nEm emergência, ligue 192. Como posso ajudar?",
       "rota": "inform",
       "start_aconteceu": false,
-      "origem": "constante - apresentacao-canal-v1 (14/10/2026, decisao do dono): TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES; texto fixo do acesso, fora do caminho da Helena (a cerca o le como promessa sem start por causa de \"encaminhado\")",
+      "origem": "constante - apresentacao-canal-v2 (18/10/2026, texto do dono): TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES; texto fixo do acesso, fora do caminho da Helena",
       "esperado": {
-        "recusa": "promessa_sem_start",
+        "recusa": null,
         "canal": null,
-        "menciona": true
+        "menciona": false
       }
     },
     {

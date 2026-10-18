@@ -51,6 +51,7 @@ from maezo.ports.tina import (
     MAX_DEPENDENTES,
     CarenciasView,
     CarteirinhasView,
+    CoberturaView,
     DependentesView,
     ElegibilidadeView,
     RequisicoesView,
@@ -125,6 +126,19 @@ class FonteDeCarteirinhaCompleta(Protocol):
     async def consultar_carteirinha(
         self, portable_subject_ref: str, request_ref: str
     ) -> CarteirinhasView | None: ...
+
+
+@runtime_checkable
+class FonteDeCobertura(Protocol):
+    """A fonte que TAMBEM le' os fatos de cobertura de um procedimento (rota `tina-cobertura`, manifest v1.9;
+    decisao do dono D1 de 18/10/2026).
+
+    Protocolo SEPARADO: a fonte de sempre nao muda. Nunca levanta; falha = `None`. `procedimento` e' o
+    codigo ou o termo no padrao do contrato e nunca vai a log."""
+
+    async def consultar_cobertura(
+        self, portable_subject_ref: str, procedimento: str
+    ) -> CoberturaView | None: ...
 
 
 # --------------------------------------------------------------------------------------------
@@ -461,13 +475,40 @@ RESPOSTA_DEPENDENTES_FALHA: Final[str] = (
     "Por aqui eu não consigo consultar seus dependentes agora. "
     "Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe."
 )
-_DEPENDENTES_SEM_NOMES: Final[str] = "Por segurança, este canal não mostra nomes nem outros dados deles."
+_DEPENDENTES_SEM_NOMES: Final[str] = (
+    "Por segurança, este canal não mostra nomes nem outros dados dos dependentes."
+)
+
+
+#: FASE 4 (texto do dono, 18/10/2026): o GRAU sem o rotulo tecnico do cadastro ("Filho(a) até 23 anos" ->
+#: "filho ou filha"). Rotulo desconhecido: o texto do cadastro sem a faixa de idade.
+_GRAUS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
+    (re.compile(r"^filh[oa]?\s*\(a\)|^filh[oa]s?\b", re.IGNORECASE), "filho ou filha"),
+    (re.compile(r"^enteado|^enteada", re.IGNORECASE), "enteado ou enteada"),
+    (re.compile(r"^c[oô]njuge", re.IGNORECASE), "cônjuge"),
+    (re.compile(r"^companheir", re.IGNORECASE), "companheiro ou companheira"),
+    (re.compile(r"^net[oa]", re.IGNORECASE), "neto ou neta"),
+    (re.compile(r"^(?:pai|m[aã]e)\b", re.IGNORECASE), "pai ou mãe"),
+)
+_FAIXA_DE_IDADE: Final[re.Pattern[str]] = re.compile(
+    r"\s*\b(?:at[eé]|de|com|menor(?:es)? de)\s+\d+\s+anos?\b.*$", re.IGNORECASE
+)
+
+
+def grau_legivel(relacao: str) -> str:
+    """O grau de parentesco em palavras simples, sem o rotulo tecnico do cadastro."""
+    texto = " ".join((relacao or "").split())
+    for padrao, grau in _GRAUS:
+        if padrao.search(texto):
+            return grau
+    texto = _FAIXA_DE_IDADE.sub("", texto).strip()
+    return texto[:1].lower() + texto[1:]
 
 
 def _relacao_em_texto(relacao: str, quantidade: int) -> str:
     if not relacao:
         return f"{quantidade} sem relação informada"
-    base = relacao[:1].lower() + relacao[1:]
+    base = grau_legivel(relacao)
     return f"{quantidade} {base}" if quantidade == 1 else f"{quantidade} com relação {base}"
 
 
@@ -486,8 +527,10 @@ def _texto_de_dependentes(fatos: Mapping[str, Any]) -> str:
         corpo = f"No seu cadastro constam {total} dependentes ativos."
     elif total == 1:
         relacao = relacoes[0][0] if relacoes else ""
-        sufixo = " (recém-nascido no plano)" if recem_nascidos else ""
-        detalhe = f": {relacao[:1].lower() + relacao[1:]}{sufixo}" if relacao else sufixo
+        partes_do_detalhe = [p for p in (grau_legivel(relacao) if relacao else "",) if p]
+        if recem_nascidos:
+            partes_do_detalhe.append("recém-nascido no plano")
+        detalhe = f" ({', '.join(partes_do_detalhe)})" if partes_do_detalhe else ""
         corpo = f"No seu cadastro consta 1 dependente ativo{detalhe}."
     else:
         partes = [_relacao_em_texto(r, n) for r, n in relacoes]
@@ -851,6 +894,7 @@ __all__ = [
     "CarteirinhasDoTurno",
     "ConsultaSubtipo",
     "FonteDeCarteirinhaCompleta",
+    "FonteDeCobertura",
     "FonteDeFatosDoPlano",
     "FonteIndisponivel",
     "consulta_prompt",

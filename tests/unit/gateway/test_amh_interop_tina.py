@@ -67,7 +67,9 @@ def test_as_tres_operacoes_pedem_o_escopo_tina() -> None:
     for op in leituras:
         assert SCOPE_BY_OPERATION[op] == SCOPE_TINA
     assert SCOPE_BY_OPERATION[tina_mod.OP_CARTEIRINHA] == "interop/tina.carteirinha"
-    assert AmhTinaExecutor.registered_operations == leituras
+    # A cobertura (manifest v1.9) usa o mesmo escopo, mas so' o executor PROPRIO a registra
+    # (`AmhTinaCoberturaExecutor`, composto so' com o artefato carregado).
+    assert AmhTinaExecutor.registered_operations == leituras - {tina_mod.OP_COBERTURA}
 
 
 async def test_leitura_tina_audita_antes_e_despacha_na_rota_fixa(servidor: Servidor, tokens: Any) -> None:

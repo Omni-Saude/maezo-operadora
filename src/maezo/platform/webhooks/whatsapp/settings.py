@@ -396,6 +396,23 @@ class WhatsAppWebhookSettings(BaseSettings):
             "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", "helena_saude_gerativa_conversas"
         ),
     )
+    # BUSCA POR SIGNIFICADO na base de saude (fase 3 de 18/10/2026, decisao do dono): embeddings de um modelo
+    # REGIONAL do Bedrock em sa-east-1 escolhem o APOIO da saude gerativa (nunca portao). So' tem efeito com a
+    # saude gerativa ligada e so' para a allowlist dela. DESLIGADA por padrao.
+    helena_busca_semantica: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA", "helena_busca_semantica"),
+    )
+    helena_busca_semantica_modelo: str = Field(
+        default="cohere.embed-multilingual-v3",
+        validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA_MODELO", "helena_busca_semantica_modelo"),
+    )
+    helena_busca_semantica_limiar: float = Field(
+        default=0.45,
+        ge=0.0,
+        le=1.0,
+        validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA_LIMIAR", "helena_busca_semantica_limiar"),
+    )
     # AVISO DE IDENTIDADE (DL-0078, decisao do dono 07/10/2026): o nome de EXIBICAO da operadora nos
     # textos fixos de identidade da Helena ("Reconheci este numero no cadastro de beneficiarios da
     # {nome}..."). So' tem efeito com `helena_identidade_amh` ligada. Texto curto e simples (letras,
@@ -694,6 +711,16 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=None,
         validation_alias=AliasChoices(
             "MAEZO_AMH_TINA_CARTEIRINHA_OPENAPI_PATH", "amh_tina_carteirinha_openapi_path"
+        ),
+    )
+    # O OpenAPI da rota de COBERTURA POR PROCEDIMENTO (`tina-cobertura`, manifest v1.9, PUBLISHED em
+    # 16/10/2026; decisao do dono D1 de 18/10/2026), OPCIONAL: so' vale junto com `helena_consultas_amh`.
+    # Vazio = a rota nao entra. Preenchido, os bytes so' valem com o digest no bloco `manifest_v1_9` do pin;
+    # falha de leitura ou de digest deixa SO' a cobertura de fora (log de erro) e o resto segue.
+    amh_tina_cobertura_openapi_path: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_COBERTURA_OPENAPI_PATH", "amh_tina_cobertura_openapi_path"
         ),
     )
 

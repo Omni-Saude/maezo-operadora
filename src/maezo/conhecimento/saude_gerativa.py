@@ -116,6 +116,11 @@ _TOKENS_DO_REDATOR: Final[re.Pattern[str]] = re.compile(r"\[REDACTED_[A-Z]+\]")
 _LIMITE_POR_MENSAGEM: Final[int] = 500
 
 
+def tem_risco(plano: str) -> bool:
+    """A mensagem (normalizada) fala em autolesao ou em nao querer viver? (os portoes de sempre decidem)."""
+    return bool(_RISCO_NA_MENSAGEM.search(plano))
+
+
 def minimizar(texto: str) -> str:
     """O texto que PODE sair para a rota global: CPF/CNPJ, telefone, e-mail e numeros longos pelo redator
     compartilhado do repo (`redact_free_text`, CC-06), mais datas, data de nascimento, identificador rotulado
@@ -174,6 +179,19 @@ _SEGUIMENTO: Final[re.Pattern[str]] = re.compile(
 _MAX_PALAVRAS_DO_SEGUIMENTO: Final[int] = 8
 
 
+#: FASE 3: pedido de TRATAMENTO / do que fazer — a oferta de consulta faz sentido.
+_PEDE_TRATAMENTO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:como (?:tratar|trata|se trata|cuidar|cuida|e o tratamento|eh o tratamento|melhorar|aliviar|curar)"
+    r"|tratamentos?|remedios? (?:pra|para|de)|o que (?:tomar|usar|fazer|eu faco)|tem cura|operar"
+    r"|cirurgia (?:pra|para)"
+    r"|preciso (?:de|ir)|devo (?:ir|procurar)|qual medico|que medico|qual especialista)\b"
+)
+
+
+def pede_tratamento(plano: str) -> bool:
+    return bool(_PEDE_TRATAMENTO.search(plano))
+
+
 def pergunta_de_saude(plano: str) -> bool:
     """A mensagem NORMALIZADA e' uma pergunta informativa de saude?"""
     return bs.pergunta_informativa(plano) or bool(_PERGUNTA_DE_SAUDE.search(plano))
@@ -184,6 +202,74 @@ def e_seguimento(plano: str, anteriores: Sequence[str]) -> bool:
     if len(plano.split()) > _MAX_PALAVRAS_DO_SEGUIMENTO or not _SEGUIMENTO.match(plano):
         return False
     return any(pergunta_de_saude(bs.normalizar(a)) for a in anteriores)
+
+
+# --- A pergunta PESSOAL de saude sem queixa atual (fase 2 de 18/10/2026) ---------------------------------
+#: A pessoa fala de um diagnostico/condicao DELA (nao de um sintoma que sente agora): "fui diagnosticada com
+#: mioma", "o medico disse que tenho SOP", "descobri um cisto", "faco tratamento de tireoide".
+_DIAGNOSTICO_DA_PESSOA: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:fui diagnosticad[oa]|me diagnosticaram|recebi o diagnostico|diagnostico de|diagnosticad[oa] com"
+    r"|descobri (?:que|um|uma)|(?:o|a|meu|minha) (?:medic[oa]|doutor[a]?|ginecologista|cardiologista"
+    r"|endocrinologista|urologista|dermatologista) (?:disse|falou|achou|suspeita|viu|encontrou)"
+    r"|faco tratamento|estou tratando|trato (?:de|uma?)|estou em tratamento|tenho historico)\b"
+)
+#: "tenho/tive X" em que X e' o ASSUNTO (condicao), nao uma palavra administrativa ou de queixa.
+_TENHO_ALGO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:tenho|tive)\s+(?!(?:direito|carteirinha|plano|boleto|cobertura|carencia|reembolso|dependentes?"
+    r"|duvidas?|uma duvida|que|como|consulta|exame marcado|um atendimento|atendimento|interesse|vontade|medo"
+    r"|alguma|algum)\b)\w+"
+)
+#: A forma de DUVIDA sobre a propria condicao.
+_DUVIDA_SOBRE_A_CONDICAO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:e perigoso|eh perigoso|e perigosa|e grave|eh grave|e serio|e seria|e a mesma coisa|mesma coisa"
+    r"|qual a diferenca|diferenca entre|tem cura|tem tratamento|pode virar|vira cancer|pode causar"
+    r"|o que significa"
+    r"|o que fazer|o que eu faco|devo me preocupar|e hereditari\w*|posso engravidar|atrapalha|afeta|e comum"
+    r"|preocupante|o que pode ser|como (?:e|eh) o tratamento|precisa operar|precisa de cirurgia|tem risco"
+    r"|corre risco|e contagios\w*|passa para|transmite)\b"
+)
+
+
+_PRIMEIRA_PESSOA_AMPLA: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:fui|fiz|faco|descobri|recebi|estou|minha|meu|me|eu)\b"
+)
+
+
+def pergunta_pessoal_de_saude(plano: str, bruto: str, *, assunto_de_saude: bool) -> bool:
+    """A mensagem (normalizada) e' uma DUVIDA sobre um diagnostico/condicao/resultado DA PESSOA, sem queixa
+    atual ("tenho SOP, e' a mesma coisa que cisto?", "fui diagnosticada com mioma, e' perigoso?"). Quem chama
+    garante que NAO ha' queixa atual (sintoma em primeira pessoa) nem sinal de emergencia: essas seguem a
+    tabela e as perguntas de alerta. `assunto_de_saude` = a base (ou o classificador) reconhece um assunto de
+    saude na mensagem: sem ele, "tenho X?" nao basta."""
+    if not (bs.primeira_pessoa(plano) or _PRIMEIRA_PESSOA_AMPLA.search(plano)):
+        return False
+    duvida = bool(_DUVIDA_SOBRE_A_CONDICAO.search(plano)) or "?" in (bruto or "")
+    if not duvida:
+        return False
+    if _DIAGNOSTICO_DA_PESSOA.search(plano) or bs.resultado_pessoal(plano):
+        return True
+    return assunto_de_saude and bool(_TENHO_ALGO.search(plano))
+
+
+#: A resposta PURA a uma pergunta de sim/nao (nada alem disso): "sim", "nao", "nao tenho", "nenhum".
+_RESPOSTA_PURA_SIM: Final[re.Pattern[str]] = re.compile(
+    r"^(?:sim|s|tenho sim|tem sim|sim tenho|sim tem|isso|tenho|tem)(?: (?:obrigad[oa]|por favor))?$"
+)
+_RESPOSTA_PURA_NAO: Final[re.Pattern[str]] = re.compile(
+    r"^(?:nao|n|negativo|nada|nenhum|nenhuma|nao tenho|nao tem|nao nenhum|nao nenhuma|nao nada|nada disso"
+    r"|nenhum desses|nenhuma dessas|nenhum deles|nenhuma delas|nao tenho nada|nao tenho nenhum"
+    r"|nao tenho nenhuma|nao nao)(?: (?:obrigad[oa]|por favor))?$"
+)
+
+
+def resposta_pura(plano: str) -> str | None:
+    """ "sim" / "nao" quando a mensagem (normalizada) e' SO' isso; qualquer outra coisa -> `None`."""
+    texto = " ".join(plano.split())
+    if _RESPOSTA_PURA_NAO.match(texto):
+        return "nao"
+    if _RESPOSTA_PURA_SIM.match(texto):
+        return "sim"
+    return None
 
 
 # --- O apoio da base (so' quando o assunto casa DE VERDADE)
@@ -237,6 +323,19 @@ def apoio_para(base: bs.BaseSaude, texto: str) -> Apoio | None:
     assunto = base.get(busca.achado)
     if assunto is None:
         return None
+    return apoio_do_assunto(assunto)
+
+
+def assunto_confiavel(base: bs.BaseSaude, texto: str) -> bs.Assunto | None:
+    """O assunto da base pela busca LEXICA confiavel (exato/contido), ou `None`."""
+    busca = bs.buscar(base, texto)
+    if busca.achado is None or busca.como not in _BUSCA_CONFIAVEL:
+        return None
+    return base.get(busca.achado)
+
+
+def apoio_do_assunto(assunto: bs.Assunto) -> Apoio | None:
+    """O apoio de UM assunto ja' escolhido (pela busca lexica confiavel ou pela busca por significado)."""
     if assunto.categoria == bs.CATEGORIA_SINTOMA:
         return apoio_de_sintoma(assunto)
     fonte = _fonte_que_explica(assunto)
@@ -304,16 +403,35 @@ ignore-o e não cite fonte. Sem bloco APOIO com fonte, não escreva "Fonte:" nem
 """
 PROMPT_VERSAO: Final[str] = f"{VERSAO}-" + hashlib.sha256(PROMPT_SISTEMA.encode("utf-8")).hexdigest()[:10]
 
-_FECHO_DE_OFERTA: Final[str] = (
-    "Termine com UMA frase curta oferecendo mostrar como marcar uma consulta pelo plano ou passar para a "
-    "nossa equipe de saúde."
+#: FASE 3 (18/10/2026): a oferta de consulta/equipe so' quando faz sentido (sintoma, resultado de exame,
+#: duvida
+#: sobre a propria condicao, pedido de tratamento) — nunca em toda pergunta conceitual — e com o texto VARIADO
+#: (o grafo escolhe uma das formas pelo turno; o modelo escreve com as proprias palavras).
+FORMAS_DA_OFERTA: Final[tuple[str, ...]] = (
+    "Se quiser, te mostro como marcar uma consulta pelo plano ou te passo para a nossa equipe de saúde.",
+    "Posso te mostrar onde marcar consulta pelo plano, ou te passar para a equipe de saúde, se preferir.",
+    "Quer ajuda para marcar uma consulta pelo plano ou prefere falar com a nossa equipe de saúde?",
+)
+_SEM_OFERTA: Final[str] = (
+    "NÃO termine oferecendo consulta, equipe ou ajuda: a pergunta é conceitual. "
+    "Termine na própria informação."
 )
 _SEM_OPCOES: Final[str] = "NÃO ofereça opções no final: o sistema acrescenta as opções."
+
+
+def fecho_de_oferta(forma: int) -> str:
+    exemplo = FORMAS_DA_OFERTA[forma % len(FORMAS_DA_OFERTA)]
+    return (
+        "Termine com UMA frase curta oferecendo mostrar como marcar uma consulta pelo plano ou passar para a "
+        f'nossa equipe de saúde, com as suas palavras (por exemplo: "{exemplo}").'
+    )
+
+
 _INSTRUCAO_DO_MODO: Final[Mapping[str, str]] = {
-    MODO_INFORMAR: f"Pergunta geral de saúde. {_FECHO_DE_OFERTA}",
+    MODO_INFORMAR: "Pergunta geral de saúde.",
     MODO_RESULTADO: (
         "A pessoa fala de um resultado de exame DELA. Explique o exame em geral, diga que vários fatores "
-        f"influenciam, não conclua nada e oriente levar o resultado ao médico. {_FECHO_DE_OFERTA}"
+        "influenciam, não conclua nada e oriente levar o resultado ao médico."
     ),
     MODO_SINTOMA_SEM_ALARME: (
         "Queixa de sintoma. A pessoa respondeu NÃO às perguntas de sinal de alarme. Em até "
@@ -343,15 +461,48 @@ class Pedido:
     crianca: bool = False
     #: Os sinais de alarme em palavras (modos de sintoma): entram na resposta segura padrao.
     sinais: str = ""
+    #: FASE 3: oferecer consulta/equipe no fim (so' modos informar/resultado; os de sintoma tem opcoes fixas).
+    #: `None` = a regra do modo (resultado oferece; informar nao).
+    oferecer: bool | None = None
+    #: Qual das `FORMAS_DA_OFERTA` serve de exemplo (o grafo varia pelo turno).
+    forma_da_oferta: int = 0
+    #: FASE 3: o RESUMO da conversa em variaveis fechadas (nunca texto livre da pessoa): populacao
+    #: (adulto/crianca/gestante/idoso), alarme ja' negado, assunto anterior (titulo da base).
+    populacao: str = ""
+    alarme_negado: bool = False
+    assunto_anterior: str = ""
+
+
+def _oferece(pedido: Pedido) -> bool:
+    if pedido.modo in _MODOS_DE_SINTOMA:
+        return False
+    if pedido.oferecer is not None:
+        return pedido.oferecer
+    return pedido.modo == MODO_RESULTADO
+
+
+_QUEM: Final[Mapping[str, str]] = {
+    "crianca": "A conversa é sobre uma criança.",
+    "gestante": "A conversa é sobre uma gestante.",
+    "idoso": "A conversa é sobre uma pessoa idosa.",
+}
 
 
 def mensagem_do_usuario(pedido: Pedido) -> str:
-    partes: list[str] = [f"[Tipo]\n{_INSTRUCAO_DO_MODO[pedido.modo]}"]
-    partes.append(
-        "[Quem]\nA conversa é sobre uma criança."
-        if pedido.crianca
-        else "[Quem]\nA conversa é sobre um adulto."
-    )
+    instrucao = _INSTRUCAO_DO_MODO[pedido.modo]
+    if pedido.modo not in _MODOS_DE_SINTOMA:
+        fecho = fecho_de_oferta(pedido.forma_da_oferta) if _oferece(pedido) else _SEM_OFERTA
+        instrucao = f"{instrucao} {fecho}"
+    partes: list[str] = [f"[Tipo]\n{instrucao}"]
+    populacao = pedido.populacao or ("crianca" if pedido.crianca else "")
+    partes.append(f"[Quem]\n{_QUEM.get(populacao, 'A conversa é sobre um adulto.')}")
+    resumo: list[str] = []
+    if pedido.alarme_negado:
+        resumo.append("a pessoa já respondeu que NÃO tem os sinais de alarme perguntados")
+    if pedido.assunto_anterior:
+        resumo.append(f"assunto anterior da conversa: {pedido.assunto_anterior}")
+    if resumo:
+        partes.append("[Resumo da conversa]\n" + "; ".join(resumo) + ".")
     if pedido.anteriores:
         anteriores = "\n".join(f"- {h}" for h in pedido.anteriores)
         partes.append(f"[Mensagens anteriores da pessoa nesta conversa]\n{anteriores}")
@@ -505,6 +656,52 @@ def so_estilo(violacoes: Sequence[Violacao], texto: str) -> bool:
     )
 
 
+#: FASE 3 (18/10/2026): o dicionario de nomes de remedios (`medicamentos_comuns`, vocabulario ANVISA) pega o
+#: que as regras de verbo sozinhas deixam passar: "use dipirona", "pode dar paracetamol", "vale usar o
+#: ibuprofeno", o remedio esquecido e a combinacao de dois remedios (ou remedio com bebida) — sem chamada
+#: extra
+#: de modelo.
+_VERBO_DE_USO: Final[re.Pattern[str]] = re.compile(
+    r"(?<!\bnao )(?<!\bnunca )\b(?:use|usar|usa|uso de|der|dar|tome|tomar|toma|aplique|aplicar|passe|passar"
+    r"|experimente|experimentar|ofereca|oferecer|pode usar|pode dar|vale usar|recomendo|indico|indicado o)"
+    r"\b(?:\s+(?:o|a|um|uma|so|apenas|meio|um pouco de|de|do|da|com)){0,3}\s+$"
+)
+_ESQUECEU: Final[re.Pattern[str]] = re.compile(r"\besquec\w*|\bpulei\b|\bperdi o horario\b|\bnao tomei\b")
+_JUNTO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:junto|juntos|juntas|junta|com|associar|associado|combinar|combinado|misturar|misturado|e)\b"
+)
+#: So' quando a pessoa PERGUNTA se pode combinar ("posso tomar X com Y?"): contar o que ja' usou nao e' isso.
+_PEDE_PERMISSAO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:posso|pode|podem|da para|da pra|e seguro|tem problema|faz mal|tem perigo|misturar|juntar|associar"
+    r"|combinar)\b"
+)
+_BEBIDA: Final[re.Pattern[str]] = re.compile(r"\b(?:alcool|bebida alcoolica|cerveja|vinho|cachaca|beber)\b")
+_ORIENTA_PROFISSIONAL: Final[re.Pattern[str]] = re.compile(r"\b(?:medic[oa]|farmaceutic[oa]|bula)\b")
+
+
+def _violacoes_de_remedio(plano: str, pessoa: str) -> list[Violacao]:
+    """As regras que dependem do NOME do remedio (texto redigido `plano`, mensagem da pessoa `pessoa`, os dois
+    normalizados)."""
+    from maezo.conhecimento.medicamentos_comuns import PADRAO_DE_NOME, nomes_no_texto
+
+    achados: list[Violacao] = []
+    for m in PADRAO_DE_NOME.finditer(plano):
+        antes = plano[max(0, m.start() - 40) : m.start()]
+        if _VERBO_DE_USO.search(antes):
+            achados.append(
+                Violacao("manda_usar_remedio", f"{antes.split()[-1] if antes.split() else ''} {m.group(0)}")
+            )
+            break
+    nomes_da_pessoa = nomes_no_texto(pessoa)
+    sem_profissional = not _ORIENTA_PROFISSIONAL.search(plano)
+    if nomes_da_pessoa and _ESQUECEU.search(pessoa) and sem_profissional:
+        achados.append(Violacao("remedio_esquecido_sem_orientacao"))
+    combinacao = len(nomes_da_pessoa) >= 2 or (nomes_da_pessoa and _BEBIDA.search(pessoa))
+    if combinacao and _JUNTO.search(pessoa) and _PEDE_PERMISSAO.search(pessoa) and sem_profissional:
+        achados.append(Violacao("combinacao_sem_orientacao"))
+    return achados
+
+
 def verificar(
     texto: str,
     pedido: Pedido,
@@ -535,6 +732,7 @@ def verificar(
         if m:
             achados.append(Violacao(nome, m.group(0)))
     pessoa = bs.normalizar(texto_da_pessoa)
+    achados += _violacoes_de_remedio(plano, pessoa)
     for m in _GENERO.finditer(plano):
         adjetivo = m.group(1) or m.group(2)
         if adjetivo is None or not re.search(rf"\b{re.escape(adjetivo)}\b", pessoa):
@@ -568,6 +766,15 @@ _INSTRUCAO: Final[Mapping[str, str]] = {
     "manda_usar_ou_parar": "nao mande usar, parar, continuar, dobrar ou trocar remedio",
     "nao_de_nao_use": "nao diga para nao dar/nao usar remedio; oriente falar com o medico ou o farmaceutico",
     "use_o_dobro": "nao fale em usar o dobro; quem orienta e' o medico ou o farmaceutico",
+    "manda_usar_remedio": "nao mande usar, dar ou aplicar nenhum remedio pelo nome; quem indica e' o "
+    "medico ou o "
+    "farmaceutico",
+    "remedio_esquecido_sem_orientacao": "sobre o remedio esquecido, oriente falar com o medico ou o "
+    "farmaceutico "
+    "e ler a bula (sem dizer o que fazer)",
+    "combinacao_sem_orientacao": "sobre usar remedios juntos (ou com bebida), oriente falar com o "
+    "medico ou o "
+    "farmaceutico, sem dizer se pode ou nao",
     "dose_esquecida": "nao diga o que fazer com dose esquecida; oriente o medico ou o farmaceutico e a bula",
     "libera_combinacao": "nao diga que a combinacao e' segura ou liberada; oriente o medico ou o "
     "farmaceutico",
@@ -747,6 +954,9 @@ class RedatorDeSaude:
     transporte: TransporteDeRedacao
     conversas: frozenset[str] = field(default_factory=frozenset)
     prazo_total_s: float = PRAZO_TOTAL_S
+    #: FASE 3 (18/10/2026): a busca por SIGNIFICADO na base (`busca_semantica.BuscaSemantica`), so' com
+    #: `MAEZO_HELENA_BUSCA_SEMANTICA`; `None` = o lexico de antes.
+    busca: Any = None
 
     @property
     def rota(self) -> str:

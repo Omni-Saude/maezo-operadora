@@ -126,7 +126,7 @@ Brasil**; o dono autorizou COMO DPO só para a conversa dele e as do simulador, 
 alarme/P1 (192), saúde mental com risco (CVV 188), plano, carteirinha, cobrança, cancelamento e casos seguem no
 GLM-5 em sa-east-1, decididos ANTES da redação.
 
-**Quem está na allowlist (dev):** a conversa do dono (`wa:amh:hk1_34d934f1…`) e as conversas sintéticas dos
+**Quem está na allowlist (dev):** a conversa do dono (`wa:amh:hk1_34d934f1…`), a da Tania (`wa:amh:hk1_0f251a8e…`, AUTORIZAÇÃO DO DPO de 18/10/2026: ela consentiu com os testes e concorda com o perfil global; DL-0119, adendo) e as conversas sintéticas dos
 telefones `5511900000790..799` (roteiro `helena_saude_gerativa`; o segmento 10 roda no `…789`, FORA da lista,
 para provar que nada mudou). Para incluir alguém: só com autorização do DPO, PR no tfvars.
 
@@ -171,3 +171,46 @@ acima no grupo `/ecs/maezo-operadora-dev/webhook-receiver`.
 - **IAM**: a política experimental do simulador (`experimento-redacao-saude.tf`) ganhou os prefixos
   `experimentos/base-saude-rascunhos/` e `dossie-seguranca/` (apply direcionado:
   `-target=aws_iam_role_policy.simulador_experimento_redacao_saude`). Remover junto com o experimento.
+
+## 12. Fases 2 a 4 de 18/10/2026 (DL-0121) — transbordo falso e qualidade
+
+Na allowlist: dúvida sobre a PRÓPRIA condição sem queixa atual ("tenho SOP, é
+a mesma coisa que cisto?") vai à redação, nunca ao caso P2 da enfermagem (inclusive depois das opções 1/2); a
+escolha pura ("não", "sim", "1", "2") a uma oferta pendente é decidida sem o classificador; a oferta de
+consulta/equipe só sai quando faz sentido (resultado, dúvida sobre a própria condição, tratamento), com o texto
+variado; ao modelo vai um resumo em variáveis fechadas (população, alarme já negado, assunto anterior) e só as
+mensagens anteriores do MESMO assunto; a checagem pega nomes de remédios (dicionário curado, vocabulário ANVISA).
+Para TODOS: "não quero falar com ninguém" sozinho é decidido no código, antes do modelo (nunca o texto de risco
+com 188; com caso grave aberto, o texto do caso grave com 192). Desfazer: revert do PR.
+
+## 13. Busca por significado (DL-0121) — `MAEZO_HELENA_BUSCA_SEMANTICA`
+
+**O que é.** Só na allowlist da saúde gerativa: o APOIO da redação (o trecho da fonte que vai junto) é escolhido
+por SIGNIFICADO — embeddings de um modelo REGIONAL do Bedrock em sa-east-1 (`helena_busca_semantica_modelo`,
+padrão `cohere.embed-multilingual-v3`; alternativa `amazon.titan-embed-text-v2:0`), chamado pelo id do modelo de
+base (sem perfil de inferência, sem perfil global). O índice dos assuntos da base (~220) é montado em memória na
+primeira busca de cada processo e refeito se a base mudar (impressão digital dos textos); assuntos novos da base
+entram sozinhos na próxima subida. A similaridade (cosseno) só vira apoio acima do limiar
+(`helena_busca_semantica_limiar`, calibrado em dev); o léxico (exato/contido) desempata quando os dois ficam
+próximos; assunto de população incompatível (adulto x criança) não entra. Nunca é portão de recusa: abaixo do
+limiar ou com falha, a redação segue com o léxico de antes. Vai ao modelo só o texto já MINIMIZADO.
+
+**Recursos:** env `MAEZO_HELENA_BUSCA_SEMANTICA`, `_MODELO`, `_LIMIAR` em `environment_app`; IAM em
+`busca-semantica-saude.tf` (`aws_iam_role_policy.task_busca_semantica`, `.webhook_receiver_busca_semantica[0]`,
+`.agent_resume_busca_semantica[0]`, `.simulador_busca_semantica`). Logs: `helena_busca_semantica_indice`
+(assuntos, latência), `helena_busca_semantica` (assunto, similaridade, acima_do_limiar, latência) e
+`helena_busca_semantica_falhou`.
+
+**Desligar** ("desligue a busca por significado"): `helena_busca_semantica = false` (tfvars) + apply direcionado
+das task definitions/serviço do receptor e da task do simulador. **Desfazer:** desligar + revert do PR + apply
+direcionado que remove as 4 políticas (o plan mostra 4 destroys).
+
+## 14. Cobertura pelo Rol da ANS x segmentação (DL-0122, decisão D1 do dono)
+
+Só na allowlist: "o plano cobre vasectomia?" / "a laqueadura consta no Rol da ANS?" → os FATOS do contrato AMH
+TINA cobertura (v1.9) para o plano do próprio verificado, em texto fixo (`agents/helena/cobertura_rol.py`): consta
+no Rol para a segmentação / cobertura além do Rol / no Rol mas fora da segmentação / "não consegui confirmar pelo
+cadastro" (nunca "não cobre"); DUT e carência em andamento; termo genérico → pede o nome do pedido médico. Sempre
+com o aviso "A cobertura final depende de carência, autorização e indicação médica; confirme pela central de
+atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com falha: o texto de antes.
+**Desligar:** `amh_tina_cobertura_openapi_path = ""` (tfvars) + apply direcionado do receptor e do simulador.

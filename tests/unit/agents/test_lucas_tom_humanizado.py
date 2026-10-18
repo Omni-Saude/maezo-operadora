@@ -341,6 +341,18 @@ def _todos_os_textos() -> dict[str, str]:
     empresa = _estado(_OUTUBRO, competencia="2026-07", pagador_tipo="pessoa_juridica")
     textos["empresa_explicacao"] = lg.texto_pagador_empresa(empresa, {"foco": None}, _HOJE)
     textos["empresa_curta"] = lg.texto_pagador_empresa_curto(empresa, _HOJE)
+    # FASE 4 (18/10/2026): as curtas da empresa que se revezam, por assunto, com e sem a oferta.
+    for tipo in ("status_pagamento", "vencimento", "2a_via"):
+        por_tema = _estado(
+            _OUTUBRO, competencia="2026-07", pagador_tipo="pessoa_juridica", tipo_solicitacao=tipo
+        )
+        for i, curta in enumerate(lg.formas_curtas_da_empresa(por_tema, _HOJE)):
+            textos[f"empresa_curta_{tipo}_{i}"] = curta
+            textos[f"empresa_curta_{tipo}_{i}_com_oferta"] = f"{curta} {lg.OFERTA_PESSOA}"
+    textos["nao_pagador_v4"] = lg.TEXTO_NAO_PAGADOR_V4
+    for i, curta in enumerate(lg.TEXTOS_NAO_PAGADOR_V4_CURTOS):
+        textos[f"nao_pagador_v4_curta_{i}"] = curta
+    textos["lista_do_boleto"] = lg.TEXTO_LISTA_DO_BOLETO
     for variante in (0, 1):
         reclamacao = _estado(
             _OUTUBRO, variante_de_redacao=variante, competencia="2026-09", cobranca_reclamacao="em_dobro"
