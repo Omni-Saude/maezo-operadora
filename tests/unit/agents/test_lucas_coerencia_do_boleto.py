@@ -395,3 +395,21 @@ async def test_a_empresa_continua_sem_valor() -> None:
         )
     )
     assert "R$" not in texto and "RH" in texto
+
+
+def test_mes_vencido_responde_o_valor_do_boleto_primeiro_e_o_atraso_depois() -> None:
+    """Roteiro lucas_v4_pagador (18/10/2026): "Quanto esta' minha mensalidade?" com o mes VENCIDO respondia
+    so' a situacao ("... ainda esta' sem pagamento confirmado"). A pergunta e' de valor: o boleto primeiro, a
+    parte da pessoa, e o atraso DEPOIS."""
+    from maezo.agents.lucas.graph import _frase_de_atraso_do_pagador, _frase_de_valor_do_pagador_v4
+
+    vencido = {**_OUTUBRO, "situacao": "vencida", "vencimento": "2026-10-15"}
+    hoje = date(2026, 10, 18)
+    valor = _frase_de_valor_do_pagador_v4(vencido, hoje)
+    assert valor is not None and valor.startswith("O valor total da mensalidade de outubro")
+    assert "R$ 566,72" in valor and "A sua parte é de R$ 391,02" in valor
+    assert (
+        _frase_de_atraso_do_pagador(vencido, hoje)
+        == "Ela venceu em 15/10 e ainda está sem pagamento confirmado."
+    )
+    assert _frase_de_atraso_do_pagador(_OUTUBRO, date(2026, 10, 17)) is None

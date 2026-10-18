@@ -489,3 +489,16 @@ async def test_sem_indice_pronto_a_busca_nao_espera_e_monta_em_segundo_plano() -
     await busca._montando
     achado = await busca.buscar(_BASE_BUSCA, "infecção urinária (cistite)")
     assert achado is not None and achado.assunto_id == "sin-dor-ao-urinar"
+
+
+async def test_queixa_com_pergunta_clinica_segue_as_perguntas_de_alerta_na_allowlist() -> None:
+    conversa = _Conversa()
+    resultado = await conversa.diz("Estou com dor nas costas, é grave?", _CLINICA)
+    assert conversa.motivos == [], "nunca intencao_clinica (o transbordo falso)"
+    assert "responda sim ou não" in _texto(resultado).lower()
+
+
+async def test_fora_da_allowlist_a_queixa_com_pergunta_clinica_e_a_de_antes() -> None:
+    conversa = _Conversa(conversa=_OUTRA, allowlist=(_DONO,))
+    await conversa.diz("Estou com dor nas costas, é grave?", _CLINICA)
+    assert conversa.motivos == ["intencao_clinica"]

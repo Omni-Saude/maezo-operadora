@@ -1672,6 +1672,16 @@ def _abertura_do_total_v4(c: Mapping[str, str], total: str, hoje: date) -> str:
     return f"O valor total da mensalidade de {mes} é de {_reais(total)}{com_vencimento}."
 
 
+def _frase_de_atraso_do_pagador(c: Mapping[str, str], hoje: date) -> str | None:
+    """Depois do valor: o mes VENCIDO (ou em aberto com o vencimento ja' passado) sem pagamento confirmado."""
+    vencimento = c.get("vencimento")
+    ja_passou = isinstance(vencimento, str) and vencimento[:10] < hoje.isoformat()
+    if c["situacao"] == "vencida" or (c["situacao"] == "em_aberto" and ja_passou):
+        quando = _dia_mes(vencimento, hoje)
+        return f"Ela venceu{' em ' + quando if quando else ''} e ainda está sem pagamento confirmado."
+    return None
+
+
 def _frase_de_valor_do_pagador_v4(c: Mapping[str, str], hoje: date) -> str | None:
     """Pagador PF: o valor TOTAL da mensalidade primeiro (todos os beneficiarios do contrato) e depois a
     parte dele. `None` sem o total ou fora de paga/em aberto (as outras situacoes mantem a frase de
@@ -1679,7 +1689,9 @@ def _frase_de_valor_do_pagador_v4(c: Mapping[str, str], hoje: date) -> str | Non
     primeiro ("Sua parte da mensalidade ... O boleto da familia ..."), e o valor principal de cada resposta
     passou a ser o do boleto (o mesmo da lista e da 2a via)."""
     total = c.get("valor_boleto_pagador")
-    if total is None or c["situacao"] not in ("paga", "em_aberto"):
+    # ROTEIRO lucas_v4_pagador (18/10/2026): o mes VENCIDO tambem responde o valor primeiro (a pergunta e' de
+    # valor); a situacao vem DEPOIS (`_frase_de_atraso_do_pagador`).
+    if total is None or c["situacao"] not in ("paga", "em_aberto", "vencida"):
         return None
     partes = [_abertura_do_total_v4(c, total, hoje), TEXTO_TOTAL_SOMA_V4]
     parte = c.get("valor_total")
@@ -1814,7 +1826,7 @@ def _texto_do_detalhamento_v4(
 ) -> str | None:
     """O total primeiro e, em seguida, o detalhe por beneficiario (sem nome). `None` sem grupo valido ou fora
     de paga/em aberto. Detalhamento que nao fecha: so' o total e a orientacao do aplicativo."""
-    if grupo is None or c["situacao"] not in ("paga", "em_aberto"):
+    if grupo is None or c["situacao"] not in ("paga", "em_aberto", "vencida"):
         return None
     total = _na_forma(grupo.get("total_mensalidade"), _DECIMAL_DO_FATO)
     boleto = c.get("valor_boleto_pagador")
@@ -1997,10 +2009,12 @@ def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date, *, v4
         # valor principal e' o do boleto, o mesmo da lista e da 2a via. O detalhe so' vem nos fatos com a
         # chave (`_fatos_de_valores`).
         detalhe = _texto_do_detalhamento_v4(c, facts.get("detalhamento"), hoje) if v4 else None
+        do_pagador = detalhe or _frase_de_valor_do_pagador_v4(c, hoje)
+        atraso = _frase_de_atraso_do_pagador(c, hoje) if do_pagador else None
         em_linhas = detalhe is not None and "•" in detalhe
-        partes.append(
-            detalhe or _frase_de_valor_do_pagador_v4(c, hoje) or _frase_de_valor_e_situacao(c, hoje)
-        )
+        partes.append(do_pagador or _frase_de_valor_e_situacao(c, hoje))
+        if atraso:
+            partes.append(atraso)
     else:
         partes.append(_frase_de_valor_e_situacao(c, hoje))
         if dependente_do_titular(state):

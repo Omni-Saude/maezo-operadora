@@ -60,6 +60,8 @@ PRAZO_LEITURA_S: Final[float] = 9.0
 #: Teto de uma consulta: a base legal e ate DUAS leituras em sequencia ("estou em carencia?" sem linha de
 #: carencia confirma o sujeito pela elegibilidade, `_sem_carencias`): duas de `PRAZO_LEITURA_S` mais folga.
 PRAZO_TOTAL_S: Final[float] = 20.0
+#: A busca de cobertura da AMH (termo x Rol x plano) leva 7 a 9 s em dev (medido em 18/10/2026).
+PRAZO_LEITURA_COBERTURA_S: Final[float] = 16.0
 
 _View = ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel
 #: A UNICA finalidade da rota da carteirinha completa (enum do contrato `tina-carteirinha`).
@@ -257,7 +259,7 @@ class ConsultasPlanoAmh:
                             consent_decision_ref=base_legal,
                             procedimento=procedimento,
                             limite=LIMITE_COBERTURA,
-                            timeout_seconds=PRAZO_LEITURA_S,
+                            timeout_seconds=PRAZO_LEITURA_COBERTURA_S,
                         )
                         if not resultado.succeeded or resultado.value is None:
                             falha = resultado.failure
