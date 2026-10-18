@@ -159,26 +159,29 @@ async def _turno(estado: LucasState) -> tuple[dict[str, Any], list[str]]:
 _PAGADOR_PF = {"pagador_tipo": "pessoa_fisica", "beneficiario_e_pagador": True}
 
 
-async def test_pagador_pf_ouve_a_parte_e_o_total_do_boleto_da_familia() -> None:
+async def test_pagador_pf_ouve_o_total_do_boleto_primeiro_e_depois_a_parte() -> None:
+    """FASE 4 (18/10/2026): o valor principal e' o do BOLETO (o mesmo da lista e da 2a via), tambem com a
+    chave v4 desligada; a parte da pessoa vem depois."""
     final, textos = await _turno(_estado(**_PAGADOR_PF))
     assert final["route"] == "respond_member" and final["process_started"] is False
-    assert textos[0].startswith(
-        "Sua parte da mensalidade de outubro de 2026 é de R$ 320,25, com vencimento em 20/10. "
-        "O boleto da família, com todos os beneficiários do plano, é de R$ 1.280,40."
+    assert textos[0] == (
+        "O valor total da mensalidade de outubro de 2026 é de R$ 1.280,40, com vencimento em 20/10. "
+        "Esse total soma todos os beneficiários do contrato. A sua parte é de R$ 320,25. (dados de 12/10)"
     )
 
 
 async def test_pagador_pf_com_o_mes_pago_diz_no_passado() -> None:
     _, textos = await _turno(_estado(competencias=_competencias("paga"), **_PAGADOR_PF))
-    assert textos[0].startswith(
-        "Sua parte da mensalidade de outubro de 2026 foi de R$ 320,25 e já está paga (você pagou em 08/10). "
-        "O boleto da família, com todos os beneficiários do plano, foi de R$ 1.280,40."
+    assert textos[0] == (
+        "O valor total da mensalidade de outubro de 2026 foi de R$ 1.280,40 e está paga "
+        "(você pagou em 08/10). "
+        "Esse total soma todos os beneficiários do contrato. A sua parte foi de R$ 320,25. (dados de 12/10)"
     )
 
 
 async def test_sem_o_total_na_fonte_a_resposta_e_a_de_sempre() -> None:
     _, textos = await _turno(_estado(competencias=_competencias(total=None), **_PAGADOR_PF))
-    assert "boleto da família" not in textos[0] and "R$ 320,25" in textos[0]
+    assert "valor total" not in textos[0] and "R$ 320,25" in textos[0]
 
 
 @pytest.mark.parametrize(
@@ -195,7 +198,7 @@ async def test_sem_o_total_na_fonte_a_resposta_e_a_de_sempre() -> None:
 async def test_nenhum_outro_caso_mostra_o_total_do_boleto(tipo: str, extra: dict[str, Any]) -> None:
     _, textos = await _turno(_estado(tipo, **extra))
     assert all("1.280,40" not in t and "1280" not in t for t in textos)
-    assert all("boleto da família, com todos" not in t for t in textos)
+    assert all("soma todos os beneficiários" not in t for t in textos)
 
 
 @pytest.mark.parametrize("tipo", ["vencimento", "boleto", "2a_via"])
@@ -236,10 +239,10 @@ def test_o_total_nao_atravessa_o_estado_fora_do_pagador_pf() -> None:
 
 @pytest.mark.parametrize("situacao", ["em_aberto", "paga"])
 def test_frases_do_boleto_da_familia_tem_no_maximo_vinte_palavras_e_o_mes_com_ano(situacao: str) -> None:
-    from maezo.agents.lucas.graph import _frase_de_valor_da_familia
+    from maezo.agents.lucas.graph import _frase_de_valor_do_pagador_v4
 
     competencia = _competencias(situacao)[0]
-    texto = str(_frase_de_valor_da_familia(competencia, date(2026, 10, 13)))
+    texto = str(_frase_de_valor_do_pagador_v4(competencia, date(2026, 10, 13)))
     assert "outubro de 2026" in texto
     for frase in re.split(r"(?<=[.!?])\s+", texto):
         assert len(frase.split()) <= 20, frase

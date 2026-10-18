@@ -180,8 +180,9 @@ async def test_primeira_mensagem_de_emergencia_escala_com_192() -> None:
     assert resultado["escalation_motivo"] == "red_flag_clinico"
     # RODADA 10: o sintoma e' do pai — o aviso fala dele, nao de quem escreve.
     assert whatsapp.enviados == [
+        # Dossie (18/10/2026): imperativo, com o paciente ("leve seu pai ao pronto-socorro").
         RESPOSTA_ESCALONAMENTO_URGENTE.replace(
-            "Se você estiver com sintomas agora", "Se seu pai estiver com sintomas agora"
+            "ou vá ao pronto-socorro.", "ou leve seu pai ao pronto-socorro."
         )
     ]
     assert "192" in whatsapp.enviados[0]

@@ -135,6 +135,7 @@ from maezo.gateway.amh_interop import (
     AmhSubjectVerificationExecutor,
     AmhSubjectVerifyHasher,
     AmhTinaCarteirinhaExecutor,
+    AmhTinaCoberturaExecutor,
     AmhTinaExecutor,
     AmhV4Executor,
     CognitoClientCredentials,
@@ -630,6 +631,29 @@ def _ler_openapi(caminho: str) -> bytes:
     return dados
 
 
+def _cobertura_tina(
+    settings: Any, comum: dict[str, Any]
+) -> tuple[AmhTinaCoberturaExecutor | None, bytes | None]:
+    """O executor e os bytes da rota `tina-cobertura` (manifest v1.9), ou `(None, None)`.
+
+    `(None, None)` sem `amh_tina_cobertura_openapi_path` ou com falha de leitura/composicao: so' um log de
+    erro com o motivo (nunca o caminho nem o conteudo). NUNCA levanta: a cobertura nao derruba o receptor."""
+    caminho = getattr(settings, "amh_tina_cobertura_openapi_path", None)
+    if not caminho or not isinstance(caminho, str):
+        return None, None
+    try:
+        dados = _ler_openapi(caminho)
+    except Exception as exc:
+        logger.error("amh_interop_cobertura_fora", motivo="leitura", error_type=type(exc).__name__)
+        return None, None
+    try:
+        executor = AmhTinaCoberturaExecutor(**{**comum, "purpose_of_use": PURPOSE_ATENDIMENTO_WHATSAPP})
+    except Exception as exc:
+        logger.error("amh_interop_cobertura_fora", motivo="composicao", error_type=type(exc).__name__)
+        return None, None
+    return executor, dados
+
+
 def build_amh_interop(
     *,
     settings: Any,
@@ -692,6 +716,12 @@ def build_amh_interop(
     PROPRIO (`AmhTinaCarteirinhaExecutor`, finalidade `atendimento_whatsapp`). O adaptador so' sobe com o
     bloco `manifest_v1_12` no pin (sem ele LEVANTA e o receptor recusa servir). `False` (o default) = a
     composicao de antes, sem nada da carteirinha completa.
+
+    Com `incluir_tina=True` e `amh_tina_cobertura_openapi_path` preenchido (decisao do dono D1 de 18/10/2026;
+    manifest v1.9), o adaptador TINA ganha a rota de cobertura por procedimento por um executor PROPRIO
+    (`AmhTinaCoberturaExecutor`, finalidade `atendimento_whatsapp`, escopo `interop/tina.read`). Diferente
+    das outras rotas opcionais, uma falha de leitura ou de digest NAO recusa o boot: so' a cobertura fica de
+    fora (log de erro) e o resto da composicao segue igual.
     """
     from maezo.adapters.amh.billing_status import ARTIFACT as ARTIFACT_BILLING
     from maezo.adapters.amh.billing_status import ARTIFACT_ATENDIMENTO as ARTIFACT_BILLING_ATENDIMENTO
@@ -819,20 +849,41 @@ def build_amh_interop(
             carteirinha_executor = AmhTinaCarteirinhaExecutor(
                 **{**comum, "purpose_of_use": PURPOSE_ATENDIMENTO_WHATSAPP}
             )
-        tina = AmhTinaAdapter(
-            _ler_openapi(exigidos["amh_tina_openapi_path"]),
-            executor=tina_executor,
-            dependentes_openapi_bytes=_ler_openapi(caminho_dependentes) if caminho_dependentes else None,
-            carteirinha_openapi_bytes=(
+        tina_kwargs: dict[str, Any] = {
+            "executor": tina_executor,
+            "dependentes_openapi_bytes": _ler_openapi(caminho_dependentes) if caminho_dependentes else None,
+            "carteirinha_openapi_bytes": (
                 _ler_openapi(exigidos["amh_tina_carteirinha_openapi_path"])
                 if carteirinha_executor is not None
                 else None
             ),
-            carteirinha_executor=carteirinha_executor,
-        )
+            "carteirinha_executor": carteirinha_executor,
+        }
+        tina_bytes = _ler_openapi(exigidos["amh_tina_openapi_path"])
+        # Cobertura por procedimento (manifest v1.9; decisao do dono D1 de 18/10/2026): OPCIONAL e NAO
+        # derruba o resto. Com o caminho, executor PROPRIO (finalidade fixa `atendimento_whatsapp`, mesmo
+        # token `interop/tina.read`); falha de leitura ou de digest = a rota NAO entra (log de erro, so' o
+        # motivo) e as outras leituras TINA seguem. Sem o caminho, `get_cobertura` recusa fechado.
+        cobertura_executor, cobertura_bytes = _cobertura_tina(settings, comum)
+        tina = None
+        if cobertura_executor is not None:
+            try:
+                tina = AmhTinaAdapter(
+                    tina_bytes,
+                    cobertura_openapi_bytes=cobertura_bytes,
+                    cobertura_executor=cobertura_executor,
+                    **tina_kwargs,
+                )
+            except Exception as exc:
+                logger.error("amh_interop_cobertura_fora", motivo="contrato", error_type=type(exc).__name__)
+                cobertura_executor = None
+        if tina is None:
+            tina = AmhTinaAdapter(tina_bytes, **tina_kwargs)
         executores = (*executores, tina_executor)
         if carteirinha_executor is not None:
             executores = (*executores, carteirinha_executor)
+        if cobertura_executor is not None:
+            executores = (*executores, cobertura_executor)
     verification: AmhSubjectVerificationAdapter | None = None
     consents: AmhConsentRecordAdapter | None = None
     verify_hasher: AmhSubjectVerifyHasher | None = None

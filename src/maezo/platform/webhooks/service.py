@@ -178,7 +178,27 @@ def _saude_gerativa(settings: WhatsAppWebhookSettings) -> Any:
         rota=ROTA_DE_RESIDENCIA,
         conversas_autorizadas=len(conversas),
     )
-    return RedatorDeSaude(transporte=TransporteGlobalExperimental(), conversas=conversas)
+    busca = None
+    if getattr(settings, "helena_busca_semantica", False) is True:
+        # FASE 3 (18/10/2026): busca por significado com embeddings REGIONAIS (sa-east-1). Modelo fora da
+        # lista regional admitida = a chave nao liga (log de erro), e a saude gerativa segue com o lexico.
+        from maezo.conhecimento.busca_semantica import BuscaSemantica, TransporteBedrockRegional
+
+        try:
+            busca = BuscaSemantica(
+                transporte=TransporteBedrockRegional(modelo=settings.helena_busca_semantica_modelo),
+                limiar=settings.helena_busca_semantica_limiar,
+            )
+            logger.warning(
+                "helena_busca_semantica_ligada",
+                modelo=settings.helena_busca_semantica_modelo,
+                limiar=settings.helena_busca_semantica_limiar,
+            )
+        except ValueError:
+            logger.error(
+                "helena_busca_semantica_modelo_recusado", modelo=settings.helena_busca_semantica_modelo
+            )
+    return RedatorDeSaude(transporte=TransporteGlobalExperimental(), conversas=conversas, busca=busca)
 
 
 def _build_dispatcher(

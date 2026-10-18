@@ -36,7 +36,7 @@ class _Despachante:
             return [acesso_mod.PEDIDO_NASCIMENTO]
         if texto == "14/03/1980":
             return [acesso_mod.RESPOSTA_VERIFICADO]
-        return ["Vou chamar quem cuida da parte financeira."]
+        return ["Vou te passar para o Lucas, nosso assistente financeiro."]
 
     async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
         self.recebidas.append(message.text)

@@ -175,7 +175,7 @@ def avaliar_passo(
     if passo.primeira_frase_deve is not None:
         # Com `agente`, a "primeira resposta" e' a PRIMEIRA DAQUELE AGENTE: o Lucas e' acionado pela
         # Helena, que
-        # abre o turno com "Vou chamar quem cuida da parte financeira." (aceite de 16/10/2026).
+        # abre o turno com "Vou te passar para o Lucas, nosso assistente financeiro." (aceite de 16/10/2026).
         do_agente = [t for a, t in respostas if passo.agente is None or a == passo.agente]
         primeira = do_agente[0] if do_agente else ""
         if not compilar(passo.primeira_frase_deve).search(sem_acento(primeira_frase(primeira))):
@@ -828,7 +828,8 @@ _NAO_PODE_NO_PEDIDO: tuple[str, ...] = (
     "(multa|suspens|negativ)",
     "(promocao|desconto|nao va embora)",
 )
-_PERGUNTA_UNICA = "sim, quero cancelar"
+#: FASE 4 (18/10/2026, decisao do dono: "Sim" basta): a pergunta unica pede "Responda Sim para confirmar".
+_PERGUNTA_UNICA = "responda sim para confirmar"
 
 #: O beneficiario do roteiro: TITULAR de plano INDIVIDUAL/FAMILIAR (nao o dono, cujo contrato e' de empresa).
 #: O `__main__` usa o primeiro beneficiario do roster que resolveu na AMH e NAO e' o dono — o roster deste
@@ -847,8 +848,9 @@ CANCELAMENTO_V1: tuple[Segmento, ...] = (
                 deve=(_PERGUNTA_UNICA,),
                 nao_deve=(_PROTOCOLO_CAN, *_NAO_PODE_NO_PEDIDO),
             ),
+            # FASE 4: so' "Sim" basta (e vai ao Lucas pelo atalho deterministico, sem o classificador).
             _p(
-                "Sim, quero cancelar",
+                "Sim",
                 agente="lucas",
                 escalacao="cancelamento",
                 deve=(
@@ -1386,13 +1388,13 @@ HELENA_SAUDE_GERATIVA: tuple[Segmento, ...] = (
         "8-alarme-e-recusa",
         (
             _p("Estou com dor no peito e falta de ar", escalacao="red_flag_clinico", deve=("192",)),
-            # Com o caso P1 aberto a recusa fica no caminho de sempre (GLM-5 + textos fixos), fora da rota
-            # gerativa: o que se confere e' que o 192 continua e nenhum caso novo abre.
+            # FASE 2 (18/10/2026): a recusa pura e' decidida no codigo, antes do modelo. Com o caso P1 aberto
+            # nunca se oferece encerrar: o texto do caso grave, com 192, e nenhum caso novo.
             _p(
                 "Não quero falar com ninguém",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("192",),
-                nao_deve=(_RESPOSTA_SEGURA, _TEXTO_DA_BASE),
+                deve=("192", "nao posso encerra"),
+                nao_deve=(_RESPOSTA_SEGURA, _TEXTO_DA_BASE, "responda sim para encerrar"),
             ),
         ),
         resolveu=(
@@ -1404,14 +1406,13 @@ HELENA_SAUDE_GERATIVA: tuple[Segmento, ...] = (
     Segmento(
         "9-recusa-sem-caso",
         (
-            # A classificacao NAO muda com a chave (GLM-5): "nao quero falar com ninguem" sozinha as vezes sai
-            # risco psicossocial (CVV/192 + caso), as vezes a recusa de equipe (DL-0088). Os dois sao o
-            # caminho
-            # de sempre; o que se confere e' o 192 e que a rota gerativa nao entrou.
+            # FASE 2 (18/10/2026): decidida no codigo, antes do modelo (o GLM-5 as vezes marcava risco
+            # psicossocial): a recusa de equipe (DL-0088), sem caso, sem CVV, com o 192 de emergencia.
             _p(
                 "Não quero falar com ninguém",
-                deve=("192",),
-                nao_deve=(_RESPOSTA_SEGURA, _TEXTO_DA_BASE),
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("192", "respeito sua escolha"),
+                nao_deve=(_RESPOSTA_SEGURA, _TEXTO_DA_BASE, "188", r"\bcvv\b"),
             ),
         ),
         resolveu=(
@@ -1436,11 +1437,101 @@ HELENA_SAUDE_GERATIVA: tuple[Segmento, ...] = (
         ),
     ),
 )
+# ================================================================================================
+# Roteiro `helena_fases_18_10` (fases 2 e 3 de 18/10/2026, decisoes do dono) — criterio "RESOLVEU?"
+# ================================================================================================
+# Na allowlist da saude gerativa (telefones 790..796, os mesmos do roteiro acima; cada segmento limpa a sua
+# conversa antes do proximo). Mede o transbordo falso que acabou (pergunta pessoal sem alarme, recusa) e a
+# qualidade da resposta (cistite com o assunto certo, vasectomia pelo Rol x segmentacao).
+_AVISO_DA_COBERTURA = "cobertura final depende de carencia, autorizacao e indicacao medica"
+
+HELENA_FASES_18_10: tuple[Segmento, ...] = (
+    Segmento(
+        "1-pergunta-pessoal-depois-das-opcoes",
+        (
+            _p("Estou com dor de cabeça", escalacao=ESCALACAO_NENHUMA, deve=("responda sim ou nao",)),
+            _gerativa("Não", "192", r"1\) saber onde marcar consulta pelo plano"),
+            _gerativa(
+                "Tenho SOP, é a mesma coisa que cisto?",
+                r"(ovario|hormon)",
+                r"cist",
+                nao_deve=(r"voce tem\b",),
+            ),
+        ),
+        resolveu=(
+            "a duvida sobre a propria condicao, logo depois das opcoes 1/2, foi respondida (SOP x cisto) SEM "
+            "abrir caso na enfermagem (antes: intencao_clinica P2)"
+        ),
+    ),
+    Segmento(
+        "2-diagnostico-sem-alarme",
+        (_gerativa("Fui diagnosticada com mioma, é perigoso?", "mioma", r"(utero|ginecolog)"),),
+        resolveu="o diagnostico da pessoa (mioma) foi explicado em geral, sem caso e sem perguntas de alerta",
+    ),
+    Segmento(
+        "3-queixa-atual-continua-com-alerta",
+        (
+            _p(
+                "Estou com dor nas costas, é grave?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("responda sim ou nao",),
+                nao_deve=(_ENCAMINHOU,),
+            ),
+        ),
+        resolveu="a queixa ATUAL continuou recebendo as perguntas de alerta (nao vira 'duvida')",
+    ),
+    Segmento(
+        "4-recusa-sem-192-de-risco",
+        (
+            _p(
+                "Não quero falar com ninguém",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("respeito sua escolha",),
+                nao_deve=("188", r"\bcvv\b", _RESPOSTA_SEGURA),
+            ),
+        ),
+        resolveu="a recusa pura recebeu o texto de recusa de equipe, sem caso e sem o texto de risco (CVV)",
+    ),
+    Segmento(
+        "5-cistite-assunto-certo",
+        (
+            _gerativa(
+                "Infecção urinária (cistite) tem tratamento?",
+                r"(bexiga|urin)",
+                r"(medic|tratamento)",
+                nao_deve=("mancha", r"\bpele\b"),
+            ),
+        ),
+        resolveu="a cistite foi explicada com o assunto certo (urina/bexiga), nunca manchas na pele",
+    ),
+    Segmento(
+        "6-vasectomia-rol",
+        (
+            _p(
+                "Meu plano cobre vasectomia?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(
+                    "vasectomia",
+                    r"(rol da ans|nao encontrei|mais de um procedimento)",
+                    _AVISO_DA_COBERTURA,
+                ),
+                nao_deve=("e so me pedir", _ENCAMINHOU, r"\bnao cobre\b"),
+            ),
+        ),
+        resolveu=(
+            "a cobertura da vasectomia foi respondida pelos fatos do plano (consta no Rol da ANS para a "
+            "segmentacao, ou o que falta para confirmar), sempre com o aviso de "
+            "carencia/autorizacao/indicacao"
+        ),
+    ),
+)
+
 #: Os telefones (sufixo da faixa do simulador) de cada segmento, quando o roteiro precisa de telefones
 #: PROPRIOS.
 #: `helena_saude_gerativa`: 790..798 estao na allowlist do dev (tfvars), o 789 NAO (segmento 10).
 TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
     "helena_saude_gerativa": (790, 791, 792, 793, 794, 795, 796, 797, 798, 789),
+    "helena_fases_18_10": (790, 791, 792, 793, 794, 795),
 }
 
 # ================================================================================================
@@ -1457,10 +1548,7 @@ _LINHA_DO_DETALHE = (
     r"[^\n]*= r\$ ?\d"
 )
 #: O texto do PF que NAO e' o pagador (decisao do dono): o responsavel financeiro e' o titular, sem nome.
-_TEXTO_NAO_PAGADOR = (
-    "o responsavel financeiro pelo contrato e o titular do contrato",
-    "somente ele pode solicitar",
-)
+_TEXTO_NAO_PAGADOR = ("responsavel financeiro", "titular")
 #: (a) O dono: beneficiario de plano EMPRESARIAL (CPF 42853296890, s000). Nenhum valor: e' o RH da empresa.
 LUCAS_V4: tuple[Segmento, ...] = (
     Segmento(
@@ -1600,21 +1688,21 @@ LUCAS_V4_NAO_PAGADOR: tuple[Segmento, ...] = (
                 "Qual o código de barras do boleto?",
                 agente="lucas",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(_RESPONSAVEL, "somente"),
+                deve=(_RESPONSAVEL, "titular"),
                 nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
             ),
             _p(
                 "Quando vence a minha mensalidade?",
                 agente="lucas",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(_RESPONSAVEL, "somente"),
+                deve=(_RESPONSAVEL, "titular"),
                 nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
             ),
             _p(
                 "A mensalidade de setembro foi paga?",
                 agente="lucas",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(_RESPONSAVEL, "somente"),
+                deve=(_RESPONSAVEL, "titular"),
                 nao_deve=(_SEM_DINHEIRO, "empresa contratante"),
             ),
         ),
@@ -1697,6 +1785,7 @@ ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "helena_carteirinha_completa": HELENA_CARTEIRINHA_COMPLETA,
     "helena_base_saude": HELENA_BASE_SAUDE,
     "helena_saude_gerativa": HELENA_SAUDE_GERATIVA,
+    "helena_fases_18_10": HELENA_FASES_18_10,
     "lucas_v4": LUCAS_V4,
     "lucas_v4_pagador": LUCAS_V4_PAGADOR,
     "lucas_v4_nao_pagador": LUCAS_V4_NAO_PAGADOR,

@@ -24,10 +24,10 @@ from maezo.agents.lucas.graph import (
     TEXTO_EMPRESA_SEGUNDA_VIA,
     TEXTO_EMPRESA_VENCIMENTO,
     TEXTO_NAO_PAGADOR_V4,
-    TEXTO_NAO_PAGADOR_V4_CURTO,
     TEXTO_PAGADOR_EMPRESA,
     TEXTO_PAGADOR_NAO_CONFIRMADO_V4,
     TEXTO_SEM_CODIGO_V4,
+    TEXTOS_NAO_PAGADOR_V4_CURTOS,
     texto_segunda_via_com_codigo_v4,
 )
 from maezo.qa.simulador import aceite
@@ -201,10 +201,10 @@ def test_pagador_sem_o_sinal_o_total_vem_primeiro_e_a_2a_via_e_a_de_antes() -> N
 
 
 def test_a_primeira_frase_e_a_do_lucas_e_nao_a_abertura_da_helena() -> None:
-    """Aceite de 16/10/2026: a Helena abre o turno com 'Vou chamar quem cuida da parte financeira.';
+    """Aceite de 16/10/2026: a Helena abre o turno com a frase de passagem;
     a primeira frase conferida e' a da primeira resposta DO LUCAS (o `agente` do passo)."""
     passo = _passo(aceite.LUCAS_V4_PAGADOR[0], 0)
-    abertura = ("helena", "Vou chamar quem cuida da parte financeira.")
+    abertura = ("helena", "Vou te passar para o Lucas, nosso assistente financeiro.")
     assert aceite.avaliar_passo(passo, [abertura, ("lucas", _TOTAL_PRIMEIRO)], [], None) == []
     antigo = "Sua mensalidade de outubro de 2026 é de R$ 751,41, com vencimento em 15/10. (dados de 08/10)"
     falhas = aceite.avaliar_passo(passo, [abertura, ("lucas", antigo)], [], None)
@@ -261,8 +261,10 @@ def test_o_nao_pagador_nao_recebe_valor_nem_codigo_nem_com_o_sinal() -> None:
 
 def test_nao_pagador_so_ouve_o_responsavel_financeiro_em_toda_pergunta() -> None:
     (segmento,) = aceite.LUCAS_V4_NAO_PAGADOR
+    # FASE 4 (18/10/2026): o texto inteiro na primeira resposta; nas seguintes, as curtas que se revezam.
     for i in range(len(segmento.passos)):
-        for texto in (TEXTO_NAO_PAGADOR_V4, TEXTO_NAO_PAGADOR_V4_CURTO) if i else (TEXTO_NAO_PAGADOR_V4,):
+        textos = (TEXTO_NAO_PAGADOR_V4, *TEXTOS_NAO_PAGADOR_V4_CURTOS) if i else (TEXTO_NAO_PAGADOR_V4,)
+        for texto in textos:
             assert _falhas(segmento, i, texto) == [], (i, texto)
     # com valor, ou o texto de empresa, o roteiro reprova
     assert _falhas(segmento, 0, _TOTAL_PRIMEIRO, fatos=[_FATOS_BILLING]) != []

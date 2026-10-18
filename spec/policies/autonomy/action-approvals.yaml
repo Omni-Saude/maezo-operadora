@@ -755,6 +755,7 @@ mapeamento_acoes:
   agente.amh.tina_get_carencias: leitura_phi_clinica
   agente.amh.tina_get_requisicoes: leitura_phi_clinica
   agente.amh.tina_get_dependentes: leitura_phi_clinica
+  agente.amh.tina_get_cobertura: leitura_phi_clinica
   agente.amh.tina_get_carteirinha: leitura_phi_clinica
   agente.amh.verify_subject: leitura_phi_clinica
   agente.amh.resolve_by_document: leitura_phi_clinica

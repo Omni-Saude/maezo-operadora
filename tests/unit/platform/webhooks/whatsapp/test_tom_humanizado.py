@@ -56,8 +56,6 @@ _TEXTOS_COM_192 = (
     "RESPOSTA_HANDOFF_SAUDE",
     "RESPOSTA_HANDOFF_EQUIPE_EMERGENCIA",
     "RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA",
-    "RESPOSTA_ESCALONAMENTO_URGENTE",
-    "RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL",
     "RESPOSTA_DUVIDA_DE_SAUDE",
     "RESPOSTA_RECUSA_DE_EQUIPE",
 )
@@ -189,6 +187,10 @@ def test_helena_continua_dizendo_que_nao_avalia_e_orienta_emergencia() -> None:
     # na forma do guia — "estou com dor no peito" escalou sem dizer 192 no teste real do dono.
     for nome in _TEXTOS_COM_192:
         assert EMERGENCIA_192 in getattr(g, nome), nome
+    # DOSSIE DE SEGURANCA (18/10/2026): nos casos que JA' sao alarme, o 192 e' IMPERATIVO; no risco, o
+    # CVV 188.
+    assert g.RESPOSTA_ESCALONAMENTO_URGENTE.startswith("Ligue 192 (SAMU) agora ou vá ao pronto-socorro.")
+    assert "188" in g.RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL and "192" in g.RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL
     assert "cobertura" in cp._FECHO and "autorização" in cp._FECHO
 
 
@@ -214,7 +216,8 @@ def test_falha_tecnica_e_pedido_de_pessoa_nunca_dizem_equipe_de_saude() -> None:
     assert g._texto_de_escalonamento("falha_tecnica", None) == g.RESPOSTA_HANDOFF_RECUSADA
     assert g._texto_de_escalonamento("solicitacao_humano", "leve") == g.RESPOSTA_HANDOFF_RECUSADA
     assert g._texto_de_escalonamento("intencao_clinica", "moderada") == g.RESPOSTA_HANDOFF_SAUDE
-    assert g._texto_de_escalonamento("red_flag_clinico", "moderada") == g.RESPOSTA_HANDOFF_SAUDE
+    # Dossie (18/10/2026): todo alerta clinico da tabela recebe o texto IMPERATIVO com 192.
+    assert g._texto_de_escalonamento("red_flag_clinico", "moderada") == g.RESPOSTA_ESCALONAMENTO_URGENTE
 
 
 def test_prompt_de_resposta_traz_o_tom_sem_tirar_as_proibicoes() -> None:

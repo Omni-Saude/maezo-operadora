@@ -35,6 +35,12 @@ aditivo v1.12, ainda nao pinado — `AmhTinaCarteirinhaExecutor`):
   * `GET  /interop/tina/v1/subjects/{ref}/carteirinha`                   (`interop/tina.carteirinha`;
                                                                          `X-Amh-Request-Ref`, `no-store`)
 
+e, SO' com o caminho do OpenAPI `tina-cobertura` configurado (decisao do dono D1 de 18/10/2026; manifest
+aditivo v1.9, PUBLISHED em 16/10/2026 — `AmhTinaCoberturaExecutor`, finalidade fixa `atendimento_whatsapp`):
+
+  * `GET  /interop/tina/v1/subjects/{ref}/cobertura`                     (`interop/tina.read`;
+                                                                         `procedimento`, `limite` 1..10)
+
 e, SO' com `MAEZO_LUCAS_V4` ligada e os dois artefatos do catalogo v4 configurados (DL-0114; manifests v1.10
 e v1.11,
 publicados em 16/10/2026 — `AmhV4Executor`, `executor_v4` da composicao):
@@ -142,10 +148,12 @@ from maezo.adapters.amh.subject_verification import (
 from maezo.adapters.amh.tina import (
     OP_CARENCIAS,
     OP_CARTEIRINHA,
+    OP_COBERTURA,
     OP_DEPENDENTES,
     OP_ELEGIBILIDADE,
     OP_REQUISICOES,
     PURPOSE_CARTEIRINHA,
+    PURPOSE_COBERTURA,
     AmhTinaAdapter,
     GovernedTinaExecutor,
     GovernedTinaRequest,
@@ -198,6 +206,7 @@ SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_REQUISICOES: SCOPE_TINA,
     OP_DEPENDENTES: SCOPE_TINA,
     OP_CARTEIRINHA: SCOPE_TINA_CARTEIRINHA,
+    OP_COBERTURA: SCOPE_TINA,
     OP_VERIFY: SCOPE_VERIFY,
     OP_RECORD: SCOPE_CONSENT_WRITE,
     OP_RESOLVE_DOCUMENT: SCOPE_RESOLVE_DOCUMENT,
@@ -235,6 +244,7 @@ _TINA_SUFFIX: Final[dict[str, str]] = {
     OP_REQUISICOES: "/requisicoes",
     OP_DEPENDENTES: "/dependentes",
     OP_CARTEIRINHA: "/carteirinha",
+    OP_COBERTURA: "/cobertura",
 }
 #: Query permitida por operacao TINA (`purpose_of_use` sempre obrigatorio e igual ao da composicao).
 _TINA_QUERY: Final[dict[str, frozenset[str]]] = {
@@ -243,7 +253,13 @@ _TINA_QUERY: Final[dict[str, frozenset[str]]] = {
     OP_REQUISICOES: frozenset({"purpose_of_use", "limite"}),
     OP_DEPENDENTES: frozenset({"purpose_of_use"}),
     OP_CARTEIRINHA: frozenset({"purpose_of_use"}),
+    OP_COBERTURA: frozenset({"purpose_of_use", "procedimento", "limite"}),
 }
+#: `procedimento` da cobertura: codigo (so' digitos, 1 a 10) OU termo (3 a 80; letras, numeros e espaco).
+#: O MESMO padrao do parametro do contrato `tina-cobertura`, conferido de novo aqui.
+_PROCEDIMENTO: Final[re.Pattern[str]] = re.compile(r"(?:[0-9]{1,10}|[A-Za-z\u00c0-\u00ff0-9 ]{3,80})\Z")
+#: `limite` da cobertura (contrato: 1..10). As outras leituras TINA aceitam ate' 50.
+_LIMITE_COBERTURA: Final[int] = 10
 
 _SUBJECT: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 _TOKEN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
@@ -1013,8 +1029,13 @@ class AmhTinaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
         self._sujeito(request.path, _TINA_PREFIX, _TINA_SUFFIX[request.operation])
         query = self._query(request.query, _TINA_QUERY[request.operation])
         limite = query.get("limite")
-        if limite is not None and (type(limite) is not int or not 1 <= limite <= 50):
+        teto = _LIMITE_COBERTURA if request.operation == OP_COBERTURA else 50
+        if limite is not None and (type(limite) is not int or not 1 <= limite <= teto):
             raise ValueError
+        if request.operation == OP_COBERTURA:
+            procedimento = query.get("procedimento")
+            if type(procedimento) is not str or not _PROCEDIMENTO.fullmatch(procedimento):
+                raise ValueError
         pendentes = query.get("pendentes")
         if pendentes is not None and pendentes not in ("true", "false"):
             raise ValueError
@@ -1044,6 +1065,26 @@ class AmhTinaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
             )
         status, raw = resultado.value
         return PortResult.ok(GovernedTinaResponse(status, raw))
+
+
+class AmhTinaCoberturaExecutor(AmhTinaExecutor):
+    """`GovernedTinaExecutor` real da COBERTURA POR PROCEDIMENTO (decisao do dono D1 de 18/10/2026; manifest
+    v1.9).
+
+    So' UMA operacao (`amh.tina_get_cobertura`), composta SO' quando o artefato `tina-cobertura` foi
+    carregado. Mesmo caminho e mesma validacao do executor TINA de sempre (rota, query permitida
+    `purpose_of_use`/`procedimento`/`limite`, `limite` 1..10, `procedimento` no padrao do contrato), com a
+    finalidade FIXA do contrato (`atendimento_whatsapp`: a composicao recusa outra) e o escopo
+    `interop/tina.read` no token. O termo vai SO' na query do pedido: a auditoria guarda o hash da base
+    legal, nunca o termo.
+    """
+
+    registered_operations = frozenset({OP_COBERTURA})
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if self._purpose != PURPOSE_COBERTURA or SCOPE_TINA not in self._tokens.scopes:
+            raise AmhInteropCompositionError()
 
 
 class AmhTinaCarteirinhaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
@@ -1503,6 +1544,7 @@ __all__ = [
     "AmhPhoneLookupHasher",
     "AmhSubjectResolutionExecutor",
     "AmhTinaCarteirinhaExecutor",
+    "AmhTinaCoberturaExecutor",
     "AmhTinaExecutor",
     "AmhV4Executor",
     "OPERATION_DETALHAMENTO",

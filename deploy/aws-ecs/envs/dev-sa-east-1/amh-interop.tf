@@ -63,11 +63,15 @@ locals {
     local.amh_tina_carteirinha_ligada ? ["interop/tina.carteirinha"] : [],
     var.acesso_beneficiario ? ["interop/subject.verify", "interop/consent.write"] : [],
   ))
+  # Cobertura por procedimento (decisao do dono D1 de 18/10/2026; manifest v1.9): a env SO' com o caminho nao
+  # vazio. Mesmo escopo `interop/tina.read`; falha de leitura/digest deixa so' a cobertura de fora no boot.
   amh_tina_env = local.amh_interop_ligado && var.helena_consultas_amh ? concat([
     { name = "MAEZO_AMH_TINA_OPENAPI_PATH", value = var.amh_tina_openapi_path },
     { name = "MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH", value = var.amh_tina_dependentes_openapi_path },
     ], local.amh_tina_carteirinha_ligada ? [
     { name = "MAEZO_AMH_TINA_CARTEIRINHA_OPENAPI_PATH", value = var.amh_tina_carteirinha_openapi_path },
+    ] : [], var.amh_tina_cobertura_openapi_path != "" ? [
+    { name = "MAEZO_AMH_TINA_COBERTURA_OPENAPI_PATH", value = var.amh_tina_cobertura_openapi_path },
   ] : []) : []
 
   # Lucas v4 (DL-0114; manifests v1.10 e v1.11 PUBLISHED em 16/10/2026): o executor governado do detalhamento do pagador e

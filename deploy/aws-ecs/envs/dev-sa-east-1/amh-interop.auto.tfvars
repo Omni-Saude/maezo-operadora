@@ -54,6 +54,9 @@ helena_v4 = true
 // beneficiario verificado (rota `tina-carteirinha`, manifest v1.12, escopo `interop/tina.carteirinha`). Exige o
 // bloco `manifest_v1_12` no pin (sem ele o receptor recusa servir). Voltar: false.
 helena_carteirinha_completa = true
+// Cobertura por procedimento na Helena (decisao do dono D1 de 18/10/2026): a Helena diz se o procedimento consta
+// no Rol para a segmentacao do plano (rota `tina-cobertura`, manifest v1.9, escopo `interop/tina.read`). Voltar: "".
+amh_tina_cobertura_openapi_path = "/app/config/integrations/amh/openapi/tina-cobertura.openapi.yaml"
 // Base de conhecimento de saude da Helena (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, so' em dev.
 // A Helena INFORMA (sem diagnosticar, sem conduta, sem dose) perguntas gerais de saude pela base curada
 // `spec/conhecimento/saude`, sem abrir caso; dor sem alarme recebe perguntas de alerta (com a v4); recusa com
@@ -65,13 +68,16 @@ helena_base_saude = true
 // SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
 // informativas de saude, com checagem antes de enviar, pela rota PROPRIA
 // `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono
-// AUTORIZOU COMO DPO so' para a conversa DELE e as conversas sinteticas do simulador (roteiro
-// `helena_saude_gerativa`, telefones 5511900000790..799), so' em dev, como teste reversivel. A Tania e todos os
-// outros: a Helena de antes. Desligar ("desligue a saude gerativa"): false + apply direcionado (runbook
+// AUTORIZOU COMO DPO so' para a conversa DELE, a da Tania (adendo de 18/10/2026) e as conversas sinteticas do
+// simulador (roteiro `helena_saude_gerativa`, telefones 5511900000790..799), so' em dev, como teste reversivel.
+// Todos os outros: a Helena de antes. Desligar ("desligue a saude gerativa"): false + apply direcionado (runbook
 // docs/runbooks/helena-base-saude.md §10).
 helena_saude_gerativa = true
 helena_saude_gerativa_conversas = [
   "wa:amh:hk1_34d934f10c9167de002295ee0412fe6cf4eb0ba9885aef3a5f9ab7029e53e8f6", // o dono
+  // A Tania (beneficiaria real que consentiu com os testes): AUTORIZACAO DO DPO (o dono) de 18/10/2026, que
+  // confirmou que ela concorda com o perfil global (DL-0119, adendo de 18/10/2026).
+  "wa:amh:hk1_0f251a8e67a29606f4f20e7a1e81f27be3b927b8472560e434c066ff83e6219b", // a Tania
   "wa:amh:hk1_41a907864e3b318fe11d8124e2eed5d8a0ad8d076a8cf69449e60e28043290d7", // simulador ...790
   "wa:amh:hk1_c416ceac7076a3946bcacc8c0ca3c5c68083ee7d5c3d3cdbc0335bedf5f0d086", // simulador ...791
   "wa:amh:hk1_dbae14094dd97675d3564309f70861c3f644d3134704cbe25f80e1dbb95956e5", // simulador ...792
@@ -86,6 +92,11 @@ helena_saude_gerativa_conversas = [
 
 # Acesso do beneficiario (DL-0083/DL-0084) LIGADO no dev em 08/10/2026 23:10 UTC, decisao do dono; testado
 # ponta a ponta no mesmo dia (aceite, CPF, Helena -> Lucas, revogacao, consentimento gravado no lago).
+// BUSCA POR SIGNIFICADO na base de saude (fase 3, decisao do dono de 18/10/2026): embeddings REGIONAIS em sa-east-1
+// (sem perfil global) escolhem o apoio da saude gerativa, so' para a allowlist acima. Desligar ("desligue a busca por
+// significado"): false + apply direcionado (runbook docs/runbooks/helena-base-saude.md §13).
+helena_busca_semantica = true
+
 acesso_beneficiario = true
 
 // Fatos do plano na Helena pelo contrato TINA da AMH (DL-0081): elegibilidade, carteirinha, carencia e

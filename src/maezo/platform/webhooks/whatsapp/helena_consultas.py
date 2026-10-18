@@ -19,6 +19,11 @@ da carteirinha do PROPRIO sujeito pela rota `tina-carteirinha` (manifest v1.12),
 `atendimento_whatsapp` e o id OPACO da solicitacao. Implementa `FonteDeCarteirinhaCompleta`; o grafo so' a
 chama com a chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` ligada e a identidade verificada. O numero NUNCA vai a
 log: so' o motivo (token fechado) e quantos itens vieram.
+
+COBERTURA POR PROCEDIMENTO (decisao do dono D1 de 18/10/2026): `consultar_cobertura` le' os fatos do cadastro
+(Rol, segmentacao, carencias) de um procedimento para o plano do PROPRIO sujeito pela rota `tina-cobertura`
+(manifest v1.9), com a finalidade FIXA `atendimento_whatsapp`. Implementa `FonteDeCobertura`. O termo pedido
+NUNCA vai a log: so' o motivo e quantos itens vieram.
 """
 
 from __future__ import annotations
@@ -36,10 +41,12 @@ from maezo.ports.errors import PortFailureReason, PortResult
 from maezo.ports.tina import (
     CarenciasView,
     CarteirinhasView,
+    CoberturaView,
     DependentesView,
     ElegibilidadeView,
     RequisicoesView,
     TinaCarteirinhaPort,
+    TinaCoberturaPort,
     TinaDependentesPort,
     TinaPort,
 )
@@ -57,6 +64,10 @@ PRAZO_TOTAL_S: Final[float] = 20.0
 _View = ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel
 #: A UNICA finalidade da rota da carteirinha completa (enum do contrato `tina-carteirinha`).
 PURPOSE_CARTEIRINHA: Final[str] = "atendimento_whatsapp"
+#: A UNICA finalidade da rota da cobertura por procedimento (enum do contrato `tina-cobertura`).
+PURPOSE_COBERTURA: Final[str] = "atendimento_whatsapp"
+#: Quantos procedimentos a cobertura pede (contrato: 1..10, padrao 5). Termo generico volta `truncada`.
+LIMITE_COBERTURA: Final[int] = 5
 
 
 @dataclass
@@ -221,9 +232,62 @@ class ConsultasPlanoAmh:
         )
         return view
 
+    async def consultar_cobertura(self, portable_subject_ref: str, procedimento: str) -> CoberturaView | None:
+        """Os fatos de cobertura do procedimento (codigo ou termo) para o plano do proprio sujeito, ou
+        `None`. NUNCA levanta.
+
+        `None` = a rota nao esta' carregada (o port nao e' `TinaCoberturaPort` ou recusa
+        `scope_not_supported`), termo fora do padrao do contrato, 404 (rota desligada / sujeito sem plano),
+        qualquer outra recusa, prazo, ou resposta de OUTRO sujeito. O termo NUNCA vai a log: so' o motivo
+        (token fechado) e quantos itens vieram."""
+        motivo = "ok"
+        view: CoberturaView | None = None
+        try:
+            async with asyncio.timeout(PRAZO_TOTAL_S):
+                if not isinstance(self.port, TinaCoberturaPort):
+                    motivo = "rota_nao_carregada"
+                else:
+                    base_legal = await self.consentimento.decisao(portable_subject_ref, PURPOSE_COBERTURA)
+                    if base_legal is None:
+                        motivo = "sem_base_legal"
+                    else:
+                        resultado = await self.port.get_cobertura(
+                            portable_subject_ref,
+                            purpose_of_use=PURPOSE_COBERTURA,
+                            consent_decision_ref=base_legal,
+                            procedimento=procedimento,
+                            limite=LIMITE_COBERTURA,
+                            timeout_seconds=PRAZO_LEITURA_S,
+                        )
+                        if not resultado.succeeded or resultado.value is None:
+                            falha = resultado.failure
+                            motivo = falha.reason.value if falha is not None else "recusa"
+                        elif getattr(resultado.value, "portable_subject_ref", None) != portable_subject_ref:
+                            motivo = "fatos_de_outro_sujeito"
+                        else:
+                            view = resultado.value
+        except TimeoutError:
+            motivo = "prazo_estourado"
+        except Exception as exc:
+            logger.warning("helena_cobertura_falhou", error_type=type(exc).__name__)
+            return None
+        logger.info(
+            "helena_cobertura_lida",
+            motivo=motivo,
+            itens=len(view.itens) if view is not None else 0,
+        )
+        return view
+
     async def aclose(self) -> None:
         if self.aclose_fn is not None:
             await self.aclose_fn()
 
 
-__all__ = ["PRAZO_LEITURA_S", "PRAZO_TOTAL_S", "PURPOSE_CARTEIRINHA", "ConsultasPlanoAmh"]
+__all__ = [
+    "LIMITE_COBERTURA",
+    "PRAZO_LEITURA_S",
+    "PRAZO_TOTAL_S",
+    "PURPOSE_CARTEIRINHA",
+    "PURPOSE_COBERTURA",
+    "ConsultasPlanoAmh",
+]

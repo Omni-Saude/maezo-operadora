@@ -417,6 +417,14 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_plan_facts",
     ),
+    # Cobertura por procedimento do plano do proprio beneficiario (decisao do dono D1 de 18/10/2026; manifest
+    # aditivo v1.9; executor `gateway/amh_interop.py::AmhTinaCoberturaExecutor`): fatos do cadastro (Rol,
+    # segmentacao, carencias), nunca autorizacao. Mesma acao dos fatos do plano.
+    OperationSpec(
+        operation="amh.tina_get_cobertura",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
     # Carteirinha COMPLETA do proprio beneficiario verificado (decisao do dono de 17/10/2026, so' dev;
     # manifest
     # aditivo v1.12; executor `gateway/amh_interop.py::AmhTinaCarteirinhaExecutor`). O numero e' IDENTIFICADOR

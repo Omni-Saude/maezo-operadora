@@ -1475,12 +1475,23 @@ class HelenaDispatcher:
         ligada = getattr(lucas, "cancelamento_pf_v1", False) is True
         if lucas is None or not ligada or not self._roteamento_completo:
             return None
-        from maezo.runtime.cobranca_intencao import e_recuo_do_cancelamento
+        from maezo.runtime.cobranca_intencao import (
+            e_confirmacao_pura_do_cancelamento,
+            e_recuo_do_cancelamento,
+        )
 
         # FAIL-CLOSED: lexico que falhou, pedido de pessoa ou sinal de saude seguem o caminho da Helena.
         if sinais is None or sinais.pedido_humano or sinais.sinal_saude:
             return None
-        if not e_recuo_do_cancelamento(texto):
+        # FASE 4 (18/10/2026, decisao do dono: "Sim" basta): a CONFIRMACAO PURA ("Sim", "sim, quero cancelar",
+        # "confirmo") com a pergunta pendente tambem vai ao Lucas sem o classificador da Helena — antes o
+        # "Sim"
+        # sozinho dependia de o modelo ler cobranca.
+        if e_confirmacao_pura_do_cancelamento(texto):
+            confirmacao = "confirma"
+        elif e_recuo_do_cancelamento(texto):
+            confirmacao = "nega"
+        else:
             return None
         from maezo.agents.lucas.graph import TEXTO_CONFIRMA_CANCELAMENTO, ref_de_resposta
 
@@ -1493,7 +1504,7 @@ class HelenaDispatcher:
         from maezo.runtime.cobranca_foco import FOCO_GERAL
 
         logger.info(
-            "lucas_recuo_do_cancelamento",
+            "lucas_recuo_do_cancelamento" if confirmacao == "nega" else "lucas_confirmacao_do_cancelamento",
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
         )
@@ -1506,7 +1517,7 @@ class HelenaDispatcher:
                 "cobranca_subtipo": "cancelamento",
                 "competencia": None,
                 "cobranca_foco": FOCO_GERAL,
-                "cobranca_confirmacao": "nega",
+                "cobranca_confirmacao": confirmacao,
             },
         }
 

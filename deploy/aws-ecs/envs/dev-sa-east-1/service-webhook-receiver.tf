@@ -126,6 +126,10 @@ locals {
       # DL-0119: saude gerativa (ADR-0065; default `false`; rota global autorizada pelo DPO so' para a allowlist).
       { name = "MAEZO_HELENA_SAUDE_GERATIVA", value = tostring(var.helena_saude_gerativa) },
       { name = "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", value = join(",", var.helena_saude_gerativa_conversas) },
+      # Fase 3 (18/10/2026): busca por significado na base de saude (embeddings REGIONAIS sa-east-1; default `false`).
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA", value = tostring(var.helena_busca_semantica) },
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA_MODELO", value = var.helena_busca_semantica_modelo },
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA_LIMIAR", value = tostring(var.helena_busca_semantica_limiar) },
       # Fatos do plano na Helena (07/10/2026): desligado por default; ver `helena_consultas_amh`.
       { name = "MAEZO_HELENA_CONSULTAS_AMH", value = tostring(var.helena_consultas_amh) },
       # Acesso do beneficiario (08/10/2026, DL-0083): desligado por default; ver `acesso_beneficiario`.

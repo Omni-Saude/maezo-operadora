@@ -860,6 +860,40 @@ variable "helena_saude_gerativa_conversas" {
   }
 }
 
+variable "helena_busca_semantica" {
+  description = <<-EOT
+    BUSCA POR SIGNIFICADO na base de saude (fase 3, decisao do dono de 18/10/2026): `MAEZO_HELENA_BUSCA_SEMANTICA`.
+    Default `false` = o lexico de antes. Ligada (e com `helena_saude_gerativa`), embeddings de um modelo REGIONAL do
+    Bedrock em sa-east-1 (sem perfil de inferencia) escolhem o APOIO da redacao da saude gerativa, so' para a
+    allowlist dela. Nunca e' portao de recusa. IAM em `busca-semantica-saude.tf`. Runbook: helena-base-saude.md §13.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_busca_semantica_modelo" {
+  description = "Modelo de embeddings REGIONAL (sa-east-1) da busca por significado: cohere.embed-multilingual-v3 ou amazon.titan-embed-text-v2:0."
+  type        = string
+  default     = "cohere.embed-multilingual-v3"
+  nullable    = false
+  validation {
+    condition     = contains(["cohere.embed-multilingual-v3", "amazon.titan-embed-text-v2:0"], var.helena_busca_semantica_modelo)
+    error_message = "helena_busca_semantica_modelo: so' cohere.embed-multilingual-v3 ou amazon.titan-embed-text-v2:0 (regionais)."
+  }
+}
+
+variable "helena_busca_semantica_limiar" {
+  description = "Similaridade minima (cosseno, 0..1) para o assunto da busca por significado virar apoio (calibrado em dev)."
+  type        = number
+  default     = 0.45
+  nullable    = false
+  validation {
+    condition     = var.helena_busca_semantica_limiar >= 0 && var.helena_busca_semantica_limiar <= 1
+    error_message = "helena_busca_semantica_limiar: entre 0 e 1."
+  }
+}
+
 variable "helena_consultas_amh" {
   description = <<-EOT
     Fatos do plano na Helena pelo contrato TINA da AMH (decisao do dono de 07/10/2026):
@@ -897,6 +931,13 @@ variable "amh_tina_carteirinha_openapi_path" {
   description = "Caminho, DENTRO da imagem, do OpenAPI `tina-carteirinha` (manifest v1.12; o digest tem de estar no bloco manifest_v1_12 do pin). Lido so' com helena_consultas_amh e helena_carteirinha_completa. Vazio = sem a rota (nem o escopo `interop/tina.carteirinha`): a Helena so' filtra os vinculos ativos e a carteirinha sai mascarada."
   type        = string
   default     = "/app/config/integrations/amh/openapi/tina-carteirinha.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_cobertura_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-cobertura` (manifest v1.9; o digest tem de estar no bloco manifest_v1_9 do pin). Lido so' com helena_consultas_amh. Vazio (default) = sem a rota de cobertura por procedimento; falha de leitura/digest deixa so' a cobertura de fora."
+  type        = string
+  default     = ""
   nullable    = false
 }
 
