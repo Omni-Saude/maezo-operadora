@@ -7,7 +7,7 @@
 `disparar`:
   1. monta um PACOTE (`git archive`, tar.gz) EXATAMENTE como esta' no commit `--ref` (padrao `origin/main`: so'
      roda o que foi mesclado — nada configurado so' no notebook) com `src/maezo`, `spec/`, `tests/support/` e a
-     pasta do script, e grava em `s3://<bucket do simulador>/<prefixo>/codigo/<sha>.tar.gz` (SSE-KMS, a CMK do
+     pasta do script, e grava em `s3://<bucket do simulador>/<prefixo>/codigo/<sha>-<hash>.tar.gz` (SSE-KMS, a CMK do
      bucket). O pacote leva o CODIGO DO COMMIT: o script importa a Helena/base/redator dele, nao os da imagem;
   2. `ecs run-task` da task definition do SIMULADOR (`maezo-operadora-dev-simulador`: a mesma imagem, a mesma
      rede, a role `simulador-task`), com o COMANDO sobrescrito por um carregador curto que baixa o pacote,
@@ -24,6 +24,7 @@ prefixos liberados em `deploy/aws-ecs/envs/dev-sa-east-1/experimento-redacao-sau
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -79,11 +80,13 @@ def disparar(args: argparse.Namespace, extras: list[str]) -> int:
     env = _env_da_task(ecs)
     bucket, kms = env["MAEZO_SIMULADOR_BUCKET"], env["MAEZO_SIMULADOR_KMS_KEY"]
     prefixo = args.prefixo.strip("/")
-    chave = f"{prefixo}/codigo/{sha}.tar.gz"
+    corpo = pacote(sha, args.script, args.incluir)
+    # O nome leva o hash do PACOTE: dois disparos do mesmo commit com scripts diferentes nao se sobrescrevem.
+    chave = f"{prefixo}/codigo/{sha}-{hashlib.sha256(corpo).hexdigest()[:12]}.tar.gz"
     s3.put_object(
         Bucket=bucket,
         Key=chave,
-        Body=pacote(sha, args.script, args.incluir),
+        Body=corpo,
         ServerSideEncryption="aws:kms",
         SSEKMSKeyId=kms,
     )
