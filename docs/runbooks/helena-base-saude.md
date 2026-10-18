@@ -214,3 +214,16 @@ cadastro" (nunca "não cobre"); DUT e carência em andamento; termo genérico �
 com o aviso "A cobertura final depende de carência, autorização e indicação médica; confirme pela central de
 atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com falha: o texto de antes.
 **Desligar:** `amh_tina_cobertura_openapi_path = ""` (tfvars) + apply direcionado do receptor e do simulador.
+
+## 15. Correções do dossiê de segurança (DL-0123) — para todos, sentido conservador
+
+- **Alarme pelo texto** (`agents/helena/alarme_deterministico.py`): gestante com bolsa rota, contrações antes do
+  tempo ou sem sentir o bebê mexer; pressão ≥ 18 x 11 ou alta com sinal; criança com febre e prostrada; ingestão de
+  muitos comprimidos/veneno; dor do lado direito da barriga piorando → alerta clínico P1 com 192, na hora (log
+  `helena_alarme_deterministico`, só a categoria). A DMN não mudou.
+- **Risco psicossocial:** texto com o CVV 188, o 192 e o caso; termo de risco no texto vence o classificador (log
+  `helena_risco_psicossocial_pelo_texto`).
+- **192 imperativo** nos textos de alarme; **acolhimento com 188** antes da resposta do plano quando há sofrimento.
+- **Redação:** preâmbulo de reescrita tirado; metatexto e "erro de medição" de pressão reprovam.
+- **Medir:** dossiê `scripts/dossie_seguranca_saude/` nas categorias gestante, saúde mental, criança e alarme.
+

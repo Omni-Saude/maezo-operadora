@@ -206,6 +206,7 @@ from maezo.tools.workers.dmn_transport import (
 )
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
+from .alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
 from .cobertura_rol import literais_da_cobertura, termo_da_mensagem, termo_valido, texto_da_cobertura
 from .consultas_plano import (
     ADENDO_CLASSIFY_CONSULTAS,
@@ -713,17 +714,29 @@ RESPOSTA_SINTOMA_SEM_ALERTA: str = (
 #: texto de red flag/risco termina na forma de emergencia do guia de tom ("ligue agora para o 192
 #: (SAMU) ou va ao pronto-socorro mais proximo"); a cerca de canal so' barra telefone de 8+ digitos com
 #: pista de ligacao, entao o 192 passa nas tres cercas (veredito fixado no corpus).
+#: DOSSIE DE SEGURANCA (fase 5, 18/10/2026): nos casos que JA' sao alarme o 192 vem IMPERATIVO, nunca
+#: condicional ("se for uma emergencia..."); no risco psicossocial entra o CVV 188 (o dossie mediu 0% de 188),
+#: mantidos o 192 e o caso. Sentido conservador, pendente do dono clinico (DL-0123).
+#: DOSSIE (18/10/2026): sofrimento junto de uma pergunta do plano — acolher primeiro, com o CVV e o 192.
+_SOFRIMENTO = re.compile(
+    r"\b(?:ando|estou|to|tou|me sinto|tenho andado) (?:muito |tao |bem )?(?:mal|pra baixo|deprimid\w*|triste"
+    r"|sem vontade de nada|sem forcas|esgotad\w*)\b|\bsem vontade de (?:nada|viver)\b|\bnao aguento mais\b"
+    r"|\bcrise de (?:ansiedade|panico)\b|\bdepressao\b|\bdeprimid\w*\b"
+)
+RESPOSTA_ACOLHIMENTO: str = (
+    "Sinto muito que você esteja se sentindo assim. Se pensar em se machucar, ligue para o CVV no 188 "
+    "(ligação gratuita, 24h). Se estiver em perigo agora, ligue 192."
+)
 RESPOSTA_ESCALONAMENTO_URGENTE: str = (
-    "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde. "
-    "Um profissional vai dar continuidade ao seu atendimento. Se você estiver com sintomas agora, "
-    "não espere o nosso contato. Se for uma emergência, ligue agora para o 192 (SAMU) "
-    "ou vá ao pronto-socorro mais próximo."
+    "Ligue 192 (SAMU) agora ou vá ao pronto-socorro. Em uma emergência, não espere o nosso "
+    "contato. Também encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar "
+    "continuidade ao seu atendimento."
 )
 RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL: str = (
-    "Sinto muito que você esteja passando por isso. Encaminhamos o seu caso para a nossa equipe de "
-    "saúde, e um profissional vai dar continuidade ao seu atendimento. Se você estiver em risco "
-    "agora, não espere o nosso contato. Se for uma emergência, ligue agora para o 192 (SAMU) "
-    "ou vá ao pronto-socorro mais próximo."
+    "Sinto muito que você esteja passando por isso. Você pode conversar agora com o CVV, no 188 "
+    "(ligação gratuita, 24h). Se estiver em perigo agora, ligue 192 (SAMU) ou vá ao pronto-socorro. "
+    "Encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu "
+    "atendimento."
 )
 
 
@@ -834,10 +847,12 @@ def _texto_de_escalonamento(
     sintomas agora" vira "se sua filha estiver com sintomas agora"."""
     if motivo == "risco_psicossocial":
         return RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL
-    if motivo == "red_flag_clinico" and severidade == "grave":
+    if motivo == "red_flag_clinico":
+        # DOSSIE (18/10/2026): todo alerta clinico da tabela e' ALARME — o texto imperativo com 192, qualquer
+        # que seja a severidade (antes, o P2 recebia o aviso generico com "se for uma emergencia").
         if paciente:
             return RESPOSTA_ESCALONAMENTO_URGENTE.replace(
-                "Se você estiver com sintomas agora", f"Se {paciente} estiver com sintomas agora"
+                "ou vá ao pronto-socorro.", f"ou leve {paciente} ao pronto-socorro.", 1
             )
         return RESPOSTA_ESCALONAMENTO_URGENTE
     return _texto_de_handoff(motivo, saude=saude)
@@ -4787,6 +4802,12 @@ class HelenaGraph:
             }
         intent = cast(Intent, extraction.get("intent", "information"))
         psychosocial = bool(extraction.get("psychosocial_risk", False))
+        if not psychosocial and _sg.tem_risco(_plano(str(state.get("message_body") or ""))):
+            # DOSSIE DE SEGURANCA (18/10/2026, conservador): termo de autolesao ou de nao querer viver NO
+            # TEXTO e' risco psicossocial mesmo que o classificador nao tenha marcado (DL-0123).
+            logger.warning("helena_risco_psicossocial_pelo_texto", node="classify")
+            psychosocial = True
+            extraction["psychosocial_risk"] = True
 
         # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). A fusao acontece AQUI, antes de qualquer
         # decisao, porque e' `extraction` — nao `update` — que vai para `_evaluate_dmn`, e e' a
@@ -5222,6 +5243,21 @@ class HelenaGraph:
             else:
                 prioridade = str((dmn_out.get("dmn_decision") or {}).get("prioridade", ""))
                 update["escalation_severidade"] = _severidade_from_prioridade(prioridade)
+            return update
+
+        # DOSSIE DE SEGURANCA (18/10/2026, conservador; DL-0123): o ALARME reconhecido PELO TEXTO (gestante
+        # com bolsa rota/contracoes antes do tempo/sem sentir o bebe mexer, pressao muito alta ou alta com
+        # sinal, crianca com febre e prostrada, ingestao de muitos comprimidos/veneno, dor do lado direito da
+        # barriga piorando) escala NA HORA como alerta clinico P1 com 192 — antes da tabela, que dependia do
+        # codigo e da idade gestacional ditos. Nunca rebaixa nada: sem o termo, o caminho de sempre.
+        alarme = alarme_no_relato(_plano(str(state.get("message_body") or "")))
+        if alarme is not None:
+            logger.warning("helena_alarme_deterministico", node="classify", categoria=alarme)
+            update["intent"] = "symptom"
+            update["population"] = POPULACAO_DO_ALARME.get(alarme, update.get("population") or "adult")
+            update["next_kind"] = "escalate"
+            update["escalation_motivo"] = "red_flag_clinico"
+            update["escalation_severidade"] = "grave"
             return update
 
         # CONTEUDO CLINICO NUNCA VIRA `solicitacao_humano` (rodada 10, regra B). No teste real do dono, "ele
@@ -7622,6 +7658,21 @@ class HelenaGraph:
         return update
 
     async def consultar_plano(self, state: HelenaState) -> dict[str, Any]:
+        """A consulta do plano; com SOFRIMENTO na mesma mensagem ("o plano cobre psiquiatra? ando muito mal"),
+        o acolhimento (com o CVV 188 e o 192) vem PRIMEIRO (dossie de seguranca, 18/10/2026). O portao de
+        risco ja' rodou em `classify` (risco psicossocial vence a consulta)."""
+        resultado = await self._consultar_plano_sem_acolhimento(state)
+        texto = resultado.get("response_text")
+        if (
+            isinstance(texto, str)
+            and texto
+            and _SOFRIMENTO.search(_plano(str(state.get("message_body") or "")))
+        ):
+            logger.info("helena_acolhimento_antes_da_consulta", node="consultar_plano")
+            resultado = {**resultado, "response_text": f"{RESPOSTA_ACOLHIMENTO} {texto}"}
+        return resultado
+
+    async def _consultar_plano_sem_acolhimento(self, state: HelenaState) -> dict[str, Any]:
         """CONSULTA DO PLANO (DL de 07/10/2026): fatos do cadastro do PROPRIO beneficiario.
 
         SO' com identidade resolvida (DL-0077: candidato unico, `portable_subject_ref` no estado). Sem

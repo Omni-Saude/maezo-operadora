@@ -386,6 +386,9 @@ que vários fatores influenciam e orienta levar o resultado ao médico.
 - Nunca promete cobertura do plano, prazo ou que alguém vai entrar em contato, e não oferece fazer o que \
 você não faz (agendar pela pessoa, ver agenda ou disponibilidade).
 - Não invente links, telefones nem fontes.
+- Pressão alta relatada pela pessoa nunca é "erro de medição": não sugira medir de novo; oriente procurar \
+avaliação médica e, com sinal de alarme, o 192.
+- Responda só com o texto para a pessoa: nunca comente a reescrita, as regras ou as palavras proibidas.
 - Evite estas palavras, que o sistema bloqueia: "dose", "dosagem", "posologia", "tome", "tomar", \
 "é normal", "você tem", "você está com", "tem cobertura", "anualmente". Em vez de "tomar", diga "usar".
 
@@ -595,6 +598,9 @@ _RISCO_NA_MENSAGEM: Final[re.Pattern[str]] = re.compile(
     r"suicid|\bme matar\b|\bquero morrer\b|\btirar (?:a )?minha (?:propria )?vida\b"
     r"|\bnao (?:quero|aguento) mais viver\b|\bmelhor (?:nao acordar|morrer|sumir)\b|\bnao acordar mais\b"
     r"|\bme cortar\b|\bme cortado\b|\bme cortando\b|\bme machucar\b|\bautolesao\b"
+    # Dossie de seguranca (18/10/2026): formas que o classificador deixou passar.
+    r"|\bacabar com (?:tudo|a minha vida|minha vida|a vida)\b|\bsumir de vez\b|\bme cortei\b"
+    r"|\bme machuquei de proposito\b|\bqueria (?:simplesmente )?desaparecer\b|\bnao quero mais estar aqui\b"
 )
 #: Adjetivo de genero referido a pessoa ("voce nao esta sozinho", "fico feliz que voce esteja tranquila").
 _GENERO: Final[re.Pattern[str]] = re.compile(
@@ -702,6 +708,21 @@ def _violacoes_de_remedio(plano: str, pessoa: str) -> list[Violacao]:
     return achados
 
 
+#: DOSSIE (18/10/2026): o texto fala da PROPRIA redacao ("vou reescrever", "sem essas palavras", "versao
+#: corrigida", "a verificacao") — nunca sai para a pessoa.
+_METATEXTO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:reescrev\w*|reescrit\w*|sem essas palavras|versao (?:corrigida|reescrita|anterior)"
+    r"|verificacao automatica|as regras (?:que|do sistema)|o sistema bloqueia|nao posso usar a palavra)\b"
+)
+#: DOSSIE (18/10/2026): pressao ALTA relatada nunca e' descartada como erro de medicao.
+_PRESSAO_NA_PESSOA: Final[re.Pattern[str]] = re.compile(r"\bpressao\b")
+_DESCARTA_MEDICAO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:erro|falha|engano) (?:de|na|da) (?:medic\w*|afericao|leitura)\b|\bmedi\w* errad\w*\b"
+    r"|\baparelho (?:descalibrad\w*|com defeito|errado)\b|\b(?:medir|afira|aferir|confira|conferir) de novo\b"
+    r"|\brepet\w* a (?:medicao|afericao)\b|\bpode ter sido (?:erro|engano)\b"
+)
+
+
 def verificar(
     texto: str,
     pedido: Pedido,
@@ -727,12 +748,15 @@ def verificar(
         ("minimiza", _MINIMIZA),
         ("diagnostico", _DIAGNOSTICO),
         ("promessa", _PROMESSA),
+        ("metatexto", _METATEXTO),
     ):
         m = padrao.search(plano)
         if m:
             achados.append(Violacao(nome, m.group(0)))
     pessoa = bs.normalizar(texto_da_pessoa)
     achados += _violacoes_de_remedio(plano, pessoa)
+    if _PRESSAO_NA_PESSOA.search(pessoa) and (m_med := _DESCARTA_MEDICAO.search(plano)):
+        achados.append(Violacao("descarta_pressao_alta", m_med.group(0)))
     for m in _GENERO.finditer(plano):
         adjetivo = m.group(1) or m.group(2)
         if adjetivo is None or not re.search(rf"\b{re.escape(adjetivo)}\b", pessoa):
@@ -781,6 +805,9 @@ _INSTRUCAO: Final[Mapping[str, str]] = {
     "minimiza": "nao minimize ('nao e' grave', 'fique tranquilo', 'e' normal')",
     "diagnostico": "nao diga o que a pessoa tem ('voce tem', 'voce esta com', 'deve ser')",
     "promessa": "nao prometa agendar, marcar nem que alguem vai entrar em contato",
+    "metatexto": "escreva SO' a resposta para a pessoa, sem falar da reescrita, das regras ou das palavras",
+    "descarta_pressao_alta": "nunca diga que a pressao pode ser erro de medicao nem peca para medir de novo; "
+    "oriente procurar avaliacao medica (e 192 se houver sinal de alarme)",
     "genero": "escreva sem adjetivo de genero para a pessoa (troque 'avaliado/avaliada', 'sozinho/sozinha', "
     "'tranquilo/tranquila' por formas neutras, como 'vale passar por avaliacao medica')",
     "pediatra_para_adulto": "a conversa e' sobre um adulto: tire 'pediatra' (clinico geral ou medico de "
@@ -910,9 +937,33 @@ _ABERTURA_REPETIDA: Final[re.Pattern[str]] = re.compile(
 )
 
 
+#: DOSSIE DE SEGURANCA (18/10/2026): o PREAMBULO de reescrita que vazou para a pessoa ("Claro, vou reescrever
+#: sem essas palavras.", "Aqui esta' a versao reescrita:"). Tirado do comeco; se sobrar metatexto no meio, a
+#: checagem (`metatexto`) reprova.
+_PREAMBULO: Final[re.Pattern[str]] = re.compile(
+    r"^\s*(?:(?:claro|certo|ok|entendido|perfeito|sem problemas?)[,.!]?\s*)?"
+    r"(?:(?:vou|irei|posso) (?:reescrever|refazer|corrigir|ajustar)[^.:!\n]*[.:!]"
+    r"|(?:aqui (?:esta|está|vai)|segue)[^.:!\n]{0,60}"
+    r"(?:reescrit|corrigid|nova vers|versao|versão|texto)[^.:!\n]*[.:!]"
+    r"|(?:versao|versão) (?:reescrita|corrigida)[^.:!\n]*[.:!])\s*",
+    re.IGNORECASE,
+)
+
+
+def sem_preambulo(texto: str) -> str:
+    """Tira o preambulo de reescrita do comeco do texto ("Claro, vou reescrever sem essas palavras.")."""
+    t = texto.strip()
+    for _ in range(2):
+        novo = _PREAMBULO.sub("", t, count=1).strip()
+        if novo == t:
+            break
+        t = novo
+    return t
+
+
 def sem_abertura_repetida(texto: str) -> str:
     """ "Entendi. Entendi: ..." / "Oi! Oi!" -> uma vez so' (a ultima, com a pontuacao dela)."""
-    t = texto.strip()
+    t = sem_preambulo(texto)
     while True:
         novo = _ABERTURA_REPETIDA.sub("", t, count=1)
         if novo == t:

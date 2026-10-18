@@ -1486,10 +1486,10 @@
       }
     },
     {
-      "texto": "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde. Um profissional vai dar continuidade ao seu atendimento. Se você estiver com sintomas agora, não espere o nosso contato. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "texto": "Ligue 192 (SAMU) agora ou vá ao pronto-socorro. Em uma emergência, não espere o nosso contato. Também encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_URGENTE, texto fixo do aviso de encaminhamento para P1 clinico — DL-0088 (12/10/2026): emergencia com 192",
+      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_URGENTE, texto fixo do aviso de encaminhamento para P1 clinico — DL-0088 (12/10/2026): emergencia com 192 — dossie de seguranca (18/10/2026): 192 imperativo; CVV 188 no risco",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1497,14 +1497,25 @@
       }
     },
     {
-      "texto": "Sinto muito que você esteja passando por isso. Encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento. Se você estiver em risco agora, não espere o nosso contato. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "texto": "Sinto muito que você esteja passando por isso. Você pode conversar agora com o CVV, no 188 (ligação gratuita, 24h). Se estiver em perigo agora, ligue 192 (SAMU) ou vá ao pronto-socorro. Encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL, texto fixo do aviso de encaminhamento para risco psicossocial — DL-0088 (12/10/2026): emergencia com 192",
+      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL, texto fixo do aviso de encaminhamento para risco psicossocial — DL-0088 (12/10/2026): emergencia com 192 — dossie de seguranca (18/10/2026): 192 imperativo; CVV 188 no risco",
       "esperado": {
         "recusa": null,
         "canal": null,
         "menciona": true
+      }
+    },
+    {
+      "texto": "Sinto muito que você esteja se sentindo assim. Se pensar em se machucar, ligue para o CVV no 188 (ligação gratuita, 24h). Se estiver em perigo agora, ligue 192.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "dossie de seguranca (18/10/2026): RESPOSTA_ACOLHIMENTO, acolhimento antes da consulta do plano",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
       }
     },
     {
