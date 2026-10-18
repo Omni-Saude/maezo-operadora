@@ -11,7 +11,7 @@
      bucket). O pacote leva o CODIGO DO COMMIT: o script importa a Helena/base/redator dele, nao os da imagem;
   2. `ecs run-task` da task definition do SIMULADOR (`maezo-operadora-dev-simulador`: a mesma imagem, a mesma
      rede, a role `simulador-task`), com o COMANDO sobrescrito por um carregador curto que baixa o pacote,
-     extrai em `/tmp/codigo`, poe `src/` na frente do `sys.path` e executa o script. Nao muda a task
+     extrai em `/dev/shm/codigo` (a raiz do container e' SO' LEITURA; `/dev/shm` e' o unico tmpfs), poe `src/` na frente do `sys.path` e executa o script. Nao muda a task
      definition, nao toca o receptor nem os agentes.
   O script recebe `--saida s3://<bucket>/<prefixo>/<data>` e os `--` extras.
 
@@ -43,7 +43,7 @@ CAMINHOS_DO_PACOTE = ("src/maezo", "spec", "tests/__init__.py", "tests/support",
 
 CARREGADOR = (
     "import io,os,runpy,sys,tarfile,boto3\n"
-    "b=os.environ['MAEZO_SIMULADOR_BUCKET'];k=os.environ['TAREFA_PACOTE'];d='/tmp/codigo'\n"
+    "b=os.environ['MAEZO_SIMULADOR_BUCKET'];k=os.environ['TAREFA_PACOTE'];d='/dev/shm/codigo'\n"
     "o=boto3.client('s3',region_name='sa-east-1').get_object(Bucket=b,Key=k)['Body'].read()\n"
     "tarfile.open(fileobj=io.BytesIO(o),mode='r:gz').extractall(d,filter='data')\n"
     "sys.path[:0]=[d+'/src',d];os.chdir(d)\n"
