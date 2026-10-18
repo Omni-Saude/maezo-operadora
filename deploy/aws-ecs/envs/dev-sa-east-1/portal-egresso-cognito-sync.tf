@@ -47,7 +47,17 @@ locals {
   # Liga so com um SG real: o do portal (var.portal != null) ou um informado.
   cognito_egress_sync      = var.portal_cognito_egress_sync.enabled && (var.portal != null || var.portal_cognito_egress_sync.security_group_id != null) ? { this = var.portal_cognito_egress_sync } : {}
   cognito_egress_sync_name = "${local.name}-portal-cognito-egress-sync"
-  cognito_egress_sync_tags = merge(local.base_tags, { Component = "portal-cognito-egress-sync" })
+  # SCP `require-mandatory-tags` (p-bb3h9tps) nega lambda:CreateFunction sem as cinco tags obrigatorias
+  # (tenant, environment, workload, owner, cost_center); medido no primeiro apply (18/10/2026, 403).
+  # Mesmo conjunto do bucket do simulador (qa-simulador.tf).
+  cognito_egress_sync_tags = merge(local.base_tags, {
+    Component   = "portal-cognito-egress-sync"
+    tenant      = "amh"
+    environment = "dev"
+    workload    = "maezo-portal-cognito-egress-sync"
+    owner       = "data-platform@amh.health"
+    cost_center = "amh-data-dev"
+  })
 }
 
 data "archive_file" "cognito_egress_sync" {
