@@ -1497,7 +1497,7 @@
       }
     },
     {
-      "texto": "Ligue 192 (SAMU) agora ou vá ao pronto-socorro. Em uma emergência, não espere o nosso contato. Também encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento.",
+      "texto": "Ligue 192 (SAMU) agora ou vá ao pronto-socorro. Não dirija: peça para alguém te levar ou chame o SAMU. Em uma emergência, não espere o nosso contato. Também encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento.",
       "rota": "escalate",
       "start_aconteceu": true,
       "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_URGENTE, texto fixo do aviso de encaminhamento para P1 clinico — DL-0088 (12/10/2026): emergencia com 192 — dossie de seguranca (18/10/2026): 192 imperativo; CVV 188 no risco",
