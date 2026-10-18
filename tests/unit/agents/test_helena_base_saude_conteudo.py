@@ -75,11 +75,59 @@ def test_o_texto_de_cada_assunto_respeita_o_limite_e_a_fonte_creditada_responde(
     assert len(assunto.texto) <= b.LIMITE_DO_TEXTO
     creditada = b.fonte_creditada(assunto)
     if creditada is None:
-        # So' o sintoma pode ter so' a referencia interna (tabela de alarme): credito "Texto da operadora."
-        assert assunto.categoria == b.CATEGORIA_SINTOMA, assunto.id
+        # So' o sintoma pode ter so' a referencia interna (tabela de alarme) e so' o rascunho da fase 5 pode
+        # ter so' a referencia SEM LINK: credito "Texto da operadora."
+        so_sem_link = all(
+            b.classificar_fonte(f.nome, f.url).classe == b.CLASSE_SEM_LINK for f in assunto.fontes
+        )
+        assert assunto.categoria == b.CATEGORIA_SINTOMA or (
+            assunto.revisao.status == b.STATUS_RASCUNHO_PENDENTE and so_sem_link
+        ), assunto.id
+        assert b.linha_de_credito(assunto) == "Texto da operadora."
         return
     assert b.classificar_fonte(creditada.nome, creditada.url).classe in (
         b.CLASSE_RESPONDER,
         b.CLASSE_ATO_OFICIAL,
         b.CLASSE_LINK,
     )
+
+
+# --- Rascunhos escritos por modelo (fase 5, aprovada pelo dono em 18/10/2026, so' dev) ------------------
+RASCUNHOS = list(b.rascunhos_de_modelo(BASE))
+#: Assuntos de saude mental: o texto termina com o CVV 188 e a oferta da equipe (README da base).
+_SAUDE_MENTAL = frozenset(
+    {
+        "con-sindrome-de-burnout",
+        "con-transtorno-de-panico",
+        "con-transtorno-bipolar",
+        "con-toc",
+        "con-depressao-pos-parto",
+    }
+)
+
+
+@pytest.mark.parametrize("assunto", RASCUNHOS, ids=lambda a: a.id)
+def test_rascunho_de_modelo_e_marcado_e_nunca_e_sintoma(assunto: b.Assunto) -> None:
+    """O rascunho diz quem o escreveu, espera a revisao medica e NUNCA cria `sintoma`: sinal de alarme so'
+    vem das tabelas `triage_redflag_*` (licao do #818: "dor muito forte" isolada nao e' alarme)."""
+    assert assunto.revisao.escrito_por, assunto.id
+    assert assunto.revisao.revisao_medica == "pendente"
+    assert assunto.tipo_texto == b.TIPO_PROPRIO, "rascunho de modelo nunca e' citacao literal"
+    assert assunto.categoria != b.CATEGORIA_SINTOMA
+
+
+@pytest.mark.parametrize("assunto", RASCUNHOS, ids=lambda a: a.id)
+def test_rascunho_de_modelo_passa_na_checagem_de_conduta(assunto: b.Assunto) -> None:
+    """A MESMA checagem que a saude gerativa aplica antes de enviar (dose, mandar usar/parar, dose esquecida,
+    liberar combinacao, minimizar, diagnostico, promessa, genero, link), sobre o texto do rascunho."""
+    from maezo.conhecimento import saude_gerativa as sg
+
+    pedido = sg.Pedido(modo=sg.MODO_INFORMAR, mensagem="", crianca=True)
+    violacoes = [v.regra for v in sg.verificar(assunto.texto, pedido, cercas=lambda _t: [])]
+    assert violacoes == [], f"{assunto.id}: {violacoes}"
+
+
+@pytest.mark.parametrize("assunto", [a for a in RASCUNHOS if a.id in _SAUDE_MENTAL], ids=lambda a: a.id)
+def test_rascunho_de_saude_mental_termina_com_o_cvv_e_a_equipe(assunto: b.Assunto) -> None:
+    assert "188" in assunto.texto and "CVV" in assunto.texto, assunto.id
+    assert "equipe" in assunto.texto.lower(), assunto.id

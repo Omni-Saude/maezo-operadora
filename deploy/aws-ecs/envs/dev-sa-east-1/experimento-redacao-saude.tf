@@ -7,6 +7,12 @@
 #     GLOBAL. GLM-5 e Claude Opus 5 (juiz) ja' estao em `task_bedrock` (secrets.tf);
 #   * ler o codigo/perguntas e gravar os resultados SO' sob `experimentos/redacao-saude/` do bucket do
 #     simulador (a CMK do bucket ja' esta' liberada via S3 em `simulador_bucket`).
+#   * FASE 5 (aprovada pelo dono em 18/10/2026, so' dev): os mesmos direitos de S3 em mais DOIS prefixos,
+#     para as tarefas avulsas de `scripts/tarefa_aws/lancar.py`:
+#       - `experimentos/base-saude-rascunhos/` — rascunhos da base de saude pelo Sonnet 5.5
+#         (`scripts/base_saude_rascunhos/`, prompts sinteticos);
+#       - `dossie-seguranca/` — o dossie de seguranca para o dono clinico (`scripts/dossie_seguranca_saude/`).
+#     Nenhum modelo novo: Sonnet/Haiku 5.5 ja' estavam aqui; GLM-5 e Opus 5 estao em `task_bedrock`.
 #
 # O QUE NAO E'. Nao toca a Helena no ar: o receptor (role `task`), os agentes e as chaves do dev ficam como
 # estao; a task definition do simulador nao muda (o experimento roda com override de COMANDO no RunTask).
@@ -42,14 +48,18 @@ data "aws_iam_policy_document" "simulador_experimento_redacao_saude" {
     condition {
       test     = "StringLike"
       variable = "s3:prefix"
-      values   = ["experimentos/redacao-saude/*"]
+      values   = ["experimentos/redacao-saude/*", "experimentos/base-saude-rascunhos/*", "dossie-seguranca/*"]
     }
   }
   statement {
-    sid       = "ExperimentoRedacaoSaudeLerEGravar"
-    effect    = "Allow"
-    actions   = ["s3:GetObject", "s3:PutObject"]
-    resources = ["${aws_s3_bucket.qa_simulador.arn}/experimentos/redacao-saude/*"]
+    sid     = "ExperimentoRedacaoSaudeLerEGravar"
+    effect  = "Allow"
+    actions = ["s3:GetObject", "s3:PutObject"]
+    resources = [
+      "${aws_s3_bucket.qa_simulador.arn}/experimentos/redacao-saude/*",
+      "${aws_s3_bucket.qa_simulador.arn}/experimentos/base-saude-rascunhos/*",
+      "${aws_s3_bucket.qa_simulador.arn}/dossie-seguranca/*",
+    ]
   }
 }
 

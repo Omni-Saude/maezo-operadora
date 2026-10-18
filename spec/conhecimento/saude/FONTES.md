@@ -50,6 +50,16 @@ Servem para achar sinônimos e códigos; **nunca** são a fonte creditada de um 
 - Fiocruz;
 - Manual MSD.
 
+## 4-bis. REFERÊNCIA SEM LINK (só rascunho da fase 5, DL-0120)
+
+Assunto comum que **nenhuma** fonte de responder da lista trata em página leiga (ex.: síndrome dos ovários
+policísticos, mioma, osteoporose, gastrite): o rascunho de texto **próprio** escrito por IA leva uma fonte com
+`url: null` e o nome "Sem página leiga oficial na lista fechada (FONTES.md) — texto próprio, conferir na
+revisão médica". Só vale com `revisao.status: rascunho_pendente_revisao_medica` e `tipo_texto: proprio`; em
+qualquer outro arquivo o CI reprova. A linha de crédito é só "Texto da operadora." (nenhuma fonte oficial é
+creditada sem ter sido consultada). Não é uma fonte nova: é a declaração de que falta uma — a revisão médica
+confere o conteúdo e, se achar fonte da lista, ela entra por PR.
+
 ## 5. Regras do conteúdo (o CI confere)
 
 - Arquivo `spec/conhecimento/saude/<categoria>/<id>.yaml`; categorias `especialidade`, `medicamento`,
