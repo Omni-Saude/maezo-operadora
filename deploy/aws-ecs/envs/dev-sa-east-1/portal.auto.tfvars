@@ -192,6 +192,16 @@ portal = {
     "52.67.142.58/32",
     "52.67.89.216/32",
     "54.233.100.143/32",
+    // [18/10/2026] 6a rotacao (callback "Nao foi possivel validar a sessao" com cadastro.teste): medido DE DENTRO
+    // DA VPC (25 resolucoes, TLS ok em cada um); a partir do SG do portal os tres do dominio davam timeout e o
+    // 54.20.166.254 do cognito-idp tambem. A rotina automatica (portal-egresso-cognito-sync.tf) segue desligada
+    // em dev-vivo.auto.tfvars, por isso a lista manual.
+    // amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com — POST /oauth2/token.
+    "54.207.208.219/32",
+    "56.124.0.232/32",
+    "56.126.10.236/32",
+    // cognito-idp.sa-east-1.amazonaws.com — JWKS do issuer.
+    "54.20.166.254/32",
     // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.ecr.api (vpce-0f200a15dbd1824ec).
     "10.40.40.27/32",
     "10.40.41.104/32",
