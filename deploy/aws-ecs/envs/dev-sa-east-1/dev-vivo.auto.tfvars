@@ -37,12 +37,12 @@ phi_zone_provider  = "bedrock_br"
 // `docs/runbooks/phi-inference-ops.md`, secao "Trocar ou voltar o modelo da zona PHI".
 phi_model_id = "zai.glm-5"
 
-// Sincronizacao automatica do egresso Cognito (portal-egresso-cognito-sync.tf): NAO esta aplicada na
-// conta (nao ha a Lambda nem o schedule). O default `enabled = true` criaria Lambda, role, schedule e
-// alarme no proximo apply. Fica DESLIGADA ate' o time decidir aplica-la (PR que troca para `true`); ate'
-// la vale a lista /32 de `portal.auto.tfvars`.
+// Sincronizacao automatica do egresso Cognito (portal-egresso-cognito-sync.tf): LIGADA em 18/10/2026 por
+// decisao do dono, depois da 6a rotacao que derrubou o login (#829). Lambda + schedule (5 min) + alarme;
+// a lista /32 de `portal.auto.tfvars` continua valendo e a rotina so complementa. Desligar: `enabled = false`
+// aqui, PR e apply direcionado (docs/runbooks/portal-egresso-cognito.md, "Desligar").
 portal_cognito_egress_sync = {
-  enabled = false
+  enabled = true
 }
 
 // ---------------------------------------------------------------------------
