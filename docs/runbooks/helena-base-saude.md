@@ -156,3 +156,18 @@ políticas IAM (o plan mostra 4 destroys) + build/deploy.
 
 **Verificar:** roteiro `--roteiro helena_saude_gerativa` no simulador (utilidade: "resolveu a dúvida?"); logs
 acima no grupo `/ecs/maezo-operadora-dev/webhook-receiver`.
+
+## 11. Fase 5 (DL-0120) — rascunhos por IA e dossiê de segurança
+
+- **Rascunhos da base pelo Sonnet 5.5** (`scripts/base_saude_rascunhos/README.md`): arquivos com
+  `revisao.status: rascunho_pendente_revisao_medica` e `escrito_por`. Respondem em dev pela mesma chave
+  (`helena_base_saude`); desligar a chave desliga todos. Tirar só os rascunhos: apagar os arquivos com esse
+  status (ou revert do PR do conteúdo) e gerar a imagem. Assunto sem página leiga na lista fechada usa a
+  referência sem link (`FONTES.md` §4-bis).
+- **Dossiê de segurança** (`scripts/dossie_seguranca_saude/README.md`, explicação ao médico em
+  `docs/clinico/dossie-seguranca-helena.md`): tarefa avulsa que roda os cenários fixos contra o grafo e o
+  redator, sem enviar nada e sem abrir caso real; resultados em
+  `s3://maezo-operadora-dev-qa-simulador-203312548462/dossie-seguranca/<data>/`.
+- **IAM**: a política experimental do simulador (`experimento-redacao-saude.tf`) ganhou os prefixos
+  `experimentos/base-saude-rascunhos/` e `dossie-seguranca/` (apply direcionado:
+  `-target=aws_iam_role_policy.simulador_experimento_redacao_saude`). Remover junto com o experimento.

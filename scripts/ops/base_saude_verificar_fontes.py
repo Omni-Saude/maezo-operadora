@@ -97,7 +97,10 @@ def achados_de_fonte(base: b.BaseSaude, baixar: object = _baixar) -> list[Achado
     achados: list[Achado] = []
     cache: dict[str, tuple[int | None, str]] = {}
     for assunto in sorted(base.assuntos.values(), key=lambda a: a.id):
-        urls = [f.url for f in assunto.fontes] + ([assunto.link_leitura] if assunto.link_leitura else [])
+        # Referencia SEM LINK (rascunho da fase 5, `url: null`) nao tem pagina para baixar.
+        urls = [f.url for f in assunto.fontes if f.url] + (
+            [assunto.link_leitura] if assunto.link_leitura else []
+        )
         for url in dict.fromkeys(urls):
             if url not in cache:
                 cache[url] = baixar(url)  # type: ignore[operator]
@@ -105,7 +108,7 @@ def achados_de_fonte(base: b.BaseSaude, baixar: object = _baixar) -> list[Achado
             if status is None or not 200 <= status < 300:
                 achados.append(Achado(assunto.id, "fonte_fora_do_ar", f"{url} -> {status or 'sem resposta'}"))
         for fonte in assunto.fontes:
-            if fonte.sha256_trecho is None:
+            if fonte.sha256_trecho is None or fonte.url is None:
                 continue
             if sha256_do_trecho(assunto.texto) != fonte.sha256_trecho:
                 achados.append(

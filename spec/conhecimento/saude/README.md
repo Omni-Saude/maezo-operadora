@@ -46,6 +46,14 @@ Campos de cada arquivo:
 
 Saúde mental (depressão, ansiedade): o texto termina com o CVV 188 e com a oferta de falar com a equipe.
 
+**Rascunhos escritos por IA (fase 5, dono 18/10/2026, só dev; DL-0120).** `revisao.status:
+rascunho_pendente_revisao_medica`, `revisao.escrito_por` (ex.: `claude-sonnet-5.5 (rascunho)`),
+`aprovado_por: dono (18/10/2026, fase 5, dev)`, `revisao_medica: pendente`, sempre `tipo_texto: proprio` e
+nunca `sintoma`. Respondem em dev como os outros (mesma chave); o médico os encontra em
+`base_saude.rascunhos_de_modelo()`. Assunto sem página leiga em nenhuma fonte da lista fechada recebe a
+**referência sem link** (`url: null`): crédito "Texto da operadora.", nunca um link inventado. Como foram
+gerados: `scripts/base_saude_rascunhos/README.md`.
+
 ## Como adicionar ou alterar um item
 
 1. Confira o fato numa fonte permitida (lista abaixo). O que não tiver fonte não entra.

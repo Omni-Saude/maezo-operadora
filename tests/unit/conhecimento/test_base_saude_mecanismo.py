@@ -421,3 +421,67 @@ def test_alarme_de_sintoma_da_base() -> None:
     # A lista e' a do arquivo DESTA queixa: sem arquivo citado, nenhum alarme da base (a tabela decide).
     assert [a.id for a in b.sintomas_citados(base, "minha enxaqueca voltou")] == ["sin-dor-de-cabeca"]
     assert not b.alarme_no_texto(base, "estou com dor nas costas e boca torta")
+
+
+# --- Fase 5: rascunho escrito por modelo e referencia sem link ----------------------------------------
+_REVISAO_FASE5: dict[str, Any] = {
+    "status": "rascunho_pendente_revisao_medica",
+    "autor": "Claude (assistente de IA)",
+    "aprovado_por": "dono (18/10/2026, fase 5, dev)",
+    "revisao_medica": "pendente",
+    "revisar_ate": "2027-04-17",
+    "escrito_por": "claude-sonnet-5.5 (rascunho)",
+}
+_SEM_LINK: dict[str, Any] = {
+    "nome": "Sem pagina leiga oficial na lista fechada (FONTES.md) - conferir na revisao medica",
+    "url": None,
+    "licenca": "texto proprio da operadora",
+    "coletado_em": "2026-10-17",
+}
+
+
+def test_rascunho_da_fase5_carrega_e_responde_como_os_outros(tmp_path: Path) -> None:
+    _escrever(tmp_path, _assunto(tipo_texto="proprio", revisao=_REVISAO_FASE5))
+    base = b.carregar_base(tmp_path)
+    assunto = base.assuntos["con-teste"]
+    assert b.problemas_de_politica(assunto, hoje=HOJE) == []
+    assert b.base_aplicavel(base, hoje=HOJE) is base
+    assert b.rascunhos_de_modelo(base) == (assunto,)
+    assert b.pendentes_de_revisao_medica(base) == (assunto,)
+    assert assunto.revisao.escrito_por == "claude-sonnet-5.5 (rascunho)"
+
+
+@pytest.mark.parametrize(
+    "troca",
+    [
+        {"escrito_por": None},
+        {"revisao_medica": "aprovada"},
+        {"aprovado_por": "dono (17/10/2026, dev)"},
+    ],
+)
+def test_rascunho_da_fase5_sem_marca_completa_reprova_a_base(tmp_path: Path, troca: dict[str, Any]) -> None:
+    _escrever(tmp_path, _assunto(tipo_texto="proprio", revisao={**_REVISAO_FASE5, **troca}))
+    with pytest.raises(b.BaseSaudeInvalidaError):
+        b.carregar_base(tmp_path)
+
+
+def test_referencia_sem_link_so_vale_no_rascunho_de_texto_proprio(tmp_path: Path) -> None:
+    rascunho = b.Assunto.model_validate(
+        _assunto(tipo_texto="proprio", fontes=[_SEM_LINK], revisao=_REVISAO_FASE5)
+    )
+    assert b.problemas_de_politica(rascunho, hoje=HOJE) == []
+    assert b.classificar_fonte(_SEM_LINK["nome"], None).classe == b.CLASSE_SEM_LINK
+    assert b.fonte_creditada(rascunho) is None
+    assert b.linha_de_credito(rascunho) == "Texto da operadora."
+    # Fora do rascunho da fase 5 (ou em citacao literal), fonte sem url reprova.
+    antigo = b.Assunto.model_validate(_assunto(tipo_texto="proprio", fontes=[_SEM_LINK]))
+    assert any("fonte sem url" in p for p in b.problemas_de_politica(antigo, hoje=HOJE))
+    literal = b.Assunto.model_validate(
+        _assunto(tipo_texto="citacao_literal", fontes=[_SEM_LINK], revisao=_REVISAO_FASE5)
+    )
+    assert b.problemas_de_politica(literal, hoje=HOJE) != []
+
+
+def test_url_presente_continua_exigindo_https() -> None:
+    with pytest.raises(ValueError, match="https"):
+        b.Fonte.model_validate({**_SEM_LINK, "url": "http://www.gov.br/saude/x"})

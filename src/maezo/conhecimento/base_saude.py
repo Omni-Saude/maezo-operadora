@@ -59,6 +59,17 @@ TIPO_PROPRIO: Final[str] = "proprio"
 TIPO_CITACAO_LITERAL: Final[str] = "citacao_literal"
 STATUS_DE_REVISAO_DEV: Final[str] = "rascunho_dono_aprovado_dev"
 APROVADO_POR_DEV: Final[str] = "dono (17/10/2026, dev)"
+#: FASE 5 (aprovada pelo dono em 18/10/2026, so' dev): RASCUNHO escrito por modelo (Claude Sonnet 5.5) a
+#: partir de prompt SINTETICO, a espera da revisao medica. Carrega e responde em dev exatamente como os
+#: outros (a mesma chave `MAEZO_HELENA_BASE_SAUDE`, desligada fora do dev); a marca serve para a revisao
+#: medica achar o que falta assinar (`pendentes_de_revisao_medica`) e para o gate exigir `escrito_por`.
+STATUS_RASCUNHO_PENDENTE: Final[str] = "rascunho_pendente_revisao_medica"
+APROVADO_POR_FASE5: Final[str] = "dono (18/10/2026, fase 5, dev)"
+#: A REFERENCIA SEM LINK: rascunho de texto PROPRIO sobre assunto que nao tem pagina leiga em nenhuma fonte
+#: da lista fechada (ex.: sindrome dos ovarios policisticos). Em vez de inventar um link, a fonte vai com
+#: `url: null` e o nome diz o que falta; so' vale em `rascunho_pendente_revisao_medica` + `proprio`, e a
+#: linha de credito e' so' "Texto da operadora." (nunca uma fonte oficial que nao foi consultada).
+CLASSE_SEM_LINK: Final[str] = "sem_link"
 _ID: Final[re.Pattern[str]] = re.compile(
     r"^(?:esp|med|exa|pro|cir|mat|con|vac|sin)-[a-z0-9]+(?:-[a-z0-9]+)*$"
 )
@@ -73,14 +84,18 @@ class Fonte(_Modelo):
     """De onde o texto saiu (ou em que se apoia). `url` https; `licenca` e `coletado_em` obrigatorios."""
 
     nome: str = Field(min_length=3, max_length=300)
-    url: str = Field(min_length=12, max_length=500)
+    #: OBRIGATORIA (a chave tem de estar no arquivo); `null` = REFERENCIA SEM LINK, so' em rascunho de texto
+    #: proprio da fase 5 (ver `CLASSE_SEM_LINK`; `problemas_de_politica` reprova nos demais).
+    url: str | None = Field(min_length=12, max_length=500)
     licenca: str = Field(min_length=3, max_length=80)
     coletado_em: date
     sha256_trecho: str | None = None
 
     @field_validator("url")
     @classmethod
-    def _https(cls, valor: str) -> str:
+    def _https(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
         partes = urlparse(valor)
         if partes.scheme != "https" or not partes.netloc:
             raise ValueError("a url da fonte tem de ser https://")
@@ -95,11 +110,24 @@ class Fonte(_Modelo):
 
 
 class Revisao(_Modelo):
-    status: Literal["rascunho_dono_aprovado_dev"]
+    status: Literal["rascunho_dono_aprovado_dev", "rascunho_pendente_revisao_medica"]
     autor: str = Field(min_length=2, max_length=80)
-    aprovado_por: Literal["dono (17/10/2026, dev)"]
+    aprovado_por: Literal["dono (17/10/2026, dev)", "dono (18/10/2026, fase 5, dev)"]
     revisao_medica: Literal["pendente", "aprovada"]
     revisar_ate: date
+    #: Quem ESCREVEU o texto (obrigatorio no rascunho da fase 5: "claude-sonnet-5.5 (rascunho)").
+    escrito_por: str | None = Field(default=None, min_length=3, max_length=80)
+
+    @model_validator(mode="after")
+    def _rascunho(self) -> Revisao:
+        if self.status == STATUS_RASCUNHO_PENDENTE:
+            if not self.escrito_por:
+                raise ValueError("rascunho_pendente_revisao_medica precisa de `escrito_por`")
+            if self.revisao_medica != "pendente":
+                raise ValueError("rascunho_pendente_revisao_medica tem revisao_medica `pendente`")
+            if self.aprovado_por != APROVADO_POR_FASE5:
+                raise ValueError(f"rascunho_pendente_revisao_medica e' aprovado por {APROVADO_POR_FASE5!r}")
+        return self
 
 
 class Assunto(_Modelo):
@@ -210,10 +238,14 @@ def _host(url: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
-def classificar_fonte(nome: str, url: str) -> ClasseDaFonte:
+def classificar_fonte(nome: str, url: str | None) -> ClasseDaFonte:
     """A classe de uma fonte pela URL (e pelo nome, para TUSS/Caderno). A ORDEM importa: o que e' PROIBIDO
     e' conferido primeiro, depois vocabulario, depois as de responder. Tudo o que nao casa e' FORA DA LISTA
     (reprovado pelo gate)."""
+    if not url:
+        # Referencia SEM LINK (rascunho de texto proprio): nunca e' de responder; `problemas_de_politica`
+        # decide se ela vale (so' em rascunho pendente + proprio).
+        return ClasseDaFonte(CLASSE_SEM_LINK, "referencia sem link (rascunho)")
     host = _host(url)
     caminho = (urlparse(url).path or "").lower()
     nome_n = normalizar(nome)
@@ -326,10 +358,19 @@ def problemas_de_politica(assunto: Assunto, *, hoje: date) -> list[str]:
     if assunto.revisao.revisar_ate < hoje:
         problemas.append(f"revisar_ate vencido ({assunto.revisao.revisar_ate.isoformat()})")
     classes = []
+    rascunho_proprio = (
+        assunto.revisao.status == STATUS_RASCUNHO_PENDENTE and assunto.tipo_texto == TIPO_PROPRIO
+    )
     for fonte in assunto.fontes:
         classe = classificar_fonte(fonte.nome, fonte.url)
         classes.append(classe.classe)
-        if classe.classe == CLASSE_PROIBIDA:
+        if classe.classe == CLASSE_SEM_LINK:
+            if not rascunho_proprio:
+                problemas.append(
+                    "fonte sem url: so' em rascunho_pendente_revisao_medica de texto proprio "
+                    "(referencia sem link)"
+                )
+        elif classe.classe == CLASSE_PROIBIDA:
             problemas.append(f"fonte da lista NAO USAR: {classe.rotulo} ({fonte.url})")
         elif classe.classe == CLASSE_FORA_DA_LISTA:
             problemas.append(f"fonte fora da lista fechada: {fonte.url}")
@@ -350,6 +391,10 @@ def problemas_de_politica(assunto: Assunto, *, hoje: date) -> list[str]:
                     f"citacao literal com licenca que nao e' CC BY-ND/ato oficial: {fonte.licenca!r}"
                 )
     apoio_do_proprio = {CLASSE_LINK, CLASSE_ATO_OFICIAL}
+    if rascunho_proprio:
+        # Assunto sem pagina leiga na lista fechada: a referencia sem link e' o apoio declarado do rascunho
+        # (credito "Texto da operadora."); a revisao medica confere o conteudo e, se houver, acha a fonte.
+        apoio_do_proprio.add(CLASSE_SEM_LINK)
     if assunto.categoria == CATEGORIA_SINTOMA:
         # O texto de orientacao do sintoma (SEM alarme) e' da operadora, mapeado das tabelas de alarme.
         apoio_do_proprio.add(CLASSE_INTERNA)
@@ -358,7 +403,7 @@ def problemas_de_politica(assunto: Assunto, *, hoje: date) -> list[str]:
     ):
         problemas.append(
             "nenhuma fonte de apoio (responder; texto proprio aceita bula e ato oficial; "
-            "sintoma, a tabela interna)"
+            "sintoma, a tabela interna; rascunho pendente, a referencia sem link)"
         )
     if assunto.link_leitura is not None:
         classe_link = classificar_fonte("", assunto.link_leitura)
@@ -423,6 +468,17 @@ class BaseSaude:
 
 
 BASE_VAZIA: Final[BaseSaude] = BaseSaude(assuntos={}, por_sinonimo={}, por_categoria={})
+
+
+def pendentes_de_revisao_medica(base: BaseSaude) -> tuple[Assunto, ...]:
+    """Os assuntos que a revisao medica ainda nao assinou (`revisao_medica: pendente`), por id. Os rascunhos
+    da fase 5 (`rascunho_pendente_revisao_medica`) estao sempre aqui."""
+    return tuple(a for _, a in sorted(base.assuntos.items()) if a.revisao.revisao_medica != "aprovada")
+
+
+def rascunhos_de_modelo(base: BaseSaude) -> tuple[Assunto, ...]:
+    """So' os rascunhos escritos por modelo (fase 5), por id."""
+    return tuple(a for _, a in sorted(base.assuntos.items()) if a.revisao.status == STATUS_RASCUNHO_PENDENTE)
 
 
 def _ler_yaml(caminho: Path) -> Any:
@@ -821,6 +877,7 @@ def alarme_no_texto(base: BaseSaude, texto: str) -> bool:
 
 __all__ = [
     "APROVADO_POR_DEV",
+    "APROVADO_POR_FASE5",
     "AVISO_PADRAO",
     "BASE_VAZIA",
     "CATEGORIAS",
@@ -831,6 +888,7 @@ __all__ = [
     "CLASSE_LINK",
     "CLASSE_PROIBIDA",
     "CLASSE_RESPONDER",
+    "CLASSE_SEM_LINK",
     "CLASSE_VOCABULARIO",
     "FRASE_LEVE_AO_MEDICO",
     "LIMITE_DO_TEXTO",
@@ -839,6 +897,7 @@ __all__ = [
     "RESPOSTA_NAO_ENCONTRADO",
     "RESPOSTA_RESULTADO_NAO_ENCONTRADO",
     "STATUS_DE_REVISAO_DEV",
+    "STATUS_RASCUNHO_PENDENTE",
     "TERMOS_PROIBIDOS",
     "Assunto",
     "BaseSaude",
@@ -859,11 +918,13 @@ __all__ = [
     "licenca_permite_citacao",
     "linha_de_credito",
     "normalizar",
+    "pendentes_de_revisao_medica",
     "pergunta_informativa",
     "primeira_pessoa",
     "problemas_de_politica",
     "prompt_de_classificacao",
     "raiz_padrao",
+    "rascunhos_de_modelo",
     "resposta_de_resultado_pessoal",
     "resposta_informativa",
     "resultado_pessoal",
