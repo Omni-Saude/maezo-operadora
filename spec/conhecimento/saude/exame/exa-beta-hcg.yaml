@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: exa-beta-hcg
+categoria: exame
+titulo: Beta hCG (exame de gravidez)
+sinonimos:
+- beta hcg
+- bhcg
+- beta-hcg
+- exame de gravidez
+- teste de gravidez no sangue
+- hcg quantitativo
+- gonadotrofina coriônica
+- beta hcg (exame de gravidez)
+texto: O beta hCG é um exame que detecta e mede o hormônio hCG, produzido durante a gravidez. Costuma ser pedido para confirmar a gestação e acompanhar sua evolução inicial. Também pode ser usado em outras situações, a critério médico. Em geral, é feito com coleta de sangue, e há também o teste de urina. O resultado é avaliado pelo médico, que explica o seu significado.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

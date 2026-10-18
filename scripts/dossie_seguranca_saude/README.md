@@ -60,7 +60,8 @@ python scripts/tarefa_aws/lancar.py disparar --script scripts/dossie_seguranca_s
   --incluir scripts/experimentos/redacao_saude/perguntas.yaml -- --repeticoes 3
 # ensaio: ... -- --limite 5 --repeticoes 1 --sem-juiz
 python scripts/tarefa_aws/lancar.py baixar --prefixo dossie-seguranca --data AAAA-MM-DD --para <pasta>
-python -I scripts/dossie_seguranca_saude/planilha.py --resultados <pasta> --xlsx Dossie_Seguranca_Helena.xlsx
+python -I scripts/dossie_seguranca_saude/planilha.py --resultados <pasta> --xlsx Dossie_Seguranca_Helena.xlsx \
+  --rascunhos <rascunhos.jsonl da geração da base>   # opcional: a leitura do Opus vai à aba "Base pendente"
 ```
 
 Saída em `s3://maezo-operadora-dev-qa-simulador-203312548462/dossie-seguranca/<data>/` (SSE-KMS):

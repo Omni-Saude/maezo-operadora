@@ -142,6 +142,12 @@ def main(argv: list[str] | None = None) -> int:
         "sinonimos_tirados": {},
     }
     escritos: list[Path] = []
+    # O TITULO de cada assunto novo e' reservado para ele: "acido urico" e' do exame, nao sinonimo da gota.
+    reservados = {
+        _normalizar(r["titulo"]): r["id"]
+        for r in registros
+        if r["desfecho"] != "reprovado" and r.get("texto_final")
+    }
     for r in registros:
         if r["desfecho"] == "reprovado" or not r.get("texto_final"):
             relatorio["reprovados_na_geracao"].append(
@@ -172,7 +178,13 @@ def main(argv: list[str] | None = None) -> int:
             if _SINTOMA.search(n):
                 tirados.append(s)
                 continue
-            if not n or len(n) < 2 or n in GENERICOS or (n in ocupados and ocupados[n] != r["id"]):
+            if (
+                not n
+                or len(n) < 2
+                or n in GENERICOS
+                or (n in ocupados and ocupados[n] != r["id"])
+                or reservados.get(n, r["id"]) != r["id"]
+            ):
                 tirados.append(s)
                 continue
             if s not in sinonimos:
@@ -216,6 +228,11 @@ def main(argv: list[str] | None = None) -> int:
             caminho.unlink()
             escritos.remove(caminho)
     relatorio["escritos"] = sorted(c.stem for c in escritos)
+    for t in relatorio.get("sinonimos_transferidos", []):
+        if t["para"] not in relatorio["escritos"]:
+            t["atencao"] = (
+                "o assunto que recebeu o sinonimo nao foi escrito: devolva a linha ao arquivo antigo"
+            )
     saida = json.dumps(relatorio, ensure_ascii=False, indent=2, default=str)
     if args.relatorio:
         args.relatorio.write_text(saida, encoding="utf-8")

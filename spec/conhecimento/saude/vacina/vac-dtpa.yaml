@@ -1,0 +1,35 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: vac-dtpa
+categoria: vacina
+titulo: Vacina dTpa (tríplice bacteriana acelular)
+sinonimos:
+- dtpa
+- tríplice bacteriana acelular
+- triplice bacteriana acelular
+- vacina da coqueluche
+- vacina dtpa gestante
+- tríplice bacteriana adulto
+- vacina difteria tétano coqueluche
+- vacina dtpa (tríplice bacteriana acelular)
+texto: A dTpa, também chamada de tríplice bacteriana acelular tipo adulto, protege contra difteria, tétano e coqueluche. Essas doenças são graves, mas podem ser evitadas por vacina. A coqueluche é especialmente perigosa para bebês pequenos. O Calendário Nacional de Vacinação define quem pode receber a dTpa, e há grupos como gestantes e profissionais de saúde. Para saber se é o seu caso, procure uma unidade de saúde ou o seu médico.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Vacina adsorvida difteria, tétano e pertussis (acelular) (dTpa) (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/dtpa
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+- nome: Ministério da Saúde — Calendário Nacional de Vacinação
+  url: https://www.gov.br/saude/pt-br/vacinacao/calendario
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/dtpa
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

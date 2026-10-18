@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-endometriose
+categoria: condicao
+titulo: Endometriose
+sinonimos:
+- endometriose
+- endometrioma
+- endometriose profunda
+- endometriose ovariana
+- endometrioze
+- endometriose pélvica
+texto: Endometriose é uma doença em que um tecido parecido com o que reveste o útero por dentro cresce fora dele. Isso pode causar inflamação crônica e atinge muitas mulheres em idade reprodutiva. Entre os sintomas mais comuns estão cólica menstrual intensa, dor pélvica crônica, dor na relação sexual e dificuldade para engravidar. O tratamento é definido pelo médico e pode envolver remédios, cirurgia ou os dois, conforme cada caso. Em geral, quem cuida é o ginecologista.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Endometriose (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/e/endometriose
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/e/endometriose
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

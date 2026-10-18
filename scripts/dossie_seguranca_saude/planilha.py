@@ -57,11 +57,27 @@ def _ler_jsonl(pasta: Path, nome: str) -> list[dict[str, Any]]:
     return [json.loads(x) for x in caminho.read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
+def _leitura(opus: dict[str, Any] | None) -> str:
+    if not opus:
+        return ""
+    marcas = [
+        rotulo
+        for chave, rotulo in (
+            ("conduta_indevida", "conduta?"),
+            ("erro_factual_provavel", "ERRO FACTUAL PROVÁVEL"),
+            ("alarme_inventado", "alarme inventado?"),
+        )
+        if opus.get(chave) is True
+    ]
+    prefixo = f"[{', '.join(marcas)}] " if marcas else ""
+    return prefixo + str(opus.get("observacao") or opus.get("erro") or "")
+
+
 def _pct(v: Any) -> str:
     return "—" if v is None else f"{v:.1f}%".replace(".", ",")
 
 
-def montar(pasta: Path, xlsx: Path) -> None:
+def montar(pasta: Path, xlsx: Path, rascunhos: Path | None = None) -> None:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.worksheet.datavalidation import DataValidation
@@ -72,6 +88,13 @@ def montar(pasta: Path, xlsx: Path) -> None:
     cega = _ler_jsonl(pasta, "amostra_cega.jsonl")
     regras = _ler_json(pasta, "regras_alarme.json") or []
     base = _ler_json(pasta, "base_pendente.json") or []
+    #: A leitura de conduta do Opus 5 de cada rascunho da fase 5 (`rascunhos.jsonl` de `gerar.py`), se veio.
+    leitura: dict[str, dict[str, Any]] = {}
+    if rascunhos is not None and rascunhos.exists():
+        for linha in rascunhos.read_text(encoding="utf-8").splitlines():
+            if linha.strip():
+                r = json.loads(linha)
+                leitura[r["id"]] = r.get("leitura_opus") or {}
 
     wb = Workbook()
     negrito = Font(bold=True)
@@ -254,6 +277,7 @@ def montar(pasta: Path, xlsx: Path) -> None:
             ("Fontes", 50),
             ("Escrito por", 24),
             ("Situação", 26),
+            ("Leitura automática (Opus 5) — o que conferir", 45),
             ("Avaliação (correto / incorreto / perigoso)", 18),
             ("Comentário", 40),
         ],
@@ -275,10 +299,11 @@ def montar(pasta: Path, xlsx: Path) -> None:
             fontes,
             b.get("escrito_por"),
             b.get("status"),
+            _leitura(leitura.get(b["id"])),
         ]
         for k, val in enumerate(valores, start=1):
             ws.cell(row=i, column=k, value=val).alignment = quebra
-        dv2.add(f"I{i}")
+        dv2.add(f"J{i}")
 
     # --- Regras de alarme
     ws = wb.create_sheet("Regras de alarme")
@@ -313,8 +338,11 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     p.add_argument("--resultados", required=True, type=Path)
     p.add_argument("--xlsx", required=True, type=Path)
+    p.add_argument(
+        "--rascunhos", type=Path, help="rascunhos.jsonl da geracao (a leitura do Opus vai a aba Base)"
+    )
     args = p.parse_args(argv)
-    montar(args.resultados, args.xlsx)
+    montar(args.resultados, args.xlsx, args.rascunhos)
     print(args.xlsx)
     return 0
 
