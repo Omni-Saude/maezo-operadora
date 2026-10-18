@@ -259,9 +259,23 @@ MOTIVO_ESCALONAMENTO_BLOQUEIO: Final[str] = "solicitacao_humano"
 # ==========================================================================================
 # Reconhecimento dos comandos e dos fatores (puro, sem I/O)
 # ==========================================================================================
+#: RODADA DO DONO (18/10/2026, DL-0124): as variacoes INEQUIVOCAS de aceite. Nada ambiguo ("sim" sozinho,
+#: "ok", "pode ser", "talvez") e nada com outra palavra junto: a mensagem inteira tem de ser uma destas.
+_ACEITES: Final[frozenset[str]] = frozenset(
+    {
+        *("aceito", "aceitar", "eu aceito", "aceito sim", "sim aceito", "sim eu aceito", "aceito os termos"),
+        *("concordo", "eu concordo", "sim concordo", "concordo sim", "de acordo", "estou de acordo", "pode"),
+        *("aceito obrigado", "aceito obrigada", "ok aceito", "aceito ok"),
+    }
+)
+#: Mensagem fora do esperado com o texto de consentimento ja' mostrado: um lembrete CURTO, nunca o texto
+#: inteiro de novo.
+LEMBRETE_CONSENTIMENTO: Final[str] = "Para continuar, responda ACEITO."
+
+
 def eh_aceito(texto: str) -> bool:
-    """`True` so' para a palavra ACEITO (caixa, acento e pontuacao nao contam: "aceito.", "Aceito!")."""
-    return normalizar(texto) == "aceito"
+    """`True` para ACEITO e as variacoes inequivocas de `_ACEITES` (caixa, acento e pontuacao nao contam)."""
+    return normalizar(texto) in _ACEITES
 
 
 _REVOGAR: Final[frozenset[str]] = frozenset({"revogar", "revogar meu consentimento"})
@@ -733,8 +747,13 @@ class AcessoBeneficiario:
         if atual.estado == BLOQUEADO_HUMANO:
             return self._responder(atual, BLOQUEADO_CURTO, emergencia=emergencia)
         if atual.estado in (SEM_CONSENTIMENTO, REVOGADO):
-            if comando != "aceito":
-                return self._responder(atual, TEXTO_CONSENTIMENTO, emergencia=emergencia)
+            if not eh_aceito(texto):
+                # SEM_CONSENTIMENTO: o texto inteiro ja' saiu na primeira mensagem — so' o lembrete curto.
+                # REVOGADO: o texto inteiro de novo (quem revogou le os termos antes de aceitar outra vez).
+                lembrete = (
+                    LEMBRETE_CONSENTIMENTO if atual.estado == SEM_CONSENTIMENTO else TEXTO_CONSENTIMENTO
+                )
+                return self._responder(atual, lembrete, emergencia=emergencia)
             return await self._aceitar(atual, agora, emergencia=emergencia)
         if atual.estado == AGUARDANDO_CPF:
             return await self._passo_cpf(atual, agora, texto, numero_cru, emergencia=emergencia)

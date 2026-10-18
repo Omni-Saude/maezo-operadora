@@ -231,7 +231,8 @@ async def test_aceito_e_colhido_antes_de_pedir_o_cpf_em_todos_os_caminhos(amb: A
         d = await outro.msg(CPF)
         assert d.respostas == (ac.TEXTO_CONSENTIMENTO,) and d.novo.estado == ac.SEM_CONSENTIMENTO
         d = await outro.msg(f"{CPF} {NASC_TXT}")
-        assert d.respostas == (ac.TEXTO_CONSENTIMENTO,)
+        # Rodada do dono (18/10/2026): o texto inteiro ja' saiu; o seguinte e' o lembrete curto.
+        assert d.respostas == (ac.LEMBRETE_CONSENTIMENTO,)
         assert _docs(outro).chamadas == [] and outro.verif.chamadas == []
     # REVOGAR no meio do passo do nascimento: CPF/nascimento seguintes nao sao lidos ate' novo ACEITO.
     await amb.ate_cpf()

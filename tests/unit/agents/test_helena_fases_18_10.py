@@ -502,3 +502,135 @@ async def test_fora_da_allowlist_a_queixa_com_pergunta_clinica_e_a_de_antes() ->
     conversa = _Conversa(conversa=_OUTRA, allowlist=(_DONO,))
     await conversa.diz("Estou com dor nas costas, é grave?", _CLINICA)
     assert conversa.motivos == ["intencao_clinica"]
+
+
+# =================================================================================================
+# RODADA DO DONO (18/10/2026, teste com a Tania): duvida educativa x quadro atual, populacao, textos
+# =================================================================================================
+_A = (
+    "Os sintomas de problemas cardíacos em mulheres podem ser diferentes? O que devo observar além da dor no "
+    "peito?"
+)
+_B = (
+    "Como os hormônios femininos (ou a chegada da menopausa) afetam o meu risco de infarto, AVC e pressão "
+    "alta?"
+)
+_C = (
+    "Alterações no meu fluxo menstrual, cólicas intensas ou dor na relação sexual são normais ou podem "
+    "indicar endometriose/mioma?"
+)
+_DOR_TORACICA_ADULTO = _classify(
+    intent="symptom", population="adult", sintoma_codigo="dor_toracica", intensidade="desconhecida"
+)
+
+
+@pytest.mark.parametrize(
+    ("mensagem", "extracao"), [(_A, _DOR_TORACICA_ADULTO), (_B, _CLINICA), (_C, _CLINICA), (_C, _SINTOMA)]
+)
+async def test_duvida_educativa_vai_a_redacao_sem_caso_e_sem_alerta(mensagem: str, extracao: str) -> None:
+    conversa = _Conversa(_Transporte(_RESPOSTA_SOP))
+    resultado = await conversa.diz(mensagem, extracao)
+    assert conversa.motivos == [], "duvida educativa nunca abre caso"
+    assert "responda sim ou não" not in _texto(resultado).lower()
+    assert conversa.transporte.chamadas, "foi a redacao"
+
+
+async def test_pergunta_nova_com_alerta_pendente_sai_do_alerta() -> None:
+    conversa = _Conversa(_Transporte(_RESPOSTA_SOP))
+    await conversa.diz("Estou com dor de cabeça", _SINTOMA)
+    resultado = await conversa.diz(_B, _CLINICA)
+    assert conversa.motivos == []
+    assert _texto(resultado).startswith(_RESPOSTA_SOP)
+
+
+async def test_com_caso_aberto_a_duvida_educativa_nao_vira_p1() -> None:
+    conversa = _Conversa(_Transporte(_RESPOSTA_SOP))
+    await conversa.diz("Quero falar com uma pessoa", _classify(intent="human_request"))
+    await conversa.diz(_A, _DOR_TORACICA_ADULTO)
+    assert conversa.motivos == ["solicitacao_humano"], "nenhum alerta clinico novo"
+    assert all("esposa" not in t for t in conversa.whatsapp.enviados)
+
+
+@pytest.mark.parametrize(
+    "mensagem",
+    [
+        "Estou com uma dor muito forte no peito, meu lado esquerdo está paralisado",
+        "estou com dor no peito e falta de ar",
+        "minha bolsa estourou",
+    ],
+)
+async def test_contraprova_quadro_atual_continua_escalando(mensagem: str) -> None:
+    conversa = _Conversa()
+    await conversa.diz(mensagem, _DOR_TORACICA_ADULTO)
+    assert conversa.motivos == ["red_flag_clinico"]
+    assert "Ligue 192 (SAMU) agora" in conversa.whatsapp.enviados[-1]
+
+
+async def test_populacao_nao_e_herdada_de_assunto_anterior() -> None:
+    conversa = _Conversa(_Transporte(_RESPOSTA_SOP, _RESPOSTA_SOP))
+    await conversa.diz(
+        "O que é febre em bebê?", _classify(intent="clinical_question", population="pediatric")
+    )
+    await conversa.diz(
+        "Existe alguma pílula que eu possa substituir por mudanças na alimentação ou hábitos físicos?",
+        _CLINICA,
+    )
+    ultimo = conversa.transporte.chamadas[-1][1][0]["content"][0]["text"]
+    assert "A conversa é sobre um adulto." in ultimo
+    assert "bebê" not in ultimo.split("[Mensagem da pessoa]")[0]
+
+
+def test_duvida_e_quadro_atual() -> None:
+    n = b.normalizar
+    for t in (_A, _B, _C, "Quais exames de rastreamento são obrigatórios para a minha faixa etária?"):
+        assert sg.e_duvida_educativa(n(t)), t
+    for t in (
+        "estou com dor no peito e falta de ar, é normal?",
+        "minha filha está com febre desde ontem, pode indicar algo?",
+    ):
+        assert not sg.e_duvida_educativa(n(t)), t
+
+
+def test_unidade_de_exame_sozinha_nao_e_quantidade_de_remedio() -> None:
+    pedido = sg.Pedido(modo=sg.MODO_INFORMAR, mensagem="x")
+    assert _regras("A glicemia de jejum é medida em mg/dL e o colesterol também, em mg/dL.") == []
+    del pedido
+
+
+def test_faixa_etaria_em_pergunta_de_saude_nao_e_cadastro() -> None:
+    from maezo.platform.webhooks.whatsapp import acesso_cadastro as acad
+
+    assert (
+        acad.tipo_de_pergunta(
+            "Quais exames de rastreamento (como colonoscopia) são obrigatórios para a minha faixa etária?"
+        )
+        is None
+    )
+    assert acad.tipo_de_pergunta("Qual a minha faixa etária no cadastro?") == acad.TIPO_FAIXA
+
+
+def test_o_que_a_segmentacao_abrange_so_na_pergunta_geral() -> None:
+    from maezo.agents.helena.graph import RESPOSTA_COBERTURA_ESPECIFICA, _texto_de_cobertura
+
+    fatos = {"vinculos": [{"segmentacao": "Ambulatorial + Hospitalar com Obstetrícia"}]}
+    geral = _texto_de_cobertura(fatos, geral=True)
+    assert "consultas, exames e terapias" in geral and "internações e cirurgias" in geral and "parto" in geral
+    assert "carência, autorização e indicação médica" in geral and RESPOSTA_COBERTURA_ESPECIFICA in geral
+    assert "consultas, exames" not in _texto_de_cobertura(fatos)
+
+
+async def test_cancelamento_tem_frase_de_passagem_propria() -> None:
+    from maezo.agents.helena.graph import FRASE_PASSAGEM_CANCELAMENTO, HelenaGraph
+
+    conversa = _Conversa()
+    grafo = HelenaGraph(
+        inference=conversa.modelo,  # type: ignore[arg-type]
+        dmn=None,  # type: ignore[arg-type]
+        cibseven=conversa.cib,
+        audit_sink=None,  # type: ignore[arg-type]
+        whatsapp=conversa.whatsapp,
+    )
+    r = await grafo.handoff_cobranca(
+        {"cobranca_subtipo": "cancelamento", "message_body": "Quero cancelar meu plano", "message_ref": "m"}  # type: ignore[arg-type]
+    )
+    assert r["response_text"] == FRASE_PASSAGEM_CANCELAMENTO and "financeiro" not in r["response_text"]
