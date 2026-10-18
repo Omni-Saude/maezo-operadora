@@ -463,6 +463,12 @@ def test_regras_novas(texto: str, regra: str) -> None:
     assert regra in _regras(texto)
 
 
+def test_genero_so_quando_o_sujeito_e_a_pessoa() -> None:
+    assert _regras("A osteoporose costuma ser acompanhada pelo reumatologista.") == []
+    assert "genero" in _regras("Pelo que contou, vale ser avaliada por um médico.")
+    assert "genero" in _regras("Você precisa ser atendida hoje.")
+
+
 def test_cuidado_geral_sem_orientacao_e_pediatra_de_crianca_passam() -> None:
     assert _regras("Por favor, não use nenhum remédio sem orientação do médico.") == []
     assert _regras("Quem costuma cuidar é o pediatra.", crianca=True) == []

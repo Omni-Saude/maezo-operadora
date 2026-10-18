@@ -450,7 +450,10 @@ _GENERO: Final[re.Pattern[str]] = re.compile(
     r"\bvoce\b(?:\s+\w+){0,3}?\s+((?:sozinh|preocupad|cansad|assustad|nervos|tranquil|querid|obrigad|"
     r"sentad|deitad|acompanhad|operad|internad|vacinad|gravid)[oa]s?)\b"
     r"|\bse (?:voce )?for (?:mulher|homem)\b"
-    r"|\b(?:ser|seja|estar|esteja|ficar|fique) ((?:avaliad|atendid|examinad|acompanhad|internad|operad)a)\b"
+    # So' quando o sujeito e' a PESSOA ("voce ... ser avaliada", "vale ser avaliada"): "a osteoporose costuma
+    # ser acompanhada pelo reumatologista" fala da doenca (falso positivo do aceite de 17/10/2026).
+    r"|(?:\bvoce\b[^.,;]{0,30}?|\bvale (?:a pena )?)\b(?:ser|seja|estar|esteja|ficar|fique) "
+    r"((?:avaliad|atendid|examinad|acompanhad|internad|operad)a)\b"
 )
 _PEDIATRA: Final[re.Pattern[str]] = re.compile(r"\bpediatr\w*\b")
 _PROMESSA: Final[re.Pattern[str]] = re.compile(
