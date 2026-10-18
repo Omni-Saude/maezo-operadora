@@ -29,7 +29,7 @@ _LIMITE = 20000
 def baixar(url: str) -> tuple[int | None, str, str]:
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (maezo-base-saude)"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 (so' https do gov.br)
+        with urllib.request.urlopen(req, timeout=30) as r:
             return int(r.status), r.geturl(), r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as erro:
         return int(erro.code), url, ""
