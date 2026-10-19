@@ -55,9 +55,11 @@ DIFFERENT, still-open gap blocks a specific test).
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -852,3 +854,92 @@ async def test_todos_os_fins_emitem_evento_de_dominio(
     ended2 = await engine.activity_instances_ended(i2["id"])
     assert "End_SupervisorAlertado" in ended2
     assert probe.has_event(_BREACHED, fase="ack")  # evento publicado no ramo antes do fim
+
+
+# --- Prazo (dueDate) da tarefa humana — DL-0145 --------------------------------------
+
+_ISO_DURACAO = re.compile(r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$")
+
+
+def _segundos_iso(duracao: str) -> int:
+    """Duracao ISO 8601 (forma usada pela DMN: PnDTnHnMnS) em segundos — so' para o assert."""
+    m = _ISO_DURACAO.match(duracao)
+    assert m and duracao not in ("P", "PT"), f"duracao ISO 8601 inesperada: {duracao!r}"
+    d, h, mi, s = (int(g) if g else 0 for g in m.groups())
+    return ((d * 24 + h) * 60 + mi) * 60 + s
+
+
+def _instante(valor: str) -> datetime:
+    return datetime.fromisoformat(valor)
+
+
+async def _sla_resolucao_decidido(engine: EngineRest, instance_id: str) -> str:
+    """O `sla_resolucao` que a DMN `escalation_routing` DECIDIU nesta instancia (historico)."""
+    decisoes = await engine.history_decision_instances(
+        instance_id=instance_id, decision_key="escalation_routing", include_outputs=True
+    )
+    assert len(decisoes) == 1, decisoes
+    saidas = {o["variableName"]: o["value"] for o in decisoes[0]["outputs"]}
+    return str(saidas["sla_resolucao"])
+
+
+@pytest.mark.parametrize(
+    ("motivo_categoria", "severidade"),
+    [
+        ("red_flag_clinico", "grave"),  # DMN r1 — P1
+        ("solicitacao_humano", "leve"),  # DMN r5 — P3
+        # Motivo fora do dominio: a DMN nao tem SLA proprio para ele; o catch-all fail-safe r7
+        # e' o comportamento DEFINIDO — a tarefa nasce com o prazo do r7 e a instancia segue viva.
+        ("categoria_inexistente", "moderada"),
+    ],
+)
+async def test_due_date_da_tarefa_e_o_sla_de_resolucao_da_dmn(
+    engine: EngineRest,
+    probe: EngineProbe,
+    start_escalation: StartEscalation,
+    motivo_categoria: str,
+    severidade: str,
+) -> None:
+    """`UT_TratarEscalonamento` nasce com due = criacao + `sla_resolucao` decidido pela DMN.
+
+    E' o `DUE_DATE_` que o portal le como `engine_due_at` (coluna Prazo da fila). O prazo coincide
+    com o vencimento do timer interruptivo `BT_SlaResolucao` (mesma expressao, mesmo instante de
+    entrada na atividade): o prazo exibido e' o prazo que o motor cobra.
+    """
+    inst = await start_escalation(motivo_categoria=motivo_categoria, severidade=severidade)
+    iid = inst["id"]
+    await probe.drain()
+    task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+    dto = await engine.get_task_raw(task.id)
+    assert dto.get("due"), "UT_TratarEscalonamento nasceu SEM due date — portal mostra 'Sem prazo informado'"
+    sla = await _sla_resolucao_decidido(engine, iid)
+    esperado = timedelta(seconds=_segundos_iso(sla))
+    obtido = _instante(dto["due"]) - _instante(dto["created"])
+    assert abs(obtido - esperado) <= timedelta(seconds=2), (sla, dto["created"], dto["due"])
+
+    timer = await engine.await_timer_job(iid, "BT_SlaResolucao")
+    assert timer.due_date
+    assert abs(_instante(timer.due_date) - _instante(dto["due"])) <= timedelta(seconds=2)
+
+    assert not await engine.incidents(iid)
+    assert await engine.instance_is_active(iid)
+
+
+async def test_due_date_difere_por_categoria_conforme_a_dmn(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """P1 e P3 nascem com prazos DIFERENTES, cada um o da sua linha da DMN (nao um valor fixo)."""
+    prazos: dict[str, timedelta] = {}
+    for motivo, severidade in (("red_flag_clinico", "grave"), ("solicitacao_humano", "leve")):
+        inst = await start_escalation(motivo_categoria=motivo, severidade=severidade)
+        await probe.drain()
+        task = await engine.await_user_task(inst["id"], "UT_TratarEscalonamento")
+        dto = await engine.get_task_raw(task.id)
+        assert dto.get("due"), f"{motivo}: tarefa sem due date"
+        prazos[await _sla_resolucao_decidido(engine, inst["id"])] = _instante(dto["due"]) - _instante(
+            dto["created"]
+        )
+    assert len(prazos) == 2, f"as duas categorias deveriam ter SLAs distintos na DMN: {prazos}"
+    for sla, obtido in prazos.items():
+        assert abs(obtido - timedelta(seconds=_segundos_iso(sla))) <= timedelta(seconds=2), (sla, obtido)
