@@ -44,6 +44,7 @@ from maezo.tools.workers.escalation import NOTIFY_TEAM_NOTIFICATION_TYPE, regist
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
 from tests.integration.agents._engine_helpers import candidate_groups
+from tests.integration.conftest import _audit_pg_dsn
 from tests.integration.processes.engine_rest import EngineRest
 from tests.support.engine_tenant_deploy import deploy_for_tenant
 from tests.support.escalation_chain import (
@@ -58,6 +59,13 @@ from tests.support.escalation_chain import (
 )
 
 pytestmark = pytest.mark.integration
+
+#: Os resolvedores de coordenada que esta suite USA, com os nomes que a cerca
+#: `tests/unit/ci/test_live_suite_defaults_are_served.py` executa e confere contra o docker-compose:
+#: o Postgres e' o de `audit_pg` (`tests/integration/conftest.py::_audit_pg_dsn`) e o broker e' o de
+#: `tests/support/escalation_chain.kafka_bootstrap_servers`.
+_audit_dsn = _audit_pg_dsn
+_kafka_bootstrap_servers = kafka_bootstrap_servers
 
 _PRAZO_KAFKA_S = 30.0
 
