@@ -161,7 +161,11 @@ export function TaskCompletionControls({
       ) : (
         <p className="read-only-note">
           A conclusão encerra a tarefa no engine. Só <strong>devolver ao agente</strong> devolve a
-          conversa ao beneficiário; os outros dois desfechos encerram o caso.
+          conversa ao beneficiário; os outros dois desfechos encerram o caso.{" "}
+          <span data-testid="aviso-retorno-ao-beneficiario">
+            A pessoa foi avisada de que pode receber retorno por este canal: se você encerrar sem devolver
+            ao agente, nada é enviado a ela.
+          </span>
         </p>
       )}
       <form onSubmit={(event) => void submit(event)}>

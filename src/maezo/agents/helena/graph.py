@@ -1063,8 +1063,8 @@ RESPOSTA_CASO_ABERTO_PRAZO: str = (
     "canal. Eu não consigo prever o horário exato da resposta."
 )
 RESPOSTA_CASO_ABERTO_SUPERVISOR: str = (
-    "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este "
-    "canal. Depois disso, se precisar, você pode pedir para falar com um supervisor."
+    "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, eu te retorno por este "
+    "canal."
 )
 RESPOSTA_CASO_ABERTO_URGENTE: str = (
     "Se for uma urgência de saúde, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. "
@@ -1081,11 +1081,12 @@ RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE: str = (
 )
 #: RODADA 6: pedido explicito de pessoa com o caso ja' aberto.
 RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA: str = (
-    "Seu pedido já está com a nossa equipe. Assim que a análise terminar, a resposta chega por este canal."
+    "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, retorno a você por este "
+    "canal."
 )
 RESPOSTA_CASO_ABERTO_RECADO: str = (
-    "Entendi o que você precisa confirmar. Assim que a equipe concluir a análise, te retorno por este "
-    "canal, e aí você pode repetir esse pedido. Seu pedido continua com a nossa equipe."
+    "Entendi que você precisa confirmar alguma informação. Assim que a equipe concluir a análise, te retorno "
+    "por este canal."
 )
 #: RODADA 4: depois de dois avisos de caso aberto, respostas curtas e diferentes.
 RESPOSTA_CASO_ABERTO_CURTO_1: str = "Seu pedido continua com a nossa equipe."

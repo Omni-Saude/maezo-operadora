@@ -67,6 +67,13 @@ it("oferece os desfechos do contrato, e não uma lista escrita na tela", () => {
   expect(screen.getByLabelText(/Instrução \/ notas de resolução/)).toHaveAttribute("maxLength", String(maxNotes));
 });
 
+it("avisa o atendente de que, sem devolver ao agente, a pessoa não recebe nada", () => {
+  render(controls());
+  const aviso = screen.getByTestId("aviso-retorno-ao-beneficiario");
+  expect(aviso).toHaveTextContent(/pode receber retorno por este canal/);
+  expect(aviso).toHaveTextContent(/nada é enviado a ela/);
+});
+
 it("exige desfecho e instrução antes de permitir o envio", async () => {
   const user = userEvent.setup();
   render(controls());

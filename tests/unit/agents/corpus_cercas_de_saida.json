@@ -2837,6 +2837,39 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, eu te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono; texto final do item 12): RESPOSTA_CASO_ABERTO_SUPERVISOR",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, retorno a você por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono; texto final do item 12): RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi que você precisa confirmar alguma informação. Assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono; texto final do item 12): RESPOSTA_CASO_ABERTO_RECADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

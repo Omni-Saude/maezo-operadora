@@ -158,3 +158,30 @@ def test_texto_novo_da_helena_passa_pelas_cercas_de_saida(nome: str) -> None:
 @pytest.mark.parametrize("rota", ["ack_escalacao", "mensagem"])
 def test_texto_novo_do_lucas_passa_pela_cerca_de_saida(nome: str, rota: str) -> None:
     assert recusa_lucas(TEXTOS_LUCAS[nome], rota, None) is None
+
+
+# --- 4. o que o sistema NAO faz hoje nao e' prometido (decisao do dono, 19/10/2026, item 12) ---------------
+#: O atendente nao ve a conversa e a mensagem da pessoa nao e' repassada ao caso; nao existe como a pessoa
+#: acionar um supervisor. Estes tres avisos de caso aberto so' prometem o retorno da equipe.
+_AVISOS_SEM_CAPACIDADE_EXTRA = (
+    "RESPOSTA_CASO_ABERTO_SUPERVISOR",
+    "RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA",
+    "RESPOSTA_CASO_ABERTO_RECADO",
+)
+_CAPACIDADE_QUE_NAO_EXISTE = re.compile(
+    r"supervis|direcion|repass|encaminh|\brepet\w*|conte esse pedido|falar com"
+)
+
+
+@pytest.mark.parametrize("nome", _AVISOS_SEM_CAPACIDADE_EXTRA)
+def test_aviso_de_caso_aberto_nao_promete_supervisor_nem_repasse_do_recado(nome: str) -> None:
+    texto = _plano(getattr(hg, nome))
+    assert not _CAPACIDADE_QUE_NAO_EXISTE.search(texto), nome
+    assert "te retorno por este canal" in texto or "retorno a voce por este canal" in texto, nome
+
+
+def test_os_tres_avisos_nao_colidem_com_o_aviso_generico_de_caso_aberto() -> None:
+    """Texto igual ao `RESPOSTA_HANDOFF_JA_ABERTO` duplicaria o corpus e a escolha de variante."""
+    textos = [getattr(hg, n) for n in _AVISOS_SEM_CAPACIDADE_EXTRA]
+    assert len(set(textos)) == 3
+    assert hg.RESPOSTA_HANDOFF_JA_ABERTO not in textos
