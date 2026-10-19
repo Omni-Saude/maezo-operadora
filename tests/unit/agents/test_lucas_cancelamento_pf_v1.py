@@ -562,7 +562,10 @@ def test_so_o_retorno_executado_diz_cancelado(nome: str) -> None:
 
 
 def test_o_retorno_executado_traz_a_data_e_o_protocolo() -> None:
-    assert _TEXTOS["executado"].startswith("Seu plano foi cancelado a partir de 15/10/2026.")
+    assert _TEXTOS["executado"].startswith(
+        "Seu pedido de cancelamento foi concluído. O plano está cancelado a partir de 15/10/2026 (protocolo "
+    )
+    assert "continua devida" in _TEXTOS["executado"]
     assert _P in _TEXTOS["executado"]
 
 

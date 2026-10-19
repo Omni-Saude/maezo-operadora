@@ -195,6 +195,11 @@ _ACTION_NOT_TOOL_SHAPED: Final[frozenset[str]] = frozenset(
         # Helena: o numero completo da carteirinha pelo contrato `tina-carteirinha` (dono, 17/10/2026). Mesma
         # forma: a superficie e' o executor do gateway (`AmhTinaCarteirinhaExecutor`, `tool_id=None`).
         "read_member_card_number",
+        # Helena: os NOMES dos dependentes do proprio titular pelo contrato `tina-dependentes-nome` (dono e
+        # DPO,
+        # 19/10/2026, DL-0127). Mesma forma: executor do gateway (`AmhTinaDependentesNomeExecutor`,
+        # `tool_id=None`).
+        "read_member_dependent_names",
         # Helena: REGISTRO do consentimento do acesso do beneficiario pelo contrato `consent-record` da AMH
         # (DL-0083, 08/10/2026). Mesma forma: a superficie e' o executor do gateway
         # (`AmhConsentRecordExecutor`,

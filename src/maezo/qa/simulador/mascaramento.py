@@ -12,6 +12,8 @@ reconhecer de quem era. O que e' mascarado:
     beneficiario verificado) — o valor depois de "Número da carteirinha:" em qualquer forma, e, como rede de
     seguranca, QUALQUER sequencia de 8+ digitos que sobrar (menos o numero ANS do plano, dado publico que o
     relatorio precisa mostrar). O relatorio nunca exibe o numero completo.
+  * o NOME COMPLETO de cada dependente (decisao do dono e DPO de 19/10/2026, DL-0127: a Helena o mostra ao
+    proprio titular verificado) — o texto entre "N) " (ou "N) para ") e " (grau)" nas listas fixas da Helena.
 
 Valor em reais, competencia e data de vencimento NAO sao mascarados: sozinhos nao identificam
 ninguem e sao exatamente o que o relatorio precisa mostrar para explicar uma falha do D2.
@@ -42,6 +44,8 @@ TOKEN_CARTEIRINHA = "[CARTEIRINHA]"
 # DL-0114: o codigo de barras do boleto (linha digitavel de 47 digitos ou 44 digitos) e' CREDENCIAL DE
 # PAGAMENTO: nunca vai ao relatorio, ao transcript nem ao log do simulador.
 TOKEN_CODIGO_DE_BARRAS = "[CODIGO-DE-BARRAS]"
+#: DL-0127: o nome completo do dependente (lista de dependentes e "para quem e'?"). Nunca no relatorio.
+TOKEN_NOME_DEPENDENTE = "[NOME-DEPENDENTE]"
 
 _CODIGO_DE_BARRAS = re.compile(
     r"(?<!\d)(?:\d{5}[.\s]?\d{5}[.\s]+\d{5}[.\s]?\d{6}[.\s]+\d{5}[.\s]?\d{6}[.\s]+\d[.\s]+\d{14}|\d{44})(?!\d)"
@@ -58,6 +62,14 @@ _DIGITOS_LONGOS = re.compile(r"\d[\d.\s-]{11,}\d")
 _CARTEIRINHA_ROTULADA = re.compile(
     r"(n[uú]mero da carteirinha\s*:\s*)[0-9A-Za-z]{4,24}(?![0-9A-Za-z])", re.IGNORECASE
 )
+#: DL-0127: a linha da lista fixa da Helena com o nome do dependente: "2) Nome Completo (filho ou filha)" ou
+#: "2) para Nome Completo (filho ou filha)". "para voce (titular)" e "para o dependente 1" nao sao nomes.
+_NOME_DE_DEPENDENTE = re.compile(
+    r"(?m)((?:^|[;:]\s*|\n)\d{1,2}\) (?!(?:para )?(?:voc[eê]\b|o dependente \d))(?:para )?)"
+    r"([^\W\d_][^()\n;:]{1,118}?)( \()"
+)
+#: So' nas duas mensagens fixas que listam dependentes (a lista de dependentes e o "para quem e'?").
+_LISTA_DE_DEPENDENTES = re.compile(r"dependentes? ativos?\b|e para quem\?")
 #: Rede de seguranca: 8+ digitos seguidos que nenhuma regra acima trocou (numero de carteirinha, CNS...).
 _DIGITOS_8_OU_MAIS = re.compile(r"(?<![\d*])\d{8,}(?!\d)")
 #: O numero ANS do plano e' publico e o relatorio precisa dele: o rotulo do texto fixo o preserva.
@@ -127,6 +139,8 @@ class Mascarador:
         # O codigo de barras ANTES do CPF: o padrao do CPF morderia um pedaco da linha digitavel.
         # A carteirinha ROTULADA antes de tudo: o numero pode ter 11 digitos (seria [CPF]) ou letras.
         saida = _CARTEIRINHA_ROTULADA.sub(lambda m: m.group(1) + TOKEN_CARTEIRINHA, saida)
+        if _LISTA_DE_DEPENDENTES.search(sem_acento(saida)):
+            saida = _NOME_DE_DEPENDENTE.sub(lambda m: m.group(1) + TOKEN_NOME_DEPENDENTE + m.group(3), saida)
         saida = _CODIGO_DE_BARRAS.sub(TOKEN_CODIGO_DE_BARRAS, saida)
         saida = _DIGITOS_DE_CREDENCIAL.sub(TOKEN_CODIGO_DE_BARRAS, saida)
         # A carteirinha mascarada (5+ asteriscos) ANTES do rotulo do boleto (2 a 4 asteriscos + digitos).

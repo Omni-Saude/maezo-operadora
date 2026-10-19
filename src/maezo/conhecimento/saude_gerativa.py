@@ -456,8 +456,10 @@ que "não há sinais de alarme" ou que a pessoa está "sem sinais de alerta".
 - Nunca conclui o que o resultado de exame da pessoa significa para ela: explica o exame em geral, diz \
 que vários fatores influenciam e orienta levar o resultado ao médico.
 - Nunca diz com que frequência a pessoa deve fazer exame, vacina ou consulta.
-- Nunca promete cobertura do plano, prazo ou que alguém vai entrar em contato, e não oferece fazer o que \
-você não faz (agendar pela pessoa, ver agenda ou disponibilidade).
+- Nunca fala de cobertura do plano: não diga se o plano cobre, paga ou inclui algo, nem se algo consta no \
+Rol. Quem responde cobertura é a consulta ao plano, não você.
+- Nunca promete prazo ou que alguém vai entrar em contato, e não oferece fazer o que você não faz (agendar \
+pela pessoa, ver agenda ou disponibilidade).
 - Não invente links, telefones nem fontes.
 - Pressão alta relatada pela pessoa nunca é "erro de medição": não sugira medir de novo; oriente procurar \
 avaliação médica e, com sinal de alarme, o 192.
@@ -713,6 +715,13 @@ _PROMESSA: Final[re.Pattern[str]] = re.compile(
     r"\b(?:vou|irei|ja) (?:agendar|marcar|verificar a agenda|ver a agenda|reservar)\b|\b(?:agendei|marquei)\b"
     r"|\bvao (?:te )?(?:ligar|entrar em contato|retornar)\b|\bentrar(?:emos|a)? em contato\b"
 )
+#: RODADA 19/10/2026: a redacao de saude NUNCA fala de cobertura do plano (quem responde e' a consulta
+#: ao plano da AMH). Qualquer mencao reprova o texto — menos o sentido anatomico ("a membrana que cobre o
+#: olho", "coberta por manchas") e "cobertura vacinal".
+_FALA_DE_COBERTURA: Final[re.Pattern[str]] = re.compile(
+    r"(?<!\bque )\b(?:cobre|cobrem)\b|\bcobertura\b(?! vacinal)|\bcobert[oa]s?\b(?! por\b)"
+    r"|\b(?:consta no rol|constam no rol|rol da ans|o plano paga|o plano custeia|o plano inclui)\b"
+)
 _URL: Final[re.Pattern[str]] = re.compile(r"https?://\S+|\bwww\.\S+", re.IGNORECASE)
 _LINHA_FONTE: Final[re.Pattern[str]] = re.compile(r"(?im)^\s*fonte\s*:\s*(.+)$")
 
@@ -845,6 +854,7 @@ def verificar(
         ("diagnostico", _DIAGNOSTICO),
         ("promessa", _PROMESSA),
         ("metatexto", _METATEXTO),
+        ("fala_de_cobertura", _FALA_DE_COBERTURA),
     ):
         m = padrao.search(plano)
         if m:
@@ -901,6 +911,8 @@ _INSTRUCAO: Final[Mapping[str, str]] = {
     "minimiza": "nao minimize ('nao e' grave', 'fique tranquilo', 'e' normal')",
     "diagnostico": "nao diga o que a pessoa tem ('voce tem', 'voce esta com', 'deve ser')",
     "promessa": "nao prometa agendar, marcar nem que alguem vai entrar em contato",
+    "fala_de_cobertura": "tire qualquer mencao a cobertura do plano (cobre, cobertura, coberto, rol, o "
+    "plano paga): fale so' de saude",
     "metatexto": "escreva SO' a resposta para a pessoa, sem falar da reescrita, das regras ou das palavras",
     "descarta_pressao_alta": "nunca diga que a pressao pode ser erro de medicao nem peca para medir de novo; "
     "oriente procurar avaliacao medica (e 192 se houver sinal de alarme)",
