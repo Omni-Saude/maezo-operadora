@@ -210,10 +210,23 @@ async def test_caso_ja_aberto_na_conversa_nao_abre_outro() -> None:
 
 @pytest.mark.asyncio
 async def test_rota_que_ja_escala_nao_escala_de_novo() -> None:
+    """Rota que ja' abriu caso NESTE turno: o texto dela (aqui um redigido, fora das listas de caso aberto)
+    pode coincidir com falas anteriores sem que isso seja loop — nunca um segundo start."""
+    redigido = (
+        "Seu pedido foi encaminhado para a nossa equipe de atendimento, que vai continuar a conversa "
+        "com voce por aqui mesmo."
+    )
     cib, zap = FakeCibSevenTransport(), _WhatsApp()
-    estado = _estado((_A,) * 5, response_kind="escalate", escalation_started=True, start_desfecho="novo")
-    await _grafo(cib, zap).respond(estado)
+    estado = _estado(
+        (redigido,) * 5,
+        texto=redigido,
+        response_kind="schedule",
+        escalation_started=True,
+        start_desfecho="novo",
+    )
+    saida = await _grafo(cib, zap).respond(estado)
     assert _starts(cib) == 0
+    assert saida.get("error") != g.ERRO_HELENA_EM_REPETICAO
 
 
 # --- 5. start que falha --------------------------------------------------------------------------
