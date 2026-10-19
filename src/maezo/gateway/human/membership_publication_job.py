@@ -46,7 +46,11 @@ With `observation_seconds=600` run it every 4-5 min (CronJob `*/4 * * * *` is th
 default; `*/5` leaves 5 min of margin only if the run itself is punctual). A failed run exits
 2: alert on it, because two consecutive misses let the membership source expire.
 
-Every refusal is `ReadRefusalError` (`unavailable()`); nothing here logs a DSN, key or row.
+Every refusal is `ReadRefusalError` (`unavailable(reason)`, reason from the closed vocabulary
+`read_credentials.UnavailableReason`); nothing here logs a DSN, key or row. A live task the job does
+NOT publish is never skipped in silence: it emits `human_task_skipped` (`publication_events.py`,
+closed fields, ids only) and counts in `JobResult.tasks_skipped`; a refused run prints
+`human_publication_refused` and, last, `publication refused: <Type>:<reason>` on stderr.
 """
 
 from __future__ import annotations
@@ -75,6 +79,7 @@ from maezo.portal.api.records import MembershipRecord
 from maezo.portal.contracts.models import OpaqueRef, Revision, Sha256Digest
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
+from . import publication_events
 from .models import Closed
 from .queue import ReadRefusalError
 from .read_credentials import unavailable
@@ -100,6 +105,7 @@ from .read_publisher import (
     membership_projection,
 )
 from .task_publication_source import (
+    LiveTask,
     NativeTaskSource,
     TaskAdmission,
     TaskResourceSource,
@@ -114,6 +120,12 @@ from .task_publication_source import (
 )
 
 Clock = Callable[[], datetime]
+#: Where the job's structured events go (`publication_events.render` output, one JSON line each).
+EventSink = Callable[[dict[str, object]], None]
+
+
+def _stderr_event(event: dict[str, object]) -> None:
+    print(publication_events.render(event), file=sys.stderr, flush=True)
 
 
 def _now() -> datetime:
@@ -124,7 +136,7 @@ def _prefix(value: str) -> str:
     # Same rule as the provider's admission (`AdmissionRecord.java:102-105`): the prefix ends
     # at a segment separator, so `...:amh:` never admits `...:amhx:...`.
     if not value or not value.endswith(":") or any(c.isspace() or c in "/?#" for c in value):
-        raise unavailable()
+        raise unavailable("configuration_invalid")
     return value
 
 
@@ -148,7 +160,7 @@ class PostgresMembershipHandshake(MembershipPublicationHandshake):
             or type(observation_seconds) is not int
             or not 60 <= observation_seconds <= 900
         ):
-            raise unavailable()
+            raise unavailable("configuration_invalid")
         self._store, self._publisher = store, publisher_ref
         self._prefix, self._seconds, self._clock = _prefix(source_ref_prefix), observation_seconds, clock
 
@@ -160,11 +172,11 @@ class PostgresMembershipHandshake(MembershipPublicationHandshake):
             or record.issuer != issuer
             or record.subject != subject
         ):
-            raise unavailable()
+            raise unavailable("membership_row_absent")
         try:
             record = MembershipRecord.model_validate(record)
         except Exception:
-            raise unavailable() from None
+            raise unavailable("membership_row_changed") from None
         frozen = canonicalize(wire(record))
         projection = membership_projection(record)
         observed = self._clock()
@@ -184,11 +196,11 @@ class PostgresMembershipHandshake(MembershipPublicationHandshake):
             # The row read again after the freeze must be byte-identical to the frozen one.
             if state["dead"] or raw != frozen:
                 state["dead"] = True
-                raise unavailable()
+                raise unavailable("membership_row_changed")
 
         def live() -> None:
             if state["dead"] or not observed <= self._clock() < until:
-                raise unavailable()
+                raise unavailable("source_window_closed")
 
         def committed(receipt: PublicationReceipt) -> None:
             state["dead"] = True
@@ -240,7 +252,7 @@ def _task_catalog(raw: bytes, config: StaffCatalogConfig, publisher_ref: str) ->
     try:
         artifact = parse_model(ReadCatalogArtifact, strict_loads(raw))
     except Exception:
-        raise unavailable() from None
+        raise unavailable("catalog_invalid") from None
     if (
         canonicalize(wire(artifact)) != raw
         or artifact.catalog_ref != config.catalog_ref
@@ -248,7 +260,7 @@ def _task_catalog(raw: bytes, config: StaffCatalogConfig, publisher_ref: str) ->
         or artifact.deployment_receipt_ref != config.deployment_receipt_ref
         or artifact.deployment_receipt_digest != config.deployment_receipt_digest
     ):
-        raise unavailable()
+        raise unavailable("catalog_invalid")
     return raw
 
 
@@ -270,12 +282,12 @@ class StaffCatalogPublicationSource(DeploymentCatalogPublicationSource):
             self.raw = _task_catalog(Path(config.artifact_file).read_bytes(), config, publisher_ref)
         # Fail closed at construction: a catalog the admission does not name is never offered.
         if hashlib.sha256(self.raw).hexdigest() != config.admitted_catalog_digest:
-            raise unavailable()
+            raise unavailable("catalog_not_admitted")
 
     async def read(self, catalog_ref: str) -> SourceSnapshot:
         c = self._config
         if catalog_ref != c.catalog_ref or self.revision < c.catalog_revision:
-            raise unavailable()
+            raise unavailable("configuration_invalid")
         revision = self.revision
         observed = self._clock()
         until = observed + timedelta(seconds=c.valid_seconds)
@@ -303,11 +315,11 @@ class StaffCatalogPublicationSource(DeploymentCatalogPublicationSource):
         state = {"dead": False}
 
         def verify(raw: bytes) -> None:
-            raise unavailable()  # the catalog source never verifies a membership row
+            raise unavailable("source_cannot_verify_membership")  # never verifies a membership row
 
         def live() -> None:
             if state["dead"] or not observed <= self._clock() < until:
-                raise unavailable()
+                raise unavailable("source_window_closed")
 
         def end(*_: object) -> None:
             state["dead"] = True
@@ -320,20 +332,20 @@ class StaffCatalogPublicationSource(DeploymentCatalogPublicationSource):
 
 class RefusingResourceSource(ResourcePolicyPublicationSource):
     async def read(self, task_id: str) -> SourceSnapshot:
-        raise unavailable()
+        raise unavailable("source_out_of_scope")
 
 
 class RefusingPagtoSource(PagtoEvidencePublicationSource):
     async def read(self, evidence_ref: str, revision: int, digest: str) -> Any:
-        raise unavailable()
+        raise unavailable("source_out_of_scope")
 
 
 class RefusingRevocationSource(ReadRevocationPublicationSource):
     async def read_catalog(self, catalog_ref: str) -> SourceSnapshot:
-        raise unavailable()
+        raise unavailable("source_out_of_scope")
 
     async def read_key(self, fingerprint: str) -> SourceSnapshot:
-        raise unavailable()
+        raise unavailable("source_out_of_scope")
 
 
 # --- ledger (CAS memory) ------------------------------------------------------------------
@@ -418,9 +430,9 @@ class PublicationLedger:
                 }
             state = parse_model(LedgerState, value)
         except Exception:
-            raise unavailable() from None
+            raise unavailable("ledger_invalid") from None
         if state.tenant != tenant:
-            raise unavailable()
+            raise unavailable("tenant_mismatch")
         self.state = state
 
     @property
@@ -438,7 +450,7 @@ class PublicationLedger:
         next publication. Another publisher advancing it does not invalidate any entry.
         """
         if type(current) is not int or current < self.state.authority_revision:
-            raise unavailable()
+            raise unavailable("authority_counter_behind_ledger")
         if current != self.state.authority_revision:
             self.rebase(current)
 
@@ -483,7 +495,7 @@ class PublicationLedger:
         valid_until: datetime | None = None,
     ) -> None:
         if int(receipt.revision) != self.state.authority_revision + 1:
-            raise unavailable()
+            raise unavailable("ledger_cas_mismatch")
         entry = LedgerEntry(
             kind=kind,  # type: ignore[arg-type]
             source_ref=ref,
@@ -502,7 +514,7 @@ class PublicationLedger:
 
     def record(self, kind: str, source: SourceProvenance, receipt: PublicationReceipt) -> None:
         if receipt.kind != kind or receipt.authority_revision != self.state.authority_revision + 1:
-            raise unavailable()
+            raise unavailable("ledger_cas_mismatch")
         entry = LedgerEntry(
             kind=kind,  # type: ignore[arg-type]
             source_ref=source.source_ref,
@@ -564,6 +576,10 @@ class JobResult:
     tasks_published: int = 0
     tasks_unchanged: int = 0
     evidence_published: int = 0
+    #: Live tasks of an admitted task key the job did NOT publish (each one also emitted
+    #: `human_task_skipped` with its closed reason). Not zero = look at the events before
+    #: concluding the queue is empty because there is no work.
+    tasks_skipped: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -596,20 +612,21 @@ class MembershipPublicationJob:
         clock: Clock = _now,
         counter: Callable[[], Awaitable[int]] | None = None,
         tasks: TaskPublication | None = None,
+        events: EventSink = _stderr_event,
     ) -> None:
         if ledger.tenant != store.tenant or not workload_ref or not 60 <= grace_seconds <= 900:
-            raise unavailable()
+            raise unavailable("configuration_invalid")
         if tasks is not None and (
             counter is None
             or tasks.admission.tenant != store.tenant
             or tasks.admission.publisher_ref != workload_ref
             or tasks.admission.catalog_digest != catalog._config.admitted_catalog_digest
         ):
-            raise unavailable()
+            raise unavailable("configuration_invalid")
         self._publisher, self._ledger, self._catalog = publisher, ledger, catalog
         self._handshake, self._store, self._engine = handshake, store, engine
         self._workload_ref, self._grace, self._clock = workload_ref, grace_seconds, clock
-        self._counter, self._tasks = counter, tasks
+        self._counter, self._tasks, self._events = counter, tasks, events
         self._records: list[MembershipRecord] = []
 
     async def _expected(self) -> int:
@@ -703,7 +720,7 @@ class MembershipPublicationJob:
             )
             ledger.record("membership", probe.provenance, receipt)
             published += 1
-        tasks = await self._publish_tasks() if self._tasks is not None else (0, 0, 0)
+        tasks = await self._publish_tasks() if self._tasks is not None else (0, 0, 0, 0)
         return JobResult(
             not catalog_done, published, unchanged, ledger.authority_revision, principals, *tasks
         )
@@ -719,23 +736,48 @@ class MembershipPublicationJob:
         except ReadRefusalError:
             raise
         except Exception:
-            raise unavailable() from None
+            raise unavailable("authority_publish_failed") from None
         if receipt.tenant != self._store.tenant or receipt.digest != hashlib.sha256(raw).hexdigest():
-            raise unavailable()
+            raise unavailable("authority_receipt_mismatch")
         return receipt
 
-    async def _publish_tasks(self) -> tuple[int, int, int]:
+    def _skipped(self, reason: publication_events.SkipReason, task: LiveTask) -> None:
+        """Say WHY a live task is not published (ids only), never skip it in silence."""
+        t = self._tasks
+        assert t is not None
+        self._events(
+            publication_events.task_skipped(
+                reason=reason,
+                task_id=task.task_id,
+                task_definition_key=task.task_definition_key,
+                process_definition_id=task.process_definition_id,
+                admitted_process_definition_ids={
+                    pd for pd, key in t.admission.entries if key == task.task_definition_key
+                },
+            )
+        )
+
+    async def _publish_tasks(self) -> tuple[int, int, int, int]:
         """H2: evidence (when absent/changed/half-expired) then resource for every admitted live task."""
         t = self._tasks
         assert t is not None
         ledger, tenant = self._ledger, self._store.tenant
-        published = unchanged = evidences = 0
+        published = unchanged = evidences = skipped = 0
         keys = {key for _, key in t.admission.entries}
         for task in await t.native.live_tasks(keys):
             key = (task.process_definition_id, task.task_definition_key)
             human, entry = t.admission.entries.get(key), t.entries.get(key)
-            if human is None or entry is None or not t.admission.task_id_ok(human, task.task_id):
-                continue  # another definition/version, or an id outside the admitted format
+            if human is None or entry is None:
+                # Another definition/version of an admitted task key (e.g. a redeploy the Q2
+                # admission does not name yet): the portal cannot read it, so the queue looks
+                # empty. Say so, with the live id and the admitted ones, never in silence.
+                self._skipped("definition_not_admitted", task)
+                skipped += 1
+                continue
+            if not t.admission.task_id_ok(human, task.task_id):
+                self._skipped("task_id_format_not_admitted", task)
+                skipped += 1
+                continue
             now = self._clock()
             evidence = await t.native.evidence(task.task_id)
             wanted_digest = evidence_digest(task, entry, t.admission.catalog_digest)
@@ -768,10 +810,12 @@ class MembershipPublicationJob:
                 evidences += 1
                 evidence = await t.native.evidence(task.task_id)
                 if evidence is None or evidence.revision != int(attested.revision):
-                    raise unavailable()
+                    raise unavailable("evidence_not_recorded")
             current = await t.native.task(task.task_id)  # the evidence bumped the task revision
             if current is None or current.process_definition_id != task.process_definition_id:
-                continue  # completed or migrated meanwhile: nothing to publish for it
+                self._skipped("task_changed_during_publication", task)  # completed or migrated meanwhile
+                skipped += 1
+                continue
             valid = min(t.admission.valid_until, datetime.fromtimestamp(evidence.valid_until, UTC))
             grants = grants_for(
                 self._records, entry, tenant=tenant, task_id=task.task_id, now=now, valid_until=valid
@@ -807,7 +851,7 @@ class MembershipPublicationJob:
             )
             ledger.record("resource", provenance.model_copy(update={"source_digest": content}), receipt)
             published += 1
-        return published, unchanged, evidences
+        return published, unchanged, evidences, skipped
 
 
 # --- __main__ -----------------------------------------------------------------------------
@@ -907,12 +951,12 @@ def authority_lease(config: AuthorityKeyConfig, scope: Any, lifetime: Any) -> An
     try:
         key = serialization.load_pem_private_key(_secret_file(config.key_file), password=None)
     except Exception:
-        raise unavailable() from None
+        raise unavailable("secret_file_invalid") from None
     if not isinstance(key, Ed25519PrivateKey):
-        raise unavailable()
+        raise unavailable("secret_file_invalid")
     spki = key.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
     if hashlib.sha256(spki).hexdigest() != config.fingerprint or config.not_after.tzinfo is None:
-        raise unavailable()
+        raise unavailable("secret_file_invalid")
     return AssignmentSigningLease(
         scope=scope,
         key_id=config.key_id,
@@ -936,7 +980,7 @@ def publication_credentials(config: PublicationKeyConfig, material: Any, lifetim
     try:
         key = serialization.load_pem_private_key(_secret_file(config.key_file), password=None)
     except Exception:
-        raise unavailable() from None
+        raise unavailable("secret_file_invalid") from None
     return MaterialPublicationCredentials(
         material,
         lifetime,
@@ -961,21 +1005,21 @@ def job_tls_context(config: JobConfig, surface: Any, scope: Any, directory: Any)
         private_key_file=Path(config.client_key_file),
     ).context()
     if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
-        raise unavailable()
+        raise unavailable("configuration_invalid")
     return context
 
 
 def _secret_file(path: str) -> bytes:
     info = os.stat(path)
     if not stat.S_ISREG(info.st_mode) or (os.name == "posix" and info.st_mode & 0o077):
-        raise unavailable()
+        raise unavailable("secret_file_invalid")
     return Path(path).read_bytes()
 
 
 def _public_file(path: str) -> bytes:
     """A deployed public artifact (the signed admission record): a regular file, nothing more."""
     if not stat.S_ISREG(os.stat(path).st_mode):
-        raise unavailable()
+        raise unavailable("admission_invalid")
     return Path(path).read_bytes()
 
 
@@ -1012,7 +1056,7 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
     manifest = material.manifest
     scope = manifest.scope
     if scope.tenant != config.tenant:
-        raise unavailable()
+        raise unavailable("tenant_mismatch")
     admission, _, _ = read_providers(material, lifetime)
     credentials = publication_credentials(config.publication, material, lifetime)
     context = job_tls_context(config, manifest.read_surface, scope, material.directory)
@@ -1021,12 +1065,12 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
 
     tls = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)  # raizes RDS da imagem, verify-full
     if not tls.check_hostname or tls.verify_mode != ssl.CERT_REQUIRED:
-        raise unavailable()
+        raise unavailable("configuration_invalid")
     engine = create_async_engine(
         dsn, hide_parameters=True, pool_size=1, max_overflow=0, connect_args={"ssl": tls}
     )
     if config.tasks is not None and (config.native_source is None or config.catalog.artifact_file is None):
-        raise unavailable()  # tasks need the counter/task source AND the catalog that carries them
+        raise unavailable("configuration_invalid")  # tasks need the counter/task source AND the catalog
     native_engine = None
     native: NativeTaskSource | None = None
     if config.native_source is not None:
@@ -1153,7 +1197,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(asdict(result)))
         return 0
     except Exception as exc:  # fail closed, never echo material
-        print(f"publication refused: {type(exc).__name__}", file=sys.stderr)
+        # The closed reason (never the message: it could carry a path or a value), as an event
+        # and, LAST, as the line `tools/staff_ops/job.py` prints before `T15_RESULT`.
+        _stderr_event(publication_events.publication_refused(exc))
+        print(
+            f"publication refused: {type(exc).__name__}:{publication_events.refusal_reason(exc)}",
+            file=sys.stderr,
+        )
         return 2
 
 

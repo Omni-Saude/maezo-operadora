@@ -65,7 +65,7 @@ MAX_TASKS = 1000
 
 def _schema(value: str) -> str:
     if not _SCHEMA.fullmatch(value or ""):
-        raise unavailable()
+        raise unavailable("configuration_invalid")
     return value
 
 
@@ -131,7 +131,7 @@ class TaskAdmission:
                 entries=entries,
             )
         except Exception:
-            raise unavailable() from None
+            raise unavailable("admission_invalid") from None
 
     def task_id_ok(self, entry: HumanEntry, task_id: str) -> bool:
         pattern = _UUID if entry.task_id_format == "uuid" else _DECIMAL
@@ -143,12 +143,14 @@ def catalog_entries(raw: bytes, admission: TaskAdmission) -> dict[tuple[str, str
     try:
         artifact = parse_model(ReadCatalogArtifact, strict_loads(raw))
     except Exception:
-        raise unavailable() from None
+        raise unavailable("catalog_invalid") from None
     if hashlib.sha256(raw).hexdigest() != admission.catalog_digest:
-        raise unavailable()
+        raise unavailable("catalog_not_admitted")
     entries = {(e.process_definition_id, e.task_definition_key): e for e in artifact.entries}
     if set(entries) != set(admission.entries):
-        raise unavailable()  # a task published but never readable, or admitted but absent
+        raise unavailable(
+            "catalog_admission_mismatch"
+        )  # a task published but never readable, or admitted but absent
     return entries
 
 
@@ -177,7 +179,7 @@ class NativeTaskSource:
 
     def __init__(self, engine: AsyncEngine, *, tenant: str, native_schema: str, engine_schema: str) -> None:
         if not tenant:
-            raise unavailable()
+            raise unavailable("configuration_invalid")
         self._engine, self.tenant = engine, tenant
         self._native, self._act = _schema(native_schema), _schema(engine_schema)
 
@@ -186,14 +188,14 @@ class NativeTaskSource:
             async with self._engine.connect() as connection:
                 return list(await connection.execute(text(sql), params))
         except Exception:
-            raise unavailable() from None
+            raise unavailable("native_source_failed") from None
 
     async def authority_revision(self) -> int:
         rows = await self._rows(
             f"SELECT rev_ FROM {self._native}.mzo_human_tenant WHERE tenant_=:tenant", tenant=self.tenant
         )
         if len(rows) != 1 or type(rows[0][0]) is not int or rows[0][0] < 0:
-            raise unavailable()
+            raise unavailable("authority_counter_invalid")
         return rows[0][0]
 
     async def live_tasks(self, keys: Iterable[str]) -> list[LiveTask]:
@@ -205,7 +207,7 @@ class NativeTaskSource:
             keys=sorted(set(keys)),
         )
         if len(rows) > MAX_TASKS:
-            raise unavailable()
+            raise unavailable("too_many_live_tasks")
         return [LiveTask(str(r[0]), int(r[1]), str(r[2]), str(r[3])) for r in rows]
 
     async def task(self, task_id: str) -> LiveTask | None:
@@ -412,22 +414,22 @@ class TaskResourceSource(ResourcePolicyPublicationSource):
 
     def stage(self, provenance: SourceProvenance, payload: ResourceProjection) -> None:
         if payload.task_id in self._staged:
-            raise unavailable()
+            raise unavailable("source_staged_twice")
         self._staged[payload.task_id] = (provenance, payload)
 
     async def read(self, task_id: str) -> SourceSnapshot:
         staged = self._staged.pop(task_id, None)
         if staged is None:
-            raise unavailable()
+            raise unavailable("source_not_staged")
         provenance, payload = staged
         state = {"dead": False}
 
         def verify(raw: bytes) -> None:
-            raise unavailable()  # a resource never verifies a membership row
+            raise unavailable("source_cannot_verify_membership")  # a resource never verifies a membership row
 
         def live() -> None:
             if state["dead"] or not provenance.observed_at <= self._clock() < provenance.valid_until:
-                raise unavailable()
+                raise unavailable("source_window_closed")
 
         def end(*_: object) -> None:
             state["dead"] = True

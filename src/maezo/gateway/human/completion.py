@@ -23,6 +23,7 @@ plus at most one pseudonymized note per form, and a body can only close a task o
 from __future__ import annotations
 
 import hashlib
+import sys
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -33,6 +34,7 @@ from typing import Literal
 from maezo.portal.contracts.completions import (
     CANCEL_EXECUCAO_OUTCOMES,
     COMPLETION_OUTCOMES,
+    MAX_NOTES,
     CancelExecucaoOutcome,
     CompletionOutcome,
 )
@@ -56,6 +58,8 @@ __all__ = [
     "COMPLETION_OUTCOMES",
     "COMPLETION_VARIABLES",
     "INTERIM_DECISION_REF",
+    "MAX_NOTES",
+    "NotesTooLongError",
     "CompletedTask",
     "CompletionAck",
     "CompletionAuditEntry",
@@ -130,19 +134,45 @@ class PseudonymizedNotes:
         return hashlib.sha256(self.text.encode("utf-8")).hexdigest()
 
 
+class NotesTooLongError(Exception):
+    """The note, AFTER the scrub, is longer than `MAX_NOTES`. Closed: carries no text, no length.
+
+    The scrub REPLACES identifiers with class tokens (`[REDACTED_PHONE]` is 16 characters, the
+    phone it replaces may be 10), so a note under the wire limit can come out over it. Refusing
+    is the only honest answer: cutting a human's note in the middle changes what it says (the
+    `...[TRUNCATED]` cut this replaces sent the beneficiary half an instruction).
+    """
+
+    code: Literal["notes_too_long"] = "notes_too_long"
+
+    def __init__(self) -> None:
+        super().__init__(self.code)
+
+
 def pseudonymize_notes(raw: str) -> PseudonymizedNotes:
     """Run the SAME free-text net `_start_escalation` runs, before the note leaves the BFF.
 
     `maezo.agents.helena.graph::_start_escalation` scrubs `resumo_contexto` with
     `phi_vars.redact_free_text` on the way INTO this process; SP-OP-ESCALATION-001 requires
-    `notas_resolucao` to be "pseudonimizado" on the way out of it. Same function, same
-    identifier families, same 500-character cap — not a second, drifting policy.
+    `notas_resolucao` to be "pseudonimizado" on the way out of it. Same function and same
+    identifier families — not a second, drifting policy.
+
+    NEVER CUTS (P3, 16/10/2026). The 500-character cap of `redact_free_text` is for error messages;
+    applied here it cut the attendant's note to 500 characters plus `...[TRUNCATED]`, and that is
+    what the beneficiary received. The note is scrubbed WHOLE and, if the scrubbed text is longer
+    than `MAX_NOTES` (the same number the wire schema carries as `maxLength`), the completion is
+    refused with `NotesTooLongError` — before the audit `intent` link and before any engine call
+    (`HumanGateway.complete_task` calls this right after the session/CSRF check).
 
     NOT a PHI classifier. It removes e-mail, CPF/CNPJ, BR phone and long digit runs; clinical
     narrative in prose survives by design, which is why this note stays inside the PHI zone
     and only its digest reaches the audit chain (`phi_vars.redact_free_text` docstring).
     """
-    return PseudonymizedNotes(redact_free_text(raw))
+    # `max_chars=sys.maxsize`: the cap is disabled on purpose; the limit is checked below, whole.
+    text = redact_free_text(raw, max_chars=sys.maxsize)
+    if len(text) > MAX_NOTES:
+        raise NotesTooLongError()
+    return PseudonymizedNotes(text)
 
 
 @dataclass(frozen=True, slots=True)

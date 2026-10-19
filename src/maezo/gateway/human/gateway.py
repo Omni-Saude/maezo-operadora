@@ -85,6 +85,7 @@ from .receipt import (
     ReceiptIdentity,
     parse_public_receipt,
 )
+from .retomada_precheck import check_resumption_note
 
 _ReadResult = TypeVar("_ReadResult")
 
@@ -816,6 +817,10 @@ class HumanGateway:
         if audit is None or audit.scope != self._scope:
             raise GatewayRefusalError("production_capabilities_unavailable")
         notes = pseudonymize_notes(notas_resolucao) if form.note_variable is not None else None
+        if notes is not None:
+            # P5: the note the Helena would bar never leaves as a "completed" task. Before the
+            # remote reads, the intent link and the engine; refuses with the rule GROUP only.
+            check_resumption_note(outcome, notes.text)
         task, authority = await self._authorized(first, task_id)
         self._completion_contract(task, first, form_key=form_key)
         current = await self._read_session(session_secret)
