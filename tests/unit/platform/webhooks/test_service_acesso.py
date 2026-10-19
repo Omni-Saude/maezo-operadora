@@ -95,3 +95,22 @@ async def test_ligado_com_tudo_mas_sem_pin_v1_3_recusa_servir(
     erro = state.dispatcher_error or ""
     assert "access build failed" in erro and "subject_verification_contract_invalid" in erro
     assert "chave-SINTETICA" not in erro and "segredo-SINTETICO" not in erro
+
+
+# --- Revisao do #785: o limite por CPF desliga por env, sem reverter codigo ---------------------------------
+
+
+def test_o_limite_por_cpf_e_ligado_por_padrao(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MAEZO_ACESSO_LIMITE_CPF", raising=False)
+    s = _settings(database_url="postgresql://u:p@h/db")
+    assert s.acesso_limite_cpf is True
+    from maezo.platform.webhooks.whatsapp.acesso_limite_cpf import PostgresLimitePorCpf
+
+    assert isinstance(svc._limite_cpf_do_acesso(s), PostgresLimitePorCpf)
+
+
+def test_o_limite_por_cpf_desliga_pela_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MAEZO_ACESSO_LIMITE_CPF", "false")
+    s = _settings(database_url="postgresql://u:p@h/db")
+    assert s.acesso_limite_cpf is False
+    assert svc._limite_cpf_do_acesso(s) is None

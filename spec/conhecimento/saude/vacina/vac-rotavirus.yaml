@@ -1,0 +1,35 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: vac-rotavirus
+categoria: vacina
+titulo: Vacina contra o rotavírus
+sinonimos:
+- vacina rotavírus
+- vacina rotavirus
+- vacina do rotavírus
+- rotavírus
+- rotavirus
+- vacina rota vírus
+- vacina oral rotavírus
+- vacina contra o rotavírus
+texto: A vacina contra o rotavírus protege contra a infecção por esse vírus. O rotavírus é uma das principais causas de diarreia grave em crianças pequenas. A doença costuma causar vômitos, diarreia e febre, e pode levar à desidratação. A vacina é dada por via oral. O Calendário Nacional de Vacinação define quem pode recebê-la; para saber se é o seu caso, procure uma unidade de saúde ou o seu médico.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Rotavirús (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/r/rotavirus
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+- nome: Ministério da Saúde — Calendário Nacional de Vacinação
+  url: https://www.gov.br/saude/pt-br/vacinacao/calendario
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/r/rotavirus
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

@@ -83,11 +83,30 @@ def confirmacao_valida(valor: object) -> bool:
     return isinstance(valor, str) and valor in CONFIRMACOES
 
 
+#: FASE 4 (18/10/2026): a confirmacao PURA do cancelamento (a mensagem inteira e' so' isto).
+_CONFIRMACAO_PURA: Final[re.Pattern[str]] = re.compile(
+    r"^(?:sim|s|sim sim|sim quero|sim quero cancelar|sim pode cancelar|sim confirmo|confirmo|quero cancelar"
+    r"|pode cancelar|isso mesmo|sim isso mesmo|sim por favor|sim quero sim|quero sim)$"
+)
+_PONTUACAO: Final[re.Pattern[str]] = re.compile(r"[^\w\s]")
+
+
+def e_confirmacao_pura_do_cancelamento(texto: object) -> bool:
+    """A mensagem e' SO' a confirmacao ("Sim", "sim, quero cancelar", "confirmo")? Usado so' com a pergunta de
+    confirmacao pendente (chave `MAEZO_CANCEL_PF_V1`). Qualquer outra palavra -> `False` (o caminho de
+    sempre)."""
+    if not isinstance(texto, str):
+        return False
+    plano = _ESPACOS.sub(" ", _PONTUACAO.sub(" ", _normalizar(texto))).strip()
+    return bool(_CONFIRMACAO_PURA.match(plano))
+
+
 __all__ = [
     "CONFIRMACOES",
     "Confirmacao",
     "confirmacao_valida",
     "decidir_confirmacao",
+    "e_confirmacao_pura_do_cancelamento",
     "e_recuo_do_cancelamento",
     "pede_negociacao",
 ]

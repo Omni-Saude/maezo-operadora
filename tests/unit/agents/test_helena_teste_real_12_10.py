@@ -265,7 +265,7 @@ async def test_msg2_dor_no_peito_escala_com_o_192() -> None:
 
     assert resultado["escalation_motivo"] == "red_flag_clinico"
     assert whatsapp.enviados == [RESPOSTA_ESCALONAMENTO_URGENTE]
-    assert EMERGENCIA_192 in whatsapp.enviados[0]
+    assert "Ligue 192 (SAMU) agora" in whatsapp.enviados[0]  # dossie 18/10: imperativo
 
 
 async def test_msg2_dor_no_peito_com_caso_aberto_ainda_recebe_o_192() -> None:
@@ -544,4 +544,4 @@ async def test_lista_com_sintoma_continua_na_triagem() -> None:
 
     assert resultado.get("handoff") is None
     assert resultado["escalation_motivo"] == "red_flag_clinico"
-    assert EMERGENCIA_192 in whatsapp.enviados[-1]
+    assert "Ligue 192 (SAMU) agora" in whatsapp.enviados[-1]  # dossie 18/10: imperativo

@@ -141,7 +141,7 @@ def test_d6_mesma_resposta_para_mensagens_diferentes_em_sequencia() -> None:
 
 
 def test_d6_resposta_curta_repetida_nao_conta() -> None:
-    curta = "Vou chamar quem cuida da parte financeira."
+    curta = "Vou te passar para o Lucas, nosso assistente financeiro."
     c = conversa(turno(1, texto="a", helena=[curta]), turno(2, texto="b", helena=[curta]))
     assert ch.d6_repeticao(c, por_id("apressado")).passou
 
@@ -270,8 +270,8 @@ _APRESENTACAO = (
     "Por aqui você pode:\n"
     "• Consultar mensalidade, vencimento e coparticipação.\n"
     "• Ver os dados do seu plano: carteirinha, carências e dependentes.\n"
-    "• Relatar um sintoma e ser encaminhado à equipe de saúde.\n"
-    "• Questionar uma cobrança e ser encaminhado à equipe de atendimento.\n"
+    "• Tirar dúvidas de saúde e saber onde buscar atendimento.\n"
+    "• Falar com a nossa equipe sobre saúde ou cobrança, quando precisar.\n"
     "Em emergência, ligue 192. Como posso ajudar?"
 )
 

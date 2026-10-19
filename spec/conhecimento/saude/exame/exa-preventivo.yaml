@@ -1,0 +1,33 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: exa-preventivo
+categoria: exame
+titulo: Exame preventivo (Papanicolau)
+sinonimos:
+- preventivo
+- papanicolau
+- papanicolaou
+- exame preventivo
+- citologia
+- citopatologico
+- citopatológico
+- colpocitologia
+- dna-hpv
+- teste de hpv
+texto: A vacinação e a realização do exame preventivo (Papanicolau) se complementam como ações de prevenção desse tipo de câncer. É um exame simples e rápido, podendo, no máximo, causar um pequeno desconforto. Mulheres grávidas também podem se submeter ao exame, sem prejuízo para sua saúde ou a do bebê.
+tipo_texto: citacao_literal
+fontes:
+- nome: 'INCA — Câncer do colo do útero: versão para população'
+  url: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/colo-do-utero/versao-para-populacao
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: f68f29ede40321b9ea233d39982859aab0cc88e83353138585525503d01d72c2
+link_leitura: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/colo-do-utero/versao-para-populacao
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

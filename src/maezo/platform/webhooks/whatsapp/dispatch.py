@@ -117,6 +117,7 @@ from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
+from maezo.runtime.terceiro_no_texto import com_aviso_se_for_de_outra_pessoa
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import DmnTransport
@@ -464,6 +465,24 @@ class HelenaDispatcher:
     #: a byte. Ligada (so' em dev): especialista e carteirinha com texto fixo; sintoma leve so' com
     #: perguntas de alerta. Com ela ligada a nova triagem (v2) fica inerte.
     helena_v4_enabled: bool = False
+    #: CARTEIRINHA COMPLETA E VINCULO ATIVO (decisao do dono de 17/10/2026, settings
+    #: `helena_carteirinha_completa` / `MAEZO_HELENA_CARTEIRINHA_COMPLETA`). Default `False` = a Helena de
+    #: antes byte a byte. Ligada (so' em
+    #: dev): elegibilidade e carteirinha so' com os vinculos ATIVOS, e a carteirinha com o numero completo do
+    #: proprio verificado (texto fixo), quando a rota `tina-carteirinha` responde.
+    helena_carteirinha_completa_enabled: bool = False
+    #: BASE DE SAUDE (ADR-0064/DL-0118, settings `helena_base_saude` / `MAEZO_HELENA_BASE_SAUDE`). Default
+    #: `False` = a Helena de antes byte a byte. Ligada (so' em dev): informa perguntas gerais de saude pela
+    #: base curada, faz perguntas de alerta na dor sem alarme e encerra o caso P2/P3 a pedido, com
+    #: confirmacao.
+    helena_base_saude_enabled: bool = False
+    #: SAUDE GERATIVA (ADR-0065/DL-0119, settings `helena_saude_gerativa` +
+    #: `helena_saude_gerativa_conversas`).
+    #: `None` (default) = desligada, a Helena de antes byte a byte. A raiz de composicao so' passa o redator
+    #: (`maezo.conhecimento.saude_gerativa.RedatorDeSaude`, com a allowlist e a rota global experimental) com
+    #: a
+    #: chave ligada; o grafo so' o usa nas conversas da allowlist.
+    saude_gerativa: Any = None
     #: TETO DE VOLUME (Frente 7.1). `None` = sem teto, que e' o comportamento anterior e continua
     #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
     #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
@@ -840,6 +859,12 @@ class HelenaDispatcher:
                 "triagem_v2_enabled": self.triagem_v2_enabled,
                 # DL-0115: a Helena v4 (catalogo de necessidades v4), so' com a flag.
                 "helena_v4_enabled": self.helena_v4_enabled,
+                # Decisao do dono de 17/10/2026: vinculo ativo e carteirinha completa, so' com a flag.
+                "helena_carteirinha_completa_enabled": self.helena_carteirinha_completa_enabled,
+                # DL-0118: a base de conhecimento de saude (ADR-0064), so' com a flag.
+                "helena_base_saude_enabled": self.helena_base_saude_enabled,
+                # DL-0119: a saude gerativa (ADR-0065), so' com a chave; `None` = desligada (grafo de antes).
+                "saude_gerativa": self.saude_gerativa,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
                 "consultas_plano": self.consultas_plano,
             }
@@ -1049,6 +1074,8 @@ class HelenaDispatcher:
             historico_enabled=self.historico_enabled,
             triagem_v2_enabled=self.triagem_v2_enabled,
             helena_v4_enabled=self.helena_v4_enabled,
+            helena_carteirinha_completa_enabled=self.helena_carteirinha_completa_enabled,
+            helena_base_saude_enabled=self.helena_base_saude_enabled,
         )
         estado: dict[str, Any] = {
             "tenant_id": self.tenant_id,
@@ -1121,7 +1148,11 @@ class HelenaDispatcher:
         if self.consultas_plano is not None and texto == RESPOSTA_PLANO_POR_CANAIS:
             # RODADA 8: com os fatos do plano (TINA) ligados e a pessoa verificada, "ainda nao estao
             # disponiveis por este chat" nunca sai: o fato ausente do perfil segue para o grafo, que consulta.
+            # A comparacao vem ANTES do aviso de terceiro (revisao do #785): com o aviso colado, o texto
+            # deixava de ser igual e o "nao estao disponiveis" saia ao beneficiario.
             return None
+        # D-01 (red team): quem fala de outra pessoa recebe o aviso de que so' o PROPRIO cadastro e' mostrado.
+        texto = com_aviso_se_for_de_outra_pessoa(message.text, texto)
         await sender.send(phone_hash, texto)
         logger.info(
             "acesso_cadastro_respondido",
@@ -1444,12 +1475,23 @@ class HelenaDispatcher:
         ligada = getattr(lucas, "cancelamento_pf_v1", False) is True
         if lucas is None or not ligada or not self._roteamento_completo:
             return None
-        from maezo.runtime.cobranca_intencao import e_recuo_do_cancelamento
+        from maezo.runtime.cobranca_intencao import (
+            e_confirmacao_pura_do_cancelamento,
+            e_recuo_do_cancelamento,
+        )
 
         # FAIL-CLOSED: lexico que falhou, pedido de pessoa ou sinal de saude seguem o caminho da Helena.
         if sinais is None or sinais.pedido_humano or sinais.sinal_saude:
             return None
-        if not e_recuo_do_cancelamento(texto):
+        # FASE 4 (18/10/2026, decisao do dono: "Sim" basta): a CONFIRMACAO PURA ("Sim", "sim, quero cancelar",
+        # "confirmo") com a pergunta pendente tambem vai ao Lucas sem o classificador da Helena — antes o
+        # "Sim"
+        # sozinho dependia de o modelo ler cobranca.
+        if e_confirmacao_pura_do_cancelamento(texto):
+            confirmacao = "confirma"
+        elif e_recuo_do_cancelamento(texto):
+            confirmacao = "nega"
+        else:
             return None
         from maezo.agents.lucas.graph import TEXTO_CONFIRMA_CANCELAMENTO, ref_de_resposta
 
@@ -1462,7 +1504,7 @@ class HelenaDispatcher:
         from maezo.runtime.cobranca_foco import FOCO_GERAL
 
         logger.info(
-            "lucas_recuo_do_cancelamento",
+            "lucas_recuo_do_cancelamento" if confirmacao == "nega" else "lucas_confirmacao_do_cancelamento",
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
         )
@@ -1475,7 +1517,7 @@ class HelenaDispatcher:
                 "cobranca_subtipo": "cancelamento",
                 "competencia": None,
                 "cobranca_foco": FOCO_GERAL,
-                "cobranca_confirmacao": "nega",
+                "cobranca_confirmacao": confirmacao,
             },
         }
 
@@ -1752,6 +1794,8 @@ class HelenaDispatcher:
             historico_enabled=self.historico_enabled,
             triagem_v2_enabled=self.triagem_v2_enabled,
             helena_v4_enabled=self.helena_v4_enabled,
+            helena_carteirinha_completa_enabled=self.helena_carteirinha_completa_enabled,
+            helena_base_saude_enabled=self.helena_base_saude_enabled,
         )
         estado: dict[str, Any] = {
             **resultado_helena,

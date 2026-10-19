@@ -27,13 +27,13 @@ PRIMEIRA = (ap.TEXTO_VERIFICADO_APRESENTACAO, ap.TEXTO_APRESENTACAO_CANAL_SEM_DE
 
 
 def test_texto_exato_com_dependentes() -> None:
-    assert ap.VERSAO_APRESENTACAO_CANAL == "apresentacao-canal-v1"
+    assert ap.VERSAO_APRESENTACAO_CANAL == "apresentacao-canal-v2"
     assert ap.texto_apresentacao(com_dependentes=True) == (
         "Por aqui você pode:\n"
         "• Consultar mensalidade, vencimento e coparticipação.\n"
         "• Ver os dados do seu plano: carteirinha, carências e dependentes.\n"
-        "• Relatar um sintoma e ser encaminhado à equipe de saúde.\n"
-        "• Questionar uma cobrança e ser encaminhado à equipe de atendimento.\n"
+        "• Tirar dúvidas de saúde e saber onde buscar atendimento.\n"
+        "• Falar com a nossa equipe sobre saúde ou cobrança, quando precisar.\n"
         "Em emergência, ligue 192. Como posso ajudar?"
     )
 

@@ -77,6 +77,7 @@ if TYPE_CHECKING:
     from maezo.gateway.seams import SeamContext
 
     from .whatsapp.acesso import AcessoBeneficiario
+    from .whatsapp.acesso_limite_cpf import PostgresLimitePorCpf
     from .whatsapp.acesso_ponte import RefsVerificadas
     from .whatsapp.helena_consultas import ConsultasPlanoAmh
     from .whatsapp.helena_identidade import IdentidadeHelena
@@ -156,6 +157,48 @@ def _helena_model_tiers() -> dict[str, str]:
             "under the `sem_mapa` tier sentinel. This does NOT change which model is used.",
         )
         return {}
+
+
+def _saude_gerativa(settings: WhatsAppWebhookSettings) -> Any:
+    """SAUDE GERATIVA (ADR-0065, DL-0119): o redator, SO' com `MAEZO_HELENA_SAUDE_GERATIVA` E a base de saude
+    ligadas; senao `None` (nada da rota global existe no processo). Construcao pura: o cliente Bedrock nao faz
+    rede ate' a primeira chamada. A rota e' PROPRIA (`experimento_global_autorizado_dpo_2026-10-17`) e nunca
+    passa pelo roteador de zonas."""
+    if settings.helena_saude_gerativa is not True:
+        return None
+    from maezo.conhecimento.saude_gerativa import RedatorDeSaude, conversas_autorizadas
+    from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
+
+    if settings.helena_base_saude is not True:
+        logger.error("helena_saude_gerativa_sem_base_de_saude", rota=ROTA_DE_RESIDENCIA)
+        return None
+    conversas = conversas_autorizadas(settings.helena_saude_gerativa_conversas)
+    logger.warning(
+        "helena_saude_gerativa_ligada",
+        rota=ROTA_DE_RESIDENCIA,
+        conversas_autorizadas=len(conversas),
+    )
+    busca = None
+    if getattr(settings, "helena_busca_semantica", False) is True:
+        # FASE 3 (18/10/2026): busca por significado com embeddings REGIONAIS (sa-east-1). Modelo fora da
+        # lista regional admitida = a chave nao liga (log de erro), e a saude gerativa segue com o lexico.
+        from maezo.conhecimento.busca_semantica import BuscaSemantica, TransporteBedrockRegional
+
+        try:
+            busca = BuscaSemantica(
+                transporte=TransporteBedrockRegional(modelo=settings.helena_busca_semantica_modelo),
+                limiar=settings.helena_busca_semantica_limiar,
+            )
+            logger.warning(
+                "helena_busca_semantica_ligada",
+                modelo=settings.helena_busca_semantica_modelo,
+                limiar=settings.helena_busca_semantica_limiar,
+            )
+        except ValueError:
+            logger.error(
+                "helena_busca_semantica_modelo_recusado", modelo=settings.helena_busca_semantica_modelo
+            )
+    return RedatorDeSaude(transporte=TransporteGlobalExperimental(), conversas=conversas, busca=busca)
 
 
 def _build_dispatcher(
@@ -293,6 +336,14 @@ def _build_dispatcher(
         triagem_v2_enabled=settings.helena_triagem_v2,
         # HELENA V4 (DL-0115): `MAEZO_HELENA_V4`, default `false` (so' dev).
         helena_v4_enabled=settings.helena_v4,
+        # Vinculo ativo e carteirinha completa (dono, 17/10/2026): `MAEZO_HELENA_CARTEIRINHA_COMPLETA`,
+        # default `false` (so' dev).
+        helena_carteirinha_completa_enabled=settings.helena_carteirinha_completa,
+        # BASE DE SAUDE (DL-0118, ADR-0064): `MAEZO_HELENA_BASE_SAUDE`, default `false` (so' dev).
+        helena_base_saude_enabled=settings.helena_base_saude,
+        # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
+        # dev).
+        saude_gerativa=_saude_gerativa(settings),
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the
@@ -440,6 +491,10 @@ def _build_fonte_cobranca_amh(
         # a cobranca le' a elegibilidade para saber se o plano e' COLETIVO POR ADESAO quando o billing-status
         # nao diz quem paga. Sem ele, o comportamento de antes.
         incluir_tina=settings.helena_consultas_amh is True,
+        # DL-0114: o executor governado do catalogo v4 (detalhamento do pagador e 2a via) so' entra com a
+        # chave ligada E a configuracao dele presente; configurado pela metade, `build_amh_interop` LEVANTA
+        # e o receptor recusa servir.
+        incluir_v4=_lucas_v4_configurado(settings),
     )
     if settings.lucas_v4 is True and not getattr(
         settings, "amh_billing_status_contratacao_openapi_path", None
@@ -497,6 +552,34 @@ def _build_fonte_cobranca_amh(
     return fonte, interop
 
 
+def _carteirinha_completa_configurada(settings: WhatsAppWebhookSettings) -> bool:
+    """A rota da carteirinha completa entra na composicao da Helena? So' com as consultas do plano, a chave
+    `MAEZO_HELENA_CARTEIRINHA_COMPLETA` e o caminho do OpenAPI `tina-carteirinha` presentes."""
+    return (
+        settings.helena_consultas_amh is True
+        and settings.helena_carteirinha_completa is True
+        and bool(getattr(settings, "amh_tina_carteirinha_openapi_path", None))
+    )
+
+
+def _lucas_v4_configurado(settings: WhatsAppWebhookSettings) -> bool:
+    """A chave do Lucas v4 esta' ligada e ALGUMA peca do executor v4 foi configurada (caminho dos OpenAPI ou
+    cliente da
+    2a via)? Entao a composicao exige TODAS. Sem nenhuma, o Lucas v4 segue sem o segundo sinal (log de
+    boot)."""
+    if settings.lucas_v4 is not True:
+        return False
+    return any(
+        getattr(settings, nome, None)
+        for nome in (
+            "amh_billing_status_detalhamento_openapi_path",
+            "amh_billing_segunda_via_openapi_path",
+            "amh_interop_boleto_client_id",
+            "amh_interop_boleto_client_secret",
+        )
+    )
+
+
 def _build_fonte_v4_amh(
     settings: WhatsAppWebhookSettings,
     interop: AmhInteropComposition | None,
@@ -508,10 +591,14 @@ def _build_fonte_v4_amh(
 
     O SEGUNDO SINAL, `fonte_detalhamento_habilitada`, exige: a chave, os DOIS contratos publicados e pinados
     (blocos `manifest_v1_10` e `manifest_v1_11` do `contracts.lock.json`), a fonte de cobranca AMH, o acesso
-    do beneficiario (identidade verificada) e um executor governado do gateway para as duas rotas. Hoje os
-    manifests estao UNPUBLISHED na AMH e o executor real nao existe: devolve `None` e o Lucas v4 faz so' o
-    que a rota billing-status 0.3.0 ja' sustenta (pagador/nao pagador sem nomes, empresa -> RH, total do
-    boleto)."""
+    do beneficiario (identidade verificada) e um executor governado do gateway para as duas rotas
+    (`AmhV4Executor`, `interop.executor_v4`, composto por
+    `tool_registry.build_amh_interop(incluir_v4=True)`). Os
+    manifests v1.10/v1.11 estao PUBLISHED e pinados desde 16/10/2026; faltando qualquer peca devolve `None`
+    e o
+    Lucas v4 faz so' o que a rota billing-status 0.3.0 ja' sustenta (pagador/nao pagador sem nomes, empresa
+    -> RH,
+    total do boleto)."""
     from maezo.adapters.amh.contract import AmhContractPinError, resolve_contract_pin_path
     from maezo.agents.lucas.fonte_v4 import fonte_detalhamento_habilitada
 
@@ -543,7 +630,10 @@ def _build_fonte_v4_amh(
         logger.error(
             "lucas_v4_contratos_pinados_sem_executor",
             tenant_id=settings.tenant_id,
-            detail="o executor governado do gateway para as rotas novas ainda nao existe (runbook lucas-v4)",
+            detail=(
+                "sem executor v4: faltam os OpenAPI do catalogo v4 e o cliente Cognito da 2a via "
+                "(runbook lucas-v4)"
+            ),
         )
         return None
     adaptador_detalhamento = AdaptadorDetalhamento(executor)
@@ -642,6 +732,13 @@ def _build_helena_amh(
         audit=dispatcher.audit_sink,
         agent_version=_HELENA_AGENT_VERSION,
         incluir_tina=consultas_ligadas,
+        # Carteirinha completa (dono, 17/10/2026, so' dev): a rota `tina-carteirinha` so' entra com as
+        # consultas
+        # E a chave ligadas E o caminho do OpenAPI configurado (como os dependentes). Com o caminho, o bloco
+        # `manifest_v1_12` do pin e o escopo `interop/tina.carteirinha` sao exigidos (sem eles o receptor
+        # recusa
+        # servir); sem o caminho, a Helena so' filtra os vinculos ativos e a carteirinha sai mascarada.
+        incluir_tina_carteirinha=_carteirinha_completa_configurada(settings),
     )
     consultas: ConsultasPlanoAmh | None = None
     if consultas_ligadas:
@@ -686,6 +783,19 @@ def _build_helena_amh(
         consultas_plano=consultas is not None,
     )
     return identidade, consultas
+
+
+def _limite_cpf_do_acesso(settings: WhatsAppWebhookSettings) -> PostgresLimitePorCpf | None:
+    """O limite por CPF (D-04), ou `None` com `MAEZO_ACESSO_LIMITE_CPF=false` (revisao do #785: desligar sem
+    reverter codigo). Desligado, sobra o limite por conversa; o boot avisa em WARNING."""
+    if not settings.acesso_limite_cpf:
+        logger.warning("acesso_limite_cpf_desligado", tenant_id=settings.tenant_id)
+        return None
+    from maezo.platform.webhooks.whatsapp.acesso_limite_cpf import PostgresLimitePorCpf
+
+    if not settings.database_url:
+        raise ValueError("acesso: DATABASE_URL ausente (o limite por CPF e' persistido no Postgres)")
+    return PostgresLimitePorCpf(dsn=settings.database_url, tenant=settings.tenant_id)
 
 
 def _build_acesso(
@@ -757,6 +867,8 @@ def _build_acesso(
         apresentar_dependentes=bool(settings.amh_tina_dependentes_openapi_path)
         and settings.helena_consultas_amh,
         silencio_apresentacao=timedelta(days=settings.acesso_apresentacao_dias),
+        # D-04 (decisao do dono, 15/10/2026): 3 falhas por CPF em 6 h, somadas entre as conversas.
+        limite_cpf=_limite_cpf_do_acesso(settings),
     )
     logger.warning(
         "acesso_beneficiario_ligado",

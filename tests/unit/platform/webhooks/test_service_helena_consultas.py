@@ -311,3 +311,26 @@ async def test_fonte_nunca_levanta() -> None:
 
     assert await _fonte(_Quebrado()).consultar(REF, "elegibilidade") is None
     assert await _fonte(_Port()).consultar(REF, "boleto") is None
+
+
+async def test_o_prazo_total_cobre_as_duas_leituras_do_caminho_sem_carencias() -> None:
+    """Sem linha de carencia o fluxo le' a carencia E confirma o sujeito pela elegibilidade: duas leituras,
+    cada uma com `PRAZO_LEITURA_S` (a consulta Athena da AMH leva de 1 a 10 s)."""
+    from maezo.platform.webhooks.whatsapp import helena_consultas as hc
+
+    assert hc.PRAZO_LEITURA_S >= 9.0
+    assert hc.PRAZO_TOTAL_S >= 2 * hc.PRAZO_LEITURA_S
+
+
+async def test_cada_leitura_leva_o_prazo_de_leitura_ao_port() -> None:
+    from maezo.platform.webhooks.whatsapp import helena_consultas as hc
+
+    visto: list[float] = []
+
+    class _Registra(_Port):
+        async def get_elegibilidade(self, ref: str, **kw: Any) -> Any:
+            visto.append(kw["timeout_seconds"])
+            return await super().get_elegibilidade(ref, **kw)
+
+    await _fonte(_Registra()).consultar(REF, "elegibilidade")
+    assert visto == [hc.PRAZO_LEITURA_S]

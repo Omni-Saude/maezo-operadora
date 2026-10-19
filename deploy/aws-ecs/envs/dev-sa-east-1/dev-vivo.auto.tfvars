@@ -30,12 +30,19 @@ helena_zona_phi = true
 phi_vendor_dpa_ref = "AWS-SERVICE-TERMS-BEDROCK-sa-east-1 (Contrato AWS vigente da AMH; atestado no apply de 20/08/2026 por autorizacao do dono do produto)"
 phi_zone_provider  = "bedrock_br"
 
-// Sincronizacao automatica do egresso Cognito (portal-egresso-cognito-sync.tf): NAO esta aplicada na
-// conta (nao ha a Lambda nem o schedule). O default `enabled = true` criaria Lambda, role, schedule e
-// alarme no proximo apply. Fica DESLIGADA ate' o time decidir aplica-la (PR que troca para `true`); ate'
-// la vale a lista /32 de `portal.auto.tfvars`.
+// Modelo da zona PHI no DEV: EXPERIMENTO com `zai.glm-5` (GLM-5, Z.AI), autorizado pelo dono em 17/10/2026
+// (DL-0117). Direto em sa-east-1 (ON_DEMAND), mesma atestacao regional/retencao zero do Mistral. SO' o dev;
+// o default de `variables.tf` continua o Mistral. ROLLBACK: apagar esta linha (ou repor
+// "mistral.mistral-large-3-675b-instruct"), PR, merge e apply direcionado -- ver
+// `docs/runbooks/phi-inference-ops.md`, secao "Trocar ou voltar o modelo da zona PHI".
+phi_model_id = "zai.glm-5"
+
+// Sincronizacao automatica do egresso Cognito (portal-egresso-cognito-sync.tf): LIGADA em 18/10/2026 por
+// decisao do dono, depois da 6a rotacao que derrubou o login (#829). Lambda + schedule (5 min) + alarme;
+// a lista /32 de `portal.auto.tfvars` continua valendo e a rotina so complementa. Desligar: `enabled = false`
+// aqui, PR e apply direcionado (docs/runbooks/portal-egresso-cognito.md, "Desligar").
 portal_cognito_egress_sync = {
-  enabled = false
+  enabled = true
 }
 
 // ---------------------------------------------------------------------------
@@ -59,19 +66,22 @@ staff_install = {
 // de metrica e o ledger S3: e' o refresher da fila de casos do portal. Sem isto a fila do portal para.
 // ---------------------------------------------------------------------------
 staff_ops = {
-  // Digest UNICO das 4 tasks staff-ops (rows/syn/assignment/job): imagem de operacao 1ded30e7-staff-ops.
+  // 16/10/2026: imagem de operacao 182e11b7-staff-material (base: app 8819f3fb). O job T1.5 valida o catalogo no modelo
+  // `ReadCatalogArtifact` da imagem; a base antiga (c29a88ea) nao conhece o formulario `cancel_execucao` (#788) e recusa
+  // o catalogo do SP-OP-CANCEL-001 v0.2.0 (`ReadRefusalError read_dependency_unavailable`). Era 1ded30e7-staff-ops (e92a4e5e).
+  // Digest UNICO das 4 tasks staff-ops (rows/syn/assignment/job).
   // Mesmas camadas-base que 6bd559ec-staff-ops (a20b2597); entre as duas so mudou deploy/sql/portal-human-plane-grants.sql
   // (#558: INSERT do outbox na cadeia de auditoria); tools/staff_ops, staff_install, staff_materials e dev_syn_fixture identicos.
-  image_digest = "sha256:e92a4e5e663dc7beca4833fe8e3306cfed485e461485034bcefb8e2eb6e04dae"
+  image_digest = "sha256:bb19425cda659598c3947f6ecfc7997826b2c91796418edc1e020274c9ddf384"
 
   rows_secret_arn       = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-install/rows-R8q4LK"
   syn_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-install/syn-fixture-wt3sOm"
   job_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/staff-job/materials-glnOol"
-  job_secret_version_id = "0660dd69-f333-4df9-82f5-5123a1c5e682"
+  job_secret_version_id = "ece58f11-9f81-4034-95e2-504307b24a60"
 
   // Pins publicos do pacote humano (os mesmos de `portal.human` em `portal.auto.tfvars`).
-  human_material_version_id = "amh-dev-human-1dced1fcdb361e47e278952fef"
-  human_manifest_sha256     = "96f43b71f3b91907b0e50cd356f1ce740ca7bad39e2d6d2ecf1621727a99d2de"
+  human_material_version_id = "amh-dev-human-16d34f91f2a37ec3f0512adb53"
+  human_manifest_sha256     = "992858ec56e69996a42c941fde42f3aee91aa055bb1f9f6694e62e061b961449"
 
   job_schedule_enabled = true
 
@@ -88,7 +98,7 @@ staff_ops = {
 // ---------------------------------------------------------------------------
 engine_native = {
   native_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-XoACan"
-  native_secret_version_id = "d3c6dc4f-9ada-4f0f-b8f4-f9ae95aac8c9"
+  native_secret_version_id = "25c14f6b-400e-4175-9399-3eea268ebd41"
   kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/49a1f9f2-9f92-44ad-9b5a-d5de269fee73" // alias/maezo-operadora-dev-engine-native
   app_image_digest         = "sha256:c29a88eafcf568b64b4ea455c954aa499964bc07e8d65088754dacce2c463d14"     // init e sidecar (imagem do app 6bd559ec)
   staff_case_issuer        = true

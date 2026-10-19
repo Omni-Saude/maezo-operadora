@@ -119,9 +119,12 @@ from maezo.adapters.amh.subject_verification import OP_VERIFY
 from maezo.gateway.amh import AmhRuntime, AmhSubjectContextExecutor, GatedAmhContext
 from maezo.gateway.amh_interop import (
     HASH_SCHEME,
+    OPERATION_DETALHAMENTO,
     PURPOSE_ATENDIMENTO_WHATSAPP,
     SCOPE_BY_OPERATION,
+    SCOPE_SEGUNDA_VIA,
     SCOPE_TINA,
+    SCOPE_TINA_CARTEIRINHA,
     AmhBillingStatusExecutor,
     AmhConsentRecordExecutor,
     AmhDocumentResolutionExecutor,
@@ -131,8 +134,12 @@ from maezo.gateway.amh_interop import (
     AmhSubjectResolutionExecutor,
     AmhSubjectVerificationExecutor,
     AmhSubjectVerifyHasher,
+    AmhTinaCarteirinhaExecutor,
+    AmhTinaCoberturaExecutor,
     AmhTinaExecutor,
+    AmhV4Executor,
     CognitoClientCredentials,
+    conferir_artefatos_v4,
 )
 from maezo.gateway.credential_vault import (
     AgentCredentialView,
@@ -235,6 +242,10 @@ AGENT_CREDENTIAL_FIELDS: Final[dict[str, str]] = {
     "amh_phone_lookup_key": "amh_phone_lookup_key",
     # DL-0083 (acesso do beneficiario): chave DEDICADA do hash `amh-subject-verify-v1` (CPF e CPF+nascimento).
     "amh_subject_verify_key": "amh_subject_verify_key",
+    # DL-0114 (Lucas v4): segredo do cliente Cognito DEDICADO da 2a via do boleto (`maezo-operadora-interop-
+    # boleto`, unico escopo `interop/billing.boleto`). Credencial de pagamento: cliente e segredo separados
+    # do de cobranca.
+    "amh_interop_boleto_client_secret": "amh_interop_boleto_client_secret",
 }
 
 #: Settings fields that carry a HUMAN-RESTRICTED credential, and the ADR-0005 partition each one
@@ -620,6 +631,29 @@ def _ler_openapi(caminho: str) -> bytes:
     return dados
 
 
+def _cobertura_tina(
+    settings: Any, comum: dict[str, Any]
+) -> tuple[AmhTinaCoberturaExecutor | None, bytes | None]:
+    """O executor e os bytes da rota `tina-cobertura` (manifest v1.9), ou `(None, None)`.
+
+    `(None, None)` sem `amh_tina_cobertura_openapi_path` ou com falha de leitura/composicao: so' um log de
+    erro com o motivo (nunca o caminho nem o conteudo). NUNCA levanta: a cobertura nao derruba o receptor."""
+    caminho = getattr(settings, "amh_tina_cobertura_openapi_path", None)
+    if not caminho or not isinstance(caminho, str):
+        return None, None
+    try:
+        dados = _ler_openapi(caminho)
+    except Exception as exc:
+        logger.error("amh_interop_cobertura_fora", motivo="leitura", error_type=type(exc).__name__)
+        return None, None
+    try:
+        executor = AmhTinaCoberturaExecutor(**{**comum, "purpose_of_use": PURPOSE_ATENDIMENTO_WHATSAPP})
+    except Exception as exc:
+        logger.error("amh_interop_cobertura_fora", motivo="composicao", error_type=type(exc).__name__)
+        return None, None
+    return executor, dados
+
+
 def build_amh_interop(
     *,
     settings: Any,
@@ -630,6 +664,8 @@ def build_amh_interop(
     incluir_tina: bool = False,
     incluir_acesso: bool = False,
     billing_atendimento: bool = False,
+    incluir_v4: bool = False,
+    incluir_tina_carteirinha: bool = False,
 ) -> AmhInteropComposition:
     """A fonte REAL de cobranca/identidade do Lucas: executores do gateway -> adaptadores pinados.
 
@@ -662,6 +698,30 @@ def build_amh_interop(
     `amh_billing_status_atendimento_openapi_path` (o 0.1.0 nao e' lido) e o executor de cobranca declara
     `purpose_of_use=atendimento_whatsapp`; os outros executores seguem com `amh_interop_purpose_of_use`. Sem o
     bloco `manifest_v1_4` no pin o adaptador LEVANTA e o receptor recusa servir. `False` = a de sempre.
+
+    `incluir_v4=True` (SO' com `MAEZO_LUCAS_V4` ligada e a configuracao do catalogo v4 presente, DL-0114)
+    acrescenta o
+    executor governado `executor_v4` (`AmhV4Executor`): exige `amh_billing_status_detalhamento_openapi_path`,
+    `amh_billing_segunda_via_openapi_path` (os bytes tem de bater com o digest dos blocos `manifest_v1_10` e
+    `manifest_v1_11` do pin, senao LEVANTA), o cliente Cognito DEDICADO da 2a via
+    (`amh_interop_boleto_client_id` e
+    o segredo `amh_interop_boleto_client_secret`) e o escopo `interop/billing.read` em `amh_interop_scopes`.
+    `False` =
+    a composicao de antes, sem nada do catalogo v4.
+
+    `incluir_tina_carteirinha=True` (SO' com `MAEZO_HELENA_CONSULTAS_AMH` E
+    `MAEZO_HELENA_CARTEIRINHA_COMPLETA` ligadas; decisao do dono de 17/10/2026, so' dev) exige
+    `incluir_tina=True`, `amh_tina_carteirinha_openapi_path` e o escopo `interop/tina.carteirinha` em
+    `amh_interop_scopes`, e acrescenta ao adaptador TINA a rota da carteirinha completa por um executor
+    PROPRIO (`AmhTinaCarteirinhaExecutor`, finalidade `atendimento_whatsapp`). O adaptador so' sobe com o
+    bloco `manifest_v1_12` no pin (sem ele LEVANTA e o receptor recusa servir). `False` (o default) = a
+    composicao de antes, sem nada da carteirinha completa.
+
+    Com `incluir_tina=True` e `amh_tina_cobertura_openapi_path` preenchido (decisao do dono D1 de 18/10/2026;
+    manifest v1.9), o adaptador TINA ganha a rota de cobertura por procedimento por um executor PROPRIO
+    (`AmhTinaCoberturaExecutor`, finalidade `atendimento_whatsapp`, escopo `interop/tina.read`). Diferente
+    das outras rotas opcionais, uma falha de leitura ou de digest NAO recusa o boot: so' a cobertura fica de
+    fora (log de erro) e o resto da composicao segue igual.
     """
     from maezo.adapters.amh.billing_status import ARTIFACT as ARTIFACT_BILLING
     from maezo.adapters.amh.billing_status import ARTIFACT_ATENDIMENTO as ARTIFACT_BILLING_ATENDIMENTO
@@ -705,6 +765,12 @@ def build_amh_interop(
     exigidos[chave_billing] = getattr(settings, chave_billing, None)
     if incluir_tina is True:
         exigidos["amh_tina_openapi_path"] = getattr(settings, "amh_tina_openapi_path", None)
+    if incluir_tina_carteirinha is True:
+        if incluir_tina is not True:
+            raise AmhInteropCompositionError("amh_interop_carteirinha_sem_tina")
+        exigidos["amh_tina_carteirinha_openapi_path"] = getattr(
+            settings, "amh_tina_carteirinha_openapi_path", None
+        )
     if incluir_acesso is True:
         exigidos["amh_subject_verify_key"] = verify_key
         exigidos["amh_subject_verification_openapi_path"] = getattr(
@@ -716,6 +782,17 @@ def build_amh_interop(
         exigidos["amh_document_resolution_openapi_path"] = getattr(
             settings, "amh_document_resolution_openapi_path", None
         )
+    if incluir_v4 is True:
+        exigidos["amh_billing_status_detalhamento_openapi_path"] = getattr(
+            settings, "amh_billing_status_detalhamento_openapi_path", None
+        )
+        exigidos["amh_billing_segunda_via_openapi_path"] = getattr(
+            settings, "amh_billing_segunda_via_openapi_path", None
+        )
+        exigidos["amh_interop_boleto_client_id"] = getattr(settings, "amh_interop_boleto_client_id", None)
+        exigidos["amh_interop_boleto_client_secret"] = agent_credential(
+            credentials, "amh_interop_boleto_client_secret"
+        )
     ausentes = sorted(nome for nome, valor in exigidos.items() if not valor)
     if ausentes:
         raise AmhInteropCompositionError("amh_interop_config_ausente: " + ",".join(ausentes))
@@ -724,9 +801,13 @@ def build_amh_interop(
         raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
     if incluir_tina is True and SCOPE_TINA not in scopes:
         raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
+    if incluir_tina_carteirinha is True and SCOPE_TINA_CARTEIRINHA not in scopes:
+        raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
     if incluir_acesso is True and not {SCOPE_BY_OPERATION[OP_VERIFY], SCOPE_BY_OPERATION[OP_RECORD]} <= set(
         scopes
     ):
+        raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
+    if incluir_v4 is True and SCOPE_BY_OPERATION[OPERATION_DETALHAMENTO] not in scopes:
         raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
     tokens = CognitoClientCredentials(
         token_url=exigidos["amh_interop_token_url"],
@@ -760,12 +841,49 @@ def build_amh_interop(
         # A rota de dependentes (manifest v1.5) e' OPCIONAL: com o caminho, o bloco `manifest_v1_5` do pin e'
         # exigido (o construtor levanta sem ele); sem o caminho, `get_dependentes` recusa fechado.
         caminho_dependentes = getattr(settings, "amh_tina_dependentes_openapi_path", None)
-        tina = AmhTinaAdapter(
-            _ler_openapi(exigidos["amh_tina_openapi_path"]),
-            executor=tina_executor,
-            dependentes_openapi_bytes=_ler_openapi(caminho_dependentes) if caminho_dependentes else None,
-        )
+        # Carteirinha completa (manifest v1.12): executor PROPRIO (finalidade `atendimento_whatsapp`, id
+        # opaco da solicitacao, `no-store`) sobre o MESMO token (que ja' pediu `interop/tina.carteirinha`,
+        # conferido acima).
+        carteirinha_executor: AmhTinaCarteirinhaExecutor | None = None
+        if incluir_tina_carteirinha is True:
+            carteirinha_executor = AmhTinaCarteirinhaExecutor(
+                **{**comum, "purpose_of_use": PURPOSE_ATENDIMENTO_WHATSAPP}
+            )
+        tina_kwargs: dict[str, Any] = {
+            "executor": tina_executor,
+            "dependentes_openapi_bytes": _ler_openapi(caminho_dependentes) if caminho_dependentes else None,
+            "carteirinha_openapi_bytes": (
+                _ler_openapi(exigidos["amh_tina_carteirinha_openapi_path"])
+                if carteirinha_executor is not None
+                else None
+            ),
+            "carteirinha_executor": carteirinha_executor,
+        }
+        tina_bytes = _ler_openapi(exigidos["amh_tina_openapi_path"])
+        # Cobertura por procedimento (manifest v1.9; decisao do dono D1 de 18/10/2026): OPCIONAL e NAO
+        # derruba o resto. Com o caminho, executor PROPRIO (finalidade fixa `atendimento_whatsapp`, mesmo
+        # token `interop/tina.read`); falha de leitura ou de digest = a rota NAO entra (log de erro, so' o
+        # motivo) e as outras leituras TINA seguem. Sem o caminho, `get_cobertura` recusa fechado.
+        cobertura_executor, cobertura_bytes = _cobertura_tina(settings, comum)
+        tina = None
+        if cobertura_executor is not None:
+            try:
+                tina = AmhTinaAdapter(
+                    tina_bytes,
+                    cobertura_openapi_bytes=cobertura_bytes,
+                    cobertura_executor=cobertura_executor,
+                    **tina_kwargs,
+                )
+            except Exception as exc:
+                logger.error("amh_interop_cobertura_fora", motivo="contrato", error_type=type(exc).__name__)
+                cobertura_executor = None
+        if tina is None:
+            tina = AmhTinaAdapter(tina_bytes, **tina_kwargs)
         executores = (*executores, tina_executor)
+        if carteirinha_executor is not None:
+            executores = (*executores, carteirinha_executor)
+        if cobertura_executor is not None:
+            executores = (*executores, cobertura_executor)
     verification: AmhSubjectVerificationAdapter | None = None
     consents: AmhConsentRecordAdapter | None = None
     verify_hasher: AmhSubjectVerifyHasher | None = None
@@ -791,6 +909,26 @@ def build_amh_interop(
         )
         verify_hasher = AmhSubjectVerifyHasher(key=str(verify_key), amh_tenant=exigidos["amh_interop_tenant"])
         executores = (*executores, verification_executor, consent_executor, document_executor)
+    executor_v4: AmhV4Executor | None = None
+    if incluir_v4 is True:
+        # Os bytes dos DOIS OpenAPI do catalogo v4 tem de bater com o digest do pin (blocos `manifest_v1_10` e
+        # `manifest_v1_11`); qualquer divergencia ou bloco ausente LEVANTA e o receptor recusa servir.
+        conferir_artefatos_v4(
+            detalhamento=_ler_openapi(exigidos["amh_billing_status_detalhamento_openapi_path"]),
+            segunda_via=_ler_openapi(exigidos["amh_billing_segunda_via_openapi_path"]),
+        )
+        tokens_segunda_via = CognitoClientCredentials(
+            token_url=exigidos["amh_interop_token_url"],
+            client_id=exigidos["amh_interop_boleto_client_id"],
+            client_secret=exigidos["amh_interop_boleto_client_secret"],
+            scopes=(SCOPE_SEGUNDA_VIA,),
+            transport_factory=transport_factory,
+        )
+        executor_v4 = AmhV4Executor(
+            tokens_segunda_via=tokens_segunda_via,
+            **{**comum, "purpose_of_use": PURPOSE_ATENDIMENTO_WHATSAPP},
+        )
+        executores = (*executores, executor_v4)
     return AmhInteropComposition(
         billing=AmhBillingStatusAdapter(
             _ler_openapi(exigidos[chave_billing]),
@@ -818,6 +956,7 @@ def build_amh_interop(
         verify_hasher=verify_hasher,
         documents=documents,
         billing_purpose_of_use=billing_purpose,
+        executor_v4=executor_v4,
     )
 
 

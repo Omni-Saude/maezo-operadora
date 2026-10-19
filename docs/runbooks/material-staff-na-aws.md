@@ -301,3 +301,45 @@ raiz ja aprovada), passos 6 a 9. Cada `gerar` remonta do que esta **vivo**, enta
 | `recusado: a renovacao delegada (N1) so roda em dev/amh` | escopo errado; nao e dev |
 | `ensaio` acima do limite | admissao ou segredo perto de 65536 bytes; reduzir entradas antes do `gerar` |
 | `put_secret_value` negado | a credencial nao e da OAAR (SCP) |
+
+## 7. Licoes do corte de 16/10/2026 (ja incorporadas nos passos acima)
+
+- **O app base da imagem de operacao importa.** O `ReadCatalogArtifact` roda dentro da imagem (task `staff-material` no
+  `gerar`, e o job T1.5 em producao); uma base antiga (app `c29a88ea`) recusa o formulario `cancel_execucao` (#788).
+  Construa a imagem de operacao (`deploy/ops/staff-install.Dockerfile`) sobre o app que contem o contrato novo
+  (`APP_DIGEST` do app atual) e use-a na task `staff-material` **e** nas 4 tasks staff-ops (`staff_ops.image_digest` em
+  `dev-vivo.auto.tfvars`). Sintoma no job: `publication refused: ReadRefusalError` (codigo `read_dependency_unavailable`;
+  para ver o codigo, rode a task do job uma vez com `command` que chama `membership_publication_job._publish` e imprime
+  `type(exc)`, `exc.code` e so as linhas do traceback).
+- **Imagem nova do motor = JARs novos.** A admissao Q2 pina `code_digests` (SHA-256 de `/camunda/lib/maezo-human-command.jar`
+  e `/camunda/lib/maezo-portal-read-provider.jar`) e a qualificacao AUTH pina o do engine. Calcule-os da imagem **no ECR**
+  (camadas via `ecr get-download-url-for-layer`, sem Docker) e passe `MATERIAL_CODE_ENGINE`/`MATERIAL_CODE_PROVIDER` ao `gerar`
+  (o metodo foi validado contra a admissao viva). Troque a imagem do motor **junto** com o segredo nativo no mesmo apply do
+  passo 8: motor novo com admissao antiga (ou o contrario) recusa. Construa o motor de um commit **sem** bumps de dependencia
+  Java nao exercitados em runtime (o base do motor e o `tomcat-2.1.0`).
+- **Catalogo novo exige revisao nova.** A revisao do catalogo e insert-only no engine e o job renova subindo a revisao
+  (estava em 1807). Passe `MATERIAL_CATALOG_REVISION` acima da ultima do ledger (`ledger/amh.json`, entrada
+  `catalog-designate`); com `MATERIAL_CATALOGO` o `gerar` tambem troca `admitted_catalog_digest` do `job/config.json`.
+  `scripts/ops/staff_material_cancel_catalogo.py` monta o catalogo e as entradas `human` do CANCEL-001 (valide offline com
+  `review_admission` antes). O id e o digest do BPMN saem de `GET /process-definition` e do `.../deployment/{id}/resources/{id}/data`.
+- **Janela observada:** `staff-rows` 13:37:36Z, apply do motor 13:38:32Z, motor de pe 13:45Z (boot ~135 s) e portal 13:46Z; o job
+  T1.5 voltou a publicar 13:56Z (depois de trocar a imagem das tasks staff-ops). Em torno de 8 min de motor fora e ~18 min de
+  fila sem refresh.
+- **gitleaks:** o `VersionId` pinado em `dev-vivo.auto.tfvars` dispara `generic-api-key`; registre a impressao digital em
+  `.gitleaksignore` (como no #775).
+- **Git Bash do Windows:** `staff_material_run.sh` le o log por boto3 (o `/ecs/...` na linha de comando da aws virava caminho
+  do Windows e `MSYS_NO_PATHCONV=1` quebra a propria aws).
+
+## Historico
+
+- **16/10/2026 (troca de ancora, DL-0113):** raiz nova `a03ab84558894040cf34d984763cd1e47e3eaccdcc2d3c6ab7b51476bb383c81`
+  (`raiz-20261016`); janela 2026-10-16T13:04:34Z a 2026-10-30T13:04:34Z (prova ate 13:03:34Z); designacao r4 `fb9f7524...`,
+  admissao Q2 r7 `ac1c8868...` (6 tarefas: 2 do escalonamento e 4 do CANCEL-001 v0.2.0), `staff_native_configuration_digest`
+  `8f09637e...`; staff `amh-dev-staff-d39be92f2d183d9cb86940fc2a`, human `amh-dev-human-16d34f91f2a37ec3f0512adb53`;
+  native-materials `25c14f6b-400e-4175-9399-3eea268ebd41`, job `ece58f11-9f81-4034-95e2-504307b24a60`, rows
+  `481f3edb-ce82-4b09-aac7-3cf4ff163605`, syn-fixture `1ff8584b-fba7-4635-b9f6-ea694d06f559`. Motor `8819f3fb-human`
+  (`sha256:bb5ae142...`, JAR engine `f45675e7...`, provedor `e140922f...`), portal `8819f3fb-portal` (`sha256:26595b28...`).
+  Snapshot `pre-material-aws-20261016`. Qualificacao AUTH `valid_until` `2026-10-22T18:20:46Z` -> `2026-10-30T13:04:34Z`.
+  Verificado: `portal_read_provider root_sha256=a03ab845...`, `T15_RESULT ok=true`, `task-read` com o principal de
+  `enfermagem-triagem` e uma tarefa, instancia de teste do CANCEL abriu `UT_AnaliseRescisao`, o job publicou a tarefa e,
+  depois de `EFETIVAR_PEDIDO`, a `UT_ExecutarCancelamentoCadastro`; instancia apagada.

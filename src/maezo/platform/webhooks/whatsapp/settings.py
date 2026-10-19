@@ -361,6 +361,58 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_V4", "helena_v4"),
     )
+    # CARTEIRINHA COMPLETA E VINCULO ATIVO (decisao do dono de 17/10/2026, "modelo de teste" SO' em DEV,
+    # reversivel). DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: no tipo de
+    # plano (`elegibilidade`) e na carteirinha a Helena mostra SO' os vinculos ATIVOS, e a carteirinha (sempre
+    # deterministica) traz o NUMERO COMPLETO do proprio beneficiario verificado, por texto fixo, quando a rota
+    # `tina-carteirinha` (manifest v1.12, escopo `interop/tina.carteirinha`) responde — senao, o mascarado.
+    helena_carteirinha_completa: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_CARTEIRINHA_COMPLETA", "helena_carteirinha_completa"),
+    )
+    # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, SO' em DEV.
+    # DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: a Helena INFORMA (sem
+    # diagnosticar, sem conduta, sem dose) perguntas gerais de saude a partir da base curada versionada
+    # (`spec/conhecimento/saude`), sem abrir caso; dor sem sinal de alarme recebe perguntas de alerta antes do
+    # caso (com a v4 ligada); e a recusa explicita com caso aberto encerra o caso P2/P3 com confirmacao.
+    # Revisao medica e juridica pendentes antes de producao.
+    helena_base_saude: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_BASE_SAUDE", "helena_base_saude"),
+    )
+    # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
+    # informativas de saude (com checagem antes de enviar), pela ROTA PROPRIA
+    # `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono
+    # autorizou como DPO SO' para as conversas da allowlist abaixo, SO' em dev. DESLIGADA por padrao; so' tem
+    # efeito com `helena_base_saude` ligada. Fora da allowlist, a Helena de antes byte a byte.
+    helena_saude_gerativa: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_SAUDE_GERATIVA", "helena_saude_gerativa"),
+    )
+    # A allowlist: `conversation_id` keyed (`wa:{tenant}:hk1_...`), separados por virgula. Vazia = ninguem.
+    helena_saude_gerativa_conversas: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", "helena_saude_gerativa_conversas"
+        ),
+    )
+    # BUSCA POR SIGNIFICADO na base de saude (fase 3 de 18/10/2026, decisao do dono): embeddings de um modelo
+    # REGIONAL do Bedrock em sa-east-1 escolhem o APOIO da saude gerativa (nunca portao). So' tem efeito com a
+    # saude gerativa ligada e so' para a allowlist dela. DESLIGADA por padrao.
+    helena_busca_semantica: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA", "helena_busca_semantica"),
+    )
+    helena_busca_semantica_modelo: str = Field(
+        default="amazon.titan-embed-text-v2:0",
+        validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA_MODELO", "helena_busca_semantica_modelo"),
+    )
+    helena_busca_semantica_limiar: float = Field(
+        default=0.33,
+        ge=0.0,
+        le=1.0,
+        validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA_LIMIAR", "helena_busca_semantica_limiar"),
+    )
     # AVISO DE IDENTIDADE (DL-0078, decisao do dono 07/10/2026): o nome de EXIBICAO da operadora nos
     # textos fixos de identidade da Helena ("Reconheci este numero no cadastro de beneficiarios da
     # {nome}..."). So' tem efeito com `helena_identidade_amh` ligada. Texto curto e simples (letras,
@@ -400,6 +452,14 @@ class WhatsAppWebhookSettings(BaseSettings):
         ge=1,
         le=168,
         validation_alias=AliasChoices("MAEZO_ACESSO_VALIDADE_HORAS", "acesso_validade_horas"),
+    )
+
+    # Limite de falhas de verificacao POR CPF (D-04, DL-0109): 3 em 6 h, somadas entre as conversas. LIGADO
+    # por padrao. A chave existe so' para DESLIGAR sem reverter codigo (revisao do #785), se o risco aceito
+    # (re-travar a verificacao de outra pessoa) virar incidente: desligado, vale so' o limite por conversa.
+    acesso_limite_cpf: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("MAEZO_ACESSO_LIMITE_CPF", "acesso_limite_cpf"),
     )
 
     # Apresentacao do canal (14/10/2026): depois de tantos dias SEM mensagens na conversa, a mensagem que diz
@@ -527,6 +587,19 @@ class WhatsAppWebhookSettings(BaseSettings):
         repr=False,
         exclude=True,
     )
+    # Lucas v4 (DL-0114): cliente Cognito DEDICADO da 2a via do boleto (`maezo-operadora-interop-boleto`,
+    # unico escopo `interop/billing.boleto`; o codigo de barras e' CREDENCIAL DE PAGAMENTO). O segredo chega
+    # so' pelo cofre.
+    amh_interop_boleto_client_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_BOLETO_CLIENT_ID", "amh_interop_boleto_client_id"),
+    )
+    amh_interop_boleto_client_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_BOLETO_CLIENT_SECRET"),
+        repr=False,
+        exclude=True,
+    )
     # Chave DEDICADA do hash `amh-subject-verify-v1` (segredo `amh/interop/subject-verify-key`), que cobre
     # CPF e CPF+nascimento na verificacao do acesso (DL-0083). Lida SO' com `acesso_beneficiario` ligada.
     # Nao e' o `PHI_HMAC_KEY` nem a chave do telefone. Mesmo tratamento dos segredos acima.
@@ -598,6 +671,23 @@ class WhatsAppWebhookSettings(BaseSettings):
             "MAEZO_AMH_CONSENT_RECORD_OPENAPI_PATH", "amh_consent_record_openapi_path"
         ),
     )
+    # Lucas v4 (DL-0114): os OpenAPI do billing-status 0.4.0 (manifest v1.10, publicado em 16/10/2026) e da
+    # 2a via (billing-segunda-via 0.1.0, manifest v1.11). Lidos SO' com `lucas_v4` ligada; os bytes so'
+    # valem com o digest dos blocos `manifest_v1_10`/`manifest_v1_11` do pin. Sem os dois caminhos nao ha'
+    # executor e o segundo sinal (`fonte_v4.fonte_detalhamento_habilitada`) fica desligado.
+    amh_billing_status_detalhamento_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_BILLING_STATUS_DETALHAMENTO_OPENAPI_PATH",
+            "amh_billing_status_detalhamento_openapi_path",
+        ),
+    )
+    amh_billing_segunda_via_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_BILLING_SEGUNDA_VIA_OPENAPI_PATH", "amh_billing_segunda_via_openapi_path"
+        ),
+    )
     # O OpenAPI TINA (fatos do plano), lido SO' com `helena_consultas_amh` ligada; os bytes so' valem
     # com o digest no bloco `manifest_v1_2` do pin (publicado pela AMH em 13/10/2026, run 38346972222).
     amh_tina_openapi_path: str | None = Field(
@@ -612,6 +702,25 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=None,
         validation_alias=AliasChoices(
             "MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH", "amh_tina_dependentes_openapi_path"
+        ),
+    )
+    # O OpenAPI da rota da CARTEIRINHA COMPLETA (`tina-carteirinha`, manifest v1.12), lido SO' com
+    # `helena_consultas_amh` E `helena_carteirinha_completa` ligadas. Os bytes so' valem com o digest no bloco
+    # `manifest_v1_12` do pin (sem ele o receptor recusa servir); sem a chave, nem o caminho e' lido.
+    amh_tina_carteirinha_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_CARTEIRINHA_OPENAPI_PATH", "amh_tina_carteirinha_openapi_path"
+        ),
+    )
+    # O OpenAPI da rota de COBERTURA POR PROCEDIMENTO (`tina-cobertura`, manifest v1.9, PUBLISHED em
+    # 16/10/2026; decisao do dono D1 de 18/10/2026), OPCIONAL: so' vale junto com `helena_consultas_amh`.
+    # Vazio = a rota nao entra. Preenchido, os bytes so' valem com o digest no bloco `manifest_v1_9` do pin;
+    # falha de leitura ou de digest deixa SO' a cobertura de fora (log de erro) e o resto segue.
+    amh_tina_cobertura_openapi_path: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_COBERTURA_OPENAPI_PATH", "amh_tina_cobertura_openapi_path"
         ),
     )
 
@@ -634,6 +743,7 @@ class WhatsAppWebhookSettings(BaseSettings):
                 ("amh_interop_client_secret", "MAEZO_AMH_INTEROP_CLIENT_SECRET"),
                 ("amh_phone_lookup_key", "MAEZO_AMH_PHONE_LOOKUP_KEY"),
                 ("amh_subject_verify_key", "MAEZO_AMH_SUBJECT_VERIFY_KEY"),
+                ("amh_interop_boleto_client_secret", "MAEZO_AMH_INTEROP_BOLETO_CLIENT_SECRET"),
             ):
                 if field_name in data:
                     data[canonical] = data.pop(field_name)

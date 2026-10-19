@@ -1,0 +1,35 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: exa-mamografia
+categoria: exame
+titulo: Mamografia
+sinonimos:
+- mamografia
+- mamografia de rastreamento
+- mamografia bilateral
+- exame da mama
+- exame das mamas
+texto: A mamografia é um raio-x das mamas. Pode mostrar alterações antes de surgirem sintomas. O Ministério da Saúde recomenda a mamografia de rastreamento para mulheres de 50 a 74 anos, a cada dois anos. O exame tem benefícios e limites, que podem ser conversados com o médico.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Padrão TISS / Terminologia Unificada da Saúde Suplementar (TUSS)
+  url: https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-17
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+- nome: 'INCA — Câncer de mama: versão para população'
+  url: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/mama/versao-para-populacao
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+link_leitura: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/mama/versao-para-populacao
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

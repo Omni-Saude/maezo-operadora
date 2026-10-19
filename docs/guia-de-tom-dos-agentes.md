@@ -119,8 +119,8 @@ Helena e o fluxo de acesso no WhatsApp; o Lucas vem depois.
 
 ## Rodada 11 — dependentes e seguimento (DL-0100, 14/10/2026)
 
-- **Dependentes:** só contagem e relação, sempre no mesmo formato ("No seu cadastro consta 1 dependente ativo:
-  filho(a) até 23 anos (recém-nascido no plano)."). Nunca nome, CPF ou nascimento; o canal diz que, por
+- **Dependentes:** só contagem e relação, sempre no mesmo formato ("No seu cadastro consta 1 dependente ativo
+  (filho ou filha, recém-nascido no plano)."; o grau vai sem o rótulo técnico do cadastro, fase 4 de 18/10/2026). Nunca nome, CPF ou nascimento; o canal diz que, por
   segurança, não mostra nomes. Falha da consulta: "Por aqui eu não consigo consultar seus dependentes agora."
   Nunca "não consta" quando a consulta falhou.
 - **Seguimento curto com o Lucas:** "de qual ano?", "como assim?", "quanto foi?" continuam a conversa de
@@ -137,17 +137,26 @@ Decisão do dono, sessão de 14/10/2026. O Lucas responde os fatos primeiro, sem
   caso aberto.
 - **Cancelamento, empresa ou adesão:** "O cancelamento do plano é decidido pela empresa contratante
   (normalmente o RH)." ou "...pela administradora do plano.", com a oferta de alguém da equipe.
-- **Cancelamento, pessoa física:** uma pergunta ("Você quer pedir para cancelar o seu plano?"), sem argumento
-  de retenção e sem prazo. Só com o "SIM, QUERO CANCELAR" o pedido segue. O Lucas nunca diz que o plano foi
-  cancelado: diz que o pedido está com a equipe, que responde por aqui.
+- **Cancelamento, pessoa física:** uma pergunta ("Você quer pedir para cancelar o seu plano? Responda Sim para
+  confirmar."), sem argumento de retenção e sem prazo. Só com a confirmação ("Sim" basta, decisão do dono de
+  18/10/2026) o pedido segue. O Lucas nunca diz que o plano foi cancelado: diz que o pedido está com a equipe,
+  que responde por aqui.
 
 ## Wave 2 — adesão e boleto da família (DL-0099, 14/10/2026)
 
 - **Adesão:** quando a AMH diz que o plano é coletivo por adesão, vale o texto da administradora. A TINA só
   serve de reserva quando o tipo vem desconhecido.
-- **Pagador pessoa física, valor:** "Sua parte da mensalidade de outubro de 2026 é de R$ 320,25, com
-  vencimento em 20/10. O boleto da família, com todos os beneficiários do plano, é de R$ 1.280,40." Mês
-  sempre com ano, frases com até 20 palavras.
+- **Pagador pessoa física, valor (fase 4, 18/10/2026):** o valor principal de um mês é sempre o do BOLETO,
+  o mesmo na lista, no valor do mês, no vencimento e na 2ª via: "O valor total da mensalidade de outubro de
+  2026 é de R$ 1.280,40, com vencimento em 20/10. Esse total soma todos os beneficiários do contrato. A sua
+  parte é de R$ 320,25." Quando o detalhamento do mês fecha com o boleto, a composição curta vai junto:
+  "R$ 566,72 (você: R$ 391,02, sendo R$ 354,52 de mensalidade e R$ 36,50 de coparticipação; dependente 1:
+  R$ 175,70)". Sem detalhamento que feche, só o valor do boleto; nunca se inventa composição. A lista termina
+  com "Os valores são os do boleto, com todos os beneficiários do contrato." Mês sempre com ano, frases com
+  até 20 palavras.
+- **Empresa e não pagador sem repetir (fase 4):** a explicação inteira só na primeira resposta; logo depois de
+  um texto da empresa (qualquer assunto ou mês) ou de não pagador, uma forma curta e diferente, que se
+  reveza. A oferta de alguém da equipe no máximo uma vez a cada duas respostas.
 - **Dependente:** "O boleto da sua família é emitido em nome do titular do plano. A 2ª via e o vencimento são
   com ele." Nenhum valor de boleto.
 - **Nunca** mostrar o total de outra fatura: empresa, adesão e tipo desconhecido ficam como estavam.
@@ -160,8 +169,8 @@ Mensagem fixa `apresentacao-canal-v1` (`platform/webhooks/whatsapp/apresentacao_
 Por aqui você pode:
 • Consultar mensalidade, vencimento e coparticipação.
 • Ver os dados do seu plano: carteirinha, carências e dependentes.
-• Relatar um sintoma e ser encaminhado à equipe de saúde.
-• Questionar uma cobrança e ser encaminhado à equipe de atendimento.
+• Tirar dúvidas de saúde e saber onde buscar atendimento.
+• Falar com a nossa equipe sobre saúde ou cobrança, quando precisar.
 Em emergência, ligue 192. Como posso ajudar?
 ```
 
@@ -203,7 +212,7 @@ Em emergência, ligue 192. Como posso ajudar?
 |---|---|---|
 | Verificação concluída | Tudo certo, identificamos você. Como posso ajudar? | Pronto, já confirmei que é você 😊 Em que posso ajudar? |
 | Escalação (Lucas) | Vou encaminhar sua solicitação ... para um atendente, que vai entrar em contato. Nenhuma decisão sobre seu plano foi tomada. | Vou passar sua dúvida para alguém da nossa equipe, que vai te responder por aqui. Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. |
-| Passagem para cobrança | Vou te passar para o atendimento de cobrança. | Vou chamar quem cuida da parte financeira. |
+| Passagem para cobrança | Vou te passar para o atendimento de cobrança. | Vou te passar para o Lucas, nosso assistente financeiro. |
 | Pedido de CPF | Obrigada! Agora, para confirmar que é você, digite o seu CPF (apenas números). | Obrigada! Para confirmar que é você, me envie seu CPF (só os números). |
 | Emergência | Se for uma emergência, ligue 192 (SAMU) ou vá ao pronto-socorro mais próximo. | Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. |
 

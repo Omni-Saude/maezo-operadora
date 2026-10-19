@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-diabetes-gestacional
+categoria: condicao
+titulo: Diabetes gestacional
+sinonimos:
+- diabetes na gravidez
+- diabetes gestacional
+- diabete gestacional
+- diabetes da gestação
+- glicose alta na gravidez
+- diabetes gestante
+texto: Diabetes gestacional é o aumento do açúcar no sangue que aparece durante a gravidez, em geral de forma temporária. Muitas vezes não causa sintomas e costuma ser identificada por exames. O tratamento é definido pelo médico e pode envolver mudança de hábitos, acompanhamento da glicose e, em alguns casos, remédios. Obstetrícia e endocrinologia costumam cuidar dessa condição.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Diabetes (diabetes mellitus) (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/diabetes
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/diabetes
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho; trecho tirado após leitura do Opus 5)

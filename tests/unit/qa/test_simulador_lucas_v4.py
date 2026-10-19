@@ -24,10 +24,10 @@ from maezo.agents.lucas.graph import (
     TEXTO_EMPRESA_SEGUNDA_VIA,
     TEXTO_EMPRESA_VENCIMENTO,
     TEXTO_NAO_PAGADOR_V4,
-    TEXTO_NAO_PAGADOR_V4_CURTO,
     TEXTO_PAGADOR_EMPRESA,
     TEXTO_PAGADOR_NAO_CONFIRMADO_V4,
     TEXTO_SEM_CODIGO_V4,
+    TEXTOS_NAO_PAGADOR_V4_CURTOS,
     texto_segunda_via_com_codigo_v4,
 )
 from maezo.qa.simulador import aceite
@@ -201,10 +201,10 @@ def test_pagador_sem_o_sinal_o_total_vem_primeiro_e_a_2a_via_e_a_de_antes() -> N
 
 
 def test_a_primeira_frase_e_a_do_lucas_e_nao_a_abertura_da_helena() -> None:
-    """Aceite de 16/10/2026: a Helena abre o turno com 'Vou chamar quem cuida da parte financeira.';
+    """Aceite de 16/10/2026: a Helena abre o turno com a frase de passagem;
     a primeira frase conferida e' a da primeira resposta DO LUCAS (o `agente` do passo)."""
     passo = _passo(aceite.LUCAS_V4_PAGADOR[0], 0)
-    abertura = ("helena", "Vou chamar quem cuida da parte financeira.")
+    abertura = ("helena", "Vou te passar para o Lucas, nosso assistente financeiro.")
     assert aceite.avaliar_passo(passo, [abertura, ("lucas", _TOTAL_PRIMEIRO)], [], None) == []
     antigo = "Sua mensalidade de outubro de 2026 é de R$ 751,41, com vencimento em 15/10. (dados de 08/10)"
     falhas = aceite.avaliar_passo(passo, [abertura, ("lucas", antigo)], [], None)
@@ -223,10 +223,48 @@ def test_pagador_com_o_sinal_o_detalhe_por_beneficiario_e_o_codigo_passam() -> N
     assert _falhas(pagador[1], 1, _texto_com_codigo(), fatos=[_FATOS_BILLING, _FATOS_2A_VIA]) == []
 
 
+def test_com_o_sinal_o_pagador_exige_o_detalhe_por_beneficiario_sem_nome() -> None:
+    """Com os contratos novos ligados nao basta "o detalhe sai pelo aplicativo": reprova sem o detalhe."""
+    pagador = aceite.LUCAS_V4_PAGADOR
+    fatos = [_FATOS_BILLING, FatosV4().como_entrada_lucas() | {"detalhamento_pagador": [_DETALHE]}]
+    sem_detalhe = (
+        "O valor total da mensalidade de outubro de 2026 é de R$ 720,00, com vencimento em 20/10. "
+        "Esse total soma todos os beneficiários do contrato. "
+        "O detalhe por beneficiário sai pelo aplicativo Austa Clínicas. (dados de 12/10)"
+    )
+    assert _falhas(pagador[0], 1, sem_detalhe, fatos=fatos) != []
+    assert _falhas(pagador[0], 1, _TOTAL_PRIMEIRO, fatos=[_FATOS_BILLING]) != []
+    # o detalhe com NOME no lugar do rotulo tambem reprova (so' voce/titular/dependente N)
+    com_nome = _TEXTO_DETALHADO.replace("• Dependente 1:", "• Joao:")
+    assert _falhas(pagador[0], 1, com_nome, fatos=fatos) != []
+    assert _falhas(pagador[0], 1, _TEXTO_DETALHADO, fatos=fatos) == []
+
+
+def test_com_o_sinal_a_2a_via_do_pagador_exige_o_codigo_no_texto_real_e_nao_aceita_o_texto_de_canais() -> (
+    None
+):
+    pagador = aceite.LUCAS_V4_PAGADOR
+    fatos = [_FATOS_BILLING, _FATOS_2A_VIA]
+    assert _falhas(pagador[1], 1, SEGUNDA_VIA_CANAIS, fatos=fatos) != []
+    sem_codigo = _texto_com_codigo().replace(LINHA, "")
+    assert _falhas(pagador[1], 1, sem_codigo, fatos=fatos) != []
+    assert _falhas(pagador[1], 1, _texto_com_codigo(), fatos=fatos) == []
+
+
+def test_o_nao_pagador_nao_recebe_valor_nem_codigo_nem_com_o_sinal() -> None:
+    (segmento,) = aceite.LUCAS_V4_NAO_PAGADOR
+    assert _falhas(segmento, 1, _texto_com_codigo(), fatos=[_FATOS_BILLING, _FATOS_2A_VIA]) != []
+    assert _falhas(segmento, 0, _TEXTO_DETALHADO) != []
+    for i in range(len(segmento.passos)):
+        assert _falhas(segmento, i, TEXTO_NAO_PAGADOR_V4) == []
+
+
 def test_nao_pagador_so_ouve_o_responsavel_financeiro_em_toda_pergunta() -> None:
     (segmento,) = aceite.LUCAS_V4_NAO_PAGADOR
+    # FASE 4 (18/10/2026): o texto inteiro na primeira resposta; nas seguintes, as curtas que se revezam.
     for i in range(len(segmento.passos)):
-        for texto in (TEXTO_NAO_PAGADOR_V4, TEXTO_NAO_PAGADOR_V4_CURTO) if i else (TEXTO_NAO_PAGADOR_V4,):
+        textos = (TEXTO_NAO_PAGADOR_V4, *TEXTOS_NAO_PAGADOR_V4_CURTOS) if i else (TEXTO_NAO_PAGADOR_V4,)
+        for texto in textos:
             assert _falhas(segmento, i, texto) == [], (i, texto)
     # com valor, ou o texto de empresa, o roteiro reprova
     assert _falhas(segmento, 0, _TOTAL_PRIMEIRO, fatos=[_FATOS_BILLING]) != []

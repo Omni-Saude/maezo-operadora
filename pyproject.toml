@@ -179,6 +179,11 @@ packages = ["src/maezo"]
 "spec/policies/ans" = "maezo/spec/policies/ans"
 # Genuine pinned bilateral TISS schemas must accompany the offline gateway validator.
 "spec/schemas/tiss" = "maezo/spec/schemas/tiss"
+# OITAVA ocorrencia da mesma classe (17/10/2026, ADR-0064/DL-0118): a base de conhecimento de saude da Helena
+# (`spec/conhecimento/saude`, lida por `base_saude.raiz_padrao()` via `resolve_spec_dir()`). Sem esta linha E a
+# COPY do deploy/Dockerfile, a chave `MAEZO_HELENA_BASE_SAUDE` ligada acharia o diretorio ausente e se
+# desligaria sozinha (falha fechada, com log `helena_base_saude_invalida`).
+"spec/conhecimento/saude" = "maezo/spec/conhecimento/saude"
 
 [tool.uv]
 # W9 (Onda 2, supply-chain aging): dependency-age quarantine. `exclude-newer` makes resolution

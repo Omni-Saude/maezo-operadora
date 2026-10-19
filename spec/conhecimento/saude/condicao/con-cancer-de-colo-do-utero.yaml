@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-cancer-de-colo-do-utero
+categoria: condicao
+titulo: Câncer do colo do útero
+sinonimos:
+- câncer de colo de útero
+- cancer do colo do utero
+- câncer cervical
+- tumor no colo do útero
+- neoplasia do colo do útero
+- ca de colo de útero
+- cancer de cervix
+- câncer do colo do útero
+texto: O câncer do colo do útero é um tumor que se forma na parte de baixo do útero. Quase sempre está ligado à infecção persistente pelo vírus HPV. No início, pode não causar sintomas. Em fases mais avançadas, podem surgir sangramento vaginal e corrimento. O tratamento é definido pelo médico e pode envolver cirurgia, radioterapia ou quimioterapia. A ginecologia e a oncologia costumam cuidar dessa condição.
+tipo_texto: proprio
+fontes:
+- nome: INCA — Versão para população
+  url: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/colo-do-utero/versao-para-populacao
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/colo-do-utero/versao-para-populacao
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

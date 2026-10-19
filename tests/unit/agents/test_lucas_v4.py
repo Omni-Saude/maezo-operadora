@@ -32,6 +32,7 @@ from maezo.agents.lucas.graph import (
     TEXTO_PDF_V4,
     TEXTO_SEM_CODIGO_V4,
     TEXTO_TOTAL_SOMA_V4,
+    TEXTOS_NAO_PAGADOR_V4_CURTOS,
     LucasGraph,
     LucasState,
     _boleto_da_segunda_via_v4,
@@ -86,6 +87,8 @@ _DETALHE = {
         },
     ],
 }
+#: FASE 4 (18/10/2026): o detalhe so' aparece quando o total dele E' o boleto do mes (a soma fecha).
+_COMPETENCIAS_DO_DETALHE = _competencias(total="720.00")
 #: Os fatos novos que, DESLIGADA a chave, nao podem mudar nada.
 _PLANTADOS: dict[str, Any] = {
     "responsavel_financeiro": "voce",
@@ -194,6 +197,23 @@ async def test_a_pergunta_repetida_do_nao_pagador_nao_repete_o_mesmo_texto() -> 
     )
     assert primeira == [TEXTO_NAO_PAGADOR_V4]
     assert segunda == [TEXTO_NAO_PAGADOR_V4_CURTO]
+
+
+async def test_o_nao_pagador_nao_repete_o_texto_em_perguntas_diferentes_seguidas() -> None:
+    """FASE 4 (18/10/2026): o nao pagador ouvia o MESMO texto 4 vezes seguidas (valor, vencimento, 2a via,
+    situacao). Agora: inteiro na primeira e, depois, as curtas se revezam — de qualquer pergunta."""
+    ref: str | None = None
+    textos: list[str] = []
+    for tipo in ["consulta_valores", "vencimento", "2a_via", "status_pagamento", "consulta_valores"]:
+        memoria = {} if ref is None else {"resposta_anterior_ref": ref}
+        final, [texto] = await _turno(_estado(tipo, **memoria, **_NAO_PAGADOR))
+        ref = final["resposta_memoria_ref"]
+        textos.append(texto)
+    assert textos[0] == TEXTO_NAO_PAGADOR_V4
+    assert textos[1:4] == list(TEXTOS_NAO_PAGADOR_V4_CURTOS)
+    assert textos[4] == TEXTOS_NAO_PAGADOR_V4_CURTOS[0]
+    assert all(a != b for a, b in zip(textos, textos[1:], strict=False))
+    assert all("titular" in t and "R$" not in t for t in textos)
 
 
 # --- 2b. FALHA FECHADA: sem o sinal de que a pessoa E o pagador, ninguem recebe valor -----------------------
@@ -311,7 +331,7 @@ async def test_pagador_ouve_o_total_primeiro_e_so_depois_a_parte() -> None:
 async def test_pagador_com_o_mes_pago_diz_no_passado() -> None:
     _, textos = await _turno(_estado(competencias=_competencias("paga"), **_PAGADOR_PF))
     assert textos == [
-        "O valor total da mensalidade de outubro de 2026 foi de R$ 1.280,40 e já está paga "
+        "O valor total da mensalidade de outubro de 2026 foi de R$ 1.280,40 e está paga "
         f"(você pagou em 08/10). {TEXTO_TOTAL_SOMA_V4} A sua parte foi de R$ 320,25. (dados de 12/10)"
     ]
 
@@ -334,7 +354,9 @@ async def test_a_pergunta_de_vencimento_do_pagador_nao_muda() -> None:
 
 # --- 4. o PAGADOR: detalhe por beneficiario (billing-status 0.4.0) -------------------------------------
 async def test_pagador_ouve_o_total_e_o_detalhe_por_beneficiario_sem_nome() -> None:
-    final, textos = await _turno(_estado(detalhamento_pagador=[_DETALHE], **_PAGADOR_PF))
+    final, textos = await _turno(
+        _estado(competencias=_COMPETENCIAS_DO_DETALHE, detalhamento_pagador=[_DETALHE], **_PAGADOR_PF)
+    )
     assert final["route"] == "respond_member" and final["mensagem"]["recusa_de_saida"] is False
     assert textos == [
         "\n".join(
@@ -363,7 +385,9 @@ async def test_o_detalhe_mostra_outros_quando_ha_adicionais() -> None:
             "valor_total": "425.00",
         }
     ]
-    _, textos = await _turno(_estado(detalhamento_pagador=[grupo], **_PAGADOR_PF))
+    _, textos = await _turno(
+        _estado(competencias=_competencias(total="425.00"), detalhamento_pagador=[grupo], **_PAGADOR_PF)
+    )
     assert (
         "• Titular: pré-estabelecido R$ 400,00 + coparticipação R$ 20,00 (+ outros R$ 5,00) = R$ 425,00"
         in textos[0]
@@ -382,14 +406,35 @@ async def test_o_detalhe_mostra_outros_quando_ha_adicionais() -> None:
 )
 async def test_detalhamento_que_nao_fecha_ou_com_nome_vira_so_o_total(mudanca: dict[str, Any]) -> None:
     grupo = {**_DETALHE, **mudanca}
-    _, textos = await _turno(_estado(detalhamento_pagador=[grupo], **_PAGADOR_PF))
+    _, textos = await _turno(
+        _estado(competencias=_COMPETENCIAS_DO_DETALHE, detalhamento_pagador=[grupo], **_PAGADOR_PF)
+    )
     assert "•" not in textos[0] and "Maria" not in textos[0]
     assert "R$ 720,00" in textos[0] and TEXTO_DETALHE_NO_APP_V4 in textos[0]
 
 
 async def test_mais_de_dez_beneficiarios_nao_vira_lista() -> None:
     grupo = {**_DETALHE, "beneficiarios": [_DETALHE["beneficiarios"][1]] * 11}
-    _, textos = await _turno(_estado(detalhamento_pagador=[grupo], **_PAGADOR_PF))
+    _, textos = await _turno(
+        _estado(competencias=_COMPETENCIAS_DO_DETALHE, detalhamento_pagador=[grupo], **_PAGADOR_PF)
+    )
+    assert "•" not in textos[0] and TEXTO_DETALHE_NO_APP_V4 in textos[0]
+
+
+async def test_detalhamento_com_total_diferente_do_boleto_vira_a_frase_do_boleto() -> None:
+    """FASE 4: o total do detalhamento (R$ 720,00) nao bate com o boleto do mes (R$ 1.280,40) — o valor
+    principal e' o do boleto (o mesmo da lista e da 2a via), sem detalhe por beneficiario."""
+    _, textos = await _turno(_estado(detalhamento_pagador=[_DETALHE], **_PAGADOR_PF))
+    assert "•" not in textos[0] and "720,00" not in textos[0]
+    assert textos[0].startswith("O valor total da mensalidade de outubro de 2026 é de R$ 1.280,40")
+
+
+async def test_detalhamento_que_diz_fechar_mas_nao_soma_vira_so_o_total() -> None:
+    grupo = json.loads(json.dumps(_DETALHE))
+    grupo["beneficiarios"][1]["valor_total"] = "299.00"
+    _, textos = await _turno(
+        _estado(competencias=_COMPETENCIAS_DO_DETALHE, detalhamento_pagador=[grupo], **_PAGADOR_PF)
+    )
     assert "•" not in textos[0] and TEXTO_DETALHE_NO_APP_V4 in textos[0]
 
 
@@ -530,6 +575,7 @@ def test_o_boleto_do_estado_nao_tem_nenhum_campo_de_credencial() -> None:
 _TEXTOS_FIXOS = [
     TEXTO_NAO_PAGADOR_V4,
     TEXTO_NAO_PAGADOR_V4_CURTO,
+    *TEXTOS_NAO_PAGADOR_V4_CURTOS,
     TEXTO_PAGADOR_NAO_CONFIRMADO_V4,
     TEXTO_PAGADOR_NAO_CONFIRMADO_V4_CURTO,
     TEXTO_SEM_CODIGO_V4,
@@ -562,8 +608,8 @@ def test_texto_da_2a_via_com_codigo_tem_frases_curtas_e_o_marcador_em_linha_prop
 
 
 def test_o_texto_nao_pagador_e_o_do_dono() -> None:
+    # FASE 4 (18/10/2026): mais natural; o fato (o titular e' o responsavel financeiro) continua.
     assert TEXTO_NAO_PAGADOR_V4 == (
-        "O responsável financeiro pelo contrato é o titular do contrato. "
-        "Somente ele pode solicitar essa informação."
+        "O responsável financeiro deste contrato é o titular. Só ele pode pedir essa informação por aqui."
     )
     assert TEXTO_SEM_CODIGO_V4.startswith("Não encontrei o código de barras deste boleto.")

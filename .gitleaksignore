@@ -222,3 +222,15 @@ cd4b0ed4aaa1751ad6aec83eb92f8b5c2b946fa1:docs/gates/v21-durability-successor-202
 # historico que introduziu as linhas; removivel depois do merge.
 cef12c84774abd7413ccab99595d2e767da83a36:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:67
 cef12c84774abd7413ccab99595d2e767da83a36:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:88
+# PR #806 (renovacao 16/10, dev-vivo.auto.tfvars): mesmo caso do #775 - 'generic-api-key' dispara no UUID do VersionId
+# pinado (job_secret_version_id / native_secret_version_id), que ja' vive em claro nas task definitions
+# (`valueFrom`); o valor do segredo nunca passa pelo repo. Cobre so' o commit que introduziu as linhas.
+af09d6be344fd71c005323a21f3565035fa63feb:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:70
+af09d6be344fd71c005323a21f3565035fa63feb:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:91
+# Fingerprints dos commits de SQUASH-MERGE em main (#775 e #806). As entradas acima citam o SHA do commit da
+# branch, que o squash substitui; a varredura de historico completo do push em main enxerga o SHA do squash.
+# Mesmo caso: UUID de VersionId pinado (job_secret_version_id / native_secret_version_id), nao e' segredo.
+fcf005aea606ba25d58f797696f19dc65123eb10:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:67
+fcf005aea606ba25d58f797696f19dc65123eb10:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:88
+839c7c67a97240ce2656bb68de34eb0e73f5b799:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:70
+839c7c67a97240ce2656bb68de34eb0e73f5b799:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:91

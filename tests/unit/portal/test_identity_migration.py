@@ -40,7 +40,9 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # O simulador de beneficiario (13/10/2026) adds the Lucas short memory columns as 0025 after 0024.
     # O carimbo da apresentacao do canal (14/10/2026) adds `apresentado_em` to the access state as 0026.
     # O lembrete proativo de cobranca (14/10/2026) adds the reminder tables as 0027.
-    assert heads == {"0027"}, f"expected 0027 to be the sole head, got {heads}"
+    # O limite de falhas por CPF (D-04, 15/10/2026) adds `acesso_falhas_por_cpf` as 0028.
+    assert heads == {"0028"}, f"expected 0028 to be the sole head, got {heads}"
+    assert revisions["0028"] == "0027"
     assert revisions["0027"] == "0026"
     assert revisions["0026"] == "0025"
     assert revisions["0025"] == "0024"
@@ -58,7 +60,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0027"
+    current = "0028"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

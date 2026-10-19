@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: exa-proteina-c-reativa
+categoria: exame
+titulo: Proteína C reativa (PCR)
+sinonimos:
+- pcr
+- proteina c reativa
+- proteína c-reativa
+- pcr ultrassensível
+- pcr us
+- proteina c reativa ultrassensivel
+- exame de pcr
+- proteína c reativa (pcr)
+texto: A proteína C reativa, ou PCR, é um exame de sangue que mede uma substância produzida pelo fígado. Ela aumenta no sangue quando há inflamação ou infecção no corpo. Costuma ser pedida para ajudar a investigar e acompanhar doenças inflamatórias e infecciosas. A coleta é feita com uma pequena amostra de sangue, geralmente tirada do braço. O resultado é avaliado pelo médico, junto com outros exames e com a história clínica.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

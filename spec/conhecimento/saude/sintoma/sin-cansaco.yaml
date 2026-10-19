@@ -1,0 +1,45 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: sin-cansaco
+categoria: sintoma
+titulo: Cansaço
+sinonimos:
+- cansaco
+- cansaço
+- fadiga
+- fraqueza
+- desanimo
+- desânimo
+- sem energia
+- moleza
+- indisposicao
+- indisposição
+texto: Sem sinais de alarme, o caminho é marcar uma consulta com clínico geral ou médico de família. Se aparecer algum sinal de alarme, procure um pronto-socorro na hora ou ligue 192 (SAMU). Se estiver muito triste ou sem esperança, você pode ligar 188 (CVV), a qualquer hora.
+tipo_texto: proprio
+fontes:
+- nome: Tabela de sinais de alarme do adulto (spec/processes/dmn/triage_redflag_adult.dmn) e planilha Catálogo de Necessidades, aba 3
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_adult.dmn
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-17
+- nome: Tabela de sinais de alarme de saúde mental (spec/processes/dmn/triage_redflag_mental_health.dmn)
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_mental_health.dmn
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+perguntas_alerta:
+- Junto com o cansaço, você sente falta de ar ou dor no peito?
+- Você desmaiou?
+sinais_alarme:
+- falta de ar
+- dor no peito
+- desmaio
+- pensamento de suicídio
+- vontade de se machucar
+populacao: adulto
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17
