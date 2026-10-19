@@ -460,6 +460,8 @@ que vários fatores influenciam e orienta levar o resultado ao médico.
 Rol. Quem responde cobertura é a consulta ao plano, não você.
 - Nunca promete prazo ou que alguém vai entrar em contato, e não oferece fazer o que você não faz (agendar \
 pela pessoa, ver agenda ou disponibilidade).
+- Nunca diga que um médico, a equipe ou um profissional "vai avaliar", "vai atender" ou "vai retornar": diga \
+que vale levar o resultado (ou a dúvida) ao médico.
 - Não invente links, telefones nem fontes.
 - Pressão alta relatada pela pessoa nunca é "erro de medição": não sugira medir de novo; oriente procurar \
 avaliação médica e, com sinal de alarme, o 192.
@@ -663,8 +665,11 @@ _MANDA_USAR: Final[re.Pattern[str]] = re.compile(
 #: "nao use nenhum remedio sem falar com o medico" e' o cuidado geral que o prompt pede.
 _NAO_DE: Final[re.Pattern[str]] = re.compile(
     r"\bnao (?:de|der|dar|tome|tomar|use|usar|ofereca|oferecer|aplique|aplicar|passe"
-    r"|tente)\b(?![^.]{0,60}\bsem "
-    r"(?:orientacao|receita|prescricao|falar|conversar|consultar|avaliacao|indicacao))"
+    r"|tente)\b(?![^.]{0,60}\b(?:sem "
+    r"(?:orientacao|receita|prescricao|falar|conversar|consultar|avaliacao|indicacao|acompanhamento)"
+    # ROTEIRO 19/10/2026 ("E Osteoporose?"): "nao use suplemento POR CONTA PROPRIA" e "nao tome nada ANTES DE
+    # falar com o medico" sao a orientacao certa (nao automedicar), nao proibicao de remedio.
+    r"|por conta propria|antes de (?:falar|conversar|consultar|passar)))"
 )
 _DOBRO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:use|tome|de|dobre|duplique)\b (?:o )?(?:dobro|dobrad[oa]|em dobro)\b|\bdobr(?:e|ar) a\b"
@@ -939,6 +944,10 @@ _INSTRUCAO: Final[Mapping[str, str]] = {
     "base:minimizacao": "nao minimize ('nao se preocupe', 'nao precisa ir ao medico')",
     "base:diagnostico": "nao diga o que a pessoa tem",
     "base:promessa de cobertura": "nao fale de cobertura do plano",
+    "cerca:promessa_sem_start": "nao diga que medico, equipe ou profissional vai avaliar, atender, retornar "
+    "ou entrar em contato; diga que vale levar o resultado ou a duvida ao medico",
+    "cerca:promessa_de_humano": "nao diga que alguem vai entrar em contato ou atender; diga que vale "
+    "procurar o medico",
     "cerca:negativa_clinica": "nao diga que 'nao ha sinais de alarme/alerta' nem que nao e' grave; diga so' "
     "o que fazer SE aparecer um sinal de alarme",
     "cerca:conduta_clinica": "tire frequencia de exame/remedio ('a cada X', 'X vezes ao dia', 'anualmente', "

@@ -292,3 +292,39 @@ def test_outro_procedimento_depois_do_para_quem_continua_cobertura() -> None:
     decisao = grafo._continuidade_da_cobertura(estado, "mamografia", "Mamografia")
     assert decisao is not None and decisao["intent"] == g.INTENT_CONSULTA_PLANO
     assert not decisao.get("coleta_pendente"), "a pergunta 'para quem' sera' refeita com o termo novo"
+
+
+# =================================================================================================
+# Roteiros de 19/10/2026 (imagem 0089bb13): PSA e "E Osteoporose?"
+# =================================================================================================
+
+
+def test_a_redacao_de_saude_reprova_o_medico_vai_avaliar() -> None:
+    texto = "O PSA mede uma proteína da próstata. O médico vai avaliar seu resultado junto com outros exames."
+    assert "promessa_sem_start" in HelenaGraph._cercas_da_helena(texto)
+    assert HelenaGraph._cercas_da_helena("Vale levar o resultado ao seu médico.") == []
+    pedido = sg.Pedido(modo="resultado", mensagem="meu psa deu alto")
+    regras = [v.regra for v in sg.verificar(texto, pedido, cercas=HelenaGraph._cercas_da_helena)]
+    assert "cerca:promessa_sem_start" in regras
+    assert "medico" in sg.instrucao_de_reescrita([sg.Violacao("cerca:promessa_sem_start")])
+
+
+@pytest.mark.parametrize("forma", sg.FORMAS_DA_OFERTA)
+def test_as_ofertas_fixas_passam_na_cerca_da_redacao(forma: str) -> None:
+    assert HelenaGraph._cercas_da_helena(forma) == []
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Não use suplemento de cálcio por conta própria.",
+        "Não tome nada antes de falar com o médico.",
+        "Não use remédio sem acompanhamento médico.",
+    ],
+)
+def test_nao_automedicar_nao_e_proibicao_de_remedio(texto: str) -> None:
+    assert not sg._NAO_DE.search(g._plano(texto))
+
+
+def test_proibir_remedio_continua_reprovado() -> None:
+    assert sg._NAO_DE.search(g._plano("Não use esse remédio."))

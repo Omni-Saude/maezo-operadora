@@ -1515,15 +1515,23 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
     Segmento(
         "6-vasectomia-rol",
         (
+            # DL-0126/DL-0127: com dependente no cadastro, a Helena pergunta antes "para quem e'?" (com o nome
+            # do dependente); a resposta "1" (o titular) leva a consulta do Rol.
             _p(
                 "Meu plano cobre vasectomia?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_COBERTURA_OU_PARA_QUEM,),
+                nao_deve=("e so me pedir", _ENCAMINHOU, r"\bnao cobre\b"),
+            ),
+            _p(
+                "1",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=(
                     "vasectomia",
                     r"(rol da ans|nao encontrei|mais de um procedimento)",
                     _AVISO_DA_COBERTURA,
                 ),
-                nao_deve=("e so me pedir", _ENCAMINHOU, r"\bnao cobre\b"),
+                nao_deve=("e so me pedir", _ENCAMINHOU, r"\bnao cobre\b", "dependente"),
             ),
         ),
         resolveu=(
