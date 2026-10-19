@@ -1,4 +1,4 @@
-"""DL-0130 (frente C do SP-OP-ESCALATION-001): start falho do Lucas nao e' "o Lucas terminou escalando".
+"""DL-0144 (frente C do SP-OP-ESCALATION-001): start falho do Lucas nao e' "o Lucas terminou escalando".
 
 Antes, `HelenaDispatcher._turno_do_lucas` devolvia `route == "escalate_human"` como `lucas_escalou`, e um
 start que FALHOU (motor fora, inclusive o do SP-OP-CANCEL-001) gravava `helena`/`lucas_encerrou` — a
@@ -108,7 +108,7 @@ class _Cliente:
 
 
 class _LucasComFinal:
-    """Duble do `LucasTurno`: devolve o estado final dado. Como o grafo real (DL-0130), um start de
+    """Duble do `LucasTurno`: devolve o estado final dado. Como o grafo real (DL-0144), um start de
     cancelamento que falhou envia o aviso fixo UMA vez pelo remetente recebido; nada mais."""
 
     def __init__(self, final: dict[str, Any]) -> None:

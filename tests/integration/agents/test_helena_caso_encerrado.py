@@ -1,4 +1,4 @@
-"""DL-0130 (frente C do SP-OP-ESCALATION-001), parte (c): a Helena so' afirma caso aberto que o MOTOR REAL
+"""DL-0144 (frente C do SP-OP-ESCALATION-001), parte (c): a Helena so' afirma caso aberto que o MOTOR REAL
 confirma — e deixa de afirmar quando o atendente conclui a tarefa.
 
 O defeito medido: depois de o atendente concluir `UT_TratarEscalonamento` (`resultado=resolvido_humano`), a

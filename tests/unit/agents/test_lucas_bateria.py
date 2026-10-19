@@ -168,7 +168,7 @@ async def test_a_saida_traz_a_narrativa_do_dossie_truncada() -> None:
     assert len(narrativa) <= 600
 
 
-# DL-0130 (frente C do SP-OP-ESCALATION-001): a divergencia de start falho cita o processo TENTADO.
+# DL-0144 (frente C do SP-OP-ESCALATION-001): a divergencia de start falho cita o processo TENTADO.
 def _resultado_de_start_falho(*, iniciar_cancelamento: bool) -> dict[str, Any]:
     return {
         "rejeitado": False,

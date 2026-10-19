@@ -195,7 +195,7 @@ async def test_chave_desligada_dependente_ainda_recebe_a_pergunta_de_antes() -> 
 async def test_chave_desligada_portao_de_dedup_continua_virando_falha_de_start() -> None:
     final, envio, _ = await _turno(_confirmado(**_fatos_pf()), v1=False, sink=_SinkSemDedup())
     assert final.get("start_failed") is True and final["process_started"] is False
-    # DL-0130 (dono, 19/10/2026): a falha de start do cancelamento avisa, UMA vez, com o texto fixo.
+    # DL-0144 (dono, 19/10/2026): a falha de start do cancelamento avisa, UMA vez, com o texto fixo.
     assert envio.textos == [TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR]
     assert final["mensagem_enviada"] is True and final["desfecho"] == "erro_inicio_processo"
 
@@ -345,7 +345,7 @@ async def test_falha_de_start_cita_o_processo_de_cancelamento() -> None:
             _confirmado(**_fatos_pf(), **_titular_verificado()), v1=True, motor=_MotorFora()
         )
     assert final.get("start_failed") is True
-    # DL-0130 (dono, 19/10/2026): exatamente UMA mensagem, a constante — nunca protocolo nem "registrado".
+    # DL-0144 (dono, 19/10/2026): exatamente UMA mensagem, a constante — nunca protocolo nem "registrado".
     assert envio.textos == [TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR]
     assert final["mensagem_enviada"] is True and final["ack_pending"] is True
     falhas = [e for e in logs if e.get("event") == "agent_process_start_failed"]
@@ -353,7 +353,7 @@ async def test_falha_de_start_cita_o_processo_de_cancelamento() -> None:
 
 
 async def test_falha_de_start_com_a_chave_desligada_tambem_cita_o_processo_de_cancelamento() -> None:
-    """DL-0130: desligada, o start tentado tambem e' o SP-OP-CANCEL-001 (`_start_cancelamento` nao depende
+    """DL-0144: desligada, o start tentado tambem e' o SP-OP-CANCEL-001 (`_start_cancelamento` nao depende
     da chave). O aviso de antes citava o SP-OP-ESCALATION-001, que nem foi tentado — era o defeito."""
     with capture_logs() as logs:
         final, envio, _ = await _turno(_confirmado(**_fatos_pf()), v1=False, motor=_MotorFora())
@@ -682,7 +682,7 @@ async def test_chave_desligada_a_desistencia_mantem_o_texto_antigo(v1: bool | No
 
 
 # =================================================================================================
-# DL-0130: o aviso da falha de start do cancelamento (texto aprovado pelo dono em 19/10/2026)
+# DL-0144: o aviso da falha de start do cancelamento (texto aprovado pelo dono em 19/10/2026)
 # =================================================================================================
 
 

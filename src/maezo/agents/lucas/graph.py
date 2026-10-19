@@ -1010,7 +1010,7 @@ TEXTO_CANCELAMENTO_JA_REGISTRADO: Final[str] = (
     "O seu pedido de cancelamento já está com a nossa equipe, que vai te responder por aqui. "
     f"{GARANTIA_SEM_DECISAO}"
 )
-#: DL-0130 (texto aprovado pelo dono em 19/10/2026): o start de SP-OP-CANCEL-001 FALHOU. Diz a verdade —
+#: DL-0144 (texto aprovado pelo dono em 19/10/2026): o start de SP-OP-CANCEL-001 FALHOU. Diz a verdade —
 #: nada foi registrado — e pede que a pessoa reenvie; NAO ha' retentativa automatica. Texto fixo, sem modelo
 #: e sem dado do beneficiario. Unico lugar do texto: quem precisar importa daqui.
 TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR: Final[str] = (
@@ -4043,11 +4043,11 @@ class LucasGraph:
         business key, entao uma retentativa reencontra a instancia viva em vez de abrir
         uma segunda.
         """
-        # DL-0111/DL-0130: o aviso cita o processo que de fato falhou (antes, sempre o ESCALATION). Com a
+        # DL-0111/DL-0144: o aviso cita o processo que de fato falhou (antes, sempre o ESCALATION). Com a
         # chave `MAEZO_CANCEL_PF_V1` ligada OU desligada: o start do cancelamento e' o mesmo processo.
         cancelamento = state.get("iniciar_cancelamento") is True
         process_key = CANCEL_PROCESS_KEY if cancelamento else PROCESS_KEY
-        # DL-0130 (dono, 19/10/2026): so' o start do CANCELAMENTO falho fala com o beneficiario, com o
+        # DL-0144 (dono, 19/10/2026): so' o start do CANCELAMENTO falho fala com o beneficiario, com o
         # texto fixo `TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR` (nada foi registrado; reenvie). Pelo MESMO
         # `self._whatsapp` dos outros envios (no turno real, o remetente gated do principal `lucas`). Sem
         # retentativa automatica. A falha do ESCALATION segue sem texto (nao decidido). Envio best-effort,
