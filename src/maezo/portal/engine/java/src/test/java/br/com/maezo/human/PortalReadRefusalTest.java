@@ -186,7 +186,7 @@ class PortalReadRefusalTest {
 
   @Test void portalReadServletLogsTheReasonAndAnswersExactlyAsBefore() throws Exception {
     // No engine plugin is running in this JVM: the read refuses with plugin_not_running.
-    var answer = serve(new PortalReadServlet(), "/v1/discover", null);
+    var answer = serve(new PortalReadServlet()::service, "/v1/discover", null);
     assertEquals(503, answer.status);
     assertEquals("{\"code\":\"READ_DEPENDENCY_UNAVAILABLE\",\"schema\":\"portal-engine-read-error.v1\"}",
         answer.body);
@@ -194,7 +194,7 @@ class PortalReadRefusalTest {
         messages());
   }
   @Test void portalReadServletNeverLogsTheTextOfAnUnexpectedFailure() throws Exception {
-    var answer = serve(new PortalReadServlet(), "/v1/task", new RuntimeException(PHI));
+    var answer = serve(new PortalReadServlet()::service, "/v1/task", new RuntimeException(PHI));
     assertEquals(503, answer.status);
     assertEquals("{\"code\":\"READ_DEPENDENCY_UNAVAILABLE\",\"schema\":\"portal-engine-read-error.v1\"}",
         answer.body);
@@ -202,9 +202,27 @@ class PortalReadRefusalTest {
     assertNull(logged.get(0).getThrown());
   }
   @Test void portalReadServletDoesNotLogNonUnavailableAnswers() throws Exception {
-    var answer = serve(new PortalReadServlet(), "/v1/" + PHI, null);
+    var answer = serve(new PortalReadServlet()::service, "/v1/" + PHI, null);
     assertEquals(400, answer.status);
     assertTrue(logged.isEmpty());
+  }
+
+  @Test void humanServletLogsOnlyItsStaffAndAssignmentReadRoutes() throws Exception {
+    // No human plugin is running in this JVM: every route answers 503 HUMAN_ENGINE_UNAVAILABLE,
+    // exactly as before; only the staff/assignment READ routes add the log line.
+    for (String route : List.of("staff-case-list", "assignment-candidates")) {
+      logged.clear();
+      var answer = serve(new HumanServlet()::service, "/v1/" + route, null);
+      assertEquals(503, answer.status);
+      assertEquals("{\"error\":\"HUMAN_ENGINE_UNAVAILABLE\"}", answer.body);
+      assertEquals(List.of("portal_read_refused route=" + route + " status=503 reason=unclassified"),
+          messages());
+    }
+    logged.clear();
+    var command = serve(new HumanServlet()::service, "/v1/commands", null);
+    assertEquals(503, command.status);
+    assertEquals("{\"error\":\"HUMAN_ENGINE_UNAVAILABLE\"}", command.body);
+    assertTrue(logged.isEmpty(), "non-read human routes are not part of DL-0134");
   }
 
   // ---- every refusal site names its reason (structural fence) ------------------------------------
@@ -254,7 +272,8 @@ class PortalReadRefusalTest {
     return logged.stream().map(LogRecord::getMessage).toList();
   }
   record Answer(int status, String body) {}
-  Answer serve(PortalReadServlet servlet, String path, RuntimeException bodyFailure) throws Exception {
+  interface ServiceCall { void service(HttpServletRequest q, HttpServletResponse r) throws Exception; }
+  Answer serve(ServiceCall servlet, String path, RuntimeException bodyFailure) throws Exception {
     X509Certificate certificate;
     try (var input = getClass().getResourceAsStream("/jakarta-servlet-client.pem")) {
       certificate = (X509Certificate) CertificateFactory.getInstance("X.509")

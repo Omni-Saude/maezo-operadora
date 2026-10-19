@@ -8,6 +8,9 @@ import org.cibseven.bpm.engine.OptimisticLockingException;
 
 /** Private workload endpoint: direct Tomcat mutual TLS, no forwarded identity headers. */
 public final class HumanServlet extends HttpServlet {
+  static final Set<String> READ_ROUTES = Set.of("/v1/staff-case-detail", "/v1/staff-case-list",
+      "/v1/staff-case-finalize", "/v1/staff-case-publication", "/v1/assignment-context",
+      "/v1/assignment-candidates", "/v1/assignment-authority", "/v1/assignment-receipt-authority");
   @Override
   protected void service(HttpServletRequest request, HttpServletResponse response)
       throws IOException {
@@ -19,6 +22,8 @@ public final class HumanServlet extends HttpServlet {
     try {
       String peer = peer(request);
       String path = request.getPathInfo();
+      // DL-0134: staff/assignment reads are the only routes whose 503 is logged with a reason.
+      route = path != null && READ_ROUTES.contains(path) ? path.substring(4) : null;
       byte[] result;
       if (request.getQueryString() != null) throw Rejected.invalid();
       var plugin = HumanCommandPlugin.running();
@@ -42,14 +47,12 @@ public final class HumanServlet extends HttpServlet {
         if(!"application/json".equals(request.getContentType()))throw Rejected.invalid();
         byte[] raw=request.getInputStream().readNBytes(65537);
         if(raw.length>65536)throw Rejected.invalid();
-        route=path.substring(4);
         var committed=plugin.executeStaff(path,raw,peer);
         writeStaff(response,committed);
         return;
       } else if("POST".equals(request.getMethod()) && Set.of("/v1/assignment-context","/v1/assignment-candidates","/v1/assignment-authority","/v1/assignment-receipt-authority").contains(path)) {
         if(!"application/json".equals(request.getContentType()))throw Rejected.invalid();
         byte[] raw=request.getInputStream().readNBytes(65537);if(raw.length>65536)throw Rejected.invalid();
-        route=path.substring(4);
         result=plugin.assignmentQuery(raw,peer,path.substring("/v1/assignment-".length()));
       } else if ("GET".equals(request.getMethod())
           && path != null
