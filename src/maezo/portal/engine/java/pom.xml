@@ -38,7 +38,7 @@
   <profile><id>deployed-runtime-compatibility</id>
     <dependencies>
       <dependency><groupId>org.apache.tomcat</groupId><artifactId>tomcat-jdbc</artifactId><version>10.1.47</version><scope>provided</scope></dependency>
-      <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.1.0</version><scope>provided</scope></dependency>
+      <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.2.0</version><scope>provided</scope></dependency>
     </dependencies>
     <build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><configuration>
       <classesDirectory>${project.build.directory}/${project.build.finalName}.jar</classesDirectory>
