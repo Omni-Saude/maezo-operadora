@@ -301,7 +301,23 @@ escalation:
       # (`owners.clinico`, no topo deste arquivo, segue vazio): ver docs/adr/0059-conduta-da-
       # helena-recusa-por-grupo-e-sintoma-fora-da-tabela.md, que existe para ser ratificado OU
       # DERRUBADO.
+      # LOOP = REPETICAO DA HELENA (DL-0147, 19/10/2026; pendencia 16 da planilha do diretor). O
+      # "loop" deste gatilho (e da regra `r6` de escalation_routing.dmn, "Falha tecnica do agente
+      # (loop, tool down)") e' a Helena prestes a mandar, pela N+1-esima vez SEGUIDA, a MESMA resposta
+      # (>= 60 caracteres, comparada sem o prefixo de variacao) que ja' saiu nas N falas anteriores dela
+      # no historico curto. Escala `falha_tecnica`, severidade `null` (HEL-04), pelo mesmo start
+      # idempotente e com o mesmo texto fixo de handoff; nunca com caso ja' aberto na conversa.
+      # A pessoa repetindo a pergunta NAO conta aqui (e' o "frustracao 2x" de AGJ-HELENA-TRIAGE,
+      # `solicitacao_humano`, outro gatilho). O parametro mora em `escalation.loop` logo abaixo (cada
+      # entrada de `triggers` e' um mapeamento de UMA chave, cerca de tests/evals/test_trigger_coverage.py).
     - signal: psychosocial_risk       # suicidio/autolesao   -> risco_psicossocial (sempre)
+  loop:                               # parametro do `signal: tool_failure` (loop) acima — DL-0147
+    repeticoes_para_escalar: 2        # APROVADO pelo dono em 19/10/2026 (DL-0147). Origem do 2: o unico
+                                      # numero da spec para conversa que nao avanca ("frustracao
+                                      # detectada 2x", AGJ-HELENA-TRIAGE.md), e o menor que nao escala
+                                      # na primeira repeticao (que `_sem_repetir` ja' varia). Igualdade
+                                      # com `graph.REPETICOES_PARA_ESCALAR` fixada em teste.
+    status: APROVADO_PELO_DONO
 memory:
   episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
   semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)

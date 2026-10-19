@@ -188,7 +188,8 @@ async def test_com_vencida_a_escalacao_diz_o_fato_e_nao_se_repete() -> None:
         # Rodada 6 (13/10/2026): o valor e o vencimento do mes sem pagamento.
         "Ela é de R$ 966,52, com vencimento em 15/08. "
         "A de outubro de 2026 (boleto final 0042) vence em 15/10 e ainda não consta como paga. "
-        "Vou passar para alguém da nossa equipe, que vai te responder por aqui. "
+        "Vou passar para alguém da nossa equipe. "
+        "Assim que a equipe concluir a análise, te retorno por este canal. "
         f"Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. {_FECHO}"
     ]
     # "nao quero falar com outra pessoa, so' me diz se o boleto e' de outubro ou setembro e quando vence"

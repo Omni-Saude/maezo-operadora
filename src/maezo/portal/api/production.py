@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
+from functools import partial
 
 from fastapi import FastAPI
 
@@ -12,6 +13,7 @@ from maezo.gateway.human.completion_engine import InterimCompletionConfig
 from maezo.gateway.human.decision_materials import DecisionMaterialPin
 from maezo.gateway.human.production import human_runtime
 from maezo.gateway.human.production_materials import HumanMaterialPin
+from maezo.gateway.staff_cases.composition import StaffCaseRuntime
 from maezo.gateway.staff_cases.production import staff_runtime
 from maezo.gateway.staff_cases.production_config import PortalProductionSettings, PortalStaffBootstrapError
 from maezo.portal.api.app import create_app
@@ -49,7 +51,7 @@ def create_production_app() -> FastAPI:
                                 if settings.capabilities != HUMAN_CAPABILITIES:
                                     yield
                                 else:
-                                    async with _human_slots(application, settings):
+                                    async with _human_slots(application, settings, staff=runtime):
                                         yield
                             finally:
                                 application.state.staff_case_service_factory = None
@@ -63,7 +65,9 @@ def create_production_app() -> FastAPI:
 
 
 @asynccontextmanager
-async def _human_slots(application: FastAPI, settings: PortalProductionSettings) -> AsyncIterator[None]:
+async def _human_slots(
+    application: FastAPI, settings: PortalProductionSettings, *, staff: StaffCaseRuntime
+) -> AsyncIterator[None]:
     """Bind the human read, command and document planes for the life of the application.
 
     `human_runtime` starts the assignment relay before yielding, so the first gateway
@@ -112,6 +116,15 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
             raise PortalStaffBootstrapError()
         application.state.task_read_service_factory = runtime.read.build
         application.state.decision_service_factory = runtime.assignment.build
+        # DL-0149: with the human plane present, the staff case detail records each read in the
+        # SAME tenant chain. Rebound only if the staff factory is the one the lifespan installed.
+        # Without a sink (best-effort, owner's decision) the factory stays as is and each detail
+        # read logs `portal_read_audit_skipped`.
+        if application.state.staff_case_service_factory != staff.service:
+            raise PortalStaffBootstrapError()
+        read_audit = runtime.read.read_audit
+        if read_audit is not None:
+            application.state.staff_case_service_factory = partial(staff.service, read_audit=read_audit)
         # WP-J1-04: the metadata authority and custody provider. Never a byte-serving
         # stub — document bytes stay behind `/api/v1/phi/documents/{ref}/content`, served
         # by the separately deployed PHI application `runtime.documents.phi_service` is
@@ -125,6 +138,7 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
             application.state.task_read_service_factory = None
             application.state.decision_service_factory = None
             application.state.document_service_factory = None
+            application.state.staff_case_service_factory = staff.service
 
 
 def _interim_completion(settings: PortalProductionSettings) -> InterimCompletionConfig | None:

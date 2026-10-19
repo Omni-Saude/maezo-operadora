@@ -63,7 +63,8 @@ async def test_com_caso_aberto_o_pedido_diz_que_o_caso_ja_esta_com_a_equipe(mens
 def test_contato_da_equipe_nao_inventa_telefone_nem_email() -> None:
     texto = RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE
     assert "@" not in texto and not any(c.isdigit() for c in texto)
-    assert "nesta conversa" in texto
+    # DL-0146 (19/10/2026): o retorno chega por ESTE canal (nunca outro, nunca conversa com o atendente).
+    assert "por este canal" in texto
 
 
 @pytest.mark.parametrize(

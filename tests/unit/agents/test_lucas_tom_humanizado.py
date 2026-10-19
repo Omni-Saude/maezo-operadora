@@ -178,7 +178,8 @@ def test_escalacao() -> None:
         cast(LucasState, {"motivo_humano": "ambiguidade", "status_conciliado": True}), _HOJE
     )
     assert texto == (
-        "Vou passar sua dúvida para alguém da nossa equipe, que vai te responder por aqui. "
+        "Vou passar sua dúvida para alguém da nossa equipe. "
+        "Assim que a equipe concluir a análise, te retorno por este canal. "
         "Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada."
     )
 
@@ -196,8 +197,9 @@ def test_atraso_escala_sem_afirmar_inadimplencia() -> None:
     texto = texto_ack_escalacao(estado, _HOJE)
     assert texto == (
         "Vi aqui uma mensalidade ainda sem pagamento confirmado (boleto final 4821). Vou passar para alguém "
-        "da nossa equipe, que vai te responder por aqui. Fique tranquilo: nenhuma decisão sobre o seu plano "
-        "foi tomada. (dados de 30/09)"
+        "da nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal. "
+        "Fique tranquilo: nenhuma decisão "
+        "sobre o seu plano foi tomada. (dados de 30/09)"
     )
     assert motivo_de_recusa(texto, "ack_escalacao", None) is None
 

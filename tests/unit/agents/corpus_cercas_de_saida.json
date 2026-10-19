@@ -2727,6 +2727,149 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_HANDOFF_JA_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido sobre cobrança já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe, e assim que ela concluir a análise, te retorno por este canal. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal. Eu não consigo prever o horário exato da resposta.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_PRAZO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal. Depois disso, se precisar, você pode pedir para falar com um supervisor.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_SUPERVISOR",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Se for uma urgência de saúde, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. Para os outros assuntos, seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_URGENTE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Não tenho telefone nem e-mail da equipe para passar. Encaminhei seu caso, e assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a análise terminar, a resposta chega por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi o que você precisa confirmar. Assim que a equipe concluir a análise, te retorno por este canal, e aí você pode repetir esse pedido. Seu pedido continua com a nossa equipe.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_RECADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu pedido segue com a equipe. Assim que ela concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_CURTO_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, eu te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono; texto final do item 12): RESPOSTA_CASO_ABERTO_SUPERVISOR",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, retorno a você por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono; texto final do item 12): RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi que você precisa confirmar alguma informação. Assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono; texto final do item 12): RESPOSTA_CASO_ABERTO_RECADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

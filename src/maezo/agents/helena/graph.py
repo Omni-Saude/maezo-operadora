@@ -1017,16 +1017,20 @@ def _humano_acionado(estado: Mapping[str, Any]) -> bool:
 #: interno do sistema. Os avisos de caso aberto agora (1) so' saem quando o caso aberto e' do MESMO tipo e a
 #: mensagem e' do mesmo assunto, (2) dizem em termos humanos o que esta' acontecendo e (3) nunca falam de
 #: "abrir"/"nao abri". Todos mantem "ja' esta' com a nossa equipe" (a mencao de encaminhamento da cerca).
+#: DL-0146 (decisao do dono, 19/10/2026): o atendente NAO conversa — ele devolve o caso com UMA mensagem
+#: final (a retomada), que a Helena entrega. Por isso nenhum aviso promete "o atendente responde por aqui":
+#: a promessa e' a do retorno ao fim da analise, sem prazo ("te retorno por este canal").
 RESPOSTA_HANDOFF_JA_ABERTO: str = (
-    "Seu pedido já está com a nossa equipe. O atendente responde por aqui, nesta conversa."
+    "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal."
 )
 #: O mesmo aviso quando o caso aberto e' de COBRANCA (o motivo vem do proprio caso).
 RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA: str = (
-    "Seu pedido sobre cobrança já está com a nossa equipe. O atendente responde por aqui, nesta conversa."
+    "Seu pedido sobre cobrança já está com a nossa equipe. "
+    "Assim que a equipe concluir a análise, te retorno por este canal."
 )
 #: O aviso de caso aberto quando o assunto e' de saude mas sem sinal de emergencia (pergunta clinica).
 RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA: str = (
-    "Seu pedido já está com a nossa equipe, e o atendente responde por aqui. "
+    "Seu pedido já está com a nossa equipe, e assim que ela concluir a análise, te retorno por este canal. "
     "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
 )
 #: DL-0088: a MESMA verdade, com outra redacao, quando a ultima mensagem da Helena ja' foi o aviso de
@@ -1061,36 +1065,40 @@ RESPOSTA_CASO_ABERTO_EMERGENCIA_3: str = (
 #: Perguntas sobre o caso aberto (RODADA 2): respondidas pelo que a pessoa perguntou, sem prazo
 #: prometido (o guia proibe), sem inventar canal, e so' com 192 quando a pessoa fala de urgencia.
 RESPOSTA_CASO_ABERTO_PRAZO: str = (
-    "Seu pedido já está com a nossa equipe. Um atendente vai te responder aqui mesmo, "
-    "nesta conversa. Eu não consigo prever o horário exato da resposta."
+    "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este "
+    "canal. Eu não consigo prever o horário exato da resposta."
 )
 RESPOSTA_CASO_ABERTO_SUPERVISOR: str = (
-    "Seu pedido já está com a nossa equipe. "
-    "Quando o atendente responder aqui, você pode pedir para falar com um supervisor."
+    "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, eu te retorno por este "
+    "canal."
 )
 RESPOSTA_CASO_ABERTO_URGENTE: str = (
     "Se for uma urgência de saúde, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. "
-    "Para os outros assuntos, seu pedido já está com a nossa equipe, e um atendente vai te responder aqui."
+    "Para os outros assuntos, seu pedido já está com a nossa equipe. "
+    "Assim que a equipe concluir a análise, te retorno por este canal."
 )
 
 #: RODADA 4: o recado ao atendente, sem prometer que ele le' esta conversa (o portal nao a recebe).
 #: RODADA 7: "me passa o contato da equipe" sem caso aberto: nao ha' telefone nem e-mail da equipe para dar;
-#: o caso e' aberto e a equipe fala com a pessoa aqui.
+#: o caso e' aberto e o retorno da equipe chega aqui (DL-0146).
 RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE: str = (
-    "Não tenho telefone nem e-mail da equipe para passar. Encaminhei seu caso, e um atendente vai "
-    "falar com você aqui mesmo, nesta conversa."
+    "Não tenho telefone nem e-mail da equipe para passar. Encaminhei seu caso, e assim que a equipe "
+    "concluir a análise, te retorno por este canal."
 )
 #: RODADA 6: pedido explicito de pessoa com o caso ja' aberto.
 RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA: str = (
-    "Seu pedido já está com a nossa equipe. O atendente vai te responder aqui mesmo, nesta conversa."
+    "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, retorno a você por este "
+    "canal."
 )
 RESPOSTA_CASO_ABERTO_RECADO: str = (
-    "Entendi o que você precisa confirmar. Quando o atendente responder aqui, conte esse pedido "
-    "para ele, por favor. Seu pedido continua com a nossa equipe."
+    "Entendi que você precisa confirmar alguma informação. Assim que a equipe concluir a análise, te retorno "
+    "por este canal."
 )
 #: RODADA 4: depois de dois avisos de caso aberto, respostas curtas e diferentes.
 RESPOSTA_CASO_ABERTO_CURTO_1: str = "Seu pedido continua com a nossa equipe."
-RESPOSTA_CASO_ABERTO_CURTO_2: str = "Seu pedido segue com a equipe. O atendente responde por aqui."
+RESPOSTA_CASO_ABERTO_CURTO_2: str = (
+    "Seu pedido segue com a equipe. Assim que ela concluir a análise, te retorno por este canal."
+)
 RESPOSTA_CASO_ABERTO_CURTO_3: str = "Continua com a nossa equipe por aqui. Posso ajudar com outra coisa?"
 _AVISOS_CURTOS: tuple[str, ...] = (
     RESPOSTA_CASO_ABERTO_CURTO_1,
@@ -1239,6 +1247,58 @@ def _sem_repetir(estado: Mapping[str, Any], texto: str) -> str:
     return next((o for o in opcoes if not _ja_dito(o, [ultima])), texto)
 
 
+#: GATILHO DE LOOP (DL-0147; pendencia 16 da planilha do diretor). A ficha (`spec/agents/helena/agent.yaml`,
+#: `escalation.triggers` -> `signal: tool_failure  # falha tecnica/loop -> falha_tecnica`) e a DMN
+#: (`escalation_routing.dmn` r6, "Falha tecnica do agente (loop, tool down)") previam escalar a Helena em
+#: loop, e nada o implementava: `_sem_repetir` so' VARIA o texto, e a pessoa podia ler a mesma resposta
+#: indefinidamente.
+#: Quantas vezes seguidas a MESMA resposta ja' saiu antes de a proxima igual virar escalonamento. Espelha
+#: `escalation.loop.repeticoes_para_escalar` da ficha (igualdade fixada em teste).
+#: Valor aprovado pelo dono em 19/10/2026 (DL-0147).
+REPETICOES_PARA_ESCALAR: int = 2
+#: O `error` do turno escalado por loop: token de classe, sem texto da pessoa nem da Helena (vai ao sufixo
+#: `[falha tecnica: ...]` do resumo do atendente).
+ERRO_HELENA_EM_REPETICAO: str = "helena em repeticao: mesma resposta seguida"
+#: Rotas que JA' abrem (ou tentaram abrir) caso, ou que nao sao da Helena: nunca viram loop.
+_ROTAS_FORA_DO_LOOP: frozenset[str] = frozenset(
+    {"escalate", "schedule", "handoff", "falha_tecnica_start", "retomada"}
+)
+
+
+def _repeticoes_seguidas(estado: Mapping[str, Any], texto: str) -> int:
+    """Quantas das ULTIMAS falas da Helena, seguidas, sao este mesmo `texto` (sem prefixo de variacao).
+
+    Conta do fim do historico curto para tras e para na primeira fala diferente. Texto curto
+    (`_MIN_CARACTERES_SEM_REPETIR`) devolve 0: abaixo disso a repeticao e' legitima (saudacao, despedida).
+    """
+    base = _sem_prefixo(texto.strip())
+    if len(base) < _MIN_CARACTERES_SEM_REPETIR:
+        return 0
+    corte = base[:280]
+    seguidas = 0
+    for fala in reversed(_falas_da_helena(estado)):
+        if _sem_prefixo(fala.strip())[:280] != corte:
+            break
+        seguidas += 1
+    return seguidas
+
+
+def _helena_em_loop(estado: Mapping[str, Any], texto: str) -> bool:
+    """O turno vai mandar, pela `REPETICOES_PARA_ESCALAR + 1`-esima vez seguida, a mesma resposta? (DL-0147)
+
+    Deterministico, sobre o historico curto (DL-0080; sem ele, nunca). NAO dispara em rota que ja' abre caso
+    (`_ROTAS_FORA_DO_LOOP`), em turno que ja' escalou ou falhou o start, nem com caso ja' aberto nesta
+    conversa (`_caso_aberto_no_historico`): a pessoa que ja' tem um atendimento nao ganha outro.
+    """
+    if str(estado.get("response_kind") or "") in _ROTAS_FORA_DO_LOOP:
+        return False
+    if estado.get("escalation_started") is True or estado.get("start_failed") is True:
+        return False
+    if _caso_aberto_no_historico(estado) is not None:
+        return False
+    return _repeticoes_seguidas(estado, texto) >= REPETICOES_PARA_ESCALAR
+
+
 #: SINAL DE EMERGENCIA no TEXTO (RODADA 2). Nao e' triagem (quem tria e' a DMN): decide o TEXTO (192
 #: primeiro) e, com caso clinico aberto, mantem o turno no caminho do caso em vez de "outras duvidas".
 #: FORTE = sinal de gravidade dito pela pessoa; FRACO = pedido de socorro/ambulancia, que so' conta
@@ -1352,7 +1412,7 @@ def _texto_de_caso_aberto(estado: Mapping[str, Any]) -> str | None:
         return RESPOSTA_CASO_ABERTO_PRAZO
     if _pedido_explicito_com_verbo(texto):
         # RODADA 6: "Passa pra equipe AGORA" com o caso ja' aberto: o caso ja' esta' com a equipe e o
-        # atendente responde aqui (nunca "vou levar isso para a equipe").
+        # retorno chega por este canal (DL-0146; nunca "vou levar isso para a equipe").
         return RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA
     if motivo == "intencao_clinica":
         return RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA
@@ -8815,6 +8875,31 @@ class HelenaGraph:
             saida = {}
             text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
             saida.update(cerca)
+            if _helena_em_loop(state, text):
+                # DL-0147 (gatilho de loop da ficha -> `falha_tecnica`): em vez da mesma resposta mais uma
+                # vez, o MESMO start idempotente de todo escalonamento, com o texto fixo de handoff que ele
+                # ja' escolhe pelo motivo. Nenhum texto novo ao beneficiario; o modelo nao decide nada aqui.
+                logger.warning(
+                    "helena_repeticao_escalada",
+                    node="respond",
+                    response_kind=state.get("response_kind"),
+                    repeticoes=_repeticoes_seguidas(state, text),
+                )
+                escalado = await self._start_escalation(
+                    state,
+                    motivo="falha_tecnica",
+                    severidade=None,
+                    response_kind="escalate",
+                    error=ERRO_HELENA_EM_REPETICAO,
+                )
+                state = cast(HelenaState, {**state, **escalado})
+                saida = dict(escalado)
+                if state.get("start_failed") is True:
+                    saida.update(self._start_failure_outcome(state))
+                    text = RESPOSTA_FALHA_TECNICA_START
+                else:
+                    text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
+                    saida.update(cerca)
         # RODADA 2: nunca o mesmo texto longo duas vezes seguidas (ver `_sem_repetir`).
         varia = _sem_repetir(state, text)
         if self._gerativa_para(state):
