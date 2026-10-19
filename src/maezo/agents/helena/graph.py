@@ -1226,6 +1226,57 @@ def _sem_repetir(estado: Mapping[str, Any], texto: str) -> str:
     return next((o for o in opcoes if not _ja_dito(o, [ultima])), texto)
 
 
+#: GATILHO DE LOOP (DL-0148; pendencia 16 da planilha do diretor). A ficha (`spec/agents/helena/agent.yaml`,
+#: `escalation.triggers` -> `signal: tool_failure  # falha tecnica/loop -> falha_tecnica`) e a DMN
+#: (`escalation_routing.dmn` r6, "Falha tecnica do agente (loop, tool down)") previam escalar a Helena em
+#: loop, e nada o implementava: `_sem_repetir` so' VARIA o texto, e a pessoa podia ler a mesma resposta
+#: indefinidamente.
+#: Quantas vezes seguidas a MESMA resposta ja' saiu antes de a proxima igual virar escalonamento. Espelha
+#: `escalation.loop.repeticoes_para_escalar` da ficha (igualdade fixada em teste) — VALOR PENDENTE DO DONO.
+REPETICOES_PARA_ESCALAR: int = 2
+#: O `error` do turno escalado por loop: token de classe, sem texto da pessoa nem da Helena (vai ao sufixo
+#: `[falha tecnica: ...]` do resumo do atendente).
+ERRO_HELENA_EM_REPETICAO: str = "helena em repeticao: mesma resposta seguida"
+#: Rotas que JA' abrem (ou tentaram abrir) caso, ou que nao sao da Helena: nunca viram loop.
+_ROTAS_FORA_DO_LOOP: frozenset[str] = frozenset(
+    {"escalate", "schedule", "handoff", "falha_tecnica_start", "retomada"}
+)
+
+
+def _repeticoes_seguidas(estado: Mapping[str, Any], texto: str) -> int:
+    """Quantas das ULTIMAS falas da Helena, seguidas, sao este mesmo `texto` (sem prefixo de variacao).
+
+    Conta do fim do historico curto para tras e para na primeira fala diferente. Texto curto
+    (`_MIN_CARACTERES_SEM_REPETIR`) devolve 0: abaixo disso a repeticao e' legitima (saudacao, despedida).
+    """
+    base = _sem_prefixo(texto.strip())
+    if len(base) < _MIN_CARACTERES_SEM_REPETIR:
+        return 0
+    corte = base[:280]
+    seguidas = 0
+    for fala in reversed(_falas_da_helena(estado)):
+        if _sem_prefixo(fala.strip())[:280] != corte:
+            break
+        seguidas += 1
+    return seguidas
+
+
+def _helena_em_loop(estado: Mapping[str, Any], texto: str) -> bool:
+    """O turno vai mandar, pela `REPETICOES_PARA_ESCALAR + 1`-esima vez seguida, a mesma resposta? (DL-0148)
+
+    Deterministico, sobre o historico curto (DL-0080; sem ele, nunca). NAO dispara em rota que ja' abre caso
+    (`_ROTAS_FORA_DO_LOOP`), em turno que ja' escalou ou falhou o start, nem com caso ja' aberto nesta
+    conversa (`_caso_aberto_no_historico`): a pessoa que ja' tem um atendimento nao ganha outro.
+    """
+    if str(estado.get("response_kind") or "") in _ROTAS_FORA_DO_LOOP:
+        return False
+    if estado.get("escalation_started") is True or estado.get("start_failed") is True:
+        return False
+    if _caso_aberto_no_historico(estado) is not None:
+        return False
+    return _repeticoes_seguidas(estado, texto) >= REPETICOES_PARA_ESCALAR
+
+
 #: SINAL DE EMERGENCIA no TEXTO (RODADA 2). Nao e' triagem (quem tria e' a DMN): decide o TEXTO (192
 #: primeiro) e, com caso clinico aberto, mantem o turno no caminho do caso em vez de "outras duvidas".
 #: FORTE = sinal de gravidade dito pela pessoa; FRACO = pedido de socorro/ambulancia, que so' conta
@@ -8798,6 +8849,31 @@ class HelenaGraph:
             saida = {}
             text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
             saida.update(cerca)
+            if _helena_em_loop(state, text):
+                # DL-0148 (gatilho de loop da ficha -> `falha_tecnica`): em vez da mesma resposta mais uma
+                # vez, o MESMO start idempotente de todo escalonamento, com o texto fixo de handoff que ele
+                # ja' escolhe pelo motivo. Nenhum texto novo ao beneficiario; o modelo nao decide nada aqui.
+                logger.warning(
+                    "helena_repeticao_escalada",
+                    node="respond",
+                    response_kind=state.get("response_kind"),
+                    repeticoes=_repeticoes_seguidas(state, text),
+                )
+                escalado = await self._start_escalation(
+                    state,
+                    motivo="falha_tecnica",
+                    severidade=None,
+                    response_kind="escalate",
+                    error=ERRO_HELENA_EM_REPETICAO,
+                )
+                state = cast(HelenaState, {**state, **escalado})
+                saida = dict(escalado)
+                if state.get("start_failed") is True:
+                    saida.update(self._start_failure_outcome(state))
+                    text = RESPOSTA_FALHA_TECNICA_START
+                else:
+                    text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
+                    saida.update(cerca)
         # RODADA 2: nunca o mesmo texto longo duas vezes seguidas (ver `_sem_repetir`).
         varia = _sem_repetir(state, text)
         if self._gerativa_para(state):
