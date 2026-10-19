@@ -53,7 +53,7 @@ por desenho (ADR-0006, ADR-0061).
 | 404 | `resource_unavailable` | tarefa fora do alcance do grupo, ou não é de escalonamento |
 | 409 | `refresh_required` | a leitura venceu enquanto era feita |
 | 501 | `context_unavailable` | o portão interino está desligado |
-| 503 | `read_dependency_unavailable` | o motor não respondeu ou respondeu algo fora do esperado |
+| 503 | `read_dependency_unavailable` | o motor não respondeu ou respondeu algo fora do esperado, ou o registro de leitura (DL-0150) não está instalado ou falhou |
 
 Uma falha do motor **nunca** vira "sem contexto": é `503`, e a tela mostra a falha e oferece tentar
 de novo.
@@ -68,9 +68,16 @@ variáveis da instância". Nada do que o navegador envia escolhe URL, variável 
 ## O que este atalho não é
 
 Nada do que a rota devolve é atestado por assinatura ou digest; o `engine-rest` desta distribuição
-não tem autenticação, então a rede é a única fronteira; e **não há registro de acesso ao resumo** na
-cadeia de auditoria (a conclusão tem; a leitura não). Isso precisa existir antes de qualquer uso
-fora de dev.
+não tem autenticação, então a rede é a única fronteira.
+
+## Registro de quem leu (DL-0150)
+
+Cada leitura **bem-sucedida** grava um elo `portal_read.task_context` na mesma cadeia de auditoria
+do tenant em que a conclusão grava `portal_direct_completion.*`: quem leu (referências pseudônimas
+`principal_ref`/`session_ref` e a revisão da membership), o id da tarefa, o código da leitura e a
+hora. Nada do que foi lido entra no registro. É fail-closed: sem o registro instalado a rota
+responde `503 read_dependency_unavailable` antes de perguntar ao motor, e se a gravação falhar a
+rota responde `503` e o contexto não sai. Leitura recusada não grava registro de acesso.
 
 ## Como conferir em dev
 
