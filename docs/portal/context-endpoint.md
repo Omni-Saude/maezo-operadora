@@ -68,9 +68,20 @@ variáveis da instância". Nada do que o navegador envia escolhe URL, variável 
 ## O que este atalho não é
 
 Nada do que a rota devolve é atestado por assinatura ou digest; o `engine-rest` desta distribuição
-não tem autenticação, então a rede é a única fronteira; e **não há registro de acesso ao resumo** na
-cadeia de auditoria (a conclusão tem; a leitura não). Isso precisa existir antes de qualquer uso
-fora de dev.
+não tem autenticação, então a rede é a única fronteira.
+
+## Registro de quem leu (DL-0149)
+
+Cada leitura **bem-sucedida** grava um elo `portal_read.task_context` na mesma cadeia de auditoria
+do tenant em que a conclusão grava `portal_direct_completion.*`: quem leu (referências pseudônimas
+`principal_ref`/`session_ref` e a revisão da membership), o id da tarefa, o código da leitura e a
+hora. Nada do que foi lido entra no registro. Leitura recusada não grava nada.
+
+É **best-effort** (decisão do dono, 19/10/2026): se o registro não estiver instalado, se a gravação
+falhar ou se passar de 2 s (o lock da cadeia por tenant), a rota responde **igual** (`200` com o
+contexto) e o servidor loga um único evento `portal_read_audit_skipped` com `reason`
+(`sink_absent` ou `write_failed`) e `read_kind` — sem o texto do erro e sem dado pessoal.
+Ler o log: o evento significa leitura entregue **sem** registro confirmado.
 
 ## Como conferir em dev
 

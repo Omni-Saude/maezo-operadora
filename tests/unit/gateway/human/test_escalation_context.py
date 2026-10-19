@@ -31,6 +31,7 @@ from maezo.gateway.human.escalation_context import (
 )
 from maezo.gateway.human.escalation_context_engine import EngineRestEscalationContext
 from maezo.gateway.human.queue import ReadRefusalError
+from maezo.gateway.human.read_audit import ReadAccessAuditSink, ReadAccessEntry
 from maezo.portal.contracts.context import TaskContextResponse
 
 pytestmark = pytest.mark.asyncio
@@ -456,9 +457,30 @@ class RecordingSource(EscalationContextSource):
         return None
 
 
-async def gateway(*, source, member=None, snap=None):
+class RecordingReadAudit(ReadAccessAuditSink):
+    """DL-0149: the access record, captured in memory for unit proofs (never in production)."""
+
+    def __init__(self, *, fail=None):
+        self.scope = SCOPE
+        self.entries: list[ReadAccessEntry] = []
+        self.fail = fail
+
+    async def record(self, entry):
+        if self.fail is not None:
+            raise self.fail
+        self.entries.append(entry)
+        return "r" * 64
+
+
+_DEFAULT_AUDIT = object()
+
+
+async def gateway(*, source, member=None, snap=None, audit=_DEFAULT_AUDIT):
     g, *_ = await setup(snap=snap or escalation_snapshot(), member=member or staff_in(CLINICAL_GROUP))
     g._escalation_context = source
+    # DL-0149: the context read refuses without an access record, so every gateway here gets one
+    # unless the test asks for its absence explicitly.
+    g._read_audit = RecordingReadAudit() if audit is _DEFAULT_AUDIT else audit
     return g
 
 

@@ -78,6 +78,13 @@ it("mostra o contador N/limite com o limite do contrato (o mesmo maxLength do fi
   expect(screen.getByTestId("notas-contador")).toHaveTextContent(`3/${maxNotes}`);
 });
 
+it("avisa o atendente de que, sem devolver ao agente, a pessoa não recebe nada", () => {
+  render(controls());
+  const aviso = screen.getByTestId("aviso-retorno-ao-beneficiario");
+  expect(aviso).toHaveTextContent(/pode receber retorno por este canal/);
+  expect(aviso).toHaveTextContent(/nada é enviado a ela/);
+});
+
 it("exige desfecho e instrução antes de permitir o envio", async () => {
   const user = userEvent.setup();
   render(controls());

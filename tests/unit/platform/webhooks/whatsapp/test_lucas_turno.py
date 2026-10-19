@@ -573,8 +573,9 @@ async def test_cobranca_recebida_com_ciclos_em_aberto_segue_a_escalacao_de_sempr
     assert final["process_started"] is True
     assert [texto for _, texto, _ in cliente.enviados] == [
         "Vi aqui uma mensalidade ainda sem pagamento confirmado (boleto final 7869). Vou passar para alguém "
-        "da nossa equipe, que vai te responder por aqui. Fique tranquilo: nenhuma decisão sobre o seu plano "
-        f"foi tomada. (dados de {_dm('28/07')})"
+        "da nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal. "
+        "Fique tranquilo: nenhuma decisão "
+        f"sobre o seu plano foi tomada. (dados de {_dm('28/07')})"
     ]
     assert ACK_ESCALACAO not in cliente.enviados[0][1]
     assert "inadimpl" not in _sem_acento(cliente.enviados[0][1])

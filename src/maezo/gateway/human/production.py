@@ -79,6 +79,7 @@ from .production_materials import (
 )
 from .queue import CatalogTrustAnchor
 from .queue_cursor import AeadQueueCursorCustody
+from .read_audit_postgres import PostgresReadAccessAudit
 from .read_credentials import ReadCredentialPartition
 from .read_materials import MaterialLifetime, read_providers
 from .read_transport import PortalReadClient
@@ -328,6 +329,10 @@ def compose_human_plane(
         direct_completion=completion,
         completion_audit=(None if completion is None else PostgresCompletionAudit(scope=scope, pool=pool)),
         escalation_context=escalation_context,
+        # DL-0149: the read-access record rides the SAME tenant pool and chain as the completion
+        # link. Always installed with the human plane (best-effort: without it reads still serve and
+        # log), and the staff case detail borrows it (`portal/api/production.py::_human_slots`).
+        read_audit=PostgresReadAccessAudit(scope=scope, pool=pool),
     )
     if document is not None and document.tenant != scope.tenant:
         raise unavailable()
