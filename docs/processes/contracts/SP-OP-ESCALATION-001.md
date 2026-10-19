@@ -274,6 +274,27 @@ Fail-safe: catch-all = P2/`atendimento-humano` (motivo desconhecido nunca vira P
 | Resolucao P1 | PT30M | interruptivo -> supervisor assume + evento breach(fase=resolucao) | idem |
 | Resolucao P2 / P3 | PT4H / PT24H | idem | idem |
 
+### Prazo da tarefa humana (`dueDate`) — DL-0133, 19/10/2026
+
+`UT_TratarEscalonamento` declara `camunda:dueDate="${roteamento.sla_resolucao}"`: o prazo da
+tarefa e' o **prazo de RESOLUCAO** que a DMN `escalation_routing` ja decide (saida
+`sla_resolucao`, duracao ISO 8601 da tabela acima), a MESMA expressao do timer interruptivo
+`TD_SlaResolucao` (`BT_SlaResolucao`). Nenhum valor novo e' criado: o prazo herda o status
+**DRAFT/verify (gestao assistencial)** dos SLAs acima e muda junto quando a DMN mudar.
+
+- Semantica do motor (CIB Seven 2.1.0, provada no motor real — DL-0133): uma String de duracao
+  ISO 8601 em `dueDate` e' resolvida a partir do instante de criacao da tarefa
+  (`due = criacao + sla_resolucao`), o mesmo instante que ancora o timer de resolucao.
+- E' o que a coluna **Prazo** da fila de tarefas do portal mostra (`engine_due_at`, lido de
+  `ACT_RU_TASK.DUE_DATE_`). Antes disso a coluna dizia "Sem prazo informado".
+- `UT_SupervisorAssume` continua SEM prazo (ultima linha humana, sem timer adicional — documentacao da tarefa no BPMN).
+- Ausencia de SLA: a regra catch-all `r7` da DMN garante `sla_resolucao` em toda instancia;
+  se a saida vier nula a tarefa nasce sem prazo (a instancia nao quebra); se `roteamento` nao
+  existir, a instancia ja falhava antes desta emenda (`candidateGroups` e os timers usam a
+  mesma variavel) — comportamento inalterado.
+- Prazo de tarefa e' exibicao: quem continua dono do estouro e' o timer `BT_SlaResolucao`
+  (claim/ACK nao cancela timer, ver acima).
+
 ## Desfecho de agente: falha de start (CC-01)
 
 | Desfecho | Onde vive | Quem escreve | Significado |
