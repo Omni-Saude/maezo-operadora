@@ -347,10 +347,10 @@ def test_a_porta_do_inbox_e_estrutural() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DL-0117 — o aviso ao supervisor vira linha no MESMO inbox, grupo supervisao-atendimento
+# DL-0126 — o aviso ao supervisor vira linha no MESMO inbox, grupo supervisao-atendimento
 # ---------------------------------------------------------------------------
 
-#: notice_ref de um notify_team calculado pelo codigo ANTERIOR a DL-0117 (origin/main ac1b7ecb).
+#: notice_ref de um notify_team calculado pelo codigo ANTERIOR a DL-0126 (origin/main ac1b7ecb).
 #: Se mudar, toda linha ja gravada deixa de ser reconhecida como a mesma na reentrega.
 _NOTICE_REF_TEAM_PRE_DL0117 = "5a208a0169b0840aa598b80799dd7c360b01ccb9d51840121fc85dab5b89a615"
 
@@ -487,7 +487,7 @@ async def test_no_laco_o_aviso_ao_supervisor_sem_caso_vai_para_a_fila_morta_e_co
 
 
 def test_o_digest_do_supervisor_inclui_type_e_motivo_alerta() -> None:
-    """Forma decidida (DL-0117): conteudo canonico do aviso ao supervisor = colunas + type + motivo_alerta."""
+    """Forma decidida (DL-0126): conteudo canonico do aviso ao supervisor = colunas + type + motivo_alerta."""
     import hashlib
     import json
 
