@@ -2,6 +2,7 @@ package br.com.maezo.human;
 
 import static br.com.maezo.human.PortalReadModels.*;
 
+import br.com.maezo.human.PortalReadRefusal.Reason;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -23,7 +24,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     }
     byte[] bytes() {
       if (!committed)
-        throw unavailable();
+        throw unavailable(Reason.TRANSACTION_NOT_COMMITTED);
       local.run();
       return bytes.clone();
     }
@@ -68,23 +69,23 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
   private Map<String,Object> assignmentCatalog(Map<String,Object> binding) {
     // Current authenticated catalog designation is verified by catalogRow below;
     // this preliminary publisher lookup supplies only the closed lookup anchor.
-    var row=db.catalog(str(binding,"catalog_ref"));if(row==null)throw unavailable();
+    var row=db.catalog(str(binding,"catalog_ref"));if(row==null)throw unavailable(Reason.CATALOG_NOT_DESIGNATED);
     var artifact=validate("artifactcatalog",PortalReadStore.json(row.get("artifact_")));
     return record("bytes_base64",java.util.Base64.getEncoder().encodeToString(Jcs.canonical(artifact)));
   }
   Instant guard() {
     Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     if (last != null && now.isBefore(last))
-      throw unavailable();
+      throw unavailable(Reason.CLOCK_REGRESSED);
     last = now;
-    admission.requireCurrent();
+    PortalReadRefusal.tag(Reason.ADMISSION_INVALID, admission::requireCurrent);
     if (now.isBefore(admission.observedAt()) || !now.isBefore(admission.validUntil()))
-      throw unavailable();
+      throw unavailable(Reason.ADMISSION_WINDOW_CLOSED);
     if (assignmentGuard != null) assignmentGuard.run();
-    else { envelope.current(now); keys.requireCurrent(); }
+    else { envelope.current(now); PortalReadRefusal.tag(Reason.CONTINUITY_KEY_INVALID, keys::requireCurrent); }
     for (var c : ceilings) {
       if (time(c.get("observed_at")).isAfter(now))
-        throw unavailable();
+        throw unavailable(Reason.CEILING_FROM_FUTURE);
       current(now, c.get("valid_until"));
     }
     return now;
@@ -122,7 +123,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
           return;
         }
         if (!old.equals(c))
-          throw unavailable();
+          throw unavailable(Reason.CEILING_MISMATCH);
         return;
       }
     }
@@ -130,7 +131,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
   }
   void source(String kind, Map<String, Object> source) {
     validate("source", source);
-    admission.verifySource(kind, source);
+    PortalReadRefusal.tag(Reason.SOURCE_NOT_ADMITTED, () -> admission.verifySource(kind, source));
     ceiling(kind.equals("catalog-designate") ? "catalog" : kind, str(source, "source_ref"),
         str(source, "source_revision"), str(source, "source_digest"),
         time(source.get("observed_at")), time(source.get("valid_until")));
@@ -140,7 +141,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     return ceilings.stream()
         .map(c -> time(c.get("valid_until")))
         .min(Instant::compareTo)
-        .orElseThrow(PortalReadModels::unavailable);
+        .orElseThrow(() -> unavailable(Reason.CEILING_MISSING));
   }
   Map<String, Object> binding() {
     var r = envelope.request();
@@ -208,7 +209,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
       guard();
       for (Runnable check : finalReads) check.run();
       if (db.revoked(envelope.key().fingerprint()))
-        throw unavailable();
+        throw unavailable(Reason.REQUESTER_KEY_REVOKED);
       guard();
     });
     context.getTransactionContext().addTransactionListener(
@@ -226,16 +227,16 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     if (!anchor.get("scope").equals(trust.scope))
       throw denied();
     if (Boolean.TRUE.equals(row.get("revoked_")))
-      throw unavailable();
+      throw unavailable(Reason.CATALOG_REVOKED);
     requireSigned(row);
     if (!anchor.get("publisher_ref").equals(row.get("publisher_")))
-      throw unavailable();
+      throw unavailable(Reason.CATALOG_PUBLISHER_MISMATCH);
     var artifact = validate("artifactcatalog", PortalReadStore.json(row.get("artifact_")));
     if (!hash(artifact).equals(row.get("digest_"))
         || !artifact.get("catalog_ref").equals(anchor.get("catalog_ref"))
         || !artifact.get("publisher_ref").equals(anchor.get("publisher_ref")))
-      throw unavailable();
-    admission.verifyCatalog(artifact);
+      throw unavailable(Reason.CATALOG_DIGEST_MISMATCH);
+    PortalReadRefusal.tag(Reason.CATALOG_NOT_ADMITTED, () -> admission.verifyCatalog(artifact));
     verifyCatalog(artifact);
     var src = PortalReadStore.json(row.get("source_"));
     db.proof((String) row.get("publication_"), "catalog-designate", src);
@@ -258,7 +259,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
   static void requireSigned(Map<String, Object> row) {
     for (String k : SIGNED)
       if (row.get(k) == null || !row.get(k).equals(row.get("signed_" + k)))
-        throw unavailable();
+        throw unavailable(Reason.CATALOG_DESIGNATION_ALTERED);
   }
   Map<String, Object> designation(Map<String, Object> cat) {
     var d = copy(cat);
@@ -280,27 +281,34 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
       String id = str(e, "process_definition_id");
       if (!ids.add(id + "\0" + str(e, "task_definition_key"))
           || list(e.get("required_roles")).isEmpty())
-        throw unavailable();
+        throw unavailable(Reason.CATALOG_INVALID);
       compiled(e);
       var repository = context.getProcessEngineConfiguration().getRepositoryService();
       var definition =
           repository.createProcessDefinitionQuery().processDefinitionId(id).singleResult();
-      if (definition == null || !trust.scope.get("tenant").equals(definition.getTenantId())
-          || !e.get("process_definition_key").equals(definition.getKey())
-          || number(e.get("process_definition_version")) != definition.getVersion())
-        throw unavailable();
-      resourceDigest(repository.getProcessModel(id), str(e, "process_definition_digest"));
+      if (definition == null)
+        throw unavailable(Reason.CATALOG_DEFINITION_ABSENT, id);
+      if (!trust.scope.get("tenant").equals(definition.getTenantId()))
+        throw unavailable(Reason.CATALOG_DEFINITION_OTHER_TENANT, id);
+      if (!e.get("process_definition_key").equals(definition.getKey()))
+        throw unavailable(Reason.CATALOG_DEFINITION_KEY_MISMATCH, id);
+      if (number(e.get("process_definition_version")) != definition.getVersion())
+        throw unavailable(Reason.CATALOG_DEFINITION_VERSION_MISMATCH, id);
+      resourceDigest(repository.getProcessModel(id), str(e, "process_definition_digest"), id);
       var domain = obj(e, "group_domain");
       if (domain.get("kind").equals("dmn")) {
         var decision = repository.createDecisionDefinitionQuery()
                            .decisionDefinitionId(str(domain, "dmn_definition_id"))
                            .singleResult();
-        if (decision == null || !trust.scope.get("tenant").equals(decision.getTenantId())
+        String decisionId = str(domain, "dmn_definition_id");
+        if (decision == null)
+          throw unavailable(Reason.CATALOG_DECISION_ABSENT, decisionId);
+        if (!trust.scope.get("tenant").equals(decision.getTenantId())
             || !decision.getKey().equals(domain.get("dmn_definition_key"))
             || decision.getVersion() != number(domain.get("dmn_definition_version")))
-          throw unavailable();
+          throw unavailable(Reason.CATALOG_DECISION_MISMATCH, decisionId);
         resourceDigest(
-            repository.getDecisionModel(decision.getId()), str(domain, "dmn_resource_digest"));
+            repository.getDecisionModel(decision.getId()), str(domain, "dmn_resource_digest"), decisionId);
       }
       for (String k : List.of("subject_policy", "consent_policy", "resource_policy",
                "disclosure_policy", "opaque_task_id_policy"))
@@ -317,19 +325,22 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
       if (!Jcs.digest(b64(a.get("bytes_base64"), false, -1)).equals(a.get("digest"))
           || !actual.add(
               hash(record("artifact_ref", a.get("artifact_ref"), "digest", a.get("digest")))))
-        throw unavailable();
+        throw unavailable(Reason.CATALOG_ARTIFACT_MISMATCH);
     }
     if (!actual.equals(expected))
-      throw unavailable();
+      throw unavailable(Reason.CATALOG_ARTIFACT_MISMATCH);
   }
   static void resourceDigest(InputStream stream, String expected) {
+    resourceDigest(stream, expected, null);
+  }
+  static void resourceDigest(InputStream stream, String expected, String definition) {
     if (stream == null)
-      throw unavailable();
+      throw unavailable(Reason.DEPLOYED_MODEL_ABSENT, definition);
     try (stream) {
       if (!resourceMatches(stream, expected))
-        throw unavailable();
+        throw unavailable(Reason.DEPLOYED_MODEL_MISMATCH, definition);
     } catch (IOException ex) {
-      throw unavailable();
+      throw unavailable(Reason.DEPLOYED_MODEL_UNREADABLE, definition);
     }
   }
   record State(Map<String, Object> nativeState, Map<String, Object> catalog,
@@ -341,11 +352,15 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
       throw absent();
     if (((Number) tuple.get("suspension_state_")).intValue() != 1)
       throw absent();
+    // DL-0134: same refusals as before, one reason each; the absent publication first.
+    if (tuple.get("resource_") == null)
+      throw unavailable(Reason.RESOURCE_NOT_PUBLISHED);
     if (((Number) tuple.get("resource_proof_")).longValue() != 1)
-      throw unavailable();
-    if (tuple.get("resource_") == null || tuple.get("evidence_ref_") == null
-        || tuple.get("catalog_revision_") == null)
-      throw unavailable();
+      throw unavailable(Reason.RESOURCE_PROOF_ABSENT);
+    if (tuple.get("evidence_ref_") == null)
+      throw unavailable(Reason.EVIDENCE_NOT_RECORDED);
+    if (tuple.get("catalog_revision_") == null)
+      throw unavailable(Reason.CATALOG_NOT_DESIGNATED);
     // All mutable designation/resource/membership/link facts below come from this
     // SAME tuple SELECT statement snapshot, not a second catalog query or entity cache.
     var cat = catalogRow(anchor,
@@ -363,7 +378,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     db.proof((String) tuple.get("resource_publication_"), "resource", source);
     source("resource", source);
     if (!resource.get("state").equals("complete"))
-      throw unavailable();
+      throw unavailable(Reason.RESOURCE_NOT_COMPLETE);
     var entries = list(obj(cat, "artifact").get("entries"))
                       .stream()
                       .map(PortalReadModels::map)
@@ -372,7 +387,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
                               && e.get("task_definition_key").equals(tuple.get("task_def_key_")))
                       .toList();
     if (entries.size() != 1)
-      throw unavailable();
+      throw unavailable(entries.isEmpty() ? Reason.TASK_DEFINITION_NOT_IN_CATALOG : Reason.CATALOG_INVALID);
     var entry = entries.get(0);
     if (!resource.get("task_id").equals(id)
         || !resource.get("process_definition_id").equals(tuple.get("proc_def_id_"))
@@ -384,14 +399,14 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
         || !resource.get("process_definition_id").equals(tuple.get("evidence_definition_")))
       throw conflict();
     if (!resource.get("resource_policy").equals(entry.get("resource_policy")))
-      throw unavailable();
+      throw unavailable(Reason.RESOURCE_POLICY_MISMATCH);
     var classification = obj(resource, "classification");
     if (!classification.get("policy_ref")
             .equals(obj(entry, "disclosure_policy").get("artifact_ref"))
         || !classification.get("policy_digest")
             .equals(obj(entry, "disclosure_policy").get("digest")))
-      throw unavailable();
-    admission.verifyClassification(classification, entry);
+      throw unavailable(Reason.CLASSIFICATION_POLICY_MISMATCH);
+    PortalReadRefusal.tag(Reason.CLASSIFICATION_NOT_ADMITTED, () -> admission.verifyClassification(classification, entry));
     var links = list(Jcs.parse(((String) tuple.get("links_")).getBytes(StandardCharsets.UTF_8)));
     Set<String> seen = new HashSet<>();
     String prev = null;
@@ -407,12 +422,12 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
           || !id.equals(l.get("task_id")) || !trust.scope.get("tenant").equals(l.get("tenant_id"))
           || !"candidate".equals(l.get("type"))
           || (l.get("group_id") == null) == (l.get("user_id") == null))
-        throw unavailable();
+        throw unavailable(Reason.CANDIDATE_LINK_INVALID);
       prev = link;
       if (l.get("group_id") != null) {
         String group = Jcs.ref(l, "group_id");
         if (!list(obj(entry, "group_domain").get("groups")).contains(group))
-          throw unavailable();
+          throw unavailable(Reason.CANDIDATE_GROUP_OUTSIDE_CATALOG);
         groups.add(group);
       } else {
         String user = Jcs.ref(l, "user_id");
@@ -429,7 +444,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
         tuple.get("due_date_") == null ? null
                                        : time(((Timestamp) tuple.get("due_date_")).toInstant()),
         "active", true);
-    admission.verifyIdentityPolicy(obj(entry, "opaque_task_id_policy"), row, links);
+    PortalReadRefusal.tag(Reason.IDENTITY_POLICY_NOT_ADMITTED, () -> admission.verifyIdentityPolicy(obj(entry, "opaque_task_id_policy"), row, links));
     Instant evidenceUntil =
         Instant.ofEpochSecond(((Number) tuple.get("evidence_until_")).longValue());
     var evidence = record("evidence_ref", tuple.get("evidence_ref_"), "evidence_revision",
@@ -482,13 +497,13 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
         || !(p.get("issuer_") instanceof String issuer) || issuer.isEmpty()
         || !(p.get("subject_") instanceof String subject) || subject.isEmpty()
         || !(p.get("groups_") instanceof String groups))
-      throw unavailable();
+      throw unavailable(Reason.NATIVE_IDENTITY_INVALID);
     Instant valid = Instant.ofEpochSecond(expiry);
     current(observed, time(valid));
     var nativeGroups = list(Jcs.parse(groups.getBytes(StandardCharsets.UTF_8)));
     for (Object group : nativeGroups)
       if (!(group instanceof String))
-        throw unavailable();
+        throw unavailable(Reason.NATIVE_IDENTITY_INVALID);
     var identity = record("tenant", trust.scope.get("tenant"), "principal_ref", principal,
         "issuer", issuer, "subject", subject, "revision", Long.toString(revision),
         "active", true, "valid_until", time(valid), "groups", nativeGroups);
@@ -534,7 +549,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
   }
   Map<String, Object> membership(Map<String, Object> principal, Map<String, Object> observation) {
     if (observation == null)
-      throw unavailable();
+      throw unavailable(Reason.MEMBERSHIP_ROW_ABSENT);
     var m = validate("membership", observation.get("stored_membership"));
     var src = obj(observation, "source");
     db.proof(str(observation, "publication_id"), "membership", src);
@@ -554,7 +569,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     if (human == null || !Boolean.TRUE.equals(human.get("active_"))
         || !human.get("issuer_").equals(principal.get("issuer"))
         || !human.get("subject_").equals(principal.get("subject")))
-      throw unavailable();
+      throw unavailable(Reason.NATIVE_IDENTITY_MISMATCH);
     Instant humanUntil = Instant.ofEpochSecond(((Number) human.get("valid_until_")).longValue());
     current(guard(), time(humanUntil));
     var flat = new TreeSet<String>(UTF8);
@@ -562,7 +577,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
       for (Object g : list(map(mb).get("groups"))) flat.add((String) g);
     var old = list(Jcs.parse(((String) human.get("groups_")).getBytes(StandardCharsets.UTF_8)));
     if (!new HashSet<>(old).equals(flat))
-      throw unavailable();
+      throw unavailable(Reason.MEMBERSHIP_GROUPS_MISMATCH);
     ceiling("membership", str(m, "principal_ref") + ":native", human.get("rev_").toString(),
         hash(record("issuer", human.get("issuer_"), "subject", human.get("subject_"), "groups", old,
             "active", human.get("active_"))),
@@ -597,7 +612,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     if (matches.isEmpty())
       throw absent();
     if (matches.size() != 1)
-      throw unavailable();
+      throw unavailable(Reason.GRANT_AMBIGUOUS);
     var grant = matches.get(0);
     current(guard(), grant.get("valid_until"));
     if (!list(grant.get("consent_scopes"))
@@ -634,9 +649,9 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     var key = keys.current();
     Instant issued = guard(), valid = until();
     if (valid.isAfter(time(task.get("valid_until"))))
-      throw unavailable();
+      throw unavailable(Reason.CONTINUITY_WINDOW_MISMATCH);
     if (a != null && !time(a.get("valid_until")).equals(valid))
-      throw unavailable();
+      throw unavailable(Reason.CONTINUITY_WINDOW_MISMATCH);
     var ordered = ceilings.stream()
                       .sorted((x, y) -> UTF8.compare(ceilingId(x), ceilingId(y)))
                       .map(PortalReadModels::copy)
@@ -660,33 +675,33 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     validate("continuity", continuity);
     var c = obj(continuity, "claims");
     if (!c.get("stage").equals(stage))
-      throw unavailable();
+      throw unavailable(Reason.CONTINUITY_INVALID);
     var key = keys.verification(str(c, "key_id"));
     if (key == null)
-      throw unavailable();
+      throw unavailable(Reason.CONTINUITY_INVALID);
     Instant now = guard();
     byte[] actual = HexFormat.of().parseHex(str(continuity, "mac"));
     if (!MessageDigest.isEqual(actual, key.mac(stage, c, now)))
-      throw unavailable();
+      throw unavailable(Reason.CONTINUITY_INVALID);
     var wanted = binding();
     var got = copy(obj(c, "binding"));
     Object generation = got.remove("runtime_admission_generation");
     wanted.remove("runtime_admission_generation");
     if (!got.equals(wanted))
-      throw unavailable();
+      throw unavailable(Reason.CONTINUITY_INVALID);
     if (!generation.equals(admission.generation()))
       throw conflict();
     if (!hash(task).equals(c.get("task_digest"))
         || !hash(task.get("snapshot")).equals(c.get("snapshot_digest"))
         || !obj(task, "snapshot").get("snapshot_at").equals(c.get("snapshot_at")))
-      throw unavailable();
+      throw unavailable(Reason.CONTINUITY_INVALID);
     if (time(c.get("issued_at")).isAfter(now))
-      throw unavailable();
+      throw unavailable(Reason.CONTINUITY_INVALID);
     current(now, c.get("valid_until"));
     current(now, task.get("valid_until"));
     for (Object o : list(c.get("ceilings"))) addCeiling(map(o));
     if (time(c.get("valid_until")).isAfter(time(task.get("valid_until"))))
-      throw unavailable();
+      throw unavailable(Reason.CONTINUITY_INVALID);
     return c;
   }
   Map<String, Object> continued(Map<String, Object> r, boolean disclosure) {
@@ -714,7 +729,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
       if (!hash(ct).equals(ac.get("task_continuity_digest"))
           || !hash(a).equals(ac.get("authority_digest"))
           || !hash(principal).equals(ac.get("principal_digest")))
-        throw unavailable();
+        throw unavailable(Reason.CONTINUITY_INVALID);
       if (!hash(state.nativeState).equals(ac.get("native_task_state_digest"))
           || !hash(as).equals(ac.get("native_authority_state_digest"))
           || !hash(designation(state.catalog)).equals(ac.get("catalog_state_digest")))
@@ -770,7 +785,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
         time(expectation.get("source_observed_at")), time(expectation.get("valid_until")));
     var m = db.membership(str(principal, "principal_ref"));
     if (m == null)
-      throw unavailable();
+      throw unavailable(Reason.MEMBERSHIP_ROW_ABSENT);
     var observation = record("publication_id", m.get("publication_"), "source",
         PortalReadStore.json(m.get("source_")), "stored_membership",
         PortalReadStore.json(m.get("payload_")));
@@ -799,7 +814,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     finalReads.add(() -> {
       var latest = db.membership(str(principal, "principal_ref"));
       if (latest == null)
-        throw unavailable();
+        throw unavailable(Reason.MEMBERSHIP_ROW_ABSENT);
       var o = record("publication_id", latest.get("publication_"), "source",
           PortalReadStore.json(latest.get("source_")), "stored_membership",
           PortalReadStore.json(latest.get("payload_")));
@@ -823,7 +838,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     if (expected == null || !expected.get(0).equals(entry.get("form_key"))
         || !expected.get(1).equals(entry.get("form_source_status"))
         || !expected.subList(2, expected.size()).equals(entry.get("allowed_inputs")))
-      throw unavailable();
+      throw unavailable(Reason.CATALOG_ENTRY_NOT_COMPILED, key);
   }
   static final Map<String, List<String>> COMPILED = Map.ofEntries(
       Map.entry("SP-OP-ADEQUACAO-001/UT_CoordenacaoRede",

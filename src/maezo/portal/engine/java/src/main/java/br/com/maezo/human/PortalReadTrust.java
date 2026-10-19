@@ -78,7 +78,7 @@ public final class PortalReadTrust {
       type("h", digest);
       byte[] encoded = secret.getEncoded();
       if (encoded == null || encoded.length != 32 || !"HmacSHA256".equals(secret.getAlgorithm()))
-        throw unavailable();
+        throw unavailable(PortalReadRefusal.Reason.CONTINUITY_KEY_INVALID);
       Arrays.fill(encoded, (byte) 0);
       this.id = id;
       this.generation = generation;
@@ -91,7 +91,7 @@ public final class PortalReadTrust {
     void current(Instant now) {
       live.run();
       if (now.isBefore(notBefore) || !now.isBefore(notAfter))
-        throw unavailable();
+        throw unavailable(PortalReadRefusal.Reason.CONTINUITY_KEY_EXPIRED);
     }
     byte[] mac(String stage, Map<String, Object> claims, Instant now) {
       current(now);
@@ -102,7 +102,7 @@ public final class PortalReadTrust {
                 .getBytes(java.nio.charset.StandardCharsets.US_ASCII));
         return mac.doFinal(Jcs.canonical(claims));
       } catch (GeneralSecurityException ex) {
-        throw unavailable();
+        throw unavailable(PortalReadRefusal.Reason.CONTINUITY_KEY_INVALID);
       }
     }
     @Override
@@ -165,7 +165,7 @@ public final class PortalReadTrust {
       }
     }
     if (configured.isEmpty() || providers == null)
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.CONFIGURATION_INVALID);
     keys = Map.copyOf(configured);
     this.providers = providers;
   }
@@ -182,15 +182,15 @@ public final class PortalReadTrust {
     Admission a = providers.acquire(requestScope, engine, incarnation, deployment, deploymentDigest,
         configurationDigest, purpose);
     if (a == null)
-      throw unavailable();
-    a.requireCurrent();
+      throw unavailable(PortalReadRefusal.Reason.ADMISSION_ABSENT);
+    PortalReadRefusal.tag(PortalReadRefusal.Reason.ADMISSION_INVALID, a::requireCurrent);
     type("n", a.generation());
     type("r", a.providerRef());
     type("n", a.providerRevision());
     type("h", a.capabilityDigest());
     if (a.statementTimeoutSeconds() < 1 || a.observedAt().isAfter(Instant.now())
         || !Instant.now().isBefore(a.validUntil()))
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.ADMISSION_INVALID);
     return a;
   }
   String publisher(String kind, String catalog) {
@@ -203,7 +203,7 @@ public final class PortalReadTrust {
                          .distinct()
                          .toList();
     if (publishers.size() != 1)
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.RESOURCE_PUBLISHER_NOT_UNIQUE);
     return publishers.get(0);
   }
   void binding(Map<String, Object> request, Key key) {

@@ -4,6 +4,10 @@ package br.com.maezo.human;
 public final class Rejected extends RuntimeException {
   public final int status;
   public final String code;
+  /** DL-0134: engine-log-only refusal reason (closed vocabulary); never part of the answer. */
+  transient PortalReadRefusal.Reason reason;
+  /** DL-0134: optional technical definition id for the same log line; never part of the answer. */
+  transient String definition;
 
   public Rejected(int status, String code) {
     super(code);

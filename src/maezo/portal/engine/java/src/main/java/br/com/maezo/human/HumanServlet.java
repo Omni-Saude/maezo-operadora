@@ -15,6 +15,7 @@ public final class HumanServlet extends HttpServlet {
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setContentType("application/json");
     response.setCharacterEncoding("UTF-8");
+    String route = null;
     try {
       String peer = peer(request);
       String path = request.getPathInfo();
@@ -41,12 +42,14 @@ public final class HumanServlet extends HttpServlet {
         if(!"application/json".equals(request.getContentType()))throw Rejected.invalid();
         byte[] raw=request.getInputStream().readNBytes(65537);
         if(raw.length>65536)throw Rejected.invalid();
+        route=path.substring(4);
         var committed=plugin.executeStaff(path,raw,peer);
         writeStaff(response,committed);
         return;
       } else if("POST".equals(request.getMethod()) && Set.of("/v1/assignment-context","/v1/assignment-candidates","/v1/assignment-authority","/v1/assignment-receipt-authority").contains(path)) {
         if(!"application/json".equals(request.getContentType()))throw Rejected.invalid();
         byte[] raw=request.getInputStream().readNBytes(65537);if(raw.length>65536)throw Rejected.invalid();
+        route=path.substring(4);
         result=plugin.assignmentQuery(raw,peer,path.substring("/v1/assignment-".length()));
       } else if ("GET".equals(request.getMethod())
           && path != null
@@ -70,10 +73,13 @@ public final class HumanServlet extends HttpServlet {
       response.setStatus(200);
       response.getOutputStream().write(result);
     } catch (Rejected rejected) {
+      // DL-0134: staff/assignment reads log the closed refusal reason; the answer is unchanged.
+      if (route != null) PortalReadRefusal.log(route, rejected.status, rejected);
       error(response, rejected.status, rejected.code);
     } catch (OptimisticLockingException race) {
       error(response, 409, "REVISION_CONFLICT");
     } catch (RuntimeException unavailable) {
+      if (route != null) PortalReadRefusal.log(route, 503, unavailable);
       error(response, 503, "HUMAN_ENGINE_UNAVAILABLE");
     }
   }

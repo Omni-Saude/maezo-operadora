@@ -15,6 +15,7 @@ public final class PortalReadServlet extends HttpServlet {
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setContentType("application/json");
     response.setCharacterEncoding("UTF-8");
+    String route = null;
     try {
       String peer = peer(request);
       String path = request.getPathInfo();
@@ -29,7 +30,8 @@ public final class PortalReadServlet extends HttpServlet {
       byte[] raw = request.getInputStream().readNBytes(MAX + 1);
       if (raw.length > MAX)
         throw invalid();
-      byte[] result = PortalReadPlugin.running().execute(raw, peer, path.substring(4));
+      route = path.substring(4);
+      byte[] result = PortalReadPlugin.running().execute(raw, peer, route);
       response.setStatus(200);
       response.getOutputStream().write(result);
     } catch (Rejected ex) {
@@ -38,16 +40,18 @@ public final class PortalReadServlet extends HttpServlet {
                         .contains(ex.code)
           ? ex.code
           : (ex.status == 400 ? "INVALID_REQUEST" : "READ_DEPENDENCY_UNAVAILABLE");
-      error(response,
-          code.equals("INVALID_REQUEST")                  ? 400
+      int status = code.equals("INVALID_REQUEST")                  ? 400
               : code.equals("READ_AUTHENTICATION_DENIED") ? 403
               : code.equals("RESOURCE_UNAVAILABLE")       ? 404
               : code.equals("READ_REVISION_CONFLICT")     ? 409
-                                                          : 503,
-          code);
+                                                          : 503;
+      // DL-0134: the engine log gains the closed refusal reason; the answer is unchanged.
+      PortalReadRefusal.log(route, status, ex);
+      error(response, status, code);
     } catch (OptimisticLockingException ex) {
       error(response, 409, "READ_REVISION_CONFLICT");
     } catch (RuntimeException ex) {
+      PortalReadRefusal.log(route, 503, ex);
       error(response, 503, "READ_DEPENDENCY_UNAVAILABLE");
     }
   }

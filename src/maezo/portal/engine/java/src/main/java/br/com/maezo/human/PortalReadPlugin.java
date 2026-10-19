@@ -20,21 +20,21 @@ public final class PortalReadPlugin extends AbstractProcessEnginePlugin {
       String file = System.getenv("MAEZO_PORTAL_READ_TRUST_FILE");
       var providers = ServiceLoader.load(PortalReadTrust.Providers.class).stream().toList();
       if (file == null || file.isBlank() || providers.size() != 1)
-        throw unavailable();
+        throw unavailable(PortalReadRefusal.Reason.CONFIGURATION_INVALID);
       try {
         trust = PortalReadTrust.load(Path.of(file), providers.get(0).get());
       } catch (java.io.IOException ex) {
-        throw unavailable();
+        throw unavailable(PortalReadRefusal.Reason.CONFIGURATION_INVALID);
       }
     }
     if (!trust.engine.equals(configuration.getProcessEngineName()))
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.CONFIGURATION_INVALID);
     this.configuration = configuration;
     var admission = trust.acquire("portal-task-read");
     var keys = trust.providers.continuity(admission);
     if (keys == null)
-      throw unavailable();
-    keys.requireCurrent();
+      throw unavailable(PortalReadRefusal.Reason.CONTINUITY_KEY_INVALID);
+    PortalReadRefusal.tag(PortalReadRefusal.Reason.CONTINUITY_KEY_INVALID, keys::requireCurrent);
     keys.current().current(Instant.now());
   }
   public void postInit(ProcessEngineConfigurationImpl configuration) {
@@ -51,7 +51,7 @@ public final class PortalReadPlugin extends AbstractProcessEnginePlugin {
   static PortalReadPlugin running() {
     var p = running;
     if (p == null)
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.PLUGIN_NOT_RUNNING);
     return p;
   }
   /** Acquired outside the engine command before its tenant lock. Optional only for
@@ -76,13 +76,13 @@ public final class PortalReadPlugin extends AbstractProcessEnginePlugin {
   static StaffCaseReadCommand.Q2Lease staffLease(ProcessEngineConfigurationImpl expected,
       java.util.Map<String,Object> scope,java.util.Map<String,Object> anchor) {
     if(expected==null||org.cibseven.bpm.engine.impl.context.Context.getCommandContext()!=null)
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.PLUGIN_NOT_RUNNING);
     var plugins=expected.getProcessEnginePlugins();
-    if(plugins==null)throw unavailable();
+    if(plugins==null)throw unavailable(PortalReadRefusal.Reason.PLUGIN_NOT_RUNNING);
     var matches=plugins.stream().filter(p->p instanceof PortalReadPlugin).toList();
-    if(matches.size()!=1)throw unavailable();
+    if(matches.size()!=1)throw unavailable(PortalReadRefusal.Reason.PLUGIN_NOT_RUNNING);
     var installed=(PortalReadPlugin)matches.get(0);
-    if(installed.configuration!=expected||installed.trust==null)throw unavailable();
+    if(installed.configuration!=expected||installed.trust==null)throw unavailable(PortalReadRefusal.Reason.PLUGIN_NOT_RUNNING);
     var admission=installed.trust.acquire("portal-task-read",installed.trust.scope);
     return new StaffCaseReadCommand.Q2Lease(installed.trust,admission,scope,anchor);
   }
@@ -101,8 +101,8 @@ public final class PortalReadPlugin extends AbstractProcessEnginePlugin {
     }
     var keys = trust.providers.continuity(admission);
     if (keys == null)
-      throw unavailable();
-    keys.requireCurrent();
+      throw unavailable(PortalReadRefusal.Reason.CONTINUITY_KEY_INVALID);
+    PortalReadRefusal.tag(PortalReadRefusal.Reason.CONTINUITY_KEY_INVALID, keys::requireCurrent);
     return configuration.getCommandExecutorTxRequired()
         .execute(new PortalReadCommand(trust, verified, admission, keys))
         .bytes();

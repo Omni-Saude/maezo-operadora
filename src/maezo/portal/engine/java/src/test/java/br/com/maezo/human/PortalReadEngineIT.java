@@ -109,6 +109,8 @@ class PortalReadEngineIT {
     if (rejection.status != 503)
       throw new AssertionError("Missing projection expected 503, got " + rejection.status, rejection);
     assertEquals(503, rejection.status);
+    // DL-0134: the queue preflight names WHY (log only); the answer above is unchanged.
+    assertEquals(PortalReadRefusal.Reason.RESOURCE_NOT_PUBLISHED, PortalReadRefusal.reasonOf(rejection));
     h.resource(id);
     var t = obj(obj(h.read("task", record("anchor", h.anchor, "task_id", id)), "value"), "task");
     assertEquals(
@@ -168,10 +170,10 @@ class PortalReadEngineIT {
   @Test
   void currentAdmissionLossRefusesBeforeTaskExistence() throws Exception {
     h.invalidate = true;
-    assertEquals(503,
-        assertThrows(Rejected.class,
-            () -> h.read("task", record("anchor", h.anchor, "task_id", "not-existing")))
-            .status);
+    Rejected lost = assertThrows(Rejected.class,
+        () -> h.read("task", record("anchor", h.anchor, "task_id", "not-existing")));
+    assertEquals(503, lost.status);
+    assertEquals(PortalReadRefusal.Reason.ADMISSION_INVALID, PortalReadRefusal.reasonOf(lost));
   }
 
   @Test

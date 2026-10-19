@@ -29,9 +29,9 @@ final class PortalReadStore {
     try {
       if (connection.getAutoCommit()
           || !connection.getMetaData().getDatabaseProductName().equals("PostgreSQL"))
-        throw unavailable();
+        throw unavailable(PortalReadRefusal.Reason.ENGINE_CONNECTION_INVALID);
     } catch (SQLException ex) {
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.ENGINE_CONNECTION_INVALID);
     }
   }
   Object[] args(Object... tail) {
@@ -53,14 +53,14 @@ final class PortalReadStore {
         long bytes = 0;
         while (rs.next()) {
           if (result.size() >= max)
-            throw unavailable();
+            throw unavailable(PortalReadRefusal.Reason.ROW_BOUND_EXCEEDED);
           Map<String, Object> row = new HashMap<>();
           for (int i = 1; i <= rs.getMetaData().getColumnCount(); i++) {
             Object v = rs.getObject(i);
             if (v != null)
               bytes += v.toString().getBytes(StandardCharsets.UTF_8).length;
             if (bytes > MAX)
-              throw unavailable();
+              throw unavailable(PortalReadRefusal.Reason.ROW_BOUND_EXCEEDED);
             row.put(rs.getMetaData().getColumnLabel(i).toLowerCase(Locale.ROOT), v);
           }
           result.add(row);
@@ -68,7 +68,7 @@ final class PortalReadStore {
         return result;
       }
     } catch (SQLException ex) {
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.NATIVE_SOURCE_FAILED);
     }
   }
   Map<String, Object> one(String sql, Object... args) {
@@ -79,7 +79,7 @@ final class PortalReadStore {
     var row = one(
         "SELECT REV_ FROM MZO_HUMAN_TENANT WHERE TENANT_=? FOR UPDATE", trust.scope.get("tenant"));
     if (row == null)
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.TENANT_NOT_INSTALLED);
     return ((Number) row.get("rev_")).longValue();
   }
   boolean revoked(String fingerprint) {
@@ -90,7 +90,7 @@ final class PortalReadStore {
   }
   static Map<String, Object> json(Object value) {
     if (!(value instanceof String s))
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.STORED_ROW_INVALID);
     return map(Jcs.parse(s.getBytes(StandardCharsets.UTF_8)));
   }
   Map<String, Object> catalog(String ref) {
@@ -100,8 +100,8 @@ final class PortalReadStore {
             + "d.TENANT_=? "
             + "AND d.ENVIRONMENT_=? AND d.ENGINE_=? AND d.INCARNATION_=? AND d.CATALOG_=?",
         args(ref));
-    if (r == null || Boolean.TRUE.equals(r.get("revoked_")))
-      throw unavailable();
+    if (r == null || Boolean.TRUE.equals(r.get("revoked_"))) // DL-0134: one reason each
+      throw unavailable(r == null ? PortalReadRefusal.Reason.CATALOG_NOT_DESIGNATED : PortalReadRefusal.Reason.CATALOG_REVOKED);
     return r;
   }
   void proof(String publication, String kind, Map<String, Object> source) {
@@ -109,17 +109,19 @@ final class PortalReadStore {
         one("SELECT KEY_FINGERPRINT_,RECEIPT_ FROM MZO_PORTAL_READ_PUBLICATION_RECEIPT WHERE "
                 + SCOPE + " AND PUBLICATION_=?",
             args(publication));
-    if (receipt == null || revoked((String) receipt.get("key_fingerprint_")))
-      throw unavailable();
+    if (receipt == null)
+      throw unavailable(PortalReadRefusal.Reason.PUBLICATION_RECEIPT_ABSENT);
+    if (revoked((String) receipt.get("key_fingerprint_")))
+      throw unavailable(PortalReadRefusal.Reason.PUBLICATION_KEY_REVOKED);
     var key = trust.keys.values()
                   .stream()
                   .filter(k -> k.fingerprint().equals(receipt.get("key_fingerprint_")))
                   .findFirst()
-                  .orElseThrow(PortalReadModels::unavailable);
+                  .orElseThrow(() -> unavailable(PortalReadRefusal.Reason.PUBLICATION_KEY_UNKNOWN));
     if (!key.purpose().equals("portal-read-publication") || !key.kinds().contains(kind)
         || !key.workload().equals(source.get("publisher_ref"))
         || !kind.equals(json(receipt.get("receipt_")).get("kind")))
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.PUBLICATION_RECEIPT_MISMATCH);
   }
   Map<String, Object> membership(String principal) {
     return one("SELECT * FROM MZO_PORTAL_READ_MEMBERSHIP WHERE " + SCOPE + " AND PRINCIPAL_=?",
@@ -181,7 +183,22 @@ final class PortalReadStore {
        AND resource->'classification'->>'policy_digest'=entry->'disclosure_policy'->>'digest'
        AND resource->>'process_definition_digest'=entry->>'process_definition_digest'
        AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(resource->'positive_grants') expired WHERE expired->>'issuer'=p.principal->>'issuer' AND expired->>'subject'=p.principal->>'subject' AND expired->>'principal_ref'=p.principal->>'principal_ref' AND expired->>'membership_revision'=p.principal->>'membership_revision' AND (expired->>'valid_until')::timestamptz<=p.now)
-       THEN 'READ_REVISION_CONFLICT' ELSE 'READ_DEPENDENCY_UNAVAILABLE' END AS fault
+       THEN 'READ_REVISION_CONFLICT' ELSE 'READ_DEPENDENCY_UNAVAILABLE' END AS fault,
+       -- DL-0134: log-only reason of THE SAME offending row, closed tokens (PortalReadRefusal.Reason),
+       -- mirroring the fault conditions above in order; no value of the row leaves this statement.
+       CASE WHEN resource IS NULL OR source IS NULL THEN 'resource_not_published'
+       WHEN proof IS NULL THEN 'resource_proof_absent'
+       WHEN revoked_publisher IS NOT NULL THEN 'publication_key_revoked'
+       WHEN NOT COALESCE(resource->>'state'='complete',false) THEN 'resource_not_complete'
+       WHEN evidence_revision IS NULL OR evidence_digest IS NULL THEN 'evidence_not_recorded'
+       WHEN NOT COALESCE(resource->'resource_policy'=entry->'resource_policy'
+         AND resource->'classification'->>'policy_ref'=entry->'disclosure_policy'->>'artifact_ref'
+         AND resource->'classification'->>'policy_digest'=entry->'disclosure_policy'->>'digest'
+         AND resource->>'process_definition_digest'=entry->>'process_definition_digest',false) THEN 'resource_policy_mismatch'
+       WHEN NOT COALESCE((resource->>'valid_until')::timestamptz>p.now AND (source->>'valid_until')::timestamptz>p.now
+         AND (resource->'classification'->>'valid_until')::timestamptz>p.now,false)
+         OR EXISTS (SELECT 1 FROM jsonb_array_elements(resource->'positive_grants') expired WHERE expired->>'issuer'=p.principal->>'issuer' AND expired->>'subject'=p.principal->>'subject' AND expired->>'principal_ref'=p.principal->>'principal_ref' AND expired->>'membership_revision'=p.principal->>'membership_revision' AND (expired->>'valid_until')::timestamptz<=p.now) THEN 'resource_expired'
+       ELSE 'resource_publisher_mismatch' END AS reason
     FROM candidates CROSS JOIN p WHERE entry IS NOT NULL AND (resource IS NULL OR source IS NULL OR resource->>'state'<>'complete'
       OR proof IS NULL OR revoked_publisher IS NOT NULL OR source->>'publisher_ref'<>?
       OR resource->'resource_policy' IS DISTINCT FROM entry->'resource_policy'
@@ -221,7 +238,8 @@ final class PortalReadStore {
     if (fault != null) {
       if (fault.get("fault").equals("READ_REVISION_CONFLICT"))
         throw conflict();
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.fromToken(
+          fault.get("reason"), PortalReadRefusal.Reason.QUEUE_PREFLIGHT_FAILED));
     }
     Object[] all = Arrays.copyOf(base, base.length + 4);
     all[8] = queue;
@@ -235,7 +253,7 @@ final class PortalReadStore {
     try {
       return session.<Integer>selectList(Writes.ID, new Writes.Write(sql, args.clone())).size();
     } catch (org.apache.ibatis.exceptions.PersistenceException failure) {
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.NATIVE_WRITE_FAILED);
     }
   }
   static final class Writes implements SqlSource {
@@ -249,7 +267,7 @@ final class PortalReadStore {
       synchronized (c) {
         if (c.hasStatement(ID, false)) {
           if (!(c.getMappedStatement(ID).getSqlSource() instanceof Writes))
-            throw unavailable();
+            throw unavailable(PortalReadRefusal.Reason.CONFIGURATION_INVALID);
           return;
         }
         c.addMappedStatement(

@@ -161,6 +161,13 @@ final class PortalReadModels {
   static Rejected unavailable() {
     return new Rejected(503, "READ_DEPENDENCY_UNAVAILABLE");
   }
+  /** DL-0134: identical refusal; the reason reaches only the engine log. */
+  static Rejected unavailable(PortalReadRefusal.Reason reason) {
+    return PortalReadRefusal.unavailable(reason, null);
+  }
+  static Rejected unavailable(PortalReadRefusal.Reason reason, String definition) {
+    return PortalReadRefusal.unavailable(reason, definition);
+  }
   static Rejected conflict() {
     return new Rejected(409, "READ_REVISION_CONFLICT");
   }
@@ -191,7 +198,7 @@ final class PortalReadModels {
   static byte[] bounded(Object value) {
     byte[] b = Jcs.canonical(value);
     if (b.length > MAX)
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.RESPONSE_TOO_LARGE);
     return b;
   }
   static Map<String, Object> copy(Map<String, Object> value) {
@@ -222,7 +229,7 @@ final class PortalReadModels {
   }
   static void current(Instant now, Object until) {
     if (!now.isBefore(time(until)))
-      throw unavailable();
+      throw unavailable(PortalReadRefusal.Reason.VALIDITY_WINDOW_EXPIRED);
   }
   static long number(Object value) {
     if (!(value instanceof String s) || !s.matches("0|[1-9][0-9]*"))

@@ -13,7 +13,7 @@ final class PortalReadEnvelope {
     void current(Instant now) {
       if (now.isBefore(issued) || !now.isBefore(expires) || now.isBefore(key.notBefore())
           || !now.isBefore(key.notAfter()))
-        throw unavailable();
+        throw unavailable(PortalReadRefusal.Reason.REQUEST_ENVELOPE_EXPIRED);
     }
     Map<String, Object> requester() {
       return record("issuer", key.workload(), "key_id", key.id(), "public_key_sha256",
