@@ -1613,13 +1613,15 @@ ERRO_RETOMADA_INSTRUCOES_LONGAS: str = "retomada: instrucoes excedem o limite de
 #: (nunca truncada em silencio: cortar a instrucao de um humano no meio mudaria o que ela diz).
 RETOMADA_MAX_INSTRUCOES: int = 3000
 
-#: AGUARDA APROVACAO DE PRODUTO — o texto enviado quando as instrucoes humanas foram BARRADAS pela cerca
-#: de saida. Nao repete nada da nota (foi ela que a cerca barrou), nao promete humano (o caso
-#: acabou de ser devolvido), nao cita canal. Passa nas cercas por construcao; o teste o fixa.
+#: O texto enviado quando as instrucoes humanas foram BARRADAS pela cerca de saida (ou excedem
+#: `RETOMADA_MAX_INSTRUCOES`). Redacao APROVADA PELO DONO em 19/10/2026 (DL-0128); substitui o
+#: placeholder `[RASCUNHO - redacao pendente de produto] ...`. Generica e honesta: nao repete nada da
+#: nota (foi ela que a cerca barrou), nao cita equipe, atendente, prazo nem resultado (o caso acabou
+#: de ser devolvido e nada foi feito por ele), nao cita canal. O nome `_PLACEHOLDER` fica por
+#: compatibilidade com os importadores. Passa nas cercas por construcao; os testes o fixam.
 RETOMADA_RECUSADA_PLACEHOLDER: str = (
-    "[RASCUNHO - redacao pendente de produto] Recebemos o retorno sobre o seu atendimento. "
-    "Se quiser continuar, responda esta mensagem. Se voce estiver passando por uma emergencia, "
-    "procure o servico de emergencia mais proximo."
+    "Desculpe, não consegui resolver isso agora. "
+    "Pode me enviar sua mensagem de novo para eu tentar outra vez?"
 )
 
 

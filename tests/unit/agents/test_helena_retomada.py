@@ -133,8 +133,32 @@ def test_template_e_a_redacao_aprovada_opcao_b() -> None:
     )
 
 
-def test_fallback_de_recusa_segue_marcado_aguardando_produto() -> None:
-    assert RETOMADA_RECUSADA_PLACEHOLDER.startswith("[RASCUNHO")
+#: Decisao do dono (19/10/2026, DL-0128): o texto aprovado, como ele o escreveu (ASCII). A constante
+#: leva os acentos do padrao dos textos ao beneficiario (DL-0087); fora isso, e' a mesma frase.
+_TEXTO_APROVADO_19_10 = (
+    "Desculpe, nao consegui resolver isso agora. "
+    "Pode me enviar sua mensagem de novo para eu tentar outra vez?"
+)
+
+
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+
+    return "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
+
+
+def test_fallback_de_recusa_e_a_redacao_aprovada_pelo_dono() -> None:
+    """Decisao do dono (19/10/2026): o rascunho `[RASCUNHO - ...]` nunca mais vai ao beneficiario."""
+    assert RETOMADA_RECUSADA_PLACEHOLDER == (
+        "Desculpe, não consegui resolver isso agora. "
+        "Pode me enviar sua mensagem de novo para eu tentar outra vez?"
+    )
+    assert _sem_acento(RETOMADA_RECUSADA_PLACEHOLDER) == _TEXTO_APROVADO_19_10
+    assert "RASCUNHO" not in RETOMADA_RECUSADA_PLACEHOLDER.upper()
+    # Generica e honesta: nao cita equipe, atendente, prazo nem resultado (nada foi feito pelo caso).
+    plano = _sem_acento(RETOMADA_RECUSADA_PLACEHOLDER).lower()
+    for proibida in ("equipe", "atendente", "profissional", "prazo", "hora", "dia", "retorno", "liberad"):
+        assert proibida not in plano, proibida
 
 
 def test_composicao_remove_caracteres_de_controle() -> None:
@@ -168,6 +192,7 @@ async def test_texto_humano_proibido_e_barrado_e_nao_sai(
     result = await _resume(sender, instrucoes)
 
     assert sender.sent == [(_HASH, RETOMADA_RECUSADA_PLACEHOLDER)]
+    assert _sem_acento(sender.sent[0][1]) == _TEXTO_APROVADO_19_10  # nunca o `[RASCUNHO - ...]`
     assert instrucoes not in sender.sent[0][1]
     assert result["desfecho"] == DESFECHO_RETOMADA_RECUSADA
     assert result["error"] == ERRO_RESPOSTA_RECUSADA
@@ -176,6 +201,8 @@ async def test_texto_humano_proibido_e_barrado_e_nao_sai(
 
 def test_placeholder_de_recusa_passa_nas_cercas_por_construcao() -> None:
     assert motivo_de_recusa_da_retomada(RETOMADA_RECUSADA_PLACEHOLDER) is None
+    # O texto aprovado (o golden, nao a constante) tambem passa: a cerca nao pode barrar o proprio aviso.
+    assert motivo_de_recusa_da_retomada(_TEXTO_APROVADO_19_10) is None
 
 
 async def test_instrucao_acima_do_teto_e_recusada_nunca_truncada(desfechos: list[dict[str, Any]]) -> None:
