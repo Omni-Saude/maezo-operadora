@@ -188,8 +188,9 @@ async def test_recem_nascido_chorando_muito_escala_na_hora_com_o_192() -> None:
     assert resultado["escalation_severidade"] == "grave"
     assert resultado["escalation_business_key"] == _CHAVE
     enviado = whatsapp.enviados[0]
-    assert "192" in enviado
-    assert "sua filha" in enviado
+    assert "Ligue 192 (SAMU) agora" in enviado
+    # Rodada do dono (18/10/2026): o texto de alarme e' NEUTRO (nunca supor genero/parentesco).
+    assert "esposa" not in enviado and "filha" not in enviado
 
 
 async def test_recem_nascido_sem_sinal_de_sofrimento_nao_dispara_o_alerta() -> None:

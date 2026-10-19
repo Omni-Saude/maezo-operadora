@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: pro-insercao-de-diu
+categoria: procedimento
+titulo: Inserção de DIU
+sinonimos:
+- diu
+- colocar diu
+- colocação de diu
+- dispositivo intrauterino
+- diu de cobre
+- diu hormonal
+- diu mirena
+- inserção de diu
+texto: A inserção de DIU é um procedimento em que o médico coloca um pequeno dispositivo dentro do útero. Costuma ser indicada para quem busca um método contraceptivo de longa duração. Alguns tipos também são usados em outras situações ginecológicas. Em geral, é feita no consultório, com exame ginecológico e passagem do dispositivo pelo colo do útero. A indicação e a escolha do tipo são do médico, da área de ginecologia.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

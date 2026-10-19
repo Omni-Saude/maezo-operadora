@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Final
 
-VERSAO_APRESENTACAO_CANAL: Final[str] = "apresentacao-canal-v1"
+VERSAO_APRESENTACAO_CANAL: Final[str] = "apresentacao-canal-v2"
 
 #: Primeira mensagem do fecho da verificacao quando a apresentacao vai a seguir (positiva: leva o emoji).
 TEXTO_VERIFICADO_APRESENTACAO: Final[str] = "Pronto, já confirmei que é você 😊"
@@ -30,9 +30,11 @@ TEXTO_VERIFICADO_APRESENTACAO: Final[str] = "Pronto, já confirmei que é você 
 _ABERTURA: Final[str] = "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n"
 _PLANO_COM_DEPENDENTES: Final[str] = "• Ver os dados do seu plano: carteirinha, carências e dependentes.\n"
 _PLANO_SEM_DEPENDENTES: Final[str] = "• Ver os dados do seu plano: carteirinha e carências.\n"
+#: FASE 4 (texto do dono, 18/10/2026): "tirar duvidas de saude" entra; sai o tom de "relatar sintoma e ser
+#: encaminhado".
 _FECHO: Final[str] = (
-    "• Relatar um sintoma e ser encaminhado à equipe de saúde.\n"
-    "• Questionar uma cobrança e ser encaminhado à equipe de atendimento.\n"
+    "• Tirar dúvidas de saúde e saber onde buscar atendimento.\n"
+    "• Falar com a nossa equipe sobre saúde ou cobrança, quando precisar.\n"
     "Em emergência, ligue 192. Como posso ajudar?"
 )
 

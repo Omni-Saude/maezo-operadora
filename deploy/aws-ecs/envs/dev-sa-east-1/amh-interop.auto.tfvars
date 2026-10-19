@@ -49,8 +49,58 @@ helena_triagem_v2 = false
 // 14 dias uteis a confirmar pelo juridico. Voltar: false (runbook docs/runbooks/helena-v4.md).
 helena_v4 = true
 
+// Vinculo ativo e carteirinha completa na Helena (decisao do dono de 17/10/2026, "modelo de teste" reversivel,
+// so' dev): tipo de plano e carteirinha so' com os vinculos ATIVOS, e o numero COMPLETO da carteirinha do proprio
+// beneficiario verificado (rota `tina-carteirinha`, manifest v1.12, escopo `interop/tina.carteirinha`). Exige o
+// bloco `manifest_v1_12` no pin (sem ele o receptor recusa servir). Voltar: false.
+helena_carteirinha_completa = true
+// Cobertura por procedimento na Helena (decisao do dono D1 de 18/10/2026): a Helena diz se o procedimento consta
+// no Rol para a segmentacao do plano (rota `tina-cobertura`, manifest v1.9, escopo `interop/tina.read`). Voltar: "".
+amh_tina_cobertura_openapi_path = "/app/config/integrations/amh/openapi/tina-cobertura.openapi.yaml"
+// Base de conhecimento de saude da Helena (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, so' em dev.
+// A Helena INFORMA (sem diagnosticar, sem conduta, sem dose) perguntas gerais de saude pela base curada
+// `spec/conhecimento/saude`, sem abrir caso; dor sem alarme recebe perguntas de alerta (com a v4); recusa com
+// caso aberto encerra o caso P2/P3 com confirmacao (msg.escalation.withdrawn, SP-OP-ESCALATION-001 v1.1.0 —
+// deploy-processes ANTES de ligar). Revisao medica e juridica antes de producao. Voltar: false (runbook
+// docs/runbooks/helena-base-saude.md).
+helena_base_saude = true
+
+// SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
+// informativas de saude, com checagem antes de enviar, pela rota PROPRIA
+// `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono
+// AUTORIZOU COMO DPO so' para a conversa DELE, a da Tania (adendo de 18/10/2026) e as conversas sinteticas do
+// simulador (roteiro `helena_saude_gerativa`, telefones 5511900000790..799), so' em dev, como teste reversivel.
+// Todos os outros: a Helena de antes. Desligar ("desligue a saude gerativa"): false + apply direcionado (runbook
+// docs/runbooks/helena-base-saude.md §10).
+helena_saude_gerativa = true
+helena_saude_gerativa_conversas = [
+  "wa:amh:hk1_34d934f10c9167de002295ee0412fe6cf4eb0ba9885aef3a5f9ab7029e53e8f6", // o dono
+  // A Tania (beneficiaria real que consentiu com os testes): AUTORIZACAO DO DPO (o dono) de 18/10/2026, que
+  // confirmou que ela concorda com o perfil global (DL-0119, adendo de 18/10/2026).
+  "wa:amh:hk1_0f251a8e67a29606f4f20e7a1e81f27be3b927b8472560e434c066ff83e6219b", // a Tania
+  "wa:amh:hk1_41a907864e3b318fe11d8124e2eed5d8a0ad8d076a8cf69449e60e28043290d7", // simulador ...790
+  "wa:amh:hk1_c416ceac7076a3946bcacc8c0ca3c5c68083ee7d5c3d3cdbc0335bedf5f0d086", // simulador ...791
+  "wa:amh:hk1_dbae14094dd97675d3564309f70861c3f644d3134704cbe25f80e1dbb95956e5", // simulador ...792
+  "wa:amh:hk1_0909c2f1979a1326c2210f50c38ac2da42b9f1462c36fe6f5bddb268acedc69a", // simulador ...793
+  "wa:amh:hk1_2c6d769d38c68af9df7dad00393e8caed88e3f852b1c68f3aac2105c11ce3514", // simulador ...794
+  "wa:amh:hk1_779f711a77180fa0ec38b23f7fe83848344447e1ed131e4c6c2cff2af784dbed", // simulador ...795
+  "wa:amh:hk1_e4e695ffef67a87c66dfb14c14a38a2a7db4258ee10a642133e05c8f0fb04d31", // simulador ...796
+  "wa:amh:hk1_c9a42214bf91e285a511878d57f169a2af5a67cbd964f194b6b1e7811698f9dd", // simulador ...797
+  "wa:amh:hk1_298020f13ddf83ff5cc1e695591075729db2e5614775c824e192cbe1359363a0", // simulador ...798
+  "wa:amh:hk1_1af788a6ccaa52b4135ae61ac2e816608024fc6307b04c2caf5303a1f606581f", // simulador ...799
+]
+
 # Acesso do beneficiario (DL-0083/DL-0084) LIGADO no dev em 08/10/2026 23:10 UTC, decisao do dono; testado
 # ponta a ponta no mesmo dia (aceite, CPF, Helena -> Lucas, revogacao, consentimento gravado no lago).
+// BUSCA POR SIGNIFICADO na base de saude (fase 3, decisao do dono de 18/10/2026): embeddings REGIONAIS em sa-east-1
+// (sem perfil global) escolhem o apoio da saude gerativa, so' para a allowlist acima. Desligar ("desligue a busca por
+// significado"): false + apply direcionado (runbook docs/runbooks/helena-base-saude.md §13).
+helena_busca_semantica = true
+// Calibrado em dev em 18/10/2026 (13/13 casos de aceite; o Cohere multilingue nao respondeu na conta):
+// Titan v2, menor nota certa 0,365, maior nota fora da base 0,205.
+helena_busca_semantica_modelo = "amazon.titan-embed-text-v2:0"
+helena_busca_semantica_limiar = 0.33
+
 acesso_beneficiario = true
 
 // Fatos do plano na Helena pelo contrato TINA da AMH (DL-0081): elegibilidade, carteirinha, carencia e
@@ -58,3 +108,13 @@ acesso_beneficiario = true
 // publicacao do manifest v1.2 pela AMH (XRG-2 run 38346972222, AMH #232) e do pin `manifest_v1_2`.
 // Base legal LGPD para fora do dev segue PENDENTE de ratificacao do DPO (DL-0081). Voltar: false.
 helena_consultas_amh = true
+
+// Lucas v4 (DL-0114; manifests v1.10 e v1.11 PUBLISHED em 16/10/2026): os OpenAPI do detalhamento do pagador e da
+// 2a via (digest conferido contra o pin no boot). O executor so' e' composto quando `amh_interop_boleto_client_id`
+// (o cliente Cognito DEDICADO da 2a via, criado pela AMH) estiver preenchido: ate' la o segundo sinal fica desligado.
+// `maezo-operadora-interop-boleto` (unico escopo interop/billing.boleto), criado em 16/10/2026 (AMH #255); o client id e'
+// publico por desenho, o segredo vive em `amh/cognito/dev/maezo-operadora-interop-boleto` (Secrets Manager).
+// Voltar: "" (o Lucas v4 segue sem o segundo sinal).
+amh_interop_boleto_client_id                 = "558ecnfomm33qbj6cd030rmlbh"
+amh_billing_status_detalhamento_openapi_path = "/app/config/integrations/amh/openapi/billing-status-detalhamento.openapi.yaml"
+amh_billing_segunda_via_openapi_path         = "/app/config/integrations/amh/openapi/billing-segunda-via.openapi.yaml"

@@ -283,12 +283,18 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
             run_id=run_id,
             config=ConfigDoCondutor(concorrencia=1, intervalo_min_s=args.intervalo_min_s),
         )
+        # ADR-0065: um roteiro com telefones PROPRIOS (a allowlist da saude gerativa) nao usa a faixa comum.
+        proprios = aceite.TELEFONES_DO_ROTEIRO.get(args.roteiro)
+        if proprios is not None and len(proprios) < len(roteiro):
+            raise RuntimeError("simulador: o roteiro tem mais segmentos que telefones proprios")
         planos = [
             PlanoDeConversa(
                 id=f"r{i + 1}",
                 persona=aceite.PERSONA_ACEITE,
                 sujeito=dono,
-                telefone=telefone(FAIXA_ACESSO[i % len(FAIXA_ACESSO)]),
+                telefone=telefone(
+                    proprios[i] if proprios is not None else FAIXA_ACESSO[i % len(FAIXA_ACESSO)]
+                ),
                 semente=i,
             )
             for i in range(len(roteiro))
@@ -332,6 +338,11 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
                     sujeito=dono,
                     # DL-0114: o SINAL do Lucas v4 (contratos novos da AMH pinados e fonte v4 montada).
                     sinal_v4=getattr(composicao.estado.lucas_turno, "fonte_v4", None) is not None,
+                    # Dono, 17/10/2026: a chave da carteirinha completa decide qual passo da carteirinha roda.
+                    carteirinha_completa=getattr(
+                        composicao.estado.settings, "helena_carteirinha_completa", False
+                    )
+                    is True,
                 )
             resultados.append(resultado)
             # limpeza da conversa que acabou, ANTES do proximo segmento

@@ -315,7 +315,7 @@ def test_segmento_5_passos_da_filha_reprovam_a_pergunta_sobre_o_adulto() -> None
 
 def test_segmento_5_dependentes_e_mensalidade() -> None:
     p2, p6 = _segmento5()[1], _segmento5()[5]
-    certa = "No seu cadastro consta 1 dependente ativo: filho(a) até 23 anos (recém-nascido no plano)."
+    certa = "No seu cadastro consta 1 dependente ativo (filho ou filha, recém-nascido no plano)."
     assert ac.avaliar_passo(p2, [("helena", certa)], [], None) == []
     assert ac.avaliar_passo(p2, [("helena", "Consta um dependente: filha.")], [], None) == []
     for ruim in (

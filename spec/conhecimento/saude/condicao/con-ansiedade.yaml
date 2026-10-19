@@ -1,0 +1,36 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-ansiedade
+categoria: condicao
+titulo: Ansiedade
+sinonimos:
+- ansiedade
+- ansioso
+- ansiosa
+- transtorno de ansiedade
+- nervosismo
+- crise de ansiedade
+- crise de panico
+- crise de pânico
+- panico
+- pânico
+texto: A ansiedade é uma reação do corpo e da mente diante de situações de tensão. Quando é intensa, frequente ou atrapalha a rotina, pode ser um transtorno de ansiedade. Os transtornos de ansiedade têm tratamento, com psicólogo e psiquiatra. Se você estiver em sofrimento, pode ligar 188 (CVV), a qualquer hora. Também posso chamar alguém da nossa equipe para conversar com você.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Saúde mental (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/s/saude-mental
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-17
+- nome: 'Saúde de A a Z — Prevenção do suicídio: CVV 188 (Ministério da Saúde)'
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/s/suicidio-prevencao
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/s/saude-mental
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

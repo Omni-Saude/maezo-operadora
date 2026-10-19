@@ -71,6 +71,26 @@ Dados sempre sinteticos (`Beneficiario Teste 001`, tenant `amh`).
 - **When** segundo start com a mesma business key (via mcp-cibseven.start_process)
 - **Then** nenhuma segunda instancia ativa; resposta referencia a instancia existente
 
+## Encerramento a pedido do beneficiario (v1.1.0 — DL-0118, ADR-0064)
+
+### test_v110_encerramento_a_pedido_do_beneficiario_na_user_task
+- **Given** instancia P3 (`solicitacao_humano`, `leve`) parada em `UT_TratarEscalonamento`
+- **When** a mensagem `msg.escalation.withdrawn` e' correlacionada pela business key com
+  `resultado=encerrado_a_pedido_beneficiario`
+- **Then** a User Task some; `escalation.resolved` publicado com `payload.resultado=encerrado_a_pedido_beneficiario`
+  (sem `notas_resolucao`); NENHUM `process_completed`; fim em `End_EncerradoAPedidoDoBeneficiario`; nenhuma
+  instancia ativa na business key
+
+### test_v110_encerramento_a_pedido_interrompe_tambem_o_ramo_de_sla
+- **Given** instancia com o SLA de ciencia (`BT_SlaAck`) ja disparado (ramo nao-interruptivo vivo)
+- **When** a mensagem e' correlacionada
+- **Then** a instancia inteira termina (event subprocess interruptivo) em `End_EncerradoAPedidoDoBeneficiario`
+
+### test_v110_sem_instancia_viva_o_motor_recusa_a_mensagem
+- **Given** instancia ja resolvida por humano
+- **When** a mensagem e' correlacionada pela mesma business key
+- **Then** o motor recusa (HTTP 400) — o agente responde que nao conseguiu encerrar
+
 ## Auditoria
 
 ### test_todos_os_fins_emitem_evento_de_dominio

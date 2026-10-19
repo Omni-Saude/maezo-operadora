@@ -1,0 +1,46 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: sin-falta-de-ar
+categoria: sintoma
+titulo: Falta de ar
+sinonimos:
+- falta de ar
+- dificuldade para respirar
+- dispneia
+- dispnéia
+- sem ar
+- cansaco para respirar
+- cansaço para respirar
+- respiracao curta
+- respiração curta
+- nao consigo respirar
+- não consigo respirar
+texto: Falta de ar, mesmo leve, precisa de atendimento. Se ela já passou, marque uma consulta com clínico geral ou pneumologista o quanto antes. Se voltar, procure um pronto-socorro na hora ou ligue 192 (SAMU).
+tipo_texto: proprio
+fontes:
+- nome: Tabela de sinais de alarme do adulto (spec/processes/dmn/triage_redflag_adult.dmn) e planilha Catálogo de Necessidades, aba 3
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_adult.dmn
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-17
+- nome: Tabela de sinais de alarme pediátricos (spec/processes/dmn/triage_redflag_pediatric.dmn) e planilha Catálogo de Necessidades, aba 3
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_pediatric.dmn
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+perguntas_alerta:
+- Você está com falta de ar agora, mesmo que pouca?
+sinais_alarme:
+- falta de ar
+- dificuldade para respirar
+- respiração curta
+- esforço para respirar
+- lábios roxos
+- não consegue falar frases inteiras
+populacao: todos
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-sarampo
+categoria: condicao
+titulo: Sarampo
+sinonimos:
+- sarampo
+- sarampu
+- manchas vermelhas e febre
+- vacina do sarampo
+- tríplice viral
+- triplice viral
+texto: O sarampo é uma doença infecciosa muito contagiosa, causada por um vírus que passa de pessoa a pessoa pelo ar. Costuma causar manchas vermelhas pelo corpo, febre alta, tosse seca, coriza e olhos irritados. Não há remédio específico contra o vírus; o médico define o cuidado, que em geral busca aliviar os sintomas. A vacina é a forma de prevenção, e o Calendário Nacional de Vacinação define quem pode recebê-la. Clínico geral, pediatra e infectologista costumam cuidar do caso.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Sarampo (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/s/sarampo
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/s/sarampo
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)
