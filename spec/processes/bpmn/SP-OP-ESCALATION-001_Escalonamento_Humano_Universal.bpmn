@@ -131,9 +131,11 @@ SAIDA: resultado in {resolvido_humano, devolvido_agente, emergencia_acionada, en
 
     <!-- ============ HITL: humano assume o caso ============ -->
     <bpmn:userTask id="UT_TratarEscalonamento" name="Assumir e tratar escalonamento"
-                   camunda:candidateGroups="${roteamento.grupo_atendimento}">
+                   camunda:candidateGroups="${roteamento.grupo_atendimento}"
+                   camunda:dueDate="${roteamento.sla_resolucao}">
       <bpmn:documentation><![CDATA[
 HITL obrigatorio (ADR-0005). Humano do grupo definido pela DMN assume a conversa.
+Prazo da tarefa (dueDate, DL-0133) = sla_resolucao da DMN, mesma expressao do timer TD_SlaResolucao.
 Saidas obrigatorias ao completar: resultado in {resolvido_humano, devolvido_agente,
 emergencia_acionada}; notas_resolucao (texto livre, pseudonimizado).
 SLA de ciencia (ack) e de resolucao vem da DMN escalation_routing — fonte: politica
