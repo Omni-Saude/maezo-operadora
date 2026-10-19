@@ -1011,16 +1011,20 @@ def _humano_acionado(estado: Mapping[str, Any]) -> bool:
 #: interno do sistema. Os avisos de caso aberto agora (1) so' saem quando o caso aberto e' do MESMO tipo e a
 #: mensagem e' do mesmo assunto, (2) dizem em termos humanos o que esta' acontecendo e (3) nunca falam de
 #: "abrir"/"nao abri". Todos mantem "ja' esta' com a nossa equipe" (a mencao de encaminhamento da cerca).
+#: DL-0146 (decisao do dono, 19/10/2026): o atendente NAO conversa — ele devolve o caso com UMA mensagem
+#: final (a retomada), que a Helena entrega. Por isso nenhum aviso promete "o atendente responde por aqui":
+#: a promessa e' a do retorno ao fim da analise, sem prazo ("te retorno por este canal").
 RESPOSTA_HANDOFF_JA_ABERTO: str = (
-    "Seu pedido já está com a nossa equipe. O atendente responde por aqui, nesta conversa."
+    "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal."
 )
 #: O mesmo aviso quando o caso aberto e' de COBRANCA (o motivo vem do proprio caso).
 RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA: str = (
-    "Seu pedido sobre cobrança já está com a nossa equipe. O atendente responde por aqui, nesta conversa."
+    "Seu pedido sobre cobrança já está com a nossa equipe. "
+    "Assim que a equipe concluir a análise, te retorno por este canal."
 )
 #: O aviso de caso aberto quando o assunto e' de saude mas sem sinal de emergencia (pergunta clinica).
 RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA: str = (
-    "Seu pedido já está com a nossa equipe, e o atendente responde por aqui. "
+    "Seu pedido já está com a nossa equipe, e assim que ela concluir a análise, te retorno por este canal. "
     "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo."
 )
 #: DL-0088: a MESMA verdade, com outra redacao, quando a ultima mensagem da Helena ja' foi o aviso de
@@ -1055,36 +1059,39 @@ RESPOSTA_CASO_ABERTO_EMERGENCIA_3: str = (
 #: Perguntas sobre o caso aberto (RODADA 2): respondidas pelo que a pessoa perguntou, sem prazo
 #: prometido (o guia proibe), sem inventar canal, e so' com 192 quando a pessoa fala de urgencia.
 RESPOSTA_CASO_ABERTO_PRAZO: str = (
-    "Seu pedido já está com a nossa equipe. Um atendente vai te responder aqui mesmo, "
-    "nesta conversa. Eu não consigo prever o horário exato da resposta."
+    "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este "
+    "canal. Eu não consigo prever o horário exato da resposta."
 )
 RESPOSTA_CASO_ABERTO_SUPERVISOR: str = (
-    "Seu pedido já está com a nossa equipe. "
-    "Quando o atendente responder aqui, você pode pedir para falar com um supervisor."
+    "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este "
+    "canal. Depois disso, se precisar, você pode pedir para falar com um supervisor."
 )
 RESPOSTA_CASO_ABERTO_URGENTE: str = (
     "Se for uma urgência de saúde, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. "
-    "Para os outros assuntos, seu pedido já está com a nossa equipe, e um atendente vai te responder aqui."
+    "Para os outros assuntos, seu pedido já está com a nossa equipe. "
+    "Assim que a equipe concluir a análise, te retorno por este canal."
 )
 
 #: RODADA 4: o recado ao atendente, sem prometer que ele le' esta conversa (o portal nao a recebe).
 #: RODADA 7: "me passa o contato da equipe" sem caso aberto: nao ha' telefone nem e-mail da equipe para dar;
-#: o caso e' aberto e a equipe fala com a pessoa aqui.
+#: o caso e' aberto e o retorno da equipe chega aqui (DL-0146).
 RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE: str = (
-    "Não tenho telefone nem e-mail da equipe para passar. Encaminhei seu caso, e um atendente vai "
-    "falar com você aqui mesmo, nesta conversa."
+    "Não tenho telefone nem e-mail da equipe para passar. Encaminhei seu caso, e assim que a equipe "
+    "concluir a análise, te retorno por este canal."
 )
 #: RODADA 6: pedido explicito de pessoa com o caso ja' aberto.
 RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA: str = (
-    "Seu pedido já está com a nossa equipe. O atendente vai te responder aqui mesmo, nesta conversa."
+    "Seu pedido já está com a nossa equipe. Assim que a análise terminar, a resposta chega por este canal."
 )
 RESPOSTA_CASO_ABERTO_RECADO: str = (
-    "Entendi o que você precisa confirmar. Quando o atendente responder aqui, conte esse pedido "
-    "para ele, por favor. Seu pedido continua com a nossa equipe."
+    "Entendi o que você precisa confirmar. Assim que a equipe concluir a análise, te retorno por este "
+    "canal, e aí você pode repetir esse pedido. Seu pedido continua com a nossa equipe."
 )
 #: RODADA 4: depois de dois avisos de caso aberto, respostas curtas e diferentes.
 RESPOSTA_CASO_ABERTO_CURTO_1: str = "Seu pedido continua com a nossa equipe."
-RESPOSTA_CASO_ABERTO_CURTO_2: str = "Seu pedido segue com a equipe. O atendente responde por aqui."
+RESPOSTA_CASO_ABERTO_CURTO_2: str = (
+    "Seu pedido segue com a equipe. Assim que ela concluir a análise, te retorno por este canal."
+)
 RESPOSTA_CASO_ABERTO_CURTO_3: str = "Continua com a nossa equipe por aqui. Posso ajudar com outra coisa?"
 _AVISOS_CURTOS: tuple[str, ...] = (
     RESPOSTA_CASO_ABERTO_CURTO_1,
@@ -1332,7 +1339,7 @@ def _texto_de_caso_aberto(estado: Mapping[str, Any]) -> str | None:
         return RESPOSTA_CASO_ABERTO_PRAZO
     if _pedido_explicito_com_verbo(texto):
         # RODADA 6: "Passa pra equipe AGORA" com o caso ja' aberto: o caso ja' esta' com a equipe e o
-        # atendente responde aqui (nunca "vou levar isso para a equipe").
+        # retorno chega por este canal (DL-0146; nunca "vou levar isso para a equipe").
         return RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA
     if motivo == "intencao_clinica":
         return RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA
