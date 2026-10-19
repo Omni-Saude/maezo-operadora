@@ -477,6 +477,11 @@ class TeamAlerter(Protocol):
         """Caso devolvido sem como entregar (nota vazia, custodia sem numero): `ResumeUndeliverableError`."""
         ...
 
+    async def alert_resumption_refused(self, event: ProcessCompletedEvent) -> None:
+        """P6: a cerca de saida do agente barrou a nota (`retomada_recusada`); a pessoa recebeu o texto
+        generico, nao a instrucao do atendente."""
+        ...
+
 
 class KafkaPublisherLike(Protocol):
     async def publish(
@@ -516,6 +521,14 @@ class NotifyTeamAlerter:
     async def alert_undeliverable(self, event: ProcessCompletedEvent) -> None:
         """O MESMO aviso (`business_key` + fila), porque a acao da equipe e' a mesma: falar com a
         pessoa por outro meio. Nenhum dado novo viaja — nem a nota, nem o telefone."""
+        await self._publicar_aviso(event)
+
+    async def alert_resumption_refused(self, event: ProcessCompletedEvent) -> None:
+        """P6 (16/10/2026): o recado do atendente foi BARRADO pela cerca de saida do agente
+        (`retomada_recusada`): a pessoa recebeu o texto generico, nao a instrucao. O MESMO aviso
+        (`business_key` + fila, `motivo_categoria=outro`), porque o vocabulario de `motivo_categoria`
+        e' o do contrato SP-OP-ESCALATION-001 (seis valores) e um rotulo novo exigiria mudar a spec.
+        Nem a nota (foi ela que a cerca barrou), nem o grupo da regra, nem o telefone viajam."""
         await self._publicar_aviso(event)
 
     async def _publicar_aviso(self, event: ProcessCompletedEvent) -> None:
@@ -574,6 +587,8 @@ class ResumeReceipt:
 #: Literal duplicado de `agents/helena/graph.py::DESFECHO_RETOMADA_FORA_DA_JANELA` (este modulo
 #: nao importa o grafo no topo); `test_agent_resume.py` impede a divergencia.
 DESFECHO_RETOMADA_FORA_DA_JANELA: Final[str] = "retomada_fora_da_janela"
+#: P6: idem para `agents/helena/graph.py::DESFECHO_RETOMADA_RECUSADA` (mesmo teste de paridade).
+DESFECHO_RETOMADA_RECUSADA: Final[str] = "retomada_recusada"
 
 
 def _emit_fora_da_janela(agent_id: str) -> None:
@@ -845,6 +860,17 @@ class ResumeHandler:
             resume_ref=event.process_instance_id,
         )
         desfecho = str(resultado.get("desfecho") or "")
+        if desfecho == DESFECHO_RETOMADA_RECUSADA:
+            # P6: a cerca do agente barrou o recado; a pessoa recebeu o texto generico. Avisa a
+            # equipe (propaga se falhar: o offset nao anda e a reentrega tenta de novo; o envio e'
+            # idempotente por instancia, `resume_ref`). So' identificadores no log, nunca a nota.
+            await self.alerter.alert_resumption_refused(event)
+            logger.warning(
+                "agent_resume.resumption_refused_team_alerted",
+                tenant_id=event.tenant_id,
+                agent_id=event.agent_id,
+                conversation_id=event.conversation_id,
+            )
         logger.info(
             "agent_resume.resumed",
             tenant_id=event.tenant_id,

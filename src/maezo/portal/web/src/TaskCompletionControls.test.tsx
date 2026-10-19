@@ -67,6 +67,17 @@ it("oferece os desfechos do contrato, e não uma lista escrita na tela", () => {
   expect(screen.getByLabelText(/Instrução \/ notas de resolução/)).toHaveAttribute("maxLength", String(maxNotes));
 });
 
+it("mostra o contador N/limite com o limite do contrato (o mesmo maxLength do fio)", async () => {
+  const user = userEvent.setup();
+  render(controls());
+  // O limite vem do OpenAPI gerado (`notas_resolucao.maxLength`), o mesmo número que o servidor
+  // aplica depois da pseudonimização (`MAX_NOTES`); nunca um literal desta tela.
+  expect(maxNotes).toBeGreaterThan(0);
+  expect(screen.getByTestId("notas-contador")).toHaveTextContent(`0/${maxNotes}`);
+  await user.type(screen.getByLabelText(/Instrução \/ notas de resolução/), "abc");
+  expect(screen.getByTestId("notas-contador")).toHaveTextContent(`3/${maxNotes}`);
+});
+
 it("exige desfecho e instrução antes de permitir o envio", async () => {
   const user = userEvent.setup();
   render(controls());
@@ -151,6 +162,58 @@ it("diz que a conclusão está desligada quando o portão responde 501", async (
   await waitFor(() =>
     expect(screen.getByRole("alert").textContent).toContain("desligada neste ambiente"),
   );
+});
+
+it("explica o 422 notes_too_long: a nota passou do limite depois de ocultar telefone, e-mail e documento", async () => {
+  const user = userEvent.setup();
+  vi.mocked(fetch).mockResolvedValueOnce(
+    jsonResponse({ schema: "portal-completion-error.v1", code: "notes_too_long" }, 422),
+  );
+  render(controls());
+
+  await fill(user);
+  await user.click(screen.getByRole("button", { name: "Concluir tarefa" }));
+
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Encurte o texto"));
+  expect(screen.queryByRole("heading", { name: "Tarefa concluída" })).toBeNull();
+});
+
+it.each([
+  ["promessa_sem_start", "entraremos em contato"],
+  ["negativa_clinica", "avaliação clínica"],
+  ["promessa_de_capacidade", "encaminhar, registrar, emitir ou agendar"],
+  ["canal_nao_confirmado", "não está confirmado"],
+  ["outra_regra", "regra de segurança"],
+])("explica em português o 422 resumption_refused do grupo %s", async (group, trecho) => {
+  const user = userEvent.setup();
+  const onCompleted = vi.fn();
+  vi.mocked(fetch).mockResolvedValueOnce(
+    jsonResponse({ schema: "portal-completion-error.v1", code: "resumption_refused", refusal_group: group }, 422),
+  );
+  render(controls({ onCompleted }));
+
+  await fill(user);
+  await user.click(screen.getByRole("button", { name: "Concluir tarefa" }));
+
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("não enviaria esta instrução"));
+  expect(screen.getByRole("alert").textContent).toContain(trecho);
+  expect(screen.queryByRole("heading", { name: "Tarefa concluída" })).toBeNull();
+  expect(onCompleted).not.toHaveBeenCalled();
+  // O rascunho continua para ser reescrito.
+  expect(screen.getByLabelText(/Instrução \/ notas de resolução/)).toHaveValue("procure o pronto-socorro");
+});
+
+it("um resumption_refused sem o grupo não cumpre o contrato e não vira sucesso", async () => {
+  const user = userEvent.setup();
+  vi.mocked(fetch).mockResolvedValueOnce(
+    jsonResponse({ schema: "portal-completion-error.v1", code: "resumption_refused" }, 422),
+  );
+  render(controls());
+
+  await fill(user);
+  await user.click(screen.getByRole("button", { name: "Concluir tarefa" }));
+
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("resposta inesperada"));
 });
 
 it("trata dependência indisponível como desfecho DESCONHECIDO, nunca como falha limpa", async () => {
