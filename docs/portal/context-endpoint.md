@@ -70,7 +70,7 @@ variáveis da instância". Nada do que o navegador envia escolhe URL, variável 
 Nada do que a rota devolve é atestado por assinatura ou digest; o `engine-rest` desta distribuição
 não tem autenticação, então a rede é a única fronteira.
 
-## Registro de quem leu (DL-0150)
+## Registro de quem leu (DL-0149)
 
 Cada leitura **bem-sucedida** grava um elo `portal_read.task_context` na mesma cadeia de auditoria
 do tenant em que a conclusão grava `portal_direct_completion.*`: quem leu (referências pseudônimas

@@ -100,7 +100,7 @@ def test_pre_lifespan_failure_is_sanitized(monkeypatch) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_audit", [True, False], ids=["audit", "no-audit"])
 async def test_human_profile_lends_the_read_audit_to_the_staff_case_detail(monkeypatch, with_audit) -> None:
-    """DL-0150: with the human plane, the staff detail records each read in the SAME tenant chain.
+    """DL-0149: with the human plane, the staff detail records each read in the SAME tenant chain.
 
     The staff factory is rebound to `staff.service(..., read_audit=<human plane's sink>)` for the
     life of the human slots and restored after. A human plane without a sink (best-effort, owner's

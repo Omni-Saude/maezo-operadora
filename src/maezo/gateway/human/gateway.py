@@ -145,7 +145,7 @@ class HumanGateway:
         self._completion_audit = completion_audit
         # INTERIM (DL-0050): `None` keeps `read_escalation_context` refusing.
         self._escalation_context = escalation_context
-        # DL-0150: `None` does NOT refuse the context read (owner's decision, best-effort): the
+        # DL-0149: `None` does NOT refuse the context read (owner's decision, best-effort): the
         # read is served and `portal_read_audit_skipped` (reason=sink_absent) is logged.
         self._read_audit = read_audit
         self._check_scope()
@@ -713,7 +713,7 @@ class HumanGateway:
         escalation. The session is resolved again AFTER the remote read, and the read grants must
         outlive it, like every other read here.
 
-        DL-0150 (pendencia (a) do DL-0050): every SUCCESSFUL read appends exactly one
+        DL-0149 (pendencia (a) do DL-0050): every SUCCESSFUL read appends exactly one
         `portal_read.task_context` link to the tenant's audit chain — WHO (pseudonymous refs), WHAT
         (task id + read code) and WHEN — and nothing of what was read. BEST-EFFORT (owner's
         decision, 19/10/2026): with no sink, or a write that fails or exceeds its deadline, the

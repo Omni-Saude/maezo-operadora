@@ -1,4 +1,4 @@
-"""Gatilho de LOOP da Helena (DL-0148; pendencia 16 da planilha do diretor).
+"""Gatilho de LOOP da Helena (DL-0147; pendencia 16 da planilha do diretor).
 
 A FICHA: `spec/agents/helena/agent.yaml`, `escalation.triggers` -> `signal: tool_failure  # falha
 tecnica/loop -> falha_tecnica`; a DMN `escalation_routing` r6 ("Falha tecnica do agente (loop, tool

@@ -1,4 +1,4 @@
-"""Registro de LEITURA na cadeia de auditoria do tenant (DL-0150; pendencia (a) do DL-0050).
+"""Registro de LEITURA na cadeia de auditoria do tenant (DL-0149; pendencia (a) do DL-0050).
 
 O QUE FALTAVA. A conclusao interina grava `portal_direct_completion.intent/result` na cadeia do
 tenant (`completion_engine.py::PostgresCompletionAudit`); as LEITURAS de detalhe nao gravavam nada.
@@ -13,7 +13,7 @@ sink (`PostgresAuditSink`), sobre o MESMO pool do tenant que a conclusao e o out
 Nao ha tabela nova, migracao nova nem fila em memoria. `PostgresAuditSink.emit` continua
 fail-closed (ADR-0027) e o adaptador repassa a falha.
 
-BEST-EFFORT NA LEITURA (decisao do dono, 19/10/2026, DL-0150). Quem le' chama
+BEST-EFFORT NA LEITURA (decisao do dono, 19/10/2026, DL-0149). Quem le' chama
 `record_read_best_effort`: sem sink instalado, ou com a gravacao falhando ou estourando o prazo, a
 leitura SEGUE com a mesma resposta de antes e sai UM evento de log estruturado
 `portal_read_audit_skipped` com dois campos de codigo fechado — `reason` (`sink_absent` |
@@ -97,7 +97,7 @@ _PROGRAMMING_ERRORS: Final[tuple[type[Exception], ...]] = (
 )
 
 #: A linha do decision log que autoriza este registro.
-READ_AUDIT_DECISION_REF: Final = "DL-0150"
+READ_AUDIT_DECISION_REF: Final = "DL-0149"
 
 #: `action` = `portal_read.<read_kind>`. Separa estas linhas das de `portal_direct_completion.*`
 #: e `human_command.*` na mesma cadeia.
@@ -226,7 +226,7 @@ def read_audit_skipped(reason: SkipReason, read_kind: ReadKind) -> None:
 async def record_read_best_effort(sink: ReadAccessAuditSink | None, entry: ReadAccessEntry) -> str | None:
     """Grava o registro da leitura se der; se nao der, loga o evento e devolve `None`.
 
-    Nunca recusa a leitura (decisao do dono, DL-0150). `asyncio.CancelledError` (cancelamento de
+    Nunca recusa a leitura (decisao do dono, DL-0149). `asyncio.CancelledError` (cancelamento de
     quem chama) e erros de programacao propagam; qualquer outra falha — inclusive o prazo — vira
     `write_failed`, sem o texto da excecao.
     """

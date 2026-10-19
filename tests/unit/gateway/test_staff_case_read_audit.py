@@ -1,4 +1,4 @@
-"""DL-0150: o detalhe do caso do colaborador registra QUEM leu QUAL caso e QUANDO.
+"""DL-0149: o detalhe do caso do colaborador registra QUEM leu QUAL caso e QUANDO.
 
 Mesmo cenario sintetico de `test_staff_case_authority.py` (sem banco, sem motor nativo). Prova:
 uma leitura de detalhe aceita gera exatamente um registro; leitura negada, em conflito ou com

@@ -1226,7 +1226,7 @@ def _sem_repetir(estado: Mapping[str, Any], texto: str) -> str:
     return next((o for o in opcoes if not _ja_dito(o, [ultima])), texto)
 
 
-#: GATILHO DE LOOP (DL-0148; pendencia 16 da planilha do diretor). A ficha (`spec/agents/helena/agent.yaml`,
+#: GATILHO DE LOOP (DL-0147; pendencia 16 da planilha do diretor). A ficha (`spec/agents/helena/agent.yaml`,
 #: `escalation.triggers` -> `signal: tool_failure  # falha tecnica/loop -> falha_tecnica`) e a DMN
 #: (`escalation_routing.dmn` r6, "Falha tecnica do agente (loop, tool down)") previam escalar a Helena em
 #: loop, e nada o implementava: `_sem_repetir` so' VARIA o texto, e a pessoa podia ler a mesma resposta
@@ -1262,7 +1262,7 @@ def _repeticoes_seguidas(estado: Mapping[str, Any], texto: str) -> int:
 
 
 def _helena_em_loop(estado: Mapping[str, Any], texto: str) -> bool:
-    """O turno vai mandar, pela `REPETICOES_PARA_ESCALAR + 1`-esima vez seguida, a mesma resposta? (DL-0148)
+    """O turno vai mandar, pela `REPETICOES_PARA_ESCALAR + 1`-esima vez seguida, a mesma resposta? (DL-0147)
 
     Deterministico, sobre o historico curto (DL-0080; sem ele, nunca). NAO dispara em rota que ja' abre caso
     (`_ROTAS_FORA_DO_LOOP`), em turno que ja' escalou ou falhou o start, nem com caso ja' aberto nesta
@@ -8850,7 +8850,7 @@ class HelenaGraph:
             text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
             saida.update(cerca)
             if _helena_em_loop(state, text):
-                # DL-0148 (gatilho de loop da ficha -> `falha_tecnica`): em vez da mesma resposta mais uma
+                # DL-0147 (gatilho de loop da ficha -> `falha_tecnica`): em vez da mesma resposta mais uma
                 # vez, o MESMO start idempotente de todo escalonamento, com o texto fixo de handoff que ele
                 # ja' escolhe pelo motivo. Nenhum texto novo ao beneficiario; o modelo nao decide nada aqui.
                 logger.warning(

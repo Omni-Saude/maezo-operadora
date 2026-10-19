@@ -116,7 +116,7 @@ async def _human_slots(
             raise PortalStaffBootstrapError()
         application.state.task_read_service_factory = runtime.read.build
         application.state.decision_service_factory = runtime.assignment.build
-        # DL-0150: with the human plane present, the staff case detail records each read in the
+        # DL-0149: with the human plane present, the staff case detail records each read in the
         # SAME tenant chain. Rebound only if the staff factory is the one the lifespan installed.
         # Without a sink (best-effort, owner's decision) the factory stays as is and each detail
         # read logs `portal_read_audit_skipped`.

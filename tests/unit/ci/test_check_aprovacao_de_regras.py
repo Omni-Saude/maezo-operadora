@@ -1,4 +1,4 @@
-"""A cerca do registro de aprovacoes (DL-0149) — e a prova de que ela consegue ficar vermelha.
+"""A cerca do registro de aprovacoes (DL-0148) — e a prova de que ela consegue ficar vermelha.
 
 Os casos sinteticos montam uma arvore `spec/processes/{bpmn,dmn}` minima em `tmp_path`; os dois
 ultimos testes leem o repositorio de verdade (nao-vacuidade e paridade com o deploy).

@@ -329,7 +329,7 @@ def compose_human_plane(
         direct_completion=completion,
         completion_audit=(None if completion is None else PostgresCompletionAudit(scope=scope, pool=pool)),
         escalation_context=escalation_context,
-        # DL-0150: the read-access record rides the SAME tenant pool and chain as the completion
+        # DL-0149: the read-access record rides the SAME tenant pool and chain as the completion
         # link. Always installed with the human plane (best-effort: without it reads still serve and
         # log), and the staff case detail borrows it (`portal/api/production.py::_human_slots`).
         read_audit=PostgresReadAccessAudit(scope=scope, pool=pool),

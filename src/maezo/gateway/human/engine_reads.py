@@ -468,7 +468,7 @@ class EngineReadComposition:
         # INTERIM (DL-0050): read-only, independent of the completion pair above, and dark unless a
         # composition installs it. `HumanGateway` checks its scope against its own.
         self._escalation_context = escalation_context
-        # DL-0150 (owner's decision, best-effort): a context source without the access record is
+        # DL-0149 (owner's decision, best-effort): a context source without the access record is
         # composed anyway; the absence is logged here once and again on every read.
         if escalation_context is not None and read_audit is None:
             read_audit_skipped("sink_absent", "task_context")

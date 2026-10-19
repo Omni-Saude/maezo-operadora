@@ -70,7 +70,7 @@ check-revisao-das-reguas: ## Frente 8.3: a cadencia de revisao das reguas nao ve
 	# declare por que ela nao aconteceu. Mesma disciplina de `deviation-expiry-check`.
 	.venv/bin/python scripts/ci/check_revisao_das_reguas.py
 
-check-aprovacao-de-regras: ## DL-0149 (pendencia 27): todo .bpmn/.dmn publicavel esta' no registro de aprovacoes (aprovado com hash, ou pendente visivel)
+check-aprovacao-de-regras: ## DL-0148 (pendencia 27): todo .bpmn/.dmn publicavel esta' no registro de aprovacoes (aprovado com hash, ou pendente visivel)
 	# Falha se um artefato que o deploy publica nao esta' em spec/aprovacoes-de-regras.yaml, ou se os
 	# bytes de um aprovado mudaram sem nova aprovacao. Pendentes passam (o deploy do dev nao para),
 	# mas sao listados em toda execucao. A cerca nunca aprova nada: aprovar e' ato humano em PR.

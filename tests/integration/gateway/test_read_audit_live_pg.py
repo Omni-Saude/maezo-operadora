@@ -1,4 +1,4 @@
-"""DL-0150: o registro de leitura no `audit_chain` de um Postgres REAL (sem motor).
+"""DL-0149: o registro de leitura no `audit_chain` de um Postgres REAL (sem motor).
 
 Requer `MAEZO_TEST_DATABASE_URL` (ou o Postgres do compose) e um banco descartavel: cada teste cria
 um schema proprio, aplica as migracoes REAIS `0002_audit_chain` e `0005_audit_emit_dedup` e o

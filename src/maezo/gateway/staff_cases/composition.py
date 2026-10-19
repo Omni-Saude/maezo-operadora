@@ -38,9 +38,9 @@ class StaffCaseRuntime:
     def service(
         self, resolver: HumanSessionResolver, *, read_audit: ReadAccessAuditSink | None = None
     ) -> StaffCaseService:
-        # DL-0150: `read_audit` is the human plane's access record, lent by
+        # DL-0149: `read_audit` is the human plane's access record, lent by
         # `portal/api/production.py::_human_slots`. The staff-only profile has no audit chain to
-        # lend: its detail is served and logs `portal_read_audit_skipped` (sink_absent), DL-0150.
+        # lend: its detail is served and logs `portal_read_audit_skipped` (sink_absent), DL-0149.
         if not resolver.store.persistent:
             raise StaffCaseError("unavailable")
         return StaffCaseService(resolver, self.sessions, self.witnesses, self.native, read_audit=read_audit)

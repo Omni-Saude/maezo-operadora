@@ -39,7 +39,7 @@ async def client(*, enabled=True, source=None, member=None, with_source=True, au
     g.factory_calls = 0
     source = source if source is not None else RecordingSource()
     g._escalation_context = source if with_source else None
-    # DL-0150: the context read refuses without the access record.
+    # DL-0149: the context read refuses without the access record.
     g._read_audit = audit if audit is not None else RecordingReadAudit()
 
     def factory(resolver):
@@ -226,7 +226,7 @@ async def test_the_route_lives_on_its_own_router_and_the_read_surface_is_unchang
 
 
 # ---------------------------------------------------------------------------------------
-# DL-0150: the access record, seen from the route.
+# DL-0149: the access record, seen from the route.
 # ---------------------------------------------------------------------------------------
 async def test_a_200_leaves_exactly_one_access_record_and_a_404_leaves_none():
     audit = RecordingReadAudit()

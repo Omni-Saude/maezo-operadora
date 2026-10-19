@@ -1,4 +1,4 @@
-"""DL-0150: o registro de LEITURA (quem leu o que e quando) na cadeia de auditoria do tenant.
+"""DL-0149: o registro de LEITURA (quem leu o que e quando) na cadeia de auditoria do tenant.
 
 Pendencia (a) do DL-0050. O que se prova aqui, sem banco (o banco real esta em
 `tests/integration/gateway/test_read_audit_live_pg.py`):
@@ -132,7 +132,7 @@ async def test_the_record_carries_only_the_allowed_fields_and_no_phi():
         assert leaked not in serialized, leaked
     assert record.details["resource_kind"] == "task"
     assert record.details["read_kind"] == "task_context"
-    assert record.details["decision_ref"] == "DL-0150"
+    assert record.details["decision_ref"] == "DL-0149"
 
 
 async def test_a_member_of_another_group_writes_no_record():

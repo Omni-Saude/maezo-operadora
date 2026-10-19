@@ -1,4 +1,4 @@
-"""Adaptador Postgres do registro de leitura (DL-0150): a MESMA cadeia da conclusao.
+"""Adaptador Postgres do registro de leitura (DL-0149): a MESMA cadeia da conclusao.
 
 Grava pelo `PostgresAuditSink` do tenant, sobre o pool emprestado pela composicao — o mesmo pool,
 tabela, lock e algoritmo de `completion_engine.py::PostgresCompletionAudit`. Fail-closed: qualquer

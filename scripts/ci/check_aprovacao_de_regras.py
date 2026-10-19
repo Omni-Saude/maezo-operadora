@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CI gate: nenhuma regra publicavel sai sem estar no registro de aprovacoes (DL-0149).
+"""CI gate: nenhuma regra publicavel sai sem estar no registro de aprovacoes (DL-0148).
 
 POR QUE ESTE ARQUIVO EXISTE
 ---------------------------
@@ -177,7 +177,7 @@ def verificar(dados: dict[str, Any], *, raiz: Path = _REPO_ROOT, hoje: date | No
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="DL-0149: regra publicavel so' com registro de aprovacao.")
+    parser = argparse.ArgumentParser(description="DL-0148: regra publicavel so' com registro de aprovacao.")
     parser.parse_args(argv)
 
     dados = carregar()

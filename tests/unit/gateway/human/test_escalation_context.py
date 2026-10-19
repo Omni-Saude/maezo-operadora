@@ -458,7 +458,7 @@ class RecordingSource(EscalationContextSource):
 
 
 class RecordingReadAudit(ReadAccessAuditSink):
-    """DL-0150: the access record, captured in memory for unit proofs (never in production)."""
+    """DL-0149: the access record, captured in memory for unit proofs (never in production)."""
 
     def __init__(self, *, fail=None):
         self.scope = SCOPE
@@ -478,7 +478,7 @@ _DEFAULT_AUDIT = object()
 async def gateway(*, source, member=None, snap=None, audit=_DEFAULT_AUDIT):
     g, *_ = await setup(snap=snap or escalation_snapshot(), member=member or staff_in(CLINICAL_GROUP))
     g._escalation_context = source
-    # DL-0150: the context read refuses without an access record, so every gateway here gets one
+    # DL-0149: the context read refuses without an access record, so every gateway here gets one
     # unless the test asks for its absence explicitly.
     g._read_audit = RecordingReadAudit() if audit is _DEFAULT_AUDIT else audit
     return g
