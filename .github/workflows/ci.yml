@@ -736,6 +736,12 @@ jobs:
       - name: Cadencia de revisao das reguas (Frente 8.3)
         run: make check-revisao-das-reguas
 
+      # DL-0149 (pendencia 27 do diretor: "o sistema publica regra em rascunho sem conferir"): todo
+      # .bpmn/.dmn que o deploy publica tem de estar em spec/aprovacoes-de-regras.yaml — aprovado
+      # (quem, papel, data, hash dos bytes) ou pendente explicito. Pendente passa e aparece no log.
+      - name: Registro de aprovacoes das regras publicaveis (DL-0149)
+        run: make check-aprovacao-de-regras
+
       # PLANS.md Hardening §0.8 Onda 0 (finding W5): the strict-xfail census under
       # tests/integration/processes/ is now a GENERATED artifact, not a hand-recounted number —
       # this re-derives it from the AST and fails on drift vs docs/xfail-census.json OR the

@@ -70,6 +70,12 @@ check-revisao-das-reguas: ## Frente 8.3: a cadencia de revisao das reguas nao ve
 	# declare por que ela nao aconteceu. Mesma disciplina de `deviation-expiry-check`.
 	.venv/bin/python scripts/ci/check_revisao_das_reguas.py
 
+check-aprovacao-de-regras: ## DL-0149 (pendencia 27): todo .bpmn/.dmn publicavel esta' no registro de aprovacoes (aprovado com hash, ou pendente visivel)
+	# Falha se um artefato que o deploy publica nao esta' em spec/aprovacoes-de-regras.yaml, ou se os
+	# bytes de um aprovado mudaram sem nova aprovacao. Pendentes passam (o deploy do dev nao para),
+	# mas sao listados em toda execucao. A cerca nunca aprova nada: aprovar e' ato humano em PR.
+	.venv/bin/python scripts/ci/check_aprovacao_de_regras.py
+
 check-alert-runbook-urls: ## D12-01-b / R-007: toda regra alert: de alert-rules.yml carrega annotations.runbook_url resolvivel no repo
 	# Falha se uma regra `alert:` nao tem `runbook_url`, se o caminho apontado nao existe no
 	# repositorio, ou se a ancora `#anchor` (quando presente) nao bate com nenhum titulo real do

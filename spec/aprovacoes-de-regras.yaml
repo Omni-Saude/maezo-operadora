@@ -1,0 +1,281 @@
+# REGISTRO DE APROVACOES DAS REGRAS PUBLICAVEIS (DL-0149; pendencia 27 da planilha do diretor).
+#
+# O QUE E'. A resposta escrita a "quem aprovou esta regra, e em que versao dos bytes?" para TODO
+# artefato que o deploy publica no motor (`python -m maezo.platform.deploy` envia todo
+# spec/processes/bpmn/*.bpmn e spec/processes/dmn/*.dmn — `engine_deploy.collect_artifacts`).
+# A cerca `make check-aprovacao-de-regras` (scripts/ci/check_aprovacao_de_regras.py) exige que cada
+# um esteja em EXATAMENTE uma das listas abaixo.
+#
+# aprovados — so' com aprovacao humana REAL, registrada em PR revisado. Campos:
+#   artefato:      spec/processes/dmn/<arquivo>.dmn
+#   sha256:        sha256 dos bytes aprovados com CRLF->LF
+#                  (python scripts/ci/check_aprovacao_de_regras.py imprime o hash atual quando ele diverge)
+#   aprovado_por:  nome de quem aprovou
+#   papel:         medico-auditor | juridico | dpo | regulatorio | financas | po | dono
+#   aprovado_em:   AAAA-MM-DD
+#   evidencia:     onde a decisao esta' escrita (DL, ata, PR, sign-off)
+# Editou o arquivo aprovado? O hash muda e a cerca reprova: nova aprovacao, ou a entrada volta a
+# `pendentes`. Nunca atualize so' o hash.
+#
+# pendentes — publicados HOJE sem aprovacao registrada. Nao bloqueiam o deploy do dev; aparecem em
+# toda execucao da cerca. `responsavel: a definir` = ninguem foi nomeado ainda (decisao do dono).
+# `marca_no_arquivo` e' a linha de status COPIADA do proprio artefato em 19/10/2026 (nao e' opiniao).
+#
+# Nenhuma aprovacao foi inventada: em 19/10/2026 nenhum artefato publicavel tinha aprovacao
+# registrada amarrada aos bytes, entao `aprovados` comeca vazio.
+version: 1
+
+aprovados: []
+
+pendentes:
+  - artefato: spec/processes/bpmn/SP-OP-ADEQUACAO-001_Adequacao_Rede.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-ADEQUACAO-001 — Adequacao Geografica de Rede (RN 259). Status: DRAFT (v0.1.0) — Phase 3, Wave WC."
+  - artefato: spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "Status: DRAFT — todas as periodicidades (timeCycle) sao DRAFT/verify regulatorio."
+  - artefato: spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-ANS-SUBMIT-001 — Envios Periodicos ANS (calendar-driven). Status: DRAFT (v0.1.0) — Phase 2,"
+  - artefato: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-AUTH-001 — Autorizacao previa. Status: DRAFT (v0.1.0) — Phase 1, modelado uma fase"
+  - artefato: spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-CANCEL-001 — Cancelamento / Rescisao Contratual. Status: DRAFT (v0.2.0) — Phase 2, Wave WC.1."
+  - artefato: spec/processes/bpmn/SP-OP-CONTAS-001_Processamento_Contas_Glosa.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-CONTAS-001 — Analise e Adjudicacao de Conta Medica (Glosa). Status: DRAFT (v0.1.0) —"
+  - artefato: spec/processes/bpmn/SP-OP-CRED-001_Descredenciamento.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-CRED-001 — (Des)credenciamento de Prestador / Rede. Status: DRAFT (v0.1.0) — Phase 3, Wave W-B."
+  - artefato: spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-ESCALATION-001 — Escalonamento humano universal. Status: FINAL (v1.1.0; emenda DL-0118: encerramento a pedido)."
+    nota: "Contrato FINAL sem sign-off (grandfather em docs/processes/contracts/signoffs/retro-verification-pending.yaml); os SLAs seguem DRAFT."
+  - artefato: spec/processes/bpmn/SP-OP-FRAUDE-001_Investigacao_Fraude.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-FRAUDE-001 — Investigacao de Fraude / Cadeia de Custodia. Status: DRAFT (v0.1.0) — Phase 3"
+  - artefato: spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-INADIMPLENCIA-001 — Suspensao / Rescisao por Inadimplencia. Status: DRAFT (v0.1.0) — Phase 3,"
+  - artefato: spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-LGPD-DSR-001 — Direitos do titular de dados. Status: DRAFT (v0.1.0) — Phase 1."
+  - artefato: spec/processes/bpmn/SP-OP-NIP-001_Resposta_NIP.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-NIP-001 — Resposta a NIP (Notificacao de Intermediacao Preliminar — ANS). Status: DRAFT"
+  - artefato: spec/processes/bpmn/SP-OP-PAGTO-001_Pagamentos_Alcada.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-PAGTO-001 — Pagamentos de Alcada. Status: DRAFT (v0.1.0) — Phase 3, Wave W-B. DI (diagrama)"
+  - artefato: spec/processes/bpmn/SP-OP-PROGRAMA-001_Programas_Cuidado.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-PROGRAMA-001 — Programas de Cuidado (consent-gated). Status: DRAFT (v0.1.0) — Phase 3, Wave W-B."
+  - artefato: spec/processes/bpmn/SP-OP-RECURSO-001_Recurso_Glosa.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-RECURSO-001 — Analise de Recurso de Glosa (resposta ao recurso). Status: DRAFT (v0.1.0) —"
+  - artefato: spec/processes/bpmn/SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "SP-OP-REEMBOLSO-001 — Reembolso ao Beneficiario. Status: DRAFT (v0.1.0) — Phase 2, Wave WC.2."
+  - artefato: spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn
+    responsavel: a definir
+    marca_no_arquivo: "`suppression.record`). Status: DRAFT v0.1.0 — ADMITIDO pelo dono em 2026-10-07"
+    nota: "O arquivo diz ADMITIDO pelo dono em 2026-10-07, mas segue DRAFT; falta o registro de aprovacao destes bytes."
+  - artefato: spec/processes/dmn/adequacao_gap.dmn
+    responsavel: a definir
+    marca_no_arquivo: "adequacao_gap v0.1.0 — status: DRAFT — TODOS os thresholds de tempo/distancia marcados"
+  - artefato: spec/processes/dmn/adequacao_remediation_routing.dmn
+    responsavel: a definir
+    marca_no_arquivo: "adequacao_remediation_routing v0.1.0 — status: DRAFT (roteamento requer SME gestao-rede +"
+  - artefato: spec/processes/dmn/adequacao_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "adequacao_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar"
+  - artefato: spec/processes/dmn/ans_calendar.dmn
+    responsavel: a definir
+    marca_no_arquivo: "ans_calendar v0.1.0 — status: DRAFT — TODAS as datas, fontes e periodicidades marcadas"
+  - artefato: spec/processes/dmn/ans_retry_policy.dmn
+    responsavel: a definir
+    marca_no_arquivo: "ans_retry_policy v0.1.0 — status: DRAFT — A contagem de tentativas (3) e as DURACOES de backoff"
+  - artefato: spec/processes/dmn/ans_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "ans_sla v0.1.0 — status: DRAFT — TODAS as duracoes marcadas DRAFT/verify: confirmar contra"
+  - artefato: spec/processes/dmn/ans_submission_admissibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "ans_submission_admissibility v0.1.0 — status: DRAFT (criterios requerem SME regulatorio/ANS;"
+  - artefato: spec/processes/dmn/auth_admissibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "auth_admissibility v0.1.0 — status: DRAFT (conteudo requer SME medico auditor +"
+  - artefato: spec/processes/dmn/auth_auto_approval.dmn
+    responsavel: a definir
+    marca_no_arquivo: "auth_auto_approval v0.2.0 — status: DRAFT (a politica de COMBINACAO dos criterios requer"
+  - artefato: spec/processes/dmn/auth_criteria_contratual.dmn
+    responsavel: a definir
+    marca_no_arquivo: "auth_criteria_contratual v0.1.0 — status: DRAFT — **COSTURA VAZIA, DELIBERADAMENTE**."
+  - artefato: spec/processes/dmn/auth_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "auth_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar"
+  - artefato: spec/processes/dmn/cancel_admissibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "cancel_admissibility v0.1.0 — status: DRAFT (conteudo requer SME juridico/contratos +"
+  - artefato: spec/processes/dmn/cancel_routing.dmn
+    responsavel: a definir
+    marca_no_arquivo: "cancel_routing v0.1.0 — status: DRAFT (criterios de natureza/encaminhamento requerem SME"
+  - artefato: spec/processes/dmn/cancel_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "cancel_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto"
+  - artefato: spec/processes/dmn/carencia_check.dmn
+    responsavel: a definir
+    marca_no_arquivo: "carencia_check v0.1.0 — status: DRAFT — prazos de carencia SINTETICOS."
+  - artefato: spec/processes/dmn/contas_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "contas_sla v0.2.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto"
+  - artefato: spec/processes/dmn/cred_admissibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "cred_admissibility v0.1.0 — status: DRAFT (conteudo requer SME gestao-rede/juridico-rede +"
+  - artefato: spec/processes/dmn/cred_prior_notice.dmn
+    responsavel: a definir
+    marca_no_arquivo: "cred_prior_notice v0.1.0 — status: DRAFT — TODOS os prazos/obrigacoes DRAFT/verify com"
+  - artefato: spec/processes/dmn/cred_route.dmn
+    responsavel: a definir
+    marca_no_arquivo: "cred_route v0.1.0 — status: DRAFT (criterios de natureza/encaminhamento requerem SME"
+  - artefato: spec/processes/dmn/cred_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "cred_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto vigente"
+  - artefato: spec/processes/dmn/dut_criteria_bariatrica.dmn
+    responsavel: a definir
+    marca_no_arquivo: "dut_criteria_bariatrica v0.1.0 — status: DRAFT — conteudo clinico SINTETICO."
+  - artefato: spec/processes/dmn/dut_criteria_oncologia_pet_ct.dmn
+    responsavel: a definir
+    marca_no_arquivo: "dut_criteria_oncologia_pet_ct v0.1.0 — status: DRAFT — conteudo clinico SINTETICO."
+  - artefato: spec/processes/dmn/dut_criteria_terapias_especiais.dmn
+    responsavel: a definir
+    marca_no_arquivo: "dut_criteria_terapias_especiais v0.1.0 — status: DRAFT — conteudo clinico SINTETICO."
+  - artefato: spec/processes/dmn/dut_rol_coverage.dmn
+    responsavel: a definir
+    marca_no_arquivo: "dut_rol_coverage v0.1.0 — status: DRAFT — conteudo sintetico/representativo."
+  - artefato: spec/processes/dmn/escalation_routing.dmn
+    responsavel: a definir
+    marca_no_arquivo: "escalation_routing v1.0.0 — status: SHAPE FINAL; valores de SLA: DRAFT (validar com"
+  - artefato: spec/processes/dmn/fraude_indicadores.dmn
+    responsavel: a definir
+    marca_no_arquivo: "fraude_indicadores v0.1.0 — status: DRAFT (SP-OP-FRAUDE-001; conteudo requer SME"
+  - artefato: spec/processes/dmn/fraude_routing.dmn
+    responsavel: a definir
+    marca_no_arquivo: "fraude_routing v0.1.0 — status: DRAFT (SP-OP-FRAUDE-001; candidate groups PROPOSTOS, confirmar"
+  - artefato: spec/processes/dmn/fraude_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "fraude_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar com"
+  - artefato: spec/processes/dmn/frequency_zscore_threshold.dmn
+    responsavel: a definir
+    marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
+  - artefato: spec/processes/dmn/glosa_classification.dmn
+    responsavel: a definir
+    marca_no_arquivo: "glosa_classification v0.1.0 — status: DRAFT (criterios de tipo/extensao requerem SME"
+  - artefato: spec/processes/dmn/glosa_reason_normalization.dmn
+    responsavel: a definir
+    marca_no_arquivo: "glosa_reason_normalization v0.1.0 — status: DRAFT (mapa reason_code TISS -> categoria"
+  - artefato: spec/processes/dmn/glosa_triage.dmn
+    responsavel: a definir
+    marca_no_arquivo: "glosa_triage v0.1.0 — status: DRAFT (conteudo requer SME faturamento/auditoria de contas +"
+  - artefato: spec/processes/dmn/helena_triage_admissibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "helena_triage_admissibility v0.1.0 — status: DRAFT — EXPERIMENTO EM DEV, atras da chave"
+  - artefato: spec/processes/dmn/inadimplencia_purga.dmn
+    responsavel: a definir
+    marca_no_arquivo: "inadimplencia_purga v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar"
+  - artefato: spec/processes/dmn/inadimplencia_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "inadimplencia_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar"
+  - artefato: spec/processes/dmn/inadimplencia_status.dmn
+    responsavel: a definir
+    marca_no_arquivo: "inadimplencia_status v0.1.0 — status: DRAFT (conteudo requer SME juridico/contratos +"
+  - artefato: spec/processes/dmn/lgpd_dsr_routing.dmn
+    responsavel: a definir
+    marca_no_arquivo: "lgpd_dsr_routing v0.1.0 — status: DRAFT (revisao DPO/juridico obrigatoria —"
+  - artefato: spec/processes/dmn/lucas_billing_admissibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "lucas_billing_admissibility v0.2.0 — status: DRAFT — requires human review (financeiro/PO)"
+    nota: "Pendencia 27 do diretor: a regra de atraso critico (2 meses / 30 dias) entra por aqui como booleano; os NUMEROS vivem em MAEZO_LUCAS_ATRASO_MESES_MIN/_DIAS_MIN (settings.py), fora desta cerca."
+  - artefato: spec/processes/dmn/lucas_escalation_routing.dmn
+    responsavel: a definir
+    marca_no_arquivo: "lucas_escalation_routing v0.1.0 — status: DRAFT — requires human review (financeiro/PO)"
+  - artefato: spec/processes/dmn/nip_classification.dmn
+    responsavel: a definir
+    marca_no_arquivo: "nip_classification v0.1.0 — status: DRAFT (conteudo requer SME regulatorio-ans/juridico +"
+  - artefato: spec/processes/dmn/nip_routing.dmn
+    responsavel: a definir
+    marca_no_arquivo: "nip_routing v0.2.0 — status: DRAFT (conteudo requer SME regulatorio-ans/juridico;"
+  - artefato: spec/processes/dmn/nip_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "nip_sla v0.2.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto"
+  - artefato: spec/processes/dmn/pagto_admissibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "pagto_admissibility v0.1.0 — status: DRAFT (lastro/duplicidade encodam logica regulatoria/"
+  - artefato: spec/processes/dmn/pagto_alcada.dmn
+    responsavel: a definir
+    marca_no_arquivo: "pagto_alcada v0.1.0 — status: DRAFT (escada de alcada / threshold_brl / mapeamento"
+  - artefato: spec/processes/dmn/pagto_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "pagto_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify com financas:"
+  - artefato: spec/processes/dmn/phantom_no_diagnosis.dmn
+    responsavel: a definir
+    marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
+  - artefato: spec/processes/dmn/phantom_suspicious_prefix.dmn
+    responsavel: a definir
+    marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
+  - artefato: spec/processes/dmn/programa_routing.dmn
+    responsavel: a definir
+    marca_no_arquivo: "programa_routing v0.1.0 — status: DRAFT (criterios de estratificacao/elegibilidade requerem"
+  - artefato: spec/processes/dmn/programa_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "programa_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar com"
+  - artefato: spec/processes/dmn/provider_peer_deviation.dmn
+    responsavel: a definir
+    marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
+  - artefato: spec/processes/dmn/recurso_admissibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "recurso_admissibility v0.1.0 — status: DRAFT (conteudo requer SME faturamento/auditoria de"
+  - artefato: spec/processes/dmn/recurso_eligibility.dmn
+    responsavel: a definir
+    marca_no_arquivo: "recurso_eligibility v0.1.0 — status: DRAFT (criterios de elegibilidade/grupo revisor requerem"
+  - artefato: spec/processes/dmn/recurso_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "recurso_sla v0.3.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar texto"
+  - artefato: spec/processes/dmn/reembolso_calculo.dmn
+    responsavel: a definir
+    marca_no_arquivo: "reembolso_calculo v0.1.0 — status: DRAFT (multiplo/limite por categoria/segmentacao"
+  - artefato: spec/processes/dmn/reembolso_coverage.dmn
+    responsavel: a definir
+    marca_no_arquivo: "reembolso_coverage v0.1.0 — status: DRAFT (conteudo requer SME regulatorio/juridico +"
+  - artefato: spec/processes/dmn/reembolso_sla.dmn
+    responsavel: a definir
+    marca_no_arquivo: "reembolso_sla v0.1.0 — status: DRAFT — TODOS os prazos marcados DRAFT/verify: confirmar"
+  - artefato: spec/processes/dmn/risk_thresholds.dmn
+    responsavel: a definir
+    marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
+  - artefato: spec/processes/dmn/suppression_routing.dmn
+    responsavel: a definir
+    marca_no_arquivo: "suppression_routing v1.0.0 — insumos DPO ACEITOS PELO DONO (2026-10-07 — VW0-DECISION-REGISTER"
+    nota: "O arquivo cita aceite do dono de 2026-10-07 para os INSUMOS; falta o registro de aprovacao destes bytes (hash)."
+  - artefato: spec/processes/dmn/triage_redflag_adult.dmn
+    responsavel: a definir
+    marca_no_arquivo: "triage_redflag_adult v0.1.0 — status: SHAPE FINAL; CONTEUDO CLINICO: DRAFT — requer"
+  - artefato: spec/processes/dmn/triage_redflag_gestante.dmn
+    responsavel: a definir
+    marca_no_arquivo: "triage_redflag_gestante v0.1.0 — status: SHAPE FINAL; CONTEUDO CLINICO: DRAFT —"
+  - artefato: spec/processes/dmn/triage_redflag_mental_health.dmn
+    responsavel: a definir
+    marca_no_arquivo: "triage_redflag_mental_health v0.1.0 — status: SHAPE FINAL; CONTEUDO CLINICO: DRAFT —"
+  - artefato: spec/processes/dmn/triage_redflag_pediatric.dmn
+    responsavel: a definir
+    marca_no_arquivo: "triage_redflag_pediatric v0.2.0 — status: SHAPE FINAL; CONTEUDO CLINICO: DRAFT —"
+    nota: "Ratificacao PARCIAL do dono (so r9-r13, 14/10/2026) em spec/processes/dmn/triage-redflag-pediatric-neonatal-ratification.yaml; o resto da tabela segue DRAFT."
+  - artefato: spec/processes/dmn/triage_sufficiency.dmn
+    responsavel: a definir
+    marca_no_arquivo: "triage_sufficiency v0.1.0 — status: FORMA FINAL; CONTEUDO: NAO RATIFICADO."
+  - artefato: spec/processes/dmn/unbundling_partial_bundles.dmn
+    responsavel: a definir
+    marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
+  - artefato: spec/processes/dmn/upcoding_complexity_ceiling.dmn
+    responsavel: a definir
+    marca_no_arquivo: "Conteudo (scores/limiares) SINTETICO, pendente SME (medico-auditor/financas) —"
