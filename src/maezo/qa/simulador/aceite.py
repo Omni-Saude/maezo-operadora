@@ -1444,6 +1444,10 @@ HELENA_SAUDE_GERATIVA: tuple[Segmento, ...] = (
 # conversa antes do proximo). Mede o transbordo falso que acabou (pergunta pessoal sem alarme, recusa) e a
 # qualidade da resposta (cistite com o assunto certo, vasectomia pelo Rol x segmentacao).
 _AVISO_DA_COBERTURA = "cobertura final depende de carencia, autorizacao e indicacao medica"
+#: DL-0126: a resposta de cobertura (fatos do plano + aviso) ou a pergunta "para quem e'?" (com dependentes).
+_COBERTURA_OU_PARA_QUEM = rf"({_AVISO_DA_COBERTURA}|antes de eu consultar.{{0,3}}e para quem)"
+#: DL-0126: a cobertura nunca vira cobranca nem passagem ao Lucas.
+_NAO_E_COBRANCA = ("mensalidade", "boleto", r"\blucas\b", "assistente financeiro", _ENCAMINHOU)
 
 HELENA_FASES_18_10: tuple[Segmento, ...] = (
     Segmento(
@@ -1642,6 +1646,66 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
         ),
         resolveu="o risco de infarto usou o fato que a propria pessoa contou (fuma)",
     ),
+    # RODADA DO DONO (19/10/2026, DL-0126): continuidade da cobertura, cobranca negada e cobertura nunca pelo
+    # modelo. Textos LITERAIS do teste do dono. Com dependentes no cadastro, a Helena pergunta "para quem"
+    # antes de consultar (aceito como resposta de cobertura).
+    Segmento(
+        "17-cobertura-continua-mamografia",
+        (
+            _p(
+                "Meu plano cobre exame de mama?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_COBERTURA_OU_PARA_QUEM,),
+                nao_deve=_NAO_E_COBRANCA,
+            ),
+            _p(
+                "Mamografia",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(mamografia|para quem|nao encontrei|mais de um)", _COBERTURA_OU_PARA_QUEM),
+                nao_deve=_NAO_E_COBRANCA,
+            ),
+        ),
+        resolveu=(
+            "o nome do procedimento depois da resposta de cobertura continuou cobertura (consulta ao plano), "
+            "nunca texto de mensalidade"
+        ),
+    ),
+    Segmento(
+        "18-cobranca-negada-nao-vai-ao-lucas",
+        (
+            _p(
+                "Meu plano cobre exame de mama?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_COBERTURA_OU_PARA_QUEM,),
+                nao_deve=_NAO_E_COBRANCA,
+            ),
+            _p(
+                "Não, a minha dúvida não é sobre mensalidade, é se o plano cobre mamografia",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_COBERTURA_OU_PARA_QUEM,),
+                nao_deve=_NAO_E_COBRANCA,
+            ),
+        ),
+        resolveu="'nao e' sobre mensalidade' ficou na cobertura, sem passar ao Lucas",
+    ),
+    Segmento(
+        "19-e-vasectomia-depois-da-cobertura",
+        (
+            _p(
+                "Meu plano cobre mamografia?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_COBERTURA_OU_PARA_QUEM,),
+                nao_deve=_NAO_E_COBRANCA,
+            ),
+            _p(
+                "E vasectomia?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(vasectomia|para quem|nao encontrei|mais de um)", _COBERTURA_OU_PARA_QUEM),
+                nao_deve=(*_NAO_E_COBRANCA, r"\btem cobertura\b", r"\bo plano cobre\b"),
+            ),
+        ),
+        resolveu="'E vasectomia?' depois da cobertura foi a consulta do plano, nunca afirmacao do modelo",
+    ),
 )
 
 #: Os telefones (sufixo da faixa do simulador) de cada segmento, quando o roteiro precisa de telefones
@@ -1649,7 +1713,10 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
 #: `helena_saude_gerativa`: 790..798 estao na allowlist do dev (tfvars), o 789 NAO (segmento 10).
 TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
     "helena_saude_gerativa": (790, 791, 792, 793, 794, 795, 796, 797, 798, 789),
-    "helena_fases_18_10": (790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796),
+    "helena_fases_18_10": (
+        *(790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796),
+        *(797, 798, 790),
+    ),
 }
 
 # ================================================================================================

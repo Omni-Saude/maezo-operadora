@@ -561,6 +561,7 @@ _AMH_INTEROP_OPERATIONS = frozenset(
         "amh.tina_get_requisicoes",
         "amh.tina_get_dependentes",
         "amh.tina_get_carteirinha",
+        "amh.tina_get_dependentes_nome",
         "amh.tina_get_cobertura",
         "amh.verify_subject",
         "amh.record_consent",
@@ -712,6 +713,30 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         )
     )
+    # Nomes dos dependentes (dono e DPO, 19/10/2026, DL-0127; manifest v1.13): executor PROPRIO, escopo
+    # proprio.
+    tokens_nomes = amh_interop.CognitoClientCredentials(
+        token_url="https://cognito.invalid/oauth2/token",
+        client_id="client1",
+        client_secret="secret1",
+        scopes=("interop/tina.read", "interop/tina.dependentes_nome"),
+        transport_factory=_transport,
+    )
+    nomes = amh_interop.AmhTinaDependentesNomeExecutor(
+        **{**comum, "tokens": tokens_nomes, "purpose_of_use": "atendimento_whatsapp"}
+    )
+    results.append(
+        await nomes.execute(
+            GovernedTinaRequest(
+                operation="amh.tina_get_dependentes_nome",
+                path="/interop/tina/v1/subjects/subject1/dependentes/nomes",
+                query=atendimento,
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                timeout_seconds=5.0,
+                request_ref="hk1_msg_seam_proof",
+            )
+        )
+    )
     # Cobertura por procedimento (dono, D1 de 18/10/2026; manifest v1.9): executor PROPRIO, finalidade fixa.
     cobertura = amh_interop.AmhTinaCoberturaExecutor(
         **{**comum, "tokens": tokens_carteirinha, "purpose_of_use": "atendimento_whatsapp"}
@@ -816,7 +841,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         )
     )
-    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 14
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 15
 
 
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811

@@ -64,6 +64,8 @@ from maezo.ports.tina import (
     CoberturaItemView,
     CoberturaView,
     DependenteAnonimo,
+    DependenteNominal,
+    DependentesNominaisView,
     DependentesView,
     ElegibilidadeView,
     RequisicaoPlano,
@@ -75,6 +77,9 @@ ARTIFACT: Final[str] = "schemas/openapi/maezo/v1/tina.openapi.yaml"
 ARTIFACT_DEPENDENTES: Final[str] = "schemas/openapi/maezo/v1/tina-dependentes.openapi.yaml"
 #: Manifest aditivo v1.12 (decisao do dono de 17/10/2026). O digest entra no bloco `manifest_v1_12` do pin.
 ARTIFACT_CARTEIRINHA: Final[str] = "schemas/openapi/maezo/v1/tina-carteirinha.openapi.yaml"
+#: Manifest aditivo v1.13 (decisao do dono e DPO de 19/10/2026, DL-0127): os NOMES dos dependentes do proprio
+#: titular. O digest entra no bloco `manifest_v1_13` do pin.
+ARTIFACT_DEPENDENTES_NOME: Final[str] = "schemas/openapi/maezo/v1/tina-dependentes-nome.openapi.yaml"
 #: Manifest aditivo v1.9 (PUBLISHED em 16/10/2026). O digest esta' no bloco `manifest_v1_9` do pin.
 ARTIFACT_COBERTURA: Final[str] = "schemas/openapi/maezo/v1/tina-cobertura.openapi.yaml"
 OP_ELEGIBILIDADE: Final[str] = "amh.tina_get_elegibilidade"
@@ -84,11 +89,23 @@ OP_DEPENDENTES: Final[str] = "amh.tina_get_dependentes"
 OP_CARTEIRINHA: Final[str] = "amh.tina_get_carteirinha"
 #: `operationId: getCobertura` do contrato, no padrao de nome das operacoes do gateway.
 OP_COBERTURA: Final[str] = "amh.tina_get_cobertura"
+#: `operationId: getDependentesNominais` do contrato `tina-dependentes-nome` (manifest v1.13).
+OP_DEPENDENTES_NOME: Final[str] = "amh.tina_get_dependentes_nome"
 OPERATIONS: Final[frozenset[str]] = frozenset(
-    {OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES, OP_DEPENDENTES, OP_CARTEIRINHA, OP_COBERTURA}
+    {
+        OP_ELEGIBILIDADE,
+        OP_CARENCIAS,
+        OP_REQUISICOES,
+        OP_DEPENDENTES,
+        OP_CARTEIRINHA,
+        OP_COBERTURA,
+        OP_DEPENDENTES_NOME,
+    }
 )
 #: A UNICA finalidade da rota da carteirinha (enum do contrato).
 PURPOSE_CARTEIRINHA: Final[str] = "atendimento_whatsapp"
+#: A UNICA finalidade da rota dos nomes dos dependentes (enum do contrato `tina-dependentes-nome`).
+PURPOSE_DEPENDENTES_NOME: Final[str] = "atendimento_whatsapp"
 #: A UNICA finalidade da rota da cobertura (enum do contrato `tina-cobertura`).
 PURPOSE_COBERTURA: Final[str] = "atendimento_whatsapp"
 #: O cabecalho do id opaco da solicitacao (o unico cabecalho que o adaptador aceita de um contrato TINA).
@@ -102,6 +119,7 @@ _ROTAS: Final[dict[str, tuple[str, str]]] = {
     OP_DEPENDENTES: ("/subjects/{portable_subject_ref}/dependentes", "Dependentes"),
     OP_CARTEIRINHA: ("/subjects/{portable_subject_ref}/carteirinha", "Carteirinhas"),
     OP_COBERTURA: ("/subjects/{portable_subject_ref}/cobertura", "Cobertura"),
+    OP_DEPENDENTES_NOME: ("/subjects/{portable_subject_ref}/dependentes/nomes", "DependentesNominais"),
 }
 _ROTAS_FATOS: Final[tuple[str, ...]] = (OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES)
 Reason = PortFailureReason
@@ -184,6 +202,8 @@ class AmhTinaAdapter:
         carteirinha_executor: GovernedTinaExecutor | None = None,
         cobertura_openapi_bytes: bytes | None = None,
         cobertura_executor: GovernedTinaExecutor | None = None,
+        dependentes_nome_openapi_bytes: bytes | None = None,
+        dependentes_nome_executor: GovernedTinaExecutor | None = None,
     ) -> None:
         try:
             if not isinstance(executor, GovernedTinaExecutor):
@@ -193,6 +213,10 @@ class AmhTinaAdapter:
             ):
                 raise ValueError
             if cobertura_executor is not None and not isinstance(cobertura_executor, GovernedTinaExecutor):
+                raise ValueError
+            if dependentes_nome_executor is not None and not isinstance(
+                dependentes_nome_executor, GovernedTinaExecutor
+            ):
                 raise ValueError
             pin = load_contract_pin(pin_path)
             self._validators: dict[str, Draft4Validator] = {}
@@ -216,9 +240,20 @@ class AmhTinaAdapter:
                 self._carregar(
                     cobertura_openapi_bytes, ARTIFACT_COBERTURA, pin.artifact_digests, (OP_COBERTURA,)
                 )
+            # Nomes dos dependentes (manifest v1.13): so' com os bytes; o digest TEM de estar no pin (sem o
+            # bloco `manifest_v1_13`, `digests[ARTIFACT_DEPENDENTES_NOME]` levanta e o construtor recusa).
+            self._dependentes_nome = dependentes_nome_openapi_bytes is not None
+            if dependentes_nome_openapi_bytes is not None:
+                self._carregar(
+                    dependentes_nome_openapi_bytes,
+                    ARTIFACT_DEPENDENTES_NOME,
+                    pin.artifact_digests,
+                    (OP_DEPENDENTES_NOME,),
+                )
             self._executor = executor
             self._executor_carteirinha = carteirinha_executor or executor
             self._executor_cobertura = cobertura_executor or executor
+            self._executor_dependentes_nome = dependentes_nome_executor or executor
         except Exception:
             raise TinaContractError() from None
 
@@ -295,6 +330,8 @@ class AmhTinaAdapter:
                 executor = self._executor_carteirinha
             elif operacao == OP_COBERTURA:
                 executor = self._executor_cobertura
+            elif operacao == OP_DEPENDENTES_NOME:
+                executor = self._executor_dependentes_nome
             else:
                 executor = self._executor
             registradas = executor.registered_operations
@@ -450,6 +487,29 @@ class AmhTinaAdapter:
         )
         return _converter(resultado, _carteirinhas)
 
+    async def get_dependentes_nominais(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        request_ref: str,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[DependentesNominaisView]:
+        """Os dependentes ATIVOS do proprio titular COM o nome completo (manifest v1.13; DL-0127). Sem o
+        artefato `tina-dependentes-nome` carregado no construtor, recusa fechada (`SCOPE_NOT_SUPPORTED`).
+        `404` (sujeito desconhecido ou rota desligada) = `NOT_FOUND`. Nenhum nome vai a log."""
+        if not self._dependentes_nome:
+            return PortResult.refused(Reason.SCOPE_NOT_SUPPORTED)
+        resultado = await self._consultar(
+            OP_DEPENDENTES_NOME,
+            portable_subject_ref,
+            {"purpose_of_use": purpose_of_use, HEADER_REQUEST_REF: request_ref},
+            consent_decision_ref=consent_decision_ref,
+            timeout_seconds=timeout_seconds,
+        )
+        return _converter(resultado, _dependentes_nominais)
+
     async def get_cobertura(
         self,
         portable_subject_ref: str,
@@ -486,6 +546,30 @@ def _converter(resultado: PortResult[dict[str, Any]], montar: Any) -> PortResult
         return PortResult.ok(montar(resultado.value))
     except Exception:
         return PortResult.refused(Reason.CONTRACT_VIOLATION)
+
+
+def _dependentes_nominais(body: dict[str, Any]) -> DependentesNominaisView:
+    itens = tuple(
+        DependenteNominal(
+            ordem=d["ordem"],
+            relacao_dependencia=d.get("relacao_dependencia"),
+            nome_completo=d["nome_completo"],
+        )
+        for d in body["dependentes"]
+    )
+    ordens = [d.ordem for d in itens]
+    # A ordem do contrato e' 1..N sem buraco nem repeticao; nao titular nunca traz nome.
+    if ordens != list(range(1, len(itens) + 1)) or len(itens) > MAX_DEPENDENTES:
+        raise ValueError
+    if body["eh_titular"] is not True and itens:
+        raise ValueError
+    return DependentesNominaisView(
+        portable_subject_ref=body["portable_subject_ref"],
+        eh_titular=body["eh_titular"],
+        dependentes=itens,
+        lista_truncada=body["lista_truncada"],
+        fonte_atualizada_em=body["fonte_atualizada_em"],
+    )
 
 
 def _elegibilidade(body: dict[str, Any]) -> ElegibilidadeView:
@@ -637,17 +721,20 @@ __all__ = [
     "ARTIFACT",
     "ARTIFACT_CARTEIRINHA",
     "ARTIFACT_COBERTURA",
+    "ARTIFACT_DEPENDENTES_NOME",
     "ARTIFACT_DEPENDENTES",
     "HEADER_REQUEST_REF",
     "OPERATIONS",
     "OP_CARENCIAS",
     "OP_CARTEIRINHA",
     "OP_COBERTURA",
+    "OP_DEPENDENTES_NOME",
     "OP_DEPENDENTES",
     "OP_ELEGIBILIDADE",
     "OP_REQUISICOES",
     "PURPOSE_CARTEIRINHA",
     "PURPOSE_COBERTURA",
+    "PURPOSE_DEPENDENTES_NOME",
     "SERVER",
     "AmhTinaAdapter",
     "GovernedTinaExecutor",

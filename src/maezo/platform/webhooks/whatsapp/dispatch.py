@@ -471,6 +471,9 @@ class HelenaDispatcher:
     #: dev): elegibilidade e carteirinha so' com os vinculos ATIVOS, e a carteirinha com o numero completo do
     #: proprio verificado (texto fixo), quando a rota `tina-carteirinha` responde.
     helena_carteirinha_completa_enabled: bool = False
+    #: NOME COMPLETO DOS DEPENDENTES (decisao do dono e DPO de 19/10/2026, DL-0127, settings
+    #: `helena_dependentes_nome`). Default `False` = a Helena de antes byte a byte.
+    helena_dependentes_nome_enabled: bool = False
     #: BASE DE SAUDE (ADR-0064/DL-0118, settings `helena_base_saude` / `MAEZO_HELENA_BASE_SAUDE`). Default
     #: `False` = a Helena de antes byte a byte. Ligada (so' em dev): informa perguntas gerais de saude pela
     #: base curada, faz perguntas de alerta na dor sem alarme e encerra o caso P2/P3 a pedido, com
@@ -861,6 +864,8 @@ class HelenaDispatcher:
                 "helena_v4_enabled": self.helena_v4_enabled,
                 # Decisao do dono de 17/10/2026: vinculo ativo e carteirinha completa, so' com a flag.
                 "helena_carteirinha_completa_enabled": self.helena_carteirinha_completa_enabled,
+                # DL-0127: nome completo dos dependentes do proprio titular, so' com a flag.
+                "helena_dependentes_nome_enabled": self.helena_dependentes_nome_enabled,
                 # DL-0118: a base de conhecimento de saude (ADR-0064), so' com a flag.
                 "helena_base_saude_enabled": self.helena_base_saude_enabled,
                 # DL-0119: a saude gerativa (ADR-0065), so' com a chave; `None` = desligada (grafo de antes).
@@ -1075,6 +1080,7 @@ class HelenaDispatcher:
             triagem_v2_enabled=self.triagem_v2_enabled,
             helena_v4_enabled=self.helena_v4_enabled,
             helena_carteirinha_completa_enabled=self.helena_carteirinha_completa_enabled,
+            helena_dependentes_nome_enabled=self.helena_dependentes_nome_enabled,
             helena_base_saude_enabled=self.helena_base_saude_enabled,
         )
         estado: dict[str, Any] = {
@@ -1795,6 +1801,7 @@ class HelenaDispatcher:
             triagem_v2_enabled=self.triagem_v2_enabled,
             helena_v4_enabled=self.helena_v4_enabled,
             helena_carteirinha_completa_enabled=self.helena_carteirinha_completa_enabled,
+            helena_dependentes_nome_enabled=self.helena_dependentes_nome_enabled,
             helena_base_saude_enabled=self.helena_base_saude_enabled,
         )
         estado: dict[str, Any] = {
