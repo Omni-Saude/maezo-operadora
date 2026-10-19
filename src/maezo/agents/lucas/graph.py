@@ -931,12 +931,17 @@ GARANTIA_SEM_DECISAO: Final[str] = "Fique tranquilo: nenhuma decisão sobre o se
 #: anunciaria um encaminhamento que nao aconteceu agora. Constante, sem modelo: diz a verdade e nao
 #: promete prazo. Mesmo espirito de `RESPOSTA_HANDOFF_JA_ABERTO` da Helena; nao nomeia "cobranca"
 #: porque o caso aberto pode ser de saude.
+#: DL-0146 (decisao do dono, 19/10/2026): o atendente devolve o caso com UMA mensagem final (a retomada),
+#: entregue pelo Lucas — nenhum ACK promete que alguem "vai te responder por aqui"; promete o retorno ao fim
+#: da analise, sem prazo.
 ACK_ATENDIMENTO_JA_ABERTO: str = (
-    f"Sua dúvida já está com alguém da nossa equipe, que vai te responder por aqui. {GARANTIA_SEM_DECISAO}"
+    "Sua dúvida já está com alguém da nossa equipe. "
+    f"Assim que a equipe concluir a análise, te retorno por este canal. {GARANTIA_SEM_DECISAO}"
 )
 
 ACK_ESCALACAO_RECUSADO: str = (
-    f"Sua dúvida está com alguém da nossa equipe, que vai te responder por aqui. {GARANTIA_SEM_DECISAO}"
+    "Sua dúvida está com alguém da nossa equipe. "
+    f"Assim que a equipe concluir a análise, te retorno por este canal. {GARANTIA_SEM_DECISAO}"
 )
 
 # --- Textos FIXOS ao beneficiario decididos pelos FATOS (DL-0082, decisao do dono 08/10/2026) -----
@@ -954,14 +959,15 @@ ACK_ESCALACAO_RECUSADO: str = (
 #: roda com `process_started is True`.
 #: DL-0087 (10/10/2026): a redacao aprovada pelo dono, com a garantia na forma unica.
 ACK_ESCALACAO: Final[str] = (
-    "Vou passar sua dúvida para alguém da nossa equipe, que vai te responder por aqui. "
-    f"{GARANTIA_SEM_DECISAO}"
+    "Vou passar sua dúvida para alguém da nossa equipe. "
+    f"Assim que a equipe concluir a análise, te retorno por este canal. {GARANTIA_SEM_DECISAO}"
 )
 
 #: O ACK da escalacao por ATRASO (so' a regra de atraso da DMN): diz o FATO sem afirmar
 #: inadimplencia. O boleto e a data da fonte entram em volta deste miolo (`texto_ack_escalacao`).
 _ACK_ESCALACAO_ATRASO: Final[str] = (
-    f"Vou passar para alguém da nossa equipe, que vai te responder por aqui. {GARANTIA_SEM_DECISAO}"
+    "Vou passar para alguém da nossa equipe. "
+    f"Assim que a equipe concluir a análise, te retorno por este canal. {GARANTIA_SEM_DECISAO}"
 )
 
 #: Rodada 12 (14/10/2026): a fonte nao entregou fatos (indisponivel). Nao e' caso humano: a resposta honesta,
@@ -1003,12 +1009,12 @@ TEXTO_CANCELAMENTO_DESISTIU: Final[str] = (
 #: Depois da confirmacao e do start de SP-OP-CANCEL-001: o que acontece a seguir, em termos humanos. NUNCA
 #: diz que o plano foi cancelado — a decisao e' do processo e da equipe.
 TEXTO_CANCELAMENTO_ENCAMINHADO: Final[str] = (
-    "Anotei o seu pedido de cancelamento e passei para a nossa equipe, que vai te responder por aqui. "
-    f"{GARANTIA_SEM_DECISAO}"
+    "Anotei o seu pedido de cancelamento e passei para a nossa equipe. "
+    f"Assim que a equipe concluir a análise, te retorno por este canal. {GARANTIA_SEM_DECISAO}"
 )
 TEXTO_CANCELAMENTO_JA_REGISTRADO: Final[str] = (
-    "O seu pedido de cancelamento já está com a nossa equipe, que vai te responder por aqui. "
-    f"{GARANTIA_SEM_DECISAO}"
+    "O seu pedido de cancelamento já está com a nossa equipe. "
+    f"Assim que a equipe concluir a análise, te retorno por este canal. {GARANTIA_SEM_DECISAO}"
 )
 
 #: Prefixo do ACK quando a fonte NAO respondeu (`Indisponivel` -> fatos de conciliacao ausentes).

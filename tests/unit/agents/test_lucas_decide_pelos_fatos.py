@@ -146,8 +146,9 @@ async def test_atraso_critico_segue_a_escalacao_de_sempre_com_ack_fixo_sem_acusa
     assert list(final["dmn_refs"]) == ["lucas_billing_admissibility", "lucas_escalation_routing"]
     assert envio.textos == [
         "Vi aqui uma mensalidade ainda sem pagamento confirmado (boleto final 7869). Vou passar para alguém "
-        "da nossa equipe, que vai te responder por aqui. Fique tranquilo: nenhuma decisão sobre o seu plano "
-        "foi tomada. (dados de 28/07)"
+        "da nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal. "
+        "Fique tranquilo: nenhuma decisão "
+        "sobre o seu plano foi tomada. (dados de 28/07)"
     ]
     assert "*" not in envio.textos[0]
     assert "inadimpl" not in _sem_acento(envio.textos[0])
@@ -203,8 +204,10 @@ async def test_ack_de_cancelamento_e_o_texto_fixo_neutro() -> None:
 
 
 def test_o_ack_neutro_e_o_da_decisao_do_dono() -> None:
+    # DL-0146 (dono, 19/10/2026): o retorno da equipe ao fim da analise, sem prometer conversa.
     assert ACK_ESCALACAO == (
-        "Vou passar sua dúvida para alguém da nossa equipe, que vai te responder por aqui. "
+        "Vou passar sua dúvida para alguém da nossa equipe. "
+        "Assim que a equipe concluir a análise, te retorno por este canal. "
         "Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada."
     )
     assert "inadimpl" not in _sem_acento(ACK_ESCALACAO)
