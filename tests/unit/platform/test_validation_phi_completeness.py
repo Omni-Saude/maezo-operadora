@@ -1532,7 +1532,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-19",
-        pr="#0",
+        pr="#845",
         name="roteamento",
         name_delta=0,
         occurrence_delta=1,
@@ -1545,7 +1545,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
     ),
     CorpusDelta(
         date="2026-10-19",
-        pr="#0",
+        pr="#845",
         name="sla_resolucao",
         name_delta=0,
         occurrence_delta=1,
