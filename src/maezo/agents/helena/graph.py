@@ -7093,7 +7093,10 @@ class HelenaGraph:
         canal = motivo_de_canal_nao_confirmado(texto)
         if canal is not None:
             rotulos.append(str(canal[0]))
-        recusa = motivo_de_recusa(texto, "inform")
+        # ROTEIRO 19/10/2026 (PSA): a redacao de saude nunca abre caso, entao a cerca e' a do ENVIO
+        # (`start_aconteceu=False`): "o medico vai avaliar" reprova AQUI (e vai para a reescrita), em vez de
+        # passar e cair no texto generico de `respond` (`promessa_sem_start`).
+        recusa = motivo_de_recusa(texto, "inform", start_aconteceu=False)
         if recusa is not None:
             rotulos.append(str(recusa[0]))
         if _conduta_clinica(texto):
