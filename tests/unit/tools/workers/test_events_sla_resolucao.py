@@ -1,4 +1,4 @@
-"""DL-0131 — o estouro do PRAZO DE RESOLUCAO vira um fato contavel, sem identificador.
+"""DL-0140 — o estouro do PRAZO DE RESOLUCAO vira um fato contavel, sem identificador.
 
 `BT_SlaResolucao` nao passa por `notify_supervisor`: vai a `ST_PublishResolBreach`
 (`operadora.events.publish`, `event_topic=agents.events.escalation.sla_breached`,
