@@ -227,3 +227,18 @@ atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com f
 - **Redação:** preâmbulo de reescrita tirado; metatexto e "erro de medição" de pressão reprovam.
 - **Medir:** dossiê `scripts/dossie_seguranca_saude/` nas categorias gestante, saúde mental, criança e alarme.
 
+
+## 16. Continuidade da cobertura, "para quem" e nome do dependente (DL-0126, 19/10/2026)
+
+- **Continuidade:** depois de uma resposta de cobertura, "Mamografia", "e vasectomia?" ou "o nome certo é …"
+  seguem como cobertura e vão à consulta da AMH (por até 2 falas da Helena). "Não é sobre mensalidade" (negado)
+  nunca vai ao Lucas.
+- **Cobertura nunca pelo modelo:** a saúde gerativa reprova qualquer menção a cobertura (`fala_de_cobertura`); no
+  `inform`, rascunho que afirma cobertura vira o texto fixo (log `helena_afirmacao_de_cobertura_barrada`).
+- **Para quem:** com dependentes ativos, a Helena pergunta antes de consultar ("1) para você (titular); 2) para o
+  dependente 1 (filho ou filha)"). O sexo do titular não chega por contrato nenhum: sem esse dado, não supõe. Para
+  o dependente, a consulta usa o contrato do titular e avisa que a carência pode ser diferente (lacuna da v1.9).
+- **Nome completo do dependente:** autorizado pelo DPO (19/10/2026) para os dependentes do próprio contrato do
+  titular verificado, mas nenhum contrato publicado traz o nome: proposta à AMH no DL-0126. Até lá a cerca de
+  nomes continua e o dependente aparece como "dependente N (grau)".
+- **Desligar/desfazer:** revert do PR (só na allowlist da saúde gerativa).

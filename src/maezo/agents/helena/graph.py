@@ -208,7 +208,20 @@ from maezo.tools.workers.dmn_transport import (
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
 from .alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
-from .cobertura_rol import literais_da_cobertura, termo_da_mensagem, termo_valido, texto_da_cobertura
+from .cobertura_rol import (
+    AVISO_DO_DEPENDENTE,
+    INICIO_DA_PERGUNTA_PARA_QUEM,
+    PENDENTE_COBERTURA_PARA_QUEM,
+    PREFIXO_COBERTURA_QUEM,
+    QUEM_TITULAR,
+    literais_da_cobertura,
+    pergunta_para_quem,
+    quem_da_resposta,
+    termo_da_continuacao,
+    termo_da_mensagem,
+    termo_valido,
+    texto_da_cobertura,
+)
 from .consultas_plano import (
     ADENDO_CLASSIFY_CONSULTAS,
     CLASSIFY_CONSULTAS_ADENDO_VERSION,
@@ -223,6 +236,7 @@ from .consultas_plano import (
     FonteIndisponivel,
     consulta_prompt,
     fatos_da_consulta,
+    grau_legivel,
     ler_carteirinhas_completas,
     literais_dos_fatos,
     motivo_de_omissao_da_elegibilidade,
@@ -3483,6 +3497,14 @@ _PROMESSA_DE_REPASSE = re.compile(
     r"\b(?:vou|irei|vamos) (?:levar|passar|repassar|encaminhar|avisar|informar|registrar|anotar)\b"
     r"|\bja pedi\b|\bpedi (?:para|pra) (?:a |o )?(?:equipe|atendente|setor|pessoa)\b"
 )
+#: RODADA 19/10/2026: o rascunho do `inform` (modelo de redacao) nunca AFIRMA cobertura do plano — so' a
+#: consulta ao plano (AMH) responde cobertura. Texto que afirma e' trocado pelo texto fixo de cobertura.
+_AFIRMA_COBERTURA = re.compile(
+    r"(?<!\bque )\b(?:cobre|cobrem)\b"
+    r"|\b(?:tem cobertura|ha cobertura|possui cobertura|com cobertura|esta coberto|esta coberta"
+    r"|sao cobertos|sao cobertas|e coberto|e coberta|consta no rol|constam no rol|esta no rol"
+    r"|o plano (?:paga|custeia|inclui)|cobertura (?:e|esta) garantida)\b"
+)
 _APRESENTACAO_NO_INICIO = re.compile(
     r"^\s*(?:(?:oi|ola|olá)[!,.]?\s*)?sou (?:a )?helena\b[^.!?]*[.!?]\s*", re.I
 )
@@ -4040,8 +4062,25 @@ def _plano(texto: str) -> str:
     return _sem_pontuacao(_normalizar_texto(texto or ""))
 
 
+#: RODADA DO DONO (19/10/2026): "nao e' sobre mensalidade" NAO e' intencao de cobranca.
+_COBRANCA_NEGADA = re.compile(
+    r"\bnao (?:e|eh|era|foi|tem a ver com|quero saber (?:de|da|do)|estou falando (?:de|da|do))\b"
+    r"(?: (?:sobre|da|de|do|a|o|minha|meu))*\s*"
+    r"(?:mensalidades?|boletos?|cobrancas?|pagamentos?|faturas?|financeiro)\b"
+)
+
+
+def _cobertura_recente(estado: Mapping[str, Any]) -> bool:
+    """Uma das duas ultimas falas da Helena foi resposta de cobertura (marcador) ou a pergunta "para quem e'?"
+    (rodada do dono de 19/10/2026)."""
+    return any(
+        f.strip() == MARCADOR_RESPOSTA_DE_COBERTURA or f.startswith(INICIO_DA_PERGUNTA_PARA_QUEM)
+        for f in _falas_da_helena(estado)[-2:]
+    )
+
+
 def _pergunta_de_cobranca(texto: str) -> bool:
-    plano = _plano(texto)
+    plano = _COBRANCA_NEGADA.sub(" ", _plano(texto))
     if _PERGUNTA_DE_COBRANCA.search(plano):
         return True
     return bool(_RELATO_DO_LUCAS.search(plano) and _ASSUNTO_DO_RELATO.search(plano))
@@ -4899,6 +4938,20 @@ class HelenaGraph:
         pend_encerrar = self._base_saude and state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
         if pend_encerrar:
             update["coleta_pendente"] = None
+        if str(state.get("coleta_pendente") or "").startswith("BS_COBERTURA"):
+            # "Para quem e'?" (rodada do dono de 19/10/2026) sem a escolha neste turno: a pergunta vale so'
+            # uma vez.
+            update["coleta_pendente"] = None
+            update["coleta_contexto"] = ""
+        if (
+            intent == INTENT_COBRANCA
+            and _COBRANCA_NEGADA.search(_plano(str(state.get("message_body") or "")))
+            and not _pergunta_de_cobranca(str(state.get("message_body") or ""))
+        ):
+            # Rodada do dono (19/10/2026): "nao e' sobre mensalidade" NEGA a cobranca — nunca vai ao Lucas.
+            logger.info("helena_cobranca_negada_pelo_texto", node="classify")
+            intent = "information"
+            update["intent"] = intent
         if intent == INTENT_COBRANCA:
             # Onda (e): so' existe com o roteador ligado (o validador recusa `cobranca` desligado),
             # e os dois valores ja' passaram pelo dominio fechado de `_validate_extraction`.
@@ -6336,6 +6389,56 @@ class HelenaGraph:
     # traz
     #     sintoma nem risco por construcao; o modelo nao tem o que acrescentar.
 
+    def _continuidade_da_cobertura(
+        self, state: Mapping[str, Any], plano: str, texto: str
+    ) -> dict[str, Any] | None:
+        """RODADA DO DONO (19/10/2026), so' na allowlist: (a) a RESPOSTA a "para quem e'?" vai a consulta de
+        cobertura do escolhido; (b) depois de uma resposta de cobertura (nas duas ultimas falas da Helena), a
+        mensagem que e' so' o nome do procedimento ("Mamografia", "e vasectomia?") continua sendo cobertura —
+        vai a
+        consulta AMH, nunca ao Lucas nem a redacao. `None` = o caminho de sempre."""
+        if self._consultas is None or getattr(self._consultas, "consultar_cobertura", None) is None:
+            return None
+        pendente = state.get("coleta_pendente")
+        if pendente == PENDENTE_COBERTURA_PARA_QUEM:
+            contexto = str(state.get("coleta_contexto") or "")
+            termo_guardado, _, quantos_txt = contexto.rpartition("|")
+            quem = quem_da_resposta(texto, int(quantos_txt) if quantos_txt.isdigit() else 1)
+        else:
+            termo_guardado, quem = "", None
+        if quem is not None:
+            update = self._update_sem_modelo(state)
+            update.update(
+                {
+                    "intent": INTENT_CONSULTA_PLANO,
+                    "consulta_subtipo": "elegibilidade",
+                    "coleta_pendente": f"{PREFIXO_COBERTURA_QUEM}{quem}",
+                    "coleta_contexto": termo_guardado,
+                }
+            )
+            logger.info("helena_cobertura_para_quem_respondida", node="classify", quem=quem.split(":")[0])
+            return self._rota_de_consulta(update)
+        if _sinal_forte_de_emergencia(texto) or _sg.queixa_atual(plano):
+            return None
+        if (
+            _COBRANCA_NEGADA.search(plano)
+            and _pergunta_de_cobertura(texto)
+            and not _pergunta_de_cobranca(texto)
+        ):
+            # "Nao, a minha duvida nao e' sobre mensalidade, e' se o plano cobre mamografia": cobertura,
+            # nunca o Lucas (nem o classificador, que via "mensalidade").
+            update_neg = self._update_sem_modelo(state)
+            update_neg.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
+            logger.info("helena_cobertura_com_cobranca_negada", node="classify")
+            return self._rota_de_consulta(update_neg)
+        continua = _pergunta_de_cobertura(texto) or termo_da_continuacao(texto)
+        if not _cobertura_recente(state) or not continua:
+            return None
+        update = self._update_sem_modelo(state)
+        update.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
+        logger.info("helena_cobertura_continua", node="classify")
+        return self._rota_de_consulta(update)
+
     @staticmethod
     def _update_sem_modelo(state: Mapping[str, Any], populacao: str = "none") -> dict[str, Any]:
         update: dict[str, Any] = {
@@ -6379,6 +6482,9 @@ class HelenaGraph:
             return _rota_informativa(update)
         if not self._gerativa_para(state):
             return None
+        cobertura = self._continuidade_da_cobertura(state, plano, texto)
+        if cobertura is not None:
+            return cobertura
         pendente = state.get("coleta_pendente")
         if self._base_saude and pendente == PENDENTE_ENCERRAR_CASO:
             if not (_RESPOSTA_SIM.match(plano) or _RESPOSTA_NAO.match(plano)):
@@ -7649,6 +7755,11 @@ class HelenaGraph:
                     RESPOSTA_O_QUE_SEI_DE_VOCE if self._roteador_lucas_enabled else RESPOSTA_PLANO_POR_CANAIS
                 )
                 return {"response_text": substituto_d7, "response_kind": "inform"}
+            if _AFIRMA_COBERTURA.search(_plano(text)):
+                # RODADA 19/10/2026: o rascunho afirmou cobertura (ex.: "tem cobertura", "o plano cobre") —
+                # so' a consulta ao plano responde isso. Texto fixo no lugar.
+                logger.warning("helena_afirmacao_de_cobertura_barrada", node="inform")
+                return {"response_text": RESPOSTA_COBERTURA_ESPECIFICA, "response_kind": "inform"}
             if _PROMESSA_DE_REPASSE.search(_plano(text)):
                 # RODADA 6: "Vou levar isso para a equipe financeira" — promessa que a Helena nao cumpre
                 # (ela nao repassa nada). Trocada como uma recusa de saida (o substituto depende do caso).
@@ -7826,7 +7937,15 @@ class HelenaGraph:
             )
             return fixo
         mensagem_do_turno = str(state.get("message_body") or "")
-        if _pergunta_de_cobertura(mensagem_do_turno):
+        if (
+            _pergunta_de_cobertura(mensagem_do_turno)
+            or str(state.get("coleta_pendente") or "").startswith(PREFIXO_COBERTURA_QUEM)
+            or (
+                self._gerativa_para(state)
+                and termo_da_continuacao(mensagem_do_turno)
+                and _cobertura_recente(state)
+            )
+        ):
             # FASE 3.5 (decisao D1 do dono, 18/10/2026), so' na allowlist: o procedimento consta no Rol da ANS
             # para a segmentacao do plano? Fatos do contrato TINA cobertura (v1.9), texto deterministico com o
             # aviso. `None` = sem termo, sem a rota ou falha: o caminho de antes (segmentacao + onde
@@ -7986,10 +8105,33 @@ class HelenaGraph:
         if leitor is None or not self._gerativa_para(state):
             return None
         texto = str(state.get("message_body") or "")
-        termo = await self._termo_do_procedimento(state, texto)
+        pendente = str(state.get("coleta_pendente") or "")
+        quem = (
+            pendente[len(PREFIXO_COBERTURA_QUEM) :] if pendente.startswith(PREFIXO_COBERTURA_QUEM) else None
+        )
+        if quem is not None:
+            termo = termo_valido(str(state.get("coleta_contexto") or ""))
+        elif _pergunta_de_cobertura(texto):
+            termo = await self._termo_do_procedimento(state, texto)
+        else:
+            # Continuacao ("Mamografia convencional bilateral", "e vasectomia?"): o proprio texto e' o termo.
+            termo = termo_da_continuacao(texto) or await self._termo_do_procedimento(state, texto)
         if termo is None:
             logger.info("helena_cobertura_rol", node="consultar_plano", resultado="sem_termo")
             return None
+        if quem is None:
+            graus = await self._graus_dos_dependentes(ref)
+            if graus:
+                # PARA QUEM (rodada do dono de 19/10/2026): com dependentes, pergunta antes de consultar.
+                logger.info(
+                    "helena_cobertura_pergunta_para_quem", node="consultar_plano", dependentes=len(graus)
+                )
+                return {
+                    "response_text": pergunta_para_quem(graus),
+                    "response_kind": "inform",
+                    "coleta_pendente": PENDENTE_COBERTURA_PARA_QUEM,
+                    "coleta_contexto": f"{termo}|{len(graus)}",
+                }
         try:
             async with asyncio.timeout(COBERTURA_PRAZO_S):
                 view = await leitor(ref, termo)
@@ -8001,6 +8143,11 @@ class HelenaGraph:
             logger.info("helena_cobertura_rol", node="consultar_plano", resultado="indisponivel")
             return None
         resposta = texto_da_cobertura(view)
+        if quem is not None and quem != QUEM_TITULAR:
+            # O contrato v1.9 so' aceita o sujeito VERIFICADO (o titular): a consulta e' a do contrato, e a
+            # carencia
+            # do dependente fica para a central (lacuna registrada no DL-0126).
+            resposta = f"{resposta} {AVISO_DO_DEPENDENTE}"
         logger.info(
             "helena_cobertura_rol",
             node="consultar_plano",
@@ -8013,7 +8160,27 @@ class HelenaGraph:
             "response_kind": "inform",
             "consulta_literais": literais_da_cobertura(view),
             "resposta_com_dados_do_plano": True,
+            "coleta_pendente": None,
+            "coleta_contexto": "",
+            "coleta_rodadas": 0,
         }
+
+    async def _graus_dos_dependentes(self, ref: str) -> list[str]:
+        """Os graus dos dependentes ATIVOS do titular (um por dependente, pelo contrato anonimo), ou `[]`."""
+        view = await self._ler_consulta(ref, "dependentes")
+        if view is None or isinstance(view, FonteIndisponivel):
+            return []
+        fatos = fatos_da_consulta(
+            "dependentes", view, so_ativos=self._carteirinha_completa, hoje=self._hoje_dos_vinculos()
+        )
+        if not fatos or fatos.get("eh_titular") is not True:
+            return []
+        graus: list[str] = []
+        for r in fatos.get("relacoes") or []:
+            quantidade = r.get("quantidade")
+            vezes = quantidade if isinstance(quantidade, int) and quantidade > 0 else 0
+            graus.extend([grau_legivel(str(r.get("relacao") or "")) or "sem grau informado"] * vezes)
+        return graus[:9]
 
     def _hoje_dos_vinculos(self) -> date | None:
         """O dia (Brasilia) da regra de vinculo ativo, so' com a chave da carteirinha completa (`None` sem
@@ -8691,7 +8858,7 @@ class HelenaGraph:
             # reconhecida sem confundir com qualquer outra resposta que mostrou dados do plano.
             resposta = (
                 MARCADOR_RESPOSTA_DE_COBERTURA
-                if RESPOSTA_COBERTURA_ESPECIFICA[:50] in resposta
+                if RESPOSTA_COBERTURA_ESPECIFICA[:50] in resposta or "cobertura final depende" in resposta
                 else MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
             )
         return {
