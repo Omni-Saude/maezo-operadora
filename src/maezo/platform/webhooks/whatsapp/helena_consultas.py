@@ -42,11 +42,13 @@ from maezo.ports.tina import (
     CarenciasView,
     CarteirinhasView,
     CoberturaView,
+    DependentesNominaisView,
     DependentesView,
     ElegibilidadeView,
     RequisicoesView,
     TinaCarteirinhaPort,
     TinaCoberturaPort,
+    TinaDependentesNomePort,
     TinaDependentesPort,
     TinaPort,
 )
@@ -277,6 +279,52 @@ class ConsultasPlanoAmh:
             "helena_cobertura_lida",
             motivo=motivo,
             itens=len(view.itens) if view is not None else 0,
+        )
+        return view
+
+    async def consultar_dependentes_nominais(
+        self, portable_subject_ref: str, request_ref: str
+    ) -> DependentesNominaisView | None:
+        """Os dependentes ATIVOS do proprio titular COM o nome completo (rota `tina-dependentes-nome`,
+        manifest
+        v1.13; decisao do dono e DPO de 19/10/2026, DL-0127), ou `None`. NUNCA levanta.
+
+        `None` = a rota nao esta' carregada, 404, qualquer outra recusa, prazo, ou resposta de OUTRO sujeito.
+        Nenhum nome vai a log: so' o motivo e quantos itens vieram."""
+        motivo = "ok"
+        view: DependentesNominaisView | None = None
+        try:
+            async with asyncio.timeout(PRAZO_TOTAL_S):
+                if not isinstance(self.port, TinaDependentesNomePort):
+                    motivo = "rota_nao_carregada"
+                else:
+                    base_legal = await self.consentimento.decisao(portable_subject_ref, PURPOSE_CARTEIRINHA)
+                    if base_legal is None:
+                        motivo = "sem_base_legal"
+                    else:
+                        resultado = await self.port.get_dependentes_nominais(
+                            portable_subject_ref,
+                            purpose_of_use=PURPOSE_CARTEIRINHA,
+                            consent_decision_ref=base_legal,
+                            request_ref=request_ref,
+                            timeout_seconds=PRAZO_LEITURA_S,
+                        )
+                        if not resultado.succeeded or resultado.value is None:
+                            falha = resultado.failure
+                            motivo = falha.reason.value if falha is not None else "recusa"
+                        elif getattr(resultado.value, "portable_subject_ref", None) != portable_subject_ref:
+                            motivo = "fatos_de_outro_sujeito"
+                        else:
+                            view = resultado.value
+        except TimeoutError:
+            motivo = "prazo_estourado"
+        except Exception as exc:
+            logger.warning("helena_dependentes_nome_falhou", error_type=type(exc).__name__)
+            return None
+        logger.info(
+            "helena_dependentes_nome_lidos",
+            motivo=motivo,
+            itens=len(view.dependentes) if view is not None else 0,
         )
         return view
 

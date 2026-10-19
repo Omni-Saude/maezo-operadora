@@ -244,7 +244,7 @@ class LucasRetomada:
         Texto FIXO de `cancelamento_pf.texto_do_retorno` (aprovado pelo dono para dev em 15/10/2026; revisao
         juridica antes de producao) — nenhum texto de atendente, nenhum modelo. O `ResumeHandler` ja' conferiu
         no HISTORICO do motor que o fato aconteceu (EXECUTADO com data de efeito, SOLICITAR_INFO, MANTER):
-        por isso "Seu plano foi cancelado a partir de ..." pode sair aqui, e so' aqui — as cercas do grafo
+        por isso "O plano está cancelado a partir de ..." pode sair aqui, e so' aqui — as cercas do grafo
         (que barram essa frase em qualquer rota do Lucas) nao se aplicam a um fato registrado por humano.
 
         Mesmo destino conferido e mesmo gate do principal `lucas` da `resume`. Chave de saida propria

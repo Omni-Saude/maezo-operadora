@@ -436,6 +436,14 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_card_number",
     ),
+    # NOMES dos dependentes do PROPRIO titular verificado (decisao do dono e DPO de 19/10/2026, DL-0127, so'
+    # dev; manifest aditivo v1.13; executor `AmhTinaDependentesNomeExecutor`). Acao PROPRIA
+    # (`read_member_dependent_names`, L3) para a governanca poder desliga-la sem tocar os fatos do plano.
+    OperationSpec(
+        operation="amh.tina_get_dependentes_nome",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_dependent_names",
+    ),
     # -- Acesso do beneficiario (DL-0083, 08/10/2026; manifest aditivo v1.3, DRAFT; executores em
     # `gateway/amh_interop.py`). A CONFERENCIA tem a mesma classe e postura das leituras acima (C2,
     # `tool_id=None`): so' manda o HASH do fator (nunca CPF/nascimento) contra uma referencia candidata e a

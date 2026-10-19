@@ -150,10 +150,12 @@ from maezo.adapters.amh.tina import (
     OP_CARTEIRINHA,
     OP_COBERTURA,
     OP_DEPENDENTES,
+    OP_DEPENDENTES_NOME,
     OP_ELEGIBILIDADE,
     OP_REQUISICOES,
     PURPOSE_CARTEIRINHA,
     PURPOSE_COBERTURA,
+    PURPOSE_DEPENDENTES_NOME,
     AmhTinaAdapter,
     GovernedTinaExecutor,
     GovernedTinaRequest,
@@ -187,6 +189,9 @@ SCOPE_TINA: Final[str] = "interop/tina.read"
 #: Escopo PROPRIO da carteirinha completa (manifest v1.12): `interop/tina.read` NAO basta. Pedido SO' com
 #: `MAEZO_HELENA_CARTEIRINHA_COMPLETA` ligada (o Cognito recusa o token INTEIRO se o client nao o tiver).
 SCOPE_TINA_CARTEIRINHA: Final[str] = "interop/tina.carteirinha"
+#: Escopo PROPRIO dos NOMES dos dependentes do proprio titular (manifest v1.13; decisao do dono e DPO de
+#: 19/10/2026, DL-0127). Pedido SO' com `MAEZO_HELENA_DEPENDENTES_NOME` ligada.
+SCOPE_TINA_DEPENDENTES_NOME: Final[str] = "interop/tina.dependentes_nome"
 #: Esquema do hash de VERIFICACAO do acesso do beneficiario (DL-0083). Nome do contrato da AMH.
 HASH_SCHEME_VERIFICACAO: Final[str] = "amh-subject-verify-v1"
 #: Escopos do acesso do beneficiario (DL-0083): verificacao por fator e registro de consentimento.
@@ -207,6 +212,7 @@ SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_DEPENDENTES: SCOPE_TINA,
     OP_CARTEIRINHA: SCOPE_TINA_CARTEIRINHA,
     OP_COBERTURA: SCOPE_TINA,
+    OP_DEPENDENTES_NOME: SCOPE_TINA_DEPENDENTES_NOME,
     OP_VERIFY: SCOPE_VERIFY,
     OP_RECORD: SCOPE_CONSENT_WRITE,
     OP_RESOLVE_DOCUMENT: SCOPE_RESOLVE_DOCUMENT,
@@ -245,6 +251,7 @@ _TINA_SUFFIX: Final[dict[str, str]] = {
     OP_DEPENDENTES: "/dependentes",
     OP_CARTEIRINHA: "/carteirinha",
     OP_COBERTURA: "/cobertura",
+    OP_DEPENDENTES_NOME: "/dependentes/nomes",
 }
 #: Query permitida por operacao TINA (`purpose_of_use` sempre obrigatorio e igual ao da composicao).
 _TINA_QUERY: Final[dict[str, frozenset[str]]] = {
@@ -254,6 +261,7 @@ _TINA_QUERY: Final[dict[str, frozenset[str]]] = {
     OP_DEPENDENTES: frozenset({"purpose_of_use"}),
     OP_CARTEIRINHA: frozenset({"purpose_of_use"}),
     OP_COBERTURA: frozenset({"purpose_of_use", "procedimento", "limite"}),
+    OP_DEPENDENTES_NOME: frozenset({"purpose_of_use"}),
 }
 #: `procedimento` da cobertura: codigo (so' digitos, 1 a 10) OU termo (3 a 80; letras, numeros e espaco).
 #: O MESMO padrao do parametro do contrato `tina-cobertura`, conferido de novo aqui.
@@ -1100,23 +1108,28 @@ class AmhTinaCarteirinhaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
     """
 
     registered_operations = frozenset({OP_CARTEIRINHA})
+    #: A operacao, a finalidade e o escopo PROPRIOS da rota (a subclasse dos nomes dos dependentes troca os
+    #: tres).
+    _OPERACAO: str = OP_CARTEIRINHA
+    _FINALIDADE: str = PURPOSE_CARTEIRINHA
+    _ESCOPO: str = SCOPE_TINA_CARTEIRINHA
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        if self._purpose != PURPOSE_CARTEIRINHA or SCOPE_TINA_CARTEIRINHA not in self._tokens.scopes:
+        if self._purpose != self._FINALIDADE or self._ESCOPO not in self._tokens.scopes:
             raise AmhInteropCompositionError()
 
     def _validar(self, request: GovernedTinaRequest) -> None:
         if (
             type(request) is not GovernedTinaRequest
             or request.method != "GET"
-            or request.operation != OP_CARTEIRINHA
+            or request.operation != self._OPERACAO
             or type(request.request_ref) is not str
             or not _REQUEST_REF.fullmatch(request.request_ref)
         ):
             raise ValueError
-        self._sujeito(request.path, _TINA_PREFIX, _TINA_SUFFIX[OP_CARTEIRINHA])
-        self._query(request.query, _TINA_QUERY[OP_CARTEIRINHA])
+        self._sujeito(request.path, _TINA_PREFIX, _TINA_SUFFIX[self._OPERACAO])
+        self._query(request.query, _TINA_QUERY[self._OPERACAO])
         ref = request.consent_decision_ref
         if type(ref) is not str or not ref.strip() or len(ref) > 4096:
             raise ValueError
@@ -1145,6 +1158,21 @@ class AmhTinaCarteirinhaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
             )
         status, raw = resultado.value
         return PortResult.ok(GovernedTinaResponse(status, raw))
+
+
+class AmhTinaDependentesNomeExecutor(AmhTinaCarteirinhaExecutor):
+    """`GovernedTinaExecutor` real dos NOMES dos dependentes do proprio titular verificado (decisao do dono e
+    DPO de 19/10/2026, DL-0127, so' dev; manifest v1.13).
+
+    As MESMAS protecoes da carteirinha completa (finalidade FIXA `atendimento_whatsapp`, `X-Amh-Request-Ref`
+    OPACO obrigatorio, resposta 200 sem `no-store` recusada, corpo so' em `GovernedTinaResponse`), com a
+    operacao `amh.tina_get_dependentes_nome` e o escopo PROPRIO `interop/tina.dependentes_nome`.
+    """
+
+    registered_operations = frozenset({OP_DEPENDENTES_NOME})
+    _OPERACAO = OP_DEPENDENTES_NOME
+    _FINALIDADE = PURPOSE_DEPENDENTES_NOME
+    _ESCOPO = SCOPE_TINA_DEPENDENTES_NOME
 
 
 class AmhSubjectVerificationExecutor(_ExecutorInteropAmh, GovernedSubjectVerificationExecutor):
@@ -1544,6 +1572,7 @@ __all__ = [
     "AmhPhoneLookupHasher",
     "AmhSubjectResolutionExecutor",
     "AmhTinaCarteirinhaExecutor",
+    "AmhTinaDependentesNomeExecutor",
     "AmhTinaCoberturaExecutor",
     "AmhTinaExecutor",
     "AmhV4Executor",
@@ -1552,6 +1581,7 @@ __all__ = [
     "SCOPE_SEGUNDA_VIA",
     "SCOPE_TINA",
     "SCOPE_TINA_CARTEIRINHA",
+    "SCOPE_TINA_DEPENDENTES_NOME",
     "CognitoClientCredentials",
     "InteropAuditSink",
     "conferir_artefatos_v4",
