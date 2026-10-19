@@ -239,6 +239,16 @@ V1_12_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina-c
 # Run de publicacao do v1.11 (piso): o v1.12 so' pode ser posterior a ele.
 V1_12_MIN_PUBLICATION_RUN_ID: Final[int] = 38866403032
 
+# --- Manifest ADITIVO v1.13 (tina-dependentes-nome; decisao do dono e DPO de 19/10/2026, DL-0127; so OpenAPI)
+# ---
+V1_13_LOCK_KEY: Final[str] = "manifest_v1_13"
+V1_13_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.13/contract-manifest.yaml"
+V1_13_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
+    "schemas/openapi/maezo/v1/tina-dependentes-nome.openapi.yaml",
+)
+# Run de publicacao do v1.12 (piso): o v1.13 so' pode ser posterior a ele.
+V1_13_MIN_PUBLICATION_RUN_ID: Final[int] = 39041030170
+
 FROZEN_GLUE_SCHEMA_KEYS: Final[tuple[str, ...]] = (
     "amh_maezo_work_item",
     "amh_maezo_consent",
@@ -497,6 +507,8 @@ class AmhContractPin:
     manifest_v1_11_digest: str | None = None
     # Digest do manifest v1.12 (tina-carteirinha), None sem o bloco.
     manifest_v1_12_digest: str | None = None
+    # Digest do manifest v1.13 (tina-dependentes-nome), None sem o bloco.
+    manifest_v1_13_digest: str | None = None
 
     @property
     def canonical_schema_major(self) -> int:
@@ -1198,6 +1210,19 @@ def _check_manifest_v1_12(violations: list[str], raw: object) -> dict[str, str]:
     )
 
 
+def _check_manifest_v1_13(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.13 (tina-dependentes-nome)."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_13_LOCK_KEY,
+        manifest_path=V1_13_MANIFEST_PATH,
+        artifact_paths=V1_13_ARTIFACT_PATHS,
+        min_run_id=V1_13_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
 def _check_additive_manifest(
     violations: list[str],
     raw: object,
@@ -1336,6 +1361,7 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
     artifacts_v1_10 = _check_manifest_v1_10(violations, raw)
     artifacts_v1_11 = _check_manifest_v1_11(violations, raw)
     artifacts_v1_12 = _check_manifest_v1_12(violations, raw)
+    artifacts_v1_13 = _check_manifest_v1_13(violations, raw)
 
     if violations:
         raise AmhContractPinError(violations)
@@ -1372,6 +1398,7 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
                 **artifacts_v1_10,
                 **artifacts_v1_11,
                 **artifacts_v1_12,
+                **artifacts_v1_13,
             }
         ),
         fixture_digests=MappingProxyType(fixtures),
@@ -1388,6 +1415,7 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
         manifest_v1_10_digest=raw[V1_10_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_10 else None,
         manifest_v1_11_digest=raw[V1_11_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_11 else None,
         manifest_v1_12_digest=raw[V1_12_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_12 else None,
+        manifest_v1_13_digest=raw[V1_13_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_13 else None,
     )
 
 
@@ -1458,6 +1486,10 @@ __all__ = [
     "V1_12_LOCK_KEY",
     "V1_12_MANIFEST_PATH",
     "V1_12_MIN_PUBLICATION_RUN_ID",
+    "V1_13_ARTIFACT_PATHS",
+    "V1_13_LOCK_KEY",
+    "V1_13_MANIFEST_PATH",
+    "V1_13_MIN_PUBLICATION_RUN_ID",
     "AmhAdapterError",
     "AmhContractPin",
     "AmhContractPinError",

@@ -187,11 +187,16 @@ _RESPOSTA_DEPENDENTE: Final[re.Pattern[str]] = re.compile(
 INICIO_DA_PERGUNTA_PARA_QUEM: Final[str] = "Antes de eu consultar: é para quem?"
 
 
-def pergunta_para_quem(graus: list[str]) -> str:
-    """A pergunta "para quem e'?" com cada dependente pelo grau (o contrato nao traz nome)."""
+def pergunta_para_quem(graus: list[str], *, com_nome: bool = False) -> str:
+    """A pergunta "para quem e'?" com cada dependente pelo grau. `com_nome=True` (DL-0127: nomes do contrato
+    `tina-dependentes-nome` no turno) leva o MARCADOR do nome no lugar de "o dependente N" — o nome so' entra
+    no envio."""
+    from maezo.agents.helena.consultas_plano import marcador_do_dependente
+
     opcoes = ["1) para você (titular)"]
     for i, grau in enumerate(graus, start=1):
-        opcoes.append(f"{i + 1}) para o dependente {i} ({grau})")
+        quem = marcador_do_dependente(i) if com_nome else f"o dependente {i}"
+        opcoes.append(f"{i + 1}) para {quem} ({grau})")
     return f"{INICIO_DA_PERGUNTA_PARA_QUEM} Responda " + "; ".join(opcoes) + "."
 
 

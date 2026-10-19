@@ -57,10 +57,15 @@ locals {
   # entra no pedido de token e o caminho do OpenAPI `tina-carteirinha` entra na env. O Cognito recusa o token
   # INTEIRO se o client `maezo-operadora-interop` nao tiver o escopo: a AMH tem de concede-lo ANTES de ligar.
   amh_tina_carteirinha_ligada = var.helena_consultas_amh && var.helena_carteirinha_completa && var.amh_tina_carteirinha_openapi_path != ""
+  # Nomes dos dependentes do proprio titular (decisao do dono e DPO de 19/10/2026, DL-0127, so' dev; manifest
+  # v1.13): como a carteirinha completa, com o escopo PROPRIO `interop/tina.dependentes_nome` (a AMH concede ao
+  # client `maezo-operadora-interop` ANTES de ligar, senao o Cognito recusa o token INTEIRO).
+  amh_tina_dependentes_nome_ligada = var.helena_consultas_amh && var.helena_dependentes_nome && var.amh_tina_dependentes_nome_openapi_path != ""
   amh_interop_scopes_efetivos = join(" ", concat(
     [var.amh_interop_scopes],
     var.helena_consultas_amh ? ["interop/tina.read"] : [],
     local.amh_tina_carteirinha_ligada ? ["interop/tina.carteirinha"] : [],
+    local.amh_tina_dependentes_nome_ligada ? ["interop/tina.dependentes_nome"] : [],
     var.acesso_beneficiario ? ["interop/subject.verify", "interop/consent.write"] : [],
   ))
   # Cobertura por procedimento (decisao do dono D1 de 18/10/2026; manifest v1.9): a env SO' com o caminho nao
@@ -70,6 +75,8 @@ locals {
     { name = "MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH", value = var.amh_tina_dependentes_openapi_path },
     ], local.amh_tina_carteirinha_ligada ? [
     { name = "MAEZO_AMH_TINA_CARTEIRINHA_OPENAPI_PATH", value = var.amh_tina_carteirinha_openapi_path },
+    ] : [], local.amh_tina_dependentes_nome_ligada ? [
+    { name = "MAEZO_AMH_TINA_DEPENDENTES_NOME_OPENAPI_PATH", value = var.amh_tina_dependentes_nome_openapi_path },
     ] : [], var.amh_tina_cobertura_openapi_path != "" ? [
     { name = "MAEZO_AMH_TINA_COBERTURA_OPENAPI_PATH", value = var.amh_tina_cobertura_openapi_path },
   ] : []) : []

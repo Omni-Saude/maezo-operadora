@@ -339,6 +339,9 @@ def _build_dispatcher(
         # Vinculo ativo e carteirinha completa (dono, 17/10/2026): `MAEZO_HELENA_CARTEIRINHA_COMPLETA`,
         # default `false` (so' dev).
         helena_carteirinha_completa_enabled=settings.helena_carteirinha_completa,
+        # Nome completo dos dependentes (dono e DPO, 19/10/2026, DL-0127): `MAEZO_HELENA_DEPENDENTES_NOME`,
+        # default `false` (so' dev).
+        helena_dependentes_nome_enabled=settings.helena_dependentes_nome,
         # BASE DE SAUDE (DL-0118, ADR-0064): `MAEZO_HELENA_BASE_SAUDE`, default `false` (so' dev).
         helena_base_saude_enabled=settings.helena_base_saude,
         # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
@@ -562,6 +565,16 @@ def _carteirinha_completa_configurada(settings: WhatsAppWebhookSettings) -> bool
     )
 
 
+def _dependentes_nome_configurado(settings: WhatsAppWebhookSettings) -> bool:
+    """A rota dos nomes dos dependentes entra na composicao da Helena? So' com as consultas do plano, a chave
+    `MAEZO_HELENA_DEPENDENTES_NOME` e o caminho do OpenAPI `tina-dependentes-nome` presentes."""
+    return (
+        settings.helena_consultas_amh is True
+        and settings.helena_dependentes_nome is True
+        and bool(getattr(settings, "amh_tina_dependentes_nome_openapi_path", None))
+    )
+
+
 def _lucas_v4_configurado(settings: WhatsAppWebhookSettings) -> bool:
     """A chave do Lucas v4 esta' ligada e ALGUMA peca do executor v4 foi configurada (caminho dos OpenAPI ou
     cliente da
@@ -739,6 +752,8 @@ def _build_helena_amh(
         # recusa
         # servir); sem o caminho, a Helena so' filtra os vinculos ativos e a carteirinha sai mascarada.
         incluir_tina_carteirinha=_carteirinha_completa_configurada(settings),
+        # Nomes dos dependentes (dono e DPO, 19/10/2026, DL-0127, so' dev): como a carteirinha completa.
+        incluir_tina_dependentes_nome=_dependentes_nome_configurado(settings),
     )
     consultas: ConsultasPlanoAmh | None = None
     if consultas_ligadas:

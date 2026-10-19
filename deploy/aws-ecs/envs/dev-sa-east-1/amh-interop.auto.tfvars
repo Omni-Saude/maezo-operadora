@@ -54,6 +54,11 @@ helena_v4 = true
 // beneficiario verificado (rota `tina-carteirinha`, manifest v1.12, escopo `interop/tina.carteirinha`). Exige o
 // bloco `manifest_v1_12` no pin (sem ele o receptor recusa servir). Voltar: false.
 helena_carteirinha_completa = true
+// Nome completo dos dependentes na Helena (decisao do dono e DPO de 19/10/2026, DL-0127, "modelo de teste"
+// reversivel, so' dev): a lista de dependentes e o "para quem e'?" da cobertura com o nome completo de cada
+// dependente do PROPRIO titular verificado (rota `tina-dependentes-nome`, manifest v1.13, escopo
+// `interop/tina.dependentes_nome`). Exige o bloco `manifest_v1_13` no pin. Voltar: false.
+helena_dependentes_nome = true
 // Cobertura por procedimento na Helena (decisao do dono D1 de 18/10/2026): a Helena diz se o procedimento consta
 // no Rol para a segmentacao do plano (rota `tina-cobertura`, manifest v1.9, escopo `interop/tina.read`). Voltar: "".
 amh_tina_cobertura_openapi_path = "/app/config/integrations/amh/openapi/tina-cobertura.openapi.yaml"
