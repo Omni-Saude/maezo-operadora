@@ -91,9 +91,12 @@ TEXTO_PEDIDO_NAO_REGISTRADO: Final[str] = (
     "Tudo bem, não registrei nenhum pedido de cancelamento. Se mudar de ideia, é só me avisar."
 )
 #: Retorno: a pessoa do cadastro concluiu "cancelamento executado no sistema" (historico conferido).
+#: Texto aprovado pelo dono em 19/10/2026 (cancel-pf-v2). A frase dos valores pendentes depende de REVISAO
+#: JURIDICA antes de producao (runbook cancel-001-pf.md).
 TEXTO_CANCELADO: Final[str] = (
-    "Seu plano foi cancelado a partir de {data}. Protocolo: {protocolo}. "
-    "Se precisar de algo, é só responder esta mensagem."
+    "Seu pedido de cancelamento foi concluído. O plano está cancelado a partir de {data} "
+    "(protocolo {protocolo}). Se houver mensalidade ou coparticipação pendente, ela continua devida. "
+    "Se precisar de algo, é só responder aqui."
 )
 #: Retorno: a equipe pediu mais informacao (o caso segue aberto).
 TEXTO_INFO_SOLICITADA: Final[str] = (
@@ -107,7 +110,7 @@ TEXTO_MANTIDO: Final[str] = (
 )
 
 #: Versao dos textos acima (auditoria; sobe a cada mudanca de redacao).
-TEXTOS_CANCEL_PF_VERSAO: Final[str] = "cancel-pf-v1"
+TEXTOS_CANCEL_PF_VERSAO: Final[str] = "cancel-pf-v2"
 
 
 def data_br(iso: object) -> str | None:
