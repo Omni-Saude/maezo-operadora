@@ -1,4 +1,4 @@
-"""DL-0116 (frente C do SP-OP-ESCALATION-001), parte (b): so' o caso CONFIRMADO no motor e' afirmado.
+"""DL-0130 (frente C do SP-OP-ESCALATION-001), parte (b): so' o caso CONFIRMADO no motor e' afirmado.
 
 Os quatro pontos que AFIRMAM caso aberto ao beneficiario — a despedida, a navegacao, a resposta substituta
 do `inform` recusado e o sinal `caso_aberto` do prompt — leem `_caso_aberto_afirmavel` (o

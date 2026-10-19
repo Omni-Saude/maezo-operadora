@@ -1,4 +1,4 @@
-"""DL-0116 (frente C do SP-OP-ESCALATION-001): o caso aberto que a Helena pode AFIRMAR vem do MOTOR.
+"""DL-0130 (frente C do SP-OP-ESCALATION-001): o caso aberto que a Helena pode AFIRMAR vem do MOTOR.
 
 O defeito: "seu atendimento continua com a equipe" saia para quem ja' teve o caso ENCERRADO pelo atendente,
 porque a Helena so' olhava as ultimas trocas do historico curto (`_caso_aberto_no_historico`). Agora

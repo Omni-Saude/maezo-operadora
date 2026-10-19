@@ -324,7 +324,7 @@ alem do desfecho:
 Em ambos os casos a regra e a mesma e nao e negociavel: **nao se promete ao beneficiario um
 humano que nao foi acionado.**
 
-### Leitura do estado do caso pelo agente (DL-0116, 2026-10-16)
+### Leitura do estado do caso pelo agente (DL-0130, 2026-10-16)
 
 O agente so' AFIRMA ao beneficiario que ha' um caso aberto ("seu atendimento continua com a equipe")
 quando o MOTOR confirma uma instancia ATIVA deste processo numa chave desta conversa

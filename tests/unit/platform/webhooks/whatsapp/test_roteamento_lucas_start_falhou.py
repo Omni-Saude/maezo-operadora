@@ -1,4 +1,4 @@
-"""DL-0116 (frente C do SP-OP-ESCALATION-001): start falho do Lucas nao e' "o Lucas terminou escalando".
+"""DL-0130 (frente C do SP-OP-ESCALATION-001): start falho do Lucas nao e' "o Lucas terminou escalando".
 
 Antes, `HelenaDispatcher._turno_do_lucas` devolvia `route == "escalate_human"` como `lucas_escalou`, e um
 start que FALHOU (motor fora, inclusive o do SP-OP-CANCEL-001) gravava `helena`/`lucas_encerrou` — a

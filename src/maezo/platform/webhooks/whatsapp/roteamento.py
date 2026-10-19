@@ -224,7 +224,7 @@ def evento_do_resultado_da_helena(
     `falha_tecnica` (classify falhou, handoff recusado), o start que falhou e a resposta honesta de
     falha de start. `lucas_recusou` (onda f) e' o quarto: o `LucasTurno` recusou o handoff (de
     outra mensagem) antes de qualquer efeito, entao a passagem nao aconteceu e o handoff do
-    resultado NAO conta (`handoff=None` por quem chama). `lucas_start_falhou` (DL-0116) e' o quinto:
+    resultado NAO conta (`handoff=None` por quem chama). `lucas_start_falhou` (DL-0130) e' o quinto:
     o start do Lucas (escalonamento ou cancelamento) falhou, nenhum humano foi acionado, e a conversa
     volta a Helena como falha (`retorno_falha`), nunca como `lucas_encerrou`.
     """

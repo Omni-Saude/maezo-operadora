@@ -333,7 +333,7 @@ async def test_falha_de_start_cita_o_processo_de_cancelamento() -> None:
 
 
 async def test_falha_de_start_com_a_chave_desligada_tambem_cita_o_processo_de_cancelamento() -> None:
-    """DL-0116: desligada, o start tentado tambem e' o SP-OP-CANCEL-001 (`_start_cancelamento` nao depende
+    """DL-0130: desligada, o start tentado tambem e' o SP-OP-CANCEL-001 (`_start_cancelamento` nao depende
     da chave). O aviso de antes citava o SP-OP-ESCALATION-001, que nem foi tentado — era o defeito."""
     with capture_logs() as logs:
         final, envio, _ = await _turno(_confirmado(**_fatos_pf()), v1=False, motor=_MotorFora())

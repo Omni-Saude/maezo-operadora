@@ -1416,7 +1416,7 @@ class HelenaDispatcher:
                     return dict(escalado)
                 if (
                     not lucas_escalou
-                    # DL-0116: start falho do Lucas nao abre outro caso aqui (nenhum envio novo).
+                    # DL-0130: start falho do Lucas nao abre outro caso aqui (nenhum envio novo).
                     and not lucas_start_falhou
                     and eh_pedido_explicito_de_pessoa(message.text)
                     # RODADA 6: com caso ja' aberto o Lucas ja' reconhece o pedido; o aviso da Helena
@@ -1611,7 +1611,7 @@ class HelenaDispatcher:
     ) -> tuple[PedidoDeHandoff, bool, bool]:
         """UM turno do Lucas a partir do `handoff` da Helena. Devolve o pedido de handoff que o
         roteador grava, se o Lucas terminou escalando (`lucas_encerrou`: so' com o processo iniciado)
-        e se o start dele falhou (DL-0116: vira `retorno_falha`, nunca `lucas_encerrou`).
+        e se o start dele falhou (DL-0130: vira `retorno_falha`, nunca `lucas_encerrou`).
 
         O REMETENTE e' o `_ScopedWhatsAppSender` deste turno, SEM gate e SEM fabrica de chave, e
         isso e' deliberado: o `LucasTurno` o embrulha com o gate do principal `lucas` (nunca o da

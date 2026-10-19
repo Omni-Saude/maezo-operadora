@@ -4036,7 +4036,7 @@ class LucasGraph:
         business key, entao uma retentativa reencontra a instancia viva em vez de abrir
         uma segunda.
         """
-        # DL-0111/DL-0116: o aviso cita o processo que de fato falhou (antes, sempre o ESCALATION). Com a
+        # DL-0111/DL-0130: o aviso cita o processo que de fato falhou (antes, sempre o ESCALATION). Com a
         # chave `MAEZO_CANCEL_PF_V1` ligada OU desligada: o start do cancelamento e' o mesmo processo.
         process_key = CANCEL_PROCESS_KEY if state.get("iniciar_cancelamento") is True else PROCESS_KEY
         return emit_start_failure_notice(

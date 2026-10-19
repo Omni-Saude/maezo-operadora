@@ -1139,7 +1139,7 @@ _TEXTOS_DE_CASO_ADMINISTRATIVO: tuple[str, ...] = (
 )
 CASO_ABERTO_CLINICO: str = "clinico"
 CASO_ABERTO_ADMINISTRATIVO: str = "administrativo"
-#: DL-0116: as falhas da leitura do caso no motor que viram "nao confirmado" (nunca erro de programacao).
+#: DL-0130: as falhas da leitura do caso no motor que viram "nao confirmado" (nunca erro de programacao).
 _FALHAS_DA_LEITURA_DO_CASO: tuple[type[Exception], ...] = (CibSevenError, *EXTERNAL_DEPENDENCY_FAILURES)
 
 
@@ -1168,7 +1168,7 @@ def _caso_aberto_no_historico(estado: Mapping[str, Any]) -> str | None:
     Sem consultar o motor: e' o historico curto que diz que um encaminhamento saiu nesta conversa (e o
     start e' idempotente, entao um escalonamento repetido nunca duplica o caso). Clinico vence.
 
-    DL-0116: INDICIO para seguranca e rota, nunca afirmacao. O caso pode ja' ter sido encerrado pelo
+    DL-0130: INDICIO para seguranca e rota, nunca afirmacao. O caso pode ja' ter sido encerrado pelo
     atendente: quem AFIRMA caso aberto ao beneficiario le `_caso_aberto_afirmavel` (confirmado no motor
     em `receive`). Continuam aqui so' o alerta de emergencia com caso aberto (DL-0072) e a rota da
     cobranca curta ao Lucas, que nunca esperam o motor.
@@ -1184,7 +1184,7 @@ def _caso_aberto_no_historico(estado: Mapping[str, Any]) -> str | None:
 
 
 def _caso_aberto_afirmavel(estado: Mapping[str, Any]) -> str | None:
-    """DL-0116: o caso aberto que a Helena pode AFIRMAR — o confirmado no motor por `receive`
+    """DL-0130: o caso aberto que a Helena pode AFIRMAR — o confirmado no motor por `receive`
     (`caso_aberto_confirmado`), ou `None`. Nunca o historico: ele e' so' indicio."""
     confirmado = estado.get("caso_aberto_confirmado")
     return confirmado if confirmado in (CASO_ABERTO_CLINICO, CASO_ABERTO_ADMINISTRATIVO) else None
@@ -1831,7 +1831,7 @@ class HelenaState(TypedDict, total=False):
     #: `receive` o preserva SO' com a flag ligada e dentro da janela de 6 h desde `ultima_mensagem_em`;
     #: so' `respond` o estende, com a mensagem do turno e o texto que SAIU. Nunca telefone/identidade.
     historico_conversa: list[dict[str, str]] | None
-    #: DL-0116 (frente C do SP-OP-ESCALATION-001): o caso aberto CONFIRMADO PELO MOTOR neste turno —
+    #: DL-0130 (frente C do SP-OP-ESCALATION-001): o caso aberto CONFIRMADO PELO MOTOR neste turno —
     #: `CASO_ABERTO_CLINICO`, `CASO_ABERTO_ADMINISTRATIVO` ou `None`. Escrito so' por `receive`
     #: (`_conferir_caso_aberto`), e so' quando o historico curto traz indicio de caso. Os textos que
     #: AFIRMAM caso aberto leem este campo; o historico continua indicio para seguranca e rota.
@@ -1962,7 +1962,7 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "aviso_identidade_dado": False,
     # DL-0080: memoria de conversa com portao proprio (a flag do historico) — ver `receive`.
     "historico_conversa": None,
-    # DL-0116: na duvida, nenhum caso afirmado. So' `receive` o preenche, depois de ler o motor.
+    # DL-0130: na duvida, nenhum caso afirmado. So' `receive` o preenche, depois de ler o motor.
     "caso_aberto_confirmado": None,
     "response_text": None,
     "response_kind": None,
@@ -4794,14 +4794,14 @@ class HelenaGraph:
         if not state.get("conversation_id") or not state.get("tenant_id"):
             reset["next_kind"] = "escalate"
             reset["error"] = "missing runtime context (tenant_id/conversation_id)"
-        # DL-0116: o caso aberto que os textos podem AFIRMAR, confirmado no motor (historico = indicio).
+        # DL-0130: o caso aberto que os textos podem AFIRMAR, confirmado no motor (historico = indicio).
         reset["caso_aberto_confirmado"] = await self._conferir_caso_aberto(
             cast(HelenaState, {**state, **reset})
         )
         return reset
 
     async def _conferir_caso_aberto(self, state: HelenaState) -> str | None:
-        """DL-0116: `CASO_ABERTO_CLINICO`, `CASO_ABERTO_ADMINISTRATIVO` ou `None`, pelo MOTOR.
+        """DL-0130: `CASO_ABERTO_CLINICO`, `CASO_ABERTO_ADMINISTRATIVO` ou `None`, pelo MOTOR.
 
         So' le' o motor quando o historico curto traz indicio de caso (`_caso_aberto_no_historico`): sem
         indicio, nenhuma leitura. Confirma pela instancia ATIVA de SP-OP-ESCALATION-001 nas chaves desta

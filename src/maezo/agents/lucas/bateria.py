@@ -54,7 +54,7 @@ _CAMPOS_SAIDA = (
     "gather_notes",
     "process_started",
     "start_failed",
-    # DL-0116: qual processo o start tentou (o veredito cita o processo certo na falha).
+    # DL-0130: qual processo o start tentou (o veredito cita o processo certo na falha).
     "iniciar_cancelamento",
     "business_key",
     "process_ref",
@@ -221,7 +221,7 @@ def veredito(caso: Mapping[str, Any], resultado: Mapping[str, Any]) -> tuple[str
     if final.get("route") == "escalate_human" and final.get("process_started") is not True:
         div.append("escalou para humano, mas o processo nao foi iniciado")
     if final.get("start_failed"):
-        # DL-0116: o processo que falhou e' o que o turno tentou (o cancelamento, se pedido e confirmado).
+        # DL-0130: o processo que falhou e' o que o turno tentou (o cancelamento, se pedido e confirmado).
         from maezo.agents.lucas.graph import CANCEL_PROCESS_KEY, PROCESS_KEY
 
         processo = CANCEL_PROCESS_KEY if final.get("iniciar_cancelamento") is True else PROCESS_KEY
