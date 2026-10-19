@@ -53,7 +53,7 @@ por desenho (ADR-0006, ADR-0061).
 | 404 | `resource_unavailable` | tarefa fora do alcance do grupo, ou não é de escalonamento |
 | 409 | `refresh_required` | a leitura venceu enquanto era feita |
 | 501 | `context_unavailable` | o portão interino está desligado |
-| 503 | `read_dependency_unavailable` | o motor não respondeu ou respondeu algo fora do esperado, ou o registro de leitura (DL-0150) não está instalado ou falhou |
+| 503 | `read_dependency_unavailable` | o motor não respondeu ou respondeu algo fora do esperado |
 
 Uma falha do motor **nunca** vira "sem contexto": é `503`, e a tela mostra a falha e oferece tentar
 de novo.
@@ -75,9 +75,13 @@ não tem autenticação, então a rede é a única fronteira.
 Cada leitura **bem-sucedida** grava um elo `portal_read.task_context` na mesma cadeia de auditoria
 do tenant em que a conclusão grava `portal_direct_completion.*`: quem leu (referências pseudônimas
 `principal_ref`/`session_ref` e a revisão da membership), o id da tarefa, o código da leitura e a
-hora. Nada do que foi lido entra no registro. É fail-closed: sem o registro instalado a rota
-responde `503 read_dependency_unavailable` antes de perguntar ao motor, e se a gravação falhar a
-rota responde `503` e o contexto não sai. Leitura recusada não grava registro de acesso.
+hora. Nada do que foi lido entra no registro. Leitura recusada não grava nada.
+
+É **best-effort** (decisão do dono, 19/10/2026): se o registro não estiver instalado, se a gravação
+falhar ou se passar de 2 s (o lock da cadeia por tenant), a rota responde **igual** (`200` com o
+contexto) e o servidor loga um único evento `portal_read_audit_skipped` com `reason`
+(`sink_absent` ou `write_failed`) e `read_kind` — sem o texto do erro e sem dado pessoal.
+Ler o log: o evento significa leitura entregue **sem** registro confirmado.
 
 ## Como conferir em dev
 
