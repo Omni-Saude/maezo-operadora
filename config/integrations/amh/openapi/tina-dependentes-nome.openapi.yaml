@@ -1,0 +1,220 @@
+# tina-dependentes-nome.openapi.yaml — rota NOVA da TINA: NOME COMPLETO dos dependentes ATIVOS do PRÓPRIO titular verificado
+# (artefato novo, porta própria TinaDependentesNomePort; manifest v1.13).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# Decisão do dono de 19/10/2026 (dono da organização, CTO e DPO; "quando o assunto for dependente tem que mostrar o nome
+# completo. Eu autorizo essa mudança" e "pode mudar o contrato, eu autorizo"): aprovado pelo dono (filipecarmo81) em
+# 19/10/2026. Modelo de teste em dev, reversível. Ver docs/governance/dependentes-nome-completo-whatsapp-2026-10-19.md.
+# O `tina-dependentes.openapi.yaml` publicado no v1.5 (lista anônima) NÃO muda um byte: esta é uma rota NOVA, ao lado dele.
+# POR QUE É UMA ROTA PRÓPRIA. O nome é dado pessoal de OUTRA pessoa (o dependente). Separado da rota `dependentes`, tem
+# escopo PRÓPRIO `interop/tina.dependentes_nome`, lista de clientes no serviço, auditoria FAIL-CLOSED antes da leitura,
+# limite curto, `no-store`, leitura de uma tabela restrita, resultados do Athena num prefixo próprio, e pode ser desligado
+# ou revertido sem tocar a rota anônima.
+# REGRAS:
+#  * SÓ as pessoas cujo vínculo ATIVO aponta para o titular consultado (`titular_ref` = a ref do caminho, sem cancelamento,
+#    outra pessoa que não o próprio titular) — o MESMO filtro e a MESMA ordem da rota `dependentes` do v1.5;
+#  * uma pessoa por item (deduplicada), no máximo 20 (`lista_truncada` quando houver mais); `ordem` começa em 1;
+#  * dos dependentes sai SÓ a relação de dependência e o nome completo; NUNCA CPF, ref, nascimento, contato ou carteirinha;
+#  * quem não é titular recebe `eh_titular=false` e lista vazia; sujeito desconhecido recebe `404`;
+#  * o consumidor entrega os nomes só ao titular VERIFICADO e fora de log, memória, relatório e telemetria.
+# Exemplos 100% sintéticos (nomes inventados; nenhuma pessoa real).
+openapi: 3.0.3
+info:
+  title: AMH TINA nome completo dos dependentes do próprio titular (TinaDependentesNomePort)
+  version: 0.1.0
+  description: |
+    Nome completo dos dependentes ATIVOS do titular, por `portable_subject_ref` do titular.
+    Fonte: gold restrita `tina_dependente_nome` (`tasy_pessoa_fisica.nm_pessoa_fisica` da pessoa física do segurado
+    dependente; o vínculo e o `titular_ref` seguem a mesma regra da `tina_elegibilidade`).
+    READ-ONLY por contrato (somente GET).
+    BASE LEGAL: execução de contrato (LGPD art. 7º, V), como as demais rotas TINA do atendimento; decisão do dono (DPO) de
+    19/10/2026 para dev; produção pede nova decisão.
+    FINALIDADE: única, `atendimento_whatsapp`.
+    FRESCOR: foto do lago; `fonte_atualizada_em` informa a idade.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/tina/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11).
+security:
+  - bearerAuth: []
+tags:
+  - name: tina-dependentes-nome
+    description: Nome completo dos dependentes ativos do próprio titular (restrita, auditada).
+paths:
+  /subjects/{portable_subject_ref}/dependentes/nomes:
+    get:
+      tags: [tina-dependentes-nome]
+      operationId: getDependentesNominais
+      summary: Nome completo dos dependentes ativos do próprio titular (restrita, auditada)
+      description: |
+        Pré-condições, todas obrigatórias (qualquer falha = nenhum nome):
+        1. token M2M com escopo `interop/tina.dependentes_nome` (o serviço ainda confere que o `client_id` está na lista de
+           clientes da rota);
+        2. `purpose_of_use=atendimento_whatsapp`;
+        3. cabeçalho `X-Amh-Request-Ref`: identificador OPACO da solicitação no Maezo (nunca CPF, e-mail, telefone nem nome);
+        4. a rota estar LIGADA no serviço (padrão: desligada, responde 404);
+        5. a leitura é registrada na auditoria ANTES da consulta; se o registro falhar, a resposta é 500 e nenhum nome sai.
+        Limite curto por sujeito (5 pedidos a cada 10 minutos). A resposta traz `Cache-Control: no-store` e NUNCA vai para
+        log, telemetria, índice em memória ou cache. Não-titular: `200` com `eh_titular=false` e lista vazia. Sujeito
+        desconhecido: `404`.
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - $ref: '#/components/parameters/RequestRef'
+      responses:
+        '200':
+          description: Dependentes ativos do titular (de 0 a 20), na ordem do vínculo mais recente para o mais antigo.
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ['no-store'] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DependentesNominais'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo `interop/tina.dependentes_nome` — fail-closed. O
+        `interop/tina.read` NÃO basta.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05), do TITULAR. Os nomes saem SÓ dos dependentes dele.
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD FIXO desta rota. Qualquer outro valor é 400.
+      schema:
+        type: string
+        enum: [atendimento_whatsapp]
+      example: atendimento_whatsapp
+    RequestRef:
+      name: X-Amh-Request-Ref
+      in: header
+      required: true
+      description: >-
+        Identificador OPACO da solicitação no Maezo (por exemplo o id do turno), para a auditoria. Nunca CPF, e-mail,
+        telefone nem nome.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_.:-]{8,64}$'
+      example: 'req_7f3a9c21d4'
+  schemas:
+    DependentesNominais:
+      type: object
+      required: [portable_subject_ref, eh_titular, dependentes, lista_truncada, fonte_atualizada_em]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          description: A ref do próprio titular consultado.
+        eh_titular:
+          type: boolean
+          description: O sujeito é titular de ao menos um vínculo. `false` => `dependentes` vazia.
+        dependentes:
+          type: array
+          maxItems: 20
+          description: >-
+            Uma PESSOA por item (o vínculo ativo mais recente vale), do vínculo mais recente para o mais antigo. Só quem
+            aponta para este titular pelo `titular_ref`, sem cancelamento, e não é o próprio titular.
+          items:
+            $ref: '#/components/schemas/DependenteNominal'
+        lista_truncada:
+          type: boolean
+          description: Há mais dependentes ativos do que os 20 devolvidos.
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+          description: Quando a fonte (lago) foi atualizada pela última vez.
+      example:
+        portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+        eh_titular: true
+        dependentes:
+          - ordem: 1
+            relacao_dependencia: 'Filho'
+            nome_completo: 'Fulano de Tal Exemplo'
+          - ordem: 2
+            relacao_dependencia: null
+            nome_completo: 'Beltrana Sintética da Silva'
+        lista_truncada: false
+        fonte_atualizada_em: '2026-10-19T12:00:00Z'
+    DependenteNominal:
+      type: object
+      required: [ordem, relacao_dependencia, nome_completo]
+      additionalProperties: false
+      properties:
+        ordem:
+          type: integer
+          minimum: 1
+          description: Posição na lista (1, 2, 3...). Não é identificador da pessoa.
+        relacao_dependencia:
+          type: string
+          nullable: true
+          description: Relação de dependência como no Tasy (ex. "Filho", "Cônjuge"); `null` quando a fonte não informa.
+        nome_completo:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: >-
+            Nome completo do dependente (cadastro da pessoa física no Tasy, espaços normalizados). DADO PESSOAL DE OUTRA
+            PESSOA: entregue só ao titular verificado, e fora de log, histórico, memória, telemetria e relatório.
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional SEM PHI nem nome. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada (finalidade ou X-Amh-Request-Ref inválidos, ref fora do padrão).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: FAIL-CLOSED — escopo ou cliente não permitidos; nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Rota desligada ou sujeito desconhecido (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Limite de pedidos da rota por sujeito excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno ou falha da auditoria (sem detalhe no corpo e sem nome).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

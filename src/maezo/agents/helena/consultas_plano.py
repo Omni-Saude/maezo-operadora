@@ -52,6 +52,7 @@ from maezo.ports.tina import (
     CarenciasView,
     CarteirinhasView,
     CoberturaView,
+    DependentesNominaisView,
     DependentesView,
     ElegibilidadeView,
     RequisicoesView,
@@ -126,6 +127,20 @@ class FonteDeCarteirinhaCompleta(Protocol):
     async def consultar_carteirinha(
         self, portable_subject_ref: str, request_ref: str
     ) -> CarteirinhasView | None: ...
+
+
+@runtime_checkable
+class FonteDeNomesDosDependentes(Protocol):
+    """A fonte que TAMBEM le' os NOMES dos dependentes do proprio titular (rota `tina-dependentes-nome`,
+    manifest v1.13; decisao do dono e DPO de 19/10/2026, DL-0127).
+
+    Protocolo SEPARADO: a fonte de sempre nao muda, e o grafo so' pede os nomes quando a fonte injetada o
+    implementa E a chave `MAEZO_HELENA_DEPENDENTES_NOME` esta' ligada. Nunca levanta; falha = `None` (o grafo
+    cai em "dependente N"). `request_ref` e' o id OPACO da solicitacao (`X-Amh-Request-Ref`)."""
+
+    async def consultar_dependentes_nominais(
+        self, portable_subject_ref: str, request_ref: str
+    ) -> DependentesNominaisView | None: ...
 
 
 @runtime_checkable
@@ -775,6 +790,131 @@ async def ler_carteirinhas_completas(
 
 
 # --------------------------------------------------------------------------------------------
+# Nome completo dos dependentes: o MARCADOR no texto e o nome so' no envio (DL-0127, 19/10/2026)
+# --------------------------------------------------------------------------------------------
+
+#: O marcador leva a POSICAO do dependente na lista do contrato (nunca o nome): sem o nome no turno, o envio
+#: troca o marcador por "dependente N".
+_MARCADOR_DEPENDENTE: Final[re.Pattern[str]] = re.compile(r"\{\{DEPENDENTE:([1-9]|1[0-9]|20)\}\}")
+#: O nome que sai: letras (com acento), espaco, apostrofo, ponto e hifen; 3 a 120 caracteres, ao menos uma
+#: letra. Fora disso o nome nao e' usado (o texto sai com "dependente N").
+_NOME_VALIDO: Final[re.Pattern[str]] = re.compile(r"[^\W\d_](?:[^\W\d_]|[ '.\-])*\Z")
+
+
+def marcador_do_dependente(ordem: int) -> str:
+    """O marcador que o texto leva no lugar do nome do dependente (a posicao dentro, nunca o nome)."""
+    return f"{{{{DEPENDENTE:{ordem}}}}}"
+
+
+def tem_marcador_de_dependente(texto: object) -> bool:
+    return isinstance(texto, str) and _MARCADOR_DEPENDENTE.search(texto) is not None
+
+
+def sem_marcador_de_dependente(texto: str) -> str:
+    """O texto com cada marcador trocado por "dependente N" (sem nome no turno): nunca o marcador cru."""
+    return _MARCADOR_DEPENDENTE.sub(lambda m: f"dependente {m.group(1)}", texto)
+
+
+class NomesDoTurno:
+    """Os nomes completos dos dependentes de UM turno, em memoria, ate' o envio. Nunca em estado, fatos, log,
+    historico ou modelo. `repr`/`str` redigidos; nao serializavel. Chave: a posicao (`ordem`) do contrato."""
+
+    __slots__ = ("_nomes",)
+
+    def __init__(self, nomes: Mapping[int, str]) -> None:
+        self._nomes = dict(nomes)
+
+    def __repr__(self) -> str:
+        return "NomesDoTurno(<redigido>)"
+
+    __str__ = __repr__
+
+    def __reduce__(self) -> Any:
+        raise TypeError("NomesDoTurno: o nome do dependente nao e' serializavel")
+
+    def __bool__(self) -> bool:
+        return bool(self._nomes)
+
+    def __len__(self) -> int:
+        return len(self._nomes)
+
+    def preencher(self, texto: str) -> str:
+        """O texto com cada marcador trocado pelo nome completo (ou por "dependente N", sem nome)."""
+        return _MARCADOR_DEPENDENTE.sub(
+            lambda m: self._nomes.get(int(m.group(1)), f"dependente {m.group(1)}"), texto
+        )
+
+
+def _nome_limpo(valor: object) -> str | None:
+    if not isinstance(valor, str):
+        return None
+    nome = " ".join(valor.split())
+    if not 3 <= len(nome) <= 120 or not _NOME_VALIDO.fullmatch(nome):
+        return None
+    return nome
+
+
+def dependentes_nominais(
+    view: object, portable_subject_ref: str
+) -> tuple[NomesDoTurno, tuple[tuple[int, str], ...]]:
+    """Os nomes (em `NomesDoTurno`) e a lista `(ordem, grau legivel)` dos dependentes ATIVOS do PROPRIO
+    titular, ou nada. PURA. So' vale a resposta do MESMO sujeito, de titular, com a lista completa (nao
+    truncada) e TODOS os nomes no padrao: qualquer duvida = nada (o texto sai sem nome)."""
+    vazio: tuple[NomesDoTurno, tuple[tuple[int, str], ...]] = (NomesDoTurno({}), ())
+    if (
+        not isinstance(view, DependentesNominaisView)
+        or view.portable_subject_ref != portable_subject_ref
+        or view.eh_titular is not True
+        or view.lista_truncada is not False
+        or not view.dependentes
+    ):
+        return vazio
+    nomes: dict[int, str] = {}
+    graus: list[tuple[int, str]] = []
+    for d in view.dependentes:
+        nome = _nome_limpo(d.nome_completo)
+        if nome is None or d.ordem in nomes:
+            return vazio
+        nomes[d.ordem] = nome
+        graus.append((d.ordem, grau_legivel(d.relacao_dependencia or "") or "sem grau informado"))
+    if [o for o, _ in graus] != list(range(1, len(graus) + 1)):
+        return vazio
+    return NomesDoTurno(nomes), tuple(graus)
+
+
+async def ler_dependentes_nominais(
+    fonte: object,
+    portable_subject_ref: str,
+    message_ref: object,
+    *,
+    prazo_s: float,
+) -> tuple[NomesDoTurno, tuple[tuple[int, str], ...]]:
+    """Os nomes dos dependentes do PROPRIO titular verificado, lidos da fonte que implementa
+    `FonteDeNomesDosDependentes`, ou nada. NUNCA levanta por falha da fonte (rede, prazo, 404)."""
+    if not isinstance(fonte, FonteDeNomesDosDependentes):
+        return NomesDoTurno({}), ()
+    view: object = None
+    try:
+        async with asyncio.timeout(prazo_s):
+            view = await fonte.consultar_dependentes_nominais(
+                portable_subject_ref, ref_da_solicitacao(message_ref)
+            )
+    except PROGRAMMING_ERRORS:
+        raise
+    except EXTERNAL_DEPENDENCY_FAILURES:
+        view = None
+    return dependentes_nominais(view, portable_subject_ref)
+
+
+def texto_de_dependentes_com_nomes(graus: Sequence[tuple[int, str]]) -> str:
+    """A resposta de dependentes com o nome completo de cada um (pelo MARCADOR; o nome so' entra no envio)."""
+    linhas = [f"{ordem}) {marcador_do_dependente(ordem)} ({grau})" for ordem, grau in graus]
+    if len(linhas) == 1:
+        return f"No seu cadastro consta 1 dependente ativo:\n{linhas[0]}"
+    return f"No seu cadastro constam {len(linhas)} dependentes ativos:\n" + "\n".join(linhas)
+
+
+# --------------------------------------------------------------------------------------------
 # Cerca propria da resposta com fatos
 # --------------------------------------------------------------------------------------------
 
@@ -897,7 +1037,15 @@ __all__ = [
     "FonteDeCarteirinhaCompleta",
     "FonteDeCobertura",
     "FonteDeFatosDoPlano",
+    "FonteDeNomesDosDependentes",
     "FonteIndisponivel",
+    "NomesDoTurno",
+    "dependentes_nominais",
+    "ler_dependentes_nominais",
+    "marcador_do_dependente",
+    "sem_marcador_de_dependente",
+    "tem_marcador_de_dependente",
+    "texto_de_dependentes_com_nomes",
     "consulta_prompt",
     "fatos_da_consulta",
     "ler_carteirinhas_completas",
