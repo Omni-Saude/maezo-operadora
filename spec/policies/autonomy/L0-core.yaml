@@ -61,6 +61,11 @@ actions:
   # plano) para a governanca poder desliga-la sem tocar os fatos do plano; mesmo nivel (L3). NAO e' hard.
   # Decisao do dono (CTO e DPO) de 17/10/2026, "modelo de teste" so' em dev; producao pede nova decisao.
   read_member_card_number:      { level: L3 }
+  # Helena (Zona Geral): os NOMES COMPLETOS dos dependentes do PROPRIO titular verificado, pelo contrato
+  # `tina-dependentes-nome` (manifest v1.13), entregues por texto fixo, em dev. Acao propria para a governanca
+  # poder desliga-la sem tocar os fatos do plano; mesmo nivel (L3). NAO e' hard. Decisao do dono (CTO e DPO)
+  # de 19/10/2026 (DL-0127), "modelo de teste" so' em dev; producao pede nova decisao.
+  read_member_dependent_names:  { level: L3 }
   # Helena (Zona Geral): REGISTRO do consentimento do beneficiario (ACEITO/REVOGAR no WhatsApp) no lago da
   # AMH pelo contrato `consent-record` (manifest v1.3, DRAFT). Escrita idempotente, so' ref opaca + hash do
   # texto exato; NAO e' hard. Decisao do dono 08/10/2026 (DL-0083). A verificacao por fator reusa

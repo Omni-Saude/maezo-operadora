@@ -370,6 +370,15 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_CARTEIRINHA_COMPLETA", "helena_carteirinha_completa"),
     )
+    # NOME COMPLETO DOS DEPENDENTES (decisao do dono e DPO de 19/10/2026, DL-0127, "modelo de teste" SO' em
+    # DEV, reversivel). DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: quando o
+    # assunto e' dependente (lista de dependentes, "para quem e'?" da cobertura), a Helena mostra ao PROPRIO
+    # titular verificado o nome completo de cada dependente do contrato dele, por texto fixo no envio, quando
+    # a rota `tina-dependentes-nome` (manifest v1.13, escopo `interop/tina.dependentes_nome`) responde.
+    helena_dependentes_nome: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_DEPENDENTES_NOME", "helena_dependentes_nome"),
+    )
     # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, SO' em DEV.
     # DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: a Helena INFORMA (sem
     # diagnosticar, sem conduta, sem dose) perguntas gerais de saude a partir da base curada versionada
@@ -711,6 +720,14 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=None,
         validation_alias=AliasChoices(
             "MAEZO_AMH_TINA_CARTEIRINHA_OPENAPI_PATH", "amh_tina_carteirinha_openapi_path"
+        ),
+    )
+    # O OpenAPI da rota dos NOMES dos dependentes (`tina-dependentes-nome`, manifest v1.13), lido SO' com
+    # `helena_consultas_amh` E `helena_dependentes_nome` ligadas (digest no bloco `manifest_v1_13` do pin).
+    amh_tina_dependentes_nome_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_DEPENDENTES_NOME_OPENAPI_PATH", "amh_tina_dependentes_nome_openapi_path"
         ),
     )
     # O OpenAPI da rota de COBERTURA POR PROCEDIMENTO (`tina-cobertura`, manifest v1.9, PUBLISHED em

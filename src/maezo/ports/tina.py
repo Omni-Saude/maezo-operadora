@@ -243,6 +243,52 @@ class TinaCarteirinhaPort(Protocol):
     ) -> PortResult[CarteirinhasView]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class DependenteNominal:
+    """Um dependente ATIVO do PROPRIO titular verificado COM o nome completo (contrato
+    `tina-dependentes-nome`,
+    manifest v1.13; decisao do dono e DPO de 19/10/2026, DL-0127, so' dev).
+
+    UNICO tipo dos ports com slot de nome, por decisao do DPO registrada na cerca de pureza dos ports (excecao
+    nominal, revisada): o nome fica fora do `repr` (nunca vai a log por acidente) e o consumidor so' o entrega
+    por TEXTO FIXO ao proprio titular verificado, no envio. `ordem` e' a posicao na lista do contrato
+    (1..)."""
+
+    ordem: int
+    relacao_dependencia: str | None
+    nome_completo: str = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class DependentesNominaisView:
+    """Os dependentes ATIVOS do proprio titular com o nome completo (0..20). Nao titular: `eh_titular=False`
+    e lista vazia."""
+
+    portable_subject_ref: str
+    eh_titular: bool
+    dependentes: tuple[DependenteNominal, ...]
+    lista_truncada: bool
+    fonte_atualizada_em: str
+
+
+@runtime_checkable
+class TinaDependentesNomePort(Protocol):
+    """Leitura read-only dos NOMES dos dependentes do proprio titular (contrato `tina-dependentes-nome`).
+    Sucesso ou recusa, nunca excecao. Port separado: quem so' le' os dependentes anonimos nao muda.
+
+    `request_ref` e' o `X-Amh-Request-Ref`: identificador OPACO da solicitacao (auditoria da AMH)."""
+
+    async def get_dependentes_nominais(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        request_ref: str,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[DependentesNominaisView]: ...
+
+
 @runtime_checkable
 class TinaDependentesPort(Protocol):
     """Leitura read-only dos dependentes do titular (contrato `tina-dependentes`). Sucesso ou recusa, nunca
@@ -305,12 +351,15 @@ __all__ = [
     "CoberturaItemView",
     "CoberturaView",
     "DependenteAnonimo",
+    "DependenteNominal",
+    "DependentesNominaisView",
     "DependentesView",
     "ElegibilidadeView",
     "RequisicaoPlano",
     "RequisicoesView",
     "TinaCarteirinhaPort",
     "TinaCoberturaPort",
+    "TinaDependentesNomePort",
     "TinaDependentesPort",
     "TinaPort",
     "VinculoPlano",

@@ -86,6 +86,28 @@ def termo_da_mensagem(texto: str) -> str | None:
     return None
 
 
+#: RODADA DO DONO (19/10/2026): CONTINUIDADE — depois de uma resposta de cobertura, a mensagem que e' so' o
+#: nome
+#: do procedimento ("Mamografia", "e vasectomia?", "o nome correto e' mamografia") continua sendo cobertura.
+_ENCHIMENTO_DA_CONTINUACAO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:nao|sim|e|eh|ok|entao|isso|e (?:a|o|as|os)|e sobre|e quanto a|a minha duvida|minha duvida|duvida"
+    r"|nao (?:e|eh) sobre (?:a |o )?(?:mensalidade|boleto|cobranca|pagamento)s?|sobre (?:a |o )?"
+    r"|o nome (?:correto |certo )?(?:e|eh)|o nome|chama|se chama|quero saber|queria saber|do|da|de|o|a|os|as"
+    r"|exame|procedimento|cirurgia|por favor|obrigad[oa]|cobre|cobertura|consta no rol|meu plano|plano)\b"
+)
+_MAX_PALAVRAS_DA_CONTINUACAO: Final[int] = 16
+
+
+def termo_da_continuacao(texto: str) -> str | None:
+    """O termo de busca de uma mensagem que CONTINUA a cobertura (so' o procedimento, sem as palavras de
+    conversa), ou `None` quando nao sobra termo valido."""
+    plano = _normalizar(texto)
+    if not plano or len(plano.split()) > _MAX_PALAVRAS_DA_CONTINUACAO:
+        return None
+    resto = " ".join(_ENCHIMENTO_DA_CONTINUACAO.sub(" ", plano.replace("?", " ")).split())
+    return termo_valido(resto) if resto else None
+
+
 def termo_valido(termo: str) -> str | None:
     """O termo no formato do contrato (letras, numeros e espaco; 3 a 80), ou `None`."""
     plano = " ".join(re.sub(r"[^a-z0-9 ]", " ", _normalizar(termo)).split())
@@ -142,6 +164,60 @@ def texto_da_cobertura(view: Any) -> str:
     return "Pelo cadastro do seu plano: " + " ".join(frases) + " " + AVISO_DA_COBERTURA
 
 
+#: RODADA DO DONO (19/10/2026): PARA QUEM e' o procedimento, quando o plano tem dependentes. O contrato
+#: publicado
+#: de dependentes (tina-dependentes v1.5) e' ANONIMO (sem nome): cada dependente aparece pelo grau
+#: ("dependente
+#: 1 (filho ou filha)"). O nome completo depende de mudanca de contrato da AMH (proposta no DL-0126).
+PENDENTE_COBERTURA_PARA_QUEM: Final[str] = "BS_COBERTURA_PARA_QUEM"
+PREFIXO_COBERTURA_QUEM: Final[str] = "BS_COBERTURA_QUEM:"
+QUEM_TITULAR: Final[str] = "titular"
+_RESPOSTA_TITULAR: Final[re.Pattern[str]] = re.compile(
+    r"^(?:1|um|opcao 1|para mim|pra mim|eu|e para mim|e pra mim|mim|titular|o titular|a titular"
+    r"|para o titular"
+    r"|pra eu|para eu|e para eu|para voce saber|meu|minha|e meu|e minha)$"
+)
+_RESPOSTA_DEPENDENTE: Final[re.Pattern[str]] = re.compile(
+    r"^(?:opcao )?(?P<n>[2-9])$|\b(?:dependente|filh[oa]|esposa|marido|conjuge|companheir[oa]|net[oa]|enteado"
+    r"|enteada)\b"
+)
+
+
+#: O inicio da pergunta "para quem e'?" (o grafo reconhece a pergunta no historico).
+INICIO_DA_PERGUNTA_PARA_QUEM: Final[str] = "Antes de eu consultar: é para quem?"
+
+
+def pergunta_para_quem(graus: list[str], *, com_nome: bool = False) -> str:
+    """A pergunta "para quem e'?" com cada dependente pelo grau. `com_nome=True` (DL-0127: nomes do contrato
+    `tina-dependentes-nome` no turno) leva o MARCADOR do nome no lugar de "o dependente N" — o nome so' entra
+    no envio."""
+    from maezo.agents.helena.consultas_plano import marcador_do_dependente
+
+    opcoes = ["1) para você (titular)"]
+    for i, grau in enumerate(graus, start=1):
+        quem = marcador_do_dependente(i) if com_nome else f"o dependente {i}"
+        opcoes.append(f"{i + 1}) para {quem} ({grau})")
+    return f"{INICIO_DA_PERGUNTA_PARA_QUEM} Responda " + "; ".join(opcoes) + "."
+
+
+def quem_da_resposta(texto: str, quantos: int) -> str | None:
+    """`"titular"`, `"dependente:N"` ou `None` (a resposta nao e' a escolha)."""
+    plano = " ".join(_normalizar(texto).replace("?", " ").split())
+    if _RESPOSTA_TITULAR.match(plano):
+        return QUEM_TITULAR
+    m = _RESPOSTA_DEPENDENTE.search(plano)
+    if m is None:
+        return None
+    n = int(m.group("n")) - 1 if m.group("n") else 1
+    return f"dependente:{n}" if 1 <= n <= max(quantos, 1) else None
+
+
+AVISO_DO_DEPENDENTE: Final[str] = (
+    "Consultei pelo contrato do plano, que tem a mesma segmentação para o titular e os dependentes. "
+    "A carência do dependente pode ser diferente: confirme pela central de atendimento ou pelo aplicativo."
+)
+
+
 def literais_da_cobertura(view: Any) -> tuple[str, ...]:
     """Os literais que o texto pode citar (para a cerca TEXTO x FATO): descricoes, edicao do Rol, datas."""
     saida: list[str] = []
@@ -160,10 +236,18 @@ def literais_da_cobertura(view: Any) -> tuple[str, ...]:
 
 
 __all__ = [
+    "AVISO_DO_DEPENDENTE",
+    "INICIO_DA_PERGUNTA_PARA_QUEM",
+    "PENDENTE_COBERTURA_PARA_QUEM",
+    "PREFIXO_COBERTURA_QUEM",
+    "QUEM_TITULAR",
+    "pergunta_para_quem",
+    "quem_da_resposta",
     "AVISO_DA_COBERTURA",
     "RESPOSTA_GENERICA",
     "RESPOSTA_SEM_ITEM",
     "literais_da_cobertura",
+    "termo_da_continuacao",
     "termo_da_mensagem",
     "termo_valido",
     "texto_da_cobertura",

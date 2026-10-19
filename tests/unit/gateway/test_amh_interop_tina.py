@@ -63,10 +63,12 @@ def _pedido(**sobre: Any) -> GovernedTinaRequest:
 def test_as_tres_operacoes_pedem_o_escopo_tina() -> None:
     assert SCOPE_TINA == "interop/tina.read"
     # A carteirinha completa (manifest v1.12) tem escopo e executor PROPRIOS (`AmhTinaCarteirinhaExecutor`).
-    leituras = tina_mod.OPERATIONS - {tina_mod.OP_CARTEIRINHA}
+    # Os nomes dos dependentes (manifest v1.13, DL-0127) tambem (`AmhTinaDependentesNomeExecutor`).
+    leituras = tina_mod.OPERATIONS - {tina_mod.OP_CARTEIRINHA, tina_mod.OP_DEPENDENTES_NOME}
     for op in leituras:
         assert SCOPE_BY_OPERATION[op] == SCOPE_TINA
     assert SCOPE_BY_OPERATION[tina_mod.OP_CARTEIRINHA] == "interop/tina.carteirinha"
+    assert SCOPE_BY_OPERATION[tina_mod.OP_DEPENDENTES_NOME] == "interop/tina.dependentes_nome"
     # A cobertura (manifest v1.9) usa o mesmo escopo, mas so' o executor PROPRIO a registra
     # (`AmhTinaCoberturaExecutor`, composto so' com o artefato carregado).
     assert AmhTinaExecutor.registered_operations == leituras - {tina_mod.OP_COBERTURA}
@@ -282,9 +284,11 @@ def test_operacoes_tina_no_catalogo_e_acao_l3_nao_hard_declarada_na_helena() -> 
         spec = OPERATIONS[operacao]
         assert spec.action_class == "leitura_phi_clinica"
         # A carteirinha completa tem acao PROPRIA (identificador de uso do plano; dono, 17/10/2026).
-        esperada = (
-            "read_member_card_number" if operacao == tina_mod.OP_CARTEIRINHA else "read_member_plan_facts"
-        )
+        # Os nomes dos dependentes tambem (dono e DPO, 19/10/2026, DL-0127).
+        esperada = {
+            tina_mod.OP_CARTEIRINHA: "read_member_card_number",
+            tina_mod.OP_DEPENDENTES_NOME: "read_member_dependent_names",
+        }.get(operacao, "read_member_plan_facts")
         assert spec.autonomy_action == esperada
         assert spec.tool_id is None
     matriz = load_matrix(raiz / "spec/policies/autonomy/L0-core.yaml", tenant="helena-tina-unit")

@@ -482,13 +482,34 @@ def test_no_port_module_imports_another_maezo_package() -> None:
             )
 
 
+#: EXCECAO NOMINAL E REVISADA da sonda (iv): o UNICO slot de nome dos ports. Decisao do dono da organizacao
+#: (CTO e DPO) de 19/10/2026 (DL-0127): "quando o assunto for dependente tem que mostrar o nome completo. Eu
+#: autorizo essa mudanca" — so' os dependentes do PROPRIO titular verificado, contrato AMH
+#: `tina-dependentes-nome`
+#: (manifest v1.13), campo fora do `repr`, entregue so' por texto fixo no envio. Qualquer outro slot continua
+#: reprovado; a chave e' (tipo, campo), entao renomear ou copiar o campo nao herda a excecao.
+_SLOTS_DE_PHI_AUTORIZADOS: frozenset[tuple[str, str]] = frozenset(
+    {("maezo.ports.tina.DependenteNominal", "nome_completo")}
+)
+
+
+def test_a_excecao_de_phi_e_so_a_autorizada() -> None:
+    """A excecao nao pode crescer em silencio: so' o nome do dependente, e o campo existe de fato."""
+    assert {"maezo.ports.tina.DependenteNominal"} == {t for t, _ in _SLOTS_DE_PHI_AUTORIZADOS}
+    tipos = _value_types()
+    for tipo, campo in _SLOTS_DE_PHI_AUTORIZADOS:
+        campos = {f.name: f for f in dataclasses.fields(tipos[tipo])}
+        assert campo in campos and campos[campo].repr is False
+
+
 def test_no_port_value_type_has_a_phi_shaped_field() -> None:
     """Fence (iv), value types: the ports are OPAQUE (they parse nothing), so the only structural
     guarantee against PHI crossing the boundary is that no PHI-shaped SLOT exists at all."""
     value_types = _value_types()
     # +3 (18/10/2026): cobertura TINA v1.9 (CarenciaDoItem, CoberturaItemView, CoberturaView).
-    assert len(value_types) == 42, (
-        f"expected 42 port value types, found {sorted(value_types)} — update this non-vacuity pin "
+    # +2 (19/10/2026): nomes dos dependentes TINA v1.13 (DependenteNominal, DependentesNominaisView).
+    assert len(value_types) == 44, (
+        f"expected 44 port value types, found {sorted(value_types)} — update this non-vacuity pin "
         "when a value type is deliberately added or removed"
     )
     offenders: dict[str, list[str]] = {}
@@ -497,6 +518,7 @@ def test_no_port_value_type_has_a_phi_shaped_field() -> None:
             f.name
             for f in dataclasses.fields(cls)
             if any(fragment in f.name.lower() for fragment in _PHI_NAME_FRAGMENTS)
+            and (qualname, f.name) not in _SLOTS_DE_PHI_AUTORIZADOS
         ]
         if bad:
             offenders[qualname] = bad
@@ -510,7 +532,7 @@ def test_no_port_method_has_a_phi_shaped_parameter() -> None:
     ARGUMENT would let a caller push identifying data across the boundary even though no value
     type holds it."""
     protocols = _protocol_types()
-    assert len(protocols) == 14, f"expected exactly 14 port Protocols, found {sorted(protocols)}"
+    assert len(protocols) == 15, f"expected exactly 15 port Protocols, found {sorted(protocols)}"
     offenders: dict[str, list[str]] = {}
     for qualname, proto in protocols.items():
         for method_name, member in inspect.getmembers(proto, callable):

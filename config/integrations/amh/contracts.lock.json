@@ -736,5 +736,47 @@
       "verified_at_utc": "2026-10-17T15:18:36Z",
       "verified_by": "Claude Code, a pedido do Márcio Filipe Filó do Carmo (CTO e owner)"
     }
+  },
+  "manifest_v1_13": {
+    "provenance": {
+      "amh_commit_sha": "e8f8b33cfe329d6da037decec6b4659b2e87c0eb",
+      "amh_manifest_commit_sha": "050c1522f304c8d5441ad7554360277bfa9b13f2",
+      "evidence_id": "XRG2-AMH-DEV-GHA-39261110429",
+      "status": "PUBLISHED"
+    },
+    "manifest_pin": {
+      "byte_size": 8713,
+      "git_blob_sha": "1bb76ac89408ecec89a8b5406b8edecee85a8a47",
+      "path": "schemas/contracts/maezo/v1.13/contract-manifest.yaml",
+      "prepublication_sha256": "7ce906e407f98129dd6dac20de4cfe18c8278aaa2a441741cec2b2bf3dbddfd0",
+      "sha256": "ac1cb804cb978fd49951d45bd77b06a13f2b9c36d207c1a391129142492c5fc1"
+    },
+    "compatibility_report": {
+      "dry_run_id": "github-actions-run-39260924419",
+      "dry_run_run_id": "39260924419",
+      "evidence_artifact_id": "12191195825",
+      "provider_contract_tests": "passaram no CI (Unit Tests e Interop Maezo Build do PR #265, tests/unit/contracts e applications/interop-maezo/tests)",
+      "result": "PASSED"
+    },
+    "publication": {
+      "environment": "dev",
+      "publication_run_id": "39261110429",
+      "published_at_utc": "2026-10-19T13:33:43Z"
+    },
+    "artifacts": [
+      {
+        "path": "schemas/openapi/maezo/v1/tina-dependentes-nome.openapi.yaml",
+        "sha256": "67824f345dd4599654b1686f3697edaf3615719ca989c28b36804504de152e4c"
+      }
+    ],
+    "xrg3_verification": {
+      "verification_method": [
+        "manifest v1.13 + digests recalculados pelo script scripts/ci/gerar_pin_v1_1.py",
+        "sha256, git blob sha e tamanho calculados sobre os bytes publicados",
+        "1 digests OpenAPI conferidos contra o manifest publicado"
+      ],
+      "verified_at_utc": "2026-10-19T13:59:42Z",
+      "verified_by": "Claude Code, a pedido do Márcio Filipe Filó do Carmo (CTO e owner)"
+    }
   }
 }

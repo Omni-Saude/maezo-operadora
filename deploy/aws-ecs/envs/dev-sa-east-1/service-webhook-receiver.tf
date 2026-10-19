@@ -121,6 +121,9 @@ locals {
       # Dono, 17/10/2026: vinculo ativo e carteirinha completa (default `false`; so' dev, ver
       # `helena_carteirinha_completa`).
       { name = "MAEZO_HELENA_CARTEIRINHA_COMPLETA", value = tostring(var.helena_carteirinha_completa) },
+      # Dono e DPO, 19/10/2026 (DL-0127): nome completo dos dependentes do proprio titular (default `false`; so'
+      # dev, ver `helena_dependentes_nome`).
+      { name = "MAEZO_HELENA_DEPENDENTES_NOME", value = tostring(var.helena_dependentes_nome) },
       # DL-0118: base de conhecimento de saude da Helena (ADR-0064; default `false`; so' dev, ver `helena_base_saude`).
       { name = "MAEZO_HELENA_BASE_SAUDE", value = tostring(var.helena_base_saude) },
       # DL-0119: saude gerativa (ADR-0065; default `false`; rota global autorizada pelo DPO so' para a allowlist).
