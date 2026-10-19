@@ -40,7 +40,7 @@ from .queue import (
     TaskDisclosureSource,
 )
 from .queue_cursor import AeadQueueCursorCustody
-from .read_audit import ReadAccessAuditSink
+from .read_audit import ReadAccessAuditSink, read_audit_skipped
 from .read_credentials import unavailable
 from .read_profile import (
     AuthorityValue,
@@ -468,11 +468,10 @@ class EngineReadComposition:
         # INTERIM (DL-0050): read-only, independent of the completion pair above, and dark unless a
         # composition installs it. `HumanGateway` checks its scope against its own.
         self._escalation_context = escalation_context
-        # DL-0150: the context read carries PHI (`resumo_contexto`), so it is never composed
-        # without the access record. A sink without a source is harmless and allowed: the same
-        # sink also serves the staff case detail (`staff_cases.service`).
+        # DL-0150 (owner's decision, best-effort): a context source without the access record is
+        # composed anyway; the absence is logged here once and again on every read.
         if escalation_context is not None and read_audit is None:
-            raise unavailable()
+            read_audit_skipped("sink_absent", "task_context")
         self._read_audit = read_audit
 
     @property

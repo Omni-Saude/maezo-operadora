@@ -103,7 +103,8 @@ async def test_human_profile_lends_the_read_audit_to_the_staff_case_detail(monke
     """DL-0150: with the human plane, the staff detail records each read in the SAME tenant chain.
 
     The staff factory is rebound to `staff.service(..., read_audit=<human plane's sink>)` for the
-    life of the human slots and restored after; a human plane without a sink refuses to start.
+    life of the human slots and restored after. A human plane without a sink (best-effort, owner's
+    decision of 19/10/2026) still starts and leaves the staff factory as installed.
     """
     identity = SimpleNamespace(mode="production", tenant="t", issuer="i")
     settings = SimpleNamespace(
@@ -159,9 +160,10 @@ async def test_human_profile_lends_the_read_audit_to_the_staff_case_detail(monke
         monkeypatch.setattr(p, helper, lambda s: None)
     p.create_production_app()
     if not with_audit:
-        with pytest.raises(PortalStaffBootstrapError):
-            async with app.router.lifespan_context(app):
-                pass  # pragma: no cover - the lifespan refuses before yielding
+        async with app.router.lifespan_context(app):
+            assert app.state.staff_case_service_factory == service
+            assert app.state.staff_case_service_factory("resolver") == "service"
+            assert calls == [("resolver", None)]
         assert app.state.staff_case_service_factory is None
         return
     async with app.router.lifespan_context(app):

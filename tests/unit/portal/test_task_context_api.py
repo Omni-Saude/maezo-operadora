@@ -11,6 +11,7 @@ from datetime import datetime
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 from tests.unit.gateway.human.test_escalation_context import RecordingReadAudit, RecordingSource
 from tests.unit.gateway.human.test_gateway import CSRF, SECRET
 from tests.unit.gateway.human.test_task_completion_gateway import (
@@ -243,10 +244,21 @@ async def test_a_200_leaves_exactly_one_access_record_and_a_404_leaves_none():
     assert other.entries == []
 
 
-async def test_a_failing_access_record_is_a_503_and_the_summary_never_leaves():
-    connection, _, source = await client(audit=RecordingReadAudit(fail=RuntimeError("audit_chain down")))
-    async with connection:
-        response = await connection.get(PATH)
-    assert_safe(response, 503, "read_dependency_unavailable")
-    assert "dor no peito" not in response.text and "audit_chain" not in response.text
+async def test_a_failing_access_record_still_answers_200_and_logs_the_closed_event():
+    connection, _, source = await client(audit=RecordingReadAudit(fail=RuntimeError("PRIVATE audit_chain")))
+    with capture_logs() as logs:
+        async with connection:
+            response = await connection.get(PATH)
+    assert response.status_code == 200
+    assert response.json()["resumo_contexto"] == "Idoso com dor no peito."
     assert source.calls == ["task-1"]
+    events = [e for e in logs if e["event"] == "portal_read_audit_skipped"]
+    assert events == [
+        {
+            "event": "portal_read_audit_skipped",
+            "log_level": "warning",
+            "reason": "write_failed",
+            "read_kind": "task_context",
+        }
+    ]
+    assert "PRIVATE" not in repr(logs)

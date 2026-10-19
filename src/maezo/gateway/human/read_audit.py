@@ -10,8 +10,22 @@ Este modulo e' PURO (tipos, porta e montagem do registro); o adaptador Postgres 
 
 O MESMO MECANISMO, NAO UM SEGUNDO. O registro vai para a MESMA tabela (`audit_chain`), pelo MESMO
 sink (`PostgresAuditSink`), sobre o MESMO pool do tenant que a conclusao e o outbox humano usam.
-Nao ha tabela nova, migracao nova, fila em memoria nem fallback: `PostgresAuditSink.emit` e'
-fail-closed (ADR-0027), e quem chama trata a falha como recusa da leitura (fail-closed tambem).
+Nao ha tabela nova, migracao nova nem fila em memoria. `PostgresAuditSink.emit` continua
+fail-closed (ADR-0027) e o adaptador repassa a falha.
+
+BEST-EFFORT NA LEITURA (decisao do dono, 19/10/2026, DL-0150). Quem le' chama
+`record_read_best_effort`: sem sink instalado, ou com a gravacao falhando ou estourando o prazo, a
+leitura SEGUE com a mesma resposta de antes e sai UM evento de log estruturado
+`portal_read_audit_skipped` com dois campos de codigo fechado — `reason` (`sink_absent` |
+`write_failed`) e `read_kind` — e nada mais: nunca o texto da excecao, nunca ids, nunca PHI. Erro de
+programacao (`_PROGRAMMING_ERRORS`) nao e' falha de gravacao e continua propagando.
+
+O PRAZO. `emit` toma `pg_advisory_xact_lock` por tenant SEM `lock_timeout`, e o pool emprestado
+pode estar esgotado: uma gravacao best-effort poderia prender a leitura indefinidamente atras de uma
+conclusao ou de um comando humano. `READ_AUDIT_TIMEOUT_SECONDS` limita a espera com
+`asyncio.wait_for` (cancelamento do asyncpg: a transacao e' desfeita e o lock, solto); estourou,
+conta como `write_failed`. Um cancelamento que chegue DEPOIS do COMMIT pode deixar a linha gravada e
+ainda assim logar `write_failed` — o evento quer dizer "nao confirmado", nao "nao gravado".
 
 SEM PHI POR CONSTRUCAO. O registro so' carrega ids tecnicos (tarefa/caso), as referencias
 pseudonimas que o portal ja' usa (`principal_ref`, `session_ref`, revisao de membership), o
@@ -26,12 +40,15 @@ toda a leitura remota, e ANTES de a resposta sair; leitura recusada nao grava re
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Final, Literal
+
+import structlog
 
 from maezo.gateway.audit import AuditRecord
 from maezo.portal.contracts.models import HumanPrincipal
@@ -40,6 +57,8 @@ from .errors import GatewayRefusalError
 from .models import Scope
 
 __all__ = [
+    "READ_AUDIT_SKIPPED_EVENT",
+    "READ_AUDIT_TIMEOUT_SECONDS",
     "READ_AUDIT_ACTION_PREFIX",
     "READ_AUDIT_DECISION_REF",
     "READ_AUDIT_DETAIL_FIELDS",
@@ -48,7 +67,34 @@ __all__ = [
     "ReadAccessEntry",
     "ReadKind",
     "read_access_record",
+    "read_audit_skipped",
+    "record_read_best_effort",
+    "SkipReason",
 ]
+
+_LOG = structlog.get_logger(__name__)
+
+#: O evento unico de "leitura entregue sem registro confirmado". Codigo fechado, sem texto livre.
+READ_AUDIT_SKIPPED_EVENT: Final = "portal_read_audit_skipped"
+
+#: Teto da espera pela gravacao (lock por tenant + pool emprestado). Curto: a leitura e' que manda.
+READ_AUDIT_TIMEOUT_SECONDS: Final = 2.0
+
+SkipReason = Literal["sink_absent", "write_failed"]
+
+#: Espelho de `maezo.runtime.dependency_failures.PROGRAMMING_ERRORS` — NAO importado porque aquele
+#: modulo importa `maezo.runtime.inference`, que carrega o SDK de LLM no BFF do portal (AGENTS.md,
+#: regra 6). `tests/unit/gateway/human/test_read_audit.py` exige que os dois sejam iguais.
+_PROGRAMMING_ERRORS: Final[tuple[type[Exception], ...]] = (
+    TypeError,
+    AttributeError,
+    KeyError,
+    IndexError,
+    NameError,
+    AssertionError,
+    NotImplementedError,
+    RecursionError,
+)
 
 #: A linha do decision log que autoriza este registro.
 READ_AUDIT_DECISION_REF: Final = "DL-0150"
@@ -160,7 +206,8 @@ class ReadAccessAuditSink(ABC):
     """Acrescenta UM registro de leitura a cadeia do tenant, ou levanta.
 
     TEM de ser a cadeia que `PostgresAuditSink` mantem — sem segundo algoritmo, sem tabela
-    paralela e sem fallback em memoria em producao. Uma falha levanta; quem chama recusa a leitura.
+    paralela e sem fallback em memoria em producao. Uma falha levanta; quem le' chama
+    `record_read_best_effort`, que transforma a falha em evento e deixa a leitura seguir.
     """
 
     scope: Scope
@@ -169,3 +216,27 @@ class ReadAccessAuditSink(ABC):
     async def record(self, entry: ReadAccessEntry) -> str:
         """Devolve o `record_hash` do registro gravado."""
         raise NotImplementedError
+
+
+def read_audit_skipped(reason: SkipReason, read_kind: ReadKind) -> None:
+    """O evento estruturado da leitura sem registro confirmado: dois codigos fechados, nada mais."""
+    _LOG.warning(READ_AUDIT_SKIPPED_EVENT, reason=reason, read_kind=read_kind)
+
+
+async def record_read_best_effort(sink: ReadAccessAuditSink | None, entry: ReadAccessEntry) -> str | None:
+    """Grava o registro da leitura se der; se nao der, loga o evento e devolve `None`.
+
+    Nunca recusa a leitura (decisao do dono, DL-0150). `asyncio.CancelledError` (cancelamento de
+    quem chama) e erros de programacao propagam; qualquer outra falha — inclusive o prazo — vira
+    `write_failed`, sem o texto da excecao.
+    """
+    if sink is None or sink.scope != entry.scope:
+        read_audit_skipped("sink_absent", entry.read_kind)
+        return None
+    try:
+        return await asyncio.wait_for(sink.record(entry), timeout=READ_AUDIT_TIMEOUT_SECONDS)
+    except _PROGRAMMING_ERRORS:
+        raise
+    except Exception:  # best-effort por decisao do dono: falha de gravacao vira evento, nunca texto
+        read_audit_skipped("write_failed", entry.read_kind)
+        return None

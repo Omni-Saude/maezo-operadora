@@ -40,7 +40,7 @@ class StaffCaseRuntime:
     ) -> StaffCaseService:
         # DL-0150: `read_audit` is the human plane's access record, lent by
         # `portal/api/production.py::_human_slots`. The staff-only profile has no audit chain to
-        # lend, so its detail stays unrecorded — declared in DL-0150, not hidden.
+        # lend: its detail is served and logs `portal_read_audit_skipped` (sink_absent), DL-0150.
         if not resolver.store.persistent:
             raise StaffCaseError("unavailable")
         return StaffCaseService(resolver, self.sessions, self.witnesses, self.native, read_audit=read_audit)

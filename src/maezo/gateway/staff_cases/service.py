@@ -2,8 +2,9 @@
 
 DL-0150: when the composition installs a `ReadAccessAuditSink` (the human plane's, same tenant
 chain as the completion link), every SUCCESSFUL detail read appends exactly one
-`portal_read.staff_case_detail` link — who, which case, when — and a sink that fails refuses the
-read (fail-closed). The list is not recorded: it is a page of summaries, not the detail.
+`portal_read.staff_case_detail` link — who, which case, when. BEST-EFFORT (owner's decision,
+19/10/2026): with no sink (the `identity,staff_cases` profile) or a failing write the detail is
+served as before and `portal_read_audit_skipped` is logged. The list is not recorded.
 """
 
 from __future__ import annotations
@@ -17,7 +18,12 @@ from typing import Any, Literal
 from pydantic import Field, TypeAdapter
 
 from maezo.gateway.external_cases.models import CaseRef, Digest, Ref, timestamp
-from maezo.gateway.human.read_audit import ReadAccessAuditSink, ReadAccessEntry
+from maezo.gateway.human.read_audit import (
+    ReadAccessAuditSink,
+    ReadAccessEntry,
+    read_audit_skipped,
+    record_read_best_effort,
+)
 from maezo.gateway.human.read_profile import parse_model, wire
 from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.session import HumanSessionResolver
@@ -337,16 +343,19 @@ class StaffCaseService:
         read_at = self.lease.clock()
         if read_at >= min(session_until, timestamp(observed.valid_until)):
             raise StaffCaseError("unavailable")
-        if self.read_audit is not None:
-            # DL-0150: the access record is the LAST awaited work, after every check, before the
-            # bytes leave. A failure propagates to `read()`, which refuses with `unavailable`.
-            await self.read_audit.record(
+        # DL-0150: the access record is the LAST awaited work, after every check, before the bytes
+        # leave. Best-effort: absence or failure logs `portal_read_audit_skipped` and never refuses.
+        if self.read_audit is None:
+            read_audit_skipped("sink_absent", "staff_case_detail")
+        else:
+            await record_read_best_effort(
+                self.read_audit,
                 ReadAccessEntry.of(
                     scope=self.read_audit.scope,
                     read_kind="staff_case_detail",
                     resource_ref=ref,
                     principal=principal,
                     read_at=read_at,
-                )
+                ),
             )
         return public_frozen

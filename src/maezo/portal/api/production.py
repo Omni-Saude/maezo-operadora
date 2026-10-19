@@ -118,10 +118,13 @@ async def _human_slots(
         application.state.decision_service_factory = runtime.assignment.build
         # DL-0150: with the human plane present, the staff case detail records each read in the
         # SAME tenant chain. Rebound only if the staff factory is the one the lifespan installed.
-        read_audit = runtime.read.read_audit
-        if application.state.staff_case_service_factory != staff.service or read_audit is None:
+        # Without a sink (best-effort, owner's decision) the factory stays as is and each detail
+        # read logs `portal_read_audit_skipped`.
+        if application.state.staff_case_service_factory != staff.service:
             raise PortalStaffBootstrapError()
-        application.state.staff_case_service_factory = partial(staff.service, read_audit=read_audit)
+        read_audit = runtime.read.read_audit
+        if read_audit is not None:
+            application.state.staff_case_service_factory = partial(staff.service, read_audit=read_audit)
         # WP-J1-04: the metadata authority and custody provider. Never a byte-serving
         # stub — document bytes stay behind `/api/v1/phi/documents/{ref}/content`, served
         # by the separately deployed PHI application `runtime.documents.phi_service` is

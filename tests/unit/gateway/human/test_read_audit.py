@@ -8,15 +8,19 @@ Pendencia (a) do DL-0050. O que se prova aqui, sem banco (o banco real esta em
 * o registro so' tem as chaves da lista fechada `READ_AUDIT_DETAIL_FIELDS` e nenhum valor lido;
 * leitura negada (outro grupo, tarefa que nao e' de escalonamento, motor falhando, sessao ruim)
   nao gera registro;
-* fail-closed: sem sink instalado a leitura recusa ANTES de perguntar ao motor; sink que falha
-  recusa a leitura e o contexto nao sai.
+* BEST-EFFORT (decisao do dono, 19/10/2026): sem sink, sink de outro escopo, gravacao falhando ou
+  estourando o prazo, a leitura SEGUE com a mesma resposta e sai UM evento
+  `portal_read_audit_skipped` com `reason` e `read_kind` e nada mais (nunca o texto da excecao);
+  erro de programacao continua propagando.
 """
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 from tests.unit.gateway.human.test_escalation_context import (
     RecordingReadAudit,
     RecordingSource,
@@ -31,12 +35,14 @@ from tests.unit.gateway.human.test_task_completion_gateway import (
     staff_in,
 )
 
+from maezo.gateway.human import read_audit as read_audit_module
 from maezo.gateway.human.errors import GatewayRefusalError
 from maezo.gateway.human.queue import ReadRefusalError
 from maezo.gateway.human.read_audit import (
     READ_AUDIT_DETAIL_FIELDS,
     ReadAccessEntry,
     read_access_record,
+    record_read_best_effort,
 )
 from maezo.gateway.human.read_audit_postgres import PostgresReadAccessAudit
 from maezo.portal.contracts.context import TaskContextResponse
@@ -44,6 +50,16 @@ from maezo.portal.contracts.context import TaskContextResponse
 pytestmark = pytest.mark.asyncio
 
 SUMMARY = "Idoso com dor no peito."
+SECRET_TEXT = "PRIVATE pg error 10.0.0.9 Idoso"
+
+
+def skipped(logs):
+    """Os eventos `portal_read_audit_skipped` capturados, e a prova de que so' tem codigos."""
+    events = [e for e in logs if e["event"] == "portal_read_audit_skipped"]
+    for e in events:
+        assert set(e) == {"event", "log_level", "reason", "read_kind"}, e
+    return [(e["reason"], e["read_kind"]) for e in events]
+
 
 #: A lista permitida ESCRITA AQUI, nao importada: um campo novo no codigo (inclusive na constante
 #: `READ_AUDIT_DETAIL_FIELDS`) derruba este teste e obriga a decidir de novo.
@@ -168,31 +184,69 @@ async def test_a_render_failure_writes_no_record():
     assert audit.entries == []
 
 
-async def test_without_a_sink_the_read_refuses_before_the_engine_is_asked():
+async def test_without_a_sink_the_read_is_served_and_the_event_says_sink_absent():
     source = RecordingSource()
     g = await gateway(source=source, audit=None)
-    with pytest.raises(ReadRefusalError) as refusal:
-        await read(g)
-    assert refusal.value.code == "read_dependency_unavailable"
-    assert source.calls == []
+    with capture_logs() as logs:
+        response = await read(g)
+    assert isinstance(response, TaskContextResponse)
+    assert response.resumo_contexto == SUMMARY
+    assert source.calls == ["task-1"]
+    assert skipped(logs) == [("sink_absent", "task_context")]
 
 
-async def test_a_failing_sink_refuses_the_read_and_the_context_does_not_leave():
+async def test_a_failing_sink_serves_the_read_and_logs_write_failed_without_the_error_text():
     source = RecordingSource()
-    audit = RecordingReadAudit(fail=RuntimeError("audit_chain down"))
+    audit = RecordingReadAudit(fail=RuntimeError(SECRET_TEXT))
     g = await gateway(source=source, audit=audit)
-    delivered: list[TaskContextResponse] = []
+    with capture_logs() as logs:
+        response = await read(g)
+    assert response.resumo_contexto == SUMMARY and source.calls == ["task-1"]
+    assert skipped(logs) == [("write_failed", "task_context")]
+    assert SECRET_TEXT not in repr(logs) and "PRIVATE" not in repr(logs)
 
-    def keep(value):
-        delivered.append(value)
-        return value
 
-    with pytest.raises(ReadRefusalError) as refusal:
-        await read(g, render=keep)
-    assert refusal.value.code == "read_dependency_unavailable"
-    assert "audit_chain" not in str(refusal.value)
-    # The render ran (it is pure), but the caller got a refusal, not the context.
-    assert source.calls == ["task-1"] and len(delivered) == 1
+async def test_a_success_logs_no_skipped_event():
+    g = await gateway(source=RecordingSource(), audit=RecordingReadAudit())
+    with capture_logs() as logs:
+        await read(g)
+    assert skipped(logs) == []
+
+
+async def test_a_write_stuck_on_the_chain_lock_is_bounded_and_counts_as_write_failed(monkeypatch):
+    class Stuck(RecordingReadAudit):
+        async def record(self, entry):
+            await asyncio.Event().wait()  # o advisory lock que nunca e solto
+
+    monkeypatch.setattr(read_audit_module, "READ_AUDIT_TIMEOUT_SECONDS", 0.05)
+    g = await gateway(source=RecordingSource(), audit=Stuck())
+    with capture_logs() as logs:
+        response = await asyncio.wait_for(read(g), timeout=5)
+    assert response.resumo_contexto == SUMMARY
+    assert skipped(logs) == [("write_failed", "task_context")]
+
+
+@pytest.mark.parametrize("bug", [TypeError("x"), AttributeError("x"), NotImplementedError("x")])
+async def test_a_programming_error_in_the_sink_is_not_swallowed(bug):
+    g = await gateway(source=RecordingSource())
+    principal = (await g._resolver.resolve(SECRET)).principal
+    entry = ReadAccessEntry.of(
+        scope=SCOPE, read_kind="task_context", resource_ref="task-1", principal=principal
+    )
+    with capture_logs() as logs, pytest.raises(type(bug)):
+        await record_read_best_effort(RecordingReadAudit(fail=bug), entry)
+    assert skipped(logs) == []
+    # Pelo gateway, o erro de programacao nao vira "leitura com evento": a leitura cai.
+    g = await gateway(source=RecordingSource(), audit=RecordingReadAudit(fail=bug))
+    with capture_logs() as logs, pytest.raises(ReadRefusalError):
+        await read(g)
+    assert skipped(logs) == []
+
+
+async def test_the_local_programming_errors_mirror_the_runtime_tuple():
+    from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
+
+    assert read_audit_module._PROGRAMMING_ERRORS == PROGRAMMING_ERRORS
 
 
 async def test_a_sink_of_another_scope_cannot_be_installed():
@@ -210,30 +264,47 @@ async def test_a_sink_of_another_scope_cannot_be_installed():
     assert refusal.value.code == "credential_scope_mismatch"
 
 
-async def test_a_sink_swapped_for_another_scope_after_construction_refuses_the_read():
+async def test_a_sink_swapped_for_another_scope_is_a_composition_error_not_an_audit_failure():
+    # Same rule as every other port of this gateway (`_check_scope`, re-run on each session read):
+    # a foreign-scope capability is a wiring error and is refused; it is NOT "registro ausente".
     other = RecordingReadAudit()
     other.scope = SCOPE.model_copy(update={"workload_ref": "other-workload"})
     source = RecordingSource()
     g = await gateway(source=source, audit=other)
-    with pytest.raises(ReadRefusalError):
+    with capture_logs() as logs, pytest.raises(ReadRefusalError):
         await read(g)
-    assert source.calls == [] and other.entries == []
+    assert source.calls == [] and other.entries == [] and skipped(logs) == []
+
+
+async def test_the_helper_never_writes_an_entry_into_a_sink_of_another_scope():
+    other = RecordingReadAudit()
+    other.scope = SCOPE.model_copy(update={"workload_ref": "other-workload"})
+    g = await gateway(source=RecordingSource())
+    principal = (await g._resolver.resolve(SECRET)).principal
+    entry = ReadAccessEntry.of(
+        scope=SCOPE, read_kind="task_context", resource_ref="task-1", principal=principal
+    )
+    with capture_logs() as logs:
+        assert await record_read_best_effort(other, entry) is None
+    assert other.entries == [] and skipped(logs) == [("sink_absent", "task_context")]
 
 
 # ---------------------------------------------------------------------------------------
-# Composition: the PHI context read never composes without the record.
+# Composition: best-effort - a context source without the record composes and logs.
 # ---------------------------------------------------------------------------------------
-async def test_the_composition_refuses_a_context_source_without_a_read_audit():
+async def test_the_composition_accepts_a_context_source_without_a_read_audit_and_logs():
     from maezo.gateway.human.engine_reads import EngineReadComposition
 
-    with pytest.raises(ReadRefusalError):
-        EngineReadComposition(
+    with capture_logs() as logs:
+        composition = EngineReadComposition(
             new_bundle=lambda: None,  # type: ignore[arg-type,return-value]
             command_credentials=object(),  # type: ignore[arg-type]
             command_admission=object(),  # type: ignore[arg-type]
             transport_pool=httpx.MockTransport(lambda r: httpx.Response(204)),
             escalation_context=RecordingSource(),
         )
+    assert composition.read_audit is None
+    assert skipped(logs) == [("sink_absent", "task_context")]
 
 
 async def test_the_composition_exposes_the_installed_read_audit():

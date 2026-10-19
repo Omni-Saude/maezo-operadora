@@ -2,8 +2,9 @@
 
 Mesmo cenario sintetico de `test_staff_case_authority.py` (sem banco, sem motor nativo). Prova:
 uma leitura de detalhe aceita gera exatamente um registro; leitura negada, em conflito ou com
-cursor nao gera; o sink que falha recusa a leitura (fail-closed); e o registro so' tem a lista
-fechada de campos, sem nada do que foi lido (guia, desfecho, sujeito).
+cursor nao gera; BEST-EFFORT (decisao do dono, 19/10/2026): sem sink ou com o sink falhando o
+detalhe sai igual e o evento `portal_read_audit_skipped` e' logado so' com codigos; e o registro so'
+tem a lista fechada de campos, sem nada do que foi lido (guia, desfecho, sujeito).
 """
 
 import json
@@ -13,6 +14,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from structlog.testing import capture_logs
 
 from maezo.gateway.external_cases.models import digest
 from maezo.gateway.human.models import Scope as HumanScope
@@ -148,13 +150,22 @@ async def test_a_cursor_or_a_bad_case_ref_writes_no_record():
     assert audit.entries == [] and calls == []
 
 
-async def test_a_failing_sink_refuses_the_detail_read():
-    audit = RecordingReadAudit(fail=RuntimeError("audit_chain down"))
+def _skipped(logs):
+    events = [e for e in logs if e["event"] == "portal_read_audit_skipped"]
+    for e in events:
+        assert set(e) == {"event", "log_level", "reason", "read_kind"}, e
+    return [(e["reason"], e["read_kind"]) for e in events]
+
+
+async def test_a_failing_sink_serves_the_detail_and_logs_write_failed():
+    audit = RecordingReadAudit(fail=RuntimeError("PRIVATE audit_chain down"))
     service, _, identity, _, calls, _ = _service("accepted", audit)
-    with pytest.raises(StaffCaseError) as refusal:
-        await service.read("s" * 43, case_ref=identity.case_ref)
-    assert refusal.value.code == "unavailable"
+    with capture_logs() as logs:
+        raw = await service.read("s" * 43, case_ref=identity.case_ref)
+    assert json.loads(raw)["case"]["case_ref"] == identity.case_ref
     assert [c["operation"] for c in calls] == ["detail", "finalize"]
+    assert _skipped(logs) == [("write_failed", "staff_case_detail")]
+    assert "PRIVATE" not in repr(logs)
 
 
 async def test_the_list_is_not_a_detail_and_writes_no_record():
@@ -167,10 +178,21 @@ async def test_the_list_is_not_a_detail_and_writes_no_record():
     assert "read_audit" in inspect.getsource(module.StaffCaseService._read)
 
 
-async def test_without_a_sink_the_detail_read_is_unchanged():
+async def test_without_a_sink_the_detail_read_is_unchanged_and_logs_sink_absent():
+    # The `identity,staff_cases` profile (no human plane): no record, no refusal, one event.
     service, _, identity, _, _, _ = _service("accepted", None)
-    raw = await service.read("s" * 43, case_ref=identity.case_ref)
+    with capture_logs() as logs:
+        raw = await service.read("s" * 43, case_ref=identity.case_ref)
     assert json.loads(raw)["case"]["case_ref"] == identity.case_ref
+    assert _skipped(logs) == [("sink_absent", "staff_case_detail")]
+
+
+@pytest.mark.parametrize("mode", ["beneficiary", "changed_receipt"])
+async def test_a_denied_detail_read_logs_no_skipped_event_either(mode):
+    service, _, identity, _, _, _ = _service(mode, None)
+    with capture_logs() as logs, pytest.raises(StaffCaseError):
+        await service.read("s" * 43, case_ref=identity.case_ref)
+    assert _skipped(logs) == []
 
 
 async def test_a_sink_of_another_tenant_cannot_be_installed():

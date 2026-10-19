@@ -78,7 +78,7 @@ from .queue import (
     TaskDisclosureGrant,
     TaskDisclosureSource,
 )
-from .read_audit import ReadAccessAuditSink, ReadAccessEntry
+from .read_audit import ReadAccessAuditSink, ReadAccessEntry, record_read_best_effort
 from .receipt import (
     BoundReceiptPorts,
     CurrentReceiptAuthority,
@@ -145,8 +145,8 @@ class HumanGateway:
         self._completion_audit = completion_audit
         # INTERIM (DL-0050): `None` keeps `read_escalation_context` refusing.
         self._escalation_context = escalation_context
-        # DL-0150: `None` keeps `read_escalation_context` refusing — a PHI read with no access
-        # record is the gap DL-0050 (a) registered, and it is not served.
+        # DL-0150: `None` does NOT refuse the context read (owner's decision, best-effort): the
+        # read is served and `portal_read_audit_skipped` (reason=sink_absent) is logged.
         self._read_audit = read_audit
         self._check_scope()
 
@@ -715,9 +715,10 @@ class HumanGateway:
 
         DL-0150 (pendencia (a) do DL-0050): every SUCCESSFUL read appends exactly one
         `portal_read.task_context` link to the tenant's audit chain — WHO (pseudonymous refs), WHAT
-        (task id + read code) and WHEN — and nothing of what was read. Fail-closed: no installed
-        sink refuses BEFORE the engine is asked; a sink that fails refuses the read and the
-        rendered context is discarded. A refused read writes no access link.
+        (task id + read code) and WHEN — and nothing of what was read. BEST-EFFORT (owner's
+        decision, 19/10/2026): with no sink, or a write that fails or exceeds its deadline, the
+        read is served exactly as before and a closed-code `portal_read_audit_skipped` event is
+        logged. A refused read writes no access link.
         """
         try:
             task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
@@ -734,9 +735,6 @@ class HumanGateway:
                 raise ReadRefusalError("resource_unavailable")
             source = self._escalation_context
             if source is None or source.scope != self._scope:
-                raise ReadRefusalError("read_dependency_unavailable")
-            audit = self._read_audit
-            if audit is None or audit.scope != self._scope:
                 raise ReadRefusalError("read_dependency_unavailable")
             try:
                 context = await source.read(task_id=task_id)
@@ -767,15 +765,16 @@ class HumanGateway:
             )
             result = render(response)
             # LAST, after the whole authorization and the remote read, before anything leaves.
-            # A failure here is caught below as uncertainty: the context is NOT returned.
-            await audit.record(
+            # Best-effort: never refuses; only a programming error propagates (and is caught below).
+            await record_read_best_effort(
+                self._read_audit,
                 ReadAccessEntry.of(
                     scope=self._scope,
                     read_kind="task_context",
                     resource_ref=task_id,
                     principal=final.principal,
                     read_at=now,
-                )
+                ),
             )
             return result
         except ReadRefusalError:
