@@ -1073,3 +1073,125 @@ def test_a_dmn_roteia_os_motivos_sem_severidade_com_severidade_nula(motivo: str)
     severidade_idx = table.input_names.index("severidade")
     regra_r7 = next(regra for regra in table.rules if regra.rule_id == "r7")
     assert regra_r7.inputs[severidade_idx] == "-"
+
+
+# ---------------------------------------------------------------------------
+# notify_supervisor nomeia o caso + fatos fechados para o alarme
+# ---------------------------------------------------------------------------
+
+#: O que o aviso ao supervisor PODE levar: identificadores e rotulos fechados, nada de texto livre.
+_CAMPOS_PERMITIDOS_SUPERVISOR = frozenset(
+    {
+        "type",
+        "tenant_id",
+        "severidade",
+        "grupo_atendimento",
+        "alert_to",
+        "business_key",
+        "prioridade",
+        "motivo_alerta",
+    }
+)
+
+
+async def test_notify_supervisor_payload_names_the_case_with_the_task_business_key() -> None:
+    kafka = FakeKafkaPublisher()
+    await make_notify_supervisor_handler(kafka)(
+        _task(
+            topic="operadora.escalation.notify_supervisor",
+            business_key="ESC-amh-conv-77",
+            variables=_supervisor_vars(resumo_contexto="texto livre que nunca viaja"),
+        )
+    )
+    _topic, payload, key = kafka.published[0]
+    assert payload["business_key"] == "ESC-amh-conv-77"
+    # O inbox arquiva o aviso sob `alert_to` (passo seguinte): o campo e' contrato do payload.
+    assert payload["alert_to"] == "supervisao-atendimento"
+    assert set(payload) <= _CAMPOS_PERMITIDOS_SUPERVISOR
+    assert "texto livre que nunca viaja" not in repr(payload)
+    assert key == "ESC-amh-conv-77"
+
+
+async def test_notify_supervisor_partition_key_is_derived_from_the_published_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A chave de particao continua derivada do payload COMO PUBLICADO: `business_key` ja esta nele."""
+    from maezo.tools.workers import escalation as mod
+
+    vistos: list[dict[str, Any]] = []
+    original = mod.partition_key_for_task
+
+    def _espiao(task: ExternalTask, topic: str, payload: dict[str, Any]) -> str:
+        vistos.append(dict(payload))
+        return original(task, topic, payload)
+
+    monkeypatch.setattr(mod, "partition_key_for_task", _espiao)
+    kafka = FakeKafkaPublisher()
+    await make_notify_supervisor_handler(kafka)(
+        _task(topic="operadora.escalation.notify_supervisor", variables=_supervisor_vars())
+    )
+    _topic, payload, _key = kafka.published[0]
+    assert vistos == [payload]
+    assert vistos[0]["business_key"] == "ESC-amh-conv-1"
+
+
+@pytest.mark.parametrize(
+    ("ajuste", "esperado"),
+    [
+        ({}, "sla_ack_breached"),
+        ({"motivo": None, "motivo_fallback": "notificacao_primaria_falhou"}, "notificacao_primaria_falhou"),
+        ({"motivo": "qualquer coisa ESC-amh-conv-1"}, "outro"),
+        ({"motivo": None}, "outro"),
+    ],
+)
+async def test_notify_supervisor_emits_closed_supervisor_alertado(
+    ajuste: dict[str, Any], esperado: str
+) -> None:
+    from maezo.tools.workers.escalation import EVENTO_SUPERVISOR_ALERTADO
+
+    variables = _supervisor_vars()
+    for nome, valor in ajuste.items():
+        if valor is None:
+            variables.pop(nome, None)
+        else:
+            variables[nome] = valor
+    with structlog.testing.capture_logs() as logs:
+        await make_notify_supervisor_handler(FakeKafkaPublisher())(
+            _task(topic="operadora.escalation.notify_supervisor", variables=variables)
+        )
+    eventos = [e for e in logs if e["event"] == EVENTO_SUPERVISOR_ALERTADO]
+    assert eventos == [
+        {"event": "escalation.supervisor_alertado", "motivo_alerta": esperado, "log_level": "warning"}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "tipo"),
+    [("team", "equipe"), ("supervisor", "supervisor")],
+)
+async def test_publish_failure_emits_closed_aviso_falhou(kind: str, tipo: str) -> None:
+    from maezo.tools.workers.escalation import EVENTO_AVISO_FALHOU, EVENTO_SUPERVISOR_ALERTADO
+
+    if kind == "team":
+        handler = make_notify_team_handler(_FailingKafka())
+        task = _task(variables=_team_vars())
+    else:
+        handler = make_notify_supervisor_handler(_FailingKafka())
+        task = _task(topic="operadora.escalation.notify_supervisor", variables=_supervisor_vars())
+    with structlog.testing.capture_logs() as logs, pytest.raises(WorkerBpmnError):
+        await handler(task)
+    assert [e for e in logs if e["event"] == EVENTO_AVISO_FALHOU] == [
+        {"event": "escalation.aviso_falhou", "tipo": tipo, "log_level": "error"}
+    ]
+    assert [e for e in logs if e["event"] == EVENTO_SUPERVISOR_ALERTADO] == []
+
+
+async def test_successful_notices_never_emit_aviso_falhou() -> None:
+    from maezo.tools.workers.escalation import EVENTO_AVISO_FALHOU
+
+    with structlog.testing.capture_logs() as logs:
+        await make_notify_team_handler(FakeKafkaPublisher())(_task(variables=_team_vars()))
+        await make_notify_supervisor_handler(FakeKafkaPublisher())(
+            _task(topic="operadora.escalation.notify_supervisor", variables=_supervisor_vars())
+        )
+    assert [e for e in logs if e["event"] == EVENTO_AVISO_FALHOU] == []

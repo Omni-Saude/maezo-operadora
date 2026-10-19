@@ -222,7 +222,7 @@ dossie instrutivo e roteamento humano (CC-13 — Agent Fleet Audit: antes deste 
 | Kafka | `agents.events.process_completed` | produz | somente se `resultado=devolvido_agente` (retoma conversa do agente). Payload (GAP-ESC-1): `tenant_id`, `agent_id` (alias de `source_agent_id`), `conversation_id`, `resultado` + `_business_key` (`ESC-{tenant_id}-{conversation_id}`, injetado pelo worker) — chaves de correlacao para o consumidor universal (GAP-XHITL-4). SEM `notas_resolucao` (texto livre, Zona PHI) |
 | External task | `operadora.events.publish` | consome (worker) | publicador generico de eventos de dominio |
 | External task | `operadora.escalation.notify_team` | consome (worker) | alerta o grupo humano roteado |
-| External task | `operadora.escalation.notify_supervisor` | consome (worker) | alerta supervisao (ack estourado ou fallback de canal) |
+| External task | `operadora.escalation.notify_supervisor` | consome (worker) | alerta supervisao (ack estourado ou fallback de canal). Publica `escalation.notify_supervisor` em `operadora.notifications.internal`; o payload inclui `business_key` (a chave do motor, lida da tarefa, como `notify_team`) para o aviso nomear o caso, alem de `alert_to=supervisao-atendimento` e rotulos fechados — sem texto livre (ADR-0006) |
 
 ## DMN referenciada
 

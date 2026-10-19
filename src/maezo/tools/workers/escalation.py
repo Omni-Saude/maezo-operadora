@@ -94,7 +94,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, Final, NoReturn
 
 import structlog
 
@@ -204,8 +204,10 @@ _MOTIVO_SEM_SEVERIDADE: frozenset[str] = frozenset({"falha_tecnica", "cobranca",
 #: nothing is lost silently. New instances never carry these keys.
 _ALIASES_INGLES_PROIBIDOS: tuple[str, ...] = ("severity", "group", "priority")
 
-#: The supervisor group alerted on SLA breach / channel fallback (contract `:72`).
-_GRUPO_SUPERVISAO: str = "supervisao-atendimento"
+#: The supervisor group alerted on SLA breach / channel fallback (contract `:72`). PUBLIC: the
+#: durable inbox (`notifications_inbox.py`) files a supervisor notice under exactly this group.
+GRUPO_SUPERVISAO: Final[str] = "supervisao-atendimento"
+_GRUPO_SUPERVISAO: str = GRUPO_SUPERVISAO
 
 # Topics + notification channel/types (mirrors lgpd.py / recurso.py's per-worker notification idiom;
 # the notification `type` is what the integration probe's `notified_teams`/`notified_supervisors`
@@ -220,7 +222,32 @@ _NOTIFY_SUPERVISOR_TOPIC = "operadora.escalation.notify_supervisor"
 #: `type`, no error anywhere).
 NOTIFY_TEAM_NOTIFICATION_TYPE: str = "escalation.notify_team"
 _NOTIFY_TEAM_NOTIFICATION_TYPE = NOTIFY_TEAM_NOTIFICATION_TYPE
-_NOTIFY_SUPERVISOR_NOTIFICATION_TYPE = "escalation.notify_supervisor"
+#: PUBLIC for the same reason as `NOTIFY_TEAM_NOTIFICATION_TYPE`: the inbox also files this type.
+NOTIFY_SUPERVISOR_NOTIFICATION_TYPE: Final[str] = "escalation.notify_supervisor"
+_NOTIFY_SUPERVISOR_NOTIFICATION_TYPE = NOTIFY_SUPERVISOR_NOTIFICATION_TYPE
+
+#: Structured facts the CloudWatch alarms count (`deploy/aws-ecs/envs/dev-sa-east-1/
+#: escalation-alarms.tf`). The alarm tests IMPORT these constants; nobody types them twice.
+#: Every field is a CLOSED token: no business key, no exception text.
+EVENTO_SUPERVISOR_ALERTADO: Final[str] = "escalation.supervisor_alertado"
+EVENTO_AVISO_FALHOU: Final[str] = "escalation.aviso_falhou"
+#: `tipo` of `escalation.aviso_falhou`: which notice failed to publish.
+AVISO_TIPO_EQUIPE: Final[str] = "equipe"
+AVISO_TIPO_SUPERVISOR: Final[str] = "supervisor"
+#: `motivo_alerta` of `escalation.supervisor_alertado`: the two literals the BPMN sets
+#: (`ST_NotificarSupervisor` `motivo` = SLA de ciencia estourado; `ST_NotificarFallback`
+#: `motivo_fallback`); anything else is reported as `outro`, never echoed.
+MOTIVO_ALERTA_SLA_ACK: Final[str] = "sla_ack_breached"
+MOTIVO_ALERTA_FALLBACK: Final[str] = "notificacao_primaria_falhou"
+MOTIVO_ALERTA_OUTRO: Final[str] = "outro"
+_MOTIVOS_ALERTA: Final[frozenset[str]] = frozenset({MOTIVO_ALERTA_SLA_ACK, MOTIVO_ALERTA_FALLBACK})
+
+
+def _motivo_alerta_fechado(motivo_alerta: str | None) -> str:
+    if motivo_alerta is not None and motivo_alerta in _MOTIVOS_ALERTA:
+        return motivo_alerta
+    return MOTIVO_ALERTA_OUTRO
+
 
 # ADR-0030 Tier-1 (G2-fs technical fail-safe): the modeled BPMN error a notify handler raises when
 # the notification channel (`kafka.publish`) fails. SP-OP-ESCALATION-001 declares a matching
@@ -662,6 +689,7 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
                 prioridade=prioridade,
                 business_key=task.business_key,
             )
+            logger.error(EVENTO_AVISO_FALHOU, tipo=AVISO_TIPO_EQUIPE)
             publish_failed = True
         if publish_failed:
             # ADR-0006: discard broker text and leave the except scope before raising,
@@ -760,6 +788,10 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "severidade": severidade,
             "grupo_atendimento": grupo,
             "alert_to": _GRUPO_SUPERVISAO,
+            # WHICH escalation — the same field, the same source and the same PHI posture as
+            # `notify_team` above (WP-J1-09): the ENGINE'S OWN business key read off the task, never
+            # re-derived. Without it the supervisor's inbox line could not name the case.
+            "business_key": task.business_key,
         }
         if prioridade is not None:
             notification["prioridade"] = prioridade
@@ -805,6 +837,7 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
                 motivo_alerta=motivo_alerta,
                 business_key=task.business_key,
             )
+            logger.error(EVENTO_AVISO_FALHOU, tipo=AVISO_TIPO_SUPERVISOR)
             publish_failed = True
         if publish_failed:
             # ADR-0006: no arbitrary broker diagnostics or retained exception chain.
@@ -821,6 +854,7 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             motivo_alerta=motivo_alerta,
             business_key=task.business_key,
         )
+        logger.warning(EVENTO_SUPERVISOR_ALERTADO, motivo_alerta=_motivo_alerta_fechado(motivo_alerta))
         result["status"] = "supervisor_notified"
         return result
 
