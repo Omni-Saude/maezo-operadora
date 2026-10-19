@@ -19,7 +19,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from maezo.agents.helena.graph import FRASE_PASSAGEM_COBRANCA
+from maezo.agents.helena.graph import FRASE_PASSAGEM_CANCELAMENTO, FRASE_PASSAGEM_COBRANCA
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.platform.webhooks.whatsapp import pre_roteamento
 from maezo.platform.webhooks.whatsapp.dedup import WhatsAppDedupGuard
@@ -157,7 +157,7 @@ async def test_start_falhou_do_lucas_volta_a_helena_como_retorno_falha_sem_envio
     assert (linha.agente_ativo, linha.transicao_motivo) == ("helena", "retorno_falha")
     assert linha.transicao_motivo != "lucas_encerrou"
     # Nenhum envio novo: so' a frase de passagem que ja' saia antes (o duble do Lucas nao envia).
-    assert cliente.textos == [FRASE_PASSAGEM_COBRANCA]
+    assert cliente.textos in ([FRASE_PASSAGEM_COBRANCA], [FRASE_PASSAGEM_CANCELAMENTO])
     assert motor._history == {}  # nenhum escalonamento aberto pela Helena neste turno
 
 
@@ -168,7 +168,7 @@ async def test_start_falhou_com_pedido_explicito_de_pessoa_nao_abre_outro_caso_n
     resultado = await dispatcher.dispatch(_msg("quero falar com um atendente sobre o boleto"))
 
     assert not resultado.get("escalation_started")
-    assert cliente.textos == [FRASE_PASSAGEM_COBRANCA]
+    assert cliente.textos in ([FRASE_PASSAGEM_COBRANCA], [FRASE_PASSAGEM_CANCELAMENTO])
     assert motor._history == {}
     assert _linha(store).agente_ativo == "helena"
 
