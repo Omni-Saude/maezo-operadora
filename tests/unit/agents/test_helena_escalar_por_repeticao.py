@@ -290,5 +290,5 @@ def test_o_numero_do_codigo_e_o_da_ficha() -> None:
     ficha = yaml.safe_load(Path("spec/agents/helena/agent.yaml").read_text(encoding="utf-8"))
     loop = ficha["escalation"]["loop"]
     assert loop["repeticoes_para_escalar"] == g.REPETICOES_PARA_ESCALAR
-    assert loop["status"] == "PENDENTE_VALOR_DO_DONO"
+    assert loop["status"] == "APROVADO_PELO_DONO"
     assert {"signal": "tool_failure"} in ficha["escalation"]["triggers"]

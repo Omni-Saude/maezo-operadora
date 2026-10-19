@@ -1232,7 +1232,8 @@ def _sem_repetir(estado: Mapping[str, Any], texto: str) -> str:
 #: loop, e nada o implementava: `_sem_repetir` so' VARIA o texto, e a pessoa podia ler a mesma resposta
 #: indefinidamente.
 #: Quantas vezes seguidas a MESMA resposta ja' saiu antes de a proxima igual virar escalonamento. Espelha
-#: `escalation.loop.repeticoes_para_escalar` da ficha (igualdade fixada em teste) — VALOR PENDENTE DO DONO.
+#: `escalation.loop.repeticoes_para_escalar` da ficha (igualdade fixada em teste).
+#: Valor aprovado pelo dono em 19/10/2026 (DL-0147).
 REPETICOES_PARA_ESCALAR: int = 2
 #: O `error` do turno escalado por loop: token de classe, sem texto da pessoa nem da Helena (vai ao sufixo
 #: `[falha tecnica: ...]` do resumo do atendente).

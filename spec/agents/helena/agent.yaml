@@ -312,12 +312,12 @@ escalation:
       # entrada de `triggers` e' um mapeamento de UMA chave, cerca de tests/evals/test_trigger_coverage.py).
     - signal: psychosocial_risk       # suicidio/autolesao   -> risco_psicossocial (sempre)
   loop:                               # parametro do `signal: tool_failure` (loop) acima — DL-0147
-    repeticoes_para_escalar: 2        # PENDENTE valor do dono: a ficha nao fixa o numero. 2 = o unico
+    repeticoes_para_escalar: 2        # APROVADO pelo dono em 19/10/2026 (DL-0147). Origem do 2: o unico
                                       # numero da spec para conversa que nao avanca ("frustracao
                                       # detectada 2x", AGJ-HELENA-TRIAGE.md), e o menor que nao escala
                                       # na primeira repeticao (que `_sem_repetir` ja' varia). Igualdade
                                       # com `graph.REPETICOES_PARA_ESCALAR` fixada em teste.
-    status: PENDENTE_VALOR_DO_DONO
+    status: APROVADO_PELO_DONO
 memory:
   episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
   semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
