@@ -992,9 +992,10 @@ TEXTO_CANCELAMENTO_EMPRESA_CURTO: Final[str] = "Quem decide o cancelamento é a 
 TEXTO_CANCELAMENTO_ADMINISTRADORA_CURTO: Final[str] = (
     "Quem decide o cancelamento é a administradora do plano."
 )
-#: PF: a pergunta UNICA de confirmacao. Sem argumento de retencao, sem prazo.
+#: PF: a pergunta UNICA de confirmacao. Sem argumento de retencao, sem prazo. FASE 4 (decisao do dono,
+#: 18/10/2026): "Sim" basta — a frase em maiusculas ("SIM, QUERO CANCELAR") saiu.
 TEXTO_CONFIRMA_CANCELAMENTO: Final[str] = (
-    "Você quer pedir para cancelar o seu plano? Se sim, responda: SIM, QUERO CANCELAR."
+    "Você quer pedir para cancelar o seu plano? Responda Sim para confirmar."
 )
 TEXTO_CANCELAMENTO_DESISTIU: Final[str] = (
     "Tudo bem, não vou registrar o pedido de cancelamento. Se precisar, é só me dizer."
@@ -1385,17 +1386,38 @@ TEXTO_PAGAMENTO_AO_PRESTADOR_CURTO: Final[str] = (
 )
 
 
-def texto_pagador_empresa_curto(state: LucasState, hoje: date) -> str:
-    """A forma CURTA do contrato de empresa, para quando a pessoa pergunta de novo (rodada 4), POR ASSUNTO
-    (rodada 8): a curta da 2a via nao e' a do pagamento."""
+def formas_curtas_da_empresa(state: LucasState, hoje: date) -> tuple[str, ...]:
+    """As formas CURTAS do contrato de empresa, POR ASSUNTO (rodada 8), que se revezam (FASE 4,
+    18/10/2026) quando a resposta anterior do Lucas ja' foi um texto da empresa — de QUALQUER assunto ou mes.
+    Antes, trocar de assunto ou de mes repetia "Sua mensalidade e' paga pela empresa contratante." inteira.
+    Nenhuma repete essa abertura; todas dizem o fato (a empresa contratante / o RH). Sem a oferta de uma
+    pessoa: ela entra no maximo uma vez a cada duas respostas (`LucasGraph._escada_da_empresa`)."""
     tema = tema_da_empresa(state)
     if tema == TEMA_EMPRESA_SEGUNDA_VIA:
-        return "A 2ª via é com a empresa contratante, normalmente pelo RH. Por aqui eu não envio o boleto."
+        return (
+            "A 2ª via é com a empresa contratante, normalmente pelo RH. Por aqui eu não envio o boleto.",
+            "Esse boleto é emitido para a empresa contratante. A 2ª via você pede ao RH.",
+            "Por aqui eu não consigo enviar esse boleto. A 2ª via fica com o RH da empresa contratante.",
+        )
     if tema == TEMA_EMPRESA_VENCIMENTO:
-        return "O vencimento e o boleto são com a empresa contratante, normalmente pelo RH."
+        return (
+            "O vencimento e o boleto são com a empresa contratante, normalmente pelo RH.",
+            "A data de vencimento quem informa é o RH da empresa contratante.",
+            "Como o boleto é da empresa contratante, o vencimento fica com o RH.",
+        )
     pedida = _na_forma(state.get("competencia"), _COMPETENCIA_DO_FATO)
     de_qual = f" de {_mes_por_extenso(pedida, hoje)}" if pedida is not None else ""
-    return f"A confirmação do pagamento{de_qual} é com a empresa contratante, normalmente pelo RH."
+    return (
+        f"A confirmação do pagamento{de_qual} é com a empresa contratante, normalmente pelo RH.",
+        f"Para saber se a mensalidade{de_qual} foi paga, fale com o RH da empresa contratante.",
+        f"O pagamento{de_qual} é feito pela empresa contratante, e eu não o vejo por aqui. O RH confirma.",
+    )
+
+
+def texto_pagador_empresa_curto(state: LucasState, hoje: date) -> str:
+    """A forma CURTA do contrato de empresa, para quando a pessoa pergunta de novo (rodada 4), POR ASSUNTO
+    (rodada 8): a curta da 2a via nao e' a do pagamento. E' a primeira de `formas_curtas_da_empresa`."""
+    return formas_curtas_da_empresa(state, hoje)[0]
 
 
 def _reais(decimal_texto: str) -> str:
@@ -1435,11 +1457,113 @@ def _foco_da_pergunta(state: LucasState) -> str:
     return foco if isinstance(foco, str) and foco_valido(foco) else FOCO_GERAL
 
 
+def _valor_principal(c: Mapping[str, str]) -> str | None:
+    """O valor que o texto mostra de UM mes (FASE 4, 18/10/2026, dados reais de dev): o do BOLETO do
+    pagador PF (`valor_boleto_pagador`, que so' chega aos fatos para ele — `_competencias_dos_fatos`) e, sem
+    ele, o `valor_total` de sempre. O defeito: a lista mostrava R$ 391,02 (a parte da titular) e a 2a via
+    R$ 566,72 (o boleto, com o dependente) para o MESMO mes. Empresa, adesao e quem nao e' o pagador: o de
+    antes."""
+    return c.get("valor_boleto_pagador") or c.get("valor_total")
+
+
+#: O rotulo SEM nome de um beneficiario do detalhamento (DL-0114): "você", "titular", "dependente N".
+_ROTULO_DO_DETALHE: Final[re.Pattern[str]] = re.compile(r"(você|titular|dependente( [0-9]+)?)")
+
+
+def _beneficiarios_que_fecham(
+    grupo: Mapping[str, Any] | None, total: str | None
+) -> list[dict[str, str]] | None:
+    """Os beneficiarios do detalhamento do pagador quando ele FECHA com o boleto: a AMH diz `fecha=true`, o
+    total do grupo e' o `total` do boleto e a soma dos totais por beneficiario confere com ele. So' CONFERE
+    somas — nenhuma parcela e' calculada. `None` em qualquer duvida (o texto mostra so' o valor do boleto)."""
+    if not isinstance(grupo, Mapping) or grupo.get("fecha") is not True or total is None:
+        return None
+    if _na_forma(grupo.get("total_mensalidade"), _DECIMAL_DO_FATO) != total:
+        return None
+    bruto = grupo.get("beneficiarios")
+    if not isinstance(bruto, list) or not 0 < len(bruto) <= MAX_BENEFICIARIOS_NO_TEXTO:
+        return None
+    saida: list[dict[str, str]] = []
+    for item in bruto:
+        if not isinstance(item, Mapping):
+            return None
+        rotulo = item.get("rotulo")
+        valor_total = _na_forma(item.get("valor_total"), _DECIMAL_DO_FATO)
+        if not isinstance(rotulo, str) or not _ROTULO_DO_DETALHE.fullmatch(rotulo) or valor_total is None:
+            return None
+        limpo = {"rotulo": rotulo, "valor_total": valor_total}
+        for campo in ("valor_pre_estabelecido", "valor_coparticipacao", "valor_adicionais", "valor_outros"):
+            valor = _na_forma(item.get(campo), _DECIMAL_DO_FATO)
+            if valor is not None:
+                limpo[campo] = valor
+        saida.append(limpo)
+    if sum(Decimal(b["valor_total"]) for b in saida) != Decimal(total):
+        return None
+    return saida
+
+
+def _sendo(b: Mapping[str, str]) -> str:
+    """ ", sendo R$ 354,52 de mensalidade e R$ 36,50 de coparticipação" — so' quando o beneficiario tem
+    coparticipacao (ou adicional) e as partes, todas nos fatos, somam o total dele. Senao, nada."""
+    pre = b.get("valor_pre_estabelecido")
+    if pre is None or Decimal(b.get("valor_outros") or "0") != 0:
+        return ""
+    partes = [(pre, "de mensalidade")]
+    for campo, nome in (("valor_coparticipacao", "de coparticipação"), ("valor_adicionais", "de adicionais")):
+        valor = b.get(campo)
+        if valor is not None and Decimal(valor) > 0:
+            partes.append((valor, nome))
+    if len(partes) == 1 or sum(Decimal(v) for v, _ in partes) != Decimal(b["valor_total"]):
+        return ""
+    ditas = [f"{_reais(v)} {nome}" for v, nome in partes]
+    return f", sendo {', '.join(ditas[:-1])} e {ditas[-1]}"
+
+
+def composicao_do_mes(state: LucasState, c: Mapping[str, str]) -> str | None:
+    """A composicao CURTA do boleto do pagador PF, quando o detalhamento da competencia fecha com ele: "você:
+    R$ 391,02, sendo R$ 354,52 de mensalidade e R$ 36,50 de coparticipação; dependente 1: R$ 175,70". Cada
+    quantia e' um campo do detalhamento (a cerca os recebe: `_fatos_da_composicao`). `None` sem boleto, sem
+    detalhamento ou quando ele nao fecha — nunca se inventa composicao."""
+    total = c.get("valor_boleto_pagador")
+    if total is None or not mostra_boleto_da_familia(state):
+        return None
+    beneficiarios = _beneficiarios_que_fecham(_detalhamento_da_competencia_v4(state, c["competencia"]), total)
+    if beneficiarios is None:
+        return None
+    return "; ".join(f"{b['rotulo']}: {_reais(b['valor_total'])}{_sendo(b)}" for b in beneficiarios)
+
+
+def _fatos_da_composicao(state: LucasState) -> list[dict[str, Any]]:
+    """Os grupos do detalhamento que FECHAM com o boleto do seu mes, para a cerca de saida aceitar as quantias
+    da composicao (`composicao_do_mes`). Vazio fora do pagador PF."""
+    if not mostra_boleto_da_familia(state):
+        return []
+    saida: list[dict[str, Any]] = []
+    meses: list[Mapping[str, str]] = list(_competencias_dos_fatos(state))
+    segunda_via = _boleto_da_segunda_via_v4(state)
+    if segunda_via is not None:
+        meses.append(segunda_via["fato"])  # o valor do titulo da 2a via (v4) e' o boleto daquele mes
+    for c in meses:
+        grupo = _detalhamento_da_competencia_v4(state, c["competencia"])
+        beneficiarios = _beneficiarios_que_fecham(grupo, c.get("valor_boleto_pagador"))
+        if beneficiarios is not None:
+            saida.append({"competencia": c["competencia"], "beneficiarios": beneficiarios})
+    return saida
+
+
+def _valor_com_composicao(c: Mapping[str, str], composicao: str | None) -> str | None:
+    """ "R$ 566,72 (você: ...; dependente 1: R$ 175,70)" ou so' "R$ 566,72"; `None` sem valor."""
+    valor = _valor_principal(c)
+    if valor is None:
+        return None
+    return f"{_reais(valor)} ({composicao})" if composicao and "valor_boleto_pagador" in c else _reais(valor)
+
+
 def _frase_de_valor_e_situacao(c: Mapping[str, str], hoje: date) -> str:
     """`valor`/`geral`: o valor da mensalidade e a situacao numa frase so'. Nunca cita `vencida` (com
     atraso a DMN ja' escalou) e nunca calcula nada: cada numero e data e' o campo do fato, copiado."""
     mes = _mes_por_extenso(c["competencia"], hoje)
-    valor = _reais(c["valor_total"]) if "valor_total" in c else None
+    valor = _reais(principal) if (principal := _valor_principal(c)) else None
     situacao = c["situacao"]
     if situacao == "paga":
         pagou = _dia_mes(c.get("liquidado_em"), hoje)
@@ -1469,26 +1593,6 @@ TEXTO_BOLETO_DO_TITULAR: Final[str] = (
 )
 
 
-def _frase_de_valor_da_familia(c: Mapping[str, str], hoje: date) -> str | None:
-    """Pagador PF: a parte da pessoa E o total do boleto da familia, ambos campos dos fatos do mes. `None`
-    sem os dois valores ou fora de paga/em aberto (as outras situacoes mantem a frase de sempre)."""
-    total = c.get("valor_boleto_pagador")
-    if total is None or "valor_total" not in c or c["situacao"] not in ("paga", "em_aberto"):
-        return None
-    mes = _mes_por_extenso(c["competencia"], hoje)
-    parte = _reais(c["valor_total"])
-    familia = f"O boleto da família, com todos os beneficiários do plano, {{verbo}} {_reais(total)}."
-    if c["situacao"] == "paga":
-        pagou = _dia_mes(c.get("liquidado_em"), hoje)
-        quando = f" (você pagou em {pagou})" if pagou else ""
-        return f"Sua parte da mensalidade de {mes} foi de {parte} e já está paga{quando}. " + familia.format(
-            verbo="foi de"
-        )
-    vence = _dia_mes(c.get("vencimento"), hoje)
-    com_vencimento = f", com vencimento em {vence}" if vence else ""
-    return f"Sua parte da mensalidade de {mes} é de {parte}{com_vencimento}. " + familia.format(verbo="é de")
-
-
 # --- LUCAS V4 (DL-0114, chave `MAEZO_LUCAS_V4`, decisao do dono de 15-16/10/2026) ------------------------
 #
 # So' o PAGADOR (o responsavel financeiro do contrato) pede valores, vencimento, situacao e 2a via; nunca se
@@ -1496,11 +1600,20 @@ def _frase_de_valor_da_familia(c: Mapping[str, str], hoje: date) -> str | None:
 # Textos RASCUNHO aprovados pelo dono para dev; revisao juridica e do DPO antes de producao.
 
 #: PF que NAO e' o pagador (`beneficiario_e_pagador=False`): quem responde pelo contrato, sem nome.
+#: FASE 4 (18/10/2026): mais natural, e so' na PRIMEIRA resposta; nas seguintes, as variantes curtas abaixo.
 TEXTO_NAO_PAGADOR_V4: Final[str] = (
-    "O responsável financeiro pelo contrato é o titular do contrato. Somente ele pode solicitar essa "
-    "informação."
+    "O responsável financeiro deste contrato é o titular. Só ele pode pedir essa informação por aqui."
 )
-TEXTO_NAO_PAGADOR_V4_CURTO: Final[str] = "Somente o responsável financeiro do contrato pode pedir isso."
+TEXTO_NAO_PAGADOR_V4_CURTO: Final[str] = (
+    "Essa informação também fica com o titular, que é o responsável financeiro."
+)
+#: FASE 4: o nao pagador ouvia o MESMO texto 4 vezes seguidas (a escada so' valia para a mesma pergunta).
+#: Depois de um texto de nao pagador (qualquer pergunta), as curtas se revezam — nunca a mesma duas vezes.
+TEXTOS_NAO_PAGADOR_V4_CURTOS: Final[tuple[str, ...]] = (
+    TEXTO_NAO_PAGADOR_V4_CURTO,
+    "Só o titular, como responsável financeiro, consegue pedir valores, vencimento e 2ª via.",
+    "Como o responsável financeiro é o titular, é ele quem pode pedir isso.",
+)
 #: FALHA FECHADA (achado do aceite de 16/10/2026): o Lucas v4 nao consegue afirmar que a pessoa E o pagador (o
 #: sinal `beneficiario_e_pagador` nao veio, ou veio sem `pagador_tipo` conhecido). Sem o sinal ninguem recebe
 #: valor, vencimento, situacao nem 2a via: so' os canais. Nao afirma quem e' o responsavel (nao sabemos).
@@ -1553,18 +1666,32 @@ def _abertura_do_total_v4(c: Mapping[str, str], total: str, hoje: date) -> str:
     if c["situacao"] == "paga":
         pagou = _dia_mes(c.get("liquidado_em"), hoje)
         quando = f" (você pagou em {pagou})" if pagou else ""
-        return f"O valor total da mensalidade de {mes} foi de {_reais(total)} e já está paga{quando}."
+        return f"O valor total da mensalidade de {mes} foi de {_reais(total)} e está paga{quando}."
     vence = _dia_mes(c.get("vencimento"), hoje)
     com_vencimento = f", com vencimento em {vence}" if vence else ""
     return f"O valor total da mensalidade de {mes} é de {_reais(total)}{com_vencimento}."
 
 
+def _frase_de_atraso_do_pagador(c: Mapping[str, str], hoje: date) -> str | None:
+    """Depois do valor: o mes VENCIDO (ou em aberto com o vencimento ja' passado) sem pagamento confirmado."""
+    vencimento = c.get("vencimento")
+    ja_passou = isinstance(vencimento, str) and vencimento[:10] < hoje.isoformat()
+    if c["situacao"] == "vencida" or (c["situacao"] == "em_aberto" and ja_passou):
+        quando = _dia_mes(vencimento, hoje)
+        return f"Ela venceu{' em ' + quando if quando else ''} e ainda está sem pagamento confirmado."
+    return None
+
+
 def _frase_de_valor_do_pagador_v4(c: Mapping[str, str], hoje: date) -> str | None:
     """Pagador PF: o valor TOTAL da mensalidade primeiro (todos os beneficiarios do contrato) e depois a
     parte dele. `None` sem o total ou fora de paga/em aberto (as outras situacoes mantem a frase de
-    sempre)."""
+    sempre). FASE 4 (18/10/2026): vale tambem com a chave v4 desligada — antes, sem ela, a PARTE vinha
+    primeiro ("Sua parte da mensalidade ... O boleto da familia ..."), e o valor principal de cada resposta
+    passou a ser o do boleto (o mesmo da lista e da 2a via)."""
     total = c.get("valor_boleto_pagador")
-    if total is None or c["situacao"] not in ("paga", "em_aberto"):
+    # ROTEIRO lucas_v4_pagador (18/10/2026): o mes VENCIDO tambem responde o valor primeiro (a pergunta e' de
+    # valor); a situacao vem DEPOIS (`_frase_de_atraso_do_pagador`).
+    if total is None or c["situacao"] not in ("paga", "em_aberto", "vencida"):
         return None
     partes = [_abertura_do_total_v4(c, total, hoje), TEXTO_TOTAL_SOMA_V4]
     parte = c.get("valor_total")
@@ -1572,6 +1699,23 @@ def _frase_de_valor_do_pagador_v4(c: Mapping[str, str], hoje: date) -> str | Non
         verbo = "foi" if c["situacao"] == "paga" else "é"
         partes.append(f"A sua parte {verbo} de {_reais(parte)}.")
     return " ".join(partes)
+
+
+def _sem_boleto_em_aberto(state: LucasState, hoje: date) -> tuple[str, dict[str, str]] | None:
+    """Nenhuma competencia em aberto/vencida nos fatos e a pedida (ou a mais recente) PAGA: "Nao ha' boleto em
+    aberto: a mensalidade de <mes> ja' foi paga em DD/MM." (com o fato, para a cerca). `None` caso contrario
+    (o texto de "nao encontrei o codigo" de sempre)."""
+    competencias = _competencias_dos_fatos(state)
+    if not competencias or any(c["situacao"] in ("em_aberto", "vencida") for c in competencias):
+        return None
+    pedida = state.get("competencia") or None
+    c = next((x for x in competencias if x["competencia"] == pedida), competencias[0])
+    if c["situacao"] != "paga":
+        return None
+    mes = _mes_por_extenso(c["competencia"], hoje)
+    pagou = _dia_mes(c.get("liquidado_em"), hoje)
+    quando = f" em {pagou}" if pagou else ""
+    return f"Não há boleto em aberto: a mensalidade de {mes} já foi paga{quando}.", dict(c)
 
 
 def _boleto_da_segunda_via_v4(state: LucasState) -> dict[str, Any] | None:
@@ -1604,19 +1748,35 @@ def _boleto_da_segunda_via_v4(state: LucasState) -> dict[str, Any] | None:
     }
 
 
-def texto_segunda_via_com_codigo_v4(boleto: Mapping[str, Any], hoje: date) -> str:
+def texto_segunda_via_com_codigo_v4(
+    boleto: Mapping[str, Any], hoje: date, composicao: str | None = None
+) -> str:
     """A 2a via do pagador COM codigo: o boleto (mes, valor, vencimento), o codigo (MARCADOR) em linha
     propria e a orientacao do PDF pelo aplicativo. Nenhuma ameaca nem calculo: depois do vencimento so'
-    diz que o valor a pagar pode ser diferente do valor do titulo."""
+    diz que o valor a pagar pode ser diferente do valor do titulo. FASE 4: com a `composicao` (o detalhamento
+    do mes fecha com o valor do titulo), ela vai logo depois do valor."""
     mes = _mes_por_extenso(str(boleto["competencia"]), hoje)
     vence = _dia_mes(boleto.get("vencimento"), hoje)
+    em_aberto = boleto["situacao"] == "em_aberto"
+    if boleto.get("valor") and composicao:
+        quando = (f"vence em {vence}" if em_aberto else f"venceu em {vence}") if vence else ""
+        situacao = "está em aberto" if em_aberto else "ainda não consta como pago"
+        miolo = f"{quando} e {situacao}" if quando else situacao
+        valor = _reais(str(boleto["valor"]))
+        abertura = f"O boleto da mensalidade de {mes} é de {valor} ({composicao}). Ele {miolo}."
+        if not em_aberto:
+            abertura += " Depois do vencimento, o valor a pagar pode ser diferente do valor do boleto."
+        linhas = [abertura, TEXTO_CODIGO_V4_ROTULO, MARCADOR_CODIGO, TEXTO_PDF_V4]
+        if boleto.get("outros"):
+            linhas.append(TEXTO_OUTROS_BOLETOS_V4)
+        return "\n".join(linhas)
     detalhes: list[str] = []
     if boleto.get("valor"):
         detalhes.append(_reais(str(boleto["valor"])))
     if vence:
-        detalhes.append(f"vence em {vence}" if boleto["situacao"] == "em_aberto" else f"venceu em {vence}")
+        detalhes.append(f"vence em {vence}" if em_aberto else f"venceu em {vence}")
     entre_parenteses = f" ({', '.join(detalhes)})" if detalhes else ""
-    if boleto["situacao"] == "em_aberto":
+    if em_aberto:
         abertura = f"O boleto da mensalidade de {mes}{entre_parenteses} está em aberto."
     else:
         abertura = (
@@ -1683,13 +1843,17 @@ def _texto_do_detalhamento_v4(
 ) -> str | None:
     """O total primeiro e, em seguida, o detalhe por beneficiario (sem nome). `None` sem grupo valido ou fora
     de paga/em aberto. Detalhamento que nao fecha: so' o total e a orientacao do aplicativo."""
-    if grupo is None or c["situacao"] not in ("paga", "em_aberto"):
+    if grupo is None or c["situacao"] not in ("paga", "em_aberto", "vencida"):
         return None
     total = _na_forma(grupo.get("total_mensalidade"), _DECIMAL_DO_FATO)
-    if total is None:
+    boleto = c.get("valor_boleto_pagador")
+    if total is None or (boleto is not None and boleto != total):
+        # FASE 4: um total do detalhamento diferente do boleto do mes nunca vira o valor principal (a lista
+        # e a 2a via mostram o boleto) — a frase do boleto, sem detalhe.
         return None
     primeira = f"{_abertura_do_total_v4(c, total, hoje)} {TEXTO_TOTAL_SOMA_V4}"
-    linhas = _linhas_do_detalhamento_v4(grupo)
+    # So' com a soma conferida (a AMH diz que fecha E os totais por beneficiario somam o total).
+    linhas = _linhas_do_detalhamento_v4(grupo) if _beneficiarios_que_fecham(grupo, total) else None
     if linhas is None:
         return f"{primeira} {TEXTO_DETALHE_NO_APP_V4}"
     return "\n".join([primeira, TEXTO_DETALHE_V4_TITULO, *linhas])
@@ -1698,8 +1862,9 @@ def _texto_do_detalhamento_v4(
 def _resumo_valor_e_vencimento(c: Mapping[str, str], hoje: date) -> str | None:
     """ "R$ 552,54, vencimento em 05/10" — o que o fato tem do valor e do vencimento de um mes."""
     partes: list[str] = []
-    if "valor_total" in c:
-        partes.append(_reais(c["valor_total"]))
+    valor = _valor_principal(c)
+    if valor is not None:
+        partes.append(_reais(valor))
     vence = _dia_mes(c.get("vencimento"), hoje)
     if vence:
         partes.append(f"vencimento em {vence}")
@@ -1851,18 +2016,24 @@ def texto_valores(state: LucasState, facts: Mapping[str, Any], hoje: date, *, v4
     elif foco == "pagamento":
         partes.append(_frase_de_pagamento(c, hoje))
     elif foco == "vencimento":
-        partes.append(_frase_do_vencimento(c, hoje, e_a_proxima=False) or _frase_de_valor_e_situacao(c, hoje))
-    elif v4 and mostra_boleto_da_familia(state):
-        # DL-0114: o PAGADOR ouve o valor TOTAL primeiro (e, com o contrato 0.4.0, o detalhe por beneficiario
-        # sem nome); so' depois a parte dele.
-        detalhe = _texto_do_detalhamento_v4(c, facts.get("detalhamento"), hoje)
-        em_linhas = detalhe is not None and "•" in detalhe
         partes.append(
-            detalhe or _frase_de_valor_do_pagador_v4(c, hoje) or _frase_de_valor_e_situacao(c, hoje)
+            _frase_do_vencimento(c, hoje, e_a_proxima=False, composicao=composicao_do_mes(state, c))
+            or _frase_de_valor_e_situacao(c, hoje)
         )
+    elif mostra_boleto_da_familia(state):
+        # DL-0114: o PAGADOR ouve o valor TOTAL primeiro (e, com o contrato 0.4.0, o detalhe por
+        # beneficiario sem nome); so' depois a parte dele. FASE 4 (18/10/2026): com ou sem a chave v4 — o
+        # valor principal e' o do boleto, o mesmo da lista e da 2a via. O detalhe so' vem nos fatos com a
+        # chave (`_fatos_de_valores`).
+        detalhe = _texto_do_detalhamento_v4(c, facts.get("detalhamento"), hoje) if v4 else None
+        do_pagador = detalhe or _frase_de_valor_do_pagador_v4(c, hoje)
+        atraso = _frase_de_atraso_do_pagador(c, hoje) if do_pagador else None
+        em_linhas = detalhe is not None and "•" in detalhe
+        partes.append(do_pagador or _frase_de_valor_e_situacao(c, hoje))
+        if atraso:
+            partes.append(atraso)
     else:
-        familia = _frase_de_valor_da_familia(c, hoje) if mostra_boleto_da_familia(state) else None
-        partes.append(familia or _frase_de_valor_e_situacao(c, hoje))
+        partes.append(_frase_de_valor_e_situacao(c, hoje))
         if dependente_do_titular(state):
             partes.append(TEXTO_BOLETO_DO_TITULAR)
     tambem = _linha_tambem_sem_pagamento(facts.get("sem_pagamento"), hoje)
@@ -1903,11 +2074,14 @@ def _competencia_do_vencimento(competencias: list[dict[str, str]], pedida: objec
     return max(vencidas, key=lambda c: c["competencia"]) if vencidas else None
 
 
-def _frase_do_vencimento(c: Mapping[str, str], hoje: date, *, e_a_proxima: bool) -> str | None:
+def _frase_do_vencimento(
+    c: Mapping[str, str], hoje: date, *, e_a_proxima: bool, composicao: str | None = None
+) -> str | None:
     """A frase FIXA do vencimento de UMA competencia, ou `None` quando nao da' para afirma-la sem
     inventar ou sem afirmar atraso (sem data; em aberto com a data ja' passada; situacao que nao e' nem
     paga nem em aberto). Cada data e valor e' o campo do fato, copiado; `hoje` so' escolhe vence/venceu
-    e se o ano aparece."""
+    e se o ano aparece. O valor e' o do boleto do pagador PF (`_valor_principal`), com a `composicao`
+    (`composicao_do_mes`) quando o detalhamento fecha."""
     vencimento_iso = c.get("vencimento")
     vencimento = _dia_mes(vencimento_iso, hoje)
     if vencimento_iso is None or vencimento is None:
@@ -1916,10 +2090,12 @@ def _frase_do_vencimento(c: Mapping[str, str], hoje: date, *, e_a_proxima: bool)
     mes = _mes_por_extenso(c["competencia"], hoje)
     if c["situacao"] == "vencida" or (c["situacao"] == "em_aberto" and ja_passou):
         # Rodada 12 (14/10/2026): o fato primeiro. A data que passou e o que consta, sem a palavra "atraso".
-        valor = f" ({_reais(c['valor_total'])})" if "valor_total" in c else ""
+        principal = _valor_principal(c)
+        valor = f" ({_reais(principal)})" if principal else ""
         return f"A mensalidade de {mes}{valor} venceu em {vencimento} e ainda está sem pagamento confirmado."
     if c["situacao"] == "em_aberto":
-        valor = f", no valor de {_reais(c['valor_total'])}" if "valor_total" in c else ""
+        dito = _valor_com_composicao(c, composicao)
+        valor = f", no valor de {dito}" if dito else ""
         return f"A mensalidade de {mes} vence em {vencimento}{valor}."
     if c["situacao"] == "paga":
         if ja_passou:
@@ -1945,7 +2121,13 @@ def texto_vencimento(state: LucasState, facts: Mapping[str, Any], hoje: date) ->
     partes: list[str] = []
     if pedida and not e_a_pedida and _na_forma(pedida, _COMPETENCIA_DO_FATO):
         partes.append(_frase_do_mes_ausente(str(pedida), competencias + _mais_recente(facts), hoje))
-    frase = _frase_do_vencimento(escolhida, hoje, e_a_proxima=not e_a_pedida) if escolhida else None
+    frase = (
+        _frase_do_vencimento(
+            escolhida, hoje, e_a_proxima=not e_a_pedida, composicao=composicao_do_mes(state, escolhida)
+        )
+        if escolhida
+        else None
+    )
     if frase is None:
         # A constante ja' traz os canais; a data da fonte so' acompanha um fato afirmado.
         partes.append(VENCIMENTO_NAO_ENCONTRADO)
@@ -2059,8 +2241,13 @@ def _periodo_da_lista(lista: PedidoDeLista, hoje: date) -> str | None:
     return f"de {_mes_por_extenso(lista.de, hoje)} a {_mes_por_extenso(lista.ate, hoje)}"
 
 
-def _linha_da_lista(c: Mapping[str, str], foco: str, hoje: date) -> str:
-    """UMA linha da lista: o mes com o ano e o campo perguntado, copiado do fato daquele mes."""
+#: FASE 4 (18/10/2026): a lista do pagador PF mostra o valor do BOLETO de cada mes — dito uma vez, no fim.
+TEXTO_LISTA_DO_BOLETO: Final[str] = "Os valores são os do boleto, com todos os beneficiários do contrato."
+
+
+def _linha_da_lista(c: Mapping[str, str], foco: str, hoje: date, composicao: str | None = None) -> str:
+    """UMA linha da lista: o mes com o ano e o campo perguntado, copiado do fato daquele mes. O valor e' o do
+    boleto do pagador PF (`_valor_principal`, FASE 4) e, com `composicao`, a composicao curta dele."""
     mes = _mes_por_extenso(c["competencia"], hoje)
     if foco == "coparticipacao":
         copart = c.get("valor_coparticipacao")
@@ -2077,7 +2264,8 @@ def _linha_da_lista(c: Mapping[str, str], foco: str, hoje: date) -> str:
         vence = _dia_mes(c.get("vencimento"), hoje)
         if vence:
             return f"• {mes}: vencimento em {vence}."
-    valor = f"{_reais(c['valor_total'])}, " if "valor_total" in c else ""
+    dito = _valor_com_composicao(c, composicao)
+    valor = f"{dito}, " if dito else ""
     situacao = c["situacao"]
     if situacao == "paga":
         pagou = _dia_mes(c.get("liquidado_em"), hoje)
@@ -2137,7 +2325,20 @@ def texto_lista(state: LucasState, facts: Mapping[str, Any], hoje: date) -> str:
         cabecalho = f"Suas {nome}:" if encontradas > 1 else f"Sua {nome}:"
     else:
         cabecalho = f"Suas últimas {encontradas} {nome}:"
-    linhas = [cabecalho, *(_linha_da_lista(c, foco, hoje) for c in competencias[:encontradas])]
+    mostradas = competencias[:encontradas]
+    # FASE 4: a composicao curta do boleto so' na linha do mes mais recente (a lista continua curta).
+    linhas = [
+        cabecalho,
+        *(
+            _linha_da_lista(c, foco, hoje, composicao_do_mes(state, c) if i == 0 else None)
+            for i, c in enumerate(mostradas)
+        ),
+    ]
+    if any(
+        "valor_boleto_pagador" in c and f"{_reais(c['valor_boleto_pagador'])}" in linha
+        for c, linha in zip(mostradas, linhas[1:], strict=True)
+    ):
+        linhas.append(TEXTO_LISTA_DO_BOLETO)
     if fonte:
         linhas.append(fonte)
     return "\n".join(linhas)
@@ -2336,8 +2537,9 @@ def _frase_do_mes_ausente(pedida: str, competencias: list[dict[str, str]], hoje:
 def _resumo_do_mes(c: Mapping[str, str], hoje: date, *, com_valor: bool = True) -> str:
     """ "R$ 552,54, vence em 20/10" / "R$ 552,54, paga em 18/08" — o miolo curto de um mes."""
     partes: list[str] = []
-    if com_valor and "valor_total" in c:
-        partes.append(_reais(c["valor_total"]))
+    principal = _valor_principal(c) if com_valor else None
+    if principal is not None:
+        partes.append(_reais(principal))
     if c["situacao"] == "paga":
         pagou = _dia_mes(c.get("liquidado_em"), hoje)
         partes.append(f"paga em {pagou}" if pagou else "paga")
@@ -2468,7 +2670,8 @@ def frase_da_situacao(state: LucasState, hoje: date) -> str | None:
         # Rodada 4 (13/10/2026): "agosto e setembro tao sem pagar mesmo? quais os valores?" depois da
         # escalacao recebia outubro. O mes perguntado, com valor e vencimento, "sem pagamento confirmado".
         mes = _mes_por_extenso(c["competencia"], hoje)
-        detalhes = [_reais(c["valor_total"])] if "valor_total" in c else []
+        principal = _valor_principal(c)
+        detalhes = [_reais(principal)] if principal else []
         vence = _dia_mes(c.get("vencimento"), hoje)
         if vence:
             detalhes.append(f"vencimento em {vence}")
@@ -2555,7 +2758,8 @@ def _fatos_do_mes_da_reclamacao(state: LucasState, hoje: date) -> str | None:
     mes = _mes_por_extenso(pedida, hoje)
     if c is None:
         return f"No que eu vejo aqui, não há mensalidade de {mes} nos dados que tenho."
-    valor = f" de {_reais(c['valor_total'])}" if "valor_total" in c else ""
+    principal = _valor_principal(c)
+    valor = f" de {_reais(principal)}" if principal else ""
     if c["situacao"] == "paga":
         pagou = _dia_mes(c.get("liquidado_em"), hoje)
         situacao = f", paga em {pagou}" if pagou else ", paga"
@@ -2679,6 +2883,57 @@ def sem_repetir(state: LucasState, texto: str, curta: str | None = None) -> tupl
     return _escada(state, chave, formas)
 
 
+#: FASE 4 (18/10/2026): a memoria das respostas da EMPRESA e do NAO PAGADOR (v4) nao depende do mes nem da
+#: pergunta — so' do tipo de texto e da forma que saiu —, para que a resposta SEGUINTE, de qualquer assunto,
+#: saia curta e diferente. O "ano" e' a resposta a "de qual ano?" da empresa.
+_TEMA_EMPRESA_ANO: Final[str] = "ano"
+_TEMAS_DA_EMPRESA: Final[tuple[str, ...]] = (
+    TEMA_EMPRESA_PAGAMENTO,
+    TEMA_EMPRESA_VENCIMENTO,
+    TEMA_EMPRESA_SEGUNDA_VIA,
+    _TEMA_EMPRESA_ANO,
+)
+#: Quantas formas a roda da empresa tem no maximo (explicacao, 3 curtas, 2 "nao consigo").
+_FORMAS_DA_EMPRESA_MAX: Final[int] = 6
+
+
+def _ref_da_empresa(tema: str, indice: int, *, oferta: bool) -> str:
+    return ref_de_resposta(f"empresa\n{tema}\n{indice}\n{int(oferta)}")
+
+
+def _resposta_anterior_da_empresa(state: LucasState) -> tuple[str, int, bool] | None:
+    """(assunto, forma, com oferta) da resposta ANTERIOR do Lucas quando ela foi um texto da empresa; senao
+    `None`. So' compara referencias (`ref_de_resposta`): nada do texto fica guardado."""
+    anterior = state.get("resposta_anterior_ref")
+    if not isinstance(anterior, str):
+        return None
+    for tema in _TEMAS_DA_EMPRESA:
+        for indice in range(_FORMAS_DA_EMPRESA_MAX):
+            for oferta in (False, True):
+                if _ref_da_empresa(tema, indice, oferta=oferta) == anterior:
+                    return tema, indice, oferta
+    return None
+
+
+def _ref_do_nao_pagador(indice: int) -> str:
+    return ref_de_resposta(f"nao_pagador_v4\n{indice}")
+
+
+def resposta_do_nao_pagador(state: LucasState) -> tuple[str, str]:
+    """O texto do PF que NAO e' o pagador (v4) e a referencia que o roteador guarda (FASE 4). O texto inteiro
+    so' quando a resposta anterior do Lucas nao foi de nao pagador; depois, as curtas se revezam
+    (`TEXTOS_NAO_PAGADOR_V4_CURTOS`), de qualquer pergunta — nunca a mesma duas vezes seguidas."""
+    anterior = state.get("resposta_anterior_ref")
+    formas = (TEXTO_NAO_PAGADOR_V4, *TEXTOS_NAO_PAGADOR_V4_CURTOS)
+    refs = [_ref_do_nao_pagador(i) for i in range(len(formas))]
+    if not isinstance(anterior, str) or anterior not in refs:
+        return formas[0], refs[0]
+    seguinte = refs.index(anterior) + 1
+    if seguinte >= len(formas):
+        seguinte = 1  # a roda das curtas recomeca; a explicacao inteira nao volta enquanto a pessoa insistir
+    return formas[seguinte], refs[seguinte]
+
+
 def resposta_factual_do_turno(state: LucasState, hoje: date) -> str | None:
     """O FATO que responde a pergunta deste turno, quando ha' um, para ir ANTES do aviso de escalacao ou
     de caso aberto. Contestacao e cancelamento nao tem fato a dar: so' o aviso."""
@@ -2800,8 +3055,9 @@ _SEGUNDA_VIA_ALTERNATIVA: Final[tuple[str, ...]] = (
 )
 
 
-def _frase_do_boleto_que_tenho(c: Mapping[str, str], hoje: date) -> str | None:
-    """Mes, vencimento, valor e final do boleto da em aberto no prazo; paga, so' que esta' paga."""
+def _frase_do_boleto_que_tenho(c: Mapping[str, str], hoje: date, composicao: str | None = None) -> str | None:
+    """Mes, vencimento, valor e final do boleto da em aberto no prazo; paga, so' que esta' paga. O valor e' o
+    do boleto do pagador PF, com a `composicao` quando o detalhamento fecha (FASE 4)."""
     mes = _mes_por_extenso(c["competencia"], hoje)
     if c["situacao"] == "paga":
         return f"A mensalidade de {mes} já está paga."
@@ -2809,7 +3065,8 @@ def _frase_do_boleto_que_tenho(c: Mapping[str, str], hoje: date) -> str | None:
         return None
     boleto = boleto_no_texto(c.get("boleto"))
     sujeito = f"A mensalidade de {mes} ({boleto})" if boleto else f"A mensalidade de {mes}"
-    valor = f", no valor de {_reais(c['valor_total'])}" if "valor_total" in c else ""
+    dito = _valor_com_composicao(c, composicao)
+    valor = f", no valor de {dito}" if dito else ""
     if c["situacao"] == "vencida" or date.fromisoformat(c["vencimento"]) < hoje:
         vence = _dia_mes(c["vencimento"], hoje)
         return f"{sujeito} venceu em {vence}{valor} e ainda está sem pagamento confirmado."
@@ -2821,7 +3078,7 @@ def texto_segunda_via_repetida(state: LucasState, facts: Mapping[str, Any], hoje
     partes = [_SEGUNDA_VIA_NAO_ENVIO[variante]]
     competencias: list[dict[str, str]] = list(facts.get("competencias") or [])
     if competencias:
-        frase = _frase_do_boleto_que_tenho(competencias[0], hoje)
+        frase = _frase_do_boleto_que_tenho(competencias[0], hoje, composicao_do_mes(state, competencias[0]))
         if frase:
             partes.append(frase)
     partes.append(_SEGUNDA_VIA_ALTERNATIVA[variante])
@@ -2831,8 +3088,9 @@ def texto_segunda_via_repetida(state: LucasState, facts: Mapping[str, Any], hoje
 def _valor_e_vencimento(c: Mapping[str, str], hoje: date) -> str | None:
     """ "de R$ 552,54, com vencimento em 05/10" — o que o fato tem dos dois."""
     partes: list[str] = []
-    if "valor_total" in c:
-        partes.append(f"de {_reais(c['valor_total'])}")
+    principal = _valor_principal(c)
+    if principal is not None:
+        partes.append(f"de {_reais(principal)}")
     vence = _dia_mes(c.get("vencimento"), hoje)
     if vence:
         partes.append(f"com vencimento em {vence}")
@@ -3167,6 +3425,13 @@ class LucasGraph:
         variaveis = getattr(status, "variables", None)
         return isinstance(variaveis, Mapping) and variaveis.get("source_agent_id") == AGENT_ID_LUCAS
 
+    def _estado_da_chave_v4(self, state: LucasState) -> LucasState:
+        """Com `MAEZO_LUCAS_V4` desligada, o detalhamento do pagador nunca chega a um texto (a composicao do
+        boleto, FASE 4): o estado dos textos segue sem ele — byte a byte o de antes, mesmo plantado."""
+        if self._v4 or "detalhamento_pagador" not in state:
+            return state
+        return cast(LucasState, {k: v for k, v in state.items() if k != "detalhamento_pagador"})
+
     def _nao_pagador_v4(self, state: LucasState) -> bool:
         """DL-0114: com a chave ligada, quem o Lucas NAO consegue afirmar que e' o pagador PF
         (`beneficiario_e_pagador` falso OU ausente: falha fechada) e a pergunta e' so' do pagador. Empresa e
@@ -3381,6 +3646,7 @@ class LucasGraph:
         `mensagem_enviada=False` e o desfecho proprio `envio_suprimido_duplicata`, nunca um token
         terminado em "enviada".
         """
+        state = self._estado_da_chave_v4(state)
         mensagem = await self._build_message(state)
         avisos = _avisos_do_turno(state)
         memoria_ref = ""
@@ -3397,6 +3663,9 @@ class LucasGraph:
             if mensagem.get("memoria_ref"):
                 # A pergunta de confirmacao do cancelamento: sai sempre inteira e deixa a sua referencia.
                 memoria_ref = str(mensagem["memoria_ref"])
+            elif mensagem.get("nao_pagador_ref"):
+                # FASE 4: o nao pagador (v4) ja' saiu na forma da vez (`resposta_do_nao_pagador`).
+                memoria_ref = str(mensagem["nao_pagador_ref"])
             elif mensagem.get("prompt_version") == PAGADOR_EMPRESA_TEXTO_VERSION and mensagem.get(
                 "empresa_chave"
             ):
@@ -3688,6 +3957,7 @@ class LucasGraph:
         """
         if state.get("route") != "escalate_human" or state.get("process_started") is not True:
             return {}
+        state = self._estado_da_chave_v4(state)
         to_hash = state.get("to_hash")
         if not to_hash or state.get("canal", "whatsapp") != "whatsapp":
             return {"ack_pending": True}
@@ -3942,8 +4212,10 @@ class LucasGraph:
             # DL-0114: quem nao e' o pagador nao recebe valor, vencimento, situacao nem 2a via: o responsavel
             # financeiro do contrato (SEM nome) e' quem pode pedir.
             if state.get("beneficiario_e_pagador") is False:
-                mensagem = self._mensagem(TEXTO_NAO_PAGADOR_V4, facts, VALORES_PROMPT_VERSION, state)
-                mensagem["curta"] = TEXTO_NAO_PAGADOR_V4_CURTO
+                # FASE 4: inteiro so' na primeira; depois as curtas se revezam, de qualquer pergunta.
+                texto_nao_pagador, ref_nao_pagador = resposta_do_nao_pagador(state)
+                mensagem = self._mensagem(texto_nao_pagador, facts, VALORES_PROMPT_VERSION, state)
+                mensagem["nao_pagador_ref"] = ref_nao_pagador
             else:
                 # Sem o sinal (fonte sem o billing-status 0.3.0, campo nulo): falha fechada, so' os canais.
                 mensagem = self._mensagem(
@@ -4210,29 +4482,39 @@ class LucasGraph:
     def _escada_da_empresa(
         self, state: LucasState, mensagem: Mapping[str, Any], texto: str
     ) -> tuple[str, str]:
-        """Contrato de empresa (rodada 4): [explicacao, curta, nao consigo 1, nao consigo 2]. O "de qual
-        ano?" e' respondido (o ano) e conta como o primeiro degrau: a pergunta seguinte ja' recebe a curta.
-        Nunca a explicacao inteira duas vezes seguidas."""
-        chave = str(mensagem["empresa_chave"])
-        ref_do_ano = _ref_do_degrau(chave, "ano")
-        if (
-            _foco_da_pergunta(state) == FOCO_ESCLARECIMENTO
-            and state.get("resposta_anterior_ref") != ref_do_ano
+        """Contrato de empresa (rodada 4; FASE 4, 18/10/2026). A explicacao inteira so' quando a resposta
+        ANTERIOR do Lucas nao foi da empresa. Depois de um texto da empresa — de qualquer assunto ou mes —,
+        uma forma CURTA do assunto desta pergunta: no mesmo assunto a seguinte da roda ([curtas..., nao
+        consigo 1, nao consigo 2], as duas ultimas alternadas); num assunto novo, a primeira curta dele. A
+        oferta de uma pessoa entra no maximo uma vez a cada duas respostas. O "de qual ano?" e' respondido (o
+        ano) e conta como a explicacao. A memoria (`_ref_da_empresa`) guarda so' assunto, forma e oferta:
+        nunca o texto."""
+        anterior = _resposta_anterior_da_empresa(state)
+        tema = tema_da_empresa(state)
+        if _foco_da_pergunta(state) == FOCO_ESCLARECIMENTO and (
+            anterior is None or (anterior[0] != _TEMA_EMPRESA_ANO and anterior[1] == 0)
         ):
-            refs = {_ref_do_degrau(chave, i) for i in range(1, 4)}
-            if state.get("resposta_anterior_ref") not in refs:
-                return texto, ref_do_ano
-        completo = texto_pagador_empresa(state, {"foco": None}, self._hoje())
-        # Rodada 8: o "Nao tenho outra informacao..." so' da' a vez depois de DUAS repeticoes reais
-        # (completo, curta, "nao consigo detalhar", e so' entao as duas honestas alternadas).
+            return texto, _ref_da_empresa(_TEMA_EMPRESA_ANO, 0, oferta=False)
+        hoje = self._hoje()
         formas = [
-            completo,
-            texto_pagador_empresa_curto(state, self._hoje()),
+            texto_pagador_empresa(state, {"foco": None}, hoje),
+            *formas_curtas_da_empresa(state, hoje),
             NAO_CONSIGO[1],
             NAO_CONSIGO[0],
-            NAO_CONSIGO[1],
         ]
-        return _escada(state, chave, formas, equivalentes={ref_do_ano: 0})
+        if anterior is None:
+            indice = 0
+        elif anterior[0] == tema or (anterior[0] == _TEMA_EMPRESA_ANO and tema == TEMA_EMPRESA_PAGAMENTO):
+            indice = anterior[1] + 1 if anterior[1] + 1 < len(formas) else len(formas) - 2
+        else:
+            indice = 1  # outro assunto logo depois da empresa: a curta dele, sem a abertura de novo
+        oferta_anterior = anterior is not None and anterior[2]
+        texto_da_vez = formas[indice]
+        oferta = "nossa equipe" in texto_da_vez
+        if 1 <= indice <= len(formas) - 3 and not oferta_anterior:
+            texto_da_vez = f"{texto_da_vez} {OFERTA_PESSOA}"
+            oferta = True
+        return texto_da_vez, _ref_da_empresa(tema, indice, oferta=oferta)
 
     def _build_vencimento(self, state: LucasState) -> dict[str, Any]:
         """A resposta a "quando vence?" em TEXTO FIXO dos fatos por competencia (`texto_vencimento`).
@@ -4306,12 +4588,21 @@ class LucasGraph:
             "dmn_refs": state.get("dmn_refs", {}),
         }
         if state.get("segunda_via_estado") == SEGUNDA_VIA_SEM_CODIGO:
+            # RODADA DO DONO (18/10/2026): "nao ha' titulo em aberto" e' diferente de "falha ao obter o
+            # codigo".
+            sem_aberto = _sem_boleto_em_aberto(state, self._hoje())
+            if sem_aberto is not None:
+                texto_pago, fato = sem_aberto
+                facts["competencias"] = [fato]
+                return self._mensagem(texto_pago, facts, SEGUNDA_VIA_TEXTO_VERSION, state)
             return self._mensagem(TEXTO_SEM_CODIGO_V4, facts, SEGUNDA_VIA_TEXTO_VERSION, state)
         boleto = _boleto_da_segunda_via_v4(state)
         if boleto is None:
             return None
         facts["competencias"] = [boleto["fato"]]
-        texto = texto_segunda_via_com_codigo_v4(boleto, self._hoje())
+        texto = texto_segunda_via_com_codigo_v4(
+            boleto, self._hoje(), composicao_do_mes(state, boleto["fato"])
+        )
         mensagem = self._mensagem(texto, facts, SEGUNDA_VIA_TEXTO_VERSION, state)
         if not mensagem.get("recusa_de_saida"):
             # Sai sempre inteira (nunca a escada de repeticao: "nao envio o boleto" contradiria o codigo) e
@@ -4347,6 +4638,10 @@ class LucasGraph:
             dados_de = _data_iso_da_fonte(state)
             if dados_de is not None:
                 fatos_da_cerca["dados_de"] = dados_de
+            composicao = _fatos_da_composicao(state)
+            if composicao:
+                # FASE 4: as quantias da composicao curta do boleto (`composicao_do_mes`) sao fatos do turno.
+                fatos_da_cerca["composicao_do_boleto"] = composicao
         recusado = False
         try:
             texto = self._cercar_saida(texto, "mensagem", fatos_da_cerca)
@@ -4440,6 +4735,9 @@ class LucasGraph:
         dados_de = _data_iso_da_fonte(state)
         if dados_de is not None:
             fatos["dados_de"] = dados_de
+        composicao = _fatos_da_composicao(state)
+        if composicao:
+            fatos["composicao_do_boleto"] = composicao
         return fatos
 
     def _texto_de_caso_aberto(self, state: LucasState, *, com_aviso: bool = True) -> str:

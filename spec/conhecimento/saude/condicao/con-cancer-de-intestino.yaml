@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-cancer-de-intestino
+categoria: condicao
+titulo: Câncer de intestino
+sinonimos:
+- câncer colorretal
+- cancer de intestino
+- câncer de cólon
+- câncer de reto
+- câncer no intestino grosso
+- tumor de intestino
+- cancer colorretal
+- câncer de intestino
+texto: O câncer de intestino é um tumor que começa nas células do intestino grosso, formado pelo cólon e pelo reto. Também é chamado de câncer colorretal. Pode causar mudanças no hábito intestinal, sangue nas fezes, cansaço e perda de peso. Nem sempre há sinais no início. O tratamento é definido pelo médico e pode envolver cirurgia, remédios e outras terapias. Em geral, cuidam desse tema o gastroenterologista, o coloproctologista ou o oncologista.
+tipo_texto: proprio
+fontes:
+- nome: INCA — Versão para população
+  url: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/intestino/versao-para-populacao
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/intestino/versao-para-populacao
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

@@ -1,0 +1,27 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-transtorno-de-panico
+categoria: condicao
+titulo: Transtorno de pânico
+sinonimos:
+- transtorno do pânico
+- síndrome do pânico
+- sindrome do panico
+- ataque de pânico
+- transtorno de pânico
+texto: O transtorno de pânico é uma condição de saúde mental com crises repentinas de medo intenso, chamadas ataques de pânico. Elas costumam vir com coração acelerado, falta de ar, tremores, suor e sensação de perder o controle. Muitas pessoas passam a temer novas crises. O tratamento é definido pelo médico e pode envolver psicoterapia, remédios e mudança de hábitos. A psiquiatria costuma cuidar desse quadro, às vezes junto com a psicologia. Se você estiver em sofrimento, pode ligar 188 (CVV), a qualquer hora. Também posso chamar alguém da nossa equipe para conversar com você.
+tipo_texto: proprio
+fontes:
+- nome: Sem página leiga oficial na lista fechada (FONTES.md) — texto próprio, conferir na revisão médica
+  url: null
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

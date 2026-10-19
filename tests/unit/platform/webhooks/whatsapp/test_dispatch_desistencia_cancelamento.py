@@ -4,6 +4,10 @@ O defeito (roteiro `cancelamento_v1`, 15/10/2026): "Nao, deixa pra la" depois de
 cancelar o seu plano?" era lido pela Helena como encerramento e ela agradecia, sem confirmar nada. Com a chave
 ligada e a pergunta pendente, a desistencia vai ao Lucas ANTES da Helena (atalho deterministico). Sem
 pendencia, ou com a chave desligada, o caminho de sempre.
+
+FASE 4 (decisao do dono: "Sim" basta): a pergunta passou a ser "Responda Sim para confirmar." e a CONFIRMACAO
+PURA ("Sim", "sim, quero cancelar", "confirmo") com a pergunta pendente tambem vai direto ao Lucas, como
+`confirma`.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ from maezo.agents.lucas.graph import TEXTO_CONFIRMA_CANCELAMENTO, ref_de_respost
 from maezo.platform.webhooks.whatsapp.dispatch import HelenaDispatcher
 from maezo.platform.webhooks.whatsapp.pre_roteamento import SinaisLexicos
 from maezo.platform.webhooks.whatsapp.roteamento import ContextoDoTurno, MemoriaDoLucas
-from maezo.runtime.cobranca_intencao import e_recuo_do_cancelamento
+from maezo.runtime.cobranca_intencao import e_confirmacao_pura_do_cancelamento, e_recuo_do_cancelamento
 
 _CONVERSA = "wa:amh:hk1_desistencia"
 
@@ -101,8 +105,50 @@ async def test_assunto_anterior_de_outro_tema_nao_ativa_o_atalho() -> None:
     assert await dispatcher._atalho_de_recuo("Não", _CONVERSA, _sinais()) is None
 
 
-@pytest.mark.parametrize("texto", ["SIM, QUERO CANCELAR", "sim", "quero cancelar", "obrigado"])
-async def test_resposta_afirmativa_ou_outra_mensagem_nao_e_desistencia(texto: str) -> None:
+@pytest.mark.parametrize(
+    "texto", ["Sim", "sim", "SIM, QUERO CANCELAR", "sim, quero cancelar", "quero cancelar", "Confirmo."]
+)
+async def test_confirmacao_pura_com_pergunta_pendente_vai_direto_ao_lucas(texto: str) -> None:
+    """FASE 4 (decisao do dono: "Sim" basta): a confirmacao PURA com a pergunta pendente vai ao Lucas como
+    `confirma`, sem o classificador da Helena."""
+    dispatcher, roteador = _dispatcher(v1=True)
+    atalho: Any = await dispatcher._atalho_de_recuo(texto, _CONVERSA, _sinais())
+    assert atalho is not None and roteador.leituras == 1
+    handoff = atalho["handoff"]
+    assert handoff["para"] == "lucas" and handoff["cobranca_subtipo"] == "cancelamento"
+    assert handoff["cobranca_confirmacao"] == "confirma"
+    assert atalho["response_text"] == ""
+
+
+def test_a_pergunta_de_confirmacao_pede_so_sim() -> None:
+    assert (
+        TEXTO_CONFIRMA_CANCELAMENTO
+        == "Você quer pedir para cancelar o seu plano? Responda Sim para confirmar."
+    )
+
+
+@pytest.mark.parametrize("contexto", [ContextoDoTurno(), ContextoDoTurno(assunto_anterior="cancelamento")])
+async def test_sim_sem_confirmacao_pendente_segue_o_fluxo_normal(contexto: ContextoDoTurno) -> None:
+    dispatcher, _ = _dispatcher(v1=True, contexto=contexto)
+    assert await dispatcher._atalho_de_recuo("Sim", _CONVERSA, _sinais()) is None
+
+
+async def test_sim_com_a_chave_desligada_nao_tem_atalho() -> None:
+    dispatcher, roteador = _dispatcher(v1=False)
+    assert await dispatcher._atalho_de_recuo("Sim", _CONVERSA, _sinais()) is None
+    assert roteador.leituras == 0
+
+
+@pytest.mark.parametrize("sinais", [None, _sinais(pessoa=True), _sinais(saude=True)])
+async def test_sim_com_sinal_de_saude_ou_pedido_de_pessoa_segue_a_helena(
+    sinais: SinaisLexicos | None,
+) -> None:
+    dispatcher, _ = _dispatcher(v1=True)
+    assert await dispatcher._atalho_de_recuo("Sim", _CONVERSA, sinais) is None
+
+
+@pytest.mark.parametrize("texto", ["obrigado", "sim, mas qual o valor?", "sim e a coparticipação?"])
+async def test_outra_mensagem_nao_e_atalho(texto: str) -> None:
     dispatcher, roteador = _dispatcher(v1=True)
     assert await dispatcher._atalho_de_recuo(texto, _CONVERSA, _sinais()) is None
     assert roteador.leituras == 0
@@ -134,3 +180,19 @@ async def test_sinal_de_saude_ou_pedido_de_pessoa_ou_lexico_falho_seguem_a_helen
 )
 def test_lexico_da_desistencia(texto: str, esperado: bool) -> None:
     assert e_recuo_do_cancelamento(texto) is esperado
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("Sim", True),
+        ("sim!", True),
+        ("SIM, QUERO CANCELAR", True),
+        ("confirmo", True),
+        ("Não", False),
+        ("sim, mas qual o valor?", False),
+        ("obrigado", False),
+    ],
+)
+def test_lexico_da_confirmacao_pura(texto: str, esperado: bool) -> None:
+    assert e_confirmacao_pura_do_cancelamento(texto) is esperado

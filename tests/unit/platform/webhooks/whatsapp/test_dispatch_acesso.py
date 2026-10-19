@@ -148,8 +148,10 @@ async def test_agentes_nao_rodam_antes_da_verificacao(monkeypatch: pytest.Monkey
     d, cliente, _ = _montar()
     r1 = await d.dispatch(_m("quero saber da minha mensalidade", 1))
     r2 = await d.dispatch(_m("nao quero", 2))
-    assert r1["response_text"] == r2["response_text"] == ac.TEXTO_CONSENTIMENTO
-    assert [t for _, t in cliente.sent] == [ac.TEXTO_CONSENTIMENTO] * 2
+    # Rodada do dono (18/10/2026): o texto inteiro uma vez; depois, o lembrete curto.
+    assert r1["response_text"] == ac.TEXTO_CONSENTIMENTO
+    assert r2["response_text"] == ac.LEMBRETE_CONSENTIMENTO
+    assert [t for _, t in cliente.sent] == [ac.TEXTO_CONSENTIMENTO, ac.LEMBRETE_CONSENTIMENTO]
     assert _GrafoMarcador.rodou == []
 
 

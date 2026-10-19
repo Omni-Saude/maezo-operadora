@@ -105,7 +105,9 @@ async def test_passa_pra_equipe_com_caso_aberto_diz_que_o_caso_ja_esta_com_a_equ
     antes = _starts(cib)
     grafo, whatsapp, _, _ = _grafo([_classify()], cib=cib)
 
-    await grafo.ainvoke(_entrada("Passa pra equipe AGORA", ["Vou chamar quem cuida da parte financeira."]))
+    await grafo.ainvoke(
+        _entrada("Passa pra equipe AGORA", ["Vou te passar para o Lucas, nosso assistente financeiro."])
+    )
 
     assert whatsapp.enviados == [RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA]
     texto = whatsapp.enviados[0].lower()

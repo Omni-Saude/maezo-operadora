@@ -88,6 +88,8 @@ COPY spec/policies/roteamento ./spec/policies/roteamento
 COPY spec/policies/privacy ./spec/policies/privacy
 COPY spec/policies/ans ./spec/policies/ans
 COPY spec/schemas/tiss ./spec/schemas/tiss
+# Oitava ocorrencia (17/10/2026, ADR-0064/DL-0118): a base de conhecimento de saude da Helena.
+COPY spec/conhecimento/saude ./spec/conhecimento/saude
 COPY src/ ./src/
 COPY config/ ./config/
 RUN uv sync --frozen --no-dev --no-editable

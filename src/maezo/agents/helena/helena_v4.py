@@ -36,10 +36,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from datetime import date
 from typing import Final, NamedTuple
 
 from maezo.ports.tina import ElegibilidadeView
 
+from .consultas_plano import RESPOSTA_SEM_VINCULO_ATIVO, marcador_da_carteirinha, so_vinculos_ativos
 from .triagem_v2 import (
     RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO,
     RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
@@ -188,10 +190,20 @@ def _data_br(iso: object) -> str | None:
     return f"{iso[8:10]}/{iso[5:7]}/{iso[0:4]}"
 
 
-def fatos_da_carteirinha(view: ElegibilidadeView) -> dict[str, object]:
+def fatos_da_carteirinha(
+    view: ElegibilidadeView, *, so_ativos: bool = False, hoje: date | None = None
+) -> dict[str, object]:
     """Os fatos que PODEM ir ao texto da carteirinha, lista FECHADA: codigo (so' se JA vier mascarado), plano,
     segmentacao, inicio da vigencia, cancelamento e numero ANS do plano. Nome, data de nascimento, CNS,
-    CPF, titular e referencias NAO existem aqui: nunca chegam ao texto."""
+    CPF, titular e referencias NAO existem aqui: nunca chegam ao texto.
+
+    `so_ativos=True` (chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA`, decisao do dono de 17/10/2026): so' os
+    vinculos ATIVOS em `hoje` (`consultas_plano.vinculo_ativo`), filtrados ANTES do limite, e a data de
+    cancelamento (sempre futura entao) vai como `cancelamento_previsto`. `False` (o default) = os fatos de
+    antes, byte a byte."""
+    if so_ativos:
+        view = so_vinculos_ativos(view, hoje or date.today())
+    chave_cancelamento = "cancelamento_previsto" if so_ativos else "cancelamento"
     vinculos: list[dict[str, str | None]] = []
     for v in view.vinculos[:_LIMITE_DE_VINCULOS]:
         mascarada = v.carteirinha_mascarada
@@ -205,26 +217,41 @@ def fatos_da_carteirinha(view: ElegibilidadeView) -> dict[str, object]:
                 "plano": _limpo(v.plano),
                 "segmentacao": _limpo(v.segmentacao),
                 "vigencia_inicio": _data_br(v.vigencia_inicio),
-                "cancelamento": _data_br(v.cancelamento),
+                chave_cancelamento: _data_br(v.cancelamento),
                 "registro_ans": ans if _ANS_REGISTRO.fullmatch(ans) else None,
             }
         )
     return {"vinculos": vinculos}
 
 
-def texto_da_carteirinha(fatos: Mapping[str, object]) -> str:
+def texto_da_carteirinha(
+    fatos: Mapping[str, object], *, completos: frozenset[str] = frozenset(), so_ativos: bool = False
+) -> str:
     """A resposta da carteirinha: plano, segmentacao, vigencia e numero ANS, com o codigo MASCARADO, e o
     cartao completo no aplicativo/portal. Sem modelo. Campo que o cadastro nao traz diz "nao consta no
-    cadastro" (nunca se completa um fato ausente)."""
+    cadastro" (nunca se completa um fato ausente).
+
+    Chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` (decisao do dono de 17/10/2026): `so_ativos=True` sem vinculo =
+    `RESPOSTA_SEM_VINCULO_ATIVO`; `completos` = as mascaras cujo numero completo este turno tem — nessas
+    linhas sai "Número da carteirinha" com o MARCADOR (o numero so' entra no envio, `CarteirinhasDoTurno`),
+    e a frase de seguranca deixa de dizer que o codigo inteiro nao e' mostrado. Os defaults = o texto de
+    antes."""
     vinculos = fatos.get("vinculos")
     blocos: list[str] = []
+    mostrou_completo = False
     if isinstance(vinculos, list):
         for v in vinculos:
             if not isinstance(v, Mapping):
                 continue
             vigencia = v.get("vigencia_inicio")
+            mascarada = v.get("codigo_mascarado")
+            if isinstance(mascarada, str) and mascarada in completos:
+                mostrou_completo = True
+                codigo = f"- Número da carteirinha: {marcador_da_carteirinha(mascarada)}"
+            else:
+                codigo = f"- Código: {mascarada or 'não consigo mostrar com segurança'}"
             linhas = [
-                f"- Código: {v.get('codigo_mascarado') or 'não consigo mostrar com segurança'}",
+                codigo,
                 f"- Plano: {v.get('plano') or NAO_CONSTA}",
                 f"- Segmentação: {v.get('segmentacao') or NAO_CONSTA}",
                 f"- Vigência: {('desde ' + str(vigencia)) if vigencia else NAO_CONSTA}",
@@ -232,7 +259,11 @@ def texto_da_carteirinha(fatos: Mapping[str, object]) -> str:
             ]
             if v.get("cancelamento"):
                 linhas.append(f"- Cancelamento: {v['cancelamento']}")
+            if v.get("cancelamento_previsto"):
+                linhas.append(f"- Cancelamento previsto: {v['cancelamento_previsto']}")
             blocos.append("\n".join(linhas))
+    if not blocos and so_ativos:
+        return RESPOSTA_SEM_VINCULO_ATIVO
     if not blocos:
         return (
             "Não consta nenhum vínculo com o plano neste cadastro. "
@@ -243,8 +274,12 @@ def texto_da_carteirinha(fatos: Mapping[str, object]) -> str:
         "Pelo cadastro do plano, estes são os dados da sua carteirinha:\n"
         + "\n".join(blocos)
         + "\nO cartão completo está no aplicativo Austa Clínicas e no portal do plano. "
-        "Por segurança, não mostro o código inteiro nem outros dados pessoais por aqui. "
-        "Se quiser falar com uma pessoa da equipe, é só me pedir."
+        + (
+            "Por segurança, não mostro outros dados pessoais por aqui. "
+            if mostrou_completo
+            else "Por segurança, não mostro o código inteiro nem outros dados pessoais por aqui. "
+        )
+        + "Se quiser falar com uma pessoa da equipe, é só me pedir."
     )
 
 
@@ -408,9 +443,12 @@ _PEDIDO_DE_RESPOSTA: Final[str] = "Responda sim ou não."
 _ABERTURA_DA_REPETICAO: Final[str] = "Só para eu entender:"
 
 
-def texto_da_pergunta_de_alerta(grupo: str, eco: str, *, repetida: bool = False) -> str:
-    """A mensagem com as perguntas de ALERTA do grupo (texto fixo, sem modelo)."""
-    perguntas = " ".join(ALERTAS.get(grupo, ALERTAS[GRUPO_GERAL]).perguntas)
+def texto_da_pergunta_de_alerta(
+    grupo: str, eco: str, *, repetida: bool = False, alerta: AlertaDoGrupo | None = None
+) -> str:
+    """A mensagem com as perguntas de ALERTA do grupo (texto fixo, sem modelo). `alerta` (BASE DE SAUDE,
+    ADR-0064): as perguntas de um arquivo `sin-*` da base, no lugar das do grupo."""
+    perguntas = " ".join((alerta or ALERTAS.get(grupo, ALERTAS[GRUPO_GERAL])).perguntas)
     if repetida:
         # A abertura termina em ":", entao a primeira pergunta continua em minuscula.
         return f"{_ABERTURA_DA_REPETICAO} {perguntas[:1].lower()}{perguntas[1:]} {_PEDIDO_DE_RESPOSTA}"
@@ -463,6 +501,10 @@ _ETAPAS: Final[frozenset[str]] = frozenset(
     }
 )
 PREFIXO_PENDENTE: Final[str] = "V4_"
+#: BASE DE SAUDE (ADR-0064): o grupo pode ser o id de um arquivo `sin-*` da base (so' com a chave
+#: `MAEZO_HELENA_BASE_SAUDE` ligada alguem grava um codigo assim). Vocabulario fechado: kebab, sem
+#: texto livre.
+_GRUPO_DA_BASE: Final[re.Pattern[str]] = re.compile(r"sin-[a-z0-9]+(?:-[a-z0-9]+)*")
 _SUFIXO_DE_NOVO: Final[str] = "#de_novo"
 
 
@@ -490,7 +532,8 @@ def ler_pendente(valor: object) -> Pendente | None:
     if len(partes) != 3:
         return None
     etapa, grupo, populacao = partes
-    if etapa not in _ETAPAS or grupo not in ALERTAS or populacao not in (POPULACAO_ADULTO, POPULACAO_CRIANCA):
+    grupo_valido = grupo in ALERTAS or _GRUPO_DA_BASE.fullmatch(grupo) is not None
+    if etapa not in _ETAPAS or not grupo_valido or populacao not in (POPULACAO_ADULTO, POPULACAO_CRIANCA):
         return None
     return Pendente(etapa, grupo, populacao, repetida)
 
@@ -575,7 +618,7 @@ def escolha_da_resposta(plano: str) -> str | None:
 
 
 # --- O resumo do caso para o atendente --------------------------------------------------------------
-def resumo_do_caso(pendente: object, relato: object) -> str | None:
+def resumo_do_caso(pendente: object, relato: object, *, alerta: AlertaDoGrupo | None = None) -> str | None:
     """O resumo LEGIVEL e deterministico de um caso aberto pela v4 (sem modelo, sem asteriscos, sem ficha
     tecnica), ou `None` quando o turno nao e' um caso da v4. Contem SO' o relato da pessoa sobre ESTA queixa
     (nunca o que ela falou antes, sobre outros assuntos), o que a Helena perguntou e o que foi respondido.
@@ -591,7 +634,7 @@ def resumo_do_caso(pendente: object, relato: object) -> str | None:
     cru = relato_cru(str(relato or "")) if relato else ""
     quem = "do filho(a) ou bebê" if lido.populacao == POPULACAO_CRIANCA else "da própria pessoa"
     queixa = f'A pessoa relatou (queixa {quem}): "{cru}".' if cru else "A pessoa relatou uma queixa de saúde."
-    sinais = ALERTAS[lido.grupo].sinais
+    sinais = (alerta or ALERTAS.get(lido.grupo, ALERTAS[GRUPO_GERAL])).sinais
     if lido.etapa == ETAPA_CASO_SIM:
         corpo = (
             f"A Helena perguntou por sinais de alerta ({sinais}) e a pessoa respondeu sim ou deu a entender "

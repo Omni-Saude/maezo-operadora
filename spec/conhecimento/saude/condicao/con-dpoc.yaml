@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-dpoc
+categoria: condicao
+titulo: Doença pulmonar obstrutiva crônica (DPOC)
+sinonimos:
+- dpoc
+- doença pulmonar obstrutiva crônica
+- doenca pulmonar obstrutiva cronica
+- doença pulmonar obstrutiva cronica
+- dpoc pulmão
+- d.p.o.c
+- doença pulmonar obstrutiva crônica (dpoc)
+texto: A DPOC, sigla de doença pulmonar obstrutiva crônica, afeta os pulmões e dificulta a passagem do ar. Costuma estar ligada a anos de exposição à fumaça de cigarro e a outros poluentes. Os sintomas mais comuns são tosse persistente, catarro e cansaço ao fazer esforços. O tratamento é definido pelo médico e pode envolver mudança de hábitos, remédios, reabilitação respiratória ou cirurgia. Em geral, quem cuida é o pneumologista.
+tipo_texto: proprio
+fontes:
+- nome: Sem página leiga oficial na lista fechada (FONTES.md) — texto próprio, conferir na revisão médica
+  url: null
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

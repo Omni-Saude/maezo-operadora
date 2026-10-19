@@ -1,0 +1,28 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-pneumonia
+categoria: condicao
+titulo: Pneumonia
+sinonimos:
+- pneumonia
+- pneumonia bacteriana
+- pneumonia viral
+- infecção no pulmão
+- pneumunia
+- pulmonia
+texto: Pneumonia é uma infecção que atinge os pulmões, causada por vírus, bactérias ou fungos. Costuma causar tosse, febre, cansaço e desconforto ao respirar, e os sintomas variam de pessoa para pessoa. O tratamento é definido pelo médico e pode envolver repouso, hidratação, remédios ou, em alguns casos, internação. Clínico geral, pneumologista e pediatra costumam cuidar dessa condição.
+tipo_texto: proprio
+fontes:
+- nome: Sem página leiga oficial na lista fechada (FONTES.md) — texto próprio, conferir na revisão médica
+  url: null
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

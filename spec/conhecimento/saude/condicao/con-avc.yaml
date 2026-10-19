@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-avc
+categoria: condicao
+titulo: AVC (derrame)
+sinonimos:
+- avc
+- derrame
+- derrame cerebral
+- acidente vascular cerebral
+- avc isquemico
+- avc isquêmico
+- avc hemorragico
+- avc hemorrágico
+texto: 'AVC hemorrágico: Ocorre quando há rompimento de um vaso cerebral, provocando hemorragia. AVC isquêmico: Ocorre quando há obstrução de uma artéria, impedindo a passagem de oxigênio para células cerebrais, que acabam morrendo. Quanto mais rápido for o atendimento, maiores serão as chances de sobrevivência e recuperação total.'
+tipo_texto: citacao_literal
+fontes:
+- nome: Saúde de A a Z — AVC (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/a/avc
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: 94e94034221da7f03361a92bec1ebef5ca8615aab0acbe159bdf1ac6e1f53177
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/a/avc
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

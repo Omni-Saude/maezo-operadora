@@ -1,0 +1,36 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: sin-dor-nas-articulacoes
+categoria: sintoma
+titulo: Dor nas articulações
+sinonimos:
+- dor nas articulacoes
+- dor nas articulações
+- dor nas juntas
+- dor no joelho
+- dor no ombro
+- dor no quadril
+- articulacao inchada
+- articulação inchada
+- reumatismo
+texto: Sem sinais de alarme, o caminho é marcar uma consulta com clínico geral, médico de família, ortopedista ou reumatologista. Se aparecer algum sinal de alarme, procure um pronto-socorro na hora ou ligue 192 (SAMU).
+tipo_texto: proprio
+fontes:
+- nome: Tabela de sinais de alarme do adulto (spec/processes/dmn/triage_redflag_adult.dmn) e planilha Catálogo de Necessidades, aba 3
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_adult.dmn
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-17
+perguntas_alerta:
+- A dor é muito forte, a pior que você já sentiu?
+sinais_alarme:
+- pior dor que ja senti
+- pior dor da vida
+populacao: adulto
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

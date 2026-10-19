@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-depressao-pos-parto
+categoria: condicao
+titulo: Depressão pós-parto
+sinonimos:
+- depressão pós-parto
+- depressao pos parto
+- depressão após o parto
+- depressão puerperal
+- dpp
+- depressão pós-natal
+- depressão pós parto paterna
+texto: A depressão pós-parto é uma condição de tristeza profunda, desânimo e falta de esperança que surge logo após o parto. Pode vir com cansaço intenso, alterações de sono e apetite, ansiedade e perda de interesse pelas atividades. Atinge principalmente mulheres, mas homens também podem desenvolvê-la. Não é falha de caráter nem fraqueza. O tratamento é definido pelo médico e pode envolver acompanhamento psicológico, remédios e apoio da família. Psiquiatria e psicologia costumam cuidar do tema. Se você estiver em sofrimento, pode ligar 188 (CVV), a qualquer hora. Também posso chamar alguém da nossa equipe para conversar com você.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Depressão pós-parto (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/depressao-pos-parto
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/depressao-pos-parto
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

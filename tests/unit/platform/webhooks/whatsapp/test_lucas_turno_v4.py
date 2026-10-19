@@ -166,16 +166,17 @@ def _detalhamento() -> PortResult[BillingDetalhamentoView]:
             valor_total=total,
         )
 
+    # FASE 4 (18/10/2026): o detalhe so' aparece quando FECHA com o boleto do mes (R$ 1.280,40 em `_fatos`).
     grupo = GrupoPagador(
-        total_mensalidade="720.00",
-        total_pre_estabelecido="700.00",
+        total_mensalidade="1280.40",
+        total_pre_estabelecido="1260.40",
         total_coparticipacao="20.00",
         total_adicionais="0.00",
         qt_beneficiarios=2,
         detalhamento_fecha=True,
         beneficiarios=(
-            pessoa("você", "titular", "400.00", "20.00", "420.00"),
-            pessoa("dependente 1", "dependente", "300.00", "0.00", "300.00"),
+            pessoa("você", "titular", "300.25", "20.00", "320.25"),
+            pessoa("dependente 1", "dependente", "960.15", "0.00", "960.15"),
         ),
     )
     return PortResult.ok(
@@ -356,10 +357,10 @@ async def test_pagador_perguntando_o_valor_ouve_o_total_e_o_detalhe_sem_nome(sea
     (chamada,) = det.chamadas
     assert chamada["competencia"] == "2026-10" and chamada["purpose_of_use"] == "atendimento_whatsapp"
     (texto,) = enviados
-    assert texto.startswith("O valor total da mensalidade de outubro de 2026 é de R$ 720,00")
+    assert texto.startswith("O valor total da mensalidade de outubro de 2026 é de R$ 1.280,40")
     assert "Detalhe por beneficiário:" in texto
-    assert "• Você: pré-estabelecido R$ 400,00 + coparticipação R$ 20,00 = R$ 420,00" in texto
-    assert "• Dependente 1: pré-estabelecido R$ 300,00 + coparticipação R$ 0,00 = R$ 300,00" in texto
+    assert "• Você: pré-estabelecido R$ 300,25 + coparticipação R$ 20,00 = R$ 320,25" in texto
+    assert "• Dependente 1: pré-estabelecido R$ 960,15 + coparticipação R$ 0,00 = R$ 960,15" in texto
     assert final["mensagem"]["recusa_de_saida"] is False
 
 

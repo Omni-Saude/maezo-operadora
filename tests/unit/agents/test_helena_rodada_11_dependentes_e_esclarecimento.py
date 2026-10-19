@@ -40,7 +40,7 @@ from tests.unit.agents.test_helena_rodada_3_simulador import (
     _WhatsApp,
 )
 
-_SEM_NOMES = "Por segurança, este canal não mostra nomes nem outros dados deles."
+_SEM_NOMES = "Por segurança, este canal não mostra nomes nem outros dados dos dependentes."
 
 
 class _FonteDependentes:
@@ -190,15 +190,15 @@ def test_e_seguimento_de_cobranca(texto: object, esperado: bool) -> None:
     [
         (
             _visao(("Filho(a) até 23 anos", True)),
-            f"No seu cadastro consta 1 dependente ativo: filho(a) até 23 anos (recém-nascido no plano). {_SEM_NOMES}",
+            f"No seu cadastro consta 1 dependente ativo (filho ou filha, recém-nascido no plano). {_SEM_NOMES}",
         ),
         (
             _visao(("Filho(a) até 23 anos", False), ("Cônjuge", False)),
-            f"No seu cadastro constam 2 dependentes ativos: 1 filho(a) até 23 anos e 1 cônjuge. {_SEM_NOMES}",
+            f"No seu cadastro constam 2 dependentes ativos: 1 filho ou filha e 1 cônjuge. {_SEM_NOMES}",
         ),
         (
             _visao(("Filho(a) até 23 anos", False), ("Filho(a) até 23 anos", False)),
-            "No seu cadastro constam 2 dependentes ativos: 2 com relação filho(a) até 23 anos. " + _SEM_NOMES,
+            "No seu cadastro constam 2 dependentes ativos: 2 com relação filho ou filha. " + _SEM_NOMES,
         ),
         (_visao(), RESPOSTA_DEPENDENTES_NENHUM),
         (_visao(titular=False), RESPOSTA_DEPENDENTES_NAO_TITULAR),
@@ -294,7 +294,10 @@ def test_os_fatos_de_dependentes_nao_carregam_nada_identificavel() -> None:
         "recem_nascidos",
         "fonte_atualizada_em",
     }
-    assert resposta_deterministica("dependentes", fatos).count(":") == 1
+    texto = resposta_deterministica("dependentes", fatos)
+    # FASE 4 (18/10/2026): o grau sem o rotulo tecnico do cadastro, entre parenteses, sem lista com ":".
+    assert "(filho ou filha, recém-nascido no plano)" in texto
+    assert texto.count(":") == 0 and "23 anos" not in texto
 
 
 # --- o adaptador: a fonte do plano com o port de dependentes ----------------------------------------

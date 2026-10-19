@@ -118,6 +118,18 @@ locals {
       { name = "MAEZO_HELENA_TRIAGEM_V2", value = tostring(var.helena_triagem_v2) },
       # DL-0115: Helena v4 (catalogo de necessidades v4; default `false`; so' dev, ver `helena_v4`).
       { name = "MAEZO_HELENA_V4", value = tostring(var.helena_v4) },
+      # Dono, 17/10/2026: vinculo ativo e carteirinha completa (default `false`; so' dev, ver
+      # `helena_carteirinha_completa`).
+      { name = "MAEZO_HELENA_CARTEIRINHA_COMPLETA", value = tostring(var.helena_carteirinha_completa) },
+      # DL-0118: base de conhecimento de saude da Helena (ADR-0064; default `false`; so' dev, ver `helena_base_saude`).
+      { name = "MAEZO_HELENA_BASE_SAUDE", value = tostring(var.helena_base_saude) },
+      # DL-0119: saude gerativa (ADR-0065; default `false`; rota global autorizada pelo DPO so' para a allowlist).
+      { name = "MAEZO_HELENA_SAUDE_GERATIVA", value = tostring(var.helena_saude_gerativa) },
+      { name = "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", value = join(",", var.helena_saude_gerativa_conversas) },
+      # Fase 3 (18/10/2026): busca por significado na base de saude (embeddings REGIONAIS sa-east-1; default `false`).
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA", value = tostring(var.helena_busca_semantica) },
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA_MODELO", value = var.helena_busca_semantica_modelo },
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA_LIMIAR", value = tostring(var.helena_busca_semantica_limiar) },
       # Fatos do plano na Helena (07/10/2026): desligado por default; ver `helena_consultas_amh`.
       { name = "MAEZO_HELENA_CONSULTAS_AMH", value = tostring(var.helena_consultas_amh) },
       # Acesso do beneficiario (08/10/2026, DL-0083): desligado por default; ver `acesso_beneficiario`.
@@ -144,7 +156,7 @@ locals {
       # Fonte AMH do Lucas: `environment_amh` (abaixo; amh-interop.tf) e' vazia com a fonte
       # `simulada`, entao esta task definition fica byte a byte igual enquanto ela nao for ligada.
     ])
-    environment_amh = concat(local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env, local.amh_billing_contratacao_env)
+    environment_amh = concat(local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env, local.amh_billing_contratacao_env, local.amh_v4_env)
     secrets_app = concat(local.db_secrets_maezo, [
       # Sem esta o Pseudonymizer falha FECHADO (ADR-0035) — e o receptor e' quem pseudonimiza
       # o numero e o wamid antes de qualquer coisa tocar o texto.

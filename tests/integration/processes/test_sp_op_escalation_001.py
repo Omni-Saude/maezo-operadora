@@ -61,6 +61,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 import pytest_asyncio
 
@@ -69,7 +70,7 @@ from maezo.tools.workers.escalation import register_escalation_workers
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
 
-from .conftest import drain_topics
+from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
 
 StartEscalation = Callable[..., Awaitable[dict[str, Any]]]
@@ -740,6 +741,90 @@ async def test_business_key_idempotente(
     active_before = await engine.find_active_instances(business_key)
     assert len(active_before) == 1
     assert active_before[0]["id"] == first["id"]
+
+
+# --- v1.1.0 (DL-0118, ADR-0064): encerramento a pedido do beneficiario ---------------------
+
+
+async def _correlacionar_encerramento(business_key: str) -> None:
+    """O que a Helena faz (`correlate_message_audited`) depois do SIM: a mensagem pela business key."""
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message",
+            json={
+                "messageName": "msg.escalation.withdrawn",
+                "businessKey": business_key,
+                "processVariables": {
+                    "resultado": {"value": "encerrado_a_pedido_beneficiario", "type": "String"},
+                    "encerramento_origem": {"value": "beneficiario_canal", "type": "String"},
+                },
+            },
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+
+
+async def test_v110_encerramento_a_pedido_do_beneficiario_na_user_task(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """Caso P3 aberto; a mensagem `msg.escalation.withdrawn` interrompe a User Task (some da fila), publica
+    escalation.resolved com resultado=encerrado_a_pedido_beneficiario e termina em
+    End_EncerradoAPedidoDoBeneficiario. Sem process_completed (ninguem devolveu a conversa)."""
+    inst = await start_escalation(motivo_categoria="solicitacao_humano", severidade="leve")
+    iid = inst["id"]
+    business_key = str(inst.get("businessKey") or inst.get("business_key"))
+
+    await probe.drain()
+    await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+    await _correlacionar_encerramento(business_key)
+    await probe.drain()
+
+    assert probe.has_event(_RESOLVED, resultado="encerrado_a_pedido_beneficiario")
+    assert all("notas_resolucao" not in e.payload for e in probe.events_on(_RESOLVED))
+    assert not probe.events_on(_PROCESS_COMPLETED)
+    ended = await engine.activity_instances_ended(iid)
+    assert "End_EncerradoAPedidoDoBeneficiario" in ended
+    assert not await engine.instance_is_active(iid)
+    assert await engine.find_active_instances(business_key) == []
+
+
+async def test_v110_encerramento_a_pedido_interrompe_tambem_o_ramo_de_sla(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """Com o SLA de ciencia ja estourado (ramo nao-interruptivo vivo), a mensagem encerra a instancia
+    INTEIRA: o event subprocess e' interruptivo."""
+    inst = await start_escalation(motivo_categoria="intencao_clinica", severidade="moderada")
+    iid = inst["id"]
+    business_key = str(inst.get("businessKey") or inst.get("business_key"))
+    await probe.drain()
+    await engine.await_user_task(iid, "UT_TratarEscalonamento")
+    job = await engine.await_timer_job(iid, "BT_SlaAck")
+    await engine.execute_job(job.id)
+
+    await _correlacionar_encerramento(business_key)
+    await probe.drain()
+
+    assert not await engine.instance_is_active(iid)
+    assert "End_EncerradoAPedidoDoBeneficiario" in await engine.activity_instances_ended(iid)
+
+
+async def test_v110_sem_instancia_viva_o_motor_recusa_a_mensagem(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """Depois de resolvido, a mensagem nao casa com nada: o motor recusa (a Helena diz que nao encerrou)."""
+    inst = await start_escalation(motivo_categoria="solicitacao_humano", severidade="leve")
+    iid = inst["id"]
+    business_key = str(inst.get("businessKey") or inst.get("business_key"))
+    await probe.drain()
+    task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
+    await engine.complete_task_as_human(task.id, {"resultado": "resolvido_humano", "notas_resolucao": "ok"})
+    await probe.drain()
+
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message", json={"messageName": "msg.escalation.withdrawn", "businessKey": business_key}
+        )
+    assert resp.status_code == 400, resp.text[:200]
 
 
 # --- Auditoria: todo fim emite evento de dominio antes ------------------------------

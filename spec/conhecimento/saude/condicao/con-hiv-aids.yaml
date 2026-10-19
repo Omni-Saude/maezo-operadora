@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-hiv-aids
+categoria: condicao
+titulo: HIV e aids
+sinonimos:
+- hiv
+- aids
+- hiv/aids
+- virus hiv
+- vírus hiv
+- soropositivo
+- sida
+texto: 'O HIV ataca as células que organizam a defesa do corpo (linfócitos TCD4+). Uma pessoa pode viver com HIV, mas não necessariamente apresentar sintomas ou desenvolver aids. Aids: É a condição de saúde causada pelo HIV em estágio avançado, quando o sistema imunológico está gravemente comprometido. O HIV é transmitido principalmente através de fluidos corporais específicos.'
+tipo_texto: citacao_literal
+fontes:
+- nome: Saúde de A a Z — Aids / HIV (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/a/aids-hiv
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: 9df9fe967df6bc91759bed4140473cb359d6a9687e18fb6f43aeb5c1a909488c
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/a/aids-hiv
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

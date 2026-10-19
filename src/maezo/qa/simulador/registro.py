@@ -69,6 +69,9 @@ class Turno:
     tema: str
     mensagens: list[MensagemEnviada] = field(default_factory=list)
     escalonamentos: list[EscalonamentoSimulado] = field(default_factory=list)
+    #: ADR-0064/DL-0118: business keys cujo caso o motor (simulado) ENCERROU neste turno pela mensagem
+    #: `msg.escalation.withdrawn` — so' entra aqui depois de conferido que nao ha' mais instancia viva.
+    encerramentos: list[str] = field(default_factory=list)
     #: `FatosCobranca` (como dicionario) que a fonte do Lucas devolveu NESTE turno — o gabarito do D2.
     fatos: list[dict[str, Any]] = field(default_factory=list)
     #: Motivos de `Indisponivel` da fonte neste turno.
