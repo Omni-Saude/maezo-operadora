@@ -1010,6 +1010,13 @@ TEXTO_CANCELAMENTO_JA_REGISTRADO: Final[str] = (
     "O seu pedido de cancelamento já está com a nossa equipe, que vai te responder por aqui. "
     f"{GARANTIA_SEM_DECISAO}"
 )
+#: DL-0130 (texto aprovado pelo dono em 19/10/2026): o start de SP-OP-CANCEL-001 FALHOU. Diz a verdade —
+#: nada foi registrado — e pede que a pessoa reenvie; NAO ha' retentativa automatica. Texto fixo, sem modelo
+#: e sem dado do beneficiario. Unico lugar do texto: quem precisar importa daqui.
+TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR: Final[str] = (
+    "Desculpe, não consegui registrar o seu pedido agora. Nenhum pedido foi registrado. "
+    "Pode me enviar sua mensagem de novo para eu tentar outra vez?"
+)
 
 #: Prefixo do ACK quando a fonte NAO respondeu (`Indisponivel` -> fatos de conciliacao ausentes).
 #: Diz o que aconteceu — nao deu para consultar — e nao inventa situacao nenhuma.
@@ -4038,13 +4045,37 @@ class LucasGraph:
         """
         # DL-0111/DL-0130: o aviso cita o processo que de fato falhou (antes, sempre o ESCALATION). Com a
         # chave `MAEZO_CANCEL_PF_V1` ligada OU desligada: o start do cancelamento e' o mesmo processo.
-        process_key = CANCEL_PROCESS_KEY if state.get("iniciar_cancelamento") is True else PROCESS_KEY
+        cancelamento = state.get("iniciar_cancelamento") is True
+        process_key = CANCEL_PROCESS_KEY if cancelamento else PROCESS_KEY
+        # DL-0130 (dono, 19/10/2026): so' o start do CANCELAMENTO falho fala com o beneficiario, com o
+        # texto fixo `TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR` (nada foi registrado; reenvie). Pelo MESMO
+        # `self._whatsapp` dos outros envios (no turno real, o remetente gated do principal `lucas`). Sem
+        # retentativa automatica. A falha do ESCALATION segue sem texto (nao decidido). Envio best-effort,
+        # como `send_escalation_ack`.
+        enviada = await self._avisar_falha_do_cancelamento(state) if cancelamento else False
         return emit_start_failure_notice(
             dict(state),
             agent_id="lucas",
             process_key=process_key,
-            extra={"mensagem_enviada": False, "ack_pending": True, "retryable_error": True},
+            extra={"mensagem_enviada": enviada, "ack_pending": True, "retryable_error": True},
         )
+
+    async def _avisar_falha_do_cancelamento(self, state: LucasState) -> bool:
+        """Envia `TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR` uma vez; devolve se a entrega aconteceu de fato."""
+        to_hash = state.get("to_hash")
+        if not to_hash or state.get("canal", "whatsapp") != "whatsapp":
+            return False
+        try:
+            resultado = await self._whatsapp.send(
+                to_hash,
+                TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR,
+                idempotency_key=_idempotency_key(state, node="notify_start_failure"),
+            )
+        except PROGRAMMING_ERRORS:
+            raise
+        except Exception:
+            return False
+        return _entrega_de(resultado) != ENTREGA_SUPRIMIDA_DUPLICATA
 
     async def complete(self, state: LucasState) -> dict[str, Any]:
         """Terminal node — no further computation; `desfecho` was already set upstream.
