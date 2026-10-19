@@ -144,6 +144,8 @@ _SUBTREES_ESPERADOS = {
     "spec/processes/dmn",
     "spec/schemas/tiss",
     "spec/agents",
+    # ADR-0064/DL-0118: a base de conhecimento de saude da Helena (`base_saude.raiz_padrao()`).
+    "spec/conhecimento/saude",
 }
 
 

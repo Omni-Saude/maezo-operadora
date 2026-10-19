@@ -8,6 +8,11 @@ pergunta (a chave era so' o mes). "Preciso da 2a via do boleto" recebia a forma 
 vence o boleto?" recebia "Nao tenho outra informacao sobre isso" na primeira vez.
 
 Tudo contra o grafo REAL do Lucas, a DMN DRAFT e o motor em memoria (o `_Conversa` da rodada 4).
+
+FASE 4 (18/10/2026): o contrario tambem era defeito — trocar de assunto ou de mes logo depois de um texto da
+empresa repetia "Sua mensalidade e' paga pela empresa contratante." inteira. Agora a explicacao inteira so'
+sai quando a resposta anterior do Lucas nao foi da empresa; depois, a curta do assunto da pergunta, que se
+reveza, e a oferta de uma pessoa no maximo uma vez a cada duas respostas.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import pytest
 from maezo.agents.lucas.graph import (
     AVISOS_DE_CASO_ABERTO,
     NAO_CONSIGO,
+    OFERTA_PESSOA,
     TEXTO_EMPRESA_SEGUNDA_VIA,
     TEXTO_EMPRESA_VENCIMENTO,
     TEXTO_PAGADOR_EMPRESA,
@@ -62,6 +68,12 @@ _EXPLICACAO_JULHO = (
 
 def _sem_repeticao(textos: list[str]) -> None:
     assert all(a != b for a, b in zip(textos, textos[1:], strict=False)), textos
+    # FASE 4: a oferta de uma pessoa nunca em duas respostas seguidas.
+    ofertas = ["nossa equipe" in t for t in textos]
+    assert not any(a and b for a, b in zip(ofertas, ofertas[1:], strict=False)), textos
+    # FASE 4: a abertura da empresa nunca em duas respostas seguidas.
+    aberturas = [t.startswith(TEXTO_PAGADOR_EMPRESA) for t in textos]
+    assert not any(a and b for a, b in zip(aberturas, aberturas[1:], strict=False)), textos
 
 
 async def test_a_ate_e_do_dono_cada_pergunta_recebe_a_resposta_do_seu_assunto() -> None:
@@ -81,13 +93,14 @@ async def test_a_ate_e_do_dono_cada_pergunta_recebe_a_resposta_do_seu_assunto() 
     lista = {"quantidade": 3, "de": None, "ate": None, "situacao": "paga"}
     _, c = await conversa.mensagem(cobranca_lista=lista)
     assert c.startswith(TEXTO_PAGADOR_EMPRESA) and "Por isso, a situação do pagamento" in c
-    # d) "Preciso da 2a via do boleto"
+    # d) "Preciso da 2a via do boleto" — logo depois de um texto da empresa: a curta da 2a via, sem oferta
+    # (a resposta anterior ja' ofereceu).
     _, d = await conversa.mensagem(tipo="2a_via", intencao="cobranca_info")
-    assert d == TEXTO_EMPRESA_SEGUNDA_VIA
+    assert d == "A 2ª via é com a empresa contratante, normalmente pelo RH. Por aqui eu não envio o boleto."
     assert "confirmação do pagamento" not in d
-    # e) "Quando vence o boleto? E meu plano cobre dermatologista?"
+    # e) "Quando vence o boleto? E meu plano cobre dermatologista?" — a curta do vencimento, com a oferta.
     _, e = await conversa.mensagem(tipo="vencimento", intencao="cobranca_info", cobranca_foco="vencimento")
-    assert e == TEXTO_EMPRESA_VENCIMENTO
+    assert e == f"O vencimento e o boleto são com a empresa contratante, normalmente pelo RH. {OFERTA_PESSOA}"
     assert not any("Não tenho outra informação" in t for t in conversa.textos)
     _sem_repeticao(conversa.textos)
 
@@ -114,16 +127,19 @@ async def test_a_escada_so_anda_com_repeticao_real_do_mesmo_assunto(
     textos = [(await conversa.mensagem(**entrada))[1] for _ in range(6)]
     if primeira is not None:
         assert textos[0] == primeira
-    # Pergunta 1: completa. Repeticoes reais: a curta, "nao consigo detalhar" e so' entao as honestas.
+    # Pergunta 1: completa. Repeticoes reais (FASE 4): as tres curtas, que se revezam, e so' entao as duas
+    # honestas, alternadas.
     assert textos[0] not in NAO_CONSIGO
-    assert textos[1] not in NAO_CONSIGO and len(textos[1]) < len(textos[0])
-    assert textos[2] == NAO_CONSIGO[1]
-    assert all("Não tenho outra informação" not in t for t in textos[:3])
-    assert textos[3] == NAO_CONSIGO[0] and textos[4] == NAO_CONSIGO[1]
+    assert all(t not in NAO_CONSIGO and len(t) < len(textos[0]) for t in textos[1:4])
+    assert len(set(textos[1:4])) == 3
+    assert all("Não tenho outra informação" not in t for t in textos[:4])
+    assert textos[4] == NAO_CONSIGO[1] and textos[5] == NAO_CONSIGO[0]
     _sem_repeticao(textos)
 
 
-async def test_assunto_diferente_zera_a_escada_mesmo_depois_de_repeticoes() -> None:
+async def test_assunto_diferente_depois_da_empresa_recebe_a_curta_do_seu_assunto() -> None:
+    """FASE 4: depois de um texto da empresa, a pergunta de outro assunto ouve a curta DELE (nunca a abertura
+    de novo nem o "nao tenho outra informacao" do assunto anterior)."""
     conversa = _Conversa(_DONO)
     pagamento = {
         "tipo": "status_pagamento",
@@ -135,14 +151,41 @@ async def test_assunto_diferente_zera_a_escada_mesmo_depois_de_repeticoes() -> N
     _, vencimento = await conversa.mensagem(
         tipo="vencimento", intencao="cobranca_info", cobranca_foco="vencimento"
     )
-    assert vencimento == TEXTO_EMPRESA_VENCIMENTO
+    assert vencimento.startswith(
+        "O vencimento e o boleto são com a empresa contratante, normalmente pelo RH."
+    )
     _, segunda_via = await conversa.mensagem(tipo="2a_via", intencao="cobranca_info")
-    assert segunda_via == TEXTO_EMPRESA_SEGUNDA_VIA
+    assert segunda_via.startswith("A 2ª via é com a empresa contratante, normalmente pelo RH.")
     _, pagamento_de_novo = await conversa.mensagem(**pagamento, competencia="2026-07")
-    assert pagamento_de_novo == _EXPLICACAO_JULHO
+    assert pagamento_de_novo.startswith(
+        "A confirmação do pagamento de julho de 2026 é com a empresa contratante"
+    )
+    assert not any(t in NAO_CONSIGO for t in (vencimento, segunda_via, pagamento_de_novo))
+    _sem_repeticao(conversa.textos)
 
 
-async def test_o_mes_diferente_do_mesmo_assunto_tambem_e_outra_pergunta() -> None:
+async def test_tres_turnos_seguidos_de_temas_diferentes_nao_repetem_a_abertura() -> None:
+    """FASE 4 (o defeito do dono): pagamento, vencimento e 2a via seguidos — a explicacao inteira so' na
+    primeira; as outras, curtas e diferentes, com o fato (empresa contratante / RH)."""
+    conversa = _Conversa(_DONO)
+    _, a = await conversa.mensagem(
+        tipo="status_pagamento",
+        intencao="confirmacao_pagamento",
+        competencia="2026-07",
+        cobranca_foco="pagamento",
+    )
+    _, b = await conversa.mensagem(tipo="vencimento", intencao="cobranca_info", cobranca_foco="vencimento")
+    _, c = await conversa.mensagem(tipo="2a_via", intencao="cobranca_info")
+    assert a == _EXPLICACAO_JULHO
+    assert TEXTO_PAGADOR_EMPRESA not in b and TEXTO_PAGADOR_EMPRESA not in c
+    assert b not in (TEXTO_EMPRESA_VENCIMENTO,) and c not in (TEXTO_EMPRESA_SEGUNDA_VIA,)
+    assert all("RH" in t for t in (a, b, c))
+    assert len({a, b, c}) == 3
+    _sem_repeticao(conversa.textos)
+
+
+async def test_o_mes_diferente_do_mesmo_assunto_logo_depois_recebe_a_curta() -> None:
+    """FASE 4: "e agosto?" logo depois da explicacao de julho — a curta de agosto, sem a abertura de novo."""
     conversa = _Conversa(_DONO)
     pagamento = {
         "tipo": "status_pagamento",
@@ -151,8 +194,25 @@ async def test_o_mes_diferente_do_mesmo_assunto_tambem_e_outra_pergunta() -> Non
     }
     _, julho = await conversa.mensagem(**pagamento, competencia="2026-07")
     _, agosto = await conversa.mensagem(**pagamento, competencia="2026-08")
-    assert "julho de 2026" in julho and "agosto de 2026" in agosto
-    assert agosto == julho.replace("julho", "agosto")
+    assert julho == _EXPLICACAO_JULHO
+    assert (
+        agosto
+        == "A confirmação do pagamento de agosto de 2026 é com a empresa contratante, normalmente pelo RH."
+    )
+    _sem_repeticao(conversa.textos)
+
+
+async def test_depois_de_outro_assunto_a_explicacao_volta_inteira() -> None:
+    conversa = _Conversa(_DONO)
+    pagamento = {
+        "tipo": "status_pagamento",
+        "intencao": "confirmacao_pagamento",
+        "cobranca_foco": "pagamento",
+    }
+    await conversa.mensagem(**pagamento, competencia="2026-07")
+    await conversa.mensagem(competencia="2026-09", cobranca_foco="coparticipacao")
+    _, de_novo = await conversa.mensagem(**pagamento, competencia="2026-07")
+    assert de_novo == _EXPLICACAO_JULHO
 
 
 # --- Com o caso de cobranca aberto a empresa continua respondendo -----------------------------------------

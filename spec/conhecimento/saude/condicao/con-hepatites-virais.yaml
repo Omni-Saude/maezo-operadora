@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-hepatites-virais
+categoria: condicao
+titulo: Hepatites virais
+sinonimos:
+- hepatite
+- hepatites
+- hepatite a
+- hepatite b
+- hepatite c
+- hepatites virais
+- virus da hepatite
+- vírus da hepatite
+texto: As hepatites virais são infecções que atingem o fígado, causando alterações leves, moderadas ou graves. Na maioria das vezes são infecções silenciosas, ou seja, não apresentam sintomas. No Brasil, as hepatites virais mais comuns são causadas pelos vírus A, B e C. As infecções causadas pelos vírus das hepatites B, C e D frequentemente se tornam crônicas.
+tipo_texto: citacao_literal
+fontes:
+- nome: Saúde de A a Z — Hepatites virais (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/h/hepatites-virais
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: 7376c96b20d63c49322a06ef7fae5b84139056135c573f03e12dca898b90d3cf
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/h/hepatites-virais
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

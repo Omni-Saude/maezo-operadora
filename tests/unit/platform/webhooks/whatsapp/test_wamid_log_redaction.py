@@ -480,6 +480,9 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
         # `acesso_store.py` tambem nao (so' SQL parametrizado). Varridos abaixo como os demais.
         "acesso.py",
         "acesso_cadastro.py",
+        # `acesso_limite_cpf.py` (D-04, DL-0109): revisado ao entrar nesta lista. Nao recebe wamid nem
+        # texto; so' a chave derivada do hash, contagens e carimbos, e SQL parametrizado. Sem logger.
+        "acesso_limite_cpf.py",
         "acesso_ponte.py",
         # `acesso_retencao.py` (DL-0084): revisado ao entrar nesta lista. Nao recebe wamid nem texto; os logs
         # carregam so' contagens, o prazo em dias e o nome da classe do erro. Varrido abaixo como os demais.

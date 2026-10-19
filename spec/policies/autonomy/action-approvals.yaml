@@ -747,12 +747,16 @@ mapeamento_acoes:
   agente.amh.list_subject_conditions: leitura_phi_clinica
   agente.amh.get_subject_coverage: leitura_phi_clinica
   agente.amh.get_billing_status: leitura_phi_clinica
+  agente.amh.get_billing_detalhamento: leitura_phi_clinica
+  agente.amh.get_billing_segunda_via: leitura_phi_clinica
   agente.amh.resolve_subject_by_phone: leitura_phi_clinica
   agente.amh.get_subject_profile: leitura_phi_clinica
   agente.amh.tina_get_elegibilidade: leitura_phi_clinica
   agente.amh.tina_get_carencias: leitura_phi_clinica
   agente.amh.tina_get_requisicoes: leitura_phi_clinica
   agente.amh.tina_get_dependentes: leitura_phi_clinica
+  agente.amh.tina_get_cobertura: leitura_phi_clinica
+  agente.amh.tina_get_carteirinha: leitura_phi_clinica
   agente.amh.verify_subject: leitura_phi_clinica
   agente.amh.resolve_by_document: leitura_phi_clinica
   agente.amh.record_consent: registro_consentimento

@@ -207,6 +207,11 @@ tools:                               # ids EXATOS registrados pelos mcp_* server
                                       # 3), arquivo CODEOWNED. Mesma especie da excecao de
                                       # gustavo em mcp-cibseven.*.
   - mcp-cibseven.start_process        # somente SP-OP-ESCALATION-001 (start idempotente)
+  - mcp-cibseven.correlate_process_message  # somente `msg.escalation.withdrawn` do SP-OP-ESCALATION-001
+                                      # v1.1.0 (DL-0118/ADR-0064): encerra o caso P2/P3 a pedido da
+                                      # pessoa, com confirmacao, auditado antes do efeito
+                                      # (`correlate_message_audited`); DESLIGADO por padrao
+                                      # (MAEZO_HELENA_BASE_SAUDE)
   - mcp-whatsapp.send_message         # alias registrado de send_text (efeito L3)
   - mcp-memory.read_write             # working/episodic/semantic (ADR-0002) — alias registrado;
                                        # excecao disclosed do fence §8.5 item 2 (nenhum no vivo
@@ -217,6 +222,7 @@ autonomy_policy: ../../policies/autonomy
 autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas por esta jornada
   - query_decision_engine             # DMN de triagem (mcp-dmn.evaluate) — L3
   - start_compliance_process          # SP-OP-ESCALATION-001 (mcp-cibseven.start_process) — L2
+  - correlate_process_message         # encerramento a pedido (msg.escalation.withdrawn) — L2; DL-0118
   # read_phi_data REMOVIDO (NEW-09, WP FHIR-TOOL-SURFACE-PARITY): nenhum no de helena le FHIR
   # (`graph.py` nao tem campo `_fhir`), entao declarar a acao seria afirmar uma capacidade que a
   # jornada nao exerce. ISTO E HIGIENE DE SPEC, NAO UMA SEGUNDA CAMADA DE ENFORCEMENT: o L2 do
@@ -247,6 +253,10 @@ autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas 
                                        # requisicoes) pelo contrato AMH `tina` (manifest v1.2, DRAFT);
                                        # L3 leitura, mesma classe/governanca da acao acima; sem tool MCP;
                                        # DESLIGADA por padrao (MAEZO_HELENA_CONSULTAS_AMH, DL de 07/10/2026)
+  - read_member_card_number           # numero COMPLETO da carteirinha do PROPRIO verificado pelo contrato AMH
+                                       # `tina-carteirinha` (manifest v1.12), so' por texto fixo; L3 leitura;
+                                       # sem tool MCP; DESLIGADA por padrao (MAEZO_HELENA_CARTEIRINHA_COMPLETA,
+                                       # decisao do dono de 17/10/2026, so' dev)
   - record_member_consent             # registro do consentimento (ACEITO/REVOGAR) no lago da AMH pelo contrato
                                        # `consent-record` (manifest v1.3, DRAFT); L3, escrita idempotente;
                                        # DESLIGADA por padrao (MAEZO_ACESSO_BENEFICIARIO, DL-0083). A verificacao

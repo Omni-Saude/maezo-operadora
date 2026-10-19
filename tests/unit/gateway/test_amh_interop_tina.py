@@ -62,9 +62,14 @@ def _pedido(**sobre: Any) -> GovernedTinaRequest:
 
 def test_as_tres_operacoes_pedem_o_escopo_tina() -> None:
     assert SCOPE_TINA == "interop/tina.read"
-    for op in tina_mod.OPERATIONS:
+    # A carteirinha completa (manifest v1.12) tem escopo e executor PROPRIOS (`AmhTinaCarteirinhaExecutor`).
+    leituras = tina_mod.OPERATIONS - {tina_mod.OP_CARTEIRINHA}
+    for op in leituras:
         assert SCOPE_BY_OPERATION[op] == SCOPE_TINA
-    assert AmhTinaExecutor.registered_operations == tina_mod.OPERATIONS
+    assert SCOPE_BY_OPERATION[tina_mod.OP_CARTEIRINHA] == "interop/tina.carteirinha"
+    # A cobertura (manifest v1.9) usa o mesmo escopo, mas so' o executor PROPRIO a registra
+    # (`AmhTinaCoberturaExecutor`, composto so' com o artefato carregado).
+    assert AmhTinaExecutor.registered_operations == leituras - {tina_mod.OP_COBERTURA}
 
 
 async def test_leitura_tina_audita_antes_e_despacha_na_rota_fixa(servidor: Servidor, tokens: Any) -> None:
@@ -276,7 +281,11 @@ def test_operacoes_tina_no_catalogo_e_acao_l3_nao_hard_declarada_na_helena() -> 
     for operacao in tina_mod.OPERATIONS:
         spec = OPERATIONS[operacao]
         assert spec.action_class == "leitura_phi_clinica"
-        assert spec.autonomy_action == "read_member_plan_facts"
+        # A carteirinha completa tem acao PROPRIA (identificador de uso do plano; dono, 17/10/2026).
+        esperada = (
+            "read_member_card_number" if operacao == tina_mod.OP_CARTEIRINHA else "read_member_plan_facts"
+        )
+        assert spec.autonomy_action == esperada
         assert spec.tool_id is None
     matriz = load_matrix(raiz / "spec/policies/autonomy/L0-core.yaml", tenant="helena-tina-unit")
     politica = matriz.policy_for("read_member_plan_facts")
@@ -290,6 +299,9 @@ def test_operacoes_tina_no_catalogo_e_acao_l3_nao_hard_declarada_na_helena() -> 
         assert aprovacoes["mapeamento_acoes"][f"agente.{operacao}"] == "leitura_phi_clinica"
     helena = yaml.safe_load((raiz / "spec/agents/helena/agent.yaml").read_text(encoding="utf-8"))
     assert "read_member_plan_facts" in helena["autonomy_actions"]
+    assert "read_member_card_number" in helena["autonomy_actions"]
+    cartao = matriz.policy_for("read_member_card_number")
+    assert cartao is not None and cartao.level is Level.L3 and cartao.hard is False
     assert helena["security_zone"] == "general"
 
 

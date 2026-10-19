@@ -14,8 +14,8 @@ O beneficiário de plano **individual ou familiar** pede pelo WhatsApp para canc
 2. se for **plano de empresa**, responde que quem decide é a empresa (RH); se for **adesão**, a administradora
    (como já era); se for **dependente**, explica que o pedido é feito pelo titular e oferece uma pessoa — em
    nenhum desses casos abre processo;
-3. se for o **titular**, pergunta UMA vez ("Você quer pedir para cancelar o seu plano? Se sim, responda: SIM,
-   QUERO CANCELAR.") e, confirmado, abre o processo SP-OP-CANCEL-001 com os **fatos reais** e responde:
+3. se for o **titular**, pergunta UMA vez ("Você quer pedir para cancelar o seu plano? Responda Sim para
+   confirmar." — "Sim" basta, decisão do dono de 18/10/2026) e, confirmado, abre o processo SP-OP-CANCEL-001 com os **fatos reais** e responde:
    "Recebemos o seu pedido de cancelamento. Protocolo: CAN-XXXX-XXXX. A nossa equipe vai concluir o pedido.
    Quando terminar, você recebe a confirmação."
 

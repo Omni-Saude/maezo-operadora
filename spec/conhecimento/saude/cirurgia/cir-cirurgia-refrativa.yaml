@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: cir-cirurgia-refrativa
+categoria: cirurgia
+titulo: Cirurgia refrativa (miopia e outros graus)
+sinonimos:
+- cirurgia de miopia
+- cirurgia a laser nos olhos
+- lasik
+- cirurgia para tirar óculos
+- cirurgia de grau
+- laser para miopia
+- cirurgia de astigmatismo
+- cirurgia refrativa
+- cirurgia refrativa (miopia e outros graus)
+texto: Cirurgia refrativa é um procedimento nos olhos que busca corrigir problemas de grau, como miopia, astigmatismo e hipermetropia. Costuma ser considerada quando a pessoa quer reduzir a dependência de óculos ou lentes de contato. Em geral, usa-se laser para remodelar a córnea, com anestesia em colírio. A indicação depende de exames e da avaliação do oftalmologista, e o resultado varia de pessoa para pessoa.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

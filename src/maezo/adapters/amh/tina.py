@@ -16,6 +16,23 @@ DEPENDENTES (decisao do dono de 13/10/2026): a rota `GET .../subjects/{ref}/depe
 artefato, `tina-dependentes.openapi.yaml` (manifest aditivo v1.5, bloco `manifest_v1_5` do pin). Ela e'
 OPCIONAL no adaptador: so' existe com `dependentes_openapi_bytes=` (digest conferido contra o pin); sem ele,
 `get_dependentes` recusa com `SCOPE_NOT_SUPPORTED` e o comportamento dos fatos do plano nao muda.
+
+CARTEIRINHA COMPLETA (decisao do dono de 17/10/2026, "modelo de teste" so' em dev): a rota
+`GET .../subjects/{ref}/carteirinha` vive no artefato `tina-carteirinha.openapi.yaml` (manifest aditivo v1.12,
+bloco `manifest_v1_12` do pin, PINADO em 17/10/2026; bytes fora do digest = o construtor recusa
+subir). Tambem OPCIONAL: sem os bytes, `get_carteirinha` recusa com `SCOPE_NOT_SUPPORTED`.
+Diferente das outras leituras: finalidade FIXA `atendimento_whatsapp`, cabecalho obrigatorio
+`X-Amh-Request-Ref` (id OPACO da solicitacao) e escopo OAuth proprio (`interop/tina.carteirinha`) — por isso
+a E/S vai por um executor PROPRIO (`carteirinha_executor=`). O numero completo so' atravessa em
+`CarteirinhaCompleta` (fora do `repr`).
+
+COBERTURA POR PROCEDIMENTO (decisao do dono D1 de 18/10/2026: a Helena diz se o procedimento consta no Rol
+para a segmentacao do plano): a rota `GET .../subjects/{ref}/cobertura` vive no artefato
+`tina-cobertura.openapi.yaml` (manifest aditivo v1.9, bloco `manifest_v1_9` do pin, PUBLISHED em 16/10/2026).
+OPCIONAL como as outras: sem `cobertura_openapi_bytes=`, `get_cobertura` recusa com `SCOPE_NOT_SUPPORTED`.
+Finalidade FIXA `atendimento_whatsapp` (enum do contrato), por isso a E/S pode ir por um executor PROPRIO
+(`cobertura_executor=`; a finalidade do executor de sempre pode ser outra). O termo pedido (`procedimento`)
+so' atravessa no pedido, validado pelo schema do parametro; a resposta nao o devolve e nada aqui o loga.
 """
 
 from __future__ import annotations
@@ -36,9 +53,16 @@ from maezo.adapters.amh.contract import load_contract_pin
 from maezo.adapters.amh.subject_context import _FORMATS, _MAX_BYTES, _json, _json_schema
 from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS, PortFailure, PortFailureReason, PortResult
 from maezo.ports.tina import (
+    MAX_CARTEIRINHAS,
+    MAX_COBERTURA_ITENS,
     MAX_DEPENDENTES,
+    CarenciaDoItem,
     CarenciaPlano,
     CarenciasView,
+    CarteirinhaCompleta,
+    CarteirinhasView,
+    CoberturaItemView,
+    CoberturaView,
     DependenteAnonimo,
     DependentesView,
     ElegibilidadeView,
@@ -49,13 +73,26 @@ from maezo.ports.tina import (
 
 ARTIFACT: Final[str] = "schemas/openapi/maezo/v1/tina.openapi.yaml"
 ARTIFACT_DEPENDENTES: Final[str] = "schemas/openapi/maezo/v1/tina-dependentes.openapi.yaml"
+#: Manifest aditivo v1.12 (decisao do dono de 17/10/2026). O digest entra no bloco `manifest_v1_12` do pin.
+ARTIFACT_CARTEIRINHA: Final[str] = "schemas/openapi/maezo/v1/tina-carteirinha.openapi.yaml"
+#: Manifest aditivo v1.9 (PUBLISHED em 16/10/2026). O digest esta' no bloco `manifest_v1_9` do pin.
+ARTIFACT_COBERTURA: Final[str] = "schemas/openapi/maezo/v1/tina-cobertura.openapi.yaml"
 OP_ELEGIBILIDADE: Final[str] = "amh.tina_get_elegibilidade"
 OP_CARENCIAS: Final[str] = "amh.tina_get_carencias"
 OP_REQUISICOES: Final[str] = "amh.tina_get_requisicoes"
 OP_DEPENDENTES: Final[str] = "amh.tina_get_dependentes"
+OP_CARTEIRINHA: Final[str] = "amh.tina_get_carteirinha"
+#: `operationId: getCobertura` do contrato, no padrao de nome das operacoes do gateway.
+OP_COBERTURA: Final[str] = "amh.tina_get_cobertura"
 OPERATIONS: Final[frozenset[str]] = frozenset(
-    {OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES, OP_DEPENDENTES}
+    {OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES, OP_DEPENDENTES, OP_CARTEIRINHA, OP_COBERTURA}
 )
+#: A UNICA finalidade da rota da carteirinha (enum do contrato).
+PURPOSE_CARTEIRINHA: Final[str] = "atendimento_whatsapp"
+#: A UNICA finalidade da rota da cobertura (enum do contrato `tina-cobertura`).
+PURPOSE_COBERTURA: Final[str] = "atendimento_whatsapp"
+#: O cabecalho do id opaco da solicitacao (o unico cabecalho que o adaptador aceita de um contrato TINA).
+HEADER_REQUEST_REF: Final[str] = "X-Amh-Request-Ref"
 SERVER: Final[str] = "/interop/tina/v1"
 #: Operacao -> (caminho do contrato, schema da resposta 200).
 _ROTAS: Final[dict[str, tuple[str, str]]] = {
@@ -63,6 +100,8 @@ _ROTAS: Final[dict[str, tuple[str, str]]] = {
     OP_CARENCIAS: ("/subjects/{portable_subject_ref}/carencias", "Carencias"),
     OP_REQUISICOES: ("/subjects/{portable_subject_ref}/requisicoes", "Requisicoes"),
     OP_DEPENDENTES: ("/subjects/{portable_subject_ref}/dependentes", "Dependentes"),
+    OP_CARTEIRINHA: ("/subjects/{portable_subject_ref}/carteirinha", "Carteirinhas"),
+    OP_COBERTURA: ("/subjects/{portable_subject_ref}/cobertura", "Cobertura"),
 }
 _ROTAS_FATOS: Final[tuple[str, ...]] = (OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES)
 Reason = PortFailureReason
@@ -95,6 +134,8 @@ class GovernedTinaRequest:
     query: tuple[tuple[str, str | int], ...]
     consent_decision_ref: str
     timeout_seconds: float
+    #: `X-Amh-Request-Ref` (so' a rota da carteirinha o declara); `None` nas outras.
+    request_ref: str | None = None
     method: str = field(default="GET", init=False)
 
 
@@ -139,9 +180,19 @@ class AmhTinaAdapter:
         executor: GovernedTinaExecutor,
         pin_path: Path | None = None,
         dependentes_openapi_bytes: bytes | None = None,
+        carteirinha_openapi_bytes: bytes | None = None,
+        carteirinha_executor: GovernedTinaExecutor | None = None,
+        cobertura_openapi_bytes: bytes | None = None,
+        cobertura_executor: GovernedTinaExecutor | None = None,
     ) -> None:
         try:
             if not isinstance(executor, GovernedTinaExecutor):
+                raise ValueError
+            if carteirinha_executor is not None and not isinstance(
+                carteirinha_executor, GovernedTinaExecutor
+            ):
+                raise ValueError
+            if cobertura_executor is not None and not isinstance(cobertura_executor, GovernedTinaExecutor):
                 raise ValueError
             pin = load_contract_pin(pin_path)
             self._validators: dict[str, Draft4Validator] = {}
@@ -152,7 +203,22 @@ class AmhTinaAdapter:
                 self._carregar(
                     dependentes_openapi_bytes, ARTIFACT_DEPENDENTES, pin.artifact_digests, (OP_DEPENDENTES,)
                 )
+            # Carteirinha completa (manifest v1.12): so' com os bytes; o digest TEM de estar no pin (sem o
+            # bloco `manifest_v1_12`, `digests[ARTIFACT_CARTEIRINHA]` levanta e o construtor recusa).
+            self._carteirinha = carteirinha_openapi_bytes is not None
+            if carteirinha_openapi_bytes is not None:
+                self._carregar(
+                    carteirinha_openapi_bytes, ARTIFACT_CARTEIRINHA, pin.artifact_digests, (OP_CARTEIRINHA,)
+                )
+            # Cobertura por procedimento (manifest v1.9): so' com os bytes; o digest TEM de estar no pin.
+            self._cobertura = cobertura_openapi_bytes is not None
+            if cobertura_openapi_bytes is not None:
+                self._carregar(
+                    cobertura_openapi_bytes, ARTIFACT_COBERTURA, pin.artifact_digests, (OP_COBERTURA,)
+                )
             self._executor = executor
+            self._executor_carteirinha = carteirinha_executor or executor
+            self._executor_cobertura = cobertura_executor or executor
         except Exception:
             raise TinaContractError() from None
 
@@ -207,6 +273,7 @@ class AmhTinaAdapter:
                 return PortResult.refused(Reason.INVALID_REQUEST)
             valores = {"portable_subject_ref": portable_subject_ref, **valores}
             query: list[tuple[str, str | int]] = []
+            request_ref: str | None = None
             for parameter in self._parameters[operacao]:
                 name = parameter["name"]
                 value = valores.get(name)
@@ -219,7 +286,18 @@ class AmhTinaAdapter:
                     if not isinstance(value, (str, int)) or isinstance(value, bool):
                         return PortResult.refused(Reason.INVALID_REQUEST)
                     query.append((name, value))
-            registradas = self._executor.registered_operations
+                elif parameter["in"] == "header":
+                    # So' o id opaco da solicitacao; qualquer outro cabecalho do contrato e' recusado.
+                    if name != HEADER_REQUEST_REF or not isinstance(value, str):
+                        return PortResult.refused(Reason.INVALID_REQUEST)
+                    request_ref = value
+            if operacao == OP_CARTEIRINHA:
+                executor = self._executor_carteirinha
+            elif operacao == OP_COBERTURA:
+                executor = self._executor_cobertura
+            else:
+                executor = self._executor
+            registradas = executor.registered_operations
             if type(registradas) is not frozenset or operacao not in registradas:
                 return PortResult.refused(Reason.SCOPE_NOT_SUPPORTED)
             caminho = _ROTAS[operacao][0]
@@ -229,9 +307,10 @@ class AmhTinaAdapter:
                 query=tuple(query),
                 consent_decision_ref=consent_decision_ref,
                 timeout_seconds=timeout_seconds,
+                request_ref=request_ref,
             )
             async with asyncio.timeout(timeout_seconds):
-                response = await self._executor.execute(request)
+                response = await executor.execute(request)
             if not isinstance(response, PortResult) or type(response.succeeded) is not bool:
                 return PortResult.refused(Reason.CONTRACT_VIOLATION)
             if not response.succeeded:
@@ -348,6 +427,56 @@ class AmhTinaAdapter:
         )
         return _converter(resultado, _dependentes)
 
+    async def get_carteirinha(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        request_ref: str,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[CarteirinhasView]:
+        """O numero COMPLETO da carteirinha dos vinculos ATIVOS do proprio sujeito (manifest v1.12). Sem o
+        artefato `tina-carteirinha` carregado no construtor, recusa fechada (`SCOPE_NOT_SUPPORTED`). `404`
+        (sem vinculo ativo, sujeito desconhecido ou rota desligada) = `NOT_FOUND`. Nenhum numero vai a log."""
+        if not self._carteirinha:
+            return PortResult.refused(Reason.SCOPE_NOT_SUPPORTED)
+        resultado = await self._consultar(
+            OP_CARTEIRINHA,
+            portable_subject_ref,
+            {"purpose_of_use": purpose_of_use, HEADER_REQUEST_REF: request_ref},
+            consent_decision_ref=consent_decision_ref,
+            timeout_seconds=timeout_seconds,
+        )
+        return _converter(resultado, _carteirinhas)
+
+    async def get_cobertura(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        procedimento: str,
+        limite: int = 5,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[CoberturaView]:
+        """Os fatos de cobertura do procedimento (codigo ou termo) para o plano do proprio sujeito (manifest
+        v1.9). Sem o artefato `tina-cobertura` carregado no construtor, recusa fechada
+        (`SCOPE_NOT_SUPPORTED`). `procedimento` fora do padrao do contrato ou `limite` fora de 1..10 =
+        `INVALID_REQUEST` sem despacho. `404` (rota desligada, sujeito sem plano) = `NOT_FOUND`."""
+        if not self._cobertura:
+            return PortResult.refused(Reason.SCOPE_NOT_SUPPORTED)
+        if type(procedimento) is not str or type(limite) is not int:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._consultar(
+            OP_COBERTURA,
+            portable_subject_ref,
+            {"purpose_of_use": purpose_of_use, "procedimento": procedimento, "limite": limite},
+            consent_decision_ref=consent_decision_ref,
+            timeout_seconds=timeout_seconds,
+        )
+        return _converter(resultado, _cobertura)
+
 
 def _converter(resultado: PortResult[dict[str, Any]], montar: Any) -> PortResult[Any]:
     if not resultado.succeeded or resultado.value is None:
@@ -425,6 +554,57 @@ def _requisicoes(body: dict[str, Any]) -> RequisicoesView:
     )
 
 
+def _carteirinhas(body: dict[str, Any]) -> CarteirinhasView:
+    itens = tuple(
+        CarteirinhaCompleta(
+            carteirinha_numero=c["carteirinha_numero"],
+            carteirinha_mascarada=c["carteirinha_mascarada"],
+            vinculo_principal=c["vinculo_principal"],
+        )
+        for c in body["carteirinhas"]
+    )
+    if not 1 <= len(itens) <= MAX_CARTEIRINHAS:
+        raise ValueError
+    return CarteirinhasView(
+        portable_subject_ref=body["portable_subject_ref"],
+        carteirinhas=itens,
+        fonte_atualizada_em=body["fonte_atualizada_em"],
+    )
+
+
+def _cobertura(body: dict[str, Any]) -> CoberturaView:
+    itens = tuple(
+        CoberturaItemView(
+            descricao=i["descricao"],
+            # `situacao` nula no contrato = a fonte nao classificou: o mesmo que `indeterminado` (nunca
+            # "nao cobre"), sem inventar fato.
+            situacao=i["situacao"] if i["situacao"] is not None else "indeterminado",
+            coberto=i["coberto"],
+            no_rol=i["no_rol"],
+            na_segmentacao=i["na_segmentacao"],
+            rol_edicao=i["rol_edicao"],
+            tem_diretriz=i["diretriz_de_utilizacao"] is True,
+            carencias=tuple(
+                CarenciaDoItem(cumprida=c["cumprida"], dias=c["dias"], termina_em=c["termina_em"])
+                for c in i["carencias"]
+            ),
+        )
+        for i in body["itens"]
+    )
+    if len(itens) > MAX_COBERTURA_ITENS or type(body["truncada"]) is not bool:
+        raise ValueError
+    plano = body["plano"]
+    return CoberturaView(
+        portable_subject_ref=body["portable_subject_ref"],
+        segmentacao=plano["segmentacao"],
+        regulamentado=plano["regulamentado"],
+        itens=itens,
+        truncada=body["truncada"],
+        avisos=tuple(body["avisos"]),
+        fonte_atualizada_em=body["fonte"]["atualizada_em"],
+    )
+
+
 def _dependentes(body: dict[str, Any]) -> DependentesView:
     itens = tuple(
         DependenteAnonimo(
@@ -455,12 +635,19 @@ def _dependentes(body: dict[str, Any]) -> DependentesView:
 
 __all__ = [
     "ARTIFACT",
+    "ARTIFACT_CARTEIRINHA",
+    "ARTIFACT_COBERTURA",
     "ARTIFACT_DEPENDENTES",
+    "HEADER_REQUEST_REF",
     "OPERATIONS",
     "OP_CARENCIAS",
+    "OP_CARTEIRINHA",
+    "OP_COBERTURA",
     "OP_DEPENDENTES",
     "OP_ELEGIBILIDADE",
     "OP_REQUISICOES",
+    "PURPOSE_CARTEIRINHA",
+    "PURPOSE_COBERTURA",
     "SERVER",
     "AmhTinaAdapter",
     "GovernedTinaExecutor",

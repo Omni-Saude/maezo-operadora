@@ -819,6 +819,97 @@ variable "helena_v4" {
   nullable    = false
 }
 
+variable "helena_carteirinha_completa" {
+  description = <<-EOT
+    Vinculo ativo e carteirinha completa na Helena (decisao do dono de 17/10/2026, "modelo de teste" reversivel):
+    `MAEZO_HELENA_CARTEIRINHA_COMPLETA`. Default `false` = a Helena de antes, byte a byte. Ligada, o tipo de plano
+    e a carteirinha mostram SO' os vinculos ATIVOS, e a carteirinha (texto fixo) traz o NUMERO COMPLETO do proprio
+    beneficiario verificado pela rota `tina-carteirinha` da AMH (manifest v1.12): acrescenta
+    `interop/tina.carteirinha` aos escopos pedidos ao Cognito e o caminho do OpenAPI na task definition (so' com
+    `helena_consultas_amh`). O receptor RECUSA servir sem o bloco `manifest_v1_12` no pin. EXPERIMENTO SO' EM DEV.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_base_saude" {
+  description = <<-EOT
+    Base de conhecimento de saude da Helena (ADR-0064, DL-0118, 17/10/2026): `MAEZO_HELENA_BASE_SAUDE`.
+    Default `false` = a Helena de antes, byte a byte. Ligada, a Helena informa perguntas gerais de saude a
+    partir da base curada `spec/conhecimento/saude` (sem diagnostico, conduta nem dose; sem abrir caso), faz
+    perguntas de alerta na dor sem sinal de alarme (com `helena_v4` ligada) e encerra o caso P2/P3 a pedido
+    da pessoa, com confirmacao (mensagem `msg.escalation.withdrawn` do SP-OP-ESCALATION-001 v1.1.0: rode o
+    deploy-processes ANTES de ligar). MODELO DE TESTE SO' EM DEV: revisao medica e juridica antes de producao.
+    Runbook: docs/runbooks/helena-base-saude.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_saude_gerativa" {
+  description = <<-EOT
+    SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): `MAEZO_HELENA_SAUDE_GERATIVA`. Default `false` =
+    a Helena de antes, byte a byte. Ligada (e com `helena_base_saude`), o Claude Haiku 5.5 REDIGE a resposta a
+    perguntas informativas de saude (com checagem antes de enviar e resposta segura padrao) SO' para as conversas
+    de `helena_saude_gerativa_conversas`, pela rota PROPRIA `experimento_global_autorizado_dpo_2026-10-17`
+    (perfil GLOBAL do Bedrock: pode processar FORA DO BRASIL). Autorizado pelo dono COMO DPO so' para a conversa
+    dele e as do simulador, so' em dev, como teste reversivel. Runbook: docs/runbooks/helena-base-saude.md §10.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_saude_gerativa_conversas" {
+  description = <<-EOT
+    A ALLOWLIST da saude gerativa (ADR-0065): `conversation_id` keyed (`wa:<tenant>:hk1_<64 hex>`). Fora dela, a
+    Helena de antes. Vira `MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS` (separados por virgula). Vazia = ninguem.
+  EOT
+  type        = list(string)
+  default     = []
+  nullable    = false
+  validation {
+    condition     = alltrue([for c in var.helena_saude_gerativa_conversas : can(regex("^wa:[a-z0-9][a-z0-9_-]{0,31}:hk1_[0-9a-f]{64}$", c))])
+    error_message = "helena_saude_gerativa_conversas: so' conversation_id keyed (wa:<tenant>:hk1_<64 hex>)."
+  }
+}
+
+variable "helena_busca_semantica" {
+  description = <<-EOT
+    BUSCA POR SIGNIFICADO na base de saude (fase 3, decisao do dono de 18/10/2026): `MAEZO_HELENA_BUSCA_SEMANTICA`.
+    Default `false` = o lexico de antes. Ligada (e com `helena_saude_gerativa`), embeddings de um modelo REGIONAL do
+    Bedrock em sa-east-1 (sem perfil de inferencia) escolhem o APOIO da redacao da saude gerativa, so' para a
+    allowlist dela. Nunca e' portao de recusa. IAM em `busca-semantica-saude.tf`. Runbook: helena-base-saude.md §13.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_busca_semantica_modelo" {
+  description = "Modelo de embeddings REGIONAL (sa-east-1) da busca por significado: cohere.embed-multilingual-v3 ou amazon.titan-embed-text-v2:0."
+  type        = string
+  default     = "amazon.titan-embed-text-v2:0"
+  nullable    = false
+  validation {
+    condition     = contains(["cohere.embed-multilingual-v3", "amazon.titan-embed-text-v2:0"], var.helena_busca_semantica_modelo)
+    error_message = "helena_busca_semantica_modelo: so' cohere.embed-multilingual-v3 ou amazon.titan-embed-text-v2:0 (regionais)."
+  }
+}
+
+variable "helena_busca_semantica_limiar" {
+  description = "Similaridade minima (cosseno, 0..1) para o assunto da busca por significado virar apoio (calibrado em dev)."
+  type        = number
+  default     = 0.33
+  nullable    = false
+  validation {
+    condition     = var.helena_busca_semantica_limiar >= 0 && var.helena_busca_semantica_limiar <= 1
+    error_message = "helena_busca_semantica_limiar: entre 0 e 1."
+  }
+}
+
 variable "helena_consultas_amh" {
   description = <<-EOT
     Fatos do plano na Helena pelo contrato TINA da AMH (decisao do dono de 07/10/2026):
@@ -849,6 +940,20 @@ variable "amh_tina_dependentes_openapi_path" {
   description = "Caminho, DENTRO da imagem, do OpenAPI `tina-dependentes` publicado (manifest v1.5; o digest tem de estar no bloco manifest_v1_5 do pin). Lido so' com helena_consultas_amh."
   type        = string
   default     = "/app/config/integrations/amh/openapi/tina-dependentes.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_carteirinha_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-carteirinha` (manifest v1.12; o digest tem de estar no bloco manifest_v1_12 do pin). Lido so' com helena_consultas_amh e helena_carteirinha_completa. Vazio = sem a rota (nem o escopo `interop/tina.carteirinha`): a Helena so' filtra os vinculos ativos e a carteirinha sai mascarada."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-carteirinha.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_cobertura_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-cobertura` (manifest v1.9; o digest tem de estar no bloco manifest_v1_9 do pin). Lido so' com helena_consultas_amh. Vazio (default) = sem a rota de cobertura por procedimento; falha de leitura/digest deixa so' a cobertura de fora."
+  type        = string
+  default     = ""
   nullable    = false
 }
 
@@ -983,6 +1088,39 @@ variable "amh_billing_status_contratacao_openapi_path" {
   description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-contratacao` (billing-status 0.3.0; digest no bloco manifest_v1_6 do pin). Lido so' com `acesso_beneficiario`: a cobranca do Lucas passa a pedir `incluir_contratacao=true` (tipo de contratacao, beneficiario e pagador, valor do boleto do pagador). Vazio = segue o 0.2.0."
   type        = string
   default     = ""
+  nullable    = false
+}
+
+variable "amh_billing_status_detalhamento_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-detalhamento` (billing-status 0.4.0, manifest v1.10; digest no bloco manifest_v1_10 do pin). Lido so' com `lucas_v4` e `amh_interop_boleto_client_id`."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_billing_segunda_via_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-segunda-via` (0.1.0, manifest v1.11; digest no bloco manifest_v1_11 do pin). Lido so' com `lucas_v4` e `amh_interop_boleto_client_id`."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_boleto_client_id" {
+  description = "client_id do app client Cognito DEDICADO da 2a via (`maezo-operadora-interop-boleto`, unico escopo interop/billing.boleto; criado pela AMH). Vazio = o executor do Lucas v4 nao e' composto e o segundo sinal fica desligado."
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    condition     = var.amh_interop_boleto_client_id == "" || can(regex("^[a-z0-9]{20,40}$", var.amh_interop_boleto_client_id))
+    error_message = "amh_interop_boleto_client_id tem de ser vazio ou um client_id do Cognito (alfanumerico minusculo)."
+  }
+}
+
+variable "amh_interop_boleto_cognito_secret_name" {
+  description = "Segredo (criado pela AMH) com o client secret do app client dedicado da 2a via (maezo-operadora-interop-boleto)."
+  type        = string
+  default     = "amh/cognito/dev/maezo-operadora-interop-boleto"
   nullable    = false
 }
 

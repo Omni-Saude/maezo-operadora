@@ -42,7 +42,7 @@ Escolha de 19/08/2026, registrada em `deploy/aws-ecs/envs/dev-sa-east-1/variable
 (`phi_model_id`): quatro candidatos in-region foram testados com prompt de dossiê real
 (`mistral.mistral-large-3-675b-instruct`, `deepseek.v3.2`, `zai.glm-5`,
 `qwen.qwen3-next-80b-a3b`); **todos viáveis**, o Mistral produziu o texto mais bem estruturado.
-É o maior modelo in-region disponível. Trocar depois é uma linha (`-var phi_model_id=...`) mais o
+É o maior modelo in-region disponível. **Nota (17/10/2026, DL-0117):** o dev passou a rodar `zai.glm-5` como experimento autorizado pelo dono; o default de `variables.tf` segue o Mistral. Voltar: runbook `phi-inference-ops.md` §6. Trocar depois é uma linha (`-var phi_model_id=...`) mais o
 ARN do IAM, que já é parametrizado pela mesma variável.
 
 ## Nenhum fornecedor novo entra com este flip

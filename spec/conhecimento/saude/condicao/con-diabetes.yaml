@@ -1,0 +1,36 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-diabetes
+categoria: condicao
+titulo: Diabetes
+sinonimos:
+- diabetes
+- diabete
+- diabetico
+- diabético
+- diabetica
+- diabética
+- acucar no sangue
+- açúcar no sangue
+- diabetes tipo 2
+- diabetes tipo 1
+- diabetes mellitus
+- pre-diabetes
+- pré-diabetes
+texto: O diabetes mellitus pode se apresentar de diversas formas e possui diversos tipos diferentes. O diabetes tipo 2 ocorre quando o corpo não aproveita adequadamente a insulina produzida. Cerca de 90% dos pacientes diabéticos no Brasil têm esse tipo. Toda gestante deve fazer o exame de diabetes, regularmente, durante o pré-natal.
+tipo_texto: citacao_literal
+fontes:
+- nome: Saúde de A a Z — Diabetes (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/diabetes
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: af51c7508a237fad4dae1d00d65da43da0dffde6b8dd98f326189c5c5e73d2ef
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/d/diabetes
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

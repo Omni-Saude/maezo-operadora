@@ -108,12 +108,15 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Final, Literal, Protocol
 
 import structlog
+from prometheus_client import Counter
 
+from maezo.platform.observability import get_metrics_collector
 from maezo.ports.consent_record import ConsentRecordPort
 from maezo.ports.document_resolution import DocumentResolutionPort
 from maezo.ports.subject_verification import SubjectVerificationPort
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
+from .acesso_limite_cpf import LimitePorCpf, chave_do_cpf, marca_do_alarme
 from .apresentacao_canal import (
     TEXTO_APRESENTACAO_CANAL,
     TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES,
@@ -123,6 +126,16 @@ from .apresentacao_canal import (
 from .pre_roteamento import PreRoteamento, normalizar
 
 logger = structlog.get_logger(__name__)
+
+#: Alarme do risco aceito do DL-0109 (revisao do #785): o MESMO CPF bloqueado em duas janelas seguidas de
+#: 6 h e' o sinal de alguem re-travando a verificacao de outra pessoa. Sem rotulo de CPF/hash: so' o tenant.
+#: Registrado uma vez, no import, no registro dedicado do `MetricsCollector` (o mesmo que `/metrics` expoe).
+ACESSO_CPF_BLOQUEIO_REINCIDENTE_TOTAL = Counter(
+    "maezo_acesso_cpf_bloqueio_reincidente_total",
+    "Mesmo CPF bloqueado pelo limite de verificacao em duas janelas seguidas",
+    ["tenant"],
+    registry=get_metrics_collector().registry,
+)
 
 # --- Estados (CHECK da migration 0022 repete esta lista) -------------------------------------------
 SEM_CONSENTIMENTO: Final[str] = "sem_consentimento"
@@ -246,9 +259,23 @@ MOTIVO_ESCALONAMENTO_BLOQUEIO: Final[str] = "solicitacao_humano"
 # ==========================================================================================
 # Reconhecimento dos comandos e dos fatores (puro, sem I/O)
 # ==========================================================================================
+#: RODADA DO DONO (18/10/2026, DL-0124): as variacoes INEQUIVOCAS de aceite. Nada ambiguo ("sim" sozinho,
+#: "ok", "pode ser", "talvez") e nada com outra palavra junto: a mensagem inteira tem de ser uma destas.
+_ACEITES: Final[frozenset[str]] = frozenset(
+    {
+        *("aceito", "aceitar", "eu aceito", "aceito sim", "sim aceito", "sim eu aceito", "aceito os termos"),
+        *("concordo", "eu concordo", "sim concordo", "concordo sim", "de acordo", "estou de acordo", "pode"),
+        *("aceito obrigado", "aceito obrigada", "ok aceito", "aceito ok"),
+    }
+)
+#: Mensagem fora do esperado com o texto de consentimento ja' mostrado: um lembrete CURTO, nunca o texto
+#: inteiro de novo.
+LEMBRETE_CONSENTIMENTO: Final[str] = "Para continuar, responda ACEITO."
+
+
 def eh_aceito(texto: str) -> bool:
-    """`True` so' para a palavra ACEITO (caixa, acento e pontuacao nao contam: "aceito.", "Aceito!")."""
-    return normalizar(texto) == "aceito"
+    """`True` para ACEITO e as variacoes inequivocas de `_ACEITES` (caixa, acento e pontuacao nao contam)."""
+    return normalizar(texto) in _ACEITES
 
 
 _REVOGAR: Final[frozenset[str]] = frozenset({"revogar", "revogar meu consentimento"})
@@ -553,6 +580,7 @@ class AcessoBeneficiario:
         documentos: DocumentResolutionPort | None = None,
         apresentar_dependentes: bool = False,
         silencio_apresentacao: timedelta = SILENCIO_APRESENTACAO_PADRAO,
+        limite_cpf: LimitePorCpf | None = None,
     ) -> None:
         if validade <= timedelta(0):
             raise ValueError("acesso: validade deve ser positiva")
@@ -567,6 +595,9 @@ class AcessoBeneficiario:
             raise ValueError("acesso: prazo_consentimento_s fora de (0, 30]")
         self._prazo_consentimento = float(prazo_consentimento_s)
         self._store = store
+        #: D-04: o contador de falhas POR CPF, somado entre as conversas (3 em 6 h). `None` = so' o limite por
+        #: conversa de antes (testes e desenvolvimento local); a composicao de producao sempre o passa.
+        self._limite_cpf = limite_cpf
         self._verification = verification
         #: DL-0084: resolucao pelo documento do telefone FORA DO CADASTRO. `None` = o lado seguro do #700
         #: (telefone sem candidato vai ao atendente); a composicao de producao sempre a passa.
@@ -617,6 +648,9 @@ class AcessoBeneficiario:
         Idempotente (rodar de novo nao apaga nada a mais). Store sem expurgo = 0 (nada a fazer)."""
         if retencao <= timedelta(0):
             raise ValueError("acesso: retencao deve ser positiva")
+        if self._limite_cpf is not None:
+            # D-04: a linha do limite por CPF so' vale enquanto a janela de 6 h vale.
+            await self._limite_cpf.expurgar(_segundos(self._relogio()))
         expurgar = getattr(self._store, "expurgar_inativos", None)
         if expurgar is None:
             return 0
@@ -713,8 +747,13 @@ class AcessoBeneficiario:
         if atual.estado == BLOQUEADO_HUMANO:
             return self._responder(atual, BLOQUEADO_CURTO, emergencia=emergencia)
         if atual.estado in (SEM_CONSENTIMENTO, REVOGADO):
-            if comando != "aceito":
-                return self._responder(atual, TEXTO_CONSENTIMENTO, emergencia=emergencia)
+            if not eh_aceito(texto):
+                # SEM_CONSENTIMENTO: o texto inteiro ja' saiu na primeira mensagem — so' o lembrete curto.
+                # REVOGADO: o texto inteiro de novo (quem revogou le os termos antes de aceitar outra vez).
+                lembrete = (
+                    LEMBRETE_CONSENTIMENTO if atual.estado == SEM_CONSENTIMENTO else TEXTO_CONSENTIMENTO
+                )
+                return self._responder(atual, lembrete, emergencia=emergencia)
             return await self._aceitar(atual, agora, emergencia=emergencia)
         if atual.estado == AGUARDANDO_CPF:
             return await self._passo_cpf(atual, agora, texto, numero_cru, emergencia=emergencia)
@@ -1030,6 +1069,11 @@ class AcessoBeneficiario:
         cpf = extrair_cpf(texto)
         if cpf is None:
             return self._falha(atual, agora, CPF_INVALIDO, emergencia=emergencia)
+        # D-04: CPF com falhas demais em 6 h (de QUALQUER conversa) nao chega a pedir o nascimento.
+        chave_cpf = self._chave_do_limite(cpf)
+        bloqueio = await self._bloqueio_por_cpf(atual, agora, chave_cpf, emergencia=emergencia)
+        if bloqueio is not None:
+            return bloqueio
         if desfecho == "multiplos" or documento:
             # Telefone de mais de uma pessoa, ou FORA DO CADASTRO (DL-0084): pede tambem o nascimento (o CPF
             # espera em memoria).
@@ -1046,6 +1090,7 @@ class AcessoBeneficiario:
             return self._responder(atual, INDISPONIVEL, emergencia=emergencia)
         if veredito == "verificado" and ref is not None:
             return await self._sucesso(atual, agora, ref)
+        await self._registrar_falha_por_cpf(chave_cpf, agora, atual.conversation_id)
         return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
 
     async def _passo_nascimento(
@@ -1061,6 +1106,11 @@ class AcessoBeneficiario:
             # A memoria do CPF se perdeu (outra replica, reinicio, prazo): pede os dois juntos, sem gastar
             # tentativa.
             return self._responder(atual, PEDIDO_CPF_E_NASCIMENTO, emergencia=emergencia)
+        # D-04: o mesmo limite do passo do CPF (o CPF pode chegar junto da data, ou do que ficou pendente).
+        chave_cpf = self._chave_do_limite(cpf)
+        bloqueio = await self._bloqueio_por_cpf(atual, agora, chave_cpf, emergencia=emergencia)
+        if bloqueio is not None:
+            return bloqueio
         refs, desfecho = await self._candidatos(numero_cru)
         if desfecho == "indisponivel":
             if leitura.cpf is not None:
@@ -1087,7 +1137,48 @@ class AcessoBeneficiario:
             return await self._sucesso(
                 atual, agora, ref, motivo="verificado_por_documento" if documento else "verificado"
             )
+        await self._registrar_falha_por_cpf(chave_cpf, agora, atual.conversation_id)
         return self._falha(atual, agora, FALHA_CONFERENCIA, emergencia=emergencia)
+
+    def _chave_do_limite(self, cpf: str) -> str | None:
+        """A chave do limite por CPF, ou `None` (limite desligado, ou o hasher recusou o CPF)."""
+        if self._limite_cpf is None:
+            return None
+        hash_cpf = self._hasher.hash_cpf(cpf)
+        return chave_do_cpf(hash_cpf) if hash_cpf is not None else None
+
+    async def _bloqueio_por_cpf(
+        self, atual: EstadoAcesso, agora: datetime, chave: str | None, *, emergencia: bool
+    ) -> DecisaoAcesso | None:
+        """O CPF ja' gastou as falhas da janela (D-04)? Bloqueia ESTA conversa ate' o fim da janela e abre
+        atendente. Nao conta como falha (ja' esta' bloqueado) e nao chama a AMH."""
+        if chave is None or self._limite_cpf is None:
+            return None
+        ate = await self._limite_cpf.bloqueado_ate(chave, agora)
+        if ate is None:
+            return None
+        self._pendentes.descartar(atual.conversation_id)
+        novo = replace(atual, estado=BLOQUEADO_HUMANO, tentativas=MAX_TENTATIVAS, bloqueado_ate=ate)
+        self._log_transicao(atual.conversation_id, atual.estado, BLOQUEADO_HUMANO, "limite_por_cpf")
+        return self._responder(novo, BLOQUEADO, emergencia=emergencia, escalar=True)
+
+    async def _registrar_falha_por_cpf(
+        self, chave: str | None, agora: datetime, conversation_id: str
+    ) -> None:
+        """Uma falha de VERIFICACAO contra um CPF valido (nao formato invalido, nao AMH fora).
+
+        Se ESTA falha bloqueou o CPF pela segunda janela seguida, dispara o alarme do risco aceito (DL-0109):
+        log + metrica, com uma marca curta da chave derivada — nunca CPF nem hash."""
+        if chave is None or self._limite_cpf is None:
+            return
+        if await self._limite_cpf.registrar_falha(chave, agora):
+            ACESSO_CPF_BLOQUEIO_REINCIDENTE_TOTAL.labels(tenant=self._tenant_amh).inc()
+            logger.warning(
+                "acesso_cpf_bloqueio_reincidente",
+                conversation_id=conversation_id,
+                marca=marca_do_alarme(chave),
+                janelas_seguidas=2,
+            )
 
     def _falha(self, atual: EstadoAcesso, agora: datetime, texto: str, *, emergencia: bool) -> DecisaoAcesso:
         """Uma tentativa gasta (formato invalido ou nao confere). Conta em DOIS lugares: as tentativas

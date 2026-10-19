@@ -96,7 +96,8 @@ _TOOL_WIRE_ALIASES: Final[dict[str, tuple[str, ...]]] = {
     "mcp-dmn.evaluate": ("_dmn.evaluate(",),
     "mcp-cibseven.start_process": ("start_process_idempotent(",),
     "mcp-cibseven.get_process_status": ("get_process_status(",),
-    "mcp-cibseven.correlate_process_message": ("correlate_process_message(",),
+    # DL-0118: a Helena correlaciona pelo chokepoint auditado `correlate_message_audited(`.
+    "mcp-cibseven.correlate_process_message": ("correlate_process_message(", "correlate_message_audited("),
     "mcp-whatsapp.send_message": ("_whatsapp.send(",),
     "mcp-fhir.read_patient": ("read_patient(",),
     "mcp-fhir.read_patient_summary": ("read_patient_summary(",),
@@ -185,9 +186,15 @@ _ACTION_NOT_TOOL_SHAPED: Final[frozenset[str]] = frozenset(
         # catalogo (`amh.get_billing_status` / `amh.resolve_subject_by_phone`), entao nao existe
         # id `mcp-*` para esta sonda procurar no grafo. Decisao do dono 06/10/2026 (decisions-log).
         "read_member_billing_identity",
+        # Lucas v4: a 2a via (codigo de barras do pagador) pelo contrato `billing-segunda-via`. Mesma forma:
+        # a superficie e' o executor do gateway (`AmhV4Executor`, `tool_id=None`).
+        "read_member_payment_credential",
         # Helena: fatos do plano pelo contrato TINA da AMH (DL de 07/10/2026). Mesma forma da acao
         # acima: a superficie e' o executor do gateway (`AmhTinaExecutor`, `tool_id=None`).
         "read_member_plan_facts",
+        # Helena: o numero completo da carteirinha pelo contrato `tina-carteirinha` (dono, 17/10/2026). Mesma
+        # forma: a superficie e' o executor do gateway (`AmhTinaCarteirinhaExecutor`, `tool_id=None`).
+        "read_member_card_number",
         # Helena: REGISTRO do consentimento do acesso do beneficiario pelo contrato `consent-record` da AMH
         # (DL-0083, 08/10/2026). Mesma forma: a superficie e' o executor do gateway
         # (`AmhConsentRecordExecutor`,

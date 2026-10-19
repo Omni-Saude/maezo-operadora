@@ -416,3 +416,32 @@ async def test_com_a_fonte_ligada_o_fato_ausente_do_perfil_vai_ao_grafo(
 
 def test_a_falha_sem_identidade_continua_com_o_texto_proprio() -> None:
     assert "Não consegui confirmar seus dados" in RESPOSTA_CONSULTA_SEM_IDENTIDADE
+
+
+async def test_com_a_fonte_ligada_o_aviso_de_terceiro_nao_esconde_o_fato_ausente(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Revisao do #785: o aviso de terceiro (D-01) era colado ANTES da comparacao com
+    `RESPOSTA_PLANO_POR_CANAIS`; o texto deixava de ser igual e o "nao estao disponiveis por este chat" saia
+    ao beneficiario mesmo com a fonte do plano ligada (contra a RODADA 8)."""
+    _GrafoMarcador.rodou.clear()
+    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    identidade = {
+        "portable_subject_ref": REF,
+        "faixa_etaria": "adulto",
+        "plano_ativo": None,
+        "vigencia_inicio": None,
+        "vigencia_fim": None,
+        "carencia_vigente": None,
+        "titular_ref": None,
+    }
+    d, cliente, _ = _montar(identidade)
+    d.consultas_plano = cast(Any, _Fonte())
+    await _verificar(d)
+
+    await d.dispatch(_m("o plano dele esta ativo?", 9))
+
+    assert _GrafoMarcador.rodou == ["o plano dele esta ativo?"]
+    enviados = [t for _, t in cliente.sent]
+    assert not any(RESPOSTA_PLANO_POR_CANAIS in t for t in enviados)
+    assert not any("por este chat" in t for t in enviados)

@@ -1,0 +1,46 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: sin-febre-crianca
+categoria: sintoma
+titulo: Febre em criança
+sinonimos:
+- febre em crianca
+- febre em criança
+- febre no bebe
+- febre no bebê
+- crianca com febre
+- criança com febre
+- bebe com febre
+- bebê com febre
+- filho com febre
+texto: Sem sinais de alarme, o caminho é marcar uma consulta com o pediatra. Se a febre continuar, leve a criança a um pronto atendimento infantil. Se aparecer algum sinal de alarme, procure um pronto-socorro na hora ou ligue 192 (SAMU).
+tipo_texto: proprio
+fontes:
+- nome: Tabela de sinais de alarme pediátricos (spec/processes/dmn/triage_redflag_pediatric.dmn) e planilha Catálogo de Necessidades, aba 3
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_pediatric.dmn
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-17
+perguntas_alerta:
+- A criança tem menos de 3 meses de idade?
+- Apareceram manchinhas vermelhas ou roxas na pele junto com a febre?
+- A criança está muito sonolenta, difícil de acordar, ou teve convulsão?
+sinais_alarme:
+- febre em bebê com menos de 3 meses
+- manchinhas vermelhas na pele com febre
+- manchas roxas na pele com febre
+- convulsão
+- criança muito sonolenta
+- criança que não responde
+- dificuldade para respirar
+- gemido ao respirar
+- criança roxa
+- recém-nascido que não mama
+populacao: crianca
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

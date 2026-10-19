@@ -103,7 +103,9 @@ portal = {
   // portal (#456), o painel do canal (#457) e o alinhamento do teste psicossocial (#467).
   // 26/09/2026: o 871ecc0b saiu do ECR (o job `verificar` da main reprovava); repinado no mesmo
   // digest do perfil staff abaixo (so' e' usado se `staff` voltar a null).
-  image_digest = "sha256:2887ba81f6b6e397eb329526e4072bc422b21e7a751c9573d40ebe7eb485c4ce"
+  // 16/10/2026: imagem 8819f3fb-portal (portal.Dockerfile sobre o app 8819f3fb, com o #788 `cancel_execucao`), assinada e
+  // atestada pelo `supply-chain.yml`; mesmo digest do perfil staff abaixo.
+  image_digest = "sha256:26595b28acbf280b16c43ecef0b254c1d07cbfe6bf624ff7bcf4d3a4b41db040"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role
@@ -190,6 +192,16 @@ portal = {
     "52.67.142.58/32",
     "52.67.89.216/32",
     "54.233.100.143/32",
+    // [18/10/2026] 6a rotacao (callback "Nao foi possivel validar a sessao" com cadastro.teste): medido DE DENTRO
+    // DA VPC (25 resolucoes, TLS ok em cada um); a partir do SG do portal os tres do dominio davam timeout e o
+    // 54.20.166.254 do cognito-idp tambem. A rotina automatica (portal-egresso-cognito-sync.tf) segue desligada
+    // em dev-vivo.auto.tfvars, por isso a lista manual.
+    // amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com — POST /oauth2/token.
+    "54.207.208.219/32",
+    "56.124.0.232/32",
+    "56.126.10.236/32",
+    // cognito-idp.sa-east-1.amazonaws.com — JWKS do issuer.
+    "54.20.166.254/32",
     // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.ecr.api (vpce-0f200a15dbd1824ec).
     "10.40.40.27/32",
     "10.40.41.104/32",
@@ -216,7 +228,7 @@ portal = {
     material_secret_arn = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/staff-materials-R8JeAL"
     // O VersionId do segredo E o `material_version_id` do pacote (vira MAEZO_PORTAL_STAFF_MATERIAL_VERSION_ID):
     // publicado com ClientRequestToken = material_version_id. Um VersionId aleatorio derruba o init.
-    material_secret_version_id = "amh-dev-staff-a734b48205220138f538815c28"
+    material_secret_version_id = "amh-dev-staff-d39be92f2d183d9cb86940fc2a"
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
     // deploy/portal.Dockerfile sobre o app 8c3a2938 (branch ops/staff-onda4-runtime), CodeBuild
     // `8229e2ca-portal-staff`; assinado + SBOM pelo supply-chain.yml (run 36182463891).
@@ -235,15 +247,15 @@ portal = {
     // 3fbe5871: portal-human sobre a main 3fbe5871, assinada pelo supply-chain.yml run 37240052573.
     // 1b72be17: portal-human sobre a main 1b72be17, assinada pelo supply-chain.yml run 37467442502.
     // f7026a7e: portal-human sobre a main f7026a7e, assinada pelo supply-chain.yml run 37489994010.
-    portal_image_digest = "sha256:2887ba81f6b6e397eb329526e4072bc422b21e7a751c9573d40ebe7eb485c4ce"
+    portal_image_digest = "sha256:26595b28acbf280b16c43ecef0b254c1d07cbfe6bf624ff7bcf4d3a4b41db040"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
-    public_manifest_sha256 = "f8387af8bb4909adf1e3ccd4c51ad0479c915f65601292ab5198805128349c5a"
+    public_manifest_sha256 = "6b09d121dbb935e321f049d76cf1fc0d092ee84d2fcd969694b6d2742fcf28c4"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
-    root_key_sha256 = "de41c7a0ebac65b3a90a2405002e5118f18ca76dfd38b7ef52161fb44865942c"
+    root_key_sha256 = "a03ab84558894040cf34d984763cd1e47e3eaccdcc2d3c6ab7b51476bb383c81"
     // Designacao assinada e instalada (tools.staff_ops rows, releitura byte a byte).
-    designation_sha256 = "ef548c55ae18829c866e6ad56d48dae4231fb3522f8487a5bb8313653a67ae2c"
+    designation_sha256 = "fb9f7524e16fc3bb86339f04838bd21e963a63fd80cf5954d2ac9e682e256311"
     // Log do boot do engine vivo: staff_native_configuration_digest=
-    native_configuration_sha256 = "c7eb48c04011db1d4fa68b185c969acdf8fa853b4adb3c8aa38d25dad262fb9f"
+    native_configuration_sha256 = "8f09637e98322fda295f8de9b14b31d7cb2313e2548a2105778cc3e406023958"
     scope = {
       tenant               = "amh"
       environment          = "dev"
@@ -273,9 +285,9 @@ portal = {
   // com `portal_assignment_source.state='active'` (staff-assignment, 25/09: active -> ja-ativa).
   human = {
     material_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/human-materials-FAErGt"
-    material_secret_version_id = "amh-dev-human-1dced1fcdb361e47e278952fef"
+    material_secret_version_id = "amh-dev-human-16d34f91f2a37ec3f0512adb53"
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
-    public_manifest_sha256     = "96f43b71f3b91907b0e50cd356f1ce740ca7bad39e2d6d2ecf1621727a99d2de"
+    public_manifest_sha256     = "992858ec56e69996a42c941fde42f3aee91aa055bb1f9f6694e62e061b961449"
     // Imagem de operacao (tools.staff_ops human-init). Era `4bd50928-staff-ops` (sha256:01eb1771...),
     // EXPIRADA do ECR pela lifecycle policy (27/09/2026: task nova recusava com
     // CannotPullContainerError). Trocada pela `6bd559ec-staff-ops` — a MESMA que o staff_job ja

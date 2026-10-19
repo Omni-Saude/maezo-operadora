@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-alzheimer
+categoria: condicao
+titulo: Doença de Alzheimer
+sinonimos:
+- alzheimer
+- mal de alzheimer
+- doença de alzheimer
+- alzaimer
+- alzheimer demência
+- demência alzheimer
+texto: A doença de Alzheimer afeta o cérebro e piora aos poucos. É a forma mais comum de demência em pessoas idosas. Costuma começar com perda da memória recente. Com o tempo, pode atingir a linguagem, o raciocínio, o humor e as tarefas do dia a dia. O tratamento é definido pelo médico e pode envolver remédios e estímulo mental. Geriatria, neurologia e psiquiatria costumam cuidar dessa condição.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Alzheimer (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/a/alzheimer
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/a/alzheimer
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)
