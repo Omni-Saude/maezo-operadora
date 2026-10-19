@@ -508,8 +508,10 @@ def test_no_port_value_type_has_a_phi_shaped_field() -> None:
     value_types = _value_types()
     # +3 (18/10/2026): cobertura TINA v1.9 (CarenciaDoItem, CoberturaItemView, CoberturaView).
     # +2 (19/10/2026): nomes dos dependentes TINA v1.13 (DependenteNominal, DependentesNominaisView).
-    assert len(value_types) == 44, (
-        f"expected 44 port value types, found {sorted(value_types)} — update this non-vacuity pin "
+    # +2 (19/10/2026, DL-0128): catalogo de procedimentos TINA v1.14 (ProcedimentoCatalogo,
+    # CatalogoProcedimentosView).
+    assert len(value_types) == 46, (
+        f"expected 46 port value types, found {sorted(value_types)} — update this non-vacuity pin "
         "when a value type is deliberately added or removed"
     )
     offenders: dict[str, list[str]] = {}
@@ -532,7 +534,7 @@ def test_no_port_method_has_a_phi_shaped_parameter() -> None:
     ARGUMENT would let a caller push identifying data across the boundary even though no value
     type holds it."""
     protocols = _protocol_types()
-    assert len(protocols) == 15, f"expected exactly 15 port Protocols, found {sorted(protocols)}"
+    assert len(protocols) == 16, f"expected exactly 16 port Protocols, found {sorted(protocols)}"
     offenders: dict[str, list[str]] = {}
     for qualname, proto in protocols.items():
         for method_name, member in inspect.getmembers(proto, callable):

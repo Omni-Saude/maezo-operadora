@@ -529,9 +529,12 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     # 16/16 desde 17/10/2026 (DL-0118, ADR-0064): a Helena ganhou a CLASSIFICACAO restrita da base de saude
     # (`graph.py::_base_achar_assunto`: o modelo so' escolhe um id de uma lista fechada; a mensagem vai
     # demarcada como `message_body`).
-    assert (total, com_entrada) == (16, 16), (
+    # 18/16 desde 19/10/2026 (DL-0128): a EXTRACAO da cobertura assistida (`graph.py::_cobertura_assistida`,
+    # funcao interna `extrair`) chama o modelo com a mensagem DEMARCADA como `message_body`; o texto chega por
+    # parametro (do fluxo), entao a resolucao conta o sitio sem campo de estado.
+    assert (total, com_entrada) == (18, 16), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 16/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 18/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )

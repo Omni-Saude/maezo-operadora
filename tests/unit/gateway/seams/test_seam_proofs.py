@@ -562,6 +562,7 @@ _AMH_INTEROP_OPERATIONS = frozenset(
         "amh.tina_get_dependentes",
         "amh.tina_get_carteirinha",
         "amh.tina_get_dependentes_nome",
+        "amh.tina_get_catalogo_procedimentos",
         "amh.tina_get_cobertura",
         "amh.verify_subject",
         "amh.record_consent",
@@ -737,6 +738,21 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         )
     )
+    # Catalogo de procedimentos (DL-0128; manifest v1.14): caminho FIXO, sem sujeito.
+    catalogo = amh_interop.AmhTinaCatalogoExecutor(
+        **{**comum, "tokens": tokens_carteirinha, "purpose_of_use": "atendimento_whatsapp"}
+    )
+    results.append(
+        await catalogo.execute(
+            GovernedTinaRequest(
+                operation="amh.tina_get_catalogo_procedimentos",
+                path="/interop/tina/v1/procedimentos",
+                query=(*atendimento, ("pagina", 1), ("tamanho", 1000)),
+                consent_decision_ref="referencia:catalogo-de-procedimentos",
+                timeout_seconds=5.0,
+            )
+        )
+    )
     # Cobertura por procedimento (dono, D1 de 18/10/2026; manifest v1.9): executor PROPRIO, finalidade fixa.
     cobertura = amh_interop.AmhTinaCoberturaExecutor(
         **{**comum, "tokens": tokens_carteirinha, "purpose_of_use": "atendimento_whatsapp"}
@@ -841,7 +857,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
             )
         )
     )
-    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 15
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 16
 
 
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811

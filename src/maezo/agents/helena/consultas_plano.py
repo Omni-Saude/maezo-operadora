@@ -839,11 +839,27 @@ class NomesDoTurno:
     def __len__(self) -> int:
         return len(self._nomes)
 
+    def primeiros_nomes(self) -> dict[int, str]:
+        """O PRIMEIRO nome de cada dependente, normalizado (so' para reconhecer "e' pro <nome>" na resposta da
+        pessoa; nunca sai daqui)."""
+        saida: dict[int, str] = {}
+        for ordem, nome in self._nomes.items():
+            partes = _normalizado_simples(nome).split()
+            if partes and len(partes[0]) >= 3:
+                saida[ordem] = partes[0]
+        return saida
+
     def preencher(self, texto: str) -> str:
         """O texto com cada marcador trocado pelo nome completo (ou por "dependente N", sem nome)."""
         return _MARCADOR_DEPENDENTE.sub(
             lambda m: self._nomes.get(int(m.group(1)), f"dependente {m.group(1)}"), texto
         )
+
+
+def _normalizado_simples(texto: str) -> str:
+    decomposto = unicodedata.normalize("NFKD", texto or "")
+    sem_acento = "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", sem_acento).split())
 
 
 def _nome_limpo(valor: object) -> str | None:

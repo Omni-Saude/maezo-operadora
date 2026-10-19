@@ -15,6 +15,17 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
   - duvida_de_saude_sem_sintoma        # explica o que a Helena pode fazer; NUNCA orientacao clinica
   - pedido_explicito_de_humano         # human_request -> SP-OP-ESCALATION-001 (solicitacao_humano)
   - apresentacao_do_canal              # quem e' a Helena, o que faz, saudacao e despedida
+  # ESCOPO REAL EM DEV (DL-0128, 19/10/2026; atualizacao pedida pelo dono — a ficha estava desatualizada).
+  # Tudo abaixo e' MODELO DE TESTE do dono, so' em dev, atras de chave (desligada = a Helena de antes):
+  - informacao_de_saude_pela_base      # base curada spec/conhecimento/saude (ADR-0064/DL-0118, MAEZO_HELENA_BASE_SAUDE): informa, sem diagnostico, conduta ou dose
+  - redacao_de_saude_gerativa          # Haiku 5.5 rota global autorizada pelo DPO, so' na allowlist (ADR-0065/DL-0119); checagem antes de enviar; nunca fala de cobertura
+  - busca_por_significado              # Titan v2 regional sa-east-1 (DL-0121, MAEZO_HELENA_BUSCA_SEMANTICA)
+  - perguntas_de_alerta_e_especialista # Helena v4 (DL-0115): perguntas de alerta na dor sem alarme, especialista e carteirinha por texto fixo
+  - encerramento_de_caso_a_pedido      # recusa explicita com caso P2/P3 aberto encerra com confirmacao (DL-0118)
+  - cobertura_de_procedimento          # FATOS do cadastro (Rol x segmentacao, DUT, carencia; TINA cobertura v1.9) e a COBERTURA ASSISTIDA (DL-0128): extracao pelo GLM-5, traducao para o nome oficial (catalogo TINA v1.14), ate' 3 opcoes, 2 tentativas, equipe so' com "sim"
+  - carteirinha_completa_do_proprio    # numero completo so' do proprio verificado, so' no envio (v1.12, MAEZO_HELENA_CARTEIRINHA_COMPLETA)
+  - nome_completo_dos_dependentes      # so' dos dependentes do proprio titular, so' no envio (v1.13, DL-0127, MAEZO_HELENA_DEPENDENTES_NOME)
+  - passagem_cancelamento              # pedido de cancelamento -> Lucas (CANCEL-001 PF, DL-0111)
 out_of_scope:                          # o que Helena NAO faz, rastreado (nao e recusa muda)
   - id: agendamento_direto             # trabalho #1 do beneficiario (D9/D11) — nao entregue aqui
     fase: 0
@@ -28,10 +39,10 @@ out_of_scope:                          # o que Helena NAO faz, rastreado (nao e 
     fase: 0
     disposicao: "passagem_cobranca (ADR-0062); sem o roteador ligado, texto fixo fora do canal"
     onde: "graph.py:handoff_cobranca()"
-  - id: confirmacao_de_cobertura_de_procedimento_especifico   # so' a segmentacao registrada e onde confirmar
+  - id: confirmacao_de_cobertura_de_procedimento_especifico   # a confirmacao OFICIAL e' a autorizacao
     fase: 0
-    disposicao: "RESPOSTA_COBERTURA_ESPECIFICA: a Helena nunca promete nem nega cobertura de procedimento"
-    onde: "graph.py:consultar_plano() (cobertura deterministica)"
+    disposicao: "na allowlist (DL-0128) a Helena diz o que CONSTA no cadastro, nunca promete nem encerra com 'nao cobre'; a confirmacao oficial e' a analise da autorizacao. Fora da allowlist, RESPOSTA_COBERTURA_ESPECIFICA"
+    onde: "graph.py:consultar_plano() -> _cobertura_assistida() (cobertura_fluxo.py)"
 process_keys:
   - SP-OP-ESCALATION-001
 reports_to: "gestor.atendimento@amh"

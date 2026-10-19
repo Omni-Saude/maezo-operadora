@@ -136,6 +136,7 @@ from maezo.gateway.amh_interop import (
     AmhSubjectVerificationExecutor,
     AmhSubjectVerifyHasher,
     AmhTinaCarteirinhaExecutor,
+    AmhTinaCatalogoExecutor,
     AmhTinaCoberturaExecutor,
     AmhTinaDependentesNomeExecutor,
     AmhTinaExecutor,
@@ -890,6 +891,21 @@ def build_amh_interop(
                 exigidos["amh_tina_dependentes_nome_openapi_path"]
             )
             tina_kwargs["dependentes_nome_executor"] = dependentes_nome_executor
+        # Catalogo de procedimentos (manifest v1.14; DL-0128): OPCIONAL e NAO derruba o resto (como a
+        # cobertura). Falha de leitura/composicao = a rota fica de fora (log de erro, so' o motivo).
+        caminho_catalogo = getattr(settings, "amh_tina_procedimentos_openapi_path", None)
+        catalogo_executor: AmhTinaCatalogoExecutor | None = None
+        if isinstance(caminho_catalogo, str) and caminho_catalogo:
+            try:
+                catalogo_bytes = _ler_openapi(caminho_catalogo)
+                catalogo_executor = AmhTinaCatalogoExecutor(
+                    **{**comum, "purpose_of_use": PURPOSE_ATENDIMENTO_WHATSAPP}
+                )
+                tina_kwargs["procedimentos_openapi_bytes"] = catalogo_bytes
+                tina_kwargs["procedimentos_executor"] = catalogo_executor
+            except Exception as exc:
+                logger.error("amh_interop_catalogo_fora", motivo="composicao", error_type=type(exc).__name__)
+                catalogo_executor = None
         tina_bytes = _ler_openapi(exigidos["amh_tina_openapi_path"])
         # Cobertura por procedimento (manifest v1.9; decisao do dono D1 de 18/10/2026): OPCIONAL e NAO
         # derruba o resto. Com o caminho, executor PROPRIO (finalidade fixa `atendimento_whatsapp`, mesmo
@@ -908,6 +924,14 @@ def build_amh_interop(
             except Exception as exc:
                 logger.error("amh_interop_cobertura_fora", motivo="contrato", error_type=type(exc).__name__)
                 cobertura_executor = None
+        if tina is None and catalogo_executor is not None:
+            try:
+                tina = AmhTinaAdapter(tina_bytes, **tina_kwargs)
+            except Exception as exc:
+                logger.error("amh_interop_catalogo_fora", motivo="contrato", error_type=type(exc).__name__)
+                tina_kwargs.pop("procedimentos_openapi_bytes", None)
+                tina_kwargs.pop("procedimentos_executor", None)
+                catalogo_executor = None
         if tina is None:
             tina = AmhTinaAdapter(tina_bytes, **tina_kwargs)
         executores = (*executores, tina_executor)
@@ -915,6 +939,8 @@ def build_amh_interop(
             executores = (*executores, carteirinha_executor)
         if dependentes_nome_executor is not None:
             executores = (*executores, dependentes_nome_executor)
+        if catalogo_executor is not None:
+            executores = (*executores, catalogo_executor)
         if cobertura_executor is not None:
             executores = (*executores, cobertura_executor)
     verification: AmhSubjectVerificationAdapter | None = None

@@ -439,6 +439,14 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
     # NOMES dos dependentes do PROPRIO titular verificado (decisao do dono e DPO de 19/10/2026, DL-0127, so'
     # dev; manifest aditivo v1.13; executor `AmhTinaDependentesNomeExecutor`). Acao PROPRIA
     # (`read_member_dependent_names`, L3) para a governanca poder desliga-la sem tocar os fatos do plano.
+    # CATALOGO de procedimentos resolvidos por codigo (DL-0128; manifest aditivo v1.14; executor
+    # `AmhTinaCatalogoExecutor`). Dado de REFERENCIA (sem pessoa), lido para a cobertura assistida da Helena:
+    # mesma classe e acao dos fatos do plano (a governanca liga/desliga junto com eles).
+    OperationSpec(
+        operation="amh.tina_get_catalogo_procedimentos",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
     OperationSpec(
         operation="amh.tina_get_dependentes_nome",
         action_class="leitura_phi_clinica",

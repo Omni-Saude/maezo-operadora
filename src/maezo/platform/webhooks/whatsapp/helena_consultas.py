@@ -51,6 +51,7 @@ from maezo.ports.tina import (
     TinaDependentesNomePort,
     TinaDependentesPort,
     TinaPort,
+    TinaProcedimentosPort,
 )
 
 logger = structlog.get_logger(__name__)
@@ -64,6 +65,9 @@ PRAZO_LEITURA_S: Final[float] = 9.0
 PRAZO_TOTAL_S: Final[float] = 20.0
 #: A busca de cobertura da AMH (termo x Rol x plano) leva 7 a 9 s em dev (medido em 18/10/2026).
 PRAZO_LEITURA_COBERTURA_S: Final[float] = 16.0
+
+#: A base legal do CATALOGO (dado de referencia, sem sujeito): so' o hash entra na auditoria.
+BASE_LEGAL_DO_CATALOGO: Final[str] = "referencia:catalogo-de-procedimentos"
 
 _View = ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel
 #: A UNICA finalidade da rota da carteirinha completa (enum do contrato `tina-carteirinha`).
@@ -327,6 +331,52 @@ class ConsultasPlanoAmh:
             itens=len(view.dependentes) if view is not None else 0,
         )
         return view
+
+    async def consultar_catalogo_procedimentos(self) -> tuple[tuple[Any, ...], str]:
+        """O CATALOGO de procedimentos inteiro (todas as paginas da MESMA foto) como `Procedimento` do modulo
+        `catalogo_procedimentos`, e a versao. NUNCA levanta: falha = `((), "")` (o grafo usa a busca por
+        texto).
+        Dado de referencia: a base legal e' fixa (nao ha' sujeito)."""
+        from maezo.conhecimento.catalogo_procedimentos import Procedimento
+
+        if not isinstance(self.port, TinaProcedimentosPort):
+            logger.info("helena_catalogo_lido", motivo="rota_nao_carregada", itens=0)
+            return (), ""
+        itens: list[Procedimento] = []
+        versao = ""
+        pagina, total = 1, 1
+        motivo = "ok"
+        try:
+            async with asyncio.timeout(120.0):
+                while pagina <= total and pagina <= 50:
+                    resultado = await self.port.get_catalogo_procedimentos(
+                        purpose_of_use=PURPOSE_CARTEIRINHA,
+                        consent_decision_ref=BASE_LEGAL_DO_CATALOGO,
+                        pagina=pagina,
+                        tamanho=2000,
+                        timeout_seconds=PRAZO_LEITURA_S * 2,
+                    )
+                    if not resultado.succeeded or resultado.value is None:
+                        falha = resultado.failure
+                        motivo = falha.reason.value if falha is not None else "recusa"
+                        return (), ""
+                    view = resultado.value
+                    if versao and view.versao_catalogo != versao:
+                        motivo = "versao_mudou"
+                        return (), ""
+                    versao = view.versao_catalogo
+                    total = view.total_paginas
+                    itens.extend(Procedimento(i.codigo, i.descricao, i.tuss, i.grupo) for i in view.itens)
+                    pagina += 1
+        except TimeoutError:
+            motivo = "prazo_estourado"
+            return (), ""
+        except Exception as exc:
+            logger.warning("helena_catalogo_falhou", error_type=type(exc).__name__)
+            return (), ""
+        finally:
+            logger.info("helena_catalogo_lido", motivo=motivo, itens=len(itens))
+        return tuple(itens), versao
 
     async def aclose(self) -> None:
         if self.aclose_fn is not None:

@@ -152,10 +152,12 @@ from maezo.adapters.amh.tina import (
     OP_DEPENDENTES,
     OP_DEPENDENTES_NOME,
     OP_ELEGIBILIDADE,
+    OP_PROCEDIMENTOS,
     OP_REQUISICOES,
     PURPOSE_CARTEIRINHA,
     PURPOSE_COBERTURA,
     PURPOSE_DEPENDENTES_NOME,
+    PURPOSE_PROCEDIMENTOS,
     AmhTinaAdapter,
     GovernedTinaExecutor,
     GovernedTinaRequest,
@@ -213,6 +215,7 @@ SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_CARTEIRINHA: SCOPE_TINA_CARTEIRINHA,
     OP_COBERTURA: SCOPE_TINA,
     OP_DEPENDENTES_NOME: SCOPE_TINA_DEPENDENTES_NOME,
+    OP_PROCEDIMENTOS: SCOPE_TINA,
     OP_VERIFY: SCOPE_VERIFY,
     OP_RECORD: SCOPE_CONSENT_WRITE,
     OP_RESOLVE_DOCUMENT: SCOPE_RESOLVE_DOCUMENT,
@@ -1175,6 +1178,64 @@ class AmhTinaDependentesNomeExecutor(AmhTinaCarteirinhaExecutor):
     _ESCOPO = SCOPE_TINA_DEPENDENTES_NOME
 
 
+#: O caminho FIXO do catalogo (sem sujeito) e a query permitida.
+_TINA_CATALOGO_PATH: Final[str] = "/interop/tina/v1/procedimentos"
+_TINA_CATALOGO_QUERY: Final[frozenset[str]] = frozenset({"purpose_of_use", "pagina", "tamanho"})
+
+
+class AmhTinaCatalogoExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
+    """`GovernedTinaExecutor` real do CATALOGO de procedimentos (DL-0128; manifest v1.14). Dado de REFERENCIA:
+    caminho FIXO sem sujeito, finalidade `atendimento_whatsapp`, escopo `interop/tina.read`, `pagina` >= 1 e
+    `tamanho` 100..2000. Mesma auditoria duravel ANTES do despacho das outras leituras."""
+
+    registered_operations = frozenset({OP_PROCEDIMENTOS})
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if self._purpose != PURPOSE_PROCEDIMENTOS or SCOPE_TINA not in self._tokens.scopes:
+            raise AmhInteropCompositionError()
+
+    def _validar(self, request: GovernedTinaRequest) -> None:
+        if (
+            type(request) is not GovernedTinaRequest
+            or request.method != "GET"
+            or request.operation != OP_PROCEDIMENTOS
+            or request.request_ref is not None
+            or request.path != _TINA_CATALOGO_PATH
+        ):
+            raise ValueError
+        query = self._query(request.query, _TINA_CATALOGO_QUERY)
+        pagina, tamanho = query.get("pagina", 1), query.get("tamanho", 1000)
+        if type(pagina) is not int or pagina < 1 or type(tamanho) is not int or not 100 <= tamanho <= 2000:
+            raise ValueError
+        ref = request.consent_decision_ref
+        if type(ref) is not str or not ref.strip() or len(ref) > 4096:
+            raise ValueError
+        if not _prazo_valido(request.timeout_seconds):
+            raise ValueError
+
+    async def execute(self, request: GovernedTinaRequest) -> PortResult[GovernedTinaResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="GET",
+            path=request.path,
+            query=request.query,
+            body=None,
+            consent_ref=request.consent_decision_ref,
+            timeout_seconds=request.timeout_seconds,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedTinaResponse(status, raw))
+
+
 class AmhSubjectVerificationExecutor(_ExecutorInteropAmh, GovernedSubjectVerificationExecutor):
     """`GovernedSubjectVerificationExecutor` real: `POST .../subjects/{ref}/verify` (hash do fator no CORPO).
 
@@ -1572,6 +1633,7 @@ __all__ = [
     "AmhPhoneLookupHasher",
     "AmhSubjectResolutionExecutor",
     "AmhTinaCarteirinhaExecutor",
+    "AmhTinaCatalogoExecutor",
     "AmhTinaDependentesNomeExecutor",
     "AmhTinaCoberturaExecutor",
     "AmhTinaExecutor",

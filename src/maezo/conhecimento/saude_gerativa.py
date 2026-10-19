@@ -1125,6 +1125,11 @@ class RedatorDeSaude:
     #: FASE 3 (18/10/2026): a busca por SIGNIFICADO na base (`busca_semantica.BuscaSemantica`), so' com
     #: `MAEZO_HELENA_BUSCA_SEMANTICA`; `None` = o lexico de antes.
     busca: Any = None
+    #: COBERTURA ASSISTIDA (DL-0128): o catalogo de procedimentos
+    #: (`catalogo_procedimentos.BuscaDeProcedimentos`)
+    #: que traduz o nome popular para o oficial; vai junto da allowlist (mesma composicao). `None` = sem
+    #: catalogo.
+    catalogo: Any = None
 
     @property
     def rota(self) -> str:

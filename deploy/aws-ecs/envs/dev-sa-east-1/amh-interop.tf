@@ -79,6 +79,9 @@ locals {
     { name = "MAEZO_AMH_TINA_DEPENDENTES_NOME_OPENAPI_PATH", value = var.amh_tina_dependentes_nome_openapi_path },
     ] : [], var.amh_tina_cobertura_openapi_path != "" ? [
     { name = "MAEZO_AMH_TINA_COBERTURA_OPENAPI_PATH", value = var.amh_tina_cobertura_openapi_path },
+    ] : [], var.amh_tina_procedimentos_openapi_path != "" ? [
+    # DL-0128: o CATALOGO de procedimentos (manifest v1.14), mesmo escopo `interop/tina.read`; opcional.
+    { name = "MAEZO_AMH_TINA_PROCEDIMENTOS_OPENAPI_PATH", value = var.amh_tina_procedimentos_openapi_path },
   ] : []) : []
 
   # Lucas v4 (DL-0114; manifests v1.10 e v1.11 PUBLISHED em 16/10/2026): o executor governado do detalhamento do pagador e
