@@ -95,3 +95,76 @@ def test_pre_lifespan_failure_is_sanitized(monkeypatch) -> None:
     with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$") as caught:
         p.create_production_app()
     assert caught.value.__suppress_context__
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_audit", [True, False], ids=["audit", "no-audit"])
+async def test_human_profile_lends_the_read_audit_to_the_staff_case_detail(monkeypatch, with_audit) -> None:
+    """DL-0150: with the human plane, the staff detail records each read in the SAME tenant chain.
+
+    The staff factory is rebound to `staff.service(..., read_audit=<human plane's sink>)` for the
+    life of the human slots and restored after; a human plane without a sink refuses to start.
+    """
+    identity = SimpleNamespace(mode="production", tenant="t", issuer="i")
+    settings = SimpleNamespace(
+        capabilities=p.HUMAN_CAPABILITIES,
+        tenant="t",
+        issuer="i",
+        decision_material_directory=None,
+        document_material_directory=None,
+    )
+
+    @asynccontextmanager
+    async def original(app):
+        yield
+
+    app = FastAPI(lifespan=original)
+    for name in (
+        "staff_case_service_factory",
+        "task_read_service_factory",
+        "decision_service_factory",
+        "document_service_factory",
+        "communication_service_factory",
+    ):
+        setattr(app.state, name, None)
+    calls = []
+
+    def service(resolver, *, read_audit=None):
+        calls.append((resolver, read_audit))
+        return "service"
+
+    @asynccontextmanager
+    async def staff(config, actual_identity):
+        yield SimpleNamespace(service=service)
+
+    sink = object() if with_audit else None
+
+    @asynccontextmanager
+    async def human(pin, **kw):
+        yield SimpleNamespace(
+            scope=SimpleNamespace(tenant="t"),
+            read=SimpleNamespace(build=lambda r: r, read_audit=sink),
+            assignment=SimpleNamespace(build=lambda r: r),
+            documents=None,
+        )
+
+    monkeypatch.setattr(p, "PortalSettings", lambda: identity)
+    monkeypatch.setattr(p, "PortalProductionSettings", lambda: settings)
+    monkeypatch.setattr(p, "create_app", lambda config: app)
+    monkeypatch.setattr(p, "staff_runtime", staff)
+    monkeypatch.setattr(p, "human_runtime", human)
+    helpers = ("_human_material_pin", "_document_material_pin")
+    helpers += ("_decision_material_pin", "_interim_completion")
+    for helper in helpers:
+        monkeypatch.setattr(p, helper, lambda s: None)
+    p.create_production_app()
+    if not with_audit:
+        with pytest.raises(PortalStaffBootstrapError):
+            async with app.router.lifespan_context(app):
+                pass  # pragma: no cover - the lifespan refuses before yielding
+        assert app.state.staff_case_service_factory is None
+        return
+    async with app.router.lifespan_context(app):
+        assert app.state.staff_case_service_factory("resolver") == "service"
+        assert calls == [("resolver", sink)]
+    assert app.state.staff_case_service_factory is None

@@ -1,4 +1,10 @@
-"""AUTH staff exact detail and complete-checkpoint list read/finalization."""
+"""AUTH staff exact detail and complete-checkpoint list read/finalization.
+
+DL-0150: when the composition installs a `ReadAccessAuditSink` (the human plane's, same tenant
+chain as the completion link), every SUCCESSFUL detail read appends exactly one
+`portal_read.staff_case_detail` link — who, which case, when — and a sink that fails refuses the
+read (fail-closed). The list is not recorded: it is a page of summaries, not the detail.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +17,7 @@ from typing import Any, Literal
 from pydantic import Field, TypeAdapter
 
 from maezo.gateway.external_cases.models import CaseRef, Digest, Ref, timestamp
+from maezo.gateway.human.read_audit import ReadAccessAuditSink, ReadAccessEntry
 from maezo.gateway.human.read_profile import parse_model, wire
 from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.session import HumanSessionResolver
@@ -121,12 +128,17 @@ def observation(
 
 
 class StaffCaseService:
+    #: DL-0150: the access record of the detail read; `None` = not recorded (staff-only profile).
+    read_audit: ReadAccessAuditSink | None = None
+
     def __init__(
         self,
         resolver: HumanSessionResolver,
         lease: StaffSessionLease,
         witnesses: StaffWitnessSource,
         native: StaffNativeClient,
+        *,
+        read_audit: ReadAccessAuditSink | None = None,
     ):
         if (
             resolver.settings.tenant != lease.tenant
@@ -134,9 +146,11 @@ class StaffCaseService:
             or native.authority.designation.scope != witnesses.source.scope
             or lease.tenant != witnesses.source.scope.tenant
             or native.signer.role != "read_requester"
+            or (read_audit is not None and read_audit.scope.tenant != lease.tenant)
         ):
             raise StaffCaseError("unavailable")
         self.resolver, self.lease, self.witnesses, self.native = resolver, lease, witnesses, native
+        self.read_audit = read_audit
 
     async def read(
         self,
@@ -319,7 +333,20 @@ class StaffCaseService:
                 raise StaffCaseError("conflict")
             locked.current(self.lease.clock())
         # Both native response cleanup and identity transaction release have completed.
-        # Return the pre-frozen public bytes, with no reserialization or awaited work.
-        if self.lease.clock() >= min(session_until, timestamp(observed.valid_until)):
+        # Return the pre-frozen public bytes, with no reserialization.
+        read_at = self.lease.clock()
+        if read_at >= min(session_until, timestamp(observed.valid_until)):
             raise StaffCaseError("unavailable")
+        if self.read_audit is not None:
+            # DL-0150: the access record is the LAST awaited work, after every check, before the
+            # bytes leave. A failure propagates to `read()`, which refuses with `unavailable`.
+            await self.read_audit.record(
+                ReadAccessEntry.of(
+                    scope=self.read_audit.scope,
+                    read_kind="staff_case_detail",
+                    resource_ref=ref,
+                    principal=principal,
+                    read_at=read_at,
+                )
+            )
         return public_frozen
