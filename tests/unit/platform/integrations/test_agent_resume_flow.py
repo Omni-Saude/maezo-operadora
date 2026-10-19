@@ -250,7 +250,7 @@ async def test_instrucao_com_conteudo_proibido_passa_pela_cerca_e_nao_sai() -> N
     # 4. a cerca barrou: sai o placeholder de recusa, nunca a nota.
     assert receipt.desfecho == DESFECHO_RETOMADA_RECUSADA
     assert whatsapp.sent[enviados_antes:] == [(_PHONE, RETOMADA_RECUSADA_PLACEHOLDER)]
-    # Texto aprovado pelo dono em 19/10/2026 (DL-0128), nunca o rascunho `[RASCUNHO - ...]`.
+    # Texto aprovado pelo dono em 19/10/2026 (DL-0142), nunca o rascunho `[RASCUNHO - ...]`.
     assert whatsapp.sent[-1][1].startswith("Desculpe, não consegui resolver isso agora.")
     # P6 (16/10/2026): e a equipe e' avisada de que o recado nao chegou (antes: silencio).
     assert alerter.refused == [f"ESC-amh-{conv}"] and alerter.alerts == []

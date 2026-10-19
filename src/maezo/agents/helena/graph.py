@@ -1632,7 +1632,7 @@ ERRO_RETOMADA_INSTRUCOES_LONGAS: str = "retomada: instrucoes excedem o limite de
 RETOMADA_MAX_INSTRUCOES: int = 3000
 
 #: O texto enviado quando as instrucoes humanas foram BARRADAS pela cerca de saida (ou excedem
-#: `RETOMADA_MAX_INSTRUCOES`). Redacao APROVADA PELO DONO em 19/10/2026 (DL-0128); substitui o
+#: `RETOMADA_MAX_INSTRUCOES`). Redacao APROVADA PELO DONO em 19/10/2026 (DL-0142); substitui o
 #: placeholder `[RASCUNHO - redacao pendente de produto] ...`. Generica e honesta: nao repete nada da
 #: nota (foi ela que a cerca barrou), nao cita equipe, atendente, prazo nem resultado (o caso acabou
 #: de ser devolvido e nada foi feito por ele), nao cita canal. O nome `_PLACEHOLDER` fica por

@@ -28,7 +28,7 @@ Architecture: the two functions live in LIGHT modules (`agents/helena/retomada_s
 them). They import only the standard library: the portal process does NOT load `maezo.runtime`,
 langgraph or the LLM SDK (`tests/unit/gateway/human/test_retomada_precheck_footprint.py`, measured
 in a fresh interpreter). Importing `graph.py`/`prompts.py` here would have dragged all three in,
-because `maezo/runtime/__init__.py` imports the inference and the checkpoint. See DL-0127.
+because `maezo/runtime/__init__.py` imports the inference and the checkpoint. See DL-0141.
 """
 
 from __future__ import annotations

@@ -133,7 +133,7 @@ def test_template_e_a_redacao_aprovada_opcao_b() -> None:
     )
 
 
-#: Decisao do dono (19/10/2026, DL-0128): o texto aprovado, como ele o escreveu (ASCII). A constante
+#: Decisao do dono (19/10/2026, DL-0142): o texto aprovado, como ele o escreveu (ASCII). A constante
 #: leva os acentos do padrao dos textos ao beneficiario (DL-0087); fora isso, e' a mesma frase.
 _TEXTO_APROVADO_19_10 = (
     "Desculpe, nao consegui resolver isso agora. "
