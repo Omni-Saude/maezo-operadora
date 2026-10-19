@@ -322,8 +322,16 @@ campos obrigatorios de `UT_AnaliseRescisao`.
 * Roteamento da conversa: start falho NAO e' "o Lucas terminou escalando". A linha do roteador volta a
   `helena` com `transicao_motivo=retorno_falha` (nunca `lucas_encerrou`), como as demais falhas do turno
   do Lucas.
-* Nenhum texto novo ao beneficiario: o que dizer a quem teve a abertura do cancelamento falha e'
-  decisao do dono (hoje nada e' enviado nesse turno).
+* Texto ao beneficiario (aprovado pelo dono em 19/10/2026): o Lucas envia UMA mensagem fixa,
+  `TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR` (`src/maezo/agents/lucas/graph.py`, unico lugar do texto):
+  "Desculpe, não consegui registrar o seu pedido agora. Nenhum pedido foi registrado. Pode me enviar sua
+  mensagem de novo para eu tentar outra vez?". Sem modelo, sem dado do beneficiario, pelo mesmo remetente
+  gated (principal `lucas`) dos demais envios do Lucas; `mensagem_enviada` so' e' `true` com entrega de
+  fato (suprimido como duplicata ou falha de envio = `false`). O despachante nao envia nada alem disso
+  (nenhum caso `solicitacao_humano` aberto nesse turno).
+* NAO ha' reenvio nem retentativa automatica do start: o beneficiario reenvia a mensagem manualmente.
+* Com `MAEZO_CANCEL_PF_V1` ligada, o portao de dedup nao avaliavel (`StartDedupGateUnavailableError`)
+  continua propagando (DL-0111) e NAO passa por este desfecho nem envia esta mensagem.
 * Nada muda no BPMN: o processo nao nasceu.
 
 ## Codigos de erro
