@@ -24,7 +24,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from maezo.agents.helena.graph import FRASE_PASSAGEM_CANCELAMENTO, FRASE_PASSAGEM_COBRANCA
 from maezo.agents.lucas.fonte_cobranca import FatosCobranca
 from maezo.agents.lucas.graph import (
     TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR,
@@ -177,10 +176,7 @@ async def test_start_falhou_do_lucas_volta_a_helena_como_retorno_falha_com_um_av
     assert linha.transicao_motivo != "lucas_encerrou"
     # A frase de passagem (neutra, nao afirma pedido registrado) e o aviso do Lucas, UMA vez cada; o
     # despachante nao acrescenta nada.
-    assert cliente.textos in (
-        [FRASE_PASSAGEM_COBRANCA, TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR],
-        [FRASE_PASSAGEM_CANCELAMENTO, TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR],
-    )
+    assert cliente.textos in _passagem_e_aviso()
     assert cliente.textos.count(TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR) == 1
     assert motor._history == {}  # nenhum escalonamento aberto pela Helena neste turno
 
@@ -193,10 +189,7 @@ async def test_start_falhou_com_pedido_explicito_de_pessoa_nao_abre_outro_caso_n
     resultado = await dispatcher.dispatch(_msg("quero falar com um atendente sobre o boleto"))
 
     assert not resultado.get("escalation_started")
-    assert cliente.textos in (
-        [FRASE_PASSAGEM_COBRANCA, TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR],
-        [FRASE_PASSAGEM_CANCELAMENTO, TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR],
-    )
+    assert cliente.textos in _passagem_e_aviso()
     assert motor._history == {}
     assert _linha(store).agente_ativo == "helena"
 
@@ -259,6 +252,22 @@ class _FontePf:
             cnab_ref="CNAB-SINT",
             pagador_tipo="pessoa_fisica",
         )
+
+
+def _passagem_e_aviso() -> tuple[list[str], list[str]]:
+    """A frase de passagem da Helena (cobranca OU cancelamento) seguida do aviso do Lucas.
+
+    Import LOCAL de proposito: um import de `maezo.agents.helena.graph` no topo do modulo faz a cerca
+    P-17 (`tests/unit/runtime/test_inference_fakes_match_protocol.py`) conferir `_RemetenteDoTurno`
+    TAMBEM contra o `WhatsAppSender` da Helena (sem `idempotency_key`), quando o falso implementa o
+    Protocol do LUCAS (`idempotency_key` obrigatorio) — o turno real do Lucas e' quem o recebe.
+    """
+    from maezo.agents.helena.graph import FRASE_PASSAGEM_CANCELAMENTO, FRASE_PASSAGEM_COBRANCA
+
+    return (
+        [FRASE_PASSAGEM_COBRANCA, TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR],
+        [FRASE_PASSAGEM_CANCELAMENTO, TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR],
+    )
 
 
 class _RemetenteDoTurno:
