@@ -112,7 +112,14 @@ async def test_prazo_de_ciencia_estourado_vira_uma_linha_do_supervisor_no_inbox(
     await _kafka_ou_skip(servers)
 
     # 1. Motor real: caso aberto, timer de CIENCIA executado como job, worker real publica o aviso.
-    inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave", tenant_id=tenant)
+    conversation_id = f"conv-inbox-{uuid.uuid4().hex[:8]}"
+    esperada = f"ESC-amh-{conversation_id}"  # a chave que `start_escalation` usa
+    inst = await start_escalation(
+        conversation_id=conversation_id,
+        motivo_categoria="red_flag_clinico",
+        severidade="grave",
+        tenant_id=tenant,
+    )
     iid = inst["id"]
     await probe.drain()
     await engine.await_user_task(iid, "UT_TratarEscalonamento")
@@ -120,11 +127,19 @@ async def test_prazo_de_ciencia_estourado_vira_uma_linha_do_supervisor_no_inbox(
     await engine.execute_job(job.id)
     await probe.drain()
 
-    avisos = [v for v in probe.notified_supervisors if v.get("motivo_alerta") == MOTIVO_ALERTA_SLA_ACK]
+    # So' os avisos DESTE caso: o motor do lane e' compartilhado e o `probe` busca as external tasks de
+    # TODAS as instancias vivas. Casos de testes anteriores do mesmo shard com o `BT_SlaAck` ja' vencido
+    # pelo relogio (o executor de jobs dispara sozinho) deixam `ST_NotificarSupervisor` pendente, e o
+    # `drain()` daqui os atende — no CI vieram 3 avisos `sla_ack_breached` para o UNICO timer disparado aqui.
+    avisos = [
+        v
+        for v in probe.notified_supervisors
+        if v.get("motivo_alerta") == MOTIVO_ALERTA_SLA_ACK and v.get("business_key") == esperada
+    ]
     assert len(avisos) == 1, probe.notified_supervisors
     aviso = avisos[0]
     business_key = aviso["business_key"]
-    assert business_key == inst.get("businessKey", business_key)
+    assert business_key == inst.get("businessKey", business_key) == esperada
     assert aviso["alert_to"] == GRUPO_SUPERVISAO
 
     # 2. Kafka real: topico proprio do teste, o MESMO aviso entregue duas vezes (reentrega).
