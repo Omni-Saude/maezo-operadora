@@ -1538,7 +1538,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=1,
         reason=(
             "PR ainda nao aberto: `#0` e' placeholder, trocar pelo numero do PR. SP-OP-ESCALATION-001 "
-            "(DL-0133): UT_TratarEscalonamento ganha camunda:dueDate=${roteamento.sla_resolucao}, a mesma "
+            "(DL-0145): UT_TratarEscalonamento ganha camunda:dueDate=${roteamento.sla_resolucao}, a mesma "
             "expressao do timer TD_SlaResolucao. CLEAN: +1 raiz JUEL do resultVariable da DMN, "
             "sem dado pessoal."
         ),
@@ -1551,7 +1551,7 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
         occurrence_delta=1,
         reason=(
             "PR ainda nao aberto: `#0` e' placeholder, trocar pelo numero do PR. SP-OP-ESCALATION-001 "
-            "(DL-0133): UT_TratarEscalonamento ganha camunda:dueDate=${roteamento.sla_resolucao}, a mesma "
+            "(DL-0145): UT_TratarEscalonamento ganha camunda:dueDate=${roteamento.sla_resolucao}, a mesma "
             "expressao do timer TD_SlaResolucao. CLEAN: +1 segmento JUEL, duracao ISO 8601 da DMN."
         ),
     ),
@@ -1605,7 +1605,7 @@ class TestBuckets:
         # DL-0104 (helena_triage_admissibility): +11
         # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
         # #816 (DL-0118, SP-OP-ESCALATION-001 v1.1.0): +2 (event_topic, event_payload_vars)
-        # DL-0133 (dueDate de UT_TratarEscalonamento): +2 (roteamento, sla_resolucao)
+        # DL-0145 (dueDate de UT_TratarEscalonamento): +2 (roteamento, sla_resolucao)
         assert len(live_sweep.refs) == expected_refs == 1741
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(

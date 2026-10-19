@@ -1,4 +1,4 @@
-"""Cerca do prazo (dueDate) de `UT_TratarEscalonamento` — DL-0133.
+"""Cerca do prazo (dueDate) de `UT_TratarEscalonamento` — DL-0145.
 
 A coluna Prazo da fila de tarefas do portal mostra `engine_due_at`, lido do `DUE_DATE_` da tarefa
 no motor. O prazo NAO e' regra nova: e' a saida `sla_resolucao` da DMN `escalation_routing`, a
@@ -55,7 +55,7 @@ def _due_date() -> str:
     due = _por_id(_processo(), TAREFA).get(f"{C}dueDate")
     assert due, (
         f"{TAREFA} sem camunda:dueDate — a coluna Prazo do portal volta a dizer 'Sem prazo "
-        "informado' (DL-0133). Restaure dueDate=${roteamento.sla_resolucao} no BPMN."
+        "informado' (DL-0145). Restaure dueDate=${roteamento.sla_resolucao} no BPMN."
     )
     return due
 
@@ -120,7 +120,7 @@ def test_due_date_e_o_mesmo_prazo_do_timer_de_resolucao() -> None:
     assert _por_id(_processo(), "BT_SlaResolucao").get("attachedToRef") == TAREFA
     assert _due_date() == duracao.text.strip(), (
         "dueDate e timer TD_SlaResolucao divergem — o prazo exibido deixaria de ser o prazo "
-        "que o motor cobra (DL-0133)"
+        "que o motor cobra (DL-0145)"
     )
 
 

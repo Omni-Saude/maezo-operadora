@@ -856,7 +856,7 @@ async def test_todos_os_fins_emitem_evento_de_dominio(
     assert probe.has_event(_BREACHED, fase="ack")  # evento publicado no ramo antes do fim
 
 
-# --- Prazo (dueDate) da tarefa humana — DL-0133 --------------------------------------
+# --- Prazo (dueDate) da tarefa humana — DL-0145 --------------------------------------
 
 _ISO_DURACAO = re.compile(r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$")
 

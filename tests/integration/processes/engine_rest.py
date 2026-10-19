@@ -332,7 +332,7 @@ class EngineRest:
         return tasks
 
     async def get_task_raw(self, task_id: str) -> dict[str, Any]:
-        """DTO cru da User Task (`GET /task/{id}`), com `created` e `due` (DL-0133)."""
+        """DTO cru da User Task (`GET /task/{id}`), com `created` e `due` (DL-0145)."""
         resp = await self._client.get(f"/task/{task_id}")
         resp.raise_for_status()
         return dict(resp.json())
