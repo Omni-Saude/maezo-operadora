@@ -310,6 +310,30 @@ campos obrigatorios de `UT_AnaliseRescisao`.
 > expiracao do prazo de notificacao roteia para a User Task humana, nunca para um terminal
 > adverso automatico.
 
+## Desfecho de agente: falha de start (DL-0144, 2026-10-16)
+
+| Desfecho | Onde vive | Quem escreve | Significado |
+|---|---|---|---|
+| `erro_inicio_processo` | **estado do agente lucas** — NAO e variavel de processo | `src/maezo/agents/lucas/graph.py::LucasGraph.notify_start_failure`, via o helper unico `src/maezo/runtime/start_outcome.py::notify_start_failure` | o Lucas TENTOU iniciar este processo (pedido de cancelamento confirmado, `iniciar_cancelamento=true`) pelo chokepoint `start_process_idempotent` e o motor recusou. NENHUMA instancia nasceu |
+
+* O evento `agent_process_start_failed` traz `process_key=SP-OP-CANCEL-001` com a chave
+  `MAEZO_CANCEL_PF_V1` ligada OU desligada (antes, desligada, citava SP-OP-ESCALATION-001, que nem foi
+  tentado). Quais excecoes viram falha de start nao muda (DL-0111).
+* Roteamento da conversa: start falho NAO e' "o Lucas terminou escalando". A linha do roteador volta a
+  `helena` com `transicao_motivo=retorno_falha` (nunca `lucas_encerrou`), como as demais falhas do turno
+  do Lucas.
+* Texto ao beneficiario (aprovado pelo dono em 19/10/2026): o Lucas envia UMA mensagem fixa,
+  `TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR` (`src/maezo/agents/lucas/graph.py`, unico lugar do texto):
+  "Desculpe, não consegui registrar o seu pedido agora. Nenhum pedido foi registrado. Pode me enviar sua
+  mensagem de novo para eu tentar outra vez?". Sem modelo, sem dado do beneficiario, pelo mesmo remetente
+  gated (principal `lucas`) dos demais envios do Lucas; `mensagem_enviada` so' e' `true` com entrega de
+  fato (suprimido como duplicata ou falha de envio = `false`). O despachante nao envia nada alem disso
+  (nenhum caso `solicitacao_humano` aberto nesse turno).
+* NAO ha' reenvio nem retentativa automatica do start: o beneficiario reenvia a mensagem manualmente.
+* Com `MAEZO_CANCEL_PF_V1` ligada, o portao de dedup nao avaliavel (`StartDedupGateUnavailableError`)
+  continua propagando (DL-0111) e NAO passa por este desfecho nem envia esta mensagem.
+* Nada muda no BPMN: o processo nao nasceu.
+
 ## Codigos de erro
 
 | Codigo | Onde | Tratamento |

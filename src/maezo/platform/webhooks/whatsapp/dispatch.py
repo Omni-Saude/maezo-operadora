@@ -1360,6 +1360,7 @@ class HelenaDispatcher:
         if self.roteador is not None:
             handoff: PedidoDeHandoff | None = None
             lucas_escalou = False
+            lucas_start_falhou = False
             if self._roteamento_completo and isinstance(result.get("handoff"), Mapping):
                 # NUMERO UNICO (onda e): a Helena passou a conversa. O Lucas roda AQUI, depois do
                 # turno dela e no MESMO request (§2.3: ir ao Lucas exige a saida tipada deste
@@ -1381,7 +1382,7 @@ class HelenaDispatcher:
                 from .lucas_turno import HandoffDeOutraMensagemError
 
                 try:
-                    handoff, lucas_escalou = await self._turno_do_lucas(
+                    handoff, lucas_escalou, lucas_start_falhou = await self._turno_do_lucas(
                         message,
                         phone_hash=phone_hash,
                         conversation_id=conversation_id,
@@ -1421,6 +1422,8 @@ class HelenaDispatcher:
                     return dict(escalado)
                 if (
                     not lucas_escalou
+                    # DL-0144: start falho do Lucas nao abre outro caso aqui (nenhum envio novo).
+                    and not lucas_start_falhou
                     and eh_pedido_explicito_de_pessoa(message.text)
                     # RODADA 6: com caso ja' aberto o Lucas ja' reconhece o pedido; o aviso da Helena
                     # ("seu atendimento ja' esta' aberto") so' duplicava a resposta (4 turnos seguidos).
@@ -1459,7 +1462,12 @@ class HelenaDispatcher:
                     }
                     lucas_escalou = True
             await self._registrar_roteamento(
-                conversation_id, sinais, result, handoff=handoff, lucas_escalou=lucas_escalou
+                conversation_id,
+                sinais,
+                result,
+                handoff=handoff,
+                lucas_escalou=lucas_escalou,
+                lucas_start_falhou=lucas_start_falhou,
             )
         return dict(result)
 
@@ -1606,9 +1614,10 @@ class HelenaDispatcher:
         conversation_id: str,
         beneficiario_pseudo_id: str,
         handoff: Mapping[str, Any],
-    ) -> tuple[PedidoDeHandoff, bool]:
+    ) -> tuple[PedidoDeHandoff, bool, bool]:
         """UM turno do Lucas a partir do `handoff` da Helena. Devolve o pedido de handoff que o
-        roteador grava e se o Lucas terminou escalando (`lucas_encerrou`).
+        roteador grava, se o Lucas terminou escalando (`lucas_encerrou`: so' com o processo iniciado)
+        e se o start dele falhou (DL-0144: vira `retorno_falha`, nunca `lucas_encerrou`).
 
         O REMETENTE e' o `_ScopedWhatsAppSender` deste turno, SEM gate e SEM fabrica de chave, e
         isso e' deliberado: o `LucasTurno` o embrulha com o gate do principal `lucas` (nunca o da
@@ -1651,7 +1660,8 @@ class HelenaDispatcher:
             competencia=competencia_a_lembrar(final, handoff.get("competencia")),
             memoria=memoria_do_turno(final),
         )
-        return pedido, final.get("route") == "escalate_human"
+        escalou = final.get("route") == "escalate_human" and final.get("process_started") is True
+        return pedido, escalou, final.get("start_failed") is True
 
     async def _contexto_do_turno_do_lucas(self, conversation_id: str) -> ContextoDoTurno:
         """Revisao (variante de redacao), assunto anterior e memoria curta do Lucas (simulador, 13/10/2026:
@@ -1856,6 +1866,7 @@ class HelenaDispatcher:
         handoff: PedidoDeHandoff | None = None,
         lucas_escalou: bool = False,
         lucas_recusou: bool = False,
+        lucas_start_falhou: bool = False,
     ) -> None:
         """UMA escrita CAS por mensagem, DEPOIS dos dois turnos (§2.2). A resposta ja' saiu; uma
         falha do roteador vira ERRO no log e nunca derruba o turno que ja' respondeu — a proxima
@@ -1869,6 +1880,7 @@ class HelenaDispatcher:
                 handoff=handoff,
                 lucas_escalou=lucas_escalou,
                 lucas_recusou=lucas_recusou,
+                lucas_start_falhou=lucas_start_falhou,
             )
         except Exception as exc:
             record_roteamento_falha(tenant=self.tenant_id, tipo="registro")

@@ -1163,6 +1163,8 @@ _TEXTOS_DE_CASO_ADMINISTRATIVO: tuple[str, ...] = (
 )
 CASO_ABERTO_CLINICO: str = "clinico"
 CASO_ABERTO_ADMINISTRATIVO: str = "administrativo"
+#: DL-0144: as falhas da leitura do caso no motor que viram "nao confirmado" (nunca erro de programacao).
+_FALHAS_DA_LEITURA_DO_CASO: tuple[type[Exception], ...] = (CibSevenError, *EXTERNAL_DEPENDENCY_FAILURES)
 
 
 def _falas_da_helena(estado: Mapping[str, Any]) -> list[str]:
@@ -1189,6 +1191,11 @@ def _caso_aberto_no_historico(estado: Mapping[str, Any]) -> str | None:
 
     Sem consultar o motor: e' o historico curto que diz que um encaminhamento saiu nesta conversa (e o
     start e' idempotente, entao um escalonamento repetido nunca duplica o caso). Clinico vence.
+
+    DL-0144: INDICIO para seguranca e rota, nunca afirmacao. O caso pode ja' ter sido encerrado pelo
+    atendente: quem AFIRMA caso aberto ao beneficiario le `_caso_aberto_afirmavel` (confirmado no motor
+    em `receive`). Continuam aqui so' o alerta de emergencia com caso aberto (DL-0072) e a rota da
+    cobranca curta ao Lucas, que nunca esperam o motor.
     """
     achado: str | None = None
     for fala in _falas_da_helena(estado):
@@ -1198,6 +1205,13 @@ def _caso_aberto_no_historico(estado: Mapping[str, Any]) -> str | None:
         if any(fala.startswith(t[:200]) for t in _TEXTOS_DE_CASO_ADMINISTRATIVO):
             achado = CASO_ABERTO_ADMINISTRATIVO
     return achado
+
+
+def _caso_aberto_afirmavel(estado: Mapping[str, Any]) -> str | None:
+    """DL-0144: o caso aberto que a Helena pode AFIRMAR — o confirmado no motor por `receive`
+    (`caso_aberto_confirmado`), ou `None`. Nunca o historico: ele e' so' indicio."""
+    confirmado = estado.get("caso_aberto_confirmado")
+    return confirmado if confirmado in (CASO_ABERTO_CLINICO, CASO_ABERTO_ADMINISTRATIVO) else None
 
 
 def _ja_dito(texto: str, falas: list[str]) -> bool:
@@ -1803,6 +1817,11 @@ class HelenaState(TypedDict, total=False):
     #: `receive` o preserva SO' com a flag ligada e dentro da janela de 6 h desde `ultima_mensagem_em`;
     #: so' `respond` o estende, com a mensagem do turno e o texto que SAIU. Nunca telefone/identidade.
     historico_conversa: list[dict[str, str]] | None
+    #: DL-0144 (frente C do SP-OP-ESCALATION-001): o caso aberto CONFIRMADO PELO MOTOR neste turno —
+    #: `CASO_ABERTO_CLINICO`, `CASO_ABERTO_ADMINISTRATIVO` ou `None`. Escrito so' por `receive`
+    #: (`_conferir_caso_aberto`), e so' quando o historico curto traz indicio de caso. Os textos que
+    #: AFIRMAM caso aberto leem este campo; o historico continua indicio para seguranca e rota.
+    caso_aberto_confirmado: str | None
 
     # Turn output.
     response_text: str
@@ -1929,6 +1948,8 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "aviso_identidade_dado": False,
     # DL-0080: memoria de conversa com portao proprio (a flag do historico) — ver `receive`.
     "historico_conversa": None,
+    # DL-0144: na duvida, nenhum caso afirmado. So' `receive` o preenche, depois de ler o motor.
+    "caso_aberto_confirmado": None,
     "response_text": None,
     "response_kind": None,
     "desfecho": "",
@@ -4793,7 +4814,42 @@ class HelenaGraph:
         if not state.get("conversation_id") or not state.get("tenant_id"):
             reset["next_kind"] = "escalate"
             reset["error"] = "missing runtime context (tenant_id/conversation_id)"
+        # DL-0144: o caso aberto que os textos podem AFIRMAR, confirmado no motor (historico = indicio).
+        reset["caso_aberto_confirmado"] = await self._conferir_caso_aberto(
+            cast(HelenaState, {**state, **reset})
+        )
         return reset
+
+    async def _conferir_caso_aberto(self, state: HelenaState) -> str | None:
+        """DL-0144: `CASO_ABERTO_CLINICO`, `CASO_ABERTO_ADMINISTRATIVO` ou `None`, pelo MOTOR.
+
+        So' le' o motor quando o historico curto traz indicio de caso (`_caso_aberto_no_historico`): sem
+        indicio, nenhuma leitura. Confirma pela instancia ATIVA de SP-OP-ESCALATION-001 nas chaves desta
+        conversa (`-clin` primeiro: o caso clinico paralelo vence). A classe vem da chave `-clin` ou do
+        `motivo_categoria` da instancia (`_motivo_do_caso_aberto`). Instancia concluida, transporte sem
+        leitura ou leitura que FALHA = `None` (nunca afirma); a falha vai ao log so' com o tipo do erro.
+        """
+        if _caso_aberto_no_historico(state) is None:
+            return None
+        buscar = getattr(self._cibseven, "find_active_instance", None)
+        tenant = str(state.get("tenant_id") or "")
+        conversa = str(state.get("conversation_id") or "")
+        if not callable(buscar) or not tenant or not conversa:
+            return None
+        chave = chave_do_escalonamento(tenant, conversa)
+        try:
+            if await buscar(chave_do_escalonamento(tenant, conversa, clinico=True)) is not None:
+                return CASO_ABERTO_CLINICO
+            if await buscar(chave) is None:
+                return None
+        except PROGRAMMING_ERRORS:
+            raise
+        except _FALHAS_DA_LEITURA_DO_CASO as exc:
+            logger.warning("helena_caso_aberto_leitura_falhou", error_type=type(exc).__name__)
+            return None
+        if await self._motivo_do_caso_aberto(chave) in MOTIVOS_DE_ALERTA_CLINICO:
+            return CASO_ABERTO_CLINICO
+        return CASO_ABERTO_ADMINISTRATIVO
 
     async def classify(self, state: HelenaState) -> dict[str, Any]:
         """Classify intent + normalize any symptom, then ALWAYS evaluate the red-flag DMN for a
@@ -7777,7 +7833,7 @@ class HelenaGraph:
             # rascunho barrado — `helena_resposta_recusada` traz o grupo). Com assunto de saude ou de
             # canal na mensagem, sai o texto fixo daquele assunto.
             mensagem = str(state.get("message_body") or "")
-            if _caso_aberto_no_historico(state) is not None:
+            if _caso_aberto_afirmavel(state) is not None:
                 # RODADA 3 (log de 13/10): com caso aberto o modelo escreve "ja encaminhamos" / "vai entrar
                 # em contato" e a cerca barra; o que e' verdade e' que o caso continua com a equipe.
                 substituto = RESPOSTA_INFORM_CASO_ABERTO
@@ -7817,7 +7873,7 @@ class HelenaGraph:
             if _e_encerramento(texto) and not _mensagem_de_saude(estado):
                 return (
                     RESPOSTA_DESPEDIDA_CASO_ABERTO
-                    if _caso_aberto_no_historico(estado) is not None
+                    if _caso_aberto_afirmavel(estado) is not None
                     else RESPOSTA_DESPEDIDA
                 )
             if _pede_telefone(texto):
@@ -7849,7 +7905,7 @@ class HelenaGraph:
     def _texto_de_navegacao(estado: Mapping[str, Any]) -> str:
         """RODADA 3: as opcoes de cuidado (rede do plano, UBS, pronto-atendimento, 192), com o caso de saude
         mencionado quando ele esta' aberto."""
-        if _caso_aberto_no_historico(estado) == CASO_ABERTO_CLINICO:
+        if _caso_aberto_afirmavel(estado) == CASO_ABERTO_CLINICO:
             return RESPOSTA_NAVEGACAO_CASO_ABERTO
         return RESPOSTA_NAVEGACAO
 
@@ -9693,7 +9749,7 @@ class HelenaGraph:
         if a_confirmar:
             context["memoria_a_confirmar"] = a_confirmar
         # RODADA 3: com caso aberto o modelo escrevia "ja encaminhamos" num turno informativo (barrado).
-        if _caso_aberto_no_historico(state) is not None:
+        if _caso_aberto_afirmavel(state) is not None:
             context["caso_aberto"] = True
         # HEL-06: mesma fronteira do `_classify_llm`. Aqui o poder da injecao seria sobre o
         # TEXTO enviado ao beneficiario (a rota ja esta decidida), o que nao a torna menos

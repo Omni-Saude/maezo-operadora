@@ -332,8 +332,10 @@ async def test_pedido_explicito_continua_escalando() -> None:
 
 
 async def test_rascunho_barrado_com_caso_aberto_diz_que_o_caso_continua() -> None:
+    # DL-0144: "o caso continua" so' com o caso ATIVO no motor (o historico sozinho e' so' indicio).
     grafo, whatsapp, modelo, _ = _grafo(
-        [_classify(), "Já encaminhamos seu caso, e a equipe vai entrar em contato com você."]
+        [_classify(), "Já encaminhamos seu caso, e a equipe vai entrar em contato com você."],
+        cib=_caso_aberto("cobranca"),
     )
 
     await grafo.ainvoke(_entrada("e aí, alguma novidade?", [RESPOSTA_HANDOFF_RECUSADA]))

@@ -120,7 +120,8 @@ async def test_promessa_de_repasse_do_modelo_e_trocada_e_sem_apresentacao_no_mei
         "Sou Helena. Entendi que você quer enviar o comprovante agora. "
         "Vou levar isso para a equipe financeira."
     )
-    grafo, whatsapp, _, _ = _grafo([_classify(), rascunho])
+    # DL-0144: "o caso continua" so' com o caso ATIVO no motor (o historico sozinho e' so' indicio).
+    grafo, whatsapp, _, _ = _grafo([_classify(), rascunho], cib=_caso_aberto("cobranca"))
 
     await grafo.ainvoke(_entrada("posso mandar o print aqui?", [RESPOSTA_HANDOFF_RECUSADA]))
 
