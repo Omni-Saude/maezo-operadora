@@ -154,6 +154,7 @@ from langgraph.graph import END, START, StateGraph
 from maezo.conhecimento import base_saude as _bs
 from maezo.conhecimento import jornadas as _jornadas
 from maezo.conhecimento import saude_gerativa as _sg
+from maezo.conhecimento.catalogo_procedimentos import BuscaDeProcedimentos
 from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
 from maezo.ports.tina import ElegibilidadeView
 from maezo.runtime.caso_clinico import (
@@ -3541,6 +3542,29 @@ def _pergunta_de_cobertura(texto: str) -> bool:
     return bool(_PERGUNTA_DE_COBERTURA.search(_plano(texto)))
 
 
+#: COBERTURA ASSISTIDA (DL-0128), so' na allowlist: as outras formas de perguntar cobertura ("o plano paga",
+#: "tenho direito", "posso fazer X pelo plano", "o convenio libera").
+_PERGUNTA_DE_COBERTURA_AMPLA = re.compile(
+    r"\b(?:(?:o |meu )?(?:plano|convenio) (?:paga|custeia|inclui|libera|autoriza|da direito)"
+    r"|tenho direito (?:a|ao|de)|posso fazer\b.{0,80}\bpelo (?:plano|convenio)"
+    r"|(?:faz|fazem|faco|fazer) pelo (?:plano|convenio)|tem cobertura|e coberto|e coberta"
+    r"|onde (?:faco|fazer|posso fazer|eu faco)\b.{0,60}\bpelo (?:plano|convenio))\b"
+)
+#: O prefixo das pendencias da cobertura assistida (`cobertura_assistida.PREFIXO`).
+PREFIXO_COBERTURA_ASSISTIDA = "COB2:"
+#: D2 (DL-0052): a Helena nao pesquisa prestador; diz onde a pessoa encontra a rede.
+TEXTO_REDE: str = (
+    "Por aqui eu não pesquiso prestadores. A rede credenciada do seu plano está no aplicativo Austa Clínicas "
+    "e no portal do plano. Lá dá para buscar por especialidade e cidade. Para saber se um exame ou "
+    "procedimento está no seu plano, me diga o nome como está no pedido médico."
+)
+
+
+def _pergunta_de_cobertura_ampla(texto: str) -> bool:
+    plano = _plano(texto)
+    return bool(_PERGUNTA_DE_COBERTURA.search(plano) or _PERGUNTA_DE_COBERTURA_AMPLA.search(plano))
+
+
 def _pede_telefone(texto: str) -> bool:
     return bool(_PEDE_TELEFONE.search(_plano(texto)))
 
@@ -4681,6 +4705,7 @@ class HelenaGraph:
         base_saude: _bs.BaseSaude | None = None,
         helena_dependentes_nome_enabled: bool = False,
         saude_gerativa: _sg.RedatorDeSaude | None = None,
+        catalogo_procedimentos: BuscaDeProcedimentos | None = None,
     ) -> None:
         self._llm = inference
         # VINCULO ATIVO E CARTEIRINHA COMPLETA (dono, 17/10/2026, `MAEZO_HELENA_CARTEIRINHA_COMPLETA`):
@@ -4698,6 +4723,14 @@ class HelenaGraph:
         # historico e log levam so' o marcador / "dependente N".
         self._dependentes_nome = helena_dependentes_nome_enabled is True
         self._nomes_do_turno: dict[str, NomesDoTurno] = {}
+        # Rodada do dono de 19/10/2026 (DL-0128): os nomes lidos ficam EM MEMORIA por ate' 15 min por titular
+        # (nunca em estado ou log), para a mesma conversa nao gastar o limite de leituras da rota.
+        self._nomes_em_memoria: dict[str, tuple[float, NomesDoTurno, tuple[tuple[int, str], ...]]] = {}
+        # COBERTURA ASSISTIDA (DL-0128): o catalogo de procedimentos (traducao para o nome oficial), so' na
+        # allowlist da saude gerativa. `None` = a busca por texto da propria rota de cobertura.
+        self._busca_procedimentos = catalogo_procedimentos or (
+            getattr(saude_gerativa, "catalogo", None) if saude_gerativa is not None else None
+        )
         # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, `MAEZO_HELENA_BASE_SAUDE`): DESLIGADA por default,
         # e desligada e' o grafo de antes byte a byte (`self._base_saude` falso: nenhum ramo `_base_*` roda).
         # Ligada (so' em dev): a Helena INFORMA perguntas gerais de saude a partir da base curada versionada
@@ -5035,7 +5068,7 @@ class HelenaGraph:
         pend_encerrar = self._base_saude and state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
         if pend_encerrar:
             update["coleta_pendente"] = None
-        if str(state.get("coleta_pendente") or "").startswith("BS_COBERTURA"):
+        if str(state.get("coleta_pendente") or "").startswith(("BS_COBERTURA", PREFIXO_COBERTURA_ASSISTIDA)):
             # "Para quem e'?" (rodada do dono de 19/10/2026) sem a escolha neste turno: a pergunta vale so'
             # uma vez.
             update["coleta_pendente"] = None
@@ -6496,6 +6529,9 @@ class HelenaGraph:
         consulta AMH, nunca ao Lucas nem a redacao. `None` = o caminho de sempre."""
         if self._consultas is None or getattr(self._consultas, "consultar_cobertura", None) is None:
             return None
+        assistida = self._rota_da_cobertura_assistida(state, plano, texto)
+        if assistida is not None:
+            return assistida
         pendente = state.get("coleta_pendente")
         if pendente == PENDENTE_COBERTURA_PARA_QUEM:
             contexto = str(state.get("coleta_contexto") or "")
@@ -6534,6 +6570,53 @@ class HelenaGraph:
         update = self._update_sem_modelo(state)
         update.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
         logger.info("helena_cobertura_continua", node="classify")
+        return self._rota_de_consulta(update)
+
+    def _rota_da_cobertura_assistida(
+        self, state: Mapping[str, Any], plano: str, texto: str
+    ) -> dict[str, Any] | None:
+        """COBERTURA ASSISTIDA (DL-0128), so' na allowlist e ANTES do classificador: a pergunta de cobertura
+        (em qualquer forma) e as RESPOSTAS as perguntas do fluxo (para quem, opcoes, nome do pedido, equipe)
+        vao a consulta do plano com a pendencia preservada. "Sim" a oferta da equipe abre o caso (pedido de
+        pessoa, `solicitacao_humano`); so' com "sim". Emergencia, queixa atual e cobranca seguem o caminho de
+        sempre."""
+        from maezo.agents.helena import cobertura_assistida as _ca
+
+        if not self._gerativa_para(state):
+            return None
+        pendente = str(state.get("coleta_pendente") or "")
+        if _sinal_forte_de_emergencia(texto) or _sg.queixa_atual(plano):
+            return None
+        if _pergunta_de_cobranca(texto) and not _pergunta_de_cobertura_ampla(texto):
+            return None
+        com_pendencia = pendente.startswith(PREFIXO_COBERTURA_ASSISTIDA)
+        if (
+            com_pendencia
+            and pendente in (_ca.PEND_EQUIPE, _ca.PEND_FALHA)
+            and (_ca.e_sim(texto) if pendente == _ca.PEND_EQUIPE else _ca.falar_com_equipe(texto))
+        ):
+            update = self._update_sem_modelo(state)
+            update.update(
+                {
+                    "intent": "human_request",
+                    "next_kind": "escalate",
+                    "escalation_motivo": "solicitacao_humano",
+                    "escalation_severidade": "leve",
+                    "coleta_pendente": pendente,
+                    "coleta_contexto": str(state.get("coleta_contexto") or ""),
+                }
+            )
+            logger.info("helena_cobertura_equipe_aceita", node="classify")
+            return update
+        curta = len(plano.split()) <= 16
+        if not (_pergunta_de_cobertura_ampla(texto) or (com_pendencia and curta)):
+            return None
+        update = self._update_sem_modelo(state)
+        update.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
+        if com_pendencia:
+            update["coleta_pendente"] = pendente
+            update["coleta_contexto"] = str(state.get("coleta_contexto") or "")
+        logger.info("helena_cobertura_assistida_rota", node="classify", pendencia=pendente or None)
         return self._rota_de_consulta(update)
 
     @staticmethod
@@ -8037,6 +8120,22 @@ class HelenaGraph:
             )
             return fixo
         mensagem_do_turno = str(state.get("message_body") or "")
+        pendente_do_turno = str(state.get("coleta_pendente") or "")
+        if self._gerativa_para(state) and (
+            pendente_do_turno.startswith(PREFIXO_COBERTURA_ASSISTIDA)
+            or _pergunta_de_cobertura_ampla(mensagem_do_turno)
+            or (termo_da_continuacao(mensagem_do_turno) and _cobertura_recente(state))
+        ):
+            assistida = await self._cobertura_assistida(state, ref)
+            if assistida is not None and assistida.get("desviar_para") == "autorizacao":
+                subtipo = "autorizacao"
+            elif assistida is not None and assistida.get("desviar_para") == "rede":
+                return {
+                    "response_text": _com_emergencia_se_preciso(state, TEXTO_REDE),
+                    "response_kind": "inform",
+                }
+            elif assistida is not None:
+                return assistida
         if (
             _pergunta_de_cobertura(mensagem_do_turno)
             or str(state.get("coleta_pendente") or "").startswith(PREFIXO_COBERTURA_QUEM)
@@ -8206,6 +8305,109 @@ class HelenaGraph:
                     return termo
         return termo_da_mensagem(texto)
 
+    async def _cobertura_assistida(self, state: HelenaState, ref: str) -> dict[str, Any] | None:
+        """COBERTURA ASSISTIDA (DL-0128), so' na allowlist: extracao (GLM-5), traducao para o nome oficial,
+        opcoes, para quem, 2 tentativas e equipe so' com "sim". Devolve o `update` (nunca os textos antigos
+        de cobertura especifica) ou `{"desviar_para": ...}` (autorizacao/rede)."""
+        leitor = getattr(self._consultas, "consultar_cobertura", None)
+        if leitor is None or not self._gerativa_para(state):
+            return None
+        from maezo.agents.helena import cobertura_assistida as _ca
+        from maezo.agents.helena.cobertura_fluxo import Dependencias, FluxoDeCobertura
+
+        tenant = str(state.get("tenant_id") or "")
+
+        async def extrair(texto: str) -> _ca.Pedido | None:
+            prompt = f"{_ca.PROMPT_EXTRACAO}\n{render_untrusted_block('message_body', texto)}"
+            bruto = await self._llm.generate(
+                prompt, phi=True, agent_id="helena", tenant_id=tenant, task_kind="task_default"
+            )
+            return _ca.pedido_do_modelo(bruto)
+
+        async def cobertura(procedimento: str) -> Any:
+            try:
+                async with asyncio.timeout(COBERTURA_PRAZO_S):
+                    return await leitor(ref, procedimento)
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES:
+                return None
+
+        async def dependentes() -> tuple[list[str], bool, Mapping[int, str]]:
+            graus, com_nome = await self._graus_dos_dependentes(state, ref)
+            nomes = self._nomes_do_turno.get(self._chave_do_turno(state)) if com_nome else None
+            return graus, com_nome, (nomes.primeiros_nomes() if nomes is not None else {})
+
+        async def elegibilidade() -> Mapping[str, Any] | None:
+            view = await self._ler_consulta(ref, "elegibilidade")
+            return fatos_da_consulta(
+                "elegibilidade", view, so_ativos=self._carteirinha_completa, hoje=self._hoje_dos_vinculos()
+            )
+
+        async def texto_geral() -> str:
+            fatos = await elegibilidade()
+            segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
+            fim = "Se quiser saber de um exame ou procedimento, me diga o nome como está no pedido médico."
+            if segmentacao is None:
+                return fim
+            explicacao = explicacao_da_segmentacao(segmentacao) or ""
+            cadastro = MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=segmentacao)
+            return " ".join(p for p in (cadastro, explicacao, fim) if p)
+
+        def _para_quem(graus: list[str], com_nome: bool) -> str:
+            return pergunta_para_quem(graus, com_nome=com_nome)
+
+        if self._busca_procedimentos is not None:
+            self._garantir_catalogo()
+        fluxo = FluxoDeCobertura(
+            Dependencias(
+                extrair=extrair,
+                cobertura=cobertura,
+                dependentes=dependentes,
+                elegibilidade=elegibilidade,
+                busca=self._busca_procedimentos,
+                pergunta_para_quem=_para_quem,
+                texto_geral=texto_geral,
+            )
+        )
+        resultado = await fluxo.responder(
+            str(state.get("message_body") or ""),
+            str(state.get("coleta_pendente") or ""),
+            state.get("coleta_contexto"),
+        )
+        if "response_text" in resultado:
+            resultado["response_text"] = _com_emergencia_se_preciso(state, str(resultado["response_text"]))
+        return resultado
+
+    def _garantir_catalogo(self) -> None:
+        """Carrega o catalogo (rota `tina-procedimentos`) em SEGUNDO PLANO, uma vez por processo."""
+        busca = self._busca_procedimentos
+        leitor = getattr(self._consultas, "consultar_catalogo_procedimentos", None)
+        if busca is not None and self._base_saude and not getattr(busca, "com_base", False):
+            # Os sinonimos JA' curados da base de saude (exames, procedimentos, cirurgias) somam aos da lista.
+            from maezo.conhecimento.catalogo_procedimentos import sinonimos_da_base
+
+            busca.sinonimos = (*busca.sinonimos, *sinonimos_da_base(self._base_hoje()))
+            busca.com_base = True
+        if busca is None or busca.pronto or leitor is None:
+            return
+        tarefa = getattr(self, "_carregando_catalogo", None)
+        if tarefa is not None and not tarefa.done():
+            return
+
+        async def _carregar() -> None:
+            try:
+                itens, versao = await leitor()
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES:
+                return
+            if itens:
+                busca.carregar(itens, versao)
+                busca.agendar_indice()
+
+        self._carregando_catalogo = asyncio.create_task(_carregar())
+
     async def _cobertura_do_procedimento(self, state: HelenaState, ref: str) -> dict[str, Any] | None:
         leitor = getattr(self._consultas, "consultar_cobertura", None)
         if leitor is None or not self._gerativa_para(state):
@@ -8301,9 +8503,18 @@ class HelenaGraph:
         ficaram no turno. Com a chave dos nomes, a lista nominal do contrato `tina-dependentes-nome` (a mesma
         ordem); sem ela ou com falha, o contrato anonimo."""
         if self._dependentes_nome:
-            nomes, graus_nominais = await ler_dependentes_nominais(
-                self._consultas, ref, state.get("message_ref"), prazo_s=CONSULTA_PRAZO_S
-            )
+            agora = self._relogio().timestamp()
+            guardado = self._nomes_em_memoria.get(ref)
+            if guardado is not None and agora - guardado[0] < 900:
+                nomes, graus_nominais = guardado[1], guardado[2]
+            else:
+                nomes, graus_nominais = await ler_dependentes_nominais(
+                    self._consultas, ref, state.get("message_ref"), prazo_s=CONSULTA_PRAZO_S
+                )
+                if nomes:
+                    while len(self._nomes_em_memoria) >= 64:
+                        self._nomes_em_memoria.pop(next(iter(self._nomes_em_memoria)))
+                    self._nomes_em_memoria[ref] = (agora, nomes, graus_nominais)
             if nomes and len(graus_nominais) <= 9:
                 self._guardar_nomes(state, nomes)
                 return [g for _, g in graus_nominais], True
@@ -9926,6 +10137,12 @@ class HelenaGraph:
         raise RespostaRecusadaError(grupo, padrao, response_kind)
 
     async def _resumo_contexto(self, state: HelenaState, motivo: MotivoCategoria | None) -> str:
+        if str(state.get("coleta_pendente") or "").startswith(PREFIXO_COBERTURA_ASSISTIDA):
+            # COBERTURA ASSISTIDA (DL-0128): o caso aberto com o "sim" leva o resumo escrito pelo CODIGO
+            # (pedido, para quem, termos tentados; sem CPF), sem modelo.
+            from maezo.agents.helena import cobertura_assistida as _ca
+
+            return _ca.resumo_para_a_equipe(_ca.Contexto.decodificar(state.get("coleta_contexto")))
         if self._v4:
             # HELENA V4 (DL-0115): o caso aberto pela v4 tem resumo FIXO e legivel (so' o relato desta queixa,
             # o que foi perguntado e respondido), sem modelo.
@@ -10095,6 +10312,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     helena_carteirinha_completa_enabled = cfg.get("helena_carteirinha_completa_enabled", False) is True
     # Nome completo dos dependentes (dono e DPO, 19/10/2026, DL-0127): `True` SO' quando a composicao disser.
     helena_dependentes_nome_enabled = cfg.get("helena_dependentes_nome_enabled", False) is True
+    # COBERTURA ASSISTIDA (DL-0128): o catalogo SO' quando a composicao o passar.
+    catalogo = cfg.get("catalogo_procedimentos")
     # BASE DE SAUDE (ADR-0064, DL-0118): como a coleta, `True` SO' quando a composicao disser explicitamente.
     helena_base_saude_enabled = cfg.get("helena_base_saude_enabled", False) is True
     # SAUDE GERATIVA (ADR-0065, DL-0119): o redator SO' quando a composicao o passar (chave ligada).
@@ -10116,6 +10335,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         helena_v4_enabled=helena_v4_enabled,
         helena_carteirinha_completa_enabled=helena_carteirinha_completa_enabled,
         helena_dependentes_nome_enabled=helena_dependentes_nome_enabled,
+        catalogo_procedimentos=catalogo if isinstance(catalogo, BuscaDeProcedimentos) else None,
         helena_base_saude_enabled=helena_base_saude_enabled,
         saude_gerativa=saude_gerativa if isinstance(saude_gerativa, _sg.RedatorDeSaude) else None,
     ).compile_graph()

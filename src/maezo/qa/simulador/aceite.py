@@ -1716,6 +1716,140 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
     ),
 )
 
+# Roteiro `helena_cobertura_assistida` (DL-0128, rodada do dono de 19/10/2026 "FACA e RESOLVA") — casos
+# GENERICOS escritos para o roteiro (nenhum texto do teste do dono). Mede: a pergunta com o procedimento em
+# qualquer ordem vai a consulta (nunca os textos antigos de "cobertura de procedimento especifico"), as opcoes
+# numeradas, as 2 tentativas com a equipe SO' com "sim", as regras proprias (remedio, estetica, terceiro,
+# rede,
+# urgencia) e varios procedimentos na mesma mensagem. O cadastro decide a situacao: o roteiro aceita qualquer
+# texto de situacao do dono (consta, fora da segmentacao, fora do Rol, carencia, DUT) e as opcoes.
+_TEXTO_ANTIGO_DE_COBERTURA = (
+    r"nao consigo confirmar cobertura de um procedimento especifico",
+    r"entendo que voce precisa dessa confirmacao",
+    r"me diga o nome exato",
+    r"\bnao cobre\.?$",
+    _ENCAMINHOU,
+)
+_SITUACAO_OU_OPCOES = (
+    r"(consta no rol|consta no cadastro|consta, com criterios|consta para o seu plano|nao faz parte da "
+    r"segmentacao"
+    r"|nao consta no rol|encontrei mais de um procedimento parecido|como esta escrito no pedido medico"
+    r"|nao consegui consultar o cadastro agora|antes de eu consultar.{0,3}e para quem)"
+)
+
+HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
+    Segmento(
+        "1-procedimento-antes-do-cobre",
+        (
+            _p(
+                "O médico pediu um hemograma completo para mim. Meu plano cobre?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_SITUACAO_OU_OPCOES,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+        ),
+        resolveu="o procedimento escrito ANTES de 'cobre' foi entendido e consultado (ou vieram opcoes)",
+    ),
+    Segmento(
+        "2-procedimento-generico-da-opcoes",
+        (
+            _p(
+                "Meu plano cobre ultrassom para mim?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_SITUACAO_OU_OPCOES,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+        ),
+        resolveu="o termo generico recebeu opcoes numeradas (ou a consulta), nunca 'me diga o nome exato'",
+    ),
+    Segmento(
+        "3-duas-tentativas-e-a-equipe-so-com-sim",
+        (
+            _p(
+                "Meu plano cobre o procedimento qwxzk para mim?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(como esta escrito no pedido medico|encontrei mais de um)",),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "zzkqwy vbnmx",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"quer que eu passe para a nossa equipe",),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "não",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(tudo bem|pedido medico)",),
+                nao_deve=(_ENCAMINHOU,),
+            ),
+        ),
+        resolveu=(
+            "duas tentativas sem localizar: parou de perguntar e ofereceu a equipe; com 'nao', sem caso"
+        ),
+    ),
+    Segmento(
+        "4-remedio-tem-regra-propria",
+        (
+            _p(
+                "O plano cobre insulina?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"remedio tem regra propria",),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+        ),
+        resolveu="remedio de uso domiciliar recebeu a regra propria, sem a consulta de procedimento",
+    ),
+    Segmento(
+        "5-estetica-excluida-por-lei",
+        (
+            _p(
+                "Meu plano cobre aplicação de botox só por estética?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(9\.656|finalidade so estetica|regra propria)",),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+        ),
+        resolveu="o procedimento estetico recebeu a explicacao da lei, sem julgamento, com a equipe",
+    ),
+    Segmento(
+        "6-pessoa-fora-do-plano",
+        (
+            _p(
+                "Meu plano cobre fisioterapia para a minha mãe?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(so para quem esta no seu plano|nao encontrei essa pessoa)",),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+        ),
+        resolveu="a pergunta para alguem de fora do plano foi acolhida com a regra e a oferta da equipe",
+    ),
+    Segmento(
+        "7-urgencia-primeiro",
+        (
+            _p(
+                "É urgente: meu plano cobre tomografia do crânio para mim?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(urgencia ou emergencia|192)", _SITUACAO_OU_OPCOES),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+        ),
+        resolveu="a regra de urgencia (e o 192) veio antes da cobertura",
+    ),
+    Segmento(
+        "8-varios-procedimentos",
+        (
+            _p(
+                "Para mim: o plano cobre hemograma e eletrocardiograma?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_SITUACAO_OU_OPCOES,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+        ),
+        resolveu="varios procedimentos na mesma mensagem foram tratados (lista ou um de cada vez)",
+    ),
+)
+
 #: Os telefones (sufixo da faixa do simulador) de cada segmento, quando o roteiro precisa de telefones
 #: PROPRIOS.
 #: `helena_saude_gerativa`: 790..798 estao na allowlist do dev (tfvars), o 789 NAO (segmento 10).
@@ -1725,6 +1859,7 @@ TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
         *(790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796),
         *(797, 798, 790),
     ),
+    "helena_cobertura_assistida": (791, 792, 793, 794, 795, 796, 797, 798),
 }
 
 # ================================================================================================
@@ -1979,6 +2114,7 @@ ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "helena_base_saude": HELENA_BASE_SAUDE,
     "helena_saude_gerativa": HELENA_SAUDE_GERATIVA,
     "helena_fases_18_10": HELENA_FASES_18_10,
+    "helena_cobertura_assistida": HELENA_COBERTURA_ASSISTIDA,
     "lucas_v4": LUCAS_V4,
     "lucas_v4_pagador": LUCAS_V4_PAGADOR,
     "lucas_v4_nao_pagador": LUCAS_V4_NAO_PAGADOR,

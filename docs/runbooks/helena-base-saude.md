@@ -252,3 +252,14 @@ atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com f
 - **Falha fechada:** rota fora, lista truncada, contagem diferente da rota anônima ou nome fora do padrão = o texto
   de antes, sem nome.
 - **Desligar:** `helena_dependentes_nome = false` (tfvars) + apply direcionado do receptor e do simulador.
+
+## 18. Cobertura assistida (DL-0128, 19/10/2026)
+
+- **O que faz (só na allowlist):** a pergunta de cobertura em qualquer forma ("o médico pediu X, cobre?", "o plano
+  paga X?", "tenho direito a X?") passa pela extração do GLM-5, pela tradução para o nome oficial (catálogo TINA
+  v1.14 + busca por significado + sinônimos públicos de `spec/conhecimento/cobertura/sinonimos.yaml`) e pela
+  consulta da cobertura pelo código. Até 3 opções; 2 tentativas; a equipe só com "sim".
+- **Sem catálogo** (subida do processo, rota fora): a busca por texto da própria rota de cobertura, com as opções
+  vindas das descrições.
+- **Revisão semanal:** `helena_cobertura_termo_nao_localizado` (termo normalizado, sem PII) nos logs do receptor.
+- **Desfazer:** revert do PR (o caminho antigo volta para a allowlist).

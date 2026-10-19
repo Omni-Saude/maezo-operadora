@@ -71,7 +71,11 @@ def test_as_tres_operacoes_pedem_o_escopo_tina() -> None:
     assert SCOPE_BY_OPERATION[tina_mod.OP_DEPENDENTES_NOME] == "interop/tina.dependentes_nome"
     # A cobertura (manifest v1.9) usa o mesmo escopo, mas so' o executor PROPRIO a registra
     # (`AmhTinaCoberturaExecutor`, composto so' com o artefato carregado).
-    assert AmhTinaExecutor.registered_operations == leituras - {tina_mod.OP_COBERTURA}
+    # O catalogo (manifest v1.14, DL-0128) tambem tem executor PROPRIO (`AmhTinaCatalogoExecutor`).
+    assert AmhTinaExecutor.registered_operations == leituras - {
+        tina_mod.OP_COBERTURA,
+        tina_mod.OP_PROCEDIMENTOS,
+    }
 
 
 async def test_leitura_tina_audita_antes_e_despacha_na_rota_fixa(servidor: Servidor, tokens: Any) -> None:

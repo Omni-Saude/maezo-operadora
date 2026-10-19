@@ -198,7 +198,17 @@ def _saude_gerativa(settings: WhatsAppWebhookSettings) -> Any:
             logger.error(
                 "helena_busca_semantica_modelo_recusado", modelo=settings.helena_busca_semantica_modelo
             )
-    return RedatorDeSaude(transporte=TransporteGlobalExperimental(), conversas=conversas, busca=busca)
+    catalogo = None
+    if busca is not None:
+        # COBERTURA ASSISTIDA (DL-0128): o mesmo modelo de embeddings REGIONAL indexa o catalogo de
+        # procedimentos
+        # (rota TINA `tina-procedimentos`, carregada em segundo plano na primeira pergunta de cobertura).
+        from maezo.conhecimento.catalogo_procedimentos import BuscaDeProcedimentos, carregar_sinonimos
+
+        catalogo = BuscaDeProcedimentos(transporte=busca.transporte, sinonimos=carregar_sinonimos())
+    return RedatorDeSaude(
+        transporte=TransporteGlobalExperimental(), conversas=conversas, busca=busca, catalogo=catalogo
+    )
 
 
 def _build_dispatcher(

@@ -957,6 +957,13 @@ variable "amh_tina_dependentes_openapi_path" {
   nullable    = false
 }
 
+variable "amh_tina_procedimentos_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-procedimentos` (manifest v1.14, DL-0128: catalogo de procedimentos resolvidos por codigo; o digest tem de estar no bloco manifest_v1_14 do pin). Lido so' com helena_consultas_amh. Vazio = sem o catalogo: a cobertura assistida usa a busca por texto da rota de cobertura."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-procedimentos.openapi.yaml"
+  nullable    = false
+}
+
 variable "amh_tina_dependentes_nome_openapi_path" {
   description = "Caminho, DENTRO da imagem, do OpenAPI `tina-dependentes-nome` (manifest v1.13; o digest tem de estar no bloco manifest_v1_13 do pin). Lido so' com helena_consultas_amh e helena_dependentes_nome. Vazio = sem a rota (nem o escopo `interop/tina.dependentes_nome`): a Helena mostra os dependentes sem nome."
   type        = string

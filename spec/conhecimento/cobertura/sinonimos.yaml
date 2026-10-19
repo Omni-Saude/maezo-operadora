@@ -1,0 +1,193 @@
+# Sinonimos POPULARES GENERICOS -> nome OFICIAL de procedimento (rodada do dono de 19/10/2026, DL-0128).
+#
+# Para que serve: o catalogo de procedimentos da cobertura (contrato AMH `tina-procedimentos`) fala a lingua da
+# terminologia oficial (TUSS da ANS, tabela 22; SIGTAP do SUS). A pessoa fala a lingua do dia a dia. Cada
+# entrada abaixo e' vocabulario PUBLICO e generico (o nome popular de uso corrente e a forma como o
+# procedimento aparece na terminologia oficial), escrita ANTES de qualquer resultado de teste. Nao ha' entrada
+# feita para um caso de teste: termo que nao estiver aqui fica com a busca por significado.
+#
+# Regra: `fonte` obrigatoria (TUSS = Terminologia Unificada da Saude Suplementar, ANS; SIGTAP = tabela de
+# procedimentos do SUS; ambas so' de VOCABULARIO, conforme spec/conhecimento/saude/FONTES.md). Nada de marca,
+# nada de prestador. A expansao so' acrescenta o nome oficial ao termo para a busca; nunca decide cobertura.
+versao: 1
+sinonimos:
+  - populares: [ultrassom, ultrassonografia, ultrasom, ultra som, ecografia]
+    oficial: ultrassonografia
+    fonte: TUSS (grupo de diagnostico por ultrassonografia)
+  - populares: [raio x, raio-x, raiox, rx, chapa]
+    oficial: radiografia
+    fonte: TUSS (grupo de radiologia; prefixo RX)
+  - populares: [tomografia, tomo]
+    oficial: tomografia computadorizada
+    fonte: TUSS (grupo de tomografia computadorizada)
+  - populares: [ressonancia, ressonancia magnetica, rm]
+    oficial: ressonancia magnetica
+    fonte: TUSS (grupo de ressonancia magnetica)
+  - populares: [endoscopia]
+    oficial: endoscopia digestiva alta
+    fonte: TUSS (procedimentos endoscopicos diagnosticos)
+  - populares: [colono]
+    oficial: colonoscopia
+    fonte: TUSS (procedimentos endoscopicos diagnosticos)
+  - populares: [eletro, eletro do coracao, ecg]
+    oficial: eletrocardiograma
+    fonte: TUSS (metodos diagnosticos em cardiologia)
+  - populares: [eco do coracao, ecocardiograma, eco cardio]
+    oficial: ecodopplercardiograma
+    fonte: TUSS (ecocardiografia)
+  - populares: [teste da esteira, esteira, exame da esteira]
+    oficial: teste ergometrico
+    fonte: TUSS (metodos diagnosticos em cardiologia)
+  - populares: [holter]
+    oficial: holter 24 horas eletrocardiografia dinamica
+    fonte: TUSS (metodos diagnosticos em cardiologia)
+  - populares: [mapa, pressao 24 horas, pressao de 24 horas]
+    oficial: monitorizacao ambulatorial da pressao arterial
+    fonte: TUSS (metodos diagnosticos em cardiologia)
+  - populares: [cateterismo]
+    oficial: cateterismo cardiaco
+    fonte: TUSS (hemodinamica)
+  - populares: [ponte de safena]
+    oficial: revascularizacao do miocardio
+    fonte: TUSS (cirurgia cardiaca)
+  - populares: [stent, cateterismo com stent]
+    oficial: angioplastia transluminal com implante de stent
+    fonte: TUSS (hemodinamica)
+  - populares: [cirurgia de vesicula, tirar a vesicula, pedra na vesicula]
+    oficial: colecistectomia
+    fonte: TUSS (cirurgia do aparelho digestivo); SIGTAP
+  - populares: [cirurgia de apendice, apendicite]
+    oficial: apendicectomia
+    fonte: TUSS (cirurgia do aparelho digestivo); SIGTAP
+  - populares: [cirurgia de hernia, hernia]
+    oficial: herniorrafia
+    fonte: TUSS (parede abdominal); SIGTAP
+  - populares: [cirurgia de catarata, catarata]
+    oficial: facectomia com implante de lente intraocular
+    fonte: TUSS (oftalmologia); SIGTAP
+  - populares: [cirurgia de amigdala, tirar as amigdalas, amigdalas]
+    oficial: amigdalectomia
+    fonte: TUSS (otorrinolaringologia); SIGTAP
+  - populares: [adenoide, cirurgia de adenoide]
+    oficial: adenoidectomia
+    fonte: TUSS (otorrinolaringologia); SIGTAP
+  - populares: [cirurgia de varizes, varizes]
+    oficial: tratamento cirurgico de varizes
+    fonte: TUSS (cirurgia vascular); SIGTAP
+  - populares: [tirar o utero, retirada do utero]
+    oficial: histerectomia
+    fonte: TUSS (ginecologia); SIGTAP
+  - populares: [cesarea, cesaria, parto cesareo]
+    oficial: cesariana
+    fonte: TUSS (obstetricia); SIGTAP
+  - populares: [parto normal]
+    oficial: parto via vaginal
+    fonte: TUSS (obstetricia); SIGTAP
+  - populares: [fisioterapia, fisio, sessao de fisioterapia]
+    oficial: atendimento fisioterapeutico
+    fonte: TUSS (fisioterapia)
+  - populares: [exame de urina, urina tipo 1, eas]
+    oficial: urina rotina
+    fonte: TUSS (patologia clinica)
+  - populares: [exame de fezes, parasitologico]
+    oficial: parasitologico de fezes
+    fonte: TUSS (patologia clinica)
+  - populares: [hemograma, exame de sangue completo]
+    oficial: hemograma com contagem de plaquetas
+    fonte: TUSS (patologia clinica)
+  - populares: [glicose, glicemia, acucar no sangue]
+    oficial: glicose
+    fonte: TUSS (patologia clinica)
+  - populares: [glicada, hemoglobina glicada]
+    oficial: hemoglobina glicada
+    fonte: TUSS (patologia clinica)
+  - populares: [colesterol]
+    oficial: colesterol total
+    fonte: TUSS (patologia clinica)
+  - populares: [tireoide, exame da tireoide, tsh]
+    oficial: hormonio tireoestimulante tsh
+    fonte: TUSS (patologia clinica)
+  - populares: [teste do pezinho]
+    oficial: triagem neonatal
+    fonte: TUSS (patologia clinica); SIGTAP
+  - populares: [teste da orelhinha]
+    oficial: emissoes otoacusticas evocadas
+    fonte: TUSS (otorrinolaringologia); SIGTAP
+  - populares: [teste do olhinho]
+    oficial: teste do reflexo vermelho
+    fonte: SIGTAP (oftalmologia)
+  - populares: [exame de audicao]
+    oficial: audiometria
+    fonte: TUSS (otorrinolaringologia)
+  - populares: [fundo de olho]
+    oficial: mapeamento de retina
+    fonte: TUSS (oftalmologia)
+  - populares: [biopsia]
+    oficial: biopsia
+    fonte: TUSS
+  - populares: [quimio, quimioterapia]
+    oficial: quimioterapia
+    fonte: TUSS (oncologia)
+  - populares: [radio, radioterapia]
+    oficial: radioterapia
+    fonte: TUSS (radioterapia)
+  - populares: [hemodialise, dialise]
+    oficial: hemodialise
+    fonte: TUSS (nefrologia); SIGTAP
+  - populares: [nebulizacao, inalacao]
+    oficial: inalacao
+    fonte: TUSS
+  - populares: [densitometria, exame dos ossos]
+    oficial: densitometria ossea
+    fonte: TUSS (medicina nuclear e radiologia)
+  - populares: [cintilografia]
+    oficial: cintilografia
+    fonte: TUSS (medicina nuclear)
+  - populares: [eletroencefalograma, eeg]
+    oficial: eletroencefalograma
+    fonte: TUSS (neurologia)
+  - populares: [eletroneuromiografia, enmg]
+    oficial: eletroneuromiografia
+    fonte: TUSS (neurologia)
+  - populares: [espirometria, exame do pulmao, prova de funcao pulmonar]
+    oficial: prova de funcao pulmonar completa
+    fonte: TUSS (pneumologia)
+  - populares: [polissonografia, exame do sono]
+    oficial: polissonografia
+    fonte: TUSS (neurologia)
+  - populares: [consulta]
+    oficial: consulta em consultorio
+    fonte: TUSS (consultas)
+  - populares: [psicologo, terapia com psicologo, psicoterapia]
+    oficial: sessao de psicoterapia
+    fonte: TUSS (psicologia)
+  - populares: [fonoaudiologo, fono]
+    oficial: sessao de fonoaudiologia
+    fonte: TUSS (fonoaudiologia)
+  - populares: [nutricionista]
+    oficial: consulta com nutricionista
+    fonte: TUSS (nutricao)
+  - populares: [vacina]
+    oficial: vacina
+    fonte: TUSS
+  - populares: [cirurgia bariatrica, reducao de estomago]
+    oficial: gastroplastia
+    fonte: TUSS (cirurgia do aparelho digestivo); SIGTAP
+  - populares: [cirurgia de joelho, ligamento do joelho]
+    oficial: reconstrucao ligamentar do joelho
+    fonte: TUSS (ortopedia)
+  - populares: [cirurgia de coluna]
+    oficial: artrodese da coluna
+    fonte: TUSS (ortopedia); SIGTAP
+  - populares: [hernia de disco]
+    oficial: tratamento cirurgico de hernia discal
+    fonte: TUSS (neurocirurgia); SIGTAP
+  - populares: [cirurgia de fimose, fimose]
+    oficial: postectomia
+    fonte: TUSS (urologia); SIGTAP
+  - populares: [pedra no rim, calculo renal]
+    oficial: litotripsia
+    fonte: TUSS (urologia); SIGTAP
+  - populares: [cirurgia de prostata]
+    oficial: prostatectomia
+    fonte: TUSS (urologia); SIGTAP

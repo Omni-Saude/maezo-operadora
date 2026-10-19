@@ -724,6 +724,15 @@ class WhatsAppWebhookSettings(BaseSettings):
     )
     # O OpenAPI da rota dos NOMES dos dependentes (`tina-dependentes-nome`, manifest v1.13), lido SO' com
     # `helena_consultas_amh` E `helena_dependentes_nome` ligadas (digest no bloco `manifest_v1_13` do pin).
+    # O OpenAPI do CATALOGO de procedimentos (`tina-procedimentos`, manifest v1.14; DL-0128). Opcional: falha
+    # de
+    # leitura/digest deixa so' o catalogo de fora (a cobertura assistida usa a busca por texto da rota).
+    amh_tina_procedimentos_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_PROCEDIMENTOS_OPENAPI_PATH", "amh_tina_procedimentos_openapi_path"
+        ),
+    )
     amh_tina_dependentes_nome_openapi_path: str | None = Field(
         default=None,
         validation_alias=AliasChoices(

@@ -1464,6 +1464,17 @@
       }
     },
     {
+      "texto": "Por aqui eu não pesquiso prestadores. A rede credenciada do seu plano está no aplicativo Austa Clínicas e no portal do plano. Lá dá para buscar por especialidade e cidade. Para saber se um exame ou procedimento está no seu plano, me diga o nome como está no pedido médico.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - rodada do dono (19/10/2026, DL-0128): TEXTO_REDE, D2 onde fazer (DL-0052)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
       "texto": "Vou te passar para o Lucas, que cuida de pedidos do seu plano.",
       "rota": "handoff",
       "start_aconteceu": false,

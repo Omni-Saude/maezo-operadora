@@ -61,6 +61,7 @@ from maezo.ports.tina import (
     CarenciasView,
     CarteirinhaCompleta,
     CarteirinhasView,
+    CatalogoProcedimentosView,
     CoberturaItemView,
     CoberturaView,
     DependenteAnonimo,
@@ -68,6 +69,7 @@ from maezo.ports.tina import (
     DependentesNominaisView,
     DependentesView,
     ElegibilidadeView,
+    ProcedimentoCatalogo,
     RequisicaoPlano,
     RequisicoesView,
     VinculoPlano,
@@ -80,6 +82,8 @@ ARTIFACT_CARTEIRINHA: Final[str] = "schemas/openapi/maezo/v1/tina-carteirinha.op
 #: Manifest aditivo v1.13 (decisao do dono e DPO de 19/10/2026, DL-0127): os NOMES dos dependentes do proprio
 #: titular. O digest entra no bloco `manifest_v1_13` do pin.
 ARTIFACT_DEPENDENTES_NOME: Final[str] = "schemas/openapi/maezo/v1/tina-dependentes-nome.openapi.yaml"
+#: Manifest aditivo v1.14 (DL-0128): o CATALOGO de procedimentos resolvidos por codigo (dado de referencia).
+ARTIFACT_PROCEDIMENTOS: Final[str] = "schemas/openapi/maezo/v1/tina-procedimentos.openapi.yaml"
 #: Manifest aditivo v1.9 (PUBLISHED em 16/10/2026). O digest esta' no bloco `manifest_v1_9` do pin.
 ARTIFACT_COBERTURA: Final[str] = "schemas/openapi/maezo/v1/tina-cobertura.openapi.yaml"
 OP_ELEGIBILIDADE: Final[str] = "amh.tina_get_elegibilidade"
@@ -91,6 +95,10 @@ OP_CARTEIRINHA: Final[str] = "amh.tina_get_carteirinha"
 OP_COBERTURA: Final[str] = "amh.tina_get_cobertura"
 #: `operationId: getDependentesNominais` do contrato `tina-dependentes-nome` (manifest v1.13).
 OP_DEPENDENTES_NOME: Final[str] = "amh.tina_get_dependentes_nome"
+#: `operationId: getCatalogoProcedimentos` do contrato `tina-procedimentos` (manifest v1.14).
+OP_PROCEDIMENTOS: Final[str] = "amh.tina_get_catalogo_procedimentos"
+#: A UNICA finalidade do catalogo (enum do contrato).
+PURPOSE_PROCEDIMENTOS: Final[str] = "atendimento_whatsapp"
 OPERATIONS: Final[frozenset[str]] = frozenset(
     {
         OP_ELEGIBILIDADE,
@@ -100,6 +108,7 @@ OPERATIONS: Final[frozenset[str]] = frozenset(
         OP_CARTEIRINHA,
         OP_COBERTURA,
         OP_DEPENDENTES_NOME,
+        OP_PROCEDIMENTOS,
     }
 )
 #: A UNICA finalidade da rota da carteirinha (enum do contrato).
@@ -120,6 +129,7 @@ _ROTAS: Final[dict[str, tuple[str, str]]] = {
     OP_CARTEIRINHA: ("/subjects/{portable_subject_ref}/carteirinha", "Carteirinhas"),
     OP_COBERTURA: ("/subjects/{portable_subject_ref}/cobertura", "Cobertura"),
     OP_DEPENDENTES_NOME: ("/subjects/{portable_subject_ref}/dependentes/nomes", "DependentesNominais"),
+    OP_PROCEDIMENTOS: ("/procedimentos", "CatalogoProcedimentos"),
 }
 _ROTAS_FATOS: Final[tuple[str, ...]] = (OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES)
 Reason = PortFailureReason
@@ -204,6 +214,8 @@ class AmhTinaAdapter:
         cobertura_executor: GovernedTinaExecutor | None = None,
         dependentes_nome_openapi_bytes: bytes | None = None,
         dependentes_nome_executor: GovernedTinaExecutor | None = None,
+        procedimentos_openapi_bytes: bytes | None = None,
+        procedimentos_executor: GovernedTinaExecutor | None = None,
     ) -> None:
         try:
             if not isinstance(executor, GovernedTinaExecutor):
@@ -216,6 +228,10 @@ class AmhTinaAdapter:
                 raise ValueError
             if dependentes_nome_executor is not None and not isinstance(
                 dependentes_nome_executor, GovernedTinaExecutor
+            ):
+                raise ValueError
+            if procedimentos_executor is not None and not isinstance(
+                procedimentos_executor, GovernedTinaExecutor
             ):
                 raise ValueError
             pin = load_contract_pin(pin_path)
@@ -250,6 +266,16 @@ class AmhTinaAdapter:
                     pin.artifact_digests,
                     (OP_DEPENDENTES_NOME,),
                 )
+            # Catalogo de procedimentos (manifest v1.14): so' com os bytes; o digest TEM de estar no pin.
+            self._procedimentos = procedimentos_openapi_bytes is not None
+            if procedimentos_openapi_bytes is not None:
+                self._carregar(
+                    procedimentos_openapi_bytes,
+                    ARTIFACT_PROCEDIMENTOS,
+                    pin.artifact_digests,
+                    (OP_PROCEDIMENTOS,),
+                )
+            self._executor_procedimentos = procedimentos_executor or executor
             self._executor = executor
             self._executor_carteirinha = carteirinha_executor or executor
             self._executor_cobertura = cobertura_executor or executor
@@ -332,6 +358,8 @@ class AmhTinaAdapter:
                 executor = self._executor_cobertura
             elif operacao == OP_DEPENDENTES_NOME:
                 executor = self._executor_dependentes_nome
+            elif operacao == OP_PROCEDIMENTOS:
+                executor = self._executor_procedimentos
             else:
                 executor = self._executor
             registradas = executor.registered_operations
@@ -375,7 +403,8 @@ class AmhTinaAdapter:
             body = _json(received.body)
             if not self._validators[operacao].is_valid(body):
                 return PortResult.refused(Reason.CONTRACT_VIOLATION)
-            if body["portable_subject_ref"] != portable_subject_ref:
+            # O catalogo (v1.14) e' dado de referencia: nao ha' sujeito para conferir.
+            if operacao != OP_PROCEDIMENTOS and body["portable_subject_ref"] != portable_subject_ref:
                 # A resposta e' de OUTRO sujeito: nunca devolver fato do plano de quem nao foi pedido.
                 return PortResult.refused(Reason.CONTRACT_VIOLATION)
             return PortResult.ok(body)
@@ -487,6 +516,30 @@ class AmhTinaAdapter:
         )
         return _converter(resultado, _carteirinhas)
 
+    async def get_catalogo_procedimentos(
+        self,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        pagina: int = 1,
+        tamanho: int = 1000,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[CatalogoProcedimentosView]:
+        """Uma pagina do catalogo de procedimentos (manifest v1.14; DL-0128). Sem o artefato carregado,
+        recusa fechada (`SCOPE_NOT_SUPPORTED`). Dado de referencia: nao ha' sujeito."""
+        if not self._procedimentos:
+            return PortResult.refused(Reason.SCOPE_NOT_SUPPORTED)
+        if type(pagina) is not int or type(tamanho) is not int:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._consultar(
+            OP_PROCEDIMENTOS,
+            "",
+            {"purpose_of_use": purpose_of_use, "pagina": pagina, "tamanho": tamanho},
+            consent_decision_ref=consent_decision_ref,
+            timeout_seconds=timeout_seconds,
+        )
+        return _converter(resultado, _catalogo)
+
     async def get_dependentes_nominais(
         self,
         portable_subject_ref: str,
@@ -546,6 +599,22 @@ def _converter(resultado: PortResult[dict[str, Any]], montar: Any) -> PortResult
         return PortResult.ok(montar(resultado.value))
     except Exception:
         return PortResult.refused(Reason.CONTRACT_VIOLATION)
+
+
+def _catalogo(body: dict[str, Any]) -> CatalogoProcedimentosView:
+    return CatalogoProcedimentosView(
+        versao_catalogo=body["versao_catalogo"],
+        pagina=body["pagina"],
+        total_paginas=body["total_paginas"],
+        total_itens=body["total_itens"],
+        itens=tuple(
+            ProcedimentoCatalogo(
+                codigo=i["codigo"], descricao=i["descricao"], tuss=i.get("nome_tuss"), grupo=i.get("grupo")
+            )
+            for i in body["itens"]
+        ),
+        fonte_atualizada_em=body["fonte_atualizada_em"],
+    )
 
 
 def _dependentes_nominais(body: dict[str, Any]) -> DependentesNominaisView:
@@ -722,6 +791,7 @@ __all__ = [
     "ARTIFACT_CARTEIRINHA",
     "ARTIFACT_COBERTURA",
     "ARTIFACT_DEPENDENTES_NOME",
+    "ARTIFACT_PROCEDIMENTOS",
     "ARTIFACT_DEPENDENTES",
     "HEADER_REQUEST_REF",
     "OPERATIONS",
@@ -729,6 +799,8 @@ __all__ = [
     "OP_CARTEIRINHA",
     "OP_COBERTURA",
     "OP_DEPENDENTES_NOME",
+    "OP_PROCEDIMENTOS",
+    "PURPOSE_PROCEDIMENTOS",
     "OP_DEPENDENTES",
     "OP_ELEGIBILIDADE",
     "OP_REQUISICOES",

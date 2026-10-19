@@ -289,6 +289,47 @@ class TinaDependentesNomePort(Protocol):
     ) -> PortResult[DependentesNominaisView]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ProcedimentoCatalogo:
+    """Um item do CATALOGO de procedimentos que a cobertura resolve por codigo (contrato `tina-procedimentos`,
+    manifest v1.14; DL-0128). Dado de REFERENCIA: nenhuma pessoa. `tuss` e' a designacao oficial TUSS do
+    codigo
+    (`nome_tuss` no contrato), `None` quando o codigo nao casa com a terminologia."""
+
+    codigo: str
+    descricao: str
+    tuss: str | None
+    grupo: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogoProcedimentosView:
+    """Uma PAGINA do catalogo. `versao_catalogo` e' a mesma em todas as paginas da mesma foto."""
+
+    versao_catalogo: str
+    pagina: int
+    total_paginas: int
+    total_itens: int
+    itens: tuple[ProcedimentoCatalogo, ...]
+    fonte_atualizada_em: str
+
+
+@runtime_checkable
+class TinaProcedimentosPort(Protocol):
+    """Leitura read-only do catalogo de procedimentos (contrato `tina-procedimentos`). Sem sujeito: dado de
+    referencia. Sucesso ou recusa, nunca excecao."""
+
+    async def get_catalogo_procedimentos(
+        self,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        pagina: int = 1,
+        tamanho: int = 1000,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[CatalogoProcedimentosView]: ...
+
+
 @runtime_checkable
 class TinaDependentesPort(Protocol):
     """Leitura read-only dos dependentes do titular (contrato `tina-dependentes`). Sucesso ou recusa, nunca
@@ -348,6 +389,9 @@ __all__ = [
     "CarteirinhaCompleta",
     "CarteirinhasView",
     "CarenciasView",
+    "CatalogoProcedimentosView",
+    "ProcedimentoCatalogo",
+    "TinaProcedimentosPort",
     "CoberturaItemView",
     "CoberturaView",
     "DependenteAnonimo",

@@ -236,6 +236,25 @@ def _extras(
     }
 
 
+async def _preparar_catalogo(dispatcher: Any, prazo_s: float = 480.0) -> None:
+    """Carrega o catalogo de procedimentos e espera o indice (DL-0128). Nunca levanta: sem catalogo, o roteiro
+    roda com a busca por texto da propria rota de cobertura."""
+    busca = getattr(getattr(dispatcher, "saude_gerativa", None), "catalogo", None)
+    leitor = getattr(getattr(dispatcher, "consultas_plano", None), "consultar_catalogo_procedimentos", None)
+    if busca is None or leitor is None:
+        logger.warning("simulador_catalogo_ausente")
+        return
+    try:
+        itens, versao = await leitor()
+        if itens:
+            busca.carregar(itens, versao)
+        pronto = await busca.esperar_indice(prazo_s)
+    except Exception as exc:  # o roteiro segue sem o catalogo
+        logger.warning("simulador_catalogo_falhou", error_type=type(exc).__name__)
+        return
+    logger.info("simulador_catalogo_pronto", itens=len(itens), indice=pronto)
+
+
 async def _executar_roteiro(args: argparse.Namespace, armazenamento: ArmazenamentoS3) -> int:
     """`--roteiro NOME`: o roteiro de aceite do dono (`aceite.py`), com o despachante real."""
     roteiro = aceite.ROTEIROS[args.roteiro]
@@ -317,6 +336,10 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
             "conversation_ids": conversation_ids,
         }
         await _gravar_json(armazenamento, run_id, "manifest.json", manifesto)
+        if str(args.roteiro).startswith("helena_cobertura"):
+            # DL-0128: o roteiro da cobertura assistida mede a traducao para o nome oficial, entao espera o
+            # catalogo e o indice por significado ficarem prontos (no receptor isso acontece na subida).
+            await _preparar_catalogo(composicao.dispatcher)
         logger.info("simulador_roteiro_iniciado", run_id=run_id, roteiro=args.roteiro, segmentos=len(roteiro))
         for segmento, plano, cid in zip(roteiro, planos, conversation_ids, strict=True):
             conversa = await condutor.preparar_conversa(plano)
