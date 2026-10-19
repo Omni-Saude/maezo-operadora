@@ -111,7 +111,13 @@ class _Alerter:
     def __init__(self, *, fail: bool = False) -> None:
         self.alerts: list[str] = []
         self.undeliverable: list[str] = []
+        self.refused: list[str] = []
         self._fail = fail
+
+    async def alert_resumption_refused(self, event: Any) -> None:
+        if self._fail:
+            raise ConnectionError("broker down")
+        self.refused.append(event.business_key)
 
     async def alert_outside_window(self, event: Any) -> None:
         if self._fail:
@@ -125,9 +131,10 @@ class _Alerter:
 
 
 class _Resumer:
-    def __init__(self, *, fail: Exception | None = None) -> None:
+    def __init__(self, *, fail: Exception | None = None, desfecho: str = "retomada_enviada") -> None:
         self.calls: list[dict[str, Any]] = []
         self._fail = fail
+        self._desfecho = desfecho
 
     async def resume(
         self, *, conversation_id: str, instrucoes: str, raw_to: str, resume_ref: str
@@ -142,7 +149,7 @@ class _Resumer:
         )
         if self._fail is not None:
             raise self._fail
-        return {"desfecho": "retomada_enviada"}
+        return {"desfecho": self._desfecho}
 
 
 class _DlqPublisher:
@@ -659,3 +666,81 @@ async def test_o_aviso_passa_pelo_portao_de_chave_de_particao_do_produtor_real()
     publicados = [(topic, key) for topic, _value, key in raw.sent if topic == topico]
     assert len(publicados) == 2
     assert all(key for _topic, key in publicados)
+
+
+# --- P6 (16/10/2026): recado barrado pela cerca do agente avisa a equipe -----------------------------
+
+
+async def test_recado_barrado_pela_cerca_avisa_a_equipe() -> None:
+    """A Helena barrou a nota e mandou o texto generico: antes NINGUEM sabia que a instrucao nao chegou."""
+    alerter = _Alerter()
+    handler, _, resumer = _handler(resumer=_Resumer(desfecho="retomada_recusada"), alerter=alerter)
+    receipt = await handler.handle(_evento())
+    assert receipt.outcome is ResumeOutcome.RESUMED and receipt.desfecho == "retomada_recusada"
+    assert alerter.refused == [_BK]
+    assert alerter.alerts == [] and alerter.undeliverable == []  # nao e' outro aviso
+
+
+@pytest.mark.parametrize("desfecho", ["retomada_enviada", "retomada_sem_instrucoes", ""])
+async def test_so_o_recado_barrado_avisa(desfecho: str) -> None:
+    alerter = _Alerter()
+    handler, _, _ = _handler(resumer=_Resumer(desfecho=desfecho), alerter=alerter)
+    await handler.handle(_evento())
+    assert alerter.refused == []
+
+
+async def test_aviso_do_recado_barrado_falho_propaga_e_offset_fica() -> None:
+    handler, _, resumer = _handler(
+        resumer=_Resumer(desfecho="retomada_recusada"), alerter=_Alerter(fail=True)
+    )
+    consumer = FakeBridgeKafkaConsumer([_msg(_evento())])
+    with pytest.raises(ConnectionError):
+        await run_resume_loop(consumer, handler)
+    assert consumer.commits == 0 and len(resumer.calls) == 1
+
+
+async def test_desfecho_recusado_e_o_mesmo_literal_do_grafo() -> None:
+    from maezo.agents.helena.graph import DESFECHO_RETOMADA_RECUSADA as NO_GRAFO
+    from maezo.platform.integrations import agent_resume
+
+    assert agent_resume.DESFECHO_RETOMADA_RECUSADA == NO_GRAFO
+
+
+async def test_aviso_do_recado_barrado_so_leva_identificadores() -> None:
+    from maezo.platform.integrations.agent_resume import NotifyTeamAlerter
+    from maezo.platform.integrations.notifications_inbox import parse_team_notice
+
+    class _Pub:
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, dict[str, Any], Any]] = []
+
+        async def publish(
+            self,
+            topic: str,
+            value: dict[str, Any],
+            *,
+            key: str | None = None,
+            best_effort: bool | None = None,
+        ) -> bool:
+            self.sent.append((topic, value, best_effort))
+            return True
+
+    pub = _Pub()
+    await NotifyTeamAlerter(pub).alert_resumption_refused(parse_process_completed(_evento(), tenant_id="amh"))
+    topic, value, best_effort = pub.sent[0]
+    assert topic == "operadora.notifications.internal" and best_effort is False
+    # So' identificadores e rotulos; `motivo_categoria=outro` (o vocabulario e' o do contrato).
+    assert set(value) == {
+        "type",
+        "tenant_id",
+        "business_key",
+        "grupo_atendimento",
+        "severidade",
+        "motivo_categoria",
+    }
+    assert value["motivo_categoria"] == "outro" and value["business_key"] == _BK
+    notice = parse_team_notice(value)
+    assert notice is not None and notice.business_key == _BK
+    assert (
+        "5511" not in json.dumps(value) and "guia" not in json.dumps(value).lower()
+    )  # nem telefone, nem nota

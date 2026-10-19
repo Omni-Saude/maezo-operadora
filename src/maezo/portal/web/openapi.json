@@ -5126,10 +5126,30 @@
               "resource_unavailable",
               "revision_conflict",
               "completion_unavailable",
-              "completion_dependency_unavailable"
+              "completion_dependency_unavailable",
+              "notes_too_long",
+              "resumption_refused"
             ],
             "title": "Code",
             "type": "string"
+          },
+          "refusal_group": {
+            "anyOf": [
+              {
+                "enum": [
+                  "negativa_clinica",
+                  "promessa_de_capacidade",
+                  "promessa_sem_start",
+                  "canal_nao_confirmado",
+                  "outra_regra"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusal Group"
           },
           "schema": {
             "const": "portal-completion-error.v1",

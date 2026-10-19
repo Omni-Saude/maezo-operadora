@@ -1431,10 +1431,10 @@
       }
     },
     {
-      "texto": "[RASCUNHO - redacao pendente de produto] Recebemos o retorno sobre o seu atendimento. Se quiser continuar, responda esta mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Desculpe, não consegui resolver isso agora. Pode me enviar sua mensagem de novo para eu tentar outra vez?",
       "rota": "retomada",
       "start_aconteceu": false,
-      "origem": "constante RETOMADA_RECUSADA_PLACEHOLDER (GAP-XHITL-4, placeholder de produto)",
+      "origem": "constante RETOMADA_RECUSADA_PLACEHOLDER (GAP-XHITL-4; redacao aprovada pelo dono em 19/10/2026, DL-0142)",
       "esperado": {
         "recusa": null,
         "canal": null,
