@@ -40,6 +40,7 @@ from .queue import (
     TaskDisclosureSource,
 )
 from .queue_cursor import AeadQueueCursorCustody
+from .read_audit import ReadAccessAuditSink
 from .read_credentials import unavailable
 from .read_profile import (
     AuthorityValue,
@@ -450,6 +451,7 @@ class EngineReadComposition:
         direct_completion: DirectTaskCompletion | None = None,
         completion_audit: CompletionAuditSink | None = None,
         escalation_context: EscalationContextSource | None = None,
+        read_audit: ReadAccessAuditSink | None = None,
     ) -> None:
         self._new_bundle = new_bundle
         self._transport_pool = transport_pool
@@ -466,6 +468,16 @@ class EngineReadComposition:
         # INTERIM (DL-0050): read-only, independent of the completion pair above, and dark unless a
         # composition installs it. `HumanGateway` checks its scope against its own.
         self._escalation_context = escalation_context
+        # DL-0150: the context read carries PHI (`resumo_contexto`), so it is never composed
+        # without the access record. A sink without a source is harmless and allowed: the same
+        # sink also serves the staff case detail (`staff_cases.service`).
+        if escalation_context is not None and read_audit is None:
+            raise unavailable()
+        self._read_audit = read_audit
+
+    @property
+    def read_audit(self) -> ReadAccessAuditSink | None:
+        return self._read_audit
 
     def build(self, resolver: HumanSessionResolver) -> HumanGateway:
         from .ports import BoundHumanPorts
@@ -497,6 +509,7 @@ class EngineReadComposition:
             ),
             completion_audit=self._completion_audit,
             escalation_context=self._escalation_context,
+            read_audit=self._read_audit,
             credentials=self._command_credentials,
             query=EngineHumanTaskQuery(bundle),
             catalog_anchor=bundle.anchor,

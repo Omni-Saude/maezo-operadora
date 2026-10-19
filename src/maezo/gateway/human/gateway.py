@@ -78,6 +78,7 @@ from .queue import (
     TaskDisclosureGrant,
     TaskDisclosureSource,
 )
+from .read_audit import ReadAccessAuditSink, ReadAccessEntry
 from .receipt import (
     BoundReceiptPorts,
     CurrentReceiptAuthority,
@@ -126,6 +127,7 @@ class HumanGateway:
         disclosure_source: TaskDisclosureSource | None = None,
         completion_audit: CompletionAuditSink | None = None,
         escalation_context: EscalationContextSource | None = None,
+        read_audit: ReadAccessAuditSink | None = None,
     ) -> None:
         self._scope = Scope.model_validate(scope)
         self._resolver = resolver
@@ -143,6 +145,9 @@ class HumanGateway:
         self._completion_audit = completion_audit
         # INTERIM (DL-0050): `None` keeps `read_escalation_context` refusing.
         self._escalation_context = escalation_context
+        # DL-0150: `None` keeps `read_escalation_context` refusing — a PHI read with no access
+        # record is the gap DL-0050 (a) registered, and it is not served.
+        self._read_audit = read_audit
         self._check_scope()
 
     def _check_scope(self) -> None:
@@ -164,6 +169,8 @@ class HumanGateway:
         ):
             raise GatewayRefusalError("credential_scope_mismatch")
         if self._escalation_context is not None and self._escalation_context.scope != self._scope:
+            raise GatewayRefusalError("credential_scope_mismatch")
+        if self._read_audit is not None and self._read_audit.scope != self._scope:
             raise GatewayRefusalError("credential_scope_mismatch")
 
         if self._decision_ports is not None and any(
@@ -705,6 +712,12 @@ class HumanGateway:
         route to read the process facts of a task it may not see, nor of a process that is not an
         escalation. The session is resolved again AFTER the remote read, and the read grants must
         outlive it, like every other read here.
+
+        DL-0150 (pendencia (a) do DL-0050): every SUCCESSFUL read appends exactly one
+        `portal_read.task_context` link to the tenant's audit chain — WHO (pseudonymous refs), WHAT
+        (task id + read code) and WHEN — and nothing of what was read. Fail-closed: no installed
+        sink refuses BEFORE the engine is asked; a sink that fails refuses the read and the
+        rendered context is discarded. A refused read writes no access link.
         """
         try:
             task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
@@ -721,6 +734,9 @@ class HumanGateway:
                 raise ReadRefusalError("resource_unavailable")
             source = self._escalation_context
             if source is None or source.scope != self._scope:
+                raise ReadRefusalError("read_dependency_unavailable")
+            audit = self._read_audit
+            if audit is None or audit.scope != self._scope:
                 raise ReadRefusalError("read_dependency_unavailable")
             try:
                 context = await source.read(task_id=task_id)
@@ -749,7 +765,19 @@ class HumanGateway:
                 resumo_contexto=context.resumo_contexto,
                 observed_at=now,
             )
-            return render(response)
+            result = render(response)
+            # LAST, after the whole authorization and the remote read, before anything leaves.
+            # A failure here is caught below as uncertainty: the context is NOT returned.
+            await audit.record(
+                ReadAccessEntry.of(
+                    scope=self._scope,
+                    read_kind="task_context",
+                    resource_ref=task_id,
+                    principal=final.principal,
+                    read_at=now,
+                )
+            )
+            return result
         except ReadRefusalError:
             raise
         except Exception:

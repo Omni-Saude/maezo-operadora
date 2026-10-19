@@ -142,6 +142,14 @@ async def test_read_composition_builds_the_full_bound_port_set(tmp_path):
     assert isinstance(gateway._catalog_source, EngineCatalogExpectationSource)
     assert isinstance(gateway._disclosure_source, EngineTaskDisclosure)
     assert isinstance(gateway._cursor_custody, AeadQueueCursorCustody)
+    # DL-0150: the read-access record is the tenant's Postgres chain, on the SAME pool as the
+    # outbox (one chain per tenant), installed in the gateway and exposed to the staff detail.
+    from maezo.gateway.human.read_audit_postgres import PostgresReadAccessAudit
+
+    assert isinstance(gateway._read_audit, PostgresReadAccessAudit)
+    assert gateway._read_audit is runtime.read.read_audit
+    assert gateway._read_audit.scope == runtime.scope
+    assert gateway._read_audit._sink._pool is runtime.assignment._outbox._pool
 
 
 async def test_synthetic_or_in_memory_provider_is_refused(tmp_path):
