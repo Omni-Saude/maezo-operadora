@@ -159,7 +159,7 @@ class TeamNotice:
     prioridade: str | None = None
     motivo_categoria: str | None = None
     #: Which notification this line came from. `escalation.notify_team` (default) or
-    #: `escalation.notify_supervisor` (DL-0126). NOT a column: it only enters the digest below,
+    #: `escalation.notify_supervisor` (DL-0131). NOT a column: it only enters the digest below,
     #: and only for the supervisor notice.
     notice_type: str = NOTIFY_TEAM_NOTIFICATION_TYPE
     #: The supervisor notice's reason (`sla_ack_breached` / `notificacao_primaria_falhou`, BPMN
@@ -187,7 +187,7 @@ class TeamNotice:
         digests it must be able to recompute (`portal/engine/profile.py::canonicalize`, the audit
         chain), so the same notice hashes identically in any process.
 
-        DL-0126 — SUPERVISOR NOTICES ONLY add `type` and `motivo_alerta` to the canonical content.
+        DL-0131 — SUPERVISOR NOTICES ONLY add `type` and `motivo_alerta` to the canonical content.
         The two supervisor alerts the BPMN can raise for ONE case (channel fallback
         `notificacao_primaria_falhou` and ack deadline `sla_ack_breached`) carry otherwise identical
         columns; without the reason in the digest the second would collapse into the first as a
@@ -258,7 +258,7 @@ def parse_team_notice(value: Any) -> TeamNotice | None:
 
     Three outcomes, and the distinction between the last two is the whole point:
 
-      * `None` — the message is neither `escalation.notify_team` nor (DL-0126)
+      * `None` — the message is neither `escalation.notify_team` nor (DL-0131)
         `escalation.notify_supervisor` (see `_parse_supervisor_notice`). This topic is shared
         with the SLA-risk alerts and every other internal notification, so a foreign `type` is the
         NORMAL case, not an error. Skipped silently; the offset may advance.
@@ -322,7 +322,7 @@ def parse_team_notice(value: Any) -> TeamNotice | None:
 def _parse_supervisor_notice(value: dict[str, Any]) -> TeamNotice:
     """`escalation.notify_supervisor` -> a line in the SAME table, addressed to the supervisor group.
 
-    DL-0126. The row's `grupo_atendimento` is the notice's `alert_to` (`supervisao-atendimento`,
+    DL-0131. The row's `grupo_atendimento` is the notice's `alert_to` (`supervisao-atendimento`,
     set by the publisher as a constant) — the group that must act — not the payload's own
     `grupo_atendimento`, which names the team that was (or should have been) on the hook. The
     payload carries only identifiers and closed labels (`type`, `tenant_id`, `business_key`,

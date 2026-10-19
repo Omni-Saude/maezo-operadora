@@ -137,7 +137,7 @@ _ESCALATION_PUBLISH_BPMN_ERROR_TOPICS = frozenset(
     }
 )
 
-#: DL-0126 — the RESOLUTION deadline of SP-OP-ESCALATION-001 (`BT_SlaResolucao`, interrupting)
+#: DL-0131 — the RESOLUTION deadline of SP-OP-ESCALATION-001 (`BT_SlaResolucao`, interrupting)
 #: never passes through `notify_supervisor`: the BPMN routes it to `ST_PublishResolBreach` (THIS
 #: worker, `event_topic=agents.events.escalation.sla_breached`, `event_fase=resolucao`) and then to
 #: `UT_SupervisorAssume`. This structured fact is emitted the moment that task reaches the worker —
