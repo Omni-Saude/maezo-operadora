@@ -876,6 +876,7 @@ def _tokens_numericos(fatos: Mapping[str, Any]) -> frozenset[str]:
 
 
 __all__ = [
+    "grau_legivel",
     "ADENDO_CLASSIFY_CONSULTAS",
     "CLASSIFY_CONSULTAS_ADENDO_VERSION",
     "CONSULTA_PLANO_PROMPT_VERSION",

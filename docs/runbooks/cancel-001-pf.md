@@ -32,8 +32,11 @@ No processo:
   coordenação (`coordenacao-contratos`) assume a mesma tarefa;
 - **retorno ao beneficiário** (pela retomada, `agent-resume`, com o texto fixo e o histórico do motor
   conferido):
-  - executado: "Seu plano foi cancelado a partir de DD/MM/AAAA. Protocolo: CAN-XXXX-XXXX. Se precisar de
-    algo, é só responder esta mensagem." (data = data do pedido — RN 412, **a confirmar pelo jurídico**);
+  - executado (`cancel-pf-v2`, aprovado pelo dono em 19/10/2026): "Seu pedido de cancelamento foi concluído.
+    O plano está cancelado a partir de DD/MM/AAAA (protocolo CAN-XXXX-XXXX). Se houver mensalidade ou
+    coparticipação pendente, ela continua devida. Se precisar de algo, é só responder aqui." (data = data do
+    pedido — RN 412, **a confirmar pelo jurídico**). **A frase dos valores pendentes ("Se houver mensalidade
+    ou coparticipação pendente, ela continua devida.") precisa de revisão jurídica antes de produção**;
   - jurídico pediu informação: "Sobre o seu pedido de cancelamento (protocolo …): a nossa equipe precisa de
     mais informações. Se quiser falar com uma pessoa da equipe, é só pedir aqui.";
   - jurídico decidiu manter: "… a nossa equipe analisou e o seu plano continua ativo. Se quiser entender, é só
@@ -222,7 +225,7 @@ Emergência: `terraform apply ... -var=cancel_pf_v1=false` com os mesmos `-targe
 - **Ponta a ponta no dev (WhatsApp real):** com um número de teste de um titular PF verificado: pedir o
   cancelamento, confirmar, conferir o protocolo; `MODO=listar` mostra a instância com o mesmo protocolo e a
   tarefa `UT_ExecutarCancelamentoCadastro`; concluir com `EXECUTADO` (portal, quando o PR do portal estiver no
-  ar, ou seção 3.5) e conferir a mensagem "Seu plano foi cancelado a partir de …" no WhatsApp (dentro de 24 h).
+  ar, ou seção 3.5) e conferir a mensagem "Seu pedido de cancelamento foi concluído. O plano está cancelado a partir de …" no WhatsApp (dentro de 24 h).
   **Não use beneficiário real que não seja de teste** e apague a instância depois (`MODO=apagar`).
 
 ## 7. Logs
