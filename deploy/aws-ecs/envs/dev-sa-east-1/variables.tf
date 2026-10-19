@@ -833,6 +833,20 @@ variable "helena_carteirinha_completa" {
   nullable    = false
 }
 
+variable "helena_dependentes_nome" {
+  description = <<-EOT
+    Nome completo dos dependentes na Helena (decisao do dono e DPO de 19/10/2026, DL-0127, "modelo de teste"
+    reversivel): `MAEZO_HELENA_DEPENDENTES_NOME`. Default `false` = a Helena de antes, byte a byte. Ligada, a lista
+    de dependentes e o "para quem e'?" da cobertura levam o nome completo de cada dependente do PROPRIO titular
+    verificado pela rota `tina-dependentes-nome` da AMH (manifest v1.13): acrescenta `interop/tina.dependentes_nome`
+    aos escopos pedidos ao Cognito e o caminho do OpenAPI na task definition (so' com `helena_consultas_amh`). O
+    receptor RECUSA servir sem o bloco `manifest_v1_13` no pin. EXPERIMENTO SO' EM DEV.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "helena_base_saude" {
   description = <<-EOT
     Base de conhecimento de saude da Helena (ADR-0064, DL-0118, 17/10/2026): `MAEZO_HELENA_BASE_SAUDE`.
@@ -940,6 +954,13 @@ variable "amh_tina_dependentes_openapi_path" {
   description = "Caminho, DENTRO da imagem, do OpenAPI `tina-dependentes` publicado (manifest v1.5; o digest tem de estar no bloco manifest_v1_5 do pin). Lido so' com helena_consultas_amh."
   type        = string
   default     = "/app/config/integrations/amh/openapi/tina-dependentes.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_dependentes_nome_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-dependentes-nome` (manifest v1.13; o digest tem de estar no bloco manifest_v1_13 do pin). Lido so' com helena_consultas_amh e helena_dependentes_nome. Vazio = sem a rota (nem o escopo `interop/tina.dependentes_nome`): a Helena mostra os dependentes sem nome."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-dependentes-nome.openapi.yaml"
   nullable    = false
 }
 

@@ -125,6 +125,7 @@ from maezo.gateway.amh_interop import (
     SCOPE_SEGUNDA_VIA,
     SCOPE_TINA,
     SCOPE_TINA_CARTEIRINHA,
+    SCOPE_TINA_DEPENDENTES_NOME,
     AmhBillingStatusExecutor,
     AmhConsentRecordExecutor,
     AmhDocumentResolutionExecutor,
@@ -136,6 +137,7 @@ from maezo.gateway.amh_interop import (
     AmhSubjectVerifyHasher,
     AmhTinaCarteirinhaExecutor,
     AmhTinaCoberturaExecutor,
+    AmhTinaDependentesNomeExecutor,
     AmhTinaExecutor,
     AmhV4Executor,
     CognitoClientCredentials,
@@ -666,6 +668,7 @@ def build_amh_interop(
     billing_atendimento: bool = False,
     incluir_v4: bool = False,
     incluir_tina_carteirinha: bool = False,
+    incluir_tina_dependentes_nome: bool = False,
 ) -> AmhInteropComposition:
     """A fonte REAL de cobranca/identidade do Lucas: executores do gateway -> adaptadores pinados.
 
@@ -716,6 +719,15 @@ def build_amh_interop(
     PROPRIO (`AmhTinaCarteirinhaExecutor`, finalidade `atendimento_whatsapp`). O adaptador so' sobe com o
     bloco `manifest_v1_12` no pin (sem ele LEVANTA e o receptor recusa servir). `False` (o default) = a
     composicao de antes, sem nada da carteirinha completa.
+
+    `incluir_tina_dependentes_nome=True` (SO' com `MAEZO_HELENA_CONSULTAS_AMH` E
+    `MAEZO_HELENA_DEPENDENTES_NOME` ligadas; decisao do dono e DPO de 19/10/2026, DL-0127, so' dev) exige
+    `incluir_tina=True`,
+    `amh_tina_dependentes_nome_openapi_path` e o escopo `interop/tina.dependentes_nome` em
+    `amh_interop_scopes`,
+    e acrescenta ao adaptador TINA a rota dos NOMES dos dependentes do proprio titular por um executor PROPRIO
+    (`AmhTinaDependentesNomeExecutor`). O adaptador so' sobe com o bloco `manifest_v1_13` no pin (sem ele
+    LEVANTA e o receptor recusa servir). `False` (o default) = a composicao de antes.
 
     Com `incluir_tina=True` e `amh_tina_cobertura_openapi_path` preenchido (decisao do dono D1 de 18/10/2026;
     manifest v1.9), o adaptador TINA ganha a rota de cobertura por procedimento por um executor PROPRIO
@@ -771,6 +783,12 @@ def build_amh_interop(
         exigidos["amh_tina_carteirinha_openapi_path"] = getattr(
             settings, "amh_tina_carteirinha_openapi_path", None
         )
+    if incluir_tina_dependentes_nome is True:
+        if incluir_tina is not True:
+            raise AmhInteropCompositionError("amh_interop_dependentes_nome_sem_tina")
+        exigidos["amh_tina_dependentes_nome_openapi_path"] = getattr(
+            settings, "amh_tina_dependentes_nome_openapi_path", None
+        )
     if incluir_acesso is True:
         exigidos["amh_subject_verify_key"] = verify_key
         exigidos["amh_subject_verification_openapi_path"] = getattr(
@@ -802,6 +820,8 @@ def build_amh_interop(
     if incluir_tina is True and SCOPE_TINA not in scopes:
         raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
     if incluir_tina_carteirinha is True and SCOPE_TINA_CARTEIRINHA not in scopes:
+        raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
+    if incluir_tina_dependentes_nome is True and SCOPE_TINA_DEPENDENTES_NOME not in scopes:
         raise AmhInteropCompositionError("amh_interop_escopos_insuficientes")
     if incluir_acesso is True and not {SCOPE_BY_OPERATION[OP_VERIFY], SCOPE_BY_OPERATION[OP_RECORD]} <= set(
         scopes
@@ -859,6 +879,17 @@ def build_amh_interop(
             ),
             "carteirinha_executor": carteirinha_executor,
         }
+        # Nomes dos dependentes do proprio titular (manifest v1.13; DL-0127): executor PROPRIO sobre o MESMO
+        # token (que ja' pediu `interop/tina.dependentes_nome`, conferido acima).
+        dependentes_nome_executor: AmhTinaDependentesNomeExecutor | None = None
+        if incluir_tina_dependentes_nome is True:
+            dependentes_nome_executor = AmhTinaDependentesNomeExecutor(
+                **{**comum, "purpose_of_use": PURPOSE_ATENDIMENTO_WHATSAPP}
+            )
+            tina_kwargs["dependentes_nome_openapi_bytes"] = _ler_openapi(
+                exigidos["amh_tina_dependentes_nome_openapi_path"]
+            )
+            tina_kwargs["dependentes_nome_executor"] = dependentes_nome_executor
         tina_bytes = _ler_openapi(exigidos["amh_tina_openapi_path"])
         # Cobertura por procedimento (manifest v1.9; decisao do dono D1 de 18/10/2026): OPCIONAL e NAO
         # derruba o resto. Com o caminho, executor PROPRIO (finalidade fixa `atendimento_whatsapp`, mesmo
@@ -882,6 +913,8 @@ def build_amh_interop(
         executores = (*executores, tina_executor)
         if carteirinha_executor is not None:
             executores = (*executores, carteirinha_executor)
+        if dependentes_nome_executor is not None:
+            executores = (*executores, dependentes_nome_executor)
         if cobertura_executor is not None:
             executores = (*executores, cobertura_executor)
     verification: AmhSubjectVerificationAdapter | None = None

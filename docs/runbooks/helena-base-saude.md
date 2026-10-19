@@ -242,3 +242,13 @@ atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com f
   titular verificado, mas nenhum contrato publicado traz o nome: proposta à AMH no DL-0126. Até lá a cerca de
   nomes continua e o dependente aparece como "dependente N (grau)".
 - **Desligar/desfazer:** revert do PR (só na allowlist da saúde gerativa).
+
+## 17. Nome completo dos dependentes (DL-0127, 19/10/2026)
+
+- **O que faz:** com `MAEZO_HELENA_DEPENDENTES_NOME` ligada (só dev), a lista de dependentes e o "para quem é?" da
+  cobertura mostram ao **próprio titular verificado** o nome completo de cada dependente do contrato dele, pela rota
+  AMH `tina-dependentes-nome` (manifest v1.13, escopo `interop/tina.dependentes_nome`). O nome só entra no envio;
+  estado, histórico, log e relatório do simulador ficam com o marcador / `[NOME-DEPENDENTE]`.
+- **Falha fechada:** rota fora, lista truncada, contagem diferente da rota anônima ou nome fora do padrão = o texto
+  de antes, sem nome.
+- **Desligar:** `helena_dependentes_nome = false` (tfvars) + apply direcionado do receptor e do simulador.

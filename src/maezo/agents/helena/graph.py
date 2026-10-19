@@ -234,17 +234,21 @@ from .consultas_plano import (
     CarteirinhasDoTurno,
     FonteDeFatosDoPlano,
     FonteIndisponivel,
+    NomesDoTurno,
     consulta_prompt,
     fatos_da_consulta,
     grau_legivel,
     ler_carteirinhas_completas,
+    ler_dependentes_nominais,
     literais_dos_fatos,
     motivo_de_omissao_da_elegibilidade,
     motivo_de_recusa_da_consulta,
     resposta_deterministica,
     segmentacao_dos_fatos,
     sem_marcador_de_carteirinha,
+    sem_marcador_de_dependente,
     so_deterministica,
+    texto_de_dependentes_com_nomes,
     texto_para_cerca,
 )
 from .helena_v4 import (
@@ -4626,6 +4630,7 @@ class HelenaGraph:
         helena_carteirinha_completa_enabled: bool = False,
         helena_base_saude_enabled: bool = False,
         base_saude: _bs.BaseSaude | None = None,
+        helena_dependentes_nome_enabled: bool = False,
         saude_gerativa: _sg.RedatorDeSaude | None = None,
     ) -> None:
         self._llm = inference
@@ -4636,6 +4641,14 @@ class HelenaGraph:
         # memoria, ate' o envio de `respond`).
         self._carteirinha_completa = helena_carteirinha_completa_enabled is True
         self._carteirinhas_do_turno: dict[str, CarteirinhasDoTurno] = {}
+        # NOME COMPLETO DOS DEPENDENTES (dono e DPO, 19/10/2026, DL-0127, `MAEZO_HELENA_DEPENDENTES_NOME`):
+        # DESLIGADA por default (o grafo de antes byte a byte). Ligada (so' em dev): a lista de dependentes e
+        # o "para quem e'?" da cobertura levam o nome completo de cada dependente do PROPRIO titular
+        # verificado.
+        # O nome vive so' em `_nomes_do_turno` (em memoria, ate' o envio de `respond`); texto, estado,
+        # historico e log levam so' o marcador / "dependente N".
+        self._dependentes_nome = helena_dependentes_nome_enabled is True
+        self._nomes_do_turno: dict[str, NomesDoTurno] = {}
         # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, `MAEZO_HELENA_BASE_SAUDE`): DESLIGADA por default,
         # e desligada e' o grafo de antes byte a byte (`self._base_saude` falso: nenhum ramo `_base_*` roda).
         # Ligada (so' em dev): a Helena INFORMA perguntas gerais de saude a partir da base curada versionada
@@ -7987,6 +8000,12 @@ class HelenaGraph:
         fatos = fatos_da_consulta(
             subtipo, view, so_ativos=self._carteirinha_completa, hoje=self._hoje_dos_vinculos()
         )
+        if self._dependentes_nome and subtipo == "dependentes" and fatos and fatos.get("eh_titular") is True:
+            # NOME COMPLETO DOS DEPENDENTES (DL-0127): so' com a lista nominal COMPLETA do proprio titular e
+            # do mesmo tamanho da contagem anonima; senao, o texto de sempre (sem nomes).
+            com_nomes = await self._dependentes_com_nome(state, ref, fatos)
+            if com_nomes is not None:
+                return com_nomes
         if fatos is None and subtipo == "dependentes":
             # Falha da consulta (prazo, erro, recusa): nunca "nao consta" — a verdade e' "nao consegui agora".
             logger.info(
@@ -8120,14 +8139,14 @@ class HelenaGraph:
             logger.info("helena_cobertura_rol", node="consultar_plano", resultado="sem_termo")
             return None
         if quem is None:
-            graus = await self._graus_dos_dependentes(ref)
+            graus, com_nome = await self._graus_dos_dependentes(state, ref)
             if graus:
                 # PARA QUEM (rodada do dono de 19/10/2026): com dependentes, pergunta antes de consultar.
                 logger.info(
                     "helena_cobertura_pergunta_para_quem", node="consultar_plano", dependentes=len(graus)
                 )
                 return {
-                    "response_text": pergunta_para_quem(graus),
+                    "response_text": pergunta_para_quem(graus, com_nome=com_nome),
                     "response_kind": "inform",
                     "coleta_pendente": PENDENTE_COBERTURA_PARA_QUEM,
                     "coleta_contexto": f"{termo}|{len(graus)}",
@@ -8165,7 +8184,45 @@ class HelenaGraph:
             "coleta_rodadas": 0,
         }
 
-    async def _graus_dos_dependentes(self, ref: str) -> list[str]:
+    async def _dependentes_com_nome(
+        self, state: Mapping[str, Any], ref: str, fatos: Mapping[str, Any]
+    ) -> dict[str, Any] | None:
+        """A resposta de dependentes com o nome completo (marcador; o nome so' no envio), ou `None`."""
+        nomes, graus = await ler_dependentes_nominais(
+            self._consultas, ref, state.get("message_ref"), prazo_s=CONSULTA_PRAZO_S
+        )
+        total = fatos.get("total_ativos")
+        if (
+            not nomes
+            or fatos.get("lista_truncada") is True
+            or not isinstance(total, int)
+            or total != len(graus)
+        ):
+            logger.info("helena_dependentes_nome", node="consultar_plano", com_nome=False)
+            return None
+        self._guardar_nomes(state, nomes)
+        logger.info("helena_dependentes_nome", node="consultar_plano", com_nome=True, dependentes=len(graus))
+        return {
+            "response_text": _com_emergencia_se_preciso(state, texto_de_dependentes_com_nomes(graus)),
+            "response_kind": "inform",
+            "consulta_literais": literais_dos_fatos(fatos),
+            "resposta_com_dados_do_plano": True,
+        }
+
+    async def _graus_dos_dependentes(self, state: Mapping[str, Any], ref: str) -> tuple[list[str], bool]:
+        """Os graus dos dependentes ATIVOS do titular (um por dependente), ou `[]`, e se os NOMES (DL-0127)
+        ficaram no turno. Com a chave dos nomes, a lista nominal do contrato `tina-dependentes-nome` (a mesma
+        ordem); sem ela ou com falha, o contrato anonimo."""
+        if self._dependentes_nome:
+            nomes, graus_nominais = await ler_dependentes_nominais(
+                self._consultas, ref, state.get("message_ref"), prazo_s=CONSULTA_PRAZO_S
+            )
+            if nomes and len(graus_nominais) <= 9:
+                self._guardar_nomes(state, nomes)
+                return [g for _, g in graus_nominais], True
+        return await self._graus_anonimos(ref), False
+
+    async def _graus_anonimos(self, ref: str) -> list[str]:
         """Os graus dos dependentes ATIVOS do titular (um por dependente, pelo contrato anonimo), ou `[]`."""
         view = await self._ler_consulta(ref, "dependentes")
         if view is None or isinstance(view, FonteIndisponivel):
@@ -8200,9 +8257,23 @@ class HelenaGraph:
                 self._carteirinhas_do_turno.pop(next(iter(self._carteirinhas_do_turno)))
             self._carteirinhas_do_turno[chave] = numeros
 
+    def _guardar_nomes(self, state: Mapping[str, Any], nomes: NomesDoTurno) -> None:
+        """Guarda os nomes dos dependentes do turno SO' em memoria (nunca no estado); `respond` os tira
+        daqui."""
+        chave = self._chave_do_turno(state)
+        self._nomes_do_turno.pop(chave, None)
+        if nomes:
+            while len(self._nomes_do_turno) >= 16:
+                self._nomes_do_turno.pop(next(iter(self._nomes_do_turno)))
+            self._nomes_do_turno[chave] = nomes
+
     def _texto_do_envio(self, state: Mapping[str, Any], texto: str) -> str:
         """O texto ENVIADO: com a chave da carteirinha completa, os marcadores viram o numero do turno (ou a
-        mascara, sem numero). Desligada, o texto como esta' (byte a byte)."""
+        mascara, sem numero); com a dos nomes dos dependentes (DL-0127), o marcador vira o nome completo (ou
+        "dependente N"). Desligadas, o texto como esta' (byte a byte)."""
+        if self._dependentes_nome:
+            nomes = self._nomes_do_turno.pop(self._chave_do_turno(state), None)
+            texto = nomes.preencher(texto) if nomes else sem_marcador_de_dependente(texto)
         if not self._carteirinha_completa:
             return texto
         numeros = self._carteirinhas_do_turno.pop(self._chave_do_turno(state), None)
@@ -9910,6 +9981,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     helena_v4_enabled = cfg.get("helena_v4_enabled", False) is True
     # Vinculo ativo e carteirinha completa (dono, 17/10/2026): `True` SO' quando a composicao disser.
     helena_carteirinha_completa_enabled = cfg.get("helena_carteirinha_completa_enabled", False) is True
+    # Nome completo dos dependentes (dono e DPO, 19/10/2026, DL-0127): `True` SO' quando a composicao disser.
+    helena_dependentes_nome_enabled = cfg.get("helena_dependentes_nome_enabled", False) is True
     # BASE DE SAUDE (ADR-0064, DL-0118): como a coleta, `True` SO' quando a composicao disser explicitamente.
     helena_base_saude_enabled = cfg.get("helena_base_saude_enabled", False) is True
     # SAUDE GERATIVA (ADR-0065, DL-0119): o redator SO' quando a composicao o passar (chave ligada).
@@ -9930,6 +10003,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         triagem_v2_enabled=triagem_v2_enabled,
         helena_v4_enabled=helena_v4_enabled,
         helena_carteirinha_completa_enabled=helena_carteirinha_completa_enabled,
+        helena_dependentes_nome_enabled=helena_dependentes_nome_enabled,
         helena_base_saude_enabled=helena_base_saude_enabled,
         saude_gerativa=saude_gerativa if isinstance(saude_gerativa, _sg.RedatorDeSaude) else None,
     ).compile_graph()

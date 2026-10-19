@@ -257,6 +257,11 @@ autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas 
                                        # `tina-carteirinha` (manifest v1.12), so' por texto fixo; L3 leitura;
                                        # sem tool MCP; DESLIGADA por padrao (MAEZO_HELENA_CARTEIRINHA_COMPLETA,
                                        # decisao do dono de 17/10/2026, so' dev)
+  - read_member_dependent_names       # NOMES COMPLETOS dos dependentes do PROPRIO titular verificado pelo
+                                       # contrato AMH `tina-dependentes-nome` (manifest v1.13), so' por texto
+                                       # fixo no envio; L3 leitura; sem tool MCP; DESLIGADA por padrao
+                                       # (MAEZO_HELENA_DEPENDENTES_NOME, decisao do dono e DPO de 19/10/2026,
+                                       # DL-0127, so' dev)
   - record_member_consent             # registro do consentimento (ACEITO/REVOGAR) no lago da AMH pelo contrato
                                        # `consent-record` (manifest v1.3, DRAFT); L3, escrita idempotente;
                                        # DESLIGADA por padrao (MAEZO_ACESSO_BENEFICIARIO, DL-0083). A verificacao
