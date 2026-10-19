@@ -215,6 +215,7 @@ def evento_do_resultado_da_helena(
     handoff: PedidoDeHandoff | None = None,
     lucas_escalou: bool = False,
     lucas_recusou: bool = False,
+    lucas_start_falhou: bool = False,
 ) -> EventoDoTurno:
     """Traduz o estado final do turno da Helena nos fatos que a maquina le'.
 
@@ -223,7 +224,9 @@ def evento_do_resultado_da_helena(
     `falha_tecnica` (classify falhou, handoff recusado), o start que falhou e a resposta honesta de
     falha de start. `lucas_recusou` (onda f) e' o quarto: o `LucasTurno` recusou o handoff (de
     outra mensagem) antes de qualquer efeito, entao a passagem nao aconteceu e o handoff do
-    resultado NAO conta (`handoff=None` por quem chama).
+    resultado NAO conta (`handoff=None` por quem chama). `lucas_start_falhou` (DL-0144) e' o quinto:
+    o start do Lucas (escalonamento ou cancelamento) falhou, nenhum humano foi acionado, e a conversa
+    volta a Helena como falha (`retorno_falha`), nunca como `lucas_encerrou`.
     """
     motivo = resultado.get("escalation_motivo")
     falha = (
@@ -231,6 +234,7 @@ def evento_do_resultado_da_helena(
         or bool(resultado.get("start_failed"))
         or resultado.get("response_kind") == "falha_tecnica_start"
         or lucas_recusou
+        or lucas_start_falhou
     )
     intent = resultado.get("intent")
     sintoma = resultado.get("sintoma_codigo")
@@ -618,6 +622,7 @@ class ConversaRouter:
         handoff: PedidoDeHandoff | None = None,
         lucas_escalou: bool = False,
         lucas_recusou: bool = False,
+        lucas_start_falhou: bool = False,
     ) -> Decisao:
         evento = evento_do_resultado_da_helena(
             resultado_helena,
@@ -625,6 +630,7 @@ class ConversaRouter:
             handoff=handoff,
             lucas_escalou=lucas_escalou,
             lucas_recusou=lucas_recusou,
+            lucas_start_falhou=lucas_start_falhou,
         )
         for tentativa in range(1, self._max_tentativas + 1):
             atual = await self._store.ler(conversation_id)

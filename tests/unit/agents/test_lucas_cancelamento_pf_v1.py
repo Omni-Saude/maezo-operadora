@@ -29,6 +29,7 @@ from maezo.agents.lucas.graph import (
     TEXTO_CANCELAMENTO_ADMINISTRADORA,
     TEXTO_CANCELAMENTO_EMPRESA,
     TEXTO_CANCELAMENTO_ENCAMINHADO,
+    TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR,
     TEXTO_CONFIRMA_CANCELAMENTO,
     LucasGraph,
     LucasState,
@@ -194,7 +195,9 @@ async def test_chave_desligada_dependente_ainda_recebe_a_pergunta_de_antes() -> 
 async def test_chave_desligada_portao_de_dedup_continua_virando_falha_de_start() -> None:
     final, envio, _ = await _turno(_confirmado(**_fatos_pf()), v1=False, sink=_SinkSemDedup())
     assert final.get("start_failed") is True and final["process_started"] is False
-    assert envio.textos == []
+    # DL-0144 (dono, 19/10/2026): a falha de start do cancelamento avisa, UMA vez, com o texto fixo.
+    assert envio.textos == [TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR]
+    assert final["mensagem_enviada"] is True and final["desfecho"] == "erro_inicio_processo"
 
 
 # =================================================================================================
@@ -311,8 +314,22 @@ class _SinkSemDedup:
 
 async def test_portao_de_dedup_nao_avaliavel_propaga_com_a_chave_ligada() -> None:
     """Defeito conhecido da rodada 12: virava 'falhou ao iniciar'. E' defeito do controle: propaga alto."""
+    envio = _Envio()
+    grafo = LucasGraph(
+        inference=_Inferencia(),  # type: ignore[arg-type]
+        dmn=DmnDraftLocal(),
+        cibseven=FakeCibSevenTransport(),
+        audit_sink=_SinkSemDedup(),
+        whatsapp=envio,
+        hoje=lambda: date(2026, 10, 15),
+        limiares_atraso=LimiaresDeAtraso(),
+        cancelamento_pf_v1=True,
+    )
     with pytest.raises(StartDedupGateUnavailableError):
-        await _turno(_confirmado(**_fatos_pf(), **_titular_verificado()), v1=True, sink=_SinkSemDedup())
+        await grafo.compile_graph().compile().ainvoke(_confirmado(**_fatos_pf(), **_titular_verificado()))
+    # Propaga ANTES do no de falha: o Lucas nao envia o aviso (quem responde e' o caminho de falha do
+    # despachante, que escala pela Helena). Nenhuma mensagem de falha do Lucas, nenhuma duplicata.
+    assert envio.textos == []
 
 
 class _MotorFora(FakeCibSevenTransport):
@@ -327,16 +344,23 @@ async def test_falha_de_start_cita_o_processo_de_cancelamento() -> None:
         final, envio, _ = await _turno(
             _confirmado(**_fatos_pf(), **_titular_verificado()), v1=True, motor=_MotorFora()
         )
-    assert final.get("start_failed") is True and envio.textos == []
+    assert final.get("start_failed") is True
+    # DL-0144 (dono, 19/10/2026): exatamente UMA mensagem, a constante — nunca protocolo nem "registrado".
+    assert envio.textos == [TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR]
+    assert final["mensagem_enviada"] is True and final["ack_pending"] is True
     falhas = [e for e in logs if e.get("event") == "agent_process_start_failed"]
     assert falhas and {e["process_key"] for e in falhas} == {"SP-OP-CANCEL-001"}
 
 
-async def test_falha_de_start_com_a_chave_desligada_mantem_o_aviso_de_antes() -> None:
+async def test_falha_de_start_com_a_chave_desligada_tambem_cita_o_processo_de_cancelamento() -> None:
+    """DL-0144: desligada, o start tentado tambem e' o SP-OP-CANCEL-001 (`_start_cancelamento` nao depende
+    da chave). O aviso de antes citava o SP-OP-ESCALATION-001, que nem foi tentado — era o defeito."""
     with capture_logs() as logs:
-        await _turno(_confirmado(**_fatos_pf()), v1=False, motor=_MotorFora())
+        final, envio, _ = await _turno(_confirmado(**_fatos_pf()), v1=False, motor=_MotorFora())
+    assert final.get("iniciar_cancelamento") is True and final.get("start_failed") is True
+    assert envio.textos == [TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR]
     falhas = [e for e in logs if e.get("event") == "agent_process_start_failed"]
-    assert falhas and {e["process_key"] for e in falhas} == {"SP-OP-ESCALATION-001"}
+    assert falhas and {e["process_key"] for e in falhas} == {"SP-OP-CANCEL-001"}
 
 
 def test_os_fatos_novos_sao_entradas_classificadas_e_sem_texto() -> None:
@@ -655,3 +679,77 @@ async def test_chave_desligada_a_desistencia_mantem_o_texto_antigo(v1: bool | No
         _estado(confirmacao="nega", pendente=True, **_fatos_pf(), **_titular_verificado()), v1=v1
     )
     assert envio.textos == [TEXTO_CANCELAMENTO_DESISTIU] and not motor._history
+
+
+# =================================================================================================
+# DL-0144: o aviso da falha de start do cancelamento (texto aprovado pelo dono em 19/10/2026)
+# =================================================================================================
+
+
+@pytest.mark.parametrize("v1", [None, False, True])
+async def test_start_do_cancelamento_com_sucesso_nao_envia_o_aviso_de_falha(v1: bool | None) -> None:
+    final, envio, _ = await _turno(_confirmado(**_fatos_pf(), **_titular_verificado()), v1=v1)
+    assert final["process_started"] is True and final.get("start_failed") is not True
+    assert TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR not in envio.textos
+    assert len(envio.textos) == 1
+
+
+class _EnvioQueFalha(_Envio):
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
+        raise ConnectionError("whatsapp fora (teste)")
+
+
+class _EnvioSuprimido(_Envio):
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str) -> dict[str, Any]:
+        self.textos.append(text)
+        return {"suppressed_duplicate": True}
+
+
+@pytest.mark.parametrize(("envio", "enviada"), [(_EnvioQueFalha, False), (_EnvioSuprimido, False)])
+async def test_aviso_de_falha_que_nao_foi_entregue_nao_conta_como_enviado(envio: type, enviada: bool) -> None:
+    remetente = envio()
+    grafo = LucasGraph(
+        inference=_Inferencia(),  # type: ignore[arg-type]
+        dmn=DmnDraftLocal(),
+        cibseven=_MotorFora(),
+        audit_sink=FakeStartAuditSink(),
+        whatsapp=remetente,
+        hoje=lambda: date(2026, 10, 15),
+        limiares_atraso=LimiaresDeAtraso(),
+        cancelamento_pf_v1=True,
+    )
+    final = dict(
+        await grafo.compile_graph().compile().ainvoke(_confirmado(**_fatos_pf(), **_titular_verificado()))
+    )
+    assert final.get("start_failed") is True and final["desfecho"] == "erro_inicio_processo"
+    assert final["mensagem_enviada"] is enviada
+
+
+async def test_falha_do_start_do_escalonamento_continua_sem_texto() -> None:
+    """So' o cancelamento ganhou texto (decisao do dono); o start falho do ESCALATION segue calado."""
+    contestacao = new_lucas_state(
+        {
+            "tenant_id": "amh",
+            "conversation_id": _CONVERSA,
+            "canal": "whatsapp",
+            "beneficiario_pseudo_id": "pseudo-cancelpf",
+            "to_hash": "hash-cancelpf",
+            "intencao": "cobranca_info",
+            "tipo_solicitacao": "",
+            "contesta_cobranca": True,
+            **_fatos_pf(),
+        }
+    )
+    final, envio, _ = await _turno(contestacao, v1=True, motor=_MotorFora())
+    assert final.get("start_failed") is True and final.get("iniciar_cancelamento") is not True
+    assert envio.textos == []
+
+
+def test_aviso_de_falha_e_honesto_sem_dado_e_na_regua_de_tom() -> None:
+    texto = TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR
+    assert "Nenhum pedido foi registrado" in texto and "de novo" in texto
+    assert not frases_longas(texto) and not palavras_proibidas(texto) and not problemas_de_tom(texto)
+    baixo = texto.lower()
+    for proibida in ("cancelado", "protocolo", "equipe", "vamos te", "registramos", "{", "}"):
+        assert proibida not in baixo
+    assert not re.search(r"\d", texto)  # nenhum numero: nem protocolo, nem data, nem identificador

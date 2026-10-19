@@ -235,3 +235,54 @@ async def test_veredito_aponta_chave_e_texto_que_nao_batem() -> None:
     cancel = next(c for c in CASOS if c["id"] == "L39")
     outra_chave = {**resultado, "final": {**resultado["final"], "business_key": "ESC-amh-x"}}
     assert any("CANCEL-" in d for d in veredito(cancel, outra_chave)[1])
+
+
+# DL-0144 (frente C do SP-OP-ESCALATION-001): a divergencia de start falho cita o processo TENTADO.
+def _resultado_de_start_falho(*, iniciar_cancelamento: bool) -> dict[str, Any]:
+    return {
+        "rejeitado": False,
+        "final": {
+            "route": "escalate_human",
+            "process_started": False,
+            "start_failed": True,
+            "iniciar_cancelamento": iniciar_cancelamento,
+        },
+        "mensagem": None,
+        "enviados": [],
+    }
+
+
+def test_processo_da_falha_e_o_cancelamento_quando_o_turno_iniciava_o_cancelamento() -> None:
+    caso = next(c for c in CASOS if c["id"] == "L01")
+    _, div, _ = veredito(caso, _resultado_de_start_falho(iniciar_cancelamento=True))
+    assert "falha ao iniciar SP-OP-CANCEL-001" in div
+    assert not any("SP-OP-ESCALATION-001" in d for d in div)
+
+
+def test_processo_da_falha_e_o_escalonamento_sem_cancelamento() -> None:
+    caso = next(c for c in CASOS if c["id"] == "L01")
+    _, div, _ = veredito(caso, _resultado_de_start_falho(iniciar_cancelamento=False))
+    assert "falha ao iniciar SP-OP-ESCALATION-001" in div
+    assert not any("SP-OP-CANCEL-001" in d for d in div)
+
+
+class _GrafoDeStartFalhoNoCancelamento:
+    async def ainvoke(self, entrada: Any) -> dict[str, Any]:
+        del entrada
+        return {
+            "route": "escalate_human",
+            "process_started": False,
+            "start_failed": True,
+            "iniciar_cancelamento": True,
+        }
+
+
+async def test_processo_da_falha_chega_ao_veredito_pela_saida_do_caso() -> None:
+    """`executar_caso` leva `iniciar_cancelamento` na saida: sem isso o veredito nunca o veria."""
+    caso = next(c for c in CASOS if c["id"] == "L01")
+    gravador = GravadorDeEnvios(_Zap())
+    resultado = await executar_caso(
+        _GrafoDeStartFalhoNoCancelamento(), gravador, caso, indice=0, execucao="offline"
+    )
+    assert resultado["final"]["iniciar_cancelamento"] is True
+    assert "falha ao iniciar SP-OP-CANCEL-001" in veredito(caso, resultado)[1]
