@@ -146,6 +146,8 @@ _SUBTREES_ESPERADOS = {
     "spec/agents",
     # ADR-0064/DL-0118: a base de conhecimento de saude da Helena (`base_saude.raiz_padrao()`).
     "spec/conhecimento/saude",
+    # DL-0128: os sinonimos genericos da cobertura assistida (`catalogo_procedimentos.raiz_dos_sinonimos()`).
+    "spec/conhecimento/cobertura",
 }
 
 

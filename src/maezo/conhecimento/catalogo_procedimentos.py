@@ -38,10 +38,10 @@ from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROG
 logger = structlog.get_logger(__name__)
 
 #: Nota combinada minima para um candidato ser PROPOSTO (abaixo: "nao localizei").
-NOTA_MINIMA: Final[float] = 0.42
+NOTA_MINIMA: Final[float] = 0.40
 #: Nota e folga sobre o segundo para o primeiro ser escolhido SEM perguntar.
-NOTA_CERTA: Final[float] = 0.70
-FOLGA_CERTA: Final[float] = 0.08
+NOTA_CERTA: Final[float] = 0.60
+FOLGA_CERTA: Final[float] = 0.07
 #: Peso do significado na nota combinada (o resto e' o lexico).
 PESO_SIGNIFICADO: Final[float] = 0.6
 MAX_CANDIDATOS: Final[int] = 3
@@ -161,7 +161,10 @@ class Sinonimo:
 
 
 def raiz_dos_sinonimos() -> Path:
-    return Path(__file__).resolve().parents[3] / "spec" / "conhecimento" / "cobertura" / "sinonimos.yaml"
+    """`spec/conhecimento/cobertura/sinonimos.yaml` pelo mesmo ponto unico de `spec/` (`resolve_spec_dir`)."""
+    from maezo.agents import resolve_spec_dir  # import tardio: evita ciclo no import do pacote
+
+    return resolve_spec_dir() / "conhecimento" / "cobertura" / "sinonimos.yaml"
 
 
 def carregar_sinonimos(caminho: Path | None = None) -> tuple[Sinonimo, ...]:
@@ -215,24 +218,77 @@ def expandir(termo: str, sinonimos: Iterable[Sinonimo]) -> str:
 
 
 # --- Lexico ------------------------------------------------------------------------------------------------
-def _casa(palavra: str, alvo: set[str]) -> bool:
-    if palavra in alvo:
+def _prefixo_comum(a: str, b: str) -> int:
+    n = 0
+    for x, y in zip(a, b, strict=False):
+        if x != y:
+            break
+        n += 1
+    return n
+
+
+def _casa_palavra(palavra: str, outra: str) -> bool:
+    """Mesma palavra, ou a mesma RAIZ (flexao: "pelve"/"pelvica", "cranio"/"craniana"): prefixo comum de 5+
+    letras que deixa de fora no maximo as 2 ultimas letras da palavra mais curta."""
+    if palavra == outra:
         return True
-    if len(palavra) >= 5:
-        raiz = palavra[:5]
-        return any(a.startswith(raiz) for a in alvo if len(a) >= 5)
-    return False
+    curta = min(len(palavra), len(outra))
+    return curta >= 5 and _prefixo_comum(palavra, outra) >= max(5, curta - 2)
 
 
-def nota_lexica(termo: str, procedimento: Procedimento, peso: Mapping[str, float]) -> float:
-    """Fracao (ponderada por raridade) das palavras do termo que aparecem no nome do procedimento."""
-    termos = palavras(termo)
-    if not termos:
+def _casa(palavra: str, alvo: set[str]) -> bool:
+    return palavra in alvo or any(_casa_palavra(palavra, a) for a in alvo)
+
+
+#: Itens ADMINISTRATIVOS do catalogo (taxa, aluguel, pacote, laudo, revisao, diaria, honorario, material,
+#: kit):
+#: regra GERAL de catalogo — perdem para o procedimento em si quando o significado e' parecido.
+_ADMINISTRATIVO: Final[re.Pattern[str]] = re.compile(
+    r"^(?:taxa|aluguel|pacote|laudo|revisao|diaria|honorario|material|kit|remocao|transporte|junta|anestesia"
+    r"|acompanhamento)|domiciliar|por procedimento"
+)
+PENALIDADE_ADMINISTRATIVO: Final[float] = 0.75
+
+
+def grupos_do_termo(termo: str, sinonimos: Iterable[Sinonimo] = ()) -> list[set[str]]:
+    """Uma alternativa por palavra do termo: a propria palavra e as palavras do nome OFICIAL dos sinonimos
+    populares que a contem ("ultrassom" -> {ultrassom, ultrassonografia, us})."""
+    plano = normalizar(termo)
+    grupos: list[set[str]] = []
+    for w in dict.fromkeys(palavras(termo)):
+        alternativas = {w}
+        for s in sinonimos:
+            if any(
+                w in p.split() and re.search(rf"(?<![a-z0-9]){re.escape(p)}(?![a-z0-9])", plano)
+                for p in s.populares
+            ):
+                alternativas.update(palavras(s.oficial))
+        grupos.append(alternativas)
+    return grupos
+
+
+def nota_lexica(
+    termo: str,
+    procedimento: Procedimento,
+    peso: Mapping[str, float],
+    grupos: Sequence[set[str]] | None = None,
+) -> float:
+    """Quanto as palavras do termo e do nome do procedimento se cobrem (ponderado por raridade): 70% o que do
+    TERMO aparece no nome (cada palavra vale com qualquer das suas alternativas de sinonimo), 30% o que do
+    NOME aparece no termo (o nome cheio de outras coisas perde)."""
+    grupos = grupos if grupos is not None else [{w} for w in dict.fromkeys(palavras(termo))]
+    alvo_lista = palavras(procedimento.documento())
+    if not grupos or not alvo_lista:
         return 0.0
-    alvo = set(palavras(procedimento.documento()))
-    total = sum(peso.get(p, 1.0) for p in termos)
-    achado = sum(peso.get(p, 1.0) for p in termos if _casa(p, alvo))
-    return achado / total if total else 0.0
+    alvo = set(alvo_lista)
+    total = sum(max(peso.get(p, 1.0) for p in g) for g in grupos)
+    achado = sum(max(peso.get(p, 1.0) for p in g) for g in grupos if any(_casa(p, alvo) for p in g))
+    todas = set().union(*grupos)
+    total_nome = sum(peso.get(p, 1.0) for p in alvo)
+    achado_nome = sum(peso.get(p, 1.0) for p in alvo if _casa(p, todas))
+    r = achado / total if total else 0.0
+    q = achado_nome / total_nome if total_nome else 0.0
+    return 0.7 * r + 0.3 * q
 
 
 class TransporteDeEmbeddings(Protocol):
@@ -367,12 +423,15 @@ class BuscaDeProcedimentos:
         self.agendar_indice()
         consulta = expandir(termo, self.sinonimos)
         notas_sem = await self._significado(consulta)
-        lexicas = [nota_lexica(consulta, p, self._peso) for p in self._itens]
+        grupos = grupos_do_termo(termo, self.sinonimos)
+        lexicas = [nota_lexica(termo, p, self._peso, grupos) for p in self._itens]
         combinadas: list[tuple[float, float, float, int]] = []
         for i, lex in enumerate(lexicas):
             sem = float(notas_sem[i]) if notas_sem is not None else 0.0
             # Sem o significado, so' o lexico decide (com o mesmo limiar).
             nota = PESO_SIGNIFICADO * sem + (1 - PESO_SIGNIFICADO) * lex if notas_sem is not None else lex
+            if _ADMINISTRATIVO.match(normalizar(self._itens[i].descricao)):
+                nota *= PENALIDADE_ADMINISTRATIVO
             combinadas.append((nota, sem, lex, i))
         combinadas.sort(key=lambda t: (-t[0], self._itens[t[3]].codigo))
         candidatos: list[Candidato] = []
@@ -413,6 +472,7 @@ __all__ = [
     "Sinonimo",
     "carregar_sinonimos",
     "expandir",
+    "grupos_do_termo",
     "nota_lexica",
     "normalizar",
     "palavras",

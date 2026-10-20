@@ -12,17 +12,17 @@
 versao: 1
 sinonimos:
   - populares: [ultrassom, ultrassonografia, ultrasom, ultra som, ecografia]
-    oficial: ultrassonografia
-    fonte: TUSS (grupo de diagnostico por ultrassonografia)
+    oficial: ultrassonografia US
+    fonte: TUSS (grupo de diagnostico por ultrassonografia; prefixo US)
   - populares: [raio x, raio-x, raiox, rx, chapa]
-    oficial: radiografia
+    oficial: radiografia RX
     fonte: TUSS (grupo de radiologia; prefixo RX)
   - populares: [tomografia, tomo]
-    oficial: tomografia computadorizada
-    fonte: TUSS (grupo de tomografia computadorizada)
+    oficial: tomografia computadorizada TC
+    fonte: TUSS (grupo de tomografia computadorizada; prefixo TC)
   - populares: [ressonancia, ressonancia magnetica, rm]
-    oficial: ressonancia magnetica
-    fonte: TUSS (grupo de ressonancia magnetica)
+    oficial: ressonancia magnetica RM
+    fonte: TUSS (grupo de ressonancia magnetica; prefixo RM)
   - populares: [endoscopia]
     oficial: endoscopia digestiva alta
     fonte: TUSS (procedimentos endoscopicos diagnosticos)

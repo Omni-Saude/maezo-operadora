@@ -955,6 +955,21 @@ async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
     )
 
 
+async def _aquecer_catalogo(dispatcher: Any) -> None:
+    """Carrega o catalogo de procedimentos (rota TINA v1.14) e agenda o indice (DL-0128). Nunca levanta."""
+    busca = getattr(getattr(dispatcher, "saude_gerativa", None), "catalogo", None)
+    leitor = getattr(getattr(dispatcher, "consultas_plano", None), "consultar_catalogo_procedimentos", None)
+    if busca is None or leitor is None:
+        return
+    try:
+        itens, versao = await leitor()
+        if itens:
+            busca.carregar(itens, versao)
+            busca.agendar_indice()
+    except Exception as exc:  # o catalogo e' melhoria: sem ele, a busca por texto da rota de cobertura
+        logger.warning("catalogo_procedimentos_aquecimento_falhou", error_type=type(exc).__name__)
+
+
 async def _bring_up_dependencies(state: WebhookState) -> None:
     """STEP A: bounded, non-fatal. Pure dispatcher CONSTRUCTION (no I/O) followed by the ONE
     bounded bring-up I/O this receiver now performs — the durable checkpointer's connect+setup()
@@ -1130,8 +1145,18 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
 
         retencao_task = asyncio.create_task(laco_de_retencao(state.acesso, shutdown), name="acesso-retencao")
 
+    # DL-0128: o catalogo de procedimentos e o indice por significado da cobertura assistida sobem em SEGUNDO
+    # PLANO no boot (uns 4 minutos), para a primeira pergunta de cobertura ja' achar o nome oficial.
+    catalogo_task: asyncio.Task[None] | None = None
+    if state.dispatcher is not None:
+        catalogo_task = asyncio.create_task(
+            _aquecer_catalogo(state.dispatcher), name="catalogo-procedimentos"
+        )
+
     logger.info("webhook_receiver_running")
     await shutdown.wait()
+    if catalogo_task is not None and not catalogo_task.done():
+        catalogo_task.cancel()
     if retencao_task is not None:
         retencao_task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
