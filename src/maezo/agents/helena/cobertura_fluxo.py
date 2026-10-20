@@ -157,7 +157,7 @@ class FluxoDeCobertura:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:
             modelo = None
-        pedido = ca.combinar(modelo, reserva)
+        pedido = ca.confirmar_pelo_texto(ca.combinar(modelo, reserva), texto)
         logger.info(
             "helena_cobertura_extraida",
             pelo_modelo=pedido.pelo_modelo,
@@ -254,7 +254,50 @@ class FluxoDeCobertura:
         opcoes = [(c.procedimento.codigo, c.procedimento.nome) for c in resultado.candidatos]
         if len(opcoes) == 1:
             return await self._consultar_um(ctx, opcoes[0][0], opcoes[0][1], prefixo=prefixo)
+        iguais = await self._mesma_resposta(ctx, opcoes, prefixo=prefixo)
+        if iguais is not None:
+            return iguais
         return self._opcoes(ctx, termo, opcoes, prefixo=prefixo)
+
+    async def _mesma_resposta(
+        self, ctx: ca.Contexto, opcoes: list[tuple[str, str]], *, prefixo: str
+    ) -> dict[str, Any] | None:
+        """Varios parecidos com a MESMA resposta do cadastro (mesma situacao, diretriz e carencia): responde
+        uma vez, citando os nomes, sem fazer a pessoa escolher. Qualquer diferenca ou falha = `None`
+        (opcoes)."""
+        leituras = await asyncio.gather(*(self._ler(codigo) for codigo, _ in opcoes))
+        assinaturas = set()
+        primeiro: tuple[Any, Any] | None = None
+        for (_codigo, nome), (view, falhou) in zip(opcoes, leituras, strict=True):
+            item = ca.item_escolhido(view, nome) if not falhou else None
+            if item is None:
+                return None
+            pendentes = tuple(
+                getattr(c, "termina_em", None)
+                for c in getattr(item, "carencias", ()) or ()
+                if getattr(c, "cumprida", None) is False
+            )
+            assinaturas.add(
+                (getattr(item, "situacao", None), bool(getattr(item, "tem_diretriz", False)), pendentes)
+            )
+            if primeiro is None:
+                primeiro = (view, item)
+        if len(assinaturas) != 1 or primeiro is None:
+            return None
+        view, item = primeiro
+        nomes = " / ".join(ca.nome_legivel(n) for _, n in opcoes)
+        logger.info("helena_cobertura_parecidos_com_a_mesma_resposta", opcoes=len(opcoes))
+        frase, oferece = ca.texto_de_um_resultado(view, item, nomes)
+        texto = ca.montar_resposta([frase], view=view, oferece_equipe=oferece, prefixo=prefixo)
+        if (ctx.quem or "").startswith("dependente"):
+            texto = f"{texto} {AVISO_DO_DEPENDENTE}"
+        return _update(
+            texto,
+            ca.PEND_EQUIPE if oferece else PEND_RESPONDIDO,
+            replace(ctx, opcoes=[], tentativas=0, respondidos=[*ctx.respondidos, nomes][-4:]),
+            consulta_literais=literais_da_cobertura(view),
+            resposta_com_dados_do_plano=True,
+        )
 
     def _opcoes(
         self, ctx: ca.Contexto, termo: str, opcoes: list[tuple[str, str]], *, prefixo: str
@@ -324,7 +367,9 @@ class FluxoDeCobertura:
             # E3: a MESMA pergunta de novo: nao repete o texto; reconhece e oferece o proximo passo.
             logger.info("helena_cobertura_repetida")
             return _update(prefixo + ca.TEXTO_REPETIDA.format(nome=nome_final), ca.PEND_EQUIPE, ctx)
-        frase, oferece = ca.texto_de_um_resultado(view, item, nome_final)
+        frase, oferece = ca.texto_de_um_resultado(
+            view, item, ca.nome_legivel(str(nome_final)) if nome_final else None
+        )
         texto = ca.montar_resposta([frase], view=view, oferece_equipe=oferece, prefixo=prefixo)
         if (ctx.quem or "").startswith("dependente"):
             texto = f"{texto} {AVISO_DO_DEPENDENTE}"

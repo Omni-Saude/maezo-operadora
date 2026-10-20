@@ -3547,7 +3547,7 @@ def _pergunta_de_cobertura(texto: str) -> bool:
 _PERGUNTA_DE_COBERTURA_AMPLA = re.compile(
     r"\b(?:(?:o |meu )?(?:plano|convenio) (?:paga|custeia|inclui|libera|autoriza|da direito)"
     r"|tenho direito (?:a|ao|de)|posso fazer\b.{0,80}\bpelo (?:plano|convenio)"
-    r"|(?:faz|fazem|faco|fazer) pelo (?:plano|convenio)|tem cobertura|e coberto|e coberta"
+    r"|tem cobertura|e coberto|e coberta"
     r"|onde (?:faco|fazer|posso fazer|eu faco)\b.{0,60}\bpelo (?:plano|convenio))\b"
 )
 #: O prefixo das pendencias da cobertura assistida (`cobertura_assistida.PREFIXO`).
