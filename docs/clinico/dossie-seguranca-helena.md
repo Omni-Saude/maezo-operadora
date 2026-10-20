@@ -62,7 +62,7 @@ marca as respostas, mas ele só ajuda a achar casos.
    marcados `rascunho_pendente_revisao_medica` foram **escritos por IA** (Claude Sonnet 5.5) na fase 5 e nunca
    foram lidos por médico; alguns não têm página leiga oficial de apoio ("Texto da operadora", referência sem
    link). Cada texto aprovado passa a `revisao_medica: aprovada`; o incorreto é corrigido ou sai.
-3. **As regras de alarme** (aba "Regras de alarme"): as **34 regras** clínicas das tabelas
+3. **As regras de alarme** (aba "Regras de alarme"): as **40 regras** clínicas das tabelas
    `spec/processes/dmn/triage_redflag_*.dmn` (adulto, criança, gestante, saúde mental), mais as linhas de
    fallback, que decidem 192/CVV/caso prioritário. Estão marcadas `CONTEUDO CLINICO: DRAFT`. Junto delas, a
    régua de extração (`docs/design/regua-de-extracao.md`), que traduz a frase da pessoa no código da tabela.
@@ -71,7 +71,7 @@ marca as respostas, mas ele só ajuda a achar casos.
 
 `spec/agents/helena/agent.yaml` tem dois donos: `tecnico` (comportamento, prompt, deploy) e `clinico` (as
 regras das tabelas, a régua de extração e o que a Helena pode afirmar). Hoje `owners.clinico` está **vazio de
-propósito**: ele só é preenchido pelo **mesmo ato** que assina as 34 regras — o arquivo
+propósito**: ele só é preenchido pelo **mesmo ato** que assina as 40 regras — o arquivo
 `docs/processes/contracts/signoffs/SP-OP-ESCALATION-001.signoff.yaml`. A partir do momento em que esse arquivo
 existir, um teste do CI (`tests/unit/agents/test_helena_dono_declarado.py`) **exige** o campo preenchido com o
 nome de quem assinou. Nenhum agente de IA preenche esse campo.

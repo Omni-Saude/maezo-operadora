@@ -9,7 +9,7 @@
 >
 > Este ADR existe para que o **dono clínico** possa **RATIFICAR OU DERRUBAR** cada uma delas,
 > separadamente. Ele **não preenche nenhum campo de assinatura**: `owners.clinico`
-> (`spec/agents/helena/agent.yaml:38`) segue vazio, e a cerca
+> (`spec/agents/helena/agent.yaml:67`) segue vazio, e a cerca
 > `tests/unit/agents/test_helena_dono_declarado.py` só passa a exigi-lo quando
 > `docs/processes/contracts/signoffs/SP-OP-ESCALATION-001.signoff.yaml` existir. Assinatura é ato
 > de pessoa; nenhum agente assina no lugar dela.

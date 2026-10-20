@@ -64,7 +64,7 @@ reports_to: "gestor.atendimento@amh"
 # antes seria a quinta casca vazia deste projeto.
 owners:
   tecnico: "Leonardo Silva <lsilva@austa.com.br>"
-  clinico: ""   # preenchido pelo mesmo ato que assina as 34 regras (Frente 4)
+  clinico: ""   # preenchido pelo mesmo ato que assina as 40 regras (Frente 4)
   runbook_incidente: docs/runbooks/helena-erro-com-beneficiario.md
 security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
