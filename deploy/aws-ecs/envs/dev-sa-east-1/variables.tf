@@ -978,6 +978,13 @@ variable "amh_tina_carteirinha_openapi_path" {
   nullable    = false
 }
 
+variable "amh_tina_cpt_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-cpt` (manifest v1.15, DL-0130: CPT vigente do proprio sujeito; o digest tem de estar no bloco manifest_v1_15 do pin). Lido so' com helena_consultas_amh. Vazio (default) = sem a rota: a Helena nao da' o aviso de CPT; falha de leitura/digest deixa so' a CPT de fora."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
 variable "amh_tina_cobertura_openapi_path" {
   description = "Caminho, DENTRO da imagem, do OpenAPI `tina-cobertura` (manifest v1.9; o digest tem de estar no bloco manifest_v1_9 do pin). Lido so' com helena_consultas_amh. Vazio (default) = sem a rota de cobertura por procedimento; falha de leitura/digest deixa so' a cobertura de fora."
   type        = string

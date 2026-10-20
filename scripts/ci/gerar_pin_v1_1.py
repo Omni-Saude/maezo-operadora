@@ -7,7 +7,7 @@ bloco, o caminho do manifest, o `manifest_version` exigido e a lista de artefato
 v1.1, entao toda invocacao antiga faz exatamente o que fazia. O rigor e' o MESMO para os dois: o bloco
 so' e' gravado se o verificador (`check_manifest_additive`) aceitar, e um bloco ja' existente nunca e'
 sobrescrito (pin imutavel). O nome do arquivo ficou por compatibilidade com runbooks e testes.
-`--manifest-version` aceita todo manifest de `ADDITIVE_BY_VERSION` (v1.1 a v1.14; o v1.4, de 09/10/2026, e'
+`--manifest-version` aceita todo manifest de `ADDITIVE_BY_VERSION` (v1.1 a v1.15; o v1.4, de 09/10/2026, e'
 o billing-status 0.2.0 com a finalidade `atendimento_whatsapp`; o v1.5, de 13/10/2026, a rota TINA de
 dependentes).
 

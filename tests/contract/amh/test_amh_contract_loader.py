@@ -284,6 +284,7 @@ def test_loaded_digests_match_the_pin_file_verbatim() -> None:
             "manifest_v1_12",
             "manifest_v1_13",
             "manifest_v1_14",
+            "manifest_v1_15",
         )
         for a in lock.get(key, {}).get("artifacts", [])
     ]

@@ -42,12 +42,14 @@ from maezo.ports.tina import (
     CarenciasView,
     CarteirinhasView,
     CoberturaView,
+    CptVigenteView,
     DependentesNominaisView,
     DependentesView,
     ElegibilidadeView,
     RequisicoesView,
     TinaCarteirinhaPort,
     TinaCoberturaPort,
+    TinaCptPort,
     TinaDependentesNomePort,
     TinaDependentesPort,
     TinaPort,
@@ -74,6 +76,10 @@ _View = ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | 
 PURPOSE_CARTEIRINHA: Final[str] = "atendimento_whatsapp"
 #: A UNICA finalidade da rota da cobertura por procedimento (enum do contrato `tina-cobertura`).
 PURPOSE_COBERTURA: Final[str] = "atendimento_whatsapp"
+#: A UNICA finalidade da rota da CPT vigente (enum do contrato `tina-cpt`, manifest v1.15; DL-0130).
+PURPOSE_CPT: Final[str] = "atendimento_whatsapp"
+#: Teto da leitura da CPT (base legal + uma leitura curta): sem resposta a tempo, nenhum aviso.
+PRAZO_TOTAL_CPT_S: Final[float] = 11.0
 #: Quantos procedimentos a cobertura pede (contrato: 1..10, padrao 5). Termo generico volta `truncada`.
 LIMITE_COBERTURA: Final[int] = 5
 
@@ -284,6 +290,45 @@ class ConsultasPlanoAmh:
             motivo=motivo,
             itens=len(view.itens) if view is not None else 0,
         )
+        return view
+
+    async def consultar_cpt(self, portable_subject_ref: str) -> CptVigenteView | None:
+        """A CPT vigente do PROPRIO sujeito (rota `tina-cpt`, manifest v1.15; caso C1 do dono e DPO de
+        20/10/2026, DL-0130), ou `None`. NUNCA levanta.
+
+        `None` = a rota nao esta' carregada (`scope_not_supported`), sem base legal, 404 (rota desligada /
+        sujeito sem plano), 429, qualquer outra recusa, prazo, ou resposta de OUTRO sujeito. Nada da CPT vai a
+        log: so' o motivo (token fechado)."""
+        motivo = "ok"
+        view: CptVigenteView | None = None
+        try:
+            async with asyncio.timeout(PRAZO_TOTAL_CPT_S):
+                if not isinstance(self.port, TinaCptPort):
+                    motivo = "rota_nao_carregada"
+                else:
+                    base_legal = await self.consentimento.decisao(portable_subject_ref, PURPOSE_CPT)
+                    if base_legal is None:
+                        motivo = "sem_base_legal"
+                    else:
+                        resultado = await self.port.get_cpt_vigente(
+                            portable_subject_ref,
+                            purpose_of_use=PURPOSE_CPT,
+                            consent_decision_ref=base_legal,
+                            timeout_seconds=PRAZO_LEITURA_S,
+                        )
+                        if not resultado.succeeded or resultado.value is None:
+                            falha = resultado.failure
+                            motivo = falha.reason.value if falha is not None else "recusa"
+                        elif getattr(resultado.value, "portable_subject_ref", None) != portable_subject_ref:
+                            motivo = "fatos_de_outro_sujeito"
+                        else:
+                            view = resultado.value
+        except TimeoutError:
+            motivo = "prazo_estourado"
+        except Exception as exc:
+            logger.warning("helena_cpt_falhou", error_type=type(exc).__name__)
+            return None
+        logger.info("helena_cpt_lida", motivo=motivo)
         return view
 
     async def consultar_dependentes_nominais(

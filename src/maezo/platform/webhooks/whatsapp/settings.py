@@ -733,6 +733,12 @@ class WhatsAppWebhookSettings(BaseSettings):
             "MAEZO_AMH_TINA_PROCEDIMENTOS_OPENAPI_PATH", "amh_tina_procedimentos_openapi_path"
         ),
     )
+    # O OpenAPI da CPT VIGENTE do proprio sujeito (`tina-cpt`, manifest v1.15; DL-0130). Opcional: falha de
+    # leitura/digest deixa so' a CPT de fora (a cobertura assistida responde sem o aviso de CPT).
+    amh_tina_cpt_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_TINA_CPT_OPENAPI_PATH", "amh_tina_cpt_openapi_path"),
+    )
     amh_tina_dependentes_nome_openapi_path: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
