@@ -447,6 +447,14 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_plan_facts",
     ),
+    # CPT VIGENTE do proprio sujeito (caso C1 do dono e DPO de 20/10/2026, DL-0130; manifest aditivo v1.15;
+    # executor `AmhTinaCptExecutor`): sim/nao, contagem e maior data de fim, nunca o CID. Fato do plano:
+    # mesma classe e acao da cobertura (a governanca liga/desliga junto com ela).
+    OperationSpec(
+        operation="amh.tina_get_cpt_vigente",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
     OperationSpec(
         operation="amh.tina_get_dependentes_nome",
         action_class="leitura_phi_clinica",

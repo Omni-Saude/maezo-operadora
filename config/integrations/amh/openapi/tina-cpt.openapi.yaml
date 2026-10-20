@@ -1,0 +1,194 @@
+# tina-cpt.openapi.yaml — rota NOVA da TINA: o PRÓPRIO sujeito verificado tem COBERTURA PARCIAL TEMPORÁRIA (CPT) VIGENTE, e
+# até quando (artefato novo, porta própria TinaCptPort; manifest v1.15).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# Decisão do dono de 20/10/2026 (dono da organização, CTO e DPO; autorizou a rota TINA nova e a versão aditiva do contrato):
+# aprovado pelo dono (filipecarmo81) em 20/10/2026. Modelo de teste em dev, reversível. Ver
+# docs/governance/cpt-vigente-whatsapp-2026-10-20.md.
+# O `tina-cobertura.openapi.yaml` publicado no v1.9 NÃO muda um byte: esta é uma rota NOVA, ao lado dele.
+# PARA QUE SERVE. CPT é a carência de doença ou lesão preexistente declarada na contratação. O consumidor dá um aviso GERAL
+# ("há uma cobertura parcial temporária no seu plano até tal data") SÓ quando `tem_cpt_vigente = true`; sem CPT vigente,
+# não fala de CPT.
+# MINIMIZAÇÃO (dado de saúde, LGPD art. 11):
+#  * o CID e o nome da doença/lesão NUNCA saem — a rota nem os lê da gold;
+#  * sai SÓ: se há CPT vigente, QUANTAS linhas de CPT vigentes (contagem), a MAIOR data de fim entre elas e a data da fonte;
+#  * nada de nome, CPF, carteirinha, contrato, tipo ou código de carência;
+#  * `natureza = informacao_cadastral_nao_e_autorizacao` (constante): fato do cadastro, nunca autorização nem promessa.
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH TINA cobertura parcial temporária vigente do próprio sujeito (TinaCptPort)
+  version: 0.1.0
+  description: |
+    Se o beneficiário tem cobertura parcial temporária (CPT) VIGENTE e até quando, por `portable_subject_ref`.
+    Fonte: gold `tina_carencia_tipo` (linhas com `cpt = true`; só as colunas de prazo `vence_em` e `cumprida`).
+    VIGENTE = não cumprida e com data de fim desconhecida ou a partir de hoje (o serviço confere com a data do dia).
+    READ-ONLY por contrato (somente GET).
+    BASE LEGAL: execução de contrato (LGPD art. 7º, V, e art. 11, II, d), como as demais rotas TINA do atendimento; decisão
+    do dono (DPO) de 20/10/2026 para dev; produção pede nova decisão.
+    FINALIDADE: única, `atendimento_whatsapp`.
+    FRESCOR: foto do lago; `fonte.atualizada_em` informa a idade.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/tina/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11).
+security:
+  - bearerAuth: []
+tags:
+  - name: tina-cpt
+    description: Cobertura parcial temporária vigente do próprio sujeito (sim/não, contagem e data de fim; nunca o CID).
+paths:
+  /subjects/{portable_subject_ref}/cpt:
+    get:
+      tags: [tina-cpt]
+      operationId: getCptVigente
+      summary: Se o próprio sujeito tem cobertura parcial temporária vigente, e até quando
+      description: |
+        Pré-condições: escopo `interop/tina.read`; `purpose_of_use=atendimento_whatsapp`; rota LIGADA no serviço (padrão
+        desligada: 404); sujeito com plano conhecido (senão 404). Limite por sujeito compartilhado com as rotas TINA de
+        busca (`rede-credenciada`, `cobertura`): 60 pedidos a cada 10 minutos (429). Auditoria estruturada por leitura,
+        ANTES da resposta e sem o conteúdo (sem auditoria, 500). A resposta traz `Cache-Control: no-store`.
+        `tem_cpt_vigente = false` diz SÓ que o cadastro não tem CPT vigente; não diz que um procedimento está coberto.
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+      responses:
+        '200':
+          description: Situação da CPT do sujeito (com ou sem CPT vigente).
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ['no-store'] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CptVigente'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo `interop/tina.read` — fail-closed.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05). A resposta fala SÓ deste sujeito.
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD FIXO desta rota. Qualquer outro valor é 400.
+      schema:
+        type: string
+        enum: [atendimento_whatsapp]
+      example: atendimento_whatsapp
+  schemas:
+    CptVigente:
+      type: object
+      required: [portable_subject_ref, tem_cpt_vigente, cpt_vigentes, termina_em, natureza, fonte]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          description: A ref do próprio sujeito consultado.
+        tem_cpt_vigente:
+          type: boolean
+          description: >-
+            Há ao menos uma CPT não cumprida (data de fim desconhecida ou a partir de hoje). `false` => `cpt_vigentes = 0`
+            e `termina_em = null`.
+        cpt_vigentes:
+          type: integer
+          minimum: 0
+          maximum: 200
+          description: QUANTAS linhas de CPT vigentes o cadastro tem (só a contagem; nunca qual doença ou tipo).
+        termina_em:
+          type: string
+          format: date
+          nullable: true
+          description: >-
+            A MAIOR data de fim entre as CPT vigentes (AAAA-MM-DD). `null` quando não há CPT vigente ou nenhuma delas
+            informa a data.
+        natureza:
+          type: string
+          enum: [informacao_cadastral_nao_e_autorizacao]
+          description: Constante. A resposta é informação do cadastro do plano, nunca autorização nem promessa.
+        fonte:
+          $ref: '#/components/schemas/Fonte'
+      example:
+        portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+        tem_cpt_vigente: true
+        cpt_vigentes: 1
+        termina_em: '2027-03-01'
+        natureza: informacao_cadastral_nao_e_autorizacao
+        fonte:
+          tabela: tina_carencia_tipo
+          atualizada_em: '2026-10-20T12:00:00Z'
+    Fonte:
+      type: object
+      required: [tabela, atualizada_em]
+      additionalProperties: false
+      properties:
+        tabela:
+          type: string
+          enum: [tina_carencia_tipo]
+        atualizada_em:
+          type: string
+          format: date-time
+          nullable: true
+          description: Quando a gold foi construída pela última vez. `null` se a fonte não informa.
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional SEM PHI. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada (finalidade inválida, ref fora do padrão).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: FAIL-CLOSED — escopo ou finalidade não permitidos; nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Rota desligada, sujeito desconhecido/sem plano (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Limite de consultas por sujeito excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno ou falha da auditoria (sem detalhe no corpo).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

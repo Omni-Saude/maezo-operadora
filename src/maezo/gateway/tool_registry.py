@@ -138,6 +138,7 @@ from maezo.gateway.amh_interop import (
     AmhTinaCarteirinhaExecutor,
     AmhTinaCatalogoExecutor,
     AmhTinaCoberturaExecutor,
+    AmhTinaCptExecutor,
     AmhTinaDependentesNomeExecutor,
     AmhTinaExecutor,
     AmhV4Executor,
@@ -657,6 +658,37 @@ def _cobertura_tina(
     return executor, dados
 
 
+def _cpt_tina(
+    settings: Any, comum: dict[str, Any], tina_bytes: bytes, tina_executor: Any
+) -> tuple[AmhTinaCptExecutor | None, bytes | None]:
+    """O executor e os bytes da rota `tina-cpt` (manifest v1.15; DL-0130), ou `(None, None)`.
+
+    Opcional como a cobertura e o catalogo, e ISOLADA: os bytes so' entram depois de um adaptador de prova
+    aceita-los (digest no bloco `manifest_v1_15` do pin e schema da rota), para um defeito da CPT nunca
+    derrubar a cobertura nem o catalogo. Falha = so' um log de erro com o motivo. NUNCA levanta."""
+    caminho = getattr(settings, "amh_tina_cpt_openapi_path", None)
+    if not caminho or not isinstance(caminho, str):
+        return None, None
+    try:
+        dados = _ler_openapi(caminho)
+    except Exception as exc:
+        logger.error("amh_interop_cpt_fora", motivo="leitura", error_type=type(exc).__name__)
+        return None, None
+    try:
+        executor = AmhTinaCptExecutor(**{**comum, "purpose_of_use": PURPOSE_ATENDIMENTO_WHATSAPP})
+    except Exception as exc:
+        logger.error("amh_interop_cpt_fora", motivo="composicao", error_type=type(exc).__name__)
+        return None, None
+    try:
+        from maezo.adapters.amh.tina import AmhTinaAdapter
+
+        AmhTinaAdapter(tina_bytes, executor=tina_executor, cpt_openapi_bytes=dados, cpt_executor=executor)
+    except Exception as exc:
+        logger.error("amh_interop_cpt_fora", motivo="contrato", error_type=type(exc).__name__)
+        return None, None
+    return executor, dados
+
+
 def build_amh_interop(
     *,
     settings: Any,
@@ -907,6 +939,12 @@ def build_amh_interop(
                 logger.error("amh_interop_catalogo_fora", motivo="composicao", error_type=type(exc).__name__)
                 catalogo_executor = None
         tina_bytes = _ler_openapi(exigidos["amh_tina_openapi_path"])
+        # CPT vigente do proprio sujeito (manifest v1.15; DL-0130): OPCIONAL e conferida a parte (nao derruba
+        # a cobertura, o catalogo nem o resto). Mesmo token `interop/tina.read`.
+        cpt_executor, cpt_bytes = _cpt_tina(settings, comum, tina_bytes, tina_executor)
+        if cpt_executor is not None:
+            tina_kwargs["cpt_openapi_bytes"] = cpt_bytes
+            tina_kwargs["cpt_executor"] = cpt_executor
         # Cobertura por procedimento (manifest v1.9; decisao do dono D1 de 18/10/2026): OPCIONAL e NAO
         # derruba o resto. Com o caminho, executor PROPRIO (finalidade fixa `atendimento_whatsapp`, mesmo
         # token `interop/tina.read`); falha de leitura ou de digest = a rota NAO entra (log de erro, so' o
@@ -943,6 +981,8 @@ def build_amh_interop(
             executores = (*executores, catalogo_executor)
         if cobertura_executor is not None:
             executores = (*executores, cobertura_executor)
+        if cpt_executor is not None:
+            executores = (*executores, cpt_executor)
     verification: AmhSubjectVerificationAdapter | None = None
     consents: AmhConsentRecordAdapter | None = None
     verify_hasher: AmhSubjectVerifyHasher | None = None

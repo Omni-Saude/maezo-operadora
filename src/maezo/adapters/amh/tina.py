@@ -33,6 +33,13 @@ OPCIONAL como as outras: sem `cobertura_openapi_bytes=`, `get_cobertura` recusa 
 Finalidade FIXA `atendimento_whatsapp` (enum do contrato), por isso a E/S pode ir por um executor PROPRIO
 (`cobertura_executor=`; a finalidade do executor de sempre pode ser outra). O termo pedido (`procedimento`)
 so' atravessa no pedido, validado pelo schema do parametro; a resposta nao o devolve e nada aqui o loga.
+
+CPT VIGENTE (caso C1 autorizado pelo dono e DPO em 20/10/2026, DL-0130): a rota
+`GET .../subjects/{ref}/cpt` vive no artefato `tina-cpt.openapi.yaml` (manifest aditivo v1.15, bloco
+`manifest_v1_15` do pin). OPCIONAL: sem `cpt_openapi_bytes=`, `get_cpt_vigente` recusa com
+`SCOPE_NOT_SUPPORTED`. Finalidade FIXA `atendimento_whatsapp` e escopo `interop/tina.read` (o mesmo da
+cobertura): a E/S vai por um executor PROPRIO (`cpt_executor=`). A resposta e' minimizada na fonte (sem CID
+nem doenca): so' o sim/nao, a contagem e a maior data de fim.
 """
 
 from __future__ import annotations
@@ -64,6 +71,7 @@ from maezo.ports.tina import (
     CatalogoProcedimentosView,
     CoberturaItemView,
     CoberturaView,
+    CptVigenteView,
     DependenteAnonimo,
     DependenteNominal,
     DependentesNominaisView,
@@ -86,6 +94,8 @@ ARTIFACT_DEPENDENTES_NOME: Final[str] = "schemas/openapi/maezo/v1/tina-dependent
 ARTIFACT_PROCEDIMENTOS: Final[str] = "schemas/openapi/maezo/v1/tina-procedimentos.openapi.yaml"
 #: Manifest aditivo v1.9 (PUBLISHED em 16/10/2026). O digest esta' no bloco `manifest_v1_9` do pin.
 ARTIFACT_COBERTURA: Final[str] = "schemas/openapi/maezo/v1/tina-cobertura.openapi.yaml"
+#: Manifest aditivo v1.15 (DL-0130): a CPT VIGENTE do proprio sujeito. Digest no bloco `manifest_v1_15`.
+ARTIFACT_CPT: Final[str] = "schemas/openapi/maezo/v1/tina-cpt.openapi.yaml"
 OP_ELEGIBILIDADE: Final[str] = "amh.tina_get_elegibilidade"
 OP_CARENCIAS: Final[str] = "amh.tina_get_carencias"
 OP_REQUISICOES: Final[str] = "amh.tina_get_requisicoes"
@@ -97,6 +107,10 @@ OP_COBERTURA: Final[str] = "amh.tina_get_cobertura"
 OP_DEPENDENTES_NOME: Final[str] = "amh.tina_get_dependentes_nome"
 #: `operationId: getCatalogoProcedimentos` do contrato `tina-procedimentos` (manifest v1.14).
 OP_PROCEDIMENTOS: Final[str] = "amh.tina_get_catalogo_procedimentos"
+#: `operationId: getCptVigente` do contrato `tina-cpt` (manifest v1.15).
+OP_CPT: Final[str] = "amh.tina_get_cpt_vigente"
+#: A UNICA finalidade da rota da CPT (enum do contrato `tina-cpt`).
+PURPOSE_CPT: Final[str] = "atendimento_whatsapp"
 #: A UNICA finalidade do catalogo (enum do contrato).
 PURPOSE_PROCEDIMENTOS: Final[str] = "atendimento_whatsapp"
 OPERATIONS: Final[frozenset[str]] = frozenset(
@@ -109,6 +123,7 @@ OPERATIONS: Final[frozenset[str]] = frozenset(
         OP_COBERTURA,
         OP_DEPENDENTES_NOME,
         OP_PROCEDIMENTOS,
+        OP_CPT,
     }
 )
 #: A UNICA finalidade da rota da carteirinha (enum do contrato).
@@ -130,6 +145,7 @@ _ROTAS: Final[dict[str, tuple[str, str]]] = {
     OP_COBERTURA: ("/subjects/{portable_subject_ref}/cobertura", "Cobertura"),
     OP_DEPENDENTES_NOME: ("/subjects/{portable_subject_ref}/dependentes/nomes", "DependentesNominais"),
     OP_PROCEDIMENTOS: ("/procedimentos", "CatalogoProcedimentos"),
+    OP_CPT: ("/subjects/{portable_subject_ref}/cpt", "CptVigente"),
 }
 _ROTAS_FATOS: Final[tuple[str, ...]] = (OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES)
 Reason = PortFailureReason
@@ -216,6 +232,8 @@ class AmhTinaAdapter:
         dependentes_nome_executor: GovernedTinaExecutor | None = None,
         procedimentos_openapi_bytes: bytes | None = None,
         procedimentos_executor: GovernedTinaExecutor | None = None,
+        cpt_openapi_bytes: bytes | None = None,
+        cpt_executor: GovernedTinaExecutor | None = None,
     ) -> None:
         try:
             if not isinstance(executor, GovernedTinaExecutor):
@@ -233,6 +251,8 @@ class AmhTinaAdapter:
             if procedimentos_executor is not None and not isinstance(
                 procedimentos_executor, GovernedTinaExecutor
             ):
+                raise ValueError
+            if cpt_executor is not None and not isinstance(cpt_executor, GovernedTinaExecutor):
                 raise ValueError
             pin = load_contract_pin(pin_path)
             self._validators: dict[str, Draft4Validator] = {}
@@ -276,6 +296,11 @@ class AmhTinaAdapter:
                     (OP_PROCEDIMENTOS,),
                 )
             self._executor_procedimentos = procedimentos_executor or executor
+            # CPT vigente (manifest v1.15): so' com os bytes; o digest TEM de estar no pin.
+            self._cpt = cpt_openapi_bytes is not None
+            if cpt_openapi_bytes is not None:
+                self._carregar(cpt_openapi_bytes, ARTIFACT_CPT, pin.artifact_digests, (OP_CPT,))
+            self._executor_cpt = cpt_executor or executor
             self._executor = executor
             self._executor_carteirinha = carteirinha_executor or executor
             self._executor_cobertura = cobertura_executor or executor
@@ -360,6 +385,8 @@ class AmhTinaAdapter:
                 executor = self._executor_dependentes_nome
             elif operacao == OP_PROCEDIMENTOS:
                 executor = self._executor_procedimentos
+            elif operacao == OP_CPT:
+                executor = self._executor_cpt
             else:
                 executor = self._executor
             registradas = executor.registered_operations
@@ -590,6 +617,28 @@ class AmhTinaAdapter:
         )
         return _converter(resultado, _cobertura)
 
+    async def get_cpt_vigente(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[CptVigenteView]:
+        """A CPT vigente do proprio sujeito (manifest v1.15; DL-0130). Sem o artefato `tina-cpt` carregado,
+        recusa fechada (`SCOPE_NOT_SUPPORTED`). `404` (rota desligada, sujeito sem plano) = `NOT_FOUND`;
+        `429` (limite por sujeito, compartilhado com a cobertura) = `RATE_LIMITED`."""
+        if not self._cpt:
+            return PortResult.refused(Reason.SCOPE_NOT_SUPPORTED)
+        resultado = await self._consultar(
+            OP_CPT,
+            portable_subject_ref,
+            {"purpose_of_use": purpose_of_use},
+            consent_decision_ref=consent_decision_ref,
+            timeout_seconds=timeout_seconds,
+        )
+        return _converter(resultado, _cpt)
+
 
 def _converter(resultado: PortResult[dict[str, Any]], montar: Any) -> PortResult[Any]:
     if not resultado.succeeded or resultado.value is None:
@@ -758,6 +807,23 @@ def _cobertura(body: dict[str, Any]) -> CoberturaView:
     )
 
 
+def _cpt(body: dict[str, Any]) -> CptVigenteView:
+    tem, quantas, termina = body["tem_cpt_vigente"], body["cpt_vigentes"], body["termina_em"]
+    # Coerencia que o schema nao expressa (descrita no contrato): sem CPT vigente, contagem 0 e sem data;
+    # com CPT vigente, ao menos uma linha. Um desacordo e' violacao de contrato, nunca um aviso.
+    if type(tem) is not bool or type(quantas) is not int:
+        raise ValueError
+    if (not tem and (quantas != 0 or termina is not None)) or (tem and quantas < 1):
+        raise ValueError
+    return CptVigenteView(
+        portable_subject_ref=body["portable_subject_ref"],
+        tem_cpt_vigente=tem,
+        cpt_vigentes=quantas,
+        termina_em=termina,
+        fonte_atualizada_em=body["fonte"]["atualizada_em"],
+    )
+
+
 def _dependentes(body: dict[str, Any]) -> DependentesView:
     itens = tuple(
         DependenteAnonimo(
@@ -790,6 +856,7 @@ __all__ = [
     "ARTIFACT",
     "ARTIFACT_CARTEIRINHA",
     "ARTIFACT_COBERTURA",
+    "ARTIFACT_CPT",
     "ARTIFACT_DEPENDENTES_NOME",
     "ARTIFACT_PROCEDIMENTOS",
     "ARTIFACT_DEPENDENTES",
@@ -798,6 +865,7 @@ __all__ = [
     "OP_CARENCIAS",
     "OP_CARTEIRINHA",
     "OP_COBERTURA",
+    "OP_CPT",
     "OP_DEPENDENTES_NOME",
     "OP_PROCEDIMENTOS",
     "PURPOSE_PROCEDIMENTOS",
@@ -806,6 +874,7 @@ __all__ = [
     "OP_REQUISICOES",
     "PURPOSE_CARTEIRINHA",
     "PURPOSE_COBERTURA",
+    "PURPOSE_CPT",
     "PURPOSE_DEPENDENTES_NOME",
     "SERVER",
     "AmhTinaAdapter",

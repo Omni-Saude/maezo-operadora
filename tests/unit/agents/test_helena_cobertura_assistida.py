@@ -380,6 +380,8 @@ def test_os_textos_passam_nas_cercas_do_envio() -> None:
     ]
     textos += list(ca.TEXTO_EXCLUSAO.values())
     textos += [ca.pergunta_das_opcoes("x", ["A", "B"]), ca.pergunta_da_forma("x")]
+    # DL-0130: o aviso de CPT, com e sem data.
+    textos += [ca.TEXTO_CPT.format(vigencia="válida até 01/03/2027"), ca.TEXTO_CPT.format(vigencia="vigente")]
     for t in textos:
         assert motivo_de_recusa(t, "inform", start_aconteceu=False) is None, t
         assert motivo_de_canal_nao_confirmado(t) is None, t

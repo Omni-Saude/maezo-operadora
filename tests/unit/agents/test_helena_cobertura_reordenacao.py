@@ -318,7 +318,8 @@ def test_textos_novos_passam_nas_cercas() -> None:
     from maezo.agents.helena.prompts import motivo_de_canal_nao_confirmado, motivo_de_recusa
 
     for t in (ca.TEXTO_ASSUNTO_ENCERRADO, ca.TEXTO_CONFIRMA.format(nome="x"), ca.TEXTO_REDE_DO_PROCEDIMENTO,
-              ca.pergunta_do_tipo("ultrassom")):  # fmt: skip
+              ca.pergunta_do_tipo("ultrassom"), ca.TEXTO_CPT.format(vigencia="válida até 01/03/2027"),
+              ca.TEXTO_CPT.format(vigencia="vigente")):  # fmt: skip
         assert motivo_de_recusa(t, "inform", start_aconteceu=False) is None, t
         assert motivo_de_canal_nao_confirmado(t) is None, t
 

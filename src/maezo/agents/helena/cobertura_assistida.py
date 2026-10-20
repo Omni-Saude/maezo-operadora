@@ -642,6 +642,30 @@ def _data_br(iso: object) -> str | None:
     return f"{iso[8:10]}/{iso[5:7]}/{iso[0:4]}"
 
 
+#: Aviso GERAL de CPT (caso C1 do dono e DPO de 20/10/2026, DL-0130; texto em revisao juridica, so' dev).
+#: So' para o TITULAR verificado com CPT vigente no cadastro; nunca cita doenca, CID nem procedimento.
+TEXTO_CPT: Final[str] = (
+    "Pelo cadastro, o seu plano tem uma cobertura parcial temporária (CPT) {vigencia}. Enquanto ela vale, "
+    "cirurgias, leitos de alta tecnologia e procedimentos de alta complexidade ligados à doença ou lesão "
+    "preexistente declarada na contratação podem não ter cobertura. Quem confirma, caso a caso, é a análise "
+    "da autorização."
+)
+
+
+def texto_cpt(view: Any) -> str:
+    """O aviso geral de CPT, ou `""` (sem CPT vigente, sem leitura ou leitura estranha: nada sobre CPT,
+    nunca "voce nao tem CPT"). A data e' a MAIOR data de fim do cadastro, em DD/MM/AAAA, quando existe."""
+    if view is None or getattr(view, "tem_cpt_vigente", None) is not True:
+        return ""
+    termina = getattr(view, "termina_em", None)
+    data = (
+        _data_br(termina)
+        if isinstance(termina, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", termina)
+        else None
+    )
+    return TEXTO_CPT.format(vigencia=f"válida até {data}" if data else "vigente")
+
+
 def data_do_dado(view: Any) -> str:
     """E4: a data do dado do cadastro, sempre que existir."""
     data = _data_br(getattr(view, "fonte_atualizada_em", None))
@@ -906,6 +930,8 @@ def resumo_para_a_equipe(ctx: Contexto) -> str:
 
 __all__ = [
     "AVISO_FINAL",
+    "TEXTO_CPT",
+    "texto_cpt",
     "MAX_TENTATIVAS",
     "PEND_EQUIPE",
     "PEND_FALHA",

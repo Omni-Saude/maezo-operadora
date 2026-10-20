@@ -52,6 +52,7 @@ from maezo.ports.tina import (
     CarenciasView,
     CarteirinhasView,
     CoberturaView,
+    CptVigenteView,
     DependentesNominaisView,
     DependentesView,
     ElegibilidadeView,
@@ -155,6 +156,17 @@ class FonteDeCobertura(Protocol):
     async def consultar_cobertura(
         self, portable_subject_ref: str, procedimento: str
     ) -> CoberturaView | None: ...
+
+
+@runtime_checkable
+class FonteDeCpt(Protocol):
+    """A fonte que TAMBEM le' a CPT vigente do proprio sujeito (rota `tina-cpt`, manifest v1.15; caso C1 do
+    dono e DPO de 20/10/2026, DL-0130).
+
+    Protocolo SEPARADO: a fonte de sempre nao muda, e o grafo so' pede a CPT na cobertura assistida (allowlist
+    da saude gerativa), para o TITULAR. Nunca levanta; falha = `None` (nenhum aviso de CPT)."""
+
+    async def consultar_cpt(self, portable_subject_ref: str) -> CptVigenteView | None: ...
 
 
 # --------------------------------------------------------------------------------------------
@@ -1053,6 +1065,7 @@ __all__ = [
     "ConsultaSubtipo",
     "FonteDeCarteirinhaCompleta",
     "FonteDeCobertura",
+    "FonteDeCpt",
     "FonteDeFatosDoPlano",
     "FonteDeNomesDosDependentes",
     "FonteIndisponivel",

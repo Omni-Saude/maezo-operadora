@@ -98,6 +98,9 @@ class Dependencias:
     texto_geral: Callable[[], Awaitable[str]]
     #: (termos do pedido, termo [+ nome tecnico], nomes dos candidatos) -> a escolha do modelo, ou `None`.
     escolher: Callable[[Sequence[str], str, Sequence[str]], Awaitable[ca.Escolha | None]] | None = None
+    #: A CPT vigente do TITULAR verificado (DL-0130; `CptVigenteView` ou `None`), lida no maximo uma vez por
+    #: resposta (o grafo guarda em memoria). Sem ela, nenhum aviso de CPT.
+    cpt: Callable[[], Awaitable[Any | None]] | None = None
 
 
 @dataclass(frozen=True)
@@ -467,6 +470,9 @@ class FluxoDeCobertura:
         texto = ca.montar_resposta([frase], view=view, oferece_equipe=oferece, prefixo=prefixo)
         if (ctx.quem or "").startswith("dependente"):
             texto = f"{texto} {AVISO_DO_DEPENDENTE}"
+        aviso_cpt = await self._aviso_cpt(ctx)
+        if aviso_cpt:
+            texto = f"{texto} {aviso_cpt}"
         return _update(
             _com_rede(ctx, texto),
             ca.PEND_EQUIPE if oferece else PEND_RESPONDIDO,
@@ -502,6 +508,21 @@ class FluxoDeCobertura:
         if ctx.tentativas >= ca.MAX_TENTATIVAS:
             return _update(prefixo + ca.TEXTO_OFERTA_EQUIPE, ca.PEND_EQUIPE, ctx)
         return _update(prefixo + ca.pergunta_da_forma(termo), ca.PEND_FORMA, ctx)
+
+    async def _aviso_cpt(self, ctx: ca.Contexto) -> str:
+        """DL-0130: o aviso GERAL de CPT, so' para o TITULAR com CPT vigente; `""` em qualquer outro caso
+        (dependente, sem leitura, falha, sem CPT). Nada da CPT vai ao estado, ao contexto nem a log."""
+        if ctx.quem != "titular" or self.d.cpt is None:
+            return ""
+        try:
+            view = await self.d.cpt()
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            view = None
+        aviso = ca.texto_cpt(view)
+        logger.info("helena_cobertura_cpt", aviso=bool(aviso))
+        return aviso
 
     async def _ler(self, procedimento: str) -> tuple[Any, bool]:
         """(view, falhou). Falha/prazo da AMH = `falhou` (nunca "nao encontrei")."""
@@ -556,6 +577,9 @@ class FluxoDeCobertura:
         texto = ca.montar_resposta([frase], view=view, oferece_equipe=oferece, prefixo=prefixo)
         if (ctx.quem or "").startswith("dependente"):
             texto = f"{texto} {AVISO_DO_DEPENDENTE}"
+        aviso_cpt = await self._aviso_cpt(ctx)
+        if aviso_cpt:
+            texto = f"{texto} {aviso_cpt}"
         logger.info(
             "helena_cobertura_respondida",
             situacao=str(getattr(item, "situacao", "")),
@@ -624,9 +648,12 @@ class FluxoDeCobertura:
             respondidos=len(termos) - len(pendentes) - int(falhou_algum),
             pendentes=len(pendentes),
         )
-        texto = _com_rede(
-            ctx, ca.montar_resposta(frases, view=ultima_view, oferece_equipe=oferece_algum, prefixo=prefixo)
-        )
+        texto = ca.montar_resposta(frases, view=ultima_view, oferece_equipe=oferece_algum, prefixo=prefixo)
+        # DL-0130: o aviso de CPT UMA vez, so' se ao menos um procedimento foi respondido.
+        aviso_cpt = await self._aviso_cpt(ctx) if ultima_view is not None else ""
+        if aviso_cpt:
+            texto = f"{texto} {aviso_cpt}"
+        texto = _com_rede(ctx, texto)
         if pendentes:
             termo, decisao = pendentes[0]
             novo = replace(

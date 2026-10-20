@@ -1490,6 +1490,11 @@ COBERTURA_PRAZO_S: float = 18.0
 ESCOLHA_PRAZO_S: float = 20.0
 #: DL-0129: a cobertura lida por (titular, codigo) fica em memoria por 5 min (o `max-age` das leituras TINA).
 COBERTURA_EM_MEMORIA_S: float = 300.0
+#: DL-0130: a CPT vigente lida por titular fica em memoria por 5 min (o limite por sujeito da rota e'
+#: COMPARTILHADO com a cobertura na AMH). Nunca em estado nem em log.
+CPT_EM_MEMORIA_S: float = 300.0
+#: DL-0130: prazo da leitura da CPT (curta: so' o sim/nao do cadastro); estourou = sem aviso.
+CPT_PRAZO_S: float = 12.0
 #: Onda (e): o prefixo do `error` quando `_handoff_recusado` barrou a passagem ao Lucas. Mesmo
 #: formato do de cima: o sufixo e' o TOKEN DE CLASSE da precondicao violada, nunca texto.
 ERRO_HANDOFF_RECUSADO: str = "handoff recusado"
@@ -4753,6 +4758,9 @@ class HelenaGraph:
         # `max-age` das leituras TINA), para opcoes, confirmacao e repeticao nao gastarem o limite por
         # sujeito da rota. Nunca em estado ou log.
         self._cobertura_em_memoria: dict[tuple[str, str], tuple[float, Any]] = {}
+        # DL-0130: a CPT vigente lida por titular fica EM MEMORIA por 5 min (limite por sujeito compartilhado
+        # com a cobertura), no maximo 256 titulares. Nunca em estado ou log.
+        self._cpt_em_memoria: dict[str, tuple[float, Any]] = {}
         # COBERTURA ASSISTIDA (DL-0128): o catalogo de procedimentos (traducao para o nome oficial), so' na
         # allowlist da saude gerativa. `None` = a busca por texto da propria rota de cobertura.
         self._busca_procedimentos = catalogo_procedimentos or (
@@ -8399,6 +8407,26 @@ class HelenaGraph:
                 self._cobertura_em_memoria[chave] = (agora, view)
             return view
 
+        leitor_cpt = getattr(self._consultas, "consultar_cpt", None)
+
+        async def cpt() -> Any:
+            # DL-0130: a CPT do TITULAR verificado (o fluxo so' chama para o titular). Em memoria por ref.
+            agora = self._relogio().timestamp()
+            guardada = self._cpt_em_memoria.get(ref)
+            if guardada is not None and agora - guardada[0] < CPT_EM_MEMORIA_S:
+                return guardada[1]
+            try:
+                async with asyncio.timeout(CPT_PRAZO_S):
+                    view = await leitor_cpt(ref) if leitor_cpt is not None else None
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES:
+                view = None
+            while len(self._cpt_em_memoria) >= 256:
+                self._cpt_em_memoria.pop(next(iter(self._cpt_em_memoria)))
+            self._cpt_em_memoria[ref] = (agora, view)
+            return view
+
         async def dependentes() -> tuple[list[str], bool, Mapping[int, str]]:
             graus, com_nome = await self._graus_dos_dependentes(state, ref)
             nomes = self._nomes_do_turno.get(self._chave_do_turno(state)) if com_nome else None
@@ -8435,6 +8463,7 @@ class HelenaGraph:
                 pergunta_para_quem=_para_quem,
                 texto_geral=texto_geral,
                 escolher=escolher,
+                cpt=cpt if leitor_cpt is not None else None,
             )
         )
         resultado = await fluxo.responder(
