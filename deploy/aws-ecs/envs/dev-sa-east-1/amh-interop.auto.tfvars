@@ -87,6 +87,10 @@ helena_saude_gerativa_conversas = [
   // A Tania (beneficiaria real que consentiu com os testes): AUTORIZACAO DO DPO (o dono) de 18/10/2026, que
   // confirmou que ela concorda com o perfil global (DL-0119, adendo de 18/10/2026).
   "wa:amh:hk1_0f251a8e67a29606f4f20e7a1e81f27be3b927b8472560e434c066ff83e6219b", // a Tania
+  // Pessoa do time — autorizacao do DPO (o dono) de 20/10/2026 (DL-0119, adendo).
+  "wa:amh:hk1_9d38c66cee23a2ddd89b80eb9b616e7f2e9e5f601e1ab537d19927c39b6e71d2", // time-1
+  // Pessoa do time — autorizacao do DPO (o dono) de 20/10/2026 (DL-0119, adendo).
+  "wa:amh:hk1_9d2b6c9bdfa8f71d0187db6716a68e1e61c944d5610ae161152b90db97acf244", // time-2
   "wa:amh:hk1_41a907864e3b318fe11d8124e2eed5d8a0ad8d076a8cf69449e60e28043290d7", // simulador ...790
   "wa:amh:hk1_c416ceac7076a3946bcacc8c0ca3c5c68083ee7d5c3d3cdbc0335bedf5f0d086", // simulador ...791
   "wa:amh:hk1_dbae14094dd97675d3564309f70861c3f644d3134704cbe25f80e1dbb95956e5", // simulador ...792
