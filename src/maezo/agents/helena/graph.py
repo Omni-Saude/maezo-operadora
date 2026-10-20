@@ -144,7 +144,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from collections.abc import Callable, Hashable, Mapping
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Literal, Protocol, TypedDict, cast, get_args
 
@@ -1486,6 +1486,10 @@ CONSULTA_PRAZO_S: float = 6.0
 #: da
 #: consulta do plano; o leitor ja' tem o proprio teto (`helena_consultas.PRAZO_TOTAL_S`, 20 s).
 COBERTURA_PRAZO_S: float = 18.0
+#: DL-0129: a escolha do GLM-5 entre os candidatos do catalogo; estourou = a decisao por nota.
+ESCOLHA_PRAZO_S: float = 20.0
+#: DL-0129: a cobertura lida por (titular, codigo) fica em memoria por 5 min (o `max-age` das leituras TINA).
+COBERTURA_EM_MEMORIA_S: float = 300.0
 #: Onda (e): o prefixo do `error` quando `_handoff_recusado` barrou a passagem ao Lucas. Mesmo
 #: formato do de cima: o sufixo e' o TOKEN DE CLASSE da precondicao violada, nunca texto.
 ERRO_HANDOFF_RECUSADO: str = "handoff recusado"
@@ -3565,6 +3569,25 @@ def _pergunta_de_cobertura_ampla(texto: str) -> bool:
     return bool(_PERGUNTA_DE_COBERTURA.search(plano) or _PERGUNTA_DE_COBERTURA_AMPLA.search(plano))
 
 
+#: A pendencia "ja' respondido" da cobertura assistida (`cobertura_fluxo.PEND_RESPONDIDO`).
+_PEND_RESPONDIDO = "COB2:RESPONDIDO"
+#: D3/D4 (avaliacao de 20/10/2026): coparticipacao ou reembolso de um PROCEDIMENTO e' assunto de cobertura
+#: (resposta honesta da Helena), nunca o valor da mensalidade do Lucas. Com palavra de COBRANCA de fato
+#: (boleto, mensalidade, fatura, cobrado, vencimento) a coparticipacao segue o Lucas; reembolso, sempre aqui.
+_COPART_OU_REEMBOLSO: re.Pattern[str] = re.compile(r"\b(?:coparticipac\w*|reembols\w*|ressarcimento)\b")
+_REEMBOLSO: re.Pattern[str] = re.compile(r"\b(?:reembols\w*|ressarcimento)\b")
+_COBRANCA_DE_FATO: re.Pattern[str] = re.compile(
+    r"\b(?:boletos?|mensalidades?|faturas?|vence|vencem|vencimento|vencid[oa]s?|segunda via|2a via"
+    r"|codigo de barras|cobrad[oa]s?|cobraram|cobrando|debitos?|estorno|multa|duplicad[oa]|extrato)\b"
+)
+
+
+def _copart_ou_reembolso_do_procedimento(plano: str) -> bool:
+    if not _COPART_OU_REEMBOLSO.search(plano):
+        return False
+    return bool(_REEMBOLSO.search(plano)) or not _COBRANCA_DE_FATO.search(plano)
+
+
 def _pede_telefone(texto: str) -> bool:
     return bool(_PEDE_TELEFONE.search(_plano(texto)))
 
@@ -4726,6 +4749,10 @@ class HelenaGraph:
         # Rodada do dono de 19/10/2026 (DL-0128): os nomes lidos ficam EM MEMORIA por ate' 15 min por titular
         # (nunca em estado ou log), para a mesma conversa nao gastar o limite de leituras da rota.
         self._nomes_em_memoria: dict[str, tuple[float, NomesDoTurno, tuple[tuple[int, str], ...]]] = {}
+        # DL-0129 (capacidade): a cobertura lida por (titular, codigo) fica EM MEMORIA por 5 min (o mesmo
+        # `max-age` das leituras TINA), para opcoes, confirmacao e repeticao nao gastarem o limite por
+        # sujeito da rota. Nunca em estado ou log.
+        self._cobertura_em_memoria: dict[tuple[str, str], tuple[float, Any]] = {}
         # COBERTURA ASSISTIDA (DL-0128): o catalogo de procedimentos (traducao para o nome oficial), so' na
         # allowlist da saude gerativa. `None` = a busca por texto da propria rota de cobertura.
         self._busca_procedimentos = catalogo_procedimentos or (
@@ -6587,7 +6614,8 @@ class HelenaGraph:
         pendente = str(state.get("coleta_pendente") or "")
         if _sinal_forte_de_emergencia(texto) or _sg.queixa_atual(plano):
             return None
-        if _pergunta_de_cobranca(texto) and not _pergunta_de_cobertura_ampla(texto):
+        do_procedimento = _copart_ou_reembolso_do_procedimento(plano)
+        if _pergunta_de_cobranca(texto) and not (_pergunta_de_cobertura_ampla(texto) or do_procedimento):
             return None
         com_pendencia = pendente.startswith(PREFIXO_COBERTURA_ASSISTIDA)
         if (
@@ -6609,7 +6637,17 @@ class HelenaGraph:
             logger.info("helena_cobertura_equipe_aceita", node="classify")
             return update
         curta = len(plano.split()) <= 16
-        if not (_pergunta_de_cobertura_ampla(texto) or (com_pendencia and curta)):
+        if com_pendencia and pendente == _PEND_RESPONDIDO and not _pergunta_de_cobertura_ampla(texto):
+            # Depois de uma resposta ja' dada: agradecimento/conversa segue o caminho de sempre; so' um
+            # pedido novo (outro nome de procedimento) ou "deixa pra la" fica na cobertura.
+            leitura = _ca.ler_resposta(texto)
+            if (
+                leitura in ("sim", "nao", "nao_sei")
+                or _ca.e_cortesia(texto)
+                or not termo_da_continuacao(texto)
+            ):
+                return None
+        if not (_pergunta_de_cobertura_ampla(texto) or do_procedimento or (com_pendencia and curta)):
             return None
         update = self._update_sem_modelo(state)
         update.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
@@ -8324,14 +8362,40 @@ class HelenaGraph:
             )
             return _ca.pedido_do_modelo(bruto)
 
+        async def escolher(
+            termos: Sequence[str], termo: str, itens_do_catalogo: Sequence[str]
+        ) -> _ca.Escolha | None:
+            # Os nomes do catalogo sao dado de REFERENCIA (sem pessoa); o que a pessoa escreveu vai demarcado.
+            pedido_inteiro = "; ".join(" ".join(t.split())[:80] for t in termos)
+            bloco_escolha = render_untrusted_block(
+                "pedido_da_pessoa", f"procedimento: {termo}. Pedido inteiro: {pedido_inteiro}"
+            )
+            lista_do_catalogo = _ca.lista_para_escolha(itens_do_catalogo)
+            prompt_escolha = f"{_ca.PROMPT_ESCOLHA}\n{bloco_escolha}\nLISTA:\n{lista_do_catalogo}"
+            async with asyncio.timeout(ESCOLHA_PRAZO_S):
+                bruto_escolha = await self._llm.generate(
+                    prompt_escolha, phi=True, agent_id="helena", tenant_id=tenant, task_kind="task_default"
+                )
+            return _ca.escolha_do_modelo(bruto_escolha, len(itens_do_catalogo))
+
         async def cobertura(procedimento: str) -> Any:
+            chave = (ref, procedimento)
+            agora = self._relogio().timestamp()
+            guardada = self._cobertura_em_memoria.get(chave)
+            if guardada is not None and agora - guardada[0] < COBERTURA_EM_MEMORIA_S:
+                return guardada[1]
             try:
                 async with asyncio.timeout(COBERTURA_PRAZO_S):
-                    return await leitor(ref, procedimento)
+                    view = await leitor(ref, procedimento)
             except PROGRAMMING_ERRORS:
                 raise
             except EXTERNAL_DEPENDENCY_FAILURES:
                 return None
+            if view is not None:
+                while len(self._cobertura_em_memoria) >= 256:
+                    self._cobertura_em_memoria.pop(next(iter(self._cobertura_em_memoria)))
+                self._cobertura_em_memoria[chave] = (agora, view)
+            return view
 
         async def dependentes() -> tuple[list[str], bool, Mapping[int, str]]:
             graus, com_nome = await self._graus_dos_dependentes(state, ref)
@@ -8368,6 +8432,7 @@ class HelenaGraph:
                 busca=self._busca_procedimentos,
                 pergunta_para_quem=_para_quem,
                 texto_geral=texto_geral,
+                escolher=escolher,
             )
         )
         resultado = await fluxo.responder(

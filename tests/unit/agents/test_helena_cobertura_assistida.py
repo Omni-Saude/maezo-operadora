@@ -69,9 +69,14 @@ class _Mundo:
     elegibilidade: dict[str, Any] | None = None
     consultas: list[str] = field(default_factory=list)
     falhar: bool = False
+    extracoes: int = 0
 
     async def extrair(self, texto: str) -> ca.Pedido | None:
-        return self.pedido
+        # Como o modelo: na 1a mensagem, o pedido do teste; depois, o nome que a pessoa escreveu.
+        self.extracoes += 1
+        if self.extracoes == 1 or self.pedido is None:
+            return self.pedido
+        return ca.Pedido(procedimentos=(texto,), pelo_modelo=True)
 
     async def cobertura(self, procedimento: str) -> Any:
         self.consultas.append(procedimento)

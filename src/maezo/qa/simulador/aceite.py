@@ -1737,7 +1737,9 @@ _SITUACAO_OU_OPCOES = (
     r"(consta no rol|consta no cadastro|consta, com criterios|consta para o seu plano|nao faz parte da "
     r"segmentacao"
     r"|nao consta no rol|encontrei mais de um procedimento parecido|como esta escrito no pedido medico"
-    r"|nao consegui consultar o cadastro agora|antes de eu consultar.{0,3}e para quem)"
+    r"|nao consegui consultar o cadastro agora|antes de eu consultar.{0,3}e para quem"
+    # DL-0129: so' a categoria ("ultrassom") -> pergunta qual e'; escolha de confianca media -> confirmacao.
+    r"|tem varios tipos no cadastro|voce quer saber sobre)"
 )
 
 HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
@@ -1851,6 +1853,56 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
         ),
         resolveu="varios procedimentos na mesma mensagem foram tratados (lista ou um de cada vez)",
     ),
+    # DL-0129 (avaliacao de 20/10/2026): a resposta a uma pergunta da Helena e' lida CONTRA a pendencia.
+    Segmento(
+        "9-nao-sei-o-nome-e-o-quero-sim-abre-o-caso",
+        (
+            _p(
+                "Meu plano cobre o procedimento qwxzk para mim?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(como esta escrito no pedido medico|encontrei mais de um|tem varios tipos)",),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "não sei o nome direito",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"quer que eu passe para a nossa equipe",),
+                nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"nao localizei .sei"),
+            ),
+            _p("quero sim", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
+        ),
+        resolveu="'nao sei o nome' nao virou busca: ofereceu a equipe, e o 'quero sim' abriu o caso",
+    ),
+    Segmento(
+        "10-deixa-pra-la-encerra",
+        (
+            _p(
+                "Meu plano cobre o procedimento qwxzk para mim?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(como esta escrito no pedido medico|encontrei mais de um|tem varios tipos)",),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "deixa pra lá",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"tudo bem",),
+                nao_deve=(r"nao localizei", r"como esta escrito no pedido medico", _ENCAMINHOU),
+            ),
+        ),
+        resolveu="'deixa pra la' encerrou o assunto com educacao, sem busca nova",
+    ),
+    Segmento(
+        "11-coparticipacao-do-procedimento-fica-com-a-helena",
+        (
+            _p(
+                "Quanto vou pagar de coparticipação numa tomografia?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"coparticipacao",),
+                nao_deve=(r"r\$ ?\d", r"mensalidade de \w+ (?:esta|ficou)"),
+            ),
+        ),
+        resolveu="a coparticipacao de um procedimento teve a resposta honesta, sem o valor da mensalidade",
+    ),
 )
 
 #: Os telefones (sufixo da faixa do simulador) de cada segmento, quando o roteiro precisa de telefones
@@ -1862,7 +1914,7 @@ TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
         *(790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796),
         *(797, 798, 790),
     ),
-    "helena_cobertura_assistida": (791, 792, 793, 794, 795, 796, 797, 798),
+    "helena_cobertura_assistida": (791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792),
 }
 
 # ================================================================================================

@@ -50,6 +50,9 @@ PRAZO_CONSULTA_S: Final[float] = 4.0
 LOTE_DO_INDICE: Final[int] = 200
 PAUSA_ENTRE_LOTES_S: Final[float] = 2.5
 _TEMPO_DE_ESPERA_APOS_FALHA_S: Final[float] = 300.0
+_ESPERAS_DO_LOTE_S: Final[tuple[float, ...]] = (10.0, 30.0, 60.0, 0.0)
+#: Candidatos que a RECUPERACAO entrega para a escolha do modelo (reordenacao).
+MAX_RECUPERADOS: Final[int] = 20
 
 _PALAVRAS_VAZIAS: Final[frozenset[str]] = frozenset(
     [
@@ -240,14 +243,52 @@ def _casa(palavra: str, alvo: set[str]) -> bool:
     return palavra in alvo or any(_casa_palavra(palavra, a) for a in alvo)
 
 
-#: Itens ADMINISTRATIVOS do catalogo (taxa, aluguel, pacote, laudo, revisao, diaria, honorario, material,
-#: kit):
-#: regra GERAL de catalogo — perdem para o procedimento em si quando o significado e' parecido.
+#: Itens que ficam no catalogo mas perdem para o procedimento em si quando o significado e' parecido
+#: (anestesia para exame, acompanhamento, junta, domiciliar).
 _ADMINISTRATIVO: Final[re.Pattern[str]] = re.compile(
     r"^(?:taxa|aluguel|pacote|laudo|revisao|diaria|honorario|material|kit|remocao|transporte|junta|anestesia"
-    r"|acompanhamento)|domiciliar|por procedimento"
+    r"|acompanhamento)\b|\bdomiciliar\b|\bpor procedimento\b"
 )
 PENALIDADE_ADMINISTRATIVO: Final[float] = 0.75
+
+# --- UNIVERSO da busca: so' itens ASSISTENCIAIS (avaliacao independente de 20/10/2026) ---------------------
+#: Regra de CATALOGO (nunca lista de casos). O codigo segue a terminologia TUSS: a TABELA 22 (procedimentos e
+#: eventos em saude) usa codigos que comecam por 1 (consultas e visitas), 2 (clinicos), 3 (cirurgicos), 4
+#: (diagnosticos e terapeuticos), 5 (atendimento por outros profissionais de saude) e 81-87 (odontologia); a
+#: TABELA 18 (diarias, taxas e gases medicinais) comeca por 6; codigos que comecam por 9, 80, 88 e 89 sao
+#: pacotes e taxas proprios do prestador; 15, 16 e 18 sao itens financeiros e agrupadores internos.
+_PREFIXOS_ASSISTENCIAIS: Final[tuple[str, ...]] = (
+    "10", "11", "12", "13", "14", "2", "3", "4", "5", "81", "82", "83", "84", "85", "86", "87",
+)  # fmt: skip
+#: GRUPOS do cadastro que sao de hotelaria, taxa ou insumo (qualquer prefixo).
+_GRUPO_ADMINISTRATIVO: Final[re.Pattern[str]] = re.compile(
+    r"^(?:taxa|aluguel|uti$|equipamentos|curativos|deslocamento|gases|individual$|coletivo$|item de"
+    r"|processamento|alimentacao|diarias?\b)"
+)
+#: DESCRICAO de item administrativo (qualquer prefixo): taxa, aluguel, pacote, diaria, honorario, kit,
+#: fornecimento, transporte/remocao em ambulancia, revisao ou laudo evolutivo "por procedimento", "a definir".
+_DESCRICAO_ADMINISTRATIVA: Final[re.Pattern[str]] = re.compile(
+    r"^(?:taxa|aluguel|pacote|pct|pcte|diaria|honorario|kit|fornecimento|material descartavel|transporte"
+    r"|remocao em ambulancia|laudo evolutivo)\b"
+    r"|\b(?:pacote|pct|pcte|aluguel)\b|\btaxa d[eao]\b|^(?:revisao|laudo)\b.*\bpor procedimento\b"
+    r"|\ba definir\b"
+)
+
+
+def administrativo(descricao: str, grupo: str | None = None, codigo: str | None = None) -> bool:
+    """O item NAO e' um procedimento assistencial (taxa, aluguel, pacote, diaria, revisao/laudo de outro
+    exame, item financeiro). Regra de catalogo: tabela TUSS pelo codigo, grupo e descricao."""
+    if codigo is not None and codigo.isdigit() and not codigo.startswith(_PREFIXOS_ASSISTENCIAIS):
+        return True
+    if grupo and _GRUPO_ADMINISTRATIVO.search(normalizar(grupo)):
+        return True
+    return bool(_DESCRICAO_ADMINISTRATIVA.search(normalizar(descricao)))
+
+
+def assistencial(p: Procedimento) -> bool:
+    return not administrativo(p.descricao, p.grupo, p.codigo) and not (
+        p.nome_tuss and administrativo(p.nome_tuss)
+    )
 
 
 def grupos_do_termo(termo: str, sinonimos: Iterable[Sinonimo] = ()) -> list[set[str]]:
@@ -291,6 +332,41 @@ def nota_lexica(
     return 0.7 * r + 0.3 * q
 
 
+# --- Erro de digitacao: a palavra que nao existe no catalogo vira a mais parecida que existe -------------
+def _distancia(a: str, b: str, limite: int) -> int:
+    """Levenshtein com corte (acima de `limite` devolve `limite + 1`)."""
+    if abs(len(a) - len(b)) > limite:
+        return limite + 1
+    anterior = list(range(len(b) + 1))
+    for i, ca_ in enumerate(a, 1):
+        atual = [i] + [0] * len(b)
+        menor = atual[0]
+        for j, cb in enumerate(b, 1):
+            atual[j] = min(anterior[j] + 1, atual[j - 1] + 1, anterior[j - 1] + (ca_ != cb))
+            menor = min(menor, atual[j])
+        if menor > limite:
+            return limite + 1
+        anterior = atual
+    return anterior[-1]
+
+
+def corrigir_palavra(palavra: str, vocabulario: Mapping[str, int]) -> str | None:
+    """A palavra do CATALOGO mais parecida com uma palavra que nao existe nele ("hemogama" -> "hemograma"):
+    mesma primeira letra, ate' 1 erro (5 a 7 letras) ou 2 erros (8+); empate = a mais frequente. Regra geral
+    de digitacao, sem lista de termos."""
+    if len(palavra) < 5 or palavra in vocabulario or palavra.isdigit():
+        return None
+    limite = 1 if len(palavra) <= 7 else 2
+    melhor: tuple[int, int, str] | None = None
+    for candidata, vezes in vocabulario.items():
+        if candidata[0] != palavra[0] or abs(len(candidata) - len(palavra)) > limite:
+            continue
+        d = _distancia(palavra, candidata, limite)
+        if d <= limite and (melhor is None or (d, -vezes) < (melhor[0], melhor[1])):
+            melhor = (d, -vezes, candidata)
+    return melhor[2] if melhor is not None else None
+
+
 class TransporteDeEmbeddings(Protocol):
     @property
     def modelo(self) -> str: ...
@@ -312,6 +388,8 @@ class BuscaDeProcedimentos:
     _versao_do_indice: str | None = None
     _montando: asyncio.Task[None] | None = None
     _falhou_em: float | None = None
+    _fora_do_universo: int = 0
+    _vocabulario: dict[str, int] = field(default_factory=dict)
     #: Os sinonimos da base de saude ja' foram somados (o grafo soma uma vez).
     com_base: bool = False
 
@@ -328,10 +406,16 @@ class BuscaDeProcedimentos:
         if versao == self._versao and self._itens:
             return
         unicos: dict[str, Procedimento] = {}
+        fora = 0
         for p in itens:
-            if p.codigo and p.descricao:
-                unicos.setdefault(p.codigo, p)
+            if not (p.codigo and p.descricao):
+                continue
+            if not assistencial(p):
+                fora += 1
+                continue
+            unicos.setdefault(p.codigo, p)
         self._itens = tuple(unicos.values())
+        self._fora_do_universo = fora
         self._versao = versao
         contagem: dict[str, int] = {}
         for p in self._itens:
@@ -341,7 +425,13 @@ class BuscaDeProcedimentos:
         import math
 
         self._peso = {w: 1.0 + math.log(n / c) for w, c in contagem.items()}
-        logger.info("catalogo_procedimentos_carregado", itens=len(self._itens), versao=versao[:12])
+        self._vocabulario = {w: c for w, c in contagem.items() if len(w) >= 4 and not w.isdigit()}
+        logger.info(
+            "catalogo_procedimentos_carregado",
+            itens=len(self._itens),
+            administrativos=fora,
+            versao=versao[:12],
+        )
 
     def agendar_indice(self) -> None:
         if self.transporte is None or not self._itens or self.com_significado:
@@ -372,7 +462,7 @@ class BuscaDeProcedimentos:
         try:
             for i in range(0, len(itens), LOTE_DO_INDICE):
                 lote = [p.documento() for p in itens[i : i + LOTE_DO_INDICE]]
-                vetores.extend(await self.transporte.vetores(lote, consulta=False))
+                vetores.extend(await self._lote_com_tentativas(lote))
                 if i + LOTE_DO_INDICE < len(itens):
                     await asyncio.sleep(PAUSA_ENTRE_LOTES_S)
         except PROGRAMMING_ERRORS:
@@ -398,6 +488,22 @@ class BuscaDeProcedimentos:
             modelo=self.transporte.modelo,
         )
 
+    async def _lote_com_tentativas(self, lote: list[str]) -> list[list[float]]:
+        """Um lote do indice com ate' 4 tentativas e espera crescente: dois processos montando o indice ao
+        mesmo tempo estouram a cota por minuto do modelo, e isso nao pode derrubar o indice inteiro."""
+        assert self.transporte is not None
+        ultima = len(_ESPERAS_DO_LOTE_S) - 1
+        for tentativa, espera in enumerate(_ESPERAS_DO_LOTE_S):
+            try:
+                return await self.transporte.vetores(lote, consulta=False)
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES:
+                if tentativa == ultima:
+                    raise
+                await asyncio.sleep(espera)
+        raise AssertionError("inalcancavel")  # pragma: no cover
+
     async def _significado(self, consulta: str) -> Any:
         if not self.com_significado or self.transporte is None:
             return None
@@ -416,11 +522,11 @@ class BuscaDeProcedimentos:
         norma = float(np.linalg.norm(q)) or 1.0
         return self._matriz @ (q / norma)
 
-    async def buscar(self, termo: str) -> Resultado:
-        """Ate' 3 candidatos para o termo (ja' MINIMIZADO), com a decisao de "certo"."""
-        if not self._itens or not normalizar(termo):
-            return Resultado((), False, False)
+    async def _notas(self, termo: str) -> tuple[list[tuple[float, float, float, int]], bool]:
+        """(nota, significado, lexico, indice) de cada item, da maior nota para a menor; e se houve
+        significado."""
         self.agendar_indice()
+        termo = self.corrigir(termo)
         consulta = expandir(termo, self.sinonimos)
         notas_sem = await self._significado(consulta)
         grupos = grupos_do_termo(termo, self.sinonimos)
@@ -434,6 +540,56 @@ class BuscaDeProcedimentos:
                 nota *= PENALIDADE_ADMINISTRATIVO
             combinadas.append((nota, sem, lex, i))
         combinadas.sort(key=lambda t: (-t[0], self._itens[t[3]].codigo))
+        return combinadas, notas_sem is not None
+
+    def lexico(self, termo: str, procedimento: Procedimento) -> float:
+        """A nota lexica do termo (corrigido e com sinonimos) contra um procedimento."""
+        if not termo or not self._itens:
+            return 0.0
+        termo = self.corrigir(termo)
+        return nota_lexica(termo, procedimento, self._peso, grupos_do_termo(termo, self.sinonimos))
+
+    def corrigir(self, termo: str) -> str:
+        """O termo com cada palavra que nao existe no catalogo trocada pela mais parecida que existe."""
+        saida: list[str] = []
+        trocou = False
+        for w in normalizar(termo).split():
+            certa = corrigir_palavra(w, self._vocabulario) if w not in _PALAVRAS_VAZIAS else None
+            saida.append(certa or w)
+            trocou = trocou or certa is not None
+        if trocou:
+            logger.info("catalogo_procedimentos_digitacao_corrigida")
+            return " ".join(saida)
+        return termo
+
+    async def recuperar(self, termo: str, n: int = MAX_RECUPERADOS) -> tuple[Candidato, ...]:
+        """Os ~`n` candidatos para a ESCOLHA do modelo: os melhores pela nota combinada, mais os melhores so'
+        pelo significado e so' pelo lexico (um nome popular pode ir bem num e mal no outro). Sem repetir
+        nome."""
+        if not self._itens or not normalizar(termo):
+            return ()
+        combinadas, _ = await self._notas(termo)
+        por_sem = sorted(combinadas, key=lambda t: -t[1])[: n // 4]
+        por_lex = sorted(combinadas, key=lambda t: -t[2])[: n // 4]
+        saida: list[Candidato] = []
+        vistos: set[str] = set()
+        for nota, sem, lex, i in [*combinadas[:n], *por_sem, *por_lex]:
+            p = self._itens[i]
+            chave = normalizar(p.nome)
+            if chave in vistos or (lex == 0.0 and sem < 0.2):
+                continue
+            vistos.add(chave)
+            saida.append(Candidato(p, round(nota, 4), round(sem, 4), round(lex, 4)))
+        logger.info("catalogo_procedimentos_recuperados", candidatos=len(saida))
+        return tuple(saida)
+
+    async def buscar(self, termo: str) -> Resultado:
+        """Ate' 3 candidatos para o termo (ja' MINIMIZADO), com a decisao de "certo" (reserva sem o
+        modelo)."""
+        if not self._itens or not normalizar(termo):
+            return Resultado((), False, False)
+        combinadas, com_sem = await self._notas(termo)
+        notas_sem = True if com_sem else None
         candidatos: list[Candidato] = []
         vistos: set[str] = set()
         for nota, sem, lex, i in combinadas:
@@ -463,6 +619,7 @@ class BuscaDeProcedimentos:
 __all__ = [
     "FOLGA_CERTA",
     "MAX_CANDIDATOS",
+    "MAX_RECUPERADOS",
     "NOTA_CERTA",
     "NOTA_MINIMA",
     "BuscaDeProcedimentos",
@@ -470,7 +627,10 @@ __all__ = [
     "Procedimento",
     "Resultado",
     "Sinonimo",
+    "administrativo",
+    "assistencial",
     "carregar_sinonimos",
+    "corrigir_palavra",
     "expandir",
     "grupos_do_termo",
     "nota_lexica",
