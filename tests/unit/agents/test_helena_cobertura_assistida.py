@@ -513,3 +513,23 @@ async def test_adaptador_real_le_o_catalogo_pelo_contrato_pinado() -> None:
     [pedido] = executor.pedidos
     assert pedido.path == "/interop/tina/v1/procedimentos"
     assert dict(pedido.query) == {"purpose_of_use": "atendimento_whatsapp", "pagina": 1, "tamanho": 2000}
+
+
+def test_os_sinonimos_sao_achados_pelo_spec_dir_e_vao_na_imagem() -> None:
+    from pathlib import Path
+
+    from maezo.conhecimento.catalogo_procedimentos import raiz_dos_sinonimos
+
+    assert raiz_dos_sinonimos().is_file()
+    raiz = Path(__file__).resolve().parents[3]
+    assert '"spec/conhecimento/cobertura" = "maezo/spec/conhecimento/cobertura"' in (
+        raiz / "pyproject.toml"
+    ).read_text(encoding="utf-8")
+    assert "COPY spec/conhecimento/cobertura" in (raiz / "deploy/Dockerfile").read_text(encoding="utf-8")
+
+
+def test_lexico_por_raiz_nao_confunde_palavras_parecidas() -> None:
+    from maezo.conhecimento.catalogo_procedimentos import _casa_palavra
+
+    assert _casa_palavra("cranio", "craniana")
+    assert not _casa_palavra("eletrocardiograma", "eletroencefalograma")

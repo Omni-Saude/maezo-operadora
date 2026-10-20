@@ -184,6 +184,8 @@ packages = ["src/maezo"]
 # COPY do deploy/Dockerfile, a chave `MAEZO_HELENA_BASE_SAUDE` ligada acharia o diretorio ausente e se
 # desligaria sozinha (falha fechada, com log `helena_base_saude_invalida`).
 "spec/conhecimento/saude" = "maezo/spec/conhecimento/saude"
+# DL-0128: os sinonimos genericos da cobertura assistida (`catalogo_procedimentos.raiz_dos_sinonimos()`).
+"spec/conhecimento/cobertura" = "maezo/spec/conhecimento/cobertura"
 
 [tool.uv]
 # W9 (Onda 2, supply-chain aging): dependency-age quarantine. `exclude-newer` makes resolution
