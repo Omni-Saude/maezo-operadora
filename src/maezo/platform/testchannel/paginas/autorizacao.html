@@ -459,6 +459,11 @@ function lerMotor(r){
   .catch(function(e){ add('<div class="evid nao">falhou ao ler o motor: '+esc(e.message)+'</div>'); });
 }
 
+// EXCECAO DOCUMENTADA (pendencia 48, DL-0153): o proxy `/engine` do Canal de Teste RECUSA, por padrao,
+// concluir tarefa humana pelo motor. Esta pagina e' a excecao explicita: o servidor deixa passar
+// `POST /engine/task/{id}/complete` SO' para tarefa de processo da lista fechada
+// `PROCESSOS_QUE_CONCLUEM_PELO_MOTOR` (hoje: SP-OP-AUTH-001), conferida NO MOTOR. Qualquer outra acao
+// (claim, resolve, assignee...) ou processo recebe 403.
 function decidir(aprovar){
   var tid = window.__task;
   if (!tid) return;
