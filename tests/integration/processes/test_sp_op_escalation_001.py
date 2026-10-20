@@ -943,3 +943,128 @@ async def test_due_date_difere_por_categoria_conforme_a_dmn(
     assert len(prazos) == 2, f"as duas categorias deveriam ter SLAs distintos na DMN: {prazos}"
     for sla, obtido in prazos.items():
         assert abs(obtido - timedelta(seconds=_segundos_iso(sla))) <= timedelta(seconds=2), (sla, obtido)
+
+
+# --- Pendencia 40 (DL-0152): assumir a tarefa desarma o alerta de SLA de ciencia ---------------
+
+
+def _probe_com_motor(engine: EngineRest, audit_sink: Any, audit_tenant: str, motor_url: str) -> EngineProbe:
+    """O probe de sempre, com o seam `engine=` que o daemon passa (`register_default_workers`): o
+    `notify_supervisor` le quem assumiu `UT_TratarEscalonamento` por um `CibSevenHttpTransport` REAL."""
+    from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
+
+    worker_id = f"qa-escalation-ciencia-{uuid.uuid4().hex[:8]}"
+    transport = CibSevenWorkerTransport(CIBSEVEN_BASE_URL)
+    harness = WorkerHarness(
+        transport,
+        worker_id=worker_id,
+        tenant=audit_tenant,
+        lock_duration_ms=10_000,
+        bpmn_error_allowlist=frozenset({"ERR_EVENT_PUBLISH_FAILED", "ERR_ESC_NOTIFY_FAILED"}),
+        audit_sink=audit_sink,
+    )
+    fault = _FaultInjectingPublisher()
+    register_escalation_workers(harness, fault, engine=CibSevenHttpTransport(motor_url, timeout=10.0))
+    register_events_workers(harness, fault)
+    return EngineProbe(engine=engine, harness=harness, transport=transport, fault=fault, worker_id=worker_id)
+
+
+async def _assumir(engine: EngineRest, task_id: str, usuario: str) -> None:
+    """O atendente ASSUME a tarefa pelo REST do motor local (`POST /task/{id}/claim`)."""
+    resp = await engine._client.post(f"/task/{task_id}/claim", json={"userId": usuario})
+    assert resp.status_code in (200, 204), resp.text[:300]
+
+
+def _alertas_da_instancia(probe: EngineProbe, inst: dict[str, Any]) -> list[dict[str, Any]]:
+    """So' os alertas DESTA instancia: o `drain` serve o topico inteiro, e tarefas de outras instancias
+    (de testes anteriores na mesma stack) tambem passam por ele."""
+    chave = inst.get("businessKey")
+    assert chave, inst
+    return [n for n in probe.notified_supervisors if n.get("business_key") == chave]
+
+
+async def _estourar_sla_de_ciencia(engine: EngineRest, probe: EngineProbe, iid: str) -> None:
+    job = await engine.await_timer_job(iid, "BT_SlaAck")
+    await engine.execute_job(job.id)
+    await probe.drain()
+
+
+async def test_ciencia_dada_nao_alerta_o_supervisor_no_sla_de_ciencia(
+    engine: EngineRest, start_escalation: StartEscalation, audit_sink: Any, audit_tenant: str
+) -> None:
+    probe = _probe_com_motor(engine, audit_sink, audit_tenant, CIBSEVEN_BASE_URL)
+    try:
+        inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
+        iid = inst["id"]
+        await probe.drain()
+        task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
+        await _assumir(engine, task.id, "atendente.it")
+
+        await _estourar_sla_de_ciencia(engine, probe, iid)
+
+        assert probe.has_event(_BREACHED, fase="ack")  # o BPMN nao mudou: o evento de dominio sai
+        assert not _alertas_da_instancia(probe, inst), "a tarefa tinha dono: o supervisor NAO e' alertado"
+        ended = await engine.activity_instances_ended(iid)
+        assert "ST_NotificarSupervisor" in ended and "End_SupervisorAlertado" in ended
+        abertas = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
+        assert "UT_TratarEscalonamento" in abertas
+    finally:
+        await probe.transport.close()
+
+
+async def test_sem_dono_o_sla_de_ciencia_alerta_o_supervisor(
+    engine: EngineRest, start_escalation: StartEscalation, audit_sink: Any, audit_tenant: str
+) -> None:
+    probe = _probe_com_motor(engine, audit_sink, audit_tenant, CIBSEVEN_BASE_URL)
+    try:
+        inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
+        iid = inst["id"]
+        await probe.drain()
+        await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+        await _estourar_sla_de_ciencia(engine, probe, iid)
+
+        [alerta] = _alertas_da_instancia(probe, inst)
+        assert alerta["motivo_alerta"] == "sla_ack_breached"
+    finally:
+        await probe.transport.close()
+
+
+async def test_leitura_do_dono_que_falha_alerta_o_supervisor(
+    engine: EngineRest, start_escalation: StartEscalation, audit_sink: Any, audit_tenant: str
+) -> None:
+    """O seam de leitura aponta para uma porta FECHADA: a leitura falha e o handler ALERTA mesmo com
+    a tarefa assumida (falhar para o lado seguro)."""
+    probe = _probe_com_motor(engine, audit_sink, audit_tenant, "http://127.0.0.1:9/engine-rest")
+    try:
+        inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
+        iid = inst["id"]
+        await probe.drain()
+        task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
+        await _assumir(engine, task.id, "atendente.it")
+
+        await _estourar_sla_de_ciencia(engine, probe, iid)
+
+        [alerta] = _alertas_da_instancia(probe, inst)
+        assert alerta["motivo_alerta"] == "sla_ack_breached"
+    finally:
+        await probe.transport.close()
+
+
+async def test_fallback_de_canal_continua_alertando_com_o_seam_de_leitura(
+    engine: EngineRest, start_escalation: StartEscalation, audit_sink: Any, audit_tenant: str
+) -> None:
+    probe = _probe_com_motor(engine, audit_sink, audit_tenant, CIBSEVEN_BASE_URL)
+    try:
+        probe.fault.fail_notification_types.add("escalation.notify_team")
+        inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
+        iid = inst["id"]
+        await probe.drain()
+
+        ended = await engine.activity_instances_ended(iid)
+        assert "ST_NotificarFallback" in ended
+        [alerta] = _alertas_da_instancia(probe, inst)
+        assert alerta["motivo_alerta"] == "notificacao_primaria_falhou"
+        await engine.await_user_task(iid, "UT_TratarEscalonamento")
+    finally:
+        await probe.transport.close()

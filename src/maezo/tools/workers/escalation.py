@@ -99,9 +99,11 @@ from typing import TYPE_CHECKING, Any, Final, NoReturn
 import structlog
 
 from maezo.platform.integrations.partition_key import partition_key_for_task
+from maezo.tools.mcp_cibseven.transport import UserTaskAssigneeReadingTransport
 from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
+    from maezo.tools.mcp_cibseven.transport import CibSevenTransport
     from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
 
 logger = structlog.get_logger(__name__)
@@ -231,6 +233,11 @@ _NOTIFY_SUPERVISOR_NOTIFICATION_TYPE = NOTIFY_SUPERVISOR_NOTIFICATION_TYPE
 #: Every field is a CLOSED token: no business key, no exception text.
 EVENTO_SUPERVISOR_ALERTADO: Final[str] = "escalation.supervisor_alertado"
 EVENTO_AVISO_FALHOU: Final[str] = "escalation.aviso_falhou"
+#: Pendencia 40 (DL-0152): o SLA de CIENCIA estourou, mas `UT_TratarEscalonamento` ja' tinha dono —
+#: a ciencia FOI dada e o supervisor NAO e' alertado. Campos fechados: so' `motivo_alerta`.
+EVENTO_CIENCIA_DADA: Final[str] = "escalation.ciencia_dada"
+#: A User Task cujo `assignee` prova a ciencia (BPMN SP-OP-ESCALATION-001, `UT_TratarEscalonamento`).
+_UT_TRATAR_ESCALONAMENTO: Final[str] = "UT_TratarEscalonamento"
 #: `tipo` of `escalation.aviso_falhou`: which notice failed to publish.
 AVISO_TIPO_EQUIPE: Final[str] = "equipe"
 AVISO_TIPO_SUPERVISOR: Final[str] = "supervisor"
@@ -241,6 +248,33 @@ MOTIVO_ALERTA_SLA_ACK: Final[str] = "sla_ack_breached"
 MOTIVO_ALERTA_FALLBACK: Final[str] = "notificacao_primaria_falhou"
 MOTIVO_ALERTA_OUTRO: Final[str] = "outro"
 _MOTIVOS_ALERTA: Final[frozenset[str]] = frozenset({MOTIVO_ALERTA_SLA_ACK, MOTIVO_ALERTA_FALLBACK})
+
+
+async def _ciencia_ja_dada(task: ExternalTask, engine: CibSevenTransport | None) -> bool:
+    """O atendente JA' assumiu `UT_TratarEscalonamento` desta instancia? (pendencia 40, DL-0152)
+
+    So' `True` com PROVA: a leitura do motor devolveu um `assignee`. Sem transporte, transporte sem a
+    leitura, task sem dono, instancia sem a task ou leitura que FALHA (qualquer excecao) = `False` —
+    e `False` ALERTA o supervisor, o lado seguro. A falha vai ao log so' com o TIPO do erro.
+    """
+    if not isinstance(engine, UserTaskAssigneeReadingTransport) or not task.process_instance_id:
+        logger.warning(
+            "escalation_ciencia_sem_leitura",
+            business_key=task.business_key,
+            process_instance_id=task.process_instance_id,
+        )
+        return False
+    try:
+        assignee = await engine.read_user_task_assignee(task.process_instance_id, _UT_TRATAR_ESCALONAMENTO)
+    except Exception as exc:  # leitura que falha nunca prova ciencia: ALERTA (lado seguro).
+        logger.warning(
+            "escalation_ciencia_leitura_falhou",
+            error_type=type(exc).__name__,
+            business_key=task.business_key,
+            process_instance_id=task.process_instance_id,
+        )
+        return False
+    return bool(assignee and assignee.strip())
 
 
 def _motivo_alerta_fechado(motivo_alerta: str | None) -> str:
@@ -717,7 +751,9 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
 # ---------------------------------------------------------------------------
 
 
-def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
+def make_notify_supervisor_handler(
+    kafka: KafkaPublisher | None, engine: CibSevenTransport | None = None
+) -> TaskHandler:
     """Create the handler for `operadora.escalation.notify_supervisor` (DL-0034; mirrors #55 R-B).
 
     Serves BOTH `ST_NotificarSupervisor` (SLA breach — ack/resolution timer expired) and
@@ -740,6 +776,14 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         REPLACES the removed `sla_status`, which read a variable NO BPMN task ever sets
         (`grep -n sla_status spec/` -> 0 hits) and therefore reported the literal `"unknown"` on
         every single supervisor alert ever raised.
+
+    CIENCIA DADA DESARMA O ALERTA DE CIENCIA (pendencia 40, DL-0152): o `BT_SlaAck` e' NAO
+    interruptivo e dispara mesmo com o atendente ja' tendo assumido a task. No caminho do SLA de
+    CIENCIA (`motivo=sla_ack_breached`, sem `motivo_fallback`) o handler le, pelo `engine` (o mesmo
+    seam `CibSevenTransport` dos outros workers), o `assignee` de `UT_TratarEscalonamento`: com dono,
+    registra `escalation.ciencia_dada` e NAO publica o alerta. Sem dono, sem `engine` ou leitura que
+    falha = ALERTA. O fallback de canal (`motivo_fallback=notificacao_primaria_falhou`) ALERTA sempre,
+    sem leitura. O BPMN nao muda: a task completa e o ramo segue para `End_SupervisorAlertado`.
     """
 
     async def handler(task: ExternalTask) -> Mapping[str, Any]:
@@ -763,6 +807,22 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             result["prioridade"] = prioridade
         if motivo_alerta is not None:
             result["motivo_alerta"] = motivo_alerta
+
+        sla_de_ciencia = (
+            _rotulo_opcional(v, "motivo") == MOTIVO_ALERTA_SLA_ACK
+            and _rotulo_opcional(v, "motivo_fallback") is None
+        )
+        if sla_de_ciencia and await _ciencia_ja_dada(task, engine):
+            logger.info(
+                "escalation_supervisor_nao_alertado_ciencia_dada",
+                tenant_id=tenant_id,
+                grupo_atendimento=grupo,
+                business_key=task.business_key,
+            )
+            logger.info(EVENTO_CIENCIA_DADA, motivo_alerta=MOTIVO_ALERTA_SLA_ACK)
+            result.pop("alert_to")
+            result["status"] = "supervisor_nao_alertado_ciencia_dada"
+            return result
 
         if kafka is None:
             logger.warning(
@@ -889,6 +949,8 @@ def register_escalation_workers(
     harness `_handlers` table but NOT the `WorkerRegistry` (see `test_bootstrap_registration.py`'s
     `raw_handler_topics`).
     """
-    del seams  # unused — no dmn/other seam is needed by these notify handlers
+    # `engine` (pendencia 40, DL-0152): a leitura de quem assumiu `UT_TratarEscalonamento`, para o
+    # alerta de SLA de ciencia nao disparar com a ciencia ja' dada. Ausente = alerta sempre (o de antes).
+    engine: CibSevenTransport | None = seams.get("engine")
     harness.register(_NOTIFY_TEAM_TOPIC, make_notify_team_handler(kafka))
-    harness.register(_NOTIFY_SUPERVISOR_TOPIC, make_notify_supervisor_handler(kafka))
+    harness.register(_NOTIFY_SUPERVISOR_TOPIC, make_notify_supervisor_handler(kafka, engine))
