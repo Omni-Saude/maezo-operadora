@@ -504,3 +504,32 @@ permissão foi escolhido por esta reancoragem. Dedup e fences não podem ser apa
 reabrir comandos incertos; refs apagadas não autorizam reconstruir conteúdo ou reenviar
 efeitos. O bloco continua `unratified: true`, com ratificação falsa, nomes/datas nulos e
 assinaturas em branco; os bloqueios de execução da §5 permanecem.
+
+---
+
+## 9. Adendo — escalonamento humano e custódia do telefone (2026-10-20)
+
+> **PROPOSTA de engenharia, não decisão.** As quatro linhas abaixo ficam **fora** do bloco YAML
+> assinável da §4 (que continua com o escopo B e `unratified: true`): são relações e artefatos que
+> o escopo B não cobre, mas que o pacote do DPO de 20/10/2026 (planilha
+> `DPO_Decisoes_Escalonamento_2026-10-20.xlsx`, linhas a, c, d, e, f) pede para decidir. Cada
+> prazo é sugestão a confirmar com o jurídico. Nenhuma linha muda runtime ao ser assinada; o que
+> cada uma exigiria de engenharia está na coluna "Impacto".
+
+| # | Dado / relação | O que existe hoje (evidência) | `base_legal` sugerida | `retencao` proposta | `acao` proposta | Impacto se aceita | Decisão do DPO |
+|---|---|---|---|---|---|---|---|
+| 9.1 | Custódia do telefone — `custodia_contato_retomada`/`beneficiario_contato_retomada` (migração `0016`) | Telefone cifrado (KMS + AES-GCM) para a retomada pós-humano, ADR-0061 **Proposto**, ligado só em dev por exceção da diretoria de 27/09 (`deploy/aws-ecs/envs/dev-sa-east-1/retomada.auto.tfvars`). `expires_at` = última mensagem + 30 dias (`RECIPIENT_VAULT_TTL_DAYS`). A leitura ignora a linha vencida, mas **nada a apagava**: `src/maezo/gateway/recipient_custody.py::PostgresRecipientVault.purge_expired` não tinha chamador. Eliminação por titular: `PONTE_AUSENTE` (`spec/policies/retention/erasure-plan.template.yaml`, camada `custodia_contato_retomada`). | Dev (teste interno, celulares do time): LGPD art. 7º IX com ciência dos participantes. Produção (ato separado): art. 7º V — o titular iniciou o atendimento e o número só devolve a resposta do humano. CONFIRMAR JURÍDICO | **30 dias** após a última mensagem (dev); reavaliar para **7 dias** em produção, porque a retomada só envia dentro de 24 h da última mensagem | `ELIMINAR` ao vencer — limpeza diária `src/maezo/platform/custodia_limpeza/job.py::rodar` (desligada por padrão) | Ligar a limpeza: PR de `tfvars` + apply. Eliminação por titular em produção exige o procedimento por telefone (recalcular o `conversation_id` e apagar a linha) — a construir | ______________________ |
+| 9.2 | `notas_resolucao` (texto livre do atendente) no histórico do motor | `camunda:historyTimeToLive="1825"` no processo de `spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn` (linha 22): 5 anos para **todo** o histórico da instância, inclusive `notas_resolucao` e `resumo_contexto`. A nota é limpa antes de sair do portal (`src/maezo/gateway/human/completion.py::pseudonymize_notes`: e-mail, CPF/CNPJ, telefone, sequências de dígitos), mas a narrativa em prosa sobrevive por desenho. A `audit_chain` guarda só o digest. A retomada lê a nota do histórico em horas ou dias. | LGPD art. 7º V (atendimento) + art. 16 I se houver norma ANS de guarda do atendimento. CONFIRMAR JURÍDICO | **365 dias** (proposta), salvo norma que exija mais | `ELIMINAR` pelo history cleanup do motor | `historyTimeToLive` é atributo do processo: mudar exige **nova versão do BPMN**, novo deploy e **repin** dos materiais; vale só para instâncias novas (as antigas exigem ajuste em lote do tempo de remoção). Embarcar na próxima versão que já for sair | ______________________ |
+| 9.3 | `inbox_escalonamento`/`escalation_team_notice` (migração `0015`) | Linha imutável por trigger (UPDATE/DELETE/TRUNCATE recusados) do aviso `escalation.notify_team`; sem texto livre e sem payload. ADR-0051 registra "sem política de retenção" (`docs/adr/0051-handoff-auth-escalation-risco-de-sla.md`). **Atenção:** `business_key` = `ESC-{tenant}-{conversation_id}`, e `conversation_id` é pseudônimo keyed do telefone — a linha carrega **dado pessoal pseudonimizado**, não "nenhum dado pessoal". | LGPD art. 7º VI + art. 16 I (prova de acionamento dentro do SLA). CONFIRMAR JURÍDICO | **5 anos** (alinhado à auditoria, ADR-0007) | `RETER_COM_BASE_LEGAL`; `ELIMINAR` ao fim do prazo | A tabela é imutável e nada a apaga: cumprir o prazo exige migração nova com expurgo só por idade (papel próprio). Sem urgência (volume pequeno, só dev) | ______________________ |
+| 9.4 | `audit_chain` + registro de leitura do portal (DL-0149) | Retenção de 5 anos (`src/maezo/platform/retention.py`, ADR-0007/DL-0018), mas a poda não existe: `src/maezo/platform/retention.py::RetentionManager.retention_query` sem chamador de produção, bloqueada por legal-hold (ADR-0020) e re-âncora (ADR-0029); apagar ou anonimizar quebra a cadeia de hash. Desde 19/10, cada leitura de detalhe do portal grava `portal_read.<codigo>` na cadeia, sem PHI, em **best-effort**: se a gravação falhar, a leitura segue e só sai o log `portal_read_audit_skipped` (`src/maezo/gateway/human/read_audit.py::record_read_best_effort`), que dura o quanto dura o log (30 dias em dev). | LGPD art. 16 I/II + art. 7º VI; art. 37 (registro das operações). CONFIRMAR JURÍDICO | **5 anos** | `RETER_COM_BASE_LEGAL` — nunca eliminável a pedido do titular | Best-effort aceito só em dev. Produção: ou registro obrigatório (fail-closed) para a leitura do resumo PHI, ou alarme sobre `portal_read_audit_skipped` a partir de 1 ocorrência, e proibir subir o perfil humano sem sink | ______________________ |
+
+Nota sobre a §4: a linha 9.4 é a mesma relação da categoria `auditoria_nao_repudio` (§3.1, item 4);
+o adendo só acrescenta o registro de leitura e o risco do best-effort. As linhas 9.1 a 9.3 continuam
+em `escopo_b.nao_cobertas` no bloco da §4 até o encarregado decidir trazê-las para dentro.
+
+O rascunho do registro de ciência da custódia (linha 9.1) está em
+`docs/sme-dispatch/dpo/CIENCIA-ADR-0061-RASCUNHO.md`, também sem assinatura.
+
+**Ratificado por (DPO) — adendo §9:** ______________________  **data:** ______________________
+
+**Ratificado por (jurídico) — adendo §9:** ______________________  **data:** ______________________
