@@ -671,6 +671,26 @@ _NAO_DE: Final[re.Pattern[str]] = re.compile(
     # falar com o medico" sao a orientacao certa (nao automedicar), nao proibicao de remedio.
     r"|por conta propria|antes de (?:falar|conversar|consultar|passar)))"
 )
+#: O que torna "nao use/nao de/nao tome" uma PROIBICAO DE REMEDIO: um remedio (palavra ou nome do dicionario)
+#: logo depois. "nao use tapetes soltos" (prevencao de queda) e' orientacao de cuidado, nao proibicao.
+_MARCA_DE_REMEDIO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:remedios?|medicamentos?|medicacao|comprimidos?|capsulas?|xaropes?|pomadas?|gotas|injec\w*|doses?"
+    r"|suplementos?|vitaminas?|antibioticos?|analgesicos?|anti ?inflamatorios?|antitermicos?|calmantes?"
+    r"|hormonios?|cha|chas|florais|homeopatia)\b"
+)
+
+
+def _proibe_remedio(plano: str) -> re.Match[str] | None:
+    """`_NAO_DE` so' conta quando o que vem logo depois e' um remedio (palavra ou nome conhecido)."""
+    from maezo.conhecimento.medicamentos_comuns import PADRAO_DE_NOME
+
+    for m in _NAO_DE.finditer(plano):
+        janela = plano[m.end() : m.end() + 50]
+        if _MARCA_DE_REMEDIO.search(janela) or PADRAO_DE_NOME.search(janela):
+            return m
+    return None
+
+
 _DOBRO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:use|tome|de|dobre|duplique)\b (?:o )?(?:dobro|dobrad[oa]|em dobro)\b|\bdobr(?:e|ar) a\b"
 )
@@ -851,7 +871,6 @@ def verificar(
     for nome, padrao in (
         ("dose_numerica", _DOSE_NUMERICA),
         ("manda_usar_ou_parar", _MANDA_USAR),
-        ("nao_de_nao_use", _NAO_DE),
         ("use_o_dobro", _DOBRO),
         ("dose_esquecida", _DOSE_ESQUECIDA),
         ("libera_combinacao", _LIBERA_COMBINACAO),
@@ -864,6 +883,9 @@ def verificar(
         m = padrao.search(plano)
         if m:
             achados.append(Violacao(nome, m.group(0)))
+    proibe = _proibe_remedio(plano)
+    if proibe is not None:
+        achados.append(Violacao("nao_de_nao_use", proibe.group(0)))
     pessoa = bs.normalizar(texto_da_pessoa)
     achados += _violacoes_de_remedio(plano, pessoa)
     if _PRESSAO_NA_PESSOA.search(pessoa) and (m_med := _DESCARTA_MEDICAO.search(plano)):
