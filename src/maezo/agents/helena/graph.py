@@ -4996,6 +4996,14 @@ class HelenaGraph:
             # `receive`; do not re-classify over it.
             return {}
 
+        # RISCO ANTES DO MODELO (pendencia 15, DL-0151): termo de autolesao ou de nao querer viver no TEXTO
+        # decide o turno ANTES de qualquer outro portao e sem chamar o classificador. Antes, o termo so' era
+        # lido DEPOIS do modelo, e quando o modelo falhava "quero me matar" escalava `falha_tecnica` (P3,
+        # atendimento-humano) em vez de `risco_psicossocial` (P1, plantao clinico).
+        risco = await self._risco_pelo_texto(state)
+        if risco is not None:
+            return risco
+
         seguimento = self._seguimento_com_o_lucas(state)
         if seguimento is not None:
             return seguimento
@@ -5057,12 +5065,8 @@ class HelenaGraph:
             }
         intent = cast(Intent, extraction.get("intent", "information"))
         psychosocial = bool(extraction.get("psychosocial_risk", False))
-        if not psychosocial and _sg.tem_risco(_plano(str(state.get("message_body") or ""))):
-            # DOSSIE DE SEGURANCA (18/10/2026, conservador): termo de autolesao ou de nao querer viver NO
-            # TEXTO e' risco psicossocial mesmo que o classificador nao tenha marcado (DL-0123).
-            logger.warning("helena_risco_psicossocial_pelo_texto", node="classify")
-            psychosocial = True
-            extraction["psychosocial_risk"] = True
+        # O termo de risco no TEXTO (DL-0123) ja' decidiu o turno antes do modelo (`_risco_pelo_texto`,
+        # DL-0151): aqui so' chega mensagem sem o termo, e o risco vem do classificador.
 
         # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). A fusao acontece AQUI, antes de qualquer
         # decisao, porque e' `extraction` — nao `update` — que vai para `_evaluate_dmn`, e e' a
@@ -5094,20 +5098,7 @@ class HelenaGraph:
         # HELENA V4 (DL-0115): a pergunta/oferta da v4 do turno anterior vale SO' para ESTE turno. Ela e' lida
         # aqui (`pend_v4`) e a memoria da coleta zera ja', para que QUALQUER saida deste turno (inclusive os
         # portoes de seguranca, que respondem antes da v4) nao deixe uma pergunta velha esperando.
-        pend_v4 = ler_pendente(state.get("coleta_pendente")) if self._v4 else None
-        if pend_v4 is not None:
-            update["coleta_pendente"] = None
-            update["coleta_contexto"] = ""
-            update["coleta_rodadas"] = 0
-        # BASE DE SAUDE (ADR-0064): a confirmacao de encerramento do turno anterior vale SO' para ESTE turno.
-        pend_encerrar = self._base_saude and state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
-        if pend_encerrar:
-            update["coleta_pendente"] = None
-        if str(state.get("coleta_pendente") or "").startswith(("BS_COBERTURA", PREFIXO_COBERTURA_ASSISTIDA)):
-            # "Para quem e'?" (rodada do dono de 19/10/2026) sem a escolha neste turno: a pergunta vale so'
-            # uma vez.
-            update["coleta_pendente"] = None
-            update["coleta_contexto"] = ""
+        pend_v4, pend_encerrar = self._expirar_pendencias_do_turno(state, update)
         if (
             intent == INTENT_COBRANCA
             and _COBRANCA_NEGADA.search(_plano(str(state.get("message_body") or "")))
@@ -5921,6 +5912,64 @@ class HelenaGraph:
             return _rota_informativa(update)
 
         return _rota_informativa(update)
+
+    def _expirar_pendencias_do_turno(
+        self, state: Mapping[str, Any], update: dict[str, Any]
+    ) -> tuple[Pendente | None, bool]:
+        """As perguntas pendentes do turno anterior valem SO' para ESTE turno: zera a memoria delas em
+        `update` e devolve `(pend_v4, pend_encerrar)` lidos antes de zerar. Comum a `classify` e ao portao
+        de risco antes do modelo (`_risco_pelo_texto`), para que nenhuma saida deixe pergunta velha."""
+        pend_v4 = ler_pendente(state.get("coleta_pendente")) if self._v4 else None
+        if pend_v4 is not None:
+            update["coleta_pendente"] = None
+            update["coleta_contexto"] = ""
+            update["coleta_rodadas"] = 0
+        # BASE DE SAUDE (ADR-0064): a confirmacao de encerramento do turno anterior vale SO' para ESTE turno.
+        pend_encerrar = self._base_saude and state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
+        if pend_encerrar:
+            update["coleta_pendente"] = None
+        if str(state.get("coleta_pendente") or "").startswith(("BS_COBERTURA", PREFIXO_COBERTURA_ASSISTIDA)):
+            # "Para quem e'?" (rodada do dono de 19/10/2026) sem a escolha neste turno: a pergunta vale so'
+            # uma vez.
+            update["coleta_pendente"] = None
+            update["coleta_contexto"] = ""
+        return pend_v4, pend_encerrar
+
+    async def _risco_pelo_texto(self, state: HelenaState) -> dict[str, Any] | None:
+        """RISCO PSICOSSOCIAL PELO TEXTO, ANTES DO MODELO (pendencia 15, DL-0151).
+
+        Termo de autolesao ou de nao querer viver na mensagem (`saude_gerativa.tem_risco`, lista do
+        DL-0123, inalterada) escala `risco_psicossocial` SEM chamar o classificador: a falha do modelo nao
+        rebaixa mais o turno a `falha_tecnica`. A severidade continua sendo a da tabela `mental_health`
+        (mesmo bloco do gatilho 5 em `classify`; tabela fora do ar = `grave`) e nenhum `sintoma_codigo` e'
+        inventado a partir do texto; o ROTEAMENTO e' a `r2` da `escalation_routing` (P1, plantao clinico,
+        qualquer severidade). O texto e' o fixo `RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL` (CVV 188, 192), que
+        `escalate` escolhe pelo motivo. Sem o termo devolve `None` e o turno segue como antes."""
+        if not _sg.tem_risco(_plano(str(state.get("message_body") or ""))):
+            return None
+        logger.warning("helena_risco_psicossocial_pelo_texto", node="classify", antes_do_modelo=True)
+        update: dict[str, Any] = {
+            "intent": "symptom",
+            "population": "mental_health",
+            "psychosocial_risk": True,
+            "sintoma_codigo": None,
+            "intensidade": "desconhecida",
+            "idade_anos": None,
+            "idade_meses": None,
+            "idade_gestacional_semanas": None,
+        }
+        self._expirar_pendencias_do_turno(state, update)
+        # `risco_imediato` ausente = risco imediato (`_evaluate_dmn`, postura conservadora).
+        dmn_out = await self._evaluate_dmn({"psychosocial_risk": True}, force_population="mental_health")
+        update.update(dmn_out)
+        update["next_kind"] = "escalate"
+        update["escalation_motivo"] = "risco_psicossocial"
+        if dmn_out.get("error"):
+            update["escalation_severidade"] = "grave"
+        else:
+            prioridade = str((dmn_out.get("dmn_decision") or {}).get("prioridade", ""))
+            update["escalation_severidade"] = _severidade_from_prioridade(prioridade)
+        return update
 
     def _seguimento_com_o_lucas(self, state: Mapping[str, Any]) -> dict[str, Any] | None:
         """SEGUIMENTO CURTO COM O LUCAS ATIVO VAI AO LUCAS, NAO IMPORTA O MODELO (rodada 11, 14/10/2026).
