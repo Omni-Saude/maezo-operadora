@@ -218,8 +218,8 @@ async def test_falha_do_modelo_cai_na_decisao_por_nota() -> None:
         ("não, obrigada", "nao"),
         ("não sei o nome direito", "nao_sei"),
         ("não lembro como está no pedido", "nao_sei"),
-        ("deixa pra lá", "desistir"),
-        ("esquece", "desistir"),
+        ("deixa pra lá", "encerrar"),
+        ("esquece", "encerrar"),
         ("ok obrigado", None),
         ("tomografia do abdome", None),
     ],
@@ -235,7 +235,7 @@ async def test_deixa_pra_la_encerra_em_qualquer_pendencia(pendente: str) -> None
     m = _Mundo(pedido=_pedido("hemograma", para_quem="titular"))
     ctx = ca.Contexto(termos=["hemograma"], opcoes=[("40304361", "HEMOGRAMA")])
     up = await _fluxo(m, None).responder("deixa pra lá", pendente, ctx.codificar())
-    assert up["response_text"] == ca.TEXTO_DESISTIU and up["coleta_pendente"] is None
+    assert up["response_text"] == ca.TEXTO_ASSUNTO_ENCERRADO and up["coleta_pendente"] is None
     assert m.consultas == [] and m.extracoes == 0, "nunca vira busca"
 
 
@@ -317,7 +317,7 @@ def test_coparticipacao_e_reembolso_do_procedimento_ficam_com_a_helena() -> None
 def test_textos_novos_passam_nas_cercas() -> None:
     from maezo.agents.helena.prompts import motivo_de_canal_nao_confirmado, motivo_de_recusa
 
-    for t in (ca.TEXTO_DESISTIU, ca.TEXTO_CONFIRMA.format(nome="x"), ca.TEXTO_REDE_DO_PROCEDIMENTO,
+    for t in (ca.TEXTO_ASSUNTO_ENCERRADO, ca.TEXTO_CONFIRMA.format(nome="x"), ca.TEXTO_REDE_DO_PROCEDIMENTO,
               ca.pergunta_do_tipo("ultrassom")):  # fmt: skip
         assert motivo_de_recusa(t, "inform", start_aconteceu=False) is None, t
         assert motivo_de_canal_nao_confirmado(t) is None, t
@@ -379,5 +379,5 @@ async def test_grafo_deixa_pra_la_encerra_sem_busca() -> None:
     antes = len(fonte.pedidos)
     memoria = {k: r1[k] for k in ("coleta_pendente", "coleta_contexto", "historico_conversa")}
     r2 = await grafo.ainvoke(_entrada("deixa pra lá") | memoria)
-    assert whatsapp.enviados[-1] == ca.TEXTO_DESISTIU and not r2.get("coleta_pendente")
+    assert whatsapp.enviados[-1] == ca.TEXTO_ASSUNTO_ENCERRADO and not r2.get("coleta_pendente")
     assert len(fonte.pedidos) == antes and _starts(cib) == 0

@@ -270,7 +270,7 @@ atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com f
   descrição). O log `catalogo_procedimentos_carregado` mostra `itens` e `administrativos` (fora).
 - **Escolha:** `helena_cobertura_escolha` (confiança, se escolheu, quantos candidatos), `helena_cobertura_confirmacao`,
   `helena_cobertura_pedido_vago`. Sem o modelo, a decisão por nota (sem log de escolha).
-- **Estado:** `helena_cobertura_resposta` (pendência e leitura: sim/nao/nao_sei/desistir).
+- **Estado:** `helena_cobertura_resposta` (pendência e leitura: sim/nao/nao_sei/encerrar).
 - **Capacidade:** a cobertura lida fica em memória por (titular, código) por 5 min. `helena_cobertura_lida
   motivo=rate_limited` = limite por sujeito da rota da AMH.
 - **Desfazer:** revert do PR.

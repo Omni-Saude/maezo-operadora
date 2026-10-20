@@ -536,8 +536,8 @@ _COMECO_SIM: Final[re.Pattern[str]] = re.compile(
     r"|e esse|esse mesmo|essa mesma|esse ai|essa ai|isso ai|por favor|faz isso|manda)\b"
 )
 _COMECO_NAO: Final[re.Pattern[str]] = re.compile(r"^(?:nao|n|nem|negativo|agora nao|nao quero)\b")
-#: Desistir do assunto ("deixa pra la", "esquece") — encerra com educacao, nunca vira busca.
-_DESISTIR: Final[re.Pattern[str]] = re.compile(
+#: Encerrar o assunto ("deixa pra la", "esquece") — encerra com educacao, nunca vira busca.
+_ENCERRAR_ASSUNTO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:deixa (?:pra|para) la|deixa quieto|deixa isso|deixa assim|deixa pra depois|esquece|esqueca"
     r"|esquecer|nao precisa mais|nao preciso mais|nao quero mais|tanto faz|mudei de ideia|outra hora"
     r"|depois eu (?:vejo"
@@ -568,14 +568,14 @@ def e_cortesia(texto: str) -> bool:
 
 
 def ler_resposta(texto: str) -> str | None:
-    """A resposta CURTA a uma pergunta da Helena: "desistir", "nao_sei", "nao", "sim" ou `None` (nao e'
+    """A resposta CURTA a uma pergunta da Helena: "encerrar", "nao_sei", "nao", "sim" ou `None` (nao e'
     resposta: pode ser um pedido novo). Regra geral, sem termo de procedimento."""
     plano = normalizar(texto)
     if not plano:
         return None
     palavras = plano.split()
-    if _DESISTIR.search(plano) and len(palavras) <= 10:
-        return "desistir"
+    if _ENCERRAR_ASSUNTO.search(plano) and len(palavras) <= 10:
+        return "encerrar"
     if _NAO_SEI.search(plano) and len(palavras) <= 12:
         return "nao_sei"
     if len(palavras) > 7:
@@ -862,7 +862,7 @@ def pergunta_do_tipo(termo: str) -> str:
     )
 
 
-TEXTO_DESISTIU: Final[str] = "Tudo bem. Se precisar de outra coisa, é só me chamar."
+TEXTO_ASSUNTO_ENCERRADO: Final[str] = "Tudo bem. Se precisar de outra coisa, é só me chamar."
 TEXTO_CONFIRMA: Final[str] = "Você quer saber sobre {nome}?"
 TEXTO_REDE_DO_PROCEDIMENTO: Final[str] = (
     "Se um hospital, clínica ou laboratório atende pelo seu plano, isso está na rede credenciada, no "
@@ -921,7 +921,7 @@ __all__ = [
     "PROMPT_ESCOLHA",
     "TEXTO_CONFIRMA",
     "TEXTO_COPARTICIPACAO",
-    "TEXTO_DESISTIU",
+    "TEXTO_ASSUNTO_ENCERRADO",
     "TEXTO_REDE_DO_PROCEDIMENTO",
     "Escolha",
     "escolha_do_modelo",

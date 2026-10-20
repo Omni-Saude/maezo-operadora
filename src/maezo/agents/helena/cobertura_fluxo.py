@@ -148,9 +148,9 @@ class FluxoDeCobertura:
         ctx = ca.Contexto.decodificar(contexto) if pendente.startswith(ca.PREFIXO) else ca.Contexto()
         respondidos = list(ctx.respondidos) if pendente == PEND_RESPONDIDO else []
         resposta = ca.ler_resposta(texto) if pendente.startswith(ca.PREFIXO) else None
-        if resposta == "desistir":
+        if resposta == "encerrar":
             logger.info("helena_cobertura_resposta", pendencia=pendente, leitura=resposta)
-            return _update(ca.TEXTO_DESISTIU, None, None)
+            return _update(ca.TEXTO_ASSUNTO_ENCERRADO, None, None)
         if resposta is not None:
             logger.info("helena_cobertura_resposta", pendencia=pendente, leitura=resposta)
         if pendente == ca.PEND_EQUIPE:
@@ -162,7 +162,7 @@ class FluxoDeCobertura:
             if ca.tentar_de_novo(texto) or resposta == "sim":
                 return await self._resolver(ctx, prefixo="")
             if resposta in ("nao", "nao_sei"):
-                return _update(ca.TEXTO_DESISTIU, None, None)
+                return _update(ca.TEXTO_ASSUNTO_ENCERRADO, None, None)
         if pendente == ca.PEND_QUEM:
             graus, com_nome, primeiros = await self.d.dependentes()
             quem = quem_pelo_texto(texto, graus, primeiros)
@@ -202,7 +202,7 @@ class FluxoDeCobertura:
             if resposta == "nao_sei":
                 return self._falhou(ctx, termo, nao_sabe=True)
             if resposta == "nao":
-                return _update(ca.TEXTO_DESISTIU, None, None)
+                return _update(ca.TEXTO_ASSUNTO_ENCERRADO, None, None)
             if resposta == "sim":
                 return _update(ca.pergunta_da_forma(termo), ca.PEND_FORMA, ctx)
         if pendente in (ca.PEND_OPCOES, ca.PEND_FORMA, ca.PEND_CONFIRMA):
