@@ -274,3 +274,17 @@ atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com f
 - **Capacidade:** a cobertura lida fica em memória por (titular, código) por 5 min. `helena_cobertura_lida
   motivo=rate_limited` = limite por sujeito da rota da AMH.
 - **Desfazer:** revert do PR.
+
+## 20. CPT vigente (DL-0130, 20/10/2026)
+
+- **O que faz (só na allowlist):** numa resposta de cobertura para o **titular** com CPT vigente no cadastro (rota
+  AMH `tina-cpt`, manifest v1.15), a Helena acrescenta UM aviso geral: "Pelo cadastro, o seu plano tem uma cobertura
+  parcial temporária (CPT) válida até DD/MM/AAAA. [...] Quem confirma, caso a caso, é a análise da autorização."
+  Nunca cita doença; sem CPT, falha, dependente ou terceiro, não fala de CPT. Texto pendente de revisão jurídica.
+- **Logs:** `helena_cpt_lida motivo=ok|not_found|rate_limited|prazo_estourado|rota_nao_carregada|...` (leitura) e
+  `helena_cobertura_cpt aviso=True|False` (se o aviso saiu). Nenhum conteúdo da CPT vai a log. No boot,
+  `amh_interop_cpt_fora motivo=leitura|composicao|contrato` = a rota ficou de fora (o resto sobe).
+- **Capacidade:** a leitura fica em memória por titular por 5 min (o limite por sujeito da AMH é compartilhado
+  com a cobertura).
+- **Desligar:** `amh_tina_cpt_openapi_path = ""` (tfvars do dev) + apply direcionado do receptor.
+- **Desfazer:** revert do PR.

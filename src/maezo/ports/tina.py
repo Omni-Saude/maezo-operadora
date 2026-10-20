@@ -330,6 +330,35 @@ class TinaProcedimentosPort(Protocol):
     ) -> PortResult[CatalogoProcedimentosView]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class CptVigenteView:
+    """Se o PROPRIO sujeito tem cobertura parcial temporaria (CPT) VIGENTE (contrato `tina-cpt`, manifest
+    v1.15; caso C1 autorizado pelo dono e DPO em 20/10/2026, DL-0130). Minimizado na fonte: nunca o CID nem
+    a doenca, so' o sim/nao, QUANTAS linhas vigentes e a MAIOR data de fim (`AAAA-MM-DD`, `None` sem data).
+    Fato do cadastro, nunca autorizacao nem promessa (`natureza` constante no contrato)."""
+
+    portable_subject_ref: str
+    tem_cpt_vigente: bool
+    cpt_vigentes: int
+    termina_em: str | None
+    fonte_atualizada_em: str | None
+
+
+@runtime_checkable
+class TinaCptPort(Protocol):
+    """Leitura read-only da CPT vigente do proprio sujeito (contrato `tina-cpt`). Sucesso ou recusa, nunca
+    excecao. Port separado: quem so' implementa os fatos do plano ou a cobertura nao muda."""
+
+    async def get_cpt_vigente(
+        self,
+        portable_subject_ref: str,
+        *,
+        purpose_of_use: str,
+        consent_decision_ref: str,
+        timeout_seconds: float = DEFAULT_PORT_TIMEOUT_SECONDS,
+    ) -> PortResult[CptVigenteView]: ...
+
+
 @runtime_checkable
 class TinaDependentesPort(Protocol):
     """Leitura read-only dos dependentes do titular (contrato `tina-dependentes`). Sucesso ou recusa, nunca
@@ -394,6 +423,8 @@ __all__ = [
     "TinaProcedimentosPort",
     "CoberturaItemView",
     "CoberturaView",
+    "CptVigenteView",
+    "TinaCptPort",
     "DependenteAnonimo",
     "DependenteNominal",
     "DependentesNominaisView",

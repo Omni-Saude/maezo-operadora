@@ -319,6 +319,13 @@ V1_14_ARTIFACT_PATHS: tuple[str, ...] = ("schemas/openapi/maezo/v1/tina-procedim
 #: Run de publicacao do v1.13 (piso): o v1.14 so pode ser posterior a ele.
 V1_14_MIN_PUBLICATION_RUN_ID = 39261110429
 
+#: Manifest ADITIVO v1.15 (tina-cpt; CPT vigente do proprio sujeito, DL-0130). OpenAPI NOVO.
+V1_15_LOCK_KEY = "manifest_v1_15"
+V1_15_MANIFEST_PATH = "schemas/contracts/maezo/v1.15/contract-manifest.yaml"
+V1_15_ARTIFACT_PATHS: tuple[str, ...] = ("schemas/openapi/maezo/v1/tina-cpt.openapi.yaml",)
+#: Run de publicacao do v1.14 (piso): o v1.15 so pode ser posterior a ele.
+V1_15_MIN_PUBLICATION_RUN_ID = 39334179928
+
 
 @dataclass(frozen=True)
 class AdditiveManifest:
@@ -476,6 +483,15 @@ V1_14 = AdditiveManifest(
     min_publication_run_id=V1_14_MIN_PUBLICATION_RUN_ID,
     code="v1-14",
 )
+V1_15 = AdditiveManifest(
+    version="v1.15",
+    lock_key=V1_15_LOCK_KEY,
+    manifest_path=V1_15_MANIFEST_PATH,
+    manifest_version="1.15.0",
+    artifact_paths=V1_15_ARTIFACT_PATHS,
+    min_publication_run_id=V1_15_MIN_PUBLICATION_RUN_ID,
+    code="v1-15",
+)
 #: Em ordem de publicacao. O loader do adaptador (`maezo.adapters.amh.contract`) tem a copia dele.
 ADDITIVE_MANIFESTS: tuple[AdditiveManifest, ...] = (
     V1_1,
@@ -492,6 +508,7 @@ ADDITIVE_MANIFESTS: tuple[AdditiveManifest, ...] = (
     V1_12,
     V1_13,
     V1_14,
+    V1_15,
 )
 ADDITIVE_BY_VERSION: dict[str, AdditiveManifest] = {m.version: m for m in ADDITIVE_MANIFESTS}
 
@@ -1152,6 +1169,11 @@ def check_manifest_v1_13(lock: dict[str, Any]) -> list[Violation]:
 def check_manifest_v1_14(lock: dict[str, Any]) -> list[Violation]:
     """Bloco `manifest_v1_14` (opcional, tina-procedimentos): regras do aditivo."""
     return check_manifest_additive(lock, V1_14)
+
+
+def check_manifest_v1_15(lock: dict[str, Any]) -> list[Violation]:
+    """Bloco `manifest_v1_15` (opcional, tina-cpt): regras do aditivo."""
+    return check_manifest_additive(lock, V1_15)
 
 
 def check_manifest_v1_5(lock: dict[str, Any]) -> list[Violation]:
@@ -2043,6 +2065,11 @@ def verify_manifest_v1_13(lock: dict[str, Any], manifest_path: Path) -> list[Vio
 def verify_manifest_v1_14(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
     """Bytes do manifest v1.14 (tina-procedimentos) publicado contra o bloco `manifest_v1_14`."""
     return verify_manifest_additive(lock, manifest_path, V1_14)
+
+
+def verify_manifest_v1_15(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:
+    """Bytes do manifest v1.15 (tina-cpt) publicado contra o bloco `manifest_v1_15`."""
+    return verify_manifest_additive(lock, manifest_path, V1_15)
 
 
 def verify_manifest_v1_5(lock: dict[str, Any], manifest_path: Path) -> list[Violation]:

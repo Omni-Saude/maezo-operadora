@@ -62,6 +62,10 @@ helena_dependentes_nome = true
 // Cobertura por procedimento na Helena (decisao do dono D1 de 18/10/2026): a Helena diz se o procedimento consta
 // no Rol para a segmentacao do plano (rota `tina-cobertura`, manifest v1.9, escopo `interop/tina.read`). Voltar: "".
 amh_tina_cobertura_openapi_path = "/app/config/integrations/amh/openapi/tina-cobertura.openapi.yaml"
+// CPT vigente na cobertura assistida da Helena (caso C1 do dono e DPO de 20/10/2026, DL-0130, "modelo de teste"
+// reversivel, so' dev): aviso GERAL quando o titular verificado tem cobertura parcial temporaria vigente (rota
+// `tina-cpt`, manifest v1.15, escopo `interop/tina.read`). Exige o bloco `manifest_v1_15` no pin. Voltar: "".
+amh_tina_cpt_openapi_path = "/app/config/integrations/amh/openapi/tina-cpt.openapi.yaml"
 // Base de conhecimento de saude da Helena (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, so' em dev.
 // A Helena INFORMA (sem diagnosticar, sem conduta, sem dose) perguntas gerais de saude pela base curada
 // `spec/conhecimento/saude`, sem abrir caso; dor sem alarme recebe perguntas de alerta (com a v4); recusa com
