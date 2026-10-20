@@ -532,9 +532,12 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     # 18/16 desde 19/10/2026 (DL-0128): a EXTRACAO da cobertura assistida (`graph.py::_cobertura_assistida`,
     # funcao interna `extrair`) chama o modelo com a mensagem DEMARCADA como `message_body`; o texto chega por
     # parametro (do fluxo), entao a resolucao conta o sitio sem campo de estado.
-    assert (total, com_entrada) == (18, 16), (
+    # 20/16 desde 20/10/2026 (DL-0129): a ESCOLHA entre os candidatos do catalogo (funcao interna `escolher`)
+    # leva o pedido DEMARCADO (`pedido_da_pessoa`) e a lista fechada do catalogo (dado de referencia); como a
+    # `extrair`, conta o sitio interno e o da funcao de fora, sem campo de estado.
+    assert (total, com_entrada) == (20, 16), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 18/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 20/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )

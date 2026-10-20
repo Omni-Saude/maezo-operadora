@@ -263,3 +263,14 @@ atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com f
   vindas das descrições.
 - **Revisão semanal:** `helena_cobertura_termo_nao_localizado` (termo normalizado, sem PII) nos logs do receptor.
 - **Desfazer:** revert do PR (o caminho antigo volta para a allowlist).
+
+## 19. Cobertura assistida: universo, escolha e estado (DL-0129, 20/10/2026)
+
+- **Universo:** só itens assistenciais entram no índice (`administrativo()`: tabela TUSS pelo código, grupo e
+  descrição). O log `catalogo_procedimentos_carregado` mostra `itens` e `administrativos` (fora).
+- **Escolha:** `helena_cobertura_escolha` (confiança, se escolheu, quantos candidatos), `helena_cobertura_confirmacao`,
+  `helena_cobertura_pedido_vago`. Sem o modelo, a decisão por nota (sem log de escolha).
+- **Estado:** `helena_cobertura_resposta` (pendência e leitura: sim/nao/nao_sei/encerrar).
+- **Capacidade:** a cobertura lida fica em memória por (titular, código) por 5 min. `helena_cobertura_lida
+  motivo=rate_limited` = limite por sujeito da rota da AMH.
+- **Desfazer:** revert do PR.

@@ -38,7 +38,12 @@ PEND_OPCOES: Final[str] = "COB2:OPCOES"
 PEND_FORMA: Final[str] = "COB2:FORMA"
 PEND_EQUIPE: Final[str] = "COB2:EQUIPE"
 PEND_FALHA: Final[str] = "COB2:FALHA"
-PENDENCIAS: Final[frozenset[str]] = frozenset({PEND_QUEM, PEND_OPCOES, PEND_FORMA, PEND_EQUIPE, PEND_FALHA})
+#: Confirmacao de UMA linha ("Voce quer saber sobre <nome>?") quando a escolha do modelo e' de confianca
+#: media.
+PEND_CONFIRMA: Final[str] = "COB2:CONFIRMA"
+PENDENCIAS: Final[frozenset[str]] = frozenset(
+    {PEND_QUEM, PEND_OPCOES, PEND_FORMA, PEND_EQUIPE, PEND_FALHA, PEND_CONFIRMA}
+)
 MAX_TENTATIVAS: Final[int] = 2
 MAX_PROCEDIMENTOS: Final[int] = 4
 _MAX_CONTEXTO: Final[int] = 3500
@@ -65,12 +70,21 @@ NAO diga se cobre. Devolva SO' um JSON, sem texto fora dele, com estas chaves:
 - "procedimentos": lista (0 a 4) com o NOME de cada exame, procedimento, cirurgia, consulta ou terapia pedido,
   do jeito que a pessoa escreveu, so' o nome do procedimento: sem "meu medico pediu", sem "o plano cobre", sem
   nome de pessoa, sem o que a pessoa NEGA ou usa de contexto ("nao e' sobre a mensalidade"). Ex.: para
-  "o medico pediu ultrassom da tireoide e um hemograma, cobre?" -> ["ultrassom da tireoide", "hemograma"].
-- "tipo": "procedimento" | "remedio" (medicamento, injecao, insulina, quimioterapia oral) | "material"
+  "o medico pediu um raio x do braco e um teste de alergia, cobre?" ->
+  ["raio x do braco", "teste de alergia"].
+  VARIOS na mesma mensagem (separados por virgula, "e", "mais", lista): um item para CADA um, sem juntar.
+  Sem o nome do hospital, clinica ou laboratorio (isso e' rede).
+- "nomes_tecnicos": lista do MESMO tamanho de "procedimentos", com o nome TECNICO mais provavel de cada um,
+  como aparece na terminologia TUSS/Rol da ANS (ex.: "operacao de joanete" -> "tratamento cirurgico de halux
+  valgo"; "raio x do dente" -> "radiografia periapical"). Se ja' e' o nome tecnico, repita; se nao souber, "".
+- "tipo": "procedimento" (inclui o EXAME que dosa uma substancia: "insulina em jejum", "dosagem de
+  vitamina D") | "remedio" (o medicamento em si, injecao, insulina para tratar, quimioterapia oral)
+  | "material"
 (protese,
   orteses, stent avulso, material cirurgico) | "nenhum".
 - "assunto": "cobertura" | "autorizacao" (andamento ou status de uma autorizacao/guia ja' pedida) | "rede"
-  (onde fazer, qual hospital/laboratorio/medico atende) | "coparticipacao" (quanto vai pagar de
+  (onde fazer, qual hospital/laboratorio/medico atende, se cobre NUM hospital/clinica/laboratorio citado)
+  | "coparticipacao" (quanto vai pagar de
   coparticipacao)
   | "reembolso" | "outro".
 - "urgencia": true se a pessoa diz que e' urgente, emergencia, que esta passando mal agora; senao false.
@@ -102,6 +116,8 @@ class Pedido:
     exclusao_legal: str = "nenhuma"
     discorda: bool = False
     pelo_modelo: bool = False
+    #: O nome TECNICO provavel de cada procedimento (mesma ordem; "" = sem palpite). So' ajuda a busca.
+    tecnicos: tuple[str, ...] = ()
 
 
 #: Palavras de CONTEXTO que nunca sao parte do nome de um procedimento (cobranca, conversa, pedido,
@@ -152,10 +168,15 @@ def pedido_do_modelo(bruto: object) -> Pedido | None:
     if not isinstance(dados, Mapping):
         return None
     procedimentos: list[str] = []
-    for p in dados.get("procedimentos") or []:
+    tecnicos: list[str] = []
+    brutos_tecnicos = dados.get("nomes_tecnicos")
+    brutos_tecnicos = brutos_tecnicos if isinstance(brutos_tecnicos, list) else []
+    for i, p in enumerate(dados.get("procedimentos") or []):
         termo = _termo_limpo(p)
         if termo is not None and normalizar(termo) not in {normalizar(x) for x in procedimentos}:
             procedimentos.append(termo)
+            tecnico = _termo_limpo(brutos_tecnicos[i]) if i < len(brutos_tecnicos) else None
+            tecnicos.append(tecnico or "")
     tipo = str(dados.get("tipo") or "procedimento")
     assunto = str(dados.get("assunto") or "cobertura")
     para_quem = str(dados.get("para_quem") or "nao_disse")
@@ -163,6 +184,7 @@ def pedido_do_modelo(bruto: object) -> Pedido | None:
     quem = dados.get("quem_texto")
     return Pedido(
         procedimentos=tuple(procedimentos[:MAX_PROCEDIMENTOS]),
+        tecnicos=tuple(tecnicos[:MAX_PROCEDIMENTOS]),
         tipo=tipo if tipo in TIPOS else "procedimento",
         assunto=assunto if assunto in ASSUNTOS else "cobertura",
         urgencia=dados.get("urgencia") is True,
@@ -207,8 +229,19 @@ _PARA_MIM: Final[re.Pattern[str]] = re.compile(
 )
 _REDE_NO_TEXTO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:onde (?:faco|fazer|posso fazer|eu faco|tem)|qual (?:hospital|laboratorio|clinica|medico)"
-    r"|quem atende|rede credenciada|perto de mim|endereco)\b"
+    r"|quem atende|rede credenciada|perto de mim|endereco|credenciad[oa]s?|atende (?:pelo|o) (?:meu )?plano"
+    r"|(?:no|na|nos|nas|pelo|pela) (?:hospital|hospitais|clinica|clinicas|laboratorio|laboratorios"
+    r"|consultorio|pronto socorro|santa casa|maternidade))\b"
 )
+
+
+#: Marca de EXAME no texto (a dosagem de uma substancia nao e' o remedio).
+_EXAME_NO_TEXTO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:exames?|dosagem|dosar|teste|testes|pesquisa|nivel|niveis|sorologia|em jejum|de sangue|laboratorio"
+    r"|taxa de|resultado)\b"
+)
+_REEMBOLSO_NO_TEXTO: Final[re.Pattern[str]] = re.compile(r"\b(?:reembols\w*|ressarcimento|ressarcir)\b")
+_COPART_NO_TEXTO: Final[re.Pattern[str]] = re.compile(r"\bcoparticipac\w*\b")
 
 
 def confirmar_pelo_texto(pedido: Pedido, texto: str) -> Pedido:
@@ -223,22 +256,28 @@ def confirmar_pelo_texto(pedido: Pedido, texto: str) -> Pedido:
     assunto = pedido.assunto
     if assunto == "rede" and not _REDE_NO_TEXTO.search(plano):
         assunto = "cobertura"
+    # O texto manda quando cita reembolso, coparticipacao ou um prestador (D2-D4): o modelo as vezes devolve
+    # "cobertura" e o procedimento iria a consulta sem a resposta honesta do assunto.
+    if _REEMBOLSO_NO_TEXTO.search(plano):
+        assunto = "reembolso"
+    elif _COPART_NO_TEXTO.search(plano) and assunto in ("cobertura", "outro"):
+        assunto = "coparticipacao"
+    elif assunto == "cobertura" and _REDE_NO_TEXTO.search(plano):
+        assunto = "rede"
     para_quem = pedido.para_quem
     if para_quem == "titular" and not _PARA_MIM.search(plano):
         para_quem = "nao_disse"
-    return replace(pedido, exclusao_legal=exclusao, assunto=assunto, para_quem=para_quem)
+    tipo = pedido.tipo
+    if tipo == "remedio" and pedido.procedimentos and _EXAME_NO_TEXTO.search(plano):
+        # "insulina em jejum", "dosagem de vitamina D", "exame de magnesio": e' o EXAME da substancia.
+        tipo = "procedimento"
+    return replace(pedido, exclusao_legal=exclusao, assunto=assunto, para_quem=para_quem, tipo=tipo)
 
 
 _ASSUNTO_POR_TEXTO: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
-    (re.compile(r"\b(?:reembolso|reembolsar|ressarcimento)\b"), "reembolso"),
-    (re.compile(r"\bcoparticipacao\b"), "coparticipacao"),
-    (
-        re.compile(
-            r"\b(?:onde (?:faco|posso fazer|fazer)|qual (?:hospital|laboratorio|clinica)|quem atende|rede "
-            r"credenciada)\b"
-        ),
-        "rede",
-    ),
+    (re.compile(r"\b(?:reembols\w*|ressarcimento|ressarcir)\b"), "reembolso"),
+    (re.compile(r"\bcoparticipac\w*\b"), "coparticipacao"),
+    (_REDE_NO_TEXTO, "rede"),
     (
         re.compile(
             r"\b(?:andamento|status|situacao) d[ao] (?:minha |meu )?(?:autorizacao|guia|pedido)\b"
@@ -314,6 +353,84 @@ def combinar(modelo: Pedido | None, reserva: Pedido) -> Pedido:
     return reserva if modelo is None else modelo
 
 
+# --- Escolha entre os candidatos do catalogo (reordenacao pelo GLM-5) ------------------------------------
+PROMPT_ESCOLHA: Final[str] = """\
+Voce ajuda a achar, numa LISTA FECHADA de itens do catalogo de procedimentos do plano de saude, o item que e'
+o
+MESMO exame, consulta, terapia ou cirurgia que a pessoa pediu. NAO diga se cobre e NAO responda a pessoa.
+Regras:
+1. Escolha SO' da lista, pelo numero. Nunca invente item.
+2. Tem de ser o mesmo procedimento: mesmo metodo e mesma parte do corpo. Nome popular, sigla, abreviacao e
+   erro de digitacao contam (ex.: "operacao de joanete" e' o tratamento cirurgico de halux valgo; "raio x do
+   dente" e' a radiografia periapical).
+3. Exame pedido pelo nome ou pela sigla e' o item DESSE exame, nunca um painel ou conjunto que o inclui; e o
+   material certo (urina, fezes, sangue) quando a pessoa diz.
+4. Quando a pessoa usa o nome GERAL e a lista tem variantes do mesmo procedimento, escolha o item BASICO e
+   mais comum (sem "com contraste", "angio", "por video", "bilateral", "fetal", "com biopsia", "ocupacional"
+   quando ela nao disse) — e isso e' confianca "alta": a pessoa perguntou do procedimento, nao da variante.
+5. "vago": true SO' quando o pedido nao diz NEM o procedimento NEM a parte do corpo — e' so' o TIPO generico
+   ("exame de sangue", "ultrassom", "tomografia", "ressonancia", "raio x", "cirurgia", "terapia", "biopsia",
+   "exame de imagem", "check up", sem dizer de que/onde). Ai: "confianca": "baixa", "escolha": 0,
+   "alternativas": []. Um procedimento com NOME PROPRIO nunca e' vago, mesmo com variantes na lista (uma
+   terapia, um exame, uma cirurgia ou um tratamento especificos): use a regra 4.
+6. "alta": o procedimento da lista e' claramente o pedido (inclusive pelo item basico da regra 4). "media":
+   provavelmente e' esse, mas o pedido tambem pode ser OUTRO procedimento (outro metodo, outra parte do
+   corpo). "baixa": nenhum serve, ou o pedido e' vago demais (procedimentos diferentes servem igualmente).
+Devolva SO' um JSON, sem texto fora dele:
+{"escolha": numero do item (0 se nenhum), "confianca": "alta" | "media" | "baixa", "vago": true | false,
+ "alternativas": [ate' 3 numeros de OUTROS itens que tambem podem ser o pedido, do mais provavel],
+ "nome_leigo": "o item escolhido em palavras simples, ate' 6 palavras"}
+"""
+
+
+@dataclass(frozen=True)
+class Escolha:
+    """A escolha do modelo. `indice` e `alternativas` sao posicoes (0..) na lista de candidatos."""
+
+    indice: int | None
+    confianca: str
+    alternativas: tuple[int, ...] = ()
+    nome_leigo: str = ""
+    #: O pedido e' so' a categoria ("ultrassom", "exame de sangue"): a Helena pergunta qual e'.
+    vago: bool = False
+
+
+def lista_para_escolha(nomes: Sequence[str]) -> str:
+    return "\n".join(f"{i}. {' '.join(str(n).split())[:140]}" for i, n in enumerate(nomes, 1))
+
+
+def escolha_do_modelo(bruto: object, quantos: int) -> Escolha | None:
+    """A `Escolha` a partir do JSON do modelo, ou `None` (sem JSON, numero fora da lista)."""
+    if not isinstance(bruto, str):
+        return None
+    m = re.search(r"\{.*\}", bruto, re.DOTALL)
+    if m is None:
+        return None
+    try:
+        dados = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(dados, Mapping):
+        return None
+    escolha = dados.get("escolha")
+    confianca = str(dados.get("confianca") or "baixa")
+    if confianca not in ("alta", "media", "baixa"):
+        confianca = "baixa"
+    indice = escolha - 1 if isinstance(escolha, int) and 1 <= escolha <= quantos else None
+    vago = dados.get("vago") is True
+    if vago:
+        indice = None
+    if indice is None:
+        confianca = "baixa"
+    alternativas: list[int] = []
+    for a in dados.get("alternativas") or []:
+        if isinstance(a, int) and 1 <= a <= quantos and a - 1 != indice and a - 1 not in alternativas:
+            alternativas.append(a - 1)
+    leigo = dados.get("nome_leigo")
+    nome_leigo = " ".join(re.sub(r"[^\w\s/+-]", " ", leigo).split())[:60] if isinstance(leigo, str) else ""
+    return Escolha(indice, confianca, () if vago else tuple(alternativas[:3]), nome_leigo, vago)
+
+
 # --- Contexto da conversa (`coleta_contexto`) ------------------------------------------------------------
 @dataclass
 class Contexto:
@@ -327,6 +444,14 @@ class Contexto:
     assunto: str = "cobertura"
     urgencia: bool = False
     respondidos: list[str] = field(default_factory=list)
+    tecnicos: list[str] = field(default_factory=list)
+
+    def tecnico_de(self, termo: str) -> str:
+        """O nome tecnico guardado para o termo (mesma posicao), ou ""."""
+        for i, t in enumerate(self.termos):
+            if t == termo and i < len(self.tecnicos):
+                return self.tecnicos[i]
+        return ""
 
     def codificar(self) -> str:
         bruto = json.dumps(
@@ -339,6 +464,7 @@ class Contexto:
                 "s": self.assunto,
                 "u": self.urgencia,
                 "r": self.respondidos[-4:],
+                "k": self.tecnicos[:MAX_PROCEDIMENTOS],
             },
             ensure_ascii=False,
         )
@@ -369,6 +495,7 @@ class Contexto:
             assunto=str(d.get("s") or "cobertura"),
             urgencia=d.get("u") is True,
             respondidos=[str(t) for t in d.get("r") or [] if isinstance(t, str)][-4:],
+            tecnicos=[str(t) for t in d.get("k") or [] if isinstance(t, str)][:MAX_PROCEDIMENTOS],
         )
 
 
@@ -397,12 +524,78 @@ _FALAR_COM_EQUIPE: Final[re.Pattern[str]] = re.compile(
 )
 
 
+#: Palavras de cortesia que nao mudam o sentido da resposta curta ("quero sim, por favor, obrigada").
+_CORTESIA: Final[frozenset[str]] = frozenset(
+    {"por", "favor", "obrigado", "obrigada", "obg", "brigado", "brigada", "entao", "ta", "bom", "bem", "ai",
+     "moca", "helena", "viu", "tudo", "sim", "certo"}
+)  # fmt: skip
+_COMECO_SIM: Final[re.Pattern[str]] = re.compile(
+    r"^(?:sim|s|ss|quero|quero sim|pode|pode sim|pode ser|pode passar|passa|passe|claro|com certeza|ok$|okay$"
+    r"|ok pode|ok sim|aceito|isso|isso mesmo|exato|exatamente|correto|perfeito|beleza|blz|uhum|aham|yes"
+    r"|sim quero|e isso"
+    r"|e esse|esse mesmo|essa mesma|esse ai|essa ai|isso ai|por favor|faz isso|manda)\b"
+)
+_COMECO_NAO: Final[re.Pattern[str]] = re.compile(r"^(?:nao|n|nem|negativo|agora nao|nao quero)\b")
+#: Encerrar o assunto ("deixa pra la", "esquece") — encerra com educacao, nunca vira busca.
+_ENCERRAR_ASSUNTO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:deixa (?:pra|para) la|deixa quieto|deixa isso|deixa assim|deixa pra depois|esquece|esqueca"
+    r"|esquecer|nao precisa mais|nao preciso mais|nao quero mais|tanto faz|mudei de ideia|outra hora"
+    r"|depois eu (?:vejo"
+    r"|pergunto|resolvo|volto)|depois (?:vejo|pergunto|resolvo)|nao precisa nao|so isso mesmo)\b"
+)
+#: Nao sabe o nome / nao tem o pedido — conta como tentativa, nunca vira busca.
+_NAO_SEI: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:nao sei|nao lembro|nao me lembro|nao faco (?:a menor )?ideia|sei la|esqueci (?:o nome|como)"
+    r"|nao tenho (?:o |a )?(?:pedido|nome|guia|receita)|nao sei (?:o nome|escrever|direito|qual)"
+    r"|nao entendi o nome|nao consigo ler)\b"
+)
+
+
+#: So' agradecimento/conversa ("valeu", "obrigada, era isso", "beleza, entendi"): nao e' pedido novo.
+_VOCABULARIO_DE_CORTESIA: Final[frozenset[str]] = frozenset(
+    {"obrigado", "obrigada", "obg", "brigado", "brigada", "muito", "muitissimo", "valeu", "vlw", "beleza",
+     "blz", "entendi", "entendido", "ok", "okay", "certo", "perfeito", "show", "otimo", "ta", "bom", "tudo",
+     "bem", "era", "isso", "so", "mesmo", "maravilha", "top", "legal", "combinado", "tchau", "ate", "mais",
+     "logo", "abraco", "abracos", "grato", "grata", "agradeco", "de", "nada", "e", "entao", "ai", "boa",
+     "noite", "dia", "tarde", "por", "enquanto", "hoje", "a", "o", "esclarecido", "esclarecida", "ajudou",
+     "me", "voce", "otima", "sim", "ah", "hum", "humm", "aham", "uhum"}
+)  # fmt: skip
+
+
+def e_cortesia(texto: str) -> bool:
+    palavras = normalizar(texto).split()
+    return bool(palavras) and len(palavras) <= 10 and all(p in _VOCABULARIO_DE_CORTESIA for p in palavras)
+
+
+def ler_resposta(texto: str) -> str | None:
+    """A resposta CURTA a uma pergunta da Helena: "encerrar", "nao_sei", "nao", "sim" ou `None` (nao e'
+    resposta: pode ser um pedido novo). Regra geral, sem termo de procedimento."""
+    plano = normalizar(texto)
+    if not plano:
+        return None
+    palavras = plano.split()
+    if _ENCERRAR_ASSUNTO.search(plano) and len(palavras) <= 10:
+        return "encerrar"
+    if _NAO_SEI.search(plano) and len(palavras) <= 12:
+        return "nao_sei"
+    if len(palavras) > 7:
+        return None
+    resto = [p for p in palavras if p not in _CORTESIA]
+    if _COMECO_NAO.match(plano) and not _COMECO_SIM.match(plano):
+        return "nao"
+    if _COMECO_SIM.match(plano) and "nao" not in palavras:
+        return "sim"
+    if not resto and ("sim" in palavras or "certo" in palavras):
+        return "sim"
+    return None
+
+
 def e_sim(texto: str) -> bool:
-    return bool(_SIM.match(normalizar(texto)))
+    return bool(_SIM.match(normalizar(texto))) or ler_resposta(texto) == "sim"
 
 
 def e_nao(texto: str) -> bool:
-    return bool(_NAO.match(normalizar(texto)))
+    return bool(_NAO.match(normalizar(texto))) or ler_resposta(texto) == "nao"
 
 
 def escolha_da_opcao(texto: str, opcoes: Sequence[tuple[str, str]]) -> int | None:
@@ -410,6 +603,9 @@ def escolha_da_opcao(texto: str, opcoes: Sequence[tuple[str, str]]) -> int | Non
     escolha."""
     plano = normalizar(texto).removeprefix("e ").removeprefix("a ").removeprefix("o ")
     plano = re.sub(r"^(?:opcao|numero|a opcao|o numero)\s+", "", plano)
+    plano = re.sub(r"\s+(?:opcao|mesmo|mesma|ai|por favor|obrigad[oa])$", "", plano).strip()
+    if plano in ("ultimo", "ultima", "o ultimo", "a ultima") and opcoes:
+        return len(opcoes) - 1
     if plano in _ORDINAIS:
         n = _ORDINAIS[plano]
         return n - 1 if n <= len(opcoes) else None
@@ -656,6 +852,22 @@ TEXTO_EXCLUSAO: Final[Mapping[str, str]] = {
         "Quer?"
     ),
 }
+
+
+def pergunta_do_tipo(termo: str) -> str:
+    """O pedido e' so' a categoria: pergunta QUAL (nunca "nao localizei")."""
+    return (
+        f'"{termo}" tem vários tipos no cadastro. Qual é o do seu pedido médico? Me diga o nome como está lá '
+        "(por exemplo, a parte do corpo ou o nome do exame)."
+    )
+
+
+TEXTO_ASSUNTO_ENCERRADO: Final[str] = "Tudo bem. Se precisar de outra coisa, é só me chamar."
+TEXTO_CONFIRMA: Final[str] = "Você quer saber sobre {nome}?"
+TEXTO_REDE_DO_PROCEDIMENTO: Final[str] = (
+    "Se um hospital, clínica ou laboratório atende pelo seu plano, isso está na rede credenciada, no "
+    "aplicativo Austa Clínicas e no portal do plano. Por aqui eu não pesquiso prestadores."
+)
 TEXTO_COPARTICIPACAO: Final[str] = (
     "Por aqui eu não tenho o valor de coparticipação de cada procedimento antes de ele ser feito. Quando o "
     "seu "
@@ -705,7 +917,18 @@ __all__ = [
     "PREFIXO_DISCORDA",
     "PREFIXO_URGENCIA",
     "PROMPT_EXTRACAO",
+    "PEND_CONFIRMA",
+    "PROMPT_ESCOLHA",
+    "TEXTO_CONFIRMA",
     "TEXTO_COPARTICIPACAO",
+    "TEXTO_ASSUNTO_ENCERRADO",
+    "TEXTO_REDE_DO_PROCEDIMENTO",
+    "Escolha",
+    "escolha_do_modelo",
+    "e_cortesia",
+    "pergunta_do_tipo",
+    "ler_resposta",
+    "lista_para_escolha",
     "TEXTO_DEPENDENTE_NAO_ATIVO",
     "TEXTO_EXCLUSAO",
     "TEXTO_FALHA_DA_CONSULTA",
