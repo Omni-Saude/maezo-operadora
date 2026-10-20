@@ -215,7 +215,7 @@ doesn't replace it.
 
 ### SP-OP-ESCALATION-001 — Escalonamento Humano Universal (**FINAL, v1.1.0**) — retro-verification
 
-- **Pacote pronto (2026-10-20, PR `feat/pacote-clinico-escalonamento`):** na planilha
+- **Pacote pronto (2026-10-20, PR #862, `feat/pacote-clinico-escalonamento`):** na planilha
   `Revisao_Clinica_Helena_Escalonamento_2026-10-20.xlsx` (pasta do projeto no OneDrive, "Maezo
   Operadora"), as abas **"SLAs e grupos"** (os 6 prazos e os 4 grupos, lidos da `escalation_routing.dmn`
   e do BPMN) e **"Caso paralelo"** (3 diferenças contrato × código) são do regulatório; a coluna

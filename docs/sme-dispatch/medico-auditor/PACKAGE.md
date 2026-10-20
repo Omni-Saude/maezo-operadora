@@ -102,7 +102,7 @@ regulatório/DPO/finanças territory, see the other packages.
 
 ### SP-OP-ESCALATION-001 — Escalonamento Humano Universal (**FINAL, v1.1.0**) — retro-verification
 
-- **Pacote pronto para confirmar/corrigir e assinar (2026-10-20, PR `feat/pacote-clinico-escalonamento`):**
+- **Pacote pronto para confirmar/corrigir e assinar (2026-10-20, PR #862, `feat/pacote-clinico-escalonamento`):**
   - planilha `Revisao_Clinica_Helena_Escalonamento_2026-10-20.xlsx` (pasta do projeto no OneDrive,
     "Maezo Operadora"), gerada dos arquivos por `scripts/sme/revisao_clinica.py`: uma linha por regra
     das 4 tabelas `triage_redflag_*` (40), do alarme por texto da DL-0123 (7) e da `triage_sufficiency`
