@@ -213,7 +213,15 @@ doesn't replace it.
   3. Confirm the periodicity of `ciclo_avaliacao` used by the CRED→ADEQUACAO network-change bridge
      (trimestre vs mês) — same open item flagged in SP-OP-ADEQUACAO-001.
 
-### SP-OP-ESCALATION-001 — Escalonamento Humano Universal (**FINAL, v1.0.0**) — retro-verification
+### SP-OP-ESCALATION-001 — Escalonamento Humano Universal (**FINAL, v1.1.0**) — retro-verification
+
+- **Pacote pronto (2026-10-20, PR `feat/pacote-clinico-escalonamento`):** na planilha
+  `Revisao_Clinica_Helena_Escalonamento_2026-10-20.xlsx` (pasta do projeto no OneDrive, "Maezo
+  Operadora"), as abas **"SLAs e grupos"** (os 6 prazos e os 4 grupos, lidos da `escalation_routing.dmn`
+  e do BPMN) e **"Caso paralelo"** (3 diferenças contrato × código) são do regulatório; a coluna
+  "Confirmo / Altero" está vazia. A pergunta curta sobre art. 35-C e RN 623/2024 está na §4 de
+  `../medico-auditor/EMENDA-v1.2.0-caso-paralelo.md`. Modelo do signoff (papel `regulatorio` incluído):
+  `../medico-auditor/SIGNOFF-MODELO-SP-OP-ESCALATION-001.yaml`.
 
 - **Why regulatório:** the SLA values anchor to Lei 9.656/1998 art. 35-C ("urgência = imediato"),
   and the contract flags this anchor as DRAFT/verify despite the process being FINAL — see
