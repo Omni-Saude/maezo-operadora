@@ -8162,6 +8162,8 @@ class HelenaGraph:
         if self._gerativa_para(state) and (
             pendente_do_turno.startswith(PREFIXO_COBERTURA_ASSISTIDA)
             or _pergunta_de_cobertura_ampla(mensagem_do_turno)
+            # DL-0129: coparticipacao/reembolso de procedimento ja' veio para ca' pelo roteamento sem modelo.
+            or _copart_ou_reembolso_do_procedimento(_plano(mensagem_do_turno))
             or (termo_da_continuacao(mensagem_do_turno) and _cobertura_recente(state))
         ):
             assistida = await self._cobertura_assistida(state, ref)
