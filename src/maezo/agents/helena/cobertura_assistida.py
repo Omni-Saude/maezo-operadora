@@ -28,7 +28,7 @@ import json
 import re
 import unicodedata
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
 # --- Pendencias (`coleta_pendente`) ----------------------------------------------------------------------
@@ -63,7 +63,8 @@ PROMPT_EXTRACAO: Final[str] = """\
 Voce extrai dados de UMA mensagem de beneficiario de plano de saude sobre cobertura. NAO responda a pessoa e
 NAO diga se cobre. Devolva SO' um JSON, sem texto fora dele, com estas chaves:
 - "procedimentos": lista (0 a 4) com o NOME de cada exame, procedimento, cirurgia, consulta ou terapia pedido,
-  do jeito que a pessoa escreveu, sem "meu medico pediu", sem "o plano cobre", sem nome de pessoa. Ex.: para
+  do jeito que a pessoa escreveu, so' o nome do procedimento: sem "meu medico pediu", sem "o plano cobre", sem
+  nome de pessoa, sem o que a pessoa NEGA ou usa de contexto ("nao e' sobre a mensalidade"). Ex.: para
   "o medico pediu ultrassom da tireoide e um hemograma, cobre?" -> ["ultrassom da tireoide", "hemograma"].
 - "tipo": "procedimento" | "remedio" (medicamento, injecao, insulina, quimioterapia oral) | "material"
 (protese,
@@ -73,14 +74,17 @@ NAO diga se cobre. Devolva SO' um JSON, sem texto fora dele, com estas chaves:
   coparticipacao)
   | "reembolso" | "outro".
 - "urgencia": true se a pessoa diz que e' urgente, emergencia, que esta passando mal agora; senao false.
-- "para_quem": "titular" (para a propria pessoa) | "dependente" (filho, filha, conjuge, esposa, marido,
+- "para_quem": "titular" (so' se a mensagem DIZ que e' para a propria pessoa: "para mim", "eu preciso fazer")
+  | "dependente" (filho, filha, conjuge, esposa, marido,
   enteado, neto, bebe ou alguem que a pessoa diz que esta no plano) | "terceiro" (mae, pai, irmao, amigo ou
   alguem que nao parece estar no plano) | "nao_disse".
 - "quem_texto": a palavra de parentesco ou o primeiro nome que a pessoa usou para quem e' (ex.: "filho",
   "Ana"), ate' 30 letras, ou "".
 - "recem_nascido": true se fala de bebe recem-nascido ainda nao incluido no plano; senao false.
-- "exclusao_legal": "estetica" (procedimento com finalidade so' estetica) | "inseminacao" (inseminacao
-  artificial, fertilizacao in vitro) | "experimental" | "nenhuma".
+- "exclusao_legal": SO' quando a PROPRIA mensagem diz: "estetica" (a pessoa diz que e' so' por estetica ou
+  rejuvenescimento) | "inseminacao" (inseminacao artificial, fertilizacao in vitro) | "experimental" (a pessoa
+  diz que o tratamento e' experimental). Cirurgias, esterilizacao, planejamento familiar, exames e terapias
+  comuns: "nenhuma". Na duvida, "nenhuma".
 - "discorda": true se a pessoa diz que o medico, a clinica ou alguem afirmou que o plano cobre ou que ja' foi
   negado e ela discorda; senao false.
 """
@@ -100,10 +104,34 @@ class Pedido:
     pelo_modelo: bool = False
 
 
+#: Palavras de CONTEXTO que nunca sao parte do nome de um procedimento (cobranca, conversa, pedido,
+#: cobertura).
+#: Regra geral: o modelo as vezes cola a parte negada ou o contexto no termo ("mensalidade se mamografia").
+_CONTEXTO_DO_TERMO: Final[frozenset[str]] = frozenset(
+    {
+        "mensalidade", "mensalidades", "boleto", "boletos", "cobranca", "pagamento", "fatura", "financeiro",
+        "duvida", "pergunta", "sobre", "se", "nao", "sim", "e", "eh", "minha", "meu", "plano", "convenio",
+        "cobre", "cobrem", "cobertura", "coberto", "coberta", "rol", "ans", "pedido", "pediu", "solicitou",
+        "medico", "medica", "doutor", "doutora", "quero", "saber", "queria", "preciso", "fazer",
+    }
+)  # fmt: skip
+_CONECTORES: Final[frozenset[str]] = frozenset(
+    {"de", "da", "do", "das", "dos", "e", "a", "o", "para", "com", "em"}
+)
+
+
 def _termo_limpo(valor: object) -> str | None:
     if not isinstance(valor, str):
         return None
     termo = " ".join(re.sub(r"[^\w\s/+-]", " ", valor).split())
+    palavras = termo.split()
+    # Tira as palavras de contexto e os conectores que sobram nas pontas.
+    palavras = [p for p in palavras if normalizar(p) not in _CONTEXTO_DO_TERMO]
+    while palavras and normalizar(palavras[0]) in _CONECTORES:
+        palavras.pop(0)
+    while palavras and normalizar(palavras[-1]) in _CONECTORES:
+        palavras.pop()
+    termo = " ".join(palavras)
     plano = normalizar(termo)
     if not 3 <= len(plano) <= 80:
         return None
@@ -172,6 +200,35 @@ _ESTETICA: Final[re.Pattern[str]] = re.compile(
     r"\b(?:estetic[oa]|botox|preenchimento|lipo(?:aspiracao)?|harmonizacao|clareamento)\b"
 )
 _INSEMINACAO: Final[re.Pattern[str]] = re.compile(r"\b(?:inseminacao|fertilizacao in vitro|fiv)\b")
+_EXPERIMENTAL: Final[re.Pattern[str]] = re.compile(r"\bexperimenta(?:l|is)\b")
+_PARA_MIM: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:para mim|pra mim|em mim|eu (?:preciso|vou|tenho|fiz|quero) (?:fazer|operar|realizar)|sou eu|e pra "
+    r"mim)\b"
+)
+_REDE_NO_TEXTO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:onde (?:faco|fazer|posso fazer|eu faco|tem)|qual (?:hospital|laboratorio|clinica|medico)"
+    r"|quem atende|rede credenciada|perto de mim|endereco)\b"
+)
+
+
+def confirmar_pelo_texto(pedido: Pedido, texto: str) -> Pedido:
+    """Os sinais do modelo que mudam o caminho so' valem com APOIO no texto (regra geral, contra falso
+    positivo): exclusao legal com a palavra da exclusao; rede com a pergunta de onde/quem atende; titular com
+    "para mim"/"eu preciso fazer"."""
+    plano = normalizar(texto)
+    exclusao = pedido.exclusao_legal
+    apoio = {"estetica": _ESTETICA, "inseminacao": _INSEMINACAO, "experimental": _EXPERIMENTAL}.get(exclusao)
+    if apoio is None or not apoio.search(plano):
+        exclusao = "nenhuma"
+    assunto = pedido.assunto
+    if assunto == "rede" and not _REDE_NO_TEXTO.search(plano):
+        assunto = "cobertura"
+    para_quem = pedido.para_quem
+    if para_quem == "titular" and not _PARA_MIM.search(plano):
+        para_quem = "nao_disse"
+    return replace(pedido, exclusao_legal=exclusao, assunto=assunto, para_quem=para_quem)
+
+
 _ASSUNTO_POR_TEXTO: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     (re.compile(r"\b(?:reembolso|reembolsar|ressarcimento)\b"), "reembolso"),
     (re.compile(r"\bcoparticipacao\b"), "coparticipacao"),
@@ -491,8 +548,19 @@ def montar_resposta(frases: Sequence[str], *, view: Any, oferece_equipe: bool, p
     return f"{prefixo}{corpo}{fim}".strip()
 
 
+def nome_legivel(nome: str) -> str:
+    """O nome do catalogo para a pessoa ler: sem CAIXA ALTA, ate' 90 letras (corta em palavra)."""
+    texto = " ".join(str(nome or "").split())
+    if texto.isupper():
+        texto = texto.lower()
+    texto = texto[:1].upper() + texto[1:]
+    if len(texto) > 90:
+        texto = texto[:90].rsplit(" ", 1)[0].rstrip(" ,;-(") + "..."
+    return texto
+
+
 def pergunta_das_opcoes(termo: str, nomes: Sequence[str]) -> str:
-    linhas = "\n".join(f"{i}) {n}" for i, n in enumerate(nomes, 1))
+    linhas = "\n".join(f"{i}) {nome_legivel(n)}" for i, n in enumerate(nomes, 1))
     return (
         f'Encontrei mais de um procedimento parecido com "{termo}" no cadastro:\n{linhas}\n'
         "Qual deles é? Responda com o número ou o nome. Se não for nenhum, me diga como está escrito no "
@@ -654,6 +722,7 @@ __all__ = [
     "Contexto",
     "Pedido",
     "combinar",
+    "confirmar_pelo_texto",
     "data_do_dado",
     "e_nao",
     "e_sim",
@@ -662,6 +731,7 @@ __all__ = [
     "frase_do_item",
     "item_escolhido",
     "montar_resposta",
+    "nome_legivel",
     "normalizar",
     "pedido_deterministico",
     "pedido_do_modelo",

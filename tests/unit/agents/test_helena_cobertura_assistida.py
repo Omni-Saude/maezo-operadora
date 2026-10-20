@@ -245,7 +245,8 @@ async def test_varios_procedimentos_cada_um_em_lista() -> None:
     ],
 )
 async def test_casos_com_regra_propria_oferecem_a_equipe(pedido: ca.Pedido, esperado: str) -> None:
-    up = await _fluxo(_Mundo(pedido=pedido)).responder("pergunta", "", "")
+    texto = "pergunta so por estetica, inseminacao artificial"
+    up = await _fluxo(_Mundo(pedido=pedido)).responder(texto, "", "")
     assert up["response_text"] == esperado and up["coleta_pendente"] == ca.PEND_EQUIPE
 
 
@@ -255,9 +256,8 @@ async def test_coparticipacao_e_desvios() -> None:
     assert await _fluxo(_Mundo(pedido=_pedido(assunto="autorizacao"))).responder("x", "", "") == {
         "desviar_para": "autorizacao"
     }
-    assert await _fluxo(_Mundo(pedido=_pedido(assunto="rede"))).responder("x", "", "") == {
-        "desviar_para": "rede"
-    }
+    rede = _fluxo(_Mundo(pedido=_pedido(assunto="rede")))
+    assert await rede.responder("onde faco esse exame?", "", "") == {"desviar_para": "rede"}
 
 
 async def test_urgencia_e_discordancia_vem_primeiro() -> None:
@@ -359,7 +359,7 @@ async def test_sem_catalogo_a_busca_por_texto_da_opcoes_pela_descricao() -> None
     up = await fluxo.responder("cobre raio x de coluna?", "", "")
     assert up["coleta_pendente"] == ca.PEND_OPCOES
     up2 = await fluxo.responder("o da lombar", up["coleta_pendente"], up["coleta_contexto"])
-    assert "RX COLUNA LOMBAR: consta" in up2["response_text"]
+    assert "rx coluna lombar: consta" in up2["response_text"].lower()
 
 
 async def test_sem_procedimento_na_pergunta_geral() -> None:
@@ -533,3 +533,41 @@ def test_lexico_por_raiz_nao_confunde_palavras_parecidas() -> None:
 
     assert _casa_palavra("cranio", "craniana")
     assert not _casa_palavra("eletrocardiograma", "eletroencefalograma")
+
+
+def test_sinais_do_modelo_so_valem_com_apoio_no_texto() -> None:
+    p = ca.Pedido(procedimentos=("x",), exclusao_legal="estetica", assunto="rede", para_quem="titular")
+    q = ca.confirmar_pelo_texto(p, "meu plano cobre esse procedimento? como faco pelo plano?")
+    assert (q.exclusao_legal, q.assunto, q.para_quem) == ("nenhuma", "cobertura", "nao_disse")
+    r = ca.confirmar_pelo_texto(p, "e so por estetica, onde faco? e para mim")
+    assert (r.exclusao_legal, r.assunto, r.para_quem) == ("estetica", "rede", "titular")
+
+
+def test_o_termo_extraido_perde_o_contexto_e_o_que_foi_negado() -> None:
+    bruto = json.dumps({"procedimentos": ["mensalidade se ultrassom da tireoide"], "tipo": "procedimento"})
+    pedido = ca.pedido_do_modelo(bruto)
+    assert pedido is not None and pedido.procedimentos == ("ultrassom da tireoide",)
+
+
+def test_nome_legivel() -> None:
+    assert ca.nome_legivel("RX COLUNA LOMBAR") == "Rx coluna lombar"
+    assert len(ca.nome_legivel("Ultrassonografia " * 10)) <= 93
+
+
+async def test_parecidos_com_a_mesma_resposta_nao_viram_opcoes() -> None:
+    m = _Mundo(
+        pedido=_pedido("ultrassom do abdome", para_quem="titular"),
+        coberturas={
+            "40901122": _View((_Item("US ABDOME TOTAL"),)),
+            "40901114": _View((_Item("US ABDOME SUPERIOR"),)),
+        },
+    )
+    up = await _fluxo(m).responder("o plano cobre ultrassom do abdome para mim?", "", "")
+    assert up["coleta_pendente"] == PEND_RESPONDIDO and "consta no Rol" in up["response_text"]
+    assert " / " in up["response_text"]
+
+
+async def test_sem_dizer_para_quem_e_com_dependentes_pergunta_antes_das_opcoes() -> None:
+    m = _Mundo(pedido=_pedido("ultrassom do abdome", para_quem="titular"), graus=["filho ou filha"])
+    up = await _fluxo(m).responder("meu plano cobre ultrassom do abdome?", "", "")
+    assert up["coleta_pendente"] == ca.PEND_QUEM and m.consultas == []
