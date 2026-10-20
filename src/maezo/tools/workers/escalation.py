@@ -94,16 +94,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Final, NoReturn
+from typing import TYPE_CHECKING, Any, Final, NoReturn, Protocol, runtime_checkable
 
 import structlog
 
 from maezo.platform.integrations.partition_key import partition_key_for_task
-from maezo.tools.mcp_cibseven.transport import UserTaskAssigneeReadingTransport
 from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
-    from maezo.tools.mcp_cibseven.transport import CibSevenTransport
     from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
 
 logger = structlog.get_logger(__name__)
@@ -250,14 +248,25 @@ MOTIVO_ALERTA_OUTRO: Final[str] = "outro"
 _MOTIVOS_ALERTA: Final[frozenset[str]] = frozenset({MOTIVO_ALERTA_SLA_ACK, MOTIVO_ALERTA_FALLBACK})
 
 
-async def _ciencia_ja_dada(task: ExternalTask, engine: CibSevenTransport | None) -> bool:
+@runtime_checkable
+class _LeitorDeQuemAssumiu(Protocol):
+    """A capacidade de `UserTaskAssigneeReadingTransport` (`tools/mcp_cibseven/transport.py`), declarada
+    AQUI por forma e nao importada: o worker nao vira mais um importador do chokepoint do motor
+    (`throughputCeilings.transportFanIn`). Quem a entrega e' o seam `engine` de sempre."""
+
+    async def read_user_task_assignee(
+        self, process_instance_id: str, task_definition_key: str
+    ) -> str | None: ...
+
+
+async def _ciencia_ja_dada(task: ExternalTask, engine: object | None) -> bool:
     """O atendente JA' assumiu `UT_TratarEscalonamento` desta instancia? (pendencia 40, DL-0152)
 
     So' `True` com PROVA: a leitura do motor devolveu um `assignee`. Sem transporte, transporte sem a
     leitura, task sem dono, instancia sem a task ou leitura que FALHA (qualquer excecao) = `False` —
     e `False` ALERTA o supervisor, o lado seguro. A falha vai ao log so' com o TIPO do erro.
     """
-    if not isinstance(engine, UserTaskAssigneeReadingTransport) or not task.process_instance_id:
+    if not isinstance(engine, _LeitorDeQuemAssumiu) or not task.process_instance_id:
         logger.warning(
             "escalation_ciencia_sem_leitura",
             business_key=task.business_key,
@@ -751,9 +760,7 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
 # ---------------------------------------------------------------------------
 
 
-def make_notify_supervisor_handler(
-    kafka: KafkaPublisher | None, engine: CibSevenTransport | None = None
-) -> TaskHandler:
+def make_notify_supervisor_handler(kafka: KafkaPublisher | None, engine: object | None = None) -> TaskHandler:
     """Create the handler for `operadora.escalation.notify_supervisor` (DL-0034; mirrors #55 R-B).
 
     Serves BOTH `ST_NotificarSupervisor` (SLA breach — ack/resolution timer expired) and
@@ -951,6 +958,6 @@ def register_escalation_workers(
     """
     # `engine` (pendencia 40, DL-0152): a leitura de quem assumiu `UT_TratarEscalonamento`, para o
     # alerta de SLA de ciencia nao disparar com a ciencia ja' dada. Ausente = alerta sempre (o de antes).
-    engine: CibSevenTransport | None = seams.get("engine")
+    engine: object | None = seams.get("engine")
     harness.register(_NOTIFY_TEAM_TOPIC, make_notify_team_handler(kafka))
     harness.register(_NOTIFY_SUPERVISOR_TOPIC, make_notify_supervisor_handler(kafka, engine))
