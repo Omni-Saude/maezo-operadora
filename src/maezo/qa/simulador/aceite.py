@@ -662,7 +662,8 @@ DONO_V1: tuple[Segmento, ...] = (
 # ================================================================================================
 #: Nada de diagnostico, conduta ou remedio em nenhum passo deste roteiro (L0).
 _SEM_CONDUTA = (
-    r"(pode ser (uma )?(infeccao|cistite|virose|lombalgia|hernia)|tome |\d+ ?mg|e grave|nao e grave)"
+    # "99 mg/dL" e' UNIDADE DE EXAME (faixa de referencia, permitida desde o dossie de 18/10/2026), nao dose.
+    r"(pode ser (uma )?(infeccao|cistite|virose|lombalgia|hernia)|tome |\d+ ?mg(?!/)|e grave|nao e grave)"
 )
 #: O aviso de encaminhamento (caso aberto): onde o passo diz "nao abre caso", ele nao pode aparecer.
 _ENCAMINHOU = r"encaminhamos (o )?seu caso"
@@ -1140,7 +1141,9 @@ HELENA_V4: tuple[Segmento, ...] = (
 # dos assuntos abaixo estiver no main e no dev. Roda no dev (task do simulador), nunca no CI. Criterio
 # "RESOLVEU?": confere o CONTEUDO (texto da base, credito, aviso), nao so' "nao abriu caso".
 #: Dose, posologia, "tome": nunca numa resposta da base (ADR-0064).
-_SEM_DOSE = r"(\d+ ?(mg|ml|gotas?)\b|\bdoses?\b|\btome\b|pode tomar|posologia|de \d+ em \d+ horas)"
+#: "99 mg/dL" e' UNIDADE DE EXAME (faixa de referencia permitida), nao dose: `mg`/`ml` seguido de "/" nao
+#: conta.
+_SEM_DOSE = r"(\d+ ?(mg|ml|gotas?)\b(?!/)|\bdoses?\b|\btome\b|pode tomar|posologia|de \d+ em \d+ horas)"
 #: A linha de credito de toda resposta da base.
 _CREDITO = r"(fonte: |texto da operadora com base em )"
 _AVISO = "esta informacao e geral e nao substitui avaliacao medica"
