@@ -328,3 +328,16 @@ def test_nao_automedicar_nao_e_proibicao_de_remedio(texto: str) -> None:
 
 def test_proibir_remedio_continua_reprovado() -> None:
     assert sg._NAO_DE.search(g._plano("Não use esse remédio."))
+
+
+@pytest.mark.parametrize(
+    ("texto", "proibe"),
+    [
+        ("Não use tapetes soltos em casa para evitar quedas.", False),
+        ("Não tome sol sem protetor.", False),
+        ("Não use esse remédio.", True),
+        ("Não dê dipirona para a criança.", True),
+    ],
+)
+def test_nao_use_so_conta_quando_e_remedio(texto: str, proibe: bool) -> None:
+    assert (sg._proibe_remedio(g._plano(texto)) is not None) is proibe
