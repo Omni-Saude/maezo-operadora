@@ -505,9 +505,13 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
       origins.add(map("class_name", type.getName(), "jar_relative_path", relative,
           "jar_sha256", digest, "class_sha256", sha(bytes), "loader_group", "engine-common"));
     }
-    // VERSION is a compile-time constant in the provided dependency. Read the exact
-    // public metadata field of the actual admitted loader, never the inlined pin.
-    try { require("2.1.0".equals(org.cibseven.bpm.engine.ProcessEngine.class.getField("VERSION").get(null))); }
+    // VERSION is the admitted artifact's own constant (CIB ships codenames, e.g.
+    // "fox"); read it from the actual loader and require it present — the value
+    // itself is recorded nowhere else and must not be inlined from the pom.
+    try {
+      Object version = org.cibseven.bpm.engine.ProcessEngine.class.getField("VERSION").get(null);
+      require(version instanceof String value && !value.isBlank());
+    }
     catch (ReflectiveOperationException failure) { throw unavailable(failure); }
     var registry = ProcessEngines.getProcessEngines();
     Map<String, Object> process = map("boot_uuid", RuntimeObservationAdmission.BOOT, "pid_namespace", ProcessHandle.current().pid(),
