@@ -381,3 +381,12 @@ async def test_grafo_deixa_pra_la_encerra_sem_busca() -> None:
     r2 = await grafo.ainvoke(_entrada("deixa pra lá") | memoria)
     assert whatsapp.enviados[-1] == ca.TEXTO_ASSUNTO_ENCERRADO and not r2.get("coleta_pendente")
     assert len(fonte.pedidos) == antes and _starts(cib) == 0
+
+
+async def test_grafo_coparticipacao_do_procedimento_tem_a_resposta_honesta() -> None:
+    from tests.unit.agents.test_helena_cobertura_assistida import _grafo_e_estado
+    from tests.unit.agents.test_helena_rodada_3_simulador import _entrada
+
+    grafo, whatsapp, _, fonte = _grafo_e_estado({}, [json.dumps({"procedimentos": ["tomografia"]})])
+    await grafo.ainvoke(_entrada("Quanto vou pagar de coparticipação numa tomografia?"))
+    assert whatsapp.enviados[-1] == ca.TEXTO_COPARTICIPACAO and fonte.pedidos == []
