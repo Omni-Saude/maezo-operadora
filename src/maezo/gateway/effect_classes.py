@@ -97,7 +97,8 @@ SHAPE_LACUNA_DECLARADA: Final[str] = "LACUNA_DECLARADA"
 #: INDEPENDENTLY of the PEP (I-6, defense in depth).
 SHAPE_ROTA_LLM_INDISPONIVEL: Final[str] = "ROTA_LLM_INDISPONIVEL"
 #: No effect happened, an audited refusal row exists, and the external task lands as an incident
-#: with `retries=0` (`tools/workers/harness.py:1635-1651`). The C3/C4 shape.
+#: with `retries=0` (`tools/workers/harness.py:1635-1651`). The C3/C4 shape — and the C1
+#: `notificacao_interna_equipe` (DL-0150), whose surfaces are external-task workers too.
 SHAPE_INCIDENTE_FALHA_FECHADA: Final[str] = "INCIDENTE_FALHA_FECHADA"
 #: The delegating side degrades exactly as it does when the dossier seam is absent — never a
 #: fabricated dossier.
@@ -145,8 +146,9 @@ def _classes(*specs: ActionClassSpec) -> MappingProxyType[str, ActionClassSpec]:
     return MappingProxyType({spec.name: spec for spec in specs})
 
 
-#: The CLOSED action-class registry (design §6.1). Ten classes already declared in the shipped
-#: manifest, five declared by Onda 1 as UNAPPROVED shadow entries. Every name here must exist in
+#: The CLOSED action-class registry (design §6.1). Seventeen classes: the ten of the original
+#: manifest, the five declared by Onda 1 as UNAPPROVED shadow entries, `registro_consentimento`
+#: (DL-0083) and `notificacao_interna_equipe` (DL-0150). Every name here must exist in
 #: `action-approvals.yaml` `acoes` (asserted by the tests), and no name may be added without the
 #: matching manifest declaration — a class the loader has never heard of can never be approved.
 ACTION_CLASSES: Final[MappingProxyType[str, ActionClassSpec]] = _classes(
@@ -168,6 +170,19 @@ ACTION_CLASSES: Final[MappingProxyType[str, ActionClassSpec]] = _classes(
         name="comunicacao_beneficiario",
         rung=RUNG_C1_NOTIFICACAO,
         denial_shape=SHAPE_ESCALONAMENTO_HUMANO,
+    ),
+    # DL-0150: aviso INTERNO a equipe/supervisor (topicos `operadora.escalation.notify_team` e
+    # `notify_supervisor` do SP-OP-ESCALATION-001), publicado em `operadora.notifications.internal`.
+    # Nao sai da plataforma nem toca o beneficiario — por isso nao e' `comunicacao_beneficiario`.
+    # Degrau C1 (notificacao). Forma de recusa: as superficies sao workers de external task, entao uma
+    # recusa ENFORCADA segue o caminho do harness (recusa auditada + incidente, retries=0) — a mesma
+    # forma das classes C3/C4, e nunca um aviso silenciosamente perdido. A falha de PUBLICACAO continua
+    # no fallback que o BPMN ja' modela (`ERR_ESC_NOTIFY_FAILED` -> `BE_FalhaNotificacao`).
+    # `operadora.events.publish` FICA DE FORA (17 BPMNs; pede classe propria, decisao da Seguranca).
+    ActionClassSpec(
+        name="notificacao_interna_equipe",
+        rung=RUNG_C1_NOTIFICACAO,
+        denial_shape=SHAPE_INCIDENTE_FALHA_FECHADA,
     ),
     # -- C2: PHI read / model egress -------------------------------------------------------------
     ActionClassSpec(
