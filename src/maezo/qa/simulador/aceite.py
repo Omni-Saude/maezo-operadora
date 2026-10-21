@@ -1518,23 +1518,18 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
     Segmento(
         "6-vasectomia-rol",
         (
-            # DL-0126/DL-0127: com dependente no cadastro, a Helena pergunta antes "para quem e'?" (com o nome
-            # do dependente); a resposta "1" (o titular) leva a consulta do Rol.
+            # DL-0131 (decisao do dono de 20/10/2026): sem citar outra pessoa, o TITULAR por padrao — a
+            # consulta do Rol sai na primeira resposta, sem "para quem e'?" (antes: a pergunta e o "1").
             _p(
                 "Meu plano cobre vasectomia?",
-                escalacao=ESCALACAO_NENHUMA,
-                deve=(_COBERTURA_OU_PARA_QUEM,),
-                nao_deve=("e so me pedir", _ENCAMINHOU, r"\bnao cobre\b"),
-            ),
-            _p(
-                "1",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=(
                     "vasectomia",
                     r"(rol da ans|nao encontrei|mais de um procedimento)",
                     _AVISO_DA_COBERTURA,
+                    r"para voce \(titular\)",
                 ),
-                nao_deve=("e so me pedir", _ENCAMINHOU, r"\bnao cobre\b", "dependente"),
+                nao_deve=("e so me pedir", _ENCAMINHOU, r"\bnao cobre\b", r"dependente \d", r"e para quem"),
             ),
         ),
         resolveu=(
@@ -1669,10 +1664,15 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
                 deve=(_COBERTURA_OU_PARA_QUEM,),
                 nao_deve=_NAO_E_COBRANCA,
             ),
+            # DL-0131: o titular por padrao ja' respondeu a mamografia no passo 1; o nome de novo e' a MESMA
+            # pergunta (o "ja' te passei") — continua cobertura, nunca mensalidade.
             _p(
                 "Mamografia",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(mamografia|para quem|nao encontrei|mais de um)", _COBERTURA_OU_PARA_QUEM),
+                deve=(
+                    r"(mamografia|para quem|nao encontrei|mais de um)",
+                    r"(cobertura final depende de carencia|antes de eu consultar|ja te passei o que consta)",
+                ),
                 nao_deve=_NAO_E_COBRANCA,
             ),
         ),
