@@ -76,8 +76,9 @@ helena_base_saude = true
 
 // ROTEADOR DE HABILIDADES da Helena (ADR-0066, DL-0134, decisao do dono de 21/10/2026): F1 em SOMBRA. O roteador
 // (GLM-5 regional) e as travas rodam em paralelo e so' registram a decisao no log `helena_roteador_sombra`; a
-// resposta continua a da Helena de antes. Voltar: "desligado".
-helena_roteador = "sombra"
+// resposta continua a da Helena de antes. DESLIGADO em 21/10/2026: em sombra a chamada paralela ao GLM-5
+// passou do prazo em todo turno e a latencia do simulador subiu (DL-0135, adendo); volta a "sombra" so' com o conserto.
+helena_roteador = "desligado"
 
 // SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
 // informativas de saude, com checagem antes de enviar, pela rota PROPRIA
