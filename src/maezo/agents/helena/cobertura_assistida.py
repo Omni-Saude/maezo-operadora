@@ -45,8 +45,10 @@ PENDENCIAS: Final[frozenset[str]] = frozenset(
     {PEND_QUEM, PEND_OPCOES, PEND_FORMA, PEND_EQUIPE, PEND_FALHA, PEND_CONFIRMA}
 )
 MAX_TENTATIVAS: Final[int] = 2
-MAX_PROCEDIMENTOS: Final[int] = 4
-_MAX_CONTEXTO: Final[int] = 3500
+#: DL-0131 (decisao do dono de 20/10/2026): a lista inteira e' respondida, sem limite escondido, ate' 15
+#: itens; acima disso, os 15 primeiros e um aviso.
+MAX_PROCEDIMENTOS: Final[int] = 15
+_MAX_CONTEXTO: Final[int] = 12000
 
 ASSUNTOS: Final[frozenset[str]] = frozenset(
     {"cobertura", "autorizacao", "rede", "coparticipacao", "reembolso", "outro"}
@@ -67,7 +69,8 @@ def normalizar(texto: str) -> str:
 PROMPT_EXTRACAO: Final[str] = """\
 Voce extrai dados de UMA mensagem de beneficiario de plano de saude sobre cobertura. NAO responda a pessoa e
 NAO diga se cobre. Devolva SO' um JSON, sem texto fora dele, com estas chaves:
-- "procedimentos": lista (0 a 4) com o NOME de cada exame, procedimento, cirurgia, consulta ou terapia pedido,
+- "procedimentos": lista (0 a 20) com o NOME de cada exame, procedimento, cirurgia, consulta ou terapia
+pedido,
   do jeito que a pessoa escreveu, so' o nome do procedimento: sem "meu medico pediu", sem "o plano cobre", sem
   nome de pessoa, sem o que a pessoa NEGA ou usa de contexto ("nao e' sobre a mensalidade"). Ex.: para
   "o medico pediu um raio x do braco e um teste de alergia, cobre?" ->
@@ -77,6 +80,10 @@ NAO diga se cobre. Devolva SO' um JSON, sem texto fora dele, com estas chaves:
 - "nomes_tecnicos": lista do MESMO tamanho de "procedimentos", com o nome TECNICO mais provavel de cada um,
   como aparece na terminologia TUSS/Rol da ANS (ex.: "operacao de joanete" -> "tratamento cirurgico de halux
   valgo"; "raio x do dente" -> "radiografia periapical"). Se ja' e' o nome tecnico, repita; se nao souber, "".
+- "outros_itens": lista dos itens da MESMA mensagem que NAO sao exame/procedimento/consulta/terapia, cada um
+  {"nome": como a pessoa escreveu, "tipo": "remedio" | "material" | "estetica" | "inseminacao" |
+  "experimental"} (ex.: numa lista com "hemograma, dipirona, botox": hemograma em "procedimentos";
+  dipirona e botox aqui). Nenhum item da mensagem pode ficar de fora das duas listas.
 - "tipo": "procedimento" (inclui o EXAME que dosa uma substancia: "insulina em jejum", "dosagem de
   vitamina D") | "remedio" (o medicamento em si, injecao, insulina para tratar, quimioterapia oral)
   | "material"
@@ -118,6 +125,11 @@ class Pedido:
     pelo_modelo: bool = False
     #: O nome TECNICO provavel de cada procedimento (mesma ordem; "" = sem palpite). So' ajuda a busca.
     tecnicos: tuple[str, ...] = ()
+    #: Quantos procedimentos a mensagem trazia (antes do limite): acima de `MAX_PROCEDIMENTOS`, aviso.
+    total: int = 0
+    #: Avaliacao de 21/10/2026: os OUTROS itens da mesma mensagem que tem regra propria (remedio, material,
+    #: estetica, inseminacao, experimental), cada um com o seu caminho — nunca somem da resposta.
+    outros: tuple[tuple[str, str], ...] = ()
 
 
 #: Palavras de CONTEXTO que nunca sao parte do nome de um procedimento (cobranca, conversa, pedido,
@@ -154,6 +166,25 @@ def _termo_limpo(valor: object) -> str | None:
     return termo[:80]
 
 
+_TIPOS_DE_OUTROS: Final[frozenset[str]] = frozenset(
+    {"remedio", "material", "estetica", "inseminacao", "experimental"}
+)
+
+
+def _outros_do_modelo(valor: object) -> tuple[tuple[str, str], ...]:
+    saida: list[tuple[str, str]] = []
+    if not isinstance(valor, list):
+        return ()
+    for item in valor:
+        if not isinstance(item, Mapping):
+            continue
+        nome = _termo_limpo(item.get("nome"))
+        tipo = str(item.get("tipo") or "")
+        if nome and tipo in _TIPOS_DE_OUTROS and nome not in {n for n, _ in saida}:
+            saida.append((nome, tipo))
+    return tuple(saida[:MAX_PROCEDIMENTOS])
+
+
 def pedido_do_modelo(bruto: object) -> Pedido | None:
     """O `Pedido` a partir da resposta do modelo (JSON, eventualmente cercado de texto), ou `None`."""
     if not isinstance(bruto, str):
@@ -185,6 +216,8 @@ def pedido_do_modelo(bruto: object) -> Pedido | None:
     return Pedido(
         procedimentos=tuple(procedimentos[:MAX_PROCEDIMENTOS]),
         tecnicos=tuple(tecnicos[:MAX_PROCEDIMENTOS]),
+        total=len(procedimentos),
+        outros=_outros_do_modelo(dados.get("outros_itens")),
         tipo=tipo if tipo in TIPOS else "procedimento",
         assunto=assunto if assunto in ASSUNTOS else "cobertura",
         urgencia=dados.get("urgencia") is True,
@@ -383,6 +416,41 @@ Devolva SO' um JSON, sem texto fora dele:
 """
 
 
+PROMPT_ESCOLHA_VARIOS: Final[str] = (
+    PROMPT_ESCOLHA.split("Devolva SO' um JSON")[0]
+    + """Ha' VARIOS pedidos, cada um com a SUA lista numerada. Para CADA pedido, aplique as regras acima e
+escolha SO' da lista daquele pedido. Devolva SO' um JSON, sem texto fora dele:
+{"itens": [{"pedido": numero do pedido, "escolha": numero do item (0 se nenhum), "confianca": "alta" | "media"
+| "baixa", "vago": true | false, "alternativas": [ate' 3 numeros], "nome_leigo": "ate' 6 palavras"}, ...]}
+"""
+)
+
+
+def escolhas_do_modelo(bruto: object, quantos: Sequence[int]) -> list[Escolha | None]:
+    """As escolhas do lote, na ordem dos pedidos (`None` onde o modelo nao respondeu direito)."""
+    saida: list[Escolha | None] = [None] * len(quantos)
+    if not isinstance(bruto, str):
+        return saida
+    m = re.search(r"\{.*\}", bruto, re.DOTALL)
+    if m is None:
+        return saida
+    try:
+        dados = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return saida
+    itens = dados.get("itens") if isinstance(dados, Mapping) else None
+    if not isinstance(itens, list):
+        return saida
+    for item in itens:
+        if not isinstance(item, Mapping):
+            continue
+        n = item.get("pedido")
+        if not isinstance(n, int) or not 1 <= n <= len(quantos) or saida[n - 1] is not None:
+            continue
+        saida[n - 1] = escolha_do_modelo(json.dumps(item), quantos[n - 1])
+    return saida
+
+
 @dataclass(frozen=True)
 class Escolha:
     """A escolha do modelo. `indice` e `alternativas` sao posicoes (0..) na lista de candidatos."""
@@ -445,6 +513,11 @@ class Contexto:
     urgencia: bool = False
     respondidos: list[str] = field(default_factory=list)
     tecnicos: list[str] = field(default_factory=list)
+    #: DL-0131: o titular foi assumido por PADRAO (a pessoa nao disse para quem): a resposta convida a dizer
+    #: o nome do dependente.
+    padrao: bool = False
+    #: Os itens com regra propria da mesma mensagem (nome, tipo).
+    outros: list[tuple[str, str]] = field(default_factory=list)
 
     def tecnico_de(self, termo: str) -> str:
         """O nome tecnico guardado para o termo (mesma posicao), ou ""."""
@@ -465,10 +538,15 @@ class Contexto:
                 "u": self.urgencia,
                 "r": self.respondidos[-4:],
                 "k": self.tecnicos[:MAX_PROCEDIMENTOS],
+                "p": self.padrao,
+                "x": [list(o) for o in self.outros[:MAX_PROCEDIMENTOS]],
             },
             ensure_ascii=False,
         )
-        return bruto[:_MAX_CONTEXTO]
+        if len(bruto) > _MAX_CONTEXTO and (self.respondidos or self.tentados or self.opcoes):
+            # Nunca corta o JSON no meio (viraria contexto vazio): larga o historico e tenta de novo.
+            return replace(self, respondidos=[], tentados=[], opcoes=self.opcoes[:1]).codificar()
+        return bruto if len(bruto) <= _MAX_CONTEXTO else "{}"
 
     @classmethod
     def decodificar(cls, bruto: object) -> Contexto:
@@ -496,6 +574,12 @@ class Contexto:
             urgencia=d.get("u") is True,
             respondidos=[str(t) for t in d.get("r") or [] if isinstance(t, str)][-4:],
             tecnicos=[str(t) for t in d.get("k") or [] if isinstance(t, str)][:MAX_PROCEDIMENTOS],
+            padrao=d.get("p") is True,
+            outros=[
+                (str(o[0]), str(o[1]))
+                for o in d.get("x") or []
+                if isinstance(o, list) and len(o) == 2 and all(isinstance(x, str) for x in o)
+            ][:MAX_PROCEDIMENTOS],
         )
 
 
@@ -539,7 +623,8 @@ _COMECO_NAO: Final[re.Pattern[str]] = re.compile(r"^(?:nao|n|nem|negativo|agora 
 #: Encerrar o assunto ("deixa pra la", "esquece") — encerra com educacao, nunca vira busca.
 _ENCERRAR_ASSUNTO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:deixa (?:pra|para) la|deixa quieto|deixa isso|deixa assim|deixa pra depois|esquece|esqueca"
-    r"|esquecer|nao precisa mais|nao preciso mais|nao quero mais|tanto faz|mudei de ideia|outra hora"
+    r"|esquecer|desis(?:to|ti)\b|nao precisa mais|nao preciso mais|nao quero mais|tanto faz"
+    r"|mudei de ideia|outra hora"
     r"|depois eu (?:vejo"
     r"|pergunto|resolvo|volto)|depois (?:vejo|pergunto|resolvo)|nao precisa nao|so isso mesmo)\b"
 )
@@ -567,6 +652,15 @@ def e_cortesia(texto: str) -> bool:
     return bool(palavras) and len(palavras) <= 10 and all(p in _VOCABULARIO_DE_CORTESIA for p in palavras)
 
 
+#: As palavras que cabem numa resposta curta de sim/nao (alem da cortesia).
+_VOCABULARIO_DA_RESPOSTA: Final[frozenset[str]] = frozenset(
+    {"sim", "s", "ss", "quero", "pode", "ser", "passar", "passa", "passe", "claro", "com", "certeza", "ok",
+     "okay", "aceito", "isso", "mesmo", "exato", "exatamente", "correto", "perfeito", "beleza", "blz", "uhum",
+     "aham", "yes", "e", "esse", "essa", "ai", "faz", "manda", "para", "pra", "a", "o", "equipe", "nao", "n",
+     "nem", "negativo", "agora", "precisa", "obrigado", "obrigada", "valeu", "quer", "pfv", "pf"}
+)  # fmt: skip
+
+
 def ler_resposta(texto: str) -> str | None:
     """A resposta CURTA a uma pergunta da Helena: "encerrar", "nao_sei", "nao", "sim" ou `None` (nao e'
     resposta: pode ser um pedido novo). Regra geral, sem termo de procedimento."""
@@ -581,9 +675,12 @@ def ler_resposta(texto: str) -> str | None:
     if len(palavras) > 7:
         return None
     resto = [p for p in palavras if p not in _CORTESIA]
-    if _COMECO_NAO.match(plano) and not _COMECO_SIM.match(plano):
+    # DL-0131: o resto da frase so' pode ter palavras de resposta e cortesia ("quero sim, por favor");
+    # "quero saber da carencia" e' pedido novo, nunca "sim".
+    so_resposta = all(p in _VOCABULARIO_DA_RESPOSTA or p in _CORTESIA for p in palavras)
+    if _COMECO_NAO.match(plano) and not _COMECO_SIM.match(plano) and so_resposta:
         return "nao"
-    if _COMECO_SIM.match(plano) and "nao" not in palavras:
+    if _COMECO_SIM.match(plano) and "nao" not in palavras and so_resposta:
         return "sim"
     if not resto and ("sim" in palavras or "certo" in palavras):
         return "sim"
@@ -755,17 +852,180 @@ def texto_de_um_resultado(view: Any, item: Any, nome: str | None) -> tuple[str, 
     return frase, oferece
 
 
-def montar_resposta(frases: Sequence[str], *, view: Any, oferece_equipe: bool, prefixo: str = "") -> str:
-    """A resposta final: prefixo (urgencia/discordancia), a(s) frase(s), a data do dado e o aviso."""
+def montar_resposta(
+    frases: Sequence[str],
+    *,
+    view: Any,
+    oferece_equipe: bool,
+    prefixo: str = "",
+    para: str | None = None,
+    titular_por_padrao: bool = False,
+) -> str:
+    """A resposta final: prefixo (urgencia/discordancia), PARA QUEM (DL-0131: "Para você (titular)" ou o nome
+    do dependente), a(s) frase(s), a data do dado e o aviso. Titular por padrao: o convite para dizer o nome
+    do dependente vai no fim."""
     data = data_do_dado(view)
+    abertura = f"{para}, pelo cadastro do seu plano{data}" if para else f"Pelo cadastro do seu plano{data}"
     if len(frases) == 1:
-        corpo = f"Pelo cadastro do seu plano{data}: {frases[0]}"
+        corpo = f"{abertura}: {frases[0]}"
     else:
-        corpo = f"Pelo cadastro do seu plano{data}:\n" + "\n".join(
-            f"{i}) {f}" for i, f in enumerate(frases, 1)
-        )
+        corpo = f"{abertura}:\n" + "\n".join(f"{i}) {f}" for i, f in enumerate(frases, 1))
     fim = "" if oferece_equipe else f" {AVISO_FINAL}"
+    if titular_por_padrao:
+        fim = f"{fim} {SUFIXO_DO_DEPENDENTE}"
     return f"{prefixo}{corpo}{fim}".strip()
+
+
+#: DL-0131: a resposta vale para o titular, a menos que a pessoa diga outra coisa.
+PARA_O_TITULAR: Final[str] = "Para você (titular)"
+SUFIXO_DO_DEPENDENTE: Final[str] = "Se for para um dependente, me diga o nome."
+#: DL-0131: a intencao de cobertura sem o nome do exame abre o assunto e pede a lista.
+TEXTO_PEDE_LISTA: Final[str] = "Claro! Quais exames ou procedimentos? Pode mandar a lista."
+#: DL-0131: irritacao ou "nao entendi" nunca abre caso sem a pessoa concordar: desculpa curta e de novo.
+TEXTO_DESCULPA: Final[str] = "Desculpe a confusão."
+TEXTO_DESCULPA_SEM_ASSUNTO: Final[str] = (
+    "Desculpe a confusão. Me diga de novo o que você precisa, que eu tento outra vez."
+)
+
+
+def _primeira_frase(texto: str) -> str:
+    return texto.split(". ")[0].rstrip(".") + "."
+
+
+def frase_de_outro_item(nome: str, tipo: str) -> str:
+    """A linha de um item com regra propria numa lista (a primeira frase do texto aprovado do caso)."""
+    base = {
+        "remedio": TEXTO_REMEDIO,
+        "material": TEXTO_MATERIAL,
+        "estetica": TEXTO_EXCLUSAO.get("estetica", ""),
+        "inseminacao": TEXTO_EXCLUSAO.get("inseminacao", ""),
+        "experimental": TEXTO_EXCLUSAO.get("experimental", ""),
+    }.get(tipo, "")
+    return f"{nome}: {_primeira_frase(base)}" if base else f"{nome}: tem regra própria."
+
+
+TEXTO_OFERTA_DA_DISCORDANCIA: Final[str] = "Se quiser, passo para a nossa equipe ver o seu caso. Quer?"
+TEXTO_EQUIPE_PARA_OS_OUTROS: Final[str] = (
+    "Para os itens com regra própria, quer que eu passe para a nossa equipe conferir? Responda sim ou não."
+)
+#: Avaliacao de 21/10/2026: fala curta depois de uma resposta ("ok", "valeu", "blz").
+TEXTO_DE_NADA: Final[str] = "Por nada! Se precisar, é só chamar."
+TEXTO_COMBINADO: Final[str] = "Combinado! Se precisar, é só chamar."
+_AGRADECE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:obrigad[oa]|obg|valeu|vlw|brigad[oa]|grat[oa]|agradeco)\b"
+)
+
+
+def resposta_de_cortesia(texto: str) -> str:
+    return TEXTO_DE_NADA if _AGRADECE.search(normalizar(texto)) else TEXTO_COMBINADO
+
+
+#: "Faltou algum?", "e os outros?", "nao respondeu todos".
+_FALTOU: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:faltou|faltaram|ficou faltando|ficaram faltando|esqueceu|esqueceram|nao respondeu|e os outros"
+    r"|e o resto|respondeu todos|todos os itens)\b"
+)
+
+
+def pergunta_se_faltou(texto: str) -> bool:
+    return bool(_FALTOU.search(normalizar(texto)))
+
+
+def texto_do_que_respondi(termos: Sequence[str]) -> str:
+    lista = ", ".join(termos)
+    return (
+        f"Respondi os {len(termos)} itens que você mandou: {lista}. Se faltou algum, me mande o nome que eu "
+        "consulto."
+    )
+
+
+def aviso_do_limite(total: int) -> str:
+    """Mais de `MAX_PROCEDIMENTOS` itens: responde os primeiros e avisa (nunca cala sobre os outros)."""
+    return (
+        f"Você mandou {total} itens; respondi os {MAX_PROCEDIMENTOS} primeiros. "
+        "Mande os outros numa nova mensagem, que eu respondo também."
+    )
+
+
+def texto_dos_nao_localizados(termos: Sequence[str]) -> str:
+    """Os itens nao localizados numa linha, e a oferta da equipe UMA vez, no fim."""
+    lista = ", ".join(f'"{t}"' for t in termos)
+    return (
+        f"Não localizei no cadastro: {lista}. Quer que eu passe para a nossa equipe, que confere pelo pedido "
+        "médico? Responda sim ou não."
+    )
+
+
+def nome_proprio(nome: str) -> str:
+    """O nome de pessoa em Title Case ("ANA DE SOUZA" -> "Ana de Souza"), com as particulas em minuscula;
+    o nome ja' escrito com caixa mista fica como esta'."""
+    if not (str(nome or "").isupper() or str(nome or "").islower()):
+        return " ".join(str(nome or "").split())
+    particulas = {"de", "da", "do", "das", "dos", "e"}
+    partes = [p for p in str(nome or "").split() if p]
+    saida = []
+    for i, p in enumerate(partes):
+        baixo = p.lower()
+        saida.append(baixo if (i > 0 and baixo in particulas) else baixo[:1].upper() + baixo[1:])
+    return " ".join(saida)
+
+
+#: Irritacao, reclamacao ou "nao entendi" (DL-0131): pede desculpa e tenta de novo; nunca abre caso sozinha.
+_RECLAMACAO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:ue|uai|como assim|nao entendi|nao entendo|voce acabou de|vc acabou de|acabou de (?:dizer|falar"
+    r"|verificar|responder|consultar)|ja (?:te )?(?:disse|falei|respondi|tinha dito)|eu ja (?:disse|falei"
+    r"|respondi|tinha dito|tinha falado)|absurdo|ridiculo|que isso|nao foi isso|nao e isso que|errad[oa]"
+    r"|de novo isso|pela? (?:segunda|terceira) vez|nao faz sentido|repetindo)\b"
+)
+_JA_DISSE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:ja (?:te )?(?:disse|falei|respondi|tinha dito|tinha falado)|eu ja (?:disse|falei|respondi|tinha"
+    r" dito|tinha falado))\b"
+)
+
+
+def e_reclamacao(texto: str) -> bool:
+    return bool(_RECLAMACAO.search(normalizar(texto)))
+
+
+def ja_disse(texto: str) -> bool:
+    """ "Eu ja' disse..." e' lido como RESPOSTA a pergunta pendente (com um pedido de desculpas curto)."""
+    return bool(_JA_DISSE.search(normalizar(texto)))
+
+
+_PERGUNTA_NOVA: Final[re.Pattern[str]] = re.compile(
+    r"^(?:e )?(?:quem|qual|quais|como|quando|onde|porque|por que|quanto|quantos|quantas|o que|voce pode"
+    r"|vc pode|pode me|me (?:diga|fala|mostra|passa|explica|informa|ajuda|ajude)|ajuda|ajude|quero|queria"
+    r"|gostaria|preciso"
+    r"|tem como)\b"
+)
+
+
+def resposta_curta(texto: str) -> bool:
+    """DL-0131: SO' a resposta CURTA e' lida contra a pergunta pendente ("1", "sim", "nao", "ok", um nome,
+    "eu ja' disse"). Pergunta ou pedido novo ESCAPA para o roteamento normal."""
+    plano = normalizar(texto)
+    if not plano:
+        return False
+    if ja_disse(texto) or ler_resposta(texto) is not None or e_cortesia(texto):
+        return True
+    if "?" in texto or _PERGUNTA_NOVA.search(plano):
+        return False
+    return len(plano.split()) <= 6
+
+
+#: Separadores de uma LISTA: quebra de linha, virgula, ponto e virgula, marcador ("-", "*", "1)", "1.").
+_SEPARADOR_DE_LISTA: Final[re.Pattern[str]] = re.compile(r"[\n;,]+|\s+e\s+(?=\S)")
+_MARCADOR: Final[re.Pattern[str]] = re.compile(r"^\s*(?:[-*•]+|\d{1,2}[).:-])\s*")
+
+
+def itens_da_lista(texto: str) -> list[str]:
+    """Os itens de uma lista escrita de qualquer jeito (linhas, virgulas, marcadores, maiusculas)."""
+    itens = []
+    for parte in _SEPARADOR_DE_LISTA.split(texto or ""):
+        limpo = " ".join(_MARCADOR.sub("", parte).split()).strip(" .:!?")
+        if limpo:
+            itens.append(limpo)
+    return itens
 
 
 def nome_legivel(nome: str) -> str:
@@ -945,6 +1205,8 @@ __all__ = [
     "PROMPT_EXTRACAO",
     "PEND_CONFIRMA",
     "PROMPT_ESCOLHA",
+    "PROMPT_ESCOLHA_VARIOS",
+    "escolhas_do_modelo",
     "TEXTO_CONFIRMA",
     "TEXTO_COPARTICIPACAO",
     "TEXTO_ASSUNTO_ENCERRADO",
@@ -952,6 +1214,25 @@ __all__ = [
     "Escolha",
     "escolha_do_modelo",
     "e_cortesia",
+    "e_reclamacao",
+    "itens_da_lista",
+    "ja_disse",
+    "nome_proprio",
+    "resposta_curta",
+    "aviso_do_limite",
+    "frase_de_outro_item",
+    "pergunta_se_faltou",
+    "resposta_de_cortesia",
+    "texto_do_que_respondi",
+    "TEXTO_COMBINADO",
+    "TEXTO_DE_NADA",
+    "TEXTO_EQUIPE_PARA_OS_OUTROS",
+    "texto_dos_nao_localizados",
+    "PARA_O_TITULAR",
+    "SUFIXO_DO_DEPENDENTE",
+    "TEXTO_PEDE_LISTA",
+    "TEXTO_DESCULPA",
+    "TEXTO_DESCULPA_SEM_ASSUNTO",
     "pergunta_do_tipo",
     "ler_resposta",
     "lista_para_escolha",

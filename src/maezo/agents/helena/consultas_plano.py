@@ -828,6 +828,24 @@ def sem_marcador_de_dependente(texto: str) -> str:
     return _MARCADOR_DEPENDENTE.sub(lambda m: f"dependente {m.group(1)}", texto)
 
 
+#: SIMULADOR (QA), avaliacao de 21/10/2026: os nomes completos de dependente lidos NESTE processo, para o
+#: mascarador do simulador trocar o nome em TODA saida gravada (qualquer formato de texto). `None` = desligado
+#: (producao e receptor): so' o simulador liga, na subida (`registrar_nomes_lidos`). Nunca vai a log.
+_NOMES_LIDOS: set[str] | None = None
+
+
+def registrar_nomes_lidos() -> None:
+    """Liga o registro dos nomes lidos neste processo (so' o simulador chama)."""
+    global _NOMES_LIDOS
+    if _NOMES_LIDOS is None:
+        _NOMES_LIDOS = set()
+
+
+def nomes_lidos() -> frozenset[str]:
+    """Os nomes completos de dependente lidos neste processo (vazio com o registro desligado)."""
+    return frozenset(_NOMES_LIDOS or ())
+
+
 class NomesDoTurno:
     """Os nomes completos dos dependentes de UM turno, em memoria, ate' o envio. Nunca em estado, fatos, log,
     historico ou modelo. `repr`/`str` redigidos; nao serializavel. Chave: a posicao (`ordem`) do contrato."""
@@ -835,7 +853,13 @@ class NomesDoTurno:
     __slots__ = ("_nomes",)
 
     def __init__(self, nomes: Mapping[int, str]) -> None:
-        self._nomes = dict(nomes)
+        # DL-0131: o nome sai em Title Case ("ANA DE SOUZA" -> "Ana de Souza").
+        self._nomes = {ordem: _title_case(nome) for ordem, nome in nomes.items()}
+        if _NOMES_LIDOS is not None:
+            _NOMES_LIDOS.update(nomes.values())
+
+    def tem(self, ordem: int) -> bool:
+        return ordem in self._nomes
 
     def __repr__(self) -> str:
         return "NomesDoTurno(<redigido>)"
@@ -866,6 +890,47 @@ class NomesDoTurno:
         return _MARCADOR_DEPENDENTE.sub(
             lambda m: self._nomes.get(int(m.group(1)), f"dependente {m.group(1)}"), texto
         )
+
+
+def _title_case(nome: str) -> str:
+    """Title Case so' do nome todo em MAIUSCULAS ou minusculas; o nome ja' escrito com caixa mista fica."""
+    if not (str(nome or "").isupper() or str(nome or "").islower()):
+        return " ".join(str(nome or "").split())
+    particulas = {"de", "da", "do", "das", "dos", "e"}
+    partes = [p for p in str(nome or "").split() if p]
+    saida = []
+    for i, p in enumerate(partes):
+        baixo = p.lower()
+        saida.append(baixo if (i > 0 and baixo in particulas) else baixo[:1].upper() + baixo[1:])
+    return " ".join(saida)
+
+
+#: DL-0131: o parentesco no lugar do nome quando o nome nao esta' disponivel (nunca "dependente 1").
+_PARENTESCOS: tuple[tuple[str, str], ...] = (
+    ("filho", "o seu filho"),
+    ("filha", "a sua filha"),
+    ("esposa", "a sua esposa"),
+    ("marido", "o seu marido"),
+    ("companheira", "a sua companheira"),
+    ("companheiro", "o seu companheiro"),
+    ("conjuge", "o seu cônjuge"),
+    ("enteada", "a sua enteada"),
+    ("enteado", "o seu enteado"),
+    ("neta", "a sua neta"),
+    ("neto", "o seu neto"),
+    ("mae", "a sua mãe"),
+    ("pai", "o seu pai"),
+)
+
+
+def texto_do_parentesco(grau: object) -> str:
+    """ "o seu filho", "a sua esposa"... a partir do grau do cadastro; sem grau conhecido, "o seu
+    dependente"."""
+    plano = _normalizado_simples(str(grau or ""))
+    for chave, texto in _PARENTESCOS:
+        if re.search(rf"\b{chave}", plano):
+            return texto
+    return "o seu dependente"
 
 
 def _normalizado_simples(texto: str) -> str:

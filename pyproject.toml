@@ -206,7 +206,10 @@ exclude-newer = "2026-08-05T00:00:00Z"
 #   Fixed 0.4.4 was published 27/08/2026; admit only this package through 28/08.
 # - mcp (15/10/2026): 1.28.1 tem GHSA-84m7-p3x7-pcfv (CVSS 7.5, DoS no transporte StreamableHTTP
 #   stateful), fix 1.30.0 de 07/09. Declarado mas nao importado em src. Janela ate' 08/09.
-exclude-newer-package = { langgraph-sdk = "2026-08-28T00:00:00Z", mcp = "2026-09-08T00:00:00Z", pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
+# - certifi (20/10/2026): 2026.6.17 recebeu GHSA-6q48-6c7w-9gw2 (CRITICAL, raizes emSign com chave de CA
+#   intermediaria comprometida), fix 2026.10.19 de 19/10 (transitiva via requests/httpx/botocore).
+#   Release 2026.10.19 publicado em 20/10 02:24 UTC; janela ate' 21/10.
+exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", langgraph-sdk = "2026-08-28T00:00:00Z", mcp = "2026-09-08T00:00:00Z", pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

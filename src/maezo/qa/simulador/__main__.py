@@ -336,7 +336,7 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
             "conversation_ids": conversation_ids,
         }
         await _gravar_json(armazenamento, run_id, "manifest.json", manifesto)
-        if str(args.roteiro).startswith("helena_cobertura"):
+        if str(args.roteiro).startswith(("helena_cobertura", "helena_conversa_cobertura")):
             # DL-0128: o roteiro da cobertura assistida mede a traducao para o nome oficial, entao espera o
             # catalogo e o indice por significado ficarem prontos (no receptor isso acontece na subida).
             await _preparar_catalogo(composicao.dispatcher)
@@ -614,6 +614,11 @@ def argumentos_do_ambiente(argv: Sequence[str] | None) -> list[str]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = construir_parser().parse_args(argumentos_do_ambiente(argv))
+    # Avaliacao de 21/10/2026 (privacidade): todo nome de dependente lido da AMH neste processo entra no
+    # mascarador de TODA saida gravada (relatorio, transcricao, log), em qualquer formato de texto.
+    from maezo.agents.helena.consultas_plano import registrar_nomes_lidos
+
+    registrar_nomes_lidos()
     try:
         return asyncio.run(executar(args))
     except Exception as exc:

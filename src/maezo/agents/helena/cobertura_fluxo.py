@@ -1,19 +1,23 @@
-"""O FLUXO da cobertura assistida (DL-0128; reordenacao e estado da conversa, DL-0129): orquestra extracao,
-traducao para o nome oficial, escolha entre os candidatos, confirmacao, opcoes, para quem, tentativas e a
-consulta da AMH. As dependencias de rede vem INJETADAS (o grafo as fornece), entao o fluxo e' testavel sem
-AWS. Textos e leituras puras em `cobertura_assistida.py`.
+"""O FLUXO da cobertura assistida (DL-0128; reordenacao e estado da conversa, DL-0129; conversa simples,
+DL-0131): orquestra extracao, traducao para o nome oficial, escolha entre os candidatos, confirmacao, opcoes,
+para quem, tentativas e a consulta da AMH. As dependencias de rede vem INJETADAS (o grafo as fornece), entao o
+fluxo e' testavel sem AWS. Textos e leituras puras em `cobertura_assistida.py`.
 
 Contrato com o grafo: `responder(...)` devolve o `update` do turno (texto, pendencia, contexto) — sempre um
-texto, nunca `None`, para a pergunta de cobertura na allowlist (os textos antigos "por aqui eu nao consigo
-confirmar cobertura de um procedimento especifico" saem deste caminho).
+texto, nunca `None`, para a pergunta de cobertura na allowlist.
 
 TRADUCAO (DL-0129): a busca RECUPERA ~20 candidatos (significado + lexico, so' itens assistenciais) e o GLM-5
 ESCOLHE um da lista com uma confianca: alta = consulta direta; media = confirmacao de uma linha; baixa =
 ate' 3 opcoes ou pedido de outra forma. O modelo so' escolhe da lista; quem diz se cobre e' o cadastro. Sem
-o modelo, a decisao por nota de antes.
+o modelo, a decisao por nota de antes. Uma LISTA vai ao modelo numa chamada so' (DL-0131).
 
-ESTADO DA CONVERSA: com uma pergunta pendente da Helena, a resposta da pessoa e' lida CONTRA a pendencia
-("sim", "quero sim", "1", "o segundo", "nao sei o nome", "deixa pra la") e nunca vira busca nova.
+CONVERSA SIMPLES (DL-0131, decisao do dono de 20/10/2026):
+  * TITULAR POR PADRAO: nunca se pergunta "para quem" quando a mensagem nao cita outra pessoa; a resposta diz
+    "Para voce (titular)" e convida a dizer o nome do dependente. A pessoa escolhida e' lembrada na conversa.
+  * A intencao sem o nome do exame pede a lista; a LISTA inteira e' respondida (ate' 15), sem limite
+    escondido; o que nao foi localizado sai numa linha, com a oferta da equipe UMA vez no fim.
+  * Pendencia: so' a resposta CURTA e' lida contra ela (o grafo deixa a pergunta nova escapar). "Eu ja' disse"
+    e' resposta, com um pedido de desculpas curto; irritacao pede desculpa e tenta de novo, nunca abre caso.
 """
 
 from __future__ import annotations
@@ -40,6 +44,10 @@ _TITULAR = re.compile(
     r"|pra eu|para eu|e pra eu|sou eu|e eu|e pra mim mesmo|pra mim mesmo|para mim mesmo|para mim mesma"
     r"|pra mim mesma)$"
 )
+#: DL-0131: o titular DITO no meio de uma frase ("eu ja' tinha dito que e' pra mim, titular").
+_TITULAR_NO_TEXTO = re.compile(
+    r"\b(?:titular|para mim|pra mim|eu mesm[oa]|sou eu|e pra mim|e para mim|em mim)\b"
+)
 _GRAUS_POR_PALAVRA: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(?:filh[oa]s?|menino|menina|bebe)\b"), "filho"),
     (re.compile(r"\b(?:esposa|marido|conjuge|mulher|companheir[oa])\b"), "conjuge"),
@@ -56,6 +64,8 @@ DIRETO, CONFIRMA, OPCOES, NENHUM, VAGO = "direto", "confirma", "opcoes", "nenhum
 #: nome tecnico (nota lexica). Abaixo disso a escolha vira confirmacao de uma linha (nunca consulta direta de
 #: um item que nao tem nada a ver com o que foi escrito). Regra geral, sem termo.
 LEXICO_MINIMO_PARA_DIRETO = 0.3
+#: DL-0131 (velocidade): leituras de cobertura da AMH em paralelo por resposta.
+LEITURAS_AMH_SIMULTANEAS = 4
 
 
 def quem_pelo_texto(texto: str, graus: Sequence[str], primeiros_nomes: Mapping[int, str]) -> str | None:
@@ -82,7 +92,15 @@ def quem_pelo_texto(texto: str, graus: Sequence[str], primeiros_nomes: Mapping[i
             if not iguais:
                 return "fora_do_plano"
             return None
+    if _TITULAR_NO_TEXTO.search(plano):
+        return "titular"
     return None
+
+
+def cita_outra_pessoa(texto: str) -> bool:
+    """DL-0131: a frase cita alguem que nao e' o titular ("meu filho", "minha esposa", "minha mae")."""
+    plano = ca.normalizar(texto)
+    return bool(_TERCEIRO.search(plano)) or any(p.search(plano) for p, _ in _GRAUS_POR_PALAVRA)
 
 
 @dataclass
@@ -101,6 +119,16 @@ class Dependencias:
     #: A CPT vigente do TITULAR verificado (DL-0130; `CptVigenteView` ou `None`), lida no maximo uma vez por
     #: resposta (o grafo guarda em memoria). Sem ela, nenhum aviso de CPT.
     cpt: Callable[[], Awaitable[Any | None]] | None = None
+    #: DL-0131: a escolha de VARIOS termos numa chamada so' ([(termo, nomes dos candidatos)]) -> uma escolha
+    #: por termo (`None` onde o modelo nao respondeu). Sem ela, uma chamada por termo.
+    escolher_varios: (
+        Callable[[Sequence[tuple[str, Sequence[str]]]], Awaitable[list[ca.Escolha | None]]] | None
+    ) = None
+    #: DL-0131: a pessoa escolhida nesta conversa ("titular"/"dependente:N"), lembrada pelo grafo.
+    quem_lembrado: Callable[[], str | None] | None = None
+    lembrar_quem: Callable[[str], None] | None = None
+    #: DL-0131: o rotulo de quem ("Para voce (titular)", "Para <nome>", "Para o seu filho").
+    rotulo_de_quem: Callable[[str], str] | None = None
 
 
 @dataclass(frozen=True)
@@ -146,7 +174,14 @@ def _com_rede(ctx: ca.Contexto, texto: str) -> str:
 class FluxoDeCobertura:
     def __init__(self, deps: Dependencias) -> None:
         self.d = deps
+        self._elegibilidade: asyncio.Future[Mapping[str, Any] | None] | None = None
+        self._cpt: asyncio.Future[Any] | None = None
+        self._excedente = 0
+        #: DL-0131: no maximo 4 leituras de cobertura da AMH ao mesmo tempo (a lista de 15 derrubava a rota
+        #: por prazo); o resto espera a vez.
+        self._leituras_amh = asyncio.Semaphore(LEITURAS_AMH_SIMULTANEAS)
 
+    # --- entrada --------------------------------------------------------------------------------------------
     async def responder(self, texto: str, pendente: str, contexto: object) -> dict[str, Any]:
         ctx = ca.Contexto.decodificar(contexto) if pendente.startswith(ca.PREFIXO) else ca.Contexto()
         respondidos = list(ctx.respondidos) if pendente == PEND_RESPONDIDO else []
@@ -156,6 +191,15 @@ class FluxoDeCobertura:
             return _update(ca.TEXTO_ASSUNTO_ENCERRADO, None, None)
         if resposta is not None:
             logger.info("helena_cobertura_resposta", pendencia=pendente, leitura=resposta)
+        if pendente == PEND_RESPONDIDO:
+            depois = await self._depois_da_resposta(texto, ctx)
+            if depois is not None:
+                return depois
+        if pendente.startswith(ca.PREFIXO) and resposta is None and ca.e_reclamacao(texto):
+            # DL-0131: irritacao / "nao entendi" / "eu ja' disse": desculpa curta e de novo. Nunca abre caso.
+            resposta_reclamacao = await self._de_novo(texto, pendente, ctx)
+            if resposta_reclamacao is not None:
+                return resposta_reclamacao
         if pendente == ca.PEND_EQUIPE:
             if resposta == "nao" or ca.e_nao(texto):
                 return _update(ca.TEXTO_SEM_EQUIPE, None, None)
@@ -207,11 +251,54 @@ class FluxoDeCobertura:
             if resposta == "nao":
                 return _update(ca.TEXTO_ASSUNTO_ENCERRADO, None, None)
             if resposta == "sim":
+                if not ctx.termos:
+                    return _update(ca.TEXTO_PEDE_LISTA, ca.PEND_FORMA, ctx)
                 return _update(ca.pergunta_da_forma(termo), ca.PEND_FORMA, ctx)
         if pendente in (ca.PEND_OPCOES, ca.PEND_FORMA, ca.PEND_CONFIRMA):
-            # A pessoa escreveu outro nome: o mesmo pedido (para quem, tentativas), termo novo.
+            # A pessoa escreveu outro nome (ou a lista pedida): o mesmo pedido (para quem, tentativas).
             return await self._outro_nome(texto, ctx)
-        return await self._nova_pergunta(texto, ca.Contexto(), respondidos)
+        return await self._nova_pergunta(texto, ca.Contexto(quem=ctx.quem), respondidos)
+
+    async def _depois_da_resposta(self, texto: str, ctx: ca.Contexto) -> dict[str, Any] | None:
+        """Avaliacao de 21/10/2026: a fala logo DEPOIS de uma resposta de cobertura. Cortesia ("ok", "valeu")
+        recebe uma resposta curta; "faltou algum?" confere a lista anterior; "e' pra minha esposa" / "e' pra
+        mim
+        mesma" REFAZ a consulta para a pessoa citada. `None` = segue (pedido novo)."""
+        if ca.e_cortesia(texto):
+            return _update(ca.resposta_de_cortesia(texto), None, None)
+        if ca.pergunta_se_faltou(texto) and ctx.termos:
+            return _update(ca.texto_do_que_respondi(ctx.termos), PEND_RESPONDIDO, ctx)
+        if (
+            ctx.termos
+            and len(ca.normalizar(texto).split()) <= 10
+            and (cita_outra_pessoa(texto) or _TITULAR_NO_TEXTO.search(ca.normalizar(texto)))
+        ):
+            graus, com_nome, primeiros = await self.d.dependentes()
+            quem = quem_pelo_texto(texto, graus, primeiros)
+            logger.info("helena_cobertura_troca_de_pessoa", decidiu=quem is not None)
+            novo = replace(ctx, respondidos=[], opcoes=[], tentativas=0, padrao=False)
+            if quem is None:
+                return _update(self.d.pergunta_para_quem(graus, com_nome), ca.PEND_QUEM, novo)
+            return await self._com_quem(novo, quem, graus)
+        return None
+
+    async def _de_novo(self, texto: str, pendente: str, ctx: ca.Contexto) -> dict[str, Any] | None:
+        """DL-0131: a reclamacao com a pergunta pendente. "Eu ja' disse que e' pra mim" responde o "para
+        quem"; com o pedido guardado, a consulta e' refeita (desculpa curta na frente); sem pedido, a
+        desculpa e o pedido de repetir."""
+        logger.info("helena_cobertura_desculpa", pendencia=pendente)
+        desculpa = f"{ca.TEXTO_DESCULPA} "
+        if pendente == ca.PEND_QUEM:
+            graus, _com_nome, primeiros = await self.d.dependentes()
+            quem = quem_pelo_texto(texto, graus, primeiros)
+            if quem is not None:
+                return await self._com_quem(ctx, quem, graus, prefixo=desculpa)
+            return None
+        if ctx.termos:
+            quem = ctx.quem or self._lembrado() or "titular"
+            novo = replace(ctx, quem=quem, opcoes=[], tentativas=0, respondidos=[])
+            return await self._com_quem(novo, quem, (), prefixo=desculpa)
+        return _update(ca.TEXTO_DESCULPA_SEM_ASSUNTO, None, None)
 
     async def _extrair(self, texto: str) -> ca.Pedido | None:
         try:
@@ -221,12 +308,32 @@ class FluxoDeCobertura:
         except EXTERNAL_DEPENDENCY_FAILURES:
             return None
 
+    def _lembrado(self) -> str | None:
+        return self.d.quem_lembrado() if self.d.quem_lembrado is not None else None
+
+    def _ler_elegibilidade_cedo(self) -> None:
+        """DL-0131 (velocidade): a elegibilidade comeca a ser lida JUNTO com a extracao."""
+        if self._elegibilidade is None:
+            self._elegibilidade = asyncio.ensure_future(self.d.elegibilidade())
+
+    async def _fatos_de_elegibilidade(self) -> Mapping[str, Any] | None:
+        self._ler_elegibilidade_cedo()
+        assert self._elegibilidade is not None
+        try:
+            return await self._elegibilidade
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            return None
+
     async def _outro_nome(self, texto: str, ctx: ca.Contexto) -> dict[str, Any]:
-        """Resposta a "como esta' escrito no pedido?"/opcoes com um NOME novo: o termo vem da extracao (sem
-        as palavras de conversa) ou da continuacao; sem nome, a pergunta e' repetida (nunca busca de lixo)."""
+        """Resposta a "como esta' escrito no pedido?"/opcoes/"quais exames?" com um NOME (ou a lista): o
+        termo vem da extracao (sem as palavras de conversa) ou da continuacao; sem nome, a pergunta e'
+        repetida (nunca busca de lixo)."""
         modelo = await self._extrair(texto)
         termos = list(modelo.procedimentos) if modelo is not None else []
         tecnicos = list(modelo.tecnicos) if modelo is not None else []
+        self._excedente = max(0, (modelo.total if modelo is not None else 0) - ca.MAX_PROCEDIMENTOS)
         if not termos:
             novo = termo_da_continuacao(texto)
             termos = [novo] if novo else []
@@ -234,18 +341,31 @@ class FluxoDeCobertura:
             termo = ctx.termos[0] if ctx.termos else "esse procedimento"
             if ctx.opcoes:
                 return _update(ca.pergunta_das_opcoes(termo, [n for _, n in ctx.opcoes]), ca.PEND_OPCOES, ctx)
+            if not ctx.termos:
+                return _update(ca.TEXTO_PEDE_LISTA, ca.PEND_FORMA, ctx)
             return _update(ca.pergunta_da_forma(termo), ca.PEND_FORMA, ctx)
         novo_ctx = replace(ctx, termos=termos[: ca.MAX_PROCEDIMENTOS], tecnicos=tecnicos, opcoes=[])
+        if novo_ctx.quem is None:
+            quem, padrao = self._quem_sem_mencao()
+            return await self._com_quem(replace(novo_ctx, padrao=padrao), quem, ())
         return await self._resolver(novo_ctx, prefixo="")
+
+    def _quem_sem_mencao(self) -> tuple[str, bool]:
+        """DL-0131: sem citar ninguem, a pessoa lembrada na conversa; sem ninguem lembrado, o TITULAR (por
+        padrao)."""
+        lembrado = self._lembrado()
+        return (lembrado, False) if lembrado else ("titular", True)
 
     # --- pergunta nova --------------------------------------------------------------------------------------
     async def _nova_pergunta(self, texto: str, ctx: ca.Contexto, respondidos: list[str]) -> dict[str, Any]:
         from maezo.agents.helena.cobertura_rol import termo_da_mensagem
 
+        self._ler_elegibilidade_cedo()
         reserva_termos = [t for t in (termo_da_mensagem(texto), termo_da_continuacao(texto)) if t]
         reserva = ca.pedido_deterministico(texto, reserva_termos)
         modelo = await self._extrair(texto)
         pedido = ca.confirmar_pelo_texto(ca.combinar(modelo, reserva), texto)
+        self._excedente = max(0, pedido.total - ca.MAX_PROCEDIMENTOS)
         logger.info(
             "helena_cobertura_extraida",
             pelo_modelo=pedido.pelo_modelo,
@@ -266,6 +386,7 @@ class FluxoDeCobertura:
             assunto=pedido.assunto,
             urgencia=pedido.urgencia,
             respondidos=respondidos,
+            quem=ctx.quem,
         )
         if pedido.assunto == "autorizacao":
             return {"desviar_para": "autorizacao"}
@@ -277,7 +398,8 @@ class FluxoDeCobertura:
             return _update(prefixo + ca.TEXTO_REEMBOLSO, ca.PEND_EQUIPE, ctx)
         if pedido.exclusao_legal in ca.TEXTO_EXCLUSAO:
             return _update(prefixo + ca.TEXTO_EXCLUSAO[pedido.exclusao_legal], ca.PEND_EQUIPE, ctx)
-        if pedido.tipo == "remedio":
+        ctx = replace(ctx, outros=list(pedido.outros))
+        if pedido.tipo == "remedio" and not pedido.procedimentos and len(pedido.outros) <= 1:
             return _update(prefixo + ca.TEXTO_REMEDIO, ca.PEND_EQUIPE, ctx)
         if pedido.tipo == "material" and not pedido.procedimentos:
             return _update(prefixo + ca.TEXTO_MATERIAL, ca.PEND_EQUIPE, ctx)
@@ -285,22 +407,36 @@ class FluxoDeCobertura:
             return _update(prefixo + ca.TEXTO_RECEM_NASCIDO, ca.PEND_EQUIPE, ctx)
         if pedido.para_quem == "terceiro":
             return _update(prefixo + ca.TEXTO_TERCEIRO, ca.PEND_EQUIPE, ctx)
+        if not pedido.procedimentos and pedido.outros:
+            # Avaliacao de 21/10/2026: so' itens com regra propria (ex.: remedio + estetica): cada um pelo seu
+            # caminho, numa resposta so'.
+            return await self._varios(ctx, prefixo=prefixo)
+        if not pedido.procedimentos and pedido.discorda:
+            # Avaliacao de 21/10/2026: a discordancia sem procedimento termina na explicacao e na equipe, sem
+            # o pedido da lista colado.
+            return _update(
+                f"{ca.PREFIXO_DISCORDA.strip()} {ca.TEXTO_OFERTA_DA_DISCORDANCIA}", ca.PEND_EQUIPE, ctx
+            )
         if not pedido.procedimentos:
-            geral = await self.d.texto_geral()
-            return _update(prefixo + geral, ca.PEND_FORMA, ctx)
-        # Para quem: com dependentes, so' pergunta quando a mensagem nao diz.
-        graus, com_nome, primeiros = await self.d.dependentes()
-        quem: str | None = "titular" if pedido.para_quem == "titular" else None
-        if pedido.quem_texto:
-            quem = quem_pelo_texto(pedido.quem_texto, graus, primeiros) or quem
-        if quem is None and pedido.para_quem == "dependente" and len(graus) == 1:
-            quem = "dependente:1"
-        if quem is None and not graus:
-            quem = "titular"
-        if quem is None:
-            ctx = replace(ctx, quem=None)
-            return _update(prefixo + self.d.pergunta_para_quem(graus, com_nome), ca.PEND_QUEM, ctx)
-        return await self._com_quem(ctx, quem, graus, prefixo=prefixo)
+            # DL-0131: a intencao sem o nome do exame abre o assunto e pede a lista (nunca o texto geral).
+            return _update(prefixo + ca.TEXTO_PEDE_LISTA, ca.PEND_FORMA, replace(ctx, termos=[], tecnicos=[]))
+        # PARA QUEM (DL-0131): so' se pergunta quando a frase cita OUTRA pessoa e nao da' para saber qual.
+        if pedido.para_quem == "titular":
+            return await self._com_quem(ctx, "titular", (), prefixo=prefixo)
+        if pedido.para_quem == "dependente" or pedido.quem_texto or cita_outra_pessoa(texto):
+            graus, com_nome, primeiros = await self.d.dependentes()
+            quem = quem_pelo_texto(pedido.quem_texto or texto, graus, primeiros)
+            if quem is None and pedido.quem_texto:
+                quem = quem_pelo_texto(texto, graus, primeiros)
+            if quem is None and len(graus) == 1 and pedido.para_quem == "dependente":
+                quem = "dependente:1"
+            if quem is None and not graus:
+                quem = "titular"
+            if quem is None:
+                return _update(prefixo + self.d.pergunta_para_quem(graus, com_nome), ca.PEND_QUEM, ctx)
+            return await self._com_quem(ctx, quem, graus, prefixo=prefixo)
+        quem, padrao = (ctx.quem, False) if ctx.quem else self._quem_sem_mencao()
+        return await self._com_quem(replace(ctx, padrao=padrao), quem, (), prefixo=prefixo)
 
     async def _com_quem(
         self, ctx: ca.Contexto, quem: str, graus: Sequence[str], *, prefixo: str = ""
@@ -309,8 +445,14 @@ class FluxoDeCobertura:
             return _update(prefixo + ca.TEXTO_TERCEIRO, ca.PEND_EQUIPE, ctx)
         if quem == "fora_do_plano":
             return _update(prefixo + ca.TEXTO_DEPENDENTE_NAO_ATIVO, ca.PEND_EQUIPE, ctx)
-        ctx = replace(ctx, quem=quem)
-        bloqueio = _situacao_bloqueada(await self.d.elegibilidade())
+        ctx = replace(ctx, quem=quem, padrao=ctx.padrao and quem == "titular")
+        if self.d.lembrar_quem is not None:
+            self.d.lembrar_quem(quem)
+        if quem == "titular" and self.d.cpt is not None and self._cpt is None:
+            # DL-0131 (velocidade): a CPT do titular e' lida JUNTO com a traducao e a cobertura (em memoria
+            # 5 min no grafo); o aviso so' sai se algum procedimento for respondido.
+            self._cpt = asyncio.ensure_future(self.d.cpt())
+        bloqueio = _situacao_bloqueada(await self._fatos_de_elegibilidade())
         if bloqueio:
             prefixo = f"{prefixo}{bloqueio} "
         return await self._resolver(ctx, prefixo=prefixo)
@@ -329,11 +471,11 @@ class FluxoDeCobertura:
             return None
 
     async def _recuperar(
-        self, busca: BuscaDeProcedimentos, termo: str, tecnico: str
+        self, busca: BuscaDeProcedimentos, termo: str, tecnico: str, *, limite: int = 30
     ) -> tuple[Candidato, ...]:
         """Os candidatos do termo da pessoa e do nome tecnico provavel (intercalados, sem repetir nome)."""
         if not tecnico or ca.normalizar(tecnico) == ca.normalizar(termo):
-            return await busca.recuperar(termo)
+            return (await busca.recuperar(termo))[:limite]
         do_termo, do_tecnico = await asyncio.gather(busca.recuperar(termo), busca.recuperar(tecnico))
         saida: list[Candidato] = []
         vistos: set[str] = set()
@@ -350,7 +492,7 @@ class FluxoDeCobertura:
             if chave not in vistos:
                 vistos.add(chave)
                 saida.append(c)
-        return tuple(saida[:30])
+        return tuple(saida[:limite])
 
     async def _decidir(self, termos: Sequence[str], termo: str, tecnico: str = "") -> Decisao | None:
         """Direto, confirmacao, opcoes ou nenhum. `None` = sem catalogo (busca por texto da AMH)."""
@@ -360,6 +502,16 @@ class FluxoDeCobertura:
         candidatos = await self._recuperar(busca, termo, tecnico)
         rotulo = f"{termo} (nome tecnico provavel: {tecnico})" if tecnico else termo
         escolha = await self._escolher(termos, rotulo, candidatos)
+        return await self._da_escolha(busca, termo, tecnico, candidatos, escolha)
+
+    async def _da_escolha(
+        self,
+        busca: BuscaDeProcedimentos,
+        termo: str,
+        tecnico: str,
+        candidatos: Sequence[Candidato],
+        escolha: ca.Escolha | None,
+    ) -> Decisao:
         if escolha is None:
             return await self._decidir_pela_nota(busca, termo)
 
@@ -391,6 +543,58 @@ class FluxoDeCobertura:
         logger.info("helena_cobertura_termo_nao_localizado", termo=ca.normalizar(termo)[:60], etapa="escolha")
         return Decisao(NENHUM)
 
+    async def _decidir_varios(self, ctx: ca.Contexto, termos: Sequence[str]) -> list[Decisao | None]:
+        """DL-0131: a lista inteira com UMA chamada ao modelo (candidatos em paralelo). Sem a chamada em lote
+        (ou com ela falhando), uma decisao por termo, em paralelo."""
+        busca = self.d.busca
+        if busca is None or not busca.pronto:
+            return [None] * len(termos)
+        candidatos = await asyncio.gather(
+            *(self._recuperar(busca, t, ctx.tecnico_de(t), limite=20) for t in termos)
+        )
+        escolhas: list[ca.Escolha | None] = [None] * len(termos)
+        if self.d.escolher_varios is not None:
+            pedidos = []
+            for t, cands in zip(termos, candidatos, strict=True):
+                tecnico = ctx.tecnico_de(t)
+                rotulo = f"{t} (nome tecnico provavel: {tecnico})" if tecnico else t
+                pedidos.append((rotulo, [c.procedimento.nome for c in cands]))
+            try:
+                escolhas = list(await self.d.escolher_varios(pedidos))
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES:
+                escolhas = [None] * len(termos)
+            if len(escolhas) != len(termos):
+                escolhas = [None] * len(termos)
+        faltam = [i for i, e in enumerate(escolhas) if e is None and candidatos[i]]
+        if faltam and self.d.escolher is not None:
+            avulsas = await asyncio.gather(
+                *(self._escolher(termos, termos[i], candidatos[i]) for i in faltam)
+            )
+            for i, e in zip(faltam, avulsas, strict=True):
+                escolhas[i] = e
+        decisoes: list[Decisao | None] = list(
+            await asyncio.gather(
+                *(
+                    self._da_escolha(busca, t, ctx.tecnico_de(t), cands, e)
+                    for t, cands, e in zip(termos, candidatos, escolhas, strict=True)
+                )
+            )
+        )
+        # Avaliacao de 21/10/2026: o item que o LOTE nao achou (dentro da lista) ganha a busca de item unico
+        # (mais candidatos, uma chamada so' dele) — a lista nao pode achar menos do que o item sozinho.
+        fracos = [i for i, d in enumerate(decisoes) if d is not None and d.tipo not in (DIRETO, CONFIRMA)]
+        if fracos and self.d.escolher is not None:
+            refeitas = await asyncio.gather(
+                *(self._decidir([termos[i]], termos[i], ctx.tecnico_de(termos[i])) for i in fracos)
+            )
+            for i, d in zip(fracos, refeitas, strict=True):
+                if d is not None and d.tipo in (DIRETO, CONFIRMA):
+                    decisoes[i] = d
+            logger.info("helena_cobertura_lote_refeito", itens=len(fracos))
+        return decisoes
+
     async def _decidir_pela_nota(self, busca: BuscaDeProcedimentos, termo: str) -> Decisao:
         """Sem o modelo: a decisao por nota (certo = direto; senao, opcoes)."""
         resultado = await busca.buscar(termo)
@@ -402,10 +606,24 @@ class FluxoDeCobertura:
         return Decisao(OPCOES, opcoes[:3], pelo_modelo=False)
 
     # --- resolver os procedimentos --------------------------------------------------------------------------
+    def _montar(
+        self, ctx: ca.Contexto, frases: Sequence[str], *, view: Any, oferece: bool, prefixo: str
+    ) -> str:
+        """A resposta com PARA QUEM (DL-0131) e, por padrao para o titular, o convite para o dependente."""
+        para = self.d.rotulo_de_quem(ctx.quem) if (self.d.rotulo_de_quem and ctx.quem) else None
+        return ca.montar_resposta(
+            frases,
+            view=view,
+            oferece_equipe=oferece,
+            prefixo=prefixo,
+            para=para,
+            titular_por_padrao=ctx.padrao and ctx.quem == "titular",
+        )
+
     async def _resolver(self, ctx: ca.Contexto, *, prefixo: str) -> dict[str, Any]:
         if not ctx.termos:
-            return _update(prefixo + ca.TEXTO_PEDE_PROCEDIMENTO, ca.PEND_FORMA, ctx)
-        if len(ctx.termos) > 1:
+            return _update(prefixo + ca.TEXTO_PEDE_LISTA, ca.PEND_FORMA, ctx)
+        if len(ctx.termos) > 1 or ctx.outros:
             return await self._varios(ctx, prefixo=prefixo)
         termo = ctx.termos[0]
         decisao = await self._decidir(ctx.termos, termo, ctx.tecnico_de(termo))
@@ -467,7 +685,7 @@ class FluxoDeCobertura:
         nomes = " / ".join(ca.nome_legivel(n) for _, n in opcoes)
         logger.info("helena_cobertura_parecidos_com_a_mesma_resposta", opcoes=len(opcoes))
         frase, oferece = ca.texto_de_um_resultado(view, item, nomes)
-        texto = ca.montar_resposta([frase], view=view, oferece_equipe=oferece, prefixo=prefixo)
+        texto = self._montar(ctx, [frase], view=view, oferece=oferece, prefixo=prefixo)
         if (ctx.quem or "").startswith("dependente"):
             texto = f"{texto} {AVISO_DO_DEPENDENTE}"
         aviso_cpt = await self._aviso_cpt(ctx)
@@ -515,7 +733,7 @@ class FluxoDeCobertura:
         if ctx.quem != "titular" or self.d.cpt is None:
             return ""
         try:
-            view = await self.d.cpt()
+            view = await (self._cpt if self._cpt is not None else self.d.cpt())
         except PROGRAMMING_ERRORS:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:
@@ -527,7 +745,8 @@ class FluxoDeCobertura:
     async def _ler(self, procedimento: str) -> tuple[Any, bool]:
         """(view, falhou). Falha/prazo da AMH = `falhou` (nunca "nao encontrei")."""
         try:
-            view = await self.d.cobertura(procedimento)
+            async with self._leituras_amh:
+                view = await self.d.cobertura(procedimento)
         except PROGRAMMING_ERRORS:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:
@@ -574,7 +793,7 @@ class FluxoDeCobertura:
         frase, oferece = ca.texto_de_um_resultado(
             view, item, ca.nome_legivel(str(nome_final)) if nome_final else None
         )
-        texto = ca.montar_resposta([frase], view=view, oferece_equipe=oferece, prefixo=prefixo)
+        texto = self._montar(ctx, [frase], view=view, oferece=oferece, prefixo=prefixo)
         if (ctx.quem or "").startswith("dependente"):
             texto = f"{texto} {AVISO_DO_DEPENDENTE}"
         aviso_cpt = await self._aviso_cpt(ctx)
@@ -599,17 +818,18 @@ class FluxoDeCobertura:
         )
 
     async def _varios(self, ctx: ca.Contexto, *, prefixo: str) -> dict[str, Any]:
-        """B1: varios procedimentos na mesma mensagem -> cada um traduzido e consultado; uma linha para cada.
-        Os que nao deu para localizar: opcoes (o primeiro) ou o nome do pedido medico."""
+        """B1 + DL-0131: TODOS os itens da lista sao traduzidos (uma chamada ao modelo) e consultados em
+        paralelo; uma linha por item respondido; os nao localizados numa linha so', com a oferta da equipe
+        UMA vez no fim; acima de 15, os 15 primeiros e um aviso (nunca cala sobre os outros)."""
         frases: list[str] = []
-        pendentes: list[tuple[str, Decisao | None]] = []
+        nao_localizados: list[str] = []
         ultima_view: Any = None
         oferece_algum = False
         literais: list[str] = []
         termos = ctx.termos[: ca.MAX_PROCEDIMENTOS]
+        decisoes = await self._decidir_varios(ctx, termos) if termos else []
 
-        async def _um(termo: str) -> tuple[str, str | None, Any, bool, Decisao | None]:
-            decisao = await self._decidir(termos, termo, ctx.tecnico_de(termo))
+        async def _um(termo: str, decisao: Decisao | None) -> tuple[str, str | None, Any, bool]:
             nome: str | None = None
             if decisao is not None and decisao.tipo in (DIRETO, CONFIRMA):
                 codigo, nome = decisao.opcoes[0]
@@ -617,26 +837,25 @@ class FluxoDeCobertura:
             elif decisao is None:
                 view, falhou = await self._ler(ca.normalizar(termo)[:80])
             else:
-                return termo, None, None, False, decisao
+                return termo, None, None, False
             if falhou:
-                return termo, None, None, True, decisao
+                return termo, None, None, True
             item = ca.item_escolhido(view, nome) if view is not None else None
             if item is None:
-                return termo, None, view, False, decisao
+                return termo, None, view, False
             rotulo = ca.nome_legivel(nome) if nome else getattr(item, "descricao", None)
             frase, oferece = ca.texto_de_um_resultado(view, item, rotulo)
-            return termo, frase + ("\x00" if oferece else ""), view, False, decisao
+            return termo, frase + ("\x00" if oferece else ""), view, False
 
-        resultados = await asyncio.gather(*(_um(t) for t in termos))
+        resultados = await asyncio.gather(*(_um(t, d) for t, d in zip(termos, decisoes, strict=True)))
         falhou_algum = False
-        for termo, frase, view, falhou, decisao in resultados:
+        for termo, frase, view, falhou in resultados:
             if falhou:
                 falhou_algum = True
                 frases.append(f"{termo}: não consegui consultar agora.")
                 continue
             if frase is None:
-                pendentes.append((termo, decisao))
-                frases.append(f"{termo}: não localizei pelo nome que você escreveu.")
+                nao_localizados.append(termo)
                 continue
             oferece_algum = oferece_algum or frase.endswith("\x00")
             frases.append(frase.rstrip("\x00"))
@@ -645,43 +864,58 @@ class FluxoDeCobertura:
         logger.info(
             "helena_cobertura_varios",
             termos=len(termos),
-            respondidos=len(termos) - len(pendentes) - int(falhou_algum),
-            pendentes=len(pendentes),
+            respondidos=len(frases),
+            nao_localizados=len(nao_localizados),
+            excedente=self._excedente,
         )
-        texto = ca.montar_resposta(frases, view=ultima_view, oferece_equipe=oferece_algum, prefixo=prefixo)
-        # DL-0130: o aviso de CPT UMA vez, so' se ao menos um procedimento foi respondido.
-        aviso_cpt = await self._aviso_cpt(ctx) if ultima_view is not None else ""
-        if aviso_cpt:
-            texto = f"{texto} {aviso_cpt}"
-        texto = _com_rede(ctx, texto)
-        if pendentes:
-            termo, decisao = pendentes[0]
-            novo = replace(
-                ctx,
-                termos=[termo],
-                tecnicos=[ctx.tecnico_de(termo)],
-                tentativas=0,
-                tentados=[*ctx.tentados, *(p for p, _ in pendentes)],
-            )
-            opcoes = [o for o in (decisao.opcoes if decisao is not None else ()) if not administrativo(o[1])]
-            if len(opcoes) > 1:
-                novo = replace(novo, opcoes=opcoes[:3], tentativas=1)
-                pergunta = ca.pergunta_das_opcoes(termo, [n for _, n in novo.opcoes])
-                return _update(f"{texto} {pergunta}", ca.PEND_OPCOES, novo, consulta_literais=tuple(literais))
-            novo = replace(novo, tentativas=1)
-            texto += f' Para "{termo}", me diga como está escrito no pedido médico.'
-            return _update(texto, ca.PEND_FORMA, novo, consulta_literais=tuple(literais))
+        partes: list[str] = []
+        # Avaliacao de 21/10/2026: os itens com regra propria da mesma lista, cada um pelo seu caminho.
+        frases_outros = [ca.frase_de_outro_item(n, t) for n, t in ctx.outros]
+        if frases_outros and not frases:
+            if prefixo:
+                partes.append(prefixo.strip())
+            partes.append("\n".join(frases_outros))
+        frases = [*frases, *frases_outros] if frases else frases
+        if frases:
+            texto = self._montar(ctx, frases, view=ultima_view, oferece=True, prefixo=prefixo)
+            if (ctx.quem or "").startswith("dependente"):
+                texto = f"{texto} {AVISO_DO_DEPENDENTE}"
+            # DL-0130: o aviso de CPT UMA vez, so' se ao menos um procedimento foi respondido.
+            aviso_cpt = await self._aviso_cpt(ctx) if ultima_view is not None else ""
+            if aviso_cpt:
+                texto = f"{texto} {aviso_cpt}"
+            partes.append(_com_rede(ctx, texto))
+        elif prefixo:
+            partes.append(prefixo.strip())
+        if self._excedente:
+            partes.append(ca.aviso_do_limite(len(termos) + self._excedente))
+        novo = replace(ctx, respondidos=[*ctx.respondidos, *termos][-4:], opcoes=[], tentativas=0)
+        if nao_localizados:
+            partes.append(ca.texto_dos_nao_localizados(nao_localizados))
+            novo = replace(novo, tentados=[*ctx.tentados, *nao_localizados], termos=nao_localizados)
+            return _update(" ".join(partes), ca.PEND_EQUIPE, novo, consulta_literais=tuple(literais))
         if falhou_algum:
-            return _update(
-                texto + " Quer que eu tente de novo?", ca.PEND_FALHA, ctx, consulta_literais=tuple(literais)
-            )
+            partes.append("Quer que eu tente de novo os que não consegui consultar?")
+            return _update(" ".join(partes), ca.PEND_FALHA, ctx, consulta_literais=tuple(literais))
+        if ctx.outros:
+            partes.append(ca.TEXTO_EQUIPE_PARA_OS_OUTROS)
+            return _update(" ".join(partes), ca.PEND_EQUIPE, novo, consulta_literais=tuple(literais))
+        if not oferece_algum:
+            partes.append(ca.AVISO_FINAL)
         return _update(
-            texto,
+            " ".join(partes),
             ca.PEND_EQUIPE if oferece_algum else PEND_RESPONDIDO,
-            replace(ctx, respondidos=[*ctx.respondidos, *ctx.termos][-4:]),
+            novo,
             consulta_literais=tuple(literais),
             resposta_com_dados_do_plano=True,
         )
 
 
-__all__ = ["PEND_RESPONDIDO", "Decisao", "Dependencias", "FluxoDeCobertura", "quem_pelo_texto"]
+__all__ = [
+    "PEND_RESPONDIDO",
+    "Decisao",
+    "Dependencias",
+    "FluxoDeCobertura",
+    "cita_outra_pessoa",
+    "quem_pelo_texto",
+]
