@@ -771,7 +771,10 @@ class NativeMeasurementCollector:
             if match is not None:
                 socket_inodes.add(match[1])
             self.guard.check()
-        expected_address = ipaddress.ip_address(capture["client_address"])
+        # Refusal #52: pg_stat_activity.client_addr is inet; its text form may carry
+        # the netmask (e.g. '127.0.0.1/32'). inet semantics keep the HOST address
+        # under any mask — ip_interface, never ip_address (bare) or ip_network (masks).
+        expected_address = ipaddress.ip_interface(capture["client_address"]).ip
         if isinstance(expected_address, ipaddress.IPv6Address) and expected_address.ipv4_mapped is not None:
             expected_address = expected_address.ipv4_mapped
         matches = []
