@@ -878,6 +878,21 @@ variable "helena_roteador" {
   }
 }
 
+variable "helena_roteador_modelo" {
+  description = <<-EOT
+    Modelo PROPRIO do roteador de habilidades da Helena (ADR-0066, DL-0137): `MAEZO_HELENA_ROTEADOR_MODELO`. Modelo de
+    base REGIONAL de sa-east-1 (zona PHI). Vazio = o mesmo da zona PHI (`phi_model_id`). Fixado explicitamente para o
+    roteador nao mudar de modelo quando a zona PHI mudar. A permissao vem de `roteador-modelo.tf` (os quatro papeis).
+  EOT
+  type        = string
+  default     = ""
+  nullable    = false
+  validation {
+    condition     = var.helena_roteador_modelo == "" || can(regex("^[a-z0-9-]+\\.[a-z0-9.:-]+$", var.helena_roteador_modelo))
+    error_message = "helena_roteador_modelo: um id de modelo de base (ex.: mistral.mistral-large-3-675b-instruct) ou vazio."
+  }
+}
+
 variable "helena_roteador_conversas" {
   description = <<-EOT
     F2 do roteador de habilidades (ADR-0066, DL-0136): as conversas (ids keyed `wa:amh:hk1_...`) em que o roteador

@@ -76,9 +76,12 @@ helena_base_saude = true
 
 // ROTEADOR DE HABILIDADES da Helena (ADR-0066, DL-0134, decisao do dono de 21/10/2026): F1 em SOMBRA. O roteador
 // (GLM-5 regional) e as travas rodam em paralelo e so' registram a decisao no log `helena_roteador_sombra`; a
-// resposta continua a da Helena de antes. DESLIGADO em 21/10/2026: em sombra a chamada paralela ao GLM-5
-// passou do prazo em todo turno e a latencia do simulador subiu (DL-0135, adendo); volta a "sombra" so' com o conserto.
-helena_roteador = "desligado"
+// resposta continua a da Helena de antes. Desligado em 21/10/2026 (sombra passava do prazo com o GLM-5 falhando);
+// RELIGADO em sombra com o conserto do #881 (prazo real 3 s, teto 256, pool e limite proprios). Voltar: "desligado".
+helena_roteador = "sombra"
+// DL-0137: modelo PROPRIO do roteador, fixado EXPLICITAMENTE por decisao do dono de 21/10/2026 (medicao: 100%
+// de acerto em 50 mensagens sinteticas, p50 0,60 s); o roteador nao muda quando a zona PHI mudar. IAM: `roteador-modelo.tf`.
+helena_roteador_modelo = "mistral.mistral-large-3-675b-instruct"
 // F2 (DL-0136): com `ativo`, o roteador DECIDE so' nas conversas de `helena_roteador_conversas` (SO' as do
 // simulador); fora delas, sombra. A lista de teste das pessoas entra so' na F4, com o OK do dono.
 helena_roteador_conversas = [
