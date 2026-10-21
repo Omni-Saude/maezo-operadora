@@ -11,6 +11,12 @@ classe, a Helena abre um caso clinico PROPRIO, com a chave `ESC-{tenant}-{conver
 caso de cobranca segue como esta. O contrario nao muda: com caso clinico aberto, a cobranca nao abre
 outro. Um alerta clinico novo com o caso clinico ja' aberto tambem nao abre outro.
 
+AMPLIACAO (DL-0097 B, rodada 10, 14/10/2026), que e' o comportamento VIGENTE em `agents/helena/graph.py`
+(`_MOTIVOS_CLINICOS_COM_CHAVE_PROPRIA`, `_caso_clinico_cobre_o_motivo`): o caso paralelo abre para
+QUALQUER severidade e tambem para `intencao_clinica`, e uma pergunta clinica aberta (`intencao_clinica`)
+nao segura a chave contra um alerta clinico novo. O contrato SP-OP-ESCALATION-001 ainda descreve so' a
+regra GRAVE; a emenda que o alinha ao codigo aguarda o medico-auditor e o regulatorio.
+
 Este modulo e' so' a forma da chave: quem decide quando abrir e' `agents/helena/graph.py`, e quem
 precisa reconhecer a chave (o `agent-resume`, que confere a ancora do evento) importa daqui.
 """
