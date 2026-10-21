@@ -97,6 +97,23 @@ def quem_pelo_texto(texto: str, graus: Sequence[str], primeiros_nomes: Mapping[i
     return None
 
 
+#: Quantos itens do catalogo precisam conter o termo para ele contar como CATEGORIA ("ultrassom",
+#: "ressonancia").
+ITENS_MINIMOS_DA_CATEGORIA = 2
+
+
+def _e_categoria(busca: Any, termo: str, tecnico: str, candidatos: Sequence[Any]) -> bool:
+    """O termo (ou o nome tecnico) aparece, pelo limiar lexico da escolha direta, em pelo menos
+    `ITENS_MINIMOS_DA_CATEGORIA` candidatos do catalogo — so' entao "tem varios tipos" e' verdade."""
+
+    def nota(c: Any) -> float:
+        return max(
+            busca.lexico(termo, c.procedimento), busca.lexico(tecnico, c.procedimento) if tecnico else 0.0
+        )
+
+    return sum(1 for c in candidatos if nota(c) >= LEXICO_MINIMO_PARA_DIRETO) >= ITENS_MINIMOS_DA_CATEGORIA
+
+
 def cita_outra_pessoa(texto: str) -> bool:
     """DL-0131: a frase cita alguem que nao e' o titular ("meu filho", "minha esposa", "minha mae")."""
     plano = ca.normalizar(texto)
@@ -526,7 +543,15 @@ class FluxoDeCobertura:
             candidatos=len(candidatos),
         )
         if escolha.vago:
-            return Decisao(VAGO)
+            # Avaliacao de 21/10/2026: "tem varios tipos" AFIRMA que o termo existe no catalogo. So' sai
+            # quando o
+            # termo e' uma CATEGORIA reconhecida (as palavras dele aparecem em pelo menos dois itens do
+            # catalogo,
+            # com o mesmo limiar lexico da escolha direta). Termo inventado = "nao localizei" (regra geral).
+            if _e_categoria(busca, termo, tecnico, candidatos):
+                return Decisao(VAGO)
+            logger.info("helena_cobertura_vago_sem_categoria", termo=ca.normalizar(termo)[:60])
+            return Decisao(NENHUM)
         if escolha.indice is not None and escolha.confianca == "alta":
             escolhido = candidatos[escolha.indice].procedimento
             lexico = max(busca.lexico(termo, escolhido), busca.lexico(tecnico, escolhido) if tecnico else 0.0)

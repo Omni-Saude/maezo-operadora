@@ -351,3 +351,26 @@ async def test_grafo_depois_da_resposta_pergunta_de_outro_assunto_escapa() -> No
     await grafo.ainvoke(_entrada("quero falar com um atendente") | memoria)
     assert _starts(cib) == 1, "o pedido explicito de pessoa abre o caso"
     assert ca.TEXTO_PEDE_LISTA not in whatsapp.enviados[-1] and len(fonte.pedidos) == antes
+
+
+# --- "tem varios tipos" so' para categoria real (avaliacao de 21/10/2026) -----
+async def _decisao_vaga(termo: str) -> Any:
+    from tests.unit.agents.test_helena_cobertura_assistida import _busca
+
+    m = _Mundo()
+    fluxo = _fluxo(m)
+    busca = _busca()
+    candidatos = await fluxo._recuperar(busca, termo, "")
+    return await fluxo._da_escolha(busca, termo, "", candidatos, ca.Escolha(None, "baixa", vago=True))
+
+
+async def test_termo_inventado_vago_vira_nao_localizado() -> None:
+    from maezo.agents.helena.cobertura_fluxo import NENHUM
+
+    assert (await _decisao_vaga("qwxzk")).tipo == NENHUM
+
+
+async def test_categoria_real_vaga_continua_perguntando_qual() -> None:
+    from maezo.agents.helena.cobertura_fluxo import VAGO
+
+    assert (await _decisao_vaga("ultrassonografia")).tipo == VAGO
