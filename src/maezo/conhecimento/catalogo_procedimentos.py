@@ -239,6 +239,12 @@ def _casa_palavra(palavra: str, outra: str) -> bool:
     return curta >= 5 and _prefixo_comum(palavra, outra) >= max(5, curta - 2)
 
 
+def _raiz(palavra: str) -> str:
+    """A chave do indice invertido: as 5 primeiras letras (a regra de raiz de `_casa_palavra` exige ao menos 5
+    letras em comum no inicio) ou a palavra curta inteira (palavra curta so' casa igual)."""
+    return palavra[:5] if len(palavra) >= 5 else palavra
+
+
 def _casa(palavra: str, alvo: set[str]) -> bool:
     return palavra in alvo or any(_casa_palavra(palavra, a) for a in alvo)
 
@@ -313,15 +319,17 @@ def nota_lexica(
     procedimento: Procedimento,
     peso: Mapping[str, float],
     grupos: Sequence[set[str]] | None = None,
+    alvo: set[str] | None = None,
 ) -> float:
     """Quanto as palavras do termo e do nome do procedimento se cobrem (ponderado por raridade): 70% o que do
     TERMO aparece no nome (cada palavra vale com qualquer das suas alternativas de sinonimo), 30% o que do
-    NOME aparece no termo (o nome cheio de outras coisas perde)."""
+    NOME aparece no termo (o nome cheio de outras coisas perde). `alvo`: as palavras do nome ja'
+    calculadas."""
     grupos = grupos if grupos is not None else [{w} for w in dict.fromkeys(palavras(termo))]
-    alvo_lista = palavras(procedimento.documento())
-    if not grupos or not alvo_lista:
+    if alvo is None:
+        alvo = set(palavras(procedimento.documento()))
+    if not grupos or not alvo:
         return 0.0
-    alvo = set(alvo_lista)
     total = sum(max(peso.get(p, 1.0) for p in g) for g in grupos)
     achado = sum(max(peso.get(p, 1.0) for p in g) for g in grupos if any(_casa(p, alvo) for p in g))
     todas = set().union(*grupos)
@@ -390,6 +398,10 @@ class BuscaDeProcedimentos:
     _falhou_em: float | None = None
     _fora_do_universo: int = 0
     _vocabulario: dict[str, int] = field(default_factory=dict)
+    _doc_palavras: list[set[str]] = field(default_factory=list)
+    _eh_admin: list[bool] = field(default_factory=list)
+    _por_raiz: dict[str, list[int]] = field(default_factory=dict)
+    _ordem_do_codigo: list[int] = field(default_factory=list)
     #: Os sinonimos da base de saude ja' foram somados (o grafo soma uma vez).
     com_base: bool = False
 
@@ -425,6 +437,22 @@ class BuscaDeProcedimentos:
         import math
 
         self._peso = {w: 1.0 + math.log(n / c) for w, c in contagem.items()}
+        # DL-0131 (velocidade): as palavras de cada item, a penalidade administrativa e o indice invertido
+        # pela
+        # RAIZ (5 primeiras letras; palavra curta inteira), calculados UMA vez: so' os itens que dividem
+        # alguma
+        # raiz com o termo recebem a nota lexica (os outros teriam nota 0 de qualquer jeito).
+        self._doc_palavras = [set(palavras(p.documento())) for p in self._itens]
+        self._eh_admin = [bool(_ADMINISTRATIVO.match(normalizar(p.descricao))) for p in self._itens]
+        por_raiz: dict[str, list[int]] = {}
+        for i, ws in enumerate(self._doc_palavras):
+            for w in ws:
+                por_raiz.setdefault(_raiz(w), []).append(i)
+        self._por_raiz = por_raiz
+        ordem = sorted(range(len(self._itens)), key=lambda i: self._itens[i].codigo)
+        self._ordem_do_codigo = [0] * len(self._itens)
+        for pos, i in enumerate(ordem):
+            self._ordem_do_codigo[i] = pos
         self._vocabulario = {w: c for w, c in contagem.items() if len(w) >= 3 and not w.isdigit()}
         logger.info(
             "catalogo_procedimentos_carregado",
@@ -530,16 +558,23 @@ class BuscaDeProcedimentos:
         consulta = expandir(termo, self.sinonimos)
         notas_sem = await self._significado(consulta)
         grupos = grupos_do_termo(termo, self.sinonimos)
-        lexicas = [nota_lexica(termo, p, self._peso, grupos) for p in self._itens]
+        n = len(self._itens)
+        lexicas = [0.0] * n
+        candidatos: set[int] = set()
+        for g in grupos:
+            for w in g:
+                candidatos.update(self._por_raiz.get(_raiz(w), ()))
+        for i in candidatos:
+            lexicas[i] = nota_lexica(termo, self._itens[i], self._peso, grupos, alvo=self._doc_palavras[i])
         combinadas: list[tuple[float, float, float, int]] = []
         for i, lex in enumerate(lexicas):
             sem = float(notas_sem[i]) if notas_sem is not None else 0.0
             # Sem o significado, so' o lexico decide (com o mesmo limiar).
             nota = PESO_SIGNIFICADO * sem + (1 - PESO_SIGNIFICADO) * lex if notas_sem is not None else lex
-            if _ADMINISTRATIVO.match(normalizar(self._itens[i].descricao)):
+            if self._eh_admin[i]:
                 nota *= PENALIDADE_ADMINISTRATIVO
             combinadas.append((nota, sem, lex, i))
-        combinadas.sort(key=lambda t: (-t[0], self._itens[t[3]].codigo))
+        combinadas.sort(key=lambda t: (-t[0], self._ordem_do_codigo[t[3]]))
         return combinadas, notas_sem is not None
 
     def parece_procedimento(self, texto: str) -> bool:

@@ -64,6 +64,8 @@ DIRETO, CONFIRMA, OPCOES, NENHUM, VAGO = "direto", "confirma", "opcoes", "nenhum
 #: nome tecnico (nota lexica). Abaixo disso a escolha vira confirmacao de uma linha (nunca consulta direta de
 #: um item que nao tem nada a ver com o que foi escrito). Regra geral, sem termo.
 LEXICO_MINIMO_PARA_DIRETO = 0.3
+#: DL-0131 (velocidade): leituras de cobertura da AMH em paralelo por resposta.
+LEITURAS_AMH_SIMULTANEAS = 4
 
 
 def quem_pelo_texto(texto: str, graus: Sequence[str], primeiros_nomes: Mapping[int, str]) -> str | None:
@@ -173,7 +175,11 @@ class FluxoDeCobertura:
     def __init__(self, deps: Dependencias) -> None:
         self.d = deps
         self._elegibilidade: asyncio.Future[Mapping[str, Any] | None] | None = None
+        self._cpt: asyncio.Future[Any] | None = None
         self._excedente = 0
+        #: DL-0131: no maximo 4 leituras de cobertura da AMH ao mesmo tempo (a lista de 15 derrubava a rota
+        #: por prazo); o resto espera a vez.
+        self._leituras_amh = asyncio.Semaphore(LEITURAS_AMH_SIMULTANEAS)
 
     # --- entrada --------------------------------------------------------------------------------------------
     async def responder(self, texto: str, pendente: str, contexto: object) -> dict[str, Any]:
@@ -404,6 +410,10 @@ class FluxoDeCobertura:
         ctx = replace(ctx, quem=quem, padrao=ctx.padrao and quem == "titular")
         if self.d.lembrar_quem is not None:
             self.d.lembrar_quem(quem)
+        if quem == "titular" and self.d.cpt is not None and self._cpt is None:
+            # DL-0131 (velocidade): a CPT do titular e' lida JUNTO com a traducao e a cobertura (em memoria
+            # 5 min no grafo); o aviso so' sai se algum procedimento for respondido.
+            self._cpt = asyncio.ensure_future(self.d.cpt())
         bloqueio = _situacao_bloqueada(await self._fatos_de_elegibilidade())
         if bloqueio:
             prefixo = f"{prefixo}{bloqueio} "
@@ -673,7 +683,7 @@ class FluxoDeCobertura:
         if ctx.quem != "titular" or self.d.cpt is None:
             return ""
         try:
-            view = await self.d.cpt()
+            view = await (self._cpt if self._cpt is not None else self.d.cpt())
         except PROGRAMMING_ERRORS:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:
@@ -685,7 +695,8 @@ class FluxoDeCobertura:
     async def _ler(self, procedimento: str) -> tuple[Any, bool]:
         """(view, falhou). Falha/prazo da AMH = `falhou` (nunca "nao encontrei")."""
         try:
-            view = await self.d.cobertura(procedimento)
+            async with self._leituras_amh:
+                view = await self.d.cobertura(procedimento)
         except PROGRAMMING_ERRORS:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:
