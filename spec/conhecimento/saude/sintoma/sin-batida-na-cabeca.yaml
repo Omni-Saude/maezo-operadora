@@ -1,0 +1,59 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Criado em 20/10/2026 (DL-0132, decisão do dono "avance"): perguntas de alarme próprias de batida na cabeça.
+# Revisão médica e revisão jurídica PENDENTES antes de qualquer uso em produção. Texto informativo: não
+# diagnostica, não indica conduta nem dose e não promete cobertura do plano.
+id: sin-batida-na-cabeca
+categoria: sintoma
+titulo: Batida na cabeça
+sinonimos:
+- batida na cabeca
+- batida na cabeça
+- bateu a cabeca
+- bateu a cabeça
+- bateu com a cabeca
+- bateu com a cabeça
+- bati a cabeca
+- bati a cabeça
+- pancada na cabeca
+- pancada na cabeça
+- caiu e bateu a cabeca
+- caiu e bateu a cabeça
+- trauma na cabeca
+- trauma na cabeça
+- traumatismo craniano
+texto: Sem sinais de alarme, observe a pessoa nas próximas horas. Se tiver dúvida, marque consulta com clínico geral ou pediatra. Se aparecer algum sinal de alarme, procure um pronto-socorro na hora ou ligue 192 (SAMU).
+tipo_texto: proprio
+fontes:
+- nome: Tabela de sinais de alarme do adulto (spec/processes/dmn/triage_redflag_adult.dmn) e planilha Catálogo de Necessidades, aba 3
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_adult.dmn
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-20
+- nome: Tabela de sinais de alarme pediátricos (spec/processes/dmn/triage_redflag_pediatric.dmn)
+  url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_pediatric.dmn
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+perguntas_alerta:
+- Depois da batida, teve vômito, desmaio, convulsão ou sangramento pelo nariz ou pelo ouvido?
+- Está muito sonolento ou confuso, ou é um bebê com menos de 1 ano?
+sinais_alarme:
+- vomito
+- vômito
+- vomitou
+- desmaio
+- desmaiou
+- convulsao
+- convulsão
+- sangramento pelo nariz
+- sangramento pelo ouvido
+- sangue pelo nariz
+- sangue pelo ouvido
+- muito sonolento
+- confuso
+- confusa
+populacao: todos
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (20/10/2026, DL-0132, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-20

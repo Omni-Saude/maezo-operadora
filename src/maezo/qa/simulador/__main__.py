@@ -336,7 +336,7 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
             "conversation_ids": conversation_ids,
         }
         await _gravar_json(armazenamento, run_id, "manifest.json", manifesto)
-        if str(args.roteiro).startswith("helena_cobertura"):
+        if str(args.roteiro).startswith(("helena_cobertura", "helena_conversa_cobertura")):
             # DL-0128: o roteiro da cobertura assistida mede a traducao para o nome oficial, entao espera o
             # catalogo e o indice por significado ficarem prontos (no receptor isso acontece na subida).
             await _preparar_catalogo(composicao.dispatcher)

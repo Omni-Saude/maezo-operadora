@@ -288,3 +288,18 @@ atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com f
   com a cobertura).
 - **Desligar:** `amh_tina_cpt_openapi_path = ""` (tfvars do dev) + apply direcionado do receptor.
 - **Desfazer:** revert do PR.
+
+## 21. Conversa simples da cobertura (DL-0131) e batida na cabeça (DL-0132), 20/10/2026
+
+- **Titular por padrão:** `helena_cobertura_extraida` seguido de `helena_cobertura_respondida` sem
+  `helena_dependentes_nome_lidos` = respondeu para o titular sem perguntar. A pessoa escolhida fica em memória por
+  conversa (2 h).
+- **Pendência:** `helena_cobertura_pendencia_escapou pendencia=COB2:...` = pergunta nova saiu da pendência para o
+  roteamento normal. `helena_cobertura_desculpa` = irritação com pedido de desculpas e nova tentativa.
+  `helena_reclamacao_sem_caso` = o modelo leu pedido de pessoa numa reclamação e o caso não abriu.
+- **Lista:** `helena_cobertura_varios termos=N respondidos=N nao_localizados=N excedente=N`.
+- **Recusa:** na allowlist, `helena_base_saude_encerramento resposta=sim encerrados=N` logo depois da recusa.
+- **Batida na cabeça:** `helena_v4_sintoma_leve grupo=sin-batida-na-cabeca`.
+- **Desfazer:** revert do PR (DL-0131); apagar `spec/conhecimento/saude/sintoma/sin-batida-na-cabeca.yaml`
+  (DL-0132).
+
