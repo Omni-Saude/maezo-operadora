@@ -907,7 +907,8 @@ def ja_disse(texto: str) -> bool:
 
 _PERGUNTA_NOVA: Final[re.Pattern[str]] = re.compile(
     r"^(?:e )?(?:quem|qual|quais|como|quando|onde|porque|por que|quanto|quantos|quantas|o que|voce pode"
-    r"|vc pode|pode me|me (?:diga|fala|mostra|passa|explica|informa)|quero|queria|gostaria|preciso"
+    r"|vc pode|pode me|me (?:diga|fala|mostra|passa|explica|informa|ajuda|ajude)|ajuda|ajude|quero|queria"
+    r"|gostaria|preciso"
     r"|tem como)\b"
 )
 

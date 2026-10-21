@@ -3599,6 +3599,10 @@ _QUERO_UMA_PESSOA: re.Pattern[str] = re.compile(
     r"|\b(?:me passa|passa|passe|transfere|transfira|encaminha|encaminhe|chama|chame)\b(?:\s+\w+){0,3}\s+"
     r"(?:pessoa|atendente|humano|humana|alguem|equipe|supervisor\w*|gerente)\b"
 )
+#: DL-0131: a escolha curta por numero ou ordinal ("2", "opcao 2", "o segundo", "a ultima").
+_ESCOLHA_CURTA: re.Pattern[str] = re.compile(
+    r"(?:(?:a |o )?opcao )?\d{1,2}|(?:o |a )?(?:primeir[oa]|segund[oa]|terceir[oa]|ultim[oa])(?: opcao)?"
+)
 #: A pendencia "ja' respondido" da cobertura assistida (`cobertura_fluxo.PEND_RESPONDIDO`).
 _PEND_RESPONDIDO = "COB2:RESPONDIDO"
 #: D3/D4 (avaliacao de 20/10/2026): coparticipacao ou reembolso de um PROCEDIMENTO e' assunto de cobertura
@@ -6698,14 +6702,7 @@ class HelenaGraph:
         elif com_pendencia and not (ampla or do_procedimento or lista):
             # DL-0131: so' a resposta CURTA ("1", "sim", "nao", um nome, "eu ja' disse") e a reclamacao sao
             # lidas contra a pergunta pendente; pergunta ou pedido NOVO escapa para o roteamento normal.
-            curta = _ca.resposta_curta(texto) or _ca.e_reclamacao(texto)
-            nome_novo = (
-                pendente in (_ca.PEND_FORMA, _ca.PEND_OPCOES, _ca.PEND_CONFIRMA)
-                and "?" not in texto
-                and bool(termo_da_continuacao(texto))
-                and len(plano.split()) <= 12
-            )
-            if not (curta or nome_novo):
+            if not (_ca.e_reclamacao(texto) or self._responde_a_pendencia(pendente, texto, plano)):
                 logger.info("helena_cobertura_pendencia_escapou", node="classify", pendencia=pendente)
                 return None
         elif not (ampla or do_procedimento or lista):
@@ -6726,6 +6723,37 @@ class HelenaGraph:
         if not self._gerativa_para(state) or not _ca.e_reclamacao(texto):
             return False
         return not _QUERO_UMA_PESSOA.search(_plano(texto))
+
+    def _responde_a_pendencia(self, pendente: str, texto: str, plano: str) -> bool:
+        """DL-0131: a mensagem e' RESPOSTA a pergunta pendente da cobertura (e nao um pedido novo)?
+        Sim/nao/nao sei/encerrar, "eu ja' disse", cortesia e a escolha por numero valem para todas; o resto
+        depende do que foi perguntado: um nome (para quem), o nome de uma opcao, o nome de um exame (como
+        esta'
+        no pedido / confirmacao)."""
+        from maezo.agents.helena import cobertura_assistida as _ca
+
+        if (
+            _ca.ler_resposta(texto) is not None
+            or _ca.ja_disse(texto)
+            or _ca.e_cortesia(texto)
+            or _ESCOLHA_CURTA.fullmatch(plano)
+        ):
+            return True
+        if "?" in texto or not _ca.resposta_curta(texto):
+            return False
+        n = len(plano.split())
+        if pendente == _ca.PEND_QUEM:
+            return n <= 5
+        if pendente == _ca.PEND_OPCOES:
+            return n <= 6
+        if pendente in (_ca.PEND_FORMA, _ca.PEND_CONFIRMA):
+            busca = self._busca_procedimentos
+            parece = busca is not None and busca.pronto and busca.parece_procedimento(texto)
+            # Ate' 6 palavras sem pedido e' o nome escrito no pedido medico (mesmo desconhecido); mais longo,
+            # so'
+            # com palavra do catalogo.
+            return n <= 6 or (n <= 12 and parece)
+        return False
 
     def _parece_lista_de_procedimentos(self, texto: str) -> bool:
         """DL-0131: uma LISTA de exames/procedimentos (linhas, virgulas, marcadores, maiusculas), com ou sem
