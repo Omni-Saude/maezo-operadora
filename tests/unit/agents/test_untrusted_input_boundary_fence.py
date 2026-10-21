@@ -535,9 +535,12 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     # 20/16 desde 20/10/2026 (DL-0129): a ESCOLHA entre os candidatos do catalogo (funcao interna `escolher`)
     # leva o pedido DEMARCADO (`pedido_da_pessoa`) e a lista fechada do catalogo (dado de referencia); como a
     # `extrair`, conta o sitio interno e o da funcao de fora, sem campo de estado.
-    assert (total, com_entrada) == (20, 16), (
+    # 22/16 desde 20/10/2026 (DL-0131): a ESCOLHA EM LOTE da lista (funcao interna `escolher_varios`) leva os
+    # pedidos DEMARCADOS (`pedidos_da_pessoa`) e as listas fechadas do catalogo; conta o sitio interno e o da
+    # funcao de fora, sem campo de estado.
+    assert (total, com_entrada) == (22, 16), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 20/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 22/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )

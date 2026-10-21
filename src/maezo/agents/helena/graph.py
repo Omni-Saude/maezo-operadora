@@ -254,6 +254,7 @@ from .consultas_plano import (
     ler_carteirinhas_completas,
     ler_dependentes_nominais,
     literais_dos_fatos,
+    marcador_do_dependente,
     motivo_de_omissao_da_elegibilidade,
     motivo_de_recusa_da_consulta,
     resposta_deterministica,
@@ -262,6 +263,7 @@ from .consultas_plano import (
     sem_marcador_de_dependente,
     so_deterministica,
     texto_de_dependentes_com_nomes,
+    texto_do_parentesco,
     texto_para_cerca,
 )
 from .helena_v4 import (
@@ -1248,6 +1250,16 @@ def _sem_repetir(estado: Mapping[str, Any], texto: str) -> str:
     return next((o for o in opcoes if not _ja_dito(o, [ultima])), texto)
 
 
+def _sem_repetir_sem_enfeite(estado: Mapping[str, Any], texto: str) -> str:
+    """DL-0131: como `_sem_repetir`, mas sem prefixo de enfeite: so' troca por uma redacao alternativa
+    registrada; sem alternativa, o texto como esta'."""
+    if texto.startswith(("Entendi. ", "Certo. ")) and len(texto) > 9:
+        texto = texto.split(". ", 1)[1]
+    if not any(texto in v for v in _VARIANTES.values()):
+        return texto
+    return _sem_repetir(estado, texto)
+
+
 #: GATILHO DE LOOP (DL-0147; pendencia 16 da planilha do diretor). A ficha (`spec/agents/helena/agent.yaml`,
 #: `escalation.triggers` -> `signal: tool_failure  # falha tecnica/loop -> falha_tecnica`) e a DMN
 #: (`escalation_routing.dmn` r6, "Falha tecnica do agente (loop, tool down)") previam escalar a Helena em
@@ -1490,6 +1502,10 @@ COBERTURA_PRAZO_S: float = 18.0
 ESCOLHA_PRAZO_S: float = 20.0
 #: DL-0129: a cobertura lida por (titular, codigo) fica em memoria por 5 min (o `max-age` das leituras TINA).
 COBERTURA_EM_MEMORIA_S: float = 300.0
+#: DL-0131: a pessoa escolhida para a cobertura ("para quem") e' lembrada na conversa por 2 h.
+QUEM_EM_MEMORIA_S: float = 7200.0
+#: DL-0131: os nomes dos dependentes lidos ficam em memoria por 2 h (nunca em estado ou log).
+NOMES_EM_MEMORIA_S: float = 7200.0
 #: DL-0130: a CPT vigente lida por titular fica em memoria por 5 min (o limite por sujeito da rota e'
 #: COMPARTILHADO com a cobertura na AMH). Nunca em estado nem em log.
 CPT_EM_MEMORIA_S: float = 300.0
@@ -3116,6 +3132,8 @@ _VOCABULARIO_DE_CONVERSA: frozenset[str] = frozenset(
         *("esclarecer", "fazer", "ser", "duvida", "duvidas", "pergunta", "perguntas", "questao", "coisa"),
         *("rapida", "simples", "sobre", "saude", "falar", "conversar", "atendido", "atendida"),
         *("nenhuma", "nenhum", "ninguem", "equipe", "atendente", "pessoa", "humano", "alguem"),
+        # DL-0131: "nao quero falar com ninguem DE ATENDIMENTO", "nao quero mais esse caso".
+        *("atendimento", "atendimentos", "caso", "chamado", "mais", "esse", "essa", "nada", "disso"),
         # FASE 2 (18/10/2026): cortesia no fim ("nao quero falar com ninguem, obrigado") nao e'
         # relato clinico.
         *("obrigado", "obrigada", "valeu", "brigado", "brigada"),
@@ -3574,6 +3592,13 @@ def _pergunta_de_cobertura_ampla(texto: str) -> bool:
     return bool(_PERGUNTA_DE_COBERTURA.search(plano) or _PERGUNTA_DE_COBERTURA_AMPLA.search(plano))
 
 
+#: DL-0131: o pedido EXPLICITO de pessoa que vence a reclamacao (desejo + alvo, ou o imperativo de passar).
+_QUERO_UMA_PESSOA: re.Pattern[str] = re.compile(
+    r"\b(?:quero|preciso|gostaria|queria|exijo)\b(?:\s+\w+){0,4}\s+(?:pessoa|atendente|humano|humana|alguem"
+    r"|equipe|supervisor\w*|gerente)\b"
+    r"|\b(?:me passa|passa|passe|transfere|transfira|encaminha|encaminhe|chama|chame)\b(?:\s+\w+){0,3}\s+"
+    r"(?:pessoa|atendente|humano|humana|alguem|equipe|supervisor\w*|gerente)\b"
+)
 #: A pendencia "ja' respondido" da cobertura assistida (`cobertura_fluxo.PEND_RESPONDIDO`).
 _PEND_RESPONDIDO = "COB2:RESPONDIDO"
 #: D3/D4 (avaliacao de 20/10/2026): coparticipacao ou reembolso de um PROCEDIMENTO e' assunto de cobertura
@@ -4758,6 +4783,10 @@ class HelenaGraph:
         # `max-age` das leituras TINA), para opcoes, confirmacao e repeticao nao gastarem o limite por
         # sujeito da rota. Nunca em estado ou log.
         self._cobertura_em_memoria: dict[tuple[str, str], tuple[float, Any]] = {}
+        # DL-0131 (velocidade e conversa): elegibilidade do titular por 5 min; a pessoa escolhida ("para
+        # quem") por conversa por 2 h. Em memoria, nunca em estado ou log.
+        self._elegibilidade_em_memoria: dict[str, tuple[float, Mapping[str, Any]]] = {}
+        self._quem_em_memoria: dict[str, tuple[float, str]] = {}
         # DL-0130: a CPT vigente lida por titular fica EM MEMORIA por 5 min (limite por sujeito compartilhado
         # com a cobertura), no maximo 256 titulares. Nunca em estado ou log.
         self._cpt_em_memoria: dict[str, tuple[float, Any]] = {}
@@ -5815,6 +5844,7 @@ class HelenaGraph:
             and not _RECUSA_DE_PESSOA.search(_plano(texto_do_turno))
             and _pedido_explicito_com_verbo(texto_do_turno)
             and not _pergunta_de_identidade_sem_pedido(texto_do_turno)
+            and not self._reclamacao_sem_pedido(state, texto_do_turno)
         ):
             # RODADA 6: "Passa pra equipe AGORA" saiu `information` do modelo e a Helena prometeu "vou levar
             # isso para a equipe". Pedido EXPLICITO de pessoa (com verbo) e' pedido, qualquer que seja a
@@ -5824,6 +5854,15 @@ class HelenaGraph:
         if clinico_continua:
             # RODADA 10: conteudo clinico sem pedido explicito de pessoa nao e' pedido (ver acima).
             pedido_lexico = False
+        if (
+            intent == "human_request"
+            and not pedido_lexico
+            and self._reclamacao_sem_pedido(state, texto_do_turno)
+        ):
+            # DL-0131: irritacao ("ue, como assim?", "nao entendi") nao e' pedido de pessoa: sem caso.
+            logger.info("helena_reclamacao_sem_caso", node="classify")
+            intent = "information"
+            update["intent"] = "information"
         if (intent == "human_request" or pedido_lexico) and not encerramento:
             update["next_kind"] = "escalate"
             if em_triagem_clinica and conteudo_clinico:
@@ -6644,8 +6683,9 @@ class HelenaGraph:
             )
             logger.info("helena_cobertura_equipe_aceita", node="classify")
             return update
-        curta = len(plano.split()) <= 16
-        if com_pendencia and pendente == _PEND_RESPONDIDO and not _pergunta_de_cobertura_ampla(texto):
+        ampla = _pergunta_de_cobertura_ampla(texto)
+        lista = self._parece_lista_de_procedimentos(texto)
+        if com_pendencia and pendente == _PEND_RESPONDIDO and not (ampla or lista):
             # Depois de uma resposta ja' dada: agradecimento/conversa segue o caminho de sempre; so' um
             # pedido novo (outro nome de procedimento) ou "deixa pra la" fica na cobertura.
             leitura = _ca.ler_resposta(texto)
@@ -6655,7 +6695,20 @@ class HelenaGraph:
                 or not termo_da_continuacao(texto)
             ):
                 return None
-        if not (_pergunta_de_cobertura_ampla(texto) or do_procedimento or (com_pendencia and curta)):
+        elif com_pendencia and not (ampla or do_procedimento or lista):
+            # DL-0131: so' a resposta CURTA ("1", "sim", "nao", um nome, "eu ja' disse") e a reclamacao sao
+            # lidas contra a pergunta pendente; pergunta ou pedido NOVO escapa para o roteamento normal.
+            curta = _ca.resposta_curta(texto) or _ca.e_reclamacao(texto)
+            nome_novo = (
+                pendente in (_ca.PEND_FORMA, _ca.PEND_OPCOES, _ca.PEND_CONFIRMA)
+                and "?" not in texto
+                and bool(termo_da_continuacao(texto))
+                and len(plano.split()) <= 12
+            )
+            if not (curta or nome_novo):
+                logger.info("helena_cobertura_pendencia_escapou", node="classify", pendencia=pendente)
+                return None
+        elif not (ampla or do_procedimento or lista):
             return None
         update = self._update_sem_modelo(state)
         update.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
@@ -6664,6 +6717,29 @@ class HelenaGraph:
             update["coleta_contexto"] = str(state.get("coleta_contexto") or "")
         logger.info("helena_cobertura_assistida_rota", node="classify", pendencia=pendente or None)
         return self._rota_de_consulta(update)
+
+    def _reclamacao_sem_pedido(self, state: Mapping[str, Any], texto: str) -> bool:
+        """DL-0131, so' na allowlist: a mensagem e' irritacao/reclamacao/"nao entendi" SEM pedido explicito
+        de pessoa ("quero falar com um atendente", "me passa para a equipe")."""
+        from maezo.agents.helena import cobertura_assistida as _ca
+
+        if not self._gerativa_para(state) or not _ca.e_reclamacao(texto):
+            return False
+        return not _QUERO_UMA_PESSOA.search(_plano(texto))
+
+    def _parece_lista_de_procedimentos(self, texto: str) -> bool:
+        """DL-0131: uma LISTA de exames/procedimentos (linhas, virgulas, marcadores, maiusculas), com ou sem
+        "cobre": dois ou mais itens curtos e ao menos dois com palavra do catalogo de procedimentos."""
+        from maezo.agents.helena import cobertura_assistida as _ca
+
+        busca = self._busca_procedimentos
+        if busca is None or not busca.pronto:
+            return False
+        itens = _ca.itens_da_lista(texto)
+        if len(itens) < 2 or any(len(i.split()) > 8 for i in itens):
+            return False
+        com_cara = sum(1 for i in itens if busca.parece_procedimento(i))
+        return com_cara >= max(2, (len(itens) + 1) // 2)
 
     @staticmethod
     def _update_sem_modelo(state: Mapping[str, Any], populacao: str = "none") -> dict[str, Any]:
@@ -6701,6 +6777,11 @@ class HelenaGraph:
                 if graves:
                     # Caso P1/grave aberto: nunca se oferece encerrar; o texto do caso grave com 192.
                     return self._base_texto_fixo(update, RESPOSTA_CASO_GRAVE_NAO_ENCERRA)
+                if self._gerativa_para(state):
+                    # DL-0131 (decisao do dono): na allowlist a recusa ENCERRA direto os casos P2/P3
+                    # (inclusive
+                    # o de atendimento/solicitacao de pessoa) e confirma — sem a pergunta de confirmacao.
+                    return await self._base_confirmacao_de_encerramento(state, update, "sim")
                 return self._base_texto_fixo(
                     update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO
                 )
@@ -6975,7 +7056,11 @@ class HelenaGraph:
             nome,
             basica=basica,
             segmentacao=segmentacao,
-            frase_cobertura=RESPOSTA_COBERTURA_ESPECIFICA if _pergunta_de_cobertura(texto) else None,
+            frase_cobertura=(
+                RESPOSTA_COBERTURA_ESPECIFICA
+                if _pergunta_de_cobertura(texto) and not self._gerativa_para(state)
+                else None
+            ),
         )
         if literais is not None:
             update["consulta_literais"] = literais
@@ -7988,6 +8073,16 @@ class HelenaGraph:
                 # RODADA 19/10/2026: o rascunho afirmou cobertura (ex.: "tem cobertura", "o plano cobre") —
                 # so' a consulta ao plano responde isso. Texto fixo no lugar.
                 logger.warning("helena_afirmacao_de_cobertura_barrada", node="inform")
+                if self._gerativa_para(state):
+                    # DL-0131: na allowlist, o caminho unico — pede os exames para consultar no cadastro.
+                    from maezo.agents.helena import cobertura_assistida as _ca
+
+                    return {
+                        "response_text": _ca.TEXTO_PEDE_LISTA,
+                        "response_kind": "inform",
+                        "coleta_pendente": _ca.PEND_FORMA,
+                        "coleta_contexto": _ca.Contexto().codificar(),
+                    }
                 return {"response_text": RESPOSTA_COBERTURA_ESPECIFICA, "response_kind": "inform"}
             if _PROMESSA_DE_REPASSE.search(_plano(text)):
                 # RODADA 6: "Vou levar isso para a equipe financeira" — promessa que a Helena nao cumpre
@@ -8172,6 +8267,8 @@ class HelenaGraph:
             or _pergunta_de_cobertura_ampla(mensagem_do_turno)
             # DL-0129: coparticipacao/reembolso de procedimento ja' veio para ca' pelo roteamento sem modelo.
             or _copart_ou_reembolso_do_procedimento(_plano(mensagem_do_turno))
+            # DL-0131: CAMINHO UNICO na allowlist — a lista de exames e qualquer intencao de cobertura.
+            or self._parece_lista_de_procedimentos(mensagem_do_turno)
             or (termo_da_continuacao(mensagem_do_turno) and _cobertura_recente(state))
         ):
             assistida = await self._cobertura_assistida(state, ref)
@@ -8433,10 +8530,68 @@ class HelenaGraph:
             return graus, com_nome, (nomes.primeiros_nomes() if nomes is not None else {})
 
         async def elegibilidade() -> Mapping[str, Any] | None:
+            # DL-0131 (velocidade): os fatos de elegibilidade do titular ficam em memoria por 5 min.
+            agora_e = self._relogio().timestamp()
+            guardados = self._elegibilidade_em_memoria.get(ref)
+            if guardados is not None and agora_e - guardados[0] < COBERTURA_EM_MEMORIA_S:
+                return guardados[1]
             view = await self._ler_consulta(ref, "elegibilidade")
-            return fatos_da_consulta(
+            fatos = fatos_da_consulta(
                 "elegibilidade", view, so_ativos=self._carteirinha_completa, hoje=self._hoje_dos_vinculos()
             )
+            if fatos:
+                while len(self._elegibilidade_em_memoria) >= 256:
+                    self._elegibilidade_em_memoria.pop(next(iter(self._elegibilidade_em_memoria)))
+                self._elegibilidade_em_memoria[ref] = (agora_e, fatos)
+            return fatos
+
+        async def escolher_varios(
+            pedidos_do_lote: Sequence[tuple[str, Sequence[str]]],
+        ) -> list[_ca.Escolha | None]:
+            # DL-0131: a lista inteira numa chamada so' ao modelo; o que a pessoa escreveu vai demarcado.
+            pedidos_texto = "\n".join(f"pedido {i}: {r[:160]}" for i, (r, _) in enumerate(pedidos_do_lote, 1))
+            bloco_lote = render_untrusted_block("pedidos_da_pessoa", pedidos_texto)
+            listas_do_lote = "\n\n".join(
+                f"LISTA DO PEDIDO {i}:\n{_ca.lista_para_escolha(itens)}"
+                for i, (_, itens) in enumerate(pedidos_do_lote, 1)
+            )
+            prompt_lote = f"{_ca.PROMPT_ESCOLHA_VARIOS}\n{bloco_lote}\n{listas_do_lote}"
+            async with asyncio.timeout(ESCOLHA_PRAZO_S):
+                bruto_lote = await self._llm.generate(
+                    prompt_lote, phi=True, agent_id="helena", tenant_id=tenant, task_kind="task_default"
+                )
+            return _ca.escolhas_do_modelo(bruto_lote, [len(itens) for _, itens in pedidos_do_lote])
+
+        conversa = str(state.get("conversation_id") or "")
+
+        def quem_lembrado() -> str | None:
+            guardado = self._quem_em_memoria.get(conversa)
+            if guardado is None or self._relogio().timestamp() - guardado[0] > QUEM_EM_MEMORIA_S:
+                return None
+            return guardado[1]
+
+        def lembrar_quem(quem: str) -> None:
+            if not conversa or quem not in ("titular",) and not quem.startswith("dependente:"):
+                return
+            while len(self._quem_em_memoria) >= 512:
+                self._quem_em_memoria.pop(next(iter(self._quem_em_memoria)))
+            self._quem_em_memoria[conversa] = (self._relogio().timestamp(), quem)
+
+        def rotulo_de_quem(quem: str) -> str:
+            """ "Para voce (titular)" ou o nome do dependente (marcador; o nome so' no envio, em Title Case).
+            Sem o nome em memoria, o parentesco ("o seu filho") — nunca "dependente 1"."""
+            if quem == "titular":
+                return _ca.PARA_O_TITULAR
+            if quem.startswith("dependente:") and quem.split(":")[1].isdigit():
+                n = int(quem.split(":")[1])
+                guardado = self._nomes_em_memoria.get(ref)
+                if guardado is not None and guardado[1].tem(n):
+                    self._guardar_nomes(state, guardado[1])
+                    return f"Para {marcador_do_dependente(n)}"
+                graus_guardados = dict(guardado[2]) if guardado is not None else {}
+                grau = graus_guardados.get(n)
+                return f"Para {texto_do_parentesco(grau)}" if grau else "Para o seu dependente"
+            return "Para o seu dependente"
 
         async def texto_geral() -> str:
             fatos = await elegibilidade()
@@ -8463,6 +8618,10 @@ class HelenaGraph:
                 pergunta_para_quem=_para_quem,
                 texto_geral=texto_geral,
                 escolher=escolher,
+                escolher_varios=escolher_varios,
+                quem_lembrado=quem_lembrado,
+                lembrar_quem=lembrar_quem,
+                rotulo_de_quem=rotulo_de_quem,
                 cpt=cpt if leitor_cpt is not None else None,
             )
         )
@@ -8601,12 +8760,15 @@ class HelenaGraph:
         if self._dependentes_nome:
             agora = self._relogio().timestamp()
             guardado = self._nomes_em_memoria.get(ref)
-            if guardado is not None and agora - guardado[0] < 900:
+            if guardado is not None and agora - guardado[0] < NOMES_EM_MEMORIA_S:
                 nomes, graus_nominais = guardado[1], guardado[2]
             else:
                 nomes, graus_nominais = await ler_dependentes_nominais(
                     self._consultas, ref, state.get("message_ref"), prazo_s=CONSULTA_PRAZO_S
                 )
+                if not nomes and guardado is not None:
+                    # DL-0131: a leitura falhou (limite, prazo): os nomes ja' lidos antes valem.
+                    nomes, graus_nominais = guardado[1], guardado[2]
                 if nomes:
                     while len(self._nomes_em_memoria) >= 64:
                         self._nomes_em_memoria.pop(next(iter(self._nomes_em_memoria)))
@@ -9208,7 +9370,11 @@ class HelenaGraph:
                     text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
                     saida.update(cerca)
         # RODADA 2: nunca o mesmo texto longo duas vezes seguidas (ver `_sem_repetir`).
-        varia = _sem_repetir(state, text)
+        # DL-0131 (decisao do dono): na allowlist, sem o "Entendi."/"Certo." de enfeite na frente de um texto
+        # repetido — so' as redacoes alternativas de verdade (`_VARIANTES`).
+        varia = (
+            _sem_repetir_sem_enfeite(state, text) if self._gerativa_para(state) else _sem_repetir(state, text)
+        )
         if self._gerativa_para(state):
             # SAUDE GERATIVA (ADR-0065), so' na allowlist: "Entendi. Entendi: ..." (o prefixo de variacao
             # sobre

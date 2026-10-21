@@ -112,7 +112,9 @@ class Fonte(_Modelo):
 class Revisao(_Modelo):
     status: Literal["rascunho_dono_aprovado_dev", "rascunho_pendente_revisao_medica"]
     autor: str = Field(min_length=2, max_length=80)
-    aprovado_por: Literal["dono (17/10/2026, dev)", "dono (18/10/2026, fase 5, dev)"]
+    aprovado_por: Literal[
+        "dono (17/10/2026, dev)", "dono (18/10/2026, fase 5, dev)", "dono (20/10/2026, DL-0132, dev)"
+    ]
     revisao_medica: Literal["pendente", "aprovada"]
     revisar_ate: date
     #: Quem ESCREVEU o texto (obrigatorio no rascunho da fase 5: "claude-sonnet-5.5 (rascunho)").

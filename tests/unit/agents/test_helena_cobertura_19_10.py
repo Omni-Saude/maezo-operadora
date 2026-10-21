@@ -73,8 +73,9 @@ def test_a_cobranca_de_verdade_continua_cobranca() -> None:
 def test_pergunta_para_quem_lista_cada_dependente() -> None:
     texto = cr.pergunta_para_quem(["filho ou filha", "cônjuge"])
     assert "1) para você (titular)" in texto
-    assert "2) para o dependente 1 (filho ou filha)" in texto
-    assert "3) para o dependente 2 (cônjuge)" in texto
+    # DL-0131: sem o nome, o parentesco (nunca "o dependente N").
+    assert "2) para o seu filho" in texto
+    assert "3) para o seu cônjuge" in texto
 
 
 @pytest.mark.parametrize(
@@ -190,7 +191,7 @@ async def test_com_dependentes_pergunta_para_quem_e_depois_consulta_o_escolhido(
     assert pergunta["coleta_pendente"] == cr.PENDENTE_COBERTURA_PARA_QUEM
     assert pergunta["coleta_contexto"] == "mamografia|1"
     assert "1) para você (titular)" in pergunta["response_text"]
-    assert "2) para o dependente 1" in pergunta["response_text"]
+    assert "2) para o seu filho" in pergunta["response_text"]
     assert fonte.termos == [], "nao consulta antes de saber para quem"
 
     escolha: Any = {

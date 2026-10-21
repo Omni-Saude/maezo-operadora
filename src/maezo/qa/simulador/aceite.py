@@ -1905,6 +1905,135 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
     ),
 )
 
+# Roteiro `helena_conversa_cobertura` (DL-0131, decisao do dono de 20/10/2026 "avance": conversa
+# simples). Conversas MULTI-TURNO GENERICAS escritas para o roteiro (nenhum texto do teste do dono). Mede o
+# FLUXO: titular por padrao, intencao sem o nome pede a lista, a lista inteira respondida, pendencia que nao
+# sequestra pergunta nova,
+# irritacao sem caso, recusa que encerra, e as perguntas de alerta da batida na cabeca.
+_PEDE_A_LISTA = r"quais exames ou procedimentos"
+_NAO_LOCALIZOU_OU_CONSTA = r"(consta|nao localizei|nao faz parte da segmentacao|nao consegui consultar)"
+
+HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
+    Segmento(
+        "1-intencao-sem-nome-e-a-lista-inteira",
+        (
+            _p(
+                "Preciso saber se meu plano cobre alguns exames e procedimentos.",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_PEDE_A_LISTA,),
+                nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"segmentacao do seu plano", r"e para quem"),
+            ),
+            _p(
+                "HEMOGRAMA\nTSH\nUltrassom de abdome total\nRaio x de tórax\nEletroencefalograma\nUreia\n"
+                "Creatinina",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"1\) ", r"7\) |nao localizei", _NAO_LOCALIZOU_OU_CONSTA),
+                nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"e para quem"),
+            ),
+        ),
+        resolveu="pediu a lista e respondeu TODOS os itens (com ou sem 'cobre', em linhas e maiusculas)",
+    ),
+    Segmento(
+        "2-titular-por-padrao",
+        (
+            _p(
+                "Meu plano cobre ressonância da coluna lombar?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"para voce \(titular\)", r"se for para um dependente"),
+                nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"e para quem"),
+            ),
+            _p(
+                "e os exames de glicose, colesterol e triglicerides?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"e para quem"),
+            ),
+        ),
+        resolveu="respondeu para o titular sem perguntar 'para quem' e lembrou na pergunta seguinte",
+    ),
+    Segmento(
+        "3-pergunta-nova-escapa-da-pendencia",
+        (
+            _p(
+                "Meu plano cobre o procedimento qwxzk?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(como esta escrito no pedido medico|tem varios tipos|nao localizei)",),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "Quem são meus dependentes?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"dependente",),
+                nao_deve=(r"nao localizei .quem", r"como esta escrito no pedido medico"),
+            ),
+        ),
+        resolveu="a pergunta nova saiu da pendencia de cobertura e foi respondida como pergunta nova",
+    ),
+    Segmento(
+        "4-irritacao-nao-abre-caso",
+        (
+            _p(
+                "Meu plano cobre hemograma?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "Ué, como assim? Você acabou de verificar e falou outra coisa com a equipe",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"desculpe",),
+                nao_deve=(_ENCAMINHOU, r"encaminhamos seu caso"),
+            ),
+        ),
+        resolveu="a irritacao recebeu um pedido de desculpas e nova tentativa, sem abrir caso",
+    ),
+    Segmento(
+        "5-recusa-encerra-o-caso-de-atendimento",
+        (
+            _p("Quero falar com uma pessoa", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
+            _p(
+                "EU NÃO QUERO FALAR COM NINGUEM DE ATENDIMENTO",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"encerrei",),
+                nao_deve=(r"continua com a equipe", r"responda sim para encerrar"),
+                caso_encerrado=True,
+            ),
+            _p(
+                "ok.",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(r"caso (?:segue|continua) com a equipe",),
+            ),
+        ),
+        resolveu="a recusa encerrou o caso de atendimento na hora e o 'ok' nao falou de caso aberto",
+    ),
+    Segmento(
+        "6-lista-com-mais-de-15",
+        (
+            _p(
+                "O plano cobre: hemograma, glicose, colesterol, triglicerides, TSH, T4 livre, ureia, "
+                "creatinina, ácido úrico, sódio, potássio, cálcio, magnésio, ferritina, vitamina B12, "
+                "ferro sérico, urocultura?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"respondi os 15 primeiros", _NAO_LOCALIZOU_OU_CONSTA),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+        ),
+        resolveu="acima de 15 itens, respondeu os 15 primeiros e avisou (nenhum limite escondido)",
+    ),
+    Segmento(
+        "7-batida-na-cabeca-tem-perguntas-proprias",
+        (
+            _p(
+                "Minha filha caiu da cama e bateu a cabeça",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(vomito|desmaio|convulsao)",),
+                nao_deve=(r"manchinhas", r"pouco xixi"),
+            ),
+        ),
+        resolveu="a batida na cabeca recebeu as perguntas de alerta proprias (nao as genericas de crianca)",
+    ),
+)
+
 #: Os telefones (sufixo da faixa do simulador) de cada segmento, quando o roteiro precisa de telefones
 #: PROPRIOS.
 #: `helena_saude_gerativa`: 790..798 estao na allowlist do dev (tfvars), o 789 NAO (segmento 10).
@@ -1915,6 +2044,7 @@ TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
         *(797, 798, 790),
     ),
     "helena_cobertura_assistida": (791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792),
+    "helena_conversa_cobertura": (793, 794, 795, 796, 797, 798, 790),
 }
 
 # ================================================================================================
@@ -2170,6 +2300,7 @@ ROTEIROS: dict[str, tuple[Segmento, ...]] = {
     "helena_saude_gerativa": HELENA_SAUDE_GERATIVA,
     "helena_fases_18_10": HELENA_FASES_18_10,
     "helena_cobertura_assistida": HELENA_COBERTURA_ASSISTIDA,
+    "helena_conversa_cobertura": HELENA_CONVERSA_COBERTURA,
     "lucas_v4": LUCAS_V4,
     "lucas_v4_pagador": LUCAS_V4_PAGADOR,
     "lucas_v4_nao_pagador": LUCAS_V4_NAO_PAGADOR,

@@ -39,6 +39,7 @@ def test_triagem_v2_existe_ao_lado_do_dono_v1_e_todo_padrao_compila() -> None:
         "helena_saude_gerativa",  # DL-0119
         "helena_fases_18_10",  # DL-0121
         "helena_cobertura_assistida",  # DL-0128
+        "helena_conversa_cobertura",  # DL-0131
     }
     ac.validar(ac.ROTEIROS["triagem_v2"])
     nomes = [s.nome for s in ac.TRIAGEM_V2]

@@ -425,7 +425,7 @@ class BuscaDeProcedimentos:
         import math
 
         self._peso = {w: 1.0 + math.log(n / c) for w, c in contagem.items()}
-        self._vocabulario = {w: c for w, c in contagem.items() if len(w) >= 4 and not w.isdigit()}
+        self._vocabulario = {w: c for w, c in contagem.items() if len(w) >= 3 and not w.isdigit()}
         logger.info(
             "catalogo_procedimentos_carregado",
             itens=len(self._itens),
@@ -541,6 +541,19 @@ class BuscaDeProcedimentos:
             combinadas.append((nota, sem, lex, i))
         combinadas.sort(key=lambda t: (-t[0], self._itens[t[3]].codigo))
         return combinadas, notas_sem is not None
+
+    def parece_procedimento(self, texto: str) -> bool:
+        """DL-0131: o item de uma lista tem cara de procedimento (alguma palavra de conteudo do item, ja'
+        corrigida, existe no vocabulario do catalogo e e' rara o bastante para nao ser palavra de conversa)?
+        Rapido: so' o vocabulario, sem busca."""
+        if not self._vocabulario:
+            return False
+        n = max(1, len(self._itens))
+        for w in palavras(self.corrigir(texto)):
+            vezes = self._vocabulario.get(w)
+            if len(w) >= 3 and vezes is not None and vezes <= n * 0.2:
+                return True
+        return False
 
     def lexico(self, termo: str, procedimento: Procedimento) -> float:
         """A nota lexica do termo (corrigido e com sinonimos) contra um procedimento."""

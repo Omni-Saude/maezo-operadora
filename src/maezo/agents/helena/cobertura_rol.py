@@ -191,12 +191,19 @@ def pergunta_para_quem(graus: list[str], *, com_nome: bool = False) -> str:
     """A pergunta "para quem e'?" com cada dependente pelo grau. `com_nome=True` (DL-0127: nomes do contrato
     `tina-dependentes-nome` no turno) leva o MARCADOR do nome no lugar de "o dependente N" — o nome so' entra
     no envio."""
-    from maezo.agents.helena.consultas_plano import marcador_do_dependente
+    from maezo.agents.helena.consultas_plano import marcador_do_dependente, texto_do_parentesco
 
     opcoes = ["1) para você (titular)"]
+    repetidos = {g for g in graus if list(graus).count(g) > 1}
+    vistos: dict[str, int] = {}
     for i, grau in enumerate(graus, start=1):
-        quem = marcador_do_dependente(i) if com_nome else f"o dependente {i}"
-        opcoes.append(f"{i + 1}) para {quem} ({grau})")
+        if com_nome:
+            opcoes.append(f"{i + 1}) para {marcador_do_dependente(i)} ({grau})")
+            continue
+        # DL-0131: sem o nome, o parentesco (nunca "o dependente N"); dois do mesmo grau levam a ordem.
+        vistos[grau] = vistos.get(grau, 0) + 1
+        ordem = f" ({vistos[grau]}º)" if grau in repetidos else ""
+        opcoes.append(f"{i + 1}) para {texto_do_parentesco(grau)}{ordem}")
     return f"{INICIO_DA_PERGUNTA_PARA_QUEM} Responda " + "; ".join(opcoes) + "."
 
 
