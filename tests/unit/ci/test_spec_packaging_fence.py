@@ -148,6 +148,9 @@ _SUBTREES_ESPERADOS = {
     "spec/conhecimento/saude",
     # DL-0128: os sinonimos genericos da cobertura assistida (`catalogo_procedimentos.raiz_dos_sinonimos()`).
     "spec/conhecimento/cobertura",
+    # ADR-0066/DL-0134: o contrato do roteador de habilidades da Helena (`roteador_contrato.caminho_padrao()`),
+    # dentro de `spec/agents` (ja' empacotado).
+    "spec/agents/helena",
 }
 
 
