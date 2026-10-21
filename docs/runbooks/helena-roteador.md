@@ -21,7 +21,18 @@ Só dev. Chave `MAEZO_HELENA_ROTEADOR` (`helena_roteador` no tfvars do dev): `de
 `C:/vc/sombra_compara.py <roteiro>=<log.json> ...` (logs das tarefas do simulador exportados do CloudWatch) dá a
 concordância por roteiro, as falhas, o tempo e cada desacordo com o texto do passo do roteiro (texto sintético).
 
+## 2b. F2 — modo ativo (só nas conversas do simulador)
+
+- `helena_roteador = "ativo"` + `helena_roteador_conversas` (só os telefones 790..799 do simulador). Fora da
+  lista: sombra. A lista de teste das pessoas só entra na F4, com o OK do dono.
+- `helena_roteador_decidiu habilidade=... confianca=... pendencia_mantida=True|False ms=...` = o roteador
+  decidiu; `helena_roteador_caminho_de_sempre motivo=trava|prazo|modelo|json_ilegivel` = trava ou roteador sem
+  decisão (o caminho de hoje, com o estado inteiro); `helena_roteador_duvida x=... y=...` = a pergunta "X ou
+  Y?" (pendência `ROT_DUVIDA:x:y`).
+- A pendência só vale quando o roteador diz que a mensagem responde a ela; senão é descartada antes da
+  habilidade.
+
 ## 3. Desligar / desfazer
 
-`helena_roteador = "desligado"` no `amh-interop.auto.tfvars` do dev + apply direcionado do receptor e do simulador.
+`helena_roteador = "sombra"` (volta à F1) ou `"desligado"` no `amh-interop.auto.tfvars` do dev + apply direcionado do receptor e do simulador.
 Desfazer o código: revert do PR (sem a chave, o grafo é o de antes nó a nó).

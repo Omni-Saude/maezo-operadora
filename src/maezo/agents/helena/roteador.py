@@ -34,7 +34,7 @@ from maezo.agents.helena.roteador_contrato import (
     ContratoDoRoteador,
 )
 
-ROTEADOR_PROMPT_VERSION: Final[str] = "roteador-v3"
+ROTEADOR_PROMPT_VERSION: Final[str] = "roteador-v4"
 NL: Final[str] = chr(10)
 
 #: Rótulos de trava (os ids do contrato) e de falha do roteador, para o log.
@@ -45,6 +45,8 @@ FALHA_PRAZO: Final[str] = "prazo"
 FALHA_MODELO: Final[str] = "modelo"
 FALHA_JSON: Final[str] = "json_ilegivel"
 FALHA_OCUPADO: Final[str] = "ocupado"
+#: F2: a pergunta "X ou Y?" que o roteador deixou pendente (o código leva as duas habilidades).
+PREFIXO_DUVIDA: Final[str] = "ROT_DUVIDA:"
 
 #: CPF/CNPJ (com ou sem pontuação) e sequências longas de dígitos (carteirinha, cartão) ditas na mensagem.
 _DADO_PESSOAL: Final[re.Pattern[str]] = re.compile(
@@ -67,11 +69,26 @@ class DecisaoDoRoteador:
     confianca: str
     alternativa: str | None
     responde_a_pendencia: bool
+    #: Só em "duvida": a habilidade mais provável (a primeira opção da pergunta "X ou Y?").
+    provavel: str | None = None
 
     @property
     def pergunta_na_duvida(self) -> bool:
-        """Na F2, esta decisão vira a pergunta "X ou Y?" em vez de uma habilidade."""
-        return self.habilidade == DUVIDA or self.confianca == "baixa"
+        """F2: a pergunta "X ou Y?" no lugar de uma habilidade — "duvida", ou confiança baixa com uma
+        alternativa diferente."""
+        if self.habilidade == DUVIDA:
+            return True
+        return self.confianca == "baixa" and self.alternativa not in (None, self.habilidade)
+
+    def opcoes_da_duvida(self) -> tuple[str, str] | None:
+        """As duas habilidades da pergunta "X ou Y?", ou `None` quando não há duas diferentes."""
+        if not self.pergunta_na_duvida:
+            return None
+        x = self.provavel if self.habilidade == DUVIDA else self.habilidade
+        y = self.alternativa
+        if x is None or y is None or x == y:
+            return None
+        return x, y
 
 
 def _instrucoes(contrato: ContratoDoRoteador) -> str:
@@ -83,6 +100,10 @@ def _instrucoes(contrato: ContratoDoRoteador) -> str:
         *(f"{h.id}: {h.resumo}" for h in contrato.habilidades),
         "A PENDENTE e' a pergunta que o assistente deixou: se a mensagem responde a ela, escolha a "
         "habilidade dela e p=true; se mudou de assunto, escolha o assunto novo.",
+        "Se a PENDENTE e' 'duvida' (o assistente perguntou 'X ou Y?'), escolha uma das duas do codigo e "
+        "p=true.",
+        "Depois de uma resposta de cobertura: 'faltou algum?', outra pessoa ou outro exame continuam em "
+        "cobertura; agradecimento ou 'ok' e' conversa.",
         'Na duvida real entre duas, h="duvida", a=<a mais provavel>, b=<a outra>.',
         'Responda SO\' o JSON {"h":"<habilidade>","c":"alta|media|baixa","p":true|false}',
     ]
@@ -152,7 +173,11 @@ def ler_decisao(bruto: str) -> DecisaoDoRoteador | None:
             return None
         # "duvida" leva a provável como primeira opção e a alternativa como segunda.
         return DecisaoDoRoteador(
-            DUVIDA, "baixa", alternativa or provavel, bool(dado.get("responde_a_pendencia"))
+            DUVIDA,
+            "baixa",
+            alternativa if alternativa != provavel else None,
+            dado.get("responde_a_pendencia") is True,
+            provavel=provavel,
         )
     if habilidade not in HABILIDADES or confianca not in CONFIANCAS:
         return None
@@ -255,7 +280,12 @@ def campos_do_log(
     escolha = trava or (decisao.habilidade if decisao is not None else None)
     concorda = escolha is not None and (
         escolha in atual
-        or (decisao is not None and decisao.habilidade == DUVIDA and decisao.alternativa in atual)
+        or (
+            trava is None
+            and decisao is not None
+            and decisao.habilidade == DUVIDA
+            and (decisao.provavel in atual or decisao.alternativa in atual)
+        )
     )
     return {
         "habilidade": decisao.habilidade if decisao is not None else None,
@@ -276,6 +306,8 @@ def pendente_do_estado(
     coleta_pendente: str | None, dona_da_pendencia: Callable[[str | None], str | None]
 ) -> PendenteDoRoteador | None:
     codigo = str(coleta_pendente or "")
+    if codigo.startswith(PREFIXO_DUVIDA):
+        return PendenteDoRoteador(DUVIDA, codigo[:60])
     dona = dona_da_pendencia(codigo or None)
     if dona is None:
         return None
@@ -293,6 +325,7 @@ __all__ = [
     "FALHA_MODELO",
     "FALHA_OCUPADO",
     "FALHA_PRAZO",
+    "PREFIXO_DUVIDA",
     "ROTEADOR_PROMPT_VERSION",
     "TRAVA_ALARME",
     "TRAVA_DADOS",

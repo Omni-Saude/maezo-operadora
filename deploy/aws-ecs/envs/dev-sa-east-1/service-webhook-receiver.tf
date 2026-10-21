@@ -128,6 +128,7 @@ locals {
       { name = "MAEZO_HELENA_BASE_SAUDE", value = tostring(var.helena_base_saude) },
       # DL-0134: roteador de habilidades da Helena (ADR-0066; default `desligado`; F1 `sombra` so' registra).
       { name = "MAEZO_HELENA_ROTEADOR", value = var.helena_roteador },
+      { name = "MAEZO_HELENA_ROTEADOR_CONVERSAS", value = join(",", var.helena_roteador_conversas) },
       # DL-0119: saude gerativa (ADR-0065; default `false`; rota global autorizada pelo DPO so' para a allowlist).
       { name = "MAEZO_HELENA_SAUDE_GERATIVA", value = tostring(var.helena_saude_gerativa) },
       { name = "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", value = join(",", var.helena_saude_gerativa_conversas) },
