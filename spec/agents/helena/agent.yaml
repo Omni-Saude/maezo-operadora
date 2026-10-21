@@ -204,6 +204,8 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # v1 — 07/10/2026: redacao da resposta com os FATOS do cadastro
                                      # (contrato TINA da AMH) num bloco delimitado; recusa da
                                      # cerca propria = resposta deterministica so' com os fatos.
+  roteador: roteador-v1                # 21/10/2026 (ADR-0066, DL-0134): o roteador de habilidades, SO' com
+                                     # MAEZO_HELENA_ROTEADOR ligado (F1 em sombra: so' registra a decisao).
 
 model:
   task_default: { tier: fast }        # triagem/classificacao

@@ -74,6 +74,11 @@ amh_tina_cpt_openapi_path = "/app/config/integrations/amh/openapi/tina-cpt.opena
 // docs/runbooks/helena-base-saude.md).
 helena_base_saude = true
 
+// ROTEADOR DE HABILIDADES da Helena (ADR-0066, DL-0134, decisao do dono de 21/10/2026): F1 em SOMBRA. O roteador
+// (GLM-5 regional) e as travas rodam em paralelo e so' registram a decisao no log `helena_roteador_sombra`; a
+// resposta continua a da Helena de antes. Voltar: "desligado".
+helena_roteador = "sombra"
+
 // SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
 // informativas de saude, com checagem antes de enviar, pela rota PROPRIA
 // `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono
