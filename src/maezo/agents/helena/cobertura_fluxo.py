@@ -102,11 +102,13 @@ def quem_pelo_texto(texto: str, graus: Sequence[str], primeiros_nomes: Mapping[i
 ITENS_MINIMOS_DA_CATEGORIA = 2
 
 
-def _e_categoria(busca: Any, termo: str, tecnico: str, candidatos: Sequence[Any]) -> bool:
+def _e_categoria(
+    busca: BuscaDeProcedimentos, termo: str, tecnico: str, candidatos: Sequence[Candidato]
+) -> bool:
     """O termo (ou o nome tecnico) aparece, pelo limiar lexico da escolha direta, em pelo menos
     `ITENS_MINIMOS_DA_CATEGORIA` candidatos do catalogo — so' entao "tem varios tipos" e' verdade."""
 
-    def nota(c: Any) -> float:
+    def nota(c: Candidato) -> float:
         return max(
             busca.lexico(termo, c.procedimento), busca.lexico(tecnico, c.procedimento) if tecnico else 0.0
         )
