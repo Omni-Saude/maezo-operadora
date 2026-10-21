@@ -27,6 +27,13 @@ def _json(**campos: Any) -> str:
 
 
 # --- leitura da decisao -----
+def test_decisao_com_chaves_curtas_do_v3() -> None:
+    d = rt.ler_decisao('{"h":"sintoma","c":"media","p":true}')
+    assert d == rt.DecisaoDoRoteador("sintoma", "media", None, True)
+    duvida = rt.ler_decisao('{"h":"duvida","a":"cobertura","b":"cobranca","c":"baixa","p":false}')
+    assert duvida is not None and duvida.habilidade == "duvida"
+
+
 def test_decisao_valida() -> None:
     d = rt.ler_decisao(
         _json(habilidade="cobertura", confianca="alta", alternativa="plano", responde_a_pendencia=True)
@@ -67,8 +74,8 @@ def test_prompt_traz_todas_as_habilidades_a_pendencia_e_os_blocos_nao_confiaveis
         pendente=rt.PendenteDoRoteador("cobertura", "COB2:QUEM"),
     )
     for h in rc.HABILIDADES:
-        assert f"- {h}:" in prompt
-    assert "habilidade dona: cobertura; código: COB2:QUEM" in prompt
+        assert f"{h}: " in prompt
+    assert "PENDENTE: habilidade dona: cobertura; código: COB2:QUEM" in prompt and "ULTIMAS:" in prompt
     assert prompt.count("historico_conversa") >= 1 and "pra minha filha" in prompt
 
 
@@ -79,7 +86,7 @@ def test_prompt_sem_historico_e_sem_pendencia() -> None:
         bloco_mensagem=render_untrusted_block("message_body", "oi"),
         pendente=None,
     )
-    assert "PERGUNTA PENDENTE DO TURNO ANTERIOR: nenhuma" in prompt
+    assert "PENDENTE: nenhuma" in prompt and "ULTIMAS:" not in prompt
 
 
 # --- travas -----
@@ -164,7 +171,7 @@ class _ModeloComRoteador:
         self.model_id = "fake"
 
     async def generate(self, prompt: str, **_: Any) -> str:
-        if "ROTEADOR da Helena" in prompt:
+        if "roteador de um assistente" in prompt:
             self.do_roteador += 1
             await asyncio.sleep(0)
             return self._roteador
@@ -214,7 +221,7 @@ async def test_sombra_nao_muda_a_resposta_e_registra_a_decisao() -> None:
 async def test_roteador_que_falha_so_vira_campo_no_log() -> None:
     class _Quebrado(_ModeloComRoteador):
         async def generate(self, prompt: str, **kw: Any) -> str:
-            if "ROTEADOR da Helena" in prompt:
+            if "roteador de um assistente" in prompt:
                 raise TimeoutError
             return await super().generate(prompt, **kw)
 
@@ -232,3 +239,47 @@ async def test_ativo_ainda_e_sombra_na_f1() -> None:
     with capture_logs() as logs:
         _grafo("ativo", _ModeloComRoteador([], ""))
     assert any(e.get("event") == "helena_roteador_ativo_ainda_e_sombra" for e in logs)
+
+
+# --- orcamento (21/10/2026) -----
+async def test_roteador_usa_o_provedor_proprio_quando_ha() -> None:
+    conversa = _ModeloComRoteador(
+        [_classify(intent="greeting")], _json(habilidade="conversa", confianca="alta")
+    )
+    proprio = _ModeloComRoteador([], _json(habilidade="conversa", confianca="alta"))
+    whatsapp = _WhatsApp()
+    grafo = (
+        HelenaGraph(
+            inference=conversa,  # type: ignore[arg-type]
+            dmn=FakeDmnTransport(),
+            cibseven=FakeCibSevenTransport(),
+            audit_sink=FakeStartAuditSink(),
+            whatsapp=whatsapp,
+            roteador_lucas_enabled=True,
+            historico_enabled=True,
+            consultas_plano=_Fonte(),
+            relogio=lambda: datetime(2026, 10, 21, 15, 0, tzinfo=UTC),
+            helena_roteador="sombra",
+            roteador_inference=proprio,  # type: ignore[arg-type]
+        )
+        .compile_graph()
+        .compile()
+    )
+    await grafo.ainvoke(_entrada("bom dia"))
+    await asyncio.sleep(0.01)
+    assert proprio.do_roteador == 1 and conversa.do_roteador == 0
+
+
+async def test_limite_de_concorrencia_cheio_segue_sem_o_roteador() -> None:
+    grafo = HelenaGraph(
+        inference=_ModeloComRoteador([], ""),  # type: ignore[arg-type]
+        dmn=FakeDmnTransport(),
+        cibseven=FakeCibSevenTransport(),
+        audit_sink=FakeStartAuditSink(),
+        whatsapp=_WhatsApp(),
+        helena_roteador="sombra",
+        roteador_concorrencia=1,
+    )
+    grafo._roteador_em_curso = 1
+    decisao, falha, ms = await grafo._roteador_decidir({"message_body": "oi"}, None)
+    assert decisao is None and falha == rt.FALHA_OCUPADO and ms == 0

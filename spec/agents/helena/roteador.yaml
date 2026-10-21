@@ -16,12 +16,12 @@ chave:
 modelo:
   id: glm-5
   zona: phi_regional_sa_east_1
-  prazo_s: 4
+  prazo_s: 3
   falha: resposta_segura_padrao   # falha ou prazo do modelo: a resposta segura padrão; as travas continuam
 
 entrada:
   mensagens:
-    maximo: 8                 # as últimas mensagens da conversa (da pessoa e da Helena), mais antiga primeiro
+    maximo: 4                 # as últimas mensagens da conversa (da pessoa e da Helena), mais antiga primeiro
     papeis: [pessoa, helena]
     mascaramento: nomes_de_dependente_por_marcador   # o histórico já guarda o marcador, nunca o nome
   pendente:
@@ -67,6 +67,7 @@ travas_de_saida:              # sempre, sobre o texto que vai sair
 habilidades:
   - id: cobertura
     titulo: cobertura de exames e procedimentos
+    resumo: 'se o plano cobre exame, procedimento, cirurgia, terapia ou lista deles; resposta a pergunta pendente da cobertura; outro exame, outra pessoa ou "faltou algum?" depois de uma resposta de cobertura'
     descricao: se o plano cobre um exame, procedimento, cirurgia, terapia ou uma lista deles, para quem
     quando_usar:
       - a pessoa pergunta se o plano cobre um ou mais procedimentos, com ou sem o nome
@@ -85,6 +86,7 @@ habilidades:
     modulos_atuais: [cobertura_assistida.py, cobertura_fluxo.py, cobertura_rol.py, catalogo_procedimentos.py]
   - id: plano
     titulo: dados do seu plano
+    resumo: 'carteirinha, dependentes, carencia, plano ativo'
     descricao: carteirinha, dependentes, carências, situação do plano e dados do cadastro do próprio titular
     quando_usar:
       - pede o número da carteirinha, a lista de dependentes, as carências ou se o plano está ativo
@@ -100,6 +102,7 @@ habilidades:
     modulos_atuais: [consultas_plano.py]
   - id: saude
     titulo: informações de saúde
+    resumo: 'duvida geral de saude sem estar sentindo algo agora'
     descricao: dúvida geral de saúde sem queixa atual (o que é, sintomas, exames, especialidade, prevenção)
     quando_usar:
       - pergunta informativa sobre doença, exame, vacina, especialidade ou prevenção, sem estar sentindo algo agora
@@ -115,6 +118,7 @@ habilidades:
     modulos_atuais: [conhecimento/base_saude.py, conhecimento/saude_gerativa.py]
   - id: sintoma
     titulo: um sintoma ou queixa
+    resumo: 'alguem sente algo agora (dor, febre, queda, batida, piora) ou responde as perguntas de alerta de um sintoma'
     descricao: a pessoa (ou alguém da família) está com um sintoma, se machucou ou piorou; perguntas de alerta
     quando_usar:
       - relata sintoma, dor, queda, batida, febre ou piora, dela ou de outra pessoa
@@ -130,6 +134,7 @@ habilidades:
     modulos_atuais: [helena_v4.py, triagem_v2.py, alarme_deterministico.py]
   - id: equipe
     titulo: falar com uma pessoa da equipe
+    resumo: 'pede explicitamente uma pessoa ou atendente; responde a oferta da equipe; nao quer mais o atendimento aberto'
     descricao: pedido explícito de pessoa, resposta à oferta da equipe, recusa ou encerramento de caso aberto
     quando_usar:
       - pede para falar com atendente, humano, alguém da equipe
@@ -146,6 +151,7 @@ habilidades:
     modulos_atuais: [graph.py (escalate), delegation.py]
   - id: pedidos
     titulo: um pedido ao plano
+    resumo: 'cancelar o plano'
     descricao: pedidos com processo próprio; hoje só o cancelamento do plano, passado ao Lucas
     quando_usar:
       - quer cancelar o plano ou saber como cancelar
@@ -160,6 +166,7 @@ habilidades:
     modulos_atuais: [graph.py (handoff ao Lucas)]
   - id: cobranca
     titulo: mensalidade e pagamentos
+    resumo: 'mensalidade, boleto, segunda via, valor, vencimento, pagamento'
     descricao: mensalidade, boleto, segunda via, valores, coparticipação cobrada, pagamento; passado ao Lucas
     quando_usar:
       - pergunta valor, vencimento, boleto, segunda via, atraso ou coparticipação cobrada
@@ -174,6 +181,7 @@ habilidades:
     modulos_atuais: [graph.py (handoff_cobranca)]
   - id: conversa
     titulo: conversa
+    resumo: 'cumprimento, agradecimento, ok, despedida, quem e'' voce, reclamacao sem pedir pessoa'
     descricao: saudação, despedida, agradecimento, "ok", reclamação ou irritação sem pedido, o que a Helena faz
     quando_usar:
       - cumprimento, agradecimento, despedida, confirmação curta sem pendência

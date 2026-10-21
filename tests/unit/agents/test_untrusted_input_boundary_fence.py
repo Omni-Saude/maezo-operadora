@@ -60,7 +60,8 @@ _GRAFOS = sorted(_DIR_AGENTES.glob("*/graph.py"))
 
 #: Os dois nomes de atributo sob os quais um grafo guarda seu seam de inferencia (mesma lista de
 #: `test_llm_calls_declare_task_kind.py`, que resolve o MESMO conjunto de sitios).
-_ATRIBUTOS_DE_INFERENCIA: tuple[str, ...] = ("_llm", "_inference")
+#: ADR-0066 (21/10/2026): `_roteador_llm` e' o provedor PROPRIO do roteador da Helena (prazo e teto curtos).
+_ATRIBUTOS_DE_INFERENCIA: tuple[str, ...] = ("_llm", "_inference", "_roteador_llm")
 
 #: A funcao (uma so') que demarca texto de terceiro. Um sitio que a chame com o literal da chave
 #: satisfaz a cerca para aquela chave.

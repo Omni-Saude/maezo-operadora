@@ -248,6 +248,7 @@ def _build_dispatcher(
         inference=InferenceProvider(model_tiers=_helena_model_tiers()),
     )
     seam_context = build_agent_seam_context(tenant=settings.tenant_id, agent_id="helena")
+    roteador_inference = _inferencia_do_roteador(settings, seam_context)
     # Gap `WEBHOOK-WAMID-DEDUP` (owner decisions R-071/R-072/R-073): the durable dedup registry
     # over the repurposed `driver_idempotency` table. Built HERE, in the one place that already
     # owns the mandatory DSN and the keyed pseudonymizer, so BOTH legs of the guard — the inbound
@@ -356,6 +357,8 @@ def _build_dispatcher(
         helena_base_saude_enabled=settings.helena_base_saude,
         # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134): `MAEZO_HELENA_ROTEADOR`, default `desligado` (so' dev).
         helena_roteador=settings.helena_roteador,
+        roteador_inference=roteador_inference,
+        roteador_concorrencia=settings.helena_roteador_concorrencia,
         # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
         # dev).
         saude_gerativa=_saude_gerativa(settings),
@@ -1223,3 +1226,31 @@ def _attach_administrative_runtime(
     state.dispatcher.administrative_runtime = runtime
     state.dispatcher.administrative_binding = binding.model_copy(deep=True)
     return runtime
+
+
+def _inferencia_do_roteador(settings: Any, seam_context: Any) -> Any:
+    """ADR-0066 (21/10/2026): o provedor PROPRIO do roteador de habilidades, so' com a chave ligada e so'
+    na zona PHI regional (`bedrock_br`): mesmo adaptador e mesmas garantias, com prazo REAL curto (tempo de
+    leitura do cliente), teto de saida pequeno, sem retentativa e pool de threads proprio. Fora disso, `None`
+    (o grafo usa o provedor da conversa, como na F1). Passa pela mesma porta (`build_inference_seam`)."""
+    if settings.helena_roteador == "desligado":
+        return None
+    from maezo.gateway.tool_registry import build_inference_seam
+    from maezo.runtime.inference import InferenceProvider
+    from maezo.runtime.inference.settings import InferenceSettings
+
+    base = InferenceSettings()
+    if base.provider != "bedrock_br":
+        return None
+    curta = base.model_copy(
+        update={
+            "model": settings.helena_roteador_modelo.strip() or base.model,
+            "timeout_s": settings.helena_roteador_prazo_s,
+            "max_tokens": settings.helena_roteador_max_tokens,
+            "max_retries": 0,
+            "dedicated_workers": settings.helena_roteador_concorrencia,
+        }
+    )
+    return build_inference_seam(
+        seam=seam_context, inner=InferenceProvider(curta, model_tiers=_helena_model_tiers())
+    )

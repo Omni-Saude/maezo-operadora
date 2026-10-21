@@ -396,6 +396,32 @@ class WhatsAppWebhookSettings(BaseSettings):
         default="desligado",
         validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR", "helena_roteador"),
     )
+    # ORCAMENTO DO ROTEADOR (ADR-0066, 21/10/2026): o modelo (vazio = o da zona PHI), o prazo REAL da chamada
+    # (o
+    # tempo de leitura do cliente: a thread volta no prazo) e o teto de tokens de saida. Pool e concorrencia
+    # proprios (`helena_roteador_concorrencia`): com o limite cheio, o turno segue sem o roteador.
+    helena_roteador_modelo: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_MODELO", "helena_roteador_modelo"),
+    )
+    helena_roteador_prazo_s: float = Field(
+        default=3.0,
+        ge=0.5,
+        le=10.0,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_PRAZO_S", "helena_roteador_prazo_s"),
+    )
+    helena_roteador_max_tokens: int = Field(
+        default=256,
+        ge=16,
+        le=1024,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_MAX_TOKENS", "helena_roteador_max_tokens"),
+    )
+    helena_roteador_concorrencia: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_CONCORRENCIA", "helena_roteador_concorrencia"),
+    )
     # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
     # informativas de saude (com checagem antes de enviar), pela ROTA PROPRIA
     # `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono

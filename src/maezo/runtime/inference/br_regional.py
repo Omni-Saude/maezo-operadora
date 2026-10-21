@@ -13,6 +13,7 @@ chokepoint-fence update.
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import re
 from collections.abc import Mapping
@@ -402,7 +403,11 @@ class BedrockBrRegionalTransport:
     #: carrega a região no nome, e esta constante é o que a compara com o cliente REAL.
     REGIAO: ClassVar[str] = "sa-east-1"
 
-    def __init__(self, *, timeout_s: float = 60.0, client: Any = None) -> None:
+    def __init__(self, *, timeout_s: float = 60.0, client: Any = None, executor: Any = None) -> None:
+        # `executor` (ADR-0066): pool PROPRIO para as chamadas deste transporte; `None` = o pool padrao do
+        # asyncio, como sempre. O `read_timeout` do cliente e' o prazo REAL: a thread volta no prazo, nunca
+        # fica presa depois do prazo de quem chamou.
+        self._executor = executor
         if client is not None:
             self._client = client
         else:
@@ -448,13 +453,17 @@ class BedrockBrRegionalTransport:
 
         # boto3 é síncrono; `to_thread` mantém o loop livre sem introduzir um cliente async
         # paralelo que teria de ser mantido em sincronia com este.
+        chamada = functools.partial(
+            self._client.converse,
+            modelId=model_arn,
+            messages=[{"role": "user", "content": [{"text": request.prompt}]}],
+            inferenceConfig={"maxTokens": request.max_tokens, "temperature": 0.2},
+        )
         try:
-            bruto = await asyncio.to_thread(
-                self._client.converse,
-                modelId=model_arn,
-                messages=[{"role": "user", "content": [{"text": request.prompt}]}],
-                inferenceConfig={"maxTokens": request.max_tokens, "temperature": 0.2},
-            )
+            if self._executor is None:
+                bruto = await asyncio.to_thread(chamada)
+            else:
+                bruto = await asyncio.get_running_loop().run_in_executor(self._executor, chamada)
         except Exception as exc:  # nenhum erro de SDK escapa deste módulo
             nome = type(exc).__name__
             # `ThrottlingException` e afins são a única classe re-tentável; o resto não é.

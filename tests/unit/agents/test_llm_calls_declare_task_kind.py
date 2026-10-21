@@ -64,7 +64,8 @@ _ARQUIVOS_AGENTES = sorted(
 
 #: Os dois nomes de atributo sob os quais um grafo guarda seu seam de `InferenceProvider`
 #: (`self._llm = inference` em 10/11 agentes; `self._inference = inference` no `_template`).
-_ATRIBUTOS_DE_INFERENCIA: tuple[str, ...] = ("_llm", "_inference")
+#: ADR-0066 (21/10/2026): `_roteador_llm` e' o provedor PROPRIO do roteador da Helena (prazo e teto curtos).
+_ATRIBUTOS_DE_INFERENCIA: tuple[str, ...] = ("_llm", "_inference", "_roteador_llm")
 
 
 def _receptor_e_seam_de_inferencia(no: ast.expr) -> bool:
