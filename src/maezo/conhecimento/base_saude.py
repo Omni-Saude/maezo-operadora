@@ -112,7 +112,9 @@ class Fonte(_Modelo):
 class Revisao(_Modelo):
     status: Literal["rascunho_dono_aprovado_dev", "rascunho_pendente_revisao_medica"]
     autor: str = Field(min_length=2, max_length=80)
-    aprovado_por: Literal["dono (17/10/2026, dev)", "dono (18/10/2026, fase 5, dev)"]
+    aprovado_por: Literal[
+        "dono (17/10/2026, dev)", "dono (18/10/2026, fase 5, dev)", "dono (20/10/2026, DL-0132, dev)"
+    ]
     revisao_medica: Literal["pendente", "aprovada"]
     revisar_ate: date
     #: Quem ESCREVEU o texto (obrigatorio no rascunho da fase 5: "claude-sonnet-5.5 (rascunho)").
@@ -875,7 +877,19 @@ def alarme_no_texto(base: BaseSaude, texto: str) -> bool:
     return any(_contem(plano, t) for t in sinais_de_alarme(base, texto))
 
 
+def alarme_do_assunto(base: BaseSaude, assunto_id: str, texto: str) -> bool:
+    """Avaliacao de 21/10/2026 (seguranca): um sinal de alarme do assunto de sintoma EM CURSO (o da pergunta
+    de alerta pendente) aparece no texto? "Vomitou duas vezes" depois de "bateu a cabeca" e' alarme da batida,
+    mesmo sem a mensagem citar a batida de novo."""
+    assunto = base.get(assunto_id)
+    if assunto is None or assunto.categoria != CATEGORIA_SINTOMA:
+        return False
+    plano = normalizar(texto)
+    return any(_contem(plano, normalizar(t)) for t in assunto.sinais_alarme or ())
+
+
 __all__ = [
+    "alarme_do_assunto",
     "APROVADO_POR_DEV",
     "APROVADO_POR_FASE5",
     "AVISO_PADRAO",

@@ -195,7 +195,8 @@ async def test_varios_sem_nenhum_respondido_nao_le_a_cpt() -> None:
     m = _mundo("hemograma", "tomografia de torax")
     m.falhar = True
     up = await _fluxo(m, leitor).responder("cobre hemograma e tomografia de torax?", "", "")
-    assert "CPT" not in up["response_text"] and leitor.chamadas == 0
+    # DL-0131 (velocidade): a CPT e' lida em paralelo com a consulta; sem resposta, o aviso nao sai.
+    assert "CPT" not in up["response_text"] and leitor.chamadas <= 1
 
 
 async def test_mesma_resposta_dos_parecidos_leva_o_aviso_uma_vez() -> None:
@@ -220,7 +221,8 @@ async def test_falha_da_cobertura_nao_le_a_cpt() -> None:
     m = _mundo("tomografia de torax")
     m.falhar = True
     up = await _fluxo(m, leitor).responder("cobre tomografia de torax?", "", "")
-    assert up["coleta_pendente"] == ca.PEND_FALHA and leitor.chamadas == 0
+    # DL-0131 (velocidade): a CPT e' lida em paralelo com a consulta; com falha, o aviso nao sai.
+    assert up["coleta_pendente"] == ca.PEND_FALHA and "CPT" not in up["response_text"]
 
 
 # --- grafo: memoria de 5 min por titular -----------------------------------------------------------------
