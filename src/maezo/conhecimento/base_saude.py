@@ -877,7 +877,19 @@ def alarme_no_texto(base: BaseSaude, texto: str) -> bool:
     return any(_contem(plano, t) for t in sinais_de_alarme(base, texto))
 
 
+def alarme_do_assunto(base: BaseSaude, assunto_id: str, texto: str) -> bool:
+    """Avaliacao de 21/10/2026 (seguranca): um sinal de alarme do assunto de sintoma EM CURSO (o da pergunta
+    de alerta pendente) aparece no texto? "Vomitou duas vezes" depois de "bateu a cabeca" e' alarme da batida,
+    mesmo sem a mensagem citar a batida de novo."""
+    assunto = base.get(assunto_id)
+    if assunto is None or assunto.categoria != CATEGORIA_SINTOMA:
+        return False
+    plano = normalizar(texto)
+    return any(_contem(plano, normalizar(t)) for t in assunto.sinais_alarme or ())
+
+
 __all__ = [
+    "alarme_do_assunto",
     "APROVADO_POR_DEV",
     "APROVADO_POR_FASE5",
     "AVISO_PADRAO",

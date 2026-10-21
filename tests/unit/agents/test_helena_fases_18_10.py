@@ -147,6 +147,23 @@ async def test_recusa_com_caso_aberto_encerra_direto_na_allowlist() -> None:
     assert conversa.modelo.respostas == [_RISCO]
 
 
+@pytest.mark.parametrize(
+    "mensagem",
+    [
+        "não quero falar com ninguém, já resolvi",
+        "nao preciso mais de atendente, ja deu tudo certo, obrigada",
+        "não quero falar com ninguém não, consegui sozinho",
+    ],
+)
+async def test_recusa_com_qualificadores_e_caso_aberto_ainda_encerra(mensagem: str) -> None:
+    """Avaliacao de 21/10/2026: os qualificadores ("ja' resolvi", "deu certo") nao quebram a recusa."""
+    conversa = _Conversa()
+    await conversa.diz("Quero falar com uma pessoa", _classify(intent="human_request"))
+    resultado = await conversa.diz(mensagem, _RISCO)
+    assert _texto(resultado) in (RESPOSTA_CASO_ENCERRADO, RESPOSTA_ENCERRAMENTO_FALHOU)
+    assert conversa.modelo.respostas == [_RISCO]
+
+
 # =================================================================================================
 # FASE 2.3 — escolha pura sem o classificador (allowlist)
 # =================================================================================================

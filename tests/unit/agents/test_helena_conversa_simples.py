@@ -251,3 +251,103 @@ def test_batida_na_cabeca_tem_perguntas_proprias() -> None:
     assert assunto is not None and assunto.populacao == "todos"
     assert any("vômito" in p for p in assunto.perguntas_alerta or ())
     assert bs.alarme_no_texto(base, "minha filha bateu a cabeça e vomitou")
+
+
+# --- Avaliacao de 21/10/2026: fala depois da resposta, lista mista, discordancia, lote ----------------------
+async def test_cortesia_depois_da_resposta_e_curta_e_nao_busca() -> None:
+    m = _Mundo(pedido=_pedido("hemograma"), coberturas=_HEMO)
+    ctx = ca.Contexto(termos=["hemograma"], quem="titular", respondidos=["Hemograma"])
+    for fala, esperado in (
+        ("valeu!", ca.TEXTO_DE_NADA),
+        ("ok", ca.TEXTO_COMBINADO),
+        ("blz", ca.TEXTO_COMBINADO),
+    ):
+        up = await _fluxo(m).responder(fala, PEND_RESPONDIDO, ctx.codificar())
+        assert up["response_text"] == esperado
+    assert m.consultas == [] and m.extracoes == 0
+
+
+async def test_faltou_algum_confere_a_lista_anterior() -> None:
+    m = _Mundo()
+    ctx = ca.Contexto(termos=["hemograma", "glicose", "tsh"], quem="titular")
+    up = await _fluxo(m).responder("faltou algum?", PEND_RESPONDIDO, ctx.codificar())
+    assert up["response_text"] == ca.texto_do_que_respondi(["hemograma", "glicose", "tsh"])
+    assert m.consultas == []
+
+
+async def test_para_quem_dito_depois_refaz_a_consulta_para_a_pessoa() -> None:
+    m = _Mundo(graus=["cônjuge"], coberturas=_HEMO)
+    ctx = ca.Contexto(termos=["hemograma"], quem="titular", respondidos=["HEMOGRAMA"], padrao=True)
+    up = await _fluxo(m).responder("é pra minha esposa", PEND_RESPONDIDO, ctx.codificar())
+    assert up["response_text"].startswith("Para Ana") and m.consultas == ["40304361"]
+    assert "Já te passei" not in up["response_text"], "outra pessoa nao e' a mesma pergunta"
+
+
+async def test_lista_mista_responde_cada_item_pelo_seu_caminho() -> None:
+    pedido = ca.Pedido(
+        procedimentos=("hemograma",),
+        outros=(("dipirona", "remedio"), ("botox", "estetica")),
+        pelo_modelo=True,
+        total=1,
+    )
+    m = _Mundo(pedido=pedido, coberturas=_HEMO)
+    up = await _fluxo(m).responder("cobre hemograma, dipirona e botox?", "", "")
+    texto = up["response_text"]
+    assert "dipirona:" in texto and "botox:" in texto and "consta no Rol" in texto
+    assert up["coleta_pendente"] == ca.PEND_EQUIPE
+
+
+def test_o_modelo_devolve_os_outros_itens() -> None:
+    bruto = json.dumps(
+        {
+            "procedimentos": ["hemograma"],
+            "outros_itens": [{"nome": "dipirona", "tipo": "remedio"}, {"nome": "x"}],
+        }
+    )
+    pedido = ca.pedido_do_modelo(bruto)
+    assert pedido is not None and pedido.outros == (("dipirona", "remedio"),)
+
+
+async def test_discordancia_sem_procedimento_nao_termina_na_lista() -> None:
+    m = _Mundo(pedido=ca.Pedido(discorda=True, pelo_modelo=True))
+    up = await _fluxo(m).responder("o médico disse que cobre e vocês negaram", "", "")
+    assert ca.TEXTO_PEDE_LISTA not in up["response_text"] and up["coleta_pendente"] == ca.PEND_EQUIPE
+
+
+async def test_item_que_o_lote_nao_achou_ganha_a_busca_de_item_unico() -> None:
+    from maezo.agents.helena.cobertura_fluxo import DIRETO
+
+    async def lote(pedidos: Sequence[tuple[str, Sequence[str]]]) -> list[ca.Escolha | None]:
+        return [ca.Escolha(None, "baixa") for _ in pedidos]
+
+    m = _Mundo(pedido=_pedido("hemograma", "tomografia de torax"), coberturas=_HEMO)
+    fluxo = _fluxo(m, lote=lote)
+    chamadas: list[str] = []
+
+    async def escolher(termos: Sequence[str], termo: str, nomes: Sequence[str]) -> ca.Escolha:
+        chamadas.append(termo)
+        por_nome = {p.nome: p.codigo for p in _CATALOGO}
+        alvo = "40304361" if "hemograma" in termo else "40808041"
+        return ca.Escolha(next(i for i, n in enumerate(nomes) if por_nome.get(n) == alvo), "alta")
+
+    fluxo.d.escolher = escolher
+    decisoes = await fluxo._decidir_varios(
+        ca.Contexto(termos=["hemograma", "tomografia de torax"]), ["hemograma", "tomografia de torax"]
+    )
+    assert [d.tipo for d in decisoes if d is not None] == [DIRETO, DIRETO] and len(chamadas) == 2
+
+
+async def test_grafo_depois_da_resposta_pergunta_de_outro_assunto_escapa() -> None:
+    from tests.unit.agents.test_helena_cobertura_assistida import _grafo_e_estado, _json_pedido
+    from tests.unit.agents.test_helena_rodada_3_simulador import _classify, _entrada, _starts
+
+    grafo, whatsapp, cib, fonte = _grafo_e_estado(
+        {"40304361": _View((_Item("HEMOGRAMA"),))}, [_json_pedido("hemograma"), "", _classify()]
+    )
+    r1 = await grafo.ainvoke(_entrada("Meu plano cobre hemograma?"))
+    assert r1["coleta_pendente"] == PEND_RESPONDIDO
+    memoria = {k: r1[k] for k in ("coleta_pendente", "coleta_contexto", "historico_conversa")}
+    antes = len(fonte.pedidos)
+    await grafo.ainvoke(_entrada("quero falar com um atendente") | memoria)
+    assert _starts(cib) == 1, "o pedido explicito de pessoa abre o caso"
+    assert ca.TEXTO_PEDE_LISTA not in whatsapp.enviados[-1] and len(fonte.pedidos) == antes

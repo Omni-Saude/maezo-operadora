@@ -738,3 +738,54 @@ def test_a_chave_so_e_ligada_no_dev_pelo_terraform() -> None:
         if outro.is_dir() and outro.name != "dev-sa-east-1":
             for arquivo in outro.rglob("*.tf*"):
                 assert "helena_base_saude" not in arquivo.read_text(encoding="utf-8"), arquivo
+
+
+# --- Avaliacao de 21/10/2026 (seguranca): o contexto do sintoma persiste ------------------------------------
+def _base_do_repositorio() -> b.BaseSaude:
+    return b.carregar_base(Path(__file__).resolve().parents[3] / "spec" / "conhecimento" / "saude")
+
+
+class _ConversaDe21(_Conversa):
+    """A base do repositorio com o relogio de 21/10/2026 (o arquivo da batida foi coletado em 20/10)."""
+
+    def __init__(self) -> None:
+        super().__init__(base=_base_do_repositorio())
+
+    def _grafo(self) -> Any:
+        grafo = HelenaGraph(
+            inference=self.modelo,  # type: ignore[arg-type]
+            dmn=self.dmn,  # type: ignore[arg-type]
+            cibseven=self.cib,
+            audit_sink=self.auditoria,
+            whatsapp=self.whatsapp,
+            historico_enabled=True,
+            coleta_enabled=True,
+            helena_v4_enabled=self.v4,
+            helena_base_saude_enabled=self.chave,
+            base_saude=self.base,
+            relogio=lambda: datetime(2026, 10, 21, 15, 0, tzinfo=UTC),
+        )
+        return grafo.compile_graph().compile()
+
+
+async def test_batida_na_cabeca_e_vomito_no_turno_seguinte_escala_com_192() -> None:
+    conversa = _ConversaDe21()
+    primeiro = await conversa.diz(
+        "Meu filho caiu no chão e bateu a cabeça", _classify(intent="symptom", population="pediatric")
+    )
+    assert conversa.memoria["coleta_pendente"].startswith("V4_ALERTA:sin-batida-na-cabeca:")
+    assert "vômito" in _texto(primeiro)
+    resultado = await conversa.diz("Vomitou duas vezes", _classify(intent="symptom", population="pediatric"))
+    assert conversa.motivos == ["red_flag_clinico"], "vomito depois da batida e' alarme da batida"
+    assert "192" in _texto(resultado)
+
+
+async def test_batida_na_cabeca_e_tranquilizacao_nao_vira_queixa_nova() -> None:
+    conversa = _ConversaDe21()
+    await conversa.diz(
+        "Meu bebê caiu do sofá e bateu a cabeça", _classify(intent="symptom", population="pediatric")
+    )
+    resultado = await conversa.diz("mas ele tá brincando normal", _INFO)
+    texto = _texto(resultado)
+    assert "manchinhas" not in texto and "pouco xixi" not in texto
+    assert conversa.cib.inicios == []

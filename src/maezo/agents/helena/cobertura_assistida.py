@@ -80,6 +80,10 @@ pedido,
 - "nomes_tecnicos": lista do MESMO tamanho de "procedimentos", com o nome TECNICO mais provavel de cada um,
   como aparece na terminologia TUSS/Rol da ANS (ex.: "operacao de joanete" -> "tratamento cirurgico de halux
   valgo"; "raio x do dente" -> "radiografia periapical"). Se ja' e' o nome tecnico, repita; se nao souber, "".
+- "outros_itens": lista dos itens da MESMA mensagem que NAO sao exame/procedimento/consulta/terapia, cada um
+  {"nome": como a pessoa escreveu, "tipo": "remedio" | "material" | "estetica" | "inseminacao" |
+  "experimental"} (ex.: numa lista com "hemograma, dipirona, botox": hemograma em "procedimentos";
+  dipirona e botox aqui). Nenhum item da mensagem pode ficar de fora das duas listas.
 - "tipo": "procedimento" (inclui o EXAME que dosa uma substancia: "insulina em jejum", "dosagem de
   vitamina D") | "remedio" (o medicamento em si, injecao, insulina para tratar, quimioterapia oral)
   | "material"
@@ -123,6 +127,9 @@ class Pedido:
     tecnicos: tuple[str, ...] = ()
     #: Quantos procedimentos a mensagem trazia (antes do limite): acima de `MAX_PROCEDIMENTOS`, aviso.
     total: int = 0
+    #: Avaliacao de 21/10/2026: os OUTROS itens da mesma mensagem que tem regra propria (remedio, material,
+    #: estetica, inseminacao, experimental), cada um com o seu caminho — nunca somem da resposta.
+    outros: tuple[tuple[str, str], ...] = ()
 
 
 #: Palavras de CONTEXTO que nunca sao parte do nome de um procedimento (cobranca, conversa, pedido,
@@ -159,6 +166,25 @@ def _termo_limpo(valor: object) -> str | None:
     return termo[:80]
 
 
+_TIPOS_DE_OUTROS: Final[frozenset[str]] = frozenset(
+    {"remedio", "material", "estetica", "inseminacao", "experimental"}
+)
+
+
+def _outros_do_modelo(valor: object) -> tuple[tuple[str, str], ...]:
+    saida: list[tuple[str, str]] = []
+    if not isinstance(valor, list):
+        return ()
+    for item in valor:
+        if not isinstance(item, Mapping):
+            continue
+        nome = _termo_limpo(item.get("nome"))
+        tipo = str(item.get("tipo") or "")
+        if nome and tipo in _TIPOS_DE_OUTROS and nome not in {n for n, _ in saida}:
+            saida.append((nome, tipo))
+    return tuple(saida[:MAX_PROCEDIMENTOS])
+
+
 def pedido_do_modelo(bruto: object) -> Pedido | None:
     """O `Pedido` a partir da resposta do modelo (JSON, eventualmente cercado de texto), ou `None`."""
     if not isinstance(bruto, str):
@@ -191,6 +217,7 @@ def pedido_do_modelo(bruto: object) -> Pedido | None:
         procedimentos=tuple(procedimentos[:MAX_PROCEDIMENTOS]),
         tecnicos=tuple(tecnicos[:MAX_PROCEDIMENTOS]),
         total=len(procedimentos),
+        outros=_outros_do_modelo(dados.get("outros_itens")),
         tipo=tipo if tipo in TIPOS else "procedimento",
         assunto=assunto if assunto in ASSUNTOS else "cobertura",
         urgencia=dados.get("urgencia") is True,
@@ -489,6 +516,8 @@ class Contexto:
     #: DL-0131: o titular foi assumido por PADRAO (a pessoa nao disse para quem): a resposta convida a dizer
     #: o nome do dependente.
     padrao: bool = False
+    #: Os itens com regra propria da mesma mensagem (nome, tipo).
+    outros: list[tuple[str, str]] = field(default_factory=list)
 
     def tecnico_de(self, termo: str) -> str:
         """O nome tecnico guardado para o termo (mesma posicao), ou ""."""
@@ -510,6 +539,7 @@ class Contexto:
                 "r": self.respondidos[-4:],
                 "k": self.tecnicos[:MAX_PROCEDIMENTOS],
                 "p": self.padrao,
+                "x": [list(o) for o in self.outros[:MAX_PROCEDIMENTOS]],
             },
             ensure_ascii=False,
         )
@@ -545,6 +575,11 @@ class Contexto:
             respondidos=[str(t) for t in d.get("r") or [] if isinstance(t, str)][-4:],
             tecnicos=[str(t) for t in d.get("k") or [] if isinstance(t, str)][:MAX_PROCEDIMENTOS],
             padrao=d.get("p") is True,
+            outros=[
+                (str(o[0]), str(o[1]))
+                for o in d.get("x") or []
+                if isinstance(o, list) and len(o) == 2 and all(isinstance(x, str) for x in o)
+            ][:MAX_PROCEDIMENTOS],
         )
 
 
@@ -588,7 +623,8 @@ _COMECO_NAO: Final[re.Pattern[str]] = re.compile(r"^(?:nao|n|nem|negativo|agora 
 #: Encerrar o assunto ("deixa pra la", "esquece") — encerra com educacao, nunca vira busca.
 _ENCERRAR_ASSUNTO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:deixa (?:pra|para) la|deixa quieto|deixa isso|deixa assim|deixa pra depois|esquece|esqueca"
-    r"|esquecer|nao precisa mais|nao preciso mais|nao quero mais|tanto faz|mudei de ideia|outra hora"
+    r"|esquecer|desis(?:to|ti)\b|nao precisa mais|nao preciso mais|nao quero mais|tanto faz"
+    r"|mudei de ideia|outra hora"
     r"|depois eu (?:vejo"
     r"|pergunto|resolvo|volto)|depois (?:vejo|pergunto|resolvo)|nao precisa nao|so isso mesmo)\b"
 )
@@ -850,6 +886,57 @@ TEXTO_DESCULPA: Final[str] = "Desculpe a confusão."
 TEXTO_DESCULPA_SEM_ASSUNTO: Final[str] = (
     "Desculpe a confusão. Me diga de novo o que você precisa, que eu tento outra vez."
 )
+
+
+def _primeira_frase(texto: str) -> str:
+    return texto.split(". ")[0].rstrip(".") + "."
+
+
+def frase_de_outro_item(nome: str, tipo: str) -> str:
+    """A linha de um item com regra propria numa lista (a primeira frase do texto aprovado do caso)."""
+    base = {
+        "remedio": TEXTO_REMEDIO,
+        "material": TEXTO_MATERIAL,
+        "estetica": TEXTO_EXCLUSAO.get("estetica", ""),
+        "inseminacao": TEXTO_EXCLUSAO.get("inseminacao", ""),
+        "experimental": TEXTO_EXCLUSAO.get("experimental", ""),
+    }.get(tipo, "")
+    return f"{nome}: {_primeira_frase(base)}" if base else f"{nome}: tem regra própria."
+
+
+TEXTO_OFERTA_DA_DISCORDANCIA: Final[str] = "Se quiser, passo para a nossa equipe ver o seu caso. Quer?"
+TEXTO_EQUIPE_PARA_OS_OUTROS: Final[str] = (
+    "Para os itens com regra própria, quer que eu passe para a nossa equipe conferir? Responda sim ou não."
+)
+#: Avaliacao de 21/10/2026: fala curta depois de uma resposta ("ok", "valeu", "blz").
+TEXTO_DE_NADA: Final[str] = "Por nada! Se precisar, é só chamar."
+TEXTO_COMBINADO: Final[str] = "Combinado! Se precisar, é só chamar."
+_AGRADECE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:obrigad[oa]|obg|valeu|vlw|brigad[oa]|grat[oa]|agradeco)\b"
+)
+
+
+def resposta_de_cortesia(texto: str) -> str:
+    return TEXTO_DE_NADA if _AGRADECE.search(normalizar(texto)) else TEXTO_COMBINADO
+
+
+#: "Faltou algum?", "e os outros?", "nao respondeu todos".
+_FALTOU: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:faltou|faltaram|ficou faltando|ficaram faltando|esqueceu|esqueceram|nao respondeu|e os outros"
+    r"|e o resto|respondeu todos|todos os itens)\b"
+)
+
+
+def pergunta_se_faltou(texto: str) -> bool:
+    return bool(_FALTOU.search(normalizar(texto)))
+
+
+def texto_do_que_respondi(termos: Sequence[str]) -> str:
+    lista = ", ".join(termos)
+    return (
+        f"Respondi os {len(termos)} itens que você mandou: {lista}. Se faltou algum, me mande o nome que eu "
+        "consulto."
+    )
 
 
 def aviso_do_limite(total: int) -> str:
@@ -1133,6 +1220,13 @@ __all__ = [
     "nome_proprio",
     "resposta_curta",
     "aviso_do_limite",
+    "frase_de_outro_item",
+    "pergunta_se_faltou",
+    "resposta_de_cortesia",
+    "texto_do_que_respondi",
+    "TEXTO_COMBINADO",
+    "TEXTO_DE_NADA",
+    "TEXTO_EQUIPE_PARA_OS_OUTROS",
     "texto_dos_nao_localizados",
     "PARA_O_TITULAR",
     "SUFIXO_DO_DEPENDENTE",

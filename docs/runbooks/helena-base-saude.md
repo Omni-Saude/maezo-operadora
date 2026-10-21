@@ -303,3 +303,13 @@ atendimento ou pelo aplicativo Austa Clínicas.". Sem a rota, sem termo ou com f
 - **Desfazer:** revert do PR (DL-0131); apagar `spec/conhecimento/saude/sintoma/sin-batida-na-cabeca.yaml`
   (DL-0132).
 
+## 22. Fluxo da conversa e sintoma em curso (DL-0133), 21/10/2026
+
+- **Sintoma em curso:** `helena_base_saude_alarme_do_sintoma` logo depois de `V4_ALERTA:sin-...` = o sinal dito no turno
+  seguinte escalou pelo assunto em curso.
+- **Depois da resposta:** `helena_cobertura_pendencia_escapou pendencia=COB2:RESPONDIDO` = fala de outro
+  assunto foi ao roteamento normal; `helena_cobertura_troca_de_pessoa decidiu=True|False` = a pessoa dita
+  depois da resposta.
+- **Lote:** `helena_cobertura_lote_refeito itens=N` = itens fracos do lote refeitos um a um.
+- **Simulador:** o nome do dependente lido no turno sai como `[NOME-DEPENDENTE]` em toda saida.
+- **Desfazer:** revert do PR.

@@ -3134,6 +3134,10 @@ _VOCABULARIO_DE_CONVERSA: frozenset[str] = frozenset(
         *("nenhuma", "nenhum", "ninguem", "equipe", "atendente", "pessoa", "humano", "alguem"),
         # DL-0131: "nao quero falar com ninguem DE ATENDIMENTO", "nao quero mais esse caso".
         *("atendimento", "atendimentos", "caso", "chamado", "mais", "esse", "essa", "nada", "disso"),
+        # Avaliacao de 21/10/2026: os qualificadores da recusa ("ja' resolvi", "deu certo", "obrigado").
+        *("ja", "resolvi", "resolvido", "resolvida", "resolveu", "consegui", "deu", "certo", "tudo", "bem"),
+        *("ta", "esta", "to", "estou", "mesmo", "agradeco", "grato", "grata", "vlw", "obg"),
+        *("sozinho", "sozinha", "precisa", "obrigadao", "pronto"),
         # FASE 2 (18/10/2026): cortesia no fim ("nao quero falar com ninguem, obrigado") nao e'
         # relato clinico.
         *("obrigado", "obrigada", "valeu", "brigado", "brigada"),
@@ -3149,7 +3153,7 @@ _FALA_DE_PESSOA = re.compile(
 #: A RECUSA explicita: "nao quero falar com nenhuma equipe", "nao preciso de atendente", "nao quero ser
 #: atendido por ninguem". O alvo (equipe/atendente/pessoa/humano/ninguem) e' obrigatorio.
 _RECUSA_DE_EQUIPE = re.compile(
-    r"\bnao (?:quero|preciso|gostaria|queria)(?: de)?"
+    r"\bnao (?:quero|preciso|gostaria|queria)(?: mais)?(?: de)?"
     r"(?: (?:falar|conversar) com| ser atendid[oa] por)?"
     r"(?: nenhuma?| uma?| a| o)? (?:equipe|atendente|pessoa|humano|ninguem)\b"
 )
@@ -3598,6 +3602,10 @@ _QUERO_UMA_PESSOA: re.Pattern[str] = re.compile(
     r"|equipe|supervisor\w*|gerente)\b"
     r"|\b(?:me passa|passa|passe|transfere|transfira|encaminha|encaminhe|chama|chame)\b(?:\s+\w+){0,3}\s+"
     r"(?:pessoa|atendente|humano|humana|alguem|equipe|supervisor\w*|gerente)\b"
+)
+#: Avaliacao de 21/10/2026: o titular dito depois da resposta ("e' pra mim mesma", "pra mim, titular").
+_TITULAR_DITO: re.Pattern[str] = re.compile(
+    r"\b(?:titular|para mim|pra mim|eu mesm[oa]|sou eu|e pra mim|e para mim)\b"
 )
 #: DL-0131: a escolha curta por numero ou ordinal ("2", "opcao 2", "o segundo", "a ultima").
 _ESCOLHA_CURTA: re.Pattern[str] = re.compile(
@@ -6642,7 +6650,12 @@ class HelenaGraph:
             update_neg.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
             logger.info("helena_cobertura_com_cobranca_negada", node="classify")
             return self._rota_de_consulta(update_neg)
-        continua = _pergunta_de_cobertura(texto) or termo_da_continuacao(texto)
+        continua = _pergunta_de_cobertura(texto) or (
+            # Avaliacao de 21/10/2026: "valeu"/"ok"/"blz" nunca viram busca de procedimento.
+            self._nome_de_procedimento(texto)
+            if self._busca_procedimentos is not None
+            else bool(termo_da_continuacao(texto))
+        )
         if not _cobertura_recente(state) or not continua:
             return None
         update = self._update_sem_modelo(state)
@@ -6689,15 +6702,27 @@ class HelenaGraph:
             return update
         ampla = _pergunta_de_cobertura_ampla(texto)
         lista = self._parece_lista_de_procedimentos(texto)
+        if com_pendencia and (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto)):
+            # Avaliacao de 21/10/2026: pedido EXPLICITO de pessoa no meio da cobertura abre o caso pelo
+            # caminho
+            # de sempre (gatilho de pedido de pessoa), nunca a resposta da cobertura.
+            return None
         if com_pendencia and pendente == _PEND_RESPONDIDO and not (ampla or lista):
-            # Depois de uma resposta ja' dada: agradecimento/conversa segue o caminho de sempre; so' um
-            # pedido novo (outro nome de procedimento) ou "deixa pra la" fica na cobertura.
-            leitura = _ca.ler_resposta(texto)
-            if (
-                leitura in ("sim", "nao", "nao_sei")
-                or _ca.e_cortesia(texto)
-                or not termo_da_continuacao(texto)
-            ):
+            # Depois de uma resposta ja' dada, SO' ficam na cobertura: cortesia ("ok", "valeu"), "faltou
+            # algum?", a troca de pessoa ("e' pra minha esposa"), "deixa pra la" e o NOME de outro exame.
+            # Qualquer outra fala (dependentes, mensalidade, reclamacao, pedido de pessoa) vai ao roteamento
+            # normal — nunca a resposta "quais exames?".
+            from maezo.agents.helena.cobertura_fluxo import cita_outra_pessoa
+
+            fica = (
+                _ca.e_cortesia(texto)
+                or _ca.ler_resposta(texto) == "encerrar"
+                or _ca.pergunta_se_faltou(texto)
+                or (len(plano.split()) <= 10 and (cita_outra_pessoa(texto) or _TITULAR_DITO.search(plano)))
+                or self._nome_de_procedimento(texto)
+            )
+            if not fica:
+                logger.info("helena_cobertura_pendencia_escapou", node="classify", pendencia=pendente)
                 return None
         elif com_pendencia and not (ampla or do_procedimento or lista):
             # DL-0131: so' a resposta CURTA ("1", "sim", "nao", um nome, "eu ja' disse") e a reclamacao sao
@@ -6723,6 +6748,17 @@ class HelenaGraph:
         if not self._gerativa_para(state) or not _ca.e_reclamacao(texto):
             return False
         return not _QUERO_UMA_PESSOA.search(_plano(texto))
+
+    def _nome_de_procedimento(self, texto: str) -> bool:
+        """Avaliacao de 21/10/2026: a fala curta e' o NOME de um exame/procedimento (palavra do catalogo), sem
+        pergunta nem pedido — so' entao ela continua a cobertura sem dizer "cobre"."""
+        from maezo.agents.helena import cobertura_assistida as _ca
+
+        busca = self._busca_procedimentos
+        plano = _plano(texto)
+        if busca is None or not busca.pronto or _ca.e_cortesia(texto) or len(plano.split()) > 12:
+            return False
+        return bool(termo_da_continuacao(texto)) and busca.parece_procedimento(texto)
 
     def _responde_a_pendencia(self, pendente: str, texto: str, plano: str) -> bool:
         """DL-0131: a mensagem e' RESPOSTA a pergunta pendente da cobertura (e nao um pedido novo)?
@@ -7034,6 +7070,12 @@ class HelenaGraph:
             assunto_sin = self._base_sintoma_do_texto(texto, populacao)
             if assunto_sin is not None:
                 grupo = assunto_sin.id
+            else:
+                # Avaliacao de 21/10/2026: o CONTEXTO do sintoma persiste ate' ser resolvido — sem citar outro
+                # assunto, o turno seguinte continua no assunto em curso (nunca as genericas da populacao).
+                anterior = ler_pendente(state.get("coleta_pendente"))
+                if anterior is not None and anterior.grupo.startswith("sin-"):
+                    grupo = anterior.grupo
         codigo = codigo_pendente(ETAPA_ALERTA, grupo, populacao)
         logger.info("helena_v4_sintoma_leve", node="classify", grupo=grupo, populacao=populacao)
         update.update(
@@ -7223,7 +7265,15 @@ class HelenaGraph:
             informativa = True
         queixa = relata_sintoma(plano, None) and _bs.primeira_pessoa(plano) and not duvida
         # (1) ALARME de um arquivo `sin-*` numa QUEIXA: escala na hora, como a tabela (192 no texto).
-        if not duvida and (queixa or extraction.get("sintoma_codigo")) and _bs.alarme_no_texto(base, texto):
+        # Avaliacao de 21/10/2026 (seguranca): com um assunto de sintoma EM CURSO (pergunta de alerta ou
+        # opcoes
+        # pendentes), a resposta e o que vier no turno seguinte sao avaliados contra os sinais DAQUELE assunto
+        # ("vomitou duas vezes" depois da batida na cabeca), sem precisar citar o sintoma de novo.
+        em_curso = pend_v4.grupo if pend_v4 is not None and pend_v4.grupo.startswith("sin-") else None
+        alarme_em_curso = em_curso is not None and _bs.alarme_do_assunto(base, em_curso, texto)
+        if alarme_em_curso or (
+            not duvida and (queixa or extraction.get("sintoma_codigo")) and _bs.alarme_no_texto(base, texto)
+        ):
             logger.warning("helena_base_saude_alarme_do_sintoma", node="classify")
             update["intent"] = "symptom"
             update["next_kind"] = "escalate"
@@ -7253,6 +7303,9 @@ class HelenaGraph:
             _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO.sub(" ", _RECUSA_DE_EQUIPE.sub(" ", plano))
         ):
             if await self._casos_abertos_da_conversa(state):
+                if gerativa:
+                    # DL-0131 / avaliacao de 21/10/2026: na allowlist a recusa ENCERRA direto os casos P2/P3.
+                    return await self._base_confirmacao_de_encerramento(state, update, "sim")
                 logger.info("helena_base_saude_confirma_encerramento", node="classify")
                 return self._base_texto_fixo(
                     update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO
@@ -8297,7 +8350,7 @@ class HelenaGraph:
             or _copart_ou_reembolso_do_procedimento(_plano(mensagem_do_turno))
             # DL-0131: CAMINHO UNICO na allowlist — a lista de exames e qualquer intencao de cobertura.
             or self._parece_lista_de_procedimentos(mensagem_do_turno)
-            or (termo_da_continuacao(mensagem_do_turno) and _cobertura_recente(state))
+            or (self._nome_de_procedimento(mensagem_do_turno) and _cobertura_recente(state))
         ):
             assistida = await self._cobertura_assistida(state, ref)
             if assistida is not None and assistida.get("desviar_para") == "autorizacao":
