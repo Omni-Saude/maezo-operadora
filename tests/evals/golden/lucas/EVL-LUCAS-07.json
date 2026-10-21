@@ -17,9 +17,7 @@
       "competencia": "2026-06"
     }
   },
-  "recorded_llm": [
-    "Encaminhamento automatico por indisponibilidade da tabela de admissibilidade de cobranca."
-  ],
+  "recorded_llm": [],
   "dmn_fixture": {
     "lucas_escalation_routing": { "roteamento": "ATENDIMENTO_HUMANO" }
   },

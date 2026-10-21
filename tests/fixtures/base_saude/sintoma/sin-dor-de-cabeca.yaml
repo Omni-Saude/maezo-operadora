@@ -1,0 +1,33 @@
+# FIXTURE DE TESTE (nao e' conteudo da base real; a base real mora em spec/conhecimento/saude).
+id: sin-dor-de-cabeca
+categoria: sintoma
+titulo: Dor de cabeça
+sinonimos:
+  - dor de cabeca
+  - cefaleia
+  - enxaqueca
+texto: >-
+  A dor de cabeça é muito comum e tem muitas causas, como cansaço, pouco sono e estresse.
+  Descansar em lugar calmo e beber água pode ajudar.
+  Se a dor voltar com frequência, marque uma consulta.
+tipo_texto: proprio
+fontes:
+  - nome: Saúde de A a Z (Ministério da Saúde)
+    url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/c/cefaleia
+    licenca: CC BY-ND 3.0
+    coletado_em: 2026-10-17
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: fixture de teste
+  aprovado_por: "dono (17/10/2026, dev)"
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17
+perguntas_alerta:
+  - A dor começou de repente e é a pior que você já sentiu?
+  - Tem febre com rigidez no pescoço, boca torta ou fraqueza de um lado do corpo?
+sinais_alarme:
+  - pior dor da vida
+  - rigidez no pescoco
+  - boca torta
+  - desmaio
+populacao: adulto

@@ -18,7 +18,7 @@ def lexicos() -> pre_roteamento.PreRoteamento:
 
 def test_o_arquivo_versionado_carrega_como_draft(lexicos: pre_roteamento.PreRoteamento) -> None:
     assert lexicos.status == "DRAFT"
-    assert lexicos.versao == "pre-roteamento-v1"
+    assert lexicos.versao == "pre-roteamento-v2"
     assert lexicos.pedido_humano_lexico and lexicos.sinal_saude_lexico
 
 
@@ -71,6 +71,44 @@ def test_texto_comum_nao_casa_nada(lexicos: pre_roteamento.PreRoteamento, texto:
     sinais = lexicos.avaliar(texto)
     assert not sinais.pedido_humano and not sinais.sinal_saude
     assert sinais.termos_pedido_humano == sinais.termos_sinal_saude == 0
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Qual minha mensalidade? aliás meu pai desmaiou agora. e a carteirinha?",
+        "isso é uma emergência, não tenho tempo para CPF",
+        "ele não está respirando",
+        "minha filha engoliu remédio e não acorda",
+        "minha mãe caiu, bateu a cabeça e está desacordada",
+        "fui esfaqueado, chama uma ambulância",
+        "meu marido está sangrando muito",
+        "socorro",
+    ],
+)
+def test_v2_pega_emergencia_que_o_v1_deixava_passar(
+    lexicos: pre_roteamento.PreRoteamento, texto: str
+) -> None:
+    # Red team 13/10/2026: no passo do CPF essas frases recebiam "CPF invalido" sem o 192.
+    assert lexicos.avaliar(texto).sinal_saude
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "meu plano cobre emergência?",
+        "qual a carência de urgência e emergência",
+        "cobertura de urgência e emergência",
+        "o sistema não responde",
+        "a ambulatorial cobre consulta?",
+    ],
+)
+def test_v2_nao_vira_falso_positivo_em_pergunta_de_cobertura(
+    lexicos: pre_roteamento.PreRoteamento, texto: str
+) -> None:
+    # "urgencia e emergencia" e' termo regulatorio de cobertura: "e emergencia" solto no lexico
+    # casaria com ele o tempo todo (por isso so' as formas ditas por quem esta' em apuro).
+    assert not lexicos.avaliar(texto).sinal_saude
 
 
 def test_sinais_nao_carregam_texto_nem_termo(lexicos: pre_roteamento.PreRoteamento) -> None:

@@ -41,7 +41,7 @@ class Capability:
         self.calls: list[tuple] = []
         self.fail = fail
 
-    async def complete(self, *, task_id, resultado, notes, expected_task_revision):
+    async def complete(self, *, task_id, resultado, notes, expected_task_revision, form_key="escalation"):
         self.calls.append((task_id, resultado, notes, expected_task_revision))
         if self.fail is not None:
             raise self.fail
@@ -158,7 +158,7 @@ async def test_a_capability_from_another_tenant_is_refused():
 
 async def test_an_acknowledgement_that_does_not_match_the_request_is_refused():
     class Lying(Capability):
-        async def complete(self, *, task_id, resultado, notes, expected_task_revision):
+        async def complete(self, *, task_id, resultado, notes, expected_task_revision, form_key="escalation"):
             return CompletionAck(
                 task_id="another-task",
                 resultado=resultado,
@@ -430,3 +430,59 @@ async def test_the_interim_config_carries_only_an_origin_and_a_timeout():
     assert (config.engine_origin, config.timeout_seconds) == (ORIGIN, 7)
     with pytest.raises(FrozenInstanceError):
         config.engine_origin = "https://other.internal/engine-rest"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------------------
+# DL-0111: `cancel_execucao` — one closed variable on the wire, no note, nothing else.
+# ---------------------------------------------------------------------------------------
+async def test_cancel_execucao_request_is_its_one_variable_and_nothing_else():
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(204)
+
+    completion = client(handler)
+    ack = await completion.complete(
+        task_id="task-7",
+        resultado="EXECUTADO",
+        notes=None,
+        expected_task_revision=3,
+        form_key="cancel_execucao",
+    )
+    await completion.close()
+    assert seen["url"] == "https://engine.internal:8443/engine-rest/task/task-7/complete"
+    assert seen["body"] == {
+        "variables": {"execucao_cadastro": {"value": "EXECUTADO", "type": "String"}},
+        "withVariablesInReturn": False,
+    }
+    assert ack.resultado == "EXECUTADO"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"resultado": "EXECUTADO", "notes": NOTES, "form_key": "cancel_execucao"},  # no note on this form
+        {"resultado": "resolvido_humano", "notes": None, "form_key": "cancel_execucao"},
+        {"resultado": "EXECUTADO", "notes": None, "form_key": "escalation"},
+        {"resultado": "EXECUTADO", "notes": None, "form_key": "cancel_decisao"},
+    ],
+)
+async def test_cancel_execucao_client_refuses_anything_off_the_closed_form(kwargs):
+    calls: list[httpx.Request] = []
+    completion = client(lambda request: calls.append(request) or httpx.Response(204))
+    with pytest.raises(GatewayRefusalError):
+        await completion.complete(task_id="task-7", expected_task_revision=3, **kwargs)
+    await completion.close()
+    assert calls == []
+
+
+async def test_cancel_execucao_audit_record_names_its_own_variable_and_no_note():
+    from tests.unit.gateway.human.test_task_completion_gateway import cancel_execucao_snapshot
+
+    entry = _entry(snapshot=cancel_execucao_snapshot(), resultado="IMPEDIDO", notes_digest=None)
+    details = completion_audit_record(entry, workload_ref="human-gateway").details
+    assert details["execucao_cadastro"] == "IMPEDIDO"
+    assert "resultado" not in details and "notas_resolucao_digest" not in details
+    assert details["form_key"] == "cancel_execucao"

@@ -22,6 +22,7 @@ import importlib.util
 import json
 import re
 from collections import Counter
+from datetime import date
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -181,7 +182,7 @@ def test_cobranca_recebida_conciliada_responde_em_dia_sem_processo(registros: li
     r = next(r for r in registros if r["caso"] == caso["id"])
     assert r["route"] == "respond_member"
     assert r["process_started"] is False
-    assert r["textos_enviados"] == [texto_mensalidade_em_dia(new_lucas_state({}))]
+    assert r["textos_enviados"] == [texto_mensalidade_em_dia(new_lucas_state({}), date(2026, 10, 10))]
 
 
 def test_prova_um_envio_por_turno(registros: list[dict[str, Any]]) -> None:
@@ -199,16 +200,16 @@ def test_rascunhos_barrados_sairam_como_a_constante(registros: list[dict[str, An
             RESPOSTA_INFORMATIVA_RECUSADA,
             ACK_ESCALACAO_RECUSADO,
             ACK_ESCALACAO,
-            texto_mensalidade_em_dia(new_lucas_state({})),
+            texto_mensalidade_em_dia(new_lucas_state({}), date(2026, 10, 10)),
         }
         assert r["textos_enviados"][0] in seguros, caso["id"]
 
 
 def test_toda_chamada_de_llm_do_programa_e_phi(registros: list[dict[str, Any]]) -> None:
     assert all(r["llm_todas_phi"] for r in registros)
-    # Toda escalacao chama o modelo (a narrativa do dossie). A resposta informativa pode ser texto
-    # fixo sem modelo nenhum (DL-0082: "mensalidade em dia").
-    assert all(r["llm_chamadas"] >= 1 for r in registros if r["route"] == "escalate_human")
+    # Nenhuma escalacao chama o modelo: o ACK (DL-0082) e a narrativa do dossie (09/10/2026) sao texto
+    # fixo dos fatos. A resposta informativa pode ser texto fixo sem modelo nenhum ("mensalidade em dia").
+    assert all(r["llm_chamadas"] == 0 for r in registros if r["route"] == "escalate_human")
     assert any(r["llm_chamadas"] >= 1 for r in registros if r["route"] == "respond_member")
 
 
@@ -218,6 +219,12 @@ async def test_prova_dmn_indisponivel_escala_em_todo_caso(caso: dict[str, Any]) 
     respondidos: nenhum vira resposta automatica, nenhum perde o caso, todos mandam um envio."""
     sem_dmn = {**caso, "dmn": "indisponivel"}
     registro = await executar_caso(sem_dmn, dmn=DmnIndisponivel())
+    if caso["perfil_fonte"] == "indisponivel" and caso["jornada"] in ("J2", "J1"):
+        # 14/10/2026: com a FONTE fora nao ha' fato nem DMN a consultar — a constante honesta, sem caso (a DMN
+        # fora do ar nao muda nada aqui).
+        assert registro["route"] == "respond_member"
+        assert registro["process_started"] is False and registro["dmn_avaliadas"] == []
+        return
     assert registro["route"] == "escalate_human"
     assert registro["process_started"] is True
     assert registro["envios"] == 1

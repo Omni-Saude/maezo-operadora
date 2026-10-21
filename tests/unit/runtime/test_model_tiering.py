@@ -270,9 +270,12 @@ def test_the_agent_runtime_root_passes_the_declared_tiers_to_the_provider() -> N
 
 
 @pytest.mark.asyncio
-async def test_lucas_routes_the_dossier_narrative_to_reasoning_and_the_message_to_default() -> None:
+async def test_lucas_routes_the_message_to_default_and_the_fixed_texts_call_no_model() -> None:
     """The disclosure in `agents/lucas/graph.py` claimed no tiering existed. It must now be true
-    that the graph names its kinds — otherwise removing the disclosure would be the fabrication."""
+    that the graph names its kinds — otherwise removing the disclosure would be the fabrication.
+
+    09/10/2026: a narrativa do dossie virou TEXTO FIXO dos fatos (`texto_dossie`) — como o ACK de
+    escalacao (DL-0082), ela nao chama modelo nenhum, entao nao consome tier `reasoning`."""
     from tests.unit.agents.test_lucas import _FakeInference, _graph
 
     inference = _FakeInference(["texto", "narrativa"])
@@ -283,4 +286,4 @@ async def test_lucas_routes_the_dossier_narrative_to_reasoning_and_the_message_t
     # DL-0082: o ACK de escalacao e' texto fixo — nenhuma chamada de modelo, nenhum tier.
     graph._build_escalation_ack(state)
 
-    assert inference.task_kinds == ["task_default", "reasoning"]
+    assert inference.task_kinds == ["task_default"]

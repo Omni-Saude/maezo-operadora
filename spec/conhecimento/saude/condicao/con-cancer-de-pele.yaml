@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-cancer-de-pele
+categoria: condicao
+titulo: Câncer de pele
+sinonimos:
+- cancer de pele
+- câncer de pele
+- melanoma
+- câncer de pele não melanoma
+- tumor de pele
+- carcinoma de pele
+- cancer da pele
+texto: O câncer de pele é o crescimento anormal de células da pele. Está ligado principalmente à exposição ao sol ao longo da vida. Pode aparecer como manchas que coçam, descamam ou sangram, ou como feridas que demoram a cicatrizar. Costuma surgir em áreas mais expostas, como rosto, pescoço e orelhas. O tratamento é definido pelo médico e pode envolver cirurgia, entre outras opções. O dermatologista costuma cuidar desse tipo de caso.
+tipo_texto: proprio
+fontes:
+- nome: INCA — Versão para população
+  url: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/pele-nao-melanoma/versao-para-populacao
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/pele-nao-melanoma/versao-para-populacao
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

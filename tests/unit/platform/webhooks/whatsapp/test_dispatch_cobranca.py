@@ -23,7 +23,12 @@ from typing import Any
 
 import pytest
 
-from maezo.agents.helena.graph import FRASE_PASSAGEM_COBRANCA
+from maezo.agents.helena.graph import (
+    FRASE_PASSAGEM_COBRANCA,
+    RESPOSTA_HANDOFF_RECUSADA,
+    RESPOSTA_PECA_REENVIO,
+)
+from maezo.agents.lucas.graph import SEGUNDA_VIA_CANAIS
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.tool_registry import build_agent_seam_context
 from maezo.platform.webhooks.whatsapp import lucas_turno as lt
@@ -226,7 +231,7 @@ async def test_o_lucas_recebe_so_o_handoff_tipado_nunca_o_texto() -> None:
     await dispatcher.dispatch(_msg(texto))
     assert espiao is not None
     (handoff,) = espiao.handoffs
-    assert set(handoff) == {"para", "cobranca_subtipo", "competencia", "message_ref"}
+    assert set(handoff) == {"para", "cobranca_subtipo", "competencia", "cobranca_foco", "message_ref"}
     assert "Fulano" not in json.dumps(handoff)
     assert handoff["message_ref"].startswith("hk1_")  # pseudonimo keyed, nunca o wamid cru
     assert "wamid" not in handoff["message_ref"]
@@ -314,8 +319,10 @@ async def test_reentrega_depois_da_falha_do_lucas_prova_o_dedup_de_saida() -> No
 
     todos = c1.textos + c2.textos
     assert todos.count(FRASE_PASSAGEM_COBRANCA) == 1
-    assert todos.count(_RESPOSTA_DO_LUCAS) == 1
-    assert c2.textos == [_RESPOSTA_DO_LUCAS]
+    # 10/10/2026: a 2a via do Lucas e' TEXTO FIXO (sem fatos por competencia na fonte simulada, so' os
+    # canais), nao mais o rascunho do modelo.
+    assert todos.count(SEGUNDA_VIA_CANAIS) == 1
+    assert c2.textos == [SEGUNDA_VIA_CANAIS]
     assert espiao2 is not None and len(espiao2.handoffs) == 1
     assert _linha(store).agente_ativo == "lucas"
 
@@ -365,9 +372,37 @@ async def _gravar_quebrado(linha: Any, *, revisao_esperada: int | None) -> bool:
 # --- o que NAO passa ------------------------------------------------------------------------------
 
 
-async def test_cobranca_com_pedido_de_pessoa_no_lexico_escala_e_nao_roda_o_lucas() -> None:
+async def test_cobranca_com_pedido_de_pessoa_no_lexico_vai_ao_lucas() -> None:
+    """DL-0092 (rodada 5 do simulador, D11 = 0,50): cobranca no texto vai ao Lucas mesmo com pedido de
+    pessoa; o Lucas responde a cobranca neste turno. A maquina de roteamento (§2.2) continua lendo o
+    pedido de pessoa e devolve a conversa a Helena depois do turno."""
     dispatcher, cliente, store, espiao, _ = _montar([_classify()])
     resultado = await dispatcher.dispatch(_msg("quero falar com um atendente sobre o boleto"))
+    # O Lucas respondeu o fato de cobranca NESTE turno...
+    assert espiao is not None and len(espiao.handoffs) == 1
+    assert cliente.textos[0] == FRASE_PASSAGEM_COBRANCA
+    assert len(cliente.textos) == 3  # a frase, a resposta do Lucas e o aviso de encaminhamento
+    # ... e o pedido EXPLICITO de pessoa foi honrado no mesmo turno (DL-0092, decisao do dono).
+    assert resultado["escalation_started"] is True
+    assert resultado["escalation_motivo"] == "solicitacao_humano"
+    assert cliente.textos[-1] == RESPOSTA_HANDOFF_RECUSADA
+    assert _linha(store).transicao_motivo == "retorno_pedido_humano"
+
+
+async def test_cobranca_sem_pedido_explicito_vai_ao_lucas_e_nao_abre_caso() -> None:
+    """ "me passa pro RH, o boleto..." nao pede uma pessoa da NOSSA equipe: so' o Lucas responde."""
+    dispatcher, cliente, _, espiao, _ = _montar([_classify(intent="human_request")])
+    resultado = await dispatcher.dispatch(_msg("me passa pro RH, o boleto sempre veio pra mim"))
+    assert espiao is not None and len(espiao.handoffs) == 1
+    assert not resultado.get("escalation_started")
+    assert len(cliente.textos) == 2
+
+
+async def test_pedido_de_pessoa_sem_cobranca_escala_e_nao_roda_o_lucas() -> None:
+    dispatcher, cliente, store, espiao, _ = _montar(
+        [_classify(intent="human_request", cobranca_subtipo=None)]
+    )
+    resultado = await dispatcher.dispatch(_msg("quero falar com um atendente"))
     assert resultado["escalation_motivo"] == "solicitacao_humano"
     assert espiao is not None and espiao.handoffs == []
     assert FRASE_PASSAGEM_COBRANCA not in cliente.textos
@@ -384,11 +419,14 @@ async def test_cobranca_com_sinal_de_saude_no_lexico_nunca_vai_ao_lucas() -> Non
 
 
 async def test_classify_falho_nunca_vai_ao_lucas() -> None:
-    dispatcher, _, store, espiao, _ = _montar(["isto nao e json"])
+    dispatcher, cliente, store, espiao, _ = _montar(["isto nao e json"])
     resultado = await dispatcher.dispatch(_msg())
-    assert resultado["escalation_motivo"] == "falha_tecnica"
+    # DL-0093 (rodada 6): a primeira falha do classificador, sem assunto de saude, pede o reenvio e nao
+    # escala; nunca vai ao Lucas.
+    assert resultado.get("escalation_motivo") is None
     assert espiao is not None and espiao.handoffs == []
-    assert _linha(store).transicao_motivo == "retorno_falha"
+    assert cliente.textos == [RESPOSTA_PECA_REENVIO]
+    assert _linha(store).agente_ativo == "helena"
 
 
 # --- desligado e sombra --------------------------------------------------------------------------
@@ -403,7 +441,8 @@ async def test_roteador_sem_lucas_e_a_sombra_a_helena_nao_conhece_cobranca() -> 
     assert len(classificacoes) == 2
     assert all('"cobranca"]' not in p for p in classificacoes)  # classify-v5
     assert resultado.get("handoff") is None
-    assert "invalid_intent" in str(resultado.get("error"))
+    # DL-0093: a recusa da extracao (`invalid_intent`) e' falha do classificador -> pede o reenvio.
+    assert resultado["response_text"] == RESPOSTA_PECA_REENVIO
     assert FRASE_PASSAGEM_COBRANCA not in cliente.textos
     assert _linha(store).agente_ativo == "helena"
 

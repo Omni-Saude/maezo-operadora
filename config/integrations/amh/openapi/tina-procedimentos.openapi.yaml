@@ -1,0 +1,229 @@
+# tina-procedimentos.openapi.yaml — rota NOVA da TINA: CATÁLOGO dos procedimentos que a rota `cobertura` resolve por CÓDIGO
+# (artefato novo, porta própria TinaProcedimentosPort; manifest v1.14).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# Decisão do dono de 19/10/2026 (dono da organização, CTO e DPO; "FAÇA e RESOLVA" e "se precisar de rota ou contrato novo
+# na AMH para ler TUSS e/ou buscar a cobertura por CÓDIGO, o dono autoriza"): aprovado pelo dono (filipecarmo81) em
+# 19/10/2026. Modelo de teste em dev, reversível. Ver docs/governance/catalogo-procedimentos-tina-2026-10-19.md.
+# O `tina-cobertura.openapi.yaml` publicado no v1.9 NÃO muda um byte: esta é uma rota NOVA, ao lado dele.
+# PARA QUE SERVE. O beneficiário fala do procedimento com as palavras dele. O consumidor baixa este catálogo, monta a SUA
+# busca por significado sobre `descricao`/`nome_tuss`, acha o `codigo` e pergunta a cobertura POR CÓDIGO na rota `cobertura`
+# (parâmetro `procedimento` = `codigo`, como está aqui). O catálogo não diz se o plano cobre nada.
+# DADO DE REFERÊNCIA: terminologia de procedimentos; nenhuma pessoa, nenhum plano, nenhum contrato, nenhuma ref.
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH TINA catálogo de procedimentos resolvidos por código (TinaProcedimentosPort)
+  version: 0.1.0
+  description: |
+    Catálogo PAGINADO dos procedimentos que a rota `cobertura` (v1.9) resolve por CÓDIGO.
+    Fonte: gold `tina_catalogo_procedimento` = os códigos DISTINTOS da `tina_cobertura_procedimento` (origens própria e
+    TUSS), com o nome oficial TUSS de `reference.tabela_tuss` (ativos, carga mais recente) quando o código casa e, na falta
+    dela, da terminologia TUSS que o Tasy carrega (origem 8).
+    READ-ONLY por contrato (somente GET). Dado de REFERÊNCIA, sem pessoa: não há sujeito nem auditoria por pessoa.
+    FINALIDADE: única, `atendimento_whatsapp`.
+    FRESCOR: foto do lago (o serviço guarda a foto em memória por até 1 hora); `fonte_atualizada_em` informa a idade e
+    `versao_catalogo` muda quando o conteúdo muda.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/tina/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11).
+security:
+  - bearerAuth: []
+tags:
+  - name: tina-procedimentos
+    description: Catálogo de procedimentos (código, nome do cadastro, nome TUSS, grupo) — dado de referência.
+paths:
+  /procedimentos:
+    get:
+      tags: [tina-procedimentos]
+      operationId: getCatalogoProcedimentos
+      summary: Catálogo paginado dos procedimentos que a rota cobertura resolve por código
+      description: |
+        Pré-condições: escopo `interop/tina.read`; `purpose_of_use=atendimento_whatsapp`; a rota estar LIGADA no serviço
+        (padrão: desligada, responde 404 sem consultar).
+        Paginação: `pagina` começa em 1; `tamanho` de 100 a 2000 (padrão 1000). `pagina` além da última = 404. Catálogo vazio:
+        `pagina=1` responde 200 com `itens: []` e `total_paginas: 0`.
+        Consistência entre páginas: `versao_catalogo` é a MESMA em todas as páginas da mesma foto; se ela mudar no meio do
+        download, recomece da página 1.
+        Limite por cliente (300 pedidos a cada 10 minutos). `Cache-Control: private, max-age=300`.
+      parameters:
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/Tamanho'
+      responses:
+        '200':
+          description: Uma página do catálogo, ordenada pelo valor numérico de `codigo`.
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ['private, max-age=300'] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogoProcedimentos'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo `interop/tina.read` (o mesmo das leituras TINA; dado de
+        referência) — fail-closed.
+  parameters:
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD FIXO desta rota. Qualquer outro valor é 400.
+      schema:
+        type: string
+        enum: [atendimento_whatsapp]
+      example: atendimento_whatsapp
+    Pagina:
+      name: pagina
+      in: query
+      required: false
+      description: Página pedida, a partir de 1. Além da última página = 404.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      example: 1
+    Tamanho:
+      name: tamanho
+      in: query
+      required: false
+      description: Itens por página.
+      schema:
+        type: integer
+        minimum: 100
+        maximum: 2000
+        default: 1000
+      example: 1000
+  schemas:
+    CatalogoProcedimentos:
+      type: object
+      required: [versao_catalogo, pagina, total_paginas, total_itens, itens, fonte_atualizada_em]
+      additionalProperties: false
+      properties:
+        versao_catalogo:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: >-
+            sha256 (hex) do catálogo INTEIRO — o JSON canônico (UTF-8, chaves ordenadas, sem espaços) da lista completa de
+            itens, na ordem desta rota. Igual em todas as páginas da mesma foto; muda quando o conteúdo muda.
+        pagina:
+          type: integer
+          minimum: 1
+        total_paginas:
+          type: integer
+          minimum: 0
+          description: Número de páginas com o `tamanho` pedido (0 quando o catálogo está vazio).
+        total_itens:
+          type: integer
+          minimum: 0
+        itens:
+          type: array
+          maxItems: 2000
+          description: Uma linha por código distinto, ordenada pelo valor numérico de `codigo`.
+          items:
+            $ref: '#/components/schemas/ProcedimentoCatalogo'
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+          description: Quando a gold do catálogo foi construída pela última vez.
+      example:
+        versao_catalogo: '3f0c2a9d8e7b6c5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a'
+        pagina: 1
+        total_paginas: 11
+        total_itens: 10375
+        itens:
+          - codigo: '10101012'
+            descricao: 'Consulta em consultório (no horário normal ou preestabelecido)'
+            nome_tuss: 'Consulta em consultório (no horário normal ou preestabelecido)'
+            grupo: 'Consultas'
+          - codigo: '40316408'
+            descricao: 'Exemplo sintético de exame laboratorial'
+            nome_tuss: 'Exemplo sintético de exame laboratorial'
+            grupo: 'Exames laboratoriais'
+          - codigo: '90000001'
+            descricao: 'Pacote próprio sintético'
+            nome_tuss: null
+            grupo: 'Pacotes'
+        fonte_atualizada_em: '2026-10-19T12:00:00Z'
+    ProcedimentoCatalogo:
+      type: object
+      required: [codigo, descricao, nome_tuss, grupo]
+      additionalProperties: false
+      properties:
+        codigo:
+          type: string
+          pattern: '^[0-9]{1,10}$'
+          minLength: 1
+          maxLength: 10
+          description: >-
+            Código do procedimento, só dígitos e sem zero à esquerda: EXATAMENTE o valor que a rota `cobertura` aceita no
+            parâmetro `procedimento` para casar por código.
+        descricao:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: O nome como está no cadastro de cobertura (código nas duas origens = o nome da origem TUSS).
+        nome_tuss:
+          type: string
+          nullable: true
+          maxLength: 300
+          description: Nome oficial TUSS do código; `null` quando o código não casa com a terminologia TUSS.
+        grupo:
+          type: string
+          nullable: true
+          maxLength: 200
+          description: Grupo/capítulo do procedimento (TUSS quando houver; senão o grupo do cadastro); `null` sem fonte.
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional sem detalhe interno. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada (finalidade, pagina ou tamanho inválidos).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: FAIL-CLOSED — escopo ou tenant não permitidos; nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Rota desligada ou página além da última.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Limite de pedidos da rota por cliente excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno ou fonte indisponível (sem detalhe no corpo).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

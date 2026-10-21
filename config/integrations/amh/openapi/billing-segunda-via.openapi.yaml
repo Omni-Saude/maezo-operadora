@@ -1,0 +1,263 @@
+# billing-segunda-via.openapi.yaml — PROPOSTA de rota NOVA de cobrança: 2ª via do boleto (código de barras), só para o PAGADOR
+# (artefato novo, porta própria BillingSegundaViaPort; manifest v1.11, UNPUBLISHED — NÃO publicado).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# Decisão do dono de 15/10/2026 (catálogo v4, "2ª via do boleto"): APROVA habilitar a 2ª via com código de barras para o
+# beneficiário PAGADOR, em dev; o DPO precisa ratificar ANTES de produção. A publicação deste contrato só acontece depois que o
+# dono aprovar ESTE artefato específico (não está aprovado).
+# POR QUE É UM CONTRATO SEPARADO do billing-status (e não um campo aditivo dele). O código de barras é CREDENCIAL DE PAGAMENTO:
+# quem o tem paga — ou desvia — o boleto. Se fosse campo do billing-status, ele sairia em toda consulta de cobrança que o Lucas
+# faz (e iria ao modelo de linguagem, ao log e ao cache do consumidor). Separado, tem: escopo PRÓPRIO `interop/billing.boleto`
+# (o cliente do agente não o recebe por acidente), lista de clientes no serviço, auditoria FAIL-CLOSED antes da leitura,
+# limite curto, `no-store`, leitura de uma tabela restrita, e pode ser desligado/aprovado/revertido sem tocar a cobrança.
+# REGRAS:
+#  * SÓ o pagador PF recebe; dependente, terceiro, empresa e administradora de adesão recebem `404` (idêntico a "sem boleto");
+#  * SÓ título em aberto ou vencido (boleto pago nunca é reexposto); no máximo 3, o mais recente primeiro;
+#  * fail-closed: DV inválido, formato desconhecido ou valor do código diferente do valor do título ⇒ `disponivel=false` com
+#    motivo; NUNCA um código "consertado";
+#  * o consumidor entrega o código por TEXTO FIXO, nunca pelo modelo de linguagem, e fora de histórico, memória e log;
+#  * o PDF NÃO é entregue por aqui: orientar o aplicativo Austa Clínicas (`pdf.orientacao`).
+# Exemplos 100% sintéticos (números inventados; nenhum boleto real).
+openapi: 3.0.3
+info:
+  title: AMH Billing 2ª via do boleto (BillingSegundaViaPort)
+  version: 0.1.0
+  description: |
+    Código de barras (linha digitável e 44 dígitos) dos boletos em aberto ou vencidos do PAGADOR, por `portable_subject_ref`.
+    Fonte: gold restrita `maezo_codigo_barras_pagador` (conversão determinística do `NR_BLOQUETO` do Tasy, padrão FEBRABAN;
+    ver docs/governance/codigo-de-barras-2a-via-2026-10-15.md). READ-ONLY por contrato (somente GET).
+    BASE LEGAL: execução de contrato (LGPD art. 7º, V), como o `billing-status`; ratificação do DPO para PRODUÇÃO pendente.
+    FINALIDADE: única, `atendimento_whatsapp`.
+    FRESCOR: foto do lago; `fonte_atualizada_em` informa a idade. O código é o do título na data da fonte; pagamento feito
+    depois não aparece até a próxima atualização.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/billing-status/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11); este contrato não fixa host.
+security:
+  - bearerAuth: []
+tags:
+  - name: billing-segunda-via
+    description: 2ª via do boleto (credencial de pagamento) — restrita ao pagador.
+paths:
+  /subjects/{portable_subject_ref}/billing/segunda-via:
+    get:
+      tags: [billing-segunda-via]
+      operationId: getSegundaVia
+      summary: Código de barras dos boletos em aberto/vencidos do pagador (restrita, auditada)
+      description: |
+        Pré-condições, todas obrigatórias (qualquer falha = nenhum código):
+        1. token M2M do cliente de 2ª via, com escopo `interop/billing.boleto` (o serviço ainda confere que o `client_id`
+           está na lista de clientes de 2ª via);
+        2. `purpose_of_use=atendimento_whatsapp`;
+        3. cabeçalho `X-Amh-Request-Ref`: identificador OPACO da solicitação no Maezo (nunca CPF, e-mail, telefone nem nome);
+        4. a rota estar LIGADA no serviço (padrão: desligada, responde 404);
+        5. a leitura é registrada na auditoria ANTES da consulta; se o registro falhar, a resposta é 500 e nenhum código sai.
+        Limite curto por sujeito (5 pedidos a cada 10 minutos). A resposta traz `Cache-Control: no-store` e NUNCA vai para
+        log, telemetria, índice em memória ou cache. Quem não é o pagador PF, empresa, administradora e sujeito sem boleto
+        em aberto recebem o MESMO `404`.
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - $ref: '#/components/parameters/Competencia'
+        - $ref: '#/components/parameters/RequestRef'
+      responses:
+        '200':
+          description: Boletos em aberto/vencidos do pagador (de 1 a 3), com o código quando disponível.
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ['no-store'] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SegundaVia'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo `interop/billing.boleto` — fail-closed. Escopo exclusivo do cliente
+        de 2ª via; o `interop/billing.read` NÃO basta.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05).
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD FIXO desta rota. Qualquer outro valor é 400.
+      schema:
+        type: string
+        enum: [atendimento_whatsapp]
+      example: atendimento_whatsapp
+    Competencia:
+      name: competencia
+      in: query
+      required: false
+      description: Restringe a uma competência (AAAA-MM). Sem ela, até 3 boletos em aberto/vencidos, o mais recente primeiro.
+      schema:
+        type: string
+        pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+      example: '2026-10'
+    RequestRef:
+      name: X-Amh-Request-Ref
+      in: header
+      required: true
+      description: >-
+        Identificador OPACO da solicitação no Maezo (por exemplo o id do turno), para a auditoria. Nunca CPF, e-mail,
+        telefone nem nome.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_.:-]{8,64}$'
+      example: 'req_7f3a9c21d4'
+  schemas:
+    SegundaVia:
+      type: object
+      required: [portable_subject_ref, boletos, pdf, fonte_atualizada_em]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          description: A ref do próprio sujeito consultado (o pagador).
+        boletos:
+          type: array
+          minItems: 1
+          maxItems: 3
+          description: Do mais recente para o mais antigo. Só `em_aberto` ou `vencida`.
+          items:
+            $ref: '#/components/schemas/BoletoSegundaVia'
+        pdf:
+          $ref: '#/components/schemas/Pdf'
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+          description: Quando a fonte (lago) foi atualizada pela última vez.
+      example:
+        portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+        boletos:
+          - competencia: '2026-10'
+            vencimento: '2026-10-10'
+            situacao: vencida
+            valor_titulo: '123.45'
+            disponivel: true
+            indisponivel_motivo: null
+            linha_digitavel: '00191.23454 67890.123457 67890.123457 7 10000000012345'
+            codigo_barras: '00197100000000123451234567890123456789012345'
+        pdf:
+          disponivel: false
+          orientacao: pelo_aplicativo
+        fonte_atualizada_em: '2026-10-15T12:00:00Z'
+    BoletoSegundaVia:
+      type: object
+      required: [competencia, vencimento, situacao, valor_titulo, disponivel, indisponivel_motivo, linha_digitavel, codigo_barras]
+      additionalProperties: false
+      properties:
+        competencia:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        vencimento:
+          type: string
+          format: date
+          nullable: true
+        situacao:
+          type: string
+          enum: [em_aberto, vencida]
+        valor_titulo:
+          type: string
+          nullable: true
+          pattern: '^[0-9]+\.[0-9]{2}$'
+          description: Valor do título (do pagador). Pode divergir do valor a pagar hoje (juros e multa não estão aqui).
+        disponivel:
+          type: boolean
+          description: Há código para entregar. `false` ⇒ `indisponivel_motivo` explica; o consumidor orienta o aplicativo.
+        indisponivel_motivo:
+          type: string
+          nullable: true
+          enum: [sem_bloqueto, formato_nao_reconhecido, arrecadacao_nao_suportada, dv_invalido, valor_diverge]
+          description: >-
+            Por que não há código (vocabulário fechado). `valor_diverge`: o valor embutido no código não bate com o do título.
+            `dv_invalido`/`formato_nao_reconhecido`: o número guardado no Tasy não é um código FEBRABAN válido.
+        linha_digitavel:
+          type: string
+          nullable: true
+          pattern: '^[0-9]{5}\.[0-9]{5} [0-9]{5}\.[0-9]{6} [0-9]{5}\.[0-9]{6} [0-9] [0-9]{14}$'
+          description: >-
+            Linha digitável editada (47 dígitos), a que a pessoa digita no aplicativo do banco. CREDENCIAL DE PAGAMENTO:
+            entregue por texto fixo, nunca pelo modelo de linguagem, e fora de log, histórico e memória.
+        codigo_barras:
+          type: string
+          nullable: true
+          pattern: '^[0-9]{44}$'
+          description: Código de barras de 44 dígitos. CREDENCIAL DE PAGAMENTO (mesmo tratamento da linha digitável).
+    Pdf:
+      type: object
+      required: [disponivel, orientacao]
+      additionalProperties: false
+      description: O boleto em PDF NÃO é entregue por esta rota.
+      properties:
+        disponivel:
+          type: boolean
+          enum: [false]
+        orientacao:
+          type: string
+          enum: [pelo_aplicativo]
+          description: Orientar a baixar o PDF pelo aplicativo Austa Clínicas.
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional SEM PHI nem código de barras. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada (finalidade, competência ou X-Amh-Request-Ref inválidos).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: FAIL-CLOSED — escopo ou cliente não permitidos para a 2ª via; nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: >-
+        Rota desligada, sujeito que não é o pagador PF, empresa, administradora ou sem boleto em aberto (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Limite de pedidos de 2ª via por sujeito excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno ou falha da auditoria (sem detalhe no corpo e sem código).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

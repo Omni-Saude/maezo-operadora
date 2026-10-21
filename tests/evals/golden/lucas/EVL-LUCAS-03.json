@@ -16,9 +16,7 @@
       "contesta_cobranca": true
     }
   },
-  "recorded_llm": [
-    "Resumo factual da contestacao de cobranca para avaliacao humana."
-  ],
+  "recorded_llm": [],
   "dmn_fixture": {
     "lucas_escalation_routing": {"roteamento": "COBRANCA_HUMANO"}
   },

@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: exa-acido-urico
+categoria: exame
+titulo: Ácido úrico
+sinonimos:
+- acido urico
+- uricemia
+- dosagem de ácido úrico
+- exame de ácido úrico
+- ácido úrico no sangue
+- acido urico sangue
+- ácido úrico
+texto: O ácido úrico é um exame de sangue que mede a quantidade dessa substância no organismo. Ela se forma quando o corpo processa certos alimentos e as próprias células. O exame costuma ser pedido para investigar problemas ligados às articulações e aos rins, e para acompanhar alguns tratamentos. A coleta de sangue costuma ser feita em um laboratório, às vezes com jejum, conforme a orientação do laboratório. O resultado é avaliado pelo médico, junto com outras informações de saúde.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

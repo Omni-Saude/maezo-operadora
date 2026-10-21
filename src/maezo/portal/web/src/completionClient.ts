@@ -4,15 +4,21 @@ import { validWire, wireSchema } from "./decisionSchema";
 type Schemas = components["schemas"];
 
 export type CompletionOutcome = Schemas["TaskCompletionSubmission"]["resultado"];
-export type CompletionSubmission = Schemas["TaskCompletionSubmission"];
+// DL-0111: a execucao do cancelamento no cadastro (`cancel_execucao`): um campo fechado, sem nota.
+export type CancelExecucaoOutcome = Schemas["CancelExecucaoCompletionSubmission"]["execucao_cadastro"];
+export type CancelExecucaoSubmission = Schemas["CancelExecucaoCompletionSubmission"];
+export type CompletionSubmission = Schemas["TaskCompletionSubmission"] | CancelExecucaoSubmission;
 export type CompletionResponse = Schemas["TaskCompletionResponse"];
 export type CompletionFailure =
   | Schemas["PortalCompletionError"]["code"]
   | "invalid-response"
   | "outcome-unknown";
+// P5 (16/10/2026): a familia da regra que barraria a instrucao na Helena. Nunca o padrao nem o texto.
+export type ResumptionRefusalGroup = NonNullable<Schemas["PortalCompletionError"]["refusal_group"]>;
 export type CompletionResult =
   | { kind: "success"; value: CompletionResponse }
-  | { kind: CompletionFailure };
+  | { kind: "resumption_refused"; group: ResumptionRefusalGroup }
+  | { kind: Exclude<CompletionFailure, "resumption_refused"> };
 
 const prefix = "/api/v1/portal";
 const submissionSchema = wireSchema("TaskCompletionSubmission");
@@ -26,19 +32,29 @@ export const completionOutcomes = Object.freeze(
 );
 export const maxNotes: number = submissionSchema.properties?.notas_resolucao?.maxLength ?? 0;
 
+const cancelExecucaoSchema = wireSchema("CancelExecucaoCompletionSubmission");
+//: DL-0111: os dois valores do formulario `cancel_execucao`, lidos do OpenAPI revisado.
+export const cancelExecucaoOutcomes = Object.freeze(
+  (cancelExecucaoSchema.properties?.execucao_cadastro?.enum ?? []) as readonly CancelExecucaoOutcome[],
+);
+
 const errorStatus: Readonly<Record<number, readonly CompletionFailure[]>> = {
   400: ["invalid_request"],
   401: ["session_unavailable"],
   403: ["employee_access_required"],
   404: ["resource_unavailable"],
   409: ["revision_conflict"],
-  422: ["invalid_completion"],
+  422: ["invalid_completion", "notes_too_long"],
   501: ["completion_unavailable"],
   503: ["completion_dependency_unavailable"],
 };
 
 export function validCompletionSubmission(value: unknown): value is CompletionSubmission {
-  return validWire(value, submissionSchema);
+  return validWire(value, submissionSchema) || validWire(value, cancelExecucaoSchema);
+}
+
+function submittedOutcome(submission: CompletionSubmission): string {
+  return "execucao_cadastro" in submission ? submission.execucao_cadastro : submission.resultado;
 }
 
 function validateResponse(value: unknown, taskId: string, submission: CompletionSubmission): CompletionResponse | null {
@@ -49,7 +65,7 @@ function validateResponse(value: unknown, taskId: string, submission: Completion
   return completion.schema === "portal-task-completion.v1" &&
     completion.task_id === taskId &&
     completion.state === "completed" &&
-    completion.resultado === submission.resultado
+    completion.resultado === submittedOutcome(submission)
     ? completion
     : null;
 }
@@ -103,8 +119,13 @@ export async function completeTask(
   }
 
   if (validWire(value, wireSchema("PortalCompletionError"))) {
-    const code = (value as Schemas["PortalCompletionError"]).code;
-    if (errorStatus[response.status]?.includes(code)) {
+    const error = value as Schemas["PortalCompletionError"];
+    const code = error.code;
+    if (code === "resumption_refused" && response.status === 422) {
+      // Nada foi gravado nem enviado. Sem o grupo a resposta nao cumpre o contrato.
+      return error.refusal_group ? { kind: code, group: error.refusal_group } : { kind: "invalid-response" };
+    }
+    if (code !== "resumption_refused" && errorStatus[response.status]?.includes(code)) {
       // DL-0049: the interim path commits `portal_direct_completion.intent` BEFORE the effect,
       // and the engine's completion REST accepts no expected revision. A dependency that did
       // not answer is therefore NOT proof that the task stayed open — the same discipline the

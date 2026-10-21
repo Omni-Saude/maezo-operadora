@@ -585,6 +585,23 @@ def test_effectuate_member_request_entry_round_trips() -> None:
     assert result["numero_contrato"] == direct.numero_contrato
 
 
+def test_effectuate_member_request_grava_a_data_de_efeito_do_pedido() -> None:
+    """v0.2.0 (DL-0111): a data de efeito do cancelamento a pedido e' a data do pedido (RN 412 — a
+    confirmar pelo juridico). E' a data que o aviso ao beneficiario cita."""
+    result = effectuate_member_request_entry(
+        {"numero_contrato": "", "matricula_beneficiario": "pseudo", "data_solicitacao_iso": "2026-10-15"}
+    )
+    assert result["data_efeito_iso"] == "2026-10-15"
+
+
+@pytest.mark.parametrize("bruto", ["", "15/10/2026", "2026-02-30", "amanha"])
+def test_effectuate_member_request_data_invalida_vira_hoje(bruto: str) -> None:
+    from datetime import date
+
+    result = effectuate_member_request(CancelInput(data_solicitacao_iso=bruto))
+    assert date.fromisoformat(result.data_efeito_iso) == date.today()
+
+
 def test_effectuate_member_request_entry_ignores_kafka_seam() -> None:
     """kafka is accepted (ADR-0026 §2 bootstrap contract) but unused — never raises when passed."""
     kafka = FakeKafkaPublisher()

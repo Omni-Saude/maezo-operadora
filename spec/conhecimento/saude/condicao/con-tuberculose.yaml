@@ -1,0 +1,26 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-tuberculose
+categoria: condicao
+titulo: Tuberculose
+sinonimos:
+- tuberculose
+- bacilo de koch
+- tuberculose pulmonar
+texto: A tuberculose é uma doença infecciosa e transmissível, causada pela bactéria Mycobacterium tuberculosis, também conhecida como bacilo de Koch. A doença afeta principalmente os pulmões (forma pulmonar), mas pode atingir outros órgãos e/ou sistemas (forma extrapulmonar). A tuberculose não é transmitida por objetos compartilhados. O principal sintoma da tuberculose pulmonar é a tosse.
+tipo_texto: citacao_literal
+fontes:
+- nome: Saúde de A a Z — Tuberculose (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/t/tuberculose
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: ecb21e370371927928e093cde4483241497014c9b73008a0a803bcdb52c90166
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/t/tuberculose
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

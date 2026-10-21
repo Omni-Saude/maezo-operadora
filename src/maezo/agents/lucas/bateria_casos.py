@@ -15,11 +15,27 @@ Chaves de `esperado` (todas opcionais):
   motivo       motivo_humano
   processo     True/False  -> SP-OP-ESCALATION-001 iniciado?
   rejeitado    True        -> a borda de entrada recusa o estado (ValueError em `new_lucas_state`)
+  valores_permitidos True  -> (DL-0086) o texto pode citar R$: o valor vem dos fatos e a cerca do grafo
+                              confere que e' o deles
+  chave        prefixo da chave de negocio do processo iniciado (`ESC-` escalonamento, `CANCEL-` pedido de
+               cancelamento — SP-OP-CANCEL-001)
+  texto_contem trecho que tem de aparecer no texto ao beneficiario (sempre uma constante do grafo, nunca
+               digitado aqui)
+
+Chave opcional do CASO (fora de `esperado`):
+  chaves       interruptores do grafo ligados SO' para este caso (`cancelamento_pf_v1`, `lucas_v4`); a
+               bateria monta um grafo por combinacao (`bateria.chaves_do_caso`). Ausente = desligadas.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from maezo.agents.lucas.graph import (
+    TEXTO_COBRANCA_ADMINISTRADORA,
+    TEXTO_CONFIRMA_CANCELAMENTO,
+    ref_de_resposta,
+)
 
 BASE: dict[str, Any] = {
     "tenant_id": "amh",
@@ -37,8 +53,9 @@ def _c(
     nota: str = "",
     *,
     base: bool = True,
+    chaves: dict[str, bool] | None = None,
 ) -> dict[str, Any]:
-    return {
+    caso: dict[str, Any] = {
         "id": id,
         "familia": familia,
         "descricao": descricao,
@@ -46,12 +63,59 @@ def _c(
         "esperado": esperado,
         "nota": nota,
     }
+    if chaves:
+        caso["chaves"] = dict(chaves)
+    return caso
 
 
 INFO = "A. Informativo (J1): boleto, 2a via, vencimento"
 PAGTO = "B. Confirmacao de pagamento (J2)"
 HUMANO = "C. Sempre humano (J3): inadimplencia, cancelamento, contestacao"
 BORDA = "D. Borda de entrada e robustez"
+VALORES = "E. Pergunta de valor respondida pelos fatos do billing-status (DL-0086)"
+TITULO = "F. De quem e' o titulo: negociacao, cancelamento PF (DL-0111) e adesao (16/10/2026)"
+
+#: Pagador PF que e' o proprio beneficiario, em dia (fatos da fonte; nenhum veredito).
+_PF_EM_DIA: dict[str, Any] = {
+    "pagador_tipo": "pessoa_fisica",
+    "beneficiario_e_pagador": True,
+    "status_conciliado": True,
+    "ciclos_sem_conciliacao": 0,
+}
+
+#: Fatos de valor SINTETICOS na forma do contrato `billing-status` (o que `FatosCobranca` entrega).
+_COMPETENCIAS_SINTETICAS: list[dict[str, str]] = [
+    {
+        "competencia": "2026-09",
+        "situacao": "paga",
+        "vencimento": "2026-09-10",
+        "valor_total": "8389.53",
+        "valor_coparticipacao": "120.00",
+        "valor_saldo": "0.00",
+        "liquidado_em": "2026-09-08",
+        "boleto": "****4821",
+    },
+    {
+        "competencia": "2026-08",
+        "situacao": "paga",
+        "vencimento": "2026-08-10",
+        "valor_total": "8269.53",
+        "valor_coparticipacao": "0.00",
+        "valor_saldo": "0.00",
+        "liquidado_em": "2026-08-09",
+        "boleto": "****4790",
+    },
+]
+_FATOS_DE_VALOR: dict[str, Any] = {
+    "status_conciliado": True,
+    "ciclos_sem_conciliacao": 0,
+    "numero_boleto": "****4821",
+    "cnab_ref": "amh-billing:2026-09-30",
+    "valor_em_aberto": "0.00",
+    "dias_atraso_max": 0,
+    "vencimento_referencia": "2026-09-10",
+    "competencias_cobranca": _COMPETENCIAS_SINTETICAS,
+}
 
 CASOS: list[dict[str, Any]] = [
     # --- A. J1 ---------------------------------------------------------------------------------
@@ -104,7 +168,8 @@ CASOS: list[dict[str, Any]] = [
             status_conciliado=False,
             ciclos_sem_conciliacao=1,
         ),
-        dict(route="escalate_human", motivo="inadimplencia_detectada", processo=True),
+        dict(route="respond_member", processo=False),
+        "14/10/2026 (decisao do dono): 1 ciclo nao e' atraso critico — a 2a via responde, sem caso.",
     ),
     # --- B. J2 ---------------------------------------------------------------------------------
     _c(
@@ -130,8 +195,8 @@ CASOS: list[dict[str, Any]] = [
             status_conciliado=False,
             ciclos_sem_conciliacao=0,
         ),
-        dict(route="escalate_human", motivo="ambiguidade", processo=True),
-        "A tabela cai no catch-all 'ambiguidade'. O grafo hoje rotula como inadimplencia_detectada.",
+        dict(route="respond_member", processo=False),
+        "14/10/2026: o status responde em qualquer estado (fatos primeiro); so' o atraso critico escala.",
     ),
     _c(
         "L08",
@@ -150,8 +215,9 @@ CASOS: list[dict[str, Any]] = [
         PAGTO,
         "Status de conciliacao AUSENTE (worker CNAB ainda nao resolveu)",
         dict(intencao="confirmacao_pagamento", tipo_solicitacao="status_pagamento"),
-        dict(route="escalate_human", motivo="ambiguidade", processo=True),
-        "Ausencia nunca deveria virar 'inadimplente' por suposicao (nota do proprio grafo em gather).",
+        dict(route="respond_member", processo=False),
+        "Ausencia nunca vira 'inadimplente' por suposicao (nota do grafo em gather). 14/10/2026: a falha da "
+        "fonte nao e' caso humano — a constante honesta ('nao consegui consultar') e a oferta de uma pessoa.",
     ),
     # --- C. J3 ---------------------------------------------------------------------------------
     _c(
@@ -302,5 +368,253 @@ CASOS: list[dict[str, Any]] = [
         ),
         dict(route="escalate_human", processo=True),
         "Tipo invalido num fato numerico: nao pode derrubar o turno em silencio.",
+    ),
+    # --- E. Valores (DL-0086) --------------------------------------------------------------------
+    _c(
+        "L25",
+        VALORES,
+        "Quanto foi a mensalidade? Fatos de valor presentes, em dia",
+        dict(intencao="cobranca_info", tipo_solicitacao="consulta_valores", **_FATOS_DE_VALOR),
+        dict(
+            route="respond_member",
+            desfecho="resposta_informativa_enviada",
+            processo=False,
+            valores_permitidos=True,
+        ),
+        "So' os valores/datas dos fatos podem aparecer; fecha com '(dados de 30/09)' (DL-0087).",
+    ),
+    _c(
+        "L26",
+        VALORES,
+        "Coparticipacao de agosto (competencia pedida)",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            competencia="2026-08",
+            **_FATOS_DE_VALOR,
+        ),
+        dict(route="respond_member", processo=False, valores_permitidos=True),
+        "A resposta (texto fixo dos fatos) mostra so' a competencia 2026-08 (foco: geral).",
+    ),
+    _c(
+        "L27",
+        VALORES,
+        "Quanto devo? Sem fatos de valor (fonte indisponivel ou simulada)",
+        dict(intencao="cobranca_info", tipo_solicitacao="consulta_valores"),
+        dict(route="respond_member", processo=False),
+        "Nunca responde valor sem dado. 14/10/2026: sem fatos (fonte indisponivel) a resposta e' a constante "
+        "honesta, sem caso.",
+    ),
+    _c(
+        "L28",
+        VALORES,
+        "Quanto devo? Fatos de valor presentes, mas 2 ciclos sem conciliar",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            **{**_FATOS_DE_VALOR, "status_conciliado": False, "ciclos_sem_conciliacao": 2},
+        ),
+        dict(route="escalate_human", motivo="inadimplencia_detectada", processo=True),
+        "A regra de atraso vem antes da de valores: inadimplente continua com o humano.",
+    ),
+    _c(
+        "L29",
+        VALORES,
+        "Quando vence? Vencimento real da competencia de referencia nos fatos",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="vencimento",
+            status_conciliado=False,
+            ciclos_sem_conciliacao=0,
+            numero_boleto="****4821",
+            cnab_ref="amh-billing:2026-09-30",
+            vencimento_referencia="2026-09-10",
+        ),
+        dict(route="respond_member", desfecho="lembrete_enviado", processo=False),
+        "O lembrete pode citar 10/09/2026, e so' essa data.",
+    ),
+    _c(
+        "L30",
+        VALORES,
+        "Quanto devo? Vencida ontem: nao conciliado, zero ciclos, 1 dia de atraso",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            **{
+                **_FATOS_DE_VALOR,
+                "status_conciliado": False,
+                "ciclos_sem_conciliacao": 0,
+                "dias_atraso_max": 1,
+                "competencias_cobranca": [
+                    {**_COMPETENCIAS_SINTETICAS[0], "situacao": "vencida", "liquidado_em": None}
+                ],
+            },
+        ),
+        dict(route="respond_member", processo=False, valores_permitidos=True),
+        "14/10/2026 (decisao do dono): um mes sem pagamento (1 dia) responde os fatos e oferece uma pessoa — "
+        "sem caso e sem a palavra inadimplencia.",
+    ),
+    # --- 09/10/2026 (teste real do dono): vencimento em texto fixo dos fatos por competencia --------
+    _c(
+        "L31",
+        VALORES,
+        "Quando vence a proxima? Fatos por competencia com uma em aberto",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="vencimento",
+            **{
+                **_FATOS_DE_VALOR,
+                "status_conciliado": False,
+                "valor_em_aberto": "8389.53",
+                "competencias_cobranca": [
+                    {
+                        **_COMPETENCIAS_SINTETICAS[0],
+                        "competencia": "2026-11",
+                        "situacao": "em_aberto",
+                        "vencimento": "2026-11-25",
+                        "valor_saldo": "8389.53",
+                        "liquidado_em": None,
+                        "boleto": "****4830",
+                    },
+                    *_COMPETENCIAS_SINTETICAS,
+                ],
+            },
+        ),
+        dict(route="respond_member", desfecho="lembrete_enviado", processo=False, valores_permitidos=True),
+        "Texto fixo, sem modelo: 'A mensalidade de novembro de 2026 "
+        "vence em 25/11, no valor de R$ 8.389,53.' "
+        "(depois de 25/11/2026 a data ja' passou e sai o 'nao encontrei', sem afirmar atraso).",
+    ),
+    _c(
+        "L32",
+        VALORES,
+        "Quando vence? Tudo pago: a mais recente e 'a proxima ainda nao consta'",
+        dict(intencao="cobranca_info", tipo_solicitacao="vencimento", **_FATOS_DE_VALOR),
+        dict(route="respond_member", desfecho="lembrete_enviado", processo=False),
+        "Texto fixo (DL-0087): 'A de setembro de 2026 venceu em 10/09, e "
+        "voce ja' pagou. A de outubro de 2026 ainda nao "
+        "foi gerada. (dados de 30/09)'",
+    ),
+    _c(
+        "L33",
+        VALORES,
+        "Quando vence? Vencida ontem nos fatos (zero ciclos)",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="vencimento",
+            **{
+                **_FATOS_DE_VALOR,
+                "status_conciliado": False,
+                "ciclos_sem_conciliacao": 0,
+                "dias_atraso_max": 1,
+                "competencias_cobranca": [
+                    {**_COMPETENCIAS_SINTETICAS[0], "situacao": "vencida", "liquidado_em": None}
+                ],
+            },
+        ),
+        dict(route="respond_member", desfecho="lembrete_enviado", processo=False, valores_permitidos=True),
+        "14/10/2026: o vencimento responde com os fatos ('venceu em 10/09 e ainda esta sem pagamento "
+        "confirmado'), sem caso.",
+    ),
+    # --- 10/10/2026 (teste real do dono): 2a via em texto fixo, sem modelo -------------------------
+    _c(
+        "L34",
+        INFO,
+        "Pedido de 2a via com fatos por competencia (tudo pago)",
+        dict(intencao="cobranca_info", tipo_solicitacao="2a_via", **_FATOS_DE_VALOR),
+        dict(route="respond_member", desfecho="resposta_informativa_enviada", processo=False),
+        "Texto fixo, sem modelo (DL-0087): 'Você consegue a 2ª via pelo aplicativo Austa Clínicas, pelo "
+        "portal do plano ou pela central de atendimento. A mensalidade "
+        "de setembro de 2026 já está paga. (dados de "
+        "30/09)' Sem 'Ola!', sem conciliacao.",
+    ),
+    # --- 10/10/2026 (DL-0087): a pergunta de valor responde SO' o campo perguntado -----------------
+    _c(
+        "L35",
+        VALORES,
+        "Quanto paguei de coparticipacao em agosto? (foco coparticipacao)",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            competencia="2026-08",
+            cobranca_foco="coparticipacao",
+            **_FATOS_DE_VALOR,
+        ),
+        dict(route="respond_member", processo=False, valores_permitidos=True),
+        "Texto fixo: 'Em agosto de 2026 voce nao teve coparticipacao: "
+        "R$ 0,00. (dados de 30/09)' — sem mensalidade, "
+        "saldo, vencimento nem boleto.",
+    ),
+    _c(
+        "L36",
+        VALORES,
+        "Quando paguei a mensalidade de agosto? (foco pagamento)",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="consulta_valores",
+            competencia="2026-08",
+            cobranca_foco="pagamento",
+            **_FATOS_DE_VALOR,
+        ),
+        dict(route="respond_member", processo=False),
+        "Texto fixo: 'Voce pagou a mensalidade de agosto de 2026 em "
+        "09/08. (dados de 30/09)' — so' a data pedida.",
+    ),
+    # --- F. de quem e' o titulo (16/10/2026, frente D do SP-OP-ESCALATION-001) ----------------------
+    _c(
+        "L37",
+        TITULO,
+        "Pedido de negociacao do pagador PF (o titulo e' dele)",
+        dict(intencao="cobranca_info", tipo_solicitacao="boleto", pedido_negociacao=True, **_PF_EM_DIA),
+        dict(route="escalate_human", motivo="pedido_negociacao", processo=True, chave="ESC-"),
+        "Rodada 12: o Lucas nunca negocia nem parcela — o pedido do pagador abre o caso humano "
+        "(graph.py `assess`, `pedido_negociacao` sem titulo de terceiro).",
+    ),
+    _c(
+        "L38",
+        TITULO,
+        "Pedido de negociacao num contrato de EMPRESA (o titulo e' da empresa)",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="boleto",
+            pedido_negociacao=True,
+            pagador_tipo="pessoa_juridica",
+            status_conciliado=True,
+            ciclos_sem_conciliacao=0,
+        ),
+        dict(route="respond_member", processo=False),
+        "O beneficiario nao negocia o titulo da empresa: resposta fixa, sem caso humano.",
+    ),
+    _c(
+        "L39",
+        TITULO,
+        "Cancelamento PF confirmado, plano individual segundo a AMH (MAEZO_CANCEL_PF_V1 ligada)",
+        dict(
+            intencao="cancelamento",
+            cancelamento_tipo_plano="individual",
+            cancelamento_titular=True,
+            cancelamento_vinculo_ativo=True,
+            cancelamento_identidade_verificada=True,
+            resposta_anterior_ref=ref_de_resposta(TEXTO_CONFIRMA_CANCELAMENTO),
+            confirmacao_cancelamento="confirma",
+        ),
+        dict(route="escalate_human", motivo="pedido_cancelamento", processo=True, chave="CANCEL-"),
+        "DL-0111: com a chave, o tipo de plano da AMH conta como PF mesmo sem o pagador, e a confirmacao "
+        "abre SP-OP-CANCEL-001 (chave CANCEL-...). Sem a chave, o mesmo estado vira caso humano ESC-.",
+        chaves={"cancelamento_pf_v1": True},
+    ),
+    _c(
+        "L40",
+        TITULO,
+        "Duvida de boleto num coletivo por ADESAO cobrado pela administradora",
+        dict(
+            intencao="cobranca_info",
+            tipo_solicitacao="boleto",
+            cobranca_administradora=True,
+            status_conciliado=True,
+            ciclos_sem_conciliacao=0,
+        ),
+        dict(route="respond_member", processo=False, texto_contem=TEXTO_COBRANCA_ADMINISTRADORA),
+        "13/10/2026 (bateria 4): o boleto e' da administradora — texto fixo dela, sem caso humano.",
     ),
 ]

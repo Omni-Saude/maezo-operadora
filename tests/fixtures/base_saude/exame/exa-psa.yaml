@@ -1,0 +1,25 @@
+# FIXTURE DE TESTE (nao e' conteudo da base real; a base real mora em spec/conhecimento/saude).
+id: exa-psa
+categoria: exame
+titulo: PSA
+sinonimos:
+  - psa
+  - antigeno prostatico especifico
+  - exame de psa
+texto: >-
+  O PSA é uma proteína produzida pela próstata.
+  O exame de PSA mede essa proteína no sangue.
+  O resultado sozinho não confirma nem descarta doença.
+  Quem interpreta o resultado é o médico, junto com outros exames.
+tipo_texto: citacao_literal
+fontes:
+  - nome: INCA — Instituto Nacional de Câncer
+    url: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/prostata
+    licenca: CC BY-ND 3.0
+    coletado_em: 2026-10-17
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: fixture de teste
+  aprovado_por: "dono (17/10/2026, dev)"
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

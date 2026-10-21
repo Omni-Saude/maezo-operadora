@@ -676,7 +676,7 @@ async def test_acknowledge_non_text_sends_exactly_one_fixed_reply_to_the_verifie
     # human/Libras/transcription must break this test, because none of those is wired (owner
     # decisions 9.6/10.2 are OPEN — see the constant's own comment).
     assert NON_TEXT_ACK_TEXT == (
-        "Este canal aceita apenas mensagens de texto. Por favor, envie sua mensagem em texto."
+        "Por aqui eu só consigo ler mensagens de texto. Pode me escrever o que precisa, por favor?"
     )
     assert audit_sink.calls == []  # no process start was audited => none happened (T-C2 fence)
 

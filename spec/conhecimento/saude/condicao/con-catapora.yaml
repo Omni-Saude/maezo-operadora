@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-catapora
+categoria: condicao
+titulo: Catapora (varicela)
+sinonimos:
+- catapora
+- varicela
+- variceula
+- catapura
+- vírus varicela-zoster
+- bolinhas na pele catapora
+- catapora (varicela)
+texto: A catapora, ou varicela, é uma doença infecciosa causada pelo vírus Varicela-Zoster. Ela passa com facilidade de uma pessoa para outra e é mais comum em crianças. Costuma causar manchas vermelhas que viram bolhas e depois crostas, com coceira. Também pode haver cansaço, mal-estar e febre. O tratamento é definido pelo médico, e pediatras, clínicos gerais e infectologistas costumam cuidar do caso.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Catapora (Varicela) (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/c/catapora-varicela
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/c/catapora-varicela
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho; trecho tirado após leitura do Opus 5)

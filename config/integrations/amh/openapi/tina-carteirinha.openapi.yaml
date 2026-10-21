@@ -1,0 +1,207 @@
+# tina-carteirinha.openapi.yaml — rota NOVA da TINA: número COMPLETO da carteirinha do PRÓPRIO sujeito, só do vínculo ATIVO
+# (artefato novo, porta própria TinaCarteirinhaPort; manifest v1.12).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# Decisão do dono de 17/10/2026 (dono da organização, CTO e DPO; "pode exibir o número da carteirinha, eu dono autorizo"):
+# a Helena mostra ao beneficiário VERIFICADO o número completo da PRÓPRIA carteirinha, como modelo de teste em dev, reversível.
+# Substitui, para este caso, a decisão de 15/10/2026 ("não expor o código completo"); o CNS continua FORA (não existe aqui).
+# Ver docs/governance/carteirinha-completa-whatsapp-2026-10-17.md.
+# POR QUE É UMA ROTA PRÓPRIA (e não um campo aditivo da `elegibilidade`). O número completo é IDENTIFICADOR DE USO do plano:
+# quem o tem pode tentar se passar pelo beneficiário num prestador. Como campo da `elegibilidade` ele sairia em toda consulta
+# do plano (e iria ao modelo de linguagem que redige a resposta, ao log e ao cache do consumidor). Separado, tem: escopo
+# PRÓPRIO `interop/tina.carteirinha`, lista de clientes no serviço, auditoria FAIL-CLOSED antes da leitura, limite curto,
+# `no-store`, leitura de uma tabela restrita, resultados do Athena num prefixo próprio, e pode ser desligado/revertido sem
+# tocar a elegibilidade. O `tina.openapi.yaml` publicado no v1.2 NÃO muda um byte.
+# REGRAS:
+#  * SÓ o próprio sujeito (a ref do caminho); nunca dependente, titular ou terceiro por ele;
+#  * SÓ vínculo ATIVO (atendimento liberado e sem cancelamento, ou com cancelamento agendado para depois de hoje); vínculo
+#    cancelado não tem número aqui; sem vínculo ativo => `404` (idêntico ao de sujeito desconhecido);
+#  * `carteirinha_mascarada` é a MESMA da `elegibilidade` (o consumidor casa as duas por ela);
+#  * o consumidor entrega o número por TEXTO FIXO, nunca pelo modelo de linguagem, e fora de histórico, memória, log e relatório.
+# Exemplos 100% sintéticos (números inventados; nenhuma carteirinha real).
+openapi: 3.0.3
+info:
+  title: AMH TINA carteirinha completa do próprio sujeito (TinaCarteirinhaPort)
+  version: 0.1.0
+  description: |
+    Número completo da carteirinha dos vínculos ATIVOS do próprio sujeito, por `portable_subject_ref`.
+    Fonte: gold restrita `tina_carteirinha_numero` (`tasy_pls_segurado_carteira.cd_usuario_plano` da carteira vigente — `D`
+    desbloqueada antes de `P` pendente —, conferido contra o `numero_carteirinha` de `tasy_austa_vw_beneficiarios`).
+    READ-ONLY por contrato (somente GET).
+    BASE LEGAL: execução de contrato (LGPD art. 7º, V), como as demais rotas TINA do atendimento; decisão do dono (DPO) de
+    17/10/2026 para dev; produção pede nova decisão.
+    FINALIDADE: única, `atendimento_whatsapp`.
+    FRESCOR: foto do lago; `fonte_atualizada_em` informa a idade.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/tina/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11).
+security:
+  - bearerAuth: []
+tags:
+  - name: tina-carteirinha
+    description: Número completo da carteirinha do próprio sujeito (restrita, auditada).
+paths:
+  /subjects/{portable_subject_ref}/carteirinha:
+    get:
+      tags: [tina-carteirinha]
+      operationId: getCarteirinhaCompleta
+      summary: Número completo da carteirinha dos vínculos ativos do próprio sujeito (restrita, auditada)
+      description: |
+        Pré-condições, todas obrigatórias (qualquer falha = nenhum número):
+        1. token M2M com escopo `interop/tina.carteirinha` (o serviço ainda confere que o `client_id` está na lista de
+           clientes da carteirinha);
+        2. `purpose_of_use=atendimento_whatsapp`;
+        3. cabeçalho `X-Amh-Request-Ref`: identificador OPACO da solicitação no Maezo (nunca CPF, e-mail, telefone nem nome);
+        4. a rota estar LIGADA no serviço (padrão: desligada, responde 404);
+        5. a leitura é registrada na auditoria ANTES da consulta; se o registro falhar, a resposta é 500 e nenhum número sai.
+        Limite curto por sujeito (5 pedidos a cada 10 minutos). A resposta traz `Cache-Control: no-store` e NUNCA vai para
+        log, telemetria, índice em memória ou cache. Sujeito sem vínculo ativo e sujeito desconhecido recebem o MESMO `404`.
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - $ref: '#/components/parameters/RequestRef'
+      responses:
+        '200':
+          description: Carteirinhas dos vínculos ativos (de 1 a 10; normalmente 1), o vínculo principal primeiro.
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ['no-store'] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Carteirinhas'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo `interop/tina.carteirinha` — fail-closed. O `interop/tina.read`
+        NÃO basta.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05). O número sai SÓ deste sujeito.
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD FIXO desta rota. Qualquer outro valor é 400.
+      schema:
+        type: string
+        enum: [atendimento_whatsapp]
+      example: atendimento_whatsapp
+    RequestRef:
+      name: X-Amh-Request-Ref
+      in: header
+      required: true
+      description: >-
+        Identificador OPACO da solicitação no Maezo (por exemplo o id do turno), para a auditoria. Nunca CPF, e-mail,
+        telefone nem nome.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_.:-]{8,64}$'
+      example: 'req_7f3a9c21d4'
+  schemas:
+    Carteirinhas:
+      type: object
+      required: [portable_subject_ref, carteirinhas, fonte_atualizada_em]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          description: A ref do próprio sujeito consultado.
+        carteirinhas:
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: Um item por vínculo ATIVO; o vínculo principal (regra do catálogo v4) primeiro.
+          items:
+            $ref: '#/components/schemas/Carteirinha'
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+          description: Quando a fonte (lago) foi atualizada pela última vez.
+      example:
+        portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+        carteirinhas:
+          - carteirinha_numero: '900000000000017'
+            carteirinha_mascarada: '***********0017'
+            vinculo_principal: true
+        fonte_atualizada_em: '2026-10-17T12:00:00Z'
+    Carteirinha:
+      type: object
+      required: [carteirinha_numero, carteirinha_mascarada, vinculo_principal]
+      additionalProperties: false
+      properties:
+        carteirinha_numero:
+          type: string
+          pattern: '^[0-9A-Za-z]{8,24}$'
+          description: >-
+            Número COMPLETO da carteirinha (só letras e dígitos). IDENTIFICADOR DE USO DO PLANO: entregue só ao próprio
+            beneficiário verificado, por texto fixo, nunca pelo modelo de linguagem, e fora de log, histórico, memória e
+            relatório.
+        carteirinha_mascarada:
+          type: string
+          pattern: '^\*{4,20}[0-9A-Za-z]{0,4}$'
+          description: A mesma máscara da rota `elegibilidade` (casa o item com o vínculo de lá).
+        vinculo_principal:
+          type: boolean
+          description: O vínculo principal da pessoa (sem rescisão > maior rescisão > maior número do segurado).
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional SEM PHI nem número de carteirinha. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada (finalidade ou X-Amh-Request-Ref inválidos, ref fora do padrão).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: FAIL-CLOSED — escopo ou cliente não permitidos; nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Rota desligada, sujeito desconhecido ou sem vínculo ativo (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Limite de pedidos da carteirinha por sujeito excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno ou falha da auditoria (sem detalhe no corpo e sem número).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

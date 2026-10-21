@@ -24,8 +24,11 @@ from .models import AuthoritativeTask, CurrentTaskAuthority, Scope
 
 
 class ReadRefusalError(Exception):
-    def __init__(self, code: ReadErrorCode) -> None:
+    def __init__(self, code: ReadErrorCode, *, reason: str | None = None) -> None:
         self.code: ReadErrorCode = TypeAdapter(ReadErrorCode).validate_python(code)
+        #: Operator-facing only (never on the wire): WHY a dependency refused, from the closed
+        #: vocabulary `read_credentials.UnavailableReason`. `None` for a refusal that never said.
+        self.reason = reason
         super().__init__(self.code)
 
 

@@ -632,7 +632,9 @@ async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
                 "conversation_id": conversation_id,
                 "canal": "whatsapp",
                 "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-clf3",
-                "message_body": "qualquer coisa",
+                # DL-0093: assunto clinico — a falha do classificador escala de imediato (sem ele, a
+                # primeira falha pede o reenvio).
+                "message_body": "estou com dor nas costas",
             }
         )
 

@@ -134,12 +134,134 @@ V1_1_MIN_PUBLICATION_RUN_ID: Final[int] = 30991849241
 # --- Manifest ADITIVO v1.2 (TINA: elegibilidade, carencias, requisicoes; so OpenAPI) ---
 # Mesmo desenho do v1.1: bloco `manifest_v1_2` OPCIONAL (ausente = o adaptador TINA recusa subir, sem
 # digest); presente = obrigatorio, completo, com o v1.1 ja' pinado e um run de publicacao posterior ao
-# dele. Em 07/10/2026 o manifest v1.2 ainda e' DRAFT na AMH: o bloco NAO existe no lock.
+# dele. A AMH publicou o v1.2 em 13/10/2026 (XRG-2 run 38346972222): o bloco existe no lock.
 V1_2_LOCK_KEY: Final[str] = "manifest_v1_2"
 V1_2_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.2/contract-manifest.yaml"
 V1_2_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina.openapi.yaml",)
 # Run de publicacao do v1.1 (XRG2-AMH-DEV-GHA-37555121279): o v1.2 so pode ser posterior.
 V1_2_MIN_PUBLICATION_RUN_ID: Final[int] = 37555121279
+
+# --- Manifest ADITIVO v1.3 (ACESSO: subject-verification + subject-document-resolution + consent-record) ---
+# DL-0083 (08/10/2026). Mesmo desenho do v1.1/v1.2: bloco `manifest_v1_3` OPCIONAL (ausente = os dois
+# adaptadores do acesso recusam subir, sem digest); presente = obrigatorio e completo, com evidencia
+# propria e run de publicacao posterior ao do v1.2. NAO exige o v1.2 (TINA) pinado: sao entregas
+# independentes. Os contratos estao sendo escritos na AMH e NAO estao pinados: o bloco NAO existe no lock.
+V1_3_LOCK_KEY: Final[str] = "manifest_v1_3"
+V1_3_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.3/contract-manifest.yaml"
+#: TRES artefatos (DL-0084, AMH #214): a resolucao pelo documento do telefone sem cadastro mora em arquivo
+#: proprio. O carregador e' generico sobre esta tupla: o bloco so' vale com os tres digests.
+V1_3_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
+    "schemas/openapi/maezo/v1/subject-verification.openapi.yaml",
+    "schemas/openapi/maezo/v1/subject-document-resolution.openapi.yaml",
+    "schemas/openapi/maezo/v1/consent-record.openapi.yaml",
+)
+# Mesmo piso do v1.2 (run do v1.1): o v1.3 so' pode ser posterior a ele.
+V1_3_MIN_PUBLICATION_RUN_ID: Final[int] = V1_2_MIN_PUBLICATION_RUN_ID
+
+# --- Manifest ADITIVO v1.4 (billing-status 0.2.0: finalidade `atendimento_whatsapp`; so OpenAPI) ---
+# Decisao do DPO de 08/10/2026 (AMH #223/#225, run XRG-2 37929182045). UM artefato NOVO, a revisao 0.2.0 do
+# contrato billing-status (mesma rota; `purpose_of_use` aceita tambem `atendimento_whatsapp`). O manifest
+# declara `supersedes` do billing-status 0.1.0 publicado no v1.1, que fica INTACTO e pinado: por isso o v1.1
+# e' PREDECESSOR obrigatorio (o bloco v1.4 so' vale com o v1.1 no lock, evidencia e digest proprios).
+V1_4_LOCK_KEY: Final[str] = "manifest_v1_4"
+V1_4_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.4/contract-manifest.yaml"
+V1_4_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
+    "schemas/openapi/maezo/v1/billing-status-atendimento.openapi.yaml",
+)
+# Run de publicacao do v1.3 (XRG2-AMH-DEV-GHA-37843212443): o v1.4 so' pode ser posterior a ele.
+V1_4_MIN_PUBLICATION_RUN_ID: Final[int] = 37843212443
+
+# --- Manifest ADITIVO v1.5 (TINA: dependentes do titular; so OpenAPI) ---
+# Decisao do dono de 13/10/2026 (AMH #237/#238, run XRG-2 38489298542). UM artefato NOVO (`tina-dependentes`);
+# o `tina.openapi.yaml` do v1.2 fica intacto. O v1.2 e' PREDECESSOR obrigatorio: o adaptador TINA que le os
+# dependentes e' o mesmo dos fatos do plano.
+V1_5_LOCK_KEY: Final[str] = "manifest_v1_5"
+V1_5_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.5/contract-manifest.yaml"
+V1_5_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina-dependentes.openapi.yaml",)
+# Run de publicacao do v1.2 (XRG2-AMH-DEV-GHA-38346972222): o v1.5 so' pode ser posterior a ele.
+V1_5_MIN_PUBLICATION_RUN_ID: Final[int] = 38346972222
+
+# --- Manifest ADITIVO v1.6 (billing-status 0.3.0: tipo de contratacao e boleto do pagador; so OpenAPI) ---
+# Decisao do dono de 14/10/2026 (AMH #240). UM artefato NOVO, a revisao 0.3.0 do contrato billing-status
+# (mesma rota; so' com `incluir_contratacao=true` acrescenta tres campos). O manifest declara `supersedes` do
+# billing-status 0.2.0 do v1.4, que fica INTACTO e pinado: por isso o v1.4 e' PREDECESSOR obrigatorio.
+V1_6_LOCK_KEY: Final[str] = "manifest_v1_6"
+V1_6_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.6/contract-manifest.yaml"
+V1_6_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
+    "schemas/openapi/maezo/v1/billing-status-contratacao.openapi.yaml",
+)
+# Run de publicacao do v1.5 (XRG2-AMH-DEV-GHA-38489298542): o v1.6 so' pode ser posterior a ele.
+V1_6_MIN_PUBLICATION_RUN_ID: Final[int] = 38489298542
+
+# --- Manifest ADITIVO v1.7 (TINA identificacao-cadastro; PUBLISHED em 16/10/2026, AMH #253; so OpenAPI) ---
+V1_7_LOCK_KEY: Final[str] = "manifest_v1_7"
+V1_7_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.7/contract-manifest.yaml"
+V1_7_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
+    "schemas/openapi/maezo/v1/tina-identificacao-cadastro.openapi.yaml",
+)
+# Run de publicacao do v1.6 (piso): o v1.7 so' pode ser posterior a ele.
+V1_7_MIN_PUBLICATION_RUN_ID: Final[int] = 38501293989
+
+# --- Manifest ADITIVO v1.8 (TINA rede credenciada; PUBLISHED em 16/10/2026, AMH #253; so OpenAPI) ---
+V1_8_LOCK_KEY: Final[str] = "manifest_v1_8"
+V1_8_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.8/contract-manifest.yaml"
+V1_8_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina-rede-credenciada.openapi.yaml",)
+# Run de publicacao do v1.7 (piso): o v1.8 so' pode ser posterior a ele.
+V1_8_MIN_PUBLICATION_RUN_ID: Final[int] = 38866054259
+
+# --- Manifest ADITIVO v1.9 (TINA cobertura; PUBLISHED em 16/10/2026, AMH #253; so OpenAPI) ---
+V1_9_LOCK_KEY: Final[str] = "manifest_v1_9"
+V1_9_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.9/contract-manifest.yaml"
+V1_9_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina-cobertura.openapi.yaml",)
+# Run de publicacao do v1.8 (piso): o v1.9 so' pode ser posterior a ele.
+V1_9_MIN_PUBLICATION_RUN_ID: Final[int] = 38866138790
+
+# --- Manifest ADITIVO v1.10 (billing-status 0.4.0; PUBLISHED em 16/10/2026, AMH #253) ---
+V1_10_LOCK_KEY: Final[str] = "manifest_v1_10"
+V1_10_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.10/contract-manifest.yaml"
+V1_10_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
+    "schemas/openapi/maezo/v1/billing-status-detalhamento.openapi.yaml",
+)
+# Run de publicacao do v1.9 (piso): o v1.10 so' pode ser posterior a ele.
+V1_10_MIN_PUBLICATION_RUN_ID: Final[int] = 38866212057
+
+# --- Manifest ADITIVO v1.11 (billing-segunda-via; PUBLISHED em 16/10/2026, AMH #253; so OpenAPI) ---
+V1_11_LOCK_KEY: Final[str] = "manifest_v1_11"
+V1_11_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.11/contract-manifest.yaml"
+V1_11_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/billing-segunda-via.openapi.yaml",)
+# Run de publicacao do v1.10 (piso): o v1.11 so' pode ser posterior a ele.
+V1_11_MIN_PUBLICATION_RUN_ID: Final[int] = 38866305412
+
+# --- Manifest ADITIVO v1.12 (tina-carteirinha; PUBLISHED em 17/10/2026, AMH #262; so OpenAPI) ---
+V1_12_LOCK_KEY: Final[str] = "manifest_v1_12"
+V1_12_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.12/contract-manifest.yaml"
+V1_12_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina-carteirinha.openapi.yaml",)
+# Run de publicacao do v1.11 (piso): o v1.12 so' pode ser posterior a ele.
+V1_12_MIN_PUBLICATION_RUN_ID: Final[int] = 38866403032
+
+# --- Manifest ADITIVO v1.13 (tina-dependentes-nome; decisao do dono e DPO de 19/10/2026, DL-0127; so OpenAPI)
+# ---
+V1_13_LOCK_KEY: Final[str] = "manifest_v1_13"
+V1_13_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.13/contract-manifest.yaml"
+V1_13_ARTIFACT_PATHS: Final[tuple[str, ...]] = (
+    "schemas/openapi/maezo/v1/tina-dependentes-nome.openapi.yaml",
+)
+# Run de publicacao do v1.12 (piso): o v1.13 so' pode ser posterior a ele.
+V1_13_MIN_PUBLICATION_RUN_ID: Final[int] = 39041030170
+
+# --- Manifest ADITIVO v1.14 (tina-procedimentos; catalogo de procedimentos, DL-0128; so OpenAPI) ---
+V1_14_LOCK_KEY: Final[str] = "manifest_v1_14"
+V1_14_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.14/contract-manifest.yaml"
+V1_14_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina-procedimentos.openapi.yaml",)
+# Run de publicacao do v1.13 (piso): o v1.14 so' pode ser posterior a ele.
+V1_14_MIN_PUBLICATION_RUN_ID: Final[int] = 39261110429
+
+# --- Manifest ADITIVO v1.15 (tina-cpt; CPT vigente do proprio sujeito, DL-0130; so OpenAPI) ---
+V1_15_LOCK_KEY: Final[str] = "manifest_v1_15"
+V1_15_MANIFEST_PATH: Final[str] = "schemas/contracts/maezo/v1.15/contract-manifest.yaml"
+V1_15_ARTIFACT_PATHS: Final[tuple[str, ...]] = ("schemas/openapi/maezo/v1/tina-cpt.openapi.yaml",)
+# Run de publicacao do v1.14 (piso): o v1.15 so' pode ser posterior a ele.
+V1_15_MIN_PUBLICATION_RUN_ID: Final[int] = 39334179928
 
 FROZEN_GLUE_SCHEMA_KEYS: Final[tuple[str, ...]] = (
     "amh_maezo_work_item",
@@ -379,6 +501,32 @@ class AmhContractPin:
     # Digest do manifest v1.2 (TINA), None enquanto nao pinado. O digest do OpenAPI dele tambem entra
     # em `artifact_digests`; sem ele `artifact_digests[tina]` levanta e o adaptador recusa.
     manifest_v1_2_digest: str | None = None
+    # Digest do manifest v1.3 (acesso do beneficiario), None enquanto nao pinado (DL-0083).
+    manifest_v1_3_digest: str | None = None
+    # Digest do manifest v1.4 (billing-status 0.2.0, finalidade `atendimento_whatsapp`), None sem o bloco.
+    manifest_v1_4_digest: str | None = None
+    # Digest do manifest v1.5 (TINA dependentes), None sem o bloco.
+    manifest_v1_5_digest: str | None = None
+    # Digest do manifest v1.6 (billing-status 0.3.0), None sem o bloco.
+    manifest_v1_6_digest: str | None = None
+    # Digest do manifest v1.7 (TINA identificacao-cadastro), None sem o bloco.
+    manifest_v1_7_digest: str | None = None
+    # Digest do manifest v1.8 (TINA rede credenciada), None sem o bloco.
+    manifest_v1_8_digest: str | None = None
+    # Digest do manifest v1.9 (TINA cobertura), None sem o bloco.
+    manifest_v1_9_digest: str | None = None
+    # Digest do manifest v1.10 (billing-status 0.4.0 (detalhamento)), None sem o bloco.
+    manifest_v1_10_digest: str | None = None
+    # Digest do manifest v1.11 (billing-segunda-via), None sem o bloco.
+    manifest_v1_11_digest: str | None = None
+    # Digest do manifest v1.12 (tina-carteirinha), None sem o bloco.
+    manifest_v1_12_digest: str | None = None
+    # Digest do manifest v1.13 (tina-dependentes-nome), None sem o bloco.
+    manifest_v1_13_digest: str | None = None
+    # Digest do manifest v1.14 (tina-procedimentos), None sem o bloco.
+    manifest_v1_14_digest: str | None = None
+    # Digest do manifest v1.15 (tina-cpt), None sem o bloco.
+    manifest_v1_15_digest: str | None = None
 
     @property
     def canonical_schema_major(self) -> int:
@@ -948,6 +1096,177 @@ def _check_manifest_v1_2(violations: list[str], raw: object) -> dict[str, str]:
     )
 
 
+def _check_manifest_v1_3(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.3 (acesso do beneficiario, DL-0083). Mesmo rigor do v1.1,
+    sem predecessor obrigatorio: a evidencia dele nao pode reusar a do v1 (conferido na funcao comum)."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_3_LOCK_KEY,
+        manifest_path=V1_3_MANIFEST_PATH,
+        artifact_paths=V1_3_ARTIFACT_PATHS,
+        min_run_id=V1_3_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
+def _check_manifest_v1_4(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.4 (billing-status 0.2.0). O v1.1 e' predecessor: o artefato
+    sucede (`supersedes`) o billing-status 0.1.0 pinado la', que continua pinado e intocado."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_4_LOCK_KEY,
+        manifest_path=V1_4_MANIFEST_PATH,
+        artifact_paths=V1_4_ARTIFACT_PATHS,
+        min_run_id=V1_4_MIN_PUBLICATION_RUN_ID,
+        predecessors=(V1_1_LOCK_KEY,),
+    )
+
+
+def _check_manifest_v1_5(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.5 (TINA dependentes). O v1.2 e' predecessor."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_5_LOCK_KEY,
+        manifest_path=V1_5_MANIFEST_PATH,
+        artifact_paths=V1_5_ARTIFACT_PATHS,
+        min_run_id=V1_5_MIN_PUBLICATION_RUN_ID,
+        predecessors=(V1_2_LOCK_KEY,),
+    )
+
+
+def _check_manifest_v1_6(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.6 (billing-status 0.3.0). O v1.4 e' predecessor."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_6_LOCK_KEY,
+        manifest_path=V1_6_MANIFEST_PATH,
+        artifact_paths=V1_6_ARTIFACT_PATHS,
+        min_run_id=V1_6_MIN_PUBLICATION_RUN_ID,
+        predecessors=(V1_4_LOCK_KEY,),
+    )
+
+
+def _check_manifest_v1_7(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.7 (TINA identificacao-cadastro)."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_7_LOCK_KEY,
+        manifest_path=V1_7_MANIFEST_PATH,
+        artifact_paths=V1_7_ARTIFACT_PATHS,
+        min_run_id=V1_7_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
+def _check_manifest_v1_8(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.8 (TINA rede credenciada)."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_8_LOCK_KEY,
+        manifest_path=V1_8_MANIFEST_PATH,
+        artifact_paths=V1_8_ARTIFACT_PATHS,
+        min_run_id=V1_8_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
+def _check_manifest_v1_9(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.9 (TINA cobertura)."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_9_LOCK_KEY,
+        manifest_path=V1_9_MANIFEST_PATH,
+        artifact_paths=V1_9_ARTIFACT_PATHS,
+        min_run_id=V1_9_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
+def _check_manifest_v1_10(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.10 (billing-status 0.4.0 (detalhamento))."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_10_LOCK_KEY,
+        manifest_path=V1_10_MANIFEST_PATH,
+        artifact_paths=V1_10_ARTIFACT_PATHS,
+        min_run_id=V1_10_MIN_PUBLICATION_RUN_ID,
+        predecessors=(V1_6_LOCK_KEY,),
+    )
+
+
+def _check_manifest_v1_11(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.11 (billing-segunda-via)."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_11_LOCK_KEY,
+        manifest_path=V1_11_MANIFEST_PATH,
+        artifact_paths=V1_11_ARTIFACT_PATHS,
+        min_run_id=V1_11_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
+def _check_manifest_v1_12(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.12 (tina-carteirinha)."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_12_LOCK_KEY,
+        manifest_path=V1_12_MANIFEST_PATH,
+        artifact_paths=V1_12_ARTIFACT_PATHS,
+        min_run_id=V1_12_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
+def _check_manifest_v1_13(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.13 (tina-dependentes-nome)."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_13_LOCK_KEY,
+        manifest_path=V1_13_MANIFEST_PATH,
+        artifact_paths=V1_13_ARTIFACT_PATHS,
+        min_run_id=V1_13_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
+def _check_manifest_v1_14(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.14 (tina-procedimentos)."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_14_LOCK_KEY,
+        manifest_path=V1_14_MANIFEST_PATH,
+        artifact_paths=V1_14_ARTIFACT_PATHS,
+        min_run_id=V1_14_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
+def _check_manifest_v1_15(violations: list[str], raw: object) -> dict[str, str]:
+    """Bloco opcional do manifest aditivo v1.15 (tina-cpt)."""
+    return _check_additive_manifest(
+        violations,
+        raw,
+        lock_key=V1_15_LOCK_KEY,
+        manifest_path=V1_15_MANIFEST_PATH,
+        artifact_paths=V1_15_ARTIFACT_PATHS,
+        min_run_id=V1_15_MIN_PUBLICATION_RUN_ID,
+        predecessors=(),
+    )
+
+
 def _check_additive_manifest(
     violations: list[str],
     raw: object,
@@ -1076,6 +1395,19 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
     fixtures = _digest_map(violations, raw, "fixtures", key="vendored_path")
     artifacts_v1_1 = _check_manifest_v1_1(violations, raw)
     artifacts_v1_2 = _check_manifest_v1_2(violations, raw)
+    artifacts_v1_3 = _check_manifest_v1_3(violations, raw)
+    artifacts_v1_4 = _check_manifest_v1_4(violations, raw)
+    artifacts_v1_5 = _check_manifest_v1_5(violations, raw)
+    artifacts_v1_6 = _check_manifest_v1_6(violations, raw)
+    artifacts_v1_7 = _check_manifest_v1_7(violations, raw)
+    artifacts_v1_8 = _check_manifest_v1_8(violations, raw)
+    artifacts_v1_9 = _check_manifest_v1_9(violations, raw)
+    artifacts_v1_10 = _check_manifest_v1_10(violations, raw)
+    artifacts_v1_11 = _check_manifest_v1_11(violations, raw)
+    artifacts_v1_12 = _check_manifest_v1_12(violations, raw)
+    artifacts_v1_13 = _check_manifest_v1_13(violations, raw)
+    artifacts_v1_14 = _check_manifest_v1_14(violations, raw)
+    artifacts_v1_15 = _check_manifest_v1_15(violations, raw)
 
     if violations:
         raise AmhContractPinError(violations)
@@ -1097,11 +1429,43 @@ def load_contract_pin(path: Path | None = None) -> AmhContractPin:
         payload_hash_canonicalization=envelope["payload_hash_canonicalization"],
         topics=tuple(topics),
         glue=glue,
-        artifact_digests=MappingProxyType({**artifacts, **artifacts_v1_1, **artifacts_v1_2}),
+        artifact_digests=MappingProxyType(
+            {
+                **artifacts,
+                **artifacts_v1_1,
+                **artifacts_v1_2,
+                **artifacts_v1_3,
+                **artifacts_v1_4,
+                **artifacts_v1_5,
+                **artifacts_v1_6,
+                **artifacts_v1_7,
+                **artifacts_v1_8,
+                **artifacts_v1_9,
+                **artifacts_v1_10,
+                **artifacts_v1_11,
+                **artifacts_v1_12,
+                **artifacts_v1_13,
+                **artifacts_v1_14,
+                **artifacts_v1_15,
+            }
+        ),
         fixture_digests=MappingProxyType(fixtures),
         source_path=pin_path,
         manifest_v1_1_digest=raw[V1_1_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_1 else None,
         manifest_v1_2_digest=raw[V1_2_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_2 else None,
+        manifest_v1_3_digest=raw[V1_3_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_3 else None,
+        manifest_v1_4_digest=raw[V1_4_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_4 else None,
+        manifest_v1_5_digest=raw[V1_5_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_5 else None,
+        manifest_v1_6_digest=raw[V1_6_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_6 else None,
+        manifest_v1_7_digest=raw[V1_7_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_7 else None,
+        manifest_v1_8_digest=raw[V1_8_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_8 else None,
+        manifest_v1_9_digest=raw[V1_9_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_9 else None,
+        manifest_v1_10_digest=raw[V1_10_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_10 else None,
+        manifest_v1_11_digest=raw[V1_11_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_11 else None,
+        manifest_v1_12_digest=raw[V1_12_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_12 else None,
+        manifest_v1_13_digest=raw[V1_13_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_13 else None,
+        manifest_v1_14_digest=raw[V1_14_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_14 else None,
+        manifest_v1_15_digest=raw[V1_15_LOCK_KEY]["manifest_pin"]["sha256"] if artifacts_v1_15 else None,
     )
 
 
@@ -1132,6 +1496,58 @@ __all__ = [
     "V1_2_LOCK_KEY",
     "V1_2_MANIFEST_PATH",
     "V1_2_MIN_PUBLICATION_RUN_ID",
+    "V1_3_ARTIFACT_PATHS",
+    "V1_3_LOCK_KEY",
+    "V1_3_MANIFEST_PATH",
+    "V1_3_MIN_PUBLICATION_RUN_ID",
+    "V1_4_ARTIFACT_PATHS",
+    "V1_4_LOCK_KEY",
+    "V1_4_MANIFEST_PATH",
+    "V1_4_MIN_PUBLICATION_RUN_ID",
+    "V1_5_ARTIFACT_PATHS",
+    "V1_5_LOCK_KEY",
+    "V1_5_MANIFEST_PATH",
+    "V1_5_MIN_PUBLICATION_RUN_ID",
+    "V1_6_ARTIFACT_PATHS",
+    "V1_6_LOCK_KEY",
+    "V1_6_MANIFEST_PATH",
+    "V1_6_MIN_PUBLICATION_RUN_ID",
+    "V1_7_ARTIFACT_PATHS",
+    "V1_7_LOCK_KEY",
+    "V1_7_MANIFEST_PATH",
+    "V1_7_MIN_PUBLICATION_RUN_ID",
+    "V1_8_ARTIFACT_PATHS",
+    "V1_8_LOCK_KEY",
+    "V1_8_MANIFEST_PATH",
+    "V1_8_MIN_PUBLICATION_RUN_ID",
+    "V1_9_ARTIFACT_PATHS",
+    "V1_9_LOCK_KEY",
+    "V1_9_MANIFEST_PATH",
+    "V1_9_MIN_PUBLICATION_RUN_ID",
+    "V1_10_ARTIFACT_PATHS",
+    "V1_10_LOCK_KEY",
+    "V1_10_MANIFEST_PATH",
+    "V1_10_MIN_PUBLICATION_RUN_ID",
+    "V1_11_ARTIFACT_PATHS",
+    "V1_11_LOCK_KEY",
+    "V1_11_MANIFEST_PATH",
+    "V1_11_MIN_PUBLICATION_RUN_ID",
+    "V1_12_ARTIFACT_PATHS",
+    "V1_12_LOCK_KEY",
+    "V1_12_MANIFEST_PATH",
+    "V1_12_MIN_PUBLICATION_RUN_ID",
+    "V1_13_ARTIFACT_PATHS",
+    "V1_13_LOCK_KEY",
+    "V1_13_MANIFEST_PATH",
+    "V1_13_MIN_PUBLICATION_RUN_ID",
+    "V1_14_ARTIFACT_PATHS",
+    "V1_14_LOCK_KEY",
+    "V1_14_MANIFEST_PATH",
+    "V1_14_MIN_PUBLICATION_RUN_ID",
+    "V1_15_ARTIFACT_PATHS",
+    "V1_15_LOCK_KEY",
+    "V1_15_MANIFEST_PATH",
+    "V1_15_MIN_PUBLICATION_RUN_ID",
     "AmhAdapterError",
     "AmhContractPin",
     "AmhContractPinError",

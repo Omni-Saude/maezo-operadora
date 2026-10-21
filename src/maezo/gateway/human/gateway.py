@@ -29,13 +29,12 @@ from maezo.portal.contracts.queues import (
 
 from .completion import (
     COMPLETION_FORM_KEY,
-    COMPLETION_OUTCOMES,
-    COMPLETION_VARIABLES,
+    COMPLETION_FORMS,
+    AnyCompletionOutcome,
     CompletedTask,
     CompletionAck,
     CompletionAuditEntry,
     CompletionAuditSink,
-    CompletionOutcome,
     CompletionRefusal,
     pseudonymize_notes,
 )
@@ -79,6 +78,7 @@ from .queue import (
     TaskDisclosureGrant,
     TaskDisclosureSource,
 )
+from .read_audit import ReadAccessAuditSink, ReadAccessEntry, record_read_best_effort
 from .receipt import (
     BoundReceiptPorts,
     CurrentReceiptAuthority,
@@ -86,6 +86,7 @@ from .receipt import (
     ReceiptIdentity,
     parse_public_receipt,
 )
+from .retomada_precheck import check_resumption_note
 
 _ReadResult = TypeVar("_ReadResult")
 
@@ -127,6 +128,7 @@ class HumanGateway:
         disclosure_source: TaskDisclosureSource | None = None,
         completion_audit: CompletionAuditSink | None = None,
         escalation_context: EscalationContextSource | None = None,
+        read_audit: ReadAccessAuditSink | None = None,
     ) -> None:
         self._scope = Scope.model_validate(scope)
         self._resolver = resolver
@@ -144,6 +146,9 @@ class HumanGateway:
         self._completion_audit = completion_audit
         # INTERIM (DL-0050): `None` keeps `read_escalation_context` refusing.
         self._escalation_context = escalation_context
+        # DL-0149: `None` does NOT refuse the context read (owner's decision, best-effort): the
+        # read is served and `portal_read_audit_skipped` (reason=sink_absent) is logged.
+        self._read_audit = read_audit
         self._check_scope()
 
     def _check_scope(self) -> None:
@@ -165,6 +170,8 @@ class HumanGateway:
         ):
             raise GatewayRefusalError("credential_scope_mismatch")
         if self._escalation_context is not None and self._escalation_context.scope != self._scope:
+            raise GatewayRefusalError("credential_scope_mismatch")
+        if self._read_audit is not None and self._read_audit.scope != self._scope:
             raise GatewayRefusalError("credential_scope_mismatch")
 
         if self._decision_ports is not None and any(
@@ -706,6 +713,13 @@ class HumanGateway:
         route to read the process facts of a task it may not see, nor of a process that is not an
         escalation. The session is resolved again AFTER the remote read, and the read grants must
         outlive it, like every other read here.
+
+        DL-0149 (pendencia (a) do DL-0050): every SUCCESSFUL read appends exactly one
+        `portal_read.task_context` link to the tenant's audit chain — WHO (pseudonymous refs), WHAT
+        (task id + read code) and WHEN — and nothing of what was read. BEST-EFFORT (owner's
+        decision, 19/10/2026): with no sink, or a write that fails or exceeds its deadline, the
+        read is served exactly as before and a closed-code `portal_read_audit_skipped` event is
+        logged. A refused read writes no access link.
         """
         try:
             task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
@@ -750,14 +764,34 @@ class HumanGateway:
                 resumo_contexto=context.resumo_contexto,
                 observed_at=now,
             )
-            return render(response)
+            result = render(response)
+            # LAST, after the whole authorization and the remote read, before anything leaves.
+            # Best-effort: never refuses; only a programming error propagates (and is caught below).
+            await record_read_best_effort(
+                self._read_audit,
+                ReadAccessEntry.of(
+                    scope=self._scope,
+                    read_kind="task_context",
+                    resource_ref=task_id,
+                    principal=final.principal,
+                    read_at=now,
+                ),
+            )
+            return result
         except ReadRefusalError:
             raise
         except Exception:
             raise ReadRefusalError("read_dependency_unavailable") from None
 
     async def complete_task(
-        self, *, session_secret: str, csrf_token: str, task_id: str, resultado: str, notas_resolucao: str
+        self,
+        *,
+        session_secret: str,
+        csrf_token: str,
+        task_id: str,
+        resultado: str,
+        notas_resolucao: str,
+        form_key: str = COMPLETION_FORM_KEY,
     ) -> CompletedTask:
         """INTERIM (DL-0049): authorize a human, scrub the note, claim the revision, complete.
 
@@ -792,19 +826,30 @@ class HumanGateway:
             task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
         except Exception:
             raise ReadRefusalError("invalid_request") from None
-        if resultado not in COMPLETION_OUTCOMES or not notas_resolucao.strip():
-            # Belt: the route's closed contract already refused this with 422.
+        form = COMPLETION_FORMS.get(form_key)
+        if (
+            form is None
+            or resultado not in form.outcomes
+            or (form.note_variable is not None and not notas_resolucao.strip())
+            or (form.note_variable is None and notas_resolucao)
+        ):
+            # Belt: the route's closed contract already refused this with 422. DL-0111: a form
+            # without a note (`cancel_execucao`) never carries free text to the engine.
             raise ReadRefusalError("invalid_request")
-        outcome: CompletionOutcome = resultado  # type: ignore[assignment]
+        outcome: AnyCompletionOutcome = resultado  # type: ignore[assignment]
         first = await self._read_session(session_secret)
         if not csrf_token or not secrets.compare_digest(csrf_token, first.record.csrf_token):
             raise ReadRefusalError("session_unavailable")
         audit = self._completion_audit
         if audit is None or audit.scope != self._scope:
             raise GatewayRefusalError("production_capabilities_unavailable")
-        notes = pseudonymize_notes(notas_resolucao)
+        notes = pseudonymize_notes(notas_resolucao) if form.note_variable is not None else None
+        if notes is not None:
+            # P5: the note the Helena would bar never leaves as a "completed" task. Before the
+            # remote reads, the intent link and the engine; refuses with the rule GROUP only.
+            check_resumption_note(outcome, notes.text)
         task, authority = await self._authorized(first, task_id)
-        self._completion_contract(task, first)
+        self._completion_contract(task, first, form_key=form_key)
         current = await self._read_session(session_secret)
         if current.principal != first.principal:
             raise GatewayRefusalError("revision_conflict")
@@ -822,7 +867,7 @@ class HumanGateway:
             snapshot=snap,
             authority_revision=task.authority_revision,
             resultado=outcome,
-            notes_digest=notes.digest,
+            notes_digest=notes.digest if notes is not None else None,
         )
         try:
             intent_ref, deduped = await audit.record(entry)
@@ -841,6 +886,7 @@ class HumanGateway:
             resultado=outcome,
             notes=notes,
             expected_task_revision=snap.task_revision,
+            form_key=form_key,
         )
         if (
             type(acknowledgement) is not CompletionAck
@@ -860,7 +906,7 @@ class HumanGateway:
                     snapshot=snap,
                     authority_revision=task.authority_revision,
                     resultado=outcome,
-                    notes_digest=notes.digest,
+                    notes_digest=notes.digest if notes is not None else None,
                     outcome="completed",
                 )
             )
@@ -954,8 +1000,14 @@ class HumanGateway:
         raise GatewayRefusalError("authority_unavailable")
 
     @staticmethod
-    def _completion_contract(task: AuthoritativeTask, resolved: ResolvedHumanSession) -> None:
+    def _completion_contract(
+        task: AuthoritativeTask, resolved: ResolvedHumanSession, *, form_key: str = COMPLETION_FORM_KEY
+    ) -> None:
         """Only an ESCALATION human task whose form contract declares these two outputs.
+
+        DL-0111: or a CANCEL v0.2.0 registry execution task (`cancel_execucao`, one closed output).
+        The submitted form MUST be the task's own form: an escalation body never closes a CANCEL
+        task and vice versa.
 
         The form key and `allowed_inputs` come from the authoritative snapshot, which
         `portal/contracts/models.py::_INPUTS_BY_FORM` maps to exactly
@@ -970,9 +1022,10 @@ class HumanGateway:
         """
         snap = task.snapshot
         if (
-            snap.form_key != COMPLETION_FORM_KEY
+            form_key not in COMPLETION_FORMS
+            or snap.form_key != form_key
             or snap.form_source_status != "BPMN_FORMDATA"
-            or not set(COMPLETION_VARIABLES).issubset(snap.allowed_inputs)
+            or not set(COMPLETION_FORMS[form_key].variables).issubset(snap.allowed_inputs)
             or (snap.assignee_ref is not None and snap.assignee_ref != resolved.principal.principal_ref)
         ):
             raise GatewayRefusalError("operation_forbidden")

@@ -2,7 +2,7 @@
 
 Prende a decisao do dono de 07/10/2026: mesmo caminho governado do billing-status/subject-resolution
 (gate em sombra, Zona Geral, auditoria duravel ANTES do despacho, base legal so' como hash, recusa
-fechada), escopo `interop/tina.read` exigido na composicao e o adaptador TINA fail-closed sem o pin v1.2.
+fechada), escopo `interop/tina.read` exigido na composicao e o adaptador TINA fail-closed fora do pin v1.2.
 """
 
 from __future__ import annotations
@@ -62,9 +62,22 @@ def _pedido(**sobre: Any) -> GovernedTinaRequest:
 
 def test_as_tres_operacoes_pedem_o_escopo_tina() -> None:
     assert SCOPE_TINA == "interop/tina.read"
-    for op in tina_mod.OPERATIONS:
+    # A carteirinha completa (manifest v1.12) tem escopo e executor PROPRIOS (`AmhTinaCarteirinhaExecutor`).
+    # Os nomes dos dependentes (manifest v1.13, DL-0127) tambem (`AmhTinaDependentesNomeExecutor`).
+    leituras = tina_mod.OPERATIONS - {tina_mod.OP_CARTEIRINHA, tina_mod.OP_DEPENDENTES_NOME}
+    for op in leituras:
         assert SCOPE_BY_OPERATION[op] == SCOPE_TINA
-    assert AmhTinaExecutor.registered_operations == tina_mod.OPERATIONS
+    assert SCOPE_BY_OPERATION[tina_mod.OP_CARTEIRINHA] == "interop/tina.carteirinha"
+    assert SCOPE_BY_OPERATION[tina_mod.OP_DEPENDENTES_NOME] == "interop/tina.dependentes_nome"
+    # A cobertura (manifest v1.9) usa o mesmo escopo, mas so' o executor PROPRIO a registra
+    # (`AmhTinaCoberturaExecutor`, composto so' com o artefato carregado).
+    # O catalogo (manifest v1.14, DL-0128) tambem tem executor PROPRIO (`AmhTinaCatalogoExecutor`), e a CPT
+    # vigente (manifest v1.15, DL-0130) tambem (`AmhTinaCptExecutor`).
+    assert AmhTinaExecutor.registered_operations == leituras - {
+        tina_mod.OP_COBERTURA,
+        tina_mod.OP_PROCEDIMENTOS,
+        tina_mod.OP_CPT,
+    }
 
 
 async def test_leitura_tina_audita_antes_e_despacha_na_rota_fixa(servidor: Servidor, tokens: Any) -> None:
@@ -194,10 +207,10 @@ def test_composicao_sem_tina_nao_le_nada_da_tina(tmp_path: Path, monkeypatch: py
     assert len(interop._executors) == 2
 
 
-def test_composicao_com_tina_sem_pin_v1_2_recusa_pelo_contrato(
+def test_composicao_com_tina_fora_do_pin_v1_2_recusa_pelo_contrato(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """O lock real NAO tem `manifest_v1_2` (DRAFT): o adaptador TINA recusa, e com ele o boot."""
+    """Bytes TINA fora do digest do bloco `manifest_v1_2`: o adaptador recusa, e com ele o boot."""
     from maezo.adapters.amh import billing_status as bs
     from maezo.adapters.amh import subject_resolution as sr
 
@@ -276,7 +289,13 @@ def test_operacoes_tina_no_catalogo_e_acao_l3_nao_hard_declarada_na_helena() -> 
     for operacao in tina_mod.OPERATIONS:
         spec = OPERATIONS[operacao]
         assert spec.action_class == "leitura_phi_clinica"
-        assert spec.autonomy_action == "read_member_plan_facts"
+        # A carteirinha completa tem acao PROPRIA (identificador de uso do plano; dono, 17/10/2026).
+        # Os nomes dos dependentes tambem (dono e DPO, 19/10/2026, DL-0127).
+        esperada = {
+            tina_mod.OP_CARTEIRINHA: "read_member_card_number",
+            tina_mod.OP_DEPENDENTES_NOME: "read_member_dependent_names",
+        }.get(operacao, "read_member_plan_facts")
+        assert spec.autonomy_action == esperada
         assert spec.tool_id is None
     matriz = load_matrix(raiz / "spec/policies/autonomy/L0-core.yaml", tenant="helena-tina-unit")
     politica = matriz.policy_for("read_member_plan_facts")
@@ -290,4 +309,151 @@ def test_operacoes_tina_no_catalogo_e_acao_l3_nao_hard_declarada_na_helena() -> 
         assert aprovacoes["mapeamento_acoes"][f"agente.{operacao}"] == "leitura_phi_clinica"
     helena = yaml.safe_load((raiz / "spec/agents/helena/agent.yaml").read_text(encoding="utf-8"))
     assert "read_member_plan_facts" in helena["autonomy_actions"]
+    assert "read_member_card_number" in helena["autonomy_actions"]
+    cartao = matriz.policy_for("read_member_card_number")
+    assert cartao is not None and cartao.level is Level.L3 and cartao.hard is False
     assert helena["security_zone"] == "general"
+
+
+# --- dependentes do titular (manifest v1.5): executor real e composicao com os bytes REAIS pinados ------
+
+_REAL = Path(__file__).resolve().parents[3] / "config" / "integrations" / "amh" / "openapi"
+_REF_REAL = "amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"
+_DEP_PATH = f"/interop/tina/v1/subjects/{_REF_REAL}/dependentes"
+
+
+def _corpo_dependentes() -> dict[str, Any]:
+    return {
+        "portable_subject_ref": _REF_REAL,
+        "eh_titular": True,
+        "total_ativos": 1,
+        "lista_truncada": False,
+        "dependentes": [
+            {
+                "relacao_dependencia": "Filho(a) até 23 anos",
+                "situacao_beneficiario": "Apto",
+                "recem_nascido_no_plano": False,
+            }
+        ],
+        "fonte_atualizada_em": "2026-10-13T10:00:00Z",
+    }
+
+
+async def test_dependentes_audita_antes_e_despacha_na_rota_fixa(servidor: Servidor, tokens: Any) -> None:
+    audit = Audit(servidor)
+    executor = AmhTinaExecutor(**_comum(servidor, tokens, audit))
+    resultado = await executor.execute(
+        _pedido(
+            operation=tina_mod.OP_DEPENDENTES,
+            path="/interop/tina/v1/subjects/subject1/dependentes",
+        )
+    )
+    assert resultado.succeeded, resultado.failure
+    [pedido] = servidor.ao_servico()
+    assert (
+        str(pedido.url)
+        == ORIGIN + "/interop/tina/v1/subjects/subject1/dependentes?purpose_of_use=sharing_amh_internal"
+    )
+    assert audit.pedidos_no_emit == [0]  # auditoria ANTES do despacho
+    [registro] = audit.registros
+    assert registro.action == tina_mod.OP_DEPENDENTES
+    assert SCOPE_BY_OPERATION[tina_mod.OP_DEPENDENTES] == SCOPE_TINA
+
+
+@pytest.mark.parametrize(
+    "sobre",
+    [
+        {"path": "/interop/tina/v1/subjects/subject1/elegibilidade"},  # rota de outra operacao
+        {"query": (("purpose_of_use", PURPOSE), ("limite", 5))},  # `limite` nao existe nesta rota
+        {"query": (("purpose_of_use", "outro"),)},
+        {"query": ()},
+    ],
+)
+async def test_dependentes_fora_da_forma_nunca_e_despachado(
+    servidor: Servidor, tokens: Any, sobre: dict[str, Any]
+) -> None:
+    audit = Audit()
+    executor = AmhTinaExecutor(**_comum(servidor, tokens, audit))
+    base = {
+        "operation": tina_mod.OP_DEPENDENTES,
+        "path": "/interop/tina/v1/subjects/subject1/dependentes",
+        **sobre,
+    }
+    resultado = await executor.execute(_pedido(**base))
+    assert resultado.failure is not None and resultado.failure.reason is Reason.INVALID_REQUEST
+    assert servidor.ao_servico() == [] and audit.registros == []
+
+
+def _composicao_real(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **sobre: Any) -> Any:
+    from maezo.adapters.amh import billing_status as bs
+    from maezo.adapters.amh import subject_resolution as sr
+
+    class _Adapter:
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+    monkeypatch.setattr(bs, "AmhBillingStatusAdapter", _Adapter)
+    monkeypatch.setattr(sr, "AmhSubjectResolutionAdapter", _Adapter)
+    return _settings_tina(tmp_path, amh_tina_openapi_path=str(_REAL / "tina.openapi.yaml"), **sobre)
+
+
+async def test_ponta_a_ponta_dependentes_com_o_pin_real(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, servidor: Servidor
+) -> None:
+    servidor.respostas[_DEP_PATH] = httpx.Response(200, json=_corpo_dependentes())
+    audit = Audit()
+    interop = build_amh_interop(
+        settings=_composicao_real(
+            tmp_path,
+            monkeypatch,
+            amh_tina_dependentes_openapi_path=str(_REAL / "tina-dependentes.openapi.yaml"),
+        ),
+        seam=_seam(),
+        audit=audit,
+        agent_version="helena@v0",
+        transport_factory=servidor.factory,
+        incluir_tina=True,
+    )
+    assert interop.tina is not None
+    resultado = await interop.tina.get_dependentes(
+        _REF_REAL, purpose_of_use=PURPOSE, consent_decision_ref=_BASE_LEGAL
+    )
+    assert resultado.succeeded, resultado.failure
+    assert resultado.value is not None and resultado.value.total_ativos == 1
+    assert resultado.value.dependentes[0].relacao_dependencia == "Filho(a) até 23 anos"
+    assert [r.action for r in audit.registros] == [tina_mod.OP_DEPENDENTES]
+    [token_req] = [p for p in servidor.pedidos if p not in servidor.ao_servico()]
+    assert "interop%2Ftina.read" in token_req.content.decode()
+
+
+async def test_composicao_sem_o_caminho_de_dependentes_so_recusa_a_leitura_de_dependentes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    interop = build_amh_interop(
+        settings=_composicao_real(tmp_path, monkeypatch),
+        seam=_seam(),
+        audit=Audit(),
+        agent_version="helena@v0",
+        incluir_tina=True,
+    )
+    assert interop.tina is not None
+    resultado = await interop.tina.get_dependentes(
+        _REF_REAL, purpose_of_use=PURPOSE, consent_decision_ref=_BASE_LEGAL
+    )
+    assert resultado.failure is not None and resultado.failure.reason is Reason.SCOPE_NOT_SUPPORTED
+
+
+def test_composicao_com_dependentes_fora_do_pin_recusa_servir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "d.yaml").write_bytes(b"openapi: 3.0.3\n")
+    with pytest.raises(tina_mod.TinaContractError):
+        build_amh_interop(
+            settings=_composicao_real(
+                tmp_path, monkeypatch, amh_tina_dependentes_openapi_path=str(tmp_path / "d.yaml")
+            ),
+            seam=_seam(),
+            audit=Audit(),
+            agent_version="helena@v0",
+            incluir_tina=True,
+        )

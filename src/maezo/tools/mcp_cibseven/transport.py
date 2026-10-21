@@ -2001,3 +2001,84 @@ async def start_process_idempotent(
         instance_id=instance.instance_id,
     )
     return replace(instance, start_outcome=StartOutcome.STARTED)
+
+
+# ADR-0007 "tool"/"decision" values for an agent-directed message CORRELATION (DL-0118, ADR-0064). Same
+# shape as the start record above: `action` names the effect and its target (message + process class
+# tokens); `decision` is a fixed honest label — the record attests "the agent committed to correlating
+# this message into this process instance". The agent's own verdict lives in `decision_basis`.
+_CORRELATE_ACTION_PREFIX = "correlate_message"
+_CORRELATE_DECISION = "CORRELATE_MESSAGE"
+
+
+def correlate_dedup_key(
+    tenant_id: str, process_key: str, message_name: str, business_key: str, instance_id: str
+) -> str:
+    """The exactly-once dedup key of ONE correlation into ONE engine instance.
+
+    ``f"{tenant}:correlate:{process_key}:{message}:{business_key}:{instance_id}"``. The `instance_id`
+    is in the key on purpose: after a withdrawal the same business key may legitimately host a NEW
+    instance (SP-OP-ESCALATION-001 is `NON_STRICT`), and its own withdrawal must get its own record."""
+    return f"{tenant_id}:correlate:{process_key}:{message_name}:{business_key}:{instance_id}"
+
+
+async def correlate_message_audited(
+    transport: CibSevenTransport,
+    *,
+    process_key: str,
+    message_name: str,
+    business_key: str,
+    instance_id: str,
+    variables: dict[str, Any],
+    audit_sink: AuditStartSink,
+    provenance: AgentDecisionProvenance,
+) -> None:
+    """AUDIT-BEFORE-EFFECT for an agent-directed correlation (the correlate twin of
+    `start_process_idempotent`, DL-0118 / ADR-0064).
+
+    Order, and why: (1) the start-variable free-text scrub (CC-06) runs on the correlation variables —
+    they land in the instance exactly like start variables; (2) the durable ADR-0007 record is emitted
+    exactly-once (`emit_once`, dedup key per instance) BEFORE the engine is touched — a sink failure
+    propagates and NO correlation happens; (3) only then `transport.correlate_message`. Engine refusal
+    (no matching subscription, engine down) surfaces as the transport's own `CibSevenError` /
+    `ProcessNotFoundError` — the record stays, attesting the attempt (the same honest posture as a start
+    whose POST failed after its claim).
+
+    The record never stores the business key nor the variables in the clear: `input_sha256` binds them,
+    `decision_basis` goes through `redact_phi_vars` (the start record's own discipline).
+    """
+    if not process_key or not message_name or not business_key or not instance_id:
+        raise ValueError(
+            "correlate_message_audited needs process_key, message_name, business_key and instance_id"
+        )
+    scrubbed = redact_start_variables(variables)
+    record = AuditRecord(
+        agent_id=provenance.agent_id,
+        tenant_id=provenance.tenant_id,
+        agent_version=provenance.agent_version,
+        action=f"{_CORRELATE_ACTION_PREFIX}:{process_key}:{message_name}",
+        decision=_CORRELATE_DECISION,
+        details={
+            **redact_phi_vars(provenance.decision_basis),
+            "process_key": process_key,
+            "message_name": message_name,
+            "input_sha256": hash_input(scrubbed),
+        },
+        dmn_versions=dict(provenance.dmn_versions),
+        model_id=provenance.model_id,
+        prompt_version=provenance.prompt_version,
+    )
+    await audit_sink.emit_once(
+        record,
+        dedup_key=correlate_dedup_key(
+            provenance.tenant_id, process_key, message_name, business_key, instance_id
+        ),
+    )
+    await transport.correlate_message(message_name, business_key, scrubbed)
+    logger.info(
+        "cibseven_message_correlated",
+        process_key=process_key,
+        message_name=message_name,
+        business_key=business_key,
+        instance_id=instance_id,
+    )

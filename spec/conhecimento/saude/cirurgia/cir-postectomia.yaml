@@ -1,0 +1,35 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: cir-postectomia
+categoria: cirurgia
+titulo: Postectomia (cirurgia de fimose)
+sinonimos:
+- postectomia
+- cirurgia de fimose
+- cirurgia da fimose
+- circuncisão
+- circuncisao
+- postoplastia
+- tirar a fimose
+- postectomia (cirurgia de fimose)
+texto: A postectomia é a cirurgia que retira o excesso de pele que cobre a cabeça do pênis. Essa pele se chama prepúcio. Costuma ser indicada na fimose, quando a glande não pode ser exposta e outros tratamentos não resolveram. Em geral, é um procedimento simples, feito com anestesia. O médico remove a pele ou faz pequenos cortes nela. A indicação é do médico, caso a caso, e o urologista costuma cuidar disso.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Fimose (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/f/fimose
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/f/fimose
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

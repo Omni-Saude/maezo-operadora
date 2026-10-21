@@ -1050,6 +1050,10 @@ _DESIGN_6_1_LADDER: tuple[tuple[str, str, str], ...] = (
     # §6.1 C3 row 3: "Denied → the delegating side degrades exactly as it does when the dossier
     # seam is absent … never a fabricated dossier".
     ("delegacao_a2a", effect_classes.RUNG_C3_MUTACAO_ENGINE, effect_classes.SHAPE_DEGRADACAO_SEM_DOSSIE),
+    # DL-0083 (revisao do PR #700, fora do §6.1 original): a ESCRITA do consentimento no lago da AMH.
+    # "Denied → a decisao vale localmente e o registro fica PENDENTE e visivel, nunca fabricado" — a
+    # lacuna declarada da escrita, no degrau das mutacoes.
+    ("registro_consentimento", effect_classes.RUNG_C3_MUTACAO_ENGINE, effect_classes.SHAPE_LACUNA_DECLARADA),
     # -- C4 — adverse / money / regulatory ----------------------------------------------------------
     # §6.1 C4 (one row, six classes): "(a) Denied → audited refusal + fail-closed incident + human
     # route. (b) PEP neutralized → the L0-hard NOT_HUMAN guard still refuses (I-6)."
@@ -1084,7 +1088,9 @@ def test_every_class_carries_the_exact_rung_and_denial_shape_design_6_1_assigns(
     assert {name: (spec.rung, spec.denial_shape) for name, spec in effect_classes.ACTION_CLASSES.items()} == {
         name: (rung, shape) for name, rung, shape in _DESIGN_6_1_LADDER
     }
-    assert len(_DESIGN_6_1_LADDER) == 15, "design §6.1 declares fifteen classes across five rungs"
+    assert len(_DESIGN_6_1_LADDER) == 16, (
+        "design §6.1 declares fifteen classes across five rungs, plus `registro_consentimento` (DL-0083)"
+    )
     assert {rung for _, rung, _ in _DESIGN_6_1_LADDER} == {
         effect_classes.RUNG_C0_LEITURA_INTERNA,
         effect_classes.RUNG_C1_NOTIFICACAO,

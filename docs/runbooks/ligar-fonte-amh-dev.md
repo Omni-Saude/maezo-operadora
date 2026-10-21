@@ -157,12 +157,15 @@ respondendo com fatos simulados, como hoje.
 Desligado por padrao. So' depois de TODOS estes passos:
 
 1. A AMH publicou o manifest aditivo **v1.2** (`schemas/contracts/maezo/v1.2/contract-manifest.yaml`, 1
-   artefato: `schemas/openapi/maezo/v1/tina.openapi.yaml`) — XRG-2 com atestacao humana. Hoje (07/10/2026)
-   ele e' DRAFT.
+   artefato: `schemas/openapi/maezo/v1/tina.openapi.yaml`) — XRG-2 com atestacao humana. **Feito em
+   13/10/2026**: run XRG-2 38346972222, registro fechado no AMH #232 (commit `78fb6035`), aprovacao do dono
+   nos 4 papeis.
 2. Pin XRG-3 por PR: `python scripts/ci/gerar_pin_v1_1.py --manifest-version v1.2 --gh-ref <commit> --verified-by
    "<pessoa>" --write`, depois `python scripts/ci/verify_amh_contract_pin.py --manifest <bytes> --manifest-version
    v1.2`. Os bytes do OpenAPI vao para `config/integrations/amh/openapi/tina.openapi.yaml` (sha256 = o do pin).
-3. Base legal LGPD ratificada pelo DPO (DL-0081 a declara PENDENTE).
+   **Feito em 13/10/2026** (bloco `manifest_v1_2`, OpenAPI `320ab303...8a59` na imagem).
+3. Base legal LGPD ratificada pelo DPO (DL-0081 a declara PENDENTE). Em dev a flag foi ligada em 13/10/2026 por
+   decisao do dono; fora do dev continua exigindo a ratificacao.
 4. `helena_identidade_amh = true` ja' ligado (a variavel nova recusa o plan sem ela) e o client
    `maezo-operadora-interop` com o escopo `interop/tina.read` (ja' tem em dev).
 
@@ -170,3 +173,26 @@ A troca: `helena_consultas_amh = true` em `amh-interop.auto.tfvars`. O Terraform
 `interop/tina.read` a `MAEZO_AMH_INTEROP_SCOPES` e injeta `MAEZO_AMH_TINA_OPENAPI_PATH`. Sem o bloco
 `manifest_v1_2` no pin o receptor RECUSA servir (`tina_contract_invalid` no `dispatcher_error`). Rollback:
 `helena_consultas_amh = false`.
+
+**Dependentes do titular (manifest v1.5, 13/10/2026).** A AMH publicou a rota `GET /interop/tina/v1/subjects/{ref}/dependentes`
+(AMH #237/#238, run XRG-2 38489298542; OpenAPI `tina-dependentes.openapi.yaml`, digest no bloco `manifest_v1_5` do pin,
+bytes em `config/integrations/amh/openapi/tina-dependentes.openapi.yaml`). Mesmo escopo (`interop/tina.read`). O Terraform
+injeta `MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH` junto com o caminho da TINA; com o caminho, o receptor exige o bloco
+`manifest_v1_5` (sem ele recusa servir, `tina_contract_invalid`); sem o caminho, `AmhTinaAdapter.get_dependentes` recusa
+fechado (`SCOPE_NOT_SUPPORTED`). A resposta e' anonima: `eh_titular`, `total_ativos` e ate 20 itens
+`{relacao_dependencia, situacao_beneficiario, recem_nascido_no_plano}`, sem nome, CPF, ref nem nascimento do dependente.
+Ligar a Helena nisso (subtipo `dependentes`) e' outro PR.
+
+## 7. Cobranca com a finalidade do atendimento (`atendimento_whatsapp`, manifest v1.4)
+
+Decisao do DPO de 08/10/2026 (AMH #223/#225, run XRG-2 37929182045): com `acesso_beneficiario = true` e a fonte
+`amh`, a leitura de cobranca do Lucas usa o billing-status 0.2.0
+(`config/integrations/amh/openapi/billing-status-atendimento.openapi.yaml`, digest no bloco `manifest_v1_4` do pin)
+e declara `purpose_of_use=atendimento_whatsapp`, a mesma finalidade do consentimento do WhatsApp; o `consent_ref`
+do registro do acesso vai como referencia de consentimento (enquanto a gravacao estiver pendente, a base legal de
+execucao de contrato de sempre). O Terraform injeta `MAEZO_AMH_BILLING_STATUS_ATENDIMENTO_OPENAPI_PATH` (variavel
+`amh_billing_status_atendimento_openapi_path`, default `/app/config/integrations/amh/openapi/billing-status-atendimento.openapi.yaml`)
+SO' com o acesso ligado; sem o caminho, ou sem o bloco `manifest_v1_4` no pin, o receptor RECUSA servir
+(`amh_interop_config_ausente: amh_billing_status_atendimento_openapi_path` / `billing_status_contract_invalid` no
+`dispatcher_error`). Com o acesso desligado nada muda: billing-status 0.1.0 e `MAEZO_AMH_INTEROP_PURPOSE_OF_USE`.
+O servico interop da AMH aceita as duas finalidades na mesma rota. Rollback: `acesso_beneficiario = false`.

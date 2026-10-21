@@ -23,7 +23,7 @@
     "next_kind": "inform",
     "fields": {
       "intent": "greeting",
-      "response_text": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Como posso ajudar?"
+      "response_text": "Olá! Sou a Helena, navegadora de saúde. Por aqui eu tiro dúvidas de saúde e te ajudo a encontrar o atendimento certo. Em que posso ajudar?"
     }
   },
   "leak_canaries": [],

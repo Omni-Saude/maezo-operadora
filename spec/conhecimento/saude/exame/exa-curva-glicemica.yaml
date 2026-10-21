@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: exa-curva-glicemica
+categoria: exame
+titulo: Curva glicêmica (teste de tolerância à glicose)
+sinonimos:
+- curva glicêmica
+- curva glicemica
+- tolerância à glicose
+- tolerancia a glicose
+- ttg
+- totg
+- teste de sobrecarga de glicose
+- teste de glicose
+- curva glicêmica (teste de tolerância à glicose)
+texto: A curva glicêmica, ou teste de tolerância à glicose, mostra como o corpo lida com o açúcar no sangue. Costuma ser pedida para investigar diabetes, pré-diabetes e diabetes na gravidez. Em geral, colhe-se sangue em jejum, a pessoa usa uma bebida adocicada e novas coletas são feitas. O resultado é avaliado pelo médico, junto com outros dados de saúde.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

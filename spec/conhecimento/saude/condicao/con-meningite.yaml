@@ -1,0 +1,26 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-meningite
+categoria: condicao
+titulo: Meningite
+sinonimos:
+- meningite
+- meningite bacteriana
+- meningite viral
+texto: A meningite é uma inflamação das meninges, membranas que envolvem e protegem o cérebro e a medula espinhal. Sintomas mais frequentes incluem febre, dor de cabeça intensa, rigidez no pescoço, náuseas, vômitos e sensibilidade à luz. Sinais de gravidade incluem confusão mental, convulsões, dificuldade para acordar e manchas vermelhas ou arroxeadas na pele. Na presença desses sinais, o atendimento médico deve ser imediato.
+tipo_texto: citacao_literal
+fontes:
+- nome: Saúde de A a Z — Meningite (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/m/meningite
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: 59add658ae2f1ed1ece5ecbd5b2199af2155e8ef5a0b19a5a6e19098faf241b2
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/m/meningite
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

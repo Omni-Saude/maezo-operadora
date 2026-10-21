@@ -55,12 +55,15 @@ DIFFERENT, still-open gap blocks a specific test).
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 import pytest_asyncio
 
@@ -69,7 +72,7 @@ from maezo.tools.workers.escalation import register_escalation_workers
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
 
-from .conftest import drain_topics
+from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
 
 StartEscalation = Callable[..., Awaitable[dict[str, Any]]]
@@ -742,6 +745,90 @@ async def test_business_key_idempotente(
     assert active_before[0]["id"] == first["id"]
 
 
+# --- v1.1.0 (DL-0118, ADR-0064): encerramento a pedido do beneficiario ---------------------
+
+
+async def _correlacionar_encerramento(business_key: str) -> None:
+    """O que a Helena faz (`correlate_message_audited`) depois do SIM: a mensagem pela business key."""
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message",
+            json={
+                "messageName": "msg.escalation.withdrawn",
+                "businessKey": business_key,
+                "processVariables": {
+                    "resultado": {"value": "encerrado_a_pedido_beneficiario", "type": "String"},
+                    "encerramento_origem": {"value": "beneficiario_canal", "type": "String"},
+                },
+            },
+        )
+        assert resp.status_code in (200, 204), resp.text[:200]
+
+
+async def test_v110_encerramento_a_pedido_do_beneficiario_na_user_task(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """Caso P3 aberto; a mensagem `msg.escalation.withdrawn` interrompe a User Task (some da fila), publica
+    escalation.resolved com resultado=encerrado_a_pedido_beneficiario e termina em
+    End_EncerradoAPedidoDoBeneficiario. Sem process_completed (ninguem devolveu a conversa)."""
+    inst = await start_escalation(motivo_categoria="solicitacao_humano", severidade="leve")
+    iid = inst["id"]
+    business_key = str(inst.get("businessKey") or inst.get("business_key"))
+
+    await probe.drain()
+    await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+    await _correlacionar_encerramento(business_key)
+    await probe.drain()
+
+    assert probe.has_event(_RESOLVED, resultado="encerrado_a_pedido_beneficiario")
+    assert all("notas_resolucao" not in e.payload for e in probe.events_on(_RESOLVED))
+    assert not probe.events_on(_PROCESS_COMPLETED)
+    ended = await engine.activity_instances_ended(iid)
+    assert "End_EncerradoAPedidoDoBeneficiario" in ended
+    assert not await engine.instance_is_active(iid)
+    assert await engine.find_active_instances(business_key) == []
+
+
+async def test_v110_encerramento_a_pedido_interrompe_tambem_o_ramo_de_sla(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """Com o SLA de ciencia ja estourado (ramo nao-interruptivo vivo), a mensagem encerra a instancia
+    INTEIRA: o event subprocess e' interruptivo."""
+    inst = await start_escalation(motivo_categoria="intencao_clinica", severidade="moderada")
+    iid = inst["id"]
+    business_key = str(inst.get("businessKey") or inst.get("business_key"))
+    await probe.drain()
+    await engine.await_user_task(iid, "UT_TratarEscalonamento")
+    job = await engine.await_timer_job(iid, "BT_SlaAck")
+    await engine.execute_job(job.id)
+
+    await _correlacionar_encerramento(business_key)
+    await probe.drain()
+
+    assert not await engine.instance_is_active(iid)
+    assert "End_EncerradoAPedidoDoBeneficiario" in await engine.activity_instances_ended(iid)
+
+
+async def test_v110_sem_instancia_viva_o_motor_recusa_a_mensagem(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """Depois de resolvido, a mensagem nao casa com nada: o motor recusa (a Helena diz que nao encerrou)."""
+    inst = await start_escalation(motivo_categoria="solicitacao_humano", severidade="leve")
+    iid = inst["id"]
+    business_key = str(inst.get("businessKey") or inst.get("business_key"))
+    await probe.drain()
+    task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
+    await engine.complete_task_as_human(task.id, {"resultado": "resolvido_humano", "notas_resolucao": "ok"})
+    await probe.drain()
+
+    async with httpx.AsyncClient(base_url=CIBSEVEN_BASE_URL, timeout=20.0) as client:
+        resp = await client.post(
+            "/message", json={"messageName": "msg.escalation.withdrawn", "businessKey": business_key}
+        )
+    assert resp.status_code == 400, resp.text[:200]
+
+
 # --- Auditoria: todo fim emite evento de dominio antes ------------------------------
 
 
@@ -767,3 +854,92 @@ async def test_todos_os_fins_emitem_evento_de_dominio(
     ended2 = await engine.activity_instances_ended(i2["id"])
     assert "End_SupervisorAlertado" in ended2
     assert probe.has_event(_BREACHED, fase="ack")  # evento publicado no ramo antes do fim
+
+
+# --- Prazo (dueDate) da tarefa humana — DL-0145 --------------------------------------
+
+_ISO_DURACAO = re.compile(r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$")
+
+
+def _segundos_iso(duracao: str) -> int:
+    """Duracao ISO 8601 (forma usada pela DMN: PnDTnHnMnS) em segundos — so' para o assert."""
+    m = _ISO_DURACAO.match(duracao)
+    assert m and duracao not in ("P", "PT"), f"duracao ISO 8601 inesperada: {duracao!r}"
+    d, h, mi, s = (int(g) if g else 0 for g in m.groups())
+    return ((d * 24 + h) * 60 + mi) * 60 + s
+
+
+def _instante(valor: str) -> datetime:
+    return datetime.fromisoformat(valor)
+
+
+async def _sla_resolucao_decidido(engine: EngineRest, instance_id: str) -> str:
+    """O `sla_resolucao` que a DMN `escalation_routing` DECIDIU nesta instancia (historico)."""
+    decisoes = await engine.history_decision_instances(
+        instance_id=instance_id, decision_key="escalation_routing", include_outputs=True
+    )
+    assert len(decisoes) == 1, decisoes
+    saidas = {o["variableName"]: o["value"] for o in decisoes[0]["outputs"]}
+    return str(saidas["sla_resolucao"])
+
+
+@pytest.mark.parametrize(
+    ("motivo_categoria", "severidade"),
+    [
+        ("red_flag_clinico", "grave"),  # DMN r1 — P1
+        ("solicitacao_humano", "leve"),  # DMN r5 — P3
+        # Motivo fora do dominio: a DMN nao tem SLA proprio para ele; o catch-all fail-safe r7
+        # e' o comportamento DEFINIDO — a tarefa nasce com o prazo do r7 e a instancia segue viva.
+        ("categoria_inexistente", "moderada"),
+    ],
+)
+async def test_due_date_da_tarefa_e_o_sla_de_resolucao_da_dmn(
+    engine: EngineRest,
+    probe: EngineProbe,
+    start_escalation: StartEscalation,
+    motivo_categoria: str,
+    severidade: str,
+) -> None:
+    """`UT_TratarEscalonamento` nasce com due = criacao + `sla_resolucao` decidido pela DMN.
+
+    E' o `DUE_DATE_` que o portal le como `engine_due_at` (coluna Prazo da fila). O prazo coincide
+    com o vencimento do timer interruptivo `BT_SlaResolucao` (mesma expressao, mesmo instante de
+    entrada na atividade): o prazo exibido e' o prazo que o motor cobra.
+    """
+    inst = await start_escalation(motivo_categoria=motivo_categoria, severidade=severidade)
+    iid = inst["id"]
+    await probe.drain()
+    task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
+
+    dto = await engine.get_task_raw(task.id)
+    assert dto.get("due"), "UT_TratarEscalonamento nasceu SEM due date — portal mostra 'Sem prazo informado'"
+    sla = await _sla_resolucao_decidido(engine, iid)
+    esperado = timedelta(seconds=_segundos_iso(sla))
+    obtido = _instante(dto["due"]) - _instante(dto["created"])
+    assert abs(obtido - esperado) <= timedelta(seconds=2), (sla, dto["created"], dto["due"])
+
+    timer = await engine.await_timer_job(iid, "BT_SlaResolucao")
+    assert timer.due_date
+    assert abs(_instante(timer.due_date) - _instante(dto["due"])) <= timedelta(seconds=2)
+
+    assert not await engine.incidents(iid)
+    assert await engine.instance_is_active(iid)
+
+
+async def test_due_date_difere_por_categoria_conforme_a_dmn(
+    engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
+) -> None:
+    """P1 e P3 nascem com prazos DIFERENTES, cada um o da sua linha da DMN (nao um valor fixo)."""
+    prazos: dict[str, timedelta] = {}
+    for motivo, severidade in (("red_flag_clinico", "grave"), ("solicitacao_humano", "leve")):
+        inst = await start_escalation(motivo_categoria=motivo, severidade=severidade)
+        await probe.drain()
+        task = await engine.await_user_task(inst["id"], "UT_TratarEscalonamento")
+        dto = await engine.get_task_raw(task.id)
+        assert dto.get("due"), f"{motivo}: tarefa sem due date"
+        prazos[await _sla_resolucao_decidido(engine, inst["id"])] = _instante(dto["due"]) - _instante(
+            dto["created"]
+        )
+    assert len(prazos) == 2, f"as duas categorias deveriam ter SLAs distintos na DMN: {prazos}"
+    for sla, obtido in prazos.items():
+        assert abs(obtido - timedelta(seconds=_segundos_iso(sla))) <= timedelta(seconds=2), (sla, obtido)

@@ -1,0 +1,250 @@
+# consent-record.openapi.yaml — PROPOSTA (DRAFT) de contrato canônico AMH×Maezo v1 (artefato novo)
+# NÃO PUBLICADO: depende dos 4 aprovadores humanos e do gate XRG-2 (ADR-042 §2); manifest v1.3 em rascunho.
+# Objetivo: o Maezo (Helena e Lucas) registra no lago o aceite (ou a revogação) do beneficiário para o atendimento
+# por WhatsApp, SEM nunca escrever no lago: a AMH grava um evento append-only no `consent_log` (ADR-045).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# REGRAS DE DESENHO:
+#  * é um LOG DE EVENTO (ADR-045): cada chamada nova é um evento; o estado (concedido/revogado) é derivado na leitura
+#    pelo último evento (empate de instante resolve para revogação);
+#  * idempotente por `idempotency_key`: o mesmo pedido repetido devolve o MESMO `consent_ref` e não duplica linha;
+#  * `revoked` é aceito a qualquer momento para um sujeito conhecido (não exige `granted` antes);
+#  * a evidência é o TEXTO que o beneficiário viu (versão + sha256), não o conteúdo da conversa; nenhum dado
+#    pessoal, telefone ou texto livre viaja neste contrato;
+#  * o sujeito é só `portable_subject_ref` (o `mpi_id` interno nunca sai do lago).
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH Consent Record API (ConsentRecordPort)
+  version: 0.1.0
+  description: |
+    Registro do consentimento do atendimento por WhatsApp. Escopo Cognito exigido: `interop/consent.write`.
+    O tenant sai do `client_id` do token; o corpo só o confirma (diferente -> 403).
+
+    GRAVAÇÃO: um evento em `amh_mpi.consent_log` (ADR-045), com `scope = atendimento_whatsapp`,
+    `action = grant` (para `granted`) ou `revoke` (para `revoked`), `evidence_type = api_call`,
+    `channel = whatsapp` e `evidence_url = urn:amh:consent-text:<consent_text_version>:sha256:<consent_text_sha256>`.
+    `performed_at` é `decided_at` em UTC (o instante DECLARADO pelo cliente) e `recorded_at` é a hora do SERVIDOR
+    AMH no momento da gravação (não vem do cliente; é a âncora de auditoria). `consent_ref` é determinístico: sai de {tenant, `portable_subject_ref`,
+    `idempotency_key`}, e é o `event_id` da linha.
+
+    IDEMPOTÊNCIA: a mesma `idempotency_key` para o mesmo sujeito devolve o mesmo `consent_ref` (200 na repetição,
+    201 na primeira gravação) e NUNCA grava segunda linha. Reusar a chave com a decisão OPOSTA é 409
+    (`idempotency_conflict`): uma mudança de decisão é um novo evento e precisa de uma nova chave.
+    Uma falha (500) ou timeout é seguro de repetir com a mesma chave. Limite conhecido: dois pedidos
+    SIMULTÂNEOS com a mesma chave em instâncias diferentes do serviço podem, numa janela de segundos, gravar
+    o evento duas vezes; as duas linhas são idênticas (mesmo `event_id`, mesma decisão), o que não altera a
+    decisão derivada (último evento vence) nem a trilha. O Maezo deve serializar as repetições por chave.
+
+    ORDEM: o estado derivado usa `decided_at`. O relógio do Maezo precisa estar sincronizado (NTP): data
+    mais de 5 minutos no futuro (tolerância de relógio) é recusada (400). Um ACEITE (`granted`) com mais de
+    24 horas no passado também é recusado (400): o aceite deve ser registrado logo depois de colhido. Uma
+    REVOGAÇÃO (`revoked`) não tem limite para trás: uma revogação pendente (o titular volta dias depois) é
+    gravada com o instante original, e o `recorded_at` do servidor registra quando ela chegou. Uma revogação com `decided_at` ANTERIOR ao último aceite
+    não o revogaria na leitura; use sempre o instante real da decisão do beneficiário.
+
+    BASE LEGAL (decisão (c) do dono de 08/10/2026; ver docs/governance/atestacao-manifest-v1-3-2026-10-08.md): o
+    atendimento por WhatsApp (conferência e resolução por documento do v1.3) se apoia no CONSENTIMENTO EXPLÍCITO do
+    titular, texto `wa-consent-v1`. Este registro é a prova desse consentimento no `consent_log` (ADR-045), e a
+    revogação (`decision=revoked`) é aceita a qualquer momento. O portão de consentimento das rotas de leitura
+    anteriores (v1.1/v1.2, `CONSENT_GATE`) não muda com este contrato.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/consent/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11);
+      este contrato não fixa host.
+security:
+  - bearerAuth: []
+tags:
+  - name: consent-record
+    description: Aceite e revogação do atendimento por WhatsApp (log de evento, append-only).
+paths:
+  /consents:
+    post:
+      tags: [consent-record]
+      operationId: recordConsent
+      summary: Registra um evento de consentimento (aceite ou revogação)
+      description: >-
+        Acrescenta UM evento ao log de consentimento do sujeito, idempotente por `idempotency_key`.
+        Sujeito desconhecido (ou de outro tenant) -> 404, sem gravar nada. Escopo `interop/consent.write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsentRecordRequest'
+      responses:
+        '201':
+          description: Evento gravado agora.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentRecordResponse'
+        '200':
+          description: Repetição idempotente — o evento já existia; mesmo `consent_ref`, nenhuma linha nova.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentRecordResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com o escopo `interop/consent.write`; o tenant sai do
+        `client_id`. Fail-closed. Sem token válido -> 401; sem o escopo -> 403.
+  schemas:
+    ConsentRecordRequest:
+      type: object
+      required:
+        - amh_tenant
+        - portable_subject_ref
+        - scope
+        - decision
+        - consent_text_version
+        - consent_text_sha256
+        - decided_at
+        - channel
+        - idempotency_key
+        - purpose_of_use
+      additionalProperties: false
+      properties:
+        amh_tenant:
+          type: string
+          description: 'Tenant AMH do beneficiário (por exemplo `austa_operadora`). Tem de ser o do cliente do token.'
+          example: austa_operadora
+        portable_subject_ref:
+          type: string
+          description: Sujeito do consentimento (vem de `subject-verification` ou `subject-resolution`).
+          pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          minLength: 47
+          maxLength: 47
+          example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+        scope:
+          type: string
+          description: Finalidade do consentimento (vocabulário de PROPÓSITOS do `consent_log`, decisão A14).
+          enum: [atendimento_whatsapp]
+        decision:
+          type: string
+          description: '`granted` = aceite (`action=grant`); `revoked` = revogação (`action=revoke`), aceita a qualquer momento.'
+          enum: [granted, revoked]
+        consent_text_version:
+          type: string
+          description: Versão do texto de consentimento exibido ao beneficiário.
+          pattern: '^[A-Za-z0-9._\-]{1,64}$'
+          example: wa-consent-v1
+        consent_text_sha256:
+          type: string
+          description: sha256 (hex minúsculo) do texto exato da versão acima; é a evidência de QUAL texto foi aceito.
+          pattern: '^[0-9a-f]{64}$'
+          example: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+        decided_at:
+          type: string
+          format: date-time
+          description: >-
+            Instante (RFC 3339, com fuso) em que o beneficiário decidiu, segundo o cliente. Recusado (400) se
+            estiver mais de 5 minutos no futuro (tolerância de relógio); para `granted`, também se tiver mais de
+            24 horas. `revoked` aceita qualquer instante passado (revogação pendente regravada).
+          example: '2026-10-08T14:32:10Z'
+        channel:
+          type: string
+          enum: [whatsapp]
+        idempotency_key:
+          type: string
+          description: >-
+            Chave de idempotência do pedido, escolhida pelo Maezo (por exemplo, um UUID por decisão). Mesma
+            chave + mesmo sujeito = mesmo `consent_ref`. Caracteres `A-Z a-z 0-9 _ . : -`.
+          pattern: '^[A-Za-z0-9_.:\-]{8,128}$'
+          minLength: 8
+          maxLength: 128
+          example: 'wa-consent-0f6e2c1a-7b3d-4e58-9a10-2c4d6e8f0a1b'
+        purpose_of_use:
+          type: string
+          description: >-
+            Propósito LGPD (obrigatório; validado, não gravado: o `consent_log` não tem coluna para ele).
+            DECISÃO PENDENTE (DPO): `sharing_amh_internal` é marcador deste rascunho, como nos outros contratos.
+          enum: [analytics, research, sharing_amh_internal, external_sharing]
+    ConsentRecordResponse:
+      type: object
+      required: [consent_ref, recorded, recorded_at]
+      additionalProperties: false
+      properties:
+        consent_ref:
+          type: string
+          description: Identificador opaco e determinístico do evento (`event_id` do log). Estável sob repetição.
+          pattern: '^amh:consent:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          example: 'amh:consent:v1:5d1f7a52-3c9e-4b86-a1d4-7e0c2b9f6a38'
+        recorded:
+          type: boolean
+          description: Sempre `true` quando há sucesso (o evento está no log).
+          enum: [true]
+        recorded_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Hora do SERVIDOR AMH (UTC, RFC 3339) em que o evento foi gravado — coluna `recorded_at` do
+            `consent_log`, independente do `decided_at` do cliente. Estável sob repetição (é o da 1ª gravação).
+            `null` só para evento gravado antes de a coluna existir (não ocorre por esta rota).
+          example: '2026-10-08T14:32:12Z'
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code:
+          type: string
+        message:
+          type: string
+          description: Mensagem operacional SEM PHI e sem identificador de fonte.
+        reason:
+          type: string
+          nullable: true
+        trace_id:
+          type: string
+  responses:
+    BadRequest:
+      description: Corpo fora do contrato (campo faltando/extra, formato, `decided_at` no futuro, aceite com `decided_at` de mais de 24 h, propósito inválido).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Cliente sem o escopo `interop/consent.write`, cliente não mapeado ou `amh_tenant` diferente do tenant do cliente.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Sujeito desconhecido, de outro tenant ou sem vínculo ativo (resposta idêntica; nada é gravado).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: '`idempotency_key` já usada para este sujeito com a decisão oposta (`error_code=idempotency_conflict`).'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno ou fonte de dados indisponível. Seguro repetir com a mesma `idempotency_key`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

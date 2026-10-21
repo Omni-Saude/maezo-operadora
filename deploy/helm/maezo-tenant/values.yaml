@@ -994,6 +994,10 @@ lifecycle:
 #     `platform/webhooks/whatsapp/lucas_turno.py` importa `CibSevenTransport`/`AuditStartSink`
 #     (o turno do Lucas atras do roteador abre processo so' pelo chokepoint, como a Helena); os
 #     outros 38 importadores permanecem.
+#     Recontado por AST em 40 no simulador de beneficiario (`maezo.qa`, so' dev):
+#     `qa/simulador/composicao.py` importa `ProcessInstance`/`ProcessStatus`/`CibSevenError` para
+#     fingir SP-OP-ESCALATION-001 por tras do gate (nenhum start chega ao motor); os outros 39
+#     importadores permanecem.
 #   - harnessFanIn: `maezo.tools.workers.harness` — o padrao unico de execucao/dispatch de todo
 #     worker externo (SC-06's "fan-in 32"). A recontagem por AST encontrou 19, nao 32 — o relatorio
 #     original parece ter contado toda mencao textual a "harness" (70 arquivos), nao imports reais
@@ -1020,5 +1024,5 @@ lifecycle:
 # runtime (nenhum codigo os le para agir — sao METADADO declarado, nao configuracao).
 # ---------------------------------------------------------------------------
 throughputCeilings:
-  transportFanIn: 39
+  transportFanIn: 40
   harnessFanIn: 23

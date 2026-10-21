@@ -27,10 +27,12 @@ from maezo.platform.webhooks.whatsapp.roteamento import (
     COBRANCA_SUBTIPOS,
     TRANSICOES,
     ConflitoDeRevisaoError,
+    ContextoDoTurno,
     ConversaRouter,
     Decisao,
     EventoDoTurno,
     LinhaAgenteAtivo,
+    MemoriaDoLucas,
     PedidoDeHandoff,
     PostgresAgenteAtivoStore,
     RoteamentoError,
@@ -41,10 +43,11 @@ from tests.support.roteamento_fakes import FakeAgenteAtivoStore
 
 _AGORA = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 _CONVERSA = "wa:amh:hk1_0123abcd"
-_MIGRATION = (
-    Path(__file__).resolve().parents[5]
-    / "src/maezo/platform/migrations/versions/0017_conversa_agente_ativo.py"
-)
+_VERSIONS = Path(__file__).resolve().parents[5] / "src/maezo/platform/migrations/versions"
+_MIGRATION = _VERSIONS / "0017_conversa_agente_ativo.py"
+#: DL-0086: a 0023 substituiu o CHECK de `lucas_cobranca_subtipo` da 0017 (acrescentou `consulta_valores`).
+#: O dominio vigente e' o do `upgrade()` da 0023.
+_MIGRATION_SUBTIPO = _VERSIONS / "0024_cobranca_subtipo_consulta_valores.py"
 
 
 def _linha(agente: str, motivo: str, *, vencida: bool = False, revisao: int = 3) -> LinhaAgenteAtivo:
@@ -349,7 +352,8 @@ def test_a_frase_de_passagem_so_sai_quando_a_conversa_entra_no_lucas() -> None:
 def test_os_dominios_do_codigo_sao_os_mesmos_dos_checks_da_migration() -> None:
     fonte = _MIGRATION.read_text(encoding="utf-8")
     bloco_transicao = re.search(r"transicao_motivo IN \((.*?)\)\)", fonte, re.DOTALL)
-    bloco_subtipo = re.search(r"lucas_cobranca_subtipo IN \((.*?)\)\)", fonte, re.DOTALL)
+    upgrade_0023 = _MIGRATION_SUBTIPO.read_text(encoding="utf-8").split("def downgrade")[0]
+    bloco_subtipo = re.search(r"lucas_cobranca_subtipo IN \((.*?)\)\)", upgrade_0023, re.DOTALL)
     assert bloco_transicao and bloco_subtipo
     assert tuple(re.findall(r"'([a-z_0-9]+)'", bloco_transicao.group(1))) == TRANSICOES
     assert tuple(re.findall(r"'([a-z_0-9]+)'", bloco_subtipo.group(1))) == COBRANCA_SUBTIPOS
@@ -565,3 +569,64 @@ async def test_store_postgres_recusa_conversa_de_outro_tenant_sem_tocar_no_banco
 def test_store_postgres_recusa_tenant_que_nao_e_identificador() -> None:
     with pytest.raises(ValueError):
         PostgresAgenteAtivoStore(dsn="postgresql://x:y@localhost/z", tenant='amh"; drop')
+
+
+# ---------------------------------------------------------------------------------------
+# Contexto do turno do Lucas (simulador, 13/10/2026): revisao (variante) e assunto anterior.
+# ---------------------------------------------------------------------------------------
+async def test_contexto_do_turno_sem_linha_e_zero_sem_assunto() -> None:
+    assert await _roteador(FakeAgenteAtivoStore()).contexto_do_turno(_CONVERSA) == ContextoDoTurno()
+
+
+async def test_contexto_do_turno_traz_a_revisao_e_o_assunto_do_lucas() -> None:
+    store = FakeAgenteAtivoStore()
+    roteador = _roteador(store, lucas_disponivel=True)
+    pedido = PedidoDeHandoff(cobranca_subtipo="boleto_2via")
+    for _ in range(2):
+        await roteador.registrar_turno(
+            conversation_id=_CONVERSA, sinais=None, resultado_helena={"intent": "cobranca"}, handoff=pedido
+        )
+    contexto = await roteador.contexto_do_turno(_CONVERSA)
+    revisao = contexto.revisao
+    assert (revisao, contexto.assunto_anterior) == (1, "boleto_2via")
+    # Uma mensagem a mais muda a variante: o mesmo texto nunca sai duas vezes seguidas.
+    await roteador.registrar_turno(
+        conversation_id=_CONVERSA, sinais=None, resultado_helena={"intent": "cobranca"}, handoff=pedido
+    )
+    assert (await roteador.contexto_do_turno(_CONVERSA)).revisao % 2 != revisao % 2
+
+
+async def test_contexto_do_turno_com_a_helena_nao_tem_assunto_do_lucas() -> None:
+    store = FakeAgenteAtivoStore()
+    roteador = _roteador(store)
+    await roteador.registrar_turno(
+        conversation_id=_CONVERSA, sinais=None, resultado_helena={"intent": "greeting"}
+    )
+    assert await roteador.contexto_do_turno(_CONVERSA) == ContextoDoTurno()
+
+
+# --- Memoria curta do Lucas (rodada 3 do simulador, migration 0025) -------------------------------
+async def test_memoria_do_lucas_e_gravada_e_sobrevive_a_volta_para_a_helena() -> None:
+    store = FakeAgenteAtivoStore()
+    roteador = _roteador(store, lucas_disponivel=True)
+    memoria = MemoriaDoLucas("0123456789abcdef", 2)
+    await roteador.registrar_turno(
+        conversation_id=_CONVERSA,
+        sinais=None,
+        resultado_helena={"intent": "cobranca"},
+        handoff=PedidoDeHandoff(cobranca_subtipo="contestacao", memoria=memoria),
+        lucas_escalou=True,
+    )
+    assert store.linhas[_CONVERSA].agente_ativo == "helena"
+    assert (await roteador.contexto_do_turno(_CONVERSA)).memoria == memoria
+    # Um turno da Helena (sem handoff) nao apaga a memoria.
+    await roteador.registrar_turno(
+        conversation_id=_CONVERSA, sinais=None, resultado_helena={"intent": "greeting"}
+    )
+    assert (await roteador.contexto_do_turno(_CONVERSA)).memoria == memoria
+
+
+@pytest.mark.parametrize(("ref", "avisos"), [("curta", 0), ("0123456789ABCDEF", 0), (None, -1), (None, 101)])
+def test_memoria_fora_da_forma_e_recusada(ref: str | None, avisos: int) -> None:
+    with pytest.raises(ValueError):
+        MemoriaDoLucas(ref, avisos)

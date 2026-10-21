@@ -104,11 +104,14 @@ RESULTADOS = {
     "resolvido_humano": "resolvido por uma pessoa",
     "devolvido_agente": "devolvido ao agente (a conversa retoma)",
     "emergencia_acionada": "emergência acionada",
+    # DL-0118 (SP-OP-ESCALATION-001 v1.1.0): a pessoa pediu para encerrar o caso (P2/P3, com confirmacao).
+    "encerrado_a_pedido_beneficiario": "encerrado a pedido do beneficiário",
 }
 FINS = {
     "End_ResolvidoPorHumano": "Resolvido por humano",
     "End_DevolvidoAoAgente": "Devolvido ao agente",
     "End_SupervisorAlertado": "Supervisor alertado (caso segue aberto)",
+    "End_EncerradoAPedidoDoBeneficiario": "Encerrado a pedido do beneficiário",
 }
 RELOGIOS = {"BT_SlaAck": "Prazo de ciência", "BT_SlaResolucao": "Prazo de resolução"}
 TAREFAS = {"UT_TratarEscalonamento", "UT_SupervisorAssume"}

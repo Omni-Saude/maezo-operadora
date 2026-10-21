@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-herpes
+categoria: condicao
+titulo: Herpes
+sinonimos:
+- herpes labial
+- herpes genital
+- herpes simples
+- herpes virus
+- herpis
+- hsv
+- herpes
+texto: Herpes é uma infecção causada por vírus que permanece no corpo depois do primeiro contato. Costuma causar pequenas bolhas dolorosas na pele ou nas mucosas, como na boca e na região genital. As lesões podem voltar em alguns períodos e, às vezes, causam coceira, ardência ou formigamento. O tratamento é definido pelo médico e, em geral, envolve remédios e cuidados com a pele. Clínico geral, dermatologista, ginecologista e urologista costumam cuidar do assunto.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Herpes (Cobreiro) (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/h/herpes
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/h/herpes
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

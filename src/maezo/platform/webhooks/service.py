@@ -44,7 +44,7 @@ import asyncio
 import contextlib
 import signal
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -76,6 +76,9 @@ if TYPE_CHECKING:
     from maezo.gateway.capabilities.journeys.driver import JourneyDriver
     from maezo.gateway.seams import SeamContext
 
+    from .whatsapp.acesso import AcessoBeneficiario
+    from .whatsapp.acesso_limite_cpf import PostgresLimitePorCpf
+    from .whatsapp.acesso_ponte import RefsVerificadas
     from .whatsapp.helena_consultas import ConsultasPlanoAmh
     from .whatsapp.helena_identidade import IdentidadeHelena
     from .whatsapp.lucas_turno import LucasTurno
@@ -117,6 +120,8 @@ class WebhookState:
     #: FATOS DO PLANO NA HELENA (DL de 07/10/2026), SO' com `MAEZO_HELENA_CONSULTAS_AMH` ligada (que
     #: exige a identidade ligada). Reusa a composicao AMH da identidade; desligado fica `None`.
     helena_consultas: ConsultasPlanoAmh | None = None
+    #: ACESSO DO BENEFICIARIO (DL-0083), SO' com `MAEZO_ACESSO_BENEFICIARIO` ligada (`_build_acesso`).
+    acesso: AcessoBeneficiario | None = None
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
 
@@ -152,6 +157,58 @@ def _helena_model_tiers() -> dict[str, str]:
             "under the `sem_mapa` tier sentinel. This does NOT change which model is used.",
         )
         return {}
+
+
+def _saude_gerativa(settings: WhatsAppWebhookSettings) -> Any:
+    """SAUDE GERATIVA (ADR-0065, DL-0119): o redator, SO' com `MAEZO_HELENA_SAUDE_GERATIVA` E a base de saude
+    ligadas; senao `None` (nada da rota global existe no processo). Construcao pura: o cliente Bedrock nao faz
+    rede ate' a primeira chamada. A rota e' PROPRIA (`experimento_global_autorizado_dpo_2026-10-17`) e nunca
+    passa pelo roteador de zonas."""
+    if settings.helena_saude_gerativa is not True:
+        return None
+    from maezo.conhecimento.saude_gerativa import RedatorDeSaude, conversas_autorizadas
+    from maezo.runtime.inference.experimento_global import ROTA_DE_RESIDENCIA, TransporteGlobalExperimental
+
+    if settings.helena_base_saude is not True:
+        logger.error("helena_saude_gerativa_sem_base_de_saude", rota=ROTA_DE_RESIDENCIA)
+        return None
+    conversas = conversas_autorizadas(settings.helena_saude_gerativa_conversas)
+    logger.warning(
+        "helena_saude_gerativa_ligada",
+        rota=ROTA_DE_RESIDENCIA,
+        conversas_autorizadas=len(conversas),
+    )
+    busca = None
+    if getattr(settings, "helena_busca_semantica", False) is True:
+        # FASE 3 (18/10/2026): busca por significado com embeddings REGIONAIS (sa-east-1). Modelo fora da
+        # lista regional admitida = a chave nao liga (log de erro), e a saude gerativa segue com o lexico.
+        from maezo.conhecimento.busca_semantica import BuscaSemantica, TransporteBedrockRegional
+
+        try:
+            busca = BuscaSemantica(
+                transporte=TransporteBedrockRegional(modelo=settings.helena_busca_semantica_modelo),
+                limiar=settings.helena_busca_semantica_limiar,
+            )
+            logger.warning(
+                "helena_busca_semantica_ligada",
+                modelo=settings.helena_busca_semantica_modelo,
+                limiar=settings.helena_busca_semantica_limiar,
+            )
+        except ValueError:
+            logger.error(
+                "helena_busca_semantica_modelo_recusado", modelo=settings.helena_busca_semantica_modelo
+            )
+    catalogo = None
+    if busca is not None:
+        # COBERTURA ASSISTIDA (DL-0128): o mesmo modelo de embeddings REGIONAL indexa o catalogo de
+        # procedimentos
+        # (rota TINA `tina-procedimentos`, carregada em segundo plano na primeira pergunta de cobertura).
+        from maezo.conhecimento.catalogo_procedimentos import BuscaDeProcedimentos, carregar_sinonimos
+
+        catalogo = BuscaDeProcedimentos(transporte=busca.transporte, sinonimos=carregar_sinonimos())
+    return RedatorDeSaude(
+        transporte=TransporteGlobalExperimental(), conversas=conversas, busca=busca, catalogo=catalogo
+    )
 
 
 def _build_dispatcher(
@@ -285,6 +342,21 @@ def _build_dispatcher(
         memoria_clinica_enabled=settings.memoria_clinica_enabled,
         # HISTORICO CURTO DA CONVERSA (DL-0080): `MAEZO_HELENA_HISTORICO`, default `false`.
         historico_enabled=settings.helena_historico,
+        # NOVA TRIAGEM DA HELENA (DL-0104): `MAEZO_HELENA_TRIAGEM_V2`, default `false` (experimento em dev).
+        triagem_v2_enabled=settings.helena_triagem_v2,
+        # HELENA V4 (DL-0115): `MAEZO_HELENA_V4`, default `false` (so' dev).
+        helena_v4_enabled=settings.helena_v4,
+        # Vinculo ativo e carteirinha completa (dono, 17/10/2026): `MAEZO_HELENA_CARTEIRINHA_COMPLETA`,
+        # default `false` (so' dev).
+        helena_carteirinha_completa_enabled=settings.helena_carteirinha_completa,
+        # Nome completo dos dependentes (dono e DPO, 19/10/2026, DL-0127): `MAEZO_HELENA_DEPENDENTES_NOME`,
+        # default `false` (so' dev).
+        helena_dependentes_nome_enabled=settings.helena_dependentes_nome,
+        # BASE DE SAUDE (DL-0118, ADR-0064): `MAEZO_HELENA_BASE_SAUDE`, default `false` (so' dev).
+        helena_base_saude_enabled=settings.helena_base_saude,
+        # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
+        # dev).
+        saude_gerativa=_saude_gerativa(settings),
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the
@@ -322,6 +394,7 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
     lucas_turno = None
     if settings.roteador_lucas_enabled:
         from maezo.agents.lucas.fonte_cobranca import FonteCobranca, FonteCobrancaSimulada
+        from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
         from maezo.platform.webhooks.whatsapp.lucas_turno import LucasTurno
 
         if dispatcher.dedup is None:
@@ -339,10 +412,24 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
         seam_context = build_agent_seam_context(tenant=settings.tenant_id, agent_id="lucas")
         fonte: FonteCobranca = FonteCobrancaSimulada()
         amh_interop: AmhInteropComposition | None = None
+        fonte_cancelamento = None
         if settings.lucas_fonte_cobranca == "amh":
             fonte, amh_interop = _build_fonte_cobranca_amh(
-                settings, seam_context=seam_context, audit=seams.get("audit_sink")
+                settings,
+                seam_context=seam_context,
+                audit=seams.get("audit_sink"),
+                refs=dispatcher.refs_verificadas,
             )
+            if settings.cancel_pf_v1 is True:
+                fonte_cancelamento = _build_fonte_cancelamento_amh(
+                    settings, amh_interop, refs=dispatcher.refs_verificadas
+                )
+        # DL-0114: `MAEZO_LUCAS_V4` + o SEGUNDO SINAL (contratos novos pinados). Sem o sinal, `None`.
+        fonte_v4 = (
+            _build_fonte_v4_amh(settings, amh_interop, refs=dispatcher.refs_verificadas)
+            if settings.lucas_v4 is True
+            else None
+        )
         lucas_turno = LucasTurno(
             tenant_id=settings.tenant_id,
             inference=seams["inference"],
@@ -354,18 +441,35 @@ def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDisp
             fonte=fonte,
             hash_telefone_amh=amh_interop.phone_hasher if amh_interop is not None else None,
             fonte_aclose=amh_interop.aclose if amh_interop is not None else None,
+            limiares_atraso=LimiaresDeAtraso(
+                meses_minimo=settings.lucas_atraso_meses_min, dias_minimo=settings.lucas_atraso_dias_min
+            ),
+            # DL-0111: `MAEZO_CANCEL_PF_V1` (default desligada; desligada = o Lucas de antes byte a byte).
+            cancelamento_pf_v1=settings.cancel_pf_v1 is True,
+            fonte_cancelamento=fonte_cancelamento,
+            # DL-0114: `MAEZO_LUCAS_V4` (default desligada; desligada = o Lucas de antes byte a byte).
+            lucas_v4=settings.lucas_v4 is True,
+            fonte_v4=fonte_v4,
         )
         logger.warning(
             "lucas_turno_construido",
             tenant_id=settings.tenant_id,
             fonte_cobranca=settings.lucas_fonte_cobranca,
+            cancelamento_pf_v1=settings.cancel_pf_v1 is True,
+            lucas_v4=settings.lucas_v4 is True,
+            fonte_detalhamento_habilitada=fonte_v4 is not None,
+            fatos_do_cancelamento="tina" if fonte_cancelamento is not None else "billing-status",
             detail="entrada do Lucas pronta; o despachante so' a chama a partir da onda (e)",
         )
     return lucas_turno
 
 
 def _build_fonte_cobranca_amh(
-    settings: WhatsAppWebhookSettings, *, seam_context: SeamContext, audit: object
+    settings: WhatsAppWebhookSettings,
+    *,
+    seam_context: SeamContext,
+    audit: object,
+    refs: RefsVerificadas | None = None,
 ) -> tuple[FonteCobrancaAmh, AmhInteropComposition]:
     """A fonte REAL de cobranca do Lucas (`MAEZO_LUCAS_FONTE_COBRANCA=amh`, decisao do dono 06/10/2026).
 
@@ -376,32 +480,233 @@ def _build_fonte_cobranca_amh(
     LEVANTA e o receptor recusa servir — nunca cai de volta na simulada em silencio. Hoje os contratos
     nao estao publicados (XRG-2/XRG-3), entao `amh` recusa o boot por desenho.
     """
-    from maezo.agents.lucas.fonte_cobranca_amh import FonteCobrancaAmh
+    from maezo.agents.lucas.fonte_cobranca_amh import (
+        FonteCobrancaAmh,
+        FonteDeConsentimento,
+        ResolvedorDeSujeito,
+    )
     from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, ResolvedorDeSujeitoAmh
     from maezo.gateway.tool_registry import build_amh_interop
 
+    # Decisao do DPO de 08/10/2026 (billing-status 0.2.0, manifest v1.4): com o acesso ligado (refs
+    # verificadas) a leitura de cobranca e' a do atendimento do WhatsApp e declara a finalidade do
+    # consentimento, `atendimento_whatsapp`. Sem o acesso, a composicao de sempre (0.1.0 + a finalidade de
+    # `amh_interop_purpose_of_use`), para nao quebrar ambiente nenhum. Sem o OpenAPI novo ou sem o bloco
+    # `manifest_v1_4` no pin, `build_amh_interop` LEVANTA e o receptor recusa servir.
+    billing_atendimento = refs is not None
     interop = build_amh_interop(
-        settings=settings, seam=seam_context, audit=audit, agent_version=_LUCAS_AGENT_VERSION
+        settings=settings,
+        seam=seam_context,
+        audit=audit,
+        agent_version=_LUCAS_AGENT_VERSION,
+        billing_atendimento=billing_atendimento,
+        # 13/10/2026 (bateria 4): com o contrato TINA configurado (o mesmo das consultas do plano da Helena),
+        # a cobranca le' a elegibilidade para saber se o plano e' COLETIVO POR ADESAO quando o billing-status
+        # nao diz quem paga. Sem ele, o comportamento de antes.
+        incluir_tina=settings.helena_consultas_amh is True,
+        # DL-0114: o executor governado do catalogo v4 (detalhamento do pagador e 2a via) so' entra com a
+        # chave ligada E a configuracao dele presente; configurado pela metade, `build_amh_interop` LEVANTA
+        # e o receptor recusa servir.
+        incluir_v4=_lucas_v4_configurado(settings),
     )
+    if settings.lucas_v4 is True and not getattr(
+        settings, "amh_billing_status_contratacao_openapi_path", None
+    ):
+        # Achado do aceite de 16/10/2026: sem o billing-status 0.3.0 a fonte nao traz
+        # `beneficiario_e_pagador`.
+        # O Lucas v4 FALHA FECHADO (ninguem recebe valor nem 2a via), mas a chave ligada assim so' entrega a
+        # negativa: o log chama a atencao de quem opera.
+        logger.error(
+            "lucas_v4_sem_billing_status_0_3_0",
+            tenant_id=settings.tenant_id,
+            detail="sem o sinal beneficiario_e_pagador o Lucas v4 nao mostra valores a ninguem",
+        )
+    resolvedor: ResolvedorDeSujeito = ResolvedorDeSujeitoAmh(
+        port=interop.subjects,
+        amh_tenant=interop.amh_tenant,
+        hash_scheme=interop.hash_scheme,
+        purpose_of_use=interop.purpose_of_use,
+    )
+    consentimento: FonteDeConsentimento = BaseLegalExecucaoDeContrato()
+    if refs is not None:
+        # DL-0083: com o acesso ligado a cobranca so' le' a referencia VERIFICADA do turno (nunca resolve pelo
+        # telefone) e a chamada carrega o `consent_ref` do registro; sem ele, a base legal de sempre.
+        from maezo.platform.webhooks.whatsapp.acesso_ponte import ConsentimentoDoAcesso, ResolvedorVerificado
+
+        resolvedor = ResolvedorVerificado(refs)
+        consentimento = ConsentimentoDoAcesso(refs, consentimento)
+    # DL-0086 (revisao de seguranca do #709): FATOS DE VALOR so' com a flag propria E a ref. verificada.
+    # Sem o acesso (refs `None`) o resolvedor e' o do telefone, que identifica mas nao verifica: valor de
+    # mensalidade, coparticipacao, saldo e boletos nunca saem para quem apenas segura o celular.
+    fatos_de_valor = settings.lucas_consulta_valores is True
+    if fatos_de_valor and refs is None:
+        raise ValueError("lucas_consulta_valores: exige o acesso do beneficiario (ref. verificada)")
     fonte = FonteCobrancaAmh(
         billing=interop.billing,
-        resolvedor=ResolvedorDeSujeitoAmh(
-            port=interop.subjects,
-            amh_tenant=interop.amh_tenant,
-            hash_scheme=interop.hash_scheme,
-            purpose_of_use=interop.purpose_of_use,
-        ),
-        consentimento=BaseLegalExecucaoDeContrato(),
-        purpose_of_use=interop.purpose_of_use,
+        resolvedor=resolvedor,
+        consentimento=consentimento,
+        # A finalidade da LEITURA DE COBRANCA (a que o executor de cobranca aceita); com o acesso ligado,
+        # `atendimento_whatsapp`, e a fonte de consentimento devolve o `consent_ref` do acesso (mesmo escopo).
+        purpose_of_use=interop.billing_purpose_of_use,
+        fatos_de_valor=fatos_de_valor,
+        timeout_seconds=settings.lucas_cobranca_prazo_s,
+        tina=interop.tina,
+        tina_purpose_of_use=interop.purpose_of_use,
     )
     logger.warning(
         "lucas_fonte_cobranca_amh_construida",
         tenant_id=settings.tenant_id,
         amh_tenant=interop.amh_tenant,
-        purpose_of_use=interop.purpose_of_use,
+        purpose_of_use=interop.billing_purpose_of_use,
+        billing_atendimento=billing_atendimento,
         base_legal="execucao-de-contrato",
+        fatos_de_valor=fatos_de_valor,
     )
     return fonte, interop
+
+
+def _carteirinha_completa_configurada(settings: WhatsAppWebhookSettings) -> bool:
+    """A rota da carteirinha completa entra na composicao da Helena? So' com as consultas do plano, a chave
+    `MAEZO_HELENA_CARTEIRINHA_COMPLETA` e o caminho do OpenAPI `tina-carteirinha` presentes."""
+    return (
+        settings.helena_consultas_amh is True
+        and settings.helena_carteirinha_completa is True
+        and bool(getattr(settings, "amh_tina_carteirinha_openapi_path", None))
+    )
+
+
+def _dependentes_nome_configurado(settings: WhatsAppWebhookSettings) -> bool:
+    """A rota dos nomes dos dependentes entra na composicao da Helena? So' com as consultas do plano, a chave
+    `MAEZO_HELENA_DEPENDENTES_NOME` e o caminho do OpenAPI `tina-dependentes-nome` presentes."""
+    return (
+        settings.helena_consultas_amh is True
+        and settings.helena_dependentes_nome is True
+        and bool(getattr(settings, "amh_tina_dependentes_nome_openapi_path", None))
+    )
+
+
+def _lucas_v4_configurado(settings: WhatsAppWebhookSettings) -> bool:
+    """A chave do Lucas v4 esta' ligada e ALGUMA peca do executor v4 foi configurada (caminho dos OpenAPI ou
+    cliente da
+    2a via)? Entao a composicao exige TODAS. Sem nenhuma, o Lucas v4 segue sem o segundo sinal (log de
+    boot)."""
+    if settings.lucas_v4 is not True:
+        return False
+    return any(
+        getattr(settings, nome, None)
+        for nome in (
+            "amh_billing_status_detalhamento_openapi_path",
+            "amh_billing_segunda_via_openapi_path",
+            "amh_interop_boleto_client_id",
+            "amh_interop_boleto_client_secret",
+        )
+    )
+
+
+def _build_fonte_v4_amh(
+    settings: WhatsAppWebhookSettings,
+    interop: AmhInteropComposition | None,
+    *,
+    refs: RefsVerificadas | None = None,
+) -> Any:
+    """DL-0114 (`MAEZO_LUCAS_V4` ligada): a fonte dos contratos novos da AMH (detalhamento do pagador e 2a via
+    com codigo de barras), ou `None`.
+
+    O SEGUNDO SINAL, `fonte_detalhamento_habilitada`, exige: a chave, os DOIS contratos publicados e pinados
+    (blocos `manifest_v1_10` e `manifest_v1_11` do `contracts.lock.json`), a fonte de cobranca AMH, o acesso
+    do beneficiario (identidade verificada) e um executor governado do gateway para as duas rotas
+    (`AmhV4Executor`, `interop.executor_v4`, composto por
+    `tool_registry.build_amh_interop(incluir_v4=True)`). Os
+    manifests v1.10/v1.11 estao PUBLISHED e pinados desde 16/10/2026; faltando qualquer peca devolve `None`
+    e o
+    Lucas v4 faz so' o que a rota billing-status 0.3.0 ja' sustenta (pagador/nao pagador sem nomes, empresa
+    -> RH,
+    total do boleto)."""
+    from maezo.adapters.amh.contract import AmhContractPinError, resolve_contract_pin_path
+    from maezo.agents.lucas.fonte_v4 import fonte_detalhamento_habilitada
+
+    try:
+        pin_path = resolve_contract_pin_path()
+    except AmhContractPinError:
+        pin_path = None
+    if not fonte_detalhamento_habilitada(chave_ligada=settings.lucas_v4 is True, pin_path=pin_path):
+        logger.warning(
+            "lucas_v4_sem_contratos_novos",
+            tenant_id=settings.tenant_id,
+            fonte_detalhamento_habilitada=False,
+            detail="billing-status 0.4.0 e billing-segunda-via nao estao pinados; so' o que a 0.3.0 entrega",
+        )
+        return None
+    if interop is None or refs is None:
+        logger.error(
+            "lucas_v4_contratos_pinados_sem_fonte_amh",
+            tenant_id=settings.tenant_id,
+            detail="exige MAEZO_LUCAS_FONTE_COBRANCA=amh e o acesso do beneficiario",
+        )
+        return None
+    from maezo.agents.lucas.fonte_v4 import AdaptadorDetalhamento, AdaptadorSegundaVia, FonteV4
+    from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato
+    from maezo.platform.webhooks.whatsapp.acesso_ponte import ConsentimentoDoAcesso, ResolvedorVerificado
+
+    executor = getattr(interop, "executor_v4", None)
+    if executor is None:
+        logger.error(
+            "lucas_v4_contratos_pinados_sem_executor",
+            tenant_id=settings.tenant_id,
+            detail=(
+                "sem executor v4: faltam os OpenAPI do catalogo v4 e o cliente Cognito da 2a via "
+                "(runbook lucas-v4)"
+            ),
+        )
+        return None
+    adaptador_detalhamento = AdaptadorDetalhamento(executor)
+    return FonteV4(
+        resolvedor=ResolvedorVerificado(refs),
+        consentimento=ConsentimentoDoAcesso(refs, BaseLegalExecucaoDeContrato()),
+        detalhamento=adaptador_detalhamento,
+        segunda_via=AdaptadorSegundaVia(executor),
+        timeout_seconds=settings.lucas_cobranca_prazo_s,
+    )
+
+
+def _build_fonte_cancelamento_amh(
+    settings: WhatsAppWebhookSettings,
+    interop: AmhInteropComposition,
+    *,
+    refs: RefsVerificadas | None = None,
+) -> Any:
+    """DL-0111 (`MAEZO_CANCEL_PF_V1`): os fatos do cancelamento (TINA elegibilidade) pelo MESMO resolvedor
+    da cobranca do Lucas — a ref. VERIFICADA do acesso quando ele esta' ligado (DL-0083), senao o telefone
+    (que identifica mas NAO verifica: `titularidade_confirmada` fica `false` e o pedido vai a analise
+    humana). Sem o adaptador TINA na composicao (`MAEZO_HELENA_CONSULTAS_AMH` desligada), devolve `None` e o
+    Lucas segue com o tipo de contratacao do billing-status: o pedido nunca e' efetivado sem titular."""
+    if interop.tina is None:
+        logger.warning(
+            "lucas_fonte_cancelamento_sem_tina",
+            tenant_id=settings.tenant_id,
+            detail="sem o contrato TINA o titular nao e' apurado; todo pedido vai a analise humana",
+        )
+        return None
+    from maezo.agents.lucas.cancelamento_pf import FonteCancelamentoAmh
+    from maezo.agents.lucas.identidade_amh import BaseLegalExecucaoDeContrato, ResolvedorDeSujeitoAmh
+
+    resolvedor: Any = ResolvedorDeSujeitoAmh(
+        port=interop.subjects,
+        amh_tenant=interop.amh_tenant,
+        hash_scheme=interop.hash_scheme,
+        purpose_of_use=interop.purpose_of_use,
+    )
+    if refs is not None:
+        from maezo.platform.webhooks.whatsapp.acesso_ponte import ResolvedorVerificado
+
+        resolvedor = ResolvedorVerificado(refs)
+    return FonteCancelamentoAmh(
+        tina=interop.tina,
+        resolvedor=resolvedor,
+        # A mesma base legal das consultas do plano da Helena (execucao de contrato), nunca consentimento.
+        consentimento=BaseLegalExecucaoDeContrato(),
+        purpose_of_use=interop.purpose_of_use,
+    )
 
 
 def _build_helena_identidade(
@@ -431,7 +736,9 @@ def _build_helena_amh(
     recusa servir.
     """
     consultas_ligadas = settings.helena_consultas_amh is True
-    if not settings.helena_identidade_amh:
+    # DL-0083: o acesso do beneficiario tambem precisa do perfil (plano ativo, vigencia, carencia, faixa) da
+    # conversa verificada, entao a identidade e' construida com qualquer uma das duas flags.
+    if not (settings.helena_identidade_amh or settings.acesso_beneficiario):
         if consultas_ligadas:
             raise ValueError("helena_consultas: exige MAEZO_HELENA_IDENTIDADE_AMH ligada")
         return None, None
@@ -448,6 +755,15 @@ def _build_helena_amh(
         audit=dispatcher.audit_sink,
         agent_version=_HELENA_AGENT_VERSION,
         incluir_tina=consultas_ligadas,
+        # Carteirinha completa (dono, 17/10/2026, so' dev): a rota `tina-carteirinha` so' entra com as
+        # consultas
+        # E a chave ligadas E o caminho do OpenAPI configurado (como os dependentes). Com o caminho, o bloco
+        # `manifest_v1_12` do pin e o escopo `interop/tina.carteirinha` sao exigidos (sem eles o receptor
+        # recusa
+        # servir); sem o caminho, a Helena so' filtra os vinculos ativos e a carteirinha sai mascarada.
+        incluir_tina_carteirinha=_carteirinha_completa_configurada(settings),
+        # Nomes dos dependentes (dono e DPO, 19/10/2026, DL-0127, so' dev): como a carteirinha completa.
+        incluir_tina_dependentes_nome=_dependentes_nome_configurado(settings),
     )
     consultas: ConsultasPlanoAmh | None = None
     if consultas_ligadas:
@@ -459,17 +775,24 @@ def _build_helena_amh(
             consentimento=BaseLegalExecucaoDeContrato(),
             purpose_of_use=interop.purpose_of_use,
         )
+    resolvedor_helena: Any = ResolvedorDeSujeitoAmh(
+        port=interop.subjects,
+        amh_tenant=interop.amh_tenant,
+        hash_scheme=interop.hash_scheme,
+        purpose_of_use=interop.purpose_of_use,
+        # DL-0079: o teto da chamada de resolucao e' o prazo total, nao os 5 s do port.
+        timeout_seconds=settings.helena_identidade_prazo_s,
+    )
+    consentimento_helena: Any = BaseLegalExecucaoDeContrato()
+    if dispatcher.refs_verificadas is not None:
+        from maezo.platform.webhooks.whatsapp.acesso_ponte import ConsentimentoDoAcesso, ResolvedorVerificado
+
+        resolvedor_helena = ResolvedorVerificado(dispatcher.refs_verificadas)
+        consentimento_helena = ConsentimentoDoAcesso(dispatcher.refs_verificadas, consentimento_helena)
     identidade = IdentidadeHelena(
         port=interop.subjects,
-        resolvedor=ResolvedorDeSujeitoAmh(
-            port=interop.subjects,
-            amh_tenant=interop.amh_tenant,
-            hash_scheme=interop.hash_scheme,
-            purpose_of_use=interop.purpose_of_use,
-            # DL-0079: o teto da chamada de resolucao e' o prazo total, nao os 5 s do port.
-            timeout_seconds=settings.helena_identidade_prazo_s,
-        ),
-        consentimento=BaseLegalExecucaoDeContrato(),
+        resolvedor=resolvedor_helena,
+        consentimento=consentimento_helena,
         purpose_of_use=interop.purpose_of_use,
         hash_telefone=interop.phone_hasher,
         aclose_fn=interop.aclose,
@@ -485,6 +808,100 @@ def _build_helena_amh(
         consultas_plano=consultas is not None,
     )
     return identidade, consultas
+
+
+def _limite_cpf_do_acesso(settings: WhatsAppWebhookSettings) -> PostgresLimitePorCpf | None:
+    """O limite por CPF (D-04), ou `None` com `MAEZO_ACESSO_LIMITE_CPF=false` (revisao do #785: desligar sem
+    reverter codigo). Desligado, sobra o limite por conversa; o boot avisa em WARNING."""
+    if not settings.acesso_limite_cpf:
+        logger.warning("acesso_limite_cpf_desligado", tenant_id=settings.tenant_id)
+        return None
+    from maezo.platform.webhooks.whatsapp.acesso_limite_cpf import PostgresLimitePorCpf
+
+    if not settings.database_url:
+        raise ValueError("acesso: DATABASE_URL ausente (o limite por CPF e' persistido no Postgres)")
+    return PostgresLimitePorCpf(dsn=settings.database_url, tenant=settings.tenant_id)
+
+
+def _build_acesso(
+    settings: WhatsAppWebhookSettings, dispatcher: HelenaDispatcher
+) -> AcessoBeneficiario | None:
+    """DL-0083: o acesso do beneficiario (consentimento + verificacao), SO' com `MAEZO_ACESSO_BENEFICIARIO`.
+
+    Desligado devolve `None` sem importar nada do acesso. Ligado, REUSA a composicao AMH
+    (`tool_registry.build_amh_interop(incluir_acesso=True)`) sob o principal `helena` e exige TODA a
+    configuracao
+    nova: chave do hash de verificacao, os dois OpenAPI, os escopos `interop/subject.verify` e
+    `interop/consent.write` e o bloco `manifest_v1_3` no pin. FAIL-CLOSED: faltando qualquer peca (e hoje os
+    contratos NAO estao pinados) LEVANTA e `_bring_up_dependencies` recusa servir — nunca sobe "sem acesso" em
+    silencio quando o dono o ligou, e nunca serve sem ele.
+    """
+    if not settings.acesso_beneficiario:
+        return None
+    from datetime import timedelta
+
+    from maezo.agents.lucas.identidade_amh import ResolvedorDeSujeitoAmh
+    from maezo.gateway.amh_interop import HASH_SCHEME_VERIFICACAO
+    from maezo.gateway.tool_registry import build_amh_interop
+    from maezo.platform.webhooks.whatsapp import pre_roteamento
+    from maezo.platform.webhooks.whatsapp.acesso import AcessoBeneficiario
+    from maezo.platform.webhooks.whatsapp.acesso_store import PostgresAcessoStore
+
+    if dispatcher.seam_context is None or dispatcher.seam_context.principal != "helena":
+        raise ValueError("acesso: o despachante nao tem o SeamContext do principal helena")
+    if dispatcher.refs_verificadas is None:
+        raise ValueError("acesso: o despachante nao tem a ponte de referencias verificadas")
+    if not settings.database_url:
+        raise ValueError("acesso: DATABASE_URL ausente (o estado do acesso e' persistido no Postgres)")
+    interop = build_amh_interop(
+        settings=settings,
+        seam=dispatcher.seam_context,
+        audit=dispatcher.audit_sink,
+        agent_version=_HELENA_AGENT_VERSION,
+        incluir_acesso=True,
+    )
+    if (
+        interop.verification is None
+        or interop.consents is None
+        or interop.verify_hasher is None
+        or interop.documents is None
+    ):
+        raise ValueError("acesso: a composicao AMH nao trouxe verificacao, consentimento, documento e hasher")
+    acesso = AcessoBeneficiario(
+        store=PostgresAcessoStore(dsn=settings.database_url, tenant=settings.tenant_id),
+        verification=interop.verification,
+        consents=interop.consents,
+        resolvedor=ResolvedorDeSujeitoAmh(
+            port=interop.subjects,
+            amh_tenant=interop.amh_tenant,
+            hash_scheme=interop.hash_scheme,
+            purpose_of_use=interop.purpose_of_use,
+        ),
+        hash_telefone=interop.phone_hasher,
+        hasher=interop.verify_hasher,
+        # Fail-closed: lexico invalido recusa aqui, no boot (`pre_roteamento.carregar`).
+        lexicos=pre_roteamento.carregar(),
+        amh_tenant=interop.amh_tenant,
+        hash_scheme=HASH_SCHEME_VERIFICACAO,
+        purpose_of_use=interop.purpose_of_use,
+        validade=timedelta(hours=settings.acesso_validade_horas),
+        aclose_fn=interop.aclose,
+        # DL-0084: o telefone FORA DO CADASTRO se identifica pelo documento (risco aceito pelo dono).
+        documentos=interop.documents,
+        # Apresentacao do canal (14/10/2026): "dependentes" so' com a fonte de dependentes configurada.
+        apresentar_dependentes=bool(settings.amh_tina_dependentes_openapi_path)
+        and settings.helena_consultas_amh,
+        silencio_apresentacao=timedelta(days=settings.acesso_apresentacao_dias),
+        # D-04 (decisao do dono, 15/10/2026): 3 falhas por CPF em 6 h, somadas entre as conversas.
+        limite_cpf=_limite_cpf_do_acesso(settings),
+    )
+    logger.warning(
+        "acesso_beneficiario_ligado",
+        tenant_id=settings.tenant_id,
+        amh_tenant=interop.amh_tenant,
+        validade_horas=settings.acesso_validade_horas,
+    )
+    return acesso
 
 
 async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
@@ -538,6 +955,21 @@ async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
     )
 
 
+async def _aquecer_catalogo(dispatcher: Any) -> None:
+    """Carrega o catalogo de procedimentos (rota TINA v1.14) e agenda o indice (DL-0128). Nunca levanta."""
+    busca = getattr(getattr(dispatcher, "saude_gerativa", None), "catalogo", None)
+    leitor = getattr(getattr(dispatcher, "consultas_plano", None), "consultar_catalogo_procedimentos", None)
+    if busca is None or leitor is None:
+        return
+    try:
+        itens, versao = await leitor()
+        if itens:
+            busca.carregar(itens, versao)
+            busca.agendar_indice()
+    except Exception as exc:  # o catalogo e' melhoria: sem ele, a busca por texto da rota de cobertura
+        logger.warning("catalogo_procedimentos_aquecimento_falhou", error_type=type(exc).__name__)
+
+
 async def _bring_up_dependencies(state: WebhookState) -> None:
     """STEP A: bounded, non-fatal. Pure dispatcher CONSTRUCTION (no I/O) followed by the ONE
     bounded bring-up I/O this receiver now performs — the durable checkpointer's connect+setup()
@@ -575,6 +1007,13 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         )
         return
     logger.info("webhook_effect_seams_gated", tenant=state.settings.tenant_id, detail=detail)
+
+    if state.settings.acesso_beneficiario:
+        # DL-0083: a ponte com os agentes existe ANTES de o Lucas e a identidade serem construidos, para que
+        # os dois resolvam pela referencia verificada e nunca pelo telefone.
+        from .whatsapp.acesso_ponte import RefsVerificadas
+
+        state.dispatcher.refs_verificadas = RefsVerificadas()
 
     # NUMERO UNICO, onda (d): o turno do Lucas, so' com o roteador ligado, sob a MESMA assercao de
     # boot. Ligado e quebrado = recusa servir (o mesmo formato de um lexico invalido).
@@ -627,6 +1066,18 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         # DL de 07/10/2026: os fatos do plano na Helena (so' com a identidade, conferido acima).
         state.dispatcher.consultas_plano = state.helena_consultas
 
+    # DL-0083: o acesso do beneficiario. Ligado e quebrado (contrato nao pinado, chave ausente...) = recusa
+    # servir.
+    try:
+        state.acesso = _build_acesso(state.settings, state.dispatcher)
+    except Exception as exc:  # isolated: liveness/readiness must stay up.
+        state.dispatcher = None
+        state.dispatcher_error = f"access build failed — refusing to serve: {type(exc).__name__}: {exc}"
+        logger.error("webhook_acesso_build_failed", exc_info=True)
+        return
+    if state.acesso is not None:
+        state.dispatcher.acesso = state.acesso
+
     # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
     # Isolated exactly like the construction above — a failure here must not crash bring-up.
     try:
@@ -637,14 +1088,26 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         logger.error("webhook_dispatch_checkpointer_provision_failed", exc_info=True)
 
 
-async def run(settings: WhatsAppWebhookSettings) -> None:
-    """Run the webhook-receiver until SIGTERM/SIGINT. See module docstring for STEP A..D."""
-    logger.info("webhook_receiver_starting", tenant=settings.tenant_id, health_port=settings.health_port)
+async def build_live_dispatcher(settings: WhatsAppWebhookSettings) -> WebhookState:
+    """STEP A as a public builder: the receiver's OWN composition of the live dispatcher.
 
+    `run` calls exactly this, and so does the beneficiary simulator (`maezo.qa.simulador`, dev
+    only), which then swaps only its outbound edges. One composition, never a copy: a simulator
+    that rebuilt the dispatcher by hand would be testing a receiver that does not exist. Never
+    raises — a failed bring-up leaves `dispatcher` `None` and the reason in `dispatcher_error`.
+    """
     state = WebhookState(settings=settings)
     # STEP A: bring up dispatch dependencies — pure construction + the ONE bounded I/O (the T4b
     # durable checkpointer connect+setup, `dep_connect_timeout_s`-bounded; module docstring).
     await _bring_up_dependencies(state)
+    return state
+
+
+async def run(settings: WhatsAppWebhookSettings) -> None:
+    """Run the webhook-receiver until SIGTERM/SIGINT. See module docstring for STEP A..D."""
+    logger.info("webhook_receiver_starting", tenant=settings.tenant_id, health_port=settings.health_port)
+
+    state = await build_live_dispatcher(settings)
 
     # STEP B: bind the app (health + /webhook) with the STEP A result baked in. The dedup guard
     # rides on the dispatcher (`_build_dispatcher` builds both or neither), so a replica that has
@@ -675,8 +1138,29 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(_sig, _request_shutdown, _sig)
 
+    # DL-0084: retencao de 90 dias do estado do acesso (so' com o acesso ligado), no boot e a cada 6 h.
+    retencao_task: asyncio.Task[None] | None = None
+    if state.acesso is not None:
+        from .whatsapp.acesso_retencao import laco_de_retencao
+
+        retencao_task = asyncio.create_task(laco_de_retencao(state.acesso, shutdown), name="acesso-retencao")
+
+    # DL-0128: o catalogo de procedimentos e o indice por significado da cobertura assistida sobem em SEGUNDO
+    # PLANO no boot (uns 4 minutos), para a primeira pergunta de cobertura ja' achar o nome oficial.
+    catalogo_task: asyncio.Task[None] | None = None
+    if state.dispatcher is not None:
+        catalogo_task = asyncio.create_task(
+            _aquecer_catalogo(state.dispatcher), name="catalogo-procedimentos"
+        )
+
     logger.info("webhook_receiver_running")
     await shutdown.wait()
+    if catalogo_task is not None and not catalogo_task.done():
+        catalogo_task.cancel()
+    if retencao_task is not None:
+        retencao_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await retencao_task
 
     server.should_exit = True
     with contextlib.suppress(asyncio.CancelledError, SystemExit):
@@ -691,6 +1175,9 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     if state.helena_identidade is not None:
         with contextlib.suppress(Exception):
             await state.helena_identidade.aclose()
+    if state.acesso is not None:
+        with contextlib.suppress(Exception):
+            await state.acesso.aclose()
 
     # T4b: release the checkpointer's connection pool (idempotent; no-op for the in-memory
     # fallback / when never provisioned). Non-fatal — a close failure must not mask shutdown.

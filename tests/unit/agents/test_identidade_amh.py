@@ -151,3 +151,42 @@ async def test_consentimento_negado_ou_de_outro_sujeito_ou_proposito_nao_autoriz
 async def test_sem_decisao_ou_fonte_fora_nao_autoriza(razao: PortFailureReason) -> None:
     fonte = FonteDeConsentimentoAmh(_Consent(PortResult.refused(razao)))  # type: ignore[arg-type]
     assert await fonte.decisao(REF, "purpose1") is None
+
+
+# --- candidatos_com_desfecho (acesso do beneficiario, DL-0083; revisao do PR #700) --------------------
+async def test_candidatos_unico_e_multiplos_devolvem_o_conjunto() -> None:
+    assert await _resolvedor(_Port(PortResult.ok(_resolucao(REF)))).candidatos_com_desfecho(
+        "p", phone_hash="h"
+    ) == ((REF,), "unico")
+    assert await _resolvedor(_Port(PortResult.ok(_resolucao(REF, OUTRO)))).candidatos_com_desfecho(
+        "p", phone_hash="h"
+    ) == ((REF, OUTRO), "multiplos")
+
+
+async def test_candidatos_nenhum_e_definitivo_e_o_resto_e_indisponivel() -> None:
+    assert await _resolvedor(_Port(PortResult.ok(_resolucao()))).candidatos_com_desfecho(
+        "p", phone_hash="h"
+    ) == ((), "nenhum")
+    assert await _resolvedor(_Port(PortResult.ok(_resolucao()))).candidatos_com_desfecho(
+        "p", phone_hash=None
+    ) == ((), "indisponivel")
+    recusa = _Port(PortResult.refused(PortFailureReason.UPSTREAM_UNAVAILABLE))
+    assert await _resolvedor(recusa).candidatos_com_desfecho("p", phone_hash="h") == ((), "indisponivel")
+
+
+@pytest.mark.parametrize(
+    "resolucao",
+    [
+        SubjectResolution("unico", (), frozenset()),
+        SubjectResolution("nenhum", (SubjectCandidate(REF, "titular", True),), frozenset()),
+        SubjectResolution(
+            "multiplos",
+            (SubjectCandidate(REF, "titular", True), SubjectCandidate(REF, "dependente", True)),
+            frozenset(),
+        ),
+        SubjectResolution("multiplos", (SubjectCandidate(REF, "titular", True),), frozenset()),
+    ],
+)
+async def test_candidatos_resposta_incoerente_e_indisponivel(resolucao: SubjectResolution) -> None:
+    port = _Port(PortResult.ok(resolucao))
+    assert await _resolvedor(port).candidatos_com_desfecho("p", phone_hash="h") == ((), "indisponivel")

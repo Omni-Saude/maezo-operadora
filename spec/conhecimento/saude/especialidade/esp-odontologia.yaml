@@ -1,0 +1,27 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: esp-odontologia
+categoria: especialidade
+titulo: Odontologia
+sinonimos:
+- dentista
+- odontologia
+- cirurgiao-dentista
+- cirurgião-dentista
+- odontologo
+- odontólogo
+texto: O dentista cuida dos dentes, da gengiva e da boca. Faz limpeza, tratamento de cárie, canal e extração de dentes. Também orienta sobre a higiene da boca.
+tipo_texto: proprio
+fontes:
+- nome: Lei nº 5.081/1966 — regula o exercício da odontologia
+  url: https://www.planalto.gov.br/ccivil_03/leis/l5081.htm
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-17
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

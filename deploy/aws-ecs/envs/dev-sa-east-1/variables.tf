@@ -210,7 +210,7 @@ variable "image_tag" {
     no-op nos servicos em vez de incidente. Promover imagem continua sendo passar a variavel.
   EOT
   type        = string
-  default     = "5ce71835" # historico da conversa (#689/#692) + consultas TINA desligadas (#690). Antes: be172709 # pin v1.1 da AMH (#679) + identidade Helena (#677). Antes: f7026a7e # 14a promocao: #666 vendor spine (migration 0019) + #663 reapresentacao Helena. Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614. Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI). Antes: d4444acc # 02/10/2026 (9a promocao): main com #602 (classify repete 1x em JSON invalido; sincope grave P1). Antes: 3c0d73ca # 02/10/2026 (7a promocao): main com #599 (DL-0056: retomada do Lucas volta ao WhatsApp). Antes: 03428909 # 02/10/2026 (6a promocao): main com o lexico do pre-roteamento empacotado (#597); roteador LIGADO em dev por lucas.auto.tfvars (#596, DL-0053). Antes: e8de19c3 # 01/10/2026 (5a promocao): main com #593 (DL-0055: DMN de admissibilidade do Lucas com categoria). Antes: 01b44ddd # 01/10/2026 (4a promocao): main com as ondas (e) e (f) do Lucas (#589, #590); roteador DESLIGADO. Antes: b3a5d4b9 # 01/10/2026 (3a promocao): main com #579 (DL-0054) e as correcoes de cerca/lint/tipos (#588). Antes: baa12dbd # 01/10/2026 (2a promocao): main baa12dbd. Antes: a94e7d4a # 01/10/2026: main a94e7d4a (mesma imagem do receptor/agentes; deploy-processes/migrations rodam com ela). Antes: 07e72eae-r2 # 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((merge de #440) — promovida a dev por #445 (21/09); antes c745fd94 09/09, 40dc6d4 27/08
+  default     = "d443b52f" # 09/10/2026: resumo ao atendente em texto fixo dos fatos, sem LLM (#717); CodeBuild sha256:e62451bd, assinada (supply-chain run 37974079213). Antes: 5d2b0b88 # 09/10/2026: Lucas responde valores e vencimento em texto fixo (#709 #712), finalidade atendimento_whatsapp + pin v1.4 (#713), prazo da cobranca 15 s (#715); CodeBuild sha256:ae034415, assinada (supply-chain run 37955510925). Antes: 88b57238 # 08/10/2026: acesso do beneficiario (#700 #702, migration 0022/0023) + pin v1.3 da AMH (#706), CodeBuild sha256:d48532a2, assinada (supply-chain run 37850229636). Antes: 42e51178 # vendor GP11 corrigido (#694) + Lucas pelos fatos (#697). Antes: 5ce71835 # historico da conversa (#689/#692) + consultas TINA desligadas (#690). Antes: be172709 # pin v1.1 da AMH (#679) + identidade Helena (#677). Antes: f7026a7e # 14a promocao: #666 vendor spine (migration 0019) + #663 reapresentacao Helena. Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614. Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI). Antes: d4444acc # 02/10/2026 (9a promocao): main com #602 (classify repete 1x em JSON invalido; sincope grave P1). Antes: 3c0d73ca # 02/10/2026 (7a promocao): main com #599 (DL-0056: retomada do Lucas volta ao WhatsApp). Antes: 03428909 # 02/10/2026 (6a promocao): main com o lexico do pre-roteamento empacotado (#597); roteador LIGADO em dev por lucas.auto.tfvars (#596, DL-0053). Antes: e8de19c3 # 01/10/2026 (5a promocao): main com #593 (DL-0055: DMN de admissibilidade do Lucas com categoria). Antes: 01b44ddd # 01/10/2026 (4a promocao): main com as ondas (e) e (f) do Lucas (#589, #590); roteador DESLIGADO. Antes: b3a5d4b9 # 01/10/2026 (3a promocao): main com #579 (DL-0054) e as correcoes de cerca/lint/tipos (#588). Antes: baa12dbd # 01/10/2026 (2a promocao): main baa12dbd. Antes: a94e7d4a # 01/10/2026: main a94e7d4a (mesma imagem do receptor/agentes; deploy-processes/migrations rodam com ela). Antes: 07e72eae-r2 # 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((merge de #440) — promovida a dev por #445 (21/09); antes c745fd94 09/09, 40dc6d4 27/08
 }
 
 variable "webhook_receiver_image_tag" {
@@ -236,7 +236,7 @@ variable "webhook_receiver_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "5ce71835" # historico da conversa (#689/#692) + consultas TINA desligadas (#690). Antes: be172709 # pin v1.1 da AMH (#679) + identidade Helena (#677). Antes: f7026a7e # 14a promocao: #666 vendor spine (migration 0019) + #663 reapresentacao Helena. Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614. Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI). Antes: d4444acc # 02/10/2026 (9a promocao): main com #602 (classify repete 1x em JSON invalido; sincope grave P1). Antes: 3c0d73ca # 02/10/2026 (7a promocao): main com #599 (DL-0056: retomada do Lucas volta ao WhatsApp). Antes: 03428909 # 02/10/2026 (6a promocao): main com o lexico do pre-roteamento empacotado (#597); roteador LIGADO em dev por lucas.auto.tfvars (#596, DL-0053). Antes: e8de19c3 # 01/10/2026 (5a promocao): main com #593 (DL-0055: DMN de admissibilidade do Lucas com categoria). Antes: 01b44ddd # 01/10/2026 (4a promocao): main com as ondas (e) e (f) do Lucas (#589, #590); roteador DESLIGADO. Antes: b3a5d4b9 # 01/10/2026 (3a promocao): main com #579 (DL-0054) e as correcoes de cerca/lint/tipos (#588). Antes: baa12dbd # 01/10/2026 (2a promocao): main baa12dbd (ondas a-c do Lucas #581 #582 #584; roteador desligado), CodeBuild sha256:2935cdbc. Antes: a94e7d4a # 01/10/2026: main a94e7d4a (#575 dispneia desconhecida escala, #577 outside_channel, #576 urllib3/pyjwt), CodeBuild sha256:1052fd6c. Antes: 3fbcc34e # 28/09/2026 (#558): merge de #555+#556+#557+#558 (arvore = d7661cec), CodeBuild sha256:d534e0fb..., assinada (supply-chain run 36371193612); roda no webhook-receiver, na ponte e no agent-resume. Antes: 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); response-v3 de 13/09 (`e86c0f89`) que o receptor ja rodava
+  default = "d443b52f" # 09/10/2026: resumo ao atendente em texto fixo dos fatos, sem LLM (#717); CodeBuild sha256:e62451bd, assinada (supply-chain run 37974079213). Antes: 5d2b0b88 # 09/10/2026: Lucas responde valores e vencimento em texto fixo (#709 #712), finalidade atendimento_whatsapp + pin v1.4 (#713), prazo da cobranca 15 s (#715); CodeBuild sha256:ae034415, assinada (supply-chain run 37955510925). Antes: 88b57238 # 08/10/2026: acesso do beneficiario (#700 #702, migration 0022/0023) + pin v1.3 da AMH (#706), CodeBuild sha256:d48532a2, assinada (supply-chain run 37850229636). Antes: 42e51178 # vendor GP11 corrigido (#694) + Lucas pelos fatos (#697). Antes: 5ce71835 # historico da conversa (#689/#692) + consultas TINA desligadas (#690). Antes: be172709 # pin v1.1 da AMH (#679) + identidade Helena (#677). Antes: f7026a7e # 14a promocao: #666 vendor spine (migration 0019) + #663 reapresentacao Helena. Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625. Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614. Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI). Antes: d4444acc # 02/10/2026 (9a promocao): main com #602 (classify repete 1x em JSON invalido; sincope grave P1). Antes: 3c0d73ca # 02/10/2026 (7a promocao): main com #599 (DL-0056: retomada do Lucas volta ao WhatsApp). Antes: 03428909 # 02/10/2026 (6a promocao): main com o lexico do pre-roteamento empacotado (#597); roteador LIGADO em dev por lucas.auto.tfvars (#596, DL-0053). Antes: e8de19c3 # 01/10/2026 (5a promocao): main com #593 (DL-0055: DMN de admissibilidade do Lucas com categoria). Antes: 01b44ddd # 01/10/2026 (4a promocao): main com as ondas (e) e (f) do Lucas (#589, #590); roteador DESLIGADO. Antes: b3a5d4b9 # 01/10/2026 (3a promocao): main com #579 (DL-0054) e as correcoes de cerca/lint/tipos (#588). Antes: baa12dbd # 01/10/2026 (2a promocao): main baa12dbd (ondas a-c do Lucas #581 #582 #584; roteador desligado), CodeBuild sha256:2935cdbc. Antes: a94e7d4a # 01/10/2026: main a94e7d4a (#575 dispneia desconhecida escala, #577 outside_channel, #576 urllib3/pyjwt), CodeBuild sha256:1052fd6c. Antes: 3fbcc34e # 28/09/2026 (#558): merge de #555+#556+#557+#558 (arvore = d7661cec), CodeBuild sha256:d534e0fb..., assinada (supply-chain run 36371193612); roda no webhook-receiver, na ponte e no agent-resume. Antes: 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); response-v3 de 13/09 (`e86c0f89`) que o receptor ja rodava
 }
 
 variable "webhook_receiver_desired_count" {
@@ -249,6 +249,22 @@ variable "bridge_desired_count" {
   description = "Replicas da ponte de notificacao (consumer do topico interno -> start auditado de processos). 1 para o passo 9 existir; 0 para tirar do ar."
   type        = number
   default     = 1
+}
+
+variable "notifications_inbox_desired_count" {
+  description = <<-EOT
+    Replicas do inbox duravel de avisos de escalonamento (`service-notifications-inbox.tf`:
+    `operadora.notifications.internal` -> linha em `escalation_team_notice`). DEFAULT 0, e com 0
+    nenhum recurso daquele arquivo existe. Teto 1 enquanto a ponte for singleton declarado (SC-04-b).
+    Ligar e' decisao do dono.
+  EOT
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.notifications_inbox_desired_count >= 0 && var.notifications_inbox_desired_count <= 1
+    error_message = "notifications_inbox_desired_count aceita 0 ou 1."
+  }
 }
 
 variable "agent_resume_desired_count" {
@@ -542,7 +558,7 @@ variable "canal_teste_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "5ce71835" # historico da conversa (#689/#692) + consultas TINA desligadas (#690) (canal-teste). Antes: be172709 # pin v1.1 da AMH (#679) + identidade Helena (#677) (canal-teste). Antes: f7026a7e # 14a promocao: #666 vendor spine (migration 0019) + #663 reapresentacao Helena (canal-teste). Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17 (canal-teste). Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17 (canal-teste). Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625 (canal-teste). Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625 (canal-teste). Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614 (canal-teste). Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI) (canal-teste). Antes: 9638f32d # 28/09/2026: main 9638f32d (#564 conclusao na tela do portal, #565), sha256:4f300926, mesma imagem do app. Antes: 28fdd58e # 27/09/2026 (#555): o canal roda 28fdd58e (sha256:b7f8714e, assinada) desde o apply do #555 com -var; o default voltava a 07e72eae-r2. Antes: 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
+  default = "d443b52f" # 09/10/2026: resumo ao atendente em texto fixo dos fatos, sem LLM (#717); CodeBuild sha256:e62451bd, assinada (supply-chain run 37974079213). Antes: 5d2b0b88 # 09/10/2026: Lucas responde valores e vencimento em texto fixo (#709 #712), finalidade atendimento_whatsapp + pin v1.4 (#713), prazo da cobranca 15 s (#715); CodeBuild sha256:ae034415, assinada (supply-chain run 37955510925). Antes: 88b57238 # 08/10/2026: acesso do beneficiario (#700 #702, migration 0022/0023) + pin v1.3 da AMH (#706), CodeBuild sha256:d48532a2, assinada (supply-chain run 37850229636). Antes: 42e51178 # vendor GP11 corrigido (#694) + Lucas pelos fatos (#697) (canal-teste). Antes: 5ce71835 # historico da conversa (#689/#692) + consultas TINA desligadas (#690) (canal-teste). Antes: be172709 # pin v1.1 da AMH (#679) + identidade Helena (#677) (canal-teste). Antes: f7026a7e # 14a promocao: #666 vendor spine (migration 0019) + #663 reapresentacao Helena (canal-teste). Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17 (canal-teste). Antes: 1b72be17 # 13a promocao: #662 fonte real de cobranca (desligada) + main 1b72be17 (canal-teste). Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625 (canal-teste). Antes: 3fbe5871 # 12a promocao: PRs do diretor #635 #636 #638 #639 #640 #641 + majors #619 #625 (canal-teste). Antes: bf7739e8 # 03/10/2026 (11a promocao): main com #615 (spec/policies/privacy e ans empacotados na imagem) e #614 (canal-teste). Antes: 2dc74f37 # 03/10/2026 (10a promocao): main 80248798+ (Helena: divergencias da bateria 30/09-01/10 #6xx, DMNs gestante/mental/pediatrica, canal valida pagina por lista fechada, cercas de CI) (canal-teste). Antes: 9638f32d # 28/09/2026: main 9638f32d (#564 conclusao na tela do portal, #565), sha256:4f300926, mesma imagem do app. Antes: 28fdd58e # 27/09/2026 (#555): o canal roda 28fdd58e (sha256:b7f8714e, assinada) desde o apply do #555 com -var; o default voltava a 07e72eae-r2. Antes: 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
 }
 
 variable "canal_teste_result_allowlist" {
@@ -776,6 +792,138 @@ variable "helena_historico" {
   nullable    = false
 }
 
+variable "helena_triagem_v2" {
+  description = <<-EOT
+    Nova triagem da Helena (DL-0104, 14/10/2026): `MAEZO_HELENA_TRIAGEM_V2`. Default `false` = a Helena
+    de antes, byte a byte. Ligada, a tabela `helena_triage_admissibility` decide a saida do turno depois
+    dos portoes de seguranca (pergunta clinica sem sintoma deixa de abrir caso; sintoma faz ficha de ate'
+    3 perguntas). EXPERIMENTO SO' EM DEV: conteudo clinico DRAFT, pendente do medico-auditor.
+    Runbook: docs/runbooks/helena-triagem-v2.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_v4" {
+  description = <<-EOT
+    Helena v4 (DL-0115, 16/10/2026): `MAEZO_HELENA_V4`. Default `false` = a Helena de antes, byte a byte.
+    Ligada, o especialista (cardiologista, dermatologista...) e a carteirinha recebem texto fixo (onde marcar,
+    prazo da ANS, dados mascarados) e o sintoma leve recebe so' perguntas de alerta antes do caminho. Com ela
+    ligada a nova triagem (`helena_triagem_v2`) fica inerte. EXPERIMENTO SO' EM DEV: conteudo clinico DRAFT
+    (medico-auditor pendente) e prazo de 14 dias uteis a confirmar pelo juridico.
+    Runbook: docs/runbooks/helena-v4.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_carteirinha_completa" {
+  description = <<-EOT
+    Vinculo ativo e carteirinha completa na Helena (decisao do dono de 17/10/2026, "modelo de teste" reversivel):
+    `MAEZO_HELENA_CARTEIRINHA_COMPLETA`. Default `false` = a Helena de antes, byte a byte. Ligada, o tipo de plano
+    e a carteirinha mostram SO' os vinculos ATIVOS, e a carteirinha (texto fixo) traz o NUMERO COMPLETO do proprio
+    beneficiario verificado pela rota `tina-carteirinha` da AMH (manifest v1.12): acrescenta
+    `interop/tina.carteirinha` aos escopos pedidos ao Cognito e o caminho do OpenAPI na task definition (so' com
+    `helena_consultas_amh`). O receptor RECUSA servir sem o bloco `manifest_v1_12` no pin. EXPERIMENTO SO' EM DEV.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_dependentes_nome" {
+  description = <<-EOT
+    Nome completo dos dependentes na Helena (decisao do dono e DPO de 19/10/2026, DL-0127, "modelo de teste"
+    reversivel): `MAEZO_HELENA_DEPENDENTES_NOME`. Default `false` = a Helena de antes, byte a byte. Ligada, a lista
+    de dependentes e o "para quem e'?" da cobertura levam o nome completo de cada dependente do PROPRIO titular
+    verificado pela rota `tina-dependentes-nome` da AMH (manifest v1.13): acrescenta `interop/tina.dependentes_nome`
+    aos escopos pedidos ao Cognito e o caminho do OpenAPI na task definition (so' com `helena_consultas_amh`). O
+    receptor RECUSA servir sem o bloco `manifest_v1_13` no pin. EXPERIMENTO SO' EM DEV.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_base_saude" {
+  description = <<-EOT
+    Base de conhecimento de saude da Helena (ADR-0064, DL-0118, 17/10/2026): `MAEZO_HELENA_BASE_SAUDE`.
+    Default `false` = a Helena de antes, byte a byte. Ligada, a Helena informa perguntas gerais de saude a
+    partir da base curada `spec/conhecimento/saude` (sem diagnostico, conduta nem dose; sem abrir caso), faz
+    perguntas de alerta na dor sem sinal de alarme (com `helena_v4` ligada) e encerra o caso P2/P3 a pedido
+    da pessoa, com confirmacao (mensagem `msg.escalation.withdrawn` do SP-OP-ESCALATION-001 v1.1.0: rode o
+    deploy-processes ANTES de ligar). MODELO DE TESTE SO' EM DEV: revisao medica e juridica antes de producao.
+    Runbook: docs/runbooks/helena-base-saude.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_saude_gerativa" {
+  description = <<-EOT
+    SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): `MAEZO_HELENA_SAUDE_GERATIVA`. Default `false` =
+    a Helena de antes, byte a byte. Ligada (e com `helena_base_saude`), o Claude Haiku 5.5 REDIGE a resposta a
+    perguntas informativas de saude (com checagem antes de enviar e resposta segura padrao) SO' para as conversas
+    de `helena_saude_gerativa_conversas`, pela rota PROPRIA `experimento_global_autorizado_dpo_2026-10-17`
+    (perfil GLOBAL do Bedrock: pode processar FORA DO BRASIL). Autorizado pelo dono COMO DPO so' para a conversa
+    dele e as do simulador, so' em dev, como teste reversivel. Runbook: docs/runbooks/helena-base-saude.md §10.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_saude_gerativa_conversas" {
+  description = <<-EOT
+    A ALLOWLIST da saude gerativa (ADR-0065): `conversation_id` keyed (`wa:<tenant>:hk1_<64 hex>`). Fora dela, a
+    Helena de antes. Vira `MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS` (separados por virgula). Vazia = ninguem.
+  EOT
+  type        = list(string)
+  default     = []
+  nullable    = false
+  validation {
+    condition     = alltrue([for c in var.helena_saude_gerativa_conversas : can(regex("^wa:[a-z0-9][a-z0-9_-]{0,31}:hk1_[0-9a-f]{64}$", c))])
+    error_message = "helena_saude_gerativa_conversas: so' conversation_id keyed (wa:<tenant>:hk1_<64 hex>)."
+  }
+}
+
+variable "helena_busca_semantica" {
+  description = <<-EOT
+    BUSCA POR SIGNIFICADO na base de saude (fase 3, decisao do dono de 18/10/2026): `MAEZO_HELENA_BUSCA_SEMANTICA`.
+    Default `false` = o lexico de antes. Ligada (e com `helena_saude_gerativa`), embeddings de um modelo REGIONAL do
+    Bedrock em sa-east-1 (sem perfil de inferencia) escolhem o APOIO da redacao da saude gerativa, so' para a
+    allowlist dela. Nunca e' portao de recusa. IAM em `busca-semantica-saude.tf`. Runbook: helena-base-saude.md §13.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "helena_busca_semantica_modelo" {
+  description = "Modelo de embeddings REGIONAL (sa-east-1) da busca por significado: cohere.embed-multilingual-v3 ou amazon.titan-embed-text-v2:0."
+  type        = string
+  default     = "amazon.titan-embed-text-v2:0"
+  nullable    = false
+  validation {
+    condition     = contains(["cohere.embed-multilingual-v3", "amazon.titan-embed-text-v2:0"], var.helena_busca_semantica_modelo)
+    error_message = "helena_busca_semantica_modelo: so' cohere.embed-multilingual-v3 ou amazon.titan-embed-text-v2:0 (regionais)."
+  }
+}
+
+variable "helena_busca_semantica_limiar" {
+  description = "Similaridade minima (cosseno, 0..1) para o assunto da busca por significado virar apoio (calibrado em dev)."
+  type        = number
+  default     = 0.33
+  nullable    = false
+  validation {
+    condition     = var.helena_busca_semantica_limiar >= 0 && var.helena_busca_semantica_limiar <= 1
+    error_message = "helena_busca_semantica_limiar: entre 0 e 1."
+  }
+}
+
 variable "helena_consultas_amh" {
   description = <<-EOT
     Fatos do plano na Helena pelo contrato TINA da AMH (decisao do dono de 07/10/2026):
@@ -783,7 +931,7 @@ variable "helena_consultas_amh" {
     carteirinha, carencia e autorizacao do PROPRIO beneficiario (identidade resolvida). Exige
     `helena_identidade_amh = true` (validado aqui e no boot), acrescenta `interop/tina.read` aos escopos
     pedidos ao Cognito e o caminho do OpenAPI TINA na task definition. O receptor RECUSA servir sem o
-    manifest v1.2 pinado (ainda DRAFT na AMH em 07/10/2026).
+    manifest v1.2 pinado (publicado pela AMH em 13/10/2026; bloco `manifest_v1_2` no lock).
   EOT
   type        = bool
   default     = false
@@ -799,6 +947,215 @@ variable "amh_tina_openapi_path" {
   description = "Caminho, DENTRO da imagem, do OpenAPI `tina` publicado (o digest tem de estar no bloco manifest_v1_2 do pin). Lido so' com helena_consultas_amh."
   type        = string
   default     = "/app/config/integrations/amh/openapi/tina.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_dependentes_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-dependentes` publicado (manifest v1.5; o digest tem de estar no bloco manifest_v1_5 do pin). Lido so' com helena_consultas_amh."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-dependentes.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_procedimentos_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-procedimentos` (manifest v1.14, DL-0128: catalogo de procedimentos resolvidos por codigo; o digest tem de estar no bloco manifest_v1_14 do pin). Lido so' com helena_consultas_amh. Vazio = sem o catalogo: a cobertura assistida usa a busca por texto da rota de cobertura."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-procedimentos.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_dependentes_nome_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-dependentes-nome` (manifest v1.13; o digest tem de estar no bloco manifest_v1_13 do pin). Lido so' com helena_consultas_amh e helena_dependentes_nome. Vazio = sem a rota (nem o escopo `interop/tina.dependentes_nome`): a Helena mostra os dependentes sem nome."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-dependentes-nome.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_carteirinha_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-carteirinha` (manifest v1.12; o digest tem de estar no bloco manifest_v1_12 do pin). Lido so' com helena_consultas_amh e helena_carteirinha_completa. Vazio = sem a rota (nem o escopo `interop/tina.carteirinha`): a Helena so' filtra os vinculos ativos e a carteirinha sai mascarada."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/tina-carteirinha.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_tina_cpt_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-cpt` (manifest v1.15, DL-0130: CPT vigente do proprio sujeito; o digest tem de estar no bloco manifest_v1_15 do pin). Lido so' com helena_consultas_amh. Vazio (default) = sem a rota: a Helena nao da' o aviso de CPT; falha de leitura/digest deixa so' a CPT de fora."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_tina_cobertura_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `tina-cobertura` (manifest v1.9; o digest tem de estar no bloco manifest_v1_9 do pin). Lido so' com helena_consultas_amh. Vazio (default) = sem a rota de cobertura por procedimento; falha de leitura/digest deixa so' a cobertura de fora."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "acesso_beneficiario" {
+  description = <<-EOT
+    Acesso do beneficiario no WhatsApp (decisao do dono de 08/10/2026, DL-0083): `MAEZO_ACESSO_BENEFICIARIO`.
+    Default `false` (task definition intacta). Ligado, TODA conversa passa antes por consentimento (ACEITO) e
+    verificacao de identidade (CPF [+ nascimento]), sem LLM, e so' entao chega a Helena/Lucas. Exige o interop
+    da AMH (mesma composicao da identidade), a chave `amh/interop/subject-verify-key`, os dois OpenAPI
+    (`subject-verification`, `consent-record`) e os escopos `interop/subject.verify` + `interop/consent.write`
+    no client Cognito. O receptor RECUSA servir sem o manifest v1.3 pinado (contratos ainda nao publicados).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "lucas_consulta_valores" {
+  description = <<-EOT
+    Valores na resposta do Lucas (DL-0086, revisao de seguranca do PR #709): `MAEZO_LUCAS_CONSULTA_VALORES`.
+    Default `false`: a fonte AMH entrega so' os quatro fatos de conciliacao e a pergunta de valor escala.
+    Ligada, a fonte AMH entrega tambem valores, coparticipacao, saldo, datas de pagamento e boleto
+    mascarado — SO' para a ref. verificada pelo acesso do beneficiario (DL-0083). Exige
+    `acesso_beneficiario = true` e `lucas_fonte_cobranca = "amh"` (validado aqui e no boot).
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.lucas_consulta_valores || (var.acesso_beneficiario && var.lucas_fonte_cobranca == "amh")
+    error_message = "lucas_consulta_valores exige acesso_beneficiario = true e lucas_fonte_cobranca = \"amh\" (valor so' para beneficiario verificado)."
+  }
+}
+
+variable "cancel_pf_v1" {
+  description = <<-EOT
+    Cancelamento a pedido do beneficiario PESSOA FISICA (DL-0111, SP-OP-CANCEL-001 v0.2.0):
+    `MAEZO_CANCEL_PF_V1`. Default `false` = o Lucas de antes, byte a byte (o pedido abre o processo com
+    fatos `false` e tudo vai a analise humana). Ligada, o Lucas le' os fatos nos contratos AMH ja' pinados
+    (TINA elegibilidade + billing-status), dependente nao abre o processo, o titular PF abre com os fatos
+    reais e recebe o protocolo, e o processo devolve o resultado pela retomada. Aprovado pelo dono em
+    15/10/2026 SO' para dev; revisao juridica/regulatoria, DPO e operacao antes de producao. Exige
+    `lucas_fonte_cobranca = "amh"` (validado aqui). Runbook: docs/runbooks/cancel-001-pf.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.cancel_pf_v1 || var.lucas_fonte_cobranca == "amh"
+    error_message = "cancel_pf_v1 exige lucas_fonte_cobranca = \"amh\" (os fatos do cancelamento vem dos contratos da AMH)."
+  }
+}
+
+variable "lucas_v4" {
+  description = <<-EOT
+    Lucas do catalogo v4 (DL-0114, aprovado pelo dono em 16/10/2026 SO' para dev; revisao juridica e do DPO antes
+    de producao): `MAEZO_LUCAS_V4`. Default `false` = o Lucas de antes, byte a byte. Ligada: so' o pagador PF
+    recebe valores e 2a via; o PF que nao e' o pagador ouve que o responsavel financeiro do contrato (sem nome)
+    e' quem pode pedir; o pagador ouve o valor TOTAL da mensalidade primeiro; plano de empresa segue para o RH.
+    O detalhamento por beneficiario e o codigo de barras da 2a via so' ligam quando os contratos novos da AMH
+    (billing-status 0.4.0 e billing-segunda-via) estiverem publicados e pinados (segundo sinal no codigo). Exige
+    `lucas_consulta_valores = true` (validado aqui e no boot). Runbook: docs/runbooks/lucas-v4.md.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.lucas_v4 || var.lucas_consulta_valores
+    error_message = "lucas_v4 exige lucas_consulta_valores = true (sem os fatos de valor nao ha' como saber quem e' o pagador)."
+  }
+
+  # Achado do aceite de 16/10/2026: sem o billing-status 0.3.0 (`beneficiario_e_pagador`) o Lucas nao tem como
+  # afirmar quem e' o pagador. O codigo FALHA FECHADO (nao mostra valor), mas a chave ligada sem o 0.3.0 so'
+  # entrega a negativa: recusar aqui evita ligar a v4 "pela metade".
+  validation {
+    condition     = !var.lucas_v4 || var.amh_billing_status_contratacao_openapi_path != ""
+    error_message = "lucas_v4 exige amh_billing_status_contratacao_openapi_path (billing-status 0.3.0: beneficiario_e_pagador e valor_boleto_pagador)."
+  }
+}
+
+variable "acesso_validade_horas" {
+  description = "Validade, em horas, da verificacao de identidade do acesso (`MAEZO_ACESSO_VALIDADE_HORAS`, 1..168). Vencida, a proxima mensagem recomeca no CPF (o consentimento fica)."
+  type        = number
+  default     = 24
+  nullable    = false
+
+  validation {
+    condition     = var.acesso_validade_horas >= 1 && var.acesso_validade_horas <= 168 && floor(var.acesso_validade_horas) == var.acesso_validade_horas
+    error_message = "acesso_validade_horas deve ser um inteiro entre 1 e 168."
+  }
+}
+
+variable "amh_subject_verify_secret_name" {
+  description = "Segredo (criado pela AMH) com a chave dedicada do hash amh-subject-verify-v1 (CPF e CPF+nascimento). Lido so' com `acesso_beneficiario`."
+  type        = string
+  default     = "amh/interop/subject-verify-key"
+  nullable    = false
+}
+
+variable "amh_subject_verification_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `subject-verification` publicado (digest no bloco manifest_v1_3 do pin). Lido so' com `acesso_beneficiario`."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/subject-verification.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_document_resolution_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `subject-document-resolution` (AMH #214; digest no bloco manifest_v1_3 do pin). Lido so' com `acesso_beneficiario` (DL-0084)."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/subject-document-resolution.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_consent_record_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `consent-record` publicado (digest no bloco manifest_v1_3 do pin). Lido so' com `acesso_beneficiario`."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/consent-record.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_billing_status_atendimento_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-atendimento` (billing-status 0.2.0; digest no bloco manifest_v1_4 do pin). Lido so' com `acesso_beneficiario`: a cobranca do Lucas declara `purpose_of_use=atendimento_whatsapp`."
+  type        = string
+  default     = "/app/config/integrations/amh/openapi/billing-status-atendimento.openapi.yaml"
+  nullable    = false
+}
+
+variable "amh_billing_status_contratacao_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-contratacao` (billing-status 0.3.0; digest no bloco manifest_v1_6 do pin). Lido so' com `acesso_beneficiario`: a cobranca do Lucas passa a pedir `incluir_contratacao=true` (tipo de contratacao, beneficiario e pagador, valor do boleto do pagador). Vazio = segue o 0.2.0."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_billing_status_detalhamento_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-status-detalhamento` (billing-status 0.4.0, manifest v1.10; digest no bloco manifest_v1_10 do pin). Lido so' com `lucas_v4` e `amh_interop_boleto_client_id`."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_billing_segunda_via_openapi_path" {
+  description = "Caminho, DENTRO da imagem, do OpenAPI `billing-segunda-via` (0.1.0, manifest v1.11; digest no bloco manifest_v1_11 do pin). Lido so' com `lucas_v4` e `amh_interop_boleto_client_id`."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "amh_interop_boleto_client_id" {
+  description = "client_id do app client Cognito DEDICADO da 2a via (`maezo-operadora-interop-boleto`, unico escopo interop/billing.boleto; criado pela AMH). Vazio = o executor do Lucas v4 nao e' composto e o segundo sinal fica desligado."
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    condition     = var.amh_interop_boleto_client_id == "" || can(regex("^[a-z0-9]{20,40}$", var.amh_interop_boleto_client_id))
+    error_message = "amh_interop_boleto_client_id tem de ser vazio ou um client_id do Cognito (alfanumerico minusculo)."
+  }
+}
+
+variable "amh_interop_boleto_cognito_secret_name" {
+  description = "Segredo (criado pela AMH) com o client secret do app client dedicado da 2a via (maezo-operadora-interop-boleto)."
+  type        = string
+  default     = "amh/cognito/dev/maezo-operadora-interop-boleto"
   nullable    = false
 }
 

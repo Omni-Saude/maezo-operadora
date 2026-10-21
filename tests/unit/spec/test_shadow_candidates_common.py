@@ -219,7 +219,7 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
     """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
     dmns = {p.name for p in artifacts if p.suffix == ".dmn"}
-    assert len(dmns) == 64
+    assert len(dmns) == 65
     assert "triage_sufficiency.dmn" in dmns, (
         "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
         "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
@@ -229,6 +229,11 @@ def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
         "dono em 2026-10-07 — SP-OP-SUPP-001, catch-all unico → rota humana; VW0-DECISION-"
         "REGISTER §Decisoes de Fechamento item 1) — se ele nao esta mais ai, quem subiu o "
         "numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
+    )
+    assert "helena_triage_admissibility.dmn" in dmns, (
+        "o censo subiu para 65 por causa de `helena_triage_admissibility.dmn` (nova triagem da Helena, "
+        "DL-0104, experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`) — se ele nao esta mais ai, "
+        "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
     )
     bpmn_names = {p.name for p in artifacts if p.suffix == ".bpmn"}
     assert len(bpmn_names) == 17

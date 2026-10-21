@@ -15,9 +15,7 @@
       "tipo_solicitacao": "status_pagamento"
     }
   },
-  "recorded_llm": [
-    "Pedido de cancelamento identificado; dossie encaminhado para gestao de contratos."
-  ],
+  "recorded_llm": [],
   "dmn_fixture": {
     "lucas_escalation_routing": { "roteamento": "CONTRATOS_HUMANO" }
   },

@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: pro-angioplastia
+categoria: procedimento
+titulo: Angioplastia
+sinonimos:
+- angioplastia
+- angioplastia coronaria
+- angioplastia coronária
+- colocar stent
+- desentupir artéria
+- desentupir arteria
+texto: A angioplastia desobstrui uma artéria entupida por dentro, sem abrir o peito. Um cateter com um pequeno balão é levado até a artéria. Muitas vezes, coloca-se um stent para manter a artéria aberta.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Padrão TISS / Terminologia Unificada da Saúde Suplementar (TUSS)
+  url: https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-17
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

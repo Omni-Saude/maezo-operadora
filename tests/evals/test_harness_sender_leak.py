@@ -73,8 +73,8 @@ import pytest
 
 from maezo.agents.lucas.graph import build as build_lucas
 
-from ._harness import assert_no_leak, load_golden, mutate_plant_canary, run_case, run_mutation_check
-from .conftest import FakeWhatsAppSender
+from ._harness import assert_no_leak, load_golden, mutate_plant_canary, run_case
+from .conftest import FakeWhatsAppSender, ReplayUnconsumedResponsesError
 
 LUCAS_CASES = load_golden("lucas")
 
@@ -85,28 +85,29 @@ _SENDER_ONLY_CANARY = "canary-outbound-only-c1a2b3"
 def _escalate_case() -> dict[str, Any]:
     """`EVL-LUCAS-02`: `route=escalate_human`, `process_started` defaults `True` (unmodified
     `FakeCibSevenTransport`), so `send_escalation_ack` runs. Ate' DL-0082 o `recorded_llm[-1]` era
-    o rascunho do ACK (`_build_escalation_ack`); desde DL-0082 o ACK e' texto fixo e o ultimo
-    `recorded_llm` e' a narrativa do dossie."""
+    o rascunho do ACK (`_build_escalation_ack`); desde DL-0082 o ACK e' texto fixo, e desde
+    09/10/2026 a narrativa do dossie tambem — `recorded_llm` e' vazio."""
     return next(c for c in LUCAS_CASES if c["id"] == "EVL-LUCAS-02")
 
 
 @pytest.mark.eval
-async def test_evl_lucas_02_mutation_check_sender_leak_is_non_vacuous() -> None:
-    """A canary planted onto the ack-drafting LLM response must be caught by the harness's ABS
-    check even though it NEVER reaches `result.state` -- the exact NEW-07 scenario. Pre-fix,
-    `run_mutation_check` itself raises `MUTATION CHECK FAILED ... vacuous` here (the corrupted
-    golden silently PASSED its own check); post-fix it returns normally (the corruption IS
-    caught, proving the ABS check non-vacuous against a sender-only leak).
-
-    DL-0082: com o ACK fixo, o canario plantado no ultimo `recorded_llm` cai na narrativa do dossie
-    (estado), entao este teste agora prova a nao-vacuidade do caminho geral; a prova SO'-sender e'
-    `test_assert_no_leak_sees_sender_output_only_when_given_sender`, logo abaixo."""
-    await run_mutation_check(
-        build_lucas,
-        _escalate_case(),
-        mutation=lambda c: mutate_plant_canary(c, _SENDER_ONLY_CANARY),
-        extra_config={"whatsapp": FakeWhatsAppSender()},
-    )
+async def test_evl_lucas_02_canario_de_modelo_nao_tem_por_onde_entrar() -> None:
+    """Ate' 09/10/2026 este teste plantava um canario no ultimo `recorded_llm` (o rascunho do ACK e,
+    depois do DL-0082, a narrativa do dossie) e provava que o ABS check o pegava. Desde 09/10/2026 a
+    narrativa do dossie tambem e' TEXTO FIXO (`texto_dossie`): a escalacao do Lucas nao chama modelo
+    nenhum e `recorded_llm` do EVL-LUCAS-02 e' vazio — nao ha' onde plantar (`mutate_plant_canary`
+    recusa). A prova fica mais forte, nao mais fraca: um texto de modelo roteirizado nesta jornada
+    NUNCA e' consumido, e o harness falha FECHADO (`ReplayUnconsumedResponsesError`). A prova
+    SO'-sender do ABS check continua em `test_assert_no_leak_sees_sender_output_only_when_given_sender`."""
+    caso = copy.deepcopy(_escalate_case())
+    assert caso["recorded_llm"] == [], "a escalacao do Lucas voltou a chamar modelo? reveja este teste"
+    with pytest.raises(ValueError, match="no `recorded_llm` entries"):
+        mutate_plant_canary(caso, _SENDER_ONLY_CANARY)
+    caso["recorded_llm"] = [_SENDER_ONLY_CANARY]
+    sender = FakeWhatsAppSender()
+    with pytest.raises(ReplayUnconsumedResponsesError):
+        await run_case(build_lucas, caso, extra_config={"whatsapp": sender})
+    assert all(_SENDER_ONLY_CANARY not in texto for _, texto in sender.sent)
 
 
 @pytest.mark.eval

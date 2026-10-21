@@ -78,6 +78,9 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "billing_status",  # BillingStatusPort (cobranca; contrato AMH proposto, ainda nao publicado)
         "subject_resolution",  # SubjectResolutionPort (identidade; contrato AMH proposto, nao publicado)
         "tina",  # TinaPort (fatos do plano; contrato AMH TINA, manifest v1.2 DRAFT)
+        "subject_verification",  # SubjectVerificationPort (acesso do beneficiario, DL-0083; manifest v1.3)
+        "consent_record",  # ConsentRecordPort (registro do consentimento, DL-0083; manifest v1.3)
+        "document_resolution",  # DocumentResolutionPort (telefone sem cadastro, DL-0084; manifest v1.3)
         "population_features",  # PopulationFeaturePort (XRD-07)
         "outcomes",  # OutcomePublisherPort
     }
@@ -305,7 +308,7 @@ def test_port_modules_discovered() -> None:
         "Adding/removing a port module is a deliberate change to the boundary's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 11, f"expected exactly 11 port modules, found {sorted(mods)}"
+    assert len(mods) == 14, f"expected exactly 14 port modules, found {sorted(mods)}"
 
 
 def test_import_extraction_is_not_vacuous() -> None:
@@ -479,12 +482,37 @@ def test_no_port_module_imports_another_maezo_package() -> None:
             )
 
 
+#: EXCECAO NOMINAL E REVISADA da sonda (iv): o UNICO slot de nome dos ports. Decisao do dono da organizacao
+#: (CTO e DPO) de 19/10/2026 (DL-0127): "quando o assunto for dependente tem que mostrar o nome completo. Eu
+#: autorizo essa mudanca" — so' os dependentes do PROPRIO titular verificado, contrato AMH
+#: `tina-dependentes-nome`
+#: (manifest v1.13), campo fora do `repr`, entregue so' por texto fixo no envio. Qualquer outro slot continua
+#: reprovado; a chave e' (tipo, campo), entao renomear ou copiar o campo nao herda a excecao.
+_SLOTS_DE_PHI_AUTORIZADOS: frozenset[tuple[str, str]] = frozenset(
+    {("maezo.ports.tina.DependenteNominal", "nome_completo")}
+)
+
+
+def test_a_excecao_de_phi_e_so_a_autorizada() -> None:
+    """A excecao nao pode crescer em silencio: so' o nome do dependente, e o campo existe de fato."""
+    assert {"maezo.ports.tina.DependenteNominal"} == {t for t, _ in _SLOTS_DE_PHI_AUTORIZADOS}
+    tipos = _value_types()
+    for tipo, campo in _SLOTS_DE_PHI_AUTORIZADOS:
+        campos = {f.name: f for f in dataclasses.fields(tipos[tipo])}
+        assert campo in campos and campos[campo].repr is False
+
+
 def test_no_port_value_type_has_a_phi_shaped_field() -> None:
     """Fence (iv), value types: the ports are OPAQUE (they parse nothing), so the only structural
     guarantee against PHI crossing the boundary is that no PHI-shaped SLOT exists at all."""
     value_types = _value_types()
-    assert len(value_types) == 32, (
-        f"expected 32 port value types, found {sorted(value_types)} — update this non-vacuity pin "
+    # +3 (18/10/2026): cobertura TINA v1.9 (CarenciaDoItem, CoberturaItemView, CoberturaView).
+    # +2 (19/10/2026): nomes dos dependentes TINA v1.13 (DependenteNominal, DependentesNominaisView).
+    # +2 (19/10/2026, DL-0128): catalogo de procedimentos TINA v1.14 (ProcedimentoCatalogo,
+    # CatalogoProcedimentosView).
+    # +1 (20/10/2026, DL-0130): CPT vigente TINA v1.15 (CptVigenteView).
+    assert len(value_types) == 47, (
+        f"expected 47 port value types, found {sorted(value_types)} — update this non-vacuity pin "
         "when a value type is deliberately added or removed"
     )
     offenders: dict[str, list[str]] = {}
@@ -493,6 +521,7 @@ def test_no_port_value_type_has_a_phi_shaped_field() -> None:
             f.name
             for f in dataclasses.fields(cls)
             if any(fragment in f.name.lower() for fragment in _PHI_NAME_FRAGMENTS)
+            and (qualname, f.name) not in _SLOTS_DE_PHI_AUTORIZADOS
         ]
         if bad:
             offenders[qualname] = bad
@@ -506,7 +535,8 @@ def test_no_port_method_has_a_phi_shaped_parameter() -> None:
     ARGUMENT would let a caller push identifying data across the boundary even though no value
     type holds it."""
     protocols = _protocol_types()
-    assert len(protocols) == 8, f"expected exactly 8 port Protocols, found {sorted(protocols)}"
+    # +1 (20/10/2026, DL-0130): TinaCptPort.
+    assert len(protocols) == 17, f"expected exactly 17 port Protocols, found {sorted(protocols)}"
     offenders: dict[str, list[str]] = {}
     for qualname, proto in protocols.items():
         for method_name, member in inspect.getmembers(proto, callable):

@@ -288,11 +288,11 @@ describe("validação fechada do snapshot público", () => {
     expect(result?.task.read_only_evidence?.valor_pagamento_cents).toBe(cents);
   });
 
-  it("deriva exatamente os 43 bindings e 31 mapas de inputs do registro Q1 atual", () => {
-    expect(taskReadBindings).toHaveLength(43);
-    expect(Object.keys(taskReadInputs)).toHaveLength(31);
-    expect(new Set(taskReadBindings.map(({ process, task }) => `${process}\u0000${task}`)).size).toBe(43);
-    expect(taskReadBindings.filter(({ source }) => source === "BPMN_FORMDATA")).toHaveLength(6);
+  it("deriva exatamente os 45 bindings e 32 mapas de inputs do registro Q1 atual", () => {
+    expect(taskReadBindings).toHaveLength(45);
+    expect(Object.keys(taskReadInputs)).toHaveLength(32);
+    expect(new Set(taskReadBindings.map(({ process, task }) => `${process}\u0000${task}`)).size).toBe(45);
+    expect(taskReadBindings.filter(({ source }) => source === "BPMN_FORMDATA")).toHaveLength(8);
     expect(
       taskReadBindings.filter(
         ({ source }) => source === "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",

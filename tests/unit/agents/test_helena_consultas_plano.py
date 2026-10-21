@@ -26,6 +26,7 @@ from maezo.agents.helena.consultas_plano import (
     RESPOSTA_CONSULTA_SEM_IDENTIDADE,
     fatos_da_consulta,
     literais_dos_fatos,
+    motivo_de_omissao_da_elegibilidade,
     motivo_de_recusa_da_consulta,
     resposta_deterministica,
     texto_para_cerca,
@@ -33,6 +34,7 @@ from maezo.agents.helena.consultas_plano import (
 from maezo.agents.helena.graph import (
     IDENTIDADE_RECONHECIDA,
     PROMPT_VERSIONS,
+    RESPOSTA_PLANO_FALHA_1,
     HelenaGraph,
     HelenaState,
     _validate_extraction,
@@ -207,16 +209,19 @@ def test_desligada_o_validador_recusa_consulta_plano() -> None:
 
 
 @pytest.mark.parametrize(
-    "dados",
+    ("dados", "subtipo_final"),
     [
-        {"consulta_subtipo": "boleto"},
-        {"consulta_subtipo": None},
-        {"intent": "information", "consulta_subtipo": "carencia"},
+        ({"consulta_subtipo": "boleto"}, "elegibilidade"),
+        ({"consulta_subtipo": None}, "elegibilidade"),
+        ({"intent": "information", "consulta_subtipo": "carencia"}, None),
     ],
 )
-def test_ligada_o_subtipo_tem_dominio_fechado(dados: dict[str, Any]) -> None:
-    falha = _validate_extraction(json.loads(_classify(**dados)), consultas_habilitadas=True)
-    assert falha == "invalid_consulta_subtipo"
+def test_ligada_o_subtipo_tem_dominio_fechado(dados: dict[str, Any], subtipo_final: str | None) -> None:
+    """DL-0092 (rodada 5): subtipo fora do dominio nao e' mais falha tecnica — e' normalizado no lugar
+    (`elegibilidade` em `consulta_plano`; descartado em qualquer outra intencao)."""
+    extracao = json.loads(_classify(**dados))
+    assert _validate_extraction(extracao, consultas_habilitadas=True) is None
+    assert extracao["consulta_subtipo"] == subtipo_final
 
 
 async def test_desligada_o_classify_enviado_e_o_grafo_sao_byte_a_byte_os_de_antes() -> None:
@@ -253,8 +258,9 @@ async def test_desligada_a_mesma_pergunta_continua_fora_do_canal() -> None:
 
 async def test_ligada_com_identidade_consulta_a_fonte_e_responde_o_rascunho_sobre_os_fatos() -> None:
     rascunho = (
-        "Pelo que consta no cadastro, seu plano PLANO SINTETICO ENFERMARIA está ativo, com vigência "
-        "desde 01/03/2024. Se quiser falar com uma pessoa da equipe, é só me pedir."
+        "Pelo que consta no cadastro, seu plano PLANO SINTETICO ENFERMARIA está ativo. Com segmentação "
+        "Ambulatorial + Hospitalar e acomodação em enfermaria, vigência desde 01/03/2024. Se quiser falar "
+        "com uma pessoa da equipe, é só me pedir."
     )
     inferencia = _FakeInference([_classify(), rascunho])
     fonte = _Fonte()
@@ -290,6 +296,53 @@ async def test_rascunho_recusado_vira_resposta_deterministica_so_com_os_fatos(ra
         "elegibilidade", fatos_da_consulta("elegibilidade", ELEGIBILIDADE)
     )
     assert "PLANO SINTETICO ENFERMARIA" in enviado and "01/03/2024" in enviado
+
+
+@pytest.mark.parametrize(
+    "rascunho",
+    [
+        # O que o modelo escreveu no aceite de 16/10/2026: plano e acomodacao, sem a segmentacao.
+        "Seu plano PLANO SINTETICO ENFERMARIA está ativo e com atendimento liberado na acomodação em "
+        "enfermaria. Se quiser falar com uma pessoa da equipe, é só pedir.",
+        # Segmentacao pela metade: falta "Hospitalar".
+        "Seu plano é ambulatorial, na acomodação enfermaria.",
+        # Sem a acomodacao.
+        "Seu plano está ativo, com segmentação Ambulatorial + Hospitalar.",
+    ],
+)
+async def test_rascunho_que_omite_segmentacao_ou_acomodacao_vira_resposta_deterministica(
+    rascunho: str,
+) -> None:
+    inferencia = _FakeInference([_classify(), rascunho])
+    compilado, sender, _ = _grafo(inferencia, _Fonte())
+    await compilado.ainvoke(_entrada())
+    enviado = sender.sent[-1]
+    assert enviado == resposta_deterministica(
+        "elegibilidade", fatos_da_consulta("elegibilidade", ELEGIBILIDADE)
+    )
+    assert "Ambulatorial + Hospitalar" in enviado and "Enfermaria" in enviado
+
+
+def test_omissao_so_vale_para_o_que_o_cadastro_tem() -> None:
+    fatos = fatos_da_consulta("elegibilidade", ELEGIBILIDADE)
+    assert fatos is not None
+    completo = "Segmentação Ambulatorial + Hospitalar, acomodação em enfermaria."
+    assert motivo_de_omissao_da_elegibilidade(completo, fatos) is None
+    assert motivo_de_omissao_da_elegibilidade("Acomodação em enfermaria.", fatos) == "omite_segmentacao"
+    assert motivo_de_omissao_da_elegibilidade("Segmentação Ambulatorial + Hospitalar.", fatos) == (
+        "omite_acomodacao"
+    )
+    # Campo ausente no cadastro: nada a exigir.
+    vazio = ElegibilidadeView(
+        portable_subject_ref=REF,
+        ativo=True,
+        vinculos=(_vinculo(segmentacao=None, acomodacao=None),),
+        fonte_atualizada_em="2026-10-06T10:00:00Z",
+        campos_ausentes=frozenset({"segmentacao", "acomodacao"}),
+    )
+    fatos_vazios = fatos_da_consulta("elegibilidade", vazio)
+    assert fatos_vazios is not None
+    assert motivo_de_omissao_da_elegibilidade("Seu plano está ativo.", fatos_vazios) is None
 
 
 async def test_autorizacao_com_status_do_cadastro_em_analise_sai_inteiro() -> None:
@@ -334,9 +387,11 @@ async def test_sem_identidade_texto_fixo_sem_chamar_a_fonte_e_sem_processo() -> 
 
 @pytest.mark.parametrize("view", [None, CARENCIAS])  # falha da AMH / view de outro tipo
 async def test_falha_da_fonte_vira_o_texto_fixo(view: Any) -> None:
+    """DL-0090 (rodada 3): com a pessoa IDENTIFICADA, a falha da fonte nao e' "nao consegui confirmar seus
+    dados" (falso, e o simulador o marca como D7); e' onde ver as informacoes do plano."""
     compilado, sender, _ = _grafo(_FakeInference([_classify()]), _Fonte(view))
     await compilado.ainvoke(_entrada())
-    assert sender.sent[-1] == RESPOSTA_CONSULTA_SEM_IDENTIDADE
+    assert sender.sent[-1] == RESPOSTA_PLANO_FALHA_1
 
 
 async def test_fonte_que_levanta_vira_o_texto_fixo() -> None:
@@ -346,7 +401,7 @@ async def test_fonte_que_levanta_vira_o_texto_fixo() -> None:
 
     compilado, sender, _ = _grafo(_FakeInference([_classify()]), _Quebrada())
     await compilado.ainvoke(_entrada())
-    assert sender.sent[-1] == RESPOSTA_CONSULTA_SEM_IDENTIDADE
+    assert sender.sent[-1] == RESPOSTA_PLANO_FALHA_1
 
 
 # --- 4. Saude vence consulta ----------------------------------------------------------------------
@@ -413,8 +468,8 @@ def test_fatos_nunca_levam_nome_nem_valor_nao_mascarado() -> None:
 
 
 def test_versoes_da_consulta_estao_no_mapa_de_prompts() -> None:
-    assert PROMPT_VERSIONS["classify_consultas"] == "classify-consultas-v1"
-    assert PROMPT_VERSIONS["consulta_plano"] == "consulta-plano-v1"
+    assert PROMPT_VERSIONS["classify_consultas"] == "classify-consultas-v2"
+    assert PROMPT_VERSIONS["consulta_plano"] == "consulta-plano-v2"
 
 
 def test_literal_do_cadastro_nunca_e_apagado_dentro_de_outra_palavra() -> None:

@@ -20,6 +20,8 @@ CANONICAL_STATIC = frozenset(
         "analise-reembolso",
         "analista-recurso-glosa",
         "auditoria-contas",
+        # DL-0111 (15/10/2026, so' dev): SP-OP-CANCEL-001 v0.2.0 UT_ExecutarCancelamentoCadastro.
+        "cadastro-beneficiarios",
         "coordenacao-auditoria-medica",
         "coordenacao-clinica",
         "coordenacao-cobranca",
@@ -53,6 +55,7 @@ SCRIPT = ROOT / "deploy/cibseven/configure-group-whitelist.sh"
 
 
 def test_original_27_static_candidate_groups_are_preserved() -> None:
+    """Os 27 originais + `cadastro-beneficiarios` (DL-0111). Nenhum original sai."""
     actual = set()
     expressions = set()
     for path in (ROOT / "spec/processes/bpmn").glob("*.bpmn"):
@@ -62,7 +65,7 @@ def test_original_27_static_candidate_groups_are_preserved() -> None:
                 expressions.add(value)
             if value and "${" not in value:
                 actual.update(x.strip() for x in value.split(","))
-    assert len(CANONICAL_STATIC) == 27
+    assert len(CANONICAL_STATIC) == 28
     assert actual == CANONICAL_STATIC
     assert expressions == {
         "${grupo_humano}",

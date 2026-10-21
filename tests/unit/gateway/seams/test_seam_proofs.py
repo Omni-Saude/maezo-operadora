@@ -559,6 +559,17 @@ _AMH_INTEROP_OPERATIONS = frozenset(
         "amh.tina_get_elegibilidade",
         "amh.tina_get_carencias",
         "amh.tina_get_requisicoes",
+        "amh.tina_get_dependentes",
+        "amh.tina_get_carteirinha",
+        "amh.tina_get_dependentes_nome",
+        "amh.tina_get_catalogo_procedimentos",
+        "amh.tina_get_cobertura",
+        "amh.tina_get_cpt_vigente",
+        "amh.verify_subject",
+        "amh.record_consent",
+        "amh.resolve_by_document",
+        "amh.get_billing_detalhamento",
+        "amh.get_billing_segunda_via",
     }
 )
 
@@ -571,7 +582,10 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
     import httpx
 
     from maezo.adapters.amh.billing_status import GovernedBillingStatusRequest
+    from maezo.adapters.amh.consent_record import GovernedConsentRecordRequest
+    from maezo.adapters.amh.document_resolution import GovernedDocumentResolutionRequest
     from maezo.adapters.amh.subject_resolution import GovernedSubjectResolutionRequest
+    from maezo.adapters.amh.subject_verification import GovernedSubjectVerificationRequest
     from maezo.adapters.amh.tina import GovernedTinaRequest
     from maezo.gateway import amh_interop
 
@@ -601,6 +615,25 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
     billing = amh_interop.AmhBillingStatusExecutor(**comum)
     subjects = amh_interop.AmhSubjectResolutionExecutor(amh_tenant="omni", **comum)
     tina = amh_interop.AmhTinaExecutor(**comum)
+    verificacao = amh_interop.AmhSubjectVerificationExecutor(amh_tenant="omni", **comum)
+    consentimentos = amh_interop.AmhConsentRecordExecutor(amh_tenant="omni", **comum)
+    documentos = amh_interop.AmhDocumentResolutionExecutor(amh_tenant="omni", **comum)
+    # Catalogo v4 do Lucas (DL-0114): o executor tem a finalidade FIXA do atendimento e o token da 2a via a
+    # parte.
+    from maezo.agents.lucas.fonte_v4 import PedidoGovernado
+
+    tokens_segunda_via = amh_interop.CognitoClientCredentials(
+        token_url="https://cognito.invalid/oauth2/token",
+        client_id="client2",
+        client_secret="secret2",
+        scopes=("interop/billing.boleto",),
+        transport_factory=_transport,
+    )
+    v4 = amh_interop.AmhV4Executor(
+        tokens_segunda_via=tokens_segunda_via,
+        **{**comum, "purpose_of_use": "atendimento_whatsapp"},
+    )
+    atendimento = (("purpose_of_use", "atendimento_whatsapp"),)
     purpose = (("purpose_of_use", "sharing_amh_internal"),)
     results = [
         await billing.execute(
@@ -646,6 +679,7 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
         ("amh.tina_get_elegibilidade", "elegibilidade"),
         ("amh.tina_get_carencias", "carencias"),
         ("amh.tina_get_requisicoes", "requisicoes"),
+        ("amh.tina_get_dependentes", "dependentes"),
     ):
         results.append(
             await tina.execute(
@@ -658,7 +692,188 @@ async def _exercitar_interop_amh(seam: SeamContext) -> None:
                 )
             )
         )
-    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 6
+    # Carteirinha completa (dono, 17/10/2026): executor PROPRIO, finalidade fixa, escopo proprio e id opaco.
+    tokens_carteirinha = amh_interop.CognitoClientCredentials(
+        token_url="https://cognito.invalid/oauth2/token",
+        client_id="client1",
+        client_secret="secret1",
+        scopes=("interop/tina.read", "interop/tina.carteirinha"),
+        transport_factory=_transport,
+    )
+    carteirinha = amh_interop.AmhTinaCarteirinhaExecutor(
+        **{**comum, "tokens": tokens_carteirinha, "purpose_of_use": "atendimento_whatsapp"}
+    )
+    results.append(
+        await carteirinha.execute(
+            GovernedTinaRequest(
+                operation="amh.tina_get_carteirinha",
+                path="/interop/tina/v1/subjects/subject1/carteirinha",
+                query=atendimento,
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                timeout_seconds=5.0,
+                request_ref="hk1_msg_seam_proof",
+            )
+        )
+    )
+    # Nomes dos dependentes (dono e DPO, 19/10/2026, DL-0127; manifest v1.13): executor PROPRIO, escopo
+    # proprio.
+    tokens_nomes = amh_interop.CognitoClientCredentials(
+        token_url="https://cognito.invalid/oauth2/token",
+        client_id="client1",
+        client_secret="secret1",
+        scopes=("interop/tina.read", "interop/tina.dependentes_nome"),
+        transport_factory=_transport,
+    )
+    nomes = amh_interop.AmhTinaDependentesNomeExecutor(
+        **{**comum, "tokens": tokens_nomes, "purpose_of_use": "atendimento_whatsapp"}
+    )
+    results.append(
+        await nomes.execute(
+            GovernedTinaRequest(
+                operation="amh.tina_get_dependentes_nome",
+                path="/interop/tina/v1/subjects/subject1/dependentes/nomes",
+                query=atendimento,
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                timeout_seconds=5.0,
+                request_ref="hk1_msg_seam_proof",
+            )
+        )
+    )
+    # Catalogo de procedimentos (DL-0128; manifest v1.14): caminho FIXO, sem sujeito.
+    catalogo = amh_interop.AmhTinaCatalogoExecutor(
+        **{**comum, "tokens": tokens_carteirinha, "purpose_of_use": "atendimento_whatsapp"}
+    )
+    results.append(
+        await catalogo.execute(
+            GovernedTinaRequest(
+                operation="amh.tina_get_catalogo_procedimentos",
+                path="/interop/tina/v1/procedimentos",
+                query=(*atendimento, ("pagina", 1), ("tamanho", 1000)),
+                consent_decision_ref="referencia:catalogo-de-procedimentos",
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    # Cobertura por procedimento (dono, D1 de 18/10/2026; manifest v1.9): executor PROPRIO, finalidade fixa.
+    cobertura = amh_interop.AmhTinaCoberturaExecutor(
+        **{**comum, "tokens": tokens_carteirinha, "purpose_of_use": "atendimento_whatsapp"}
+    )
+    results.append(
+        await cobertura.execute(
+            GovernedTinaRequest(
+                operation="amh.tina_get_cobertura",
+                path="/interop/tina/v1/subjects/subject1/cobertura",
+                query=(*atendimento, ("procedimento", "ressonancia"), ("limite", 5)),
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    # CPT vigente do proprio sujeito (dono e DPO, C1 de 20/10/2026, DL-0130; manifest v1.15): executor proprio
+    cpt = amh_interop.AmhTinaCptExecutor(
+        **{**comum, "tokens": tokens_carteirinha, "purpose_of_use": "atendimento_whatsapp"}
+    )
+    results.append(
+        await cpt.execute(
+            GovernedTinaRequest(
+                operation="amh.tina_get_cpt_vigente",
+                path="/interop/tina/v1/subjects/subject1/cpt",
+                query=atendimento,
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    results.append(
+        await verificacao.execute(
+            GovernedSubjectVerificationRequest(
+                operation="amh.verify_subject",
+                method="POST",
+                path="/interop/identity/v1/subjects/subject1/verify",
+                body=json.dumps(
+                    {
+                        "hash_scheme": "amh-subject-verify-v1",
+                        "fator": "cpf",
+                        "verification_hash": "b" * 64,
+                        "purpose_of_use": "sharing_amh_internal",
+                    }
+                ).encode(),
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    results.append(
+        await consentimentos.execute(
+            GovernedConsentRecordRequest(
+                operation="amh.record_consent",
+                method="POST",
+                path="/interop/consent/v1/consents",
+                body=json.dumps(
+                    {
+                        "amh_tenant": "omni",
+                        "portable_subject_ref": "subject1",
+                        "scope": "atendimento_whatsapp",
+                        "decision": "granted",
+                        "consent_text_version": "wa-consent-v1",
+                        "consent_text_sha256": "c" * 64,
+                        "decided_at": "2026-10-08T12:00:00Z",
+                        "channel": "whatsapp",
+                        "idempotency_key": "d" * 64,
+                        "purpose_of_use": "sharing_amh_internal",
+                    }
+                ).encode(),
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    results.append(
+        await documentos.execute(
+            GovernedDocumentResolutionRequest(
+                operation="amh.resolve_by_document",
+                method="POST",
+                path="/interop/identity/v1/resolve-by-document",
+                body=json.dumps(
+                    {
+                        "cpf_hash": "e" * 64,
+                        "cpfdob_hash": "f" * 64,
+                        "hash_scheme": "amh-subject-verify-v1",
+                        "purpose_of_use": "sharing_amh_internal",
+                        "amh_tenant": "omni",
+                    }
+                ).encode(),
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    results.append(
+        await v4.execute(
+            PedidoGovernado(
+                operation="amh.get_billing_detalhamento",
+                path="/interop/billing-status/v1/subjects/subject1/billing/status",
+                query=(
+                    *atendimento,
+                    ("incluir_detalhamento", "true"),
+                    ("somente_pagador", "true"),
+                ),
+                consent_decision_ref="base-legal:execucao-de-contrato",
+                request_ref=None,
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    results.append(
+        await v4.execute(
+            PedidoGovernado(
+                operation="amh.get_billing_segunda_via",
+                path="/interop/billing-status/v1/subjects/subject1/billing/segunda-via",
+                query=atendimento,
+                consent_decision_ref=None,
+                request_ref="req-sintetico-0001",
+                timeout_seconds=5.0,
+            )
+        )
+    )
+    assert [r.failure.reason.value for r in results if r.failure] == ["not_authenticated"] * 17
 
 
 async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811
@@ -1045,7 +1260,7 @@ _QUOTED_MANIFEST_CITATIONS: tuple[tuple[str, str, str], ...] = (
     # Same designed outcome.
     # Re-derived 2026-09-25 (GAP-XHITL-4): the `read_historic_variables` surface (+6) and the
     # wrapped surface-count line (+1) moved the unmapped-topics passage by +7. Same outcome.
-    ("gateway/effect_classes.py", "653-656", "decisão humana, não inferência de agente"),
+    ("gateway/effect_classes.py", "672-675", "decisão humana, não inferência de agente"),
     ("gateway/effect_classes.py", "175-177", "no class was invented to round out a taxonomy"),
 )
 

@@ -198,7 +198,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4.38.2
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
         with:
           languages: python
           build-mode: none
@@ -206,7 +206,7 @@ jobs:
       # The scan itself needs no GHAS and always runs for real; a scan
       # failure here is a plain red job. Upload is deferred (see above).
       - name: Perform CodeQL analysis (scan always real; upload deferred)
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4.38.2
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
         with:
           upload: never
           upload-database: false
@@ -275,7 +275,7 @@ jobs:
       # Reuses the exact actions/upload-artifact pin already vetted
       # elsewhere in this repo (ci.yml) — no new SHA to independently trust.
       - name: Upload SARIF as workflow artifact (GHAS-substitute review path)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: codeql-python-sarif
           path: sarif-results/python.sarif
@@ -346,7 +346,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6.1.0
         with:
           # 17: `maven.compiler.release` do pom (src/maezo/portal/engine/java/pom.xml),
           # o mesmo do job `java-plugin` em ci.yml.
@@ -355,7 +355,7 @@ jobs:
           cache: maven
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4.38.2
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
         with:
           languages: java-kotlin
           build-mode: manual
@@ -368,7 +368,7 @@ jobs:
         run: mvn -B -f src/maezo/portal/engine/java/pom.xml -DskipTests package
 
       - name: Perform CodeQL analysis (scan always real; upload deferred)
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4.38.2
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
         with:
           upload: never
           upload-database: false
@@ -428,7 +428,7 @@ jobs:
           fi
 
       - name: Upload SARIF as workflow artifact (GHAS-substitute review path)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: codeql-java-sarif
           path: sarif-results/java.sarif
@@ -967,7 +967,7 @@ jobs:
           fi
 
       - name: Upload SARIF as workflow artifact (GHAS-substitute review path)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: trivy-iac-sarif
           path: trivy-iac.sarif

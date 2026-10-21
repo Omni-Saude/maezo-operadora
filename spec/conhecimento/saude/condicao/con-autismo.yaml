@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-autismo
+categoria: condicao
+titulo: Transtorno do espectro autista (TEA)
+sinonimos:
+- tea
+- autismo
+- espectro autista
+- transtorno autista
+- autismo infantil
+- sindrome de asperger
+- autista
+- transtorno do espectro autista (tea)
+texto: O transtorno do espectro autista (TEA) é uma condição do desenvolvimento do cérebro. Ele afeta a comunicação, a interação social e os comportamentos. Chama-se espectro porque aparece de formas diferentes em cada pessoa, de quadros leves a outros que pedem mais apoio. Entre as características comuns estão comportamentos repetitivos e sensibilidade a sons ou luzes. O cuidado é definido pelo médico e costuma envolver equipe multiprofissional, com psiquiatria, neurologia ou pediatria.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Transtorno do Espectro Autista (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/a/autismo
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/a/autismo
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

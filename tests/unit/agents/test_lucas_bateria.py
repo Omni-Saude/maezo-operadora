@@ -12,7 +12,14 @@ from typing import Any
 
 import pytest
 
-from maezo.agents.lucas.bateria import GravadorDeEnvios, executar_caso, veredito
+from maezo.agents.lucas.bateria import (
+    CHAVES_DO_GRAFO,
+    GravadorDeEnvios,
+    chaves_do_caso,
+    executar,
+    executar_caso,
+    veredito,
+)
 from maezo.agents.lucas.bateria_casos import CASOS
 from maezo.agents.lucas.graph import LucasGraph
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
@@ -53,7 +60,8 @@ class _Zap:
         return {"suppressed_synthetic": True}
 
 
-def _grafo() -> tuple[Any, GravadorDeEnvios]:
+def _grafo(caso: dict[str, Any] | None = None) -> tuple[Any, GravadorDeEnvios]:
+    """O grafo offline, com as chaves que o CASO liga (o mesmo repasse da bateria real)."""
     gravador = GravadorDeEnvios(_Zap())
     grafo = LucasGraph(
         inference=_Modelo(),  # type: ignore[arg-type]
@@ -61,6 +69,7 @@ def _grafo() -> tuple[Any, GravadorDeEnvios]:
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
         whatsapp=gravador,  # type: ignore[arg-type]
+        **chaves_do_caso(caso or {}),
     )
     return grafo.compile_graph().compile(), gravador
 
@@ -73,7 +82,7 @@ def test_ids_dos_casos_sao_unicos_e_cada_um_tem_hipotese() -> None:
 
 @pytest.mark.parametrize("caso", CASOS, ids=[c["id"] for c in CASOS])
 async def test_cada_caso_roda_no_grafo_real_sem_excecao(caso: dict[str, Any]) -> None:
-    grafo, gravador = _grafo()
+    grafo, gravador = _grafo(caso)
     resultado = await executar_caso(grafo, gravador, caso, indice=0, execucao="offline")
     assert "erro_da_execucao" not in resultado, resultado.get("erro_da_execucao")
 
@@ -90,13 +99,32 @@ async def test_veredito_offline_contra_as_tabelas_vivas() -> None:
     """Todo caso fecha OK contra as tabelas vivas (nenhum achado aberto)."""
     divergentes: set[str] = set()
     for indice, caso in enumerate(CASOS):
-        grafo, gravador = _grafo()
+        grafo, gravador = _grafo(caso)
         resultado = await executar_caso(grafo, gravador, caso, indice=indice, execucao="offline")
         status, div, obs = veredito(caso, resultado)
         if status != "OK":
             divergentes.add(caso["id"])
             assert status == "DIVERGE", (caso["id"], obs)
     assert divergentes == _ACHADOS_ABERTOS
+
+
+def test_r_cifrao_so_e_aceito_nos_casos_de_valor() -> None:
+    """DL-0086: nos casos `valores_permitidos` o R$ vem dos fatos (a cerca do grafo confere); nos
+    demais ele continua apontado como divergencia."""
+    resultado = {
+        "rejeitado": False,
+        "final": {
+            "route": "respond_member",
+            "desfecho": "resposta_informativa_enviada",
+            "process_started": False,
+        },
+        "mensagem": "Sua mensalidade foi de R$ 8.389,53.",
+        "enviados": [],
+    }
+    de_valor = next(c for c in CASOS if c["id"] == "L25")
+    de_boleto = next(c for c in CASOS if c["id"] == "L01")
+    assert veredito(de_valor, resultado)[1] == []
+    assert any("r$" in d for d in veredito(de_boleto, resultado)[1])
 
 
 async def test_ciclos_ilegiveis_escalam_para_humano_em_vez_de_derrubar_o_turno() -> None:
@@ -106,3 +134,155 @@ async def test_ciclos_ilegiveis_escalam_para_humano_em_vez_de_derrubar_o_turno()
     assert resultado["final"]["route"] == "escalate_human"
     assert resultado["final"]["motivo_humano"] == "ambiguidade"
     assert resultado["final"]["process_started"] is True
+
+
+@pytest.mark.parametrize("caso_id", ["L02", "L34"])
+async def test_a_segunda_via_sai_em_texto_fixo_sem_o_rascunho_do_modelo(caso_id: str) -> None:
+    """10/10/2026 (teste real do dono): a 2a via e' texto fixo — o rascunho de `_Modelo` nunca sai."""
+    caso = next(c for c in CASOS if c["id"] == caso_id)
+    grafo, gravador = _grafo()
+    resultado = await executar_caso(grafo, gravador, caso, indice=0, execucao="offline")
+    texto = resultado["mensagem"]
+    assert texto.startswith("Você consegue a 2ª via pelo aplicativo Austa Clínicas, pelo portal do plano")
+    assert "Recebemos sua mensagem" not in texto and not texto.startswith("Olá")
+    if caso_id == "L34":
+        # O ano so' aparece quando nao e' o de hoje (DL-0087); a bateria roda com o relogio real.
+        assert "A mensalidade de setembro" in texto and "já está paga." in texto
+
+
+@pytest.mark.parametrize(
+    ("caso_id", "esperado"),
+    [
+        ("L35", "você não teve coparticipação: R$ 0,00."),
+        ("L36", "Você pagou a mensalidade de agosto de 2026 em 09/08"),
+    ],
+)
+async def test_a_pergunta_de_valor_responde_so_o_campo_perguntado(caso_id: str, esperado: str) -> None:
+    """DL-0087: com o foco do handoff, a resposta e' so' o campo perguntado (nada de extrato)."""
+    caso = next(c for c in CASOS if c["id"] == caso_id)
+    grafo, gravador = _grafo()
+    resultado = await executar_caso(grafo, gravador, caso, indice=0, execucao="offline")
+    texto = resultado["mensagem"]
+    assert esperado in texto
+    assert "boleto" not in texto and "saldo" not in texto
+
+
+async def test_a_saida_traz_a_narrativa_do_dossie_truncada() -> None:
+    """09/10/2026: a narrativa do dossie (texto fixo) vai na saida do caso, para conferir no ambiente."""
+    caso = next(c for c in CASOS if c["id"] == "L24")
+    grafo, gravador = _grafo()
+    resultado = await executar_caso(grafo, gravador, caso, indice=0, execucao="offline")
+    narrativa = resultado["dossie_narrativa"]
+    assert narrativa.startswith("Encaminhado ao atendente porque ")
+    assert len(narrativa) <= 600
+
+
+# --- 16/10/2026 (frente D do SP-OP-ESCALATION-001): chaves do grafo repassadas por caso ---------------
+
+
+def test_toda_chave_de_caso_e_um_interruptor_que_o_grafo_le() -> None:
+    """Os nomes de `CHAVES_DO_GRAFO` sao os que `lucas.graph.build` le' do `deps` (nunca um nome a mais)."""
+    import inspect
+
+    from maezo.agents.lucas import graph as lucas_graph
+
+    fonte = inspect.getsource(lucas_graph.build)
+    for nome in CHAVES_DO_GRAFO:
+        assert f'cfg.get("{nome}")' in fonte, nome
+    assert {nome for c in CASOS for nome in c.get("chaves", {})} <= set(CHAVES_DO_GRAFO)
+
+
+def test_chave_desconhecida_no_caso_e_recusada_antes_de_rodar() -> None:
+    with pytest.raises(ValueError, match="desconhecida"):
+        chaves_do_caso({"id": "X", "chaves": {"cancelamento_pf_v2": True}})
+    assert chaves_do_caso({"id": "Y", "chaves": {"lucas_v4": "sim"}}) == {"lucas_v4": False}  # so' True liga
+
+
+async def test_executar_monta_um_grafo_por_combinacao_de_chaves() -> None:
+    montados: list[dict[str, bool]] = []
+
+    def _montar(chaves: Any) -> tuple[Any, GravadorDeEnvios]:
+        montados.append(dict(chaves))
+        return _grafo({"chaves": dict(chaves)})
+
+    escolhidos = [c for c in CASOS if c["id"] in {"L01", "L39", "L02"}]
+    resultados = await executar(_montar, escolhidos)
+    assert montados == [{}, {"cancelamento_pf_v1": True}]
+    assert [r.get("chaves") for r in resultados] == [None, None, {"cancelamento_pf_v1": True}]
+
+
+@pytest.mark.parametrize(
+    ("caso_id", "prefixo"),
+    [("L37", "ESC-"), ("L39", "CANCEL-")],
+)
+async def test_o_processo_aberto_e_o_da_hipotese(caso_id: str, prefixo: str) -> None:
+    """Negociacao PF abre o caso humano; cancelamento PF com a chave abre SP-OP-CANCEL-001."""
+    caso = next(c for c in CASOS if c["id"] == caso_id)
+    grafo, gravador = _grafo(caso)
+    resultado = await executar_caso(grafo, gravador, caso, indice=0, execucao="offline")
+    assert resultado["final"]["process_started"] is True
+    assert resultado["final"]["business_key"].startswith(prefixo)
+    assert veredito(caso, resultado)[1] == []
+
+
+async def test_veredito_aponta_chave_e_texto_que_nao_batem() -> None:
+    caso = next(c for c in CASOS if c["id"] == "L40")
+    grafo, gravador = _grafo(caso)
+    resultado = await executar_caso(grafo, gravador, caso, indice=0, execucao="offline")
+    assert veredito(caso, resultado)[1] == []
+    sem_texto = {**resultado, "mensagem": "Outro texto.", "enviados": []}
+    assert "o texto ao beneficiario nao traz o trecho fixo esperado" in veredito(caso, sem_texto)[1]
+    cancel = next(c for c in CASOS if c["id"] == "L39")
+    outra_chave = {**resultado, "final": {**resultado["final"], "business_key": "ESC-amh-x"}}
+    assert any("CANCEL-" in d for d in veredito(cancel, outra_chave)[1])
+
+
+# DL-0144 (frente C do SP-OP-ESCALATION-001): a divergencia de start falho cita o processo TENTADO.
+def _resultado_de_start_falho(*, iniciar_cancelamento: bool) -> dict[str, Any]:
+    return {
+        "rejeitado": False,
+        "final": {
+            "route": "escalate_human",
+            "process_started": False,
+            "start_failed": True,
+            "iniciar_cancelamento": iniciar_cancelamento,
+        },
+        "mensagem": None,
+        "enviados": [],
+    }
+
+
+def test_processo_da_falha_e_o_cancelamento_quando_o_turno_iniciava_o_cancelamento() -> None:
+    caso = next(c for c in CASOS if c["id"] == "L01")
+    _, div, _ = veredito(caso, _resultado_de_start_falho(iniciar_cancelamento=True))
+    assert "falha ao iniciar SP-OP-CANCEL-001" in div
+    assert not any("SP-OP-ESCALATION-001" in d for d in div)
+
+
+def test_processo_da_falha_e_o_escalonamento_sem_cancelamento() -> None:
+    caso = next(c for c in CASOS if c["id"] == "L01")
+    _, div, _ = veredito(caso, _resultado_de_start_falho(iniciar_cancelamento=False))
+    assert "falha ao iniciar SP-OP-ESCALATION-001" in div
+    assert not any("SP-OP-CANCEL-001" in d for d in div)
+
+
+class _GrafoDeStartFalhoNoCancelamento:
+    async def ainvoke(self, entrada: Any) -> dict[str, Any]:
+        del entrada
+        return {
+            "route": "escalate_human",
+            "process_started": False,
+            "start_failed": True,
+            "iniciar_cancelamento": True,
+        }
+
+
+async def test_processo_da_falha_chega_ao_veredito_pela_saida_do_caso() -> None:
+    """`executar_caso` leva `iniciar_cancelamento` na saida: sem isso o veredito nunca o veria."""
+    caso = next(c for c in CASOS if c["id"] == "L01")
+    gravador = GravadorDeEnvios(_Zap())
+    resultado = await executar_caso(
+        _GrafoDeStartFalhoNoCancelamento(), gravador, caso, indice=0, execucao="offline"
+    )
+    assert resultado["final"]["iniciar_cancelamento"] is True
+    assert "falha ao iniciar SP-OP-CANCEL-001" in veredito(caso, resultado)[1]

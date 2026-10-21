@@ -1,0 +1,28 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: exa-colposcopia
+categoria: exame
+titulo: Colposcopia
+sinonimos:
+- colposcopia
+- colposcopía
+- colposcopio
+- exame de colposcopia
+- colpo
+- colposcopia com biópsia
+texto: A colposcopia é um exame que permite ver de perto o colo do útero, a vagina e a vulva. Para isso, usa-se um aparelho que aumenta a imagem. Costuma ser pedida quando outro exame, como o preventivo, mostra alterações a investigar. É feita em consultório, em posição de exame ginecológico, e o médico pode colher um pequeno fragmento para análise. O resultado é avaliado pelo médico, em geral um ginecologista.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

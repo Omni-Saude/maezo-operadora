@@ -1,0 +1,27 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: esp-enfermagem
+categoria: especialidade
+titulo: Enfermagem
+sinonimos:
+- enfermeiro
+- enfermeira
+- enfermagem
+- tecnico de enfermagem
+- técnico de enfermagem
+- auxiliar de enfermagem
+texto: A equipe de enfermagem cuida do paciente no dia a dia do atendimento. Faz curativos, aplica vacinas e injeções, e acompanha os sinais vitais. O enfermeiro também faz consultas de enfermagem e orientações.
+tipo_texto: proprio
+fontes:
+- nome: Lei nº 7.498/1986 — exercício da enfermagem
+  url: https://www.planalto.gov.br/ccivil_03/leis/l7498.htm
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-17
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

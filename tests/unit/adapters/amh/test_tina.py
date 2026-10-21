@@ -1,13 +1,15 @@
 """Mecanica do contrato `tina` (fatos do plano) com um schema SINTETICO minusculo (nao e' copia do canonico).
 
-O contrato real (manifest aditivo v1.2) ainda e' DRAFT na AMH e nao esta' pinado: o teste que fecha isso
-e' `test_sem_pin_v1_2_o_construtor_recusa`.
+O contrato real (manifest aditivo v1.2) foi publicado pela AMH em 13/10/2026 (XRG-2 run 38346972222) e esta'
+pinado no bloco `manifest_v1_2`: `test_pin_v1_2_real_aceita_so_os_bytes_vendorizados` fecha isso, e
+`test_sem_bloco_v1_2_o_construtor_recusa` prende o fail-closed sem o bloco.
 """
 
 import asyncio
 import hashlib
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import yaml
@@ -18,6 +20,7 @@ from maezo.ports.errors import PortFailureReason as Reason
 from maezo.ports.errors import PortResult
 from maezo.ports.tina import CarenciasView, ElegibilidadeView, RequisicoesView, TinaPort
 
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 REF = "subject1"
 _NS = {"type": "string", "nullable": True}
 _ND = {"type": "string", "format": "date", "nullable": True}
@@ -394,11 +397,25 @@ async def test_resposta_sem_medico_solicitante_e_valida_e_o_port_nao_tem_o_campo
     assert not hasattr(result.value.requisicoes[0], "medico_solicitante")
 
 
-def test_sem_pin_v1_2_o_construtor_recusa():
-    """O manifest v1.2 ainda e' DRAFT: o lock real nao tem o bloco, entao nenhum byte e' aceito."""
-    assert tina.ARTIFACT not in load_contract_pin().artifact_digests
+def test_pin_v1_2_real_aceita_so_os_bytes_vendorizados():
+    """Lock real com o bloco `manifest_v1_2`: os bytes vendorizados sobem, o schema sintetico nao."""
+    vendorizado = (_REPO_ROOT / "config/integrations/amh/openapi/tina.openapi.yaml").read_bytes()
+    assert load_contract_pin().artifact_digests[tina.ARTIFACT] == hashlib.sha256(vendorizado).hexdigest()
+    tina.AmhTinaAdapter(vendorizado, executor=Executor())
     with pytest.raises(tina.TinaContractError):
         tina.AmhTinaAdapter(_openapi(), executor=Executor())
+
+
+def test_sem_bloco_v1_2_o_construtor_recusa(monkeypatch):
+    """Sem o digest TINA no pin (bloco `manifest_v1_2` ausente), nenhum byte e' aceito."""
+    real_pin = load_contract_pin()
+    sem_tina = {k: v for k, v in real_pin.artifact_digests.items() if k != tina.ARTIFACT}
+    monkeypatch.setattr(
+        tina, "load_contract_pin", lambda path=None: replace(real_pin, artifact_digests=sem_tina)
+    )
+    vendorizado = (_REPO_ROOT / "config/integrations/amh/openapi/tina.openapi.yaml").read_bytes()
+    with pytest.raises(tina.TinaContractError):
+        tina.AmhTinaAdapter(vendorizado, executor=Executor())
 
 
 def test_bytes_que_nao_batem_com_o_digest_pinado_sao_recusados(consumer):

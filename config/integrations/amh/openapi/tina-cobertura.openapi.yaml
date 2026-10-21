@@ -1,0 +1,322 @@
+# tina-cobertura.openapi.yaml — PROPOSTA de rota ADITIVA da TINA: cobertura por procedimento do plano do beneficiário
+# (artefato novo; manifest v1.9, UNPUBLISHED — NÃO publicado).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# O tina.openapi.yaml 0.1.0 (v1.2), o tina-dependentes (v1.5), o tina-identificacao-cadastro (v1.7, rascunho) e o
+# tina-rede-credenciada (v1.8, rascunho) NÃO mudam um byte: esta é ARQUIVO NOVO.
+# Objetivo (catálogo v4, "Cobertura de procedimento — meu plano cobre…?"): devolver os FATOS do cadastro — o
+# procedimento está no Rol da ANS? na segmentação do plano? há cobertura extra? que carências se aplicam e até quando —
+# com a FONTE e a DATA, para o agente montar uma das três mensagens do catálogo.
+# O CONTRATO NUNCA PROMETE COBERTURA FINAL. Cobertura efetiva depende de autorização, carência, diretriz de utilização
+# e regras do contrato; o texto do agente continua cauteloso. Por isso a resposta traz:
+#  * `natureza = informacao_cadastral_nao_e_autorizacao` (constante);
+#  * `avisos` com códigos fechados (`sujeito_a_autorizacao`, `sujeito_a_carencia`, `sujeito_a_diretriz_de_utilizacao`,
+#    `contrato_pode_ter_regra_especifica`), que o consumidor traduz no seu texto;
+#  * `coberto` é "o cadastro do plano prevê cobertura", não "o plano vai pagar".
+# MINIMIZAÇÃO: chave = `portable_subject_ref`; nada de nome, CPF, número de contrato, carteirinha, nem eco do que o
+# beneficiário digitou (o termo de busca NÃO volta na resposta).
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH TINA Cobertura por Procedimento (leitura)
+  version: 0.1.0
+  description: |
+    Cobertura de procedimentos para o PLANO (e o contrato) do beneficiário. Fonte: gold `tina_cobertura_procedimento`
+    (Rol vigente × segmentação × cobertura extra do plano e do contrato, origens 4 e 8; regras do time de negócio de
+    15/10/2026) e `tina_carencia_tipo` (carências do beneficiário por tipo, prioridade beneficiário > contrato >
+    produto). Mesma base legal do `tina.openapi.yaml` (execução de contrato; ratificação do DPO pendente); finalidade
+    única `atendimento_whatsapp`.
+    FRESCOR: foto do lago; `fonte.atualizada_em` informa a idade.
+    O CONTRATO ENTREGA FATOS, NÃO PROMESSA: a decisão do que dizer é do consumidor e, no limite, de uma pessoa.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/tina/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11).
+security:
+  - bearerAuth: []
+tags:
+  - name: tina
+    description: Leituras do bot TINA da operadora.
+paths:
+  /subjects/{portable_subject_ref}/cobertura:
+    get:
+      tags: [tina]
+      operationId: getCobertura
+      summary: Fatos de cobertura de um procedimento (por código ou termo) para o plano do beneficiário
+      description: |
+        `procedimento` é um CÓDIGO (só dígitos; casa o procedimento nas origens próprias e TUSS, uma linha por origem)
+        ou um TERMO (texto; casa a descrição ignorando maiúsculas e acentos). Termo genérico devolve poucos itens
+        (`limite`, padrão 5, máximo 10) e `truncada=true`: o consumidor deve pedir mais detalhe, nunca escolher um.
+        Pré-condições: escopo `interop/tina.read`; `purpose_of_use=atendimento_whatsapp`; rota LIGADA no serviço
+        (padrão desligada: 404); sujeito com plano conhecido (senão 404). Auditoria estruturada por leitura (sem o
+        termo, sem o conteúdo). Resposta `200` sem item = nenhum procedimento casou (`itens: []`), o que NÃO diz
+        "não cobre".
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - $ref: '#/components/parameters/Procedimento'
+        - $ref: '#/components/parameters/Limite'
+      responses:
+        '200':
+          description: Fatos de cobertura dos procedimentos que casaram (pode ser lista vazia).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cobertura'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo `interop/tina.read` — fail-closed.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05).
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD — OBRIGATÓRIO. Único valor aceito nesta rota; qualquer outro é 400.
+      schema:
+        type: string
+        enum: [atendimento_whatsapp]
+      example: atendimento_whatsapp
+    Procedimento:
+      name: procedimento
+      in: query
+      required: true
+      description: >-
+        Código do procedimento (só dígitos, 1 a 10) OU termo (3 a 80 caracteres; letras, números e espaço). O valor NÃO
+        é devolvido na resposta.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 80
+        pattern: '^([0-9]{1,10}|[A-Za-zÀ-ÿ0-9 ]{3,80})$'
+      example: ressonancia magnetica
+    Limite:
+      name: limite
+      in: query
+      required: false
+      description: Procedimentos devolvidos (quando o termo é genérico).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 10
+        default: 5
+  schemas:
+    Cobertura:
+      type: object
+      required: [portable_subject_ref, natureza, plano, itens, truncada, avisos, fonte, qualidade]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          description: A ref do próprio sujeito consultado.
+        natureza:
+          type: string
+          enum: [informacao_cadastral_nao_e_autorizacao]
+          description: Constante. A resposta é informação do cadastro do plano, nunca autorização nem promessa.
+        plano:
+          $ref: '#/components/schemas/Plano'
+        itens:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/ItemCobertura'
+        truncada:
+          type: boolean
+          description: Casaram mais procedimentos do que os devolvidos. O consumidor pede um termo mais específico.
+        avisos:
+          type: array
+          description: Códigos fechados que o consumidor traduz em ressalva no texto. Sempre inclui `sujeito_a_autorizacao`.
+          items:
+            type: string
+            enum: [sujeito_a_autorizacao, sujeito_a_carencia, sujeito_a_diretriz_de_utilizacao, contrato_pode_ter_regra_especifica, rol_edicao_a_confirmar]
+        fonte:
+          $ref: '#/components/schemas/Fonte'
+        qualidade:
+          $ref: '#/components/schemas/DataQuality'
+      example:
+        portable_subject_ref: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+        natureza: informacao_cadastral_nao_e_autorizacao
+        plano:
+          descricao: Plano Exemplo Enfermaria
+          segmentacao: Ambulatorial + Hospitalar com Obstetrícia
+          regulamentado: true
+        itens:
+          - codigo: 40101010
+            origem: tuss
+            descricao: Procedimento Exemplo
+            situacao: coberto_rol
+            coberto: true
+            no_rol: true
+            na_segmentacao: true
+            rol_edicao: '2026'
+            cobertura_extra: false
+            cobertura_extra_descricao: null
+            diretriz_de_utilizacao: false
+            carencias:
+              - carencia: Carência Exemplo
+                regra: produto
+                dias: 180
+                termina_em: '2026-12-01'
+                cumprida: false
+        truncada: false
+        avisos: [sujeito_a_autorizacao, sujeito_a_carencia]
+        fonte:
+          tabela: tina_cobertura_procedimento
+          atualizada_em: '2026-10-15T12:00:00Z'
+        qualidade:
+          campos_ausentes: []
+    Plano:
+      type: object
+      required: [descricao, segmentacao, regulamentado]
+      additionalProperties: false
+      properties:
+        descricao: { type: string, nullable: true }
+        segmentacao: { type: string, nullable: true }
+        regulamentado:
+          type: boolean
+          nullable: true
+          description: Plano regulamentado (tem a cobertura obrigatória do Rol da ANS) ou não regulamentado (só cobertura extra).
+    ItemCobertura:
+      type: object
+      required: [codigo, origem, descricao, situacao, coberto, no_rol, na_segmentacao, rol_edicao, cobertura_extra, cobertura_extra_descricao, diretriz_de_utilizacao, carencias]
+      additionalProperties: false
+      properties:
+        codigo: { type: integer, nullable: true }
+        origem:
+          type: string
+          nullable: true
+          enum: [proprio, tuss]
+          description: Origem do código (4 = próprio, 8 = TUSS). O mesmo número em origens diferentes é outro procedimento.
+        descricao: { type: string, nullable: true }
+        situacao:
+          type: string
+          nullable: true
+          enum: [coberto_rol, coberto_extra, fora_da_segmentacao, fora_do_rol, indeterminado]
+          description: >-
+            `coberto_rol`: no Rol e na segmentação do plano. `coberto_extra`: cobertura extra do plano ou do contrato.
+            `fora_da_segmentacao`: no Rol, mas não na segmentação do plano. `fora_do_rol`: fora do Rol (plano
+            regulamentado, sem cobertura extra). `indeterminado`: plano não regulamentado sem cobertura extra: a fonte NÃO sabe (ligação incompleta), o consumidor orienta consultar a operadora e NUNCA diz "não cobre" (`coberto` nulo).
+        coberto:
+          type: boolean
+          nullable: true
+          description: O cadastro do plano PREVÊ cobertura. Não é autorização nem promessa de pagamento.
+        no_rol: { type: boolean, nullable: true }
+        na_segmentacao: { type: boolean, nullable: true }
+        rol_edicao:
+          type: string
+          nullable: true
+          description: Edição vigente do Rol da ANS usada na conferência.
+        cobertura_extra: { type: boolean, nullable: true }
+        cobertura_extra_descricao: { type: string, nullable: true }
+        diretriz_de_utilizacao:
+          type: boolean
+          nullable: true
+          description: O procedimento tem Diretriz de Utilização (DUT) no Rol, e a cobertura depende dos critérios dela.
+        carencias:
+          type: array
+          maxItems: 10
+          description: >-
+            Carências do BENEFICIÁRIO que se aplicam a este procedimento (prioridade beneficiário > contrato > produto).
+            Lista vazia = nenhuma carência aplicável encontrada no cadastro.
+          items:
+            $ref: '#/components/schemas/CarenciaAplicavel'
+    CarenciaAplicavel:
+      type: object
+      required: [carencia, regra, dias, termina_em, cumprida]
+      additionalProperties: false
+      properties:
+        carencia: { type: string, nullable: true }
+        regra:
+          type: string
+          nullable: true
+          enum: [beneficiario, contrato, produto, nenhuma]
+          description: De onde veio a regra aplicada (a primeira da prioridade). `nenhuma` quer dizer sem regra de carência.
+        dias: { type: integer, nullable: true }
+        termina_em: { type: string, format: date, nullable: true }
+        cumprida: { type: boolean, nullable: true }
+    Fonte:
+      type: object
+      required: [tabela, atualizada_em]
+      additionalProperties: false
+      properties:
+        tabela:
+          type: string
+          enum: [tina_cobertura_procedimento]
+        atualizada_em:
+          type: string
+          format: date-time
+          nullable: true
+          description: Quando a gold foi construída pela última vez. `null` se a fonte não informa.
+    DataQuality:
+      type: object
+      required: [campos_ausentes]
+      additionalProperties: false
+      properties:
+        campos_ausentes:
+          type: array
+          description: Campos que a fonte não tem. Lista fechada; o consumidor nunca os completa.
+          items:
+            type: string
+            enum: [plano, segmentacao, rol_edicao, carencias, fonte_atualizada_em]
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional SEM PHI. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada (finalidade, procedimento ou limite inválidos).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: FAIL-CLOSED — escopo ou finalidade não permitidos; nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Rota desligada, sujeito desconhecido/sem plano (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Limite de consultas por sujeito excedido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno (sem detalhe no corpo).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

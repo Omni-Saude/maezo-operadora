@@ -34,7 +34,21 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # VW1-P0 adds the vendor channel authority store as forward migration 0019 after 0018.
     # VW1-P4 adds the OP16 submission store as forward migration 0020 after 0019.
     # VW4/GP11 wiring adds the OP20 suppression store as forward migration 0021 after 0020.
-    assert heads == {"0021"}, f"expected 0021 to be the sole head, got {heads}"
+    # DL-0083 adds the per-conversation access state (consent + identity verification) as 0022 after 0021.
+    # 0023 fixes 0022's ref CHECKs (Postgres caps regex repetition at 255).
+    # DL-0086 widens the router's `lucas_cobranca_subtipo` CHECK (`consulta_valores`) as 0024 after 0023.
+    # O simulador de beneficiario (13/10/2026) adds the Lucas short memory columns as 0025 after 0024.
+    # O carimbo da apresentacao do canal (14/10/2026) adds `apresentado_em` to the access state as 0026.
+    # O lembrete proativo de cobranca (14/10/2026) adds the reminder tables as 0027.
+    # O limite de falhas por CPF (D-04, 15/10/2026) adds `acesso_falhas_por_cpf` as 0028.
+    assert heads == {"0028"}, f"expected 0028 to be the sole head, got {heads}"
+    assert revisions["0028"] == "0027"
+    assert revisions["0027"] == "0026"
+    assert revisions["0026"] == "0025"
+    assert revisions["0025"] == "0024"
+    assert revisions["0024"] == "0023"
+    assert revisions["0023"] == "0022"
+    assert revisions["0022"] == "0021"
     assert revisions["0021"] == "0020"
     assert revisions["0020"] == "0019"
     assert revisions["0019"] == "0018"
@@ -46,7 +60,7 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0021"
+    current = "0028"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)
