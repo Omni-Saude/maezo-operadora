@@ -308,14 +308,15 @@ async def test_pergunta_repetida_nao_repete_o_texto() -> None:
 
 
 async def test_para_quem_com_dependentes_e_resposta_pelo_nome() -> None:
+    """DL-0131: citando "meu filho" com dois filhos, pergunta qual; a resposta pelo nome consulta."""
     m = _Mundo(
-        pedido=_pedido("hemograma"),
-        graus=["filho ou filha", "cônjuge"],
+        pedido=_pedido("hemograma", quem_texto="filho"),
+        graus=["filho ou filha", "filho ou filha"],
         nomes={1: "joana", 2: "carlos"},
         coberturas={"40304361": _View((_Item("HEMOGRAMA"),))},
     )
     fluxo = _fluxo(m)
-    up = await fluxo.responder("cobre hemograma?", "", "")
+    up = await fluxo.responder("cobre hemograma para o meu filho?", "", "")
     assert up["coleta_pendente"] == ca.PEND_QUEM
     up2 = await fluxo.responder("é pra Joana", up["coleta_pendente"], up["coleta_contexto"])
     assert "consta no Rol" in up2["response_text"] and "carência do dependente" in up2["response_text"]
@@ -368,8 +369,9 @@ async def test_sem_catalogo_a_busca_por_texto_da_opcoes_pela_descricao() -> None
 
 
 async def test_sem_procedimento_na_pergunta_geral() -> None:
+    """DL-0131: a intencao sem o nome do exame pede a lista (nunca o texto geral de segmentacao)."""
     up = await _fluxo(_Mundo(pedido=_pedido())).responder("o que meu plano cobre?", "", "")
-    assert "segmentação" in up["response_text"] and up["coleta_pendente"] == ca.PEND_FORMA
+    assert up["response_text"] == ca.TEXTO_PEDE_LISTA and up["coleta_pendente"] == ca.PEND_FORMA
 
 
 def test_os_textos_passam_nas_cercas_do_envio() -> None:
@@ -574,7 +576,13 @@ async def test_parecidos_com_a_mesma_resposta_nao_viram_opcoes() -> None:
     assert " / " in up["response_text"]
 
 
-async def test_sem_dizer_para_quem_e_com_dependentes_pergunta_antes_das_opcoes() -> None:
-    m = _Mundo(pedido=_pedido("ultrassom do abdome", para_quem="titular"), graus=["filho ou filha"])
-    up = await _fluxo(m).responder("meu plano cobre ultrassom do abdome?", "", "")
-    assert up["coleta_pendente"] == ca.PEND_QUEM and m.consultas == []
+async def test_sem_dizer_para_quem_vale_o_titular_e_nao_pergunta() -> None:
+    """DL-0131 (decisao do dono): sem citar ninguem, o titular por padrao — nunca "para quem e'?"."""
+    m = _Mundo(
+        pedido=_pedido("hemograma"),
+        graus=["filho ou filha"],
+        coberturas={"40304361": _View((_Item("HEMOGRAMA"),))},
+    )
+    up = await _fluxo(m).responder("meu plano cobre hemograma?", "", "")
+    assert up["coleta_pendente"] != ca.PEND_QUEM and m.consultas == ["40304361"]
+    assert ca.SUFIXO_DO_DEPENDENTE in up["response_text"]

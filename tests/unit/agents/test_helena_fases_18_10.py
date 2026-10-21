@@ -25,7 +25,12 @@ from typing import Any
 import pytest
 
 from maezo.agents.helena import cobertura_rol as cr
-from maezo.agents.helena.graph import RESPOSTA_CONFIRMA_ENCERRAMENTO, RESPOSTA_RECUSA_DE_EQUIPE
+from maezo.agents.helena.graph import (
+    RESPOSTA_CASO_ENCERRADO,
+    RESPOSTA_CONFIRMA_ENCERRAMENTO,
+    RESPOSTA_ENCERRAMENTO_FALHOU,
+    RESPOSTA_RECUSA_DE_EQUIPE,
+)
 from maezo.conhecimento import base_saude as b
 from maezo.conhecimento import busca_semantica as bsem
 from maezo.conhecimento import saude_gerativa as sg
@@ -130,12 +135,32 @@ async def test_recusa_com_termo_de_risco_segue_os_portoes_de_sempre() -> None:
     assert conversa.motivos == ["risco_psicossocial"]
 
 
-async def test_recusa_com_caso_aberto_pede_a_confirmacao_de_encerramento() -> None:
+async def test_recusa_com_caso_aberto_encerra_direto_na_allowlist() -> None:
+    """DL-0131 (decisao do dono): na allowlist, a recusa ENCERRA o caso P2/P3 (inclusive o de solicitacao de
+    pessoa) sem a pergunta de confirmacao."""
     conversa = _Conversa()
     await conversa.diz("Quero falar com uma pessoa", _classify(intent="human_request"))
     assert conversa.motivos == ["solicitacao_humano"]
-    resultado = await conversa.diz("Não quero falar com ninguém", _RISCO)
-    assert _texto(resultado) == RESPOSTA_CONFIRMA_ENCERRAMENTO
+    resultado = await conversa.diz("EU NÃO QUERO FALAR COM NINGUEM DE ATENDIMENTO", _RISCO)
+    assert _texto(resultado) != RESPOSTA_CONFIRMA_ENCERRAMENTO
+    assert _texto(resultado) in (RESPOSTA_CASO_ENCERRADO, RESPOSTA_ENCERRAMENTO_FALHOU)
+    assert conversa.modelo.respostas == [_RISCO]
+
+
+@pytest.mark.parametrize(
+    "mensagem",
+    [
+        "não quero falar com ninguém, já resolvi",
+        "nao preciso mais de atendente, ja deu tudo certo, obrigada",
+        "não quero falar com ninguém não, consegui sozinho",
+    ],
+)
+async def test_recusa_com_qualificadores_e_caso_aberto_ainda_encerra(mensagem: str) -> None:
+    """Avaliacao de 21/10/2026: os qualificadores ("ja' resolvi", "deu certo") nao quebram a recusa."""
+    conversa = _Conversa()
+    await conversa.diz("Quero falar com uma pessoa", _classify(intent="human_request"))
+    resultado = await conversa.diz(mensagem, _RISCO)
+    assert _texto(resultado) in (RESPOSTA_CASO_ENCERRADO, RESPOSTA_ENCERRAMENTO_FALHOU)
     assert conversa.modelo.respostas == [_RISCO]
 
 
