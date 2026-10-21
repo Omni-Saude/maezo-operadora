@@ -19,7 +19,7 @@ exclude-newer = "2026-08-05T00:00:00Z"
 certifi = "2026-10-21T00:00:00Z"
 urllib3 = "2026-09-16T00:00:00Z"
 mcp = "2026-09-08T00:00:00Z"
-langgraph-sdk = "2026-08-28T00:00:00Z"
+langgraph-sdk = "2026-10-17T00:00:00Z"
 pyjwt = "2026-09-24T00:00:00Z"
 
 [[package]]
@@ -1081,7 +1081,7 @@ wheels = [
 
 [[package]]
 name = "langgraph-sdk"
-version = "0.4.4"
+version = "0.4.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1090,9 +1090,9 @@ dependencies = [
     { name = "orjson" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3f/ae/91446c1fffa04a2dc1f81afbfb5bfff3590452891a72bd9098a656ab2657/langgraph_sdk-0.4.4.tar.gz", hash = "sha256:4e651ffa09de695681579396375377bdde23bedbc8e35b070e615cbd5af7da8b", size = 345789, upload-time = "2026-08-27T21:25:22.593Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5e/2a/bb6b4ca7a735901542c885e59ce3d1a128e2914b072b0c9a9feaf927195a/langgraph_sdk-0.4.8.tar.gz", hash = "sha256:6dd0c55d0d9040686716581c9e302c21c31ad6e2eebda0defc944a8bb38ec011", size = 355741, upload-time = "2026-10-16T22:08:51.14Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/d5/2ad7f3a835c6fcebf58b6669552536ecd52d2dfe4cf49c6c36648fd83572/langgraph_sdk-0.4.4-py3-none-any.whl", hash = "sha256:39afe416c91742925e6f8a93715f566d499b36e1b636b804a4ffe3190e4f4e64", size = 162270, upload-time = "2026-08-27T21:25:21.072Z" },
+    { url = "https://files.pythonhosted.org/packages/26/b7/414170649c4437289858af6a9fec7a29f99e7b3919cebf32bbc4cb0be7a0/langgraph_sdk-0.4.8-py3-none-any.whl", hash = "sha256:bef8ac54bdfe3ac2f7eba5be2f322dde296701b39e1c1aa403302f08d273fab5", size = 164560, upload-time = "2026-10-16T22:08:49.836Z" },
 ]
 
 [[package]]
@@ -1339,7 +1339,7 @@ requires-dist = [
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "langgraph", specifier = ">=0.4,<2.0" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.1.1,<4.0" },
-    { name = "langgraph-sdk", specifier = "==0.4.4" },
+    { name = "langgraph-sdk", specifier = "==0.4.8" },
     { name = "lxml", specifier = ">=5.0,<7.0" },
     { name = "lxml-stubs", marker = "extra == 'dev'", specifier = ">=0.5,<1.0" },
     { name = "mcp", specifier = ">=1.9,<3.0" },
