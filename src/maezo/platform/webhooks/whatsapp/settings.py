@@ -389,6 +389,13 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_BASE_SAUDE", "helena_base_saude"),
     )
+    # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134, dono, 21/10/2026, so' dev): `desligado` (padrao)
+    # e' a Helena de antes byte a byte; `sombra` (F1) roda o roteador e as travas em paralelo e so' registra a
+    # decisao no log, sem mudar resposta; `ativo` (F2, so' na allowlist) ainda vale como `sombra`.
+    helena_roteador: Literal["desligado", "sombra", "ativo"] = Field(
+        default="desligado",
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR", "helena_roteador"),
+    )
     # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
     # informativas de saude (com checagem antes de enviar), pela ROTA PROPRIA
     # `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono

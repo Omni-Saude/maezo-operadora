@@ -862,6 +862,22 @@ variable "helena_base_saude" {
   nullable    = false
 }
 
+variable "helena_roteador" {
+  description = <<-EOT
+    Roteador de habilidades da Helena (ADR-0066, DL-0134, 21/10/2026): `MAEZO_HELENA_ROTEADOR`.
+    `desligado` (default) = a Helena de antes, byte a byte. `sombra` (F1) roda o roteador (GLM-5 regional) e as
+    travas de entrada EM PARALELO e so' registra a decisao no log `helena_roteador_sombra`, sem mudar resposta,
+    estado, caso ou envio. `ativo` (F2, so' na allowlist) ainda vale como `sombra`. SO' EM DEV.
+  EOT
+  type        = string
+  default     = "desligado"
+  nullable    = false
+  validation {
+    condition     = contains(["desligado", "sombra", "ativo"], var.helena_roteador)
+    error_message = "helena_roteador: desligado, sombra ou ativo."
+  }
+}
+
 variable "helena_saude_gerativa" {
   description = <<-EOT
     SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): `MAEZO_HELENA_SAUDE_GERATIVA`. Default `false` =

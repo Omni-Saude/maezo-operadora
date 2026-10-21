@@ -144,6 +144,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Literal, Protocol, TypedDict, cast, get_args
@@ -334,6 +335,7 @@ from .retomada_saida import RESPONSE_KIND_RETOMADA as RESPONSE_KIND_RETOMADA
 from .retomada_saida import RETOMADA_TEMPLATE as RETOMADA_TEMPLATE
 from .retomada_saida import compor_mensagem_de_retomada as compor_mensagem_de_retomada
 from .retomada_saida import motivo_de_recusa_da_retomada as motivo_de_recusa_da_retomada
+from .roteador import ROTEADOR_PROMPT_VERSION
 from .triagem_v2 import (
     COLETA_MAX_RODADAS_TRIAGEM_V2,
     COLETA_VEREDITO_PERGUNTAR_MAIS,
@@ -4771,8 +4773,27 @@ class HelenaGraph:
         helena_dependentes_nome_enabled: bool = False,
         saude_gerativa: _sg.RedatorDeSaude | None = None,
         catalogo_procedimentos: BuscaDeProcedimentos | None = None,
+        helena_roteador: str = "desligado",
     ) -> None:
         self._llm = inference
+        # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134, `MAEZO_HELENA_ROTEADOR`): `desligado` (default) e' o
+        # grafo
+        # de antes no a no'. F1: `sombra` roda o roteador e as travas EM PARALELO e so' registra a decisao
+        # (`helena_roteador_sombra`), sem mudar resposta, estado, caso ou envio. `ativo` ainda nao existe
+        # (F2): ate' la' vale como `sombra`. Contrato que nao carrega DESLIGA a chave (falha fechada).
+        self._roteador_modo = "desligado"
+        self._roteador_contrato: Any = None
+        self._roteador_em_voo: dict[tuple[str, str], tuple[Any, Any, str | None, str | None]] = {}
+        if helena_roteador in ("sombra", "ativo"):
+            from maezo.agents.helena import roteador_contrato as _rc
+
+            try:
+                self._roteador_contrato = _rc.carregar()
+                self._roteador_modo = "sombra"
+            except (_rc.ContratoInvalidoError, OSError, ValueError) as exc:
+                logger.error("helena_roteador_contrato_invalido", erro=type(exc).__name__)
+            if helena_roteador == "ativo":
+                logger.warning("helena_roteador_ativo_ainda_e_sombra")
         # VINCULO ATIVO E CARTEIRINHA COMPLETA (dono, 17/10/2026, `MAEZO_HELENA_CARTEIRINHA_COMPLETA`):
         # DESLIGADA por default, e desligada e' o grafo de antes byte a byte. Ligada (so' em dev):
         # elegibilidade e carteirinha so' com os vinculos ATIVOS, e a carteirinha (sempre deterministica)
@@ -10548,17 +10569,137 @@ class HelenaGraph:
                 resumo = f"{resumo} {linha}"
         return resumo
 
+    # -- ROTEADOR EM SOMBRA (ADR-0066, DL-0134, F1) -----------------------------------------------
+    # O roteador roda EM PARALELO ao `classify` e a decisao so' vai ao log `helena_roteador_sombra` quando o
+    # turno termina (no `respond`), comparada com a decisao da Helena atual. Nada do que acontece aqui muda o
+    # estado devolvido pelos nos: falha do roteador e' so' um campo `falha` no log.
+
+    def _roteador_chave(self, state: Mapping[str, Any]) -> tuple[str, str]:
+        return (str(state.get("conversation_id") or ""), str(state.get("message_ref") or ""))
+
+    def _roteador_alarme(self, texto: str, pendente: str | None) -> bool:
+        plano = _plano(texto)
+        if alarme_no_relato(plano) is not None or _sinal_forte_de_emergencia(texto):
+            return True
+        if not self._base_saude:
+            return False
+        anterior = ler_pendente(pendente)
+        if (
+            anterior is not None
+            and anterior.grupo.startswith("sin-")
+            and _bs.alarme_do_assunto(self._base, anterior.grupo, texto)
+        ):
+            return True
+        return _bs.alarme_no_texto(self._base, texto)
+
+    async def _roteador_decidir(self, state: Mapping[str, Any], pendente: Any) -> tuple[Any, str | None, int]:
+        from maezo.agents.helena import roteador as _rt
+
+        contrato = self._roteador_contrato
+        historico = state.get("historico_conversa") if self._historico_enabled else None
+        prompt = _rt.montar_prompt(
+            contrato,
+            bloco_historico=(
+                render_untrusted_block(
+                    "historico_conversa",
+                    historico_em_texto(_rt.ultimas(historico, contrato.maximo_de_mensagens)),
+                )
+                if historico
+                else ""
+            ),
+            bloco_mensagem=render_untrusted_block("message_body", str(state.get("message_body") or "")),
+            pendente=pendente,
+        )
+        inicio = time.monotonic()
+        try:
+            bruto = await asyncio.wait_for(
+                self._llm.generate(
+                    prompt,
+                    phi=True,
+                    agent_id="helena",
+                    tenant_id=str(state.get("tenant_id") or ""),
+                    task_kind="task_default",
+                ),
+                timeout=contrato.prazo_s,
+            )
+        except PROGRAMMING_ERRORS:
+            raise
+        except TimeoutError:
+            return None, _rt.FALHA_PRAZO, int((time.monotonic() - inicio) * 1000)
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            return None, _rt.FALHA_MODELO, int((time.monotonic() - inicio) * 1000)
+        ms = int((time.monotonic() - inicio) * 1000)
+        decisao = _rt.ler_decisao(bruto)
+        return decisao, (None if decisao is not None else _rt.FALHA_JSON), ms
+
+    async def _classify_com_sombra(self, state: HelenaState) -> dict[str, Any]:
+        # So' codigo deterministico aqui (sem dependencia injetada): a chamada ao modelo roda na tarefa
+        # paralela, cuja falha vira o campo `falha` do log.
+        from maezo.agents.helena import roteador as _rt
+
+        antes = str(state.get("coleta_pendente") or "") or None
+        pendente = _rt.pendente_do_estado(antes, self._roteador_contrato.dona_da_pendencia)
+        trava = _rt.trava_de_entrada(
+            str(state.get("message_body") or ""),
+            alarme=lambda t: self._roteador_alarme(t, antes),
+            risco=lambda t: _sg.tem_risco(_plano(t)),
+        )
+        tarefa = asyncio.ensure_future(self._roteador_decidir(dict(state), pendente))
+        if len(self._roteador_em_voo) >= 256:
+            velha = next(iter(self._roteador_em_voo))
+            self._roteador_em_voo.pop(velha)[0].cancel()
+        self._roteador_em_voo[self._roteador_chave(state)] = (tarefa, pendente, trava, antes)
+        return await self.classify(state)
+
+    async def _respond_com_sombra(self, state: HelenaState) -> dict[str, Any]:
+        saida = await self.respond(state)
+        em_voo = self._roteador_em_voo.pop(self._roteador_chave(state), None)
+        if em_voo is None:
+            return saida
+        from maezo.agents.helena import roteador as _rt
+
+        tarefa, pendente, trava, antes = em_voo
+        final = {**dict(state), **saida}
+        atual = _rt.habilidades_da_helena_atual(
+            final, pendente_antes=antes, dona_da_pendencia=self._roteador_contrato.dona_da_pendencia
+        )
+        conversa = _rt.rotulo_da_conversa(str(state.get("conversation_id") or ""))
+
+        def registrar(feita: Any) -> None:
+            if feita.cancelled():
+                decisao, falha, ms = None, "cancelado", 0
+            elif feita.exception() is not None:
+                decisao, falha, ms = None, type(feita.exception()).__name__, 0
+            else:
+                decisao, falha, ms = feita.result()
+            logger.info(
+                "helena_roteador_sombra",
+                **_rt.campos_do_log(
+                    decisao,
+                    falha=falha,
+                    trava=trava,
+                    atual=atual,
+                    pendente=pendente,
+                    ms=ms,
+                    conversa=conversa,
+                ),
+            )
+
+        tarefa.add_done_callback(registrar)
+        return saida
+
     # -- Graph assembly -----------------------------------------------------------------------
 
     def compile_graph(self) -> StateGraph[HelenaState]:
         g: StateGraph[HelenaState] = StateGraph(HelenaState)
         g.add_node("receive", self.receive)
-        g.add_node("classify", self.classify)
+        sombra = self._roteador_modo == "sombra"
+        g.add_node("classify", self._classify_com_sombra if sombra else self.classify)
         g.add_node("inform", self.inform)
         g.add_node("schedule", self.schedule)
         g.add_node("escalate", self.escalate)
         g.add_node("collect", self.collect)
-        g.add_node("respond", self.respond)
+        g.add_node("respond", self._respond_com_sombra if sombra else self.respond)
         g.add_node("resume", self.resume)
         destinos: dict[Hashable, str] = {
             "inform": "inform",
@@ -10681,6 +10822,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         catalogo_procedimentos=catalogo if isinstance(catalogo, BuscaDeProcedimentos) else None,
         helena_base_saude_enabled=helena_base_saude_enabled,
         saude_gerativa=saude_gerativa if isinstance(saude_gerativa, _sg.RedatorDeSaude) else None,
+        # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134): so' o valor que a composicao disser; senao desligado.
+        helena_roteador=str(cfg.get("helena_roteador") or "desligado"),
     ).compile_graph()
 
 
@@ -10703,4 +10846,6 @@ PROMPT_VERSIONS: dict[str, str] = {
     # `MAEZO_HELENA_CONSULTAS_AMH` ligada.
     "classify_consultas": CLASSIFY_CONSULTAS_ADENDO_VERSION,
     "consulta_plano": CONSULTA_PLANO_PROMPT_VERSION,
+    # ADR-0066/DL-0134: o prompt do roteador de habilidades, usado SO' com `MAEZO_HELENA_ROTEADOR` ligado.
+    "roteador": ROTEADOR_PROMPT_VERSION,
 }

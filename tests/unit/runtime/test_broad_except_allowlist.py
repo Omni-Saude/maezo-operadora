@@ -97,7 +97,10 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: e o Lucas manda ao beneficiario o texto fixo `TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR`, pelo mesmo
 #: `self._whatsapp` e com a mesma forma de `send_escalation_ack` (`PROGRAMMING_ERRORS` re-levanta; o resto
 #: vira `mensagem_enviada=False`). Sitio NOVO e legitimo, nao um predicado que mudou.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 37
+#: 21/10/2026: 38 — `HelenaGraph._roteador_decidir` (ADR-0066/DL-0134, F1): o roteador de habilidades em
+#: SOMBRA chama o modelo numa tarefa paralela; `PROGRAMMING_ERRORS` re-levanta, prazo e falha do provedor
+#: viram o campo `falha` do log `helena_roteador_sombra` (a resposta nao muda). Sitio NOVO e legitimo.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 38
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:

@@ -354,6 +354,8 @@ def _build_dispatcher(
         helena_dependentes_nome_enabled=settings.helena_dependentes_nome,
         # BASE DE SAUDE (DL-0118, ADR-0064): `MAEZO_HELENA_BASE_SAUDE`, default `false` (so' dev).
         helena_base_saude_enabled=settings.helena_base_saude,
+        # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134): `MAEZO_HELENA_ROTEADOR`, default `desligado` (so' dev).
+        helena_roteador=settings.helena_roteador,
         # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
         # dev).
         saude_gerativa=_saude_gerativa(settings),
