@@ -160,8 +160,15 @@ final class RuntimeObservationAdmission {
         // Concurrent JDK activity (GC, logging) closes descriptors mid-census; a
         // descriptor absent at its read instant is indistinguishable from one
         // enumerated only after it closed. Vanish per entry; the custody diff
-        // stays exact for every descriptor actually read.
-        try {attributes.put(descriptor,fdAttributes(descriptor));}catch(NoSuchFileException vanished){}
+        // stays exact for every descriptor actually read. Only REGULAR files
+        // carry protected-file custody: sockets/pipes/epoll of the connection
+        // pool, JobExecutor and TLS churn constantly and are not attributable
+        // to a protected read (R1 follow-up: the served lane refused on
+        // acquired-set drift caused by concurrent socket opens).
+        try {
+          var read=fdAttributes(descriptor);
+          if((((Number)read.get("mode")).intValue()&0xF000)==0x8000)attributes.put(descriptor,read);
+        }catch(NoSuchFileException vanished){}
       }
     }
     // The enumeration stream's own descriptors closed with it; any other descriptor

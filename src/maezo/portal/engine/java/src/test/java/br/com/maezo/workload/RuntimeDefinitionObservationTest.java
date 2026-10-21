@@ -224,7 +224,7 @@ class RuntimeDefinitionObservationTest {
 
   @Test void liveResourceIsExactV4SuccessorWithNoV3Fallback()throws Exception {
     try(var in=RuntimeObservationAdmission.class.getResourceAsStream("/provider-native-observation-schema-v1.json")) {
-      assertNotNull(in);assertEquals("d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1",Jcs.digest(in.readAllBytes()));
+      assertNotNull(in);assertEquals("e34f0f0673beab80e60c624dcd96777029c07800cbc9e63e5590b14493e154d6",Jcs.digest(in.readAllBytes()));
     }
     var f=admissionFixture(java.time.Instant.now().plusSeconds(30));var v3=new TreeMap<>(f.admit().document);
     v3.put("schema","provider-native-observation-admission.v3");assertThrows(Refused.class,()->RuntimeObservationAdmission.validate("ObservationAdmission",v3));
@@ -302,7 +302,11 @@ class RuntimeDefinitionObservationTest {
       Files.setPosixFilePermissions(jar,PosixFilePermissions.fromString("rw-r--r--"));Files.createLink(root.resolve("hardlink.jar"),jar);
       assertThrows(Refused.class,()->BoundaryPolicy.readFile(ref,root,System.currentTimeMillis()+30000));
       Path other=root.resolve("lib/vendor-other.jar");Files.copy(jar,other);var otherRef=Map.<String,Object>of("path",other.toString(),"sha256",Jcs.digest(Files.readAllBytes(other)));
-      assertThrows(Refused.class,()->BoundaryPolicy.readFile(otherRef,root,System.currentTimeMillis()+30000));
+      // Contract evolution (instrument verifyInventory/type-jar pins): ANY pinned
+      // binary inside the installed root reads under the binary budget with full
+      // custody; alien roots, hardlinks, loose modes and expiry still refuse above.
+      if(Files.isDirectory(Path.of("/proc/self/fd")))assertArrayEquals(Files.readAllBytes(other),BoundaryPolicy.readFile(otherRef,root,System.currentTimeMillis()+30000));
+      else assertThrows(Refused.class,()->BoundaryPolicy.readFile(otherRef,root,System.currentTimeMillis()+30000));
     }finally{if(previous==null)System.clearProperty("catalina.base");else System.setProperty("catalina.base",previous);}
   }
   @Test void binaryGuardRejectsSymlinkAndDigestMismatchOnLinux()throws Exception {

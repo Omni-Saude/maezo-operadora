@@ -44,13 +44,14 @@ final class StartupNaming {
     naming=n;global=g;
     var xml=SecureLayout.parse(custody.root.resolve("conf/server.xml"));
     var catalogs=xml.getElementsByTagName("GlobalNamingResources");require(catalogs.getLength()==1);
-    var nodes=catalogs.item(0).getChildNodes();var expected=new HashMap<String,Map<String,Object>>();
+    var nodes=catalogs.item(0).getChildNodes();var expected=new HashMap<String,Map<String,Object>>();var loader=StandardServer.class.getClassLoader();
+    // The digester already resolved ${} into the live resources; expected must resolve identically.
     for(int i=0;i<nodes.getLength();i++)if(nodes.item(i) instanceof Element e) {
       require("Resource".equals(e.getTagName()));
       var attrs=new HashMap<String,Object>();
       attrs.put("scope","Shareable");attrs.put("singleton","true");
-      var all=e.getAttributes();for(int j=0;j<all.getLength();j++)attrs.put(all.item(j).getNodeName(),all.item(j).getNodeValue());
-      require(expected.put(e.getAttribute("name"),Map.copyOf(attrs))==null);
+      var all=e.getAttributes();for(int j=0;j<all.getLength();j++)attrs.put(all.item(j).getNodeName(),StartupEnv.resolve(all.item(j).getNodeValue(),loader));
+      require(expected.put(StartupEnv.resolve(e.getAttribute("name"),loader),Map.copyOf(attrs))==null);
     }
     require(expected.keySet().equals(Set.of(JDBC,"UserDatabase",
         "global/camunda-bpm-platform/process-engine/ProcessEngineService!org.cibseven.bpm.ProcessEngineService",
