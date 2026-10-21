@@ -828,6 +828,24 @@ def sem_marcador_de_dependente(texto: str) -> str:
     return _MARCADOR_DEPENDENTE.sub(lambda m: f"dependente {m.group(1)}", texto)
 
 
+#: SIMULADOR (QA), avaliacao de 21/10/2026: os nomes completos de dependente lidos NESTE processo, para o
+#: mascarador do simulador trocar o nome em TODA saida gravada (qualquer formato de texto). `None` = desligado
+#: (producao e receptor): so' o simulador liga, na subida (`registrar_nomes_lidos`). Nunca vai a log.
+_NOMES_LIDOS: set[str] | None = None
+
+
+def registrar_nomes_lidos() -> None:
+    """Liga o registro dos nomes lidos neste processo (so' o simulador chama)."""
+    global _NOMES_LIDOS
+    if _NOMES_LIDOS is None:
+        _NOMES_LIDOS = set()
+
+
+def nomes_lidos() -> frozenset[str]:
+    """Os nomes completos de dependente lidos neste processo (vazio com o registro desligado)."""
+    return frozenset(_NOMES_LIDOS or ())
+
+
 class NomesDoTurno:
     """Os nomes completos dos dependentes de UM turno, em memoria, ate' o envio. Nunca em estado, fatos, log,
     historico ou modelo. `repr`/`str` redigidos; nao serializavel. Chave: a posicao (`ordem`) do contrato."""
@@ -837,6 +855,8 @@ class NomesDoTurno:
     def __init__(self, nomes: Mapping[int, str]) -> None:
         # DL-0131: o nome sai em Title Case ("ANA DE SOUZA" -> "Ana de Souza").
         self._nomes = {ordem: _title_case(nome) for ordem, nome in nomes.items()}
+        if _NOMES_LIDOS is not None:
+            _NOMES_LIDOS.update(nomes.values())
 
     def tem(self, ordem: int) -> bool:
         return ordem in self._nomes

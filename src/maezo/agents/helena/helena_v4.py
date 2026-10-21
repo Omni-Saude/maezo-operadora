@@ -554,6 +554,12 @@ _AGRAVANTE: Final[re.Pattern[str]] = re.compile(
     r"|sangrou)\b"
 )
 _RESSALVA: Final[re.Pattern[str]] = re.compile(r"\b(?:mas|porem|so que|entretanto)\b")
+#: A pessoa diz que esta' tudo bem ("ta' brincando normal", "esta' bem", "comendo normal", "tranquilo").
+_TRANQUILIZA: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:brincando|comendo|mamando|dormindo bem|acordad[oa]|esperto|esperta|disposto|disposta)"
+    r"(?: \w+)? normal\b|\b(?:ta|esta|estou|to) (?:bem|otimo|otima|tranquil[oa]|normal)\b"
+    r"|\btudo (?:bem|normal|certo)\b|\bnormalzinh[oa]\b|\bnada de mais\b"
+)
 _AFIRMATIVAS_INICIAIS: Final[frozenset[str]] = frozenset(
     {"sim", "tenho", "tem", "tive", "teve", "estou", "esta", "sinto", "claro", "isso"}
 )
@@ -575,6 +581,10 @@ def resposta_ao_alerta(plano: str) -> str | None:
         return None if _RESSALVA.search(plano) else LEITURA_NAO
     if palavras[0] in _AFIRMATIVAS_INICIAIS:
         return LEITURA_SIM
+    if _TRANQUILIZA.search(plano):
+        # Avaliacao de 21/10/2026: "mas ele ta' brincando normal" responde as perguntas de alerta (sem sinal
+        # de alarme): e' "nao", nunca queixa nova. Agravante e duvida ja' sairam acima como "sim".
+        return LEITURA_NAO
     return None
 
 

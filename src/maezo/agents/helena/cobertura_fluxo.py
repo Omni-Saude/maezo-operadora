@@ -191,6 +191,10 @@ class FluxoDeCobertura:
             return _update(ca.TEXTO_ASSUNTO_ENCERRADO, None, None)
         if resposta is not None:
             logger.info("helena_cobertura_resposta", pendencia=pendente, leitura=resposta)
+        if pendente == PEND_RESPONDIDO:
+            depois = await self._depois_da_resposta(texto, ctx)
+            if depois is not None:
+                return depois
         if pendente.startswith(ca.PREFIXO) and resposta is None and ca.e_reclamacao(texto):
             # DL-0131: irritacao / "nao entendi" / "eu ja' disse": desculpa curta e de novo. Nunca abre caso.
             resposta_reclamacao = await self._de_novo(texto, pendente, ctx)
@@ -254,6 +258,29 @@ class FluxoDeCobertura:
             # A pessoa escreveu outro nome (ou a lista pedida): o mesmo pedido (para quem, tentativas).
             return await self._outro_nome(texto, ctx)
         return await self._nova_pergunta(texto, ca.Contexto(quem=ctx.quem), respondidos)
+
+    async def _depois_da_resposta(self, texto: str, ctx: ca.Contexto) -> dict[str, Any] | None:
+        """Avaliacao de 21/10/2026: a fala logo DEPOIS de uma resposta de cobertura. Cortesia ("ok", "valeu")
+        recebe uma resposta curta; "faltou algum?" confere a lista anterior; "e' pra minha esposa" / "e' pra
+        mim
+        mesma" REFAZ a consulta para a pessoa citada. `None` = segue (pedido novo)."""
+        if ca.e_cortesia(texto):
+            return _update(ca.resposta_de_cortesia(texto), None, None)
+        if ca.pergunta_se_faltou(texto) and ctx.termos:
+            return _update(ca.texto_do_que_respondi(ctx.termos), PEND_RESPONDIDO, ctx)
+        if (
+            ctx.termos
+            and len(ca.normalizar(texto).split()) <= 10
+            and (cita_outra_pessoa(texto) or _TITULAR_NO_TEXTO.search(ca.normalizar(texto)))
+        ):
+            graus, com_nome, primeiros = await self.d.dependentes()
+            quem = quem_pelo_texto(texto, graus, primeiros)
+            logger.info("helena_cobertura_troca_de_pessoa", decidiu=quem is not None)
+            novo = replace(ctx, respondidos=[], opcoes=[], tentativas=0, padrao=False)
+            if quem is None:
+                return _update(self.d.pergunta_para_quem(graus, com_nome), ca.PEND_QUEM, novo)
+            return await self._com_quem(novo, quem, graus)
+        return None
 
     async def _de_novo(self, texto: str, pendente: str, ctx: ca.Contexto) -> dict[str, Any] | None:
         """DL-0131: a reclamacao com a pergunta pendente. "Eu ja' disse que e' pra mim" responde o "para
@@ -371,7 +398,8 @@ class FluxoDeCobertura:
             return _update(prefixo + ca.TEXTO_REEMBOLSO, ca.PEND_EQUIPE, ctx)
         if pedido.exclusao_legal in ca.TEXTO_EXCLUSAO:
             return _update(prefixo + ca.TEXTO_EXCLUSAO[pedido.exclusao_legal], ca.PEND_EQUIPE, ctx)
-        if pedido.tipo == "remedio":
+        ctx = replace(ctx, outros=list(pedido.outros))
+        if pedido.tipo == "remedio" and not pedido.procedimentos and len(pedido.outros) <= 1:
             return _update(prefixo + ca.TEXTO_REMEDIO, ca.PEND_EQUIPE, ctx)
         if pedido.tipo == "material" and not pedido.procedimentos:
             return _update(prefixo + ca.TEXTO_MATERIAL, ca.PEND_EQUIPE, ctx)
@@ -379,6 +407,16 @@ class FluxoDeCobertura:
             return _update(prefixo + ca.TEXTO_RECEM_NASCIDO, ca.PEND_EQUIPE, ctx)
         if pedido.para_quem == "terceiro":
             return _update(prefixo + ca.TEXTO_TERCEIRO, ca.PEND_EQUIPE, ctx)
+        if not pedido.procedimentos and pedido.outros:
+            # Avaliacao de 21/10/2026: so' itens com regra propria (ex.: remedio + estetica): cada um pelo seu
+            # caminho, numa resposta so'.
+            return await self._varios(ctx, prefixo=prefixo)
+        if not pedido.procedimentos and pedido.discorda:
+            # Avaliacao de 21/10/2026: a discordancia sem procedimento termina na explicacao e na equipe, sem
+            # o pedido da lista colado.
+            return _update(
+                f"{ca.PREFIXO_DISCORDA.strip()} {ca.TEXTO_OFERTA_DA_DISCORDANCIA}", ca.PEND_EQUIPE, ctx
+            )
         if not pedido.procedimentos:
             # DL-0131: a intencao sem o nome do exame abre o assunto e pede a lista (nunca o texto geral).
             return _update(prefixo + ca.TEXTO_PEDE_LISTA, ca.PEND_FORMA, replace(ctx, termos=[], tecnicos=[]))
@@ -512,7 +550,7 @@ class FluxoDeCobertura:
         if busca is None or not busca.pronto:
             return [None] * len(termos)
         candidatos = await asyncio.gather(
-            *(self._recuperar(busca, t, ctx.tecnico_de(t), limite=15) for t in termos)
+            *(self._recuperar(busca, t, ctx.tecnico_de(t), limite=20) for t in termos)
         )
         escolhas: list[ca.Escolha | None] = [None] * len(termos)
         if self.d.escolher_varios is not None:
@@ -536,7 +574,7 @@ class FluxoDeCobertura:
             )
             for i, e in zip(faltam, avulsas, strict=True):
                 escolhas[i] = e
-        return list(
+        decisoes: list[Decisao | None] = list(
             await asyncio.gather(
                 *(
                     self._da_escolha(busca, t, ctx.tecnico_de(t), cands, e)
@@ -544,6 +582,18 @@ class FluxoDeCobertura:
                 )
             )
         )
+        # Avaliacao de 21/10/2026: o item que o LOTE nao achou (dentro da lista) ganha a busca de item unico
+        # (mais candidatos, uma chamada so' dele) — a lista nao pode achar menos do que o item sozinho.
+        fracos = [i for i, d in enumerate(decisoes) if d is not None and d.tipo not in (DIRETO, CONFIRMA)]
+        if fracos and self.d.escolher is not None:
+            refeitas = await asyncio.gather(
+                *(self._decidir([termos[i]], termos[i], ctx.tecnico_de(termos[i])) for i in fracos)
+            )
+            for i, d in zip(fracos, refeitas, strict=True):
+                if d is not None and d.tipo in (DIRETO, CONFIRMA):
+                    decisoes[i] = d
+            logger.info("helena_cobertura_lote_refeito", itens=len(fracos))
+        return decisoes
 
     async def _decidir_pela_nota(self, busca: BuscaDeProcedimentos, termo: str) -> Decisao:
         """Sem o modelo: a decisao por nota (certo = direto; senao, opcoes)."""
@@ -573,7 +623,7 @@ class FluxoDeCobertura:
     async def _resolver(self, ctx: ca.Contexto, *, prefixo: str) -> dict[str, Any]:
         if not ctx.termos:
             return _update(prefixo + ca.TEXTO_PEDE_LISTA, ca.PEND_FORMA, ctx)
-        if len(ctx.termos) > 1:
+        if len(ctx.termos) > 1 or ctx.outros:
             return await self._varios(ctx, prefixo=prefixo)
         termo = ctx.termos[0]
         decisao = await self._decidir(ctx.termos, termo, ctx.tecnico_de(termo))
@@ -777,7 +827,7 @@ class FluxoDeCobertura:
         oferece_algum = False
         literais: list[str] = []
         termos = ctx.termos[: ca.MAX_PROCEDIMENTOS]
-        decisoes = await self._decidir_varios(ctx, termos)
+        decisoes = await self._decidir_varios(ctx, termos) if termos else []
 
         async def _um(termo: str, decisao: Decisao | None) -> tuple[str, str | None, Any, bool]:
             nome: str | None = None
@@ -819,6 +869,13 @@ class FluxoDeCobertura:
             excedente=self._excedente,
         )
         partes: list[str] = []
+        # Avaliacao de 21/10/2026: os itens com regra propria da mesma lista, cada um pelo seu caminho.
+        frases_outros = [ca.frase_de_outro_item(n, t) for n, t in ctx.outros]
+        if frases_outros and not frases:
+            if prefixo:
+                partes.append(prefixo.strip())
+            partes.append("\n".join(frases_outros))
+        frases = [*frases, *frases_outros] if frases else frases
         if frases:
             texto = self._montar(ctx, frases, view=ultima_view, oferece=True, prefixo=prefixo)
             if (ctx.quem or "").startswith("dependente"):
@@ -840,6 +897,9 @@ class FluxoDeCobertura:
         if falhou_algum:
             partes.append("Quer que eu tente de novo os que não consegui consultar?")
             return _update(" ".join(partes), ca.PEND_FALHA, ctx, consulta_literais=tuple(literais))
+        if ctx.outros:
+            partes.append(ca.TEXTO_EQUIPE_PARA_OS_OUTROS)
+            return _update(" ".join(partes), ca.PEND_EQUIPE, novo, consulta_literais=tuple(literais))
         if not oferece_algum:
             partes.append(ca.AVISO_FINAL)
         return _update(

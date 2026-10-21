@@ -614,6 +614,11 @@ def argumentos_do_ambiente(argv: Sequence[str] | None) -> list[str]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = construir_parser().parse_args(argumentos_do_ambiente(argv))
+    # Avaliacao de 21/10/2026 (privacidade): todo nome de dependente lido da AMH neste processo entra no
+    # mascarador de TODA saida gravada (relatorio, transcricao, log), em qualquer formato de texto.
+    from maezo.agents.helena.consultas_plano import registrar_nomes_lidos
+
+    registrar_nomes_lidos()
     try:
         return asyncio.run(executar(args))
     except Exception as exc:

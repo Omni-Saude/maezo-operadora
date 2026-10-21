@@ -2032,6 +2032,165 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
         ),
         resolveu="a batida na cabeca recebeu as perguntas de alerta proprias (nao as genericas de crianca)",
     ),
+    # Avaliacao de 21/10/2026 (seguranca e fluxo): conversas GENERICAS escritas para o roteiro.
+    Segmento(
+        "8-sinal-de-alarme-no-turno-seguinte-escala",
+        (
+            _p(
+                "Meu filho escorregou no banheiro e bateu a cabeça no chão",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(vomito|desmaio|convulsao)",),
+                nao_deve=(r"manchinhas", r"pouco xixi"),
+            ),
+            _p(
+                "agora ele vomitou duas vezes e está muito sonolento",
+                escalacao="red_flag_clinico",
+                deve=(r"192",),
+                nao_deve=(r"manchinhas", r"pouco xixi", _PEDE_A_LISTA),
+            ),
+        ),
+        resolveu="o sinal de alarme dito DEPOIS das perguntas foi lido contra a batida na cabeca e escalou",
+    ),
+    Segmento(
+        "9-tranquilizacao-nao-vira-queixa-nova",
+        (
+            _p(
+                "Minha filha tropeçou no quintal e bateu com a cabeça na parede",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(vomito|desmaio|convulsao)",),
+                nao_deve=(r"manchinhas", r"pouco xixi"),
+            ),
+            _p(
+                "não, ela já está brincando normal",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(r"manchinhas", r"pouco xixi", r"febre", _PEDE_A_LISTA, _ENCAMINHOU),
+            ),
+        ),
+        resolveu="'ja' esta brincando normal' respondeu as perguntas, sem as perguntas genericas de crianca",
+    ),
+    Segmento(
+        "10-falas-curtas-depois-da-resposta",
+        (
+            _p(
+                "O plano cobre eletrocardiograma?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "beleza, valeu",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"por nada",),
+                nao_deve=(_PEDE_A_LISTA, r"nao localizei", r"como esta escrito no pedido medico"),
+            ),
+        ),
+        resolveu="a cortesia depois da resposta recebeu resposta curta, sem busca de procedimento",
+    ),
+    Segmento(
+        "11-faltou-algum-confere-a-lista",
+        (
+            _p(
+                "Vocês cobrem ultrassom de tireoide e dosagem de vitamina D?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "ficou faltando algum?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"respondi os 2 itens",),
+                nao_deve=(_PEDE_A_LISTA, r"nao localizei"),
+            ),
+        ),
+        resolveu="'ficou faltando algum?' conferiu a lista anterior, sem busca nova",
+    ),
+    Segmento(
+        "12-para-quem-dito-depois-da-resposta",
+        (
+            _p(
+                "Meu plano cobre endoscopia digestiva?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "na verdade é pra minha mãe",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"quem esta no seu plano",),
+                nao_deve=(_PEDE_A_LISTA, r"ja te passei"),
+            ),
+        ),
+        resolveu="a pessoa dita depois da resposta refez a pergunta para ela (fora do plano: explicou)",
+    ),
+    Segmento(
+        "13-pedido-de-pessoa-no-meio-da-cobertura",
+        (
+            _p(
+                "Meu plano cobre o procedimento zqrvt?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(como esta escrito no pedido medico|tem varios tipos|nao localizei)",),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "prefiro falar com um atendente, por favor",
+                escalacao="solicitacao_humano",
+                deve=(_ENCAMINHOU,),
+                nao_deve=(_PEDE_A_LISTA, r"como esta escrito no pedido medico"),
+            ),
+        ),
+        resolveu="o pedido explicito de pessoa no meio da cobertura abriu o caso",
+    ),
+    Segmento(
+        "14-recusa-com-qualificador-encerra",
+        (
+            _p("Preciso falar com alguém da equipe", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
+            _p(
+                "não precisa mais, não quero falar com ninguém, já resolvi tudo",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"encerrei",),
+                nao_deve=(r"responda sim para encerrar", _PEDE_A_LISTA),
+                caso_encerrado=True,
+            ),
+        ),
+        resolveu="a recusa com 'ja' resolvi' encerrou o caso aberto",
+    ),
+    Segmento(
+        "15-lista-mista-responde-todos",
+        (
+            _p(
+                "O plano cobre ultrassom de mama, omeprazol e preenchimento labial?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"omeprazol", r"preenchimento", _NAO_LOCALIZOU_OU_CONSTA),
+                nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, _PEDE_A_LISTA),
+            ),
+        ),
+        resolveu="a lista mista teve TODOS os itens respondidos, cada um no seu caminho",
+    ),
+    Segmento(
+        "16-discordancia-sem-a-resposta-curinga",
+        (
+            _p(
+                "A clínica disse que o convênio cobre, mas vocês recusaram a minha guia",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"(autorizacao|equipe)",),
+                nao_deve=(_PEDE_A_LISTA, _ENCAMINHOU),
+            ),
+        ),
+        resolveu="a discordancia recebeu a explicacao e a oferta da equipe, sem a resposta curinga",
+    ),
+    Segmento(
+        "17-lista-de-exames-de-rotina-acha-todos",
+        (
+            _p(
+                "Cobre: exame preventivo do colo do útero, raio x dos seios da face, densitometria óssea, "
+                "mamografia",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"4\) ", _NAO_LOCALIZOU_OU_CONSTA),
+                nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, _PEDE_A_LISTA),
+            ),
+        ),
+        resolveu="cada item da lista foi procurado (o lote nao perdeu item que sozinho e' achado)",
+    ),
 )
 
 #: Os telefones (sufixo da faixa do simulador) de cada segmento, quando o roteiro precisa de telefones
@@ -2044,7 +2203,9 @@ TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
         *(797, 798, 790),
     ),
     "helena_cobertura_assistida": (791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792),
-    "helena_conversa_cobertura": (793, 794, 795, 796, 797, 798, 790),
+    "helena_conversa_cobertura": (
+        *(793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791),
+    ),
 }
 
 # ================================================================================================
