@@ -1909,7 +1909,7 @@ def parse_engine_observation(
         if any(d.tzinfo != UTC or abs((d - after).total_seconds()) > 5 for d in dates):
             raise NativeObservationError("Actual HTTP Date absent or skewed")
         observed = dates[-1]
-        if version != {"version": "2.1.0"} or set(xml) != {"id", "bpmn20Xml"}:
+        if version != {"version": "2.2.0"} or set(xml) != {"id", "bpmn20Xml"}:
             raise NativeObservationError("Measured engine version/XML shape differs")
         if (
             type(deployed) is not dict
