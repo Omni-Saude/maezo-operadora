@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-lupus
+categoria: condicao
+titulo: Lúpus
+sinonimos:
+- lúpus
+- lupus
+- les
+- lúpus eritematoso sistêmico
+- lupus eritematoso sistemico
+- lúpus discoide
+- doença autoimune lúpus
+texto: Lúpus é uma doença autoimune, em que o sistema de defesa do corpo ataca, por engano, tecidos saudáveis. Pode afetar pele, articulações, rins e outros órgãos. Os sintomas variam e podem aparecer e desaparecer com o tempo. O tratamento é definido pelo médico e pode envolver mudança de hábitos e uso de remédios. A especialidade que costuma cuidar do lúpus é a reumatologia.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Lúpus (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/l/lupus
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/l/lupus
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

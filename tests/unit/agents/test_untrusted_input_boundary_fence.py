@@ -157,15 +157,13 @@ _CAMPOS_ESTRUTURADOS_POR_AGENTE: dict[str, frozenset[str]] = {
     #: helena so' tem UM campo de entrada que alcanca prompt (`message_body`) e ele e' o proprio
     #: texto cru do WhatsApp — nada estruturado para permitir.
     "helena": frozenset(),
+    #: lucas: desde 09/10/2026 so' `_build_message` monta prompt. `ciclos_sem_conciliacao`, `cnab_ref`,
+    #: `contesta_cobranca`, `intencao` e `pedido_cancelamento` sairam com o prompt do dossie (a narrativa
+    #: virou texto fixo dos fatos, `texto_dossie`).
     "lucas": frozenset(
         {
-            "ciclos_sem_conciliacao",
-            "cnab_ref",
             "competencia",
-            "contesta_cobranca",
-            "intencao",
             "numero_boleto",
-            "pedido_cancelamento",
             "status_conciliado",
             "tipo_solicitacao",
         }
@@ -524,9 +522,25 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     # (`graph.py::_redigir_consulta`, a mensagem demarcada como `message_body`).
     # 16/16 desde 08/10/2026 (DL-0082): o ACK de escalacao do Lucas virou texto fixo — o sitio
     # `_build_escalation_ack` (que so' lia `motivo_humano`, campo de SAIDA) deixou de chamar o modelo.
-    assert (total, com_entrada) == (16, 16), (
+    # Continua 16/16 com o DL-0086 (PR #709): a resposta a pergunta de VALOR e' TEXTO FIXO montado dos
+    # fatos (`graph.py::texto_valores`, revisao de seguranca do #709) — nenhuma chamada LLM nova.
+    # 15/15 desde 09/10/2026: a narrativa do dossie do Lucas virou texto fixo dos fatos
+    # (`graph.py::texto_dossie`) — o sitio `_build_dossier` deixou de chamar o modelo.
+    # 16/16 desde 17/10/2026 (DL-0118, ADR-0064): a Helena ganhou a CLASSIFICACAO restrita da base de saude
+    # (`graph.py::_base_achar_assunto`: o modelo so' escolhe um id de uma lista fechada; a mensagem vai
+    # demarcada como `message_body`).
+    # 18/16 desde 19/10/2026 (DL-0128): a EXTRACAO da cobertura assistida (`graph.py::_cobertura_assistida`,
+    # funcao interna `extrair`) chama o modelo com a mensagem DEMARCADA como `message_body`; o texto chega por
+    # parametro (do fluxo), entao a resolucao conta o sitio sem campo de estado.
+    # 20/16 desde 20/10/2026 (DL-0129): a ESCOLHA entre os candidatos do catalogo (funcao interna `escolher`)
+    # leva o pedido DEMARCADO (`pedido_da_pessoa`) e a lista fechada do catalogo (dado de referencia); como a
+    # `extrair`, conta o sitio interno e o da funcao de fora, sem campo de estado.
+    # 22/16 desde 20/10/2026 (DL-0131): a ESCOLHA EM LOTE da lista (funcao interna `escolher_varios`) leva os
+    # pedidos DEMARCADOS (`pedidos_da_pessoa`) e as listas fechadas do catalogo; conta o sitio interno e o da
+    # funcao de fora, sem campo de estado.
+    assert (total, com_entrada) == (22, 16), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 16/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 22/16 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )

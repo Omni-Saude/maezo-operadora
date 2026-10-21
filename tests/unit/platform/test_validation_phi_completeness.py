@@ -137,7 +137,8 @@ class TestNonVacuity:
         assert len({p for p in touched if p.suffix == ".bpmn"}) == 17  # VW4/GP11: +SP-OP-SUPP-001
         # 62 -> 63 com `triage_sufficiency.dmn` (Frente 2.2) — ver a entrada #407 do
         # CORPUS_DELTA_LOG, que nomeia o arquivo e os sete nomes que ele traz.
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 64  # VW4/GP11: +suppression_routing
+        # 64 -> 65 com `helena_triage_admissibility.dmn` (DL-0104) — ver as entradas do CORPUS_DELTA_LOG.
+        assert len({p for p in touched if p.suffix == ".dmn"}) == 65  # VW4/GP11: +suppression_routing
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -1194,6 +1195,366 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "mantido no rebase do wiring — o conjunto fechado vem da DMN)."
         ),
     ),
+    CorpusDelta(
+        date="2026-10-08",
+        pr="#709",
+        name="valores_disponiveis",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova de `lucas_billing_admissibility` (DL-0086): booleano apurado pelo grafo "
+            "do Lucas ('ha fato de valor do billing-status neste turno?'). So' a linha `consulta_valores` "
+            "o le'; nao carrega dado do beneficiario, so' a presenca de fato."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-09",
+        pr="#709",
+        name="valores_com_atraso",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova de `lucas_billing_admissibility` (revisao de seguranca do #709, DL-0082): "
+            "booleano apurado pelo grafo do Lucas ('ha competencia vencida ou dias de atraso nos fatos de "
+            "valor?'). So' a linha `consulta_valores_atraso` o le' (escala); nao carrega dado do "
+            "beneficiario."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-13",
+        pr="#733",
+        name="pagador_empresa",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova de `lucas_billing_admissibility` (decisao do dono, 13/10/2026): booleano "
+            "apurado pelo grafo do Lucas a partir do `pagador_tipo` do billing-status ('a mensalidade e' "
+            "paga pela empresa contratante?'). Le'-a a linha `pagador_empresa` (resposta fixa) e a regra de "
+            "atraso (exige false); nao carrega dado do beneficiario, so' o tipo do pagador."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="red_flag",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="prioridade",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="conduta",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#772",
+        name="motivo",
+        name_delta=0,
+        occurrence_delta=5,
+        reason=(
+            "CLEAN. SAIDA ja' existente das tabelas `triage_redflag_*`: as cinco regras neonatais novas "
+            "(r9-r13 de `triage_redflag_pediatric.dmn`, DL-0101) acrescentam cinco linhas de saida; nao "
+            "carrega dado do beneficiario, so' o veredito da tabela."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#771",
+        name="atraso_critico",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova de `lucas_billing_admissibility` (decisao do dono, 14/10/2026): booleano "
+            "apurado pelo grafo do Lucas sobre os fatos da fonte ('o atraso e' real: pagador PF com >= 2 "
+            "meses ou > 30 dias sem pagamento?', limiares configuraveis). So' a regra `atraso_critico` o "
+            "le' (escala); nao carrega dado do beneficiario, so' o resultado da comparacao."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="necessidade",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: vocabulario FECHADO de codigos do catalogo (S01, S04, S05, S06, S08, "
+            "S09, S10, A05, COBRANCA) apurado pelo grafo, nunca texto do beneficiario. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="sinal_alarme",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: booleano (a tabela de alarme acusou sinal neste turno?). Nao carrega "
+            "qual sinal nem qual sintoma (esses seguem em `sintoma_codigo`, ja suspeito). Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="risco_psicossocial",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: booleano do classificador validado (`psychosocial_risk`). Ja' circulava "
+            "como VALOR do `motivo_categoria`; como nome de variavel e' novo. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="pedido_pessoa",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: booleano (pediu uma pessoa explicitamente?), do lexico deterministico e "
+            "do classificador. Sem texto da pessoa. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="ficha_completa",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: booleano de PRESENCA (a ficha minima esta completa?), apurado pelo "
+            "grafo; nao carrega nenhuma resposta da ficha. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="esclarecimento_pedido",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. ENTRADA nova: booleano (a pergunta de esclarecimento ja foi feita nesta conversa?). "
+            "Sem dado do beneficiario. Arquivo novo: `spec/processes/dmn/helena_triage_admissibility.dmn` "
+            "(DL-0104, nova triagem da Helena, experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, "
+            "conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="rodadas",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Nome ja existente (triage_sufficiency): mais uma ocorrencia, como ENTRADA da tabela "
+            "nova; o mesmo contador inteiro de perguntas da ficha. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="decisao",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. SAIDA nova: vocabulario FECHADO de sete valores (ABRIR_CASO_EMERGENCIA ... "
+            "PASSAR_AO_LUCAS) validado no codigo; valor fora dele vira falha tecnica. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="motivo_categoria",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Nome ja existente (contrato SP-OP-ESCALATION-001): mais uma ocorrencia, como SAIDA da "
+            "tabela nova, so' com valores do enum do contrato ou '-' quando nao abre caso. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="severidade",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Nome ja existente (contrato SP-OP-ESCALATION-001): mais uma ocorrencia, como SAIDA da "
+            "tabela nova (grave/moderada/leve, ou '-' quando nao abre caso). Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-14",
+        pr="#781",
+        name="texto",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. SAIDA nova: o ID do texto da aba '5 Textos' do catalogo (T05, T08, T09, T11, T12, "
+            "OFERTA_PESSOA) que a Helena envia; um rotulo fechado, nunca o texto da pessoa. Arquivo novo: "
+            "`spec/processes/dmn/helena_triage_admissibility.dmn` (DL-0104, nova triagem da Helena, "
+            "experimento em dev atras de `MAEZO_HELENA_TRIAGEM_V2`, conteudo clinico DRAFT)."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=4,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN, mesmo literal de "
+            "sempre: +4 inputParameter."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=4,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN: +4 inputParameter; "
+            "so' tenant_id/agent_id/conversation_id/resultado ou chaves de negocio, nunca PHI."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="resultado",
+        name_delta=0,
+        occurrence_delta=3,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN: +3 inputParameter "
+            "LITERAL (cancelamento_executado/info_solicitada/mantido), rotulo fechado do aviso, nunca texto."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="event_fase",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "SP-OP-CANCEL-001 v0.2.0 (DL-0111, chave MAEZO_CANCEL_PF_V1): os tres avisos ao beneficiario "
+            "(ST_AvisarCancelado, ST_AvisarInfoSolicitada, ST_AvisarPedidoMantido) e o estouro do prazo da "
+            "execucao no cadastro (ST_PublishExecucaoAtrasada) sao `operadora.events.publish`. "
+            "CLEAN: +1 inputParameter "
+            "LITERAL `execucao_cadastro` em cancel.sla_breached (fase do estouro), nunca dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-15",
+        pr="#786",
+        name="execucao_cadastro",
+        name_delta=1,
+        occurrence_delta=2,
+        reason=(
+            "CLEAN. SAIDA nova (DL-0111, SP-OP-CANCEL-001 v0.2.0): `camunda:formField` ENUM fechado "
+            "(EXECUTADO/IMPEDIDO) de UT_ExecutarCancelamentoCadastro e UT_CoordenacaoExecucaoCadastro, o "
+            "formulario `cancel_execucao` do portal; nenhum texto livre, nenhum dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-17",
+        pr="#816",
+        name="event_topic",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "SP-OP-ESCALATION-001 v1.1.0 (DL-0118, ADR-0064): o event subprocess de encerramento a pedido do "
+            "beneficiario publica `agents.events.escalation.resolved` antes do fim (ST_PublishWithdrawn, "
+            "worker operadora.events.publish). CLEAN: +1 inputParameter LITERAL do topico, nunca dado "
+            "pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-17",
+        pr="#816",
+        name="event_payload_vars",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "SP-OP-ESCALATION-001 v1.1.0 (DL-0118, ADR-0064): a mesma ST_PublishWithdrawn declara o payload "
+            "do fato (tenant_id,conversation_id,resultado) — identico ao de ST_PublishResolved, sem "
+            "notas_resolucao (GAP-ESC-3). CLEAN: +1 inputParameter LITERAL, nenhum texto livre."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-19",
+        pr="#845",
+        name="roteamento",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "PR ainda nao aberto: `#0` e' placeholder, trocar pelo numero do PR. SP-OP-ESCALATION-001 "
+            "(DL-0145): UT_TratarEscalonamento ganha camunda:dueDate=${roteamento.sla_resolucao}, a mesma "
+            "expressao do timer TD_SlaResolucao. CLEAN: +1 raiz JUEL do resultVariable da DMN, "
+            "sem dado pessoal."
+        ),
+    ),
+    CorpusDelta(
+        date="2026-10-19",
+        pr="#845",
+        name="sla_resolucao",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "PR ainda nao aberto: `#0` e' placeholder, trocar pelo numero do PR. SP-OP-ESCALATION-001 "
+            "(DL-0145): UT_TratarEscalonamento ganha camunda:dueDate=${roteamento.sla_resolucao}, a mesma "
+            "expressao do timer TD_SlaResolucao. CLEAN: +1 segmento JUEL, duracao ISO 8601 da DMN."
+        ),
+    ),
 )
 
 
@@ -1204,7 +1565,10 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
-        assert expected_clean == 335  # VW4/GP11: +3 (#691) + 6 nomes CLEAN do wiring
+        assert (
+            expected_clean == 348
+        )  # GP11: +3 (#691) + 6 do wiring; DL-0086: +1; #709: +1; pagador_empresa: +1; atraso_critico: +1
+        # DL-0104 (helena_triage_admissibility): +8
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -1233,8 +1597,16 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 351  # GP11: +3 (#691) + 6 (wiring)
-        assert len(live_sweep.refs) == expected_refs == 1688  # GP11: +20 (#691) + 14 (wiring)
+        # GP11: +9; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1
+        # DL-0104 (helena_triage_admissibility): +8
+        # #786 (DL-0111): +1 (execucao_cadastro)
+        assert len(live_sweep.names) == expected_names == 364
+        # +34 GP11; DL-0086: +1; #709: +1; 13/10: +1; 14/10 (atraso_critico): +1; #772: +20
+        # DL-0104 (helena_triage_admissibility): +11
+        # #786 (DL-0111, SP-OP-CANCEL-001 v0.2.0): +12 +2
+        # #816 (DL-0118, SP-OP-ESCALATION-001 v1.1.0): +2 (event_topic, event_payload_vars)
+        # DL-0145 (dueDate de UT_TratarEscalonamento): +2 (roteamento, sla_resolucao)
+        assert len(live_sweep.refs) == expected_refs == 1741
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1338,7 +1710,7 @@ class TestBuckets:
                 "triage_redflag_adult.dmn:26 (dmn_input_expression)",
                 "triage_redflag_gestante.dmn:19 (dmn_input_expression)",
                 "triage_redflag_mental_health.dmn:22 (dmn_input_expression)",
-                "triage_redflag_pediatric.dmn:19 (dmn_input_expression)",
+                "triage_redflag_pediatric.dmn:22 (dmn_input_expression)",
             ],
         }
 
@@ -1361,7 +1733,11 @@ class TestBuckets:
         assert f"## {SHAPE_SUSPECT} (10)" in rendered
         # see CORPUS_DELTA_LOG — #339's two, #345's `lastro_decisor_id`, #407's seven,
         # #691's three + as seis do wiring GP11
-        assert f"## {CLEAN} (335)" in rendered
+        assert (
+            f"## {CLEAN} (348)" in rendered
+        )  # #709: +1 (`valores_com_atraso`); 13/10: +1 (`pagador_empresa`); 14/10: +1 (`atraso_critico`)
+        # DL-0104 (`helena_triage_admissibility`): +8 nomes CLEAN.
+        # #786 (DL-0111): +1 (`execucao_cadastro`).
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to
@@ -2283,7 +2659,7 @@ class TestYamlManifests:
             "carencia-check-shadow-candidate.yaml": 72,
             "glosa-triage-shadow-candidate.yaml": 35,
             "triage-redflag-gestante-shadow-candidate.yaml": 32,
-            "triage-redflag-pediatric-shadow-candidate.yaml": 32,
+            "triage-redflag-pediatric-shadow-candidate.yaml": 52,
             "upcoding-complexity-ceiling-shadow-candidate.yaml": 43,
         }
         # `orphans-allowlist.yaml` and `auth-criteria-ratification.yaml` declare
@@ -2339,4 +2715,5 @@ class TestNotWiredYet:
             for element in re.findall(r"<bpmn:message\s[^>]*>", source):
                 assert set(re.findall(r"([\w:]+)=", element)) <= {"id", "name"}, element
         # WP-BPMN-J1 added `msg.auth.start` (AUTH intake message start). Still id/name only.
-        assert messages == 22
+        # DL-0118 added `msg.escalation.withdrawn` (SP-OP-ESCALATION-001 v1.1.0). Still id/name only.
+        assert messages == 23

@@ -1,0 +1,26 @@
+# FIXTURE DE TESTE (nao e' conteudo da base real; a base real mora em spec/conhecimento/saude).
+id: med-dipirona
+categoria: medicamento
+titulo: Dipirona
+sinonimos:
+  - dipirona
+  - dipirona sodica
+  - novalgina
+texto: >-
+  A dipirona é um medicamento usado para aliviar dor e baixar a febre.
+  Ela é vendida com vários nomes comerciais.
+  A bula do paciente explica quem não deve usar e os cuidados.
+  Converse com o seu médico ou farmacêutico antes de usar qualquer remédio.
+tipo_texto: proprio
+fontes:
+  - nome: Bula do paciente (ANVISA)
+    url: https://consultas.anvisa.gov.br/#/bulario/
+    licenca: link apenas (reproducao pendente no juridico)
+    coletado_em: 2026-10-17
+link_leitura: https://consultas.anvisa.gov.br/#/bulario/
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: fixture de teste
+  aprovado_por: "dono (17/10/2026, dev)"
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

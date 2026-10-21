@@ -49,36 +49,17 @@ resource "aws_service_discovery_service" "webhook_receiver" {
   tags = local.base_tags
 }
 
-resource "aws_ecs_task_definition" "webhook_receiver" {
-  family                   = "${local.name}-webhook-receiver"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  cpu                      = tostring(var.agent_cpu)
-  memory                   = tostring(var.agent_memory)
-  execution_role_arn       = aws_iam_role.task_execution.arn
-  # ADR-0061: com a custodia ligada, role propria (so' kms:Encrypt na chave da custodia).
-  task_role_arn = local.webhook_receiver_task_role_arn
-
-  runtime_platform {
-    cpu_architecture        = "X86_64"
-    operating_system_family = "LINUX"
-  }
-
-  container_definitions = jsonencode([{
-    name      = "webhook-receiver"
-    image     = "${aws_ecr_repository.app.repository_url}:${var.webhook_receiver_image_tag}"
-    essential = true
-
-    # Mesmo entrypoint do Helm e do compose. O DSN e' montado do mesmo jeito que nos agentes:
-    # o despacho da Helena exige DATABASE_URL (fail-closed — sem ele o /webhook responde 501).
-    command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.platform.webhooks"]
-
-    portMappings = [{ containerPort = 8080, protocol = "tcp" }]
-
-    # O bloco de ambiente ESPELHA o do `agent-helena` em `service-agents.tf` — porque o grafo
-    # que roda aqui e' o dela. Divergir os dois e' a forma classica de a Helena "funcionar no
-    # receptor e nao no agente" (ou o inverso) sem que ninguem saiba por que.
-    environment = concat(local.db_env, [
+# O CONTRATO DE AMBIENTE DO RECEPTOR, compartilhado com a task avulsa do simulador de beneficiario
+# (`task-simulador.tf`). Um so' lugar para os dois: um simulador com ambiente diferente do receptor
+# testaria um receptor que nao existe. As pecas:
+#   environment_app  o ambiente da Helena/Lucas/acesso (o que o grafo le');
+#   environment_amh  os contratos da AMH (vazios com a fonte `simulada`);
+#   secrets_app      banco, PHI_HMAC_KEY, chave A2A e os dois segredos que o boot exige;
+#   secrets_envio    SO' o receptor: credenciais de envio da Meta (o simulador nunca envia).
+# A custodia do telefone (`local.recipient_vault_env`) tambem fica so' no receptor.
+locals {
+  webhook_receiver_contrato = {
+    environment_app = concat(local.db_env, [
       { name = "DSN_SCHEME", value = "postgresql+asyncpg" },
       { name = "TENANT_ID", value = var.tenant_id },
       { name = "AGENT_ID", value = "helena" },
@@ -133,8 +114,36 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       { name = "MAEZO_HELENA_IDENTIDADE_AMH", value = tostring(var.helena_identidade_amh) },
       # DL-0080: historico curto da conversa na Helena (default `false`; liga junto o modo coleta).
       { name = "MAEZO_HELENA_HISTORICO", value = tostring(var.helena_historico) },
+      # DL-0104: nova triagem da Helena (default `false`; so' dev, ver `helena_triagem_v2`).
+      { name = "MAEZO_HELENA_TRIAGEM_V2", value = tostring(var.helena_triagem_v2) },
+      # DL-0115: Helena v4 (catalogo de necessidades v4; default `false`; so' dev, ver `helena_v4`).
+      { name = "MAEZO_HELENA_V4", value = tostring(var.helena_v4) },
+      # Dono, 17/10/2026: vinculo ativo e carteirinha completa (default `false`; so' dev, ver
+      # `helena_carteirinha_completa`).
+      { name = "MAEZO_HELENA_CARTEIRINHA_COMPLETA", value = tostring(var.helena_carteirinha_completa) },
+      # Dono e DPO, 19/10/2026 (DL-0127): nome completo dos dependentes do proprio titular (default `false`; so'
+      # dev, ver `helena_dependentes_nome`).
+      { name = "MAEZO_HELENA_DEPENDENTES_NOME", value = tostring(var.helena_dependentes_nome) },
+      # DL-0118: base de conhecimento de saude da Helena (ADR-0064; default `false`; so' dev, ver `helena_base_saude`).
+      { name = "MAEZO_HELENA_BASE_SAUDE", value = tostring(var.helena_base_saude) },
+      # DL-0119: saude gerativa (ADR-0065; default `false`; rota global autorizada pelo DPO so' para a allowlist).
+      { name = "MAEZO_HELENA_SAUDE_GERATIVA", value = tostring(var.helena_saude_gerativa) },
+      { name = "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", value = join(",", var.helena_saude_gerativa_conversas) },
+      # Fase 3 (18/10/2026): busca por significado na base de saude (embeddings REGIONAIS sa-east-1; default `false`).
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA", value = tostring(var.helena_busca_semantica) },
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA_MODELO", value = var.helena_busca_semantica_modelo },
+      { name = "MAEZO_HELENA_BUSCA_SEMANTICA_LIMIAR", value = tostring(var.helena_busca_semantica_limiar) },
       # Fatos do plano na Helena (07/10/2026): desligado por default; ver `helena_consultas_amh`.
       { name = "MAEZO_HELENA_CONSULTAS_AMH", value = tostring(var.helena_consultas_amh) },
+      # Acesso do beneficiario (08/10/2026, DL-0083): desligado por default; ver `acesso_beneficiario`.
+      { name = "MAEZO_ACESSO_BENEFICIARIO", value = tostring(var.acesso_beneficiario) },
+      { name = "MAEZO_ACESSO_VALIDADE_HORAS", value = tostring(var.acesso_validade_horas) },
+      # Valores na resposta do Lucas (DL-0086): desligado por default; exige o acesso ligado e a fonte `amh`.
+      { name = "MAEZO_LUCAS_CONSULTA_VALORES", value = tostring(var.lucas_consulta_valores) },
+      # DL-0111: cancelamento a pedido PF (default `false`; so' dev, ver `cancel_pf_v1`).
+      { name = "MAEZO_CANCEL_PF_V1", value = tostring(var.cancel_pf_v1) },
+      # DL-0114: Lucas do catalogo v4 (default `false`; so' dev, ver `lucas_v4`).
+      { name = "MAEZO_LUCAS_V4", value = tostring(var.lucas_v4) },
 
       # DEVOLVE O TURNO NO CORPO DO ACK (12/09/2026). Com isto, a resposta 200 de `/webhook`
       # ganha `resposta` (o texto que a Helena redigiu) e `conversation_id`. Sem isto o corpo
@@ -147,11 +156,11 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # o texto presta, nem conferir se vaza orientacao clinica, sem le-lo uma vez.
       { name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = "1" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
-      # Fonte AMH do Lucas: `local.amh_interop_env` (amh-interop.tf) e' vazia com a fonte
+      # Fonte AMH do Lucas: `environment_amh` (abaixo; amh-interop.tf) e' vazia com a fonte
       # `simulada`, entao esta task definition fica byte a byte igual enquanto ela nao for ligada.
-    ], local.recipient_vault_env, local.amh_interop_env, local.amh_tina_env)
-
-    secrets = concat(local.db_secrets_maezo, [
+    ])
+    environment_amh = concat(local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env, local.amh_billing_contratacao_env, local.amh_v4_env)
+    secrets_app = concat(local.db_secrets_maezo, [
       # Sem esta o Pseudonymizer falha FECHADO (ADR-0035) — e o receptor e' quem pseudonimiza
       # o numero e o wamid antes de qualquer coisa tocar o texto.
       { name = "PHI_HMAC_KEY", valueFrom = "${aws_secretsmanager_secret.phi_hmac_key.arn}:key::" },
@@ -159,12 +168,59 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # As duas que o receptor EXIGE no boot (settings.py: sem default, fail-closed).
       { name = "WHATSAPP_APP_SECRET", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:app_secret::" },
       { name = "WHATSAPP_VERIFY_TOKEN", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:verify_token::" },
+    ])
+    # Segredo do client Cognito e chave do hash do telefone da fonte AMH: `local.amh_interop_secrets`
+    # (amh-interop.tf), acrescentado por quem usa o contrato. Chegam ao executor SO' pelo cofre de agente.
+    secrets_envio = [
       # O mesmo processo envia a resposta; ambas as configuracoes sao obrigatorias no envio.
       { name = "WHATSAPP_PHONE_NUMBER_ID", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:phone_number_id::" },
       { name = "WHATSAPP_TOKEN", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:waba_token::" },
-      # Segredo do client Cognito e chave do hash do telefone da fonte AMH — so' com ela ligada
-      # (`local.amh_interop_secrets`, amh-interop.tf). Chegam ao executor SO' pelo cofre de agente.
-    ], local.amh_interop_secrets)
+    ]
+  }
+}
+
+resource "aws_ecs_task_definition" "webhook_receiver" {
+  family                   = "${local.name}-webhook-receiver"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = tostring(var.agent_cpu)
+  memory                   = tostring(var.agent_memory)
+  execution_role_arn       = aws_iam_role.task_execution.arn
+  # ADR-0061: com a custodia ligada, role propria (so' kms:Encrypt na chave da custodia).
+  task_role_arn = local.webhook_receiver_task_role_arn
+
+  runtime_platform {
+    cpu_architecture        = "X86_64"
+    operating_system_family = "LINUX"
+  }
+
+  container_definitions = jsonencode([{
+    name      = "webhook-receiver"
+    image     = "${aws_ecr_repository.app.repository_url}:${var.webhook_receiver_image_tag}"
+    essential = true
+
+    # Mesmo entrypoint do Helm e do compose. O DSN e' montado do mesmo jeito que nos agentes:
+    # o despacho da Helena exige DATABASE_URL (fail-closed — sem ele o /webhook responde 501).
+    command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.platform.webhooks"]
+
+    portMappings = [{ containerPort = 8080, protocol = "tcp" }]
+
+    # O bloco de ambiente ESPELHA o do `agent-helena` em `service-agents.tf` — porque o grafo
+    # que roda aqui e' o dela. Divergir os dois e' a forma classica de a Helena "funcionar no
+    # receptor e nao no agente" (ou o inverso) sem que ninguem saiba por que.
+    # O ambiente e os segredos moram em `local.webhook_receiver_contrato` (logo acima deste
+    # recurso), que a task avulsa do simulador (`task-simulador.tf`) tambem usa: nao derivam.
+    environment = concat(
+      local.webhook_receiver_contrato.environment_app,
+      local.recipient_vault_env,
+      local.webhook_receiver_contrato.environment_amh,
+    )
+
+    secrets = concat(
+      local.webhook_receiver_contrato.secrets_app,
+      local.webhook_receiver_contrato.secrets_envio,
+      local.amh_interop_secrets,
+    )
 
     readonlyRootFilesystem = true
 

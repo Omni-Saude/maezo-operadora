@@ -28,13 +28,16 @@ from maezo.agents.helena import prompts
 #: `(versao, sha256 do texto)` do que o modelo recebe. `SYSTEM_PROMPT` e' parte dos outros tres.
 PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
     "system": ("system-v1", "16660021eca9f853c45a191286a3e7a0f3c96ea985333bc6f008748306f958c1"),
-    "classify": ("classify-v5.3", "34cc3a8888da3550963859a6e99976653a5271bdb991564fa50c266e5780c00e"),
-    "response": ("response-v10", "2af3650c30b558f3d68c65af3e9d260ebdd29e17fab3fad7167f7a82bfd5d7f8"),
+    "classify": ("classify-v5.4", "b589bb42bba9f5e1f07815164f238a75ab8b11b3eeadda6199da345ccdd1bd46"),
+    # DL-0088 (12/10/2026): nunca dizer que nao ve dado nenhum da pessoa.
+    # DL-0090 (13/10/2026): `caso_aberto` no contexto; oferta de pessoa na forma aprovada.
+    "response": ("response-v14", "f61f0676d365d0e9ea05021af1dcfca256e6ba9e2c56df19601914a73c892bd3"),
+    # DL-0086 (08/10/2026): subtipo `consulta_valores`.
     "classify_roteador": (
-        "classify-v6.2",
-        "7be276aeeeda3156065b67d1ed3e2e975bbb25529605d6f7e06d6c7771f726ec",
+        "classify-v7.1",
+        "c6e449ce73558d55bd8b05b31e1ab8987f430fda6142262caf80716808d2a8f6",
     ),
-    "coleta": ("coleta-v1", "a825d71380d522a6cbfc89720739cd1712fe93ea197fc4bc2c86bddb07c73665"),
+    "coleta": ("coleta-v2", "4dae04994f5f95b53d3855a84d2c3f7e2b23bf697a66dc739d59f4f12671e0bd"),
     # DL-0080: os adendos do historico curto (so' com `MAEZO_HELENA_HISTORICO` ligada).
     "classify_historico": (
         "classify-historico-v1",
@@ -47,8 +50,9 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
 }
 #: `(versao, sha256)` das listas e padroes das cercas de saida (o que decide se um texto sai).
 CERCAS_PINADAS: tuple[str, str] = (
-    "recusa-v9",
-    "4dca770f45587d8c88c901d15bc98113e74f46be0a1169542bcb90503ae44522",
+    # 15/10/2026 (L-03 do red team): formas indiretas de promessa de contato (ver `docs/decisions-log.md`).
+    "recusa-v11",
+    "85c9d99435fd867d5b431e47793aaed244cff4676a7f32453966e15d687ed905",
 )
 
 
@@ -85,6 +89,8 @@ def hash_das_cercas() -> str:
         "negativa_clinica": prompts.NEGATIVA_CLINICA_PROIBIDA,
         "promessa_de_humano": prompts.PROMESSA_DE_HUMANO_PROIBIDA,
         "promessa_de_capacidade": prompts.PROMESSA_DE_CAPACIDADE_PROIBIDA,
+        "afirma_autorizacao": prompts.AFIRMACAO_DE_AUTORIZACAO_PROIBIDA,
+        "condicional_antes": prompts._CONDICIONAL_ANTES,
         "mencao_de_encaminhamento": prompts.MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA,
         "canal_nao_confirmado": prompts.CANAL_NAO_CONFIRMADO_PROIBIDO,
         "canal_termo_que_exige_o_nome": prompts.CANAL_TERMO_QUE_EXIGE_O_NOME,

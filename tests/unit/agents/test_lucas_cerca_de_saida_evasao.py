@@ -180,7 +180,7 @@ def test_a_negacao_do_desfecho_passa_e_isso_e_deliberado() -> None:
     assert motivo_de_recusa("Fique tranquilo: seu plano NAO foi suspenso.", "mensagem", _FATOS_REAIS) is None
     # ANCORA da leitura acima: a constante segura do repo depende dela — "seu plano foi tomada"
     # nao existe, mas a frase abaixo so' e' dizivel porque a cerca nao casa a palavra solta.
-    assert "nenhuma decisao sobre seu plano foi tomada" in _normalizar(ACK_ESCALACAO_RECUSADO)
+    assert "nenhuma decisao sobre o seu plano foi tomada" in _normalizar(ACK_ESCALACAO_RECUSADO)
 
 
 @pytest.mark.parametrize(

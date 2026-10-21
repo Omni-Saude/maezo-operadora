@@ -816,3 +816,66 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+  - camada: acesso_beneficiario
+    tabela: conversa_acesso_beneficiario
+    migracao: "0022_conversa_acesso_beneficiario.py::upgrade (conversa_acesso_beneficiario)"
+    identificacao: "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row holds only the closed access state, an attempts counter, the consent text version and sha256, timestamps and the AMH `portable_subject_ref` (pseudonymous, once known) - no phone, no CPF, no birth date, no name, no typed text (DL-0083). The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so the bridge is absent"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 38
+    tensao: null
+    notas: >-
+      DL-0083 (acesso do beneficiario, MAEZO_ACESSO_BENEFICIARIO). Uma linha por conversa: estado do
+      consentimento/verificacao. DL-0084 (decisao do dono, 08/10/2026): a linha e' ELIMINADA apos 90 dias
+      sem atividade, pelo varredor idempotente `whatsapp/acesso_retencao.py` (no receptor, a cada 6 h, e
+      por linha de comando); quem volta depois consente e se verifica de novo. Excecao: revogacao_pendente
+      nunca e' apagada antes de gravada no lago (runbook acesso-beneficiario-revogacao-pendente). A
+      verificacao em si vale 24 h. O registro do consentimento no lago e' da AMH, fora desta camada.
+      Os valores abaixo sao a decisao do DONO ja' implementada; seguem marcados PENDENTE porque este
+      artefato e' o DRAFT do DPO e so' a ratificacao dele (o arquivo inteiro) os torna o plano formal.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: consentimento explicito do titular (LGPD art. 7o, I, e art. 11, I), texto wa-consent-v1 com sha256 registrado, revogavel por REVOGAR (DL-0083/DL-0084)"
+    retencao: "PENDENTE-RATIFICACAO-DPO: 90 dias sem atividade (ultima_mensagem_em), apagada pelo varredor; linha com revogacao_pendente nunca e' apagada antes de a revogacao ser gravada no lago (DL-0084)"
+  - camada: lembrete_cobranca
+    tabela: lembrete_cobranca_enviado
+    migracao: "0027_lembrete_cobranca.py::upgrade (lembrete_cobranca_enviado)"
+    identificacao: "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone) + competencia (`AAAA-MM`); the row holds only the reservation timestamp and the send channel (texto/template) of the proactive billing reminder - no phone, no value, no text. The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so the bridge is absent"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 39
+    tensao: null
+    notas: >-
+      Lembrete proativo de cobranca (MAEZO_LEMBRETE_COBRANCA, desligado por padrao). Idempotencia: uma linha
+      por conversa e competencia, reservada antes do envio. Sem telefone, valor nem texto. Retencao ainda
+      sem decisao nem varredor (pendencia para o DPO).
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: execucao de contrato (lembrete de mensalidade a beneficiario com acesso verificado e consentimento), sem decisao ratificada"
+    retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo de retencao ratificado; ainda sem varredor"
+  - camada: lembrete_cobranca
+    tabela: lembrete_cobranca_optout
+    migracao: "0027_lembrete_cobranca.py::upgrade (lembrete_cobranca_optout)"
+    identificacao: "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row holds only the PARAR timestamp - no phone, no text. The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so the bridge is absent"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 40
+    tensao: null
+    notas: >-
+      PARAR do lembrete de cobranca. Uma linha por conversa. Apagar esta linha volta a mandar lembrete a
+      quem pediu para nao receber: a disposicao e' decisao do DPO, nao da migration.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: execucao de contrato (lembrete de mensalidade a beneficiario com acesso verificado e consentimento), sem decisao ratificada"
+    retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo de retencao ratificado; ainda sem varredor"
+  - camada: acesso_beneficiario
+    tabela: acesso_falhas_por_cpf
+    migracao: "0028_acesso_falhas_por_cpf.py::upgrade (acesso_falhas_por_cpf)"
+    identificacao: "tenant + chave (SHA-256 de um rotulo + o hash de verificacao do CPF: uma derivacao que so' serve a este limite, nao o hash que a AMH recebe); the row holds only the failure count, the window start, the last-failure timestamp and whether the previous window ended blocked - no CPF, no birth date, no name, no phone, no text (D-04). The key is a derivation of the CPF, so it reaches neither `conversation_id` nor the DSR reference (`beneficiario_pseudo_id`): no bridge, and no subject column"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 41
+    tensao: null
+    notas: >-
+      D-04 (limite de falhas de verificacao por CPF, decisao do dono de 15/10/2026): 3 falhas por CPF em 6 h,
+      de qualquer conversa. A linha vale enquanto a janela de 6 h vale e mais uma (a seguinte le' se a
+      anterior bloqueou: alarme de re-bloqueio, revisao do #785) e e' APAGADA sozinha pelo
+      varredor do acesso (`PostgresLimitePorCpf.expurgar`, chamado por `expurgar_inativos`); nao ha'
+      o que reter depois. Sem CPF, nascimento, nome, telefone ou texto. Segue marcada PENDENTE porque este
+      artefato e' o DRAFT do DPO e so' a ratificacao dele o torna o plano formal.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: legitimo interesse na seguranca do acesso aos dados de saude (LGPD art. 7o, IX, e art. 46), prevencao de tentativa de acesso indevido por adivinhacao de data de nascimento; sem decisao ratificada"
+    retencao: "PENDENTE-RATIFICACAO-DPO: 12 horas desde a primeira falha da janela (a janela de 6 h e mais uma), apagada pelo varredor do acesso (decisao do dono ja implementada)"

@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: pro-litotripsia
+categoria: procedimento
+titulo: Litotripsia
+sinonimos:
+- litotripsia extracorporea
+- quebra de pedra no rim
+- litotripsia renal
+- litotricia
+- litotripsia por ondas de choque
+- ondas de choque pedra no rim
+- litotripsia
+texto: Litotripsia é um procedimento usado para quebrar pedras que se formam nos rins ou nas vias urinárias. Costuma ser indicada quando a pedra não sai por conta própria. Em geral, ondas de choque feitas por um aparelho fragmentam a pedra, e os pedaços saem na urina. Também existem técnicas feitas por dentro das vias urinárias, com um tubo fino. A indicação e a técnica são definidas pelo médico, em geral o urologista.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho; trecho tirado após leitura do Opus 5)

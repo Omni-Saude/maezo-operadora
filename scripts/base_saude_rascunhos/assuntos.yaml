@@ -1,0 +1,127 @@
+# Fase 5 da Helena (aprovada pelo dono em 18/10/2026, so' dev): os assuntos NOVOS da base de saude, para
+# rascunho pelo Claude Sonnet 5.5 (perfil global do Bedrock) a partir de prompt SINTETICO (zero dado de
+# beneficiario). De onde saiu a lista: as 100 perguntas do experimento de redacao (#819,
+# `scripts/experimentos/redacao_saude/perguntas.yaml`), as 270 conversas sinteticas do repo arquivado
+# Maezo-Healthcare-Plan e as categorias comuns na operadora (saude da mulher, cronicas, infeccoes comuns,
+# saude mental sem risco, exames, procedimentos, cirurgias, vacinas). Nenhum `sintoma`: sinal de alarme so'
+# vem das tabelas `triage_redflag_*` (licao do #818).
+#
+# Campos: id (nome do arquivo), titulo, grupo (para o relatorio), fonte (a pagina OFICIAL da lista fechada
+# que o rascunho resume — conferida que responde; `null` = nenhuma pagina leiga da lista fechada trata do
+# assunto: vira REFERENCIA SEM LINK, credito "Texto da operadora."), termos (para recortar o trecho de uma
+# pagina geral, ex.: Saude da Mulher), saude_mental (o texto termina com o CVV 188 e a equipe).
+#
+# Fontes de exame/procedimento/cirurgia: o Rol da ANS (o mesmo apoio dos rascunhos de 17/10/2026); a
+# categoria decide (ver `gerar.py`).
+az: &az https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z
+inca: &inca https://www.gov.br/inca/pt-br/assuntos/cancer/tipos
+assuntos:
+  # --- Saude da mulher -----------------------------------------------------------------------------------
+  - {id: con-endometriose, titulo: Endometriose, grupo: saude_da_mulher, fonte: e/endometriose}
+  - {id: con-sindrome-dos-ovarios-policisticos, titulo: Síndrome dos ovários policísticos (SOP), grupo: saude_da_mulher, fonte: null}
+  - {id: con-mioma-uterino, titulo: Mioma uterino, grupo: saude_da_mulher, fonte: null}
+  - {id: con-climaterio-e-menopausa, titulo: Climatério e menopausa, grupo: saude_da_mulher, fonte: s/saude-da-mulher, termos: [climaterio, menopausa]}
+  - {id: con-osteoporose, titulo: Osteoporose, grupo: saude_da_mulher, fonte: null}
+  - {id: con-candidiase-vaginal, titulo: Candidíase vaginal, grupo: saude_da_mulher, fonte: null}
+  - {id: con-tensao-pre-menstrual, titulo: Tensão pré-menstrual (TPM), grupo: saude_da_mulher, fonte: null}
+  - {id: con-pre-eclampsia, titulo: Pré-eclâmpsia, grupo: saude_da_mulher, fonte: null}
+  - {id: con-diabetes-gestacional, titulo: Diabetes gestacional, grupo: saude_da_mulher, fonte: d/diabetes, termos: [gestacional]}
+  - {id: con-depressao-pos-parto, titulo: Depressão pós-parto, grupo: saude_da_mulher, fonte: d/depressao-pos-parto, saude_mental: true}
+  - {id: con-cancer-de-colo-do-utero, titulo: Câncer do colo do útero, grupo: saude_da_mulher, fonte: inca:colo-do-utero}
+  - {id: con-cancer-de-ovario, titulo: Câncer de ovário, grupo: saude_da_mulher, fonte: inca:ovario}
+  # --- Cronicas --------------------------------------------------------------------------------------------
+  - {id: con-hipotireoidismo, titulo: Hipotireoidismo, grupo: cronicas, fonte: null}
+  - {id: con-hipertireoidismo, titulo: Hipertireoidismo, grupo: cronicas, fonte: null}
+  - {id: con-colesterol-alto, titulo: Colesterol alto (dislipidemia), grupo: cronicas, fonte: null}
+  - {id: con-obesidade, titulo: Obesidade, grupo: cronicas, fonte: null}
+  - {id: con-dpoc, titulo: Doença pulmonar obstrutiva crônica (DPOC), grupo: cronicas, fonte: null}
+  - {id: con-doenca-renal-cronica, titulo: Doença renal crônica, grupo: cronicas, fonte: d/drc}
+  - {id: con-esteatose-hepatica, titulo: Esteatose hepática (gordura no fígado), grupo: cronicas, fonte: e/esteatose-hepatica}
+  - {id: con-gota, titulo: Gota, grupo: cronicas, fonte: null}
+  - {id: con-artrose, titulo: Artrose, grupo: cronicas, fonte: null}
+  - {id: con-artrite-reumatoide, titulo: Artrite reumatoide, grupo: cronicas, fonte: null}
+  - {id: con-fibromialgia, titulo: Fibromialgia, grupo: cronicas, fonte: null}
+  - {id: con-lupus, titulo: Lúpus, grupo: cronicas, fonte: l/lupus}
+  - {id: con-psoriase, titulo: Psoríase, grupo: cronicas, fonte: null}
+  - {id: con-doenca-de-crohn, titulo: Doença de Crohn, grupo: cronicas, fonte: null}
+  - {id: con-esclerose-multipla, titulo: Esclerose múltipla, grupo: cronicas, fonte: null}
+  - {id: con-parkinson, titulo: Doença de Parkinson, grupo: cronicas, fonte: null}
+  - {id: con-alzheimer, titulo: Doença de Alzheimer, grupo: cronicas, fonte: a/alzheimer}
+  - {id: con-apneia-do-sono, titulo: Apneia do sono, grupo: cronicas, fonte: null}
+  - {id: con-hernia-de-disco, titulo: Hérnia de disco, grupo: cronicas, fonte: null}
+  - {id: con-anemia, titulo: Anemia, grupo: cronicas, fonte: null}
+  - {id: con-glaucoma, titulo: Glaucoma, grupo: cronicas, fonte: d/doencas-oculares}
+  - {id: con-hiperplasia-prostatica, titulo: Hiperplasia benigna da próstata, grupo: cronicas, fonte: null}
+  - {id: con-calculo-renal, titulo: Cálculo renal (pedra nos rins), grupo: cronicas, fonte: null}
+  - {id: con-gastrite, titulo: Gastrite, grupo: cronicas, fonte: null}
+  - {id: con-refluxo, titulo: Refluxo gastroesofágico, grupo: cronicas, fonte: null}
+  - {id: con-rinite-alergica, titulo: Rinite alérgica, grupo: cronicas, fonte: null}
+  - {id: con-sinusite, titulo: Sinusite, grupo: cronicas, fonte: null}
+  - {id: con-cancer-de-pele, titulo: Câncer de pele, grupo: cronicas, fonte: inca:pele-nao-melanoma}
+  - {id: con-cancer-de-intestino, titulo: Câncer de intestino, grupo: cronicas, fonte: inca:intestino}
+  # --- Infeccoes comuns ------------------------------------------------------------------------------------
+  - {id: con-infeccao-urinaria, titulo: Infecção urinária, grupo: infeccoes, fonte: null}
+  - {id: con-pneumonia, titulo: Pneumonia, grupo: infeccoes, fonte: null}
+  - {id: con-otite, titulo: Otite (infecção de ouvido), grupo: infeccoes, fonte: null}
+  - {id: con-conjuntivite, titulo: Conjuntivite, grupo: infeccoes, fonte: null}
+  - {id: con-catapora, titulo: Catapora (varicela), grupo: infeccoes, fonte: c/catapora-varicela}
+  - {id: con-herpes, titulo: Herpes, grupo: infeccoes, fonte: h/herpes, termos: [herpes simples, labial, genital]}
+  - {id: con-herpes-zoster, titulo: Herpes-zóster (cobreiro), grupo: infeccoes, fonte: h/herpes, termos: [zoster, cobreiro]}
+  - {id: con-sarampo, titulo: Sarampo, grupo: infeccoes, fonte: s/sarampo}
+  - {id: con-coqueluche, titulo: Coqueluche, grupo: infeccoes, fonte: c/coqueluche}
+  - {id: con-bronquiolite, titulo: Bronquiolite, grupo: infeccoes, fonte: b/bronquiolite}
+  - {id: con-febre-amarela, titulo: Febre amarela, grupo: infeccoes, fonte: f/febre-amarela}
+  - {id: con-ist, titulo: Infecções sexualmente transmissíveis (IST), grupo: infeccoes, fonte: i/ist}
+  # --- Saude mental sem risco ----------------------------------------------------------------------------
+  - {id: con-insonia, titulo: Insônia, grupo: saude_mental, fonte: null}
+  - {id: con-tdah, titulo: TDAH (transtorno de déficit de atenção e hiperatividade), grupo: saude_mental, fonte: null}
+  - {id: con-autismo, titulo: Transtorno do espectro autista (TEA), grupo: saude_mental, fonte: a/autismo}
+  - {id: con-sindrome-de-burnout, titulo: Síndrome de burnout, grupo: saude_mental, fonte: s/sindrome-de-burnout, saude_mental: true}
+  - {id: con-transtorno-de-panico, titulo: Transtorno de pânico, grupo: saude_mental, fonte: null, saude_mental: true}
+  - {id: con-transtorno-bipolar, titulo: Transtorno bipolar, grupo: saude_mental, fonte: null, saude_mental: true}
+  - {id: con-toc, titulo: Transtorno obsessivo-compulsivo (TOC), grupo: saude_mental, fonte: null, saude_mental: true}
+  # --- Exames ---------------------------------------------------------------------------------------------
+  - {id: exa-beta-hcg, titulo: Beta hCG (exame de gravidez), grupo: exames, fonte: ans}
+  - {id: exa-vitamina-d, titulo: Vitamina D (exame), grupo: exames, fonte: ans}
+  - {id: exa-vitamina-b12, titulo: Vitamina B12 (exame), grupo: exames, fonte: ans}
+  - {id: exa-ferritina, titulo: Ferritina, grupo: exames, fonte: ans}
+  - {id: exa-enzimas-do-figado, titulo: TGO e TGP (enzimas do fígado), grupo: exames, fonte: ans}
+  - {id: exa-acido-urico, titulo: Ácido úrico, grupo: exames, fonte: ans}
+  - {id: exa-proteina-c-reativa, titulo: Proteína C reativa (PCR), grupo: exames, fonte: ans}
+  - {id: exa-coagulograma, titulo: Coagulograma, grupo: exames, fonte: ans}
+  - {id: exa-parasitologico-de-fezes, titulo: Parasitológico de fezes, grupo: exames, fonte: ans}
+  - {id: exa-sangue-oculto-nas-fezes, titulo: Pesquisa de sangue oculto nas fezes, grupo: exames, fonte: ans}
+  - {id: exa-curva-glicemica, titulo: Curva glicêmica (teste de tolerância à glicose), grupo: exames, fonte: ans}
+  - {id: exa-eletroencefalograma, titulo: Eletroencefalograma, grupo: exames, fonte: ans}
+  - {id: exa-polissonografia, titulo: Polissonografia, grupo: exames, fonte: ans}
+  - {id: exa-teste-do-pezinho, titulo: Teste do pezinho, grupo: exames, fonte: ans}
+  - {id: exa-colposcopia, titulo: Colposcopia, grupo: exames, fonte: ans}
+  - {id: exa-histeroscopia, titulo: Histeroscopia, grupo: exames, fonte: ans}
+  # --- Procedimentos --------------------------------------------------------------------------------------
+  - {id: pro-insercao-de-diu, titulo: Inserção de DIU, grupo: procedimentos, fonte: ans}
+  - {id: pro-transfusao-de-sangue, titulo: Transfusão de sangue, grupo: procedimentos, fonte: ans}
+  - {id: pro-infiltracao, titulo: Infiltração articular, grupo: procedimentos, fonte: ans}
+  - {id: pro-litotripsia, titulo: Litotripsia, grupo: procedimentos, fonte: ans}
+  # --- Cirurgias ------------------------------------------------------------------------------------------
+  - {id: cir-miomectomia, titulo: Miomectomia, grupo: cirurgias, fonte: ans}
+  - {id: cir-hemorroidectomia, titulo: Cirurgia de hemorroida, grupo: cirurgias, fonte: ans}
+  - {id: cir-postectomia, titulo: Postectomia (cirurgia de fimose), grupo: cirurgias, fonte: f/fimose}
+  - {id: cir-tireoidectomia, titulo: Tireoidectomia, grupo: cirurgias, fonte: ans}
+  - {id: cir-cirurgia-refrativa, titulo: Cirurgia refrativa (miopia e outros graus), grupo: cirurgias, fonte: ans}
+  - {id: cir-septoplastia, titulo: Septoplastia (desvio de septo), grupo: cirurgias, fonte: ans}
+  - {id: cir-mastectomia, titulo: Mastectomia, grupo: cirurgias, fonte: ans}
+  - {id: cir-prostatectomia, titulo: Prostatectomia, grupo: cirurgias, fonte: ans}
+  - {id: cir-tunel-do-carpo, titulo: Cirurgia de túnel do carpo, grupo: cirurgias, fonte: ans}
+  # --- Vacinas (sempre com o Calendario Nacional de Vacinacao) --------------------------------------------
+  - {id: vac-hpv, titulo: Vacina contra o HPV, grupo: vacinas, fonte: h/hpv}
+  - {id: vac-hepatite-b, titulo: Vacina contra a hepatite B, grupo: vacinas, fonte: h/hepatites-virais, termos: [hepatite b, vacina]}
+  - {id: vac-gripe, titulo: Vacina contra a gripe (influenza), grupo: vacinas, fonte: g/gripe-influenza, termos: [vacina]}
+  - {id: vac-covid-19, titulo: Vacina contra a covid-19, grupo: vacinas, fonte: c/covid-19, termos: [vacina]}
+  - {id: vac-febre-amarela, titulo: Vacina contra a febre amarela, grupo: vacinas, fonte: f/febre-amarela, termos: [vacina]}
+  - {id: vac-triplice-viral, titulo: Vacina tríplice viral (sarampo, caxumba e rubéola), grupo: vacinas, fonte: t/triplice-viral}
+  - {id: vac-dtpa, titulo: Vacina dTpa (tríplice bacteriana acelular), grupo: vacinas, fonte: d/dtpa}
+  - {id: vac-pneumococica, titulo: Vacina pneumocócica, grupo: vacinas, fonte: calendario, termos: [pneumo]}
+  - {id: vac-meningococica, titulo: Vacina meningocócica, grupo: vacinas, fonte: m/meningite, termos: [vacina, meningoc]}
+  - {id: vac-dengue, titulo: Vacina contra a dengue, grupo: vacinas, fonte: d/dengue, termos: [vacina]}
+  - {id: vac-rotavirus, titulo: Vacina contra o rotavírus, grupo: vacinas, fonte: r/rotavirus}
+  - {id: vac-vsr, titulo: Vacina e anticorpo contra o vírus sincicial respiratório (VSR), grupo: vacinas, fonte: v/vsr}

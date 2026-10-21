@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-obesidade
+categoria: condicao
+titulo: Obesidade
+sinonimos:
+- obesidade
+- obeso
+- excesso de peso
+- obesidade mórbida
+- obesidade grave
+- sobrepeso
+- obesidade infantil
+texto: Obesidade é uma doença crônica em que há acúmulo excessivo de gordura no corpo, o que pode afetar a saúde. Costuma estar ligada a fatores como alimentação, pouca atividade física, genética e hormônios. O tratamento é definido pelo médico e pode envolver mudança de hábitos, remédios ou cirurgia. O acompanhamento costuma ser feito por endocrinologista, clínico geral ou cirurgião do aparelho digestivo, muitas vezes com nutricionista e psicólogo.
+tipo_texto: proprio
+fontes:
+- nome: Sem página leiga oficial na lista fechada (FONTES.md) — texto próprio, conferir na revisão médica
+  url: null
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

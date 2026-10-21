@@ -17,13 +17,15 @@ O que este arquivo prova, contra o grafo real e as DMN DRAFT lidas do XML (`DmnD
 from __future__ import annotations
 
 import unicodedata
+from datetime import date
 from typing import Any
 
 import pytest
 
 from maezo.agents.lucas.graph import (
     ACK_ESCALACAO,
-    RESPOSTA_INFORMATIVA_RECUSADA,
+    GARANTIA_SEM_DECISAO,
+    TEXTO_FONTE_INDISPONIVEL,
     LucasGraph,
     LucasState,
     texto_ack_escalacao,
@@ -42,6 +44,9 @@ _RASCUNHO_DO_INCIDENTE = (
 )
 
 _FATOS_AMH: dict[str, Any] = {"numero_boleto": "****7869", "cnab_ref": "amh-billing:2026-07-28"}
+
+#: "Hoje" dos testes: o ano decide se a data vai com ano (DL-0087, "28/07" no mesmo ano).
+_HOJE = date(2026, 10, 10)
 
 
 class _Inferencia:
@@ -102,6 +107,7 @@ async def _turno(estado: LucasState) -> tuple[dict[str, Any], _Envio, _Inferenci
         cibseven=FakeCibSevenTransport(),
         audit_sink=FakeStartAuditSink(),
         whatsapp=envio,
+        hoje=lambda: _HOJE,
     )
     final = dict(await grafo.compile_graph().compile().ainvoke(estado))
     return final, envio, inferencia
@@ -118,17 +124,19 @@ async def test_fato_conciliado_responde_em_dia_sem_processo_sem_modelo_e_sem_ina
     assert final["motivo_humano"] == ""
     assert final["dossier"] == {}
     assert envio.textos == [
-        "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia. "
-        "Boleto de referência: ****7869. Essa informação é conforme os dados de 28/07/2026."
+        "Está tudo em dia! O pagamento da sua última mensalidade já foi confirmado. (dados de 28/07)"
     ]
+    # DL-0087: o boleto so' quando e' util — aqui nao e'; e nunca com asterisco.
+    assert "*" not in envio.textos[0] and "boleto" not in envio.textos[0]
     assert "inadimpl" not in _sem_acento(envio.textos[0])
     assert inferencia.task_kinds == [], "com o fato dizendo tudo, nenhum modelo redige a resposta"
     assert final["mensagem"]["recusa_de_saida"] is False
 
 
-async def test_ciclos_em_aberto_seguem_a_escalacao_de_sempre_com_ack_fixo_sem_acusacao() -> None:
+async def test_atraso_critico_segue_a_escalacao_de_sempre_com_ack_fixo_sem_acusacao() -> None:
+    """Dois meses sem pagamento = atraso CRITICO (decisao do dono, 14/10/2026): a escalacao de sempre."""
     final, envio, inferencia = await _turno(
-        _estado(status_conciliado=False, ciclos_sem_conciliacao=1, **_FATOS_AMH)
+        _estado(status_conciliado=False, ciclos_sem_conciliacao=2, **_FATOS_AMH)
     )
 
     assert final["route"] == "escalate_human"
@@ -137,32 +145,52 @@ async def test_ciclos_em_aberto_seguem_a_escalacao_de_sempre_com_ack_fixo_sem_ac
     assert final["process_started"] is True
     assert list(final["dmn_refs"]) == ["lucas_billing_admissibility", "lucas_escalation_routing"]
     assert envio.textos == [
-        "Consultei aqui e consta uma mensalidade em aberto, ainda sem pagamento conciliado. "
-        "Boleto de referência: ****7869. Essa informação é conforme os dados de 28/07/2026. " + ACK_ESCALACAO
+        "Vi aqui uma mensalidade ainda sem pagamento confirmado (boleto final 7869). Vou passar para alguém "
+        "da nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal. "
+        "Fique tranquilo: nenhuma decisão "
+        "sobre o seu plano foi tomada. (dados de 28/07)"
     ]
+    assert "*" not in envio.textos[0]
     assert "inadimpl" not in _sem_acento(envio.textos[0])
-    # So' a narrativa do dossie (lida pelo humano) chama o modelo; o ACK nao.
-    assert inferencia.task_kinds == ["reasoning"]
+    # Nem o ACK nem a narrativa do dossie chamam o modelo (texto fixo desde DL-0082 / 09/10/2026).
+    assert inferencia.task_kinds == []
+    assert final["dossier"]["narrativa"] == (
+        "Encaminhado ao atendente porque há mensalidade em aberto sem pagamento conciliado. "
+        "Pedido do beneficiário: confirmação de pagamento, competência 07/2026. "
+        "Situação na fonte: há 2 meses sem pagamento conciliado. Dados de 28/07/2026. "
+        "Nenhuma decisão sobre o plano foi tomada pelo atendimento automático."
+    )
 
 
-async def test_fonte_indisponivel_diz_que_nao_conseguiu_consultar_e_escala_sem_afirmar_nada() -> None:
+async def test_um_mes_sem_pagamento_responde_com_o_fato_e_a_oferta_sem_abrir_caso() -> None:
+    """14/10/2026: 1 ciclo (e ate' 30 dias) NAO e' atraso critico — resposta fixa, sem caso nem modelo."""
+    final, envio, inferencia = await _turno(
+        _estado(status_conciliado=False, ciclos_sem_conciliacao=1, **_FATOS_AMH)
+    )
+    assert final["route"] == "respond_member" and final["process_started"] is False
+    assert envio.textos == [
+        "Consta uma mensalidade ainda sem pagamento confirmado (boleto final 7869). "
+        "Se quiser, posso te passar para alguém da nossa equipe. (dados de 28/07)"
+    ]
+    assert inferencia.task_kinds == []
+    assert "inadimpl" not in _sem_acento(envio.textos[0])
+
+
+async def test_fonte_indisponivel_diz_que_nao_conseguiu_consultar_sem_abrir_caso_e_sem_afirmar_nada() -> None:
     # `Indisponivel` = os campos de conciliacao AUSENTES na entrada (lucas_turno.entrada_do_lucas).
     final, envio, _ = await _turno(_estado())
 
-    assert final["route"] == "escalate_human"
-    assert final["motivo_humano"] == "ambiguidade"
-    assert final["process_started"] is True
-    assert envio.textos == [
-        "No momento não consegui consultar a situação da sua mensalidade. " + ACK_ESCALACAO
-    ]
+    assert final["route"] == "respond_member"
+    assert final["process_started"] is False
+    assert envio.textos == [TEXTO_FONTE_INDISPONIVEL]
+    assert "caso" not in envio.textos[0]
 
 
 async def test_em_aberto_sem_ciclo_vencido_nunca_vira_inadimplencia() -> None:
     final, envio, _ = await _turno(_estado(status_conciliado=False, ciclos_sem_conciliacao=0, **_FATOS_AMH))
 
-    assert final["route"] == "escalate_human"
-    assert final["motivo_humano"] == "ambiguidade"
-    assert envio.textos == [ACK_ESCALACAO]
+    assert final["route"] == "respond_member"
+    assert "inadimpl" not in _sem_acento(envio.textos[0])
 
 
 async def test_ack_de_cancelamento_e_o_texto_fixo_neutro() -> None:
@@ -176,8 +204,11 @@ async def test_ack_de_cancelamento_e_o_texto_fixo_neutro() -> None:
 
 
 def test_o_ack_neutro_e_o_da_decisao_do_dono() -> None:
-    assert ACK_ESCALACAO.startswith(
-        "Vou encaminhar sua solicitação de cobrança para um atendente, que vai entrar em contato."
+    # DL-0146 (dono, 19/10/2026): o retorno da equipe ao fim da analise, sem prometer conversa.
+    assert ACK_ESCALACAO == (
+        "Vou passar sua dúvida para alguém da nossa equipe. "
+        "Assim que a equipe concluir a análise, te retorno por este canal. "
+        "Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada."
     )
     assert "inadimpl" not in _sem_acento(ACK_ESCALACAO)
     assert "detectad" not in _sem_acento(ACK_ESCALACAO)
@@ -195,17 +226,22 @@ def test_o_ack_neutro_e_o_da_decisao_do_dono() -> None:
     ],
 )
 def test_todo_ack_fixo_passa_na_cerca_e_nao_fala_em_inadimplencia(estado: dict[str, Any]) -> None:
-    texto = texto_ack_escalacao(estado)  # type: ignore[arg-type]
+    texto = texto_ack_escalacao(estado, _HOJE)  # type: ignore[arg-type]
     assert motivo_de_recusa(texto, "ack_escalacao", None) is None
     assert "inadimpl" not in _sem_acento(texto)
-    assert texto.endswith(ACK_ESCALACAO)
+    assert GARANTIA_SEM_DECISAO in texto
 
 
 @pytest.mark.parametrize("fatos", [_FATOS_AMH, {}, {"numero_boleto": "SIM-ABC", "cnab_ref": "cnab-sim-1"}])
 def test_a_resposta_em_dia_passa_na_cerca_da_rota_informativa(fatos: dict[str, Any]) -> None:
-    texto = texto_mensalidade_em_dia(_estado(status_conciliado=True, **fatos))
-    # Rota `mensagem`: nenhuma promessa de humano e nenhum valor monetario.
-    assert motivo_de_recusa(texto, "mensagem", {}) is None
+    texto = texto_mensalidade_em_dia(_estado(status_conciliado=True, **fatos), _HOJE)
+    # Rota `mensagem`: nenhuma promessa de humano e nenhum valor monetario. Desde DL-0086 a cerca
+    # tambem confere data e boleto com os fatos: o grafo entrega a ela o boleto e a data da fonte
+    # (`dados_de`, de `cnab_ref`) que a frase de fechamento cita — os mesmos fatos daqui.
+    fatos_da_cerca: dict[str, Any] = {"numero_boleto": fatos.get("numero_boleto")}
+    if str(fatos.get("cnab_ref", "")).startswith("amh-billing:"):
+        fatos_da_cerca["dados_de"] = fatos["cnab_ref"].split(":", 1)[1]
+    assert motivo_de_recusa(texto, "mensagem", fatos_da_cerca) is None
     assert "inadimpl" not in _sem_acento(texto)
 
 
@@ -217,28 +253,33 @@ def test_a_resposta_em_dia_passa_na_cerca_da_rota_informativa(fatos: dict[str, A
             {"numero_boleto": "1234567890", "cnab_ref": "amh-billing:2026-13-40"},
             "",
         ),  # nao mascarado / data invalida
-        ({"numero_boleto": "****1234", "cnab_ref": ""}, "Boleto de referência: ****1234."),
-        ({"cnab_ref": "amh-billing:2026-07-28"}, "Essa informação é conforme os dados de 28/07/2026."),
+        ({"numero_boleto": "****1234", "cnab_ref": ""}, ""),  # DL-0087: o boleto nao e' util aqui
+        (
+            {"cnab_ref": "amh-billing:2026-07-28"},
+            "Está tudo em dia! O pagamento da sua última mensalidade já foi confirmado. (dados de 28/07)",
+        ),
+        (
+            {"cnab_ref": "amh-billing:2025-12-30"},
+            "Está tudo em dia! O pagamento da sua última mensalidade já foi confirmado. "
+            "(dados de 30/12/2025)",
+        ),
     ],
 )
 def test_so_boleto_mascarado_e_data_valida_da_fonte_entram_no_texto(
     fatos: dict[str, Any], esperado: str
 ) -> None:
-    base = "Consultei aqui: o pagamento da sua mensalidade consta como conciliado, então ela está em dia."
-    texto = texto_mensalidade_em_dia(_estado(status_conciliado=True, **fatos))
-    assert texto == (f"{base} {esperado}" if esperado else base)
+    base = "Está tudo em dia! O pagamento da sua última mensalidade já foi confirmado."
+    texto = texto_mensalidade_em_dia(_estado(status_conciliado=True, **fatos), _HOJE)
+    assert texto == (esperado or base)
 
 
 async def test_fato_contraditorio_conciliado_com_ciclos_nao_afirma_em_dia() -> None:
-    """Conciliado mas com ciclos > 0: a DMN ainda manda RESPONDER (regra de status), mas o texto fixo
-    "em dia" so' vale com zero ciclos — aqui segue a redacao de antes."""
+    """Conciliado mas com 2 ciclos: atraso critico — a DMN escala (a duvida vai ao humano) e o ACK nunca diz
+    "em dia"."""
     final, envio, inferencia = await _turno(_estado(status_conciliado=True, ciclos_sem_conciliacao=2))
-    assert final["route"] == "respond_member"
-    assert inferencia.task_kinds == ["task_default"]
+    assert final["route"] == "escalate_human"
+    assert inferencia.task_kinds == []
     assert "em dia" not in _sem_acento(envio.textos[0])
-    # O rascunho do modelo (a frase do incidente) cai na cerca: o rotulo nunca chega ao beneficiario.
-    assert envio.textos == [RESPOSTA_INFORMATIVA_RECUSADA]
-    assert final["mensagem"]["recusa_de_saida"] is True
 
 
 @pytest.mark.parametrize("rota", ["mensagem", "ack_escalacao"])

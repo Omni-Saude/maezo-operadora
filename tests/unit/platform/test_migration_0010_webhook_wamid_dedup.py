@@ -138,7 +138,21 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     # VW1-P0 appends 0019 (`vendor_channel_authority`); still linear.
     # VW1-P4 appends 0020 (`vendor_channel_submissions`, OP16); still linear.
     # VW4/GP11 wiring appends 0021 (`vendor_suppression_records`, OP20); still linear.
-    assert script.get_heads() == ["0021"]
+    # DL-0083 appends 0022 (`conversa_acesso_beneficiario`); 0023 fixes its ref CHECKs; still linear.
+    # DL-0086 appends 0024 (`consulta_valores` no CHECK de `conversa_agente_ativo`); still linear.
+    # Simulador (13/10/2026) appends 0025 (memoria curta do Lucas em `conversa_agente_ativo`); still linear.
+    # Apresentacao do canal (14/10/2026) appends 0026 (`apresentado_em` em `conversa_acesso_beneficiario`).
+    # Lembrete de cobranca (14/10/2026) appends 0027 (idempotencia e opt-out); still linear.
+    # Limite de falhas por CPF (D-04, 15/10/2026) appends 0028.
+    assert script.get_heads() == ["0028"]
+    assert script.get_revision("0028").down_revision == "0027"
+    assert script.get_revision("0027").down_revision == "0026"
+    assert script.get_revision("0026").down_revision == "0025"
+    assert script.get_revision("0025").down_revision == "0024"
+    assert script.get_revision("0024").down_revision == "0023"
+    assert script.get_revision("0023").down_revision == "0022"
+    assert script.get_revision("0022").down_revision == "0021"
+    assert script.get_revision("0021").down_revision == "0020"
     assert script.get_revision("0020").down_revision == "0019"
     assert script.get_revision("0019").down_revision == "0018"
     assert script.get_revision("0018").down_revision == "0017"

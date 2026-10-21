@@ -111,7 +111,13 @@ class _Alerter:
     def __init__(self, *, fail: bool = False) -> None:
         self.alerts: list[str] = []
         self.undeliverable: list[str] = []
+        self.refused: list[str] = []
         self._fail = fail
+
+    async def alert_resumption_refused(self, event: Any) -> None:
+        if self._fail:
+            raise ConnectionError("broker down")
+        self.refused.append(event.business_key)
 
     async def alert_outside_window(self, event: Any) -> None:
         if self._fail:
@@ -125,9 +131,10 @@ class _Alerter:
 
 
 class _Resumer:
-    def __init__(self, *, fail: Exception | None = None) -> None:
+    def __init__(self, *, fail: Exception | None = None, desfecho: str = "retomada_enviada") -> None:
         self.calls: list[dict[str, Any]] = []
         self._fail = fail
+        self._desfecho = desfecho
 
     async def resume(
         self, *, conversation_id: str, instrucoes: str, raw_to: str, resume_ref: str
@@ -142,7 +149,7 @@ class _Resumer:
         )
         if self._fail is not None:
             raise self._fail
-        return {"desfecho": "retomada_enviada"}
+        return {"desfecho": self._desfecho}
 
 
 class _DlqPublisher:
@@ -659,3 +666,249 @@ async def test_o_aviso_passa_pelo_portao_de_chave_de_particao_do_produtor_real()
     publicados = [(topic, key) for topic, _value, key in raw.sent if topic == topico]
     assert len(publicados) == 2
     assert all(key for _topic, key in publicados)
+
+
+# --- P6 (16/10/2026): recado barrado pela cerca do agente avisa a equipe -----------------------------
+
+
+async def test_recado_barrado_pela_cerca_avisa_a_equipe() -> None:
+    """A Helena barrou a nota e mandou o texto generico: antes NINGUEM sabia que a instrucao nao chegou."""
+    alerter = _Alerter()
+    handler, _, resumer = _handler(resumer=_Resumer(desfecho="retomada_recusada"), alerter=alerter)
+    receipt = await handler.handle(_evento())
+    assert receipt.outcome is ResumeOutcome.RESUMED and receipt.desfecho == "retomada_recusada"
+    assert alerter.refused == [_BK]
+    assert alerter.alerts == [] and alerter.undeliverable == []  # nao e' outro aviso
+
+
+@pytest.mark.parametrize("desfecho", ["retomada_enviada", "retomada_sem_instrucoes", ""])
+async def test_so_o_recado_barrado_avisa(desfecho: str) -> None:
+    alerter = _Alerter()
+    handler, _, _ = _handler(resumer=_Resumer(desfecho=desfecho), alerter=alerter)
+    await handler.handle(_evento())
+    assert alerter.refused == []
+
+
+async def test_aviso_do_recado_barrado_falho_propaga_e_offset_fica() -> None:
+    handler, _, resumer = _handler(
+        resumer=_Resumer(desfecho="retomada_recusada"), alerter=_Alerter(fail=True)
+    )
+    consumer = FakeBridgeKafkaConsumer([_msg(_evento())])
+    with pytest.raises(ConnectionError):
+        await run_resume_loop(consumer, handler)
+    assert consumer.commits == 0 and len(resumer.calls) == 1
+
+
+async def test_desfecho_recusado_e_o_mesmo_literal_do_grafo() -> None:
+    from maezo.agents.helena.graph import DESFECHO_RETOMADA_RECUSADA as NO_GRAFO
+    from maezo.platform.integrations import agent_resume
+
+    assert agent_resume.DESFECHO_RETOMADA_RECUSADA == NO_GRAFO
+
+
+async def test_aviso_do_recado_barrado_so_leva_identificadores() -> None:
+    from maezo.platform.integrations.agent_resume import NotifyTeamAlerter
+    from maezo.platform.integrations.notifications_inbox import parse_team_notice
+
+    class _Pub:
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, dict[str, Any], Any]] = []
+
+        async def publish(
+            self,
+            topic: str,
+            value: dict[str, Any],
+            *,
+            key: str | None = None,
+            best_effort: bool | None = None,
+        ) -> bool:
+            self.sent.append((topic, value, best_effort))
+            return True
+
+    pub = _Pub()
+    await NotifyTeamAlerter(pub).alert_resumption_refused(parse_process_completed(_evento(), tenant_id="amh"))
+    topic, value, best_effort = pub.sent[0]
+    assert topic == "operadora.notifications.internal" and best_effort is False
+    # So' identificadores e rotulos; `motivo_categoria=outro` (o vocabulario e' o do contrato).
+    assert set(value) == {
+        "type",
+        "tenant_id",
+        "business_key",
+        "grupo_atendimento",
+        "severidade",
+        "motivo_categoria",
+    }
+    assert value["motivo_categoria"] == "outro" and value["business_key"] == _BK
+    notice = parse_team_notice(value)
+    assert notice is not None and notice.business_key == _BK
+    assert (
+        "5511" not in json.dumps(value) and "guia" not in json.dumps(value).lower()
+    )  # nem telefone, nem nota
+
+
+# --- eventos estruturados para o alarme (agent_resume.falha / agent_resume.fila_morta) --------------
+
+
+def _falhas(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from maezo.platform.integrations.agent_resume import EVENTO_RESUME_FALHA
+
+    return [entry for entry in logs if entry["event"] == EVENTO_RESUME_FALHA]
+
+
+def _filas_mortas(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from maezo.platform.integrations.agent_resume import EVENTO_RESUME_FILA_MORTA
+
+    return [entry for entry in logs if entry["event"] == EVENTO_RESUME_FILA_MORTA]
+
+
+def test_os_nomes_dos_eventos_e_o_conjunto_fechado_de_motivos() -> None:
+    from maezo.platform.integrations import agent_resume as ar
+
+    assert ar.EVENTO_RESUME_FALHA == "agent_resume.falha"
+    assert ar.EVENTO_RESUME_FILA_MORTA == "agent_resume.fila_morta"
+    esperados = {"motor_indisponivel", "envio_falhou", "aviso_equipe_falhou", "outro"}
+    assert esperados == ar.MOTIVOS_FALHA_RESUME
+
+
+async def _laco_que_falha(
+    handler: ResumeHandler, erro: type[BaseException]
+) -> tuple[list[dict[str, Any]], Any]:
+    from structlog.testing import capture_logs
+
+    dlq = BridgeDlqShunt(publisher=_DlqPublisher(), audit_sink=FakeStartAuditSink(), tenant_id="amh")
+    consumer = FakeBridgeKafkaConsumer([_msg(_evento())])
+    with capture_logs() as logs, pytest.raises(erro):
+        await run_resume_loop(consumer, handler, dlq=dlq)
+    assert consumer.commits == 0, "falha nao-malformada NUNCA confirma o offset"
+    assert dlq.shunted == []
+    return logs, consumer
+
+
+async def test_motor_fora_emite_falha_motor_indisponivel_e_offset_fica() -> None:
+    handler, _, _ = _handler(_Engine(fail=True))
+    logs, _ = await _laco_que_falha(handler, CibSevenError)
+    falhas = _falhas(logs)
+    assert falhas == [{"event": "agent_resume.falha", "motivo": "motor_indisponivel", "log_level": "error"}]
+    assert "engine unreachable" not in repr(logs)  # o texto da excecao nao vai para o evento
+
+
+async def test_envio_que_falha_emite_falha_envio_falhou_e_offset_fica() -> None:
+    from maezo.agents.helena.graph import RetomadaEnvioFalhouError
+
+    handler, _, _ = _handler(resumer=_Resumer(fail=RetomadaEnvioFalhouError("down")))
+    logs, _ = await _laco_que_falha(handler, RetomadaEnvioFalhouError)
+    assert [f["motivo"] for f in _falhas(logs)] == ["envio_falhou"]
+
+
+async def test_aviso_fora_da_janela_que_falha_emite_aviso_equipe_falhou() -> None:
+    handler, _, resumer = _handler(
+        recipients=_Recipients(idade=timedelta(days=2)), alerter=_Alerter(fail=True)
+    )
+    logs, _ = await _laco_que_falha(handler, ConnectionError)
+    assert [f["motivo"] for f in _falhas(logs)] == ["aviso_equipe_falhou"]
+    assert resumer.calls == []
+
+
+async def test_aviso_de_nao_entregue_que_falha_emite_aviso_equipe_falhou_e_nao_fila_morta() -> None:
+    engine = _Engine()
+    engine.seed_historic_variables(_historico(notas_resolucao=""))
+    handler, _, _ = _handler(engine, alerter=_Alerter(fail=True))
+    logs, _ = await _laco_que_falha(handler, ConnectionError)
+    assert [f["motivo"] for f in _falhas(logs)] == ["aviso_equipe_falhou"]
+    assert _filas_mortas(logs) == []
+
+
+async def test_falha_fora_das_etapas_conhecidas_e_outro() -> None:
+    class _CustodiaFora(_Recipients):
+        async def lookup(self, *, tenant_id: str, conversation_id: str) -> RecipientRecord | None:
+            raise OSError("db down")
+
+    handler, _, _ = _handler(recipients=_CustodiaFora())
+    logs, _ = await _laco_que_falha(handler, OSError)
+    assert [f["motivo"] for f in _falhas(logs)] == ["outro"]
+
+
+async def test_retorno_do_cancelamento_classifica_motor_e_envio() -> None:
+    from types import SimpleNamespace
+
+    from maezo.agents.lucas.cancelamento_pf import RESULTADO_EXECUTADO
+
+    class _FonteCancelamento:
+        def __init__(self, *, fail: bool) -> None:
+            self._fail = fail
+
+        async def fetch(self, event: Any) -> Any:
+            if self._fail:
+                raise ConnectionError("engine down")
+            return SimpleNamespace(
+                resultado=RESULTADO_EXECUTADO, protocolo="P-1", data_efeito_iso="2026-10-15"
+            )
+
+    class _Lucas:
+        async def retomar_cancelamento(self, **_: Any) -> dict[str, Any]:
+            raise RuntimeError("whatsapp down")
+
+    evento = _evento(
+        RESULTADO_EXECUTADO, agent_id="lucas", _business_key="CANCEL-amh-x", conversation_id="wa:amh:hk1_c"
+    )
+    for fonte_falha, motivo in ((True, "motor_indisponivel"), (False, "envio_falhou")):
+        handler = ResumeHandler(
+            tenant_id="amh",
+            instructions=EngineHistoryInstructionSource(_Engine()),
+            recipients=_Recipients(),
+            resumers={"lucas": _Lucas()},  # type: ignore[dict-item]
+            alerter=_Alerter(),
+            cancelamentos=_FonteCancelamento(fail=fonte_falha),  # type: ignore[arg-type]
+        )
+        from structlog.testing import capture_logs
+
+        consumer = FakeBridgeKafkaConsumer([_msg(evento)])
+        with capture_logs() as logs, pytest.raises((ConnectionError, RuntimeError)):
+            await run_resume_loop(consumer, handler)
+        assert consumer.commits == 0
+        assert [f["motivo"] for f in _falhas(logs)] == [motivo]
+
+
+async def test_fila_morta_emite_evento_com_o_codigo_fechado_depois_do_desvio() -> None:
+    from structlog.testing import capture_logs
+
+    handler, _, _ = _handler()
+    dlq = BridgeDlqShunt(publisher=_DlqPublisher(), audit_sink=FakeStartAuditSink(), tenant_id="amh")
+    consumer = FakeBridgeKafkaConsumer([_msg({"sem": "campos"}, 0), _msg(_evento(), 1)])
+    with capture_logs() as logs:
+        await run_resume_loop(consumer, handler, dlq=dlq)
+    mortas = _filas_mortas(logs)
+    assert mortas == [
+        {"event": "agent_resume.fila_morta", "reason": REASON_RESUME_MISSING_ANCHOR, "log_level": "warning"}
+    ]
+    assert all(m["reason"] in BRIDGE_DLQ_REASONS for m in mortas)
+    assert _falhas(logs) == []
+    assert consumer.commits == 2
+
+
+async def test_se_a_fila_morta_falha_nao_conta_fila_morta_e_offset_fica() -> None:
+    from structlog.testing import capture_logs
+
+    class _DlqFora(_DlqPublisher):
+        async def publish_dlq(self, topic: str, *, raw: bytes, key: bytes | None, headers: Any) -> None:
+            raise ConnectionError("broker down")
+
+    handler, _, _ = _handler()
+    dlq = BridgeDlqShunt(publisher=_DlqFora(), audit_sink=FakeStartAuditSink(), tenant_id="amh")
+    consumer = FakeBridgeKafkaConsumer([_msg({"sem": "campos"}, 0)])
+    with capture_logs() as logs, pytest.raises(ConnectionError):
+        await run_resume_loop(consumer, handler, dlq=dlq)
+    assert _filas_mortas(logs) == []
+    assert [f["motivo"] for f in _falhas(logs)] == ["outro"]
+    assert consumer.commits == 0
+
+
+async def test_caminho_feliz_nao_emite_falha_nem_fila_morta() -> None:
+    from structlog.testing import capture_logs
+
+    handler, _, _ = _handler()
+    consumer = FakeBridgeKafkaConsumer([_msg(_evento())])
+    with capture_logs() as logs:
+        await run_resume_loop(consumer, handler)
+    assert _falhas(logs) == [] and _filas_mortas(logs) == []
+    assert consumer.commits == 1

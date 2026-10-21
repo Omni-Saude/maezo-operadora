@@ -914,10 +914,10 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem. Seu atendimento com a nossa equipe de saude ja esta aberto e continua em andamento. Por isso nao abri outro atendimento. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebi sua mensagem. Seu atendimento com a nossa equipe já está aberto e segue em andamento, por isso não abri outro. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "constante — handoff ja aberto (mencao obrigatoria)",
+      "origem": "constante — handoff ja aberto (mencao obrigatoria) — DL-0088 (12/10/2026): emergencia com 192; texto neutro (sem 'equipe de saude')",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -925,10 +925,10 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saude. Um profissional vai dar continuidade ao seu atendimento. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de atendimento. Um atendente vai continuar o seu atendimento. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "constante — handoff recusado (mencao obrigatoria)",
+      "origem": "constante — handoff recusado (mencao obrigatoria) — DL-0088 (12/10/2026): emergencia com 192; texto neutro (sem 'equipe de saude')",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -936,7 +936,7 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem. Nao abri atendimento com a nossa equipe neste momento. Se voce quiser falar com uma pessoa, escreva isso na proxima mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebi sua mensagem. Não abri atendimento com a nossa equipe agora. Se quiser falar com uma pessoa, é só escrever isso na próxima mensagem. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante — nada foi aberto (nao pode mencionar)",
@@ -947,7 +947,7 @@
       }
     },
     {
-      "texto": "Nao consegui registrar seu atendimento agora por uma falha tecnica no nosso sistema. Por isso nenhum atendente foi acionado ainda. Por favor, envie sua mensagem novamente em alguns minutos. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Tive uma falha técnica e não consegui registrar seu atendimento agora. Por isso, nenhum atendente foi acionado ainda. Envie sua mensagem de novo em alguns minutos, por favor. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "escalate",
       "start_aconteceu": false,
       "origem": "constante — o start falhou",
@@ -958,7 +958,7 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem. Nao consegui preparar a resposta agora por uma falha tecnica. Por favor, envie sua mensagem novamente em alguns minutos. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebi sua mensagem, mas tive uma falha técnica e não consegui responder agora. Envie de novo em alguns minutos, por favor. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante — a redacao falhou",
@@ -1376,7 +1376,7 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma pessoa, escreva isso na proxima mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebi sua mensagem, mas não consegui preparar uma resposta agora. Pode me contar com mais detalhes o que está acontecendo? Se quiser falar com uma pessoa, é só escrever isso na próxima mensagem. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_INFORM_RECUSADA (bateria 22/09, CRITICO 1)",
@@ -1387,7 +1387,7 @@
       }
     },
     {
-      "texto": "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma pessoa, escreva isso na proxima mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Recebi sua mensagem, mas não consegui preparar uma resposta agora. Pode me contar com mais detalhes o que está acontecendo? Se quiser falar com uma pessoa, é só escrever isso na próxima mensagem. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "constante RESPOSTA_INFORM_RECUSADA no rascunho (bateria 22/09, CRITICO 1)",
@@ -1431,10 +1431,10 @@
       }
     },
     {
-      "texto": "[RASCUNHO - redacao pendente de produto] Recebemos o retorno sobre o seu atendimento. Se quiser continuar, responda esta mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "texto": "Desculpe, não consegui resolver isso agora. Pode me enviar sua mensagem de novo para eu tentar outra vez?",
       "rota": "retomada",
       "start_aconteceu": false,
-      "origem": "constante RETOMADA_RECUSADA_PLACEHOLDER (GAP-XHITL-4, placeholder de produto)",
+      "origem": "constante RETOMADA_RECUSADA_PLACEHOLDER (GAP-XHITL-4; redacao aprovada pelo dono em 19/10/2026, DL-0142)",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1442,7 +1442,7 @@
       }
     },
     {
-      "texto": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Esse assunto não é tratado aqui. Se quiser falar com uma pessoa da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
+      "texto": "Esse assunto eu não consigo resolver por aqui. Sou a Helena, navegadora de saúde: cuido de sintomas e de encaminhar você para a equipe de saúde. Se quiser falar com uma pessoa da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "DL-0052 (01/10/2026): RESPOSTA_FORA_DO_CANAL, texto fixo para assunto fora de saude",
@@ -1453,7 +1453,7 @@
       }
     },
     {
-      "texto": "Vou te passar para o atendimento de cobrança.",
+      "texto": "Vou te passar para o Lucas, nosso assistente financeiro.",
       "rota": "handoff",
       "start_aconteceu": false,
       "origem": "constante FRASE_PASSAGEM_COBRANCA (onda e do numero unico, ADR-0062; plano §2.4): a rota real da frase, `respond` sem start",
@@ -1464,7 +1464,29 @@
       }
     },
     {
-      "texto": "Vou te passar para o atendimento de cobrança.",
+      "texto": "Por aqui eu não pesquiso prestadores. A rede credenciada do seu plano está no aplicativo Austa Clínicas e no portal do plano. Lá dá para buscar por especialidade e cidade. Para saber se um exame ou procedimento está no seu plano, me diga o nome como está no pedido médico.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - rodada do dono (19/10/2026, DL-0128): TEXTO_REDE, D2 onde fazer (DL-0052)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Vou te passar para o Lucas, que cuida de pedidos do seu plano.",
+      "rota": "handoff",
+      "start_aconteceu": false,
+      "origem": "constante - rodada do dono (18/10/2026): FRASE_PASSAGEM_CANCELAMENTO, passagem ao Lucas no cancelamento",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Vou te passar para o Lucas, nosso assistente financeiro.",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "constante FRASE_PASSAGEM_COBRANCA (onda e do numero unico, ADR-0062; plano §2.4): a mesma frase julgada como `inform`, para provar que o veredito nao depende da rota nova",
@@ -1486,10 +1508,10 @@
       }
     },
     {
-      "texto": "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde. Um profissional vai dar continuidade ao seu atendimento. Se você estiver com sintomas agora, procure o serviço de emergência mais próximo sem esperar o nosso contato.",
+      "texto": "Ligue 192 (SAMU) agora ou vá ao pronto-socorro. Não dirija: peça para alguém te levar ou chame o SAMU. Em uma emergência, não espere o nosso contato. Também encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_URGENTE, texto fixo do aviso de encaminhamento para P1 clinico",
+      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_URGENTE, texto fixo do aviso de encaminhamento para P1 clinico — DL-0088 (12/10/2026): emergencia com 192 — dossie de seguranca (18/10/2026): 192 imperativo; CVV 188 no risco",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1497,14 +1519,25 @@
       }
     },
     {
-      "texto": "Sinto muito que você esteja passando por isso. Encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento. Se você estiver em risco agora, procure o serviço de emergência mais próximo sem esperar o nosso contato.",
+      "texto": "Sinto muito que você esteja passando por isso. Você pode conversar agora com o CVV, no 188 (ligação gratuita, 24h). Se estiver em perigo agora, ligue 192 (SAMU) ou vá ao pronto-socorro. Encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL, texto fixo do aviso de encaminhamento para risco psicossocial",
+      "origem": "DL-0062 (01/10/2026): RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL, texto fixo do aviso de encaminhamento para risco psicossocial — DL-0088 (12/10/2026): emergencia com 192 — dossie de seguranca (18/10/2026): 192 imperativo; CVV 188 no risco",
       "esperado": {
         "recusa": null,
         "canal": null,
         "menciona": true
+      }
+    },
+    {
+      "texto": "Sinto muito que você esteja se sentindo assim. Se pensar em se machucar, ligue para o CVV no 188 (ligação gratuita, 24h). Se estiver em perigo agora, ligue 192.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "dossie de seguranca (18/10/2026): RESPOSTA_ACOLHIMENTO, acolhimento antes da consulta do plano",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
       }
     },
     {
@@ -1651,7 +1684,7 @@
       }
     },
     {
-      "texto": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Como posso ajudar?",
+      "texto": "Olá! Sou a Helena, navegadora de saúde. Por aqui eu tiro dúvidas de saúde e te ajudo a encontrar o atendimento certo. Em que posso ajudar?",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "DL-0065 (01/10/2026): RESPOSTA_SAUDACAO_ABERTURA, cartao de abertura fixo (primeira saudacao)",
@@ -1662,7 +1695,7 @@
       }
     },
     {
-      "texto": "Olá! Como posso te ajudar?",
+      "texto": "Olá! Em que posso ajudar? 😊",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "DL-0065 (01/10/2026): RESPOSTA_SAUDACAO_CURTA, saudacao depois de a Helena ja ter se apresentado",
@@ -1673,7 +1706,7 @@
       }
     },
     {
-      "texto": "De nada! Se precisar de algo, é só me chamar.",
+      "texto": "Por nada! Se precisar, é só me chamar 😊",
       "rota": "inform",
       "start_aconteceu": null,
       "origem": "DL-0065 (01/10/2026): RESPOSTA_DESPEDIDA, resposta a agradecimento ou adeus",
@@ -1684,7 +1717,7 @@
       }
     },
     {
-      "texto": "Reconheci este número no cadastro de beneficiários da {operadora}. Por segurança, não mostro dados pessoais por aqui.",
+      "texto": "Olá! Este número está no cadastro de beneficiários da {operadora}. Por segurança, não mostro dados pessoais por aqui.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_AVISO_IDENTIDADE_RECONHECIDA_MODELO (DL-0078, 07/10/2026): o modelo do aviso de primeiro contato, numero reconhecido",
@@ -1695,7 +1728,7 @@
       }
     },
     {
-      "texto": "Reconheci este número no cadastro de beneficiários da Austa Clínicas. Por segurança, não mostro dados pessoais por aqui.",
+      "texto": "Olá! Este número está no cadastro de beneficiários da Austa Clínicas. Por segurança, não mostro dados pessoais por aqui.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_AVISO_IDENTIDADE_RECONHECIDA_MODELO (DL-0078) renderizada com o nome padrao: o texto exato ditado pelo dono",
@@ -1706,7 +1739,7 @@
       }
     },
     {
-      "texto": "Este número está cadastrado para um beneficiário da {operadora}. Por segurança, não mostro nome nem dados pelo WhatsApp.",
+      "texto": "Sim, este número está no cadastro de beneficiários da {operadora}. Por segurança, não mostro nome nem dados por aqui.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_PERGUNTA_IDENTIDADE_RECONHECIDA_MODELO (DL-0078, 07/10/2026): o modelo da resposta a 'sabe quem sou eu?', numero reconhecido",
@@ -1717,7 +1750,7 @@
       }
     },
     {
-      "texto": "Este número está cadastrado para um beneficiário da Austa Clínicas. Por segurança, não mostro nome nem dados pelo WhatsApp.",
+      "texto": "Sim, este número está no cadastro de beneficiários da Austa Clínicas. Por segurança, não mostro nome nem dados por aqui.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_PERGUNTA_IDENTIDADE_RECONHECIDA_MODELO (DL-0078) renderizada com o nome padrao: o texto exato ditado pelo dono",
@@ -1728,7 +1761,7 @@
       }
     },
     {
-      "texto": "Não encontrei este número no cadastro de beneficiários.",
+      "texto": "Não encontrei este número no nosso cadastro de beneficiários.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_IDENTIDADE_NAO_ENCONTRADA (DL-0078, 07/10/2026): numero sem candidato na AMH, primeiro contato e pergunta",
@@ -1739,10 +1772,1110 @@
       }
     },
     {
-      "texto": "Não consegui confirmar seus dados por aqui, então não consigo consultar as informações do seu plano neste canal. Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "texto": "Não consegui confirmar seus dados, então não consigo ver as informações do seu plano por aqui. Se quiser falar com uma pessoa da equipe, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": false,
       "origem": "constante RESPOSTA_CONSULTA_SEM_IDENTIDADE (DL de fatos do plano, 07/10/2026): consulta do plano sem identidade resolvida ou com a AMH indisponivel",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saúde. Um profissional vai continuar o seu atendimento. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0088: handoff com motivo clinico (equipe de saude), com 192",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi. Seu atendimento com a nossa equipe já está aberto e continua valendo. Enquanto isso, posso te ajudar com outras dúvidas por aqui. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0088: segunda redacao do caso ja aberto (nao repetir), com 192",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Claro, posso ajudar. Como navegadora de saúde, eu não dou orientação clínica nem diagnóstico. Posso explicar como usar o plano, onde buscar atendimento e quais canais procurar. Se você estiver com algum sintoma, me conte o que sente. Quando for preciso, eu chamo a equipe de saúde. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0088: duvida de saude sem sintoma (o que a Helena faz), sem start",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tudo bem, respeito sua escolha. Se você já tem um atendimento aberto com a nossa equipe, ele continua lá, sem pressa. Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. Eu não dou orientação clínica nem diagnóstico, mas posso ajudar com o plano, os canais e onde buscar atendimento. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0088: recusa de falar com a equipe, sem start",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Se a sua dúvida for sobre mensalidade ou pagamentos, é só me perguntar por aqui. Os detalhes do plano, como carteirinha e rede credenciada, ficam no aplicativo Austa Clínicas e no portal do plano.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0088: 'o que voce sabe de mim?' sem assunto financeiro, sem start",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Sou uma assistente virtual, um sistema automatizado — não sou uma pessoa. Se preferir falar com alguém, eu te encaminho para um atendente humano.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_SOU_ASSISTENTE_VIRTUAL",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de atendimento. Um atendente vai continuar o seu atendimento.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_HANDOFF_RECUSADA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Recebi sua mensagem. Seu atendimento com a nossa equipe já está aberto e segue em andamento, por isso não abri outro.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_HANDOFF_JA_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi. Seu atendimento com a nossa equipe já está aberto e continua valendo. Enquanto isso, posso te ajudar com outras dúvidas por aqui.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. Nem eu nem o plano conseguimos enviar ambulância por este chat. Seu caso já está com a nossa equipe de saúde.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_EMERGENCIA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Ligue agora para o 192 (SAMU) ou vá direto ao pronto-socorro mais próximo, sem esperar. Por este chat não sai ambulância. A nossa equipe de saúde já está com o seu caso.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_EMERGENCIA_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Ligue agora para o 192 (SAMU) e siga a orientação deles até a ajuda chegar. Este chat não envia ambulância. O seu caso continua com a nossa equipe de saúde.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_EMERGENCIA_3",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu atendimento já está aberto com a nossa equipe. Um atendente vai te responder aqui mesmo, nesta conversa. Eu não consigo prever o horário exato da resposta.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_PRAZO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu atendimento já está aberto com a nossa equipe, por isso não abri outro. Quando o atendente responder aqui, você pode pedir para falar com um supervisor.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_SUPERVISOR",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Se for uma urgência de saúde, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. Para os outros assuntos, seu atendimento já está aberto, e um atendente vai te responder aqui.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CASO_ABERTO_URGENTE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Tipo do plano, carência e cobertura ainda não estão disponíveis por este chat. Você encontra essas informações no aplicativo Austa Clínicas, no portal do plano ou na central de atendimento do plano.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_PLANO_POR_CANAIS",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não tenho um link para mandar por aqui. A carteirinha digital e os detalhes do plano ficam no aplicativo Austa Clínicas e no portal do plano. A central de atendimento do plano também ajuda.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_CANAIS_DO_PLANO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Sobre cobertura, essa informação ainda não está disponível por este chat. Veja no aplicativo Austa Clínicas, no portal do plano ou na central de atendimento do plano.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_COBERTURA_NA_PASSAGEM",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quem define exames, a frequência deles e qualquer tratamento é o médico, numa consulta. Você pode marcar uma consulta na rede do plano. Para isso, use o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento do plano. Se quiser falar com a nossa equipe de saúde, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0089 (13/10/2026, rodada 2 do simulador): RESPOSTA_DUVIDA_CLINICA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Entendi, e sei que é importante. As informações do plano ainda não vieram por este chat. Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_PLANO_INDISPONIVEL_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Sinto muito pela dificuldade. Por aqui as informações do plano ainda não estão disponíveis. Uma pessoa da equipe pode te ajudar com isso: é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_PLANO_INDISPONIVEL_3",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "A segmentação do cadastro não confirma um procedimento específico. Para confirmar, fale com a central de atendimento do plano ou com uma pessoa da equipe. O aplicativo Austa Clínicas e o portal do plano também mostram a cobertura.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_COBERTURA_ESPECIFICA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Sobre o plano e a cobertura, é só me perguntar de novo em seguida.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_COBERTURA_DEPOIS",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O telefone da central de atendimento do plano está no aplicativo Austa Clínicas e no portal do plano. Por aqui eu não passo número, para não arriscar te mandar um contato errado.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_TELEFONE_DA_CENTRAL",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Eu não avalio sintomas, então não consigo dizer se você precisa de médico. Você pode marcar consulta com um médico da rede do plano: a rede credenciada está no aplicativo Austa Clínicas e no portal do plano. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento. Se for grave, ligue para o 192 (SAMU).",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_NAVEGACAO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Eu não avalio sintomas, então não consigo dizer se você precisa de médico. Você pode marcar consulta com um médico da rede do plano: a rede credenciada está no aplicativo Austa Clínicas e no portal do plano. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento. Se for grave, ligue para o 192 (SAMU). A nossa equipe de saúde já está com o seu caso.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_NAVEGACAO_CASO_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tudo bem. Seu caso continua com a nossa equipe, e a resposta vem por aqui. Se precisar, é só me chamar.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_DESPEDIDA_CASO_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu caso continua com a nossa equipe, e a resposta vem por aqui, nesta conversa. Enquanto isso, me diga em que mais posso ajudar.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): RESPOSTA_INFORM_CASO_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0090 (13/10/2026, rodada 3 do simulador): _EMERGENCIA_192",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Entendi o que você precisa confirmar. Quando o atendente responder aqui, conte esse pedido para ele, por favor. Seu atendimento continua aberto.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_CASO_ABERTO_RECADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu atendimento continua aberto com a nossa equipe.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_CASO_ABERTO_CURTO_1",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu caso segue aberto. O atendente responde por aqui.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_CASO_ABERTO_CURTO_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Continua tudo aberto por aqui. Posso ajudar com outra coisa?",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_CASO_ABERTO_CURTO_3",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Por aqui eu não consigo confirmar cobertura de um procedimento específico. Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe. O aplicativo Austa Clínicas e o portal do plano também ajudam.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_COBERTURA_ESPECIFICA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Entendo que você precisa dessa confirmação. A cobertura de um procedimento específico é confirmada pela central de atendimento do plano ou por uma pessoa da equipe: é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0091 (13/10/2026, rodada 4 do simulador): RESPOSTA_COBERTURA_ESPECIFICA_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu caso já está com a nossa equipe, por isso não abri outro. O atendente vai te responder aqui mesmo, nesta conversa.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0093 (13/10/2026, rodada 6 do simulador): RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Tive um problema para entender sua mensagem agora. Pode me mandar de novo?",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0093 (13/10/2026, rodada 6 do simulador): RESPOSTA_PECA_REENVIO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não tenho telefone nem e-mail da equipe para passar. Encaminhei seu caso, e um atendente vai falar com você aqui mesmo, nesta conversa.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante — DL-0094 (13/10/2026, rodada 7): RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Não consegui consultar essa informação do seu plano agora. Pode me perguntar de novo em instantes?",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0095 (13/10/2026, rodada 8, teste real do dono): RESPOSTA_PLANO_FALHA_1",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Ainda não consegui consultar o seu cadastro. Se preferir, uma pessoa da equipe pode ajudar: é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0095 (13/10/2026, rodada 8, teste real do dono): RESPOSTA_PLANO_FALHA_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Continuo sem conseguir consultar o seu cadastro agora. A central de atendimento do plano e o aplicativo Austa Clínicas mostram essa informação.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0095 (13/10/2026, rodada 8, teste real do dono): RESPOSTA_PLANO_FALHA_3",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não consegui consultar o seu plano agora. A central de atendimento do plano e o aplicativo Austa Clínicas mostram essa informação.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante — DL-0095 (13/10/2026, rodada 8, teste real do dono): RESPOSTA_PLANO_FALHA_NA_PASSAGEM",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. O atendente responde por aqui, nesta conversa.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_HANDOFF_JA_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido sobre cobrança já está com a nossa equipe. O atendente responde por aqui, nesta conversa.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe, e o atendente responde por aqui. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi. Seu pedido já está com a nossa equipe. Enquanto isso, posso te ajudar com outras dúvidas por aqui.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_HANDOFF_JA_ABERTO_DE_NOVO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Um atendente vai te responder aqui mesmo, nesta conversa. Eu não consigo prever o horário exato da resposta.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_CASO_ABERTO_PRAZO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Quando o atendente responder aqui, você pode pedir para falar com um supervisor.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_CASO_ABERTO_SUPERVISOR",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Se for uma urgência de saúde, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. Para os outros assuntos, seu pedido já está com a nossa equipe, e um atendente vai te responder aqui.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_CASO_ABERTO_URGENTE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. O atendente vai te responder aqui mesmo, nesta conversa.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi o que você precisa confirmar. Quando o atendente responder aqui, conte esse pedido para ele, por favor. Seu pedido continua com a nossa equipe.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_CASO_ABERTO_RECADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu pedido continua com a nossa equipe.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_CASO_ABERTO_CURTO_1",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu pedido segue com a equipe. O atendente responde por aqui.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_CASO_ABERTO_CURTO_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Continua com a nossa equipe por aqui. Posso ajudar com outra coisa?",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_CASO_ABERTO_CURTO_3",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Por aqui eu ainda não consigo consultar seus dependentes. Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - DL-0097 (14/10/2026, rodada 10, teste real do dono): RESPOSTA_DEPENDENTES",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Por aqui eu não consigo consultar seus dependentes agora. Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - DL-0100 (14/10/2026, rodada 11): RESPOSTA_DEPENDENTES_FALHA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n• Ver os dados do seu plano: carteirinha, carências e dependentes.\n• Tirar dúvidas de saúde e saber onde buscar atendimento.\n• Falar com a nossa equipe sobre saúde ou cobrança, quando precisar.\nEm emergência, ligue 192. Como posso ajudar?",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - apresentacao-canal-v2 (18/10/2026, texto do dono): TEXTO_APRESENTACAO_CANAL; texto fixo do acesso, fora do caminho da Helena",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Por aqui você pode:\n• Consultar mensalidade, vencimento e coparticipação.\n• Ver os dados do seu plano: carteirinha e carências.\n• Tirar dúvidas de saúde e saber onde buscar atendimento.\n• Falar com a nossa equipe sobre saúde ou cobrança, quando precisar.\nEm emergência, ligue 192. Como posso ajudar?",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - apresentacao-canal-v2 (18/10/2026, texto do dono): TEXTO_APRESENTACAO_CANAL_SEM_DEPENDENTES; texto fixo do acesso, fora do caminho da Helena",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com clínico geral deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO (T05, adulto: clinico geral; enxuto)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com pediatra deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA (T05, crianca: pediatra)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Eu não avalio sintomas, mas posso te mostrar o caminho. Para marcar consulta na rede, use o aplicativo Austa Clínicas, o portal ou a central de atendimento do plano. Pelas regras da ANS, a consulta com obstetra ou ginecologista deve ser oferecida em até 7 dias úteis. A UBS, pelo SUS, também atende. Se piorar, procure um pronto-atendimento, e se for emergência ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE (T05, gestante: obstetra ou ginecologista)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Obrigada pelas respostas. Eu não avalio sintomas. O bebê ainda é bem pequeno. Se quiser falar agora com uma pessoa da nossa equipe de saúde, é só me pedir. Se piorar, procure um pronto-atendimento. Se for emergência, ligue agora para o 192 (SAMU).",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 15/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_BEBE_PEQUENO (bebe com menos de 3 meses sem alarme; DECISAO CLINICA PENDENTE)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não consigo dizer o que você tem nem qual remédio tomar: isso é feito por um médico, numa consulta. Você pode marcar consulta na rede do plano. Use o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento do plano. A UBS, pelo SUS, também atende. Se for uma emergência, ligue agora para o 192 (SAMU). Se quiser falar com uma pessoa da nossa equipe de saúde, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_SEM_CONDUTA (T08)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quem interpreta resultado de exame e faz receita ou atestado é o médico, numa consulta. Leve o resultado ao médico que pediu o exame, ou marque consulta na rede do plano. Use o aplicativo Austa Clínicas, o portal do plano ou a central de atendimento do plano. Se quiser falar com uma pessoa da equipe, é só me pedir.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_EXAME_RECEITA (T09)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Para te ajudar melhor, sua mensagem é sobre:\n1) um sintoma ou dúvida de saúde.\n2) o plano (cobertura, carteirinha, autorização).\n3) mensalidade ou boleto.\n4) falar com uma pessoa.\nPode responder com o número.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_ESCLARECER (T11)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Ainda não entendi o que você precisa. Se quiser falar com uma pessoa da equipe, é só me pedir. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_OFERTA_PESSOA (catch-all)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Certo, é sobre o plano. Me conte o que você quer saber: cobertura, carência, carteirinha ou autorização.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_OPCAO_PLANO (opcao 2 do T11)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Certo, é sobre mensalidade ou boleto. Me conte o que você quer saber, por exemplo o valor ou o vencimento.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): RESPOSTA_TRIAGEM_OPCAO_COBRANCA (opcao 3 do T11)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Em que parte do corpo é a dor? A dor está fraca, média ou forte? Começou de repente?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['DOR'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quem está com febre e qual a idade? Se for bebê, diga em meses. Apareceram manchinhas vermelhas na pele?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['FEBRE'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Está com falta de ar? Consegue falar uma frase inteira sem parar para respirar? Tem febre?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['RESPIRATORIO'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Inchou o rosto, a boca ou a língua? Está difícil respirar? As manchas vieram junto com febre?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['PELE'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tem sangue no vômito ou nas fezes, ou as fezes estão pretas? Está conseguindo beber água e fazer xixi?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['GASTRO'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tem febre? A dor é forte? Apareceu sangue no xixi?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['URINARIO'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quer me contar um pouco do que está sentindo? Desde quando está assim?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['MENTAL'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "De quantas semanas é a gestação? Está tendo sangramento, perda de líquido ou o bebê está mexendo menos?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['GESTANTE'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Qual é a idade da criança? Se for bebê, diga em meses ou dias. Está mamando ou comendo e fazendo xixi como de costume? Está muito mole ou sonolenta?",
+      "rota": "collect",
+      "start_aconteceu": false,
+      "origem": "constante - nova triagem da Helena (DL-0104, 14/10/2026, RASCUNHO pendente do dono): PERGUNTAS_DA_FICHA['CRIANCA'] (aba 4)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quer que eu encerre o seu atendimento com a equipe? Responda SIM para encerrar.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_CONFIRMA_ENCERRAMENTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Pronto, encerrei o seu atendimento. Se precisar, é só me chamar.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_CASO_ENCERRADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu caso é de saúde e precisa de avaliação. Não posso encerrá-lo por aqui. Se for emergência, ligue 192.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_CASO_GRAVE_NAO_ENCERRA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tudo bem, o seu atendimento continua aberto com a equipe.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_ENCERRAMENTO_MANTIDO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não consegui encerrar o seu atendimento agora. Ele continua aberto com a equipe. Se quiser, me peça de novo daqui a pouco.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_ENCERRAMENTO_FALHOU",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não encontrei um atendimento aberto para encerrar. Se precisar, é só me chamar.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_SEM_CASO_PARA_ENCERRAR",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Esta informação é geral e não substitui avaliação médica. Se quiser, posso te passar para a equipe de saúde.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): AVISO_PADRAO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não tenho uma informação aprovada sobre isso por aqui. Para saber mais, converse com o seu médico ou procure o Saúde de A a Z, do Ministério da Saúde. Se quiser, posso te passar para a equipe de saúde.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_NAO_ENCONTRADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não tenho uma informação aprovada sobre isso por aqui. Quem pode avaliar o seu resultado é o seu médico: leve o resultado a ele. Se quiser, posso te passar para a equipe de saúde.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): RESPOSTA_RESULTADO_NAO_ENCONTRADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quem pode avaliar o seu resultado é o seu médico: leve o resultado a ele.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante enviada ao beneficiario (base de saude, ADR-0064/DL-0118): FRASE_LEVE_AO_MEDICO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_HANDOFF_JA_ABERTO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido sobre cobrança já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_HANDOFF_JA_ABERTO_COBRANCA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe, e assim que ela concluir a análise, te retorno por este canal. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_HANDOFF_JA_ABERTO_COM_EMERGENCIA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal. Eu não consigo prever o horário exato da resposta.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_PRAZO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal. Depois disso, se precisar, você pode pedir para falar com um supervisor.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_SUPERVISOR",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Se for uma urgência de saúde, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais próximo. Para os outros assuntos, seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_URGENTE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Não tenho telefone nem e-mail da equipe para passar. Encaminhei seu caso, e assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_HANDOFF_CONTATO_DA_EQUIPE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a análise terminar, a resposta chega por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi o que você precisa confirmar. Assim que a equipe concluir a análise, te retorno por este canal, e aí você pode repetir esse pedido. Seu pedido continua com a nossa equipe.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_RECADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu pedido segue com a equipe. Assim que ela concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono: retorno da equipe, sem prometer conversa com o atendente): RESPOSTA_CASO_ABERTO_CURTO_2",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, eu te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono; texto final do item 12): RESPOSTA_CASO_ABERTO_SUPERVISOR",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Seu pedido já está com a nossa equipe. Assim que a equipe concluir a análise, retorno a você por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono; texto final do item 12): RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Entendi que você precisa confirmar alguma informação. Assim que a equipe concluir a análise, te retorno por este canal.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "constante - DL-0146 (19/10/2026, decisao do dono; texto final do item 12): RESPOSTA_CASO_ABERTO_RECADO",
       "esperado": {
         "recusa": null,
         "canal": null,

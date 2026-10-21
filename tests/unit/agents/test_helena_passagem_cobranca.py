@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -28,6 +29,7 @@ from maezo.agents.helena.graph import (
     PROMPT_VERSIONS,
     RESPONSE_KIND_HANDOFF,
     RESPOSTA_HANDOFF_RECUSADA,
+    RESPOSTA_PECA_REENVIO,
     HelenaGraph,
     HelenaState,
     _handoff_recusado,
@@ -48,10 +50,11 @@ from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
-#: sha256 do texto do `classify-v5.3` (02/10/2026; o `classify-v5` era 5b480bd3...; v5.1 e v5.2 acrescentaram
+#: sha256 do texto do `classify-v5.4` (14/10/2026, DL-0101: recem-nascido; v5.3 era 34cc3a88...;
+#: 02/10/2026; o `classify-v5` era 5b480bd3...; v5.1 e v5.2 acrescentaram
 #: autorizacao negada e privacidade a `outside_channel`, DL-0063 e DL-0064). Desligado, o roteador NAO pode
 #: mudar um byte do que vai ao modelo: se este numero mudar, o v5 mudou, e isso e' bump de versao.
-SHA256_CLASSIFY_V5 = "34cc3a8888da3550963859a6e99976653a5271bdb991564fa50c266e5780c00e"
+SHA256_CLASSIFY_V5 = "b589bb42bba9f5e1f07815164f238a75ab8b11b3eeadda6199da345ccdd1bd46"
 
 _REF = "hk1_abc123"
 #: Rascunho de handoff para as rotas que escalam (o fake devolve "" quando acaba a lista, e a
@@ -107,6 +110,9 @@ def _grafo(
         audit_sink=FakeStartAuditSink(),
         whatsapp=sender,
         roteador_lucas_enabled=ligado,
+        # 10/10/2026: o ANO de uma competencia sem ano no texto depende de hoje
+        # (`resolver_ano_da_competencia`); relogio fixo para o `2026-09` dos asserts nao envelhecer.
+        relogio=lambda: datetime(2026, 10, 10, 15, 0, tzinfo=UTC),
     )
     return g.compile_graph().compile(), sender, cib
 
@@ -131,15 +137,16 @@ def test_desligado_o_prompt_e_o_classify_v5_byte_a_byte() -> None:
     texto = classify_prompt()
     assert hashlib.sha256(texto.encode("utf-8")).hexdigest() == SHA256_CLASSIFY_V5
     assert classify_prompt(roteador_lucas=False) == texto
-    assert CLASSIFY_PROMPT_VERSION == "classify-v5.3"
+    assert CLASSIFY_PROMPT_VERSION == "classify-v5.4"
     assert '"cobranca"' not in texto.split("population")[0]
 
 
 def test_ligado_o_prompt_e_o_v6_e_so_ele_conhece_cobranca() -> None:
     v6 = classify_prompt(roteador_lucas=True)
     assert v6 != classify_prompt()
-    assert CLASSIFY_PROMPT_VERSION_ROTEADOR == "classify-v6.2"
-    assert PROMPT_VERSIONS["classify_roteador"] == "classify-v6.2"
+    # DL-0086: o v7 acrescentou `consulta_valores` ao dominio de `cobranca_subtipo`.
+    assert CLASSIFY_PROMPT_VERSION_ROTEADOR == "classify-v7.1"
+    assert PROMPT_VERSIONS["classify_roteador"] == "classify-v7.1"
     assert '"cobranca"]' in v6
     for subtipo in _VALID_COBRANCA_SUBTIPOS:
         assert f'"{subtipo}"' in v6
@@ -161,10 +168,8 @@ def test_desligado_cobranca_e_intent_invalido() -> None:
 @pytest.mark.parametrize(
     ("dados", "falha"),
     [
-        ({"cobranca_subtipo": "estorno"}, "invalid_cobranca_subtipo"),
-        ({"cobranca_subtipo": None}, "invalid_cobranca_subtipo"),
-        ({"cobranca_subtipo": ["boleto_2via"]}, "invalid_cobranca_subtipo"),
-        ({"intent": "information", "cobranca_subtipo": "boleto_2via"}, "invalid_cobranca_subtipo"),
+        # DL-0088: subtipo fora do dominio deixou de ser falha (normalizado no lugar) — ver
+        # `test_helena_teste_real_12_10.py::test_subtipo_fora_do_dominio_e_normalizado_e_nao_e_falha`.
         ({"competencia": "09/2026"}, "invalid_competencia"),
         ({"competencia": "2026-13"}, "invalid_competencia"),
         ({"competencia": 202609}, "invalid_competencia"),
@@ -184,8 +189,9 @@ async def test_desligado_o_grafo_nao_tem_o_no_de_passagem() -> None:
 async def test_desligado_um_cobranca_do_modelo_vira_falha_tecnica_como_hoje() -> None:
     compilado, sender, _ = _grafo(_FakeInference([_json(), _json(), _HANDOFF, "resumo"]), ligado=False)
     resultado = await compilado.ainvoke(_entrada())
-    assert resultado["escalation_motivo"] == "falha_tecnica"
-    assert "invalid_intent" in resultado["error"]
+    # DL-0093 (rodada 6): a primeira falha do classificador, sem assunto de saude, pede o reenvio.
+    assert resultado.get("escalation_motivo") is None
+    assert resultado["response_text"] == RESPOSTA_PECA_REENVIO
     assert resultado.get("handoff") is None
     assert FRASE_PASSAGEM_COBRANCA not in [t for _, t in sender.sent]
 
@@ -202,6 +208,8 @@ async def test_ligado_cobranca_limpa_passa_ao_lucas_com_a_frase() -> None:
         "para": "lucas",
         "cobranca_subtipo": "boleto_2via",
         "competencia": "2026-09",
+        # DL-0087: "preciso da segunda via do boleto" nao casa nenhum termo do lexico de foco.
+        "cobranca_foco": "geral",
         "message_ref": _REF,
     }
     assert [t for _, t in sender.sent] == [FRASE_PASSAGEM_COBRANCA]
@@ -213,7 +221,13 @@ async def test_ligado_cobranca_limpa_passa_ao_lucas_com_a_frase() -> None:
 async def test_ligado_o_handoff_nao_carrega_texto_do_beneficiario() -> None:
     compilado, _, _ = _grafo(_FakeInference([_json()]))
     resultado = await compilado.ainvoke(_entrada(message_body="boleto 2a via por favor"))
-    assert set(resultado["handoff"]) == {"para", "cobranca_subtipo", "competencia", "message_ref"}
+    assert set(resultado["handoff"]) == {
+        "para",
+        "cobranca_subtipo",
+        "competencia",
+        "cobranca_foco",
+        "message_ref",
+    }
     assert "boleto 2a via" not in json.dumps(resultado["handoff"])
 
 
@@ -272,14 +286,25 @@ async def test_ligado_cobranca_com_risco_psicossocial_e_p1() -> None:
     assert FRASE_PASSAGEM_COBRANCA not in [t for _, t in sender.sent]
 
 
-async def test_ligado_cobranca_com_lexico_de_pessoa_e_solicitacao_humano() -> None:
+async def test_ligado_cobranca_com_lexico_de_pessoa_vai_ao_lucas() -> None:
+    """DL-0092 (rodada 5 do simulador): cobranca no texto vai ao Lucas mesmo com pedido de pessoa — so'
+    pedido de pessoa SEM cobranca recebe o caso da Helena."""
     compilado, sender, _ = _grafo(_FakeInference([_json()]))
     resultado = await compilado.ainvoke(
         _entrada(message_body="quero falar com um atendente sobre o boleto", pedido_humano_lexico=True)
     )
+    assert resultado.get("escalation_motivo") is None
+    assert resultado["handoff"]["cobranca_subtipo"] == "boleto_2via"
+    assert FRASE_PASSAGEM_COBRANCA in [t for _, t in sender.sent]
+
+
+async def test_ligado_pedido_de_pessoa_sem_cobranca_e_solicitacao_humano() -> None:
+    compilado, _, _ = _grafo(_FakeInference([_json(intent="human_request", cobranca_subtipo=None), _HANDOFF]))
+    resultado = await compilado.ainvoke(
+        _entrada(message_body="quero falar com um atendente", pedido_humano_lexico=True)
+    )
     assert resultado["escalation_motivo"] == "solicitacao_humano"
     assert resultado.get("handoff") is None
-    assert FRASE_PASSAGEM_COBRANCA not in [t for _, t in sender.sent]
 
 
 async def test_o_lexico_de_pessoa_nao_reabre_a_pergunta_de_identidade() -> None:
@@ -299,20 +324,24 @@ async def test_ligado_cobranca_com_lexico_de_saude_nunca_vai_ao_lucas() -> None:
     assert FRASE_PASSAGEM_COBRANCA not in [t for _, t in sender.sent]
 
 
-@pytest.mark.parametrize("bruto", ["nao e json", '{"intent": "cobranca"}', _json(cobranca_subtipo="estorno")])
+# DL-0088: subtipo fora do dominio deixou de ser falha (vira `consulta_valores`); competencia torta continua.
+@pytest.mark.parametrize("bruto", ["nao e json", '{"intent": "cobranca"}', _json(competencia="09/2026")])
 async def test_ligado_classify_falho_nunca_vai_ao_lucas(bruto: str) -> None:
+    """DL-0093 (rodada 6): a primeira falha do classificador, sem assunto de saude, pede o reenvio e nao
+    escala; nunca vai ao Lucas."""
     compilado, sender, _ = _grafo(_FakeInference([bruto]))
     resultado = await compilado.ainvoke(_entrada())
     assert resultado.get("handoff") is None
-    assert resultado["escalation_motivo"] == "falha_tecnica"
-    assert FRASE_PASSAGEM_COBRANCA not in [t for _, t in sender.sent]
+    assert resultado.get("escalation_motivo") is None
+    assert [t for _, t in sender.sent] == [RESPOSTA_PECA_REENVIO]
 
 
 async def test_ligado_provedor_fora_nunca_vai_ao_lucas() -> None:
     compilado, _, _ = _grafo(_FakeInference(fail=True))
     resultado = await compilado.ainvoke(_entrada())
     assert resultado.get("handoff") is None
-    assert resultado["escalation_motivo"] == "falha_tecnica"
+    assert resultado.get("escalation_motivo") is None
+    assert resultado["response_text"] == RESPOSTA_PECA_REENVIO
 
 
 async def test_ligado_sem_referencia_da_mensagem_nao_passa() -> None:
@@ -334,6 +363,8 @@ async def test_ligado_sem_referencia_da_mensagem_nao_passa() -> None:
         ({"pedido_humano_lexico": True}, "pedido_humano_lexico"),
         ({"cobranca_subtipo": "estorno"}, "subtipo_fora_do_dominio"),
         ({"cobranca_competencia": "2026-9"}, "competencia_invalida"),
+        ({"cobranca_foco": "boleto"}, "foco_fora_do_dominio"),
+        ({"cobranca_foco": 1}, "foco_fora_do_dominio"),
     ],
 )
 def test_handoff_recusado_cobre_cada_precondicao(estado: dict[str, Any], token: str) -> None:
@@ -384,7 +415,7 @@ async def test_camada_dois_a_aresta_barra_um_handoff_injustificado() -> None:
 
 
 def test_a_frase_e_a_do_plano() -> None:
-    assert FRASE_PASSAGEM_COBRANCA == "Vou te passar para o atendimento de cobrança."
+    assert FRASE_PASSAGEM_COBRANCA == "Vou te passar para o Lucas, nosso assistente financeiro."  # DL-0087
 
 
 @pytest.mark.parametrize("rota", ["handoff", "inform"])
@@ -436,6 +467,31 @@ def test_gate_inbound_nao_deixa_um_mapeamento_cru_escolher_o_lucas() -> None:
     assert "handoff" not in gated
 
 
+def test_classify_v7_manda_pergunta_de_valor_para_consulta_valores() -> None:
+    """DL-0086: valor, coparticipacao, saldo, historico e data de pagamento sao `consulta_valores`;
+    pix, cartao, nota fiscal e informe de IR continuam `outro`. O texto do v7 diz isso ao modelo."""
+    v7 = " ".join(classify_prompt(roteador_lucas=True).split())
+    trecho_valores = v7.split('"consulta_valores" (')[1].split(")")[0]
+    for termo in ("mensalidade", "coparticipacao", "saldo", "historico", "foi paga"):
+        assert termo in trecho_valores, termo
+    trecho_outro = v7.split('"outro" (qualquer outra duvida de cobranca:')[1].split(")")[0]
+    for termo in ("pix", "cartao", "nota fiscal", "imposto de renda"):
+        assert termo in trecho_outro, termo
+    assert "valor da mensalidade" not in trecho_outro
+
+
+@pytest.mark.parametrize("subtipo", ["consulta_valores", "outro"])
+def test_ligado_consulta_valores_e_subtipo_valido(subtipo: str) -> None:
+    dados = json.loads(_json(cobranca_subtipo=subtipo))
+    assert _validate_extraction(dados, cobranca_habilitada=True) is None
+
+
+async def test_ligado_consulta_valores_passa_ao_lucas() -> None:
+    compilado, _, _ = _grafo(_FakeInference([_json(cobranca_subtipo="consulta_valores")]))
+    resultado = await compilado.ainvoke(_entrada(message_body="quanto foi minha mensalidade de setembro?"))
+    assert resultado["handoff"]["cobranca_subtipo"] == "consulta_valores"
+
+
 def test_os_subtipos_sao_os_do_roteador() -> None:
     from maezo.platform.webhooks.whatsapp.roteamento import COBRANCA_SUBTIPOS
 
@@ -449,3 +505,25 @@ def test_desfechos_e_rota_estao_no_vocabulario_de_telemetria() -> None:
         "helena"
     ]
     assert RESPONSE_KIND_HANDOFF in turn_telemetry._ROUTE_VOCAB["helena"]
+
+
+# --- DL-0087: o FOCO da pergunta de valor sai do texto, no classify ------------------------------
+
+
+@pytest.mark.parametrize(
+    ("texto", "foco"),
+    [
+        ("qual foi o valor da mensalidade de julho?", "valor"),
+        ("quanto paguei em maio?", "valor"),
+        ("quanto paguei de coparticipação este mês?", "coparticipacao"),
+        ("quanto devo?", "saldo"),
+        ("quando paguei a mensalidade de setembro?", "pagamento"),
+        ("quando vence a mensalidade?", "vencimento"),
+        ("me fala da mensalidade de julho", "geral"),
+    ],
+)
+async def test_o_handoff_leva_o_foco_decidido_pelo_texto(texto: str, foco: str) -> None:
+    compilado, _, _ = _grafo(_FakeInference([_json(cobranca_subtipo="consulta_valores")]))
+    resultado = await compilado.ainvoke(_entrada(message_body=texto))
+    assert resultado["handoff"]["cobranca_foco"] == foco
+    assert texto not in json.dumps(resultado["handoff"], ensure_ascii=False)

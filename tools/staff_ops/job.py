@@ -135,6 +135,23 @@ def store_ledger(client, bucket: str, key: str, path: Path = LEDGER_PATH) -> str
     return str(response.get("VersionId") or "unversioned")
 
 
+def forward_events(stderr: str) -> list[str]:
+    """Os eventos do job que podem ir ao log: SO' os de nome e campos fechados, re-renderizados.
+
+    Qualquer outra linha do stderr (traceback, texto livre) NAO e' repassada: so' a ultima linha
+    (`publication refused: <Tipo>:<motivo>`) sai, como antes. No maximo `MAX_FORWARDED_EVENTS`
+    por rodada; a contagem completa esta' em `JobResult.tasks_skipped`.
+    """
+    from maezo.gateway.human.publication_events import MAX_FORWARDED_EVENTS, forwardable
+
+    out: list[str] = []
+    for line in stderr.splitlines():
+        event = forwardable(line.strip())
+        if event is not None and len(out) < MAX_FORWARDED_EVENTS:
+            out.append(event)
+    return out
+
+
 def run_main() -> int:
     ok, detail = False, "falha"
     try:
@@ -156,7 +173,11 @@ def run_main() -> int:
             text=True,
             timeout=180,
         )
-        # O job so imprime o JobResult publico (contagens) ou `publication refused: <Tipo>`.
+        # O job so imprime o JobResult publico (contagens) ou `publication refused: <Tipo>:<motivo>`.
+        # Antes dele, os eventos estruturados (`human_task_skipped`, `human_publication_refused`)
+        # sao REPASSADOS ao CloudWatch, cada um re-renderizado pela cerca de campos fechados.
+        for event in forward_events(completed.stderr):
+            print(event)
         last = (completed.stdout.strip().splitlines() or completed.stderr.strip().splitlines() or [""])[-1][
             :400
         ]

@@ -42,7 +42,7 @@ KNOWN GAP, DISCLOSED (not a silent omission). `mcp-memory.read_write` is declare
 `spec/agents/*/agent.yaml` files and maps to the ratified `read_write_memory` (L3), but design
 §6.1's rung table declares NO action class for memory. Classifying it is the same kind of human
 act the manifest already reserves for the ~80 unmapped worker topics
-(`spec/policies/autonomy/action-approvals.yaml:653-656`: "decisão humana, não inferência de
+(`spec/policies/autonomy/action-approvals.yaml:672-675`: "decisão humana, não inferência de
 agente"), so no `memory.*` operation is catalogued here. Consequence, stated plainly: a memory
 seam routed through the chokepoint would DENY with `OPERACAO_DESCONHECIDA` — fail-closed, and
 inert today because nothing enforces. Design §8.5 item 2 (every declared `mcp-<server>.<action>`
@@ -188,6 +188,14 @@ ACTION_CLASSES: Final[MappingProxyType[str, ActionClassSpec]] = _classes(
         novo=True,
     ),
     # -- C3: engine mutation ---------------------------------------------------------------------
+    # ESCRITA no lago da AMH (DL-0083, revisao do #700): o registro do consentimento (ACEITO/REVOGAR) muda
+    # um fato FORA do Maezo, entao nao pode viver sob uma classe de LEITURA. Negado, degrada para o que o
+    # acesso ja' declara: a decisao vale aqui e o registro fica PENDENTE e visivel (lacuna declarada).
+    ActionClassSpec(
+        name="registro_consentimento",
+        rung=RUNG_C3_MUTACAO_ENGINE,
+        denial_shape=SHAPE_LACUNA_DECLARADA,
+    ),
     ActionClassSpec(
         name="inicio_processo_regulatorio",
         rung=RUNG_C3_MUTACAO_ENGINE,
@@ -365,6 +373,23 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_billing_identity",
     ),
+    # -- Catalogo v4 do Lucas (DL-0114; manifests v1.10 e v1.11 PUBLISHED em 16/10/2026; executor
+    # `gateway/amh_interop.py::AmhV4Executor`). MESMA classe `leitura_phi_clinica` (C2, o degrau de leitura de
+    # maior sensibilidade; as 15 classes sao um contrato fechado) e `tool_id=None`. O DETALHAMENTO (total do
+    # pagador e valor por beneficiario, SEM nome) reusa a acao `read_member_billing_identity`; a 2a VIA
+    # (codigo de barras = CREDENCIAL DE PAGAMENTO, so' ao pagador PF verificado) tem acao PROPRIA,
+    # `read_member_payment_credential` (L3, declarada no `agent.yaml` do Lucas), para que a governanca possa
+    # desliga-la sem tocar a cobranca.
+    OperationSpec(
+        operation="amh.get_billing_detalhamento",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_billing_identity",
+    ),
+    OperationSpec(
+        operation="amh.get_billing_segunda_via",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_payment_credential",
+    ),
     # -- Fatos do plano na Helena pelo contrato TINA da AMH (manifest aditivo v1.2, DRAFT; executor
     # `gateway/amh_interop.py::AmhTinaExecutor`; DL de 07/10/2026). Mesma classe e mesma postura das
     # leituras acima (C2, `tool_id=None`), com acao PROPRIA (`read_member_plan_facts`, L3, declarada
@@ -384,6 +409,79 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         operation="amh.tina_get_requisicoes",
         action_class="leitura_phi_clinica",
         autonomy_action="read_member_plan_facts",
+    ),
+    # Dependentes do titular (decisao do dono de 13/10/2026; manifest aditivo v1.5): so' contagem e uma lista
+    # anonima (relacao, situacao, recem-nascido); nunca nome, CPF, ref nem nascimento do dependente.
+    OperationSpec(
+        operation="amh.tina_get_dependentes",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
+    # Cobertura por procedimento do plano do proprio beneficiario (decisao do dono D1 de 18/10/2026; manifest
+    # aditivo v1.9; executor `gateway/amh_interop.py::AmhTinaCoberturaExecutor`): fatos do cadastro (Rol,
+    # segmentacao, carencias), nunca autorizacao. Mesma acao dos fatos do plano.
+    OperationSpec(
+        operation="amh.tina_get_cobertura",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
+    # Carteirinha COMPLETA do proprio beneficiario verificado (decisao do dono de 17/10/2026, so' dev;
+    # manifest
+    # aditivo v1.12; executor `gateway/amh_interop.py::AmhTinaCarteirinhaExecutor`). O numero e' IDENTIFICADOR
+    # DE USO do plano: acao PROPRIA (`read_member_card_number`, L3, declarada no `agent.yaml` da Helena),
+    # como a
+    # 2a via do Lucas, para a governanca poder desliga-la sem tocar os fatos do plano.
+    OperationSpec(
+        operation="amh.tina_get_carteirinha",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_card_number",
+    ),
+    # NOMES dos dependentes do PROPRIO titular verificado (decisao do dono e DPO de 19/10/2026, DL-0127, so'
+    # dev; manifest aditivo v1.13; executor `AmhTinaDependentesNomeExecutor`). Acao PROPRIA
+    # (`read_member_dependent_names`, L3) para a governanca poder desliga-la sem tocar os fatos do plano.
+    # CATALOGO de procedimentos resolvidos por codigo (DL-0128; manifest aditivo v1.14; executor
+    # `AmhTinaCatalogoExecutor`). Dado de REFERENCIA (sem pessoa), lido para a cobertura assistida da Helena:
+    # mesma classe e acao dos fatos do plano (a governanca liga/desliga junto com eles).
+    OperationSpec(
+        operation="amh.tina_get_catalogo_procedimentos",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
+    # CPT VIGENTE do proprio sujeito (caso C1 do dono e DPO de 20/10/2026, DL-0130; manifest aditivo v1.15;
+    # executor `AmhTinaCptExecutor`): sim/nao, contagem e maior data de fim, nunca o CID. Fato do plano:
+    # mesma classe e acao da cobertura (a governanca liga/desliga junto com ela).
+    OperationSpec(
+        operation="amh.tina_get_cpt_vigente",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_plan_facts",
+    ),
+    OperationSpec(
+        operation="amh.tina_get_dependentes_nome",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_dependent_names",
+    ),
+    # -- Acesso do beneficiario (DL-0083, 08/10/2026; manifest aditivo v1.3, DRAFT; executores em
+    # `gateway/amh_interop.py`). A CONFERENCIA tem a mesma classe e postura das leituras acima (C2,
+    # `tool_id=None`): so' manda o HASH do fator (nunca CPF/nascimento) contra uma referencia candidata e a
+    # AMH devolve um booleano. O REGISTRO de consentimento e' uma ESCRITA no lago da AMH: classe PROPRIA
+    # (`registro_consentimento`, C3) e acao propria (`record_member_consent`, L3, declarada no `agent.yaml`
+    # da Helena) — o que a governanca le' no rotulo tem de ser o que a chamada faz.
+    OperationSpec(
+        operation="amh.verify_subject",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_billing_identity",
+    ),
+    # Resolucao pelo DOCUMENTO do telefone SEM candidato (DL-0084, risco aceito pelo dono): consulta da
+    # mesma classe da conferencia; so' hashes (CPF e CPF + nascimento) vao a AMH, que devolve uma referencia.
+    OperationSpec(
+        operation="amh.resolve_by_document",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_member_billing_identity",
+    ),
+    OperationSpec(
+        operation="amh.record_consent",
+        action_class="registro_consentimento",
+        autonomy_action="record_member_consent",
     ),
     # -- WhatsApp send (C1). Leaf `tools/mcp_whatsapp/server.py:111`.
     OperationSpec(

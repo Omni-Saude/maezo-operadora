@@ -10,11 +10,39 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
   - roteamento_intencao                # classify() decide inform | schedule | escalate
   - escalonamento_humano               # SP-OP-ESCALATION-001 (unico efeito real desta jornada)
   - passagem_cobranca                  # onda (e) do numero unico (ADR-0062): cobranca -> Lucas, SO' com MAEZO_ROTEADOR_LUCAS ligado
+  # ESCOPO REAL (DL-0101, 14/10/2026; decisao do dono): a lista acima tinha so' os quatro itens originais.
+  - consulta_fatos_do_plano            # elegibilidade, carteirinha, carencia, autorizacao e dependentes (TINA, SO' com MAEZO_HELENA_CONSULTAS_AMH ligado); resposta so' com fatos do cadastro
+  - duvida_de_saude_sem_sintoma        # explica o que a Helena pode fazer; NUNCA orientacao clinica
+  - pedido_explicito_de_humano         # human_request -> SP-OP-ESCALATION-001 (solicitacao_humano)
+  - apresentacao_do_canal              # quem e' a Helena, o que faz, saudacao e despedida
+  # ESCOPO REAL EM DEV (DL-0128, 19/10/2026; atualizacao pedida pelo dono — a ficha estava desatualizada).
+  # Tudo abaixo e' MODELO DE TESTE do dono, so' em dev, atras de chave (desligada = a Helena de antes):
+  - informacao_de_saude_pela_base      # base curada spec/conhecimento/saude (ADR-0064/DL-0118, MAEZO_HELENA_BASE_SAUDE): informa, sem diagnostico, conduta ou dose
+  - redacao_de_saude_gerativa          # Haiku 5.5 rota global autorizada pelo DPO, so' na allowlist (ADR-0065/DL-0119); checagem antes de enviar; nunca fala de cobertura
+  - busca_por_significado              # Titan v2 regional sa-east-1 (DL-0121, MAEZO_HELENA_BUSCA_SEMANTICA)
+  - perguntas_de_alerta_e_especialista # Helena v4 (DL-0115): perguntas de alerta na dor sem alarme, especialista e carteirinha por texto fixo
+  - encerramento_de_caso_a_pedido      # recusa explicita com caso P2/P3 aberto encerra com confirmacao (DL-0118)
+  - cobertura_de_procedimento          # FATOS do cadastro (Rol x segmentacao, DUT, carencia; TINA cobertura v1.9) e a COBERTURA ASSISTIDA (DL-0128): extracao pelo GLM-5, traducao para o nome oficial (catalogo TINA v1.14, so' itens assistenciais), escolha do GLM-5 entre os candidatos com confirmacao de uma linha (DL-0129), conversa simples com o titular por padrao e a lista inteira (DL-0131), ate' 3 opcoes, 2 tentativas, equipe so' com "sim"; aviso GERAL de CPT so' para o titular com CPT vigente no cadastro (TINA cpt v1.15, DL-0130; nunca cita doenca; sem CPT, nada sobre CPT)
+  - carteirinha_completa_do_proprio    # numero completo so' do proprio verificado, so' no envio (v1.12, MAEZO_HELENA_CARTEIRINHA_COMPLETA)
+  - nome_completo_dos_dependentes      # so' dos dependentes do proprio titular, so' no envio (v1.13, DL-0127, MAEZO_HELENA_DEPENDENTES_NOME)
+  - passagem_cancelamento              # pedido de cancelamento -> Lucas (CANCEL-001 PF, DL-0111)
 out_of_scope:                          # o que Helena NAO faz, rastreado (nao e recusa muda)
   - id: agendamento_direto             # trabalho #1 do beneficiario (D9/D11) — nao entregue aqui
     fase: 0
     disposicao: "DL-0052 (01/10/2026): texto fixo fora do canal, sem caso; quem pede uma pessoa escala por human_request"
     onde: "graph.py:schedule() -> _start_escalation() (node dedicado; ver escalation.triggers abaixo)"
+  - id: orientacao_ou_diagnostico_clinico   # a Helena nunca orienta conduta nem diagnostica (L0 hard, ADR-0012)
+    fase: 0
+    disposicao: "sintoma -> tabela de red flag (DMN) e, se for o caso, escalonamento; pergunta clinica -> intencao_clinica"
+    onde: "graph.py:classify() -> escalate (motivos red_flag_clinico, intencao_clinica)"
+  - id: emissao_de_boleto_ou_segunda_via   # cobranca e' do Lucas; a Helena so' passa a conversa
+    fase: 0
+    disposicao: "passagem_cobranca (ADR-0062); sem o roteador ligado, texto fixo fora do canal"
+    onde: "graph.py:handoff_cobranca()"
+  - id: confirmacao_de_cobertura_de_procedimento_especifico   # a confirmacao OFICIAL e' a autorizacao
+    fase: 0
+    disposicao: "na allowlist (DL-0128) a Helena diz o que CONSTA no cadastro, nunca promete nem encerra com 'nao cobre'; a confirmacao oficial e' a analise da autorizacao. Fora da allowlist, RESPOSTA_COBERTURA_ESPECIFICA"
+    onde: "graph.py:consultar_plano() -> _cobertura_assistida() (cobertura_fluxo.py)"
 process_keys:
   - SP-OP-ESCALATION-001
 reports_to: "gestor.atendimento@amh"
@@ -42,7 +70,7 @@ security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  classify: classify-v5.3             # 01/10/2026: privacidade e armazenamento de dados sao `outside_channel`
+  classify: classify-v5.4             # 14/10/2026 (DL-0101): recem-nascido (codigos neonatais, idade 0). v5.3: 01/10/2026: privacidade e armazenamento de dados sao `outside_channel`
                                      # (J09). v5.1: autorizacao NEGADA e status de guia (B07).
                                      # v5 — 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO
                                      # CAMPOS DIFERENTES — `sintoma_codigo`/`intensidade`
@@ -56,13 +84,24 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # ("estou com dor de cabeca" nao e'
                                      # cefaleia_subita_intensa), e `intensidade` nunca e'
                                      # inferida do sintoma.
-  classify_roteador: classify-v6.2   # 02/10/2026: paragrafo de outside_channel com
+  classify_roteador: classify-v7.1   # 14/10/2026 (DL-0101): recem-nascido, como no v5.4. v7: 08/10/2026 (DL-0086): subtipo `consulta_valores` (valor, coparticipacao,
+                                     # saldo, historico, data de pagamento); pix/cartao/nota fiscal/IR seguem `outro`.
+                                     # v6.2 — 02/10/2026: paragrafo de outside_channel com
                                      # autorizacao negada e privacidade (DL-0063/0059). v6: onda (e) do numero unico (ADR-0062): usado SO' com o
                                      # roteador Helena -> Lucas ligado. Acrescenta a intencao
                                      # `cobranca` + `cobranca_subtipo`/`competencia` e tira
                                      # cobranca da lista de `outside_channel`. Desligado, o
                                      # classify e' o v5 byte a byte (sha256 fixado em teste).
-  response: response-v10              # 01/10/2026: o contexto deixa de levar o `motivo` da tabela de red flag
+  response: response-v14              # 13/10/2026 (DL-0090): `caso_aberto` no contexto; oferta de pessoa na
+                                     # forma aprovada. v13 — 13/10/2026 (DL-0089): uma assistente virtual; nunca negar dado de
+                                     # cobranca; nunca recomendar conduta clinica; regua de tom mais dura.
+                                     # v12 — 12/10/2026 (DL-0088): nunca dizer que nao ve dado nenhum da pessoa;
+                                     # plano -> aplicativo/portal, mensalidade/pagamentos -> "pergunte por aqui".
+                                     # v11 — 10/10/2026 (DL-0087): bloco TOM DA CONVERSA (curto, cordial,
+                                     # segunda pessoa, so' o perguntado, no maximo um emoji leve e nunca
+                                     # em tema clinico/risco/emergencia/negativa/encaminhamento); nenhuma
+                                     # cerca saiu. Guia: docs/guia-de-tom-dos-agentes.md.
+                                     # v10 — 01/10/2026: o contexto deixa de levar o `motivo` da tabela de red flag
                                      # (era repetido ao beneficiario como "nao ha sinais de alerta" e como
                                      # diagnostico). v9 — 21/09/2026, QUARTA RODADA: UMA instrucao nova — REPITA
                                      # O NOME DO CANAL EM CADA MENCAO ("o portal do plano
@@ -93,8 +132,9 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # do dado lembrado + orientacao por populacao (v4-memoria).
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
-  coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v9          # 01/10/2026: cerca de FINALIDADE do canal (DL-0063) e alegacao
+  coleta: coleta-v2                   # 14/10/2026 (DL-0097): a pergunta e' sobre QUEM TEM O SINTOMA (terceira
+                                     # pessoa; recem-nascido). v1 — passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
+  recusa_de_saida: recusa-v11         # 01/10/2026: cerca de FINALIDADE do canal (DL-0063) e alegacao
                                       # sobre o tratamento dos dados (DL-0064).
                                       # v8 — 21/09/2026, QUINTA RODADA: negacao testada ONDE nega
                                       # (lookbehind antes da acao) + `numero` volta a ser pista
@@ -146,12 +186,13 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # clinica, promessa de humano e de capacidade (PR #395).
   classify_historico: classify-historico-v1  # 07/10/2026 (DL-0080): adendo do historico curto, so' com MAEZO_HELENA_HISTORICO
   response_historico: response-historico-v1  # 07/10/2026 (DL-0080): idem, so' na redacao do inform
-  classify_consultas: classify-consultas-v1  # 07/10/2026 (DL de fatos do plano): ADENDO ao classify,
+  classify_consultas: classify-consultas-v2  # 14/10/2026 (DL-0100): + subtipo `dependentes`. v1: 07/10/2026 (DL de fatos do plano): ADENDO ao classify,
                                      # SO' com MAEZO_HELENA_CONSULTAS_AMH ligada: intent
                                      # `consulta_plano` + `consulta_subtipo` (elegibilidade,
                                      # carteirinha, carencia, autorizacao). Desligada, o classify
                                      # e' o de antes byte a byte.
-  consulta_plano: consulta-plano-v1  # 07/10/2026: redacao da resposta com os FATOS do cadastro
+  consulta_plano: consulta-plano-v2  # 10/10/2026 (DL-0087): regra 7, tom humanizado (sem emoji).
+                                     # v1 — 07/10/2026: redacao da resposta com os FATOS do cadastro
                                      # (contrato TINA da AMH) num bloco delimitado; recusa da
                                      # cerca propria = resposta deterministica so' com os fatos.
 
@@ -177,6 +218,11 @@ tools:                               # ids EXATOS registrados pelos mcp_* server
                                       # 3), arquivo CODEOWNED. Mesma especie da excecao de
                                       # gustavo em mcp-cibseven.*.
   - mcp-cibseven.start_process        # somente SP-OP-ESCALATION-001 (start idempotente)
+  - mcp-cibseven.correlate_process_message  # somente `msg.escalation.withdrawn` do SP-OP-ESCALATION-001
+                                      # v1.1.0 (DL-0118/ADR-0064): encerra o caso P2/P3 a pedido da
+                                      # pessoa, com confirmacao, auditado antes do efeito
+                                      # (`correlate_message_audited`); DESLIGADO por padrao
+                                      # (MAEZO_HELENA_BASE_SAUDE)
   - mcp-whatsapp.send_message         # alias registrado de send_text (efeito L3)
   - mcp-memory.read_write             # working/episodic/semantic (ADR-0002) — alias registrado;
                                        # excecao disclosed do fence §8.5 item 2 (nenhum no vivo
@@ -187,6 +233,7 @@ autonomy_policy: ../../policies/autonomy
 autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas por esta jornada
   - query_decision_engine             # DMN de triagem (mcp-dmn.evaluate) — L3
   - start_compliance_process          # SP-OP-ESCALATION-001 (mcp-cibseven.start_process) — L2
+  - correlate_process_message         # encerramento a pedido (msg.escalation.withdrawn) — L2; DL-0118
   # read_phi_data REMOVIDO (NEW-09, WP FHIR-TOOL-SURFACE-PARITY): nenhum no de helena le FHIR
   # (`graph.py` nao tem campo `_fhir`), entao declarar a acao seria afirmar uma capacidade que a
   # jornada nao exerce. ISTO E HIGIENE DE SPEC, NAO UMA SEGUNDA CAMADA DE ENFORCEMENT: o L2 do
@@ -217,6 +264,20 @@ autonomy_actions:                     # acoes REAIS da matriz L0-core exercidas 
                                        # requisicoes) pelo contrato AMH `tina` (manifest v1.2, DRAFT);
                                        # L3 leitura, mesma classe/governanca da acao acima; sem tool MCP;
                                        # DESLIGADA por padrao (MAEZO_HELENA_CONSULTAS_AMH, DL de 07/10/2026)
+                                       # (tambem a CPT vigente `tina-cpt`, manifest v1.15, DL-0130)
+  - read_member_card_number           # numero COMPLETO da carteirinha do PROPRIO verificado pelo contrato AMH
+                                       # `tina-carteirinha` (manifest v1.12), so' por texto fixo; L3 leitura;
+                                       # sem tool MCP; DESLIGADA por padrao (MAEZO_HELENA_CARTEIRINHA_COMPLETA,
+                                       # decisao do dono de 17/10/2026, so' dev)
+  - read_member_dependent_names       # NOMES COMPLETOS dos dependentes do PROPRIO titular verificado pelo
+                                       # contrato AMH `tina-dependentes-nome` (manifest v1.13), so' por texto
+                                       # fixo no envio; L3 leitura; sem tool MCP; DESLIGADA por padrao
+                                       # (MAEZO_HELENA_DEPENDENTES_NOME, decisao do dono e DPO de 19/10/2026,
+                                       # DL-0127, so' dev)
+  - record_member_consent             # registro do consentimento (ACEITO/REVOGAR) no lago da AMH pelo contrato
+                                       # `consent-record` (manifest v1.3, DRAFT); L3, escrita idempotente;
+                                       # DESLIGADA por padrao (MAEZO_ACESSO_BENEFICIARIO, DL-0083). A verificacao
+                                       # por fator (CPF) reusa `read_member_billing_identity`
   - read_write_memory                 # memoria episodica/semantica (mcp-memory.read_write) — L3;
                                        # excecao disclosed (fence §8.5 item 2), sem no vivo hoje
   # query_process_status removido: nenhum no exerce mcp-cibseven.get_process_status hoje
@@ -252,7 +313,23 @@ escalation:
       # (`owners.clinico`, no topo deste arquivo, segue vazio): ver docs/adr/0059-conduta-da-
       # helena-recusa-por-grupo-e-sintoma-fora-da-tabela.md, que existe para ser ratificado OU
       # DERRUBADO.
+      # LOOP = REPETICAO DA HELENA (DL-0147, 19/10/2026; pendencia 16 da planilha do diretor). O
+      # "loop" deste gatilho (e da regra `r6` de escalation_routing.dmn, "Falha tecnica do agente
+      # (loop, tool down)") e' a Helena prestes a mandar, pela N+1-esima vez SEGUIDA, a MESMA resposta
+      # (>= 60 caracteres, comparada sem o prefixo de variacao) que ja' saiu nas N falas anteriores dela
+      # no historico curto. Escala `falha_tecnica`, severidade `null` (HEL-04), pelo mesmo start
+      # idempotente e com o mesmo texto fixo de handoff; nunca com caso ja' aberto na conversa.
+      # A pessoa repetindo a pergunta NAO conta aqui (e' o "frustracao 2x" de AGJ-HELENA-TRIAGE,
+      # `solicitacao_humano`, outro gatilho). O parametro mora em `escalation.loop` logo abaixo (cada
+      # entrada de `triggers` e' um mapeamento de UMA chave, cerca de tests/evals/test_trigger_coverage.py).
     - signal: psychosocial_risk       # suicidio/autolesao   -> risco_psicossocial (sempre)
+  loop:                               # parametro do `signal: tool_failure` (loop) acima — DL-0147
+    repeticoes_para_escalar: 2        # APROVADO pelo dono em 19/10/2026 (DL-0147). Origem do 2: o unico
+                                      # numero da spec para conversa que nao avanca ("frustracao
+                                      # detectada 2x", AGJ-HELENA-TRIAGE.md), e o menor que nao escala
+                                      # na primeira repeticao (que `_sem_repetir` ja' varia). Igualdade
+                                      # com `graph.REPETICOES_PARA_ESCALAR` fixada em teste.
+    status: APROVADO_PELO_DONO
 memory:
   episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)
   semantic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)

@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: vac-pneumococica
+categoria: vacina
+titulo: Vacina pneumocócica
+sinonimos:
+- vacina pneumo
+- pneumocócica
+- pneumococo
+- vacina contra pneumonia
+- pneumo 10
+- pneumo 20
+- vacina pneumocócica conjugada
+- vacina pneumocócica
+texto: A vacina pneumocócica protege contra doenças causadas pela bactéria pneumococo, como as chamadas doenças pneumocócicas invasivas. Entre elas estão infecções graves, como pneumonia e meningite. O Calendário Nacional de Vacinação, do Ministério da Saúde, define quem pode receber a vacina. Para saber se é o seu caso, procure uma unidade de saúde ou o seu médico.
+tipo_texto: proprio
+fontes:
+- nome: Ministério da Saúde — Calendário Nacional de Vacinação
+  url: https://www.gov.br/saude/pt-br/vacinacao/calendario
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/vacinacao/calendario
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

@@ -331,6 +331,12 @@ class EngineRest:
             )
         return tasks
 
+    async def get_task_raw(self, task_id: str) -> dict[str, Any]:
+        """DTO cru da User Task (`GET /task/{id}`), com `created` e `due` (DL-0145)."""
+        resp = await self._client.get(f"/task/{task_id}")
+        resp.raise_for_status()
+        return dict(resp.json())
+
     async def await_user_task(
         self, instance_id: str, task_definition_key: str, *, attempts: int = 40, delay: float = 0.25
     ) -> UserTask:
@@ -592,14 +598,23 @@ class EngineRest:
         return rows, dict(resp.headers), resp.status_code
 
     async def history_decision_instances(
-        self, *, instance_id: str | None = None, decision_key: str | None = None
+        self,
+        *,
+        instance_id: str | None = None,
+        decision_key: str | None = None,
+        include_outputs: bool = False,
     ) -> list[dict[str, Any]]:
-        """Historico de avaliacoes DMN (`GET /history/decision-instance`)."""
+        """Historico de avaliacoes DMN (`GET /history/decision-instance`).
+
+        `include_outputs=True` traz as saidas avaliadas (`outputs[].variableName/value`).
+        """
         params: dict[str, str] = {}
         if instance_id is not None:
             params["processInstanceId"] = instance_id
         if decision_key is not None:
             params["decisionDefinitionKey"] = decision_key
+        if include_outputs:
+            params["includeOutputs"] = "true"
         resp = await self._client.get("/history/decision-instance", params=params)
         resp.raise_for_status()
         return list(resp.json())

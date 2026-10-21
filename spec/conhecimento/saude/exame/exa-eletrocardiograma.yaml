@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: exa-eletrocardiograma
+categoria: exame
+titulo: Eletrocardiograma
+sinonimos:
+- eletrocardiograma
+- ecg
+- eletro
+- eletro do coracao
+- eletro do coração
+texto: O eletrocardiograma registra a atividade elétrica do coração. É rápido, sem dor, feito com adesivos no peito, braços e pernas. Ajuda a avaliar o ritmo do coração e sinais de sofrimento do músculo cardíaco.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Padrão TISS / Terminologia Unificada da Saúde Suplementar (TUSS)
+  url: https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-17
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

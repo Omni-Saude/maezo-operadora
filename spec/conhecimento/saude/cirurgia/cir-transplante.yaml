@@ -1,0 +1,34 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: cir-transplante
+categoria: cirurgia
+titulo: Transplante de órgãos e tecidos
+sinonimos:
+- transplante
+- transplante de orgao
+- transplante de órgão
+- transplante de rim
+- transplante de figado
+- transplante de fígado
+- transplante de medula
+- transplante de cornea
+- transplante de córnea
+texto: O transplante substitui um órgão ou tecido doente por um saudável, vindo de um doador. Exemplos são rim, fígado, coração, córnea e medula óssea. Exige acompanhamento médico e remédios contra a rejeição por muito tempo.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Padrão TISS / Terminologia Unificada da Saúde Suplementar (TUSS)
+  url: https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss
+  licenca: texto próprio da operadora
+  coletado_em: &id001 2026-10-17
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: *id001
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

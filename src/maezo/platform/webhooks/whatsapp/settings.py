@@ -279,6 +279,21 @@ class WhatsAppWebhookSettings(BaseSettings):
         le=1440,
         validation_alias=AliasChoices("MAEZO_LUCAS_INATIVIDADE_MINUTOS", "lucas_inatividade_minutos"),
     )
+    # POLITICA DE ATRASO do Lucas (decisao do dono, sessao de 14/10/2026): so' o atraso CRITICO de pagador PF
+    # abre caso humano — `meses_min` competencias sem pagamento OU mais de `dias_min` dias de atraso. Abaixo
+    # disso o Lucas responde os fatos e oferece uma pessoa. Padrao: 2 meses e 30 dias.
+    lucas_atraso_meses_min: int = Field(
+        default=2,
+        ge=1,
+        le=24,
+        validation_alias=AliasChoices("MAEZO_LUCAS_ATRASO_MESES_MIN", "lucas_atraso_meses_min"),
+    )
+    lucas_atraso_dias_min: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        validation_alias=AliasChoices("MAEZO_LUCAS_ATRASO_DIAS_MIN", "lucas_atraso_dias_min"),
+    )
     # Fonte dos fatos de cobranca do Lucas. `simulada` (o default) ou `amh` — a fonte REAL pelos
     # contratos `billing-status`/`subject-resolution` da AMH (decisao do dono 06/10/2026). `amh` so'
     # sobe com os contratos publicados e pinados e com toda a configuracao abaixo; faltando qualquer
@@ -305,6 +320,14 @@ class WhatsAppWebhookSettings(BaseSettings):
     # executor do gateway aceita ate' 30 s), para o prazo por chamada nunca ser o limite que derruba
     # uma resolucao que caberia no total. Medido em dev (07/10/2026): ~3 s + ~2-3 s; o antigo 6 s fixo
     # estourava com a AMH tendo achado a pessoa. A faixa recusa no boot o que nao faz sentido.
+    # Prazo (s) da leitura de cobranca do Lucas na AMH (`FonteCobrancaAmh`). Tem de ser MAIOR que o prazo do
+    # interop para o Athena (`athena_timeout_s`, 10 s em dev, AMH #230), senao o Maezo desiste antes.
+    lucas_cobranca_prazo_s: float = Field(
+        default=15.0,
+        ge=1.0,
+        le=30.0,
+        validation_alias=AliasChoices("MAEZO_LUCAS_COBRANCA_PRAZO_S", "lucas_cobranca_prazo_s"),
+    )
     helena_identidade_prazo_s: float = Field(
         default=15.0,
         ge=1.0,
@@ -318,6 +341,86 @@ class WhatsAppWebhookSettings(BaseSettings):
     helena_historico: bool = Field(
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_HISTORICO", "helena_historico"),
+    )
+    # NOVA TRIAGEM DA HELENA (DL-0104, 14/10/2026): experimento em DEV. DESLIGADA por padrao, e desligada
+    # e' a Helena de antes byte a byte. Ligada, a tabela `helena_triage_admissibility` decide a saida do
+    # turno depois dos portoes de seguranca (alarme, risco, pessoa, ANS/Procon, cobranca, plano): pergunta
+    # clinica sem sintoma deixa de abrir caso, sintoma faz ficha de ate' 3 perguntas e recebe o caminho.
+    # CONTEUDO CLINICO DRAFT, pendente do medico-auditor — nao ligar fora de dev sem a ratificacao.
+    helena_triagem_v2: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_TRIAGEM_V2", "helena_triagem_v2"),
+    )
+    # HELENA V4 (DL-0115, 16/10/2026): catalogo de necessidades v4 do dono, SO' em DEV. DESLIGADA por
+    # padrao, e desligada e' a Helena de antes byte a byte. Ligada: o especialista e a carteirinha recebem
+    # texto fixo (onde marcar, prazo da ANS, dados mascarados) e o sintoma leve recebe so' perguntas de alerta
+    # antes do caminho. Com ela ligada a nova triagem (`helena_triagem_v2`) fica inerte. CONTEUDO CLINICO
+    # DRAFT, pendente do medico-auditor; o prazo de 14 dias uteis (especialista) e' RASCUNHO a confirmar
+    # pelo juridico.
+    helena_v4: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_V4", "helena_v4"),
+    )
+    # CARTEIRINHA COMPLETA E VINCULO ATIVO (decisao do dono de 17/10/2026, "modelo de teste" SO' em DEV,
+    # reversivel). DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: no tipo de
+    # plano (`elegibilidade`) e na carteirinha a Helena mostra SO' os vinculos ATIVOS, e a carteirinha (sempre
+    # deterministica) traz o NUMERO COMPLETO do proprio beneficiario verificado, por texto fixo, quando a rota
+    # `tina-carteirinha` (manifest v1.12, escopo `interop/tina.carteirinha`) responde — senao, o mascarado.
+    helena_carteirinha_completa: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_CARTEIRINHA_COMPLETA", "helena_carteirinha_completa"),
+    )
+    # NOME COMPLETO DOS DEPENDENTES (decisao do dono e DPO de 19/10/2026, DL-0127, "modelo de teste" SO' em
+    # DEV, reversivel). DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: quando o
+    # assunto e' dependente (lista de dependentes, "para quem e'?" da cobertura), a Helena mostra ao PROPRIO
+    # titular verificado o nome completo de cada dependente do contrato dele, por texto fixo no envio, quando
+    # a rota `tina-dependentes-nome` (manifest v1.13, escopo `interop/tina.dependentes_nome`) responde.
+    helena_dependentes_nome: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_DEPENDENTES_NOME", "helena_dependentes_nome"),
+    )
+    # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, 17/10/2026): MODELO DE TESTE do dono, SO' em DEV.
+    # DESLIGADA por padrao, e desligada e' a Helena de antes byte a byte. Ligada: a Helena INFORMA (sem
+    # diagnosticar, sem conduta, sem dose) perguntas gerais de saude a partir da base curada versionada
+    # (`spec/conhecimento/saude`), sem abrir caso; dor sem sinal de alarme recebe perguntas de alerta antes do
+    # caso (com a v4 ligada); e a recusa explicita com caso aberto encerra o caso P2/P3 com confirmacao.
+    # Revisao medica e juridica pendentes antes de producao.
+    helena_base_saude: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_BASE_SAUDE", "helena_base_saude"),
+    )
+    # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
+    # informativas de saude (com checagem antes de enviar), pela ROTA PROPRIA
+    # `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono
+    # autorizou como DPO SO' para as conversas da allowlist abaixo, SO' em dev. DESLIGADA por padrao; so' tem
+    # efeito com `helena_base_saude` ligada. Fora da allowlist, a Helena de antes byte a byte.
+    helena_saude_gerativa: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_SAUDE_GERATIVA", "helena_saude_gerativa"),
+    )
+    # A allowlist: `conversation_id` keyed (`wa:{tenant}:hk1_...`), separados por virgula. Vazia = ninguem.
+    helena_saude_gerativa_conversas: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", "helena_saude_gerativa_conversas"
+        ),
+    )
+    # BUSCA POR SIGNIFICADO na base de saude (fase 3 de 18/10/2026, decisao do dono): embeddings de um modelo
+    # REGIONAL do Bedrock em sa-east-1 escolhem o APOIO da saude gerativa (nunca portao). So' tem efeito com a
+    # saude gerativa ligada e so' para a allowlist dela. DESLIGADA por padrao.
+    helena_busca_semantica: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA", "helena_busca_semantica"),
+    )
+    helena_busca_semantica_modelo: str = Field(
+        default="amazon.titan-embed-text-v2:0",
+        validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA_MODELO", "helena_busca_semantica_modelo"),
+    )
+    helena_busca_semantica_limiar: float = Field(
+        default=0.33,
+        ge=0.0,
+        le=1.0,
+        validation_alias=AliasChoices("MAEZO_HELENA_BUSCA_SEMANTICA_LIMIAR", "helena_busca_semantica_limiar"),
     )
     # AVISO DE IDENTIDADE (DL-0078, decisao do dono 07/10/2026): o nome de EXIBICAO da operadora nos
     # textos fixos de identidade da Helena ("Reconheci este numero no cadastro de beneficiarios da
@@ -341,12 +444,104 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("MAEZO_HELENA_CONSULTAS_AMH", "helena_consultas_amh"),
     )
 
+    # ACESSO DO BENEFICIARIO (DL-0083, decisao do dono 08/10/2026). DESLIGADO por padrao; desligado, o
+    # receptor e' o de sempre byte a byte. Ligado, TODA conversa passa antes por uma maquina de estados
+    # deterministica (consentimento -> CPF [-> nascimento] -> verificado), sem LLM, antes de qualquer
+    # agente. EXIGE o interop configurado, os escopos `interop/subject.verify` e `interop/consent.write`,
+    # a chave do hash de verificacao e os dois OpenAPI pinados: faltando qualquer peca o receptor
+    # RECUSA servir (nunca sobe "sem acesso" em silencio).
+    acesso_beneficiario: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_ACESSO_BENEFICIARIO", "acesso_beneficiario"),
+    )
+    # Validade da verificacao (CPF/nascimento) em horas. Passado esse prazo desde a verificacao, a
+    # proxima mensagem recomeca em `aguardando_cpf` (o consentimento vale ate' ser revogado).
+    acesso_validade_horas: int = Field(
+        default=24,
+        ge=1,
+        le=168,
+        validation_alias=AliasChoices("MAEZO_ACESSO_VALIDADE_HORAS", "acesso_validade_horas"),
+    )
+
+    # Limite de falhas de verificacao POR CPF (D-04, DL-0109): 3 em 6 h, somadas entre as conversas. LIGADO
+    # por padrao. A chave existe so' para DESLIGAR sem reverter codigo (revisao do #785), se o risco aceito
+    # (re-travar a verificacao de outra pessoa) virar incidente: desligado, vale so' o limite por conversa.
+    acesso_limite_cpf: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("MAEZO_ACESSO_LIMITE_CPF", "acesso_limite_cpf"),
+    )
+
+    # Apresentacao do canal (14/10/2026): depois de tantos dias SEM mensagens na conversa, a mensagem que diz
+    # o que o canal resolve volta a ser mostrada (ao fim da proxima verificacao). Tem de ser maior que a
+    # validade da verificacao (`acesso_validade_horas`, no maximo 168 h = 7 dias).
+    acesso_apresentacao_dias: int = Field(
+        default=30,
+        ge=8,
+        le=365,
+        validation_alias=AliasChoices("MAEZO_ACESSO_APRESENTACAO_DIAS", "acesso_apresentacao_dias"),
+    )
+
+    # VALORES NA RESPOSTA DO LUCAS (DL-0086, revisao de seguranca do PR #709). DESLIGADA por padrao, e
+    # desligada e' o Lucas de antes: a fonte AMH entrega so' os quatro fatos de conciliacao e a pergunta
+    # de valor (`consulta_valores`) escala. Ligada, a fonte AMH entrega tambem os FATOS DE VALOR
+    # (valores, coparticipacao, saldo, datas de pagamento, boleto mascarado) — e SO' para a ref. que veio
+    # da verificacao do acesso (DL-0083). EXIGE `acesso_beneficiario` ligada e `lucas_fonte_cobranca=amh`:
+    # sem verificacao quem segura o celular receberia os valores de outra pessoa (recusado aqui, no boot).
+    # A Helena classifica `consulta_valores` com a flag ligada ou nao (classify-v7 nao depende dela).
+    lucas_consulta_valores: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_LUCAS_CONSULTA_VALORES", "lucas_consulta_valores"),
+    )
+    # CANCELAMENTO A PEDIDO, PESSOA FISICA (DL-0111, aprovado pelo dono em 15/10/2026 para uso em dev;
+    # revisao juridica/regulatoria, DPO e operacao antes de producao). DESLIGADA por padrao, e desligada
+    # e' o Lucas de antes byte a byte (SP-OP-CANCEL-001 com fatos `false` -> analise humana). Ligada: o
+    # Lucas le os fatos do cancelamento nos contratos AMH ja' pinados (TINA elegibilidade + billing-status),
+    # dependente nao abre o processo, o titular PF abre SP-OP-CANCEL-001 com os fatos reais, o aviso de
+    # recebimento traz o protocolo e o processo devolve o resultado pela retomada (`agent_resume`).
+    cancel_pf_v1: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_CANCEL_PF_V1", "cancel_pf_v1"),
+    )
+
+    # LUCAS V4 (DL-0114, catalogo v4, aprovado pelo dono em 16/10/2026 para uso em dev; revisao juridica e do
+    # DPO antes de producao). DESLIGADA por padrao, e desligada e' o Lucas de antes byte a byte. Ligada: so' o
+    # pagador PF recebe valores e 2a via; o PF que nao e' o pagador ouve que o responsavel financeiro do
+    # contrato (sem nome) e' quem pode pedir; o pagador ouve o valor TOTAL da mensalidade primeiro. O
+    # detalhamento por beneficiario e o codigo de barras da 2a via dependem dos contratos novos da AMH
+    # (billing-status 0.4.0 e billing-segunda-via): so' ligam com o SEGUNDO SINAL
+    # (`fonte_v4.fonte_detalhamento_habilitada`), que exige os dois pinados em `contracts.lock.json`. EXIGE
+    # `lucas_consulta_valores` (sem fatos de valor nao ha' como saber quem e' o pagador).
+    lucas_v4: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_LUCAS_V4", "lucas_v4"),
+    )
+
+    @model_validator(mode="after")
+    def _lucas_v4_exige_valores(self) -> WhatsAppWebhookSettings:
+        if self.lucas_v4 and not self.lucas_consulta_valores:
+            raise ValueError(
+                "MAEZO_LUCAS_V4 exige MAEZO_LUCAS_CONSULTA_VALORES ligada "
+                "(sem os fatos de valor nao ha' como saber quem e' o pagador, DL-0114)"
+            )
+        return self
+
     @model_validator(mode="after")
     def _consultas_exigem_identidade(self) -> WhatsAppWebhookSettings:
         if self.helena_consultas_amh and not self.helena_identidade_amh:
             raise ValueError(
                 "MAEZO_HELENA_CONSULTAS_AMH exige MAEZO_HELENA_IDENTIDADE_AMH ligada "
                 "(sem identidade resolvida nao ha' de quem consultar os fatos do plano)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _valores_exigem_verificacao(self) -> WhatsAppWebhookSettings:
+        if self.lucas_consulta_valores and not (
+            self.acesso_beneficiario and self.lucas_fonte_cobranca == "amh"
+        ):
+            raise ValueError(
+                "MAEZO_LUCAS_CONSULTA_VALORES exige MAEZO_ACESSO_BENEFICIARIO ligada e "
+                "MAEZO_LUCAS_FONTE_COBRANCA=amh (valor so' para beneficiario verificado, DL-0086)"
             )
         return self
 
@@ -376,7 +571,10 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("MAEZO_AMH_INTEROP_CLIENT_ID", "amh_interop_client_id"),
     )
-    # Escopos pedidos no `client_credentials`, separados por espaco.
+    # Escopos pedidos no `client_credentials`, separados por espaco. O default e' o de SEMPRE: o Cognito
+    # recusa o token INTEIRO se o client nao tiver um escopo pedido, entao `interop/tina.read` e os do acesso
+    # (`interop/subject.verify`, `interop/consent.write`) so' entram pelo deploy junto com a flag de cada um
+    # (`amh_interop_scopes_efetivos` no Terraform) — nunca por default (revisao do #700, P1-a).
     amh_interop_scopes: str = Field(
         default="interop/billing.read interop/subject.resolve interop/profile.read",
         validation_alias=AliasChoices("MAEZO_AMH_INTEROP_SCOPES", "amh_interop_scopes"),
@@ -395,6 +593,28 @@ class WhatsAppWebhookSettings(BaseSettings):
     amh_phone_lookup_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("MAEZO_AMH_PHONE_LOOKUP_KEY"),
+        repr=False,
+        exclude=True,
+    )
+    # Lucas v4 (DL-0114): cliente Cognito DEDICADO da 2a via do boleto (`maezo-operadora-interop-boleto`,
+    # unico escopo `interop/billing.boleto`; o codigo de barras e' CREDENCIAL DE PAGAMENTO). O segredo chega
+    # so' pelo cofre.
+    amh_interop_boleto_client_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_BOLETO_CLIENT_ID", "amh_interop_boleto_client_id"),
+    )
+    amh_interop_boleto_client_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_INTEROP_BOLETO_CLIENT_SECRET"),
+        repr=False,
+        exclude=True,
+    )
+    # Chave DEDICADA do hash `amh-subject-verify-v1` (segredo `amh/interop/subject-verify-key`), que cobre
+    # CPF e CPF+nascimento na verificacao do acesso (DL-0083). Lida SO' com `acesso_beneficiario` ligada.
+    # Nao e' o `PHI_HMAC_KEY` nem a chave do telefone. Mesmo tratamento dos segredos acima.
+    amh_subject_verify_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_SUBJECT_VERIFY_KEY"),
         repr=False,
         exclude=True,
     )
@@ -420,11 +640,120 @@ class WhatsAppWebhookSettings(BaseSettings):
             "MAEZO_AMH_SUBJECT_RESOLUTION_OPENAPI_PATH", "amh_subject_resolution_openapi_path"
         ),
     )
+    # Os dois OpenAPI do acesso do beneficiario (DL-0083), lidos SO' com `acesso_beneficiario` ligada; os
+    # bytes so' valem com o digest no pin (ainda NAO publicados na AMH em 08/10/2026: inerte ate' la').
+    amh_subject_verification_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_SUBJECT_VERIFICATION_OPENAPI_PATH", "amh_subject_verification_openapi_path"
+        ),
+    )
+    # O billing-status 0.2.0 (manifest v1.4, decisao do DPO de 08/10/2026): a leitura de cobranca do Lucas
+    # com o acesso ligado declara `purpose_of_use=atendimento_whatsapp`. Lido SO' com o acesso ligado e a
+    # fonte AMH; sem ele (ou sem o bloco `manifest_v1_4` no pin) a composicao recusa e o receptor nao sobe.
+    amh_billing_status_atendimento_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_BILLING_STATUS_ATENDIMENTO_OPENAPI_PATH", "amh_billing_status_atendimento_openapi_path"
+        ),
+    )
+    # O billing-status 0.3.0 (manifest v1.6, decisao do dono de 14/10/2026), OPCIONAL: so' vale com o acesso
+    # ligado e a fonte AMH, no lugar do 0.2.0. Com o caminho, a leitura de cobranca pede
+    # `incluir_contratacao=true` e exige o bloco `manifest_v1_6` do pin (sem ele o receptor recusa servir);
+    # sem o caminho, e' o 0.2.0 de sempre.
+    amh_billing_status_contratacao_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_BILLING_STATUS_CONTRATACAO_OPENAPI_PATH", "amh_billing_status_contratacao_openapi_path"
+        ),
+    )
+    #: DL-0084 (AMH #214): o OpenAPI da resolucao pelo documento (telefone sem cadastro), 3o artefato do v1.3.
+    amh_document_resolution_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_DOCUMENT_RESOLUTION_OPENAPI_PATH", "amh_document_resolution_openapi_path"
+        ),
+    )
+    amh_consent_record_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_CONSENT_RECORD_OPENAPI_PATH", "amh_consent_record_openapi_path"
+        ),
+    )
+    # Lucas v4 (DL-0114): os OpenAPI do billing-status 0.4.0 (manifest v1.10, publicado em 16/10/2026) e da
+    # 2a via (billing-segunda-via 0.1.0, manifest v1.11). Lidos SO' com `lucas_v4` ligada; os bytes so'
+    # valem com o digest dos blocos `manifest_v1_10`/`manifest_v1_11` do pin. Sem os dois caminhos nao ha'
+    # executor e o segundo sinal (`fonte_v4.fonte_detalhamento_habilitada`) fica desligado.
+    amh_billing_status_detalhamento_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_BILLING_STATUS_DETALHAMENTO_OPENAPI_PATH",
+            "amh_billing_status_detalhamento_openapi_path",
+        ),
+    )
+    amh_billing_segunda_via_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_BILLING_SEGUNDA_VIA_OPENAPI_PATH", "amh_billing_segunda_via_openapi_path"
+        ),
+    )
     # O OpenAPI TINA (fatos do plano), lido SO' com `helena_consultas_amh` ligada; os bytes so' valem
-    # com o digest no bloco `manifest_v1_2` do pin (ainda DRAFT na AMH em 07/10/2026).
+    # com o digest no bloco `manifest_v1_2` do pin (publicado pela AMH em 13/10/2026, run 38346972222).
     amh_tina_openapi_path: str | None = Field(
         default=None,
         validation_alias=AliasChoices("MAEZO_AMH_TINA_OPENAPI_PATH", "amh_tina_openapi_path"),
+    )
+    # O OpenAPI da rota de dependentes (manifest v1.5, publicado em 13/10/2026, run 38489298542), OPCIONAL:
+    # so' vale junto com `helena_consultas_amh`. Com o caminho, o adaptador TINA le o digest do bloco
+    # `manifest_v1_5` do pin (sem ele o receptor recusa servir); sem o caminho, `get_dependentes` recusa
+    # fechado.
+    amh_tina_dependentes_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_DEPENDENTES_OPENAPI_PATH", "amh_tina_dependentes_openapi_path"
+        ),
+    )
+    # O OpenAPI da rota da CARTEIRINHA COMPLETA (`tina-carteirinha`, manifest v1.12), lido SO' com
+    # `helena_consultas_amh` E `helena_carteirinha_completa` ligadas. Os bytes so' valem com o digest no bloco
+    # `manifest_v1_12` do pin (sem ele o receptor recusa servir); sem a chave, nem o caminho e' lido.
+    amh_tina_carteirinha_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_CARTEIRINHA_OPENAPI_PATH", "amh_tina_carteirinha_openapi_path"
+        ),
+    )
+    # O OpenAPI da rota dos NOMES dos dependentes (`tina-dependentes-nome`, manifest v1.13), lido SO' com
+    # `helena_consultas_amh` E `helena_dependentes_nome` ligadas (digest no bloco `manifest_v1_13` do pin).
+    # O OpenAPI do CATALOGO de procedimentos (`tina-procedimentos`, manifest v1.14; DL-0128). Opcional: falha
+    # de
+    # leitura/digest deixa so' o catalogo de fora (a cobertura assistida usa a busca por texto da rota).
+    amh_tina_procedimentos_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_PROCEDIMENTOS_OPENAPI_PATH", "amh_tina_procedimentos_openapi_path"
+        ),
+    )
+    # O OpenAPI da CPT VIGENTE do proprio sujeito (`tina-cpt`, manifest v1.15; DL-0130). Opcional: falha de
+    # leitura/digest deixa so' a CPT de fora (a cobertura assistida responde sem o aviso de CPT).
+    amh_tina_cpt_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MAEZO_AMH_TINA_CPT_OPENAPI_PATH", "amh_tina_cpt_openapi_path"),
+    )
+    amh_tina_dependentes_nome_openapi_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_DEPENDENTES_NOME_OPENAPI_PATH", "amh_tina_dependentes_nome_openapi_path"
+        ),
+    )
+    # O OpenAPI da rota de COBERTURA POR PROCEDIMENTO (`tina-cobertura`, manifest v1.9, PUBLISHED em
+    # 16/10/2026; decisao do dono D1 de 18/10/2026), OPCIONAL: so' vale junto com `helena_consultas_amh`.
+    # Vazio = a rota nao entra. Preenchido, os bytes so' valem com o digest no bloco `manifest_v1_9` do pin;
+    # falha de leitura ou de digest deixa SO' a cobertura de fora (log de erro) e o resto segue.
+    amh_tina_cobertura_openapi_path: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "MAEZO_AMH_TINA_COBERTURA_OPENAPI_PATH", "amh_tina_cobertura_openapi_path"
+        ),
     )
 
     @model_validator(mode="before")
@@ -445,6 +774,8 @@ class WhatsAppWebhookSettings(BaseSettings):
                 ("verify_token", "WHATSAPP_VERIFY_TOKEN"),
                 ("amh_interop_client_secret", "MAEZO_AMH_INTEROP_CLIENT_SECRET"),
                 ("amh_phone_lookup_key", "MAEZO_AMH_PHONE_LOOKUP_KEY"),
+                ("amh_subject_verify_key", "MAEZO_AMH_SUBJECT_VERIFY_KEY"),
+                ("amh_interop_boleto_client_secret", "MAEZO_AMH_INTEROP_BOLETO_CLIENT_SECRET"),
             ):
                 if field_name in data:
                     data[canonical] = data.pop(field_name)

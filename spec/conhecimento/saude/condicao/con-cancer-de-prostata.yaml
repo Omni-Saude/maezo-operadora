@@ -1,0 +1,27 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-cancer-de-prostata
+categoria: condicao
+titulo: Câncer de próstata
+sinonimos:
+- cancer de prostata
+- câncer de próstata
+- tumor de prostata
+- tumor de próstata
+texto: Em sua fase inicial, o câncer da próstata tem evolução silenciosa. Na fase avançada, pode provocar dor óssea, sintomas urinários ou, quando mais grave, infecção generalizada ou insuficiência renal.
+tipo_texto: citacao_literal
+fontes:
+- nome: 'INCA — Câncer de próstata: versão para população'
+  url: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/prostata/versao-para-populacao
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: 7896053f8f27006b0a49354db44840baae8f567ed3ea5b2c63d7c22d69cce901
+link_leitura: https://www.gov.br/inca/pt-br/assuntos/cancer/tipos/prostata/versao-para-populacao
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

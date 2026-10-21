@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-bronquiolite
+categoria: condicao
+titulo: Bronquiolite
+sinonimos:
+- bronquiolite viral aguda
+- bva
+- bronquiolite em bebê
+- bronquiolite infantil
+- vsr
+- vírus sincicial respiratório
+- bronquiolite aguda
+- bronquiolite
+texto: A bronquiolite é uma doença respiratória que atinge bebês e crianças pequenas, em geral menores de dois anos. Ela causa inflamação nos bronquíolos, pequenas vias de ar dos pulmões, quase sempre por vírus. Os sinais mais comuns são coriza, tosse, febre, nariz entupido e chiado no peito. O tratamento é definido pelo médico e costuma ser de suporte, como lavagem nasal, hidratação e, em alguns casos, internação. Pediatras costumam cuidar dessa condição.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Bronquiolite Viral Aguda (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/b/bronquiolite
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/b/bronquiolite
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

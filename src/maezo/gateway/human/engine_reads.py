@@ -17,9 +17,10 @@ from maezo.portal.contracts.queues import TaskQueueRequest
 from maezo.portal.engine.profile import canonicalize
 
 from .completion import (
+    COMPLETION_FORM_KEY,
+    AnyCompletionOutcome,
     CompletionAck,
     CompletionAuditSink,
-    CompletionOutcome,
     DirectTaskCompletion,
     PseudonymizedNotes,
 )
@@ -39,6 +40,7 @@ from .queue import (
     TaskDisclosureSource,
 )
 from .queue_cursor import AeadQueueCursorCustody
+from .read_audit import ReadAccessAuditSink, read_audit_skipped
 from .read_credentials import unavailable
 from .read_profile import (
     AuthorityValue,
@@ -284,9 +286,10 @@ class EngineHumanTaskTransport(HumanTaskTransport):
         self,
         task_id: str,
         *,
-        resultado: CompletionOutcome,
-        notes: PseudonymizedNotes,
+        resultado: AnyCompletionOutcome,
+        notes: PseudonymizedNotes | None,
         expected_task_revision: int,
+        form_key: str = COMPLETION_FORM_KEY,
     ) -> CompletionAck:
         """INTERIM (DL-0049): the one write this Q2 read transport performs.
 
@@ -323,6 +326,7 @@ class EngineHumanTaskTransport(HumanTaskTransport):
                 resultado=resultado,
                 notes=notes,
                 expected_task_revision=expected_task_revision,
+                form_key=form_key,
             )
             if (
                 type(ack) is not CompletionAck
@@ -447,6 +451,7 @@ class EngineReadComposition:
         direct_completion: DirectTaskCompletion | None = None,
         completion_audit: CompletionAuditSink | None = None,
         escalation_context: EscalationContextSource | None = None,
+        read_audit: ReadAccessAuditSink | None = None,
     ) -> None:
         self._new_bundle = new_bundle
         self._transport_pool = transport_pool
@@ -463,6 +468,15 @@ class EngineReadComposition:
         # INTERIM (DL-0050): read-only, independent of the completion pair above, and dark unless a
         # composition installs it. `HumanGateway` checks its scope against its own.
         self._escalation_context = escalation_context
+        # DL-0149 (owner's decision, best-effort): a context source without the access record is
+        # composed anyway; the absence is logged here once and again on every read.
+        if escalation_context is not None and read_audit is None:
+            read_audit_skipped("sink_absent", "task_context")
+        self._read_audit = read_audit
+
+    @property
+    def read_audit(self) -> ReadAccessAuditSink | None:
+        return self._read_audit
 
     def build(self, resolver: HumanSessionResolver) -> HumanGateway:
         from .ports import BoundHumanPorts
@@ -494,6 +508,7 @@ class EngineReadComposition:
             ),
             completion_audit=self._completion_audit,
             escalation_context=self._escalation_context,
+            read_audit=self._read_audit,
             credentials=self._command_credentials,
             query=EngineHumanTaskQuery(bundle),
             catalog_anchor=bundle.anchor,

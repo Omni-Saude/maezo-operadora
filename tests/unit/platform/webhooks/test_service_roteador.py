@@ -46,7 +46,7 @@ def test_ligado_o_despachante_recebe_o_roteador_em_sombra() -> None:
     # roteador ja' nasce sabendo que ha' quem atenda. Sem `lucas_turno` no despachante, o
     # despachante nem pede handoff (sombra da onda c).
     assert roteador._lucas_disponivel is True
-    assert roteador.versao_lexicos == "pre-roteamento-v1"
+    assert roteador.versao_lexicos == "pre-roteamento-v2"
 
 
 def test_ligado_com_lexico_invalido_recusa_no_boot(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -267,6 +267,10 @@ async def test_amh_com_contratos_pinados_compoe_a_fonte_real_e_drena(
     assert turno is not None
     assert isinstance(turno.fonte, FonteCobrancaAmh)
     assert isinstance(turno.fonte._consentimento, BaseLegalExecucaoDeContrato)
+    # Revisao de seguranca do #709: fonte AMH com o acesso DESLIGADO (o estado de dev) nunca entrega
+    # fato de valor — o resolvedor e' o do telefone, que nao verifica quem segura o celular.
+    assert settings.acesso_beneficiario is False and settings.lucas_consulta_valores is False
+    assert turno.fonte._fatos_de_valor is False
     assert isinstance(turno.hash_telefone_amh, AmhPhoneLookupHasher)
     assert turno.hash_telefone_amh.amh_tenant == "austa_operadora"
     assert len(turno.hash_telefone_para_amh("5511987654321") or "") == 64
@@ -279,6 +283,12 @@ async def test_amh_com_contratos_pinados_compoe_a_fonte_real_e_drena(
         "pseudo", None, phone_hash=turno.hash_telefone_para_amh("5511987654321")
     )
     assert not hasattr(resultado, "status_conciliado")
+
+    # Defesa em profundidade: a flag de valores ligada contornando o settings, sem a ref. verificada do
+    # acesso (`refs_verificadas` None), recusa compor — nunca cai nos valores pelo telefone.
+    object.__setattr__(settings, "lucas_consulta_valores", True)
+    with pytest.raises(ValueError, match="lucas_consulta_valores"):
+        svc._build_lucas_turno(settings, dispatcher)
 
 
 # --- Identidade do beneficiario na Helena (DL-0077) ------------------------------------------------

@@ -1,0 +1,154 @@
+# tina-dependentes.openapi.yaml — rota ADITIVA da TINA: dependentes do titular (artefato novo, manifest v1.5)
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# O tina.openapi.yaml 0.1.0 publicado no manifest v1.2 NÃO muda um byte; esta é a revisão que ACRESCENTA a rota
+# `dependentes` (mesmo servidor, mesmo escopo `interop/tina.read`, mesmo portão de propósito e consentimento).
+# Objetivo: o titular pergunta "tenho dependentes?" pelo WhatsApp e o agente responde só com contagem e situação.
+# REGRAS DE DESENHO:
+#  * chave = `portable_subject_ref` do TITULAR; nunca nome, CPF, RG, CNS, nascimento, contato ou conta bancária;
+#  * dos dependentes NÃO sai nome, CPF, ref nem data de nascimento: só a relação de dependência, a situação no plano
+#    e se é recém-nascido no plano — uma lista anônima de no máximo 20 itens;
+#  * quem não é titular recebe `eh_titular=false` e lista vazia (nunca 404 nem dado de terceiro);
+#  * campo ausente é estado válido (`null`); o consumidor nunca o completa.
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH TINA Dependentes (leitura)
+  version: 0.1.0
+  description: |
+    Dependentes ativos do titular, keyed por `portable_subject_ref` do titular. Fonte: gold `tina_elegibilidade`
+    (um vínculo por segurado; o dependente aponta para o titular por `titular_ref`). Mesma base legal e mesmo
+    portão de propósito do `tina.openapi.yaml` (execução de contrato; verificação de consentimento implementada e
+    DESLIGADA até existir produtor do log).
+    FRESCOR: a fonte é a view do Tasy materializada no lago.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/tina/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11).
+security:
+  - bearerAuth: []
+tags:
+  - name: tina
+    description: Leituras do bot TINA da operadora.
+paths:
+  /subjects/{portable_subject_ref}/dependentes:
+    get:
+      tags: [tina]
+      operationId: getDependentes
+      summary: Dependentes ativos do titular (só relação, situação e recém-nascido; anônimos)
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+      responses:
+        '200':
+          description: Dependentes do titular; sujeito que não é titular recebe `eh_titular=false` e lista vazia.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dependentes'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ConsentDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo `interop/tina.read` — fail-closed.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05); aqui, a do titular.
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD — OBRIGATÓRIO (mesmo vocabulário do tina.openapi.yaml).
+      schema:
+        type: string
+        enum: [analytics, research, sharing_amh_internal, external_sharing]
+      example: sharing_amh_internal
+  schemas:
+    Dependentes:
+      type: object
+      required: [portable_subject_ref, eh_titular, total_ativos, lista_truncada, dependentes, fonte_atualizada_em]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          description: A ref do próprio sujeito consultado (o titular).
+        eh_titular:
+          type: boolean
+          description: O sujeito tem algum vínculo como titular. `false` ⇒ `total_ativos=0` e lista vazia.
+        total_ativos:
+          type: integer
+          minimum: 0
+          description: Quantos dependentes (pessoas distintas) têm vínculo ativo, sem data de cancelamento.
+        lista_truncada:
+          type: boolean
+          description: Há mais dependentes ativos do que os 20 da lista (o total continua exato).
+        dependentes:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/Dependente'
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+    Dependente:
+      type: object
+      additionalProperties: false
+      required: [relacao_dependencia, situacao_beneficiario, recem_nascido_no_plano]
+      description: Um dependente ativo, anônimo — sem nome, CPF, ref nem nascimento.
+      properties:
+        relacao_dependencia: { type: string, nullable: true, example: 'Filho(a) até 23 anos' }
+        situacao_beneficiario: { type: string, nullable: true, example: Apto }
+        recem_nascido_no_plano: { type: boolean, nullable: true }
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional SEM PHI. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ConsentDenied:
+      description: FAIL-CLOSED — escopo/propósito não permitido; nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Sujeito desconhecido ou não visível (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

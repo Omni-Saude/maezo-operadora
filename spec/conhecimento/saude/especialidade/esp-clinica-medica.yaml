@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: esp-clinica-medica
+categoria: especialidade
+titulo: Clínica médica
+sinonimos:
+- clinico geral
+- clínico geral
+- clinica medica
+- clínica médica
+- medico clinico
+- médico clínico
+- internista
+- clinico
+- clínico
+texto: O clínico geral cuida da saúde do adulto como um todo. É um bom ponto de partida para queixas comuns e para o acompanhamento de doenças crônicas. Quando preciso, encaminha para outros especialistas.
+tipo_texto: proprio
+fontes:
+- nome: Resolução CFM nº 2.380/2024 (Portaria CME nº 01/2024) — relação das especialidades médicas reconhecidas
+  url: https://sistemas.cfm.org.br/normas/arquivos/resolucoes/BR/2024/2380_2024.pdf
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-17
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

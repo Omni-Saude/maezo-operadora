@@ -15,9 +15,7 @@
       "tipo_solicitacao": "boleto"
     }
   },
-  "recorded_llm": [
-    "Encaminhamento automatico por ambiguidade na solicitacao."
-  ],
+  "recorded_llm": [],
   "expect": {
     "fields": {
       "route": "escalate_human",

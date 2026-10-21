@@ -13,13 +13,45 @@ pedido — nunca uma URL vinda do chamador:
   * `POST /interop/subject-resolution/v1/subjects/resolve-by-phone`      (`interop/subject.resolve`)
   * `GET  /interop/subject-resolution/v1/subjects/{ref}/profile`         (`interop/profile.read`)
 
+e, SO' com `MAEZO_ACESSO_BENEFICIARIO` ligada (DL-0083, acesso do beneficiario; manifest aditivo v1.3, ainda
+nao publicado — sem o bloco `manifest_v1_3` no pin os adaptadores recusam subir):
+
+  * `POST /interop/identity/v1/subjects/{ref}/verify` (CONFERE)         (`interop/subject.verify`)
+  * `POST /interop/consent/v1/consents`                                  (`interop/consent.write`)
+  * `POST /interop/identity/v1/resolve-by-document` (sem cadastro, DL-0084)   (`interop/subject.verify`)
+
 e, SO' com `MAEZO_HELENA_CONSULTAS_AMH` ligada (DL de 07/10/2026, fatos do plano na Helena), mais tres
-leituras do contrato TINA (manifest aditivo v1.2, ainda DRAFT — sem o bloco `manifest_v1_2` no pin o
-adaptador recusa subir):
+leituras do contrato TINA (manifest aditivo v1.2, publicado em 13/10/2026 — sem o bloco `manifest_v1_2`
+no pin o adaptador recusa subir):
 
   * `GET  /interop/tina/v1/subjects/{ref}/elegibilidade`                 (`interop/tina.read`)
   * `GET  /interop/tina/v1/subjects/{ref}/carencias`                     (`interop/tina.read`)
   * `GET  /interop/tina/v1/subjects/{ref}/requisicoes`                   (`interop/tina.read`)
+  * `GET  /interop/tina/v1/subjects/{ref}/dependentes`                   (`interop/tina.read`; manifest v1.5)
+
+e, SO' com `MAEZO_HELENA_CARTEIRINHA_COMPLETA` tambem ligada (decisao do dono de 17/10/2026, so' dev; manifest
+aditivo v1.12, ainda nao pinado — `AmhTinaCarteirinhaExecutor`):
+
+  * `GET  /interop/tina/v1/subjects/{ref}/carteirinha`                   (`interop/tina.carteirinha`;
+                                                                         `X-Amh-Request-Ref`, `no-store`)
+
+e, SO' com o caminho do OpenAPI `tina-cobertura` configurado (decisao do dono D1 de 18/10/2026; manifest
+aditivo v1.9, PUBLISHED em 16/10/2026 — `AmhTinaCoberturaExecutor`, finalidade fixa `atendimento_whatsapp`):
+
+  * `GET  /interop/tina/v1/subjects/{ref}/cobertura`                     (`interop/tina.read`;
+                                                                         `procedimento`, `limite` 1..10)
+
+e, SO' com `MAEZO_LUCAS_V4` ligada e os dois artefatos do catalogo v4 configurados (DL-0114; manifests v1.10
+e v1.11,
+publicados em 16/10/2026 — `AmhV4Executor`, `executor_v4` da composicao):
+
+  * `GET  /interop/billing-status/v1/subjects/{ref}/billing/status` com `incluir_detalhamento` e
+    `somente_pagador`
+                                                                         (`interop/billing.read`;
+                                                                         billing-status 0.4.0)
+  * `GET  /interop/billing-status/v1/subjects/{ref}/billing/segunda-via` (`interop/billing.boleto`, cliente
+    Cognito
+                                                                         DEDICADO; billing-segunda-via 0.1.0)
 
 DECISOES DO DONO (06/10/2026, `docs/decisions-log.md`), cada uma diferente de `gateway/amh.py`:
 
@@ -58,6 +90,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final, Protocol
 from urllib.parse import quote, unquote, urlsplit
 
@@ -73,6 +106,27 @@ from maezo.adapters.amh.billing_status import (
     GovernedBillingStatusRequest,
     GovernedBillingStatusResponse,
 )
+from maezo.adapters.amh.consent_record import (
+    DECISOES as CONSENT_DECISOES,
+)
+from maezo.adapters.amh.consent_record import (
+    OP_RECORD,
+    AmhConsentRecordAdapter,
+    GovernedConsentRecordExecutor,
+    GovernedConsentRecordRequest,
+    GovernedConsentRecordResponse,
+)
+from maezo.adapters.amh.contract import load_contract_pin
+from maezo.adapters.amh.document_resolution import (
+    OP_RESOLVE_DOCUMENT,
+    AmhDocumentResolutionAdapter,
+    GovernedDocumentResolutionExecutor,
+    GovernedDocumentResolutionRequest,
+    GovernedDocumentResolutionResponse,
+)
+from maezo.adapters.amh.document_resolution import (
+    PATH as _RESOLVE_DOCUMENT_PATH,
+)
 from maezo.adapters.amh.subject_resolution import (
     OP_PROFILE,
     OP_RESOLVE,
@@ -81,14 +135,47 @@ from maezo.adapters.amh.subject_resolution import (
     GovernedSubjectResolutionRequest,
     GovernedSubjectResolutionResponse,
 )
+from maezo.adapters.amh.subject_verification import (
+    FATORES as FATORES_VERIFICACAO,
+)
+from maezo.adapters.amh.subject_verification import (
+    OP_VERIFY,
+    AmhSubjectVerificationAdapter,
+    GovernedSubjectVerificationExecutor,
+    GovernedSubjectVerificationRequest,
+    GovernedSubjectVerificationResponse,
+)
 from maezo.adapters.amh.tina import (
     OP_CARENCIAS,
+    OP_CARTEIRINHA,
+    OP_COBERTURA,
+    OP_CPT,
+    OP_DEPENDENTES,
+    OP_DEPENDENTES_NOME,
     OP_ELEGIBILIDADE,
+    OP_PROCEDIMENTOS,
     OP_REQUISICOES,
+    PURPOSE_CARTEIRINHA,
+    PURPOSE_COBERTURA,
+    PURPOSE_CPT,
+    PURPOSE_DEPENDENTES_NOME,
+    PURPOSE_PROCEDIMENTOS,
     AmhTinaAdapter,
     GovernedTinaExecutor,
     GovernedTinaRequest,
     GovernedTinaResponse,
+)
+from maezo.agents.lucas.fonte_v4 import (
+    ARTIFACT_DETALHAMENTO,
+    ARTIFACT_SEGUNDA_VIA,
+    OPERATION_DETALHAMENTO,
+    OPERATION_SEGUNDA_VIA,
+    ExecutorGovernado,
+    PedidoGovernado,
+    RespostaGovernada,
+)
+from maezo.agents.lucas.fonte_v4 import (
+    PURPOSE_OF_USE as PURPOSE_V4,
 )
 from maezo.gateway.audit import AuditRecord, hash_input
 from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
@@ -103,6 +190,21 @@ logger = structlog.get_logger(__name__)
 HASH_SCHEME: Final[str] = "amh-phone-lookup-v1"
 #: Escopo das tres leituras TINA (fatos do plano). Pedido SO' com as consultas da Helena ligadas.
 SCOPE_TINA: Final[str] = "interop/tina.read"
+#: Escopo PROPRIO da carteirinha completa (manifest v1.12): `interop/tina.read` NAO basta. Pedido SO' com
+#: `MAEZO_HELENA_CARTEIRINHA_COMPLETA` ligada (o Cognito recusa o token INTEIRO se o client nao o tiver).
+SCOPE_TINA_CARTEIRINHA: Final[str] = "interop/tina.carteirinha"
+#: Escopo PROPRIO dos NOMES dos dependentes do proprio titular (manifest v1.13; decisao do dono e DPO de
+#: 19/10/2026, DL-0127). Pedido SO' com `MAEZO_HELENA_DEPENDENTES_NOME` ligada.
+SCOPE_TINA_DEPENDENTES_NOME: Final[str] = "interop/tina.dependentes_nome"
+#: Esquema do hash de VERIFICACAO do acesso do beneficiario (DL-0083). Nome do contrato da AMH.
+HASH_SCHEME_VERIFICACAO: Final[str] = "amh-subject-verify-v1"
+#: Escopos do acesso do beneficiario (DL-0083): verificacao por fator e registro de consentimento.
+SCOPE_VERIFY: Final[str] = "interop/subject.verify"
+SCOPE_CONSENT_WRITE: Final[str] = "interop/consent.write"
+#: Resolucao pelo documento (telefone sem candidato, DL-0084): mesmo servidor de identidade, mesmo esquema
+#: e chave de hash da conferencia; o escopo PEDIDO a AMH e' o mesmo da conferencia (a alinhar com o OpenAPI
+#: publicado: se a AMH criar um escopo proprio, so' esta constante muda).
+SCOPE_RESOLVE_DOCUMENT: Final[str] = SCOPE_VERIFY
 #: Escopos OAuth2 de cada operacao (servidor de recursos `interop` no Cognito da AMH).
 SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_BILLING: "interop/billing.read",
@@ -111,7 +213,23 @@ SCOPE_BY_OPERATION: Final[dict[str, str]] = {
     OP_ELEGIBILIDADE: SCOPE_TINA,
     OP_CARENCIAS: SCOPE_TINA,
     OP_REQUISICOES: SCOPE_TINA,
+    OP_DEPENDENTES: SCOPE_TINA,
+    OP_CARTEIRINHA: SCOPE_TINA_CARTEIRINHA,
+    OP_COBERTURA: SCOPE_TINA,
+    OP_DEPENDENTES_NOME: SCOPE_TINA_DEPENDENTES_NOME,
+    OP_PROCEDIMENTOS: SCOPE_TINA,
+    OP_CPT: SCOPE_TINA,
+    OP_VERIFY: SCOPE_VERIFY,
+    OP_RECORD: SCOPE_CONSENT_WRITE,
+    OP_RESOLVE_DOCUMENT: SCOPE_RESOLVE_DOCUMENT,
+    OPERATION_DETALHAMENTO: "interop/billing.read",
+    OPERATION_SEGUNDA_VIA: "interop/billing.boleto",
 }
+#: Escopo da 2a via (codigo de barras = credencial de pagamento): pedido SO' pelo cliente Cognito dedicado.
+SCOPE_SEGUNDA_VIA: Final[str] = "interop/billing.boleto"
+#: Cabecalho opaco da solicitacao da 2a via (auditoria na AMH; contrato `billing-segunda-via`).
+_HEADER_REQUEST_REF: Final[str] = "X-Amh-Request-Ref"
+_REQUEST_REF: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_.:-]{8,64}\Z")
 
 _MAX_RESPONSE_BYTES: Final[int] = 1_048_576
 _MAX_TOKEN_RESPONSE_BYTES: Final[int] = 65_536
@@ -122,22 +240,42 @@ _MAX_TOKEN_LIFETIME_S: Final[int] = 86_400
 
 _BILLING_PREFIX: Final[str] = "/interop/billing-status/v1/subjects/"
 _BILLING_SUFFIX: Final[str] = "/billing/status"
+_SEGUNDA_VIA_SUFFIX: Final[str] = "/billing/segunda-via"
 _RESOLVE_PATH: Final[str] = "/interop/subject-resolution/v1/subjects/resolve-by-phone"
 _PROFILE_PREFIX: Final[str] = "/interop/subject-resolution/v1/subjects/"
 _PROFILE_SUFFIX: Final[str] = "/profile"
+#: CONFERE, NAO RESOLVE (DL-0083, AMH #212): a referencia candidata vai entre o prefixo e o sufixo.
+_VERIFY_PREFIX: Final[str] = "/interop/identity/v1/subjects/"
+_VERIFY_SUFFIX: Final[str] = "/verify"
+_CONSENT_PATH: Final[str] = "/interop/consent/v1/consents"
 _TINA_PREFIX: Final[str] = "/interop/tina/v1/subjects/"
 #: Operacao TINA -> sufixo FIXO da rota (o sujeito vem entre o prefixo e o sufixo, sempre conferido).
 _TINA_SUFFIX: Final[dict[str, str]] = {
     OP_ELEGIBILIDADE: "/elegibilidade",
     OP_CARENCIAS: "/carencias",
     OP_REQUISICOES: "/requisicoes",
+    OP_DEPENDENTES: "/dependentes",
+    OP_CARTEIRINHA: "/carteirinha",
+    OP_COBERTURA: "/cobertura",
+    OP_DEPENDENTES_NOME: "/dependentes/nomes",
+    OP_CPT: "/cpt",
 }
 #: Query permitida por operacao TINA (`purpose_of_use` sempre obrigatorio e igual ao da composicao).
 _TINA_QUERY: Final[dict[str, frozenset[str]]] = {
     OP_ELEGIBILIDADE: frozenset({"purpose_of_use"}),
     OP_CARENCIAS: frozenset({"purpose_of_use", "limite", "pendentes"}),
     OP_REQUISICOES: frozenset({"purpose_of_use", "limite"}),
+    OP_DEPENDENTES: frozenset({"purpose_of_use"}),
+    OP_CARTEIRINHA: frozenset({"purpose_of_use"}),
+    OP_COBERTURA: frozenset({"purpose_of_use", "procedimento", "limite"}),
+    OP_DEPENDENTES_NOME: frozenset({"purpose_of_use"}),
+    OP_CPT: frozenset({"purpose_of_use"}),
 }
+#: `procedimento` da cobertura: codigo (so' digitos, 1 a 10) OU termo (3 a 80; letras, numeros e espaco).
+#: O MESMO padrao do parametro do contrato `tina-cobertura`, conferido de novo aqui.
+_PROCEDIMENTO: Final[re.Pattern[str]] = re.compile(r"(?:[0-9]{1,10}|[A-Za-z\u00c0-\u00ff0-9 ]{3,80})\Z")
+#: `limite` da cobertura (contrato: 1..10). As outras leituras TINA aceitam ate' 50.
+_LIMITE_COBERTURA: Final[int] = 10
 
 _SUBJECT: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 _TOKEN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
@@ -146,6 +284,10 @@ _CLIENT_ID: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,12
 _SCOPE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}\Z")
 _COMPETENCIA: Final[re.Pattern[str]] = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])\Z")
 _PHONE_HASH: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}\Z")
+_SHA256_HEX: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}\Z")
+_ISO_INSTANTE: Final[re.Pattern[str]] = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})\Z"
+)
 _RECEIPT: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}\Z")
 _HTTPCORE_LOGGERS: Final[tuple[str, ...]] = (
     "httpcore.connection",
@@ -156,6 +298,16 @@ _HTTPCORE_LOGGERS: Final[tuple[str, ...]] = (
 #: Telefone BR em E.164 so' com digitos: 55 + DDD (sem zero a esquerda) + 8 ou 9 digitos.
 _E164_BR: Final[re.Pattern[str]] = re.compile(r"55[1-9][0-9][0-9]{8,9}\Z")
 _MIN_PHONE_KEY_CHARS: Final[int] = 16
+#: CPF (so' os 11 digitos) e nascimento (AAAAMMDD) so' chegam ao hasher de verificacao ja' normalizados.
+_CPF_DIGITOS: Final[re.Pattern[str]] = re.compile(r"[0-9]{11}\Z")
+_DATA_AAAAMMDD: Final[re.Pattern[str]] = re.compile(r"[0-9]{8}\Z")
+#: Vocabulario fixo do registro de consentimento do atendimento por WhatsApp (DL-0083).
+CONSENT_SCOPE: Final[str] = "atendimento_whatsapp"
+CONSENT_CHANNEL: Final[str] = "whatsapp"
+#: Finalidade da leitura de cobranca no atendimento do WhatsApp (decisao do DPO de 08/10/2026, billing-status
+#: 0.2.0 do manifest v1.4): a MESMA finalidade do consentimento que o titular da' no acesso (`CONSENT_SCOPE`).
+#: So' a cobranca do Lucas com o acesso ligado a declara; o resto da composicao segue com a de sempre.
+PURPOSE_ATENDIMENTO_WHATSAPP: Final[str] = CONSENT_SCOPE
 
 TransportFactory = Callable[[], httpx.AsyncBaseTransport]
 
@@ -457,6 +609,54 @@ class AmhPhoneLookupHasher:
         return hmac.new(self._key, mensagem, hashlib.sha256).hexdigest()
 
 
+class AmhSubjectVerifyHasher:
+    """`amh-subject-verify-v1`: HMAC-SHA256(chave, "{amh_tenant}:cpf:{11 digitos}") em hex, ou, com o
+    nascimento, HMAC-SHA256(chave, "{amh_tenant}:cpfdob:{11 digitos}:{AAAAMMDD}") (DL-0083).
+
+    A chave e' DEDICADA (segredo `amh/interop/subject-verify-key`), distinta do `PHI_HMAC_KEY` e da chave do
+    telefone. O CPF e a data de nascimento existem em memoria so' pelo instante do calculo: os metodos
+    recebem os digitos, devolvem o hash e nao guardam nada. Entrada fora do formato (nao sao 11 digitos
+    ASCII; data que nao e' AAAAMMDD de 8 digitos) devolve `None`. Nunca levanta, nunca loga; `repr` nao
+    mostra a chave.
+    """
+
+    __slots__ = ("_amh_tenant", "_key")
+
+    def __init__(self, *, key: str, amh_tenant: str) -> None:
+        if not _token_valido(key) or len(key) < _MIN_PHONE_KEY_CHARS:
+            raise AmhInteropCompositionError()
+        if type(amh_tenant) is not str or not _TOKEN.fullmatch(amh_tenant):
+            raise AmhInteropCompositionError()
+        self._key = key.encode("ascii")
+        self._amh_tenant = amh_tenant
+
+    def __repr__(self) -> str:
+        return "AmhSubjectVerifyHasher(<redacted>)"
+
+    @property
+    def amh_tenant(self) -> str:
+        return self._amh_tenant
+
+    def _hmac(self, mensagem: str) -> str:
+        corpo = f"{self._amh_tenant}:{mensagem}".encode("ascii")
+        return hmac.new(self._key, corpo, hashlib.sha256).hexdigest()
+
+    def hash_cpf(self, cpf_digitos: str) -> str | None:
+        if type(cpf_digitos) is not str or not _CPF_DIGITOS.fullmatch(cpf_digitos):
+            return None
+        return self._hmac(f"cpf:{cpf_digitos}")
+
+    def hash_cpf_nascimento(self, cpf_digitos: str, nascimento_aaaammdd: str) -> str | None:
+        if (
+            type(cpf_digitos) is not str
+            or type(nascimento_aaaammdd) is not str
+            or not _CPF_DIGITOS.fullmatch(cpf_digitos)
+            or not _DATA_AAAAMMDD.fullmatch(nascimento_aaaammdd)
+        ):
+            return None
+        return self._hmac(f"cpfdob:{cpf_digitos}:{nascimento_aaaammdd}")
+
+
 class _ExecutorInteropAmh:
     """O caminho comum: zona, gate (sombra), token, auditoria duravel, despacho fixo e recusa fechada."""
 
@@ -539,6 +739,10 @@ class _ExecutorInteropAmh:
         body: bytes | None,
         consent_ref: str | None,
         timeout_seconds: float,
+        fase: str = "READ_DISPATCHED_UNDER_SHADOW_GATE",
+        tokens: CognitoClientCredentials | None = None,
+        request_ref: str | None = None,
+        exigir_no_store: bool = False,
     ) -> PortResult[tuple[int, bytes]]:
         if self._closed:
             return PortResult.refused(Reason.UPSTREAM_UNAVAILABLE)
@@ -555,6 +759,10 @@ class _ExecutorInteropAmh:
                 body=body,
                 consent_ref=consent_ref,
                 timeout_seconds=timeout_seconds,
+                fase=fase,
+                tokens=tokens or self._tokens,
+                request_ref=request_ref,
+                exigir_no_store=exigir_no_store,
             )
         finally:
             self._active.discard(task)
@@ -569,13 +777,17 @@ class _ExecutorInteropAmh:
         body: bytes | None,
         consent_ref: str | None,
         timeout_seconds: float,
+        fase: str,
+        tokens: CognitoClientCredentials,
+        request_ref: str | None,
+        exigir_no_store: bool,
     ) -> PortResult[tuple[int, bytes]]:
         try:
             async with asyncio.timeout(timeout_seconds):
                 # Decisao A: semantica ORDINARIA do gate. Levanta so' numa negacao ENFORCED; em
                 # sombra (manifesto DRAFT) segue, e a linha de decisao ja' foi emitida pelo gate.
                 decision = await gate(self._seam, operation)
-                token = await self._tokens.token()
+                token = await tokens.token()
                 if token is None:
                     return PortResult.refused(Reason.NOT_AUTHENTICATED)
                 record = AuditRecord(
@@ -585,7 +797,7 @@ class _ExecutorInteropAmh:
                     action=operation,
                     decision="ALLOW",
                     details={
-                        "phase": "READ_DISPATCHED_UNDER_SHADOW_GATE",
+                        "phase": fase,
                         "purpose_of_use": self._purpose,
                         "pep_allow": decision.allow,
                         "pep_reason": decision.reason,
@@ -597,6 +809,11 @@ class _ExecutorInteropAmh:
                             hash_input(consent_ref) if consent_ref is not None else None
                         ),
                         "origin_sha256": hashlib.sha256(self._origin.encode()).hexdigest(),
+                        # Id opaco da solicitacao da 2a via (so' o hash; o valor vai no cabecalho, para a
+                        # auditoria da AMH).
+                        **(
+                            {"request_ref_sha256": hash_input(request_ref)} if request_ref is not None else {}
+                        ),
                     },
                 )
                 receipt = await self._audit.emit(record)
@@ -611,6 +828,8 @@ class _ExecutorInteropAmh:
                 }
                 if body is not None:
                     headers["Content-Type"] = "application/json"
+                if request_ref is not None:
+                    headers[_HEADER_REQUEST_REF] = request_ref
                 pedido = httpx.Request(
                     method,
                     self._origin + path,
@@ -627,7 +846,7 @@ class _ExecutorInteropAmh:
                         status = response.status_code
                         if status in (400, 401, 404, 429) or status >= 500:
                             if status == 401:
-                                self._tokens.invalidar()
+                                tokens.invalidar()
                             return PortResult.refused(
                                 {
                                     400: Reason.INVALID_REQUEST,
@@ -642,6 +861,14 @@ class _ExecutorInteropAmh:
                             return PortResult.refused(Reason.CONTRACT_VIOLATION)
                         tipo = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
                         if tipo != "application/json":
+                            return PortResult.refused(Reason.CONTRACT_VIOLATION)
+                        if (
+                            status == 200
+                            and exigir_no_store
+                            and ("no-store" not in response.headers.get("cache-control", "").lower())
+                        ):
+                            # Credencial de pagamento: o contrato manda `no-store`; sem ele o servidor nao
+                            # e' o do contrato.
                             return PortResult.refused(Reason.CONTRACT_VIOLATION)
                         raw = await _ler_corpo(response, _MAX_RESPONSE_BYTES)
                         if raw is None:
@@ -680,7 +907,11 @@ class AmhBillingStatusExecutor(_ExecutorInteropAmh, GovernedBillingStatusExecuto
         ):
             raise ValueError
         self._sujeito(request.path, _BILLING_PREFIX, _BILLING_SUFFIX)
-        query = self._query(request.query, frozenset({"purpose_of_use", "competencia", "janela_meses"}))
+        query = self._query(
+            request.query, frozenset({"purpose_of_use", "competencia", "janela_meses", "incluir_contratacao"})
+        )
+        if query.get("incluir_contratacao") not in (None, "true", "false"):
+            raise ValueError
         competencia = query.get("competencia")
         if competencia is not None and (
             type(competencia) is not str or not _COMPETENCIA.fullmatch(competencia)
@@ -800,20 +1031,27 @@ class AmhTinaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
     conferidas aqui de novo, a cada chamada: o adaptador monta o pedido, o executor nao confia nele.
     """
 
-    registered_operations = frozenset({OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES})
+    registered_operations = frozenset({OP_ELEGIBILIDADE, OP_CARENCIAS, OP_REQUISICOES, OP_DEPENDENTES})
 
     def _validar(self, request: GovernedTinaRequest) -> None:
         if (
             type(request) is not GovernedTinaRequest
             or request.method != "GET"
             or request.operation not in self.registered_operations
+            # So' a rota da carteirinha (executor proprio) leva o id da solicitacao.
+            or request.request_ref is not None
         ):
             raise ValueError
         self._sujeito(request.path, _TINA_PREFIX, _TINA_SUFFIX[request.operation])
         query = self._query(request.query, _TINA_QUERY[request.operation])
         limite = query.get("limite")
-        if limite is not None and (type(limite) is not int or not 1 <= limite <= 50):
+        teto = _LIMITE_COBERTURA if request.operation == OP_COBERTURA else 50
+        if limite is not None and (type(limite) is not int or not 1 <= limite <= teto):
             raise ValueError
+        if request.operation == OP_COBERTURA:
+            procedimento = query.get("procedimento")
+            if type(procedimento) is not str or not _PROCEDIMENTO.fullmatch(procedimento):
+                raise ValueError
         pendentes = query.get("pendentes")
         if pendentes is not None and pendentes not in ("true", "false"):
             raise ValueError
@@ -845,6 +1083,522 @@ class AmhTinaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
         return PortResult.ok(GovernedTinaResponse(status, raw))
 
 
+class AmhTinaCoberturaExecutor(AmhTinaExecutor):
+    """`GovernedTinaExecutor` real da COBERTURA POR PROCEDIMENTO (decisao do dono D1 de 18/10/2026; manifest
+    v1.9).
+
+    So' UMA operacao (`amh.tina_get_cobertura`), composta SO' quando o artefato `tina-cobertura` foi
+    carregado. Mesmo caminho e mesma validacao do executor TINA de sempre (rota, query permitida
+    `purpose_of_use`/`procedimento`/`limite`, `limite` 1..10, `procedimento` no padrao do contrato), com a
+    finalidade FIXA do contrato (`atendimento_whatsapp`: a composicao recusa outra) e o escopo
+    `interop/tina.read` no token. O termo vai SO' na query do pedido: a auditoria guarda o hash da base
+    legal, nunca o termo.
+    """
+
+    registered_operations = frozenset({OP_COBERTURA})
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if self._purpose != PURPOSE_COBERTURA or SCOPE_TINA not in self._tokens.scopes:
+            raise AmhInteropCompositionError()
+
+
+class AmhTinaCptExecutor(AmhTinaExecutor):
+    """`GovernedTinaExecutor` real da CPT VIGENTE do proprio sujeito (caso C1 do dono e DPO de 20/10/2026,
+    DL-0130; manifest v1.15).
+
+    So' UMA operacao (`amh.tina_get_cpt_vigente`), composta SO' quando o artefato `tina-cpt` foi carregado.
+    Mesmo caminho e mesma validacao do executor TINA de sempre (rota fixa `.../subjects/{ref}/cpt`, query
+    so' `purpose_of_use`), finalidade FIXA do contrato (`atendimento_whatsapp`: a composicao recusa outra) e
+    o escopo `interop/tina.read` no token. O limite por sujeito e' COMPARTILHADO com a cobertura na AMH:
+    quem consome guarda a leitura em memoria (nunca no estado nem em log).
+    """
+
+    registered_operations = frozenset({OP_CPT})
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if self._purpose != PURPOSE_CPT or SCOPE_TINA not in self._tokens.scopes:
+            raise AmhInteropCompositionError()
+
+
+class AmhTinaCarteirinhaExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
+    """`GovernedTinaExecutor` real da CARTEIRINHA COMPLETA (decisao do dono de 17/10/2026, so' dev;
+    manifest v1.12).
+
+    So' UMA operacao (`amh.tina_get_carteirinha`), com o que ela tem de diferente das outras leituras
+    TINA: finalidade FIXA `atendimento_whatsapp` (a composicao recusa outra), o `X-Amh-Request-Ref`
+    OPACO obrigatorio (padrao do contrato; so' o hash dele entra na auditoria), o escopo PROPRIO
+    `interop/tina.carteirinha` no token (conferido na composicao) e a resposta 200 SEM
+    `Cache-Control: no-store` recusada (`CONTRACT_VIOLATION`). O corpo (com o numero completo) so'
+    atravessa em `GovernedTinaResponse` (`repr=False`): nunca vai a log.
+    """
+
+    registered_operations = frozenset({OP_CARTEIRINHA})
+    #: A operacao, a finalidade e o escopo PROPRIOS da rota (a subclasse dos nomes dos dependentes troca os
+    #: tres).
+    _OPERACAO: str = OP_CARTEIRINHA
+    _FINALIDADE: str = PURPOSE_CARTEIRINHA
+    _ESCOPO: str = SCOPE_TINA_CARTEIRINHA
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if self._purpose != self._FINALIDADE or self._ESCOPO not in self._tokens.scopes:
+            raise AmhInteropCompositionError()
+
+    def _validar(self, request: GovernedTinaRequest) -> None:
+        if (
+            type(request) is not GovernedTinaRequest
+            or request.method != "GET"
+            or request.operation != self._OPERACAO
+            or type(request.request_ref) is not str
+            or not _REQUEST_REF.fullmatch(request.request_ref)
+        ):
+            raise ValueError
+        self._sujeito(request.path, _TINA_PREFIX, _TINA_SUFFIX[self._OPERACAO])
+        self._query(request.query, _TINA_QUERY[self._OPERACAO])
+        ref = request.consent_decision_ref
+        if type(ref) is not str or not ref.strip() or len(ref) > 4096:
+            raise ValueError
+        if not _prazo_valido(request.timeout_seconds):
+            raise ValueError
+
+    async def execute(self, request: GovernedTinaRequest) -> PortResult[GovernedTinaResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="GET",
+            path=request.path,
+            query=request.query,
+            body=None,
+            consent_ref=request.consent_decision_ref,
+            timeout_seconds=request.timeout_seconds,
+            request_ref=request.request_ref,
+            exigir_no_store=True,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedTinaResponse(status, raw))
+
+
+class AmhTinaDependentesNomeExecutor(AmhTinaCarteirinhaExecutor):
+    """`GovernedTinaExecutor` real dos NOMES dos dependentes do proprio titular verificado (decisao do dono e
+    DPO de 19/10/2026, DL-0127, so' dev; manifest v1.13).
+
+    As MESMAS protecoes da carteirinha completa (finalidade FIXA `atendimento_whatsapp`, `X-Amh-Request-Ref`
+    OPACO obrigatorio, resposta 200 sem `no-store` recusada, corpo so' em `GovernedTinaResponse`), com a
+    operacao `amh.tina_get_dependentes_nome` e o escopo PROPRIO `interop/tina.dependentes_nome`.
+    """
+
+    registered_operations = frozenset({OP_DEPENDENTES_NOME})
+    _OPERACAO = OP_DEPENDENTES_NOME
+    _FINALIDADE = PURPOSE_DEPENDENTES_NOME
+    _ESCOPO = SCOPE_TINA_DEPENDENTES_NOME
+
+
+#: O caminho FIXO do catalogo (sem sujeito) e a query permitida.
+_TINA_CATALOGO_PATH: Final[str] = "/interop/tina/v1/procedimentos"
+_TINA_CATALOGO_QUERY: Final[frozenset[str]] = frozenset({"purpose_of_use", "pagina", "tamanho"})
+
+
+class AmhTinaCatalogoExecutor(_ExecutorInteropAmh, GovernedTinaExecutor):
+    """`GovernedTinaExecutor` real do CATALOGO de procedimentos (DL-0128; manifest v1.14). Dado de REFERENCIA:
+    caminho FIXO sem sujeito, finalidade `atendimento_whatsapp`, escopo `interop/tina.read`, `pagina` >= 1 e
+    `tamanho` 100..2000. Mesma auditoria duravel ANTES do despacho das outras leituras."""
+
+    registered_operations = frozenset({OP_PROCEDIMENTOS})
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if self._purpose != PURPOSE_PROCEDIMENTOS or SCOPE_TINA not in self._tokens.scopes:
+            raise AmhInteropCompositionError()
+
+    def _validar(self, request: GovernedTinaRequest) -> None:
+        if (
+            type(request) is not GovernedTinaRequest
+            or request.method != "GET"
+            or request.operation != OP_PROCEDIMENTOS
+            or request.request_ref is not None
+            or request.path != _TINA_CATALOGO_PATH
+        ):
+            raise ValueError
+        query = self._query(request.query, _TINA_CATALOGO_QUERY)
+        pagina, tamanho = query.get("pagina", 1), query.get("tamanho", 1000)
+        if type(pagina) is not int or pagina < 1 or type(tamanho) is not int or not 100 <= tamanho <= 2000:
+            raise ValueError
+        ref = request.consent_decision_ref
+        if type(ref) is not str or not ref.strip() or len(ref) > 4096:
+            raise ValueError
+        if not _prazo_valido(request.timeout_seconds):
+            raise ValueError
+
+    async def execute(self, request: GovernedTinaRequest) -> PortResult[GovernedTinaResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="GET",
+            path=request.path,
+            query=request.query,
+            body=None,
+            consent_ref=request.consent_decision_ref,
+            timeout_seconds=request.timeout_seconds,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedTinaResponse(status, raw))
+
+
+class AmhSubjectVerificationExecutor(_ExecutorInteropAmh, GovernedSubjectVerificationExecutor):
+    """`GovernedSubjectVerificationExecutor` real: `POST .../subjects/{ref}/verify` (hash do fator no CORPO).
+
+    A referencia candidata vai na ROTA (conferida aqui de novo, como nas leituras por sujeito); o tenant sai
+    do cliente do token (o corpo nao o carrega). `amh_tenant` segue no construtor so' para a composicao
+    recusar um tenant fora do formato, como nos outros executores com sujeito."""
+
+    registered_operations = frozenset({OP_VERIFY})
+
+    def __init__(self, *, amh_tenant: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if type(amh_tenant) is not str or not _TOKEN.fullmatch(amh_tenant):
+            raise AmhInteropCompositionError()
+        self._amh_tenant = amh_tenant
+
+    def _validar(self, request: GovernedSubjectVerificationRequest) -> None:
+        if (
+            type(request) is not GovernedSubjectVerificationRequest
+            or request.operation != OP_VERIFY
+            or request.method != "POST"
+            or type(request.path) is not str
+            or type(request.body) is not bytes
+            or len(request.body) > _MAX_REQUEST_BODY_BYTES
+            or not _prazo_valido(request.timeout_seconds)
+        ):
+            raise ValueError
+        self._sujeito(request.path, _VERIFY_PREFIX, _VERIFY_SUFFIX)
+        corpo = json.loads(request.body)
+        if (
+            type(corpo) is not dict
+            or set(corpo) != {"fator", "verification_hash", "hash_scheme", "purpose_of_use"}
+            or corpo["hash_scheme"] != HASH_SCHEME_VERIFICACAO
+            or corpo["fator"] not in FATORES_VERIFICACAO
+            or corpo["purpose_of_use"] != self._purpose
+            or type(corpo["verification_hash"]) is not str
+            or not _SHA256_HEX.fullmatch(corpo["verification_hash"])
+        ):
+            raise ValueError
+
+    async def execute(
+        self, request: GovernedSubjectVerificationRequest
+    ) -> PortResult[GovernedSubjectVerificationResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="POST",
+            path=request.path,
+            query=(),
+            body=request.body,
+            consent_ref=None,
+            timeout_seconds=request.timeout_seconds,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedSubjectVerificationResponse(status, raw))
+
+
+class AmhDocumentResolutionExecutor(_ExecutorInteropAmh, GovernedDocumentResolutionExecutor):
+    """`GovernedDocumentResolutionExecutor` real: `POST /interop/identity/v1/resolve-by-document` (DL-0084).
+
+    Rota FIXA (nenhum sujeito na URL); os dois hashes vao no CORPO, junto do tenant, que tem de ser o da
+    composicao. So' para o telefone SEM candidato: o acesso nunca chama isto para um telefone conhecido."""
+
+    registered_operations = frozenset({OP_RESOLVE_DOCUMENT})
+
+    def __init__(self, *, amh_tenant: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if type(amh_tenant) is not str or not _TOKEN.fullmatch(amh_tenant):
+            raise AmhInteropCompositionError()
+        self._amh_tenant = amh_tenant
+
+    def _validar(self, request: GovernedDocumentResolutionRequest) -> None:
+        if (
+            type(request) is not GovernedDocumentResolutionRequest
+            or request.operation != OP_RESOLVE_DOCUMENT
+            or request.method != "POST"
+            or request.path != _RESOLVE_DOCUMENT_PATH
+            or type(request.body) is not bytes
+            or len(request.body) > _MAX_REQUEST_BODY_BYTES
+            or not _prazo_valido(request.timeout_seconds)
+        ):
+            raise ValueError
+        corpo = json.loads(request.body)
+        if (
+            type(corpo) is not dict
+            or set(corpo) != {"cpf_hash", "cpfdob_hash", "hash_scheme", "purpose_of_use", "amh_tenant"}
+            or corpo["hash_scheme"] != HASH_SCHEME_VERIFICACAO
+            or corpo["purpose_of_use"] != self._purpose
+            or corpo["amh_tenant"] != self._amh_tenant
+            or type(corpo["cpf_hash"]) is not str
+            or not _SHA256_HEX.fullmatch(corpo["cpf_hash"])
+            or type(corpo["cpfdob_hash"]) is not str
+            or not _SHA256_HEX.fullmatch(corpo["cpfdob_hash"])
+            or corpo["cpf_hash"] == corpo["cpfdob_hash"]
+        ):
+            raise ValueError
+
+    async def execute(
+        self, request: GovernedDocumentResolutionRequest
+    ) -> PortResult[GovernedDocumentResolutionResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="POST",
+            path=request.path,
+            query=(),
+            body=request.body,
+            consent_ref=None,
+            timeout_seconds=request.timeout_seconds,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedDocumentResolutionResponse(status, raw))
+
+
+class AmhConsentRecordExecutor(_ExecutorInteropAmh, GovernedConsentRecordExecutor):
+    """`GovernedConsentRecordExecutor` real: `POST .../consents` (escrita idempotente por chave no corpo)."""
+
+    registered_operations = frozenset({OP_RECORD})
+
+    def __init__(self, *, amh_tenant: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if type(amh_tenant) is not str or not _TOKEN.fullmatch(amh_tenant):
+            raise AmhInteropCompositionError()
+        self._amh_tenant = amh_tenant
+
+    def _validar(self, request: GovernedConsentRecordRequest) -> None:
+        if (
+            type(request) is not GovernedConsentRecordRequest
+            or request.operation != OP_RECORD
+            or request.method != "POST"
+            or request.path != _CONSENT_PATH
+            or type(request.body) is not bytes
+            or len(request.body) > _MAX_REQUEST_BODY_BYTES
+            or not _prazo_valido(request.timeout_seconds)
+        ):
+            raise ValueError
+        corpo = json.loads(request.body)
+        if (
+            type(corpo) is not dict
+            or set(corpo)
+            != {
+                "amh_tenant",
+                "portable_subject_ref",
+                "scope",
+                "decision",
+                "consent_text_version",
+                "consent_text_sha256",
+                "decided_at",
+                "channel",
+                "idempotency_key",
+                "purpose_of_use",
+            }
+            or corpo["amh_tenant"] != self._amh_tenant
+            or corpo["purpose_of_use"] != self._purpose
+            or corpo["scope"] != CONSENT_SCOPE
+            or corpo["channel"] != CONSENT_CHANNEL
+            or corpo["decision"] not in CONSENT_DECISOES
+            or type(corpo["portable_subject_ref"]) is not str
+            or not _SUBJECT.fullmatch(corpo["portable_subject_ref"])
+            or type(corpo["consent_text_version"]) is not str
+            or not _TOKEN.fullmatch(corpo["consent_text_version"])
+            or type(corpo["consent_text_sha256"]) is not str
+            or not _SHA256_HEX.fullmatch(corpo["consent_text_sha256"])
+            or type(corpo["idempotency_key"]) is not str
+            or not _SHA256_HEX.fullmatch(corpo["idempotency_key"])
+            or type(corpo["decided_at"]) is not str
+            or not _ISO_INSTANTE.fullmatch(corpo["decided_at"])
+        ):
+            raise ValueError
+
+    async def execute(
+        self, request: GovernedConsentRecordRequest
+    ) -> PortResult[GovernedConsentRecordResponse]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="POST",
+            path=request.path,
+            query=(),
+            body=request.body,
+            consent_ref=None,
+            timeout_seconds=request.timeout_seconds,
+            fase="WRITE_DISPATCHED_UNDER_SHADOW_GATE",
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(GovernedConsentRecordResponse(status, raw))
+
+
+def conferir_artefatos_v4(*, detalhamento: bytes, segunda_via: bytes, pin_path: Path | None = None) -> None:
+    """Os bytes dos DOIS OpenAPI do catalogo v4 batem com o digest do pin (blocos `manifest_v1_10` e
+    `manifest_v1_11`)?
+
+    Como o `AmhBillingStatusAdapter` faz com o seu artefato: sem o digest no pin (bloco ausente) ou com
+    bytes diferentes,
+    LEVANTA `AmhInteropCompositionError` (token fixo, nunca o caminho nem o conteudo) e o receptor recusa
+    servir.
+    """
+    try:
+        digests = load_contract_pin(pin_path).artifact_digests
+        for artefato, bytes_ in ((ARTIFACT_DETALHAMENTO, detalhamento), (ARTIFACT_SEGUNDA_VIA, segunda_via)):
+            if hashlib.sha256(bytes_).hexdigest() != digests[artefato]:
+                raise ValueError
+    except Exception:
+        raise AmhInteropCompositionError("amh_interop_v4_artefato_fora_do_pin") from None
+
+
+#: Query permitida por operacao do catalogo v4 (`purpose_of_use` sempre obrigatorio e igual a
+#: `atendimento_whatsapp`).
+_V4_QUERY: Final[dict[str, frozenset[str]]] = {
+    OPERATION_DETALHAMENTO: frozenset(
+        {"purpose_of_use", "competencia", "incluir_contratacao", "incluir_detalhamento", "somente_pagador"}
+    ),
+    OPERATION_SEGUNDA_VIA: frozenset({"purpose_of_use", "competencia"}),
+}
+
+
+class AmhV4Executor(_ExecutorInteropAmh, ExecutorGovernado):
+    """`ExecutorGovernado` real do Lucas v4 (DL-0114): as DUAS leituras do catalogo v4, no mesmo servico
+    interop da AMH.
+
+      * `amh.get_billing_detalhamento` — `GET
+        .../billing/status?incluir_detalhamento=true&somente_pagador=true`
+        (billing-status 0.4.0, manifest v1.10) com o token do cliente de cobranca (`interop/billing.read`);
+      * `amh.get_billing_segunda_via` — `GET .../billing/segunda-via` (billing-segunda-via 0.1.0, manifest
+        v1.11) com o token
+        do cliente DEDICADO da 2a via (`interop/billing.boleto`) e o `X-Amh-Request-Ref` opaco.
+
+    Mesmo caminho comum dos outros executores (zona geral, gate em sombra, token, auditoria duravel ANTES do
+    despacho,
+    sem proxy/retry/redirect, corpo limitado, recusa fechada) e, a cada chamada, a rota, a query e a base
+    legal sao
+    conferidas de novo: o adaptador monta o pedido, o executor nao confia nele.
+
+    A 2a via e' CREDENCIAL DE PAGAMENTO: o corpo da resposta so' atravessa em `RespostaGovernada`
+    (`repr=False`), nunca vai
+    para log, auditoria nem cache, e a resposta sem `Cache-Control: no-store` e' recusada
+    (`CONTRACT_VIOLATION`).
+    """
+
+    registered_operations = frozenset({OPERATION_DETALHAMENTO, OPERATION_SEGUNDA_VIA})
+
+    def __init__(self, *, tokens_segunda_via: CognitoClientCredentials, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if (
+            not isinstance(tokens_segunda_via, CognitoClientCredentials)
+            or tokens_segunda_via.scopes != (SCOPE_SEGUNDA_VIA,)
+            or self._purpose != PURPOSE_V4
+        ):
+            # O token da 2a via carrega SO' o escopo da credencial de pagamento, nunca o de cobranca (nem o
+            # inverso).
+            raise AmhInteropCompositionError()
+        self._tokens_segunda_via = tokens_segunda_via
+
+    def _validar(self, request: PedidoGovernado) -> None:
+        if (
+            type(request) is not PedidoGovernado
+            or request.method != "GET"
+            or request.operation not in self.registered_operations
+            or not _prazo_valido(request.timeout_seconds)
+        ):
+            raise ValueError
+        detalhamento = request.operation == OPERATION_DETALHAMENTO
+        self._sujeito(request.path, _BILLING_PREFIX, _BILLING_SUFFIX if detalhamento else _SEGUNDA_VIA_SUFFIX)
+        query = self._query(request.query, _V4_QUERY[request.operation])
+        competencia = query.get("competencia")
+        if competencia is not None and (
+            type(competencia) is not str or not _COMPETENCIA.fullmatch(competencia)
+        ):
+            raise ValueError
+        if detalhamento:
+            # A regra de seguranca NO SERVIDOR (quem nao e' o pagador PF nao recebe valor) e' parte do pedido.
+            if (
+                query.get("incluir_detalhamento") != "true"
+                or query.get("somente_pagador") != "true"
+                or query.get("incluir_contratacao") not in (None, "true", "false")
+            ):
+                raise ValueError
+            ref = request.consent_decision_ref
+            if type(ref) is not str or not ref.strip() or len(ref) > 4096 or request.request_ref is not None:
+                raise ValueError
+            return
+        # 2a via: sem referencia de consentimento na query nem no pedido; o id da solicitacao e' obrigatorio.
+        if (
+            request.consent_decision_ref is not None
+            or type(request.request_ref) is not str
+            or not _REQUEST_REF.fullmatch(request.request_ref)
+        ):
+            raise ValueError
+
+    async def execute(self, request: PedidoGovernado) -> PortResult[RespostaGovernada]:
+        try:
+            self._validar(request)
+        except Exception:
+            return PortResult.refused(Reason.INVALID_REQUEST)
+        segunda_via = request.operation == OPERATION_SEGUNDA_VIA
+        resultado = await self._rodar(
+            operation=request.operation,
+            method="GET",
+            path=request.path,
+            query=request.query,
+            body=None,
+            consent_ref=request.consent_decision_ref,
+            timeout_seconds=request.timeout_seconds,
+            tokens=self._tokens_segunda_via if segunda_via else None,
+            request_ref=request.request_ref if segunda_via else None,
+            exigir_no_store=segunda_via,
+        )
+        if not resultado.succeeded or resultado.value is None:
+            return PortResult.refused(
+                resultado.failure.reason if resultado.failure else Reason.UPSTREAM_UNAVAILABLE
+            )
+        status, raw = resultado.value
+        return PortResult.ok(RespostaGovernada(status, raw))
+
+    async def aclose(self) -> None:
+        await super().aclose()
+        await self._tokens_segunda_via.aclose()
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class AmhInteropComposition:
     """O que a raiz de composicao recebe: os dois ports da AMH ja' sobre os executores reais, o hasher
@@ -861,6 +1615,19 @@ class AmhInteropComposition:
     #: As leituras TINA (fatos do plano), SO' quando a composicao as pediu (`incluir_tina=True` em
     #: `tool_registry.build_amh_interop`, com `MAEZO_HELENA_CONSULTAS_AMH` ligada). Senao `None`.
     tina: AmhTinaAdapter | None = None
+    #: O ACESSO DO BENEFICIARIO (DL-0083), SO' quando a composicao o pediu (`incluir_acesso=True` em
+    #: `tool_registry.build_amh_interop`, com `MAEZO_ACESSO_BENEFICIARIO` ligada). Senao `None`.
+    verification: AmhSubjectVerificationAdapter | None = None
+    consents: AmhConsentRecordAdapter | None = None
+    verify_hasher: AmhSubjectVerifyHasher | None = None
+    #: Resolucao pelo documento do telefone SEM candidato (DL-0084), junto com o acesso. Senao `None`.
+    documents: AmhDocumentResolutionAdapter | None = None
+    #: A finalidade que a leitura de COBRANCA declara (`billing`). Igual a `purpose_of_use` na composicao de
+    #: sempre; `atendimento_whatsapp` com `billing_atendimento=True` (billing-status 0.2.0, manifest v1.4).
+    billing_purpose_of_use: str = ""
+    #: O executor governado do Lucas v4 (detalhamento do pagador e 2a via), SO' com `incluir_v4=True` em
+    #: `tool_registry.build_amh_interop`. Senao `None` e o segundo sinal do Lucas fica desligado.
+    executor_v4: AmhV4Executor | None = None
 
     async def aclose(self) -> None:
         for executor in self._executors:
@@ -871,16 +1638,39 @@ class AmhInteropComposition:
 
 
 __all__ = [
+    "CONSENT_CHANNEL",
+    "CONSENT_SCOPE",
     "HASH_SCHEME",
+    "PURPOSE_ATENDIMENTO_WHATSAPP",
+    "HASH_SCHEME_VERIFICACAO",
     "SCOPE_BY_OPERATION",
+    "SCOPE_CONSENT_WRITE",
+    "SCOPE_RESOLVE_DOCUMENT",
+    "SCOPE_VERIFY",
     "AmhBillingStatusExecutor",
+    "AmhConsentRecordExecutor",
+    "AmhDocumentResolutionExecutor",
+    "AmhSubjectVerificationExecutor",
+    "AmhSubjectVerifyHasher",
     "AmhInteropComposition",
     "AmhInteropCompositionError",
     "AmhPhoneLookupHasher",
     "AmhSubjectResolutionExecutor",
+    "AmhTinaCarteirinhaExecutor",
+    "AmhTinaCatalogoExecutor",
+    "AmhTinaDependentesNomeExecutor",
+    "AmhTinaCoberturaExecutor",
+    "AmhTinaCptExecutor",
     "AmhTinaExecutor",
+    "AmhV4Executor",
+    "OPERATION_DETALHAMENTO",
+    "OPERATION_SEGUNDA_VIA",
+    "SCOPE_SEGUNDA_VIA",
     "SCOPE_TINA",
+    "SCOPE_TINA_CARTEIRINHA",
+    "SCOPE_TINA_DEPENDENTES_NOME",
     "CognitoClientCredentials",
     "InteropAuditSink",
+    "conferir_artefatos_v4",
     "validar_origem",
 ]

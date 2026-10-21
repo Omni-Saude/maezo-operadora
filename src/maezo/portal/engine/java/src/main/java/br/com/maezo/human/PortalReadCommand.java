@@ -929,6 +929,11 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
           List.of("cancel_decisao", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY", "decisao_cancelamento",
               "fundamentacao_contratual", "referencia_regulatoria",
               "comprovacao_notificacao_previa")),
+      // DL-0111 (SP-OP-CANCEL-001 v0.2.0): execucao do cancelamento a pedido no cadastro.
+      Map.entry("SP-OP-CANCEL-001/UT_ExecutarCancelamentoCadastro",
+          List.of("cancel_execucao", "BPMN_FORMDATA", "execucao_cadastro")),
+      Map.entry("SP-OP-CANCEL-001/UT_CoordenacaoExecucaoCadastro",
+          List.of("cancel_execucao", "BPMN_FORMDATA", "execucao_cadastro")),
       Map.entry("SP-OP-INADIMPLENCIA-001/UT_AnaliseInadimplencia",
           List.of("inad_decisao", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY", "decisao_inadimplencia",
               "fundamentacao_contratual", "referencia_regulatoria",

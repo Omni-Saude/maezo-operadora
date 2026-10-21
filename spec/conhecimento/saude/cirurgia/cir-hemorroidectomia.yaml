@@ -1,0 +1,28 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: cir-hemorroidectomia
+categoria: cirurgia
+titulo: Cirurgia de hemorroida
+sinonimos:
+- hemorroidectomia
+- cirurgia de hemorroidas
+- operar hemorroida
+- cirurgia de hemorroida
+- retirada de hemorroida
+- cirurgia das almorreimas
+texto: A cirurgia de hemorroida, chamada de hemorroidectomia, retira ou trata as veias dilatadas na região do ânus e do reto. Costuma ser indicada em casos mais avançados ou quando outros tratamentos não resolveram. Em geral, é feita em centro cirúrgico, com anestesia, e existem técnicas diferentes. A indicação e a escolha da técnica são do médico, em geral o coloproctologista. Cada pessoa tem uma recuperação própria.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

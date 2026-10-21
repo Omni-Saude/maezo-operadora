@@ -1,0 +1,29 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-transtorno-bipolar
+categoria: condicao
+titulo: Transtorno bipolar
+sinonimos:
+- bipolaridade
+- transtorno bipolar
+- tab
+- doença bipolar
+- psicose maníaco-depressiva
+- maníaco depressivo
+- transtorno afetivo bipolar
+texto: O transtorno bipolar é uma condição de saúde mental em que o humor muda de forma marcante entre fases. Há fases de euforia ou muita energia e fases de tristeza profunda e desânimo. Essas oscilações afetam o sono, a disposição e a rotina. O tratamento é definido pelo médico e pode envolver remédios, acompanhamento psicológico e mudança de hábitos. A especialidade que costuma cuidar é a psiquiatria. Se você estiver em sofrimento, pode ligar 188 (CVV), a qualquer hora. Também posso chamar alguém da nossa equipe para conversar com você.
+tipo_texto: proprio
+fontes:
+- nome: Sem página leiga oficial na lista fechada (FONTES.md) — texto próprio, conferir na revisão médica
+  url: null
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

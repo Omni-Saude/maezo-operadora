@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-hipertensao
+categoria: condicao
+titulo: Hipertensão (pressão alta)
+sinonimos:
+- hipertensao
+- hipertensão
+- pressao alta
+- pressão alta
+- hipertenso
+- hipertensa
+- pressao 14 por 9
+- pressão 14 por 9
+texto: A hipertensão arterial ou pressão alta é uma doença crônica caracterizada pelos níveis elevados da pressão sanguínea nas artérias. A pressão alta não tem cura, mas tem tratamento e pode ser controlada. Somente o médico poderá determinar o melhor método para cada paciente.
+tipo_texto: citacao_literal
+fontes:
+- nome: Saúde de A a Z — Hipertensão (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/h/hipertensao
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: 3223f60dca687e99ba647dfa6ce3d870cdc410171cd139f06d12005e90cf4f9c
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/h/hipertensao
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

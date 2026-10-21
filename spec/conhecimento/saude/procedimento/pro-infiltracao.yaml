@@ -1,0 +1,30 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: pro-infiltracao
+categoria: procedimento
+titulo: Infiltração articular
+sinonimos:
+- infiltração no joelho
+- infiltracao articular
+- infiltração na articulação
+- infiltração de corticoide
+- injeção na articulação
+- infiltração no ombro
+- infiltracao
+- infiltração articular
+texto: Infiltração articular é um procedimento em que o médico aplica um medicamento dentro ou ao redor de uma articulação. Costuma ser indicada em situações de inflamação ou dor articular, como em artrose, tendinites e bursites. Em geral, é feita em consultório ou ambulatório, com limpeza da pele e agulha fina, às vezes guiada por ultrassom. A indicação, o tipo de substância e a decisão de fazer o procedimento são do médico, geralmente ortopedista ou reumatologista. Os efeitos variam de pessoa para pessoa.
+tipo_texto: proprio
+fontes:
+- nome: ANS — Rol de Procedimentos e Eventos em Saúde (atualização do Rol)
+  url: https://www.gov.br/ans/pt-br/acesso-a-informacao/participacao-da-sociedade/atualizacao-do-rol-de-procedimentos
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

@@ -86,7 +86,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -94,10 +94,13 @@ import structlog
 
 from maezo.agents.helena.graph import (
     NOME_OPERADORA_PADRAO,
+    RESPOSTA_PLANO_POR_CANAIS,
     HelenaGraph,
     HelenaState,
     WhatsAppSender,
     build,
+    eh_pedido_explicito_de_pessoa,
+    memoria_de_conversa_neutra,
     new_helena_resume_state,
     new_helena_state,
 )
@@ -114,6 +117,7 @@ from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
+from maezo.runtime.terceiro_no_texto import com_aviso_se_for_de_outra_pessoa
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import DmnTransport
@@ -128,10 +132,12 @@ if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
     from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyDispatchOutcome
     from maezo.gateway.capabilities.models import CapabilityRefusalReason
 
+    from .acesso import AcessoBeneficiario, DecisaoAcesso
+    from .acesso_ponte import RefsVerificadas
     from .helena_identidade import IdentidadeHelena
     from .lucas_turno import LucasTurno
     from .pre_roteamento import SinaisLexicos
-    from .roteamento import ConversaRouter, PedidoDeHandoff
+    from .roteamento import ContextoDoTurno, ConversaRouter, PedidoDeHandoff
 
 logger = structlog.get_logger(__name__)
 
@@ -149,8 +155,9 @@ ERRO_LUCAS_FALHOU: Final[str] = "lucas turno falhou"
 #: those are owner decisions 9.6/10.2, and none of them is wired. If a human follow-up is ever
 #: wired through Helena's audited escalation start, this string changes IN THE SAME commit as the
 #: wiring and its tests, never before.
+#: DL-0087 (10/10/2026): tom humanizado, mesma promessa (so' texto; nada de humano/transcricao).
 NON_TEXT_ACK_TEXT: Final[str] = (
-    "Este canal aceita apenas mensagens de texto. Por favor, envie sua mensagem em texto."
+    "Por aqui eu só consigo ler mensagens de texto. Pode me escrever o que precisa, por favor?"
 )
 
 #: A resposta de quem bateu no teto de volume (Frente 7.1). CONSTANTE e sem modelo no meio: o
@@ -161,10 +168,12 @@ NON_TEXT_ACK_TEXT: Final[str] = (
 #: limite NAO pode descartar em silencio. Uma pessoa que escreve e nao recebe nada conclui que
 #: ninguem leu. Entao ela diz que a mensagem nao foi atendida AGORA, que e' verdade, e aponta o
 #: caminho de emergencia, porque quem esta' em laco pode estar em panico.
+#: DL-0087 (10/10/2026): tom humanizado; a substancia (nao atendida agora, tente de novo, caminho de
+#: emergencia) fica, e a orientacao de emergencia passa a ser a mesma do acesso (192/SAMU).
 LIMITE_EXCEDIDO_TEXT: Final[str] = (
-    "Recebemos muitas mensagens suas em pouco tempo e nao conseguimos atender esta agora. "
-    "Aguarde um minuto e envie novamente. Se voce estiver passando por uma emergencia, procure "
-    "o servico de emergencia mais proximo ou ligue para a central de atendimento do seu plano."
+    "Recebi muitas mensagens suas em pouco tempo e não consegui responder esta agora. "
+    "Espere um minutinho e envie de novo, por favor. Se for uma emergência, ligue agora para o "
+    "192 (SAMU) ou vá ao pronto-socorro mais próximo."
 )
 
 
@@ -172,8 +181,10 @@ LIMITE_EXCEDIDO_TEXT: Final[str] = (
 class InboundMessage:
     """One inbound WhatsApp TEXT message, extracted from the Cloud API webhook envelope."""
 
-    from_number: str
-    text: str
+    # `repr=False` (DL-0083): com o acesso do beneficiario, o texto pode ser um CPF ou uma data de nascimento
+    # e o numero e' o telefone. Nenhum `repr` de uma excecao, traceback ou log pode renderiza-los.
+    from_number: str = field(repr=False)
+    text: str = field(repr=False)
     message_id: str
 
 
@@ -316,6 +327,87 @@ class _ScopedWhatsAppSender:
         )
 
 
+def _handoff_com_mes_do_texto(texto: str, handoff: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Rodada 3 do simulador (13/10/2026): "A mensalidade de julho foi paga?" e "Novembro ta' lancado?"
+    chegavam ao Lucas sem mes (o classify so' extrai com o ano) ou com o ano errado. Sem mes no handoff e
+    sem pedido de lista, UM mes nomeado no texto vira a competencia — o ano pela regra unica de
+    `runtime/competencia.py` (pistas de "lancado"/"vence"/"ultima" -> o que vem). Uma pergunta de
+    confirmacao ("essa e' a ultima?") num assunto "outro" e' consulta de valores."""
+    from maezo.runtime.cobranca_foco import (
+        FOCO_COMO_PAGAR,
+        FOCO_EXTRATO,
+        FOCO_JA_PAGUEI,
+        FOCO_PAGAMENTO_AO_PRESTADOR,
+        FOCO_ULTIMA,
+    )
+    from maezo.runtime.cobranca_reclamacao import decidir_reclamacao
+    from maezo.runtime.competencia import (
+        hoje_em_brasilia,
+        mes_relativo_do_texto,
+        mes_unico_do_texto,
+        resolver_ano_da_competencia,
+    )
+
+    ajustado = dict(handoff)
+    hoje = hoje_em_brasilia(datetime.now(UTC))
+    if ajustado.get("cobranca_foco") == FOCO_ULTIMA and ajustado.get("cobranca_subtipo") == "outro":
+        ajustado["cobranca_subtipo"] = "consulta_valores"
+    # Rodada 5 (13/10/2026): o extrato detalhado tem a resposta fixa da 2a via (canais, sem fato); o
+    # pagamento direto ao medico e' pergunta de coparticipacao (consulta de valores).
+    informativos = {"outro", "consulta_valores", "confirmacao_pagamento", "vencimento", "boleto_2via"}
+    if ajustado.get("cobranca_foco") in (FOCO_EXTRATO, FOCO_COMO_PAGAR) and (
+        ajustado.get("cobranca_subtipo") in informativos
+    ):
+        # Rodada 6: "como pagar depois do vencimento" tambem tem a resposta fixa dos canais.
+        ajustado["cobranca_subtipo"] = "boleto_2via"
+    if ajustado.get("cobranca_foco") == FOCO_JA_PAGUEI and ajustado.get("cobranca_subtipo") == "outro":
+        # Rodada 6: "ja' paguei dia 06" e' pergunta de confirmacao de pagamento.
+        ajustado["cobranca_subtipo"] = "confirmacao_pagamento"
+    if ajustado.get("cobranca_foco") == FOCO_PAGAMENTO_AO_PRESTADOR and ajustado.get("cobranca_subtipo") in (
+        "outro",
+        "confirmacao_pagamento",
+    ):
+        ajustado["cobranca_subtipo"] = "consulta_valores"
+    if ajustado.get("competencia") is None and "cobranca_lista" not in ajustado:
+        mes = mes_unico_do_texto(texto)
+        if mes is not None:
+            ajustado["competencia"] = resolver_ano_da_competencia(f"{hoje.year:04d}-{mes:02d}", texto, hoje)
+        else:
+            # Rodada 4: "no mes passado" / "deste mes" tambem dizem de que mes se fala.
+            ajustado["competencia"] = mes_relativo_do_texto(texto, hoje)
+    if ajustado.get("cobranca_subtipo") == "contestacao":
+        # Rodada 4 (13/10/2026): o TIPO da reclamacao, para o Lucas reconhece-la com o caso aberto.
+        reclamacao = decidir_reclamacao(texto)
+        if reclamacao is not None:
+            ajustado["cobranca_reclamacao"] = reclamacao
+    return ajustado if ajustado != dict(handoff) else handoff
+
+
+def _handoff_com_intencao(
+    texto: str, handoff: Mapping[str, Any], assunto_anterior: str | None
+) -> Mapping[str, Any]:
+    """Rodada 12 (decisao do dono, 14/10/2026): dois sinais que so' o TEXTO traz, em valor fechado.
+
+    - NEGOCIACAO ("quero parcelar"): `cobranca_negociacao=True` — o Lucas nunca negocia, abre o caso.
+    - CONFIRMACAO do cancelamento: "sim, quero cancelar" depois de o Lucas perguntar se a pessoa quer pedir o
+      cancelamento. Se o Lucas estava nesse assunto (`assunto_anterior == "cancelamento"`) a mensagem
+      afirmativa volta ao Lucas como `cancelamento` + `cobranca_confirmacao` ("confirma"/"nega"); a validade
+      (pergunta pendente) e' conferida no grafo pela referencia do ultimo texto enviado."""
+    from maezo.runtime.cobranca_intencao import decidir_confirmacao, pede_negociacao
+
+    ajustado = dict(handoff)
+    if pede_negociacao(texto):
+        ajustado["cobranca_negociacao"] = True
+    subtipo = ajustado.get("cobranca_subtipo")
+    if subtipo == "cancelamento" or assunto_anterior == "cancelamento":
+        confirmacao = decidir_confirmacao(texto)
+        fora = ("contestacao", "cobranca_recebida")
+        if confirmacao is not None and ajustado.get("cobranca_subtipo") not in fora:
+            ajustado["cobranca_subtipo"] = "cancelamento"
+            ajustado["cobranca_confirmacao"] = confirmacao
+    return ajustado if ajustado != dict(handoff) else handoff
+
+
 @dataclass
 class HelenaDispatcher:
     """Constructed once at webhook-receiver startup; builds a FRESH Helena graph per inbound
@@ -365,6 +457,35 @@ class HelenaDispatcher:
     #: Default `False` = a Helena de antes byte a byte. Ligado, liga TAMBEM o modo coleta
     #: (`coleta_enabled`), para a Helena poder fazer a pergunta de esclarecimento que ja' existe.
     historico_enabled: bool = False
+    #: NOVA TRIAGEM DA HELENA (DL-0104, settings `helena_triagem_v2` / `MAEZO_HELENA_TRIAGEM_V2`). Default
+    #: `False` = a Helena de antes byte a byte. Ligada (so' em dev), a tabela `helena_triage_admissibility`
+    #: decide a saida do turno depois dos portoes de seguranca; o modo coleta liga junto (a ficha).
+    triagem_v2_enabled: bool = False
+    #: HELENA V4 (DL-0115, settings `helena_v4` / `MAEZO_HELENA_V4`). Default `False` = a Helena de antes byte
+    #: a byte. Ligada (so' em dev): especialista e carteirinha com texto fixo; sintoma leve so' com
+    #: perguntas de alerta. Com ela ligada a nova triagem (v2) fica inerte.
+    helena_v4_enabled: bool = False
+    #: CARTEIRINHA COMPLETA E VINCULO ATIVO (decisao do dono de 17/10/2026, settings
+    #: `helena_carteirinha_completa` / `MAEZO_HELENA_CARTEIRINHA_COMPLETA`). Default `False` = a Helena de
+    #: antes byte a byte. Ligada (so' em
+    #: dev): elegibilidade e carteirinha so' com os vinculos ATIVOS, e a carteirinha com o numero completo do
+    #: proprio verificado (texto fixo), quando a rota `tina-carteirinha` responde.
+    helena_carteirinha_completa_enabled: bool = False
+    #: NOME COMPLETO DOS DEPENDENTES (decisao do dono e DPO de 19/10/2026, DL-0127, settings
+    #: `helena_dependentes_nome`). Default `False` = a Helena de antes byte a byte.
+    helena_dependentes_nome_enabled: bool = False
+    #: BASE DE SAUDE (ADR-0064/DL-0118, settings `helena_base_saude` / `MAEZO_HELENA_BASE_SAUDE`). Default
+    #: `False` = a Helena de antes byte a byte. Ligada (so' em dev): informa perguntas gerais de saude pela
+    #: base curada, faz perguntas de alerta na dor sem alarme e encerra o caso P2/P3 a pedido, com
+    #: confirmacao.
+    helena_base_saude_enabled: bool = False
+    #: SAUDE GERATIVA (ADR-0065/DL-0119, settings `helena_saude_gerativa` +
+    #: `helena_saude_gerativa_conversas`).
+    #: `None` (default) = desligada, a Helena de antes byte a byte. A raiz de composicao so' passa o redator
+    #: (`maezo.conhecimento.saude_gerativa.RedatorDeSaude`, com a allowlist e a rota global experimental) com
+    #: a
+    #: chave ligada; o grafo so' o usa nas conversas da allowlist.
+    saude_gerativa: Any = None
     #: TETO DE VOLUME (Frente 7.1). `None` = sem teto, que e' o comportamento anterior e continua
     #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
     #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
@@ -399,6 +520,16 @@ class HelenaDispatcher:
     #: `consultar_plano`. So' tem efeito junto com `identidade`: sem referencia resolvida a Helena
     #: responde o texto fixo de "nao consegui confirmar seus dados".
     consultas_plano: FonteDeFatosDoPlano | None = None
+    #: ACESSO DO BENEFICIARIO (DL-0083, `MAEZO_ACESSO_BENEFICIARIO`). `None` (o default, e o que `service.py`
+    #: passa com a flag desligada) = o despachante de sempre, byte a byte. Ligado, TODA mensagem de texto
+    #: passa
+    #: antes pela maquina de estados (consentimento -> CPF [-> nascimento] -> verificado) e os agentes so'
+    #: rodam em `verificado`. O texto digitado e' consumido ali e NUNCA chega ao grafo.
+    acesso: AcessoBeneficiario | None = None
+    #: A ponte com os agentes (so' com `acesso`): a referencia verificada do turno em curso, para que a
+    #: fonte de
+    #: cobranca do Lucas e a identidade da Helena nao resolvam pelo telefone de novo.
+    refs_verificadas: RefsVerificadas | None = None
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
     administrative_binding: JourneyBinding | None = None
@@ -727,6 +858,18 @@ class HelenaDispatcher:
                 # DL-0080: o historico curto e, com ele, o modo coleta — os dois so' com a flag.
                 "historico_enabled": self.historico_enabled,
                 "coleta_enabled": self.historico_enabled,
+                # DL-0104: a nova triagem (tabela `helena_triage_admissibility`), so' com a flag.
+                "triagem_v2_enabled": self.triagem_v2_enabled,
+                # DL-0115: a Helena v4 (catalogo de necessidades v4), so' com a flag.
+                "helena_v4_enabled": self.helena_v4_enabled,
+                # Decisao do dono de 17/10/2026: vinculo ativo e carteirinha completa, so' com a flag.
+                "helena_carteirinha_completa_enabled": self.helena_carteirinha_completa_enabled,
+                # DL-0127: nome completo dos dependentes do proprio titular, so' com a flag.
+                "helena_dependentes_nome_enabled": self.helena_dependentes_nome_enabled,
+                # DL-0118: a base de conhecimento de saude (ADR-0064), so' com a flag.
+                "helena_base_saude_enabled": self.helena_base_saude_enabled,
+                # DL-0119: a saude gerativa (ADR-0065), so' com a chave; `None` = desligada (grafo de antes).
+                "saude_gerativa": self.saude_gerativa,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
                 "consultas_plano": self.consultas_plano,
             }
@@ -805,7 +948,233 @@ class HelenaDispatcher:
         )
         return dict(result)
 
-    async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
+    async def _dispatch_com_acesso(
+        self,
+        message: InboundMessage,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        sender: WhatsAppSender,
+    ) -> dict[str, Any]:
+        """O gate do acesso do beneficiario. Uma mensagem por vez por conversa (le' -> envia -> grava).
+
+        ORDEM: `avaliar` (chama a AMH) -> escalonamento humano, se a decisao o pede -> ENVIO das respostas ->
+        `persistir`. Se o envio ou o escalonamento caem, o estado nao mudou e a reentrega recalcula; as chaves
+        de saida sao as mesmas, entao nada e' enviado em dobro.
+        """
+        assert self.acesso is not None
+        acesso = self.acesso
+        async with acesso.trava(conversation_id):
+            decisao = await acesso.avaliar(
+                conversation_id=conversation_id, texto=message.text, numero_cru=message.from_number
+            )
+            if not decisao.prosseguir:
+                return await self._responder_acesso(
+                    decisao,
+                    phone_hash=phone_hash,
+                    conversation_id=conversation_id,
+                    beneficiario_pseudo_id=beneficiario_pseudo_id,
+                    sender=sender,
+                )
+            ref = decisao.portable_subject_ref
+            if not ref or self.refs_verificadas is None:
+                # Defesa em profundidade: `prosseguir` sem referencia (ou sem a ponte) nunca roda agente.
+                raise RuntimeError("acesso: conversa verificada sem referencia ou sem ponte para os agentes")
+            await acesso.persistir(decisao)
+            with self.refs_verificadas.do_turno(beneficiario_pseudo_id, ref, decisao.consent_ref):
+                respondida = await self._responder_cadastro(
+                    message,
+                    phone_hash=phone_hash,
+                    conversation_id=conversation_id,
+                    beneficiario_pseudo_id=beneficiario_pseudo_id,
+                    sender=sender,
+                )
+                if respondida is not None:
+                    return respondida
+                return await self.dispatch(message, _ja_no_gate=True)
+
+    async def _responder_acesso(
+        self,
+        decisao: DecisaoAcesso,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        sender: WhatsAppSender,
+    ) -> dict[str, Any]:
+        """Escalona (3a falha), envia as respostas fixas e so' entao grava o estado. Nenhum agente roda."""
+        assert self.acesso is not None
+        if decisao.esquecer_memoria:
+            # Revisao do #700 (P2): a pessoa verificada mudou (ou revogou). ANTES de enviar e de gravar o
+            # estado: se apagar falha, o turno falha e a reentrega tenta de novo, sem estado novo gravado.
+            await self._esquecer_memoria_da_conversa(conversation_id, sender)
+        if decisao.escalar:
+            await self._escalar_identidade(
+                conversation_id=conversation_id,
+                beneficiario_pseudo_id=beneficiario_pseudo_id,
+                sender=sender,
+                motivo=decisao.motivo_escalonamento,
+            )
+        for texto in decisao.respostas:
+            await sender.send(phone_hash, texto)
+        await self.acesso.persistir(decisao)
+        if decisao.nova_verificacao and self.identidade is not None:
+            # Uma verificacao nova pode ter outra referencia: o cache de identidade da conversa nao vale mais.
+            self.identidade.invalidar(conversation_id)
+        logger.info(
+            "acesso_turno_respondido",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            estado=decisao.novo.estado,
+            tentativas=decisao.novo.tentativas,
+            respostas=len(decisao.respostas),
+            escalou=decisao.escalar,
+        )
+        return {
+            "conversation_id": conversation_id,
+            "response_text": decisao.respostas[-1] if decisao.respostas else "",
+            "acesso_estado": decisao.novo.estado,
+            "escalation_started": decisao.escalar,
+        }
+
+    async def _esquecer_memoria_da_conversa(self, conversation_id: str, sender: WhatsAppSender) -> None:
+        """Grava a memoria de conversa NEUTRA (historico DL-0080, memoria clinica, coleta, cartao) sobre o
+        checkpoint da conversa (DL-0083). O checkpoint e' indexado pelo telefone; sem isto a pessoa nova
+        herdaria a memoria da anterior. Sem checkpointer (ou sem checkpoint ainda) nao ha' o que apagar."""
+        compiled, saver = self._compile_turn_graph(sender)
+        if saver is None:
+            return
+        config = checkpoint_thread_config(conversation_id)
+        atual = await compiled.aget_state(config)
+        if not getattr(atual, "values", None):
+            return
+        # `respond` -> END: o checkpoint gravado nao deixa no' pendente; o proximo turno recomeca em START.
+        await compiled.aupdate_state(config, memoria_de_conversa_neutra(), as_node="respond")
+        logger.info(
+            "acesso_memoria_da_conversa_apagada", tenant_id=self.tenant_id, conversation_id=conversation_id
+        )
+
+    async def _escalar_identidade(
+        self,
+        *,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        sender: WhatsAppSender,
+        motivo: str = "identidade_nao_verificada",
+    ) -> None:
+        """Abre SP-OP-ESCALATION-001 (`solicitacao_humano`) pelo MESMO caminho da Helena, sem modelo e sem
+        texto
+        da pessoa. Levanta se o processo nao abriu: o turno falha e a reentrega tenta de novo, em vez de
+        prometer um atendente que ninguem acionou."""
+        helena = HelenaGraph(
+            inference=self.inference,
+            dmn=self.dmn,
+            cibseven=self.cibseven,
+            audit_sink=self.audit_sink,
+            whatsapp=sender,
+            agent_version="helena@v0",
+            memoria_clinica_enabled=self.memoria_clinica_enabled,
+            roteador_lucas_enabled=self._roteamento_completo,
+            historico_enabled=self.historico_enabled,
+            triagem_v2_enabled=self.triagem_v2_enabled,
+            helena_v4_enabled=self.helena_v4_enabled,
+            helena_carteirinha_completa_enabled=self.helena_carteirinha_completa_enabled,
+            helena_dependentes_nome_enabled=self.helena_dependentes_nome_enabled,
+            helena_base_saude_enabled=self.helena_base_saude_enabled,
+        )
+        estado: dict[str, Any] = {
+            "tenant_id": self.tenant_id,
+            "conversation_id": conversation_id,
+            "beneficiario_pseudo_id": beneficiario_pseudo_id,
+            "canal": "whatsapp",
+            "message_body": "",
+        }
+        if motivo == "revogacao_consentimento_pendente":
+            resultado = await helena.escalar_revogacao_pendente(cast(HelenaState, estado))
+        else:
+            resultado = await helena.escalar_identidade_nao_verificada(cast(HelenaState, estado))
+        if resultado.get("escalation_started") is not True:
+            logger.error(
+                "acesso_escalonamento_nao_aberto", tenant_id=self.tenant_id, conversation_id=conversation_id
+            )
+            raise RuntimeError("acesso: o escalonamento humano nao foi aberto")
+        logger.info(
+            "acesso_escalonamento_aberto",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            motivo=motivo,
+            categoria="solicitacao_humano",
+            start_desfecho=resultado.get("start_desfecho"),
+        )
+
+    async def _responder_cadastro(
+        self,
+        message: InboundMessage,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        sender: WhatsAppSender,
+    ) -> dict[str, Any] | None:
+        """Pergunta EXPLICITA sobre o cadastro, conversa VERIFICADA: texto fixo, sem agente e sem modelo
+        (item 8).
+
+        So' vale com sinal de saude AUSENTE (saude e emergencia vencem e seguem para o grafo). O dado vem do
+        perfil que a identidade da Helena ja' le' da AMH pela referencia verificada; nome, CPF, telefone e
+        idade
+        exata nunca entram. `None` = nao e' pergunta de cadastro: o fluxo de sempre.
+        """
+        from .acesso_cadastro import resposta_de_cadastro, tipo_de_pergunta
+
+        tipo = tipo_de_pergunta(message.text)
+        if tipo is None:
+            return None
+        from .acesso_cadastro import TIPO_CARENCIA, TIPO_PLANO_DETALHE
+
+        if self.consultas_plano is not None and tipo in (TIPO_PLANO_DETALHE, TIPO_CARENCIA):
+            # RODADA 3: com os fatos do plano ligados (TINA), tipo de plano, cobertura e carencia sao
+            # respondidos pela consulta da Helena, com segmentacao e carencias do cadastro.
+            return None
+        assert self.acesso is not None
+        if self.acesso.sinal_de_emergencia(message.text):
+            return None
+        from .acesso_cadastro import TIPO_IDENTIDADE_E_PLANO, TIPO_NOME, TIPO_PLANO_DETALHE, TIPO_QUEM_SOU_EU
+
+        # Tipos respondidos sem o perfil da AMH (RODADA 2).
+        sem_perfil = frozenset({TIPO_QUEM_SOU_EU, TIPO_NOME, TIPO_IDENTIDADE_E_PLANO, TIPO_PLANO_DETALHE})
+
+        identidade: dict[str, Any] | None = None
+        if tipo not in sem_perfil and self.identidade is not None:
+            resolvida = await self.identidade.resolver_com_desfecho(
+                message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
+            )
+            identidade = resolvida.identidade
+        texto = resposta_de_cadastro(tipo, identidade, fonte_ligada=self.identidade is not None)
+        if self.consultas_plano is not None and texto == RESPOSTA_PLANO_POR_CANAIS:
+            # RODADA 8: com os fatos do plano (TINA) ligados e a pessoa verificada, "ainda nao estao
+            # disponiveis por este chat" nunca sai: o fato ausente do perfil segue para o grafo, que consulta.
+            # A comparacao vem ANTES do aviso de terceiro (revisao do #785): com o aviso colado, o texto
+            # deixava de ser igual e o "nao estao disponiveis" saia ao beneficiario.
+            return None
+        # D-01 (red team): quem fala de outra pessoa recebe o aviso de que so' o PROPRIO cadastro e' mostrado.
+        texto = com_aviso_se_for_de_outra_pessoa(message.text, texto)
+        await sender.send(phone_hash, texto)
+        logger.info(
+            "acesso_cadastro_respondido",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            tipo=tipo,
+            com_dados=identidade is not None,
+        )
+        return {
+            "conversation_id": conversation_id,
+            "response_text": texto,
+            "acesso_estado": "verificado",
+            "acesso_cadastro": tipo,
+        }
+
+    async def dispatch(self, message: InboundMessage, *, _ja_no_gate: bool = False) -> dict[str, Any]:
         """Run ONE complete Helena turn (receive..respond) for `message`.
 
         When a durable `checkpointer` is wired (production), the graph is compiled
@@ -838,13 +1207,14 @@ class HelenaDispatcher:
         # O ENVIO USA A MESMA COSTURA CERCADA do resto: e' um efeito
         # (`comunicacao_beneficiario`), e um caminho de saida paralelo seria exatamente a segunda
         # porta que o gate existe para impedir.
-        if self.limitador is not None:
+        if self.limitador is not None and not _ja_no_gate:
             veredito = self.limitador.registrar(tenant_id=self.tenant_id, conversation_id=conversation_id)
             if not veredito.permitido:
                 return await self._recusar_por_limite(message, phone_hash, conversation_id, veredito)
 
         beneficiario_pseudo_id = self.pseudonymizer.pseudonymize({"telefone": phone_hash})["telefone"]
-        await self._custodiar_destinatario(message.from_number, conversation_id)
+        if not _ja_no_gate:
+            await self._custodiar_destinatario(message.from_number, conversation_id)
 
         sender = self._gated_scoped_sender(
             raw_to=message.from_number,
@@ -852,6 +1222,18 @@ class HelenaDispatcher:
             conversation_id=conversation_id,
             idempotency_key_for=self._outbound_key_factory(message.message_id),
         )
+        if self.acesso is not None and not _ja_no_gate:
+            # ACESSO DO BENEFICIARIO (DL-0083): ANTES de qualquer agente, deterministico, sem LLM. A mensagem
+            # so' segue para o fluxo de sempre com a conversa `verificado` (o gate chama `dispatch` de novo,
+            # com `_ja_no_gate=True`); senao e' consumida AQUI e o CPF/nascimento nunca chegam ao grafo, ao
+            # checkpoint, a prompt, a metrica ou a log.
+            return await self._dispatch_com_acesso(
+                message,
+                phone_hash=phone_hash,
+                conversation_id=conversation_id,
+                beneficiario_pseudo_id=beneficiario_pseudo_id,
+                sender=sender,
+            )
         # `conversation_id` (a KEYED `wa:{tenant}:hk1_{hmac}`) IS the checkpoint thread id — it
         # carries no raw phone/CPF AND no reversible unkeyed hash, so `checkpoint_thread_config`
         # (which fail-closes unless the id embeds the `hk1_` keyed-pseudonym marker) accepts it and
@@ -865,6 +1247,10 @@ class HelenaDispatcher:
         # `dmn_decision_ref`) from here into `HelenaState` — the caller-planted read-through class
         # is unreachable at the construction seam, not just neutralized inside `receive`.
         sinais = self._pre_rotear(message.text, conversation_id) if self.roteador is not None else None
+        # DL-0111 (`MAEZO_CANCEL_PF_V1`): recuo do cancelamento com a pergunta de confirmacao pendente
+        # vai ao Lucas ANTES do classificador e do encerramento da Helena ("deixa pra la" lia como despedida).
+        # Chave desligada (ou sem pendencia): `None` e nada muda.
+        atalho_recuo = await self._atalho_de_recuo(message.text, conversation_id, sinais)
         # DL-0077: o numero cru so' existe aqui (o hash `amh-phone-lookup-v1` nasce e morre dentro de
         # `IdentidadeHelena.resolver_com_desfecho`). Nunca levanta: sem identidade, a Helena de sempre.
         # DL-0078: junto vem o desfecho FECHADO (`reconhecido`/`nao_encontrado`/`indeterminado`) que decide
@@ -876,6 +1262,10 @@ class HelenaDispatcher:
                 message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
             )
             identidade, identidade_desfecho = resolvida.identidade, resolvida.desfecho
+            if self.acesso is not None:
+                # DL-0083: com o acesso ligado o aviso de identidade do DL-0078 ("Reconheci este numero...")
+                # fica DESLIGADO: quem diz quem e' a pessoa e' a verificacao, nao o telefone.
+                identidade_desfecho = None
         message_pseudonym = log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer)
         if self._roteamento_completo:
             # NUMERO UNICO (onda e): as entradas do roteador, todas TIPADAS e sem texto. Quem estava
@@ -923,7 +1313,15 @@ class HelenaDispatcher:
         # `thread_config` scopes the checkpoint thread when a saver is attached; None (stateless
         # compile) is passed through as a no-op config, so this call site is single-path.
         try:
-            result = await compiled.ainvoke(initial_state, thread_config)
+            if atalho_recuo is not None:
+                # Sem turno da Helena: o handoff e' o do atalho (a frase de passagem nao se aplica, o Lucas
+                # ja' esta' com a conversa) e o Lucas responde logo abaixo, pelo caminho de sempre.
+                result = {
+                    **atalho_recuo,
+                    "handoff": {**atalho_recuo["handoff"], "message_ref": message_pseudonym},
+                }
+            else:
+                result = await compiled.ainvoke(initial_state, thread_config)
         except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a. This receiver is the SECOND turn-execution seam in the
             # repo — it compiles and invokes Helena's graph directly rather than through
@@ -962,6 +1360,7 @@ class HelenaDispatcher:
         if self.roteador is not None:
             handoff: PedidoDeHandoff | None = None
             lucas_escalou = False
+            lucas_start_falhou = False
             if self._roteamento_completo and isinstance(result.get("handoff"), Mapping):
                 # NUMERO UNICO (onda e): a Helena passou a conversa. O Lucas roda AQUI, depois do
                 # turno dela e no MESMO request (§2.3: ir ao Lucas exige a saida tipada deste
@@ -983,7 +1382,7 @@ class HelenaDispatcher:
                 from .lucas_turno import HandoffDeOutraMensagemError
 
                 try:
-                    handoff, lucas_escalou = await self._turno_do_lucas(
+                    handoff, lucas_escalou, lucas_start_falhou = await self._turno_do_lucas(
                         message,
                         phone_hash=phone_hash,
                         conversation_id=conversation_id,
@@ -1021,10 +1420,120 @@ class HelenaDispatcher:
                     if isinstance(exc, PROGRAMMING_ERRORS):
                         raise
                     return dict(escalado)
+                if (
+                    not lucas_escalou
+                    # DL-0144: start falho do Lucas nao abre outro caso aqui (nenhum envio novo).
+                    and not lucas_start_falhou
+                    and eh_pedido_explicito_de_pessoa(message.text)
+                    # RODADA 6: com caso ja' aberto o Lucas ja' reconhece o pedido; o aviso da Helena
+                    # ("seu atendimento ja' esta' aberto") so' duplicava a resposta (4 turnos seguidos).
+                    and not await self._caso_aberto_na_conversa(conversation_id)
+                ):
+                    # DL-0092 (decisao do dono antes do merge do #739): cobranca + pedido EXPLICITO de
+                    # uma pessoa da equipe ("quero falar com um atendente sobre o boleto"). O Lucas JA
+                    # respondeu o fato de cobranca neste turno; o pedido de pessoa e' honrado no mesmo
+                    # turno, pelo escalonamento `solicitacao_humano` da Helena — o mesmo start idempotente
+                    # (`ESC-{tenant}-{conversation_id}`), que reaproveita um caso de cobranca aberto pelo
+                    # Lucas (`ja_ativo`, sem duplicata). O caminho do Lucas declara `solicitacao_humano`
+                    # inalcancavel ate' a ratificacao (`agents/lucas/graph.py`), por isso nao e' ele que abre.
+                    escalado = await self._escalar_depois_do_lucas(
+                        message,
+                        phone_hash=phone_hash,
+                        conversation_id=conversation_id,
+                        resultado_helena=result,
+                        motivo="solicitacao_humano",
+                        severidade="leve",
+                        error=None,
+                        espaco_da_chave="lucas-pedido",
+                    )
+                    result = {
+                        **result,
+                        **{
+                            chave: escalado[chave]
+                            for chave in (
+                                "escalation_started",
+                                "escalation_motivo",
+                                "escalation_severidade",
+                                "escalation_business_key",
+                                "start_desfecho",
+                            )
+                            if chave in escalado
+                        },
+                    }
+                    lucas_escalou = True
             await self._registrar_roteamento(
-                conversation_id, sinais, result, handoff=handoff, lucas_escalou=lucas_escalou
+                conversation_id,
+                sinais,
+                result,
+                handoff=handoff,
+                lucas_escalou=lucas_escalou,
+                lucas_start_falhou=lucas_start_falhou,
             )
         return dict(result)
+
+    async def _atalho_de_recuo(
+        self, texto: str, conversation_id: str, sinais: SinaisLexicos | None
+    ) -> dict[str, Any] | None:
+        """DL-0111 (`MAEZO_CANCEL_PF_V1`): recuo do cancelamento, DETERMINISTICA, antes da Helena.
+
+        Com a chave ligada, o Lucas ainda com a conversa e a pergunta de confirmacao PENDENTE (a referencia do
+        ultimo texto enviado e' a da pergunta), uma resposta que desiste ("nao", "deixa pra la", "esquece",
+        "melhor nao", "mudei de ideia", "nao quero mais") vai ao Lucas, que limpa a pendencia e diz que nenhum
+        pedido foi registrado. Antes, o classificador da Helena lia "deixa pra la" como encerramento e ela
+        agradecia, sem confirmar nada. Devolve o resultado sintetico do turno (so' o handoff e tokens, sem
+        texto) ou `None` — chave desligada, sem pendencia, com sinal de saude ou de pessoa, ou falha de
+        leitura: o caminho de sempre, intacto."""
+        lucas = self.lucas_turno
+        # `getattr`: os envelopes do `LucasTurno` (espioes de teste, composicao do simulador) so'
+        # repassam `executar`.
+        ligada = getattr(lucas, "cancelamento_pf_v1", False) is True
+        if lucas is None or not ligada or not self._roteamento_completo:
+            return None
+        from maezo.runtime.cobranca_intencao import (
+            e_confirmacao_pura_do_cancelamento,
+            e_recuo_do_cancelamento,
+        )
+
+        # FAIL-CLOSED: lexico que falhou, pedido de pessoa ou sinal de saude seguem o caminho da Helena.
+        if sinais is None or sinais.pedido_humano or sinais.sinal_saude:
+            return None
+        # FASE 4 (18/10/2026, decisao do dono: "Sim" basta): a CONFIRMACAO PURA ("Sim", "sim, quero cancelar",
+        # "confirmo") com a pergunta pendente tambem vai ao Lucas sem o classificador da Helena — antes o
+        # "Sim"
+        # sozinho dependia de o modelo ler cobranca.
+        if e_confirmacao_pura_do_cancelamento(texto):
+            confirmacao = "confirma"
+        elif e_recuo_do_cancelamento(texto):
+            confirmacao = "nega"
+        else:
+            return None
+        from maezo.agents.lucas.graph import TEXTO_CONFIRMA_CANCELAMENTO, ref_de_resposta
+
+        contexto = await self._contexto_do_turno_do_lucas(conversation_id)
+        if contexto.assunto_anterior != "cancelamento" or contexto.memoria.resposta_ref != ref_de_resposta(
+            TEXTO_CONFIRMA_CANCELAMENTO
+        ):
+            return None
+        from maezo.agents.helena.graph import INTENT_COBRANCA, RESPONSE_KIND_HANDOFF
+        from maezo.runtime.cobranca_foco import FOCO_GERAL
+
+        logger.info(
+            "lucas_recuo_do_cancelamento" if confirmacao == "nega" else "lucas_confirmacao_do_cancelamento",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+        )
+        return {
+            "intent": INTENT_COBRANCA,
+            "response_kind": RESPONSE_KIND_HANDOFF,
+            "response_text": "",
+            "handoff": {
+                "para": "lucas",
+                "cobranca_subtipo": "cancelamento",
+                "competencia": None,
+                "cobranca_foco": FOCO_GERAL,
+                "cobranca_confirmacao": confirmacao,
+            },
+        }
 
     async def _agente_ativo(self, conversation_id: str) -> str:
         """Quem esta' com a conversa ANTES deste turno, lido da tabela do roteador. Uma falha de
@@ -1043,6 +1552,60 @@ class HelenaDispatcher:
             )
             return "helena"
 
+    async def _handoff_com_esclarecimento(
+        self, texto: str, conversation_id: str, handoff: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        """PERGUNTA DE ESCLARECIMENTO (teste real do dono, 12/10/2026): "De qual ano?" depois de uma
+        resposta do Lucas nao e' uma pergunta nova. Com o Lucas ainda com a conversa, o handoff
+        reaproveita o ASSUNTO (so' os informativos) e o MES daquela resposta; o mes que a mensagem
+        trouxer vence o lembrado. Sem esclarecimento, sem contexto ou com falha de leitura: o handoff
+        da Helena, intacto (o caminho de sempre)."""
+        from maezo.runtime.cobranca_esclarecimento import (
+            SUBTIPOS_QUE_NAO_SE_SOBRESCREVEM,
+            SUBTIPOS_REAPROVEITAVEIS,
+            e_pergunta_de_esclarecimento,
+        )
+
+        if self.roteador is None or not e_pergunta_de_esclarecimento(texto):
+            return handoff
+        try:
+            contexto = await self.roteador.contexto_do_lucas(conversation_id)
+        except Exception as exc:
+            record_roteamento_falha(tenant=self.tenant_id, tipo="leitura")
+            logger.error(
+                "roteador_leitura_falhou",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                error_type=type(exc).__name__,
+            )
+            return handoff
+        if contexto is None:
+            return handoff
+        subtipo_anterior, competencia_anterior = contexto
+        ajustado = dict(handoff)
+        if (
+            subtipo_anterior in SUBTIPOS_REAPROVEITAVEIS
+            and handoff.get("cobranca_subtipo") not in SUBTIPOS_QUE_NAO_SE_SOBRESCREVEM
+        ):
+            ajustado["cobranca_subtipo"] = subtipo_anterior
+        if ajustado.get("competencia") is None and competencia_anterior is not None:
+            ajustado["competencia"] = competencia_anterior
+        # Rodada 3 (13/10/2026): "de qual ano?" repetia o texto anterior, identico. O foco proprio pede a
+        # resposta CURTA, com o ano ("E' julho de 2026: paga em 18/08.").
+        from maezo.runtime.cobranca_foco import FOCO_ESCLARECIMENTO
+
+        ajustado["cobranca_foco"] = FOCO_ESCLARECIMENTO
+        logger.info(
+            "lucas_esclarecimento_reaproveitado",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            subtipo_lido=handoff.get("cobranca_subtipo"),
+            subtipo_usado=ajustado.get("cobranca_subtipo"),
+            competencia_reaproveitada=handoff.get("competencia") is None
+            and ajustado.get("competencia") is not None,
+        )
+        return ajustado
+
     async def _turno_do_lucas(
         self,
         message: InboundMessage,
@@ -1051,19 +1614,27 @@ class HelenaDispatcher:
         conversation_id: str,
         beneficiario_pseudo_id: str,
         handoff: Mapping[str, Any],
-    ) -> tuple[PedidoDeHandoff, bool]:
+    ) -> tuple[PedidoDeHandoff, bool, bool]:
         """UM turno do Lucas a partir do `handoff` da Helena. Devolve o pedido de handoff que o
-        roteador grava e se o Lucas terminou escalando (`lucas_encerrou`).
+        roteador grava, se o Lucas terminou escalando (`lucas_encerrou`: so' com o processo iniciado)
+        e se o start dele falhou (DL-0144: vira `retorno_falha`, nunca `lucas_encerrou`).
 
         O REMETENTE e' o `_ScopedWhatsAppSender` deste turno, SEM gate e SEM fabrica de chave, e
         isso e' deliberado: o `LucasTurno` o embrulha com o gate do principal `lucas` (nunca o da
         Helena) e escolhe a chave de cada envio (`lucas:{message_id}`). O numero cru continua onde
         sempre esteve — dentro do remetente, so' por este turno.
         """
-        from .lucas_turno import ConversaDoTurno
+        from .lucas_turno import ConversaDoTurno, competencia_a_lembrar, memoria_do_turno
         from .roteamento import PedidoDeHandoff
 
         assert self.lucas_turno is not None
+        # O handoff E' o da Helena neste request (cerca do item 7); o esclarecimento so' reaproveita
+        # assunto e mes da resposta anterior, dentro do dominio fechado que o `LucasTurno` confere.
+        handoff = await self._handoff_com_esclarecimento(message.text, conversation_id, handoff)
+        handoff = await self._handoff_com_lista(message.text, conversation_id, handoff)
+        handoff = _handoff_com_mes_do_texto(message.text, handoff)
+        contexto = await self._contexto_do_turno_do_lucas(conversation_id)
+        handoff = _handoff_com_intencao(message.text, handoff, contexto.assunto_anterior)
         remetente = _ScopedWhatsAppSender(
             raw_to=message.from_number, expected_hash=phone_hash, client=self.whatsapp_client
         )
@@ -1077,13 +1648,87 @@ class HelenaDispatcher:
                 # Fonte AMH (decisao do dono 06/10/2026): o hash `amh-phone-lookup-v1` nasce AQUI,
                 # onde o numero cru ainda existe, e morre com este turno. Sem a fonte AMH e' `None`.
                 phone_hash_amh=self.lucas_turno.hash_telefone_para_amh(message.from_number),
+                variante_de_redacao=contexto.revisao % 2,
+                assunto_anterior=contexto.assunto_anterior,
+                resposta_anterior_ref=contexto.memoria.resposta_ref,
+                avisos_anteriores=contexto.memoria.avisos_caso_aberto,
             ),
             remetente,
         )
         pedido = PedidoDeHandoff(
-            cobranca_subtipo=handoff["cobranca_subtipo"], competencia=handoff.get("competencia")
+            cobranca_subtipo=handoff["cobranca_subtipo"],
+            competencia=competencia_a_lembrar(final, handoff.get("competencia")),
+            memoria=memoria_do_turno(final),
         )
-        return pedido, final.get("route") == "escalate_human"
+        escalou = final.get("route") == "escalate_human" and final.get("process_started") is True
+        return pedido, escalou, final.get("start_failed") is True
+
+    async def _contexto_do_turno_do_lucas(self, conversation_id: str) -> ContextoDoTurno:
+        """Revisao (variante de redacao), assunto anterior e memoria curta do Lucas (simulador, 13/10/2026:
+        o mesmo texto saia ate' 10 vezes seguidas). Falha de leitura: o contexto neutro."""
+        from .roteamento import ContextoDoTurno
+
+        if self.roteador is None:
+            return ContextoDoTurno()
+        try:
+            contexto: ContextoDoTurno = await self.roteador.contexto_do_turno(conversation_id)
+        except Exception as exc:
+            record_roteamento_falha(tenant=self.tenant_id, tipo="leitura")
+            logger.error(
+                "roteador_leitura_falhou",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                error_type=type(exc).__name__,
+            )
+            return ContextoDoTurno()
+        return contexto
+
+    async def _handoff_com_lista(
+        self, texto: str, conversation_id: str, handoff: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        """PEDIDO DE LISTA (teste real do dono, 12/10/2026): "as ultimas tres mensalidades pagas" recebeu um
+        mes so'. Quando o texto pede varios meses (`runtime/cobranca_lista.py`), o handoff ganha a chave
+        opcional `cobranca_lista` (numeros e `AAAA-MM`, nunca texto). Uma confirmacao de pagamento em lista
+        ("ja paguei as ultimas tres?") e' uma consulta de valores; um "outro" em lista (a insistencia "mas
+        eu te perguntei das ultimas tres") reaproveita o assunto informativo da resposta anterior do Lucas.
+        Sem pedido de lista: o handoff intacto."""
+        from maezo.runtime.cobranca_esclarecimento import SUBTIPOS_REAPROVEITAVEIS
+        from maezo.runtime.cobranca_lista import decidir_lista_da_cobranca
+        from maezo.runtime.competencia import hoje_em_brasilia
+
+        lista = decidir_lista_da_cobranca(texto, hoje_em_brasilia(datetime.now(UTC)))
+        if lista is None:
+            return handoff
+        ajustado = dict(handoff)
+        ajustado["cobranca_lista"] = lista.como_handoff()
+        subtipo = handoff.get("cobranca_subtipo")
+        if subtipo == "confirmacao_pagamento":
+            ajustado["cobranca_subtipo"] = "consulta_valores"
+        elif subtipo == "outro" and self.roteador is not None:
+            try:
+                contexto = await self.roteador.contexto_do_lucas(conversation_id)
+            except Exception as exc:
+                record_roteamento_falha(tenant=self.tenant_id, tipo="leitura")
+                logger.error(
+                    "roteador_leitura_falhou",
+                    tenant_id=self.tenant_id,
+                    conversation_id=conversation_id,
+                    error_type=type(exc).__name__,
+                )
+                contexto = None
+            if contexto is not None and contexto[0] in SUBTIPOS_REAPROVEITAVEIS:
+                ajustado["cobranca_subtipo"] = contexto[0]
+        logger.info(
+            "lucas_lista_pedida",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            quantidade=lista.quantidade,
+            periodo=lista.tem_periodo,
+            situacao=lista.situacao,
+            subtipo_lido=subtipo,
+            subtipo_usado=ajustado.get("cobranca_subtipo"),
+        )
+        return ajustado
 
     async def _escalar_falha_do_lucas(
         self,
@@ -1095,7 +1740,7 @@ class HelenaDispatcher:
         erro: str,
     ) -> dict[str, Any]:
         """O Lucas caiu depois da frase de passagem: escala `falha_tecnica` pelos MESMOS nos da
-        Helena (`escalate` -> `respond`), sem segundo caminho de efeito.
+        Helena (`escalate` -> `respond`), sem segundo caminho de efeito (`_escalar_depois_do_lucas`).
 
         O `escalate` abre SP-OP-ESCALATION-001 pelo chokepoint idempotente (business key
         `ESC-{tenant}-{conversation_id}` — numa reentrega, `ja_ativo`) e o `respond` passa o texto
@@ -1105,11 +1750,53 @@ class HelenaDispatcher:
 
         O `error` leva so' o NOME da classe da excecao (token), nunca a mensagem dela.
         """
+        return await self._escalar_depois_do_lucas(
+            message,
+            phone_hash=phone_hash,
+            conversation_id=conversation_id,
+            resultado_helena=resultado_helena,
+            motivo="falha_tecnica",
+            severidade=None,
+            error=f"{ERRO_LUCAS_FALHOU}: {erro}",
+            espaco_da_chave="lucas-falha",
+        )
+
+    async def _caso_aberto_na_conversa(self, conversation_id: str) -> bool:
+        """Ha' um SP-OP-ESCALATION-001 vivo na chave desta conversa? Falha de leitura = `False` (o start
+        idempotente reaproveita o caso de qualquer jeito, so' com o aviso a mais)."""
+        from maezo.runtime.caso_clinico import chave_do_escalonamento
+
+        try:
+            ativa = await self.cibseven.find_active_instance(
+                chave_do_escalonamento(self.tenant_id, conversation_id)
+            )
+        except Exception as exc:
+            logger.warning(
+                "caso_aberto_leitura_falhou", tenant_id=self.tenant_id, error_type=type(exc).__name__
+            )
+            return False
+        return ativa is not None
+
+    async def _escalar_depois_do_lucas(
+        self,
+        message: InboundMessage,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        resultado_helena: Mapping[str, Any],
+        motivo: str,
+        severidade: str | None,
+        error: str | None,
+        espaco_da_chave: str,
+    ) -> dict[str, Any]:
+        """Escalonamento depois do turno do Lucas pelos nos da Helena (`escalate` -> `respond`): a
+        falha do Lucas (`falha_tecnica`) e, desde o DL-0092, o pedido explicito de pessoa junto da
+        cobranca (`solicitacao_humano`). A chave de saida vive num espaco proprio por motivo."""
         sender = self._gated_scoped_sender(
             raw_to=message.from_number,
             phone_hash=phone_hash,
             conversation_id=conversation_id,
-            idempotency_key_for=self._outbound_key_factory(f"lucas-falha:{message.message_id}"),
+            idempotency_key_for=self._outbound_key_factory(f"{espaco_da_chave}:{message.message_id}"),
         )
         helena = HelenaGraph(
             inference=self.inference,
@@ -1121,13 +1808,18 @@ class HelenaDispatcher:
             memoria_clinica_enabled=self.memoria_clinica_enabled,
             roteador_lucas_enabled=True,
             historico_enabled=self.historico_enabled,
+            triagem_v2_enabled=self.triagem_v2_enabled,
+            helena_v4_enabled=self.helena_v4_enabled,
+            helena_carteirinha_completa_enabled=self.helena_carteirinha_completa_enabled,
+            helena_dependentes_nome_enabled=self.helena_dependentes_nome_enabled,
+            helena_base_saude_enabled=self.helena_base_saude_enabled,
         )
         estado: dict[str, Any] = {
             **resultado_helena,
             "next_kind": "escalate",
-            "escalation_motivo": "falha_tecnica",
-            "escalation_severidade": None,
-            "error": f"{ERRO_LUCAS_FALHOU}: {erro}",
+            "escalation_motivo": motivo,
+            "escalation_severidade": severidade,
+            "error": error,
             "handoff": None,
             "response_kind": None,
             "response_text": None,
@@ -1174,6 +1866,7 @@ class HelenaDispatcher:
         handoff: PedidoDeHandoff | None = None,
         lucas_escalou: bool = False,
         lucas_recusou: bool = False,
+        lucas_start_falhou: bool = False,
     ) -> None:
         """UMA escrita CAS por mensagem, DEPOIS dos dois turnos (§2.2). A resposta ja' saiu; uma
         falha do roteador vira ERRO no log e nunca derruba o turno que ja' respondeu — a proxima
@@ -1187,6 +1880,7 @@ class HelenaDispatcher:
                 handoff=handoff,
                 lucas_escalou=lucas_escalou,
                 lucas_recusou=lucas_recusou,
+                lucas_start_falhou=lucas_start_falhou,
             )
         except Exception as exc:
             record_roteamento_falha(tenant=self.tenant_id, tipo="registro")

@@ -20,33 +20,65 @@ AS REGRAS DO TEXTO, e onde cada uma e' garantida:
     recusa sequencia de 11 digitos.
 Qualquer recusa da cerca (ou falha do modelo) troca o rascunho pela resposta DETERMINISTICA, montada
 so' com os fatos — nunca por um segundo rascunho.
+
+VINCULO ATIVO E CARTEIRINHA COMPLETA (decisao do dono de 17/10/2026, "modelo de teste" so' em dev, chave
+`MAEZO_HELENA_CARTEIRINHA_COMPLETA`; desligada, nada desta secao e' alcancado e os textos sao byte a byte
+os de antes). Ligada:
+  * elegibilidade e carteirinha so' com os vinculos ATIVOS (`vinculo_ativo`): a AMH devolve tambem o plano
+    cancelado anos atras, e a Helena mostrava os dois. Cancelamento agendado (data futura) e' ativo e sai como
+    "cancelamento previsto". Nenhum ativo = `RESPOSTA_SEM_VINCULO_ATIVO` (texto fixo);
+  * a carteirinha do PROPRIO beneficiario verificado sai com o NUMERO COMPLETO (rota `tina-carteirinha`,
+    manifest v1.12), casado com o vinculo pela MASCARA. O numero NUNCA entra nos fatos, no prompt, nos
+    literais das cercas, no estado do grafo, no historico nem em log: o texto leva um MARCADOR
+    (`marcador_da_carteirinha`) e o numero vive so' em `CarteirinhasDoTurno` (repr redigido, nao
+    serializavel), trocado no ULTIMO passo, dentro de `respond`, imediatamente antes do envio — o mesmo
+    desenho do codigo de barras do Lucas v4 (`agents/lucas/fonte_v4.py::MARCADOR_CODIGO`).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import unicodedata
+import uuid
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Any, Final, Literal, Protocol, get_args, runtime_checkable
 
-from maezo.ports.tina import CarenciasView, ElegibilidadeView, RequisicoesView
+from maezo.ports.tina import (
+    MAX_DEPENDENTES,
+    CarenciasView,
+    CarteirinhasView,
+    CoberturaView,
+    CptVigenteView,
+    DependentesNominaisView,
+    DependentesView,
+    ElegibilidadeView,
+    RequisicoesView,
+    VinculoPlano,
+)
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT, render_untrusted_block
 
-from .prompts import SYSTEM_PROMPT, motivo_de_canal_nao_confirmado, motivo_de_recusa
+from .cerca_de_saida import motivo_de_canal_nao_confirmado, motivo_de_recusa
+from .prompts import SYSTEM_PROMPT
 
 INTENT_CONSULTA_PLANO: Final[str] = "consulta_plano"
-ConsultaSubtipo = Literal["elegibilidade", "carteirinha", "carencia", "autorizacao"]
+ConsultaSubtipo = Literal["elegibilidade", "carteirinha", "carencia", "autorizacao", "dependentes"]
 CONSULTA_SUBTIPOS: Final[frozenset[str]] = frozenset(get_args(ConsultaSubtipo))
 #: Os UNICOS subtipos que o modelo redige (revisao do #690). Autorizacao e carencia sao sempre a
 #: resposta deterministica: status e prazo sao exatamente o que um rascunho poderia transformar em promessa.
 SUBTIPOS_REDIGIDOS: Final[frozenset[str]] = frozenset({"elegibilidade", "carteirinha"})
+#: Rodada 11: `dependentes` e' sempre a resposta deterministica (contagem e relacao; nunca nome).
 
 #: Versao do ADENDO do classify (anexado ao classify v5/v6 SO' com as consultas ligadas) e do prompt
 #: de redacao da resposta com fatos. As duas entram em `graph.PROMPT_VERSIONS` e no `agent.yaml`.
-CLASSIFY_CONSULTAS_ADENDO_VERSION: Final[str] = "classify-consultas-v1"
-CONSULTA_PLANO_PROMPT_VERSION: Final[str] = "consulta-plano-v1"
+#: v2 — 14/10/2026 (DL-0100): o quinto subtipo, `dependentes`.
+CLASSIFY_CONSULTAS_ADENDO_VERSION: Final[str] = "classify-consultas-v2"
+#: v2 — 10/10/2026 (DL-0087): regra 7, o tom humanizado (curto, cordial, so' o perguntado, sem emoji).
+CONSULTA_PLANO_PROMPT_VERSION: Final[str] = "consulta-plano-v2"
 
 #: Quantas requisicoes/carencias vao ao texto. O agente conversa, nao exporta (contrato: 1..50).
 LIMITE_REQUISICOES: Final[int] = 5
@@ -58,14 +90,23 @@ MAX_CHARS_RESPOSTA: Final[int] = 1200
 #: `RESPOSTA_FORA_DO_CANAL`, ja' aprovada pelas cercas); quem pede uma pessoa cai no gatilho 3 do
 #: classify (SP-OP-ESCALATION-001, `solicitacao_humano`) no turno seguinte.
 RESPOSTA_CONSULTA_SEM_IDENTIDADE: Final[str] = (
-    "Não consegui confirmar seus dados por aqui, então não consigo consultar as informações do seu "
-    "plano neste canal. Se quiser falar com uma pessoa da equipe, é só me pedir."
+    "Não consegui confirmar seus dados, então não consigo ver as informações do seu plano por "
+    "aqui. Se quiser falar com uma pessoa da equipe, é só me pedir."
 )
-#: Fecho da resposta com fatos: o que o fato E' (cadastro) e a mesma oferta de pessoa.
+#: Fecho da resposta com fatos: o que o fato E' (cadastro) e a mesma oferta de pessoa. DL-0087: mais curto,
+#: mesma substancia (cadastro, nao confirma cobertura nem autorizacao, oferta de pessoa).
 _FECHO: Final[str] = (
-    "Essas informações são o que consta no cadastro do plano e não confirmam cobertura nem "
-    "autorização de nenhum procedimento. Se quiser falar com uma pessoa da equipe, é só me pedir."
+    "Essas informações são do cadastro do plano e não confirmam cobertura nem autorização de "
+    "procedimento. Se quiser falar com uma pessoa da equipe, é só me pedir."
 )
+
+
+@dataclass(frozen=True, slots=True)
+class FonteIndisponivel:
+    """A fonte NAO esta' carregada neste ambiente (o artefato da rota nao foi configurado): diferente de uma
+    falha da consulta. So' `dependentes` a usa — com ela o texto provisorio da rodada 10 continua valendo."""
+
+    subtipo: str
 
 
 @runtime_checkable
@@ -74,7 +115,58 @@ class FonteDeFatosDoPlano(Protocol):
 
     async def consultar(
         self, portable_subject_ref: str, subtipo: str
-    ) -> ElegibilidadeView | CarenciasView | RequisicoesView | None: ...
+    ) -> ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel | None: ...
+
+
+@runtime_checkable
+class FonteDeCarteirinhaCompleta(Protocol):
+    """A fonte que TAMBEM le' o numero completo da carteirinha (rota `tina-carteirinha`, manifest v1.12).
+
+    Protocolo SEPARADO: a fonte de sempre nao muda, e o grafo so' pede o numero quando a fonte injetada o
+    implementa E a chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` esta' ligada. Nunca levanta; falha = `None`
+    (o grafo cai no mascarado). `request_ref` e' o id OPACO da solicitacao (`X-Amh-Request-Ref`)."""
+
+    async def consultar_carteirinha(
+        self, portable_subject_ref: str, request_ref: str
+    ) -> CarteirinhasView | None: ...
+
+
+@runtime_checkable
+class FonteDeNomesDosDependentes(Protocol):
+    """A fonte que TAMBEM le' os NOMES dos dependentes do proprio titular (rota `tina-dependentes-nome`,
+    manifest v1.13; decisao do dono e DPO de 19/10/2026, DL-0127).
+
+    Protocolo SEPARADO: a fonte de sempre nao muda, e o grafo so' pede os nomes quando a fonte injetada o
+    implementa E a chave `MAEZO_HELENA_DEPENDENTES_NOME` esta' ligada. Nunca levanta; falha = `None` (o grafo
+    cai em "dependente N"). `request_ref` e' o id OPACO da solicitacao (`X-Amh-Request-Ref`)."""
+
+    async def consultar_dependentes_nominais(
+        self, portable_subject_ref: str, request_ref: str
+    ) -> DependentesNominaisView | None: ...
+
+
+@runtime_checkable
+class FonteDeCobertura(Protocol):
+    """A fonte que TAMBEM le' os fatos de cobertura de um procedimento (rota `tina-cobertura`, manifest v1.9;
+    decisao do dono D1 de 18/10/2026).
+
+    Protocolo SEPARADO: a fonte de sempre nao muda. Nunca levanta; falha = `None`. `procedimento` e' o
+    codigo ou o termo no padrao do contrato e nunca vai a log."""
+
+    async def consultar_cobertura(
+        self, portable_subject_ref: str, procedimento: str
+    ) -> CoberturaView | None: ...
+
+
+@runtime_checkable
+class FonteDeCpt(Protocol):
+    """A fonte que TAMBEM le' a CPT vigente do proprio sujeito (rota `tina-cpt`, manifest v1.15; caso C1 do
+    dono e DPO de 20/10/2026, DL-0130).
+
+    Protocolo SEPARADO: a fonte de sempre nao muda, e o grafo so' pede a CPT na cobertura assistida (allowlist
+    da saude gerativa), para o TITULAR. Nunca levanta; falha = `None` (nenhum aviso de CPT)."""
+
+    async def consultar_cpt(self, portable_subject_ref: str) -> CptVigenteView | None: ...
 
 
 # --------------------------------------------------------------------------------------------
@@ -85,22 +177,23 @@ class FonteDeFatosDoPlano(Protocol):
 #: `consulta_subtipo`, e VENCE o paragrafo de "fora do canal" para as quatro perguntas do plano.
 ADENDO_CLASSIFY_CONSULTAS: Final[str] = """
 
-CONSULTA DO PLANO (classify-consultas-v1, 07/10/2026). Alem das intencoes acima, existe
+CONSULTA DO PLANO (classify-consultas-v2, 14/10/2026). Alem das intencoes acima, existe
 intent="consulta_plano": a pessoa quer saber um FATO do proprio cadastro no plano. Esta regra VENCE
-o paragrafo de assunto fora do canal para estes quatro assuntos, e so' para eles. Devolva tambem o
+o paragrafo de assunto fora do canal para estes cinco assuntos, e so' para eles. Devolva tambem o
 campo "consulta_subtipo": SOMENTE quando intent="consulta_plano", um de ["elegibilidade",
-"carteirinha", "carencia", "autorizacao"]; em qualquer outro intent, null.
+"carteirinha", "carencia", "autorizacao", "dependentes"]; em qualquer outro intent, null.
   - "elegibilidade": se o plano esta' ativo, qual e' o plano, vigencia, acomodacao, se pode ser
     atendido ("meu plano esta ativo?", "qual o meu plano?");
   - "carteirinha": numero ou dados da carteirinha ("qual o numero da minha carteirinha?");
   - "carencia": carencias do plano ("ja cumpri a carencia?", "tenho carencia para parto?");
   - "autorizacao": andamento de um pedido de autorizacao ou guia ja' feito ("minha autorizacao saiu?",
-    "qual o status da minha guia?").
+    "qual o status da minha guia?");
+  - "dependentes": quem e' dependente no plano ("tenho dependentes?", "minha filha esta' no plano?").
 Autorizacao NEGADA com pedido de explicacao ("por que negaram?") continua "outside_channel": voce
 nunca explica uma negativa. Cobranca, boleto e mensalidade NUNCA sao "consulta_plano". Uma mensagem
 com QUALQUER sinal de saude segue as regras de saude, e pedir uma pessoa continua "human_request"."""
 
-#: Instrucao de redacao da resposta com fatos (`consulta-plano-v1`).
+#: Instrucao de redacao da resposta com fatos (`consulta-plano-v2`).
 _PROMPT_CONSULTA: Final[
     str
 ] = """Tarefa: responda a pergunta do beneficiario sobre o PROPRIO plano usando SOMENTE os fatos
@@ -119,7 +212,10 @@ REGRAS (todas obrigatorias):
 5. Nao diga que vai encaminhar, registrar, atualizar ou acompanhar nada. Termine dizendo que, se a
    pessoa quiser falar com uma pessoa da equipe, e' so' pedir.
 6. Status de autorizacao: repita o status exatamente como esta' no bloco, dizendo que e' o que consta
-   no cadastro."""
+   no cadastro.
+7. Tom (decisao do dono, 10/10/2026): cordial, calmo e direto, em segunda pessoa ("voce"). Responda
+   SO' o assunto perguntado, sem despejar os outros fatos do bloco. Sem emoji. O tom nunca afrouxa as
+   regras 1 a 6."""
 
 
 def consulta_prompt(*, subtipo: str, fatos: Mapping[str, Any], bloco_mensagem: str) -> str:
@@ -176,15 +272,64 @@ def _data(valor: object) -> str | None:
         return None
 
 
+#: VINCULO ATIVO (decisao do dono de 17/10/2026; regra medida nos dados do dev): a situacao do beneficiario,
+#: sem acento e sem caixa, que conta como ativa. "Suspenso", "Adesao futura" e "Inapto" NAO sao ativos.
+SITUACOES_ATIVAS: Final[frozenset[str]] = frozenset({"apto", "ativo"})
+#: Nenhum vinculo ATIVO no cadastro (chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` ligada): texto FIXO, sem
+#: modelo.
+RESPOSTA_SEM_VINCULO_ATIVO: Final[str] = (
+    "No cadastro do plano não consta nenhum vínculo ativo para você. "
+    "Se quiser falar com uma pessoa da equipe, é só me pedir."
+)
+
+
+def vinculo_ativo(v: VinculoPlano, hoje: date) -> bool:
+    """O vinculo esta' ATIVO hoje? PURA.
+
+    (a) sem cancelamento, OU cancelamento DEPOIS de hoje (cancelamento agendado: medido em 374 vinculos "Apto"
+    com data futura no dev); um cancelamento que nao e' data legivel conta como cancelado (fail-closed:
+    mostrar um vinculo cancelado foi o defeito); E
+    (b) situacao do beneficiario em `SITUACOES_ATIVAS` (sem acento/caixa), ou, SO' com a situacao ausente,
+    `atendimento_liberado is True`.
+    """
+    cancelamento = v.cancelamento
+    if cancelamento is not None and not (isinstance(cancelamento, str) and not cancelamento.strip()):
+        iso = _data(cancelamento)
+        if iso is None or date.fromisoformat(iso) <= hoje:
+            return False
+    situacao = _texto(v.situacao_vinculo)
+    if situacao is not None:
+        return _sem_acento(situacao).lower() in SITUACOES_ATIVAS
+    return v.atendimento_liberado is True
+
+
+def so_vinculos_ativos(view: ElegibilidadeView, hoje: date) -> ElegibilidadeView:
+    """A view com SO' os vinculos ativos, na ordem da AMH; `ativo` passa a ser "ha' algum vinculo ativo"
+    (coerente com a lista que vai ao texto)."""
+    ativos = tuple(v for v in view.vinculos if vinculo_ativo(v, hoje))
+    return replace(view, vinculos=ativos, ativo=bool(ativos))
+
+
 def fatos_da_consulta(
-    subtipo: str, view: ElegibilidadeView | CarenciasView | RequisicoesView | None
+    subtipo: str,
+    view: ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel | None,
+    *,
+    so_ativos: bool = False,
+    hoje: date | None = None,
 ) -> dict[str, Any] | None:
     """Os fatos que PODEM ir ao texto, por subtipo, ou `None` (view ausente ou de outro tipo).
 
     Lista FECHADA por subtipo: o que nao esta' aqui nunca chega ao modelo nem ao beneficiario —
     em particular `medico_solicitante` (nome de pessoa), `titular_ref` e `relacao_dependencia`.
+
+    `so_ativos=True` (chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA`): elegibilidade e carteirinha so' com os
+    vinculos ATIVOS em `hoje` (`vinculo_ativo`), e a data de cancelamento (sempre futura entao) vai como
+    `cancelamento_previsto`. `False` (o default) = os fatos de antes, byte a byte.
     """
     if subtipo in ("elegibilidade", "carteirinha") and isinstance(view, ElegibilidadeView):
+        if so_ativos:
+            view = so_vinculos_ativos(view, hoje or date.today())
+        chave_cancelamento = "cancelamento_previsto" if so_ativos else "cancelamento"
         vinculos: list[dict[str, Any]] = []
         for v in view.vinculos:
             if subtipo == "carteirinha":
@@ -192,7 +337,7 @@ def fatos_da_consulta(
                     "carteirinha_mascarada": _mascarado(v.carteirinha_mascarada),
                     "plano": _texto(v.plano),
                     "vigencia_inicio": _data(v.vigencia_inicio),
-                    "cancelamento": _data(v.cancelamento),
+                    chave_cancelamento: _data(v.cancelamento),
                     "titular": _bool(v.titular),
                 }
             else:
@@ -202,7 +347,7 @@ def fatos_da_consulta(
                     "acomodacao": _texto(v.acomodacao),
                     "tipo_contratacao": _texto(v.tipo_contratacao),
                     "vigencia_inicio": _data(v.vigencia_inicio),
-                    "cancelamento": _data(v.cancelamento),
+                    chave_cancelamento: _data(v.cancelamento),
                     "atendimento_liberado": _bool(v.atendimento_liberado),
                     "situacao_beneficiario": _texto(v.situacao_vinculo),
                     "situacao_contrato": _texto(v.situacao_contrato),
@@ -227,6 +372,23 @@ def fatos_da_consulta(
                 }
                 for c in view.carencias[:LIMITE_CARENCIAS]
             ],
+            "fonte_atualizada_em": _data(view.fonte_atualizada_em),
+        }
+    if subtipo == "dependentes" and isinstance(view, DependentesView):
+        # SO' contagem e relacao (vocabulario do cadastro) — NUNCA nome, CPF, nascimento nem referencia.
+        contagem: dict[str, int] = {}
+        recem_nascidos = 0
+        for d in view.dependentes[:MAX_DEPENDENTES]:
+            relacao = _texto(d.relacao_dependencia) or ""
+            contagem[relacao] = contagem.get(relacao, 0) + 1
+            if d.rn_no_plano is True:
+                recem_nascidos += 1
+        return {
+            "eh_titular": view.eh_titular is True,
+            "total_ativos": max(0, _inteiro(view.total_ativos) or 0),
+            "lista_truncada": view.lista_truncada is True,
+            "relacoes": [{"relacao": r, "quantidade": n} for r, n in contagem.items()],
+            "recem_nascidos": recem_nascidos,
             "fonte_atualizada_em": _data(view.fonte_atualizada_em),
         }
     if subtipo == "autorizacao" and isinstance(view, RequisicoesView):
@@ -322,8 +484,108 @@ def _linha(partes: Sequence[tuple[str, str | None]]) -> str:
     return "; ".join(f"{rotulo}: {valor}" for rotulo, valor in partes if valor)
 
 
-def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
-    """A resposta montada SO' com os fatos. E' o caminho quando o modelo falha ou a cerca recusa."""
+def segmentacao_dos_fatos(fatos: Mapping[str, Any]) -> str | None:
+    """A segmentacao REGISTRADA no cadastro (primeiro vinculo que a traz), ou `None`. So' le' o fato."""
+    for v in fatos.get("vinculos") or []:
+        valor = v.get("segmentacao") if isinstance(v, Mapping) else None
+        if isinstance(valor, str) and valor.strip():
+            return valor.strip()
+    return None
+
+
+#: DEPENDENTES (rodada 11, DL-0100): textos FIXOS. O que e' fato (contagem, relacao) entra por
+#: `_texto_de_dependentes`; nome, CPF e nascimento nao existem no tipo nem aqui.
+RESPOSTA_DEPENDENTES_NAO_TITULAR: Final[str] = (
+    "Seu cadastro consta como dependente. A consulta de dependentes é feita pelo titular do plano."
+)
+RESPOSTA_DEPENDENTES_NENHUM: Final[str] = "No seu cadastro não consta nenhum dependente ativo."
+RESPOSTA_DEPENDENTES_FALHA: Final[str] = (
+    "Por aqui eu não consigo consultar seus dependentes agora. "
+    "Para isso, fale com a central de atendimento do plano ou com uma pessoa da equipe."
+)
+_DEPENDENTES_SEM_NOMES: Final[str] = (
+    "Por segurança, este canal não mostra nomes nem outros dados dos dependentes."
+)
+
+
+#: FASE 4 (texto do dono, 18/10/2026): o GRAU sem o rotulo tecnico do cadastro ("Filho(a) até 23 anos" ->
+#: "filho ou filha"). Rotulo desconhecido: o texto do cadastro sem a faixa de idade.
+_GRAUS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
+    (re.compile(r"^filh[oa]?\s*\(a\)|^filh[oa]s?\b", re.IGNORECASE), "filho ou filha"),
+    (re.compile(r"^enteado|^enteada", re.IGNORECASE), "enteado ou enteada"),
+    (re.compile(r"^c[oô]njuge", re.IGNORECASE), "cônjuge"),
+    (re.compile(r"^companheir", re.IGNORECASE), "companheiro ou companheira"),
+    (re.compile(r"^net[oa]", re.IGNORECASE), "neto ou neta"),
+    (re.compile(r"^(?:pai|m[aã]e)\b", re.IGNORECASE), "pai ou mãe"),
+)
+_FAIXA_DE_IDADE: Final[re.Pattern[str]] = re.compile(
+    r"\s*\b(?:at[eé]|de|com|menor(?:es)? de)\s+\d+\s+anos?\b.*$", re.IGNORECASE
+)
+
+
+def grau_legivel(relacao: str) -> str:
+    """O grau de parentesco em palavras simples, sem o rotulo tecnico do cadastro."""
+    texto = " ".join((relacao or "").split())
+    for padrao, grau in _GRAUS:
+        if padrao.search(texto):
+            return grau
+    texto = _FAIXA_DE_IDADE.sub("", texto).strip()
+    return texto[:1].lower() + texto[1:]
+
+
+def _relacao_em_texto(relacao: str, quantidade: int) -> str:
+    if not relacao:
+        return f"{quantidade} sem relação informada"
+    base = grau_legivel(relacao)
+    return f"{quantidade} {base}" if quantidade == 1 else f"{quantidade} com relação {base}"
+
+
+def _texto_de_dependentes(fatos: Mapping[str, Any]) -> str:
+    """A resposta de dependentes, so' com contagem e relacao. Mesma forma para qualquer pergunta."""
+    if fatos.get("eh_titular") is not True:
+        return RESPOSTA_DEPENDENTES_NAO_TITULAR
+    total = int(fatos.get("total_ativos") or 0)
+    if total <= 0:
+        return RESPOSTA_DEPENDENTES_NENHUM
+    relacoes = [
+        (str(r.get("relacao") or ""), int(r.get("quantidade") or 0)) for r in fatos.get("relacoes") or []
+    ]
+    recem_nascidos = int(fatos.get("recem_nascidos") or 0)
+    if fatos.get("lista_truncada") is True:
+        corpo = f"No seu cadastro constam {total} dependentes ativos."
+    elif total == 1:
+        relacao = relacoes[0][0] if relacoes else ""
+        partes_do_detalhe = [p for p in (grau_legivel(relacao) if relacao else "",) if p]
+        if recem_nascidos:
+            partes_do_detalhe.append("recém-nascido no plano")
+        detalhe = f" ({', '.join(partes_do_detalhe)})" if partes_do_detalhe else ""
+        corpo = f"No seu cadastro consta 1 dependente ativo{detalhe}."
+    else:
+        partes = [_relacao_em_texto(r, n) for r, n in relacoes]
+        lista = ", ".join(partes[:-1]) + f" e {partes[-1]}" if len(partes) > 1 else partes[0]
+        corpo = f"No seu cadastro constam {total} dependentes ativos: {lista}."
+        if recem_nascidos:
+            corpo += f" Entre eles, {recem_nascidos} recém-nascido(s) no plano."
+    return f"{corpo} {_DEPENDENTES_SEM_NOMES}"
+
+
+def resposta_deterministica(
+    subtipo: str,
+    fatos: Mapping[str, Any],
+    *,
+    completos: frozenset[str] = frozenset(),
+    so_ativos: bool = False,
+) -> str:
+    """A resposta montada SO' com os fatos. E' o caminho quando o modelo falha ou a cerca recusa.
+
+    Chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA`: `so_ativos=True` (os fatos ja' so' com os vinculos ativos)
+    sem vinculo = `RESPOSTA_SEM_VINCULO_ATIVO`; `completos` = as MASCARAS cujo numero completo este turno
+    tem — nessas linhas da carteirinha sai "número da carteirinha" com o MARCADOR (o numero entra so' no
+    envio). Os defaults = o texto de antes."""
+    if subtipo == "dependentes":
+        return _texto_de_dependentes(fatos)
+    if so_ativos and subtipo in ("elegibilidade", "carteirinha") and not fatos.get("vinculos"):
+        return RESPOSTA_SEM_VINCULO_ATIVO
     atualizado = _br(fatos.get("fonte_atualizada_em"))
     abertura = "Pelo que consta no cadastro do plano" + (
         f" (atualizado em {atualizado})" if atualizado else ""
@@ -332,12 +594,19 @@ def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
     if subtipo in ("elegibilidade", "carteirinha"):
         for v in fatos.get("vinculos") or []:
             if subtipo == "carteirinha":
+                mascarada = v.get("carteirinha_mascarada")
+                codigo = (
+                    ("número da carteirinha", marcador_da_carteirinha(mascarada))
+                    if isinstance(mascarada, str) and mascarada in completos
+                    else ("carteirinha", mascarada)
+                )
                 linha = _linha(
                     (
-                        ("carteirinha", v.get("carteirinha_mascarada")),
+                        codigo,
                         ("plano", v.get("plano")),
                         ("vigência desde", _br(v.get("vigencia_inicio"))),
                         ("cancelamento", _br(v.get("cancelamento"))),
+                        ("cancelamento previsto", _br(v.get("cancelamento_previsto"))),
                     )
                 )
             else:
@@ -348,6 +617,7 @@ def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
                         ("acomodação", v.get("acomodacao")),
                         ("vigência desde", _br(v.get("vigencia_inicio"))),
                         ("cancelamento", _br(v.get("cancelamento"))),
+                        ("cancelamento previsto", _br(v.get("cancelamento_previsto"))),
                         ("situação", v.get("situacao_beneficiario")),
                         ("atendimento liberado", _sim_nao(v.get("atendimento_liberado"))),
                     )
@@ -372,7 +642,11 @@ def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
             linha = _linha(((c.get("carencia") or "carência sem descrição", situacao),))
             if linha:
                 linhas.append(f"- {linha}")
-        corpo = "constam estas carências:\n" + "\n".join(linhas) if linhas else "não consta nenhuma carência."
+        if not linhas:
+            # RODADA 8: sem linha de carencia o cadastro diz exatamente isso — e a data da fonte, se houver.
+            quando = f" (atualizado em {atualizado})" if atualizado else ""
+            return f"No seu cadastro não consta nenhuma carência{quando}. {_FECHO}"
+        corpo = "constam estas carências:\n" + "\n".join(linhas)
     elif subtipo == "autorizacao":
         for r in fatos.get("requisicoes") or []:
             linha = _linha(
@@ -395,6 +669,343 @@ def resposta_deterministica(subtipo: str, fatos: Mapping[str, Any]) -> str:
     else:
         return RESPOSTA_CONSULTA_SEM_IDENTIDADE
     return f"{abertura}, {corpo}\n{_FECHO}"
+
+
+# --------------------------------------------------------------------------------------------
+# Carteirinha completa: o MARCADOR no texto e o numero so' no envio (decisao do dono de 17/10/2026)
+# --------------------------------------------------------------------------------------------
+
+#: O marcador leva a MASCARA (nunca o numero): sem o numero no turno, o envio troca o marcador pela mascara.
+_PREFIXO_MARCADOR: Final[str] = "{{CARTEIRINHA:"
+_MARCADOR_CARTEIRINHA: Final[re.Pattern[str]] = re.compile(r"\{\{CARTEIRINHA:(\*{3,}[0-9A-Za-z]{0,4})\}\}")
+#: O numero completo do contrato (`^[0-9A-Za-z]{8,24}$`). Fora disso, o numero nao e' usado.
+_NUMERO_COMPLETO: Final[re.Pattern[str]] = re.compile(r"[0-9A-Za-z]{8,24}\Z")
+
+
+def marcador_da_carteirinha(mascarada: str) -> str:
+    """O marcador que o texto leva no lugar do numero completo (a mascara dentro, nunca o numero)."""
+    return f"{_PREFIXO_MARCADOR}{mascarada}}}}}"
+
+
+def tem_marcador_de_carteirinha(texto: object) -> bool:
+    return isinstance(texto, str) and _MARCADOR_CARTEIRINHA.search(texto) is not None
+
+
+class CarteirinhasDoTurno:
+    """Os numeros completos de UM turno, em memoria, ate' o envio. Nunca em estado, fatos, log ou historico.
+
+    `repr`/`str` redigidos; nao serializavel (`__reduce__` recusa). Chave: a mascara do vinculo."""
+
+    __slots__ = ("_numeros",)
+
+    def __init__(self, numeros: Mapping[str, str]) -> None:
+        self._numeros = dict(numeros)
+
+    def __repr__(self) -> str:
+        return "CarteirinhasDoTurno(<redigido>)"
+
+    __str__ = __repr__
+
+    def __reduce__(self) -> Any:
+        raise TypeError("CarteirinhasDoTurno: o numero da carteirinha nao e' serializavel")
+
+    def __bool__(self) -> bool:
+        return bool(self._numeros)
+
+    @property
+    def mascaras(self) -> frozenset[str]:
+        return frozenset(self._numeros)
+
+    def preencher(self, texto: str) -> str:
+        """O texto com cada marcador trocado pelo numero completo (ou pela mascara, sem numero)."""
+        return _MARCADOR_CARTEIRINHA.sub(lambda m: self._numeros.get(m.group(1), m.group(1)), texto)
+
+
+def sem_marcador_de_carteirinha(texto: str) -> str:
+    """O texto com cada marcador trocado pela PROPRIA mascara (sem numero no turno): nunca o marcador cru."""
+    return _MARCADOR_CARTEIRINHA.sub(lambda m: m.group(1), texto)
+
+
+def numeros_por_mascara(
+    mascaras: Sequence[object], carteirinhas: CarteirinhasView | None, portable_subject_ref: str
+) -> CarteirinhasDoTurno:
+    """Casa cada vinculo ATIVO (pela mascara da elegibilidade) com o item da rota da carteirinha que tem a
+    MESMA mascara. PURA.
+
+    So' casa o que e' inequivoco: a resposta tem de ser do MESMO sujeito; uma mascara repetida (nos vinculos
+    ou na rota) nao casa; um numero fora do padrao do contrato nao e' usado. Sem casamento = mascarado."""
+    if carteirinhas is None or carteirinhas.portable_subject_ref != portable_subject_ref:
+        return CarteirinhasDoTurno({})
+    dos_vinculos = [m for m in mascaras if isinstance(m, str) and _MASCARADO.fullmatch(m)]
+    da_rota = [c.carteirinha_mascarada for c in carteirinhas.carteirinhas]
+    numeros: dict[str, str] = {}
+    for item in carteirinhas.carteirinhas:
+        mascara = item.carteirinha_mascarada
+        numero = item.carteirinha_numero
+        if (
+            isinstance(mascara, str)
+            and isinstance(numero, str)
+            and _NUMERO_COMPLETO.fullmatch(numero)
+            and dos_vinculos.count(mascara) == 1
+            and da_rota.count(mascara) == 1
+        ):
+            numeros[mascara] = numero
+    return CarteirinhasDoTurno(numeros)
+
+
+#: O padrao do `X-Amh-Request-Ref` do contrato (id OPACO da solicitacao).
+_REF_DA_SOLICITACAO: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_.:-]{8,64}\Z")
+
+
+def ref_da_solicitacao(message_ref: object) -> str:
+    """O id OPACO da solicitacao: o `message_ref` do turno (pseudonimo keyed do wamid, ja' opaco) quando ele
+    cabe no padrao do contrato; senao um id aleatorio. Nunca CPF, telefone ou nome."""
+    if isinstance(message_ref, str) and _REF_DA_SOLICITACAO.fullmatch(message_ref):
+        return message_ref
+    return f"hel_{uuid.uuid4().hex}"
+
+
+def so_deterministica(subtipo: str, fatos: Mapping[str, Any], *, carteirinha_completa: bool) -> bool:
+    """Com a chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` a carteirinha e' SEMPRE a resposta deterministica (o
+    numero completo so' entra por texto fixo), e a elegibilidade sem vinculo ativo tambem (texto fixo).
+    Desligada, `False` sempre: o caminho de antes."""
+    if not carteirinha_completa:
+        return False
+    return subtipo == "carteirinha" or (subtipo == "elegibilidade" and not fatos.get("vinculos"))
+
+
+async def ler_carteirinhas_completas(
+    fonte: object,
+    portable_subject_ref: str,
+    message_ref: object,
+    fatos: Mapping[str, Any],
+    *,
+    prazo_s: float,
+) -> CarteirinhasDoTurno:
+    """Os numeros completos dos vinculos ATIVOS dos `fatos` (subtipo `carteirinha`), lidos da fonte que
+    implementa `FonteDeCarteirinhaCompleta`, ou nenhum. NUNCA levanta por falha da fonte (rede, prazo, 404):
+    sem numero, o texto sai mascarado. So' quem ja' conferiu a identidade VERIFICADA chama isto, e so' com a
+    referencia do PROPRIO sujeito."""
+    mascaras = [v.get("carteirinha_mascarada") for v in fatos.get("vinculos") or [] if isinstance(v, Mapping)]
+    if not isinstance(fonte, FonteDeCarteirinhaCompleta) or not any(isinstance(m, str) for m in mascaras):
+        return CarteirinhasDoTurno({})
+    view: object = None
+    try:
+        async with asyncio.timeout(prazo_s):
+            view = await fonte.consultar_carteirinha(portable_subject_ref, ref_da_solicitacao(message_ref))
+    except PROGRAMMING_ERRORS:
+        raise
+    except EXTERNAL_DEPENDENCY_FAILURES:
+        view = None
+    return numeros_por_mascara(
+        mascaras, view if isinstance(view, CarteirinhasView) else None, portable_subject_ref
+    )
+
+
+# --------------------------------------------------------------------------------------------
+# Nome completo dos dependentes: o MARCADOR no texto e o nome so' no envio (DL-0127, 19/10/2026)
+# --------------------------------------------------------------------------------------------
+
+#: O marcador leva a POSICAO do dependente na lista do contrato (nunca o nome): sem o nome no turno, o envio
+#: troca o marcador por "dependente N".
+_MARCADOR_DEPENDENTE: Final[re.Pattern[str]] = re.compile(r"\{\{DEPENDENTE:([1-9]|1[0-9]|20)\}\}")
+#: O nome que sai: letras (com acento), espaco, apostrofo, ponto e hifen; 3 a 120 caracteres, ao menos uma
+#: letra. Fora disso o nome nao e' usado (o texto sai com "dependente N").
+_NOME_VALIDO: Final[re.Pattern[str]] = re.compile(r"[^\W\d_](?:[^\W\d_]|[ '.\-])*\Z")
+
+
+def marcador_do_dependente(ordem: int) -> str:
+    """O marcador que o texto leva no lugar do nome do dependente (a posicao dentro, nunca o nome)."""
+    return f"{{{{DEPENDENTE:{ordem}}}}}"
+
+
+def tem_marcador_de_dependente(texto: object) -> bool:
+    return isinstance(texto, str) and _MARCADOR_DEPENDENTE.search(texto) is not None
+
+
+def sem_marcador_de_dependente(texto: str) -> str:
+    """O texto com cada marcador trocado por "dependente N" (sem nome no turno): nunca o marcador cru."""
+    return _MARCADOR_DEPENDENTE.sub(lambda m: f"dependente {m.group(1)}", texto)
+
+
+#: SIMULADOR (QA), avaliacao de 21/10/2026: os nomes completos de dependente lidos NESTE processo, para o
+#: mascarador do simulador trocar o nome em TODA saida gravada (qualquer formato de texto). `None` = desligado
+#: (producao e receptor): so' o simulador liga, na subida (`registrar_nomes_lidos`). Nunca vai a log.
+_NOMES_LIDOS: set[str] | None = None
+
+
+def registrar_nomes_lidos() -> None:
+    """Liga o registro dos nomes lidos neste processo (so' o simulador chama)."""
+    global _NOMES_LIDOS
+    if _NOMES_LIDOS is None:
+        _NOMES_LIDOS = set()
+
+
+def nomes_lidos() -> frozenset[str]:
+    """Os nomes completos de dependente lidos neste processo (vazio com o registro desligado)."""
+    return frozenset(_NOMES_LIDOS or ())
+
+
+class NomesDoTurno:
+    """Os nomes completos dos dependentes de UM turno, em memoria, ate' o envio. Nunca em estado, fatos, log,
+    historico ou modelo. `repr`/`str` redigidos; nao serializavel. Chave: a posicao (`ordem`) do contrato."""
+
+    __slots__ = ("_nomes",)
+
+    def __init__(self, nomes: Mapping[int, str]) -> None:
+        # DL-0131: o nome sai em Title Case ("ANA DE SOUZA" -> "Ana de Souza").
+        self._nomes = {ordem: _title_case(nome) for ordem, nome in nomes.items()}
+        if _NOMES_LIDOS is not None:
+            _NOMES_LIDOS.update(nomes.values())
+
+    def tem(self, ordem: int) -> bool:
+        return ordem in self._nomes
+
+    def __repr__(self) -> str:
+        return "NomesDoTurno(<redigido>)"
+
+    __str__ = __repr__
+
+    def __reduce__(self) -> Any:
+        raise TypeError("NomesDoTurno: o nome do dependente nao e' serializavel")
+
+    def __bool__(self) -> bool:
+        return bool(self._nomes)
+
+    def __len__(self) -> int:
+        return len(self._nomes)
+
+    def primeiros_nomes(self) -> dict[int, str]:
+        """O PRIMEIRO nome de cada dependente, normalizado (so' para reconhecer "e' pro <nome>" na resposta da
+        pessoa; nunca sai daqui)."""
+        saida: dict[int, str] = {}
+        for ordem, nome in self._nomes.items():
+            partes = _normalizado_simples(nome).split()
+            if partes and len(partes[0]) >= 3:
+                saida[ordem] = partes[0]
+        return saida
+
+    def preencher(self, texto: str) -> str:
+        """O texto com cada marcador trocado pelo nome completo (ou por "dependente N", sem nome)."""
+        return _MARCADOR_DEPENDENTE.sub(
+            lambda m: self._nomes.get(int(m.group(1)), f"dependente {m.group(1)}"), texto
+        )
+
+
+def _title_case(nome: str) -> str:
+    """Title Case so' do nome todo em MAIUSCULAS ou minusculas; o nome ja' escrito com caixa mista fica."""
+    if not (str(nome or "").isupper() or str(nome or "").islower()):
+        return " ".join(str(nome or "").split())
+    particulas = {"de", "da", "do", "das", "dos", "e"}
+    partes = [p for p in str(nome or "").split() if p]
+    saida = []
+    for i, p in enumerate(partes):
+        baixo = p.lower()
+        saida.append(baixo if (i > 0 and baixo in particulas) else baixo[:1].upper() + baixo[1:])
+    return " ".join(saida)
+
+
+#: DL-0131: o parentesco no lugar do nome quando o nome nao esta' disponivel (nunca "dependente 1").
+_PARENTESCOS: tuple[tuple[str, str], ...] = (
+    ("filho", "o seu filho"),
+    ("filha", "a sua filha"),
+    ("esposa", "a sua esposa"),
+    ("marido", "o seu marido"),
+    ("companheira", "a sua companheira"),
+    ("companheiro", "o seu companheiro"),
+    ("conjuge", "o seu cônjuge"),
+    ("enteada", "a sua enteada"),
+    ("enteado", "o seu enteado"),
+    ("neta", "a sua neta"),
+    ("neto", "o seu neto"),
+    ("mae", "a sua mãe"),
+    ("pai", "o seu pai"),
+)
+
+
+def texto_do_parentesco(grau: object) -> str:
+    """ "o seu filho", "a sua esposa"... a partir do grau do cadastro; sem grau conhecido, "o seu
+    dependente"."""
+    plano = _normalizado_simples(str(grau or ""))
+    for chave, texto in _PARENTESCOS:
+        if re.search(rf"\b{chave}", plano):
+            return texto
+    return "o seu dependente"
+
+
+def _normalizado_simples(texto: str) -> str:
+    decomposto = unicodedata.normalize("NFKD", texto or "")
+    sem_acento = "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", sem_acento).split())
+
+
+def _nome_limpo(valor: object) -> str | None:
+    if not isinstance(valor, str):
+        return None
+    nome = " ".join(valor.split())
+    if not 3 <= len(nome) <= 120 or not _NOME_VALIDO.fullmatch(nome):
+        return None
+    return nome
+
+
+def dependentes_nominais(
+    view: object, portable_subject_ref: str
+) -> tuple[NomesDoTurno, tuple[tuple[int, str], ...]]:
+    """Os nomes (em `NomesDoTurno`) e a lista `(ordem, grau legivel)` dos dependentes ATIVOS do PROPRIO
+    titular, ou nada. PURA. So' vale a resposta do MESMO sujeito, de titular, com a lista completa (nao
+    truncada) e TODOS os nomes no padrao: qualquer duvida = nada (o texto sai sem nome)."""
+    vazio: tuple[NomesDoTurno, tuple[tuple[int, str], ...]] = (NomesDoTurno({}), ())
+    if (
+        not isinstance(view, DependentesNominaisView)
+        or view.portable_subject_ref != portable_subject_ref
+        or view.eh_titular is not True
+        or view.lista_truncada is not False
+        or not view.dependentes
+    ):
+        return vazio
+    nomes: dict[int, str] = {}
+    graus: list[tuple[int, str]] = []
+    for d in view.dependentes:
+        nome = _nome_limpo(d.nome_completo)
+        if nome is None or d.ordem in nomes:
+            return vazio
+        nomes[d.ordem] = nome
+        graus.append((d.ordem, grau_legivel(d.relacao_dependencia or "") or "sem grau informado"))
+    if [o for o, _ in graus] != list(range(1, len(graus) + 1)):
+        return vazio
+    return NomesDoTurno(nomes), tuple(graus)
+
+
+async def ler_dependentes_nominais(
+    fonte: object,
+    portable_subject_ref: str,
+    message_ref: object,
+    *,
+    prazo_s: float,
+) -> tuple[NomesDoTurno, tuple[tuple[int, str], ...]]:
+    """Os nomes dos dependentes do PROPRIO titular verificado, lidos da fonte que implementa
+    `FonteDeNomesDosDependentes`, ou nada. NUNCA levanta por falha da fonte (rede, prazo, 404)."""
+    if not isinstance(fonte, FonteDeNomesDosDependentes):
+        return NomesDoTurno({}), ()
+    view: object = None
+    try:
+        async with asyncio.timeout(prazo_s):
+            view = await fonte.consultar_dependentes_nominais(
+                portable_subject_ref, ref_da_solicitacao(message_ref)
+            )
+    except PROGRAMMING_ERRORS:
+        raise
+    except EXTERNAL_DEPENDENCY_FAILURES:
+        view = None
+    return dependentes_nominais(view, portable_subject_ref)
+
+
+def texto_de_dependentes_com_nomes(graus: Sequence[tuple[int, str]]) -> str:
+    """A resposta de dependentes com o nome completo de cada um (pelo MARCADOR; o nome so' entra no envio)."""
+    linhas = [f"{ordem}) {marcador_do_dependente(ordem)} ({grau})" for ordem, grau in graus]
+    if len(linhas) == 1:
+        return f"No seu cadastro consta 1 dependente ativo:\n{linhas[0]}"
+    return f"No seu cadastro constam {len(linhas)} dependentes ativos:\n" + "\n".join(linhas)
 
 
 # --------------------------------------------------------------------------------------------
@@ -436,7 +1047,7 @@ def motivo_de_recusa_da_consulta(texto: str, fatos: Mapping[str, Any]) -> str | 
     cercado = texto_para_cerca(texto, literais_dos_fatos(fatos))
     if motivo_de_canal_nao_confirmado(cercado) is not None:
         return "canal_nao_confirmado"
-    recusa = motivo_de_recusa(cercado, "inform", start_aconteceu=False)
+    recusa = motivo_de_recusa(cercado, "inform", start_aconteceu=False, cerca_de_autorizacao=False)
     if recusa is not None:
         return recusa[0]
     if _ONZE_DIGITOS.search(cercado):
@@ -448,6 +1059,31 @@ def motivo_de_recusa_da_consulta(texto: str, fatos: Mapping[str, Any]) -> str | 
     for numero in _DIGITOS.findall(cercado):
         if _sem_zero(numero) not in tokens:
             return "numero_fora_dos_fatos"
+    return None
+
+
+#: Palavras do cadastro (segmentacao, acomodacao) que a resposta de "qual o meu tipo de plano" tem de trazer.
+_PALAVRA_DO_CADASTRO: Final[re.Pattern[str]] = re.compile(r"[a-z]{5,}")
+
+
+def motivo_de_omissao_da_elegibilidade(texto: str, fatos: Mapping[str, Any]) -> str | None:
+    """`"omite_segmentacao"` / `"omite_acomodacao"` quando o rascunho do modelo DEIXA DE FORA um dado que o
+    cadastro tem, ou `None`. PURA. So' para o subtipo `elegibilidade`.
+
+    Aceite de 16/10/2026 (`dono_v1`, passo 1, run 0b58bf): a fonte devolveu segmentacao e acomodacao (a
+    cobertura e a carteirinha do MESMO minuto mostraram a segmentacao), mas o modelo de redacao escreveu so'
+    plano e acomodacao, e a resposta passou nas cercas por nao ter nada errado — so' faltava. Quem pergunta o
+    tipo de plano precisa da segmentacao e da acomodacao: o que faltar volta para a resposta deterministica,
+    que traz os dois. Cada PALAVRA (5+ letras) do valor do cadastro tem de aparecer no texto."""
+    plano = _sem_acento(texto).lower()
+    for v in fatos.get("vinculos") or []:
+        for campo, token in (("segmentacao", "omite_segmentacao"), ("acomodacao", "omite_acomodacao")):
+            valor = v.get(campo)
+            if not isinstance(valor, str) or not valor.strip():
+                continue
+            palavras = _PALAVRA_DO_CADASTRO.findall(_sem_acento(valor).lower())
+            if palavras and not all(p in plano for p in palavras):
+                return token
     return None
 
 
@@ -474,6 +1110,7 @@ def _tokens_numericos(fatos: Mapping[str, Any]) -> frozenset[str]:
 
 
 __all__ = [
+    "grau_legivel",
     "ADENDO_CLASSIFY_CONSULTAS",
     "CLASSIFY_CONSULTAS_ADENDO_VERSION",
     "CONSULTA_PLANO_PROMPT_VERSION",
@@ -483,13 +1120,42 @@ __all__ = [
     "LIMITE_REQUISICOES",
     "MAX_CHARS_RESPOSTA",
     "RESPOSTA_CONSULTA_SEM_IDENTIDADE",
+    "RESPOSTA_DEPENDENTES_FALHA",
+    "RESPOSTA_DEPENDENTES_NAO_TITULAR",
+    "RESPOSTA_DEPENDENTES_NENHUM",
+    "RESPOSTA_SEM_VINCULO_ATIVO",
+    "SITUACOES_ATIVAS",
     "SUBTIPOS_REDIGIDOS",
+    "CarteirinhasDoTurno",
     "ConsultaSubtipo",
+    "FonteDeCarteirinhaCompleta",
+    "FonteDeCobertura",
+    "FonteDeCpt",
     "FonteDeFatosDoPlano",
+    "FonteDeNomesDosDependentes",
+    "FonteIndisponivel",
+    "NomesDoTurno",
+    "dependentes_nominais",
+    "ler_dependentes_nominais",
+    "marcador_do_dependente",
+    "sem_marcador_de_dependente",
+    "tem_marcador_de_dependente",
+    "texto_de_dependentes_com_nomes",
     "consulta_prompt",
     "fatos_da_consulta",
+    "ler_carteirinhas_completas",
     "literais_dos_fatos",
+    "marcador_da_carteirinha",
+    "motivo_de_omissao_da_elegibilidade",
     "motivo_de_recusa_da_consulta",
     "resposta_deterministica",
+    "numeros_por_mascara",
+    "ref_da_solicitacao",
+    "segmentacao_dos_fatos",
+    "sem_marcador_de_carteirinha",
+    "so_deterministica",
+    "so_vinculos_ativos",
+    "tem_marcador_de_carteirinha",
     "texto_para_cerca",
+    "vinculo_ativo",
 ]

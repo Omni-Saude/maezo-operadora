@@ -179,6 +179,13 @@ packages = ["src/maezo"]
 "spec/policies/ans" = "maezo/spec/policies/ans"
 # Genuine pinned bilateral TISS schemas must accompany the offline gateway validator.
 "spec/schemas/tiss" = "maezo/spec/schemas/tiss"
+# OITAVA ocorrencia da mesma classe (17/10/2026, ADR-0064/DL-0118): a base de conhecimento de saude da Helena
+# (`spec/conhecimento/saude`, lida por `base_saude.raiz_padrao()` via `resolve_spec_dir()`). Sem esta linha E a
+# COPY do deploy/Dockerfile, a chave `MAEZO_HELENA_BASE_SAUDE` ligada acharia o diretorio ausente e se
+# desligaria sozinha (falha fechada, com log `helena_base_saude_invalida`).
+"spec/conhecimento/saude" = "maezo/spec/conhecimento/saude"
+# DL-0128: os sinonimos genericos da cobertura assistida (`catalogo_procedimentos.raiz_dos_sinonimos()`).
+"spec/conhecimento/cobertura" = "maezo/spec/conhecimento/cobertura"
 
 [tool.uv]
 # W9 (Onda 2, supply-chain aging): dependency-age quarantine. `exclude-newer` makes resolution
@@ -197,7 +204,12 @@ exclude-newer = "2026-08-05T00:00:00Z"
 #   2.8.0 de 15/09 (transitiva via botocore/requests). Janela ate' 16/09.
 # - langgraph-sdk: GHSA-fvww-7h3r-vfhp affects resource-scoped auth action filtering.
 #   Fixed 0.4.4 was published 27/08/2026; admit only this package through 28/08.
-exclude-newer-package = { langgraph-sdk = "2026-08-28T00:00:00Z", pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
+# - mcp (15/10/2026): 1.28.1 tem GHSA-84m7-p3x7-pcfv (CVSS 7.5, DoS no transporte StreamableHTTP
+#   stateful), fix 1.30.0 de 07/09. Declarado mas nao importado em src. Janela ate' 08/09.
+# - certifi (20/10/2026): 2026.6.17 recebeu GHSA-6q48-6c7w-9gw2 (CRITICAL, raizes emSign com chave de CA
+#   intermediaria comprometida), fix 2026.10.19 de 19/10 (transitiva via requests/httpx/botocore).
+#   Release 2026.10.19 publicado em 20/10 02:24 UTC; janela ate' 21/10.
+exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", langgraph-sdk = "2026-08-28T00:00:00Z", mcp = "2026-09-08T00:00:00Z", pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

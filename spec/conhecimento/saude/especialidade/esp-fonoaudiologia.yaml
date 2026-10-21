@@ -1,0 +1,27 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: esp-fonoaudiologia
+categoria: especialidade
+titulo: Fonoaudiologia
+sinonimos:
+- fonoaudiologo
+- fonoaudiólogo
+- fonoaudiologa
+- fonoaudióloga
+- fono
+- fonoaudiologia
+texto: O fonoaudiólogo cuida da fala, da voz, da audição e da deglutição. Atende atraso de fala, gagueira, rouquidão e dificuldade para engolir. Também faz exames de audição. Não é médico.
+tipo_texto: proprio
+fontes:
+- nome: Lei nº 6.965/1981 — regulamenta a profissão de fonoaudiólogo
+  url: https://www.planalto.gov.br/ccivil_03/leis/l6965.htm
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-17
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

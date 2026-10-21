@@ -75,10 +75,12 @@ class RecordingCompletion:
     def __init__(self, *, fail: Exception | None = None):
         self.scope = SCOPE
         self.calls: list[tuple[str, str, PseudonymizedNotes, int]] = []
+        self.forms: list[str] = []
         self.fail = fail
 
-    async def complete(self, *, task_id, resultado, notes, expected_task_revision):
+    async def complete(self, *, task_id, resultado, notes, expected_task_revision, form_key="escalation"):
         self.calls.append((task_id, resultado, notes, expected_task_revision))
+        self.forms.append(form_key)
         if self.fail is not None:
             raise self.fail
         return CompletionAck(
@@ -107,19 +109,23 @@ class CompletingTransport(HumanTaskTransport):
         self.reads += 1
         return self.task
 
-    async def complete_task(self, task_id, *, resultado, notes, expected_task_revision):
+    async def complete_task(
+        self, task_id, *, resultado, notes, expected_task_revision, form_key="escalation"
+    ):
         if self.completion is None:
             return await super().complete_task(
                 task_id,
                 resultado=resultado,
                 notes=notes,
                 expected_task_revision=expected_task_revision,
+                form_key=form_key,
             )
         return await self.completion.complete(
             task_id=task_id,
             resultado=resultado,
             notes=notes,
             expected_task_revision=expected_task_revision,
+            form_key=form_key,
         )
 
 
@@ -530,3 +536,82 @@ async def test_a_failed_result_link_never_claims_the_completion_was_rolled_back(
     assert refusal.value.code == "admission_unavailable"
     assert len(completion.calls) == 1  # it DID happen
     assert "PRIVATE audit narrative" not in str(refusal.value)
+
+
+# ---------------------------------------------------------------------------------------
+# DL-0111: the CANCEL v0.2.0 registry execution form (`cancel_execucao`), same interim path.
+# ---------------------------------------------------------------------------------------
+CADASTRO = "cadastro-beneficiarios"
+
+
+def cancel_execucao_snapshot(**changes):
+    """A real CANCEL execution task: `models.py` binds it to `cancel_execucao` / BPMN_FORMDATA."""
+    data = dict(
+        process_definition_key="SP-OP-CANCEL-001",
+        process_definition_id="cancel:2:id",
+        task_definition_key="UT_ExecutarCancelamentoCadastro",
+        form_key="cancel_execucao",
+        form_source_status="BPMN_FORMDATA",
+        eligible_candidate_groups=(CADASTRO,),
+        allowed_actions=("claim", "release"),
+        allowed_inputs=("execucao_cadastro",),
+    )
+    data.update(changes)
+    return snapshot(**data)
+
+
+@pytest.mark.parametrize("valor", ["EXECUTADO", "IMPEDIDO"])
+async def test_cancel_execucao_completes_with_one_closed_variable_and_no_note(valor):
+    completion = RecordingCompletion()
+    g, _, audit = await harness(
+        completion=completion, snap=cancel_execucao_snapshot(), member=staff_in(CADASTRO)
+    )
+    result = await close(g, resultado=valor, notas_resolucao="", form_key="cancel_execucao")
+    assert result.resultado == valor
+    (task_id, resultado, notes, revision) = completion.calls[0]
+    assert (task_id, resultado, notes, revision) == ("task-1", valor, None, 2)
+    assert completion.forms == ["cancel_execucao"]
+    assert [e.notes_digest for e in audit.entries] == [None, None]
+
+
+@pytest.mark.parametrize(
+    ("snap_factory", "member", "kw"),
+    [
+        # An escalation body never closes a CANCEL task...
+        (cancel_execucao_snapshot, CADASTRO, {"resultado": "resolvido_humano", "form_key": "escalation"}),
+        # ...and a CANCEL body never closes an escalation task.
+        (
+            escalation_snapshot,
+            CLINICAL_GROUP,
+            {"resultado": "EXECUTADO", "notas_resolucao": "", "form_key": "cancel_execucao"},
+        ),
+    ],
+)
+async def test_a_body_never_closes_a_task_of_another_form(snap_factory, member, kw):
+    completion = RecordingCompletion()
+    g, _, audit = await harness(completion=completion, snap=snap_factory(), member=staff_in(member))
+    with pytest.raises(GatewayRefusalError) as refusal:
+        await close(g, **kw)
+    assert refusal.value.code == "operation_forbidden"
+    assert completion.calls == [] and audit.entries == []
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"resultado": "RESCINDIR"},
+        {"resultado": "executado"},
+        {"resultado": "EXECUTADO", "notas_resolucao": "texto livre nao existe neste formulario"},
+        {"resultado": "EXECUTADO", "form_key": "cancel_decisao"},
+    ],
+)
+async def test_cancel_execucao_outside_the_closed_form_is_refused_before_anything(kw):
+    completion = RecordingCompletion()
+    g, _, audit = await harness(
+        completion=completion, snap=cancel_execucao_snapshot(), member=staff_in(CADASTRO)
+    )
+    values = {"notas_resolucao": "", "form_key": "cancel_execucao", **kw}
+    with pytest.raises(ReadRefusalError) as refusal:
+        await close(g, **values)
+    assert refusal.value.code == "invalid_request"
+    assert completion.calls == [] and audit.entries == []

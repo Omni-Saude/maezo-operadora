@@ -17,9 +17,7 @@
       "competencia": "2026-06"
     }
   },
-  "recorded_llm": [
-    "Aqui esta o link para emitir a 2a via do seu boleto."
-  ],
+  "recorded_llm": [],
   "dmn_fixture": {
     "lucas_billing_admissibility": {"roteamento": "RESPONDER", "motivo": "duvida informacional de boleto"}
   },

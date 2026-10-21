@@ -49,26 +49,124 @@ MotivoIndisponivel = Literal[
 ]
 
 
+#: `resumo.pagador_tipo` do contrato `billing-status` (enum). `pessoa_juridica` = contrato de EMPRESA.
+PAGADOR_TIPOS: Final[frozenset[str]] = frozenset({"pessoa_fisica", "pessoa_juridica", "desconhecido"})
+PAGADOR_EMPRESA: Final[str] = "pessoa_juridica"
+#: `resumo.tipo_contratacao` do billing-status 0.3.0 (14/10/2026). `desconhecido` e' o mesmo que ausente.
+TIPOS_CONTRATACAO: Final[frozenset[str]] = frozenset(
+    {"individual_familiar", "coletivo_empresarial", "coletivo_adesao", "desconhecido"}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class CompetenciaCobranca:
+    """Os fatos de UMA competencia como a fonte os entregou (DL-0086). Ausente e' `None`, nunca zero.
+
+    Valores sao decimais em texto (`"320.25"`), datas `AAAA-MM-DD` e o boleto e' SO' o rotulo mascarado
+    (`****1234`, autorizado pelo DPO para beneficiario verificado). Nenhum campo e' calculado aqui.
+    """
+
+    competencia: str
+    situacao: str
+    vencimento: str | None = None
+    valor_total: str | None = None
+    valor_coparticipacao: str | None = None
+    valor_saldo: str | None = None
+    liquidado_em: str | None = None
+    boleto: str | None = None
+    #: Total do boleto do PAGADOR da competencia (billing-status 0.3.0):
+    #: `competencias[].valor_boleto_pagador`. SO' com a pessoa como pagador PF (a familia toda num boleto).
+    #: Nunca a fatura da empresa nem o titulo da administradora. Ausente em todos os outros casos.
+    valor_boleto_pagador: str | None = None
+
+    def como_fato(self) -> dict[str, str]:
+        """O dicionario que vai ao estado do Lucas: so' as chaves com valor (ausente = ausente)."""
+        campos = {
+            "competencia": self.competencia,
+            "situacao": self.situacao,
+            "vencimento": self.vencimento,
+            "valor_total": self.valor_total,
+            "valor_coparticipacao": self.valor_coparticipacao,
+            "valor_saldo": self.valor_saldo,
+            "liquidado_em": self.liquidado_em,
+            "boleto": self.boleto,
+            "valor_boleto_pagador": self.valor_boleto_pagador,
+        }
+        return {chave: valor for chave, valor in campos.items() if valor is not None}
+
+
 @dataclass(frozen=True, slots=True)
 class FatosCobranca:
-    """Fatos de conciliacao de uma competencia. Nenhum campo e' veredito: sao entradas da DMN."""
+    """Fatos de conciliacao de uma competencia. Nenhum campo e' veredito: sao entradas da DMN.
+
+    Os quatro primeiros sao os de sempre (a DMN e os textos fixos os consomem). Os quatro seguintes
+    (DL-0086, 08/10/2026) sao os FATOS DE VALOR do contrato `billing-status`: so' a fonte real os
+    preenche, e com o que a AMH entregou — a simulada os deixa ausentes, e ausente continua ausente
+    na entrada do Lucas (`como_entrada_lucas` nem cria a chave).
+    """
 
     status_conciliado: bool
     ciclos_sem_conciliacao: int
     numero_boleto: str
     cnab_ref: str
+    #: Soma dos saldos em aberto da janela, como a AMH a calculou (`resumo.valor_em_aberto`).
+    valor_em_aberto: str | None = None
+    #: Maior atraso, em dias, entre as competencias vencidas da janela (`resumo.dias_atraso_max`).
+    dias_atraso_max: int | None = None
+    #: Vencimento da competencia de referencia (a pedida; senao a pendente mais recente).
+    vencimento_referencia: str | None = None
+    #: As competencias da janela que o contrato devolveu, da mais recente para a mais antiga.
+    competencias: tuple[CompetenciaCobranca, ...] = ()
+    #: Quem paga a mensalidade (`resumo.pagador_tipo` do contrato, 13/10/2026): `pessoa_juridica` (a empresa
+    #: contratante: o boleto, o total e o atraso sao DELA, nunca da pessoa), `pessoa_fisica` ou
+    #: `desconhecido`. Ausente na simulada. Valor fora do vocabulario nao chega aqui (vira `desconhecido`).
+    pagador_tipo: str | None = None
+    #: Coletivo por ADESAO cobrado pela administradora (13/10/2026, bateria 4): o titulo do Tasy e' da
+    #: administradora/entidade e o boleto do beneficiario vem DELA. Apurado pela fonte (pagador sem tipo no
+    #: billing-status + vinculo de adesao no contrato TINA); `False` quando nao se sabe.
+    cobranca_administradora: bool = False
+    #: Tipo de contratacao do PLANO (`resumo.tipo_contratacao`, billing-status 0.3.0, 14/10/2026):
+    #: `individual_familiar`, `coletivo_empresarial` ou `coletivo_adesao`. Ausente (`None`) quando a
+    #: revisao pinada nao o traz ou a AMH diz `desconhecido`. Nao entra em `como_entrada_lucas`.
+    tipo_contratacao: str | None = None
+    #: A pessoa e' o proprio pagador PF do boleto (`resumo.beneficiario_e_pagador`): so' para beneficiario
+    #: VERIFICADO e so' com pagador PF; `None` quando nao se sabe. Ainda NAO entra em `como_entrada_lucas`.
+    beneficiario_e_pagador: bool | None = None
+    #: Total do boleto do pagador (`competencias[].valor_boleto_pagador`, decimal `0.00`) da competencia de
+    #: referencia: SO' quando `beneficiario_e_pagador is True` e ha' fatos de valor (verificado). Nunca a
+    #: fatura da empresa nem o titulo coletivo da administradora. Ainda NAO entra em `como_entrada_lucas`.
+    valor_boleto_pagador: str | None = None
 
     def como_entrada_lucas(self) -> dict[str, Any]:
         """As chaves de `_CALLER_INPUT_FIELDS` que estes fatos preenchem — nenhuma outra.
 
         `competencia` NAO entra: ela vem de quem pediu (o handoff), e a fonte so' responde por ela.
+        Os fatos de valor so' entram quando existem: nenhuma chave nasce com `None` ou lista vazia.
         """
-        return {
+        entrada: dict[str, Any] = {
             "status_conciliado": self.status_conciliado,
             "ciclos_sem_conciliacao": self.ciclos_sem_conciliacao,
             "numero_boleto": self.numero_boleto,
             "cnab_ref": self.cnab_ref,
         }
+        if self.valor_em_aberto is not None:
+            entrada["valor_em_aberto"] = self.valor_em_aberto
+        if self.dias_atraso_max is not None:
+            entrada["dias_atraso_max"] = self.dias_atraso_max
+        if self.vencimento_referencia is not None:
+            entrada["vencimento_referencia"] = self.vencimento_referencia
+        if self.competencias:
+            entrada["competencias_cobranca"] = [c.como_fato() for c in self.competencias]
+        # `desconhecido` e' o mesmo que ausente para o Lucas: nem cria a chave.
+        if self.pagador_tipo in PAGADOR_TIPOS and self.pagador_tipo != "desconhecido":
+            entrada["pagador_tipo"] = self.pagador_tipo
+        if self.cobranca_administradora is True:
+            entrada["cobranca_administradora"] = True
+        # Wave 2 (14/10/2026): a pessoa e' (ou nao) o proprio pagador PF. O total do boleto da familia viaja
+        # em cada competencia (`valor_boleto_pagador`), nunca solto.
+        if isinstance(self.beneficiario_e_pagador, bool):
+            entrada["beneficiario_e_pagador"] = self.beneficiario_e_pagador
+        return entrada
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,20 +2,22 @@
   "id": "EVL-HELENA-CLAREZA-02",
   "agent": "helena",
   "class": "CL",
-  "tier": ["A"],
-  "description": "Clarity/legibility (gap 10.3, WP-EVALS): administrative inform response (same intent shape as EVL-HELENA-02) -- checks that the plain-language answer stays short-sentenced and free of leaked internal/engine jargon. No mandatory disclaimer applies to a non-escalation informational reply. Synthetic data only (tenant amh, pseudo id). Texto do `recorded_llm` atualizado em 21/09/2026 (F7): a resposta citava \"o aplicativo\", que nao e' um dos nomes de `prompts.py::CANAIS_CONFIRMADOS` — e carencia e' duvida administrativa, resolvida pela central de atendimento do plano, nao pelo app.",
+  "tier": [
+    "A"
+  ],
+  "description": "Clarity/legibility (gap 10.3, WP-EVALS): administrative inform response (same intent shape as EVL-HELENA-02) -- checks that the plain-language answer stays short-sentenced and free of leaked internal/engine jargon. No mandatory disclaimer applies to a non-escalation informational reply. Synthetic data only (tenant amh, pseudo id). Texto do `recorded_llm` atualizado em 21/09/2026 (F7): a resposta citava \"o aplicativo\", que nao e' um dos nomes de `prompts.py::CANAIS_CONFIRMADOS` — e carencia e' duvida administrativa, resolvida pela central de atendimento do plano, nao pelo app. REGOLDEN 13/10/2026 (DL-0089): a pergunta de carencia passou a ter texto FIXO (fonte do plano desligada) e deixou de exercitar a redacao do modelo; a mensagem virou uma duvida administrativa que ainda vai ao modelo, mantendo o objeto deste caso (clareza e jargao na rota inform).",
   "input": {
     "state": {
       "tenant_id": "amh",
       "conversation_id": "wa:amh:evl-helena-clareza-02",
       "canal": "whatsapp",
       "beneficiario_pseudo_id": "PSEUDO-TESTE-C02",
-      "message_body": "Quero saber qual e o meu limite de carencia"
+      "message_body": "Qual o horario de atendimento da central?"
     }
   },
   "recorded_llm": [
     "{\"intent\": \"information\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
-    "Voce pode consultar os prazos de carencia com a central de atendimento do plano. Qualquer duvida, estamos por aqui."
+    "A central de atendimento do plano atende em dias uteis. Qualquer duvida, estamos por aqui."
   ],
   "expect": {
     "next_kind": "inform",

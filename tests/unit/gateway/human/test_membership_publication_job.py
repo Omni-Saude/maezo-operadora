@@ -7,6 +7,7 @@ tests/integration/gateway/test_membership_publication_job_live_pg.py. Synthetic 
 import base64
 import hashlib
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -386,7 +387,10 @@ def test_publish_without_material_fails_closed_without_echoing(tmp_path, capsys)
     config.write_text("{}", encoding="utf-8")
     assert main(["publish", "--config", str(config)]) == 2
     err = capsys.readouterr().err
-    assert err.startswith("publication refused:") and "{}" not in err
+    lines = err.strip().splitlines()
+    # P1 (16/10/2026): the closed event first, the `<Type>:<reason>` line LAST (job.py prints it).
+    assert re.fullmatch(r"publication refused: [A-Za-z_]\w*:[a-z_]+", lines[-1]) and "{}" not in err
+    assert json.loads(lines[0])["event"] == "human_publication_refused"
 
 
 # --- T1.5: principal -> /v1/authority -------------------------------------------------------

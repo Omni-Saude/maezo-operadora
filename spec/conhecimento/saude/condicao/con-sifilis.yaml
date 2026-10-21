@@ -1,0 +1,27 @@
+# Base de conhecimento de saúde da Helena — MODELO DE TESTE (dev).
+# Aprovado pelo dono em 17/10/2026 apenas para dev. Revisão médica e revisão jurídica
+# PENDENTES antes de qualquer uso em produção. Texto informativo: não diagnostica,
+# não indica conduta nem dose e não promete cobertura do plano.
+id: con-sifilis
+categoria: condicao
+titulo: Sífilis
+sinonimos:
+- sifilis
+- sífilis
+- cancro duro
+- treponema
+texto: A sífilis é uma infecção sexualmente transmissível (IST) curável e exclusiva do ser humano, causada pela bactéria Treponema pallidum. Pode apresentar várias manifestações clínicas e diferentes estágios (sífilis primária, secundária, latente e terciária).
+tipo_texto: citacao_literal
+fontes:
+- nome: Saúde de A a Z — Sífilis (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/s/sifilis
+  licenca: CC BY-ND 3.0 (rodapé gov.br)
+  coletado_em: 2026-10-17
+  sha256_trecho: 6c7c3594421b710919115f92f1e6a135e5240e7da6d54e0022797edee0c1114e
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/s/sifilis
+revisao:
+  status: rascunho_dono_aprovado_dev
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (17/10/2026, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-17

@@ -1,0 +1,31 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: con-climaterio-e-menopausa
+categoria: condicao
+titulo: Climatério e menopausa
+sinonimos:
+- menopausa
+- climaterio
+- climatério
+- fogacho
+- ondas de calor
+- menopauza
+- pós-menopausa
+- climatério e menopausa
+texto: Climatério é a fase de transição entre o período reprodutivo e o não reprodutivo da mulher. A menopausa é a última menstruação, confirmada depois de um tempo sem menstruar. Ondas de calor, suor à noite, alterações do sono e do humor e ressecamento vaginal são queixas comuns. O tratamento é definido pelo médico e pode envolver mudança de hábitos, remédios ou outras medidas de cuidado. Ginecologia costuma cuidar dessa fase.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Saúde da Mulher (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/s/saude-da-mulher
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/s/saude-da-mulher
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

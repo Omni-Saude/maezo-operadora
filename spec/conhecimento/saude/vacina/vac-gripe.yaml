@@ -1,0 +1,35 @@
+# Base de conhecimento de saúde da Helena — RASCUNHO DA FASE 5 (dev).
+# Escrito pelo Claude Sonnet 5.5 a partir de prompt sintético (sem dado de beneficiário), aprovado pelo
+# dono em 18/10/2026 apenas para dev. REVISÃO MÉDICA PENDENTE (e jurídica) antes de qualquer uso em
+# produção. Texto informativo: não diagnostica, não indica conduta nem dose e não promete cobertura.
+id: vac-gripe
+categoria: vacina
+titulo: Vacina contra a gripe (influenza)
+sinonimos:
+- vacina da gripe
+- vacina influenza
+- vacina contra influenza
+- vacina gripe
+- vacinação contra a gripe
+- campanha de vacinação da gripe
+- vacina h1n1
+- vacina contra a gripe (influenza)
+texto: A vacina contra a gripe protege contra os vírus influenza, que causam a gripe e podem levar a complicações. Como esses vírus mudam com o tempo, a vacina é reformulada com frequência. O Calendário Nacional de Vacinação define quem pode receber a vacina. Para saber se é o seu caso, procure uma unidade de saúde ou o seu médico.
+tipo_texto: proprio
+fontes:
+- nome: Saúde de A a Z — Gripe (influenza) (Ministério da Saúde)
+  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/g/gripe-influenza
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+- nome: Ministério da Saúde — Calendário Nacional de Vacinação
+  url: https://www.gov.br/saude/pt-br/vacinacao/calendario
+  licenca: texto próprio da operadora
+  coletado_em: 2026-10-18
+link_leitura: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/g/gripe-influenza
+revisao:
+  status: rascunho_pendente_revisao_medica
+  autor: Claude (assistente de IA)
+  aprovado_por: dono (18/10/2026, fase 5, dev)
+  revisao_medica: pendente
+  revisar_ate: 2027-04-18
+  escrito_por: claude-sonnet-5.5 (rascunho)

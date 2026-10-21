@@ -1148,3 +1148,18 @@ A = 86 · B = 189 · C = 12 (total 287).
   lógica, D7-01 (R-008/R-009), AF-07 (R-022, a maior alavanca — destrava AF-16, F-2, SC-03,
   SC-07), F-2 (R-029), SC-07 (R-040), AF-16, e alimenta PHI-DISPOSITIONS-DPO (R-065/R-136) e
   R-117/R-128/R-129/R-172/R-280.
+
+---
+
+**Atualização 2026-10-07 (VW4-ANSWERS fechado; base `main`@`4f5e8161`).** A análise das 7 ratificações
+pendentes do vendor (GP5–GP11, dossiê VW4) está pronta e auditada:
+`docs/audits/VENDOR-XP-2026-10/VW4-RATIFICATION-ANSWERS-V1.md` v1.1 (RE-GATE PASS 11/11; trilha em
+`vw4-answers-workspace/AUDIT-VERDICT.md`) — rascunhos completos com fórmulas/exemplos/benchmarks,
+linhas `RATIFY-LATER-DRAFT-READY` registradas no `VW0-DECISION-REGISTER.md`. **Resta humano:** cada
+ratificador nomeado assina seu bloco §7 (GP5 Jurídico-Produtos+canal · GP6 Comercial+compliance ·
+GP7 PRODUTO+jurídico · GP8 SME+jurídico · GP9 Conformidade+jurídico · GP10 Compliance · GP11 DPO) —
+cada assinatura destrava seu pacote de engenharia (`vendor/vw4-gp<N>`, Tier-2 + 5 gates negativos).
+GP11 já admitido pelo dono (valores fail-closed; insumos DPO prontos no ANSWERS §GP11). Scheme GP6
+tem âncoras OWNER-SOURCED fixadas em sessão (1×M assinatura · 1×M/renovação se S<75% · comissão
+vitalícia 1–5%/mês em steps por sinistralidade DA CARTEIRA). `candidate_not_live` intacto;
+go/no-go de deploy segue humano.

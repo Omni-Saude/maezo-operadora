@@ -11,7 +11,8 @@ O CAMINHO, em quatro passos, cada um com a sua saida fechada:
   1. pseudonimo do Maezo -> `portable_subject_ref` (so' a AMH liga telefone a pessoa, XRD-05);
   2. consentimento para o proposito de atendimento ao beneficiario;
   3. leitura da situacao de cobranca pelo `BillingStatusPort`;
-  4. traducao para os quatro fatos que a DMN do Lucas consome.
+  4. traducao para os quatro fatos que a DMN do Lucas consome e, desde DL-0086 (08/10/2026), para os
+     FATOS DE VALOR da janela (resumo e competencias), com que o Lucas responde sozinho.
 
 NENHUM passo inventa fato. Se a pessoa nao e' resolvida, se nao ha' consentimento, se a leitura falha ou se
 a fonte nao tem `status_conciliado`/`ciclos_sem_conciliacao`, o retorno e' `Indisponivel` com um motivo de
@@ -20,19 +21,125 @@ catch-all dela escala a um humano). O Lucas nunca afirma pagamento nem atraso se
 
 O que o Lucas recebe do boleto e' o rotulo MASCARADO (`****1234`) e a referencia de ORIGEM do dado
 (`amh-billing:{data da fonte}`), nunca nosso numero, bloqueto, linha digitavel ou link.
+
+FATOS DE VALOR (DL-0086, decisao do dono/DPO de 08/10/2026). Por competencia: competencia, vencimento,
+situacao, valor total, coparticipacao, saldo, data de liquidacao e o boleto MASCARADO; do resumo: valor em
+aberto e maior atraso em dias. No maximo a janela que o contrato devolveu (`JANELA_MESES`). Cada valor e'
+conferido contra a forma do contrato (decimal `0.00`, data `AAAA-MM-DD`, mascara `****NNNN`, situacao do
+enum): o que nao tem a forma vira AUSENTE, nunca corrigido nem completado — e' texto que vai ao modelo.
 """
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+import math
+import re
+from typing import Final, Protocol, runtime_checkable
 
-from maezo.agents.lucas.fonte_cobranca import FatosCobranca, Indisponivel
+from maezo.agents.lucas.fonte_cobranca import (
+    PAGADOR_EMPRESA,
+    PAGADOR_TIPOS,
+    TIPOS_CONTRATACAO,
+    CompetenciaCobranca,
+    FatosCobranca,
+    Indisponivel,
+)
 from maezo.ports.billing_status import BillingStatusPort, BillingStatusView, CompetenciaBilling
+from maezo.ports.tina import TinaPort
 from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 
+#: Prazo da LEITURA DE COBRANCA na AMH. Era o padrao das portas (5 s). Medido em 09/10/2026: o servico
+#: interop consulta o Athena a cada pergunta (mediana 2,7 s, max 4,2 s) e passou a esperar ate' 10 s
+#: (AMH #230); com 5 s aqui o Maezo desistiria antes da AMH responder e o beneficiario ouviria "nao
+#: consegui consultar". Configuravel por `MAEZO_LUCAS_COBRANCA_PRAZO_S`; o teto e' o tecnico das portas.
+PRAZO_COBRANCA_PADRAO_S: Final[float] = 15.0
+PRAZO_COBRANCA_MAX_S: Final[float] = 30.0
+
 #: Janela de competencias pedida a AMH. O contrato aceita 1 a 36; 12 e' o padrao do contrato.
 JANELA_MESES: int = 12
+
+#: As formas do contrato (`billing-status.openapi.yaml`). Valor fora delas e' AUSENTE (nunca corrigido).
+_DECIMAL: Final[re.Pattern[str]] = re.compile(r"^[0-9]+\.[0-9]{2}$")
+_DATA: Final[re.Pattern[str]] = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$")
+_MASCARA: Final[re.Pattern[str]] = re.compile(r"^\*{4}[0-9]{4}$")
+_COMPETENCIA: Final[re.Pattern[str]] = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+_SITUACOES: Final[frozenset[str]] = frozenset({"paga", "em_aberto", "vencida", "cancelada", "sem_titulo"})
+
+
+def _na_forma(valor: object, forma: re.Pattern[str]) -> str | None:
+    return valor if isinstance(valor, str) and forma.match(valor) else None
+
+
+def _competencia_como_fato(
+    c: CompetenciaBilling, pagador: str = "desconhecido", e_o_pagador: bool | None = None
+) -> CompetenciaCobranca | None:
+    """Uma competencia do contrato -> fato do Lucas, campo a campo na forma do contrato. `None` quando
+    nem a competencia nem a situacao tem forma valida: sem elas o resto nao diz de que mes se trata."""
+    if not _na_forma(c.competencia, _COMPETENCIA) or c.situacao not in _SITUACOES:
+        return None
+    return CompetenciaCobranca(
+        competencia=c.competencia,
+        situacao=c.situacao,
+        vencimento=_na_forma(c.vencimento, _DATA),
+        valor_total=_na_forma(c.valor_total, _DECIMAL),
+        valor_coparticipacao=_na_forma(c.valor_coparticipacao, _DECIMAL),
+        valor_saldo=_na_forma(c.valor_saldo, _DECIMAL),
+        liquidado_em=_na_forma(c.liquidado_em, _DATA),
+        boleto=None if pagador == PAGADOR_EMPRESA else _na_forma(c.boleto_numero_mascarado, _MASCARA),
+        # Defesa em profundidade: o total do boleto da familia so' com pagador PF E a pessoa e' o pagador.
+        valor_boleto_pagador=(
+            _na_forma(c.valor_boleto_pagador, _DECIMAL)
+            if pagador == "pessoa_fisica" and e_o_pagador is True
+            else None
+        ),
+    )
+
+
+def _pagador(tipo: object) -> str:
+    """`resumo.pagador_tipo` do contrato; fora do enum vira `desconhecido` (nunca corrigido)."""
+    return tipo if isinstance(tipo, str) and tipo in PAGADOR_TIPOS else "desconhecido"
+
+
+def _tipo_contratacao(tipo: object) -> str | None:
+    """`resumo.tipo_contratacao` do contrato 0.3.0; `desconhecido`, ausente ou fora do enum e' AUSENTE."""
+    return tipo if isinstance(tipo, str) and tipo in TIPOS_CONTRATACAO and tipo != "desconhecido" else None
+
+
+def _pagador_e_o_proprio(view: BillingStatusView, pagador: str) -> bool | None:
+    """A pessoa e' o proprio pagador PF? So' com pagador PF e o booleano que a AMH mandou; senao, `None`."""
+    valor = view.resumo.eh_o_pagador
+    return valor if pagador == "pessoa_fisica" and isinstance(valor, bool) else None
+
+
+def _valor_boleto_pagador(
+    referencia: CompetenciaBilling | None, pagador: str, e_o_pagador: bool | None
+) -> str | None:
+    """O total do boleto do pagador da competencia de referencia, na forma do contrato (`0.00`).
+
+    Defesa em profundidade sobre o que a AMH ja' restringe: so' com pagador PF E beneficiario = pagador; senao
+    ausente. Nunca completa nem corrige.
+    """
+    if referencia is None or pagador != "pessoa_fisica" or e_o_pagador is not True:
+        return None
+    return _na_forma(referencia.valor_boleto_pagador, _DECIMAL)
+
+
+#: Prazo da leitura de ELEGIBILIDADE (TINA) que diz se o plano e' de adesao. Curto: e' um complemento.
+PRAZO_TINA_S: Final[float] = 5.0
+#: A base legal da leitura TINA (a mesma das consultas do plano da Helena; NAO e' consentimento).
+_BASE_LEGAL_TINA: Final[str] = "base-legal:execucao-de-contrato"
+
+
+def _e_adesao(tipo_contratacao: object) -> bool:
+    """O `tipo_contratacao` do vinculo (texto do Tasy, "Coletivo por adesao") e' de ADESAO?"""
+    if not isinstance(tipo_contratacao, str):
+        return False
+    texto = tipo_contratacao.casefold()
+    return "ades" in texto
+
+
+def _dias_validos(dias: object) -> int | None:
+    return dias if isinstance(dias, int) and not isinstance(dias, bool) and dias >= 0 else None
 
 
 @runtime_checkable
@@ -73,11 +180,60 @@ class FonteCobrancaAmh:
         resolvedor: ResolvedorDeSujeito,
         consentimento: FonteDeConsentimento,
         purpose_of_use: str,
+        fatos_de_valor: bool = False,
+        timeout_seconds: float = PRAZO_COBRANCA_PADRAO_S,
+        tina: TinaPort | None = None,
+        tina_purpose_of_use: str | None = None,
     ) -> None:
+        # DL-0086 + DL-0083 (revisao de seguranca do #709): os FATOS DE VALOR (valores, coparticipacao,
+        # saldo, datas de pagamento, boletos da janela) so' saem para beneficiario VERIFICADO
+        # (consentimento + CPF [+ nascimento]). O resolvedor pelo telefone identifica, mas nao verifica:
+        # quem segura o celular nao e' necessariamente o titular. Pedir os fatos de valor com um
+        # resolvedor que nao se declara verificado e' erro de composicao -> recusa no boot.
+        if fatos_de_valor and getattr(resolvedor, "identidade_verificada", False) is not True:
+            raise ValueError(
+                "fonte_cobranca_amh: fatos de valor exigem o resolvedor da identidade verificada"
+            )
+        if (
+            type(timeout_seconds) not in (int, float)
+            or not math.isfinite(timeout_seconds)
+            or not 0 < timeout_seconds <= PRAZO_COBRANCA_MAX_S
+        ):
+            raise ValueError("fonte_cobranca_amh: timeout_seconds invalido")
         self._billing = billing
+        self._timeout = float(timeout_seconds)
         self._resolvedor = resolvedor
         self._consentimento = consentimento
         self._purpose = purpose_of_use
+        self._fatos_de_valor = fatos_de_valor
+        # 13/10/2026 (bateria 4): a leitura TINA so' diz se o plano e' de ADESAO quando o billing-status
+        # nao diz quem paga. Sem ela (ou sem finalidade), o comportamento de antes.
+        self._tina = tina if tina is not None and tina_purpose_of_use else None
+        self._tina_purpose = tina_purpose_of_use or ""
+
+    async def _adesao_pela_administradora(self, ref: str) -> bool:
+        """O sujeito tem vinculo ATIVO de coletivo por adesao (contrato TINA)? Nunca levanta: falha = `False`.
+
+        So' e' chamada quando o billing-status devolveu `pagador_tipo=desconhecido` — e a AMH devolve isso,
+        desde 13/10/2026, justamente para a adesao cobrada pela administradora (o pagador no Tasy e' o CNPJ
+        dela, e "a empresa paga" seria falso)."""
+        if self._tina is None:
+            return False
+        try:
+            leitura = await self._tina.get_elegibilidade(
+                ref,
+                purpose_of_use=self._tina_purpose,
+                consent_decision_ref=_BASE_LEGAL_TINA,
+                timeout_seconds=min(PRAZO_TINA_S, self._timeout),
+            )
+        except PROGRAMMING_ERRORS:
+            raise
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            return False
+        view = leitura.value if leitura.succeeded else None
+        if view is None or view.portable_subject_ref != ref:
+            return False
+        return any(_e_adesao(v.tipo_contratacao) and not v.cancelamento for v in view.vinculos)
 
     async def fatos(
         self, pseudo_id: str, competencia: str | None, *, phone_hash: str | None = None
@@ -99,6 +255,7 @@ class FonteCobrancaAmh:
                 consent_decision_ref=consentimento,
                 competencia=competencia,
                 janela_meses=JANELA_MESES,
+                timeout_seconds=self._timeout,
             )
         except PROGRAMMING_ERRORS:
             raise
@@ -113,9 +270,56 @@ class FonteCobrancaAmh:
         if resumo.status_conciliado is None or resumo.ciclos_sem_conciliacao is None:
             return Indisponivel("fato_ausente")
         referencia = _competencia_de_referencia(view, competencia)
+        pagador = _pagador(resumo.pagador_tipo)
+        tipo_contratacao = _tipo_contratacao(resumo.tipo_contratacao)
+        # Wave 2 (14/10/2026): o `tipo_contratacao` do billing-status 0.3.0 decide a ADESAO. A deteccao pela
+        # TINA (que diz so' "Coletivo") fica como reserva, SO' quando a AMH diz `desconhecido` (ausente).
+        if tipo_contratacao == "coletivo_adesao":
+            administradora = True
+        elif tipo_contratacao is None:
+            administradora = pagador == "desconhecido" and await self._adesao_pela_administradora(ref)
+        else:
+            administradora = False
+        # Contrato de EMPRESA (13/10/2026): o boleto e' da empresa contratante, nunca da pessoa. A AMH ja'
+        # nao o manda; aqui e' defesa em profundidade — o rotulo nao chega ao Lucas.
+        boleto = (
+            ""
+            if pagador == PAGADOR_EMPRESA or administradora
+            else ((referencia.boleto_numero_mascarado or "") if referencia else "")
+        )
+        if not self._fatos_de_valor:
+            # Sem a verificacao (ou com `MAEZO_LUCAS_CONSULTA_VALORES` desligada): os quatro fatos de
+            # sempre e nada mais — o comportamento de antes do DL-0086, byte a byte.
+            return FatosCobranca(
+                status_conciliado=resumo.status_conciliado,
+                ciclos_sem_conciliacao=resumo.ciclos_sem_conciliacao,
+                numero_boleto=boleto,
+                cnab_ref=f"amh-billing:{view.fonte_atualizada_em[:10]}",
+                pagador_tipo=pagador,
+                cobranca_administradora=administradora,
+                tipo_contratacao=tipo_contratacao,
+            )
+        # Adesao: o boleto e' da administradora; o total "da familia" nunca e' mostrado.
+        e_o_pagador = None if administradora else _pagador_e_o_proprio(view, pagador)
+        competencias = tuple(
+            fato
+            for fato in (
+                _competencia_como_fato(c, pagador, e_o_pagador) for c in view.competencias[:JANELA_MESES]
+            )
+            if fato is not None
+        )
         return FatosCobranca(
             status_conciliado=resumo.status_conciliado,
             ciclos_sem_conciliacao=resumo.ciclos_sem_conciliacao,
-            numero_boleto=(referencia.boleto_numero_mascarado or "") if referencia else "",
+            numero_boleto=boleto,
             cnab_ref=f"amh-billing:{view.fonte_atualizada_em[:10]}",
+            valor_em_aberto=_na_forma(resumo.valor_em_aberto, _DECIMAL),
+            dias_atraso_max=_dias_validos(resumo.dias_atraso_max),
+            vencimento_referencia=_na_forma(referencia.vencimento, _DATA) if referencia else None,
+            competencias=competencias,
+            pagador_tipo=pagador,
+            cobranca_administradora=administradora,
+            tipo_contratacao=tipo_contratacao,
+            beneficiario_e_pagador=e_o_pagador,
+            valor_boleto_pagador=_valor_boleto_pagador(referencia, pagador, e_o_pagador),
         )

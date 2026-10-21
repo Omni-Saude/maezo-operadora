@@ -82,7 +82,7 @@
       "id": "LUC-PRG-J1-04",
       "jornada": "J1",
       "subtipo_handoff": "boleto_2via",
-      "descricao": "Duvida de boleto com 1 ciclo sem conciliacao: a DMN escala (lba_r_atraso_escala); o Lucas nao responde sozinho.",
+      "descricao": "Duvida de boleto com 1 ciclo sem conciliacao: nao e' atraso critico (decisao do dono, 14/10/2026) — a 2a via responde, sem caso.",
       "pseudo_id": "pseudo-lucas-010",
       "perfil_fonte": "atraso_1_ciclo",
       "entrada": {
@@ -91,19 +91,15 @@
         "competencia": "2026-09"
       },
       "esperado": {
-        "route": "escalate_human",
-        "admissibilidade": "",
-        "motivo_humano": "inadimplencia_detectada",
-        "roteamento_escalacao": "COBRANCA_HUMANO",
-        "grupo_humano": "atendimento-humano",
-        "desfecho": "escalado_humano",
-        "process_started": true,
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
         "envios": 1,
         "recusa_de_saida": false,
         "ack_recusado": false,
         "dmn_avaliadas": [
-          "lucas_billing_admissibility",
-          "lucas_escalation_routing"
+          "lucas_billing_admissibility"
         ]
       }
     },
@@ -111,7 +107,7 @@
       "id": "LUC-PRG-J1-05",
       "jornada": "J1",
       "subtipo_handoff": "outro",
-      "descricao": "Subtipo 'outro' (tipo_solicitacao vazio): cai no catch-all da DMN e escala. Desde 01/10/2026 a DMN devolve `categoria=ambiguidade` e o grafo rotula `ambiguidade` (antes: inadimplencia_detectada, embora o pagamento estivesse conciliado).",
+      "descricao": "Subtipo 'outro' (tipo_solicitacao vazio): 14/10/2026 (decisao do dono) responde com o texto fixo do que o Lucas mostra e onde buscar o resto, sem caso (antes: catch-all escalava).",
       "pseudo_id": "pseudo-lucas-013",
       "perfil_fonte": "conciliado",
       "entrada": {
@@ -120,19 +116,15 @@
         "competencia": "2026-09"
       },
       "esperado": {
-        "route": "escalate_human",
-        "admissibilidade": "",
-        "motivo_humano": "ambiguidade",
-        "roteamento_escalacao": "ATENDIMENTO_HUMANO",
-        "grupo_humano": "atendimento-humano",
-        "desfecho": "escalado_humano",
-        "process_started": true,
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
         "envios": 1,
         "recusa_de_saida": false,
         "ack_recusado": false,
         "dmn_avaliadas": [
-          "lucas_billing_admissibility",
-          "lucas_escalation_routing"
+          "lucas_billing_admissibility"
         ]
       }
     },
@@ -217,7 +209,7 @@
       "id": "LUC-PRG-J2-03",
       "jornada": "J2",
       "subtipo_handoff": "confirmacao_pagamento",
-      "descricao": "Pagamento nao conciliado e sem ciclo vencido: combinacao nao mapeada, o catch-all escala com `categoria=ambiguidade` (mesmo rotulo do J1-05).",
+      "descricao": "Pagamento nao conciliado e sem ciclo vencido: 14/10/2026 o status responde os fatos em qualquer estado (antes: catch-all escalava); so' o atraso critico escala.",
       "pseudo_id": "pseudo-lucas-005",
       "perfil_fonte": "em_aberto",
       "entrada": {
@@ -226,19 +218,15 @@
         "competencia": "2026-09"
       },
       "esperado": {
-        "route": "escalate_human",
-        "admissibilidade": "",
-        "motivo_humano": "ambiguidade",
-        "roteamento_escalacao": "ATENDIMENTO_HUMANO",
-        "grupo_humano": "atendimento-humano",
-        "desfecho": "escalado_humano",
-        "process_started": true,
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
         "envios": 1,
         "recusa_de_saida": false,
         "ack_recusado": false,
         "dmn_avaliadas": [
-          "lucas_billing_admissibility",
-          "lucas_escalation_routing"
+          "lucas_billing_admissibility"
         ]
       }
     },
@@ -246,7 +234,7 @@
       "id": "LUC-PRG-J2-04",
       "jornada": "J2",
       "subtipo_handoff": "confirmacao_pagamento",
-      "descricao": "Nao conciliado por 1 ciclo: indicio de inadimplencia, escala para cobranca humana.",
+      "descricao": "Nao conciliado por 1 ciclo: nao e' atraso critico (14/10/2026) — resposta com o fato e a oferta de uma pessoa, sem caso.",
       "pseudo_id": "pseudo-lucas-011",
       "perfil_fonte": "atraso_1_ciclo",
       "entrada": {
@@ -255,19 +243,15 @@
         "competencia": "2026-09"
       },
       "esperado": {
-        "route": "escalate_human",
-        "admissibilidade": "",
-        "motivo_humano": "inadimplencia_detectada",
-        "roteamento_escalacao": "COBRANCA_HUMANO",
-        "grupo_humano": "atendimento-humano",
-        "desfecho": "escalado_humano",
-        "process_started": true,
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
         "envios": 1,
         "recusa_de_saida": false,
         "ack_recusado": false,
         "dmn_avaliadas": [
-          "lucas_billing_admissibility",
-          "lucas_escalation_routing"
+          "lucas_billing_admissibility"
         ]
       }
     },
@@ -304,7 +288,7 @@
       "id": "LUC-PRG-J2-06",
       "jornada": "J2",
       "subtipo_handoff": "confirmacao_pagamento",
-      "descricao": "Fonte de cobranca indisponivel: nenhum fato inventado, os campos de conciliacao ficam ausentes e o catch-all da DMN escala.",
+      "descricao": "Fonte de cobranca indisponivel: nenhum fato inventado; 14/10/2026 a falha da fonte nao e' caso humano — a constante honesta ('nao consegui consultar'), sem consultar a DMN.",
       "pseudo_id": "pseudo-lucas-012",
       "perfil_fonte": "indisponivel",
       "entrada": {
@@ -313,20 +297,14 @@
         "competencia": "2026-09"
       },
       "esperado": {
-        "route": "escalate_human",
-        "admissibilidade": "",
-        "motivo_humano": "ambiguidade",
-        "roteamento_escalacao": "ATENDIMENTO_HUMANO",
-        "grupo_humano": "atendimento-humano",
-        "desfecho": "escalado_humano",
-        "process_started": true,
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
         "envios": 1,
         "recusa_de_saida": false,
         "ack_recusado": false,
-        "dmn_avaliadas": [
-          "lucas_billing_admissibility",
-          "lucas_escalation_routing"
-        ]
+        "dmn_avaliadas": []
       }
     },
     {
@@ -360,7 +338,7 @@
       "jornada": "J2",
       "subjornada": "cobranca_recebida",
       "subtipo_handoff": "cobranca_recebida",
-      "descricao": "'Estou sendo cobrado' com 1 ciclo sem conciliacao: a regra de atraso da DMN escala como inadimplencia_detectada (lba_r_atraso_escala).",
+      "descricao": "'Estou sendo cobrado' com 1 ciclo sem conciliacao: nao e' atraso critico (14/10/2026) — o fato e a oferta de uma pessoa, sem caso.",
       "pseudo_id": "pseudo-lucas-018",
       "perfil_fonte": "atraso_1_ciclo",
       "entrada": {
@@ -369,19 +347,15 @@
         "competencia": "2026-09"
       },
       "esperado": {
-        "route": "escalate_human",
-        "admissibilidade": "",
-        "motivo_humano": "inadimplencia_detectada",
-        "roteamento_escalacao": "COBRANCA_HUMANO",
-        "grupo_humano": "atendimento-humano",
-        "desfecho": "escalado_humano",
-        "process_started": true,
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
         "envios": 1,
         "recusa_de_saida": false,
         "ack_recusado": false,
         "dmn_avaliadas": [
-          "lucas_billing_admissibility",
-          "lucas_escalation_routing"
+          "lucas_billing_admissibility"
         ]
       }
     },
@@ -420,7 +394,7 @@
       "jornada": "J2",
       "subjornada": "cobranca_recebida",
       "subtipo_handoff": "cobranca_recebida",
-      "descricao": "'Estou sendo cobrado' em aberto SEM ciclo vencido: nao ha indicio de atraso, entao o catch-all leva ao humano como ambiguidade — nunca como inadimplencia (DL-0082).",
+      "descricao": "'Estou sendo cobrado' em aberto SEM ciclo vencido: nao ha indicio de atraso — resposta pelos fatos (14/10/2026), sem caso e nunca como inadimplencia (DL-0082).",
       "pseudo_id": "pseudo-lucas-007",
       "perfil_fonte": "em_aberto",
       "entrada": {
@@ -429,19 +403,15 @@
         "competencia": "2026-09"
       },
       "esperado": {
-        "route": "escalate_human",
-        "admissibilidade": "",
-        "motivo_humano": "ambiguidade",
-        "roteamento_escalacao": "ATENDIMENTO_HUMANO",
-        "grupo_humano": "atendimento-humano",
-        "desfecho": "escalado_humano",
-        "process_started": true,
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
         "envios": 1,
         "recusa_de_saida": false,
         "ack_recusado": false,
         "dmn_avaliadas": [
-          "lucas_billing_admissibility",
-          "lucas_escalation_routing"
+          "lucas_billing_admissibility"
         ]
       }
     },
@@ -450,7 +420,7 @@
       "jornada": "J2",
       "subjornada": "cobranca_recebida",
       "subtipo_handoff": "cobranca_recebida",
-      "descricao": "Fonte indisponivel: sem fato, o catch-all leva ao humano como ambiguidade e o ACK diz que nao deu para consultar — nunca afirma atraso nem pagamento.",
+      "descricao": "Fonte indisponivel: sem fato; 14/10/2026 a constante honesta ('nao consegui consultar'), sem caso e sem consultar a DMN — nunca afirma atraso nem pagamento.",
       "pseudo_id": "pseudo-lucas-016",
       "perfil_fonte": "indisponivel",
       "entrada": {
@@ -459,20 +429,14 @@
         "competencia": "2026-09"
       },
       "esperado": {
-        "route": "escalate_human",
-        "admissibilidade": "",
-        "motivo_humano": "ambiguidade",
-        "roteamento_escalacao": "ATENDIMENTO_HUMANO",
-        "grupo_humano": "atendimento-humano",
-        "desfecho": "escalado_humano",
-        "process_started": true,
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
         "envios": 1,
         "recusa_de_saida": false,
         "ack_recusado": false,
-        "dmn_avaliadas": [
-          "lucas_billing_admissibility",
-          "lucas_escalation_routing"
-        ]
+        "dmn_avaliadas": []
       }
     },
     {

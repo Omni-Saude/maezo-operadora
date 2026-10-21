@@ -11,7 +11,8 @@ from datetime import datetime
 
 import httpx
 import pytest
-from tests.unit.gateway.human.test_escalation_context import RecordingSource
+from structlog.testing import capture_logs
+from tests.unit.gateway.human.test_escalation_context import RecordingReadAudit, RecordingSource
 from tests.unit.gateway.human.test_gateway import CSRF, SECRET
 from tests.unit.gateway.human.test_task_completion_gateway import (
     HUMAN_GROUP,
@@ -33,11 +34,13 @@ PATH = PREFIX + "/task-1/context"
 HEADERS = {"cookie": "__Host-maezo-session=" + SECRET}
 
 
-async def client(*, enabled=True, source=None, member=None, with_source=True):
+async def client(*, enabled=True, source=None, member=None, with_source=True, audit=None):
     g, _, _ = await harness(member=member, completion=RecordingCompletion())
     g.factory_calls = 0
     source = source if source is not None else RecordingSource()
     g._escalation_context = source if with_source else None
+    # DL-0149: the context read refuses without the access record.
+    g._read_audit = audit if audit is not None else RecordingReadAudit()
 
     def factory(resolver):
         g.factory_calls += 1
@@ -220,3 +223,42 @@ async def test_the_route_lives_on_its_own_router_and_the_read_surface_is_unchang
     assert {r.path for r in task_router.routes} == {PREFIX, PREFIX + "/{task_id}"}
     assert {r.path for r in context_router.routes} == {PATH.replace("task-1", "{task_id}")}
     assert {m for r in context_router.routes for m in r.methods} == {"GET"}
+
+
+# ---------------------------------------------------------------------------------------
+# DL-0149: the access record, seen from the route.
+# ---------------------------------------------------------------------------------------
+async def test_a_200_leaves_exactly_one_access_record_and_a_404_leaves_none():
+    audit = RecordingReadAudit()
+    connection, _, _ = await client(audit=audit)
+    async with connection:
+        response = await connection.get(PATH)
+    assert response.status_code == 200
+    assert [(e.read_kind, e.resource_ref) for e in audit.entries] == [("task_context", "task-1")]
+
+    other = RecordingReadAudit()
+    connection, _, _ = await client(audit=other, member=staff_in(HUMAN_GROUP))
+    async with connection:
+        response = await connection.get(PATH)
+    assert response.status_code == 404
+    assert other.entries == []
+
+
+async def test_a_failing_access_record_still_answers_200_and_logs_the_closed_event():
+    connection, _, source = await client(audit=RecordingReadAudit(fail=RuntimeError("PRIVATE audit_chain")))
+    with capture_logs() as logs:
+        async with connection:
+            response = await connection.get(PATH)
+    assert response.status_code == 200
+    assert response.json()["resumo_contexto"] == "Idoso com dor no peito."
+    assert source.calls == ["task-1"]
+    events = [e for e in logs if e["event"] == "portal_read_audit_skipped"]
+    assert events == [
+        {
+            "event": "portal_read_audit_skipped",
+            "log_level": "warning",
+            "reason": "write_failed",
+            "read_kind": "task_context",
+        }
+    ]
+    assert "PRIVATE" not in repr(logs)

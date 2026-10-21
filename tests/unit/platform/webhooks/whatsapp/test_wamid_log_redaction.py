@@ -471,7 +471,26 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
     modules = _package_modules()
     assert [path.name for path in modules] == [
         "__init__.py",
+        # `acesso.py`, `acesso_cadastro.py`, `acesso_ponte.py`, `acesso_store.py` (DL-0083): revisados ao
+        # entrar nesta lista. NENHUM recebe wamid. `acesso.py` recebe o TEXTO da mensagem (que pode ser CPF ou
+        # nascimento) e o numero cru, mas so' para hash/validacao em memoria: os logs dele carregam o
+        # `conversation_id` keyed, tokens de estado/motivo/decisao e contadores — nunca texto, CPF,
+        # nascimento,
+        # hash, telefone nem referencia. `acesso_cadastro.py` e `acesso_ponte.py` nao tem chamada de logger;
+        # `acesso_store.py` tambem nao (so' SQL parametrizado). Varridos abaixo como os demais.
+        "acesso.py",
+        "acesso_cadastro.py",
+        # `acesso_limite_cpf.py` (D-04, DL-0109): revisado ao entrar nesta lista. Nao recebe wamid nem
+        # texto; so' a chave derivada do hash, contagens e carimbos, e SQL parametrizado. Sem logger.
+        "acesso_limite_cpf.py",
+        "acesso_ponte.py",
+        # `acesso_retencao.py` (DL-0084): revisado ao entrar nesta lista. Nao recebe wamid nem texto; os logs
+        # carregam so' contagens, o prazo em dias e o nome da classe do erro. Varrido abaixo como os demais.
+        "acesso_retencao.py",
+        "acesso_store.py",
         "app.py",
+        # `apresentacao_canal.py` (14/10/2026): so' constantes de texto fixo, nenhuma chamada de logger.
+        "apresentacao_canal.py",
         "dedup.py",
         "dispatch.py",
         # `helena_consultas.py` (fatos do plano, 07/10/2026): revisado ao entrar nesta lista. Ele NAO

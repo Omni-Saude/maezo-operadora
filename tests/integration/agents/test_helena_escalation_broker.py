@@ -286,7 +286,8 @@ async def test_classifier_failure_reaches_human_with_real_broker_delivery(
                 "conversation_id": conversation_id,
                 "canal": "whatsapp",
                 "beneficiario_pseudo_id": f"pseudo-test-{token}",
-                "message_body": "Mensagem de teste.",
+                # DL-0093: assunto clinico — a falha do classificador escala de imediato.
+                "message_body": "Mensagem de teste: estou com febre.",
             }
         )
         assert result["next_kind"] == "escalate"

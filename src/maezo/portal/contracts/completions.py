@@ -9,13 +9,19 @@ emergencia_acionada}; notas_resolucao (texto livre, pseudonimizado)").
 
 `resultado` has NO default. A body that omits it is refused with 422, never completed with a
 guessed outcome.
+
+DL-0111 (SP-OP-CANCEL-001 v0.2.0) adds ONE more closed body on the same interim route:
+`CancelExecucaoCompletionSubmission` (`execucao_cadastro` in EXECUTADO/IMPEDIDO, no free text), for the
+registry execution task (`cancel_execucao`). The two bodies are disjoint (`extra=forbid`): an
+escalation body can never be read as the cancel one, and the gateway refuses a body whose form is
+not the task's own form.
 """
 
 from typing import Annotated, Literal, Self, get_args
 
 from pydantic import Field, StringConstraints, model_validator
 
-from .models import EscalationDecisionInputs, FormKey, OpaqueRef, Sha256Digest
+from .models import CancelExecucaoInputs, EscalationDecisionInputs, FormKey, OpaqueRef, Sha256Digest
 from .queues import ClosedRead, DecimalRevision, DecimalVersion, UTCDateTime
 
 CompletionOutcome = Literal["resolvido_humano", "devolvido_agente", "emergencia_acionada"]
@@ -25,10 +31,18 @@ CompletionOutcome = Literal["resolvido_humano", "devolvido_agente", "emergencia_
 #: than letting two enums drift in silence.
 COMPLETION_OUTCOMES: tuple[str, ...] = get_args(EscalationDecisionInputs.model_fields["resultado"].annotation)
 
-#: Bounded transport allocation for one free-text note, in the spirit of `decisions.py`'s
-#: `_MAX_BODY`: a wire limit, NOT a clinical or regulatory bound. The note that actually
-#: reaches the engine is additionally capped by `phi_vars.redact_free_text` (500 characters),
-#: which is the pseudonymization contract, not this number.
+#: DL-0111: the closed outcome of the CANCEL registry execution task, read from its form contract.
+CancelExecucaoOutcome = Literal["EXECUTADO", "IMPEDIDO"]
+CANCEL_EXECUCAO_OUTCOMES: tuple[str, ...] = get_args(
+    CancelExecucaoInputs.model_fields["execucao_cadastro"].annotation
+)
+
+#: THE limit of one free-text note, in characters — a transport/product bound, NOT a clinical or
+#: regulatory one. ONE number, three places (P3/P4, 16/10/2026): the wire schema (`maxLength` of
+#: `notas_resolucao`, what the browser counts against), and the note AFTER the scrub
+#: (`gateway/human/completion.py::pseudonymize_notes` refuses a scrubbed note longer than this with
+#: `notes_too_long`, because the `[REDACTED_*]` tokens make the text longer). Nothing cuts the
+#: note: before 16/10/2026 `redact_free_text` cut it at 500 characters plus `...[TRUNCATED]`.
 MAX_NOTES = 2000
 
 #: The completion taxonomy. `completion_unavailable` is the DECLARED interim gate being off —
@@ -43,6 +57,24 @@ CompletionErrorCode = Literal[
     "revision_conflict",
     "completion_unavailable",
     "completion_dependency_unavailable",
+    # P3 (16/10/2026): the note fits the wire limit but NOT after the scrub (the `[REDACTED_*]`
+    # tokens are longer than what they replace). Refused before the audit intent and the engine.
+    "notes_too_long",
+    # P5 (16/10/2026): `devolvido_agente` with a note the Helena's output fence would bar (it would
+    # never reach the beneficiary). Refused before the audit intent and the engine; the response
+    # carries the GROUP of the rule (`refusal_group`), never the pattern nor the text.
+    "resumption_refused",
+]
+
+#: The closed families of the Helena's resume output fence (`agents/helena/prompts.py` `RECUSA_*`,
+#: the ones `motivo_de_recusa_da_retomada` can return), plus `outra_regra` for a family the Helena
+#: adds later (still refused). `gateway/human/retomada_precheck.py` fails at IMPORT if they drift.
+ResumptionRefusalGroup = Literal[
+    "negativa_clinica",
+    "promessa_de_capacidade",
+    "promessa_sem_start",
+    "canal_nao_confirmado",
+    "outra_regra",
 ]
 
 
@@ -59,6 +91,19 @@ class TaskCompletionSubmission(ClosedRead):
                 "resultado": self.resultado,
                 "notas_resolucao": self.notas_resolucao,
             }
+        )
+        return self
+
+
+class CancelExecucaoCompletionSubmission(ClosedRead):
+    """DL-0111: "cancelamento executado no sistema" (or impeded). One closed field, no note."""
+
+    execucao_cadastro: CancelExecucaoOutcome
+
+    @model_validator(mode="after")
+    def canonical_contract(self) -> Self:
+        CancelExecucaoInputs.model_validate(
+            {"kind": "cancel_execucao", "execucao_cadastro": self.execucao_cadastro}
         )
         return self
 
@@ -80,7 +125,9 @@ class TaskCompletionResponse(ClosedRead):
     task_definition_key: OpaqueRef
     form_key: FormKey
     state: Literal["completed"] = "completed"
-    resultado: CompletionOutcome
+    #: The closed outcome of the completed form: an ESCALATION `resultado` or, since DL-0111, the
+    #: CANCEL `execucao_cadastro` (EXECUTADO/IMPEDIDO). `form_key` says which.
+    resultado: CompletionOutcome | CancelExecucaoOutcome
     consumed_task_revision: DecimalRevision
     authority_revision: DecimalRevision
     evidence_revision: DecimalRevision
@@ -95,7 +142,22 @@ class PortalCompletionError(ClosedRead):
         default="portal-completion-error.v1", alias="schema"
     )
     code: CompletionErrorCode
+    #: Only with `resumption_refused` (and always with it): WHICH family of the fence barred the
+    #: note. Absent from every other error (the route dumps with `exclude_none`).
+    refusal_group: ResumptionRefusalGroup | None = None
 
+    @model_validator(mode="after")
+    def group_only_with_its_code(self) -> Self:
+        if (self.code == "resumption_refused") != (self.refusal_group is not None):
+            raise ValueError("refusal_group goes with resumption_refused and only with it")
+        return self
+
+
+if get_args(CancelExecucaoOutcome) != CANCEL_EXECUCAO_OUTCOMES:  # pragma: no cover - import-time fence
+    raise RuntimeError(
+        "cancel execution outcome set drifted from CancelExecucaoInputs: "
+        f"{get_args(CancelExecucaoOutcome)} != {CANCEL_EXECUCAO_OUTCOMES}"
+    )
 
 if get_args(CompletionOutcome) != COMPLETION_OUTCOMES:  # pragma: no cover - import-time fence
     raise RuntimeError(

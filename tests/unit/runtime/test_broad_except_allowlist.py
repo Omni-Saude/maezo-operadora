@@ -85,7 +85,19 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: `EXTERNAL_DEPENDENCY_FAILURES` vira o texto fixo / a resposta deterministica so' com os fatos).
 #: 08/10/2026: 34 — `LucasGraph._build_escalation_ack` (DL-0082) deixou de chamar o LLM: o ACK de
 #: escalacao virou texto fixo montado com os fatos, e o `try` estreitado em volta do modelo saiu junto.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 34
+#: Continua 34 com o DL-0086 (PR #709): a resposta a pergunta de VALOR e' texto fixo dos fatos (revisao de
+#: seguranca do #709), sem `try` em volta de modelo.
+#: 09/10/2026: 33 — `LucasGraph._build_dossier` deixou de chamar o LLM: a narrativa do dossie de
+#: escalacao virou texto fixo montado com os fatos (`texto_dossie`), e o `try` estreitado em volta do
+#: modelo saiu junto (o modelo lia `contesta_cobranca=False` como contestacao registrada).
+#: 17/10/2026: 36 — base de saude da Helena (DL-0118, ADR-0064): `_base_achar_assunto` (classificacao restrita
+#: a lista fechada; falha do modelo = "nenhum"), `_caso_ativo` e `_motivo_e_severidade` (leituras do motor
+#: antes de encerrar o caso; falha = nada e' encerrado). Os tres estreitados como os demais.
+#: 19/10/2026: 37 — `LucasGraph._avisar_falha_do_cancelamento` (DL-0144): o start do SP-OP-CANCEL-001 falhou
+#: e o Lucas manda ao beneficiario o texto fixo `TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR`, pelo mesmo
+#: `self._whatsapp` e com a mesma forma de `send_escalation_ack` (`PROGRAMMING_ERRORS` re-levanta; o resto
+#: vira `mensagem_enviada=False`). Sitio NOVO e legitimo, nao um predicado que mudou.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 37
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:
@@ -198,6 +210,12 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         1,
         "emissor de metrica de tier: telemetria nunca pode quebrar uma geracao",
     ),
+    "src/maezo/runtime/inference/experimento_global.py::TransporteGlobalExperimental::conversar": (
+        1,
+        "firewall de SDK da rota experimental global (ADR-0065, DL-0119): PROGRAMMING_ERRORS re-levanta "
+        "antes; qualquer excecao do botocore vira FalhaDaRotaGlobalError (so' o nome da classe, nunca a "
+        "mensagem, que pode ecoar o prompt) e quem chama devolve a resposta segura padrao",
+    ),
     "src/maezo/runtime/inference/br_regional.py::BedrockBrRegionalTransport::send": (
         2,
         "firewall de SDK, nas DUAS pernas: (1) a excecao do botocore no envio vira "
@@ -247,6 +265,13 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
     "src/maezo/agents/lucas/graph.py::LucasGraph::send_escalation_ack": (
         1,
         "ack best-effort: uma falha de ack nunca pode desfazer uma escalacao ja' viva (ack_pending)",
+    ),
+    "src/maezo/agents/lucas/graph.py::LucasGraph::_avisar_falha_do_cancelamento": (
+        1,
+        "envio WhatsApp best-effort do aviso de falha ao registrar o cancelamento (DL-0144): o start "
+        "ja' falhou e o no' devolve `ack_pending`/`retryable_error`; um envio que falha (inclusive o "
+        "ValueError cru de credencial, idem fernando/notify) vira `mensagem_enviada=False`, nunca "
+        "derruba o turno; PROGRAMMING_ERRORS re-levanta antes",
     ),
     "src/maezo/agents/lucas/graph.py::LucasGraph::respond_member": (
         1,

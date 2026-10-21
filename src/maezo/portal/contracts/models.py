@@ -31,6 +31,8 @@ The closed source-level form set is:
 * REEMBOLSO ``UT_RevisaoAuditorMedico`` -> ``reembolso_auditor``.
 * CANCEL ``UT_AnaliseRescisao`` and ``UT_CoordenacaoCancelamento`` ->
   ``cancel_decisao``.
+* CANCEL ``UT_ExecutarCancelamentoCadastro`` and ``UT_CoordenacaoExecucaoCadastro`` ->
+  ``cancel_execucao`` (SP-OP-CANCEL-001 v0.2.0, DL-0111: execution in the registry, not a decision).
 * INADIMPLENCIA ``UT_AnaliseInadimplencia`` and ``UT_CoordenacaoCobranca`` ->
   ``inad_decisao``.
 * PROGRAMA ``UT_DecisaoClinica`` and ``UT_CoordenacaoDecisao`` -> ``programa_decisao``.
@@ -182,6 +184,8 @@ FormKey = Literal[
     # VW4/GP11 (2026-10-07): decisao humana do encarregado no SP-OP-SUPP-001 (reparo F7
     # do gate Tier-2 — a chave entra no catalogo fechado, nao ao lado dele).
     "suppression_encarregado",
+    # DL-0111 (SP-OP-CANCEL-001 v0.2.0): execucao do cancelamento a pedido no cadastro (BPMN_FORMDATA).
+    "cancel_execucao",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision", "reassign"]
@@ -251,6 +255,7 @@ AllowedInput = Literal[
     "schema_valid",
     "lgpd_anonimizado",
     "decisao_nack",
+    "execucao_cadastro",
 ]
 
 
@@ -691,6 +696,19 @@ class CancelDecisionInputs(_FrozenContract):
             if value is None or not value.strip():
                 raise ValueError(f"{self.decisao_cancelamento} requires {field}")
         return self
+
+
+class CancelExecucaoInputs(_FrozenContract):
+    """CANCEL v0.2.0 execution task (DL-0111), shared by the registry task and its SLA coordination.
+
+    SP-OP-CANCEL-001 v0.2.0 ``UT_ExecutarCancelamentoCadastro``/``UT_CoordenacaoExecucaoCadastro``
+    declare ONE closed ``camunda:formField`` (``execucao_cadastro``). This is EXECUTION of a right
+    already recognised (the member's own request), never a decision against the member: ``IMPEDIDO``
+    sends the case back to the human legal analysis, it neither denies nor maintains anything.
+    """
+
+    kind: Literal["cancel_execucao"]
+    execucao_cadastro: Literal["EXECUTADO", "IMPEDIDO"]
 
 
 class InadDecisionInputs(_FrozenContract):
@@ -1220,6 +1238,7 @@ DecisionInputs = Annotated[
     | ReembolsoDecisionInputs
     | ReembolsoAuditorInputs
     | CancelDecisionInputs
+    | CancelExecucaoInputs
     | InadDecisionInputs
     | ProgramaDecisionInputs
     | CredDecredentialingInputs
@@ -1301,6 +1320,8 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
         "cancel_decisao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
+    ("SP-OP-CANCEL-001", "UT_ExecutarCancelamentoCadastro"): ("cancel_execucao", "BPMN_FORMDATA"),
+    ("SP-OP-CANCEL-001", "UT_CoordenacaoExecucaoCadastro"): ("cancel_execucao", "BPMN_FORMDATA"),
     ("SP-OP-INADIMPLENCIA-001", "UT_AnaliseInadimplencia"): (
         "inad_decisao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
@@ -1537,6 +1558,7 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
     "lgpd_decisao": ("decisao_dsr", "fundamentacao_legal"),
     # VW4/GP11 (2026-10-07): decisao humana do encarregado no SP-OP-SUPP-001 (DRAFT).
     "suppression_encarregado": ("decisao_encarregado",),
+    "cancel_execucao": ("execucao_cadastro",),
     "auth_pendencia": ("decisao_pendencia",),
     "pagto_aprovacao": (
         "decisao_pagamento",

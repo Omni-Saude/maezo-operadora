@@ -593,7 +593,11 @@ resource "aws_scheduler_schedule" "staff_job" {
   name       = "${local.name}-staff-job"
   group_name = "default"
   # CADENCIA (membership_publication_job.py): < min(observation_seconds=600, catalog valid)/2.
-  schedule_expression = "rate(4 minutes)"
+  # 2 min (era 4): uma tarefa humana nova so' entra no plano de leitura do portal na rodada seguinte, e ate'
+  # la' o motor recusa a fila INTEIRA (PortalReadStore PREFLIGHT, por desenho). Medido em 09/10/2026: cada
+  # execucao leva 55-69 s de ponta a ponta (partida a frio; o trabalho < 1 s), entao 1 min sobreporia
+  # execucoes que disputam a mesma sequencia CAS. Decisao do dono (opcao A), 09/10/2026.
+  schedule_expression = "rate(2 minutes)"
   flexible_time_window {
     mode = "OFF"
   }

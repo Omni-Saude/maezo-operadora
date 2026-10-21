@@ -268,6 +268,34 @@ escopo_b:
         uma vez a cada 10 minutos por processo (PROPOSTA de engenharia, nao decisao); PONTE_AUSENTE
         (conversation_id e' pseudonimo keyed, a referencia DSR nao o alcanca); sem decisao de
         retencao ratificada
+    - camada: acesso_beneficiario
+      tabelas: [conversa_acesso_beneficiario]
+      motivo: >-
+        fora do escopo B; 0022 (DL-0083, acesso do beneficiario no WhatsApp, flag
+        MAEZO_ACESSO_BENEFICIARIO desligada por padrao) guarda so' o estado fechado do
+        consentimento/verificacao da conversa, o contador de tentativas, a versao e o sha256 do
+        texto de consentimento, carimbos de tempo e o portable_subject_ref PSEUDONIMO da AMH, uma
+        linha por conversa — nenhum telefone, CPF, nascimento, nome ou texto digitado; RETENCAO
+        DECIDIDA PELO DONO (DL-0084): linha apagada apos 90 dias sem atividade pelo varredor
+        idempotente whatsapp/acesso_retencao.py, exceto revogacao_pendente (nunca antes de gravada no
+        lago); base legal = consentimento explicito (wa-consent-v1); PONTE_AUSENTE (conversation_id
+        e' pseudonimo keyed, a referencia DSR nao o alcanca)
+    - camada: lembrete_cobranca
+      tabelas: [lembrete_cobranca_enviado, lembrete_cobranca_optout]
+      motivo: >-
+        fora do escopo B; 0027 (lembrete proativo de cobranca, flag MAEZO_LEMBRETE_COBRANCA
+        desligada por padrao) guarda so' o conversation_id pseudonimo keyed, a competencia YYYY-MM,
+        carimbos e o canal de envio (idempotencia) e o PARAR do beneficiario — nenhum telefone,
+        valor ou texto; PONTE_AUSENTE (conversation_id e' pseudonimo keyed, a referencia DSR nao o
+        alcanca); sem decisao de retencao ratificada e sem varredor
+    - camada: acesso_beneficiario
+      tabelas: [acesso_falhas_por_cpf]
+      motivo: >-
+        fora do escopo B; 0028 (limite de falhas de verificacao por CPF, D-04, decisao do dono de
+        15/10/2026: 3 falhas por CPF em 6 h) guarda so' uma chave derivada do hash de verificacao, a
+        contagem, dois carimbos e se a janela anterior bloqueou — nenhum CPF, nascimento, nome, telefone ou texto; sem coluna de
+        titular e sem ponte (a chave e' uma derivacao do CPF, nao alcanca conversation_id nem a
+        referencia DSR); a linha e' apagada sozinha uma janela depois de a de 6 h passar (12 h)
     - camada: durabilidade_capacidade
       tabelas: [v21_journey_journal, v21_capability_command, v21_journal_observation, v21_journal_inbox, v21_external_wait, v21_journal_outbox]
       motivo: >-

@@ -1,6 +1,6 @@
 # Contrato — SP-OP-ESCALATION-001 (Escalonamento Humano Universal)
 
-**Status:** FINAL (v1.0.0) · **Fase:** 0 · **BPMN:** `spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn`
+**Status:** FINAL (v1.1.0) · **Emenda:** DL-0118/ADR-0064, 17/10/2026 — encerramento a pedido do beneficiario (a v1.0.0 nao a tem) · **Fase:** 0 · **BPMN:** `spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn`
 **Gatilho regulatorio:** seguranca assistencial — Lei 9.656/1998 art. 35-C (urgencia = imediato); ADR-0005/0008 (decisao clinica por agente: L0 hard).
 
 ## Business key (idempotencia)
@@ -190,7 +190,7 @@ nao-falsificavel e tamanho maximo. Isso **reduz** a chance de uma injecao funcio
 
 | Variavel | Tipo | Descricao |
 |---|---|---|
-| `resultado` | string | `resolvido_humano` \| `devolvido_agente` \| `emergencia_acionada` |
+| `resultado` | string | `resolvido_humano` \| `devolvido_agente` \| `emergencia_acionada` (User Task) \| `encerrado_a_pedido_beneficiario` (v1.1.0: vem da correlacao `msg.escalation.withdrawn`, nunca de um humano — ver §"Encerramento a pedido do beneficiario") |
 | `notas_resolucao` | string | Notas do humano (pseudonimizadas) |
 
 ## Variaveis de proveniencia do agente (Lucas — ADR-0007/ADR-0015)
@@ -217,11 +217,12 @@ dossie instrutivo e roteamento humano (CC-13 — Agent Fleet Audit: antes deste 
 |---|---|---|---|
 | Kafka | `agents.events.escalation.requested` | produz | apos start |
 | Kafka | `agents.events.escalation.sla_breached` | produz | timer ack (payload.fase=`ack`) ou resolucao (payload.fase=`resolucao`) |
-| Kafka | `agents.events.escalation.resolved` | produz | antes dos fins (payload.resultado) |
+| Kafka | `agents.events.escalation.resolved` | produz | antes dos fins (payload.resultado), inclusive o fim a pedido do beneficiario (v1.1.0) |
+| Mensagem BPMN | `msg.escalation.withdrawn` | consome | v1.1.0: event subprocess interruptivo `ESP_EncerramentoAPedido`, correlacionado pela business key (ver §"Encerramento a pedido do beneficiario") |
 | Kafka | `agents.events.process_completed` | produz | somente se `resultado=devolvido_agente` (retoma conversa do agente). Payload (GAP-ESC-1): `tenant_id`, `agent_id` (alias de `source_agent_id`), `conversation_id`, `resultado` + `_business_key` (`ESC-{tenant_id}-{conversation_id}`, injetado pelo worker) — chaves de correlacao para o consumidor universal (GAP-XHITL-4). SEM `notas_resolucao` (texto livre, Zona PHI) |
 | External task | `operadora.events.publish` | consome (worker) | publicador generico de eventos de dominio |
 | External task | `operadora.escalation.notify_team` | consome (worker) | alerta o grupo humano roteado |
-| External task | `operadora.escalation.notify_supervisor` | consome (worker) | alerta supervisao (ack estourado ou fallback de canal) |
+| External task | `operadora.escalation.notify_supervisor` | consome (worker) | alerta supervisao (ack estourado ou fallback de canal). Publica `escalation.notify_supervisor` em `operadora.notifications.internal`; o payload inclui `business_key` (a chave do motor, lida da tarefa, como `notify_team`) para o aviso nomear o caso, alem de `alert_to=supervisao-atendimento` e rotulos fechados — sem texto livre (ADR-0006) |
 
 ## DMN referenciada
 
@@ -273,6 +274,27 @@ Fail-safe: catch-all = P2/`atendimento-humano` (motivo desconhecido nunca vira P
 | Resolucao P1 | PT30M | interruptivo -> supervisor assume + evento breach(fase=resolucao) | idem |
 | Resolucao P2 / P3 | PT4H / PT24H | idem | idem |
 
+### Prazo da tarefa humana (`dueDate`) — DL-0145, 19/10/2026
+
+`UT_TratarEscalonamento` declara `camunda:dueDate="${roteamento.sla_resolucao}"`: o prazo da
+tarefa e' o **prazo de RESOLUCAO** que a DMN `escalation_routing` ja decide (saida
+`sla_resolucao`, duracao ISO 8601 da tabela acima), a MESMA expressao do timer interruptivo
+`TD_SlaResolucao` (`BT_SlaResolucao`). Nenhum valor novo e' criado: o prazo herda o status
+**DRAFT/verify (gestao assistencial)** dos SLAs acima e muda junto quando a DMN mudar.
+
+- Semantica do motor (CIB Seven 2.1.0, provada no motor real — DL-0145): uma String de duracao
+  ISO 8601 em `dueDate` e' resolvida a partir do instante de criacao da tarefa
+  (`due = criacao + sla_resolucao`), o mesmo instante que ancora o timer de resolucao.
+- E' o que a coluna **Prazo** da fila de tarefas do portal mostra (`engine_due_at`, lido de
+  `ACT_RU_TASK.DUE_DATE_`). Antes disso a coluna dizia "Sem prazo informado".
+- `UT_SupervisorAssume` continua SEM prazo (ultima linha humana, sem timer adicional — documentacao da tarefa no BPMN).
+- Ausencia de SLA: a regra catch-all `r7` da DMN garante `sla_resolucao` em toda instancia;
+  se a saida vier nula a tarefa nasce sem prazo (a instancia nao quebra); se `roteamento` nao
+  existir, a instancia ja falhava antes desta emenda (`candidateGroups` e os timers usam a
+  mesma variavel) — comportamento inalterado.
+- Prazo de tarefa e' exibicao: quem continua dono do estouro e' o timer `BT_SlaResolucao`
+  (claim/ACK nao cancela timer, ver acima).
+
 ## Desfecho de agente: falha de start (CC-01)
 
 | Desfecho | Onde vive | Quem escreve | Significado |
@@ -323,6 +345,60 @@ alem do desfecho:
 Em ambos os casos a regra e a mesma e nao e negociavel: **nao se promete ao beneficiario um
 humano que nao foi acionado.**
 
+### Leitura do estado do caso pelo agente (DL-0144, 2026-10-16)
+
+O agente so' AFIRMA ao beneficiario que ha' um caso aberto ("seu atendimento continua com a equipe")
+quando o MOTOR confirma uma instancia ATIVA deste processo numa chave desta conversa
+(`ESC-{tenant}-{conversation_id}` ou o caso clinico paralelo `ESC-{tenant}-{conversation_id}-clin`,
+`src/maezo/runtime/caso_clinico.py::chave_do_escalonamento`). A confirmacao e' a leitura
+`src/maezo/gateway/seams/cibseven.py::GatedCibSevenTransport.find_active_instance` (operacao
+catalogada `cibseven.find_active_instance`), feita no inicio do turno e SO' quando o historico curto
+da conversa traz indicio de caso (sem indicio, nenhuma leitura). A classe do caso (clinico ou
+administrativo) vem da chave `-clin` ativa ou do `motivo_categoria` da instancia
+(`src/maezo/runtime/caso_clinico.py::MOTIVOS_DE_ALERTA_CLINICO`).
+
+* Instancia concluida (por exemplo `UT_TratarEscalonamento` com `resultado=resolvido_humano`) ou
+  inexistente: o agente NAO afirma caso aberto (despedida comum, nunca "seu caso continua").
+* Leitura que FALHA (motor fora, portao do gateway): NAO afirma. A falha nao derruba o turno e vai ao
+  log so' com o tipo do erro.
+* O historico curto continua valendo como INDICIO para seguranca e rota, nunca como afirmacao: o
+  sinal de emergencia com caso aberto (alerta `red_flag_clinico`, DL-0072) e o roteamento da cobranca
+  curta ao Lucas seguem pelo historico, sem esperar o motor — uma leitura falha ou atrasada nunca
+  rebaixa um alerta clinico.
+* Nenhuma variavel de processo, BPMN ou DMN muda: e' uma leitura do lado do agente.
+
+
+## Encerramento a pedido do beneficiario (emenda v1.1.0 — DL-0118, ADR-0064, 17/10/2026)
+
+**Decisao do dono (dev, "modelo de teste" reversivel).** Quem RECUSA a equipe ou pede para encerrar o
+atendimento ("nao quero falar com ninguem", "pode cancelar o atendimento", "cancela o caso") com um caso
+aberto recebe da Helena UMA pergunta de confirmacao; com SIM, a Helena encerra o caso pela mensagem BPMN
+`msg.escalation.withdrawn`, correlacionada pela business key da conversa (`ESC-{tenant_id}-{conversation_id}`
+e, pela mesma regra, a chave clinica paralela `-clin`). So' com a chave `MAEZO_HELENA_BASE_SAUDE` ligada.
+
+- **Forma no BPMN:** event subprocess INTERRUPTIVO `ESP_EncerramentoAPedido` (inicio por mensagem
+  `Start_EncerramentoAPedido`) -> `ST_PublishWithdrawn` (`agents.events.escalation.resolved`, mesmo payload de
+  `ST_PublishResolved`: `tenant_id,conversation_id,resultado`, sem `notas_resolucao`) -> fim
+  `End_EncerradoAPedidoDoBeneficiario`. Falha de publish nao impede o fim (`BE_PubWithdrawnFailed`,
+  GAP-ESC-5). Vale em QUALQUER ponto em que a instancia esteja viva — publish, roteamento, notificacao, User
+  Task, SLA — e interrompe tudo, inclusive o ramo nao-interruptivo do SLA de ciencia. NAO publica
+  `process_completed` (a conversa nao e' devolvida por um humano; `agent_resume` nem e' acionado).
+- **Variaveis da correlacao:** `resultado=encerrado_a_pedido_beneficiario`, `encerramento_origem=beneficiario_canal`.
+- **O que NUNCA se encerra por aqui (regra do agente, nao do motor):** caso P1/grave — `risco_psicossocial`
+  (qualquer severidade) e `severidade=grave` (red flag P1, recem-nascido) — e caso cujo motivo/severidade nao
+  se consegue ler (na duvida, grave). A pessoa ouve "Seu caso e' de saude e precisa de avaliacao. Nao posso
+  encerra-lo por aqui. Se for emergencia, ligue 192." (`caso_grave_para_encerrar`, `src/maezo/agents/helena/graph.py`).
+- **Auditoria antes do efeito (ADR-0007):** `correlate_message_audited`
+  (`src/maezo/tools/mcp_cibseven/transport.py`) grava o registro duravel (`emit_once`, chave de dedup por
+  instancia, sem business key nem variaveis em claro) ANTES da correlacao; falha de auditoria = nenhuma
+  correlacao. A Helena confere depois que a instancia nao esta' mais ativa antes de dizer "Pronto, encerrei".
+- **Fila do portal:** a User Task cancelada some da fila (leitura ao vivo de `ACT_RU_TASK`); o emissor de casos
+  da equipe revoga o acesso do caso na rodada seguinte.
+- **Instancias de antes da v1.1.0** nao tem a subscricao da mensagem: o motor recusa (400) e a Helena diz que
+  nao conseguiu encerrar (o caso continua com a equipe). O start continua `NON_STRICT`: depois do
+  encerramento, um pedido novo abre um caso novo na mesma chave.
+- **Voltar atras:** desligar a chave (a mensagem deixa de ser enviada); o BPMN v1.1.0 pode ficar no motor sem
+  efeito. Desfazer de vez: revert do PR + deploy-processes (runbook `docs/runbooks/helena-base-saude.md`).
 
 ## Codigos de erro
 
@@ -332,7 +408,7 @@ humano que nao foi acionado.**
 
 ## Notas de design
 
-- Nenhum fim do processo ocorre sem evento de dominio publicado antes (auditoria dupla: engine + Kafka, ADR-0007).
+- Nenhum fim do processo ocorre sem evento de dominio publicado antes (auditoria dupla: engine + Kafka, ADR-0007) — inclusive o fim a pedido do beneficiario da v1.1.0.
 - O processo NAO contem logica clinica: quem decide red flag e a DMN `triage_redflag_*` consumida pela Helena ANTES do start; quem resolve o caso e humano.
 - `devolvido_agente` e o unico caminho que devolve controle ao agente, sempre com instrucoes humanas em `notas_resolucao`.
 - `agents.events.process_completed` (Zona Geral) carrega apenas identificadores estruturais — `tenant_id`, `agent_id`, `conversation_id`, `resultado` + `_business_key` — NUNCA `notas_resolucao` (texto livre humano, Zona PHI). O consumidor de retomada (GAP-XHITL-4) resolve as instrucoes humanas pelo business key na Zona PHI (GAP-ESC-1; scrub sistemico via `phi_vars.py` e GAP-XPHI-1).

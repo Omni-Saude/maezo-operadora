@@ -201,7 +201,7 @@ def _com_deps(classe: Any, llm: Any, **extra: Any) -> Any:
     return classe(inference=llm, dmn=None, cibseven=None, audit_sink=None, **extra)
 
 
-#: Um caso por SITIO de montagem de prompt (nao por agente: fernando e lucas tem dois cada, e
+#: Um caso por SITIO de montagem de prompt (nao por agente: fernando tem dois, e
 #: gustavo/marina/andre trocam o conjunto de fatos conforme o fluxo). Campos:
 #:   `sitio`     — identificador legivel `<agente>.<metodo>[/<fluxo>]`
 #:   `monta`     — corotina que recebe (grafo, state) e monta o prompt
@@ -336,18 +336,9 @@ def _sitios() -> list[_Sitio]:
             "booleanos": {"status_conciliado": "pagamento conciliado no CNAB"},
             "ausente": "SEM DADO",
         },
-        {
-            "sitio": "lucas._build_dossier",
-            "constroi": lambda llm: _com_deps(LucasGraph, llm, whatsapp=None),
-            "monta": dossie,
-            "base": {},
-            "booleanos": {
-                "status_conciliado": "pagamento conciliado no CNAB",
-                "contesta_cobranca": "beneficiario contesta a cobranca",
-                "pedido_cancelamento": "ha pedido de cancelamento",
-            },
-            "ausente": "SEM DADO",
-        },
+        # `lucas._build_dossier` saiu em 09/10/2026: a narrativa do dossie virou TEXTO FIXO dos fatos
+        # (`lucas/graph.py::texto_dossie`), sem prompt. Os tres estados (True/False/ausente) sao
+        # provados no texto em `test_lucas_dossie_texto_fixo.py`.
         {
             "sitio": "marina._build_dossier/contas",
             "constroi": lambda llm: _com_deps(MarinaGraph, llm),

@@ -1,0 +1,182 @@
+name: deriva-dev
+
+# Verificacao periodica de DERIVA entre o Terraform no git e o dev vivo
+# (deploy/aws-ecs/envs/dev-sa-east-1, conta 203312548462, sa-east-1).
+#
+# O QUE FAZ: `terraform plan` somente-leitura a partir do git, com as imagens lidas das
+# task definitions que RODAM (para comparar configuracao, nao versao de deploy), e
+# `scripts/ci/classificar_deriva.py` separa o ruido conhecido da deriva real. Deriva
+# real: o job fica vermelho, o resumo vai para o sumario do run e para UMA issue com o
+# rotulo `deriva-dev`, que e' fechada quando o plano volta a ficar limpo.
+#
+# O QUE NUNCA FAZ: `apply`, escrita na AWS ou no state (`-lock=false`: nao escreve nem o
+# arquivo de lock do S3), upload do plano como artefato (plano tem valores de ambiente).
+#
+# ESTADO ATUAL: DESLIGADO. So' `workflow_dispatch`, e o job para logo se a variavel
+# `AWS_DERIVA_ROLE_ARN` nao existir. Nao ha, hoje, role OIDC somente-leitura que leia o
+# state e refresque o dev (as existentes — `*-github-supply-chain` e `*-github-verify` —
+# so' leem ECR/KMS). Para ligar: criar a role (trust e policy em
+# `docs/runbooks/aws-ecs.md`, secao "Verificacao de deriva do dev"), definir a variavel
+# de repositorio `AWS_DERIVA_ROLE_ARN` e descomentar o `schedule` abaixo.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "17 9 * * *"   # diario, 06:17 em Sao Paulo (09:17 UTC)
+
+permissions:
+  contents: read
+  id-token: write   # OIDC para a role somente-leitura
+  issues: write     # abrir/atualizar/fechar a issue `deriva-dev`
+
+concurrency:
+  group: deriva-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: sa-east-1
+  TF_DIR: deploy/aws-ecs/envs/dev-sa-east-1
+  TF_IN_AUTOMATION: "true"
+  NOME: maezo-operadora-dev
+  ECR_APP: amh/maezo-operadora
+  ECR_ENGINE: amh/cibseven-maezo
+
+jobs:
+  deriva:
+    name: deriva dev-sa-east-1
+    if: github.repository == 'Omni-Saude/maezo-operadora'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Role somente-leitura configurada?
+        env:
+          ROLE: ${{ vars.AWS_DERIVA_ROLE_ARN }}
+        run: |
+          if [ -z "$ROLE" ]; then
+            echo "::error::A variavel de repositorio AWS_DERIVA_ROLE_ARN nao existe. Crie a role somente-leitura (docs/runbooks/aws-ecs.md, 'Verificacao de deriva do dev') e defina a variavel."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Credenciais AWS (OIDC, somente-leitura)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DERIVA_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deriva-dev
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+        with:
+          terraform_version: "1.13.3"
+          terraform_wrapper: false
+
+      - name: Ler imagens vivas das task definitions
+        run: |
+          set -euo pipefail
+          # Imagem do container do repositorio ECR dado, na revisao ATIVA mais recente da familia.
+          imagem() {
+            local familia="$1" repo="$2" ref
+            ref=$(aws ecs describe-task-definition --task-definition "$familia" \
+              --query "taskDefinition.containerDefinitions[?contains(image, '${repo}')].image | [0]" --output text)
+            if [ -z "$ref" ] || [ "$ref" = "None" ]; then
+              echo "::error::sem imagem de ${repo} na task definition ${familia}"; exit 1
+            fi
+            printf '%s' "$ref"
+          }
+          tag() {
+            local ref; ref=$(imagem "$1" "$2")
+            case "$ref" in *@*) echo "::error::${1} usa digest, esperava tag"; exit 1;; esac
+            printf '%s' "${ref##*:}"
+          }
+          digest() {
+            local ref d; ref=$(imagem "$1" "$2"); d="${ref##*@}"
+            if ! printf '%s' "$d" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+              echo "::error::${1} nao usa digest sha256"; exit 1
+            fi
+            printf '%s' "$d"
+          }
+          {
+            echo "TF_VAR_image_tag=$(tag "$NOME-a2a-outbox-relay" "$ECR_APP")"
+            echo "TF_VAR_webhook_receiver_image_tag=$(tag "$NOME-webhook-receiver" "$ECR_APP")"
+            echo "TF_VAR_canal_teste_image_tag=$(tag "$NOME-canal-teste" "$ECR_APP")"
+            echo "TF_VAR_agents_image_digest=$(digest "$NOME-agent-helena" "$ECR_APP")"
+            echo "TF_VAR_worker_image_digest=$(digest "$NOME-worker" "$ECR_APP")"
+            echo "TF_VAR_diagnostics_image_digest=$(digest "$NOME-diagnostics" "$ECR_APP")"
+            echo "TF_VAR_engine_image_digest=$(digest "$NOME-cibseven" "$ECR_ENGINE")"
+          } >> "$GITHUB_ENV"
+          echo "Imagens vivas lidas das 7 task definitions (valores nao impressos)."
+
+      - name: terraform init (leitura do backend)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -input=false -no-color \
+            -backend-config="bucket=amh-tfstate-dev" \
+            -backend-config="key=envs/dev-sa-east-1/maezo-operadora/terraform.tfstate" \
+            -backend-config="region=sa-east-1" > /dev/null
+
+      - name: terraform plan (somente-leitura)
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          # A saida do plano NAO vai para o log (traz valores de ambiente): so' a linha de totais.
+          set +e
+          terraform plan -lock=false -input=false -no-color -detailed-exitcode -out=tfplan > plano.txt 2>&1
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" = 1 ]; then
+            echo "::error::terraform plan falhou (nao e' deriva). Linhas de erro:"
+            grep -E '^(Error|│ Error)' plano.txt | head -20 || true
+            exit 1
+          fi
+          grep -E '^(Plan:|No changes)' plano.txt || true
+          terraform show -json tfplan > plano.json
+
+      - name: Classificar (ruido conhecido x deriva real)
+        id: classificar
+        run: |
+          set +e
+          python3 scripts/ci/classificar_deriva.py "$TF_DIR/plano.json" --markdown resumo.md > /dev/null
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          [ -f resumo.md ] && cat resumo.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" = 2 ]; then
+            echo "::error::classificador nao conseguiu ler o plano"
+          fi
+
+      - name: Issue `deriva-dev` (abre/atualiza com deriva, fecha quando limpo)
+        if: steps.classificar.outputs.rc == '0' || steps.classificar.outputs.rc == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RC: ${{ steps.classificar.outputs.rc }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create deriva-dev --color B60205 \
+            --description "Deriva entre o Terraform no git e o dev vivo" 2>/dev/null || true
+          numero=$(gh issue list --label deriva-dev --state open --json number --jq '.[0].number // empty')
+          if [ "$RC" = 1 ]; then
+            {
+              echo "Verificacao diaria de deriva do dev ($(date -u +%Y-%m-%dT%H:%MZ)): $RUN_URL"
+              echo
+              cat resumo.md
+            } > corpo.md
+            if [ -n "$numero" ]; then
+              gh issue edit "$numero" --body-file corpo.md
+              echo "Issue #$numero atualizada."
+            else
+              gh issue create --title "Deriva entre o Terraform e o dev vivo" \
+                --label deriva-dev --body-file corpo.md
+            fi
+          elif [ -n "$numero" ]; then
+            gh issue close "$numero" --comment "Plano limpo (so' ruido conhecido) em $RUN_URL. Fechada automaticamente."
+          fi
+
+      - name: Falhar se ha deriva real
+        if: steps.classificar.outputs.rc != '0'
+        run: |
+          echo "::error::deriva real entre o git e o dev vivo — ver o resumo do run e a issue deriva-dev."
+          exit 1

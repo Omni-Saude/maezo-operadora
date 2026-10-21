@@ -1,0 +1,228 @@
+# tina-identificacao-cadastro.openapi.yaml — PROPOSTA de rota ADITIVA da TINA: identificação do vínculo para a equipe de
+# cadastro executar o cancelamento no Tasy (artefato novo; manifest v1.7, UNPUBLISHED — NÃO publicado).
+# AMH-owned — edição SOMENTE em Omni-Saude/amh-data-platform (XRD-04).
+# O tina.openapi.yaml 0.1.0 (v1.2) e o tina-dependentes.openapi.yaml 0.1.0 (v1.5) NÃO mudam um byte: esta é ARQUIVO NOVO.
+# Diferente das demais rotas TINA (que atendem o agente de WhatsApp do beneficiário), esta é RESTRITA:
+#  * só para STAFF do cadastro, por cliente M2M DEDICADO e escopo PRÓPRIO `interop/cadastro.read`
+#    (o cliente do agente de WhatsApp `maezo-operadora-interop` NUNCA recebe esse escopo);
+#  * finalidade FIXA `execucao-cancelamento` (um único valor aceito);
+#  * devolve o identificador COMPLETO (contrato, matrícula, carteirinha) — é a única rota que o faz — porque a pessoa do
+#    cadastro precisa ACHAR o beneficiário no Tasy; o Maezo nunca grava no Tasy (ADR-0013 do Maezo);
+#  * sem nome, CPF, RG, CNS, nascimento, contato, endereço nem dado bancário;
+#  * cada leitura é AUDITADA antes de a resposta sair (fail-closed: sem auditoria, sem dado);
+#  * a resposta NUNCA vai para log, telemetria, índice em memória nem cache (`Cache-Control: no-store`).
+# Exemplos 100% sintéticos.
+openapi: 3.0.3
+info:
+  title: AMH TINA Identificação para o Cadastro (leitura restrita, Zona PHI)
+  version: 0.1.0
+  description: |
+    Identificação do(s) vínculo(s) do beneficiário no Tasy (número do contrato, matrícula, carteirinha completa,
+    titular, tipo de contratação e situação), keyed por `portable_subject_ref`, para a pessoa do grupo
+    `cadastro-beneficiarios` executar o cancelamento a pedido do titular PF (Maezo SP-OP-CANCEL-001 v0.2.0,
+    tarefa humana `UT_ExecutarCancelamentoCadastro`).
+
+    ZONA PHI: o corpo desta resposta é dado pessoal identificador de plano de saúde. O consumidor (Maezo) o trata
+    como variável de TELA da tarefa, somente leitura, e NÃO o persiste além da exibição.
+
+    FONTE: gold `tina_identificacao_cadastro` (nova; uma linha por segurado), construída das views do Tasy
+    materializadas no lago (`tasy_austa_vw_beneficiarios`, `tasy_omni_wpp_beneficiario_v`, `tasy_pls_segurado`).
+    FRESCOR: a fonte é a foto semanal do lago; a pessoa do cadastro CONFERE no Tasy (a fonte da verdade).
+    BASE LEGAL: execução de contrato a pedido do titular (LGPD art. 7º, V). Ratificação do DPO pendente.
+  contact:
+    name: AMH contract steward (amh-interop-coordinator)
+servers:
+  - url: /interop/tina/v1
+    description: >-
+      Servidor relativo — resolução de host/rede é decisão de deployment (XRD-11).
+security:
+  - bearerAuth: []
+tags:
+  - name: tina-cadastro
+    description: Leitura restrita para a equipe de cadastro (não é do agente de WhatsApp).
+paths:
+  /subjects/{portable_subject_ref}/identificacao-cadastro:
+    get:
+      tags: [tina-cadastro]
+      operationId: getIdentificacaoCadastro
+      summary: Identificação do vínculo para o cadastro localizar o beneficiário no Tasy (restrita, auditada)
+      description: |
+        Pré-condições, todas obrigatórias (qualquer falha = nenhum dado):
+        1. token M2M do cliente de cadastro, com escopo `interop/cadastro.read` (o serviço ainda confere que o
+           `client_id` está na lista de clientes de cadastro);
+        2. `purpose_of_use=execucao-cancelamento`;
+        3. cabeçalho `X-Amh-Staff-Id`: identificador OPACO da pessoa do cadastro que abriu a tarefa (nunca e-mail,
+           CPF nem nome);
+        4. a leitura é registrada na auditoria ANTES de a resposta sair; se o registro falhar, a resposta é 500.
+        A resposta traz `Cache-Control: no-store`. Não há paginação nem busca: uma ref por chamada.
+      parameters:
+        - $ref: '#/components/parameters/PortableSubjectRef'
+        - $ref: '#/components/parameters/PurposeOfUse'
+        - $ref: '#/components/parameters/StaffId'
+        - $ref: '#/components/parameters/TaskRef'
+      responses:
+        '200':
+          description: Vínculos do sujeito (ativos primeiro; no máximo 10).
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ['no-store'] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentificacaoCadastro'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token M2M Cognito (client-credentials) com escopo `interop/cadastro.read` — fail-closed. Escopo exclusivo
+        do cliente de cadastro; o cliente do agente de WhatsApp não o possui.
+  parameters:
+    PortableSubjectRef:
+      name: portable_subject_ref
+      in: path
+      required: true
+      description: Referência portátil de sujeito mintada pela AMH (XRD-05).
+      schema:
+        type: string
+        pattern: '^amh:psr:v1:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        minLength: 47
+        maxLength: 47
+      example: 'amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    PurposeOfUse:
+      name: purpose_of_use
+      in: query
+      required: true
+      description: Propósito LGPD FIXO desta rota. Qualquer outro valor é 400.
+      schema:
+        type: string
+        enum: [execucao-cancelamento]
+      example: execucao-cancelamento
+    StaffId:
+      name: X-Amh-Staff-Id
+      in: header
+      required: true
+      description: >-
+        Identificador OPACO da pessoa do cadastro (id do usuário no portal do Maezo). Vai para a auditoria. Nunca
+        e-mail, CPF nem nome.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{8,64}$'
+      example: 'usr_7f3a9c21d4'
+    TaskRef:
+      name: X-Amh-Task-Ref
+      in: header
+      required: false
+      description: Identificador opaco da tarefa/instância no Maezo, para correlacionar na auditoria.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_.:-]{8,64}$'
+      example: 'task_a1b2c3d4e5'
+  schemas:
+    IdentificacaoCadastro:
+      type: object
+      required: [portable_subject_ref, vinculos, fonte_atualizada_em]
+      additionalProperties: false
+      properties:
+        portable_subject_ref:
+          type: string
+          description: A ref do próprio sujeito consultado.
+        vinculos:
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: >-
+            Um item por vínculo (segurado) da pessoa, ATIVOS primeiro. Normalmente um só; mais de um quando a pessoa
+            tem planos distintos — a pessoa do cadastro escolhe no Tasy qual cancelar.
+          items:
+            $ref: '#/components/schemas/Vinculo'
+        fonte_atualizada_em:
+          type: string
+          format: date-time
+    Vinculo:
+      type: object
+      additionalProperties: false
+      required: [numero_contrato, matricula, carteirinha, titular, tipo_contratacao, situacao_beneficiario, situacao_contrato, cancelado]
+      description: >-
+        Mínimo para localizar o segurado no Tasy. Campo ausente na fonte é `null` (o consumidor nunca o completa).
+        Sem nome, CPF, RG, CNS, nascimento, contato, endereço nem dado bancário.
+      properties:
+        numero_contrato:
+          type: string
+          nullable: true
+          description: Número do contrato no Tasy PLS (`nr_contrato`).
+          example: '1234567'
+        matricula:
+          type: string
+          nullable: true
+          description: Matrícula do beneficiário no plano (`nr_matricula` da view de beneficiário do Tasy).
+          example: '000123456'
+        carteirinha:
+          type: string
+          nullable: true
+          description: >-
+            Número da carteirinha COMPLETO, sem máscara. É o único lugar da API da AMH em que ele sai; nas demais
+            rotas TINA ele é sempre mascarado.
+          example: '0012345678900001'
+        titular:
+          type: boolean
+          nullable: true
+          description: O segurado é o titular do contrato. `false` ⇒ o processo de cancelamento a pedido do titular NÃO se aplica a este vínculo.
+        tipo_contratacao:
+          type: string
+          nullable: true
+          description: Rótulo do Tasy (ex. `Individual/Familiar`, `Coletivo empresarial`, `Coletivo por adesão`).
+          example: Individual/Familiar
+        situacao_beneficiario:
+          type: string
+          nullable: true
+          example: Ativo
+        situacao_contrato:
+          type: string
+          nullable: true
+          example: Ativo
+        cancelado:
+          type: boolean
+          description: Já existe data de cancelamento no vínculo (a pessoa do cadastro não precisa cancelar de novo).
+    Error:
+      type: object
+      required: [error_code, message, trace_id]
+      additionalProperties: false
+      properties:
+        error_code: { type: string }
+        message: { type: string, description: Mensagem operacional SEM PHI. }
+        reason: { type: string, nullable: true }
+        trace_id: { type: string }
+  responses:
+    BadRequest:
+      description: Requisição malformada (ref, finalidade ou cabeçalho de staff fora do padrão).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token ausente/inválido.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: FAIL-CLOSED — cliente sem o escopo, fora da lista de clientes de cadastro ou tenant não servido; nenhum dado é retornado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Sujeito desconhecido, sem vínculo ou rota desligada (resposta idêntica).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro interno, inclusive falha ao registrar a auditoria (nenhum dado sai).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
