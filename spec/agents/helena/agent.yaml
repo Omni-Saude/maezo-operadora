@@ -204,8 +204,8 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # v1 — 07/10/2026: redacao da resposta com os FATOS do cadastro
                                      # (contrato TINA da AMH) num bloco delimitado; recusa da
                                      # cerca propria = resposta deterministica so' com os fatos.
-  roteador: roteador-v3                # 21/10/2026: prompt ENXUTO (resumo por habilidade, JSON curto). v1 (DL-0135):
-                                     # MAEZO_HELENA_ROTEADOR ligado (F1 em sombra: so' registra a decisao).
+  roteador: roteador-v4                # 21/10/2026 (DL-0136): F2 no prompt enxuto (duvida pendente; depois
+                                     # da cobertura). v3: enxuto (DL-0137); v1: sombra (DL-0135).
 
 model:
   task_default: { tier: fast }        # triagem/classificacao

@@ -79,6 +79,20 @@ helena_base_saude = true
 // resposta continua a da Helena de antes. DESLIGADO em 21/10/2026: em sombra a chamada paralela ao GLM-5
 // passou do prazo em todo turno e a latencia do simulador subiu (DL-0135, adendo); volta a "sombra" so' com o conserto.
 helena_roteador = "desligado"
+// F2 (DL-0136): com `ativo`, o roteador DECIDE so' nas conversas de `helena_roteador_conversas` (SO' as do
+// simulador); fora delas, sombra. A lista de teste das pessoas entra so' na F4, com o OK do dono.
+helena_roteador_conversas = [
+  "wa:amh:hk1_41a907864e3b318fe11d8124e2eed5d8a0ad8d076a8cf69449e60e28043290d7", // simulador ...790
+  "wa:amh:hk1_c416ceac7076a3946bcacc8c0ca3c5c68083ee7d5c3d3cdbc0335bedf5f0d086", // simulador ...791
+  "wa:amh:hk1_dbae14094dd97675d3564309f70861c3f644d3134704cbe25f80e1dbb95956e5", // simulador ...792
+  "wa:amh:hk1_0909c2f1979a1326c2210f50c38ac2da42b9f1462c36fe6f5bddb268acedc69a", // simulador ...793
+  "wa:amh:hk1_2c6d769d38c68af9df7dad00393e8caed88e3f852b1c68f3aac2105c11ce3514", // simulador ...794
+  "wa:amh:hk1_779f711a77180fa0ec38b23f7fe83848344447e1ed131e4c6c2cff2af784dbed", // simulador ...795
+  "wa:amh:hk1_e4e695ffef67a87c66dfb14c14a38a2a7db4258ee10a642133e05c8f0fb04d31", // simulador ...796
+  "wa:amh:hk1_c9a42214bf91e285a511878d57f169a2af5a67cbd964f194b6b1e7811698f9dd", // simulador ...797
+  "wa:amh:hk1_298020f13ddf83ff5cc1e695591075729db2e5614775c824e192cbe1359363a0", // simulador ...798
+  "wa:amh:hk1_1af788a6ccaa52b4135ae61ac2e816608024fc6307b04c2caf5303a1f606581f", // simulador ...799
+]
 
 // SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
 // informativas de saude, com checagem antes de enviar, pela rota PROPRIA

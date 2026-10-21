@@ -2191,6 +2191,69 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
         ),
         resolveu="cada item da lista foi procurado (o lote nao perdeu item que sozinho e' achado)",
     ),
+    # F2 do roteador de habilidades (ADR-0066, DL-0136): o assunto muda DEPOIS de uma resposta de cobertura.
+    Segmento(
+        "18-mensalidade-depois-da-cobertura",
+        (
+            _p(
+                "Meu plano cobre ressonância do joelho?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "agora outra coisa: quanto veio a minha mensalidade deste mês?",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(
+                    _PEDE_A_LISTA,
+                    r"nao localizei",
+                    r"como esta escrito no pedido medico",
+                    r"consta no rol",
+                ),
+            ),
+        ),
+        resolveu="a pergunta de mensalidade depois da cobertura saiu da cobertura",
+    ),
+    Segmento(
+        "19-duvida-de-saude-depois-da-cobertura",
+        (
+            _p(
+                "O convênio cobre ultrassom de tireoide?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "e esse exame serve pra quê?",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(
+                    _PEDE_A_LISTA,
+                    r"nao localizei",
+                    r"como esta escrito no pedido medico",
+                    _ENCAMINHOU,
+                ),
+            ),
+        ),
+        resolveu="a duvida de saude sobre o exame foi respondida como duvida, nao como nova busca",
+    ),
+    Segmento(
+        "20-carencia-depois-da-cobertura",
+        (
+            _p(
+                "Vocês cobrem tomografia de abdome?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "beleza. e eu ainda estou em carência de alguma coisa?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"carencia",),
+                nao_deve=(_PEDE_A_LISTA, r"como esta escrito no pedido medico"),
+            ),
+        ),
+        resolveu="a pergunta de carencia depois da cobertura foi para os dados do plano",
+    ),
 )
 
 #: Os telefones (sufixo da faixa do simulador) de cada segmento, quando o roteiro precisa de telefones
@@ -2204,7 +2267,7 @@ TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
     ),
     "helena_cobertura_assistida": (791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792),
     "helena_conversa_cobertura": (
-        *(793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791),
+        *(793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794),
     ),
 }
 

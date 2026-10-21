@@ -359,6 +359,7 @@ def _build_dispatcher(
         helena_roteador=settings.helena_roteador,
         roteador_inference=roteador_inference,
         roteador_concorrencia=settings.helena_roteador_concorrencia,
+        helena_roteador_conversas=_conversas_do_roteador(settings.helena_roteador_conversas),
         # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
         # dev).
         saude_gerativa=_saude_gerativa(settings),
@@ -1254,3 +1255,10 @@ def _inferencia_do_roteador(settings: Any, seam_context: Any) -> Any:
     return build_inference_seam(
         seam=seam_context, inner=InferenceProvider(curta, model_tiers=_helena_model_tiers())
     )
+
+
+def _conversas_do_roteador(bruto: str) -> frozenset[str]:
+    """F2 (ADR-0066, DL-0136): a allowlist do roteador ativo, no formato (ids keyed) da saude gerativa."""
+    from maezo.conhecimento.saude_gerativa import conversas_autorizadas
+
+    return conversas_autorizadas(bruto)

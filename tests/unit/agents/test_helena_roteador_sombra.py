@@ -235,12 +235,6 @@ async def test_roteador_que_falha_so_vira_campo_no_log() -> None:
     assert evento["falha"] == rt.FALHA_PRAZO and evento["habilidade"] is None
 
 
-async def test_ativo_ainda_e_sombra_na_f1() -> None:
-    with capture_logs() as logs:
-        _grafo("ativo", _ModeloComRoteador([], ""))
-    assert any(e.get("event") == "helena_roteador_ativo_ainda_e_sombra" for e in logs)
-
-
 # --- orcamento (21/10/2026) -----
 async def test_roteador_usa_o_provedor_proprio_quando_ha() -> None:
     conversa = _ModeloComRoteador(

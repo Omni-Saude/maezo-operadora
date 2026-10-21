@@ -422,6 +422,12 @@ class WhatsAppWebhookSettings(BaseSettings):
         le=16,
         validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_CONCORRENCIA", "helena_roteador_concorrencia"),
     )
+    # F2 (ADR-0066, DL-0136): as conversas em que o roteador ATIVO decide (ids keyed por virgula; tambem
+    # precisam estar na allowlist da saude gerativa). Vazia = ninguem. Na F2 so' as conversas do simulador.
+    helena_roteador_conversas: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_CONVERSAS", "helena_roteador_conversas"),
+    )
     # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
     # informativas de saude (com checagem antes de enviar), pela ROTA PROPRIA
     # `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono

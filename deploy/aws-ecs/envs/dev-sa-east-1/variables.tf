@@ -878,6 +878,17 @@ variable "helena_roteador" {
   }
 }
 
+variable "helena_roteador_conversas" {
+  description = <<-EOT
+    F2 do roteador de habilidades (ADR-0066, DL-0136): as conversas (ids keyed `wa:amh:hk1_...`) em que o roteador
+    ATIVO decide. Precisam estar tambem em `helena_saude_gerativa_conversas`. Vira `MAEZO_HELENA_ROTEADOR_CONVERSAS`.
+    Vazia = ninguem. Na F2 so' as conversas do simulador; a lista de teste das pessoas entra so' na F4, com o OK do dono.
+  EOT
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
 variable "helena_saude_gerativa" {
   description = <<-EOT
     SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): `MAEZO_HELENA_SAUDE_GERATIVA`. Default `false` =
