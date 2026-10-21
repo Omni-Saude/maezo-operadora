@@ -78,7 +78,9 @@ helena_base_saude = true
 // (GLM-5 regional) e as travas rodam em paralelo e so' registram a decisao no log `helena_roteador_sombra`; a
 // resposta continua a da Helena de antes. Desligado em 21/10/2026 (sombra passava do prazo com o GLM-5 falhando);
 // RELIGADO em sombra com o conserto do #881 (prazo real 3 s, teto 256, pool e limite proprios). Voltar: "desligado".
-helena_roteador = "sombra"
+// F2 (DL-0136), 21/10/2026: ATIVO -- o roteador DECIDE so' nas conversas de `helena_roteador_conversas` (SO' as do
+// simulador, abaixo); fora delas (o dono, a Tania, o time) continua em SOMBRA. Voltar: "sombra".
+helena_roteador = "ativo"
 // DL-0137: modelo PROPRIO do roteador, fixado EXPLICITAMENTE por decisao do dono de 21/10/2026 (medicao: 100%
 // de acerto em 50 mensagens sinteticas, p50 0,60 s); o roteador nao muda quando a zona PHI mudar. IAM: `roteador-modelo.tf`.
 // 22/10/2026: o Mistral Large 3 regional parou de responder; o roteador acompanha a zona PHI no Gemma 3 27B
