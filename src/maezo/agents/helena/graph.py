@@ -3232,6 +3232,16 @@ _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO = re.compile(
     r"(?: (?:de )?(?:atendimento|ajuda|falar com (?:ninguem|a equipe|uma pessoa)))?$"
     r"|\bnao (?:preciso|quero) mais (?:o|do|esse|desse) atendimento\b"
 )
+#: TRAVA `caso_so_com_sim` (ADR-0066): o "sim" a uma oferta de equipe. Cortesia ("beleza", "ok", "valeu") NAO
+#: e' sim.
+_SIM_A_OFERTA = re.compile(
+    r"\b(?:sim|quero|aceito|pode(?: sim)?(?: passar| encaminhar| mandar| ser| chamar)?|por favor|claro"
+    r"|com certeza|isso mesmo|manda|passa)\b"
+)
+#: A escolha de uma opcao oferecida ("4", "opcao 4", "a 4", "quatro").
+_ESCOLHA_DE_OPCAO = re.compile(r"^(?:a |o |opcao |numero )?(?:\d{1,2}|um|uma|dois|duas|tres|quatro|cinco)$")
+#: A mensagem cita uma pessoa da equipe (recado ao atendente, "avisa a pessoa que...").
+_CITA_UMA_PESSOA = re.compile(r"\b(?:pessoa|atendente|equipe|humano|humana|alguem|responsavel)\b")
 _RESPOSTA_SIM = re.compile(
     r"^(?:sim|s|pode|pode sim|sim pode|pode encerrar|sim pode encerrar|isso|encerra|encerre)$"
 )
@@ -9208,9 +9218,49 @@ class HelenaGraph:
             "falha_tecnica" if state.get("error") else None
         )
         severidade: Severidade | None = state.get("escalation_severidade")
+        barrado = self._trava_caso_sem_pedido(state, motivo)
+        if barrado is not None:
+            return barrado
         return await self._start_escalation(
             state, motivo=motivo, severidade=severidade, response_kind="escalate"
         )
+
+    def _trava_caso_sem_pedido(
+        self, state: Mapping[str, Any], motivo: MotivoCategoria | None
+    ) -> dict[str, Any] | None:
+        """TRAVA DE SAIDA `caso_so_com_sim` (ADR-0066; regra do dono: caso so' com "sim" ou pedido EXPLICITO
+        de pessoa). Um pedido de pessoa (`solicitacao_humano` com `intent=human_request`) so' abre o caso
+        quando a mensagem tem pedido explicito de pessoa (verbo + pessoa/atendente/equipe), um "sim"/"quero" a
+        uma oferta, a escolha numerica de uma opcao oferecida ou a ameaca a orgao regulador. Fora disso
+        ("beleza, valeu" depois de uma oferta da equipe) a abertura e' barrada e a Helena responde com
+        cortesia. Os demais motivos (alarme, risco, clinico, falha tecnica, coleta esgotada) nao passam
+        aqui."""
+        if motivo != "solicitacao_humano" or state.get("intent") != "human_request":
+            return None
+        texto = str(state.get("message_body") or "")
+        plano = _plano(texto)
+        if (
+            _pedido_explicito_com_verbo(texto)
+            or _pedido_explicito_de_pessoa(texto)
+            or _SIM_A_OFERTA.search(plano)
+            or _ESCOLHA_DE_OPCAO.match(plano.strip())
+            or _CITA_UMA_PESSOA.search(plano)
+            or _ameaca_regulatoria(texto)
+        ):
+            return None
+        from maezo.agents.helena import cobertura_assistida as _ca
+
+        logger.warning("helena_trava_caso_sem_pedido", node="escalate")
+        return {
+            "response_text": _ca.resposta_de_cortesia(texto),
+            "response_kind": "inform",
+            "next_kind": "inform",
+            "intent": "information",
+            "escalation_motivo": None,
+            "escalation_severidade": None,
+            "coleta_pendente": None,
+            "coleta_contexto": "",
+        }
 
     async def _motivo_do_caso_aberto(self, business_key: str) -> str:
         """O `motivo_categoria` do caso que ocupa a chave da conversa, ou `""` (na duvida / leitura que

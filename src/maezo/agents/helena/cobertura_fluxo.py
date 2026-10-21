@@ -200,6 +200,14 @@ class FluxoDeCobertura:
             resposta_reclamacao = await self._de_novo(texto, pendente, ctx)
             if resposta_reclamacao is not None:
                 return resposta_reclamacao
+        if (
+            pendente in (ca.PEND_EQUIPE, ca.PEND_FALHA)
+            and ca.e_cortesia(texto)
+            and not re.search(r"\b(?:sim|quero|pode|aceito|tenta|tentar)\b", ca.normalizar(texto))
+        ):
+            # TRAVA `caso_so_com_sim` (ADR-0066): "ok, obrigada" / "beleza, valeu" a uma oferta da equipe e'
+            # cortesia, nao "sim" nem pedido novo: resposta curta, sem caso e sem busca.
+            return _update(ca.resposta_de_cortesia(texto), None, None)
         if pendente == ca.PEND_EQUIPE:
             if resposta == "nao" or ca.e_nao(texto):
                 return _update(ca.TEXTO_SEM_EQUIPE, None, None)
