@@ -35,7 +35,10 @@ phi_zone_provider  = "bedrock_br"
 // o default de `variables.tf` continua o Mistral. ROLLBACK: apagar esta linha (ou repor
 // "mistral.mistral-large-3-675b-instruct"), PR, merge e apply direcionado -- ver
 // `docs/runbooks/phi-inference-ops.md`, secao "Trocar ou voltar o modelo da zona PHI".
-phi_model_id = "zai.glm-5"
+// TEMPORARIO (DL-0117, adendo de 21/10/2026; decisao do dono): de volta ao Mistral Large 3 -- GLM-5 regional com
+// InternalServerException/timeouts em 21/10/2026 (ate' um prompt trivial passou de 120 s); voltar ao
+// "zai.glm-5" quando normalizar (mesmo runbook, os QUATRO papeis da `task_bedrock` juntos).
+phi_model_id = "mistral.mistral-large-3-675b-instruct"
 
 // Sincronizacao automatica do egresso Cognito (portal-egresso-cognito-sync.tf): LIGADA em 18/10/2026 por
 // decisao do dono, depois da 6a rotacao que derrubou o login (#829). Lambda + schedule (5 min) + alarme;
