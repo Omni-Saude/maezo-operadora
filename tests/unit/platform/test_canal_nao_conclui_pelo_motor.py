@@ -122,7 +122,28 @@ def _escritas_no_motor() -> list[tuple[str, str]]:
 _COMPLETE = json.dumps({"variables": {"resultado": {"value": "resolvido_humano", "type": "String"}}}).encode()
 
 
-@pytest.mark.parametrize("acao", ["complete", "claim", "resolve", "submit-form", "unclaim", "assignee"])
+#: Todo `POST /task/{id}/<sub-recurso>` do engine-rest muda a tarefa: a recusa e' por padrao, nao lista
+#: fechada (revisao do #869: `delegate` passava pela lista antiga).
+_SUB_RECURSOS_DE_TAREFA = [
+    "complete",
+    "claim",
+    "resolve",
+    "submit-form",
+    "unclaim",
+    "assignee",
+    "delegate",
+    "identity-links",
+    "identity-links/delete",
+    "variables",
+    "localVariables",
+    "bpmnError",
+    "bpmnEscalation",
+    "comment/create",
+    "attachment/create",
+]
+
+
+@pytest.mark.parametrize("acao", _SUB_RECURSOS_DE_TAREFA)
 def test_sem_a_chave_acao_de_tarefa_humana_e_recusada_e_nada_chega_ao_motor(
     canal: tuple[Any, str], acao: str
 ) -> None:
@@ -193,7 +214,7 @@ def test_excecao_da_autorizacao_conclui_tarefa_de_sp_op_auth_001(canal: tuple[An
     assert ("GET", f"/engine-rest/task/{TAREFA_AUTORIZACAO}") in _MotorFalso.pedidos
 
 
-@pytest.mark.parametrize("acao", ["claim", "resolve", "assignee", "unclaim", "submit-form"])
+@pytest.mark.parametrize("acao", [a for a in _SUB_RECURSOS_DE_TAREFA if a != "complete"])
 def test_excecao_da_autorizacao_vale_so_para_complete(canal: tuple[Any, str], acao: str) -> None:
     _, base = canal
     status, _ = _pedir(f"{base}/engine/task/{TAREFA_AUTORIZACAO}/{acao}", "POST", b"{}")
@@ -242,7 +263,8 @@ def test_get_continua_passando(canal: tuple[Any, str], caminho: str) -> None:
         "/engine/process-definition/key/SP-OP-ESCALATION-001/start",
         "/engine/job/job-1/execute",
         "/engine/external-task/et-1/complete",
-        "/engine/task/tarefa-1/variables",
+        "/engine/task",
+        "/engine/task/count",
     ],
 )
 def test_demais_posts_continuam_passando(canal: tuple[Any, str], caminho: str) -> None:
@@ -283,3 +305,19 @@ def test_o_terraform_do_dev_nao_declara_a_chave() -> None:
 
     tf = Path(__file__).resolve().parents[3] / "deploy/aws-ecs/envs/dev-sa-east-1/service-canal-teste.tf"
     assert "CANAL_PERMITE_CONCLUIR_PELO_MOTOR" not in tf.read_text(encoding="utf-8")
+
+
+def test_criar_tarefa_avulsa_pelo_motor_e_recusada(canal: tuple[Any, str]) -> None:
+    _, base = canal
+    status, _ = _pedir(f"{base}/engine/task/create", "POST", b"{}")
+
+    assert status == 403
+    assert _escritas_no_motor() == []
+
+
+def test_delegar_pelo_motor_e_recusado_como_assumir() -> None:
+    """O cenario da revisao do #869: com a chave desligada, `delegate` e' recusado como `claim`."""
+    from maezo.platform.testchannel import server
+
+    assert server._recusa_do_motor("POST", "/task/tarefa-esc-1/delegate") is not None
+    assert server._recusa_do_motor("POST", "/task/tarefa-esc-1/claim") is not None

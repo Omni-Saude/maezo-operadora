@@ -101,18 +101,21 @@ APP_SECRET = os.environ.get("WHATSAPP_APP_SECRET", "")
 SIMULAR_LIGADO = os.environ.get("CANAL_SIMULAR_RECEPTOR", "") == "1"
 
 #: O CANAL NAO CONCLUI PELO MOTOR (pendencia 48, DL-0153). O proxy `/engine/*` RECUSA (403), por
-#: padrao, `POST /task/{id}/(complete|claim|resolve|submit-form|unclaim|assignee)` e QUALQUER
-#: `DELETE`: concluir, assumir ou atribuir uma tarefa humana e' do PORTAL (que autentica, audita e
-#: confere o grupo), nunca de uma pagina sem autenticacao propria. So' `"1"` liga — e ligar e' um ato
+#: padrao, QUALQUER `POST /task/{id}/<sub-recurso>` (complete, claim, unclaim, assignee, delegate,
+#: resolve, submit-form, identity-links, variables, localVariables, bpmnError, bpmnEscalation,
+#: comment/create, attachment/create, ...), o `POST /task/create` e QUALQUER `DELETE`: concluir,
+#: assumir, atribuir, delegar ou alterar uma tarefa humana e' do PORTAL (que autentica, audita e
+#: confere o grupo), nunca de uma pagina sem autenticacao propria. E' RECUSA POR PADRAO, nao lista
+#: de acoes: no engine-rest todo `POST` em `task/{id}/...` muda a tarefa (revisao do #869: a lista
+#: fechada deixava `delegate` passar). `PUT`/`PATCH` nao passam porque o proxy nao os implementa. So' `"1"` liga — e ligar e' um ato
 #: visivel na task definition (`service-canal-teste.tf` NAO declara a chave: desligado em dev).
 PERMITE_CONCLUIR_PELO_MOTOR = os.environ.get("CANAL_PERMITE_CONCLUIR_PELO_MOTOR", "") == "1"
 
-#: As acoes de tarefa humana recusadas por padrao (engine-rest `POST /task/{id}/<acao>`).
-ACOES_DE_TAREFA_RECUSADAS = ("complete", "claim", "resolve", "submit-form", "unclaim", "assignee")
-_RE_ACAO_DE_TAREFA = re.compile(
-    r"(?:^|/)task/([^/]+)/(" + "|".join(re.escape(a) for a in ACOES_DE_TAREFA_RECUSADAS) + r")(?:/|$)",
-    re.IGNORECASE,
-)
+#: `POST /task/{id}/<sub-recurso>`: grupo 1 = id da tarefa, grupo 2 = primeiro segmento do
+#: sub-recurso (o nome da acao). Qualquer sub-recurso casa: a recusa e' por padrao.
+_RE_ACAO_DE_TAREFA = re.compile(r"(?:^|/)task/([^/?#]+)/([^/?#]+)", re.IGNORECASE)
+#: `POST /task/create` cria tarefa humana avulsa fora do processo: tambem e' do portal, nunca do canal.
+_RE_CRIAR_TAREFA = re.compile(r"(?:^|/)task/create/?(?:[?#]|$)", re.IGNORECASE)
 
 #: EXCECAO EXPLICITA, LISTA FECHADA: a pagina `autorizacao.html` testa a mesa do medico auditor de
 #: SP-OP-AUTH-001 e so' tem o motor para registrar a decisao (nao ha conclusao pelo portal para ela
@@ -579,14 +582,21 @@ def _recusa_do_motor(metodo: str, caminho: str) -> str | None:
     """Por que o proxy `/engine` RECUSA este pedido, ou `None` se ele passa (pendencia 48, DL-0153).
 
     `caminho` e' o que vai depois de `/engine`. GET sempre passa. Com `CANAL_PERMITE_CONCLUIR_PELO_MOTOR=1`
-    tudo passa, como antes. Sem a chave: `DELETE` em qualquer caminho e `POST` de acao de tarefa
-    humana sao recusados, salvo `complete` de tarefa de processo da lista fechada
+    tudo passa, como antes. Sem a chave: `DELETE` em qualquer caminho, `POST /task/create` e QUALQUER
+    `POST /task/{id}/<sub-recurso>` sao recusados (recusa por padrao), salvo `complete` de tarefa de
+    processo da lista fechada
     `PROCESSOS_QUE_CONCLUEM_PELO_MOTOR` (a pagina de autorizacao), conferido no motor."""
     if PERMITE_CONCLUIR_PELO_MOTOR or metodo == "GET":
         return None
     if metodo == "DELETE":
         return "DELETE pelo Canal de Teste esta desligado (CANAL_PERMITE_CONCLUIR_PELO_MOTOR)."
-    acao = _RE_ACAO_DE_TAREFA.search(_caminho_normalizado(caminho))
+    normalizado = _caminho_normalizado(caminho)
+    if _RE_CRIAR_TAREFA.search(normalizado):
+        return (
+            "O Canal de Teste nao cria tarefa humana pelo motor: isso e' do portal "
+            "(CANAL_PERMITE_CONCLUIR_PELO_MOTOR desligada)."
+        )
+    acao = _RE_ACAO_DE_TAREFA.search(normalizado)
     if acao is None:
         return None
     tarefa_id, nome_da_acao = acao.group(1), acao.group(2).lower()
@@ -606,6 +616,14 @@ class Handler(BaseHTTPRequestHandler):
         """O proxy `/engine` com a cerca de `_recusa_do_motor` na frente (403 com o motivo)."""
         recusa = _recusa_do_motor(self.command, self.path[len("/engine") :])
         if recusa is not None:
+            # Le e descarta o corpo antes de responder: corpo nao lido na conexao faz o cliente receber
+            # o reset (ConnectionAbortedError no Windows) em vez do 403 com o motivo.
+            restante = int(self.headers.get("Content-Length", 0) or 0)
+            while restante > 0:
+                lido = self.rfile.read(min(restante, 65536))
+                if not lido:
+                    break
+                restante -= len(lido)
             self._responder_json(
                 403,
                 {
