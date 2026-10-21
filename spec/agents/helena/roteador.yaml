@@ -1,0 +1,192 @@
+# Contrato do ROTEADOR de habilidades da Helena (ADR-0066, DL-0134; decisão do dono de 21/10/2026, só dev).
+#
+# O roteador (GLM-5, zona PHI regional sa-east-1) recebe as últimas mensagens da conversa e a pergunta pendente
+# e escolhe UMA habilidade abaixo, com confiança. As TRAVAS rodam antes (entrada) e depois (saída), sempre, sem
+# modelo. Este arquivo é a fonte única da lista de habilidades: o código carrega daqui
+# (`src/maezo/agents/helena/roteador_contrato.py`) e o teste `tests/unit/agents/test_helena_roteador_contrato.py`
+# confere a forma, a ordem das travas e o dono de cada pendência.
+#
+# Exemplos: frases GENÉRICAS escritas para o contrato (nenhuma do teste do dono nem do avaliador).
+versao: roteador-v1
+chave:
+  variavel: MAEZO_HELENA_ROTEADOR
+  valores: [desligado, sombra, ativo]
+  padrao: desligado          # desligado = a Helena atual byte a byte
+  ativo_so_na_allowlist: true
+modelo:
+  id: glm-5
+  zona: phi_regional_sa_east_1
+  prazo_s: 4
+  falha: resposta_segura_padrao   # falha ou prazo do modelo: a resposta segura padrão; as travas continuam
+
+entrada:
+  mensagens:
+    maximo: 8                 # as últimas mensagens da conversa (da pessoa e da Helena), mais antiga primeiro
+    papeis: [pessoa, helena]
+    mascaramento: nomes_de_dependente_por_marcador   # o histórico já guarda o marcador, nunca o nome
+  pendente:
+    descricao: a pergunta que a Helena deixou no turno anterior, com a habilidade dona e as opções oferecidas
+    campos: [habilidade, codigo, pergunta, opcoes]
+  fatos:
+    campos: [identificado, caso_aberto, populacao_conhecida, na_allowlist]
+
+saida:
+  campos:
+    habilidade: uma das habilidades abaixo, ou "duvida"
+    confianca: [alta, media, baixa]
+    alternativa: a segunda habilidade mais provável (obrigatória quando habilidade = duvida)
+    responde_a_pendencia: true quando a mensagem responde à pergunta pendente
+    motivo: até 12 palavras, sem dado pessoal
+  regra_da_duvida: >-
+    confiança baixa, ou "duvida", leva à pergunta "Você quer saber sobre X ou Y?" com os títulos das duas
+    habilidades; a resposta volta ao roteador com essa pergunta como pendência.
+  texto_da_duvida: "Só para eu acertar: você quer saber sobre {x} ou sobre {y}?"
+
+travas_de_entrada:            # sempre, nesta ordem; a primeira que decide encerra o turno (sem roteador)
+  - id: consentimento_e_identificacao
+    descricao: consentimento do canal e identificação do beneficiário (o fluxo de hoje)
+  - id: alarme_pela_tabela
+    descricao: sinais de alarme pela tabela DMN (ADR-0012), inclusive do assunto de sintoma em curso; 192
+  - id: risco_psicossocial
+    descricao: risco psicossocial pelo texto ou pela tabela; CVV 188 e caso
+  - id: dados_pessoais
+    descricao: proteção de dados pessoais (PII de terceiros, pedido de dado de outra pessoa)
+
+travas_de_saida:              # sempre, sobre o texto que vai sair
+  - id: cobertura_sem_promessa
+    descricao: nunca prometer nem negar cobertura; a confirmação oficial é a autorização
+  - id: sem_dose_nem_diagnostico
+    descricao: sem dose, conduta ou diagnóstico (ADR-0012)
+  - id: sem_link
+    descricao: nenhum link externo na resposta; fonte só pelo nome
+  - id: caso_so_com_sim
+    descricao: caso aberto só com "sim" a uma oferta ou pedido explícito de pessoa
+  - id: nome_so_do_proprio_titular
+    descricao: nome de dependente só dos dependentes do próprio titular verificado, só no envio
+
+habilidades:
+  - id: cobertura
+    titulo: cobertura de exames e procedimentos
+    descricao: se o plano cobre um exame, procedimento, cirurgia, terapia ou uma lista deles, para quem
+    quando_usar:
+      - a pessoa pergunta se o plano cobre um ou mais procedimentos, com ou sem o nome
+      - a pessoa responde à pergunta pendente da cobertura (para quem, qual opção, como está no pedido)
+      - depois de uma resposta de cobertura, cita outro procedimento, outra pessoa, ou pergunta se faltou algum
+    quando_nao_usar:
+      - valor de mensalidade, boleto ou coparticipação já cobrada (cobranca)
+      - dúvida sobre o que é um exame ou para que serve (saude)
+      - queixa atual de sintoma (sintoma)
+    exemplos:
+      - "o convênio paga ressonância do joelho?"
+      - "preciso ver se cobre uns exames de sangue"
+      - "e a cintilografia, cobre também?"
+    pendencias: ["COB2:", "BS_COBERTURA_PARA_QUEM", "BS_COBERTURA_QUEM:"]
+    processo: null
+    modulos_atuais: [cobertura_assistida.py, cobertura_fluxo.py, cobertura_rol.py, catalogo_procedimentos.py]
+  - id: plano
+    titulo: dados do seu plano
+    descricao: carteirinha, dependentes, carências, situação do plano e dados do cadastro do próprio titular
+    quando_usar:
+      - pede o número da carteirinha, a lista de dependentes, as carências ou se o plano está ativo
+    quando_nao_usar:
+      - mensalidade, boleto, segunda via, valores (cobranca)
+      - cobertura de um procedimento (cobertura)
+    exemplos:
+      - "qual o número da minha carteirinha?"
+      - "quem está no meu plano?"
+      - "ainda estou em carência pra parto?"
+    pendencias: []
+    processo: null
+    modulos_atuais: [consultas_plano.py]
+  - id: saude
+    titulo: informações de saúde
+    descricao: dúvida geral de saúde sem queixa atual (o que é, sintomas, exames, especialidade, prevenção)
+    quando_usar:
+      - pergunta informativa sobre doença, exame, vacina, especialidade ou prevenção, sem estar sentindo algo agora
+    quando_nao_usar:
+      - a pessoa relata um sintoma que está sentindo (sintoma)
+      - pede dose, se deve tomar ou parar um remédio (trava de saída responde sem conduta)
+    exemplos:
+      - "pra que serve o exame de ferritina?"
+      - "qual médico cuida de tireoide?"
+      - "quais vacinas um adulto deve tomar?"
+    pendencias: []
+    processo: null
+    modulos_atuais: [conhecimento/base_saude.py, conhecimento/saude_gerativa.py]
+  - id: sintoma
+    titulo: um sintoma ou queixa
+    descricao: a pessoa (ou alguém da família) está com um sintoma, se machucou ou piorou; perguntas de alerta
+    quando_usar:
+      - relata sintoma, dor, queda, batida, febre ou piora, dela ou de outra pessoa
+      - responde às perguntas de alerta pendentes, inclusive "está tudo bem" ou um sinal novo
+    quando_nao_usar:
+      - dúvida geral de saúde sem queixa atual (saude)
+    exemplos:
+      - "estou com dor nas costas desde ontem"
+      - "meu filho caiu da bicicleta e ralou o joelho"
+      - "não, ele está comendo normal"
+    pendencias: ["V4_", "PERGUNTAR_FICHA_"]
+    processo: SP-OP-ESCALATION-001
+    modulos_atuais: [helena_v4.py, triagem_v2.py, alarme_deterministico.py]
+  - id: equipe
+    titulo: falar com uma pessoa da equipe
+    descricao: pedido explícito de pessoa, resposta à oferta da equipe, recusa ou encerramento de caso aberto
+    quando_usar:
+      - pede para falar com atendente, humano, alguém da equipe
+      - responde "sim" ou "não" à oferta de passar para a equipe
+      - não quer mais falar com ninguém ou quer encerrar o atendimento aberto
+    quando_nao_usar:
+      - reclamação ou irritação sem pedir uma pessoa (conversa)
+    exemplos:
+      - "quero falar com um atendente"
+      - "não precisa mais, já resolvi"
+      - "pode passar pra equipe sim"
+    pendencias: ["BS_ENCERRAR_CASO"]
+    processo: SP-OP-ESCALATION-001
+    modulos_atuais: [graph.py (escalate), delegation.py]
+  - id: pedidos
+    titulo: um pedido ao plano
+    descricao: pedidos com processo próprio; hoje só o cancelamento do plano, passado ao Lucas
+    quando_usar:
+      - quer cancelar o plano ou saber como cancelar
+    quando_nao_usar:
+      - cancelar uma consulta ou exame marcado (conversa explica o canal)
+    exemplos:
+      - "quero cancelar meu plano"
+      - "como faço o cancelamento do convênio?"
+      - "não quero mais o plano"
+    pendencias: []
+    processo: SP-OP-CANCEL-001
+    modulos_atuais: [graph.py (handoff ao Lucas)]
+  - id: cobranca
+    titulo: mensalidade e pagamentos
+    descricao: mensalidade, boleto, segunda via, valores, coparticipação cobrada, pagamento; passado ao Lucas
+    quando_usar:
+      - pergunta valor, vencimento, boleto, segunda via, atraso ou coparticipação cobrada
+    quando_nao_usar:
+      - se um procedimento tem coparticipação no plano (cobertura)
+    exemplos:
+      - "manda a segunda via do boleto"
+      - "quanto veio a mensalidade deste mês?"
+      - "já paguei, por que está em aberto?"
+    pendencias: []
+    processo: null
+    modulos_atuais: [graph.py (handoff_cobranca)]
+  - id: conversa
+    titulo: conversa
+    descricao: saudação, despedida, agradecimento, "ok", reclamação ou irritação sem pedido, o que a Helena faz
+    quando_usar:
+      - cumprimento, agradecimento, despedida, confirmação curta sem pendência
+      - irritação ou reclamação sobre a resposta, sem pedir uma pessoa
+      - pergunta sobre o canal ou assunto fora do que a Helena atende
+    quando_nao_usar:
+      - fala curta que responde a uma pendência de outra habilidade (vai para a dona da pendência)
+    exemplos:
+      - "bom dia"
+      - "valeu, era só isso"
+      - "você não entendeu o que eu perguntei"
+    pendencias: []
+    processo: null
+    modulos_atuais: [graph.py (inform, respond)]
+
+pausadas_ate_f4: [reembolso, inadimplencia, programa, lgpd]

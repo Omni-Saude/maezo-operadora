@@ -26,6 +26,15 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
   - carteirinha_completa_do_proprio    # numero completo so' do proprio verificado, so' no envio (v1.12, MAEZO_HELENA_CARTEIRINHA_COMPLETA)
   - nome_completo_dos_dependentes      # so' dos dependentes do proprio titular, so' no envio (v1.13, DL-0127, MAEZO_HELENA_DEPENDENTES_NOME)
   - passagem_cancelamento              # pedido de cancelamento -> Lucas (CANCEL-001 PF, DL-0111)
+  # NOVA ARQUITETURA (ADR-0066, DL-0134, decisao do dono de 21/10/2026; so' dev, chave MAEZO_HELENA_ROTEADOR
+  # desligado|sombra|ativo, default desligado = a Helena de antes byte a byte). Fluxo por turno: TRAVAS DE ENTRADA
+  # fixas (consentimento/identificacao -> alarme pela DMN 192/CVV 188 -> risco psicossocial -> dados pessoais) ->
+  # ROTEADOR (GLM-5 sa-east-1, ultimas mensagens + pergunta pendente, UMA habilidade com confianca; na duvida
+  # pergunta "X ou Y?") -> UMA HABILIDADE fechada (cobertura, plano, saude, sintoma, equipe, pedidos, cobranca,
+  # conversa) -> TRAVAS DE SAIDA fixas (sem promessa/negativa de cobertura, sem dose/diagnostico, sem link, caso
+  # so' com "sim" ou pedido explicito, nome de dependente so' do proprio titular). Contrato:
+  # spec/agents/helena/roteador.yaml (roteador_contrato.py). Fases F0..F5 na ADR; habilidades novas pausadas ate' F4.
+  - roteador_de_habilidades            # F0: contrato; F1: em sombra (so' registra); F2: ativo so' na allowlist
 out_of_scope:                          # o que Helena NAO faz, rastreado (nao e recusa muda)
   - id: agendamento_direto             # trabalho #1 do beneficiario (D9/D11) — nao entregue aqui
     fase: 0
