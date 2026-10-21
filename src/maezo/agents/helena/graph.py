@@ -10672,17 +10672,23 @@ class HelenaGraph:
                 decisao, falha, ms = None, type(feita.exception()).__name__, 0
             else:
                 decisao, falha, ms = feita.result()
+            c = _rt.campos_do_log(
+                decisao, falha=falha, trava=trava, atual=atual, pendente=pendente, ms=ms, conversa=conversa
+            )
+            # Campos EXPLICITOS (a varredura de chaves do log ve cada nome; nenhum `**mapping`).
             logger.info(
                 "helena_roteador_sombra",
-                **_rt.campos_do_log(
-                    decisao,
-                    falha=falha,
-                    trava=trava,
-                    atual=atual,
-                    pendente=pendente,
-                    ms=ms,
-                    conversa=conversa,
-                ),
+                habilidade=c["habilidade"],
+                confianca=c["confianca"],
+                alternativa=c["alternativa"],
+                responde_a_pendencia=c["responde_a_pendencia"],
+                trava=c["trava"],
+                atual=c["atual"],
+                concorda=c["concorda"],
+                pendencia=c["pendencia"],
+                falha=c["falha"],
+                ms=c["ms"],
+                conversa=c["conversa"],
             )
 
         tarefa.add_done_callback(registrar)
