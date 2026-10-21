@@ -224,7 +224,7 @@ class RuntimeDefinitionObservationTest {
 
   @Test void liveResourceIsExactV4SuccessorWithNoV3Fallback()throws Exception {
     try(var in=RuntimeObservationAdmission.class.getResourceAsStream("/provider-native-observation-schema-v1.json")) {
-      assertNotNull(in);assertEquals("d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1",Jcs.digest(in.readAllBytes()));
+      assertNotNull(in);assertEquals("e34f0f0673beab80e60c624dcd96777029c07800cbc9e63e5590b14493e154d6",Jcs.digest(in.readAllBytes()));
     }
     var f=admissionFixture(java.time.Instant.now().plusSeconds(30));var v3=new TreeMap<>(f.admit().document);
     v3.put("schema","provider-native-observation-admission.v3");assertThrows(Refused.class,()->RuntimeObservationAdmission.validate("ObservationAdmission",v3));

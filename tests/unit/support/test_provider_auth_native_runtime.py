@@ -590,7 +590,7 @@ def test_observer_primitive_serializer_refuses_foreign_container_without_executi
 def test_observer_schema_fixture_is_exact_independent_contract_bytes():
     assert (
         hashlib.sha256(_UNIT_ONLY_OBSERVATION_SCHEMA).hexdigest()
-        == "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
+        == "e34f0f0673beab80e60c624dcd96777029c07800cbc9e63e5590b14493e154d6"
     )
 
 

@@ -19,7 +19,7 @@ class NativeMeasurementProtocolTest {
     d.put("candidate_sha","a".repeat(40));d.put("expected_image_id","sha256:"+"b".repeat(64));
     for(String key:List.of("support_jar_sha256","instrument_class_sha256","observation_admission_sha256","root_pg_preboot_witness_sha256","request_sha256"))d.put(key,"c".repeat(64));
     d.put("instrument_class","br.com.maezo.workload.ProviderNativeIndependentMeasurement");d.put("instrument_jar_relative_path","lib/provider-auth-test-support.jar");
-    d.put("protocol_schema_sha256",NativeMeasurementConfiguration.SCHEMA_SHA);d.put("observation_schema_sha256","d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1");
+    d.put("protocol_schema_sha256",NativeMeasurementConfiguration.SCHEMA_SHA);d.put("observation_schema_sha256","e34f0f0673beab80e60c624dcd96777029c07800cbc9e63e5590b14493e154d6");
     String nonce="e".repeat(32);d.put("session_nonce",nonce);d.put("socket_path","/run/maezo-native-qualify/"+nonce+"/root.sock");
     d.put("outcome_socket_path","/run/maezo-native-qualify/"+nonce+"/outcome.sock");d.put("root_evidence_directory","/unit/measurement-"+nonce);
     d.put("root_peer_user","root-observer");d.put("root_peer_group","ipc");d.put("root_peer_uid",1001L);d.put("root_peer_gid",1002L);d.put("jvm_uid",1003L);d.put("jvm_gid",1002L);

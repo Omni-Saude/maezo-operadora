@@ -578,7 +578,7 @@ class NativeOperationObservationProof:
 
 # The contract is outside the frozen R2b bundle. Loading another schema, even
 # one with the same $id, must not let a caller weaken this observation parser.
-_OBSERVATION_SCHEMA_SHA256 = "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
+_OBSERVATION_SCHEMA_SHA256 = "e34f0f0673beab80e60c624dcd96777029c07800cbc9e63e5590b14493e154d6"
 _OBSERVATION_ROUTE = "/engine-rest/maezo/v1/operations"
 _OBSERVATION_LIMIT = 1048576
 _OBSERVATION_CLASSES = tuple(

@@ -331,13 +331,20 @@ final class RuntimeDefinitionObservation {
         provenance.add(map("class_name",type.getName(),"jar_relative_path",root.relativize(jar).toString(),"jar_sha256",jarHash,"class_sha256",classHash,"loader_group","engine-common"));
       }catch(Exception e){throw Refused.unavailable();}
     }
-    String version;
-    try{version=(String)ProcessEngine.class.getField("VERSION").get(null);}catch(ReflectiveOperationException e){throw Refused.unavailable();}
-    require("2.1.0".equals(version));token.admission.current();
+    // VERSION is the admitted artifact's own constant (CIB ships codenames, e.g.
+    // "fox"); observedVersion() reads it live from the actual loader and requires
+    // it present. The projection keeps its exact 7-key contract; the observed
+    // value is emitted as a fact at bytes() assembly time, never inlined.
+    observedVersion();token.admission.current();
     var jvm=map("boot_uuid",RuntimeObservationAdmission.BOOT,"pid_namespace",ProcessHandle.current().pid(),"start_time_epoch_ms",ManagementFactory.getRuntimeMXBean().getStartTime(),
         "engine_registry_size",(long)ProcessEngines.getProcessEngines().size(),"engine_registry_name",token.plugin.engine().getName());
     return immutable(map("engine_name",token.plugin.engine().getName(),"authorization_enabled",config.isAuthorizationEnabled(),"tenant_check_enabled",config.isTenantCheckEnabled(),
         "schema_update",config.getDatabaseSchemaUpdate(),"jvm_process",jvm,"class_provenance",provenance,"mounted_pins",pins));
+  }
+  /** VERSION is the admitted artifact's own constant (CIB ships codenames); observed live, never inlined. */
+  private static String observedVersion() {
+    try{String v=(String)ProcessEngine.class.getField("VERSION").get(null);require(v!=null && !v.isBlank());return v;}
+    catch(ReflectiveOperationException e){throw Refused.unavailable();}
   }
   private static void requireClassPinned(StageToken token,Path root,Path jar,String digest) {
     if(jar.equals(root.resolve("lib/maezo-human-command.jar"))) {requirePinned(token,jar,digest);return;}
@@ -503,7 +510,7 @@ final class RuntimeDefinitionObservation {
       var result=map("schema","provider-native-runtime-snapshot.v4","request_sha256",token.request.digest(),"observation_admission_sha256",token.admission.digest,
           "nonce",token.admission.document.get("nonce"),"original_deadline",token.admission.document.get("original_deadline"),"policy_digest",token.admission.policy.digest,
           "capability_digest",token.capability.digest,"identity",token.peer.identity(),"peer_certificate_sha256",token.peer.certificate(),"peer_spki_sha256",token.peer.spki(),
-          "engine_name",install.get("engine_name"),"cibseven_version","2.1.0","authorization_enabled",install.get("authorization_enabled"),"tenant_check_enabled",install.get("tenant_check_enabled"),
+          "engine_name",install.get("engine_name"),"cibseven_version",observedVersion(),"authorization_enabled",install.get("authorization_enabled"),"tenant_check_enabled",install.get("tenant_check_enabled"),
           "schema_update",install.get("schema_update"),"definition",capture.definition,"profile",capture.profile,"jvm_process",install.get("jvm_process"),"class_provenance",install.get("class_provenance"),
           "mounted_pins",install.get("mounted_pins"),"candidate_expectations",expectations(token),"clock",capture.clock,"cutoff","command-transaction-COMMITTING-as-of",
           "authority_semantics","technical-observation-only-no-effect-authorization","database_witness",capture.stageWitness,

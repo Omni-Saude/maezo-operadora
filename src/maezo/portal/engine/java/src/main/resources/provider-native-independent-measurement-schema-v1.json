@@ -149,7 +149,7 @@
           "$ref": "#/$defs/Sha256"
         },
         "observation_schema_sha256": {
-          "const": "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
+          "const": "e34f0f0673beab80e60c624dcd96777029c07800cbc9e63e5590b14493e154d6"
         },
         "original_deadline": {
           "$ref": "#/$defs/Time"
@@ -885,7 +885,7 @@
           "$ref": "#/$defs/Sha256"
         },
         "observation_schema_raw_sha256": {
-          "const": "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
+          "const": "e34f0f0673beab80e60c624dcd96777029c07800cbc9e63e5590b14493e154d6"
         },
         "protocol_schema_raw_sha256": {
           "$ref": "#/$defs/Sha256"
@@ -1427,7 +1427,7 @@
           "$ref": "#/$defs/JvmToolchain"
         },
         "observation_schema_sha256": {
-          "const": "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
+          "const": "e34f0f0673beab80e60c624dcd96777029c07800cbc9e63e5590b14493e154d6"
         },
         "pg_captures": {
           "items": {
