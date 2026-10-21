@@ -482,6 +482,9 @@ class HelenaDispatcher:
     #: ROTEADOR DE HABILIDADES (ADR-0066/DL-0134, settings `helena_roteador` / `MAEZO_HELENA_ROTEADOR`).
     #: `desligado` (default) = a Helena de antes byte a byte; `sombra` so' registra a decisao do roteador.
     helena_roteador: str = "desligado"
+    #: ADR-0066: o provedor PROPRIO do roteador (prazo e teto curtos, pool proprio); `None` = o da conversa.
+    roteador_inference: Any = None
+    roteador_concorrencia: int = 4
     #: SAUDE GERATIVA (ADR-0065/DL-0119, settings `helena_saude_gerativa` +
     #: `helena_saude_gerativa_conversas`).
     #: `None` (default) = desligada, a Helena de antes byte a byte. A raiz de composicao so' passa o redator
@@ -873,6 +876,8 @@ class HelenaDispatcher:
                 "helena_base_saude_enabled": self.helena_base_saude_enabled,
                 # DL-0134: o roteador de habilidades (ADR-0066), so com a chave; desligado = grafo de antes.
                 "helena_roteador": self.helena_roteador,
+                "roteador_inference": self.roteador_inference,
+                "roteador_concorrencia": self.roteador_concorrencia,
                 # DL-0119: a saude gerativa (ADR-0065), so' com a chave; `None` = desligada (grafo de antes).
                 "saude_gerativa": self.saude_gerativa,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).

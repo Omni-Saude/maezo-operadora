@@ -53,6 +53,8 @@ class ContratoInvalidoError(ValueError):
 class Habilidade:
     id: str
     titulo: str
+    #: Uma linha para o prompt ENXUTO do roteador (roteador-v3).
+    resumo: str
     descricao: str
     quando_usar: tuple[str, ...]
     quando_nao_usar: tuple[str, ...]
@@ -105,13 +107,14 @@ def _textos(bruto: Any, campo: str, onde: str, *, minimo: int = 1) -> tuple[str,
 def _habilidade(bruto: Mapping[str, Any]) -> Habilidade:
     hid = str(bruto.get("id") or "")
     onde = f"habilidade {hid or '?'}"
-    for campo in ("titulo", "descricao"):
+    for campo in ("titulo", "resumo", "descricao"):
         if not str(bruto.get(campo) or "").strip():
             raise ContratoInvalidoError(f"{onde}: '{campo}' vazio")
     pendencias = bruto.get("pendencias") or []
     return Habilidade(
         id=hid,
         titulo=str(bruto["titulo"]).strip(),
+        resumo=str(bruto["resumo"]).strip(),
         descricao=str(bruto["descricao"]).strip(),
         quando_usar=_textos(bruto.get("quando_usar"), "quando_usar", onde),
         quando_nao_usar=_textos(bruto.get("quando_nao_usar"), "quando_nao_usar", onde),

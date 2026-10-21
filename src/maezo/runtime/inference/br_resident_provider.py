@@ -125,6 +125,7 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
         *,
         model: str = "",
         timeout_s: float = 60.0,
+        max_tokens: int | None = None,
         transport: BrRegionalTransport | None = None,
         retry_budget: RetryBudget | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
@@ -182,6 +183,10 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
         self._dpa_ref = dpa_ref
         self._model = model.strip()
         self._timeout_s = timeout_s
+        # ADR-0066 (roteador): teto de SAIDA proprio de um provedor de chamada curta; `None` = `MAX_TOKENS`.
+        if max_tokens is not None and not 1 <= max_tokens <= self.MAX_TOKENS:
+            raise InferenceConfigError(f"max_tokens fora de 1..{self.MAX_TOKENS}")
+        self._max_tokens = max_tokens if max_tokens is not None else self.MAX_TOKENS
         self._transport = resolve_br_regional_transport(transport)
 
         # W8 leg 4: budgeted, idempotency-aware retry. Default = NO retry (see RetryBudget) — the
@@ -217,7 +222,7 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
             model=self._model,
             stable_prefix=formatted.stable_prefix,
             variable_suffix=formatted.variable_suffix,
-            max_tokens=self.MAX_TOKENS,
+            max_tokens=self._max_tokens,
             credential=self._credential,
             headers={
                 # Sent on EVERY request — this is the client-side half of

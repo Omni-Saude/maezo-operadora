@@ -358,10 +358,17 @@ def _build_bedrock_br(settings: InferenceSettings) -> BaseInferenceProvider:
     por chamada e o orçamento de retry ciente de idempotência continuam sendo dele. A única
     diferença em relação a `_build_br_resident` é o transporte injetado.
     """
+    executor = None
+    if settings.dedicated_workers > 0:
+        # ADR-0066 (roteador): pool PROPRIO, para a chamada curta nunca prender as threads da conversa.
+        from concurrent.futures import ThreadPoolExecutor
+
+        executor = ThreadPoolExecutor(max_workers=settings.dedicated_workers, thread_name_prefix="phi-curta")
     return BrResidentInferenceProvider(
         model=settings.model,
         timeout_s=settings.timeout_s,
-        transport=BedrockBrRegionalTransport(timeout_s=settings.timeout_s),
+        max_tokens=settings.max_tokens,
+        transport=BedrockBrRegionalTransport(timeout_s=settings.timeout_s, executor=executor),
     )
 
 

@@ -4774,6 +4774,8 @@ class HelenaGraph:
         saude_gerativa: _sg.RedatorDeSaude | None = None,
         catalogo_procedimentos: BuscaDeProcedimentos | None = None,
         helena_roteador: str = "desligado",
+        roteador_inference: InferenceProvider | None = None,
+        roteador_concorrencia: int = 4,
     ) -> None:
         self._llm = inference
         # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134, `MAEZO_HELENA_ROTEADOR`): `desligado` (default) e' o
@@ -4784,6 +4786,12 @@ class HelenaGraph:
         self._roteador_modo = "desligado"
         self._roteador_contrato: Any = None
         self._roteador_em_voo: dict[tuple[str, str], tuple[Any, Any, str | None, str | None]] = {}
+        # ORCAMENTO (21/10/2026): provedor proprio (prazo real curto, teto de saida pequeno, pool proprio) e
+        # um
+        # limite de chamadas simultaneas; com o limite cheio, o turno segue sem o roteador (`falha=ocupado`).
+        self._roteador_llm = roteador_inference if roteador_inference is not None else inference
+        self._roteador_limite = max(1, int(roteador_concorrencia))
+        self._roteador_em_curso = 0
         if helena_roteador in ("sombra", "ativo"):
             from maezo.agents.helena import roteador_contrato as _rc
 
@@ -10659,24 +10667,38 @@ class HelenaGraph:
             bloco_mensagem=render_untrusted_block("message_body", str(state.get("message_body") or "")),
             pendente=pendente,
         )
+        if self._roteador_em_curso >= self._roteador_limite:
+            # Limite de concorrencia cheio: o turno segue sem o roteador (nunca fila, nunca espera).
+            return None, _rt.FALHA_OCUPADO, 0
+        self._roteador_em_curso += 1
         inicio = time.monotonic()
         try:
+            # O prazo REAL e' o tempo de leitura do provedor proprio (a thread volta nele); este `wait_for` e'
+            # so'
+            # a rede de seguranca, um pouco acima.
             bruto = await asyncio.wait_for(
-                self._llm.generate(
+                self._roteador_llm.generate(
                     prompt,
                     phi=True,
                     agent_id="helena",
                     tenant_id=str(state.get("tenant_id") or ""),
                     task_kind="task_default",
                 ),
-                timeout=contrato.prazo_s,
+                timeout=contrato.prazo_s + 1.0,
             )
         except PROGRAMMING_ERRORS:
             raise
         except TimeoutError:
             return None, _rt.FALHA_PRAZO, int((time.monotonic() - inicio) * 1000)
         except EXTERNAL_DEPENDENCY_FAILURES:
-            return None, _rt.FALHA_MODELO, int((time.monotonic() - inicio) * 1000)
+            ms_falha = int((time.monotonic() - inicio) * 1000)
+            return (
+                None,
+                (_rt.FALHA_PRAZO if ms_falha >= contrato.prazo_s * 1000 else _rt.FALHA_MODELO),
+                ms_falha,
+            )
+        finally:
+            self._roteador_em_curso -= 1
         ms = int((time.monotonic() - inicio) * 1000)
         decisao = _rt.ler_decisao(bruto)
         return decisao, (None if decisao is not None else _rt.FALHA_JSON), ms
@@ -10879,6 +10901,10 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         saude_gerativa=saude_gerativa if isinstance(saude_gerativa, _sg.RedatorDeSaude) else None,
         # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134): so' o valor que a composicao disser; senao desligado.
         helena_roteador=str(cfg.get("helena_roteador") or "desligado"),
+        roteador_inference=cast(InferenceProvider, cfg["roteador_inference"])
+        if cfg.get("roteador_inference") is not None
+        else None,
+        roteador_concorrencia=int(cfg.get("roteador_concorrencia") or 4),
     ).compile_graph()
 
 

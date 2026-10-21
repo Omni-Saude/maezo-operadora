@@ -34,7 +34,7 @@ from maezo.agents.helena.roteador_contrato import (
     ContratoDoRoteador,
 )
 
-ROTEADOR_PROMPT_VERSION: Final[str] = "roteador-v1"
+ROTEADOR_PROMPT_VERSION: Final[str] = "roteador-v3"
 NL: Final[str] = chr(10)
 
 #: Rótulos de trava (os ids do contrato) e de falha do roteador, para o log.
@@ -44,6 +44,7 @@ TRAVA_DADOS: Final[str] = "dados_pessoais"
 FALHA_PRAZO: Final[str] = "prazo"
 FALHA_MODELO: Final[str] = "modelo"
 FALHA_JSON: Final[str] = "json_ilegivel"
+FALHA_OCUPADO: Final[str] = "ocupado"
 
 #: CPF/CNPJ (com ou sem pontuação) e sequências longas de dígitos (carteirinha, cartão) ditas na mensagem.
 _DADO_PESSOAL: Final[re.Pattern[str]] = re.compile(
@@ -74,40 +75,18 @@ class DecisaoDoRoteador:
 
 
 def _instrucoes(contrato: ContratoDoRoteador) -> str:
+    """roteador-v3 (21/10/2026): prompt ENXUTO — uma linha por habilidade (o `resumo` do contrato), a regra da
+    pendencia e a saida JSON curta. Medido com mensagens sinteticas antes de ligar (ADR-0066)."""
     linhas = [
-        "Você é o ROTEADOR da Helena, a assistente virtual de um plano de saúde no WhatsApp.",
-        "Sua única tarefa: ler a conversa e escolher UMA habilidade que deve responder a MENSAGEM ATUAL.",
-        "Você não responde à pessoa e não decide urgência: regras fixas cuidam de alarme e risco antes.",
-        "",
-        "REGRAS:",
-        "1. Leia a mensagem atual NO CONTEXTO das últimas mensagens. Falas curtas ('ok', 'valeu', '1', "
-        "'sim', 'não', um nome, 'e pra minha filha?') continuam o assunto em curso.",
-        "2. A PERGUNTA PENDENTE é da habilidade indicada. Se a mensagem responde a ela, escolha essa "
-        "habilidade e marque responde_a_pendencia=true. Se a pessoa mudou de assunto, escolha o assunto "
-        "NOVO (a pendência não prende a conversa).",
-        "3. Sintoma, dor, queda, batida ou piora que a pessoa (ou alguém da família) está sentindo agora, "
-        "ou a resposta às perguntas de alerta de um sintoma: habilidade 'sintoma'.",
-        "4. Pedido EXPLÍCITO de falar com uma pessoa, resposta à oferta da equipe ou recusa/encerramento de "
-        "atendimento aberto: 'equipe'. Irritação ou reclamação sem pedir uma pessoa: 'conversa'.",
-        "5. Se duas habilidades servem e você não tem como saber qual, responda habilidade='duvida' com as "
-        "duas em habilidade_provavel e alternativa. confianca: alta (claro), media (provável), baixa "
-        "(chute).",
-        "",
-        "HABILIDADES:",
+        "Voce e' o roteador de um assistente de plano de saude no WhatsApp. Escolha UMA habilidade para a "
+        "MENSAGEM ATUAL:",
+        *(f"{h.id}: {h.resumo}" for h in contrato.habilidades),
+        "A PENDENTE e' a pergunta que o assistente deixou: se a mensagem responde a ela, escolha a "
+        "habilidade dela e p=true; se mudou de assunto, escolha o assunto novo.",
+        'Na duvida real entre duas, h="duvida", a=<a mais provavel>, b=<a outra>.',
+        'Responda SO\' o JSON {"h":"<habilidade>","c":"alta|media|baixa","p":true|false}',
     ]
-    for h in contrato.habilidades:
-        linhas.append(f"- {h.id}: {h.descricao}.")
-        linhas.append("  Usar quando: " + "; ".join(h.quando_usar) + ".")
-        linhas.append("  Não usar quando: " + "; ".join(h.quando_nao_usar) + ".")
-        linhas.append("  Exemplos: " + " | ".join(h.exemplos))
-    linhas += [
-        "",
-        "Responda SÓ com um JSON, sem texto fora dele:",
-        '{"habilidade": "<id ou duvida>", "habilidade_provavel": "<id, só se duvida>", "confianca": '
-        '"alta|media|baixa", "alternativa": "<segunda habilidade mais provável ou null>", '
-        '"responde_a_pendencia": true|false}',
-    ]
-    return "\n".join(linhas)
+    return NL.join(linhas)
 
 
 def montar_prompt(
@@ -124,10 +103,10 @@ def montar_prompt(
         if pendente is not None
         else "nenhuma"
     )
-    partes = [_instrucoes(contrato), "", f"PERGUNTA PENDENTE DO TURNO ANTERIOR: {pend}"]
+    partes = [_instrucoes(contrato), f"PENDENTE: {pend}"]
     if bloco_historico.strip():
-        partes.append(bloco_historico)
-    partes.append(bloco_mensagem)
+        partes += ["ULTIMAS:", bloco_historico]
+    partes += ["MENSAGEM ATUAL:", bloco_mensagem]
     return NL.join(partes)
 
 
@@ -152,8 +131,17 @@ def ler_decisao(bruto: str) -> DecisaoDoRoteador | None:
     dado = _json_do_texto(bruto)
     if dado is None:
         return None
-    habilidade = str(dado.get("habilidade") or "").strip().lower()
-    confianca = str(dado.get("confianca") or "").strip().lower()
+    # roteador-v3 usa chaves curtas (h, c, p, a, b); as longas continuam aceitas.
+    habilidade = str(dado.get("h") or dado.get("habilidade") or "").strip().lower()
+    confianca = str(dado.get("c") or dado.get("confianca") or "alta").strip().lower()
+    if "p" in dado and "responde_a_pendencia" not in dado:
+        dado = {**dado, "responde_a_pendencia": dado.get("p")}
+    if habilidade == DUVIDA:
+        dado = {
+            **dado,
+            "habilidade_provavel": dado.get("a") or dado.get("habilidade_provavel"),
+            "alternativa": dado.get("b") or dado.get("alternativa"),
+        }
     alternativa_bruta = dado.get("alternativa")
     alternativa = str(alternativa_bruta).strip().lower() if alternativa_bruta else None
     if alternativa not in HABILIDADES:
@@ -303,6 +291,7 @@ def ultimas(historico: Sequence[Mapping[str, Any]] | None, maximo: int) -> list[
 __all__ = [
     "FALHA_JSON",
     "FALHA_MODELO",
+    "FALHA_OCUPADO",
     "FALHA_PRAZO",
     "ROTEADOR_PROMPT_VERSION",
     "TRAVA_ALARME",
