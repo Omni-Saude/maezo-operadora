@@ -1346,12 +1346,22 @@ def _texto_dos_sinais(texto: str) -> str:
     return _NEGACAO_DE_URGENCIA.sub(" ", _sem_pontuacao(_normalizar_texto(texto or "")))
 
 
+def _sinal_afirmado(padrao: re.Pattern[str], texto: str) -> bool:
+    """O sinal do lexico aparece e NAO esta' negado ("sem falta de ar", "nao teve desmaio"): a trava de
+    alarme le a negacao como negacao (r4 de 22/10/2026, `base_saude.negado`). Do lado seguro: se a
+    pontuacao partia o trecho (so' casa sem ela), o sinal vale."""
+    if not padrao.search(_texto_dos_sinais(texto)):
+        return False
+    pontuado = _NEGACAO_DE_URGENCIA.sub(" ", _normalizar_texto(texto or ""))
+    return not padrao.search(pontuado) or _bs.mencao_afirmada(padrao, pontuado)
+
+
 def _sinal_forte_de_emergencia(texto: str) -> bool:
-    return bool(_SINAL_FORTE_DE_EMERGENCIA.search(_texto_dos_sinais(texto)))
+    return _sinal_afirmado(_SINAL_FORTE_DE_EMERGENCIA, texto)
 
 
 def _sinal_fraco_de_emergencia(texto: str) -> bool:
-    return bool(_SINAL_FRACO_DE_EMERGENCIA.search(_texto_dos_sinais(texto)))
+    return _sinal_afirmado(_SINAL_FRACO_DE_EMERGENCIA, texto)
 
 
 def _mensagem_de_saude(estado: Mapping[str, Any]) -> bool:
@@ -7373,14 +7383,23 @@ class HelenaGraph:
         duvida = gerativa and _sg.e_duvida_educativa(plano)
         if duvida:
             informativa = True
-        queixa = relata_sintoma(plano, None) and _bs.primeira_pessoa(plano) and not duvida
+        # Seguranca (r4 de 22/10/2026): um SINTOMA da base citado em primeira pessoa ou de um familiar ("minha
+        # filha bateu a cabeca na quina da mesa") e' queixa, mesmo sem o verbo de sintoma: recebe as perguntas
+        # de alerta do arquivo, nunca a informacao geral.
+        queixa = (
+            (relata_sintoma(plano, None) or bool(_bs.sintomas_citados(base, texto)))
+            and _bs.primeira_pessoa(plano)
+            and not duvida
+        )
         # (1) ALARME de um arquivo `sin-*` numa QUEIXA: escala na hora, como a tabela (192 no texto).
         # Avaliacao de 21/10/2026 (seguranca): com um assunto de sintoma EM CURSO (pergunta de alerta ou
         # opcoes
         # pendentes), a resposta e o que vier no turno seguinte sao avaliados contra os sinais DAQUELE assunto
         # ("vomitou duas vezes" depois da batida na cabeca), sem precisar citar o sintoma de novo.
         em_curso = pend_v4.grupo if pend_v4 is not None and pend_v4.grupo.startswith("sin-") else None
-        alarme_em_curso = em_curso is not None and _bs.alarme_do_assunto(base, em_curso, texto)
+        alarme_em_curso = (
+            em_curso is not None and _bs.alarme_do_assunto(base, em_curso, texto)
+        ) or _bs.alarme_dos_citados_antes(base, self._falas_da_pessoa(state), texto)
         if alarme_em_curso or (
             not duvida and (queixa or extraction.get("sintoma_codigo")) and _bs.alarme_no_texto(base, texto)
         ):
@@ -10740,7 +10759,9 @@ class HelenaGraph:
     def _roteador_chave(self, state: Mapping[str, Any]) -> tuple[str, str]:
         return (str(state.get("conversation_id") or ""), str(state.get("message_ref") or ""))
 
-    def _roteador_alarme(self, texto: str, pendente: str | None) -> bool:
+    def _roteador_alarme(
+        self, texto: str, pendente: str | None, falas_anteriores: Sequence[str] = ()
+    ) -> bool:
         plano = _plano(texto)
         if alarme_no_relato(plano) is not None or _sinal_forte_de_emergencia(texto):
             return True
@@ -10752,6 +10773,8 @@ class HelenaGraph:
             and anterior.grupo.startswith("sin-")
             and _bs.alarme_do_assunto(self._base, anterior.grupo, texto)
         ):
+            return True
+        if falas_anteriores and _bs.alarme_dos_citados_antes(self._base, falas_anteriores, texto):
             return True
         return _bs.alarme_no_texto(self._base, texto)
 
@@ -10817,7 +10840,7 @@ class HelenaGraph:
         pendente = _rt.pendente_do_estado(antes, self._roteador_contrato.dona_da_pendencia)
         trava = _rt.trava_de_entrada(
             str(state.get("message_body") or ""),
-            alarme=lambda t: self._roteador_alarme(t, antes),
+            alarme=lambda t: self._roteador_alarme(t, antes, self._falas_da_pessoa(state)),
             risco=lambda t: _sg.tem_risco(_plano(t)),
         )
         return antes, pendente, trava
