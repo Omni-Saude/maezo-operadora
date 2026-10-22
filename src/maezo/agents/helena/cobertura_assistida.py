@@ -1170,10 +1170,18 @@ TEXTO_PLANO_SEM_ATENDIMENTO: Final[str] = (
     "ajuda; "
     "é só me pedir."
 )
+#: Regra E3 (DL-0128), adendo de 22/10/2026: a MESMA pergunta de novo nao repete o texto inteiro, mas
+#: retoma a CONCLUSAO em uma linha (quem pergunta de novo acha que nao foi entendido; so' "ja' te passei" soa
+#: frio e nao responde) e oferece o proximo passo.
 TEXTO_REPETIDA: Final[str] = (
-    "Já te passei o que consta no cadastro para {nome}. Se quiser, posso passar para a nossa equipe conferir "
-    "pelo pedido médico. Quer?"
+    "Sobre {conclusao} Quer que eu te ajude com mais alguma coisa ou prefere falar com a equipe?"
 )
+
+
+def texto_repetida(view: Any, item: Any, nome: str | None) -> str:
+    """Regra E3 (DL-0128, adendo de 22/10/2026): a conclusao do cadastro em UMA linha + o proximo passo."""
+    frase, _oferece = texto_de_um_resultado(view, item, nome)
+    return TEXTO_REPETIDA.format(conclusao=_primeira_frase(frase))
 
 
 def resumo_para_a_equipe(ctx: Contexto) -> str:
@@ -1249,6 +1257,7 @@ __all__ = [
     "TEXTO_REPETIDA",
     "TEXTO_SEM_EQUIPE",
     "TEXTO_TERCEIRO",
+    "texto_repetida",
     "Contexto",
     "Pedido",
     "combinar",

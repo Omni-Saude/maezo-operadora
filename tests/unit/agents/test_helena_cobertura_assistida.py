@@ -301,10 +301,11 @@ async def test_pergunta_repetida_nao_repete_o_texto() -> None:
     fluxo = _fluxo(m)
     up = await fluxo.responder("cobre hemograma?", "", "")
     up2 = await fluxo.responder("cobre hemograma?", up["coleta_pendente"], up["coleta_contexto"])
-    assert (
-        up2["response_text"].startswith("Já te passei o que consta")
-        and up2["coleta_pendente"] == ca.PEND_EQUIPE
-    )
+    # E3 (adendo de 22/10/2026): retoma a CONCLUSAO em uma linha e oferece o proximo passo, sem repetir tudo.
+    assert up2["response_text"].startswith("Sobre Hemograma") and ": consta no Rol" in up2["response_text"]
+    assert up2["response_text"].endswith("prefere falar com a equipe?")
+    assert up2["response_text"].count(".") <= 2 and "Já te passei" not in up2["response_text"]
+    assert up2["coleta_pendente"] == ca.PEND_EQUIPE
 
 
 async def test_para_quem_com_dependentes_e_resposta_pelo_nome() -> None:
