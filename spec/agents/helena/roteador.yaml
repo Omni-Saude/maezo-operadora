@@ -46,7 +46,7 @@ travas_de_entrada:            # sempre, nesta ordem; a primeira que decide encer
   - id: consentimento_e_identificacao
     descricao: consentimento do canal e identificação do beneficiário (o fluxo de hoje)
   - id: alarme_pela_tabela
-    descricao: sinais de alarme pela tabela DMN (ADR-0012), inclusive do assunto de sintoma em curso; 192
+    descricao: sinais de alarme pela tabela DMN (ADR-0012), inclusive do assunto de sintoma em curso ou citado antes na conversa; a negação colada ao sinal ("sem falta de ar", "não teve vômito") é lida como negação (base_saude.negado); 192
   - id: risco_psicossocial
     descricao: risco psicossocial pelo texto ou pela tabela; CVV 188 e caso
   - id: dados_pessoais
