@@ -997,7 +997,8 @@ HELENA_V4: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre ressonância?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("(central|aplicativo|portal|pessoa da equipe)",),
+                # Modo simples (decisao do dono, DL-0140): a oferta da equipe no lugar dos canais.
+                deve=(r"(a equipe confirma para voce|quer que eu encaminhe)",),
                 nao_deve=(_COBERTURA_PROMETIDA, r"14 dias uteis", "consulta de especialista"),
             ),
         ),
@@ -1254,22 +1255,17 @@ HELENA_BASE_SAUDE: tuple[Segmento, ...] = (
         "10-pede-pessoa-recusa-e-encerra",
         (
             _p("Quero falar com uma pessoa", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
+            # DL-0131 (roteador ativo / allowlist): a recusa ENCERRA direto o caso P2/P3, sem a confirmacao.
             _p(
                 "Não quero falar com ninguém",
-                escalacao=ESCALACAO_NENHUMA,
-                deve=("quer que eu encerre o seu atendimento", "responda sim para encerrar"),
-            ),
-            _p(
-                "SIM",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=("pronto, encerrei o seu atendimento",),
                 caso_encerrado=True,
             ),
         ),
         resolveu=(
-            "o pedido de pessoa abriu o caso; a recusa recebeu a pergunta de confirmacao; o SIM ENCERROU o "
-            "caso no motor (a instancia nao esta mais ativa) e a pessoa ouviu 'Pronto, encerrei o seu "
-            "atendimento'"
+            "o pedido de pessoa abriu o caso; a recusa ENCERROU o caso no motor (a instancia nao esta mais "
+            "ativa) e a pessoa ouviu 'Pronto, encerrei o seu atendimento'"
         ),
     ),
     Segmento(
