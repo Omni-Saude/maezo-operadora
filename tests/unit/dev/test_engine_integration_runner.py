@@ -287,10 +287,30 @@ def test_lock_contention_never_grants_cleanup_and_owner_releases_on_interrupt(tm
     )
     try:
         _wait_for(lock_dir / "owner.json")
+        initial_owner = json.loads((lock_dir / "owner.json").read_bytes())
+        assert initial_owner["pid"] == owner.pid
         _wait_for(child_pid_file)
         _wait_for(child_log)
         child_pid = int(child_pid_file.read_text())
-        original_owner = (lock_dir / "owner.json").read_bytes()
+        # child.pid can precede the supervisor's post-Popen ownership update.
+        # Snapshot only the matching published state; retain those exact bytes.
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            assert owner.poll() is None
+            owner_bytes = (lock_dir / "owner.json").read_bytes()
+            owner_state = json.loads(owner_bytes)
+            assert owner_state["pid"] == owner.pid
+            assert owner_state["token"] == initial_owner["token"]
+            if (
+                owner_state.get("checkpoint") == "subprocess_running"
+                and owner_state.get("pending_pgids") == [child_pid]
+                and owner_state.get("subprocess_quiescent") is False
+            ):
+                original_owner = owner_bytes
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("owner did not publish the matching running child state")
 
         contender = _run(
             "lock-probe",

@@ -782,34 +782,51 @@ it("orienta o foco no logout confirmado e no retry após falha", async () => {
 });
 
 it("revalidação automática anuncia o estado sem focar o destino", async () => {
+  const initial = deferred<Response>();
   const revalidated = deferred<Response>();
-  vi.mocked(fetch)
-    .mockResolvedValueOnce(jsonResponse(session()))
-    .mockReturnValueOnce(revalidated.promise);
-  render(<App />);
-  const logout = await screen.findByRole("button", {
-    name: "Sair com segurança",
-  });
-  logout.focus();
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    value: "visible",
-  });
-  fireEvent(document, new Event("visibilitychange"));
-  // O estado "revalidando" entra num re-render assincrono depois do evento; getBy sincrono corria
-  // na frente dele (flaky no CI).
-  const loading = await screen.findByRole("heading", {
-    name: "Revalidando sua sessão",
-  });
-  expect(loading).not.toHaveFocus();
-  expect(screen.queryByText("Sessão ativa")).not.toBeInTheDocument();
+  const addEventListener = document.addEventListener.bind(document);
+  let visibilityRegistered = false;
+  const registration = vi
+    .spyOn(document, "addEventListener")
+    .mockImplementation((type, listener, options) => {
+      addEventListener(type, listener, options);
+      if (type === "visibilitychange") visibilityRegistered = true;
+    });
+  try {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(initial.promise)
+      .mockReturnValueOnce(revalidated.promise);
+    render(<App />);
+    await act(async () => {
+      initial.resolve(jsonResponse(session()));
+    });
+    const logout = await screen.findByRole("button", {
+      name: "Sair com segurança",
+    });
+    expect(visibilityRegistered).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    logout.focus();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    fireEvent(document, new Event("visibilitychange"));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const loading = await screen.findByRole("heading", {
+      name: "Revalidando sua sessão",
+    });
+    expect(loading).not.toHaveFocus();
+    expect(screen.queryByText("Sessão ativa")).not.toBeInTheDocument();
 
-  revalidated.resolve(jsonResponse(session()));
-  const destination = await screen.findByRole("heading", {
-    name: "Área de colaboradores",
-  });
-  expect(destination).not.toHaveFocus();
-  expect(screen.getByRole("status")).toHaveTextContent(
-    "Sessão confirmada. Área de colaboradores.",
-  );
+    revalidated.resolve(jsonResponse(session()));
+    const destination = await screen.findByRole("heading", {
+      name: "Área de colaboradores",
+    });
+    expect(destination).not.toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Sessão confirmada. Área de colaboradores.",
+    );
+  } finally {
+    registration.mockRestore();
+  }
 });
