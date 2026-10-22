@@ -117,3 +117,14 @@ async def test_modo_consulta_continua_consultando() -> None:
     grafo, whatsapp, _cib, fonte = _grafo(modelo, modo="consulta")
     await grafo.ainvoke(_entrada("o convênio paga um hemograma pra mim?"))
     assert fonte.pedidos == ["40304361"] and "consta no Rol" in whatsapp.enviados[-1]
+
+
+@pytest.mark.parametrize("queixa", ["não entendi nada", "como assim? você não respondeu", "ué, e aí?"])
+async def test_reclamacao_depois_da_oferta_nunca_refaz_consulta(queixa: str) -> None:
+    modelo = _Modelo([_decisao("cobertura"), _decisao("cobertura", responde=True)], [_pedido("endoscopia")])
+    grafo, whatsapp, cib, fonte = _grafo(modelo)
+    r1 = await grafo.ainvoke(_entrada("o convênio paga endoscopia?"))
+    memoria = {k: r1[k] for k in ("coleta_pendente", "coleta_contexto", "historico_conversa") if k in r1}
+    await grafo.ainvoke(_entrada(queixa) | memoria)
+    assert fonte.pedidos == [] and _starts(cib) == 0
+    assert "consta" not in whatsapp.enviados[-1].lower()

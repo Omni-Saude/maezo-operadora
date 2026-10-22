@@ -339,6 +339,12 @@ class FluxoDeCobertura:
         desculpa e o pedido de repetir."""
         logger.info("helena_cobertura_desculpa", pendencia=pendente)
         desculpa = f"{ca.TEXTO_DESCULPA} "
+        if self.d.modo == MODO_SIMPLES:
+            # Modo simples (DL-0140): a reclamacao nunca refaz consulta; com o pedido guardado, a desculpa e a
+            # oferta da equipe de novo; sem pedido, a desculpa e o pedido do nome.
+            if ctx.termos:
+                return _update(desculpa + ca.TEXTO_SIMPLES_PROCEDIMENTO, ca.PEND_EQUIPE, ctx)
+            return _update(ca.TEXTO_DESCULPA_SEM_ASSUNTO, None, None)
         if pendente == ca.PEND_QUEM:
             graus, _com_nome, primeiros = await self.d.dependentes()
             quem = quem_pelo_texto(texto, graus, primeiros)
