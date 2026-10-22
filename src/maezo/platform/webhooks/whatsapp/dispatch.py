@@ -487,6 +487,8 @@ class HelenaDispatcher:
     roteador_concorrencia: int = 4
     #: F2 (DL-0136): as conversas em que o roteador ativo decide (vazio = ninguem).
     helena_roteador_conversas: frozenset[str] = frozenset()
+    # DL-0140 (dono, 22/10/2026): o modo da cobertura (`simples` | `consulta`).
+    cobertura_modo: str = "simples"
     #: SAUDE GERATIVA (ADR-0065/DL-0119, settings `helena_saude_gerativa` +
     #: `helena_saude_gerativa_conversas`).
     #: `None` (default) = desligada, a Helena de antes byte a byte. A raiz de composicao so' passa o redator
@@ -881,6 +883,8 @@ class HelenaDispatcher:
                 "roteador_inference": self.roteador_inference,
                 "roteador_concorrencia": self.roteador_concorrencia,
                 "helena_roteador_conversas": self.helena_roteador_conversas,
+                # DL-0140: o modo da cobertura (`simples` nunca consulta procedimento).
+                "cobertura_modo": self.cobertura_modo,
                 # DL-0119: a saude gerativa (ADR-0065), so' com a chave; `None` = desligada (grafo de antes).
                 "saude_gerativa": self.saude_gerativa,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).

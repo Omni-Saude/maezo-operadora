@@ -660,7 +660,8 @@ _VOCABULARIO_DA_RESPOSTA: Final[frozenset[str]] = frozenset(
     {"sim", "s", "ss", "quero", "pode", "ser", "passar", "passa", "passe", "claro", "com", "certeza", "ok",
      "okay", "aceito", "isso", "mesmo", "exato", "exatamente", "correto", "perfeito", "beleza", "blz", "uhum",
      "aham", "yes", "e", "esse", "essa", "ai", "faz", "manda", "para", "pra", "a", "o", "equipe", "nao", "n",
-     "nem", "negativo", "agora", "precisa", "obrigado", "obrigada", "valeu", "quer", "pfv", "pf"}
+     "nem", "negativo", "agora", "precisa", "obrigado", "obrigada", "valeu", "quer", "pfv", "pf",
+     "encaminhar", "encaminha", "encaminhe", "encaminhem"}
 )  # fmt: skip
 
 
@@ -1195,10 +1196,26 @@ def texto_repetida(view: Any, item: Any, nome: str | None) -> str:
     return TEXTO_REPETIDA.format(conclusao=_primeira_frase(frase), aviso=AVISO_FINAL)
 
 
+#: MODO SIMPLES da cobertura (decisao do dono de 22/10/2026, DL-0140): a Helena NAO consulta a cobertura
+#: de um procedimento especifico; explica o que e' geral (Rol da ANS x segmentacao, carencia, autorizacao
+#: e indicacao medica) e oferece a equipe, que confirma. Nunca "consta"/"nao consta no Rol".
+TEXTO_SIMPLES_PROCEDIMENTO: Final[str] = (
+    "Por aqui eu não consigo confirmar a cobertura de um procedimento específico. Em geral, a cobertura "
+    "depende do Rol da ANS para a segmentação do seu plano, da carência, da autorização e da indicação "
+    "médica. A equipe confirma para você. Quer que eu encaminhe? Responda sim ou não."
+)
+
+
 def resumo_para_a_equipe(ctx: Contexto) -> str:
     """O resumo do caso (escrito pelo CODIGO, sem CPF): pedido, para quem, termos tentados."""
     termos = "; ".join(dict.fromkeys([*ctx.termos, *ctx.tentados])) or "nao informado"
     quem = {"titular": "o titular"}.get(ctx.quem or "", ctx.quem or "nao informado")
+    if ctx.tentativas == 0:
+        # Modo simples (DL-0140): a Helena nao consultou; a equipe confirma pelo pedido medico.
+        return (
+            f"Duvida de cobertura de procedimento. Pedido: {termos[:300]}. Para quem: {quem}. "
+            "A Helena nao consulta cobertura por procedimento (modo simples); conferir pelo pedido medico."
+        )
     return (
         f"Duvida de cobertura de procedimento. Pedido: {termos[:300]}. Para quem: {quem}. "
         f"A Helena nao localizou o procedimento no cadastro apos {ctx.tentativas} tentativa(s); conferir "
@@ -1266,6 +1283,7 @@ __all__ = [
     "TEXTO_REEMBOLSO",
     "TEXTO_REMEDIO",
     "TEXTO_REPETIDA",
+    "TEXTO_SIMPLES_PROCEDIMENTO",
     "TEXTO_SEM_EQUIPE",
     "TEXTO_TERCEIRO",
     "texto_repetida",

@@ -60,6 +60,14 @@ ser do contrato `spec/agents/helena/roteador.yaml` e de cada habilidade fechada)
 5. Discordância sem procedimento tratada antes do desvio para autorização (#897) → regra da habilidade
    `cobertura`.
 
+## 2d. Cobertura em modo simples (DL-0140, decisão do dono de 22/10/2026)
+
+- `MAEZO_HELENA_COBERTURA_MODO=simples` (padrão; dev explícito): a cobertura nunca consulta catálogo/AMH por
+  procedimento. Procedimento ou lista = texto geral + "A equipe confirma para você. Quer que eu encaminhe?"
+  (caso só com "sim"). Pergunta geral = o texto geral do plano. Os textos de regra própria continuam.
+- Log: `helena_cobertura_simples resultado=oferta_da_equipe|geral itens=N`. Nenhum `helena_cobertura_lida`.
+- Voltar para a consulta automática: `helena_cobertura_modo = "consulta"` no tfvars do dev + apply direcionado.
+
 ## 3. Desligar / desfazer
 
 `helena_roteador = "sombra"` (volta à F1) ou `"desligado"` no `amh-interop.auto.tfvars` do dev + apply direcionado do receptor e do simulador.
