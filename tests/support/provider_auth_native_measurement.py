@@ -248,6 +248,22 @@ async def acquire_pg_checkpoint(
             guard.check()
             if row is None:
                 raise runtime.NativeObservationError("Held PostgreSQL backend absent")
+            # Intra-query XID race (CI #60): pg_current_snapshot() evaluates at
+            # query start while the pg_stat_activity row evaluates later; a stage
+            # xid assigned inside that window appears in the row but not in the
+            # snapshot list. One bounded, disclosed re-read of THIS checkpoint
+            # query (never of the measurement) when exactly that signature fires;
+            # a second occurrence still refuses.
+            if row["backend_xid32"] is not None and str(row["backend_xid32"]) not in {
+                str(int(v) % 2**32) for v in row["active_full_xids"]
+            }:
+                await asyncio.sleep(0.05)
+                guard.check()
+                row = await connection.fetchrow(
+                    _CHECKPOINT_SQL, int(witness["backend_pid"]), timeout=remaining(guard)
+                )
+                if row is None:
+                    raise runtime.NativeObservationError("Held PostgreSQL backend absent")
             capture = dict(
                 schema="provider-native-root-pg-checkpoint-capture.v1",
                 source="root-independent-pg-stat-snapshot-and-ssl-query",
