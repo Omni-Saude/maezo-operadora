@@ -135,6 +135,8 @@ locals {
       { name = "MAEZO_HELENA_BASE_SAUDE", value = tostring(var.helena_base_saude) },
       # DL-0134: roteador de habilidades da Helena (ADR-0066; default `desligado`; F1 `sombra` so' registra).
       { name = "MAEZO_HELENA_ROTEADOR", value = var.helena_roteador },
+      # DL-0140 (dono, 22/10/2026): modo da cobertura (`simples` nunca consulta procedimento).
+      { name = "MAEZO_HELENA_COBERTURA_MODO", value = var.helena_cobertura_modo },
       { name = "MAEZO_HELENA_ROTEADOR_CONVERSAS", value = join(",", var.helena_roteador_conversas) },
       # DL-0137: o modelo PROPRIO do roteador (vazio = o da zona PHI).
       { name = "MAEZO_HELENA_ROTEADOR_MODELO", value = var.helena_roteador_modelo },

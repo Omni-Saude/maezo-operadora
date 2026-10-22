@@ -428,6 +428,12 @@ class WhatsAppWebhookSettings(BaseSettings):
         default="",
         validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_CONVERSAS", "helena_roteador_conversas"),
     )
+    # COBERTURA (decisao do dono de 22/10/2026, DL-0140): `simples` (padrao) nunca consulta catalogo/AMH por
+    # procedimento: explica o geral e oferece a equipe; `consulta` = a consulta automatica (atras da chave).
+    helena_cobertura_modo: Literal["simples", "consulta"] = Field(
+        default="simples",
+        validation_alias=AliasChoices("MAEZO_HELENA_COBERTURA_MODO", "helena_cobertura_modo"),
+    )
     # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
     # informativas de saude (com checagem antes de enviar), pela ROTA PROPRIA
     # `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono

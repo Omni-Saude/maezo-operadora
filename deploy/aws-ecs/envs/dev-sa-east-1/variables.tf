@@ -862,6 +862,22 @@ variable "helena_base_saude" {
   nullable    = false
 }
 
+variable "helena_cobertura_modo" {
+  description = <<-EOT
+    Modo da cobertura da Helena (decisao do dono de 22/10/2026, DL-0140): `MAEZO_HELENA_COBERTURA_MODO`.
+    `simples` (default) = nunca consulta catalogo/AMH por procedimento; explica o geral (Rol x segmentacao,
+    carencia, autorizacao e indicacao medica) e oferece a equipe, que confirma (caso so' com "sim").
+    `consulta` = a consulta automatica por procedimento (o codigo continua, atras da chave).
+  EOT
+  type        = string
+  default     = "simples"
+  nullable    = false
+  validation {
+    condition     = contains(["simples", "consulta"], var.helena_cobertura_modo)
+    error_message = "helena_cobertura_modo: simples ou consulta."
+  }
+}
+
 variable "helena_roteador" {
   description = <<-EOT
     Roteador de habilidades da Helena (ADR-0066, DL-0134, 21/10/2026): `MAEZO_HELENA_ROTEADOR`.
