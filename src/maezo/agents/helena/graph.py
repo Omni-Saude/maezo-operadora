@@ -1996,7 +1996,8 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "cobranca_foco": None,
     "handoff": None,
     "consulta_subtipo": None,
-    # F2 (ADR-0066): a habilidade que o roteador ativo escolheu; zera a cada turno (nunca vaza para o proximo).
+    # F2 (ADR-0066): a habilidade que o roteador ativo escolheu; zera a cada turno (nunca vaza
+    # para o proximo).
     "habilidade_roteador": None,
     "consulta_literais": None,
     "resposta_com_dados_do_plano": False,
