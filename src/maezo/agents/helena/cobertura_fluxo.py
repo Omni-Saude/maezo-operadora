@@ -420,6 +420,14 @@ class FluxoDeCobertura:
             respondidos=respondidos,
             quem=ctx.quem,
         )
+        if not pedido.procedimentos and pedido.discorda:
+            # Avaliacao de 21/10/2026 + roteiro de 22/10/2026: a DISCORDANCIA sem procedimento ("a clinica
+            # disse
+            # que cobre e voces recusaram a guia") termina na explicacao e na equipe — antes do desvio para o
+            # andamento da autorizacao, que perguntava "para quem e'?".
+            return _update(
+                f"{ca.PREFIXO_DISCORDA.strip()} {ca.TEXTO_OFERTA_DA_DISCORDANCIA}", ca.PEND_EQUIPE, ctx
+            )
         if pedido.assunto == "autorizacao":
             return {"desviar_para": "autorizacao"}
         if pedido.assunto == "rede" and not pedido.procedimentos:
@@ -428,9 +436,18 @@ class FluxoDeCobertura:
             return _update(prefixo + ca.TEXTO_COPARTICIPACAO, None, None)
         if pedido.assunto == "reembolso":
             return _update(prefixo + ca.TEXTO_REEMBOLSO, ca.PEND_EQUIPE, ctx)
+        outros_do_pedido = list(pedido.outros)
         if pedido.exclusao_legal in ca.TEXTO_EXCLUSAO:
-            return _update(prefixo + ca.TEXTO_EXCLUSAO[pedido.exclusao_legal], ca.PEND_EQUIPE, ctx)
-        ctx = replace(ctx, outros=list(pedido.outros))
+            if len(pedido.procedimentos) + len(outros_do_pedido) <= 1:
+                return _update(prefixo + ca.TEXTO_EXCLUSAO[pedido.exclusao_legal], ca.PEND_EQUIPE, ctx)
+            # Lista MISTA com item excluido por lei (roteiro de 22/10/2026): a exclusao vira UMA linha da
+            # lista e
+            # os demais itens seguem cada um pelo seu caminho (antes, so' a exclusao era respondida).
+            if not any(tipo == pedido.exclusao_legal for _nome, tipo in outros_do_pedido):
+                outros_do_pedido.append(
+                    (ca.NOME_DO_ITEM_EXCLUIDO[pedido.exclusao_legal], pedido.exclusao_legal)
+                )
+        ctx = replace(ctx, outros=outros_do_pedido)
         if pedido.tipo == "remedio" and not pedido.procedimentos and len(pedido.outros) <= 1:
             return _update(prefixo + ca.TEXTO_REMEDIO, ca.PEND_EQUIPE, ctx)
         if pedido.tipo == "material" and not pedido.procedimentos:
@@ -443,12 +460,6 @@ class FluxoDeCobertura:
             # Avaliacao de 21/10/2026: so' itens com regra propria (ex.: remedio + estetica): cada um pelo seu
             # caminho, numa resposta so'.
             return await self._varios(ctx, prefixo=prefixo)
-        if not pedido.procedimentos and pedido.discorda:
-            # Avaliacao de 21/10/2026: a discordancia sem procedimento termina na explicacao e na equipe, sem
-            # o pedido da lista colado.
-            return _update(
-                f"{ca.PREFIXO_DISCORDA.strip()} {ca.TEXTO_OFERTA_DA_DISCORDANCIA}", ca.PEND_EQUIPE, ctx
-            )
         if not pedido.procedimentos:
             # DL-0131: a intencao sem o nome do exame abre o assunto e pede a lista (nunca o texto geral).
             return _update(prefixo + ca.TEXTO_PEDE_LISTA, ca.PEND_FORMA, replace(ctx, termos=[], tecnicos=[]))

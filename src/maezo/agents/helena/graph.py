@@ -1816,6 +1816,8 @@ class HelenaState(TypedDict, total=False):
     pedido_humano_lexico: bool
     sinal_saude_lexico: bool
     message_ref: str
+    #: F2 (ADR-0066): a habilidade que o roteador ATIVO escolheu neste turno; `None` no caminho de sempre.
+    habilidade_roteador: str | None
     #: IDENTIDADE DO BENEFICIARIO (DL-0077): contexto pseudonimo, ver `IDENTIDADE_CHAVES`. ENTRADA do
     #: despachante, gravada em TODO turno (`None` quando a fonte esta' desligada ou nao resolveu uma
     #: pessoa so'). Nenhum no' decide nada a partir dela.
@@ -1994,6 +1996,8 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "cobranca_foco": None,
     "handoff": None,
     "consulta_subtipo": None,
+    # F2 (ADR-0066): a habilidade que o roteador ativo escolheu; zera a cada turno (nunca vaza para o proximo).
+    "habilidade_roteador": None,
     "consulta_literais": None,
     "resposta_com_dados_do_plano": False,
     # COLETA — os tres de memoria tem default neutro aqui (para a particao de campos e para o
@@ -8442,14 +8446,20 @@ class HelenaGraph:
             return fixo
         mensagem_do_turno = str(state.get("message_body") or "")
         pendente_do_turno = str(state.get("coleta_pendente") or "")
-        if self._gerativa_para(state) and (
-            pendente_do_turno.startswith(PREFIXO_COBERTURA_ASSISTIDA)
-            or _pergunta_de_cobertura_ampla(mensagem_do_turno)
-            # DL-0129: coparticipacao/reembolso de procedimento ja' veio para ca' pelo roteamento sem modelo.
-            or _copart_ou_reembolso_do_procedimento(_plano(mensagem_do_turno))
-            # DL-0131: CAMINHO UNICO na allowlist — a lista de exames e qualquer intencao de cobertura.
-            or self._parece_lista_de_procedimentos(mensagem_do_turno)
-            or (self._nome_de_procedimento(mensagem_do_turno) and _cobertura_recente(state))
+        habilidade_do_roteador = state.get("habilidade_roteador")
+        if (
+            self._gerativa_para(state)
+            and habilidade_do_roteador in (None, "", "cobertura")
+            and (
+                pendente_do_turno.startswith(PREFIXO_COBERTURA_ASSISTIDA)
+                or _pergunta_de_cobertura_ampla(mensagem_do_turno)
+                # DL-0129: coparticipacao/reembolso de procedimento ja' veio para ca' pelo roteamento sem
+                # modelo.
+                or _copart_ou_reembolso_do_procedimento(_plano(mensagem_do_turno))
+                # DL-0131: CAMINHO UNICO na allowlist — a lista de exames e qualquer intencao de cobertura.
+                or self._parece_lista_de_procedimentos(mensagem_do_turno)
+                or (self._nome_de_procedimento(mensagem_do_turno) and _cobertura_recente(state))
+            )
         ):
             assistida = await self._cobertura_assistida(state, ref)
             if assistida is not None and assistida.get("desviar_para") == "autorizacao":
@@ -10840,7 +10850,8 @@ class HelenaGraph:
             st_sempre: HelenaState = state
             if duvida_antes:
                 st_sempre = cast(HelenaState, {**dict(state), "coleta_pendente": None, "coleta_contexto": ""})
-            return self._sem_pendencia_velha(await self.classify(st_sempre), duvida_antes)
+            resultado_sempre = self._sem_pendencia_velha(await self.classify(st_sempre), duvida_antes)
+            return {**resultado_sempre, "habilidade_roteador": None}
         texto = str(state.get("message_body") or "")
         opcoes = decisao.opcoes_da_duvida()
         if opcoes is not None:
@@ -10856,6 +10867,19 @@ class HelenaGraph:
             decisao.habilidade if decisao.habilidade != "duvida" else (decisao.provavel or "conversa")
         )
         mantem = bool(antes) and decisao.responde_a_pendencia and not duvida_antes
+        if (
+            antes
+            and not mantem
+            and not duvida_antes
+            and habilidade in ("conversa", "equipe")
+            and _ca.e_reclamacao(texto)
+            and not (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto))
+        ):
+            # Reclamacao sobre a resposta anterior ("ue, como assim?", "voce falou outra coisa") pertence a
+            # quem fez a pergunta pendente: a pendencia fica e a habilidade dona trata (desculpa curta e de
+            # novo).
+            mantem = True
+            habilidade = self._roteador_contrato.dona_da_pendencia(antes) or habilidade
         st: HelenaState = (
             state
             if mantem or not antes
@@ -10874,15 +10898,19 @@ class HelenaGraph:
             if mantem and antes:
                 update["coleta_pendente"] = antes
                 update["coleta_contexto"] = str(state.get("coleta_contexto") or "")
-            return self._rota_de_consulta(update)
+            return {**self._rota_de_consulta(update), "habilidade_roteador": habilidade}
         if habilidade == "conversa" and not mantem and _ca.e_cortesia(texto):
-            return self._base_texto_fixo(self._update_sem_modelo(state), _ca.resposta_de_cortesia(texto))
+            cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _ca.resposta_de_cortesia(texto))
+            return {**cortesia, "habilidade_roteador": habilidade}
         marca = _HABILIDADE_DO_TURNO.set(habilidade)
         try:
             resultado = await self.classify(st)
         finally:
             _HABILIDADE_DO_TURNO.reset(marca)
-        return self._sem_pendencia_velha(resultado, bool(antes) and not mantem)
+        return {
+            **self._sem_pendencia_velha(resultado, bool(antes) and not mantem),
+            "habilidade_roteador": habilidade,
+        }
 
     def _e_texto_do_roteador(self, texto: object) -> bool:
         if self._roteador_modo != "ativo" or not isinstance(texto, str) or self._roteador_contrato is None:

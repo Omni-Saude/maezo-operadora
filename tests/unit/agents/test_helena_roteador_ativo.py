@@ -167,3 +167,30 @@ def test_opcoes_da_duvida() -> None:
     )
     assert rt.DecisaoDoRoteador("cobertura", "media", "plano", False).opcoes_da_duvida() is None
     assert rt.DecisaoDoRoteador("cobertura", "baixa", None, False).opcoes_da_duvida() is None
+
+
+async def test_reclamacao_sobre_a_resposta_fica_com_a_dona_da_pendencia() -> None:
+    modelo = _Modelo([_decisao("equipe", responde=False)], [])
+    grafo, whatsapp, cib, _fonte = _grafo(modelo)
+    contexto = ca.Contexto(termos=["hemograma"], quem="titular", respondidos=["Hemograma"]).codificar()
+    await grafo.ainvoke(
+        _entrada("Ué, como assim? Você acabou de verificar e falou outra coisa com a equipe")
+        | {"coleta_pendente": PEND_RESPONDIDO, "coleta_contexto": contexto}
+    )
+    from tests.unit.agents.test_helena_rodada_3_simulador import _starts
+
+    assert _starts(cib) == 0, "reclamacao sem pedido nao abre caso"
+    assert whatsapp.enviados[-1].startswith(ca.TEXTO_DESCULPA)
+
+
+async def test_roteador_plano_nao_cai_na_cobertura_assistida() -> None:
+    modelo = _Modelo(
+        [_decisao("plano")],
+        [_classify(intent="consulta_plano", consulta_subtipo="elegibilidade")],
+    )
+    grafo, whatsapp, _cib, fonte = _grafo(modelo)
+    with capture_logs() as logs:
+        await grafo.ainvoke(_entrada("beleza. e eu ainda estou em carência de alguma coisa?"))
+    assert not any(e.get("event") == "helena_cobertura_extraida" for e in logs)
+    assert ca.TEXTO_PEDE_LISTA not in (whatsapp.enviados[-1] if whatsapp.enviados else "")
+    assert fonte.pedidos == []

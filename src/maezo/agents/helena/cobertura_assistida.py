@@ -904,6 +904,12 @@ def frase_de_outro_item(nome: str, tipo: str) -> str:
     return f"{nome}: {_primeira_frase(base)}" if base else f"{nome}: tem regra própria."
 
 
+#: O nome de uma linha de item excluido por lei numa lista mista quando o modelo nao deu o nome do item.
+NOME_DO_ITEM_EXCLUIDO: Final[dict[str, str]] = {
+    "estetica": "o procedimento estético",
+    "inseminacao": "a inseminação ou fertilização",
+    "experimental": "o tratamento experimental",
+}
 TEXTO_OFERTA_DA_DISCORDANCIA: Final[str] = "Se quiser, passo para a nossa equipe ver o seu caso. Quer?"
 TEXTO_EQUIPE_PARA_OS_OUTROS: Final[str] = (
     "Para os itens com regra própria, quer que eu passe para a nossa equipe conferir? Responda sim ou não."
