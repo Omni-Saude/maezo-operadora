@@ -625,6 +625,9 @@ _ENCERRAR_ASSUNTO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:deixa (?:pra|para) la|deixa quieto|deixa isso|deixa assim|deixa pra depois|esquece|esqueca"
     r"|esquecer|desis(?:to|ti)\b|nao precisa mais|nao preciso mais|nao quero mais|tanto faz"
     r"|mudei de ideia|outra hora"
+    # Avaliacao r4 de 22/10/2026: abrir mao de um pedido ou de um caso ("pode cancelar", "ja resolvi").
+    r"|pode cancelar|cancela(?: isso| tudo| o pedido| a solicitacao)?$|ja resolvi|ja consegui resolver"
+    r"|nao precisa (?:me )?encaminhar|nao precisa (?:me )?(?:ligar|chamar|retornar)"
     r"|depois eu (?:vejo"
     r"|pergunto|resolvo|volto)|depois (?:vejo|pergunto|resolvo)|nao precisa nao|so isso mesmo)\b"
 )
