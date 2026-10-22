@@ -63,6 +63,8 @@ jobs:
           docker rm -f cp-probe >/dev/null 2>&1 || true
 
       - name: Point the harness at this checkout
+        env:
+          N2_SCOPE: ${{ inputs.scope }}
         run: |
           LANE_DIR=/tmp/lane-x/lane
           echo "LANE_DIR=$LANE_DIR" >> "$GITHUB_ENV"
@@ -72,7 +74,7 @@ jobs:
           # changes) — @sha256 refs cannot survive the transport. Swap to the loaded
           # tags; the CONTENT binding stays with the lane's own runtime sha pins
           # (native_jar/support/instrument digests verified inside the container).
-          sed -i 's|maezo-provider-vertical-e0-parent@sha256:10ed013a2b6fe0d75eb8e302ff53450429a1842f545782539b8e230ae29cd652|maezo-provider-vertical-e0-parent:n2fix-r14|g; s|maezo-n2-collector@sha256:b6bfdf16a9500a962051a95e33ffb79070a74b18e9c9084a7872136654bca62c|maezo-n2-collector:v1|g' "$LANE_DIR/N2-LANE-SCOPE-v16.json"
+          sed -i 's|maezo-provider-vertical-e0-parent@sha256:10ed013a2b6fe0d75eb8e302ff53450429a1842f545782539b8e230ae29cd652|maezo-provider-vertical-e0-parent:n2fix-r14|g; s|maezo-n2-collector@sha256:b6bfdf16a9500a962051a95e33ffb79070a74b18e9c9084a7872136654bca62c|maezo-n2-collector:v1|g' "$LANE_DIR/${N2_SCOPE:-N2-LANE-SCOPE-v16.json}"
           mkdir -p "$GITHUB_WORKSPACE/docs/audits/PROVIDER-IMPL-2026-10/20261005T024404Z/evidence/root-successor-20261006/p3-rebuild/n2"
           gh release download n2-lane-v16 --repo "$GITHUB_REPOSITORY" --pattern 'lane-extra.tar.gz' --dir /tmp
           tar xzf /tmp/lane-extra.tar.gz -C /tmp
