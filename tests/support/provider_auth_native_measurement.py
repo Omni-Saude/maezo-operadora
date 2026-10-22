@@ -325,8 +325,12 @@ def source_sha(*, guard: runtime._ObservationWaitGuard | None = None) -> str:
 
 def remaining(guard: runtime._ObservationWaitGuard) -> float:
     guard.check()
+    # Per-read engineering cap, NOT a custody bound (the session deadline remains
+    # the true limit). The historical 5s fit the local lane's 3-4s instrument
+    # sweeps; a cold non-local lane (CI arm64) exceeds it between HOLD and the
+    # next frame, so the cap moves to 60s — still far under the 14-min window.
     return min(
-        5.0,
+        60.0,
         (guard.deadline - datetime.now(UTC)).total_seconds(),
         (guard.deadline - guard.start_wall).total_seconds() - (time.monotonic_ns() - guard.start_ns) / 1e9,
     )
