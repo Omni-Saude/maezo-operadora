@@ -351,6 +351,16 @@ def _build_br_resident(settings: InferenceSettings) -> BaseInferenceProvider:
     return BrResidentInferenceProvider(model=settings.model, timeout_s=settings.timeout_s)
 
 
+def _regiao_da_zona_phi() -> str:
+    """sa-east-1, ou a regiao da EXCECAO do dev autorizada pelo DPO (21/10/2026) quando ela esta' LIGADA."""
+    from maezo.runtime.inference.excecao_regional import REGIAO_EXCECAO, ROTA_EXCECAO_US, excecao_ativa
+
+    if excecao_ativa():
+        logger.warning("inference_phi_excecao_regional_ativa", rota=ROTA_EXCECAO_US, regiao=REGIAO_EXCECAO)
+        return REGIAO_EXCECAO
+    return "sa-east-1"
+
+
 def _build_bedrock_br(settings: InferenceSettings) -> BaseInferenceProvider:
     """Zona PHI servida pelo Bedrock REGIONAL, pelo adaptador que já cobra o contrato.
 
@@ -368,7 +378,9 @@ def _build_bedrock_br(settings: InferenceSettings) -> BaseInferenceProvider:
         model=settings.model,
         timeout_s=settings.timeout_s,
         max_tokens=settings.max_tokens,
-        transport=BedrockBrRegionalTransport(timeout_s=settings.timeout_s, executor=executor),
+        transport=BedrockBrRegionalTransport(
+            timeout_s=settings.timeout_s, executor=executor, regiao=_regiao_da_zona_phi()
+        ),
     )
 
 

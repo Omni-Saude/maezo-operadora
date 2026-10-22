@@ -83,7 +83,8 @@ helena_roteador = "sombra"
 // de acerto em 50 mensagens sinteticas, p50 0,60 s); o roteador nao muda quando a zona PHI mudar. IAM: `roteador-modelo.tf`.
 // 22/10/2026: o Mistral Large 3 regional parou de responder; o roteador acompanha a zona PHI no Gemma 3 27B
 // (50/50 na medicao, p50 0,31 s) ate' o Mistral normalizar.
-helena_roteador_modelo = "google.gemma-3-27b-it"
+// Excecao regional (DPO, 21/10/2026): o roteador acompanha a zona PHI no GLM-5 em us-east-1.
+helena_roteador_modelo = "zai.glm-5"
 // F2 (DL-0136): com `ativo`, o roteador DECIDE so' nas conversas de `helena_roteador_conversas` (SO' as do
 // simulador); fora delas, sombra. A lista de teste das pessoas entra so' na F4, com o OK do dono.
 helena_roteador_conversas = [

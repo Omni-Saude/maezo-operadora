@@ -242,3 +242,20 @@ chamadas ficavam penduradas SEM erro nem metrica no `AWS/Bedrock` (a chamada que
   nao responde e os menores da regiao respondem, trocar a zona PHI pelo §6 e registrar no DL.
 - **Diagnostico de 22/10/2026 (cota):** as cotas on-demand do GLM-5 e do Mistral Large 3 em sa-east-1 sao 100 M
   tokens/min e 10 mil requisicoes/min, sem cota diaria; nenhum `InvocationThrottles` nas horas das paradas. Nao foi cota.
+
+## 8. Excecao regional do dev: GLM-5 em us-east-1 (DPO, 21/10/2026) — e como voltar a Sao Paulo
+
+- **Por que:** GLM-5 e Mistral Large 3 em sa-east-1 fora (CloudTrail: `InternalServerException`/`ServiceUnavailableException`
+  desde 21/10/2026) e nenhum modelo regional de Sao Paulo passou no criterio do classificador (0 erro de risco
+  psicossocial nos dois sentidos, intencao >= 90%, JSON valido, latencia). O DONO, como DPO, autorizou o GLM-5 em
+  us-east-1 so' no dev: "se nao funcionar o 1... tem que ir pro 2, desde que funcione e resolva". Producao fora.
+- **Como esta' ligada:** `phi_excecao_regional` = `excecao_us_east_1_autorizada_dpo_2026-10-21` (rotulo literal; o
+  codigo so' liga com ele), `phi_endpoint_url` = us-east-1, `phi_model_id`/`helena_roteador_modelo` = `zai.glm-5`.
+  A resposta e' atestada como `us-east-1` (nunca Brasil); toda linha `inferencia_chamada` traz `regiao=us-east-1`;
+  no boot, `inference_phi_excecao_regional_ativa`.
+- **Sonda periodica de Sao Paulo:** rodar `C:/vc/sonda_saude_regiao.py` (ou a sonda do classificador) numa tarefa
+  do simulador uma vez por dia; quando o GLM-5 (ou o Mistral) de sa-east-1 responder de novo em ~1-2 s e passar no
+  criterio do classificador, VOLTAR.
+- **Voltar a Sao Paulo:** PR com `phi_excecao_regional = ""`, `phi_endpoint_url` de sa-east-1 e o modelo regional
+  em `phi_model_id`/`helena_roteador_modelo`; apply direcionado dos QUATRO papeis da `task_bedrock`, dos quatro do
+  modelo do roteador e das task definitions/servicos (§6); conferir `inference_phi_excecao_regional_ativa` ausente.

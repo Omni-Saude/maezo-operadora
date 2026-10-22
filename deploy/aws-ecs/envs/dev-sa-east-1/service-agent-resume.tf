@@ -79,6 +79,8 @@ resource "aws_ecs_task_definition" "agent_resume" {
       { name = "MAEZO_INFERENCE_PROVIDER", value = local.agentes.helena.provider },
       { name = "MAEZO_INFERENCE_PHI_ZONE_REQUIRED", value = tostring(local.agentes.helena.phi_zone_required) },
       { name = "MAEZO_PHI_ENDPOINT_URL", value = var.phi_endpoint_url },
+      # Excecao regional do dev autorizada pelo DPO (excecao-regional-phi.tf); vazio = sa-east-1.
+      { name = "MAEZO_PHI_EXCECAO_REGIONAL", value = var.phi_excecao_regional },
       { name = "MAEZO_PHI_VENDOR_DPA_REF", value = var.phi_vendor_dpa_ref },
       { name = "MAEZO_INFERENCE_MODEL", value = local.agentes.helena.provider == "bedrock_br" || local.agentes.helena.provider == "br_resident" ? var.phi_model_id : "" },
       # Protecoes de TODA chamada a zona PHI (inferencia-alarmes.tf): prazo REAL (tempo de leitura do cliente), teto

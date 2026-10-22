@@ -43,6 +43,7 @@ RESULTADO_PRAZO = "prazo"
 def registrar_chamada(
     *,
     modelo: str,
+    regiao: str = "sa-east-1",
     resultado: str,
     ms: int,
     tokens_entrada: int = 0,
@@ -54,6 +55,7 @@ def registrar_chamada(
     logger.info(
         EVENTO_INFERENCIA_CHAMADA,
         modelo=str(modelo)[:80],
+        regiao=str(regiao)[:20],
         resultado=resultado,
         ms=ms,
         tokens_entrada=tokens_entrada,
@@ -200,7 +202,11 @@ def br_endpoint_denial_reasons(endpoint_url: str) -> tuple[str, ...]:
     if "@" in parts.netloc:
         reasons.append(ENDPOINT_DENIAL_USERINFO)
     hostname = (parts.hostname or "").lower()
-    if not any(hostname.endswith(suffix) for suffix in BR_REGIONAL_ENDPOINT_HOST_SUFFIXES):
+    from maezo.runtime.inference.excecao_regional import HOST_EXCECAO, excecao_ativa
+
+    # EXCECAO REGIONAL do dev autorizada pelo DPO (21/10/2026): o host de us-east-1 so' com a excecao LIGADA.
+    excecao = excecao_ativa() and hostname == HOST_EXCECAO
+    if not excecao and not any(hostname.endswith(suffix) for suffix in BR_REGIONAL_ENDPOINT_HOST_SUFFIXES):
         reasons.append(ENDPOINT_DENIAL_HOST)
     if parts.query or parts.fragment:
         reasons.append(ENDPOINT_DENIAL_QUERY)
@@ -394,14 +400,14 @@ _BEDROCK_PROFILE_NAMESPACES: Final[frozenset[str]] = frozenset({"global", "us", 
 _BEDROCK_REGIONAL_ENDPOINT: Final[str] = "https://bedrock-runtime.sa-east-1.amazonaws.com"
 
 
-def _bedrock_direct_model_arn(model: str) -> str:
+def _bedrock_direct_model_arn(model: str, prefixo: str = _BEDROCK_FOUNDATION_ARN_PREFIX) -> str:
     """Bind a canonical direct selector to a regional resource; never approve a model.
 
     Syntax proves the selected resource class, not its existence, availability or
     suitability for PHI. The existing explicit model and owner gates still apply.
     No decoding, whitespace normalization, arbitrary prefix removal or fallback is allowed.
     """
-    identifier = model.removeprefix(_BEDROCK_FOUNDATION_ARN_PREFIX) if isinstance(model, str) else ""
+    identifier = model.removeprefix(prefixo) if isinstance(model, str) else ""
     if (
         not _BEDROCK_FOUNDATION_MODEL_ID.fullmatch(identifier)
         or identifier.split(".", 1)[0] in _BEDROCK_PROFILE_NAMESPACES
@@ -409,7 +415,7 @@ def _bedrock_direct_model_arn(model: str) -> str:
         raise BrRegionalTransportUnavailableError(
             "bedrock_phi_model_not_direct_regional_foundation_model", retryable=False
         )
-    return _BEDROCK_FOUNDATION_ARN_PREFIX + identifier
+    return prefixo + identifier
 
 
 class BedrockBrRegionalTransport:
@@ -437,7 +443,18 @@ class BedrockBrRegionalTransport:
     #: carrega a região no nome, e esta constante é o que a compara com o cliente REAL.
     REGIAO: ClassVar[str] = "sa-east-1"
 
-    def __init__(self, *, timeout_s: float = 60.0, client: Any = None, executor: Any = None) -> None:
+    def __init__(
+        self, *, timeout_s: float = 60.0, client: Any = None, executor: Any = None, regiao: str = "sa-east-1"
+    ) -> None:
+        from maezo.runtime.inference.excecao_regional import ENDPOINT_EXCECAO, REGIAO_EXCECAO, excecao_ativa
+
+        # EXCECAO REGIONAL (DPO, 21/10/2026): outra regiao so' com a excecao LIGADA e so' a dela.
+        if regiao != self.REGIAO and not (excecao_ativa() and regiao == REGIAO_EXCECAO):
+            raise BrRegionalTransportUnavailableError("bedrock_phi_regiao_fora_da_excecao", retryable=False)
+        self._regiao = regiao
+        self._endpoint = _BEDROCK_REGIONAL_ENDPOINT if regiao == self.REGIAO else ENDPOINT_EXCECAO
+        self._prefixo_arn = f"arn:aws:bedrock:{regiao}::foundation-model/"
+        self._regiao_atestada = BR_REGIONAL_ATTESTED_REGION if regiao == self.REGIAO else regiao
         # `executor` (ADR-0066): pool PROPRIO para as chamadas deste transporte; `None` = o pool padrao do
         # asyncio, como sempre. O `read_timeout` do cliente e' o prazo REAL: a thread volta no prazo, nunca
         # fica presa depois do prazo de quem chamou.
@@ -458,7 +475,7 @@ class BedrockBrRegionalTransport:
 
             self._client = boto3.client(
                 "bedrock-runtime",
-                region_name=self.REGIAO,
+                region_name=self._regiao,
                 config=Config(
                     read_timeout=leitura,
                     connect_timeout=conexao,
@@ -471,9 +488,9 @@ class BedrockBrRegionalTransport:
     def _admit_endpoint(self, request: BrRegionalRequest, *, committed: bool = False) -> None:
         meta = getattr(self._client, "meta", None)
         if (
-            request.endpoint_url != _BEDROCK_REGIONAL_ENDPOINT
-            or getattr(meta, "endpoint_url", None) != _BEDROCK_REGIONAL_ENDPOINT
-            or getattr(meta, "region_name", None) != self.REGIAO
+            request.endpoint_url != self._endpoint
+            or getattr(meta, "endpoint_url", None) != self._endpoint
+            or getattr(meta, "region_name", None) != self._regiao
         ):
             raise BrRegionalTransportUnavailableError(
                 "bedrock_phi_resolved_endpoint_or_region_not_admitted",
@@ -483,7 +500,7 @@ class BedrockBrRegionalTransport:
 
     async def send(self, request: BrRegionalRequest) -> BrRegionalResponse:
         """Refuse unsafe routing before dispatch; keep evidence provenance explicit."""
-        model_arn = _bedrock_direct_model_arn(request.model)
+        model_arn = _bedrock_direct_model_arn(request.model, self._prefixo_arn)
         self._admit_endpoint(request)
         dpa_ref = (
             request.headers.get(HEADER_VENDOR_DPA_REF, "") if isinstance(request.headers, Mapping) else ""
@@ -513,6 +530,7 @@ class BedrockBrRegionalTransport:
             nome = "TimeoutPrazoTotal" if isinstance(exc, TimeoutError) else type(exc).__name__
             registrar_chamada(
                 modelo=request.model,
+                regiao=self._regiao,
                 resultado=RESULTADO_PRAZO if "Timeout" in nome else RESULTADO_FALHA,
                 ms=int((time.monotonic() - inicio) * 1000),
                 erro=nome,
@@ -521,7 +539,7 @@ class BedrockBrRegionalTransport:
             retryable = "Throttl" in nome or "TooManyRequests" in nome
             raise BrRegionalTransportUnavailableError(
                 f"Bedrock regional indisponível ({nome}) para o modelo {request.model!r} em "
-                f"{self.REGIAO}. Nenhuma parte da resposta é aproveitada.",
+                f"{self._regiao}. Nenhuma parte da resposta é aproveitada.",
                 retryable=retryable,
                 # O prompt foi transmitido: o provedor NÃO deve re-enviar PHI.
                 committed=True,
@@ -541,6 +559,7 @@ class BedrockBrRegionalTransport:
             parada = str(bruto.get("stopReason") or "")
             registrar_chamada(
                 modelo=request.model,
+                regiao=self._regiao,
                 resultado=RESULTADO_OK,
                 ms=int((time.monotonic() - inicio) * 1000),
                 tokens_entrada=int(uso.get("inputTokens") or 0),
@@ -558,9 +577,10 @@ class BedrockBrRegionalTransport:
                     # significa zero, não desconhecido.
                     cached_prefix_tokens=int(uso.get("cacheReadInputTokens") or 0),
                 ),
-                endpoint_url=_BEDROCK_REGIONAL_ENDPOINT,
-                # Eligibility from admitted direct regional routing, NOT a response field.
-                served_region=BR_REGIONAL_ATTESTED_REGION,
+                endpoint_url=self._endpoint,
+                # Eligibility from admitted direct regional routing, NOT a response field. Na excecao regional
+                # (DPO, 21/10/2026) a regiao atestada e' a VERDADEIRA (us-east-1), nunca o Brasil.
+                served_region=self._regiao_atestada,
                 zero_retention_acknowledged=True,
                 training_prohibited_acknowledged=True,
                 region_evidence_source="regional_direct_model_contract",
