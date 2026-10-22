@@ -42,3 +42,16 @@ async def test_modelo_que_le_pedido_de_pessoa_em_cortesia_nao_abre_caso() -> Non
     grafo, whatsapp, cib, _fonte = _grafo_e_estado({}, [_classify(intent="human_request")])
     await grafo.ainvoke(_entrada("valeu, era isso"))
     assert _starts(cib) == 0 and whatsapp.enviados[-1].startswith("Por nada!")
+
+
+async def test_com_caso_aberto_a_pergunta_do_prazo_responde_pelo_caso_aberto() -> None:
+    """dono_v1, 22/10/2026: "Quanto tempo demora?" depois do pedido de atendente nao vira cortesia: o caso ja'
+    existe, a trava nao abre caso novo e o start reaproveita o aberto (texto do prazo)."""
+    from tests.unit.agents.test_helena_rodada_3_simulador import _caso_aberto, _grafo
+
+    cib = _caso_aberto("solicitacao_humano")
+    antes = _starts(cib)
+    grafo, whatsapp, _modelo, _cib = _grafo([_classify(intent="human_request")], cib=cib)
+    await grafo.ainvoke(_entrada("Quanto tempo demora?"))
+    assert whatsapp.enviados and whatsapp.enviados[-1] not in (ca.TEXTO_DE_NADA, ca.TEXTO_COMBINADO)
+    assert _starts(cib) == antes, "nenhum caso novo"
