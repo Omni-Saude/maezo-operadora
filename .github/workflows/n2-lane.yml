@@ -50,6 +50,7 @@ jobs:
           echo "LANE_DIR=$LANE_DIR" >> "$GITHUB_ENV"
           sed -i "s|WORKTREE = Path(\"/Users/familia/code/maezo-operadora/.claude/worktrees/provider-implementation\")|WORKTREE = Path(\"$GITHUB_WORKSPACE\")|" "$LANE_DIR/runner.py"
           grep -n "^WORKTREE" "$LANE_DIR/runner.py"
+          mkdir -p "$GITHUB_WORKSPACE/docs/audits/PROVIDER-IMPL-2026-10/20261005T024404Z/evidence/root-successor-20261006/p3-rebuild/n2"
 
       - name: Run the N2 lane
         env:
