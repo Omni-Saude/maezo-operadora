@@ -81,6 +81,9 @@ helena_base_saude = true
 // F2 (DL-0136), 21/10/2026: ATIVO -- o roteador DECIDE so' nas conversas de `helena_roteador_conversas` (SO' as do
 // simulador, abaixo); fora delas (o dono, a Tania, o time) continua em SOMBRA. Voltar: "sombra".
 helena_roteador = "ativo"
+// DL-0140 (dono, 22/10/2026): cobertura em MODO SIMPLES (sem consulta por procedimento; a equipe confirma).
+// Voltar para a consulta automatica: "consulta".
+helena_cobertura_modo = "simples"
 // DL-0137: modelo PROPRIO do roteador, fixado EXPLICITAMENTE por decisao do dono de 21/10/2026 (medicao: 100%
 // de acerto em 50 mensagens sinteticas, p50 0,60 s); o roteador nao muda quando a zona PHI mudar. IAM: `roteador-modelo.tf`.
 // 22/10/2026: o Mistral Large 3 regional parou de responder; o roteador acompanha a zona PHI no Gemma 3 27B

@@ -66,6 +66,10 @@ DIRETO, CONFIRMA, OPCOES, NENHUM, VAGO = "direto", "confirma", "opcoes", "nenhum
 LEXICO_MINIMO_PARA_DIRETO = 0.3
 #: DL-0131 (velocidade): leituras de cobertura da AMH em paralelo por resposta.
 LEITURAS_AMH_SIMULTANEAS = 4
+#: DL-0140 (dono, 22/10/2026): os modos da cobertura (`MAEZO_HELENA_COBERTURA_MODO`).
+MODO_SIMPLES = "simples"
+MODO_CONSULTA = "consulta"
+MODOS_DA_COBERTURA = (MODO_SIMPLES, MODO_CONSULTA)
 
 
 def quem_pelo_texto(texto: str, graus: Sequence[str], primeiros_nomes: Mapping[int, str]) -> str | None:
@@ -148,6 +152,9 @@ class Dependencias:
     lembrar_quem: Callable[[str], None] | None = None
     #: DL-0131: o rotulo de quem ("Para voce (titular)", "Para <nome>", "Para o seu filho").
     rotulo_de_quem: Callable[[str], str] | None = None
+    #: DL-0140 (dono, 22/10/2026): `simples` = nunca consulta catalogo/AMH por procedimento (texto geral +
+    #: oferta da equipe); `consulta` = a consulta automatica de antes (o codigo continua, atras da chave).
+    modo: str = "consulta"
 
 
 @dataclass(frozen=True)
@@ -207,6 +214,18 @@ class FluxoDeCobertura:
 
     # --- entrada --------------------------------------------------------------------------------------------
     async def responder(self, texto: str, pendente: str, contexto: object) -> dict[str, Any]:
+        if (
+            self.d.modo == MODO_SIMPLES
+            and pendente.startswith(ca.PREFIXO)
+            and pendente
+            not in (
+                ca.PEND_EQUIPE,
+                ca.PEND_FALHA,
+            )
+        ):
+            # Modo simples: as perguntas da consulta (opcoes, nome do pedido, para quem) nao existem; uma
+            # pendencia antiga delas e' tratada como pergunta nova.
+            pendente = ""
         ctx = ca.Contexto.decodificar(contexto) if pendente.startswith(ca.PREFIXO) else ca.Contexto()
         respondidos = list(ctx.respondidos) if pendente == PEND_RESPONDIDO else []
         resposta = ca.ler_resposta(texto) if pendente.startswith(ca.PREFIXO) else None
@@ -456,6 +475,8 @@ class FluxoDeCobertura:
             return _update(prefixo + ca.TEXTO_RECEM_NASCIDO, ca.PEND_EQUIPE, ctx)
         if pedido.para_quem == "terceiro":
             return _update(prefixo + ca.TEXTO_TERCEIRO, ca.PEND_EQUIPE, ctx)
+        if self.d.modo == MODO_SIMPLES:
+            return await self._simples(pedido, ctx, prefixo=prefixo)
         if not pedido.procedimentos and pedido.outros:
             # Avaliacao de 21/10/2026: so' itens com regra propria (ex.: remedio + estetica): cada um pelo seu
             # caminho, numa resposta so'.
@@ -480,6 +501,20 @@ class FluxoDeCobertura:
             return await self._com_quem(ctx, quem, graus, prefixo=prefixo)
         quem, padrao = (ctx.quem, False) if ctx.quem else self._quem_sem_mencao()
         return await self._com_quem(replace(ctx, padrao=padrao), quem, (), prefixo=prefixo)
+
+    async def _simples(self, pedido: ca.Pedido, ctx: ca.Contexto, *, prefixo: str) -> dict[str, Any]:
+        """MODO SIMPLES (DL-0140): sem consulta por procedimento. Procedimento (ou lista) = o texto geral e a
+        oferta da equipe (caso so' com "sim"); um item excluido por lei na lista ganha a linha da exclusao
+        antes; sem procedimento = o texto geral do plano (cadastro), sem oferta."""
+        termos = [*pedido.procedimentos, *(nome for nome, _tipo in ctx.outros)]
+        if not termos:
+            logger.info("helena_cobertura_simples", resultado="geral")
+            return _update(prefixo + await self.d.texto_geral(), None, None)
+        excluidos = [tipo for _nome, tipo in ctx.outros if tipo in ca.TEXTO_EXCLUSAO]
+        linha_da_exclusao = f"{ca.TEXTO_EXCLUSAO[excluidos[0]]} " if excluidos else ""
+        logger.info("helena_cobertura_simples", resultado="oferta_da_equipe", itens=len(termos))
+        novo = replace(ctx, termos=termos[: ca.MAX_PROCEDIMENTOS], tentativas=0)
+        return _update(prefixo + linha_da_exclusao + ca.TEXTO_SIMPLES_PROCEDIMENTO, ca.PEND_EQUIPE, novo)
 
     async def _com_quem(
         self, ctx: ca.Contexto, quem: str, graus: Sequence[str], *, prefixo: str = ""

@@ -4812,8 +4812,14 @@ class HelenaGraph:
         roteador_inference: InferenceProvider | None = None,
         roteador_concorrencia: int = 4,
         helena_roteador_conversas: frozenset[str] = frozenset(),
+        cobertura_modo: str = "consulta",
     ) -> None:
         self._llm = inference
+        # COBERTURA (decisao do dono de 22/10/2026, DL-0140, `MAEZO_HELENA_COBERTURA_MODO`): `simples` nunca
+        # consulta catalogo/AMH por procedimento (texto geral + oferta da equipe); `consulta` = a consulta
+        # automatica. O padrao do RUNTIME vem da configuracao (`simples`); aqui `consulta` mantem os testes da
+        # consulta como estao. Valor desconhecido = `simples` (falha fechada: nunca afirma cobertura).
+        self._cobertura_modo = cobertura_modo if cobertura_modo in ("simples", "consulta") else "simples"
         # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134/0135/0136, `MAEZO_HELENA_ROTEADOR`): `desligado`
         # e' o grafo de antes no a no'. `sombra` (F1) roda o roteador e as travas EM PARALELO e so' registra a
         # decisao (`helena_roteador_sombra`). `ativo` (F2) faz o roteador DECIDIR, mas SO' nas conversas da
@@ -8490,7 +8496,10 @@ class HelenaGraph:
             self._gerativa_para(state)
             and habilidade_do_roteador in (None, "", "cobertura")
             and (
-                pendente_do_turno.startswith(PREFIXO_COBERTURA_ASSISTIDA)
+                # F2 (r4 de 22/10/2026): com o roteador ATIVO escolhendo `cobertura`, a habilidade e' a
+                # cobertura — sem o detector de palavras competindo ("voces pagam endoscopia?").
+                habilidade_do_roteador == "cobertura"
+                or pendente_do_turno.startswith(PREFIXO_COBERTURA_ASSISTIDA)
                 or _pergunta_de_cobertura_ampla(mensagem_do_turno)
                 # DL-0129: coparticipacao/reembolso de procedimento ja' veio para ca' pelo roteamento sem
                 # modelo.
@@ -8527,7 +8536,11 @@ class HelenaGraph:
             # para a segmentacao do plano? Fatos do contrato TINA cobertura (v1.9), texto deterministico com o
             # aviso. `None` = sem termo, sem a rota ou falha: o caminho de antes (segmentacao + onde
             # confirmar).
-            cobertura = await self._cobertura_do_procedimento(state, ref)
+            cobertura = (
+                None
+                if self._cobertura_modo == "simples"
+                else await self._cobertura_do_procedimento(state, ref)
+            )
             if cobertura is not None:
                 return cobertura
         if _pergunta_de_cobertura(mensagem_do_turno) and _ja_respondeu_cobertura(state):
@@ -8856,7 +8869,7 @@ class HelenaGraph:
         def _para_quem(graus: list[str], com_nome: bool) -> str:
             return pergunta_para_quem(graus, com_nome=com_nome)
 
-        if self._busca_procedimentos is not None:
+        if self._busca_procedimentos is not None and self._cobertura_modo != "simples":
             self._garantir_catalogo()
         fluxo = FluxoDeCobertura(
             Dependencias(
@@ -8873,6 +8886,7 @@ class HelenaGraph:
                 lembrar_quem=lembrar_quem,
                 rotulo_de_quem=rotulo_de_quem,
                 cpt=cpt if leitor_cpt is not None else None,
+                modo=self._cobertura_modo,
             )
         )
         resultado = await fluxo.responder(
@@ -11220,6 +11234,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         else None,
         roteador_concorrencia=int(cfg.get("roteador_concorrencia") or 4),
         helena_roteador_conversas=frozenset(cfg.get("helena_roteador_conversas") or ()),
+        # COBERTURA (DL-0140): o modo que a composicao disser; sem ele, `simples` (nunca afirma cobertura).
+        cobertura_modo=str(cfg.get("cobertura_modo") or "simples"),
     ).compile_graph()
 
 

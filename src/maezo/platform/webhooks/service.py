@@ -360,6 +360,8 @@ def _build_dispatcher(
         roteador_inference=roteador_inference,
         roteador_concorrencia=settings.helena_roteador_concorrencia,
         helena_roteador_conversas=_conversas_do_roteador(settings.helena_roteador_conversas),
+        # COBERTURA (DL-0140): `MAEZO_HELENA_COBERTURA_MODO`, default `simples`.
+        cobertura_modo=settings.helena_cobertura_modo,
         # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
         # dev).
         saude_gerativa=_saude_gerativa(settings),
