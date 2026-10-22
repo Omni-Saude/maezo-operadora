@@ -7409,6 +7409,29 @@ class HelenaGraph:
             update["escalation_motivo"] = "red_flag_clinico"
             update["escalation_severidade"] = "grave"
             return update
+        # (2) RECUSA explicita / pedido de encerrar com caso aberto. Avaliacao r4 de 22/10/2026 (regra do
+        # dono): a recusa depois da oferta/abertura do caso ("nao quero falar com ninguem", "nao, deixa,
+        # desisto") ENCERRA o caso P2/P3 — inclusive logo depois do caso aberto pela v4 (antes a pendencia
+        # da v4 levava a recusa para a v4, que a lia como sintoma novo). A recusa e' a do leitor de
+        # encerrar que ja' existe (`pede_para_encerrar_o_atendimento`) ou a resposta curta de desistencia
+        # (`cobertura_assistida.ler_resposta` = encerrar).
+        from maezo.agents.helena import cobertura_assistida as _ca
+
+        pede_encerrar = pede_para_encerrar_o_atendimento(texto)
+        desiste = _ca.ler_resposta(texto) == "encerrar"
+        if (pede_encerrar or desiste) and not _pedido_explicito_com_verbo(
+            _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO.sub(" ", _RECUSA_DE_EQUIPE.sub(" ", plano))
+        ):
+            if await self._casos_abertos_da_conversa(state):
+                if gerativa:
+                    # DL-0131 / avaliacao de 21/10/2026: na allowlist a recusa ENCERRA direto os casos P2/P3.
+                    return await self._base_confirmacao_de_encerramento(state, update, "sim")
+                logger.info("helena_base_saude_confirma_encerramento", node="classify")
+                return self._base_texto_fixo(
+                    update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO
+                )
+            if pede_encerrar:
+                return None
         pergunta_nova = (
             # RODADA DO DONO (18/10/2026): com as perguntas de ALERTA pendentes, uma PERGUNTA NOVA (nao
             # sim/nao,
@@ -7426,19 +7449,6 @@ class HelenaGraph:
             and ((pend_v4.etapa == ETAPA_ESCOLHA and escolha_da_resposta(plano) is None) or pergunta_nova)
         ):
             # A pessoa esta' respondendo a v4 (alerta/opcao): quem decide e' a v4.
-            return None
-        # (2) RECUSA explicita / pedido de encerrar com caso aberto: pergunta de confirmacao.
-        if pede_para_encerrar_o_atendimento(texto) and not _pedido_explicito_com_verbo(
-            _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO.sub(" ", _RECUSA_DE_EQUIPE.sub(" ", plano))
-        ):
-            if await self._casos_abertos_da_conversa(state):
-                if gerativa:
-                    # DL-0131 / avaliacao de 21/10/2026: na allowlist a recusa ENCERRA direto os casos P2/P3.
-                    return await self._base_confirmacao_de_encerramento(state, update, "sim")
-                logger.info("helena_base_saude_confirma_encerramento", node="classify")
-                return self._base_texto_fixo(
-                    update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO
-                )
             return None
         # (3) PERGUNTA INFORMATIVA / RESULTADO PESSOAL. Nunca por cima de pedido de pessoa, ANS/Procon,
         # cobranca, consulta/cobertura do plano ou pedido de especialista (a v4 responde onde marcar).
