@@ -10961,6 +10961,13 @@ class HelenaGraph:
             ms=ms,
         )
         if habilidade == "cobertura" and self._consultas is not None:
+            if mantem and antes:
+                # A resposta a pergunta da propria cobertura segue as regras dela: "sim" a oferta da
+                # equipe abre o caso (`_rota_da_cobertura_assistida`, trava `caso_so_com_sim`), nunca a
+                # oferta de novo.
+                propria = self._rota_da_cobertura_assistida(state, _plano(texto), texto)
+                if propria is not None and propria.get("next_kind") == "escalate":
+                    return {**propria, "habilidade_roteador": habilidade}
             update = self._update_sem_modelo(state)
             update.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
             if mantem and antes:

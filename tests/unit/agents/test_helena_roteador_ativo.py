@@ -8,6 +8,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from structlog.testing import capture_logs
 
 from maezo.agents.helena import cobertura_assistida as ca
@@ -232,6 +233,22 @@ async def test_nao_a_oferta_da_equipe_fica_com_a_dona_da_pendencia() -> None:
     from tests.unit.agents.test_helena_rodada_3_simulador import _starts
 
     assert _starts(cib) == 0 and whatsapp.enviados[-1] == ca.TEXTO_SEM_EQUIPE
+
+
+@pytest.mark.parametrize("decisao", ["equipe", "cobertura"])
+async def test_quero_sim_a_oferta_da_equipe_da_cobertura_abre_o_caso(decisao: str) -> None:
+    """Roteiro de 22/10/2026 (segmento 9): com a pendencia na dona (cobertura), o "sim" a oferta da equipe
+    continua abrindo o caso, nunca a oferta de novo."""
+    modelo = _Modelo([_decisao(decisao, responde=True)], [])
+    grafo, whatsapp, cib, _fonte = _grafo(modelo)
+    contexto = ca.Contexto(termos=["qwxzk"], quem="titular", tentativas=2).codificar()
+    await grafo.ainvoke(
+        _entrada("quero sim") | {"coleta_pendente": ca.PEND_EQUIPE, "coleta_contexto": contexto}
+    )
+    from tests.unit.agents.test_helena_rodada_3_simulador import _starts
+
+    assert _starts(cib) == 1, "o 'sim' a oferta da equipe abre o caso"
+    assert ca.TEXTO_OFERTA_EQUIPE not in whatsapp.enviados[-1]
 
 
 async def test_deixa_pra_la_a_pendencia_da_cobertura_encerra_com_a_dona() -> None:
