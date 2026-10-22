@@ -1693,7 +1693,9 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
             _p(
                 "Não, a minha dúvida não é sobre mensalidade, é se o plano cobre mamografia",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(_COBERTURA_OU_PARA_QUEM,),
+                # 22/10/2026: se o passo 1 ja' resolveu "exame de mama" como mamografia, a mesma pergunta
+                # recebe o texto da regra E3 (DL-0128: reconhece e oferece o proximo passo, sem repetir).
+                deve=(rf"({_COBERTURA_OU_PARA_QUEM}|ja te passei o que consta no cadastro)",),
                 nao_deve=_NAO_E_COBRANCA,
             ),
         ),
