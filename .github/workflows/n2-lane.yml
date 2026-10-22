@@ -43,6 +43,8 @@ jobs:
           docker load < /tmp/images.tar.gz
           docker pull postgres:16
           docker pull maven:3.9-eclipse-temurin-17@sha256:1ed5d1f54416b706707b4f3238f63a20bb06aab27c6d240090a2bb9ad895ed45
+          docker pull postgres:16
+          docker pull maven:3.9-eclipse-temurin-17@sha256:1ed5d1f54416b706707b4f3238f63a20bb06aab27c6d240090a2bb9ad895ed45
           mkdir -p /tmp/lane-x && tar xzf /tmp/lane-harness.tar.gz -C /tmp/lane-x
           ls -la /tmp/lane-x/lane
 
