@@ -899,14 +899,35 @@ class NativeMeasurementCollector:
                     captures = []
                     for phase in ("ROOT_FIRST", "ROOT_SECOND"):
                         self._check()
-                        capture = await acquire_pg_checkpoint(
-                            connection,
-                            hold=hold,
-                            hold_raw=hold_raw,
-                            phase=phase,
-                            guard=self.guard,
-                            schema=self.schema,
-                        )
+                        try:
+                            capture = await acquire_pg_checkpoint(
+                                connection,
+                                hold=hold,
+                                hold_raw=hold_raw,
+                                phase=phase,
+                                guard=self.guard,
+                                schema=self.schema,
+                            )
+                        except runtime.NativeObservationError as checkpoint_failure:
+                            # CI #60: a checkpoint may read a per-transaction CACHED
+                            # pg_stat_activity row (PostgreSQL snapshots stats once per
+                            # transaction) whose stage xid already committed for the
+                            # statement snapshot — a consistent 'absent' mapping that no
+                            # in-transaction re-read can clear. One bounded retry in a
+                            # FRESH read-only transaction (the function opens its own);
+                            # any other refusal propagates untouched.
+                            if "full-XID mapping absent/ambiguous" not in str(checkpoint_failure):
+                                raise
+                            await asyncio.sleep(0.05)
+                            self._check()
+                            capture = await acquire_pg_checkpoint(
+                                connection,
+                                hold=hold,
+                                hold_raw=hold_raw,
+                                phase=phase,
+                                guard=self.guard,
+                                schema=self.schema,
+                            )
                         self._join_pg_process(capture)
                         self._check()
                         ref = artifact_ref(
