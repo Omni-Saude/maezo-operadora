@@ -47,8 +47,9 @@ concordância por roteiro, as falhas, o tempo e cada desacordo com o texto do pa
 São pontes da F2 entre a decisão do roteador e o código de hoje; na F5 saem do `graph.py` (a decisão passa a
 ser do contrato `spec/agents/helena/roteador.yaml` e de cada habilidade fechada):
 
-1. Reclamação sobre a resposta anterior sem pedido de pessoa fica com a dona da pendência
-   (`e_reclamacao` + `dona_da_pendencia`, #897) → regra de pendência do contrato.
+1. Reclamação sobre a resposta anterior e resposta curta à pendência ("não", "deixa pra lá", `ler_resposta`), sem
+   pedido de pessoa, ficam com a dona da pendência (`e_reclamacao` + `dona_da_pendencia`, #897 e #901); o
+   roteador dizendo "responde à pendência" também vai para a dona → regra de pendência do contrato.
 2. `habilidade_roteador` no estado barrando a cobertura assistida e o caminho do Rol no `consultar_plano`
    quando o roteador escolheu outra habilidade (#897, #900) → a habilidade `plano` fechada, sem passar pelas
    regras de cobertura.

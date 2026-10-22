@@ -10937,6 +10937,17 @@ class HelenaGraph:
             # novo).
             mantem = True
             habilidade = self._roteador_contrato.dona_da_pendencia(antes) or habilidade
+        dona = self._roteador_contrato.dona_da_pendencia(antes) if antes and not duvida_antes else None
+        if (
+            dona is not None
+            and (mantem or _ca.ler_resposta(texto) is not None)
+            and not (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto))
+        ):
+            # Contrato (ADR-0066): a resposta a pergunta pendente e' da habilidade DONA dela. Roteiro de
+            # 22/10/2026: "nao" a oferta da equipe da cobertura foi para `equipe` (p=true) e "deixa pra la'"
+            # para `conversa`; a resposta curta (o leitor que ja' existe, `ler_resposta`) fica com a dona.
+            mantem = True
+            habilidade = dona
         st: HelenaState = (
             state
             if mantem or not antes
