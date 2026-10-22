@@ -225,3 +225,20 @@ lucas_v4_nao_pagador 4/4), igual a linha de base do Mistral; zero erros de servi
 Bedrock; latencia por chamada p50 1,46 s / p95 1,68 s (Mistral: 0,75 s / 0,92 s); ~3,7 mil tokens de
 entrada e ~96 de saida por chamada. As respostas ao beneficiario sao quase todas gabarito (a mesma redacao
 nos dois modelos): o modelo so' classifica/extrai e redige poucas perguntas de coleta.
+
+## 7. Protecoes e alarme das chamadas (22/10/2026)
+
+Depois das duas paradas dos modelos grandes regionais (GLM-5 em 21/10, Mistral Large 3 em 21-22/10), em que as
+chamadas ficavam penduradas SEM erro nem metrica no `AWS/Bedrock` (a chamada que nao termina nao conta):
+
+- **Prazo real** de cada chamada = tempo de leitura do cliente boto (`MAEZO_INFERENCE_TIMEOUT_S`, `inferencia_prazo_s`,
+  20 s): a thread volta no prazo. **Teto de saida** por chamada (`MAEZO_INFERENCE_MAX_TOKENS`, 1024). **Pool proprio**
+  de threads (`MAEZO_INFERENCE_DEDICATED_WORKERS`, 16). Vale para Helena e Lucas (receptor, agentes, retomada).
+- **Contador:** uma linha `inferencia_chamada modelo=... resultado=ok|falha|prazo ms=... tokens_entrada=...
+  tokens_saida=...` por chamada (so' numeros e vocabulario fechado).
+- **Alarme:** `maezo-operadora-dev-inferencia-falhas-<modelo>` = falha + prazo >= `inferencia_alarme_limiar` (5) em
+  5 min no log do receptor, um por modelo (o da zona PHI e o do roteador). Destino: o topico `staff_alerts`.
+- **O que fazer:** conferir um prompt trivial numa tarefa do simulador (`C:/vc/sonda_saude_regiao.py`); se o modelo
+  nao responde e os menores da regiao respondem, trocar a zona PHI pelo §6 e registrar no DL.
+- **Diagnostico de 22/10/2026 (cota):** as cotas on-demand do GLM-5 e do Mistral Large 3 em sa-east-1 sao 100 M
+  tokens/min e 10 mil requisicoes/min, sem cota diaria; nenhum `InvocationThrottles` nas horas das paradas. Nao foi cota.
