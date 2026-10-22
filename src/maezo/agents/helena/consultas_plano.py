@@ -76,7 +76,7 @@ SUBTIPOS_REDIGIDOS: Final[frozenset[str]] = frozenset({"elegibilidade", "carteir
 #: Versao do ADENDO do classify (anexado ao classify v5/v6 SO' com as consultas ligadas) e do prompt
 #: de redacao da resposta com fatos. As duas entram em `graph.PROMPT_VERSIONS` e no `agent.yaml`.
 #: v2 — 14/10/2026 (DL-0100): o quinto subtipo, `dependentes`.
-CLASSIFY_CONSULTAS_ADENDO_VERSION: Final[str] = "classify-consultas-v2"
+CLASSIFY_CONSULTAS_ADENDO_VERSION: Final[str] = "classify-consultas-v3"
 #: v2 — 10/10/2026 (DL-0087): regra 7, o tom humanizado (curto, cordial, so' o perguntado, sem emoji).
 CONSULTA_PLANO_PROMPT_VERSION: Final[str] = "consulta-plano-v2"
 
@@ -177,7 +177,7 @@ class FonteDeCpt(Protocol):
 #: `consulta_subtipo`, e VENCE o paragrafo de "fora do canal" para as quatro perguntas do plano.
 ADENDO_CLASSIFY_CONSULTAS: Final[str] = """
 
-CONSULTA DO PLANO (classify-consultas-v2, 14/10/2026). Alem das intencoes acima, existe
+CONSULTA DO PLANO (classify-consultas-v3, 22/10/2026). Alem das intencoes acima, existe
 intent="consulta_plano": a pessoa quer saber um FATO do proprio cadastro no plano. Esta regra VENCE
 o paragrafo de assunto fora do canal para estes cinco assuntos, e so' para eles. Devolva tambem o
 campo "consulta_subtipo": SOMENTE quando intent="consulta_plano", um de ["elegibilidade",
@@ -188,7 +188,8 @@ campo "consulta_subtipo": SOMENTE quando intent="consulta_plano", um de ["elegib
   - "carencia": carencias do plano ("ja cumpri a carencia?", "tenho carencia para parto?");
   - "autorizacao": andamento de um pedido de autorizacao ou guia ja' feito ("minha autorizacao saiu?",
     "qual o status da minha guia?");
-  - "dependentes": quem e' dependente no plano ("tenho dependentes?", "minha filha esta' no plano?").
+  - "dependentes": quem esta' no plano alem do titular, os dependentes ("tenho dependentes?", "quem
+    mais esta' no meu plano?", "minha filha esta' no plano?").
 Autorizacao NEGADA com pedido de explicacao ("por que negaram?") continua "outside_channel": voce
 nunca explica uma negativa. Cobranca, boleto e mensalidade NUNCA sao "consulta_plano". Uma mensagem
 com QUALQUER sinal de saude segue as regras de saude, e pedir uma pessoa continua "human_request"."""

@@ -651,6 +651,8 @@ _VOCABULARIO_DE_CORTESIA: Final[frozenset[str]] = frozenset(
 
 
 def e_cortesia(texto: str) -> bool:
+    if so_emoji_de_acordo(texto):
+        return True
     palavras = normalizar(texto).split()
     return bool(palavras) and len(palavras) <= 10 and all(p in _VOCABULARIO_DE_CORTESIA for p in palavras)
 
@@ -668,6 +670,8 @@ _VOCABULARIO_DA_RESPOSTA: Final[frozenset[str]] = frozenset(
 def ler_resposta(texto: str) -> str | None:
     """A resposta CURTA a uma pergunta da Helena: "encerrar", "nao_sei", "nao", "sim" ou `None` (nao e'
     resposta: pode ser um pedido novo). Regra geral, sem termo de procedimento."""
+    if so_emoji_de_acordo(texto):
+        return "sim"
     plano = normalizar(texto)
     if not plano:
         return None
@@ -892,8 +896,23 @@ TEXTO_DESCULPA_SEM_ASSUNTO: Final[str] = (
 )
 
 
+#: Avaliacao r4 de 22/10/2026: a primeira frase de um texto de regra propria era cortada no "art." de
+#: "(Lei 9.656/1998, art. 10)". A frase so' termina num ponto seguido de espaco e MAIUSCULA, e nunca
+#: depois de uma abreviacao.
+_ABREVIACOES: Final[frozenset[str]] = frozenset(
+    {"art", "arts", "n", "no", "dr", "dra", "sr", "sra", "inc", "p"}
+)
+_FIM_DE_FRASE: Final[re.Pattern[str]] = re.compile(r"\.\s+(?=[A-ZÀ-Ý])")
+
+
 def _primeira_frase(texto: str) -> str:
-    return texto.split(". ")[0].rstrip(".") + "."
+    for fim in _FIM_DE_FRASE.finditer(texto):
+        palavras = texto[: fim.start()].split()
+        ultima = normalizar(palavras[-1]) if palavras else ""
+        if ultima in _ABREVIACOES:
+            continue
+        return texto[: fim.start() + 1]
+    return texto.rstrip() if texto.rstrip().endswith((".", "!", "?")) else texto.rstrip() + "."
 
 
 def frase_de_outro_item(nome: str, tipo: str) -> str:
@@ -926,7 +945,38 @@ _AGRADECE: Final[re.Pattern[str]] = re.compile(
 )
 
 
+#: Avaliacao r4 de 22/10/2026: "bom dia" era respondido como despedida ("Combinado! Se precisar...").
+#: Cumprimento SEM agradecimento nem despedida recebe o cumprimento curto de sempre (o mesmo texto do
+#: `graph.RESPOSTA_SAUDACAO_CURTA`).
+TEXTO_SAUDACAO: Final[str] = "Olá! Em que posso ajudar? 😊"
+_CUMPRIMENTO: Final[re.Pattern[str]] = re.compile(r"^(?:oi|ola|bom dia|boa tarde|boa noite)\b")
+_DESPEDIDA: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:tchau|ate (?:mais|logo|amanha|breve|a proxima)|abracos?|fui|bjs?|beijos?|falou)\b"
+)
+#: O polegar e afins sozinhos: cortesia, e "sim" quando ha' uma pergunta de sim/nao pendente.
+_EMOJI_DE_ACORDO: Final[frozenset[str]] = frozenset({"👍", "👌", "✅", "🙏", "👏"})
+
+
+def so_emoji_de_acordo(texto: str) -> bool:
+    limpo = "".join(c for c in (texto or "") if not c.isspace() and unicodedata.category(c) != "Sk")
+    limpo = limpo.replace("\ufe0f", "")
+    return bool(limpo) and all(c in _EMOJI_DE_ACORDO for c in limpo)
+
+
+def e_cumprimento(texto: str) -> bool:
+    """So' cumprimento ("bom dia", "oi, tudo bem?"), sem agradecimento nem despedida."""
+    plano = normalizar(texto)
+    return (
+        len(plano.split()) <= 5
+        and bool(_CUMPRIMENTO.match(plano))
+        and not _AGRADECE.search(plano)
+        and not _DESPEDIDA.search(plano)
+    )
+
+
 def resposta_de_cortesia(texto: str) -> str:
+    if e_cumprimento(texto):
+        return TEXTO_SAUDACAO
     return TEXTO_DE_NADA if _AGRADECE.search(normalizar(texto)) else TEXTO_COMBINADO
 
 
@@ -1206,6 +1256,24 @@ TEXTO_SIMPLES_PROCEDIMENTO: Final[str] = (
 )
 
 
+#: Modo simples, r4 de 22/10/2026: so' a oferta (depois das linhas de regra propria de uma lista).
+TEXTO_SIMPLES_OFERTA: Final[str] = "A equipe confirma para você. Quer que eu encaminhe? Responda sim ou não."
+#: Modo simples: "nao entendi" depois da oferta recebe um resumo curto (nunca o mesmo bloco de novo).
+TEXTO_SIMPLES_RESUMO: Final[str] = (
+    "Desculpe a confusão. Resumindo: por aqui eu não confirmo a cobertura de um procedimento; quem confirma "
+    "é a nossa equipe. Quer que eu encaminhe? Responda sim ou não."
+)
+
+
+def texto_simples_do_procedimento(nomes: Sequence[str]) -> str:
+    """O texto do modo simples com o NOME do que a pessoa perguntou ("Sobre mamografia: por aqui...")."""
+    limpos = [" ".join(str(n).split())[:60] for n in nomes if str(n).strip()][:MAX_PROCEDIMENTOS]
+    if not limpos:
+        return TEXTO_SIMPLES_PROCEDIMENTO
+    lista = limpos[0] if len(limpos) == 1 else ", ".join(limpos[:-1]) + " e " + limpos[-1]
+    return f"Sobre {lista}: {TEXTO_SIMPLES_PROCEDIMENTO[:1].lower()}{TEXTO_SIMPLES_PROCEDIMENTO[1:]}"
+
+
 def resumo_para_a_equipe(ctx: Contexto) -> str:
     """O resumo do caso (escrito pelo CODIGO, sem CPF): pedido, para quem, termos tentados."""
     termos = "; ".join(dict.fromkeys([*ctx.termos, *ctx.tentados])) or "nao informado"
@@ -1283,7 +1351,11 @@ __all__ = [
     "TEXTO_REEMBOLSO",
     "TEXTO_REMEDIO",
     "TEXTO_REPETIDA",
+    "TEXTO_SAUDACAO",
+    "TEXTO_SIMPLES_OFERTA",
     "TEXTO_SIMPLES_PROCEDIMENTO",
+    "TEXTO_SIMPLES_RESUMO",
+    "texto_simples_do_procedimento",
     "TEXTO_SEM_EQUIPE",
     "TEXTO_TERCEIRO",
     "texto_repetida",

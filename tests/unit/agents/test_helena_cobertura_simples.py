@@ -73,7 +73,7 @@ async def test_procedimento_recebe_o_geral_e_a_oferta_sem_consulta(fala: str, te
     resultado = await grafo.ainvoke(_entrada(fala))
     texto = whatsapp.enviados[-1]
     assert fonte.pedidos == [], "modo simples nunca consulta a AMH por procedimento"
-    assert ca.TEXTO_SIMPLES_PROCEDIMENTO in texto
+    assert "a equipe confirma para você" in texto.lower() and texto.startswith(f"Sobre {termo}:")
     assert "consta" not in texto.lower(), "nunca 'consta'/'nao consta no Rol'"
     assert resultado["coleta_pendente"] == ca.PEND_EQUIPE and _starts(cib) == 0
 
@@ -128,3 +128,51 @@ async def test_reclamacao_depois_da_oferta_nunca_refaz_consulta(queixa: str) -> 
     await grafo.ainvoke(_entrada(queixa) | memoria)
     assert fonte.pedidos == [] and _starts(cib) == 0
     assert "consta" not in whatsapp.enviados[-1].lower()
+
+
+async def test_lista_mista_tem_uma_linha_por_item_de_regra_propria() -> None:
+    pedido = json.dumps(
+        {"procedimentos": ["ultrassom de mama"], "tipo": "procedimento", "assunto": "cobertura",
+         "urgencia": False, "para_quem": "titular", "quem_texto": "", "recem_nascido": False,
+         "exclusao_legal": "estetica", "discorda": False,
+         "outros_itens": [{"nome": "omeprazol", "tipo": "remedio"},
+                          {"nome": "preenchimento labial", "tipo": "estetica"}]}
+    )  # fmt: skip
+    modelo = _Modelo([_decisao("cobertura")], [pedido])
+    grafo, whatsapp, _cib, fonte = _grafo(modelo)
+    await grafo.ainvoke(_entrada("o plano cobre ultrassom de mama, omeprazol e preenchimento labial?"))
+    texto = whatsapp.enviados[-1].lower()
+    assert fonte.pedidos == []
+    assert "omeprazol" in texto and "preenchimento" in texto and "ultrassom de mama" in texto
+    assert texto.count("quer que eu encaminhe") == 1
+
+
+@pytest.mark.parametrize(
+    "correcao", ["é pra mim mesmo, me confundi", "na verdade é para mim", "é pro meu filho"]
+)
+async def test_correcao_de_para_quem_depois_da_oferta_mantem_o_pedido(correcao: str) -> None:
+    para_quem = "dependente" if "filho" in correcao else "titular"
+    modelo = _Modelo(
+        [_decisao("cobertura"), _decisao("cobertura", responde=True)],
+        [_pedido("endoscopia"), json.dumps({"procedimentos": [], "tipo": "nenhum", "assunto": "cobertura",
+                                            "urgencia": False, "para_quem": para_quem, "quem_texto": "",
+                                            "recem_nascido": False, "exclusao_legal": "nenhuma",
+                                            "discorda": False})],
+    )  # fmt: skip
+    grafo, whatsapp, cib, fonte = _grafo(modelo)
+    r1 = await grafo.ainvoke(_entrada("o convênio paga endoscopia?"))
+    memoria = {k: r1[k] for k in ("coleta_pendente", "coleta_contexto", "historico_conversa") if k in r1}
+    await grafo.ainvoke(_entrada(correcao) | memoria)
+    assert fonte.pedidos == [] and _starts(cib) == 0
+    assert whatsapp.enviados[-1].startswith("Sobre endoscopia:")
+
+
+@pytest.mark.parametrize("queixa", ["não entendi", "não entendi nada", "como assim?"])
+async def test_nao_entendi_depois_da_oferta_recebe_o_resumo_nunca_o_mesmo_bloco(queixa: str) -> None:
+    modelo = _Modelo([_decisao("cobertura"), _decisao("cobertura", responde=True)], [_pedido("hemograma")])
+    grafo, whatsapp, _cib, fonte = _grafo(modelo)
+    r1 = await grafo.ainvoke(_entrada("o convênio paga hemograma?"))
+    memoria = {k: r1[k] for k in ("coleta_pendente", "coleta_contexto", "historico_conversa") if k in r1}
+    await grafo.ainvoke(_entrada(queixa) | memoria)
+    assert whatsapp.enviados[-1] == ca.TEXTO_SIMPLES_RESUMO != whatsapp.enviados[-2]
+    assert fonte.pedidos == []

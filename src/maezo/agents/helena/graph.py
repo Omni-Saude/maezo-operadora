@@ -9402,12 +9402,16 @@ class HelenaGraph:
         aqui."""
         if motivo != "solicitacao_humano" or state.get("intent") != "human_request":
             return None
+        from maezo.agents.helena import cobertura_assistida as _ca
+
         texto = str(state.get("message_body") or "")
         plano = _plano(texto)
         if (
             _pedido_explicito_com_verbo(texto)
             or _pedido_explicito_de_pessoa(texto)
             or _SIM_A_OFERTA.search(plano)
+            # Avaliacao r4 de 22/10/2026: o polegar sozinho a uma oferta e' "sim" no contexto.
+            or _ca.so_emoji_de_acordo(texto)
             or _ESCOLHA_DE_OPCAO.match(plano.strip())
             or _CITA_UMA_PESSOA.search(plano)
             or _ameaca_regulatoria(texto)
@@ -9417,8 +9421,6 @@ class HelenaGraph:
             # Ja' ha' caso ABERTO nesta conversa: nada de caso NOVO aqui. O start reaproveita o aberto e
             # responde com o texto do caso aberto ("quanto tempo demora?", recado ao atendente), como sempre.
             return None
-        from maezo.agents.helena import cobertura_assistida as _ca
-
         logger.warning("helena_trava_caso_sem_pedido", node="escalate")
         return {
             "response_text": _ca.resposta_de_cortesia(texto),
@@ -11091,7 +11093,7 @@ class HelenaGraph:
                 update["coleta_pendente"] = antes
                 update["coleta_contexto"] = str(state.get("coleta_contexto") or "")
             return {**self._rota_de_consulta(update), "habilidade_roteador": habilidade}
-        if habilidade == "conversa" and not mantem and _ca.e_cortesia(texto):
+        if habilidade == "conversa" and not mantem and (_ca.e_cortesia(texto) or _ca.e_cumprimento(texto)):
             cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _ca.resposta_de_cortesia(texto))
             return {**cortesia, "habilidade_roteador": habilidade}
         marca = _HABILIDADE_DO_TURNO.set(habilidade)
@@ -11110,7 +11112,9 @@ class HelenaGraph:
         from maezo.agents.helena import cobertura_assistida as _ca
 
         inicio_da_duvida = self._roteador_contrato.texto_da_duvida.split("{x}")[0]
-        return texto in (_ca.TEXTO_DE_NADA, _ca.TEXTO_COMBINADO) or texto.startswith(inicio_da_duvida)
+        return texto in (_ca.TEXTO_DE_NADA, _ca.TEXTO_COMBINADO, _ca.TEXTO_SAUDACAO) or texto.startswith(
+            inicio_da_duvida
+        )
 
     @staticmethod
     def _sem_pendencia_velha(update: dict[str, Any], descartou: bool) -> dict[str, Any]:
