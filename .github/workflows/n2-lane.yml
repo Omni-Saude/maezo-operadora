@@ -32,8 +32,7 @@ jobs:
 
       - name: Install lane python deps
         run: |
-          pip install "cryptography>=42" asyncpg jsonschema h11 httpx "sqlalchemy>=2" pydantic
-          pip install --no-deps -e .
+          pip install -e .
 
       - name: Download lane inputs (draft release)
         env:
