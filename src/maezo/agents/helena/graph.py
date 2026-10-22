@@ -7413,7 +7413,7 @@ class HelenaGraph:
         # dono): a recusa depois da oferta/abertura do caso ("nao quero falar com ninguem", "nao, deixa,
         # desisto") ENCERRA o caso P2/P3 — inclusive logo depois do caso aberto pela v4 (antes a pendencia
         # da v4 levava a recusa para a v4, que a lia como sintoma novo). A recusa e' a do leitor de
-        # encerrar que ja' existe (`pede_para_encerrar_o_atendimento`) ou a resposta curta de desistencia
+        # encerrar que ja' existe (`pede_para_encerrar_o_atendimento`) ou a resposta curta de recusa
         # (`cobertura_assistida.ler_resposta` = encerrar).
         from maezo.agents.helena import cobertura_assistida as _ca
 
