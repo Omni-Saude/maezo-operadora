@@ -26,6 +26,14 @@ data "aws_iam_policy_document" "medicao_roteador" {
         "mistral.mistral-large-3-675b-instruct",
         # 22/10/2026: o GLM-5 (antes zona PHI do dev), para o simulador testar se ele voltou sem depender da zona PHI.
         "zai.glm-5",
+        # 22/10/2026: candidatos a CLASSIFICADOR da zona PHI do dev enquanto os modelos grandes estao fora (o Gemma 3
+        # 27B leu "bateu a cabeca" como risco psicossocial). So' medicao com mensagens sinteticas.
+        "qwen.qwen3-next-80b-a3b",
+        "deepseek.v3.2",
+        "openai.gpt-oss-120b-1:0",
+        "moonshotai.kimi-k2.5",
+        "mistral.magistral-small-2509",
+        "nvidia.nemotron-super-3-120b",
       ] : "arn:${data.aws_partition.current.partition}:bedrock:sa-east-1::foundation-model/${m}"
     ]
   }
