@@ -243,24 +243,135 @@ class RuntimeDefinitionObservationTest {
   @Test void descriptorCensusToleratesConcurrentDescriptorChurn()throws Exception {
     org.junit.jupiter.api.Assumptions.assumeTrue(Files.isDirectory(Path.of("/proc/self/fd")));
     var churn=new ArrayList<java.nio.channels.FileChannel>();
+    var failure=new java.util.concurrent.atomic.AtomicReference<Throwable>();
     var closer=new Thread(()-> {
       var rnd=new Random(4242);
       while(!Thread.currentThread().isInterrupted()) {
         try {
           var channel=java.nio.channels.FileChannel.open(Path.of("/proc/self/environ"),
               java.nio.file.StandardOpenOption.READ);
-          synchronized(churn) {churn.add(channel);if(churn.size()>32){churn.get(0).close();churn.remove(0);}}
+          if(!retainChurnChannel(churn,channel))return;
           if(rnd.nextInt(8)==0)try(var victim=java.nio.channels.FileChannel.open(Path.of("/proc/self/environ"),
               java.nio.file.StandardOpenOption.READ)){Thread.sleep(0,100);}
         }catch(InterruptedException interrupted){return;}
-        catch(Exception ignored){}
+        catch(Exception error){if(!(error instanceof java.nio.channels.ClosedByInterruptException&&Thread.currentThread().isInterrupted()))failure.compareAndSet(null,error);return;}
       }
     },"census-churn");
     closer.setDaemon(true);closer.start();
     try {assertTimeout(java.time.Duration.ofSeconds(10),()->{for(int n=0;n<200;n++)RuntimeObservationAdmission.descriptorCensus();});}
     finally {
-      closer.interrupt();synchronized(churn){for(var channel:churn)try{channel.close();}catch(Exception ignored){}}
+      stopChurnAndClose(closer,churn);
+      assertNull(failure.get(),"descriptor churn worker failed");
     }
+  }
+  /** Fixture ownership transfers only after publication; an interrupted handoff closes locally. */
+  static boolean retainChurnChannel(List<java.nio.channels.FileChannel> churn,java.nio.channels.FileChannel channel)throws java.io.IOException {
+    boolean transferred=false;
+    try {
+      synchronized(churn) {
+        if(Thread.currentThread().isInterrupted())return false;
+        churn.add(channel);transferred=true;
+        if(churn.size()>32){churn.get(0).close();churn.remove(0);}
+        return true;
+      }
+    }finally{if(!transferred)channel.close();}
+  }
+  /** Finite monotonic budget; expiry leaves the live worker's resource ownership intact. */
+  static void awaitChurnTermination(Thread worker,long timeoutMillis)throws java.io.IOException {
+    if(timeoutMillis<=0||timeoutMillis>5000)throw new IllegalArgumentException("invalid fixture cleanup budget");
+    long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+    boolean interrupted=false;
+    try {
+      while(worker.isAlive()) {
+        long remaining=deadline-System.nanoTime();
+        if(remaining<=0)throw new java.io.IOException("descriptor churn worker did not terminate within cleanup budget");
+        try{worker.join(remaining/1_000_000L,(int)(remaining%1_000_000L));}
+        catch(InterruptedException signal){interrupted=true;}
+      }
+    }finally{if(interrupted)Thread.currentThread().interrupt();}
+  }
+  /** Never hold the publication lock while joining, or release resources owned by a live worker. */
+  static void stopChurnAndClose(Thread worker,List<java.nio.channels.FileChannel> churn)throws java.io.IOException {
+    stopChurnAndClose(worker,churn,5000);
+  }
+  static void stopChurnAndClose(Thread worker,List<java.nio.channels.FileChannel> churn,long timeoutMillis)throws java.io.IOException {
+    worker.interrupt();awaitChurnTermination(worker,timeoutMillis);
+    java.io.IOException failure=null;
+    synchronized(churn) {
+      for(var channel:churn)try{channel.close();}catch(java.io.IOException error){
+        if(failure==null)failure=error;else failure.addSuppressed(error);
+      }
+    }
+    if(failure!=null)throw failure;
+  }
+  @Test void churnCleanupJoinsBeforeClosingAndRejectsInterruptedChannelHandoff()throws Exception {
+    var churn=new ArrayList<java.nio.channels.FileChannel>();
+    Path path=temp.resolve("churn-lifecycle");Files.writeString(path,"synthetic");
+    var retained=java.nio.channels.FileChannel.open(path,StandardOpenOption.READ);churn.add(retained);
+    var opened=new java.util.concurrent.CountDownLatch(1);
+    var interrupted=new java.util.concurrent.CountDownLatch(1);
+    var release=new java.util.concurrent.CountDownLatch(1);
+    var pending=new java.util.concurrent.atomic.AtomicReference<java.nio.channels.FileChannel>();
+    var failure=new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var worker=new Thread(()-> {
+      try {
+        pending.set(java.nio.channels.FileChannel.open(path,StandardOpenOption.READ));opened.countDown();
+        try{release.await();}catch(InterruptedException signal){
+          interrupted.countDown();release.await();Thread.currentThread().interrupt();
+        }
+        assertFalse(retainChurnChannel(churn,pending.get()));
+        assertFalse(pending.get().isOpen(),"untransferred channel must close before owner returns");
+      }catch(Throwable error){failure.compareAndSet(null,error);}
+      finally{if(pending.get()!=null)try{pending.get().close();}catch(Exception error){failure.compareAndSet(null,error);}}
+    },"churn-lifecycle-owner");
+    var cleanup=new Thread(()-> {
+      try{stopChurnAndClose(worker,churn);}catch(Throwable error){failure.compareAndSet(null,error);}
+    },"churn-lifecycle-cleanup");
+    worker.start();
+    try {
+      assertTrue(opened.await(5,java.util.concurrent.TimeUnit.SECONDS));cleanup.start();
+      assertTrue(interrupted.await(5,java.util.concurrent.TimeUnit.SECONDS));
+      assertTimeout(java.time.Duration.ofSeconds(5),()-> {
+        long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(4);
+        while(cleanup.isAlive()&&cleanup.getState()!=Thread.State.TIMED_WAITING&&System.nanoTime()<deadline)Thread.yield();
+        assertEquals(Thread.State.TIMED_WAITING,cleanup.getState(),"cleanup must wait for the channel owner");
+      });
+      assertTrue(retained.isOpen(),"retained channels cannot close before owner termination");
+      assertTrue(pending.get().isOpen());
+    }finally{
+      release.countDown();
+      if(cleanup.getState()==Thread.State.NEW)stopChurnAndClose(worker,churn);else awaitChurnTermination(cleanup,5000);
+      awaitChurnTermination(worker,5000);
+    }
+    assertFalse(worker.isAlive());assertFalse(cleanup.isAlive());assertNull(failure.get());
+    assertFalse(retained.isOpen());assertFalse(pending.get().isOpen());assertEquals(List.of(retained),churn);
+  }
+  @Test void stalledChurnOwnerFailsWithinBudgetWithoutClosingLiveOwnedChannels()throws Exception {
+    var churn=new ArrayList<java.nio.channels.FileChannel>();
+    Path path=temp.resolve("stalled-churn");Files.writeString(path,"synthetic");
+    var channel=java.nio.channels.FileChannel.open(path,StandardOpenOption.READ);churn.add(channel);
+    var started=new java.util.concurrent.CountDownLatch(1);
+    var release=new java.util.concurrent.CountDownLatch(1);
+    var failure=new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var worker=new Thread(()-> {
+      started.countDown();
+      long safetyDeadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(4);
+      try {
+        while(release.getCount()!=0&&System.nanoTime()<safetyDeadline) {
+          try{release.await(20,java.util.concurrent.TimeUnit.MILLISECONDS);}catch(InterruptedException expected){}
+        }
+        if(release.getCount()!=0)failure.set(new AssertionError("test failed to release stalled owner"));
+      }finally{ /* The collection remains owned until this worker actually terminates. */ }
+    },"stalled-churn-owner");
+    worker.start();
+    try {
+      assertTrue(started.await(1,java.util.concurrent.TimeUnit.SECONDS));
+      var error=assertTimeout(java.time.Duration.ofSeconds(1),()->
+          assertThrows(java.io.IOException.class,()->stopChurnAndClose(worker,churn,50)));
+      assertEquals("descriptor churn worker did not terminate within cleanup budget",error.getMessage());
+      assertTrue(worker.isAlive());assertTrue(channel.isOpen());assertEquals(List.of(channel),churn);
+    }finally{release.countDown();stopChurnAndClose(worker,churn);}
+    assertFalse(worker.isAlive());assertFalse(channel.isOpen());assertNull(failure.get());
   }
   @Test void terminalPureGuardHasNoHiddenFilesystemRead()throws Exception {
     var f=admissionFixture(java.time.Instant.now().plusSeconds(30));var admitted=f.admit();Files.delete(f.path());

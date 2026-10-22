@@ -151,12 +151,10 @@ class HttpCommercialExecutor(GovernedCommercialExecutor):
                 deadlines.append(preparation.payment_choice.valid_until)
             if any(value.utcoffset() is None or value <= datetime.now(UTC) for value in deadlines):
                 raise CommercialRefusalError("denied", "source_stale")
-            # Own client has no browser cookie jar, env proxies, redirects or retry transport.
-            async with (
-                httpx.AsyncClient(
-                    timeout=self._timeout, follow_redirects=False, trust_env=False, transport=self._transport
-                ) as client,
-                client.stream(
+            async with self._transport or httpx.AsyncHTTPTransport(retries=0, trust_env=False) as transport:
+                # Existing AMH public transport API: no client cookie jar, INFO URL
+                # logging, redirects, environment proxies or automatic retries.
+                request = httpx.Request(
                     "POST",
                     self._url,
                     headers={
@@ -164,38 +162,50 @@ class HttpCommercialExecutor(GovernedCommercialExecutor):
                         "X-Commercial-Connection": connection.connection_ref,
                         "Content-Type": "application/json",
                         "Accept": "application/json",
+                        "Accept-Encoding": "identity",
                     },
                     content=command.wire_bytes,
-                ) as response,
-            ):
-                if (
-                    response.status_code not in {200, 202, 400, 403, 409, 503}
-                    or response.headers.get("content-type", "").split(";")[0].strip() != "application/json"
-                ):
-                    raise CommercialRefusalError("uncertain", "reconciliation_required")
-                chunks: list[bytes] = []
-                size = 0
-                async for chunk in response.aiter_bytes():
-                    size += len(chunk)
-                    if size > MAX_RESULT_BYTES:
+                    extensions={
+                        "timeout": dict.fromkeys(("connect", "read", "write", "pool"), self._timeout)
+                    },
+                )
+                # Transport entry may await: no expired lease can reach the raw send.
+                if any(value.utcoffset() is None or value <= datetime.now(UTC) for value in deadlines):
+                    raise CommercialRefusalError("denied", "source_stale")
+                response = await transport.handle_async_request(request)
+                try:
+                    if (
+                        response.status_code not in {200, 202, 400, 403, 409, 503}
+                        or response.headers.get("content-type", "").split(";")[0].strip()
+                        != "application/json"
+                        or response.headers.get("content-encoding", "identity").strip().lower() != "identity"
+                    ):
                         raise CommercialRefusalError("uncertain", "reconciliation_required")
-                    chunks.append(chunk)
-                body = b"".join(chunks)
-                value = _json(body, MAX_RESULT_BYTES)
-                expected = {
-                    "succeeded": 200,
-                    "denied": 400 if response.status_code == 400 else 403,
-                    "conflict": 409,
-                    "uncertain": 202,
-                    "unavailable": 503,
-                }
-                status = value.get("status")
-                if (
-                    not isinstance(status, str)
-                    or expected.get(status) != response.status_code
-                    or value.get("operation_ref") != preparation.operation_ref
-                ):
-                    raise CommercialRefusalError("uncertain", "reconciliation_required")
+                    chunks: list[bytes] = []
+                    size = 0
+                    async for chunk in response.aiter_bytes():
+                        size += len(chunk)
+                        if size > MAX_RESULT_BYTES:
+                            raise CommercialRefusalError("uncertain", "reconciliation_required")
+                        chunks.append(chunk)
+                    body = b"".join(chunks)
+                    value = _json(body, MAX_RESULT_BYTES)
+                    expected = {
+                        "succeeded": 200,
+                        "denied": 400 if response.status_code == 400 else 403,
+                        "conflict": 409,
+                        "uncertain": 202,
+                        "unavailable": 503,
+                    }
+                    status = value.get("status")
+                    if (
+                        not isinstance(status, str)
+                        or expected.get(status) != response.status_code
+                        or value.get("operation_ref") != preparation.operation_ref
+                    ):
+                        raise CommercialRefusalError("uncertain", "reconciliation_required")
+                finally:
+                    await response.aclose()
             await self._authority.current(command, scope, preparation, connection, phase="before_disclosure")
             return body
 
@@ -286,32 +296,42 @@ class HttpPublicCatalogSource(PublicCatalogSource):
                 raise CommercialRefusalError("unavailable", "source_unavailable")
             await self._authority.current(scope, connection, phase="before_io")
             self._connection(scope, connection)
-            async with (
-                httpx.AsyncClient(
-                    timeout=self._timeout, follow_redirects=False, trust_env=False, transport=self._transport
-                ) as client,
-                client.stream(
+            async with self._transport or httpx.AsyncHTTPTransport(retries=0, trust_env=False) as transport:
+                # Existing AMH public transport API: no client cookie jar, INFO URL
+                # logging, redirects, environment proxies or automatic retries.
+                request = httpx.Request(
                     "GET",
                     self._url,
                     headers={
                         "Authorization": f"Bearer {credential}",
                         "X-Commercial-Connection": connection.connection_ref,
                         "Accept": "application/json",
+                        "Accept-Encoding": "identity",
                     },
-                ) as response,
-            ):
-                if (
-                    response.status_code != 200
-                    or response.headers.get("content-type", "").split(";")[0].strip() != "application/json"
-                ):
-                    raise CommercialRefusalError("unavailable", "source_unavailable")
-                size, chunks = 0, []
-                async for chunk in response.aiter_bytes():
-                    size += len(chunk)
-                    if size > MAX_RESULT_BYTES:
+                    extensions={
+                        "timeout": dict.fromkeys(("connect", "read", "write", "pool"), self._timeout)
+                    },
+                )
+                # No authority IO after this final pure check and before the raw send.
+                self._connection(scope, connection)
+                response = await transport.handle_async_request(request)
+                try:
+                    if (
+                        response.status_code != 200
+                        or response.headers.get("content-type", "").split(";")[0].strip()
+                        != "application/json"
+                        or response.headers.get("content-encoding", "identity").strip().lower() != "identity"
+                    ):
                         raise CommercialRefusalError("unavailable", "source_unavailable")
-                    chunks.append(chunk)
-                body = b"".join(chunks)
+                    size, chunks = 0, []
+                    async for chunk in response.aiter_bytes():
+                        size += len(chunk)
+                        if size > MAX_RESULT_BYTES:
+                            raise CommercialRefusalError("unavailable", "source_unavailable")
+                        chunks.append(chunk)
+                    body = b"".join(chunks)
+                finally:
+                    await response.aclose()
             await self._authority.current(scope, connection, phase="before_disclosure")
             self._connection(scope, connection)
             return body

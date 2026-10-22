@@ -1,0 +1,22 @@
+{
+  "schema": "commercial-platform.java-ci-diagnosis.v1",
+  "candidate_sha": "13846c85900f29fa671ea9d29e9b8432b3c6cf1a",
+  "baseline_sha": "cac9918f61288308087a57b386a95e53c87d1794",
+  "candidate_ci": {"run_id": 39837960315, "job_id": 120031149983, "install": {"conclusion": "success", "tests": 744, "failures": 0, "errors": 0, "skips": 2}, "deployed_profile": {"conclusion": "failure", "tests": 744, "failures": 0, "errors": 1, "skips": 1}},
+  "failing_test": "RuntimeDefinitionObservationTest.liveResourceIsExactV4SuccessorWithNoV3Fallback",
+  "test_elapsed_seconds": 0.017,
+  "proven_failing_guard": "RuntimeObservationAdmission.openedDescriptor:187 surviving regular-file descriptor identity/custody predicate",
+  "failed_read": "RuntimeObservationAdmission.current:90 profile file",
+  "deadline_failure_observed": false,
+  "schema_digest_failure_observed": false,
+  "java_and_workflow_changed_from_baseline": false,
+  "baseline_ci": {"run_id": 39823984946, "job_id": 119982278568, "conclusion": "success"},
+  "other_main_ci": {"sha": "c1a6a64d54bb1966e5419dd6677775aeeb7e2d83", "run_id": 39839351137, "job_id": 120035954808, "conclusion": "success"},
+  "source_finding": "owned descriptor-churn worker is interrupted but never joined; late collection transfer can outlive cleanup",
+  "source_finding_caused_ci_failure": "NOT_PROVEN",
+  "minimal_repair_scope": "RuntimeDefinitionObservationTest.java owned churn fixture cleanup only",
+  "repair_closure": ["worker termination joined before collection release", "no collection lock held while joining", "every opened channel released or ownership transferred", "no live owned worker or open owned channel at cleanup return", "cleanup errors fail visibly", "production FD guards and existing cases/assertions/deadlines unchanged"],
+  "execution_by_diagnostician": "NOT_RUN",
+  "candidate_gate": "REMAINS_FAILURE",
+  "next_gate": "third-party fixture repair; original reviewer recheck; ROOT exact-head whole Java CI"
+}
