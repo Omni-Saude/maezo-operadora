@@ -38,7 +38,11 @@ phi_zone_provider  = "bedrock_br"
 // TEMPORARIO (DL-0117, adendo de 21/10/2026; decisao do dono): de volta ao Mistral Large 3 -- GLM-5 regional com
 // InternalServerException/timeouts em 21/10/2026 (ate' um prompt trivial passou de 120 s); voltar ao
 // "zai.glm-5" quando normalizar (mesmo runbook, os QUATRO papeis da `task_bedrock` juntos).
-phi_model_id = "mistral.mistral-large-3-675b-instruct"
+// TEMPORARIO 2 (DL-0117, segundo adendo de 22/10/2026): o Mistral Large 3 regional tambem passou a nao responder
+// (ReadTimeout de 60 s ate' num prompt trivial, sem carga nossa); `google.gemma-3-27b-it` (sa-east-1) respondeu em
+// ~1,6 s ao prompt real do classificador (9/10 intencoes certas) e 50/50 no roteador. Voltar ao Mistral ou ao
+// GLM-5 quando normalizarem (mesmo runbook, os QUATRO papeis juntos).
+phi_model_id = "google.gemma-3-27b-it"
 
 // Sincronizacao automatica do egresso Cognito (portal-egresso-cognito-sync.tf): LIGADA em 18/10/2026 por
 // decisao do dono, depois da 6a rotacao que derrubou o login (#829). Lambda + schedule (5 min) + alarme;
