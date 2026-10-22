@@ -3612,6 +3612,12 @@ TEXTO_REDE: str = (
 )
 
 
+def _recolher_falha(tarefa: asyncio.Future[Any]) -> None:
+    """Tarefa antecipada descartada: a falha dela e' lida aqui (nunca 'exception was never retrieved')."""
+    if not tarefa.cancelled():
+        tarefa.exception()
+
+
 def _pergunta_de_cobertura_ampla(texto: str) -> bool:
     plano = _plano(texto)
     return bool(_PERGUNTA_DE_COBERTURA.search(plano) or _PERGUNTA_DE_COBERTURA_AMPLA.search(plano))
@@ -4807,6 +4813,9 @@ class HelenaGraph:
         self._roteador_contrato: Any = None
         self._roteador_conversas = frozenset(helena_roteador_conversas or ())
         self._roteador_em_voo: dict[tuple[str, str], tuple[Any, Any, str | None, str | None]] = {}
+        # Latencia (22/10/2026): a extracao da cobertura iniciada JUNTO com o roteador (texto, tarefa)
+        # por turno.
+        self._extracoes_antecipadas: dict[tuple[str, str], tuple[str, asyncio.Future[Any]]] = {}
         # ORCAMENTO (21/10/2026): provedor proprio (prazo real curto, teto de saida pequeno, pool proprio) e
         # um
         # limite de chamadas simultaneas; com o limite cheio, o turno segue sem o roteador (`falha=ocupado`).
@@ -8641,6 +8650,16 @@ class HelenaGraph:
                     return termo
         return termo_da_mensagem(texto)
 
+    async def _extrair_pedido(self, tenant: str, texto: str) -> Any:
+        """A extracao do pedido de cobertura (DL-0128): so' o texto da mensagem, demarcado."""
+        from maezo.agents.helena import cobertura_assistida as _ca
+
+        prompt = f"{_ca.PROMPT_EXTRACAO}\n{render_untrusted_block('message_body', texto)}"
+        bruto = await self._llm.generate(
+            prompt, phi=True, agent_id="helena", tenant_id=tenant, task_kind="task_default"
+        )
+        return _ca.pedido_do_modelo(bruto)
+
     async def _cobertura_assistida(self, state: HelenaState, ref: str) -> dict[str, Any] | None:
         """COBERTURA ASSISTIDA (DL-0128), so' na allowlist: extracao (GLM-5), traducao para o nome oficial,
         opcoes, para quem, 2 tentativas e equipe so' com "sim". Devolve o `update` (nunca os textos antigos
@@ -8653,12 +8672,19 @@ class HelenaGraph:
 
         tenant = str(state.get("tenant_id") or "")
 
+        chave_do_turno = self._roteador_chave(state)
+
         async def extrair(texto: str) -> _ca.Pedido | None:
-            prompt = f"{_ca.PROMPT_EXTRACAO}\n{render_untrusted_block('message_body', texto)}"
-            bruto = await self._llm.generate(
-                prompt, phi=True, agent_id="helena", tenant_id=tenant, task_kind="task_default"
-            )
-            return _ca.pedido_do_modelo(bruto)
+            antecipada = self._extracoes_antecipadas.pop(chave_do_turno, None)
+            if antecipada is not None and antecipada[0] == texto:
+                # A MESMA extracao (mesmo texto, mesmo prompt), so' que iniciada junto com o roteador.
+                logger.info("helena_cobertura_extracao_antecipada")
+                pedido: _ca.Pedido | None = await antecipada[1]
+                return pedido
+            if antecipada is not None:
+                antecipada[1].cancel()
+            extraido: _ca.Pedido | None = await self._extrair_pedido(tenant, texto)
+            return extraido
 
         async def escolher(
             termos: Sequence[str], termo: str, itens_do_catalogo: Sequence[str]
@@ -10800,6 +10826,29 @@ class HelenaGraph:
             self._roteador_em_voo.pop(velha)[0].cancel()
         self._roteador_em_voo[self._roteador_chave(state)] = registro
 
+    def _antecipar_extracao(self, state: Mapping[str, Any], trava: str | None) -> None:
+        """Latencia (22/10/2026): sem trava de entrada e com pergunta de cobertura pelo detector que ja'
+        existe, a extracao da cobertura comeca JUNTO com o roteador (antes so' comecava depois dele). Nada
+        muda na decisao: o roteador continua decidindo; se ele escolher outra habilidade, a extracao e'
+        descartada; a cobertura so' usa a extracao antecipada do MESMO texto."""
+        texto = str(state.get("message_body") or "")
+        if (
+            trava is not None
+            or getattr(self._consultas, "consultar_cobertura", None) is None
+            or not _pergunta_de_cobertura_ampla(texto)
+        ):
+            return
+        tarefa = asyncio.ensure_future(self._extrair_pedido(str(state.get("tenant_id") or ""), texto))
+        tarefa.add_done_callback(_recolher_falha)
+        while len(self._extracoes_antecipadas) >= 256:
+            self._extracoes_antecipadas.pop(next(iter(self._extracoes_antecipadas)))[1].cancel()
+        self._extracoes_antecipadas[self._roteador_chave(state)] = (texto, tarefa)
+
+    def _descartar_extracao(self, state: Mapping[str, Any]) -> None:
+        antecipada = self._extracoes_antecipadas.pop(self._roteador_chave(state), None)
+        if antecipada is not None:
+            antecipada[1].cancel()
+
     async def _classify_com_sombra(self, state: HelenaState) -> dict[str, Any]:
         # So' codigo deterministico aqui (sem dependencia injetada): a chamada ao modelo roda na tarefa
         # paralela, cuja falha vira o campo `falha` do log.
@@ -10839,6 +10888,7 @@ class HelenaGraph:
             # Falha do proprio turno (`receive`) ou conversa em seguimento com o Lucas: o caminho de sempre.
             return await self.classify(state)
         antes, pendente, trava = self._roteador_entrada(state)
+        self._antecipar_extracao(state, trava)
         decisao, falha, ms = await self._roteador_decidir(dict(state), pendente)
         feita: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
         feita.set_result((decisao, falha, ms))
@@ -10867,6 +10917,8 @@ class HelenaGraph:
         habilidade = (
             decisao.habilidade if decisao.habilidade != "duvida" else (decisao.provavel or "conversa")
         )
+        if habilidade != "cobertura":
+            self._descartar_extracao(state)
         mantem = bool(antes) and decisao.responde_a_pendencia and not duvida_antes
         if (
             antes
@@ -10930,6 +10982,7 @@ class HelenaGraph:
 
     async def _respond_com_sombra(self, state: HelenaState) -> dict[str, Any]:
         saida = await self.respond(state)
+        self._descartar_extracao(state)
         em_voo = self._roteador_em_voo.pop(self._roteador_chave(state), None)
         if em_voo is None:
             return saida

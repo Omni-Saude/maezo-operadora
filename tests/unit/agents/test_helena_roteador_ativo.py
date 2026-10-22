@@ -3,6 +3,7 @@ só vale quando a mensagem responde a ela."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -194,3 +195,47 @@ async def test_roteador_plano_nao_cai_na_cobertura_assistida() -> None:
     assert not any(e.get("event") == "helena_cobertura_extraida" for e in logs)
     assert ca.TEXTO_PEDE_LISTA not in (whatsapp.enviados[-1] if whatsapp.enviados else "")
     assert fonte.pedidos == []
+
+
+class _ModeloQueEspera(_Modelo):
+    """O roteador so' responde DEPOIS que a extracao da cobertura comecou (prova o paralelo)."""
+
+    def __init__(self, roteador: list[str], respostas: list[str]) -> None:
+        super().__init__(roteador, respostas)
+        self.extracao_comecou = asyncio.Event()
+        self.extracoes = 0
+
+    async def generate(self, prompt: str, **kw: Any) -> str:
+        if "roteador de um assistente" in prompt:
+            await asyncio.wait_for(self.extracao_comecou.wait(), timeout=2)
+        elif prompt.startswith(ca.PROMPT_EXTRACAO):
+            self.extracoes += 1
+            self.extracao_comecou.set()
+        return await super().generate(prompt, **kw)
+
+
+async def test_extracao_da_cobertura_roda_junto_com_o_roteador_e_e_reaproveitada() -> None:
+    modelo = _ModeloQueEspera([_decisao("cobertura")], [_json_pedido("hemograma"), ""])
+    grafo, whatsapp, _cib, fonte = _grafo(modelo)
+    with capture_logs() as logs:
+        await grafo.ainvoke(_entrada("o convênio paga um hemograma pra mim?"))
+    assert modelo.extracoes == 1, "a extracao antecipada e' a MESMA (nunca duas)"
+    assert any(e.get("event") == "helena_cobertura_extracao_antecipada" for e in logs)
+    assert fonte.pedidos == ["40304361"] and "consta no Rol" in whatsapp.enviados[-1]
+
+
+async def test_outra_habilidade_descarta_a_extracao_antecipada() -> None:
+    modelo = _Modelo([_decisao("plano")], [_json_pedido("hemograma"), _classify(intent="information")])
+    grafo, _whatsapp, _cib, fonte = _grafo(modelo)
+    with capture_logs() as logs:
+        await grafo.ainvoke(_entrada("o convênio paga um hemograma pra mim?"))
+    assert fonte.pedidos == [], "a decisao do roteador vale: nada de consulta de cobertura"
+    assert not any(e.get("event") == "helena_cobertura_extracao_antecipada" for e in logs)
+
+
+async def test_trava_de_entrada_nao_antecipa_extracao() -> None:
+    modelo = _ModeloQueEspera([], [_classify(intent="symptom")])
+    modelo.extracao_comecou.set()
+    grafo, whatsapp, _cib, _fonte = _grafo(modelo)
+    await grafo.ainvoke(_entrada("estou com dor no peito forte e falta de ar, o plano cobre?"))
+    assert modelo.extracoes == 0 and "192" in whatsapp.enviados[-1]

@@ -34,6 +34,29 @@ concordância por roteiro, as falhas, o tempo e cada desacordo com o texto do pa
 - `roteador-v5` (22/10/2026): a linha de `saude` no contrato diz que "quais exames ou cuidados são indicados
   para a idade ou condição" é saúde mesmo citando o plano; a de `cobertura` diz "se o plano cobre (paga,
   autoriza)". Regra geral de fronteira entre as duas habilidades, sem termo do roteiro.
+- Latência (22/10/2026): sem trava de entrada e com pergunta de cobertura pelo detector que já existe
+  (`_pergunta_de_cobertura_ampla`), a EXTRAÇÃO da cobertura começa junto com o roteador (antes esperava por
+  ele). O roteador continua decidindo: outra habilidade descarta a extração; a cobertura só usa a extração do
+  mesmo texto (`helena_cobertura_extracao_antecipada` no log quando usada). Nenhuma chamada nova quando o
+  roteador escolhe cobertura; no máximo uma extração descartada quando escolhe outra.
+- Medição por turno de cobertura (um procedimento × lista, etapas em sequência): `C:/vc/latencia_cobertura.py`
+  sobre o log exportado da tarefa do simulador.
+
+## 2c. Lista da F5 — condicionais de transição no `graph.py` (remover ou migrar para o contrato)
+
+São pontes da F2 entre a decisão do roteador e o código de hoje; na F5 saem do `graph.py` (a decisão passa a
+ser do contrato `spec/agents/helena/roteador.yaml` e de cada habilidade fechada):
+
+1. Reclamação sobre a resposta anterior sem pedido de pessoa fica com a dona da pendência
+   (`e_reclamacao` + `dona_da_pendencia`, #897) → regra de pendência do contrato.
+2. `habilidade_roteador` no estado barrando a cobertura assistida no `consultar_plano` quando o roteador
+   escolheu outra habilidade (#897) → a habilidade `plano` fechada, sem passar pelas regras de cobertura.
+3. `_HABILIDADE_DO_TURNO` valendo sobre as regras lexicais de cobertura no `classify` (#877) → some com o
+   `classify` antigo.
+4. Extração da cobertura antecipada pelo detector lexical `_pergunta_de_cobertura_ampla` (latência, 22/10) →
+   a habilidade `cobertura` recebe a extração do próprio roteador ou dispara em paralelo sem detector.
+5. Discordância sem procedimento tratada antes do desvio para autorização (#897) → regra da habilidade
+   `cobertura`.
 
 ## 3. Desligar / desfazer
 
