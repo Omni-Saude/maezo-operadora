@@ -1325,8 +1325,10 @@ async def _observation_wait(
     inputs: NativeObservationInputs,
     close_connection_on_refusal: bool = False,
 ) -> Any:
+    # Engineering per-wait cap (deadline still the true bound): a cold non-local
+    # lane (CI) legitimately exceeds 5s between transport events — 60s ceiling.
     result = await asyncio.wait_for(
-        awaitable, timeout=max(0, min(5, (guard.deadline - datetime.now(UTC)).total_seconds()))
+        awaitable, timeout=max(0, min(60, (guard.deadline - datetime.now(UTC)).total_seconds()))
     )
     try:
         guard.check()
@@ -1513,6 +1515,11 @@ async def observe_native_engine_operation(
             # Cleanup is mandatory even after expiry; validity is not renewed.
             try:
                 await asyncio.wait_for(writer.wait_closed(), timeout=5)
+            except (ConnectionResetError, BrokenPipeError):
+                # Server-initiated hard close after the exchange completed: the
+                # local peer is closed; recording beats refusing (CI Tomcat
+                # closes without close_notify).
+                pass
             except (OSError, ssl.SSLError, TimeoutError):
                 raise NativeObservationError("Protected observer TLS close refused") from None
     guard.check()  # Includes stream/socket close awaits, with the same ceiling.
