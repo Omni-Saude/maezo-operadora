@@ -17,7 +17,7 @@ import functools
 import hashlib
 import re
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, ClassVar, Final, Protocol, runtime_checkable
@@ -442,6 +442,11 @@ class BedrockBrRegionalTransport:
         # asyncio, como sempre. O `read_timeout` do cliente e' o prazo REAL: a thread volta no prazo, nunca
         # fica presa depois do prazo de quem chamou.
         self._executor = executor
+        # PRAZO TOTAL (22/10/2026, DL-0139): conexao + leitura cabem em `timeout_s` (antes cada um tinha o seu
+        # e a chamada podia levar a soma). Alem do cliente, `send` corta no prazo total (+0,5 s de folga).
+        self._prazo_total = float(timeout_s)
+        conexao = min(3.0, max(0.5, timeout_s / 5))
+        leitura = max(0.5, timeout_s - conexao)
         if client is not None:
             self._client = client
         else:
@@ -452,8 +457,8 @@ class BedrockBrRegionalTransport:
                 "bedrock-runtime",
                 region_name=self.REGIAO,
                 config=Config(
-                    read_timeout=timeout_s,
-                    connect_timeout=min(timeout_s, 10.0),
+                    read_timeout=leitura,
+                    connect_timeout=conexao,
                     # Configuracao SDK existente, preservada por este reparo de admissao.
                     # O budget externo recusa reenviar uma chamada marcada committed.
                     retries={"max_attempts": 1, "mode": "standard"},
@@ -495,12 +500,14 @@ class BedrockBrRegionalTransport:
         )
         inicio = time.monotonic()
         try:
+            pendente: Awaitable[Any]
             if self._executor is None:
-                bruto = await asyncio.to_thread(chamada)
+                pendente = asyncio.to_thread(chamada)
             else:
-                bruto = await asyncio.get_running_loop().run_in_executor(self._executor, chamada)
+                pendente = asyncio.get_running_loop().run_in_executor(self._executor, chamada)
+            bruto = await asyncio.wait_for(pendente, timeout=self._prazo_total + 0.5)
         except Exception as exc:  # nenhum erro de SDK escapa deste módulo
-            nome = type(exc).__name__
+            nome = "TimeoutPrazoTotal" if isinstance(exc, TimeoutError) else type(exc).__name__
             registrar_chamada(
                 modelo=request.model,
                 resultado=RESULTADO_PRAZO if "Timeout" in nome else RESULTADO_FALHA,

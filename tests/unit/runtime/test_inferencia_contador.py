@@ -83,3 +83,19 @@ async def test_linha_do_contador_sem_texto_da_conversa() -> None:
         )
     [evento] = [e for e in logs if e["event"] == br.EVENTO_INFERENCIA_CHAMADA]
     assert "SYNTHETIC" not in _linha(evento)
+
+
+async def test_prazo_total_e_respeitado_mesmo_com_o_cliente_pendurado() -> None:
+    import time as _time
+
+    class _Pendurado(Client):
+        def converse(self, **kwargs: Any) -> dict[str, Any]:
+            _time.sleep(3)
+            return super().converse(**kwargs)
+
+    inicio = _time.monotonic()
+    with capture_logs() as logs, pytest.raises(BrRegionalTransportUnavailableError):
+        await BedrockBrRegionalTransport(client=_Pendurado(), timeout_s=0.5).send(request())
+    assert _time.monotonic() - inicio < 2.0, "o prazo total (0,5 s + folga) foi respeitado"
+    [evento] = [e for e in logs if e["event"] == br.EVENTO_INFERENCIA_CHAMADA]
+    assert evento["resultado"] == br.RESULTADO_PRAZO
