@@ -34,7 +34,7 @@ from maezo.agents.helena.roteador_contrato import (
     ContratoDoRoteador,
 )
 
-ROTEADOR_PROMPT_VERSION: Final[str] = "roteador-v5"
+ROTEADOR_PROMPT_VERSION: Final[str] = "roteador-v6"
 NL: Final[str] = chr(10)
 
 #: Rótulos de trava (os ids do contrato) e de falha do roteador, para o log.

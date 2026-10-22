@@ -204,7 +204,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # v1 — 07/10/2026: redacao da resposta com os FATOS do cadastro
                                      # (contrato TINA da AMH) num bloco delimitado; recusa da
                                      # cerca propria = resposta deterministica so' com os fatos.
-  roteador: roteador-v5                # 22/10/2026 (DL-0136): saude x cobertura (exames indicados p/ idade
+  roteador: roteador-v6                # 22/10/2026: especialista = saude. v5: 22/10/2026 (DL-0136): saude x cobertura (exames indicados p/ idade
                                      # = saude). v4: F2 (duvida pendente; depois
                                      # da cobertura). v3: enxuto (DL-0137); v1: sombra (DL-0135).
 

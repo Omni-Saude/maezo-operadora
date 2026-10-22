@@ -73,7 +73,8 @@ async def test_pergunta_pessoal_depois_das_opcoes_vai_a_redacao_sem_caso() -> No
     conversa.modelo.respostas.clear()
     sop = await conversa.diz("tenho SOP, é a mesma coisa que cisto?", _CLINICA)
     assert conversa.motivos == [], "nenhum caso (antes: intencao_clinica P2 na enfermagem)"
-    assert _texto(sop).startswith(_RESPOSTA_SOP)
+    # r4 (22/10/2026): sem a linha da fonte a redacao nao sai; a base responde (sem caso).
+    assert not _texto(sop).startswith(_RESPOSTA_SOP)
     ultimo = conversa.transporte.chamadas[-1][1][0]["content"][0]["text"]
     assert "Pergunta geral de saúde." in ultimo
     assert "oferecendo mostrar como marcar" in ultimo, "duvida sobre a propria condicao: a oferta faz sentido"
@@ -85,7 +86,8 @@ async def test_diagnostico_da_pessoa_sem_intencao_clinica_tambem_vai_a_redacao()
         "fui diagnosticada com mioma, é perigoso?", _classify(intent="symptom", population="adult")
     )
     assert conversa.motivos == []
-    assert _texto(resultado).startswith(_RESPOSTA_SOP)
+    # r4 (22/10/2026): sem a linha da fonte a redacao nao sai; a base responde (sem caso).
+    assert not _texto(resultado).startswith(_RESPOSTA_SOP)
     assert "responda sim ou não" not in _texto(resultado).lower(), "nao e' queixa: sem perguntas de alerta"
 
 
@@ -174,7 +176,8 @@ async def test_nao_e_dois_a_oferta_pendente_sem_o_classificador() -> None:
     await conversa.diz("Estou com dor de cabeça", _SINTOMA)
     nao = await conversa.diz("não", _RISCO)
     assert conversa.modelo.respostas == [_RISCO], "o 'nao' as perguntas de alerta nao chamou o classificador"
-    assert _texto(nao).endswith(sg.opcoes_do_sintoma(False))
+    # r4 (22/10/2026): depois das perguntas de alerta, o texto fixo da v4 (com as opcoes 1/2).
+    assert "1) saber onde marcar consulta" in _texto(nao)
     dois = await conversa.diz("2", _RISCO)
     assert conversa.motivos == ["intencao_clinica"]
     assert dois.get("escalation_motivo") == "intencao_clinica"
@@ -565,7 +568,8 @@ async def test_pergunta_nova_com_alerta_pendente_sai_do_alerta() -> None:
     await conversa.diz("Estou com dor de cabeça", _SINTOMA)
     resultado = await conversa.diz(_B, _CLINICA)
     assert conversa.motivos == []
-    assert _texto(resultado).startswith(_RESPOSTA_SOP)
+    # r4 (22/10/2026): sem a linha da fonte a redacao nao sai; a base responde (sem caso).
+    assert not _texto(resultado).startswith(_RESPOSTA_SOP)
 
 
 async def test_com_caso_aberto_a_duvida_educativa_nao_vira_p1() -> None:

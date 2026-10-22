@@ -16,7 +16,6 @@ import pytest
 from maezo.agents.helena.graph import (
     NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO,
     RESPOSTA_CASO_ENCERRADO,
-    RESPOSTA_CONFIRMA_ENCERRAMENTO,
 )
 from maezo.conhecimento import base_saude as b
 from maezo.gateway.effect_pep import DecisionContext
@@ -48,12 +47,12 @@ def test_o_roteiro_existe_e_todo_padrao_compila() -> None:
         "Estou com dor no peito e falta de ar",
         "Quero falar com uma pessoa",
         "Não quero falar com ninguém",
-        "SIM",
         "O que é xyzabc?",
     ):
         assert cenario in textos, cenario
     [encerra] = [p for s in ac.HELENA_BASE_SAUDE for p in s.passos if p.caso_encerrado]
-    assert encerra.texto == "SIM"
+    # DL-0131 (roteador ativo / allowlist): a recusa encerra direto, sem a confirmacao.
+    assert encerra.texto == "Não quero falar com ninguém"
 
 
 def _passo(nome: str, indice: int = 0) -> ac.Passo:
@@ -96,16 +95,7 @@ def test_as_respostas_certas_da_base_passam_e_as_erradas_reprovam() -> None:
 def test_a_confirmacao_e_o_encerramento_passam_nos_passos() -> None:
     assert (
         ac.avaliar_passo(
-            _passo("10-pede-pessoa-recusa-e-encerra", 1),
-            [("helena", RESPOSTA_CONFIRMA_ENCERRAMENTO)],
-            [],
-            None,
-        )
-        == []
-    )
-    assert (
-        ac.avaliar_passo(
-            _passo("10-pede-pessoa-recusa-e-encerra", 2), [("helena", RESPOSTA_CASO_ENCERRADO)], [], None
+            _passo("10-pede-pessoa-recusa-e-encerra", 1), [("helena", RESPOSTA_CASO_ENCERRADO)], [], None
         )
         == []
     )
@@ -141,7 +131,7 @@ async def test_o_motor_simulado_encerra_a_instancia_e_registra_no_turno() -> Non
 
 
 async def test_o_passo_caso_encerrado_reprova_sem_encerramento_e_o_inverso() -> None:
-    passo = _passo("10-pede-pessoa-recusa-e-encerra", 2)
+    passo = _passo("10-pede-pessoa-recusa-e-encerra", 1)
 
     async def sem_encerrar(texto: str) -> Turno:
         t = Turno(1, "persona", texto, "outro")

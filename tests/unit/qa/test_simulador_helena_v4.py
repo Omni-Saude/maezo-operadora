@@ -92,7 +92,11 @@ def test_os_textos_fixos_da_v4_passam_nos_passos_do_roteiro() -> None:
         frase_cobertura=RESPOSTA_COBERTURA_ESPECIFICA,
     )
     assert certo("3-especialista-pergunta-de-cobertura-da-consulta", 0, endocrino) == []
-    assert certo("4-cobertura-de-exame-nao-e-especialista", 0, RESPOSTA_COBERTURA_ESPECIFICA) == []
+    # Modo simples (decisao do dono, DL-0140): a cobertura de exame recebe a oferta da equipe.
+    from maezo.agents.helena.cobertura_assistida import texto_simples_do_procedimento
+
+    oferta = texto_simples_do_procedimento(["ressonância"])
+    assert certo("4-cobertura-de-exame-nao-e-especialista", 0, oferta) == []
 
     view = ElegibilidadeView(
         portable_subject_ref="amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",
