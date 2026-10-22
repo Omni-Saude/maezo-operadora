@@ -16,7 +16,8 @@ import asyncio
 import functools
 import hashlib
 import re
-from collections.abc import Mapping
+import time
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, ClassVar, Final, Protocol, runtime_checkable
@@ -28,6 +29,39 @@ from maezo.runtime.inference.capabilities import DeploymentRegion
 from maezo.runtime.inference.errors import BrRegionalTransportUnavailableError
 
 logger = structlog.get_logger(__name__)
+
+#: CONTADOR das chamadas a zona PHI (21/10/2026): uma linha `inferencia_chamada` por chamada, com modelo,
+#: resultado (ok | falha | prazo), tempo e tokens. So' vocabulario fechado e numeros (nunca prompt, resposta
+#: ou mensagem de excecao). Os filtros de metrica do CloudWatch (`inferencia-alarmes.tf`) contam falha + prazo
+#: por modelo.
+EVENTO_INFERENCIA_CHAMADA = "inferencia_chamada"
+RESULTADO_OK = "ok"
+RESULTADO_FALHA = "falha"
+RESULTADO_PRAZO = "prazo"
+
+
+def registrar_chamada(
+    *,
+    modelo: str,
+    resultado: str,
+    ms: int,
+    tokens_entrada: int = 0,
+    tokens_saida: int = 0,
+    erro: str = "",
+    parada: str = "",
+) -> None:
+    """A linha do contador. `erro` e' so' o NOME da classe de excecao do SDK; `parada`, o `stopReason`."""
+    logger.info(
+        EVENTO_INFERENCIA_CHAMADA,
+        modelo=str(modelo)[:80],
+        resultado=resultado,
+        ms=ms,
+        tokens_entrada=tokens_entrada,
+        tokens_saida=tokens_saida,
+        erro=erro[:60],
+        parada=parada[:40],
+    )
+
 
 # ===========================================================================
 # BR-resident PHI-zone adapter (Onda 2, W2 leg 2) — BUILT INERT
@@ -408,6 +442,11 @@ class BedrockBrRegionalTransport:
         # asyncio, como sempre. O `read_timeout` do cliente e' o prazo REAL: a thread volta no prazo, nunca
         # fica presa depois do prazo de quem chamou.
         self._executor = executor
+        # PRAZO TOTAL (22/10/2026, DL-0139): conexao + leitura cabem em `timeout_s` (antes cada um tinha o seu
+        # e a chamada podia levar a soma). Alem do cliente, `send` corta no prazo total (+0,5 s de folga).
+        self._prazo_total = float(timeout_s)
+        conexao = min(3.0, max(0.5, timeout_s / 5))
+        leitura = max(0.5, timeout_s - conexao)
         if client is not None:
             self._client = client
         else:
@@ -418,8 +457,8 @@ class BedrockBrRegionalTransport:
                 "bedrock-runtime",
                 region_name=self.REGIAO,
                 config=Config(
-                    read_timeout=timeout_s,
-                    connect_timeout=min(timeout_s, 10.0),
+                    read_timeout=leitura,
+                    connect_timeout=conexao,
                     # Configuracao SDK existente, preservada por este reparo de admissao.
                     # O budget externo recusa reenviar uma chamada marcada committed.
                     retries={"max_attempts": 1, "mode": "standard"},
@@ -459,13 +498,22 @@ class BedrockBrRegionalTransport:
             messages=[{"role": "user", "content": [{"text": request.prompt}]}],
             inferenceConfig={"maxTokens": request.max_tokens, "temperature": 0.2},
         )
+        inicio = time.monotonic()
         try:
+            pendente: Awaitable[Any]
             if self._executor is None:
-                bruto = await asyncio.to_thread(chamada)
+                pendente = asyncio.to_thread(chamada)
             else:
-                bruto = await asyncio.get_running_loop().run_in_executor(self._executor, chamada)
+                pendente = asyncio.get_running_loop().run_in_executor(self._executor, chamada)
+            bruto = await asyncio.wait_for(pendente, timeout=self._prazo_total + 0.5)
         except Exception as exc:  # nenhum erro de SDK escapa deste módulo
-            nome = type(exc).__name__
+            nome = "TimeoutPrazoTotal" if isinstance(exc, TimeoutError) else type(exc).__name__
+            registrar_chamada(
+                modelo=request.model,
+                resultado=RESULTADO_PRAZO if "Timeout" in nome else RESULTADO_FALHA,
+                ms=int((time.monotonic() - inicio) * 1000),
+                erro=nome,
+            )
             # `ThrottlingException` e afins são a única classe re-tentável; o resto não é.
             retryable = "Throttl" in nome or "TooManyRequests" in nome
             raise BrRegionalTransportUnavailableError(
@@ -488,6 +536,14 @@ class BedrockBrRegionalTransport:
             texto = next((b["text"] for b in blocos if isinstance(b, dict) and "text" in b), "")
             uso = bruto.get("usage") or {}
             parada = str(bruto.get("stopReason") or "")
+            registrar_chamada(
+                modelo=request.model,
+                resultado=RESULTADO_OK,
+                ms=int((time.monotonic() - inicio) * 1000),
+                tokens_entrada=int(uso.get("inputTokens") or 0),
+                tokens_saida=int(uso.get("outputTokens") or 0),
+                parada=parada,
+            )
 
             return BrRegionalResponse(
                 completion=texto,
