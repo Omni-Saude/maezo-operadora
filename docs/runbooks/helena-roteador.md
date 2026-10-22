@@ -31,6 +31,9 @@ concordância por roteiro, as falhas, o tempo e cada desacordo com o texto do pa
   Y?" (pendência `ROT_DUVIDA:x:y`).
 - A pendência só vale quando o roteador diz que a mensagem responde a ela; senão é descartada antes da
   habilidade.
+- `roteador-v5` (22/10/2026): a linha de `saude` no contrato diz que "quais exames ou cuidados são indicados
+  para a idade ou condição" é saúde mesmo citando o plano; a de `cobertura` diz "se o plano cobre (paga,
+  autoriza)". Regra geral de fronteira entre as duas habilidades, sem termo do roteiro.
 
 ## 3. Desligar / desfazer
 
