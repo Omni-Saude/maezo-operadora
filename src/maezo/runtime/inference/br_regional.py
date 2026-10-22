@@ -16,6 +16,7 @@ import asyncio
 import functools
 import hashlib
 import re
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -28,6 +29,39 @@ from maezo.runtime.inference.capabilities import DeploymentRegion
 from maezo.runtime.inference.errors import BrRegionalTransportUnavailableError
 
 logger = structlog.get_logger(__name__)
+
+#: CONTADOR das chamadas a zona PHI (21/10/2026): uma linha `inferencia_chamada` por chamada, com modelo,
+#: resultado (ok | falha | prazo), tempo e tokens. So' vocabulario fechado e numeros (nunca prompt, resposta
+#: ou mensagem de excecao). Os filtros de metrica do CloudWatch (`inferencia-alarmes.tf`) contam falha + prazo
+#: por modelo.
+EVENTO_INFERENCIA_CHAMADA = "inferencia_chamada"
+RESULTADO_OK = "ok"
+RESULTADO_FALHA = "falha"
+RESULTADO_PRAZO = "prazo"
+
+
+def registrar_chamada(
+    *,
+    modelo: str,
+    resultado: str,
+    ms: int,
+    tokens_entrada: int = 0,
+    tokens_saida: int = 0,
+    erro: str = "",
+    parada: str = "",
+) -> None:
+    """A linha do contador. `erro` e' so' o NOME da classe de excecao do SDK; `parada`, o `stopReason`."""
+    logger.info(
+        EVENTO_INFERENCIA_CHAMADA,
+        modelo=str(modelo)[:80],
+        resultado=resultado,
+        ms=ms,
+        tokens_entrada=tokens_entrada,
+        tokens_saida=tokens_saida,
+        erro=erro[:60],
+        parada=parada[:40],
+    )
+
 
 # ===========================================================================
 # BR-resident PHI-zone adapter (Onda 2, W2 leg 2) — BUILT INERT
@@ -459,6 +493,7 @@ class BedrockBrRegionalTransport:
             messages=[{"role": "user", "content": [{"text": request.prompt}]}],
             inferenceConfig={"maxTokens": request.max_tokens, "temperature": 0.2},
         )
+        inicio = time.monotonic()
         try:
             if self._executor is None:
                 bruto = await asyncio.to_thread(chamada)
@@ -466,6 +501,12 @@ class BedrockBrRegionalTransport:
                 bruto = await asyncio.get_running_loop().run_in_executor(self._executor, chamada)
         except Exception as exc:  # nenhum erro de SDK escapa deste módulo
             nome = type(exc).__name__
+            registrar_chamada(
+                modelo=request.model,
+                resultado=RESULTADO_PRAZO if "Timeout" in nome else RESULTADO_FALHA,
+                ms=int((time.monotonic() - inicio) * 1000),
+                erro=nome,
+            )
             # `ThrottlingException` e afins são a única classe re-tentável; o resto não é.
             retryable = "Throttl" in nome or "TooManyRequests" in nome
             raise BrRegionalTransportUnavailableError(
@@ -488,6 +529,14 @@ class BedrockBrRegionalTransport:
             texto = next((b["text"] for b in blocos if isinstance(b, dict) and "text" in b), "")
             uso = bruto.get("usage") or {}
             parada = str(bruto.get("stopReason") or "")
+            registrar_chamada(
+                modelo=request.model,
+                resultado=RESULTADO_OK,
+                ms=int((time.monotonic() - inicio) * 1000),
+                tokens_entrada=int(uso.get("inputTokens") or 0),
+                tokens_saida=int(uso.get("outputTokens") or 0),
+                parada=parada,
+            )
 
             return BrRegionalResponse(
                 completion=texto,

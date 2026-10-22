@@ -76,6 +76,11 @@ locals {
       { name = "MAEZO_PHI_ENDPOINT_URL", value = var.phi_endpoint_url },
       { name = "MAEZO_PHI_VENDOR_DPA_REF", value = var.phi_vendor_dpa_ref },
       { name = "MAEZO_INFERENCE_MODEL", value = local.agentes.helena.provider == "bedrock_br" || local.agentes.helena.provider == "br_resident" ? var.phi_model_id : "" },
+      # Protecoes de TODA chamada a zona PHI (inferencia-alarmes.tf): prazo REAL (tempo de leitura do cliente), teto
+      # de tokens de saida e pool proprio de threads.
+      { name = "MAEZO_INFERENCE_TIMEOUT_S", value = tostring(var.inferencia_prazo_s) },
+      { name = "MAEZO_INFERENCE_MAX_TOKENS", value = tostring(var.inferencia_max_tokens) },
+      { name = "MAEZO_INFERENCE_DEDICATED_WORKERS", value = tostring(var.inferencia_workers) },
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },
