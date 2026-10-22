@@ -101,5 +101,7 @@ jobs:
             /tmp/lane-x/**/result*.json
             ${{ github.workspace }}/docs/audits/**/p3-rebuild/n2/result.json
             ${{ github.workspace }}/docs/audits/**/p3-rebuild/n2/measurement-*/
+            ${{ github.workspace }}/docs/audits/**/p3-rebuild/n2/workspace-*/collector-salvage/**
+            ${{ github.workspace }}/docs/audits/**/p3-rebuild/n2/workspace-*/acquisition-record.json
           if-no-files-found: warn
           retention-days: 7
