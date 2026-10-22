@@ -496,7 +496,9 @@ DONO_V1: tuple[Segmento, ...] = (
             ),
             _p(
                 "Meu plano cobre parto?",
-                deve=("obstetr", "(central|aplicativo|portal|pessoa da equipe)"),
+                # Modo simples (decisao do dono de 22/10/2026, DL-0140): a oferta da equipe no lugar
+                # da segmentacao e dos canais (ajuste pela decisao do dono, nao para fazer passar).
+                deve=(r"(a equipe confirma para voce|quer que eu encaminhe)",),
                 nao_deve=("(esta coberto|cobre sim|cobertura garantida|com certeza)",),
             ),
             _p(

@@ -50,7 +50,8 @@ async def test_plano_com_intencao_de_fora_vai_a_consulta_do_plano(fala: str) -> 
         resultado = await grafo.ainvoke(_entrada(fala))
     assert "helena_habilidade_fecha_intencao" in _eventos(logs)
     assert resultado.get("intent") == "consulta_plano"
-    # A consulta do plano rodou (a fonte de teste nao tem fatos: a consulta e' recusada, nunca o despejo).
+    # O subtipo fechado chega a consulta (nunca "fora do dominio"); a fonte de teste nao tem fatos.
+    assert not any(e.get("motivo") == "subtipo_fora_do_dominio" for e in logs)
     assert _eventos(logs) & {"helena_consulta_plano", "helena_consulta_recusada"}
 
 
@@ -79,3 +80,36 @@ async def test_sem_roteador_decidindo_as_regras_de_sempre_valem() -> None:
     from maezo.agents.helena.graph import HelenaGraph
 
     assert HelenaGraph._regra_vale("plano") is True
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "Quando vence o boleto? E meu plano cobre dermatologista?",
+        "qual o valor da minha mensalidade deste mes?",
+        "me manda a segunda via, por favor",
+    ],
+)
+async def test_cobranca_com_intencao_de_fora_vai_ao_lucas_com_subtipo(fala: str) -> None:
+    modelo = _Modelo([_decisao("cobranca")], [_classify(intent="information")])
+    grafo, _whatsapp, cib, _fonte = _grafo(modelo)
+    with capture_logs() as logs:
+        resultado = await grafo.ainvoke(_entrada(fala))
+    assert resultado.get("intent") == "cobranca" and resultado.get("cobranca_subtipo")
+    assert not any(e.get("event") == "helena_handoff_recusado" for e in logs)
+    assert _starts(cib) == 0
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "Quero tirar uma dúvida sobre minha saúde",
+        "tenho uma pergunta de saúde",
+        "posso perguntar sobre saúde?",
+    ],
+)
+async def test_saude_sem_sintoma_nunca_abre_caso_de_enfermagem(fala: str) -> None:
+    modelo = _Modelo([_decisao("saude")], [_classify(intent="clinical_question"), "", ""])
+    grafo, _whatsapp, cib, _fonte = _grafo(modelo)
+    await grafo.ainvoke(_entrada(fala))
+    assert _starts(cib) == 0

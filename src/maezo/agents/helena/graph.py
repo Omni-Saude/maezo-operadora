@@ -381,6 +381,8 @@ logger = structlog.get_logger(__name__)
 
 #: F2 (ADR-0066): a habilidade que o roteador ATIVO escolheu neste turno; `None` fora do modo ativo.
 _HABILIDADE_DO_TURNO: ContextVar[str | None] = ContextVar("helena_habilidade_do_turno", default=None)
+#: Avaliacao r4 de 22/10/2026: a orientacao depois das perguntas de alerta e' sempre a da v4 (texto fixo).
+_GERATIVA_NO_ALERTA: bool = False
 #: F2 FECHADA (r4 de 22/10/2026): com o roteador ATIVO, a habilidade escolhida limita as intencoes do turno
 #: (as do modelo fora dela viram a padrao da habilidade) e as regras de PALAVRA que levariam o turno para
 #: OUTRA habilidade nao rodam (`_regra_vale`). Ficam sempre as travas de seguranca (risco, alarme, neonatal,
@@ -389,7 +391,9 @@ _INTENTS_DA_HABILIDADE: Mapping[str, tuple[tuple[str, ...], str]] = {
     "plano": (("consulta_plano",), "consulta_plano"),
     "cobranca": (("cobranca",), "cobranca"),
     "sintoma": (("symptom", "clinical_question"), "symptom"),
-    "saude": (("information", "clinical_question"), "information"),
+    # `saude` e' informativa pelo contrato: a "pergunta clinica" sem sintoma nunca vira caso de enfermagem (o
+    # sintoma do modelo continua virando sintoma pelas regras de seguranca).
+    "saude": (("information",), "information"),
     "conversa": (("greeting", "information"), "information"),
     # `equipe` nunca FORCA o pedido de pessoa (trava `caso_so_com_sim`): so' os portoes de pedido explicito
     # abrem caso; a recusa/encerramento seguem como informacao.
@@ -5227,6 +5231,7 @@ class HelenaGraph:
         # aqui (`pend_v4`) e a memoria da coleta zera ja', para que QUALQUER saida deste turno (inclusive os
         # portoes de seguranca, que respondem antes da v4) nao deixe uma pergunta velha esperando.
         pend_v4, pend_encerrar = self._expirar_pendencias_do_turno(state, update)
+        self._sem_sintoma_do_historico(extraction, update, state)
         intent = self._intent_da_habilidade(intent, extraction, update, state)
         if (
             self._regra_vale("conversa", "saude")
@@ -6066,6 +6071,26 @@ class HelenaGraph:
 
         return _rota_informativa(update)
 
+    def _sem_sintoma_do_historico(
+        self, extraction: dict[str, Any], update: dict[str, Any], state: Mapping[str, Any]
+    ) -> None:
+        """F2 fechada (r4 de 22/10/2026, alarme falso): com o roteador escolhendo uma habilidade NAO clinica
+        (equipe, conversa, cobranca, plano, cobertura, pedidos) e SEM conteudo clinico na propria mensagem, o
+        sintoma que o modelo trouxe do historico nao vai a tabela de alarme ("quero falar com uma pessoa" no
+        meio das perguntas da dor de cabeca virava 192). Sinal de emergencia na mensagem continua decidindo
+        (trava de entrada)."""
+        roteada = _HABILIDADE_DO_TURNO.get()
+        if roteada is None or roteada in ("sintoma", "saude") or not extraction.get("sintoma_codigo"):
+            return
+        texto = str(state.get("message_body") or "")
+        if _conteudo_clinico(texto) or _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto):
+            return
+        logger.info("helena_habilidade_sem_sintoma_do_historico", node="classify", habilidade=roteada)
+        extraction["sintoma_codigo"] = None
+        extraction["intensidade"] = "desconhecida"
+        update["sintoma_codigo"] = None
+        update["intensidade"] = "desconhecida"
+
     @staticmethod
     def _regra_vale(*habilidades: str) -> bool:
         """F2 fechada: a regra de PALAVRA que leva o turno a uma habilidade so' vale sem roteador ativo
@@ -6074,7 +6099,7 @@ class HelenaGraph:
         return roteada is None or roteada in habilidades
 
     def _intent_da_habilidade(
-        self, intent: Any, extraction: Mapping[str, Any], update: dict[str, Any], state: Mapping[str, Any]
+        self, intent: Any, extraction: dict[str, Any], update: dict[str, Any], state: Mapping[str, Any]
     ) -> Any:
         """F2 fechada: a intencao do modelo fora da habilidade escolhida pelo roteador vira a padrao dela.
         Sem roteador ativo decidindo, nada muda."""
@@ -6093,14 +6118,18 @@ class HelenaGraph:
         )
         texto = str(state.get("message_body") or "")
         update["intent"] = padrao
+        # O subtipo fechado vai TAMBEM para a extracao: o `classify` preenche os campos da consulta/cobranca
+        # de novo, a partir dela, logo depois (r4: o subtipo saia nulo e o Lucas recusava o turno).
         if padrao == INTENT_CONSULTA_PLANO:
-            update["consulta_subtipo"] = extraction.get("consulta_subtipo") or _subtipo_da_consulta(texto)
+            extraction["consulta_subtipo"] = extraction.get("consulta_subtipo") or _subtipo_da_consulta(texto)
+            update["consulta_subtipo"] = extraction["consulta_subtipo"]
         else:
             update.pop("consulta_subtipo", None)
         if padrao == INTENT_COBRANCA:
+            extraction["cobranca_subtipo"] = extraction.get("cobranca_subtipo") or _subtipo_pelo_texto(texto)
             self._preencher_cobranca(
                 update,
-                extraction.get("cobranca_subtipo") or _subtipo_pelo_texto(texto),
+                extraction["cobranca_subtipo"],
                 cast(str | None, extraction.get("competencia")),
                 state,
             )
@@ -7849,7 +7878,17 @@ class HelenaGraph:
         redacao = await self._gerativa.redigir(pedido, cercas=self._cercas_da_helena)
         if redacao is None:
             return None
+        if redacao.desfecho not in ("padrao", "falha") and "Fonte:" not in redacao.texto:
+            # Regra do dono (r4, "citando a fonte", a fonte so' pelo nome): sem a linha da fonte, a
+            # redacao nao sai; o turno segue o caminho da base (texto aprovado com o credito e o aviso).
+            logger.info("helena_saude_gerativa_sem_fonte", node="classify", modo=modo)
+            return None
         texto_final = redacao.texto
+        if (
+            redacao.desfecho not in ("padrao", "falha")
+            and "não substitui avaliação médica" not in texto_final
+        ):
+            texto_final = f"{texto_final}\n{_bs.AVISO_PADRAO}"
         if jornada is not None and redacao.desfecho not in ("padrao", "falha"):
             texto_final = f"{texto_final}\n{_jornadas.TEXTOS[jornada]}"
             logger.info("helena_jornada_do_plano", node="classify", jornada=jornada)
@@ -7867,6 +7906,11 @@ class HelenaGraph:
         assunto
         -> `None` (a v4 de sempre decide). O fecho com as opcoes 1/2 e' FIXO e a escolha seguinte, da v4."""
         assert self._gerativa is not None
+        if not _GERATIVA_NO_ALERTA:
+            # Avaliacao r4 de 22/10/2026: o SINTOMA relatado segue o fluxo do sintoma (pergunta de alarme e o
+            # texto fixo da v4); a redacao fica so' para a PERGUNTA informativa. A redacao no alerta citava o
+            # 192 para dor leve sem sinal de alarme (alarme falso).
+            return None
         if self._v4_pede_pessoa(state, texto):
             return None
         plano = _plano(texto)

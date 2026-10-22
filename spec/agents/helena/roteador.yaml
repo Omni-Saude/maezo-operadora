@@ -67,7 +67,7 @@ travas_de_saida:              # sempre, sobre o texto que vai sair
 habilidades:
   - id: cobertura
     titulo: cobertura de exames e procedimentos
-    resumo: 'se o plano cobre (paga, autoriza) exame, procedimento, cirurgia, terapia ou lista deles; resposta a pergunta pendente da cobertura; outro exame, outra pessoa ou "faltou algum?" depois de uma resposta de cobertura'
+    resumo: 'se o plano cobre (paga, autoriza) exame, procedimento, cirurgia, terapia ou lista deles (nunca consulta com medico ou especialista); resposta a pergunta pendente da cobertura; outro exame, outra pessoa ou "faltou algum?" depois de uma resposta de cobertura'
     descricao: se o plano cobre um exame, procedimento, cirurgia, terapia ou uma lista deles, para quem
     quando_usar:
       - a pessoa pergunta se o plano cobre um ou mais procedimentos, com ou sem o nome
@@ -103,7 +103,7 @@ habilidades:
     modulos_atuais: [consultas_plano.py]
   - id: saude
     titulo: informações de saúde
-    resumo: 'duvida geral de saude sem estar sentindo algo agora: o que e, para que serve, quais exames ou cuidados sao indicados para a idade ou condicao (mesmo citando o plano)'
+    resumo: 'duvida geral de saude sem estar sentindo algo agora: o que e, para que serve, quais exames ou cuidados sao indicados para a idade ou condicao, qual especialista procurar e como consultar um especialista pelo plano (mesmo citando o plano ou a cobertura da consulta)'
     descricao: dúvida geral de saúde sem queixa atual (o que é, sintomas, exames, especialidade, prevenção)
     quando_usar:
       - pergunta informativa sobre doença, exame, vacina, especialidade ou prevenção, sem estar sentindo algo agora
