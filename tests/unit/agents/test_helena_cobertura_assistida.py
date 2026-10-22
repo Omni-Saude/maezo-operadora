@@ -304,7 +304,9 @@ async def test_pergunta_repetida_nao_repete_o_texto() -> None:
     # E3 (adendo de 22/10/2026): retoma a CONCLUSAO em uma linha e oferece o proximo passo, sem repetir tudo.
     assert up2["response_text"].startswith("Sobre Hemograma") and ": consta no Rol" in up2["response_text"]
     assert up2["response_text"].endswith("prefere falar com a equipe?")
-    assert up2["response_text"].count(".") <= 2 and "Já te passei" not in up2["response_text"]
+    # A ressalva de sempre fica (a conclusao repetida nunca vira promessa de cobertura).
+    assert ca.AVISO_FINAL in up2["response_text"] and "Já te passei" not in up2["response_text"]
+    assert len(up2["response_text"]) < len(up["response_text"]) + len("Sobre ")
     assert up2["coleta_pendente"] == ca.PEND_EQUIPE
 
 

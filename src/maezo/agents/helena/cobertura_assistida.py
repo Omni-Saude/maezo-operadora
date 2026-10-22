@@ -1174,14 +1174,16 @@ TEXTO_PLANO_SEM_ATENDIMENTO: Final[str] = (
 #: retoma a CONCLUSAO em uma linha (quem pergunta de novo acha que nao foi entendido; so' "ja' te passei" soa
 #: frio e nao responde) e oferece o proximo passo.
 TEXTO_REPETIDA: Final[str] = (
-    "Sobre {conclusao} Quer que eu te ajude com mais alguma coisa ou prefere falar com a equipe?"
+    "Sobre {conclusao} {aviso} Quer que eu te ajude com mais alguma coisa ou prefere falar com a equipe?"
 )
 
 
 def texto_repetida(view: Any, item: Any, nome: str | None) -> str:
-    """Regra E3 (DL-0128, adendo de 22/10/2026): a conclusao do cadastro em UMA linha + o proximo passo."""
+    """Regra E3 (DL-0128, adendos de 22/10/2026): a conclusao do cadastro em UMA linha, a ressalva de
+    sempre (`AVISO_FINAL`: a conclusao repetida nunca vira promessa de cobertura, trava de saida
+    `cobertura_sem_promessa`) e o proximo passo."""
     frase, _oferece = texto_de_um_resultado(view, item, nome)
-    return TEXTO_REPETIDA.format(conclusao=_primeira_frase(frase))
+    return TEXTO_REPETIDA.format(conclusao=_primeira_frase(frase), aviso=AVISO_FINAL)
 
 
 def resumo_para_a_equipe(ctx: Contexto) -> str:
