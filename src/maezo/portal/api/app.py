@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from maezo.gateway.commercial import CommercialGateway
 from maezo.gateway.human.assignment_composition import AssignmentRuntime
 from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
@@ -24,6 +25,7 @@ from maezo.gateway.staff_cases.composition import StaffCaseRuntime
 from maezo.portal.api import spa
 from maezo.portal.api.auth import AuthenticationError, HumanAuthenticator
 from maezo.portal.api.cases import CaseServiceFactory, StaffCaseServiceFactory, case_router
+from maezo.portal.api.commercial import commercial_error, commercial_router, is_commercial_request
 from maezo.portal.api.communications import (
     CommunicationServiceFactory,
     communication_router,
@@ -223,6 +225,7 @@ def create_app(
     document_service_factory: DocumentServiceFactory | None = None,
     communication_service_factory: CommunicationServiceFactory | None = None,
     vendor_submission_service_factory: VendorSubmissionServiceFactory | None = None,
+    commercial_gateway: CommercialGateway | None = None,
     web_root: Path | None = None,
 ) -> FastAPI:
     """Production factory has no in-memory fallback and no default or agent credentials."""
@@ -327,6 +330,9 @@ def create_app(
     # refuses (403 capability / 503 unbound slot) until the vendor plane is adopted.
     app.state.vendor_submission_service_factory = vendor_submission_service_factory
     app.include_router(vendor_router)
+    # Commercial sources remain unbound by default. Admission precedes body intake.
+    app.state.commercial_gateway = commercial_gateway
+    app.include_router(commercial_router)
 
     # Added BEFORE `deployment_host` on purpose. `add_middleware` inserts at position 0, so
     # the LAST call is the outermost: registering CORS first leaves it INSIDE the host check,
@@ -352,6 +358,8 @@ def create_app(
             len(request.headers.getlist("host")) != 1
             or request.headers["host"] != urlsplit(config.public_origin).netloc
         ):
+            if is_commercial_request(request):
+                return commercial_error("denied", "invalid_request", http_status=400)
             if (
                 is_product_request(request)
                 or is_communication_request(request)

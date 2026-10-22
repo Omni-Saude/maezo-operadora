@@ -1,0 +1,5345 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omni:commercial:proposed:v1",
+  "title": "Proposed Omni commercial commands and safe result projections",
+  "description": "NEW PROPOSAL. Software implementation authorization is not source publication, data admission, Tasy write homologation or operational qualification. Validate against $defs/Command or $defs/OperationalResult according to transport direction; require command/result-kind pairing in x-commands.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Command"
+    },
+    {
+      "$ref": "#/$defs/OperationalResult"
+    }
+  ],
+  "x-status": {
+    "proposal": "PROPOSED",
+    "software_implementation": "USER_AUTHORIZED",
+    "source_publication": "NOT_PUBLISHED",
+    "sales_admission": "NOT_ESTABLISHED",
+    "tasy_write_homologation": "NOT_ESTABLISHED",
+    "identity_lifecycle": "NOT_ESTABLISHED",
+    "provider_binding": "NOT_ESTABLISHED",
+    "human_acts": "NOT_ESTABLISHED",
+    "real_integration": "NOT_RUN",
+    "production": "NO_GO"
+  },
+  "x-baselines": {
+    "sales": "c835f789",
+    "maezo": "2ff8fc635",
+    "amh": "874bf87"
+  },
+  "x-transports": {
+    "sales": "POST /api/sales/v1/commercial",
+    "maezo": "POST /api/v1/sales/commercial",
+    "amh": "POST /interop/sales/v1/commercial"
+  },
+  "x-commands": {
+    "operator.get": {
+      "payload_schema": "#/$defs/OperatorGetPayload",
+      "result_kind": "operator",
+      "scope": "interop/sales.catalog.read",
+      "mode": "read"
+    },
+    "operator.register": {
+      "payload_schema": "#/$defs/OperatorRegisterPayload",
+      "result_kind": "operator",
+      "scope": "interop/sales.catalog.manage",
+      "mode": "write"
+    },
+    "catalog.get": {
+      "payload_schema": "#/$defs/CatalogGetPayload",
+      "result_kind": "catalog",
+      "scope": "interop/sales.catalog.read",
+      "mode": "read"
+    },
+    "catalog.draft": {
+      "payload_schema": "#/$defs/CatalogDraftPayload",
+      "result_kind": "catalog",
+      "scope": "interop/sales.catalog.manage",
+      "mode": "write"
+    },
+    "catalog.import": {
+      "payload_schema": "#/$defs/CatalogImportPayload",
+      "result_kind": "catalog",
+      "scope": "interop/sales.catalog.manage",
+      "mode": "write"
+    },
+    "catalog.review": {
+      "payload_schema": "#/$defs/CatalogReviewPayload",
+      "result_kind": "catalog",
+      "scope": "interop/sales.catalog.manage",
+      "mode": "write"
+    },
+    "catalog.publish": {
+      "payload_schema": "#/$defs/CatalogPublishPayload",
+      "result_kind": "catalog",
+      "scope": "interop/sales.catalog.manage",
+      "mode": "write"
+    },
+    "catalog.withdraw": {
+      "payload_schema": "#/$defs/CatalogWithdrawPayload",
+      "result_kind": "catalog",
+      "scope": "interop/sales.catalog.manage",
+      "mode": "write"
+    },
+    "intake.describe": {
+      "payload_schema": "#/$defs/IntakeDescribePayload",
+      "result_kind": "intake_descriptor",
+      "scope": "interop/sales.intake",
+      "mode": "read"
+    },
+    "prospect.save": {
+      "payload_schema": "#/$defs/ProspectSavePayload",
+      "result_kind": "prospect",
+      "scope": "interop/sales.intake",
+      "mode": "write"
+    },
+    "contact.request": {
+      "payload_schema": "#/$defs/ContactRequestPayload",
+      "result_kind": "contact_request",
+      "scope": "interop/sales.intake",
+      "mode": "write"
+    },
+    "party.prepare": {
+      "payload_schema": "#/$defs/PartyPreparePayload",
+      "result_kind": "party_preparation",
+      "scope": "interop/sales.intake",
+      "mode": "write"
+    },
+    "party.submit": {
+      "payload_schema": "#/$defs/PartySubmitPayload",
+      "result_kind": "party_linkage",
+      "scope": "interop/sales.intake",
+      "mode": "write"
+    },
+    "party.link": {
+      "payload_schema": "#/$defs/PartyLinkPayload",
+      "result_kind": "party_linkage",
+      "scope": "interop/sales.intake",
+      "mode": "write"
+    },
+    "offer.quote": {
+      "payload_schema": "#/$defs/OfferQuotePayload",
+      "result_kind": "quote",
+      "scope": "interop/sales.contract",
+      "mode": "write"
+    },
+    "contract.issue": {
+      "payload_schema": "#/$defs/ContractIssuePayload",
+      "result_kind": "contract",
+      "scope": "interop/sales.contract",
+      "mode": "write"
+    },
+    "contract.get": {
+      "payload_schema": "#/$defs/ContractGetPayload",
+      "result_kind": "contract",
+      "scope": "interop/sales.contract",
+      "mode": "read"
+    },
+    "receivable.ensure": {
+      "payload_schema": "#/$defs/ReceivableEnsurePayload",
+      "result_kind": "receivable",
+      "scope": "interop/sales.billing.write",
+      "mode": "write"
+    },
+    "receivable.get": {
+      "payload_schema": "#/$defs/ReceivableGetPayload",
+      "result_kind": "receivable",
+      "scope": "interop/sales.billing.read",
+      "mode": "read"
+    },
+    "payment.create": {
+      "payload_schema": "#/$defs/PaymentCreatePayload",
+      "result_kind": "payment",
+      "scope": "interop/sales.billing.write",
+      "mode": "write"
+    },
+    "payment.reconcile": {
+      "payload_schema": "#/$defs/PaymentReconcilePayload",
+      "result_kind": "payment",
+      "scope": "interop/sales.billing.write",
+      "mode": "write"
+    },
+    "mandate.create": {
+      "payload_schema": "#/$defs/MandateCreatePayload",
+      "result_kind": "mandate",
+      "scope": "interop/sales.billing.write",
+      "mode": "write"
+    },
+    "mandate.get": {
+      "payload_schema": "#/$defs/MandateGetPayload",
+      "result_kind": "mandate",
+      "scope": "interop/sales.billing.read",
+      "mode": "read"
+    },
+    "mandate.revoke": {
+      "payload_schema": "#/$defs/MandateRevokePayload",
+      "result_kind": "mandate",
+      "scope": "interop/sales.billing.write",
+      "mode": "write"
+    },
+    "financial_action.request": {
+      "payload_schema": "#/$defs/Financial_ActionRequestPayload",
+      "result_kind": "financial_action",
+      "scope": "interop/sales.billing.write",
+      "mode": "write"
+    },
+    "acceptance.record": {
+      "payload_schema": "#/$defs/AcceptanceRecordPayload",
+      "result_kind": "acceptance",
+      "scope": "interop/sales.contract",
+      "mode": "write"
+    },
+    "operation.get": {
+      "payload_schema": "#/$defs/OperationGetPayload",
+      "result_kind": "operation_status",
+      "scope": "interop/sales.recovery",
+      "mode": "read"
+    },
+    "operator.choices": {
+      "payload_schema": "#/$defs/OperatorChoicesPayload",
+      "result_kind": "operator_choices",
+      "scope": "interop/sales.registry.read",
+      "mode": "read"
+    },
+    "operator.draft": {
+      "payload_schema": "#/$defs/OperatorDraftPayload",
+      "result_kind": "operator_proposal",
+      "scope": "interop/sales.registry.manage",
+      "mode": "write"
+    },
+    "operator.review": {
+      "payload_schema": "#/$defs/OperatorReviewPayload",
+      "result_kind": "operator_proposal",
+      "scope": "interop/sales.registry.manage",
+      "mode": "write"
+    },
+    "operator.proposal.get": {
+      "payload_schema": "#/$defs/OperatorProposalGetPayload",
+      "result_kind": "operator_proposal",
+      "scope": "interop/sales.registry.read",
+      "mode": "read"
+    },
+    "financial_action.get": {
+      "payload_schema": "#/$defs/FinancialActionGetPayload",
+      "result_kind": "financial_action",
+      "scope": "interop/sales.finance",
+      "mode": "read"
+    },
+    "operator.activate": {
+      "payload_schema": "#/$defs/OperatorActivatePayload",
+      "result_kind": "operator",
+      "scope": "interop/sales.registry.manage",
+      "mode": "write"
+    }
+  },
+  "x-internal-only": [
+    "payment.observe"
+  ],
+  "x-result-http": {
+    "succeeded": 200,
+    "denied": 403,
+    "conflict": 409,
+    "uncertain": 202,
+    "unavailable": 503
+  },
+  "x-required-methods": [
+    "pix",
+    "card",
+    "boleto"
+  ],
+  "x-provider-methods": {
+    "stripe": [
+      "card"
+    ],
+    "infinitepay": [
+      "pix",
+      "card"
+    ],
+    "asaas": [
+      "boleto"
+    ]
+  },
+  "x-trusted-context": {
+    "wire_allowed": false,
+    "construction": "Resolved and verified by trusted middleware, revalidated per command and effect; never deserialized request assertions.",
+    "fields": [
+      "tenant_ref",
+      "legal_entity_ref",
+      "actor_ref",
+      "actor_kind",
+      "represented_party_ref",
+      "purpose",
+      "allowed_commands",
+      "lifecycle_receipt_ref",
+      "identity_receipt_ref",
+      "representation_receipt_ref",
+      "source_binding_ref",
+      "source_binding_revision",
+      "authority_revision",
+      "valid_until",
+      "correlation_ref"
+    ]
+  },
+  "x-server-only-evidence": {
+    "operator_binding": [
+      "operator_ref",
+      "tenant_ref",
+      "legal_entity_ref",
+      "tasy_instance_ref",
+      "tasy_account_ref",
+      "source_product",
+      "binding_evidence_ref",
+      "revision",
+      "status"
+    ],
+    "provider_binding": [
+      "provider",
+      "merchant_account_ref",
+      "operator_ref",
+      "legal_entity_ref",
+      "secret_store_ref",
+      "binding_evidence_ref",
+      "revision",
+      "status"
+    ],
+    "receipt_validation": [
+      "issuer",
+      "audience",
+      "signature_or_authenticated_source",
+      "tenant",
+      "party",
+      "target",
+      "revision",
+      "currentness",
+      "revocation",
+      "payload_digest"
+    ],
+    "payment_attempt_immutable": [
+      "provider",
+      "provider_binding_ref",
+      "provider_binding_revision",
+      "merchant_account_ref",
+      "receivable_ref",
+      "invoice_revision",
+      "contract_ref",
+      "payer_ref",
+      "amount_minor",
+      "currency",
+      "provider_idempotency_key"
+    ]
+  },
+  "x-invariants": [
+    "No subject body parsing or REAL forms before qualified lifecycle/identity/representation/tenant/purpose/source gates.",
+    "Intake values go only to a qualified source/vault port after descriptor validation; never financial journal, logs, analytics or browser persistence.",
+    "All caller receipt refs are lookup selectors, never authority; resolve authentic current evidence server-side.",
+    "Result kind must equal the command result_kind. Unknown keys rejected recursively.",
+    "contract state issued requires matching nonnull issued_receipt; every other state has null issued_receipt.",
+    "contract.issue succeeds only with state issued and verified source receipt; pending source effects return uncertain.",
+    "Catalog rows must contain at least one product; imports reject whole batch on invalid/duplicate product.",
+    "Catalog author differs from reviewer and publisher; approval binds exact digest/version.",
+    "Method/provider combinations constrained by x-provider-methods; provider choice must also be source-authorized.",
+    "Contract acceptance/issuance/enrollment/coverage remain independent.",
+    "Receivable ensure requires current issued receipt and proceed authority, payer and source billing obligation.",
+    "Stable business dedupe persists across command_ref changes and provider switches.",
+    "Attempt provider/account/invoice/value/currency immutable; uncertain holds cross-provider claim until authoritative reconciliation.",
+    "No operator, provider, catalog, receipt or tenant reference is accepted merely because it conforms to Ref syntax.",
+    "Every monthly charge consumes a new Tasy-issued invoice; mandate is optional and never calendar authority.",
+    "Hosted action URL must match configured official provider HTTPS origin and original merchant account; no arbitrary redirects or PAN/CVV.",
+    "BRL minor units only in v1; other currencies require a versioned contract change.",
+    "Payment paid/settled/Tasy acknowledged are independent authenticated receipts.",
+    "InfinitePay unauthenticated webhook is hint only; authenticated provider lookup establishes financial facts.",
+    "Runtime default denies absent approved binding/secret store/current authority; synthetic adapter injection never creates real admission.",
+    "C1 operation.get accepts original target_command_ref only; tenant, owner and authority are resolved/revalidated server-side before lookup or disclosure; absent and foreign targets share a non-leaking refusal.",
+    "C1 operation.get may query source using the original effect identity; it never redispatches an uncertain write. The original result is a bounded nonrecursive envelope with no operation_status nested kind, sanitized before storage/replay.",
+    "C1 post-dispatch uncertainty returns a non-null opaque operation_ref. A lost response is recoverable using the original caller command_ref under current authority.",
+    "C1 acceptance.record composes existing proposed OP03 semantics with an admitted source: exact quote revision, terms digest, party/delegate, current source authority; accepted only with authenticated immutable source receipt. No locally minted acceptance and no assertion by checkbox.",
+    "C1 original_result persists no personal intake, proof, credential or hosted checkout URL. A recovered reference is not authority; current owner/resource/source checks precede any follow-up command.",
+    "C2 HostedAction.expires_at null explicitly means provider did not publish absolute URL validity. Never infer midnight/TTL from boleto dueDate, and never assume an unknown-expiry URL remains usable. Delivery requires fresh qualified source/account/current resource authority; no durable URL or replay. Boleto due date is a distinct Tasy/provider fact.",
+    "C3 operator proposals contain source-authorized choice references, not merchant account IDs, secrets, source proof or activation booleans. Review must be by a different actor on the exact revision/digest; activation independently resolves current source ownership and all three methods.",
+    "C3 operator.register may activate or update a source-qualified reviewed proposal without changing immutable old payment attempt/provider/account bindings. Operator choices and proposals are private administrative data, not anonymous catalogue projections.",
+    "C3 mandate.get queries current PSP/source status; only authenticated matching setup/opt-in/payer/account evidence can activate. Revoke is not confirmed until source acknowledgement. A new Tasy obligation with an active authorized mandate routes off-session without adding a PSP invoice calendar.",
+    "C3 contract.get refreshes authorized current source obligations; financial_action.get queries the competent current source(s) and never infers completion from request transport success.",
+    "C3 notification ingress preflights current source/lifecycle/tenant and authenticates bounded raw transport before interpreting fields; unknown source bindings refuse before reading body. Untrusted hints cannot update ledger without authenticated original-instrument lookup and matching inbox acknowledgement.",
+    "C3 intake custody is separate qualified encrypted staging, governed by source-defined fields/purpose/lifecycle. Financial journal and command hashes contain only opaque staged references/metadata, never raw personal values or public low-entropy value digests.",
+    "C4 display_name for proposals/drafts is bounded160 matching existing operator activation and result; never truncate or silently change reviewed content.",
+    "C4 operator.activate receives only proposal_ref, never binding proof. Server loads exact reviewed revision, checks different actors/current source ownership/all three methods, resolves qualified binding references internally and activates atomically. Existing low-level operator.register payload is preserved verbatim, including display_name/legal_entity_ref/tasy_binding_ref/psp_binding_refs; it is not a UI form for callers to claim qualification."
+  ],
+  "$defs": {
+    "Ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9:_.-]*$"
+    },
+    "Revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "Digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "amount_minor",
+        "currency"
+      ],
+      "properties": {
+        "amount_minor": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "currency": {
+          "enum": [
+            "BRL"
+          ]
+        }
+      }
+    },
+    "Method": {
+      "enum": [
+        "pix",
+        "card",
+        "boleto"
+      ]
+    },
+    "Provider": {
+      "enum": [
+        "stripe",
+        "infinitepay",
+        "asaas"
+      ]
+    },
+    "IntakeValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field_ref",
+        "value"
+      ],
+      "properties": {
+        "field_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "IntakeField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field_ref",
+        "label",
+        "purpose_ref",
+        "value_type",
+        "required",
+        "max_length",
+        "choices"
+      ],
+      "properties": {
+        "field_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "purpose_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "value_type": {
+          "enum": [
+            "text",
+            "email",
+            "phone",
+            "document",
+            "date",
+            "choice"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "max_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "maxItems": 40
+        }
+      }
+    },
+    "IntakeDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "descriptor_ref",
+        "revision",
+        "stage",
+        "valid_until",
+        "fields"
+      ],
+      "properties": {
+        "descriptor_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "stage": {
+          "enum": [
+            "prospect",
+            "contact",
+            "party"
+          ]
+        },
+        "valid_until": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IntakeField"
+          },
+          "maxItems": 30
+        }
+      }
+    },
+    "CatalogRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_ref",
+        "product_label",
+        "product_source_ref",
+        "network_ref",
+        "network_version",
+        "network_label",
+        "terms_ref",
+        "terms_digest",
+        "price_source_ref",
+        "attributes",
+        "document_refs"
+      ],
+      "properties": {
+        "product_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "product_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "product_source_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "network_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "network_version": {
+          "$ref": "#/$defs/Revision"
+        },
+        "network_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "terms_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "terms_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "price_source_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "attribute_ref",
+              "label",
+              "value"
+            ],
+            "properties": {
+              "attribute_ref": {
+                "$ref": "#/$defs/Ref"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            }
+          },
+          "maxItems": 30
+        },
+        "document_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "maxItems": 20
+        }
+      }
+    },
+    "PartyLinkage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "linkage_ref",
+        "revision",
+        "prospect_ref",
+        "account_ref",
+        "party_ref",
+        "payer_ref",
+        "policyholder_ref",
+        "beneficiary_refs"
+      ],
+      "properties": {
+        "linkage_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "prospect_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "account_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "party_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "payer_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "policyholder_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "beneficiary_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "maxItems": 50
+        }
+      }
+    },
+    "ContractIssuedReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_ref",
+        "issuer_receipt_ref",
+        "accepted_receipt_ref",
+        "quote_ref",
+        "terms_digest",
+        "payer_ref",
+        "party_linkage_ref",
+        "issued_at",
+        "source_revision"
+      ],
+      "properties": {
+        "contract_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "issuer_receipt_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "accepted_receipt_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "quote_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "terms_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "payer_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "party_linkage_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "issued_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/Revision"
+        }
+      }
+    },
+    "BillingObligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "billing_obligation_ref",
+        "billing_period_label",
+        "due_date",
+        "money"
+      ],
+      "properties": {
+        "billing_obligation_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "billing_period_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "due_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "money": {
+          "$ref": "#/$defs/Money"
+        }
+      }
+    },
+    "HostedAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_ref",
+        "url",
+        "expires_at"
+      ],
+      "properties": {
+        "action_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "maxLength": 2048
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "PaymentView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_ref",
+        "receivable_ref",
+        "revision",
+        "method",
+        "provider",
+        "state",
+        "money",
+        "paid_receipt_ref",
+        "settled_receipt_ref",
+        "tasy_ack_state",
+        "tasy_ack_receipt_ref",
+        "hosted_action"
+      ],
+      "properties": {
+        "attempt_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "receivable_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "method": {
+          "$ref": "#/$defs/Method"
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider"
+        },
+        "state": {
+          "enum": [
+            "created",
+            "pending",
+            "authorized",
+            "paid",
+            "settled",
+            "failed",
+            "cancelled",
+            "uncertain"
+          ]
+        },
+        "money": {
+          "$ref": "#/$defs/Money"
+        },
+        "paid_receipt_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "settled_receipt_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tasy_ack_state": {
+          "enum": [
+            "pending",
+            "acknowledged",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "tasy_ack_receipt_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hosted_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostedAction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "MandateView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mandate_ref",
+        "revision",
+        "provider",
+        "state",
+        "provider_receipt_ref",
+        "hosted_action"
+      ],
+      "properties": {
+        "mandate_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "provider": {
+          "enum": [
+            "stripe",
+            "infinitepay"
+          ]
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "active",
+            "revocation_pending",
+            "revoked",
+            "failed",
+            "unknown"
+          ]
+        },
+        "provider_receipt_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hosted_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostedAction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "operatorResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "operator_ref",
+        "display_name",
+        "revision",
+        "configuration_state",
+        "available_methods",
+        "contracting_ready"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "operator"
+          ]
+        },
+        "operator_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "configuration_state": {
+          "enum": [
+            "proposed",
+            "qualified",
+            "revoked"
+          ]
+        },
+        "available_methods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Method"
+          },
+          "maxItems": 3
+        },
+        "contracting_ready": {
+          "type": "boolean"
+        }
+      }
+    },
+    "catalogResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "catalog_ref",
+        "version",
+        "revision",
+        "digest",
+        "state",
+        "rows"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "catalog"
+          ]
+        },
+        "catalog_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "version": {
+          "$ref": "#/$defs/Revision"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "state": {
+          "enum": [
+            "draft",
+            "approved",
+            "rejected",
+            "published",
+            "withdrawn"
+          ]
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CatalogRow"
+          },
+          "maxItems": 100
+        }
+      }
+    },
+    "intake_descriptorResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "descriptor"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "intake_descriptor"
+          ]
+        },
+        "descriptor": {
+          "$ref": "#/$defs/IntakeDescriptor"
+        }
+      }
+    },
+    "prospectResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "prospect_ref",
+        "profile_ref",
+        "revision"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "prospect"
+          ]
+        },
+        "prospect_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "profile_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        }
+      }
+    },
+    "contact_requestResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contact_request_ref",
+        "revision",
+        "state"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "contact_request"
+          ]
+        },
+        "contact_request_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "state": {
+          "enum": [
+            "requested",
+            "suppressed",
+            "delivered",
+            "failed"
+          ]
+        }
+      }
+    },
+    "party_preparationResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "preparation_ref",
+        "descriptor"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "party_preparation"
+          ]
+        },
+        "preparation_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "descriptor": {
+          "$ref": "#/$defs/IntakeDescriptor"
+        }
+      }
+    },
+    "party_linkageResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "linkage"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "party_linkage"
+          ]
+        },
+        "linkage": {
+          "$ref": "#/$defs/PartyLinkage"
+        }
+      }
+    },
+    "quoteResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "quote_ref",
+        "source_revision",
+        "catalog_ref",
+        "catalog_version",
+        "product_ref",
+        "network_version",
+        "terms_digest",
+        "money",
+        "valid_until",
+        "contractable"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "quote"
+          ]
+        },
+        "quote_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "catalog_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "catalog_version": {
+          "$ref": "#/$defs/Revision"
+        },
+        "product_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "network_version": {
+          "$ref": "#/$defs/Revision"
+        },
+        "terms_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "money": {
+          "$ref": "#/$defs/Money"
+        },
+        "valid_until": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "contractable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "contractResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contract_ref",
+        "revision",
+        "state",
+        "issued_receipt",
+        "billing_obligations"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "contract"
+          ]
+        },
+        "contract_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "issued",
+            "refused",
+            "cancelled"
+          ]
+        },
+        "issued_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContractIssuedReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "billing_obligations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BillingObligation"
+          },
+          "maxItems": 24
+        }
+      }
+    },
+    "receivableResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "receivable_ref",
+        "revision",
+        "contract_ref",
+        "payer_ref",
+        "billing_obligation_ref",
+        "due_date",
+        "money",
+        "state",
+        "source_receipt_ref"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "receivable"
+          ]
+        },
+        "receivable_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "contract_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "payer_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "billing_obligation_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "due_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "money": {
+          "$ref": "#/$defs/Money"
+        },
+        "state": {
+          "enum": [
+            "open",
+            "paid",
+            "cancelled",
+            "unknown"
+          ]
+        },
+        "source_receipt_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "paymentResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "payment"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "payment"
+          ]
+        },
+        "payment": {
+          "$ref": "#/$defs/PaymentView"
+        }
+      }
+    },
+    "mandateResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "mandate"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "mandate"
+          ]
+        },
+        "mandate": {
+          "$ref": "#/$defs/MandateView"
+        }
+      }
+    },
+    "financial_actionResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "action_ref",
+        "revision",
+        "action",
+        "state",
+        "source_receipt_ref"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "financial_action"
+          ]
+        },
+        "action_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "action": {
+          "enum": [
+            "refund",
+            "dispute",
+            "cancel_payment",
+            "cancel_contract"
+          ]
+        },
+        "state": {
+          "enum": [
+            "requested",
+            "pending",
+            "completed",
+            "refused",
+            "uncertain"
+          ]
+        },
+        "source_receipt_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "OperatorGetPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator_ref"
+      ],
+      "properties": {
+        "operator_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "OperatorRegisterPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator_ref",
+        "display_name",
+        "legal_entity_ref",
+        "tasy_binding_ref",
+        "psp_binding_refs"
+      ],
+      "properties": {
+        "operator_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "legal_entity_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "tasy_binding_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "psp_binding_refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "stripe_card",
+            "infinitepay_pix_card",
+            "asaas_boleto"
+          ],
+          "properties": {
+            "stripe_card": {
+              "$ref": "#/$defs/Ref"
+            },
+            "infinitepay_pix_card": {
+              "$ref": "#/$defs/Ref"
+            },
+            "asaas_boleto": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      }
+    },
+    "CatalogGetPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog_ref",
+        "version"
+      ],
+      "properties": {
+        "catalog_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Revision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "CatalogDraftPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog_ref",
+        "rows"
+      ],
+      "properties": {
+        "catalog_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CatalogRow"
+          },
+          "maxItems": 100
+        }
+      }
+    },
+    "CatalogImportPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog_ref",
+        "import_format",
+        "rows"
+      ],
+      "properties": {
+        "catalog_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "import_format": {
+          "enum": [
+            "csv_rows_v1"
+          ]
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CatalogRow"
+          },
+          "maxItems": 100
+        }
+      }
+    },
+    "CatalogReviewPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog_ref",
+        "version",
+        "digest",
+        "decision"
+      ],
+      "properties": {
+        "catalog_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "version": {
+          "$ref": "#/$defs/Revision"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "rejected"
+          ]
+        }
+      }
+    },
+    "CatalogPublishPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog_ref",
+        "version",
+        "digest"
+      ],
+      "properties": {
+        "catalog_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "version": {
+          "$ref": "#/$defs/Revision"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      }
+    },
+    "CatalogWithdrawPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog_ref",
+        "version",
+        "digest",
+        "reason_ref"
+      ],
+      "properties": {
+        "catalog_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "version": {
+          "$ref": "#/$defs/Revision"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "reason_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "IntakeDescribePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage"
+      ],
+      "properties": {
+        "stage": {
+          "enum": [
+            "prospect",
+            "contact",
+            "party"
+          ]
+        }
+      }
+    },
+    "ProspectSavePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prospect_ref",
+        "descriptor_ref",
+        "descriptor_revision",
+        "values"
+      ],
+      "properties": {
+        "prospect_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "descriptor_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "descriptor_revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IntakeValue"
+          },
+          "maxItems": 30
+        }
+      }
+    },
+    "ContactRequestPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prospect_ref",
+        "contact_ref",
+        "contact_permission_ref",
+        "topic"
+      ],
+      "properties": {
+        "prospect_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "contact_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "contact_permission_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "topic": {
+          "enum": [
+            "product_information",
+            "contracting_help",
+            "billing_help"
+          ]
+        }
+      }
+    },
+    "PartyPreparePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prospect_ref",
+        "account_ref",
+        "roles"
+      ],
+      "properties": {
+        "prospect_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "account_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "payer",
+              "policyholder",
+              "beneficiary"
+            ]
+          },
+          "maxItems": 3
+        }
+      }
+    },
+    "PartySubmitPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preparation_ref",
+        "descriptor_ref",
+        "descriptor_revision",
+        "values"
+      ],
+      "properties": {
+        "preparation_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "descriptor_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "descriptor_revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IntakeValue"
+          },
+          "maxItems": 30
+        }
+      }
+    },
+    "PartyLinkPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prospect_ref",
+        "account_ref",
+        "party_ref",
+        "linkage_receipt_ref"
+      ],
+      "properties": {
+        "prospect_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "account_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "party_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "linkage_receipt_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "OfferQuotePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog_ref",
+        "catalog_version",
+        "product_ref",
+        "profile_ref"
+      ],
+      "properties": {
+        "catalog_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "catalog_version": {
+          "$ref": "#/$defs/Revision"
+        },
+        "product_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "profile_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "ContractIssuePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "quote_ref",
+        "acceptance_receipt_ref",
+        "party_linkage_ref",
+        "terms_digest"
+      ],
+      "properties": {
+        "quote_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "acceptance_receipt_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "party_linkage_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "terms_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      }
+    },
+    "ContractGetPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_ref"
+      ],
+      "properties": {
+        "contract_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "ReceivableEnsurePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_ref",
+        "billing_obligation_ref"
+      ],
+      "properties": {
+        "contract_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "billing_obligation_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "ReceivableGetPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receivable_ref"
+      ],
+      "properties": {
+        "receivable_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "PaymentCreatePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receivable_ref",
+        "method",
+        "provider",
+        "mandate_ref"
+      ],
+      "properties": {
+        "receivable_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "method": {
+          "$ref": "#/$defs/Method"
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider"
+        },
+        "mandate_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "PaymentReconcilePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_ref"
+      ],
+      "properties": {
+        "attempt_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "MandateCreatePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_ref",
+        "provider"
+      ],
+      "properties": {
+        "contract_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "provider": {
+          "enum": [
+            "stripe",
+            "infinitepay"
+          ]
+        }
+      }
+    },
+    "MandateGetPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mandate_ref"
+      ],
+      "properties": {
+        "mandate_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "MandateRevokePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mandate_ref"
+      ],
+      "properties": {
+        "mandate_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "Financial_ActionRequestPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "contract_ref",
+        "attempt_ref",
+        "source_authorization_ref"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "refund",
+            "dispute",
+            "cancel_payment",
+            "cancel_contract"
+          ]
+        },
+        "contract_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "attempt_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_authorization_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "Command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "operator.get"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/OperatorGetPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "operator.register"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/OperatorRegisterPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "catalog.get"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/CatalogGetPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "catalog.draft"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/CatalogDraftPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "catalog.import"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/CatalogImportPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "catalog.review"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/CatalogReviewPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "catalog.publish"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/CatalogPublishPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "catalog.withdraw"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/CatalogWithdrawPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "intake.describe"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/IntakeDescribePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "prospect.save"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/ProspectSavePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "contact.request"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/ContactRequestPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "party.prepare"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/PartyPreparePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "party.submit"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/PartySubmitPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "party.link"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/PartyLinkPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "offer.quote"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/OfferQuotePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "contract.issue"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/ContractIssuePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "contract.get"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/ContractGetPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "receivable.ensure"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/ReceivableEnsurePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "receivable.get"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/ReceivableGetPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "payment.create"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/PaymentCreatePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "payment.reconcile"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/PaymentReconcilePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "mandate.create"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/MandateCreatePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "mandate.get"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/MandateGetPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "mandate.revoke"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/MandateRevokePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "financial_action.request"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/Financial_ActionRequestPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "acceptance.record"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/AcceptanceRecordPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "operation.get"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/OperationGetPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "operator.choices"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/OperatorChoicesPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "operator.draft"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/OperatorDraftPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "operator.review"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/OperatorReviewPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "operator.proposal.get"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/OperatorProposalGetPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "financial_action.get"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/FinancialActionGetPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "command",
+            "command_ref",
+            "expected_revision",
+            "payload"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "command": {
+              "enum": [
+                "operator.activate"
+              ]
+            },
+            "command_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "expected_revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Revision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/OperatorActivatePayload"
+            }
+          }
+        }
+      ]
+    },
+    "OperationalResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "status",
+            "operation_ref",
+            "reason_code",
+            "data"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "status": {
+              "enum": [
+                "succeeded"
+              ]
+            },
+            "operation_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "reason_code": {
+              "type": "null"
+            },
+            "data": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/operatorResultData"
+                },
+                {
+                  "$ref": "#/$defs/catalogResultData"
+                },
+                {
+                  "$ref": "#/$defs/intake_descriptorResultData"
+                },
+                {
+                  "$ref": "#/$defs/prospectResultData"
+                },
+                {
+                  "$ref": "#/$defs/contact_requestResultData"
+                },
+                {
+                  "$ref": "#/$defs/party_preparationResultData"
+                },
+                {
+                  "$ref": "#/$defs/party_linkageResultData"
+                },
+                {
+                  "$ref": "#/$defs/quoteResultData"
+                },
+                {
+                  "$ref": "#/$defs/contractResultData"
+                },
+                {
+                  "$ref": "#/$defs/receivableResultData"
+                },
+                {
+                  "$ref": "#/$defs/paymentResultData"
+                },
+                {
+                  "$ref": "#/$defs/mandateResultData"
+                },
+                {
+                  "$ref": "#/$defs/financial_actionResultData"
+                },
+                {
+                  "$ref": "#/$defs/acceptanceResultData"
+                },
+                {
+                  "$ref": "#/$defs/operation_statusResultData"
+                },
+                {
+                  "$ref": "#/$defs/operator_choicesResultData"
+                },
+                {
+                  "$ref": "#/$defs/operator_proposalResultData"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "status",
+            "operation_ref",
+            "reason_code",
+            "data"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "status": {
+              "enum": [
+                "denied",
+                "conflict",
+                "uncertain",
+                "unavailable"
+              ]
+            },
+            "operation_ref": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reason_code": {
+              "enum": [
+                "binding_unqualified",
+                "admission_required",
+                "identity_unqualified",
+                "lifecycle_unqualified",
+                "purpose_denied",
+                "representation_denied",
+                "tenant_mismatch",
+                "actor_denied",
+                "source_unavailable",
+                "source_stale",
+                "authority_revoked",
+                "invalid_request",
+                "unsupported_command",
+                "stale_revision",
+                "idempotency_conflict",
+                "reviewer_must_differ",
+                "catalog_not_published",
+                "catalog_withdrawn",
+                "quote_expired",
+                "terms_mismatch",
+                "acceptance_missing",
+                "contract_not_issued",
+                "proceed_authority_missing",
+                "payer_unqualified",
+                "payment_methods_unavailable",
+                "receivable_mismatch",
+                "attempt_in_progress",
+                "provider_mismatch",
+                "account_mismatch",
+                "amount_mismatch",
+                "mandate_not_active",
+                "provider_authentication_failed",
+                "reconciliation_required",
+                "journal_unavailable",
+                "source_action_required",
+                "rate_limited"
+              ]
+            },
+            "data": {
+              "type": "null"
+            }
+          }
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "uncertain"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "operation_ref": {
+                "$ref": "#/$defs/Ref"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AcceptanceRecordPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "quote_ref",
+        "source_revision",
+        "party_linkage_ref",
+        "terms_digest",
+        "decision"
+      ],
+      "properties": {
+        "quote_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "party_linkage_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "terms_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "decision": {
+          "enum": [
+            "accept",
+            "decline"
+          ]
+        }
+      }
+    },
+    "acceptanceResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "acceptance_receipt_ref",
+        "quote_ref",
+        "source_revision",
+        "party_linkage_ref",
+        "terms_digest",
+        "decision",
+        "recorded_at"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "acceptance"
+          ]
+        },
+        "acceptance_receipt_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "quote_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "party_linkage_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "terms_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "decision": {
+          "enum": [
+            "accepted",
+            "declined"
+          ]
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "OriginalOperationalResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "status",
+            "operation_ref",
+            "reason_code",
+            "data"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "status": {
+              "enum": [
+                "succeeded"
+              ]
+            },
+            "operation_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "reason_code": {
+              "type": "null"
+            },
+            "data": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/operatorResultData"
+                },
+                {
+                  "$ref": "#/$defs/catalogResultData"
+                },
+                {
+                  "$ref": "#/$defs/intake_descriptorResultData"
+                },
+                {
+                  "$ref": "#/$defs/prospectResultData"
+                },
+                {
+                  "$ref": "#/$defs/contact_requestResultData"
+                },
+                {
+                  "$ref": "#/$defs/party_preparationResultData"
+                },
+                {
+                  "$ref": "#/$defs/party_linkageResultData"
+                },
+                {
+                  "$ref": "#/$defs/quoteResultData"
+                },
+                {
+                  "$ref": "#/$defs/contractResultData"
+                },
+                {
+                  "$ref": "#/$defs/receivableResultData"
+                },
+                {
+                  "$ref": "#/$defs/paymentResultData"
+                },
+                {
+                  "$ref": "#/$defs/mandateResultData"
+                },
+                {
+                  "$ref": "#/$defs/financial_actionResultData"
+                },
+                {
+                  "$ref": "#/$defs/acceptanceResultData"
+                },
+                {
+                  "$ref": "#/$defs/operator_choicesResultData"
+                },
+                {
+                  "$ref": "#/$defs/operator_proposalResultData"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "status",
+            "operation_ref",
+            "reason_code",
+            "data"
+          ],
+          "properties": {
+            "schema_version": {
+              "enum": [
+                "omni-commercial.proposed.v1"
+              ]
+            },
+            "status": {
+              "enum": [
+                "denied",
+                "conflict",
+                "uncertain",
+                "unavailable"
+              ]
+            },
+            "operation_ref": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reason_code": {
+              "enum": [
+                "binding_unqualified",
+                "admission_required",
+                "identity_unqualified",
+                "lifecycle_unqualified",
+                "purpose_denied",
+                "representation_denied",
+                "tenant_mismatch",
+                "actor_denied",
+                "source_unavailable",
+                "source_stale",
+                "authority_revoked",
+                "invalid_request",
+                "unsupported_command",
+                "stale_revision",
+                "idempotency_conflict",
+                "reviewer_must_differ",
+                "catalog_not_published",
+                "catalog_withdrawn",
+                "quote_expired",
+                "terms_mismatch",
+                "acceptance_missing",
+                "contract_not_issued",
+                "proceed_authority_missing",
+                "payer_unqualified",
+                "payment_methods_unavailable",
+                "receivable_mismatch",
+                "attempt_in_progress",
+                "provider_mismatch",
+                "account_mismatch",
+                "amount_mismatch",
+                "mandate_not_active",
+                "provider_authentication_failed",
+                "reconciliation_required",
+                "journal_unavailable",
+                "source_action_required",
+                "rate_limited"
+              ]
+            },
+            "data": {
+              "type": "null"
+            }
+          }
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "uncertain"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "operation_ref": {
+                "$ref": "#/$defs/Ref"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "OperationGetPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_command_ref"
+      ],
+      "properties": {
+        "target_command_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "operation_statusResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "target_command_ref",
+        "original_command",
+        "state",
+        "original_result"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "operation_status"
+          ]
+        },
+        "target_command_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "original_command": {
+          "enum": [
+            "operator.get",
+            "operator.register",
+            "catalog.get",
+            "catalog.draft",
+            "catalog.import",
+            "catalog.review",
+            "catalog.publish",
+            "catalog.withdraw",
+            "intake.describe",
+            "prospect.save",
+            "contact.request",
+            "party.prepare",
+            "party.submit",
+            "party.link",
+            "offer.quote",
+            "contract.issue",
+            "contract.get",
+            "receivable.ensure",
+            "receivable.get",
+            "payment.create",
+            "payment.reconcile",
+            "mandate.create",
+            "mandate.get",
+            "mandate.revoke",
+            "financial_action.request",
+            "acceptance.record",
+            "operator.choices",
+            "operator.draft",
+            "operator.review",
+            "operator.proposal.get",
+            "financial_action.get",
+            "operator.activate"
+          ]
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "uncertain",
+            "completed"
+          ]
+        },
+        "original_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OriginalOperationalResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "completed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "$ref": "#/$defs/OriginalOperationalResult"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "operator.get"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "operator"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "operator.register"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "operator"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "catalog.get"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "catalog"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "catalog.draft"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "catalog"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "catalog.import"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "catalog"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "catalog.review"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "catalog"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "catalog.publish"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "catalog"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "catalog.withdraw"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "catalog"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "intake.describe"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "intake_descriptor"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "prospect.save"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "prospect"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "contact.request"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "contact_request"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "party.prepare"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "party_preparation"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "party.submit"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "party_linkage"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "party.link"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "party_linkage"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "offer.quote"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "quote"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "contract.issue"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "contract"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "contract.get"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "contract"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "receivable.ensure"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "receivable"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "receivable.get"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "receivable"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "payment.create"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "payment"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "payment.reconcile"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "payment"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "mandate.create"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "mandate"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "mandate.get"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "mandate"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "mandate.revoke"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "mandate"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "financial_action.request"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "financial_action"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "acceptance.record"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "acceptance"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "operator.choices"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "operator_choices"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "operator.draft"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "operator_proposal"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "operator.review"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "operator_proposal"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "operator.proposal.get"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "operator_proposal"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "financial_action.get"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "financial_action"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "original_command": {
+                "const": "operator.activate"
+              },
+              "original_result": {
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "succeeded"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "original_result": {
+                "properties": {
+                  "data": {
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "operator"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "OperatorPaymentConnectionChoices": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stripe_card",
+        "infinitepay_pix_card",
+        "asaas_boleto"
+      ],
+      "properties": {
+        "stripe_card": {
+          "$ref": "#/$defs/Ref"
+        },
+        "infinitepay_pix_card": {
+          "$ref": "#/$defs/Ref"
+        },
+        "asaas_boleto": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "operator_choicesResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "operator_ref",
+        "legal_entities",
+        "tasy_connections",
+        "payment_connections"
+      ],
+      "properties": {
+        "kind": {
+          "const": "operator_choices"
+        },
+        "operator_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "legal_entities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "legal_entity_ref",
+              "label"
+            ],
+            "properties": {
+              "legal_entity_ref": {
+                "$ref": "#/$defs/Ref"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          },
+          "maxItems": 100
+        },
+        "tasy_connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "connection_ref",
+              "label",
+              "legal_entity_ref"
+            ],
+            "properties": {
+              "connection_ref": {
+                "$ref": "#/$defs/Ref"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "legal_entity_ref": {
+                "$ref": "#/$defs/Ref"
+              }
+            }
+          },
+          "maxItems": 100
+        },
+        "payment_connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "connection_ref",
+              "label",
+              "legal_entity_ref",
+              "provider",
+              "methods"
+            ],
+            "properties": {
+              "connection_ref": {
+                "$ref": "#/$defs/Ref"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "legal_entity_ref": {
+                "$ref": "#/$defs/Ref"
+              },
+              "provider": {
+                "$ref": "#/$defs/Provider"
+              },
+              "methods": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Method"
+                },
+                "minItems": 1,
+                "maxItems": 3,
+                "uniqueItems": true
+              }
+            }
+          },
+          "maxItems": 100
+        }
+      }
+    },
+    "operator_proposalResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "proposal_ref",
+        "operator_ref",
+        "revision",
+        "state",
+        "display_name",
+        "legal_entity_ref",
+        "tasy_connection_ref",
+        "payment_connections",
+        "proposal_digest",
+        "author_ref",
+        "reviewer_ref",
+        "reviewed_revision",
+        "active_binding_revision"
+      ],
+      "properties": {
+        "kind": {
+          "const": "operator_proposal"
+        },
+        "proposal_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "operator_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "state": {
+          "enum": [
+            "draft",
+            "reviewed",
+            "rejected",
+            "active",
+            "superseded"
+          ]
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "legal_entity_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "tasy_connection_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "payment_connections": {
+          "$ref": "#/$defs/OperatorPaymentConnectionChoices"
+        },
+        "proposal_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "author_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "reviewer_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewed_revision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Revision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "active_binding_revision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Revision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "OperatorChoicesPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator_ref"
+      ],
+      "properties": {
+        "operator_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "OperatorDraftPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator_ref",
+        "display_name",
+        "legal_entity_ref",
+        "tasy_connection_ref",
+        "payment_connections"
+      ],
+      "properties": {
+        "operator_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "legal_entity_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "tasy_connection_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "payment_connections": {
+          "$ref": "#/$defs/OperatorPaymentConnectionChoices"
+        }
+      }
+    },
+    "OperatorReviewPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposal_ref",
+        "decision"
+      ],
+      "properties": {
+        "proposal_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "decision": {
+          "enum": [
+            "approve",
+            "reject"
+          ]
+        }
+      }
+    },
+    "OperatorProposalGetPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposal_ref"
+      ],
+      "properties": {
+        "proposal_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "FinancialActionGetPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_ref"
+      ],
+      "properties": {
+        "action_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "OperatorActivatePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposal_ref"
+      ],
+      "properties": {
+        "proposal_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    }
+  },
+  "x-successor": {
+    "freeze": "C4",
+    "predecessor": "shared-contract-c3.proposed.v1.json",
+    "predecessor_sha256": "991160aaa1c93c0bcf08859554a1338167a035d19fa6d1f1e055bd8a04cab5b6",
+    "repairs": [
+      "AS-C3-04",
+      "REQ-C2-06-activation-composition"
+    ],
+    "repair_author": "ROOT, distinct from original shared-contract author and reviewers",
+    "publication": "PROPOSED_NOT_PUBLISHED_NOT_ADMITTED"
+  },
+  "x-trusted-server-transport": {
+    "credential": "Server-resolved M2M credential only; never browser Authorization/cookie forwarding",
+    "connection_header": "X-Commercial-Connection opaque routing reference only; receiver authenticates caller then independently resolves current connection/actor/tenant/representation/purpose/source/lifecycle before body intake",
+    "caller_selected_authority": false,
+    "defaults": "No authenticated transport/source binding installed"
+  }
+}
