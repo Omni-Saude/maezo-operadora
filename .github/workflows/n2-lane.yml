@@ -67,8 +67,8 @@ jobs:
           name: n2-lane-evidence
           path: |
             /tmp/lane-stdout.log
-            ${{ env.LANE_DIR }}/../**/result*.json
-            ${{ github.workspace }}/**/p3-rebuild/n2/result.json
-            ${{ github.workspace }}/**/p3-rebuild/n2/measurement-*/
+            /tmp/lane-x/**/result*.json
+            ${{ github.workspace }}/docs/audits/**/p3-rebuild/n2/result.json
+            ${{ github.workspace }}/docs/audits/**/p3-rebuild/n2/measurement-*/
           if-no-files-found: warn
           retention-days: 7
