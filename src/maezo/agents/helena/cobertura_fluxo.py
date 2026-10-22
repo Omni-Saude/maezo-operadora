@@ -211,6 +211,8 @@ class FluxoDeCobertura:
         # com a escolha do modelo; a leitura de verdade reaproveita a que ja' esta' em voo (uma so' por
         # codigo).
         self._antecipadas: dict[str, asyncio.Future[tuple[Any, bool]]] = {}
+        #: O pedido do turno anterior (modo simples: a correcao de "para quem" refaz a oferta dele).
+        self._termos_anteriores: list[str] = []
 
     # --- entrada --------------------------------------------------------------------------------------------
     async def responder(self, texto: str, pendente: str, contexto: object) -> dict[str, Any]:
@@ -308,6 +310,7 @@ class FluxoDeCobertura:
         if pendente in (ca.PEND_OPCOES, ca.PEND_FORMA, ca.PEND_CONFIRMA):
             # A pessoa escreveu outro nome (ou a lista pedida): o mesmo pedido (para quem, tentativas).
             return await self._outro_nome(texto, ctx)
+        self._termos_anteriores = list(ctx.termos)
         return await self._nova_pergunta(texto, ca.Contexto(quem=ctx.quem), respondidos)
 
     async def _depois_da_resposta(self, texto: str, ctx: ca.Contexto) -> dict[str, Any] | None:
@@ -340,10 +343,10 @@ class FluxoDeCobertura:
         logger.info("helena_cobertura_desculpa", pendencia=pendente)
         desculpa = f"{ca.TEXTO_DESCULPA} "
         if self.d.modo == MODO_SIMPLES:
-            # Modo simples (DL-0140): a reclamacao nunca refaz consulta; com o pedido guardado, a desculpa e a
-            # oferta da equipe de novo; sem pedido, a desculpa e o pedido do nome.
+            # Modo simples (DL-0140): a reclamacao nunca refaz consulta; com o pedido guardado, um RESUMO
+            # curto e a oferta (r4: "nao entendi" nunca repete o mesmo bloco); sem pedido, a desculpa.
             if ctx.termos:
-                return _update(desculpa + ca.TEXTO_SIMPLES_PROCEDIMENTO, ca.PEND_EQUIPE, ctx)
+                return _update(ca.TEXTO_SIMPLES_RESUMO, ca.PEND_EQUIPE, ctx)
             return _update(ca.TEXTO_DESCULPA_SEM_ASSUNTO, None, None)
         if pendente == ca.PEND_QUEM:
             graus, _com_nome, primeiros = await self.d.dependentes()
@@ -512,15 +515,33 @@ class FluxoDeCobertura:
         """MODO SIMPLES (DL-0140): sem consulta por procedimento. Procedimento (ou lista) = o texto geral e a
         oferta da equipe (caso so' com "sim"); um item excluido por lei na lista ganha a linha da exclusao
         antes; sem procedimento = o texto geral do plano (cadastro), sem oferta."""
-        termos = [*pedido.procedimentos, *(nome for nome, _tipo in ctx.outros)]
+        procedimentos = list(pedido.procedimentos)
+        # r4 de 22/10/2026: cada item com regra propria da lista (remedio, material, exclusao por lei) ganha
+        # a SUA linha (nada fica sem resposta); os procedimentos, o texto com o nome e a oferta.
+        linhas = [ca.frase_de_outro_item(nome, tipo) for nome, tipo in ctx.outros]
+        if (
+            not procedimentos
+            and not linhas
+            and self._termos_anteriores
+            and pedido.para_quem
+            in (
+                "titular",
+                "dependente",
+            )
+        ):
+            # Correcao de para quem depois da oferta ("e' pra mim mesmo, me confundi"): o mesmo pedido.
+            procedimentos = list(self._termos_anteriores)
+        termos = [*procedimentos, *(nome for nome, _tipo in ctx.outros)]
         if not termos:
             logger.info("helena_cobertura_simples", resultado="geral")
             return _update(prefixo + await self.d.texto_geral(), None, None)
-        excluidos = [tipo for _nome, tipo in ctx.outros if tipo in ca.TEXTO_EXCLUSAO]
-        linha_da_exclusao = f"{ca.TEXTO_EXCLUSAO[excluidos[0]]} " if excluidos else ""
+        partes = [*linhas]
+        partes.append(
+            ca.texto_simples_do_procedimento(procedimentos) if procedimentos else ca.TEXTO_SIMPLES_OFERTA
+        )
         logger.info("helena_cobertura_simples", resultado="oferta_da_equipe", itens=len(termos))
         novo = replace(ctx, termos=termos[: ca.MAX_PROCEDIMENTOS], tentativas=0)
-        return _update(prefixo + linha_da_exclusao + ca.TEXTO_SIMPLES_PROCEDIMENTO, ca.PEND_EQUIPE, novo)
+        return _update(prefixo + " ".join(partes), ca.PEND_EQUIPE, novo)
 
     async def _com_quem(
         self, ctx: ca.Contexto, quem: str, graus: Sequence[str], *, prefixo: str = ""
