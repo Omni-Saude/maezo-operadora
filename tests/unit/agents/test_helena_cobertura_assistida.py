@@ -586,3 +586,41 @@ async def test_sem_dizer_para_quem_vale_o_titular_e_nao_pergunta() -> None:
     up = await _fluxo(m).responder("meu plano cobre hemograma?", "", "")
     assert up["coleta_pendente"] != ca.PEND_QUEM and m.consultas == ["40304361"]
     assert ca.SUFIXO_DO_DEPENDENTE in up["response_text"]
+
+
+# --- leitura antecipada (latencia, 22/10/2026) ---
+async def test_leitura_da_amh_comeca_junto_com_a_escolha_e_e_reaproveitada() -> None:
+    import asyncio
+
+    m = _Mundo(pedido=_pedido("hemograma"), coberturas={"40304361": _View((_Item("HEMOGRAMA"),))})
+    fluxo = _fluxo(m)
+    ordem: list[str] = []
+
+    async def escolher(termos: Any, termo: str, nomes: Any) -> ca.Escolha:
+        ordem.append(f"escolha_com_{len(m.consultas)}_leituras")
+        await asyncio.sleep(0)
+        return ca.Escolha(0, "alta")
+
+    fluxo.d.escolher = escolher
+    up = await fluxo.responder("o plano cobre hemograma?", "", "")
+    assert m.consultas == ["40304361"], "uma leitura so' (a antecipada foi reaproveitada)"
+    assert ordem == ["escolha_com_1_leituras"] or ordem == ["escolha_com_0_leituras"]
+    assert "consta no Rol" in up["response_text"]
+
+
+async def test_modelo_escolhe_outro_e_a_resposta_e_do_escolhido() -> None:
+    m = _Mundo(
+        pedido=_pedido("tomografia"),
+        coberturas={"40808041": _View((_Item("TC TORAX"),)), "40808130": _View((_Item("TC ABDOME TOTAL"),))},
+    )
+    fluxo = _fluxo(m)
+
+    async def escolher(termos: Any, termo: str, nomes: Any) -> ca.Escolha:
+        alvo = next(i for i, n in enumerate(nomes) if "ABDOME" in n.upper())
+        return ca.Escolha(alvo, "alta")
+
+    fluxo.d.escolher = escolher
+    up = await fluxo.responder("o plano cobre tomografia de abdome?", "", "")
+    assert "40808130" in m.consultas, "a resposta usa a leitura do escolhido pelo modelo"
+    assert len(m.consultas) <= 2, "no maximo uma leitura a mais"
+    assert up["response_text"]

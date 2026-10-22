@@ -199,6 +199,11 @@ class FluxoDeCobertura:
         #: DL-0131: no maximo 4 leituras de cobertura da AMH ao mesmo tempo (a lista de 15 derrubava a rota
         #: por prazo); o resto espera a vez.
         self._leituras_amh = asyncio.Semaphore(LEITURAS_AMH_SIMULTANEAS)
+        # LEITURA ANTECIPADA (22/10/2026, latencia): a leitura da AMH do candidato lexicamente certo comeca
+        # JUNTO
+        # com a escolha do modelo; a leitura de verdade reaproveita a que ja' esta' em voo (uma so' por
+        # codigo).
+        self._antecipadas: dict[str, asyncio.Future[tuple[Any, bool]]] = {}
 
     # --- entrada --------------------------------------------------------------------------------------------
     async def responder(self, texto: str, pendente: str, contexto: object) -> dict[str, Any]:
@@ -527,9 +532,26 @@ class FluxoDeCobertura:
         if busca is None or not busca.pronto:
             return None
         candidatos = await self._recuperar(busca, termo, tecnico)
+        self._antecipar_leitura(busca, termo, tecnico, candidatos)
         rotulo = f"{termo} (nome tecnico provavel: {tecnico})" if tecnico else termo
         escolha = await self._escolher(termos, rotulo, candidatos)
         return await self._da_escolha(busca, termo, tecnico, candidatos, escolha)
+
+    def _antecipar_leitura(
+        self, busca: BuscaDeProcedimentos, termo: str, tecnico: str, candidatos: Sequence[Candidato]
+    ) -> None:
+        """Latencia (22/10/2026): o candidato do topo com nota lexica de escolha direta tem a leitura da AMH
+        iniciada ja', em paralelo com a escolha do modelo. Nada muda na decisao: a escolha continua a do
+        modelo; se
+        ele escolher outro, a leitura antecipada so' fica no cache de 5 min (no maximo UMA leitura a mais)."""
+        if not candidatos:
+            return
+        topo = candidatos[0].procedimento
+        nota = max(busca.lexico(termo, topo), busca.lexico(tecnico, topo) if tecnico else 0.0)
+        if nota < LEXICO_MINIMO_PARA_DIRETO or topo.codigo in self._antecipadas:
+            return
+        logger.info("helena_cobertura_leitura_antecipada")
+        self._antecipadas[topo.codigo] = asyncio.ensure_future(self._ler_da_amh(topo.codigo))
 
     async def _da_escolha(
         self,
@@ -778,6 +800,13 @@ class FluxoDeCobertura:
         return aviso
 
     async def _ler(self, procedimento: str) -> tuple[Any, bool]:
+        """(view, falhou). Reaproveita a leitura antecipada do mesmo codigo, se houver."""
+        antecipada = self._antecipadas.pop(procedimento, None)
+        if antecipada is not None:
+            return await antecipada
+        return await self._ler_da_amh(procedimento)
+
+    async def _ler_da_amh(self, procedimento: str) -> tuple[Any, bool]:
         """(view, falhou). Falha/prazo da AMH = `falhou` (nunca "nao encontrei")."""
         try:
             async with self._leituras_amh:
