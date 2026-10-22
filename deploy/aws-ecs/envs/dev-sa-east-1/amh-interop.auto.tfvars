@@ -103,6 +103,11 @@ helena_roteador_conversas = [
   "wa:amh:hk1_c9a42214bf91e285a511878d57f169a2af5a67cbd964f194b6b1e7811698f9dd", // simulador ...797
   "wa:amh:hk1_298020f13ddf83ff5cc1e695591075729db2e5614775c824e192cbe1359363a0", // simulador ...798
   "wa:amh:hk1_1af788a6ccaa52b4135ae61ac2e816608024fc6307b04c2caf5303a1f606581f", // simulador ...799
+  // F4 (22/10/2026, coordenador: o dono testa hoje): o dono, a Tania e o time (ja na allowlist da saude gerativa).
+  "wa:amh:hk1_34d934f10c9167de002295ee0412fe6cf4eb0ba9885aef3a5f9ab7029e53e8f6", // o dono
+  "wa:amh:hk1_0f251a8e67a29606f4f20e7a1e81f27be3b927b8472560e434c066ff83e6219b", // a Tania
+  "wa:amh:hk1_9d38c66cee23a2ddd89b80eb9b616e7f2e9e5f601e1ab537d19927c39b6e71d2", // time-1
+  "wa:amh:hk1_9d2b6c9bdfa8f71d0187db6716a68e1e61c944d5610ae161152b90db97acf244", // time-2
 ]
 
 // SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
