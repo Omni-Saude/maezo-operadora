@@ -49,8 +49,9 @@ ser do contrato `spec/agents/helena/roteador.yaml` e de cada habilidade fechada)
 
 1. Reclamação sobre a resposta anterior sem pedido de pessoa fica com a dona da pendência
    (`e_reclamacao` + `dona_da_pendencia`, #897) → regra de pendência do contrato.
-2. `habilidade_roteador` no estado barrando a cobertura assistida no `consultar_plano` quando o roteador
-   escolheu outra habilidade (#897) → a habilidade `plano` fechada, sem passar pelas regras de cobertura.
+2. `habilidade_roteador` no estado barrando a cobertura assistida e o caminho do Rol no `consultar_plano`
+   quando o roteador escolheu outra habilidade (#897, #900) → a habilidade `plano` fechada, sem passar pelas
+   regras de cobertura.
 3. `_HABILIDADE_DO_TURNO` valendo sobre as regras lexicais de cobertura no `classify` (#877) → some com o
    `classify` antigo.
 4. Extração da cobertura antecipada pelo detector lexical `_pergunta_de_cobertura_ampla` (latência, 22/10) →

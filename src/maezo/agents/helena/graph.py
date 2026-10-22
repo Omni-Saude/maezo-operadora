@@ -8481,7 +8481,11 @@ class HelenaGraph:
                 }
             elif assistida is not None:
                 return assistida
-        if (
+        if habilidade_do_roteador in (None, "", "cobertura") and (
+            # F2 (roteiro de 22/10/2026): com o roteador ATIVO decidindo outra habilidade (ex.: `plano`
+            # para "e eu ainda estou em carencia?" logo depois de uma resposta de cobertura), o caminho
+            # do Rol tambem nao pega a mensagem: a mesma regra da cobertura assistida acima (lista da F5,
+            # item 2).
             _pergunta_de_cobertura(mensagem_do_turno)
             or str(state.get("coleta_pendente") or "").startswith(PREFIXO_COBERTURA_QUEM)
             or (

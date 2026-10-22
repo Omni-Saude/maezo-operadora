@@ -197,6 +197,32 @@ async def test_roteador_plano_nao_cai_na_cobertura_assistida() -> None:
     assert fonte.pedidos == []
 
 
+async def test_roteador_plano_depois_de_uma_resposta_de_cobertura_nao_cai_no_rol() -> None:
+    """Roteiro de 22/10/2026 (segmento 20): carencia logo depois de uma cobertura respondida, com o roteador
+    escolhendo `plano`, nunca vira "e' para quem?" nem consulta de cobertura pelo caminho do Rol."""
+    from maezo.agents.helena import graph as g
+    from maezo.agents.helena.historico import PAPEL_BENEFICIARIO, PAPEL_HELENA
+
+    modelo = _Modelo(
+        [_decisao("plano")], [_classify(intent="consulta_plano", consulta_subtipo="elegibilidade")]
+    )
+    grafo, whatsapp, _cib, fonte = _grafo(modelo)
+    agora = datetime.now(UTC).isoformat()
+    historico = [
+        {"papel": PAPEL_BENEFICIARIO, "texto": "Vocês cobrem hemograma?", "em": agora},
+        {"papel": PAPEL_HELENA, "texto": g.MARCADOR_RESPOSTA_DE_COBERTURA, "em": agora},
+    ]
+    with capture_logs() as logs:
+        await grafo.ainvoke(
+            _entrada("beleza. e eu ainda estou em carência de alguma coisa?")
+            | {"historico_conversa": historico, "ultima_mensagem_em": agora}
+        )
+    eventos = {e.get("event") for e in logs}
+    assert "helena_cobertura_pergunta_para_quem" not in eventos and "helena_cobertura_rol" not in eventos
+    assert fonte.pedidos == [], "nenhuma consulta de cobertura"
+    assert "para quem" not in whatsapp.enviados[-1].lower()
+
+
 class _ModeloQueEspera(_Modelo):
     """O roteador so' responde DEPOIS que a extracao da cobertura comecou (prova o paralelo)."""
 
