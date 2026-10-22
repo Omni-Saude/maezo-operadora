@@ -40,6 +40,11 @@ jobs:
         run: |
           gh release download n2-lane-v16 --repo "$GITHUB_REPOSITORY" \
             --pattern 'images.tar.gz' --pattern 'lane-harness.tar.gz' --dir /tmp
+          # hosted runners default to the containerd image store, whose docker-cp
+          # from created containers fails with "page not found" — disable it first
+          sudo sh -c 'echo "{"features":{"containerd":false}}" > /etc/docker/daemon.json'
+          sudo systemctl restart docker
+          docker info --format 'containerd={{.DriverStatus}}'
           docker load < /tmp/images.tar.gz
           docker pull postgres:16
           docker pull maven:3.9-eclipse-temurin-17@sha256:1ed5d1f54416b706707b4f3238f63a20bb06aab27c6d240090a2bb9ad895ed45
