@@ -851,9 +851,11 @@ class FluxoDeCobertura:
                 return self._falhou(ctx, termo, prefixo=prefixo)
         nome_final = nome or getattr(item, "descricao", None)
         if nome_final and ca.normalizar(str(nome_final)) in {ca.normalizar(t) for t in ctx.respondidos if t}:
-            # E3: a MESMA pergunta de novo: nao repete o texto; reconhece e oferece o proximo passo.
+            # E3: a MESMA pergunta de novo: nao repete o texto inteiro; retoma a conclusao em uma linha
+            # (adendo de 22/10/2026) e oferece o proximo passo.
             logger.info("helena_cobertura_repetida")
-            return _update(prefixo + ca.TEXTO_REPETIDA.format(nome=nome_final), ca.PEND_EQUIPE, ctx)
+            texto_e3 = ca.texto_repetida(view, item, ca.nome_legivel(str(nome_final)))
+            return _update(prefixo + texto_e3, ca.PEND_EQUIPE, ctx)
         frase, oferece = ca.texto_de_um_resultado(
             view, item, ca.nome_legivel(str(nome_final)) if nome_final else None
         )
