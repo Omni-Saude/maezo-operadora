@@ -1,0 +1,74 @@
+name: N2 lane (ROOT manual)
+
+# Manual-only: the provider N2 served lane (scope v16, sealed parent n2fix-r14).
+# Runs on a clock-stable hosted Linux runner — the local macOS/Colima host steps
+# its wall clock backward, which the instrument's anti-tamper correctly refuses.
+# Never on push/PR. Budget: ~30-40 min per dispatch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Lane scope file name inside lane-harness.tar.gz/lane/"
+        required: false
+        default: "N2-LANE-SCOPE-v16.json"
+
+permissions:
+  contents: read
+
+jobs:
+  lane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: provider/n2-startupnaming-envsub
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lane python deps
+        run: pip install "cryptography>=42" asyncpg jsonschema h11 httpx
+
+      - name: Download lane inputs (draft release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download n2-lane-v16 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'images.tar.gz' --pattern 'lane-harness.tar.gz' --dir /tmp
+          docker load < /tmp/images.tar.gz
+          mkdir -p /tmp/lane-x && tar xzf /tmp/lane-harness.tar.gz -C /tmp/lane-x
+          ls -la /tmp/lane-x/lane
+
+      - name: Point the harness at this checkout
+        run: |
+          LANE_DIR=/tmp/lane-x/lane
+          echo "LANE_DIR=$LANE_DIR" >> "$GITHUB_ENV"
+          sed -i "s|WORKTREE = Path(\"/Users/familia/code/maezo-operadora/.claude/worktrees/provider-implementation\")|WORKTREE = Path(\"$GITHUB_WORKSPACE\")|" "$LANE_DIR/runner.py"
+          grep -n "^WORKTREE" "$LANE_DIR/runner.py"
+
+      - name: Run the N2 lane
+        env:
+          N2_SCOPE: ${{ inputs.scope }}
+        run: |
+          set +e
+          cd "$GITHUB_WORKSPACE"
+          python -u "$LANE_DIR/runner.py" --scope "$LANE_DIR/$N2_SCOPE" 2>&1 | tee /tmp/lane-stdout.log
+          echo "LANE_EXIT=${PIPESTATUS[0]}" >> "$GITHUB_ENV"
+          exit 0
+
+      - name: Upload lane evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: n2-lane-evidence
+          path: |
+            /tmp/lane-stdout.log
+            ${{ env.LANE_DIR }}/../**/result*.json
+            ${{ github.workspace }}/**/p3-rebuild/n2/result.json
+            ${{ github.workspace }}/**/p3-rebuild/n2/measurement-*/
+          if-no-files-found: warn
+          retention-days: 7
