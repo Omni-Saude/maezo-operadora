@@ -43,7 +43,7 @@ jobs:
           # hosted runners default to the containerd image store, whose docker-cp
           # from created containers fails with "page not found" — disable it first
           sudo tee /etc/docker/daemon.json >/dev/null <<'DJ'
-          {"features": {"containerd": false}}
+          {"features": {"containerd": false, "containerd-snapshotter": false}}
           DJ
           sudo systemctl restart docker
           docker info --format 'containerd={{.DriverStatus}}'
