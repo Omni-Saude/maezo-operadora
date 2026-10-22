@@ -31,7 +31,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install lane python deps
-        run: pip install "cryptography>=42" asyncpg jsonschema h11 httpx "sqlalchemy>=2"
+        run: |
+          pip install "cryptography>=42" asyncpg jsonschema h11 httpx "sqlalchemy>=2" pydantic
+          pip install --no-deps -e .
 
       - name: Download lane inputs (draft release)
         env:
