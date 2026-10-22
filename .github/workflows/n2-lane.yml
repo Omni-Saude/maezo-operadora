@@ -18,7 +18,9 @@ permissions:
 
 jobs:
   lane:
-    runs-on: ubuntu-latest
+    # arm64: the sealed parent + collector images were built on an arm64 host;
+    # emulation on amd64 breaks exec/docker-cp. Native arm runner matches.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
