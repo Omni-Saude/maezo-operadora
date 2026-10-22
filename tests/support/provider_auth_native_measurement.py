@@ -57,10 +57,12 @@ _CHECKPOINT_SQL = """SELECT clock_timestamp() AS observed_at,
  a.backend_xid::text AS backend_xid32,a.usename::text AS session_login,
  a.client_addr::text AS client_address,a.client_port,s.ssl AS backend_ssl,
  s.version::text AS backend_tls_version,
- ARRAY(SELECT x::text FROM pg_catalog.pg_snapshot_xip(pg_catalog.pg_current_snapshot()) x)
- AS active_full_xids FROM pg_catalog.pg_stat_activity a
+ x.active_full_xids FROM pg_catalog.pg_stat_activity a
  JOIN pg_catalog.pg_stat_ssl s ON s.pid=a.pid
- CROSS JOIN pg_catalog.pg_database d WHERE a.pid=$1 AND d.datname=current_database()"""
+ CROSS JOIN pg_catalog.pg_database d
+ CROSS JOIN LATERAL (SELECT ARRAY(SELECT y::text FROM pg_catalog.pg_snapshot_xip(
+   pg_catalog.pg_current_snapshot()) y) AS active_full_xids) x
+ WHERE a.pid=$1 AND d.datname=current_database()"""
 
 
 def sha(raw: bytes) -> str:
@@ -248,22 +250,6 @@ async def acquire_pg_checkpoint(
             guard.check()
             if row is None:
                 raise runtime.NativeObservationError("Held PostgreSQL backend absent")
-            # Intra-query XID race (CI #60): pg_current_snapshot() evaluates at
-            # query start while the pg_stat_activity row evaluates later; a stage
-            # xid assigned inside that window appears in the row but not in the
-            # snapshot list. One bounded, disclosed re-read of THIS checkpoint
-            # query (never of the measurement) when exactly that signature fires;
-            # a second occurrence still refuses.
-            if row["backend_xid32"] is not None and str(row["backend_xid32"]) not in {
-                str(int(v) % 2**32) for v in row["active_full_xids"]
-            }:
-                await asyncio.sleep(0.05)
-                guard.check()
-                row = await connection.fetchrow(
-                    _CHECKPOINT_SQL, int(witness["backend_pid"]), timeout=remaining(guard)
-                )
-                if row is None:
-                    raise runtime.NativeObservationError("Held PostgreSQL backend absent")
             capture = dict(
                 schema="provider-native-root-pg-checkpoint-capture.v1",
                 source="root-independent-pg-stat-snapshot-and-ssl-query",
@@ -899,35 +885,14 @@ class NativeMeasurementCollector:
                     captures = []
                     for phase in ("ROOT_FIRST", "ROOT_SECOND"):
                         self._check()
-                        try:
-                            capture = await acquire_pg_checkpoint(
-                                connection,
-                                hold=hold,
-                                hold_raw=hold_raw,
-                                phase=phase,
-                                guard=self.guard,
-                                schema=self.schema,
-                            )
-                        except runtime.NativeObservationError as checkpoint_failure:
-                            # CI #60: a checkpoint may read a per-transaction CACHED
-                            # pg_stat_activity row (PostgreSQL snapshots stats once per
-                            # transaction) whose stage xid already committed for the
-                            # statement snapshot — a consistent 'absent' mapping that no
-                            # in-transaction re-read can clear. One bounded retry in a
-                            # FRESH read-only transaction (the function opens its own);
-                            # any other refusal propagates untouched.
-                            if "full-XID mapping absent/ambiguous" not in str(checkpoint_failure):
-                                raise
-                            await asyncio.sleep(0.05)
-                            self._check()
-                            capture = await acquire_pg_checkpoint(
-                                connection,
-                                hold=hold,
-                                hold_raw=hold_raw,
-                                phase=phase,
-                                guard=self.guard,
-                                schema=self.schema,
-                            )
+                        capture = await acquire_pg_checkpoint(
+                            connection,
+                            hold=hold,
+                            hold_raw=hold_raw,
+                            phase=phase,
+                            guard=self.guard,
+                            schema=self.schema,
+                        )
                         self._join_pg_process(capture)
                         self._check()
                         ref = artifact_ref(
