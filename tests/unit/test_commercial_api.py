@@ -57,5 +57,5 @@ async def test_unbound_route_refuses_before_receive_even_with_browser_authority_
 
 
 def test_only_one_exact_command_route_is_registered() -> None:
-    routes = [(route.path, route.methods) for route in commercial_router.routes]
+    routes = [(route.path, route.methods) for route in commercial_router.routes if route.methods == {"POST"}]
     assert routes == [(COMMERCIAL_PATH, {"POST"})]

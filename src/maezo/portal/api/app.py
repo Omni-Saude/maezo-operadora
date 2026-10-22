@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from maezo.gateway.commercial import CommercialGateway
+from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
 from maezo.gateway.human.assignment_composition import AssignmentRuntime
 from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
@@ -25,7 +25,13 @@ from maezo.gateway.staff_cases.composition import StaffCaseRuntime
 from maezo.portal.api import spa
 from maezo.portal.api.auth import AuthenticationError, HumanAuthenticator
 from maezo.portal.api.cases import CaseServiceFactory, StaffCaseServiceFactory, case_router
-from maezo.portal.api.commercial import commercial_error, commercial_router, is_commercial_request
+from maezo.portal.api.commercial import (
+    commercial_error,
+    commercial_router,
+    is_commercial_request,
+    is_public_catalog_request,
+    public_catalog_error,
+)
 from maezo.portal.api.communications import (
     CommunicationServiceFactory,
     communication_router,
@@ -226,6 +232,7 @@ def create_app(
     communication_service_factory: CommunicationServiceFactory | None = None,
     vendor_submission_service_factory: VendorSubmissionServiceFactory | None = None,
     commercial_gateway: CommercialGateway | None = None,
+    public_catalog_gateway: PublicCatalogGateway | None = None,
     web_root: Path | None = None,
 ) -> FastAPI:
     """Production factory has no in-memory fallback and no default or agent credentials."""
@@ -332,6 +339,7 @@ def create_app(
     app.include_router(vendor_router)
     # Commercial sources remain unbound by default. Admission precedes body intake.
     app.state.commercial_gateway = commercial_gateway
+    app.state.public_catalog_gateway = public_catalog_gateway
     app.include_router(commercial_router)
 
     # Added BEFORE `deployment_host` on purpose. `add_middleware` inserts at position 0, so
@@ -358,6 +366,8 @@ def create_app(
             len(request.headers.getlist("host")) != 1
             or request.headers["host"] != urlsplit(config.public_origin).netloc
         ):
+            if is_public_catalog_request(request):
+                return public_catalog_error()
             if is_commercial_request(request):
                 return commercial_error("denied", "invalid_request", http_status=400)
             if (

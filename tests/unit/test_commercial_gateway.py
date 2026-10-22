@@ -23,6 +23,8 @@ from maezo.ports.commercial import (
     CommercialStatus,
     IssuedContractAuthority,
     OperationalResult,
+    PaymentChoiceAuthority,
+    PaymentChoiceSelection,
     SalesAdmission,
     SalesTransport,
     TermsReviewAuthority,
@@ -99,6 +101,17 @@ class UnitCodec(CommercialCodec):
                 decision="accept",
             )
             if name == "acceptance.record"
+            else None,
+            payment_selection=PaymentChoiceSelection(
+                choice_ref="choice",
+                scope_kind="receivable",
+                scope_ref="invoice",
+                provider="stripe",
+                method="card",
+                operation="payment.create",
+                use="one_time",
+            )
+            if name == "payment.create"
             else None,
         )
 
@@ -205,6 +218,19 @@ class UnitSource(CommercialSource):
             registry_readiness_ref="registry-current",
             ready_methods=frozenset({"pix", "card"} if self.missing_method else {"pix", "card", "boleto"}),
             issued_contract=None if self.missing_contract else issued,
+            payment_choice=PaymentChoiceAuthority(
+                selection=command.payment_selection,
+                scope_digest=scope_digest(value),
+                command_digest=command_digest(command),
+                capability_ref="capability",
+                source_revision=1,
+                account_binding_ref="account-source",
+                contractual_use_ref="qualified-use",
+                currentness_ref="current-choice",
+                valid_until=NOW + timedelta(minutes=5),
+            )
+            if command.payment_selection
+            else None,
             terms_review=TermsReviewAuthority(
                 selection=command.terms_selection,
                 scope_digest=scope_digest(value),

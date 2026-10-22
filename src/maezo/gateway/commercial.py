@@ -7,6 +7,7 @@ idempotency cache exists here. The AMH source owns atomic effects and receipts.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import math
 import uuid
 from collections.abc import Callable
@@ -19,12 +20,18 @@ from maezo.ports.commercial import (
     CommercialPreparation,
     CommercialPublication,
     CommercialRefusalError,
+    CommercialResultAuthority,
     CommercialScope,
     CommercialSource,
     OperationalResult,
+    PublicCatalogAdmission,
+    PublicCatalogProof,
+    PublicCatalogScope,
+    PublicCatalogSource,
     SalesAdmission,
     SalesTransport,
     command_digest,
+    public_scope_digest,
     scope_digest,
 )
 
@@ -32,6 +39,16 @@ Phase = Literal["before_body", "before_source", "before_effect", "before_disclos
 _REGISTRY_REQUIRED = frozenset({"offer.quote", "contract.issue", "receivable.ensure", "payment.create"})
 _CONTRACT_REQUIRED = frozenset({"receivable.ensure", "payment.create"})
 _METHODS = frozenset({"pix", "card", "boleto"})
+_C6_SCOPES = {
+    "work.list": "interop/sales.work.read",
+    "work.claim": "interop/sales.work.manage",
+    "work.assign": "interop/sales.work.manage",
+    "work.handoff": "interop/sales.work.manage",
+    "work.reconcile": "interop/sales.work.manage",
+    "journey.save": "interop/sales.journey.write",
+    "journey.get": "interop/sales.journey.read",
+    "support.handoff": "interop/sales.support",
+}
 
 
 def _ref(value: object) -> bool:
@@ -97,13 +114,31 @@ class CommercialGateway:
             or not scope.allowed_operations
         ):
             raise CommercialRefusalError("denied", "admission_required")
-        # C2 does not publish an anonymous commercial catalog grant. A future public
-        # profile needs its own source-owned admission; this candidate cannot infer it.
+        # Public catalog uses a separate machine scope/gateway, never this actor scope.
         if scope.audience != "account" or scope.actor_kind not in {"customer", "staff"}:
             raise CommercialRefusalError("denied", "actor_denied")
         if not all(_ref(value) for value in (scope.session_ref, scope.actor_ref, scope.account_ref)):
             raise CommercialRefusalError("denied", "identity_unqualified")
         if scope.represented_party_ref is not None and not _ref(scope.representation_ref):
+            raise CommercialRefusalError("denied", "representation_denied")
+        if type(scope.granted_scopes) is not frozenset:
+            raise CommercialRefusalError("denied", "admission_required")
+        # Before-body admission of an expanded scope already requires independent
+        # current resource/linkage authority. A historical OP purpose is insufficient.
+        for operation in scope.allowed_operations:
+            self._operation_scope(scope, operation)
+
+    @staticmethod
+    def _operation_scope(scope: CommercialScope, operation: str) -> None:
+        grant = _C6_SCOPES.get(operation)
+        if grant is None:
+            return
+        if grant not in scope.granted_scopes or not _ref(scope.resource_grant_ref):
+            raise CommercialRefusalError("denied", "purpose_denied")
+        if operation.startswith("work."):
+            if scope.actor_kind != "staff" or scope.purpose_ref != "sales_operations":
+                raise CommercialRefusalError("denied", "actor_denied")
+        elif not _ref(scope.journey_linkage_ref):
             raise CommercialRefusalError("denied", "representation_denied")
 
     async def _current(
@@ -175,6 +210,28 @@ class CommercialGateway:
         ):
             raise CommercialRefusalError("denied", "source_stale")
         self._terms(command, scope, prepared)
+        if command.command in {"payment.create", "mandate.create"}:
+            selection, choice = command.payment_selection, prepared.payment_choice
+            if (
+                selection is None
+                or choice is None
+                or choice.selection != selection
+                or choice.scope_digest != scope_digest(scope)
+                or choice.command_digest != command_digest(command)
+                or type(choice.source_revision) is not int
+                or choice.source_revision < 1
+                or not all(
+                    _ref(value)
+                    for value in (
+                        choice.capability_ref,
+                        choice.account_binding_ref,
+                        choice.contractual_use_ref,
+                        choice.currentness_ref,
+                    )
+                )
+                or not _future(choice.valid_until, self._clock())
+            ):
+                raise CommercialRefusalError("denied", "source_stale")
         if command.command in _REGISTRY_REQUIRED and (
             not _ref(prepared.registry_readiness_ref) or prepared.ready_methods != _METHODS
         ):
@@ -241,6 +298,25 @@ class CommercialGateway:
         if selected.decision == "accept" and proof.review_state != "presented":
             raise CommercialRefusalError("denied", "terms_review_required")
 
+    def _result_authority(
+        self,
+        command: CommercialCommand,
+        scope: CommercialScope,
+        result: OperationalResult,
+        proof: CommercialResultAuthority,
+    ) -> None:
+        if (
+            not isinstance(proof, CommercialResultAuthority)
+            or proof.scope_digest != scope_digest(scope)
+            or proof.command_digest != command_digest(command)
+            or proof.result_digest != hashlib.sha256(result.wire_bytes).hexdigest()
+            or not _ref(proof.resource_grant_ref)
+            or not _ref(proof.currentness_ref)
+            or (scope.resource_grant_ref is not None and proof.resource_grant_ref != scope.resource_grant_ref)
+            or not _future(proof.valid_until, self._clock())
+        ):
+            raise CommercialRefusalError("denied", "source_stale")
+
     async def execute(self, command: CommercialCommand, scope: CommercialScope) -> OperationalResult:
         operation_ref: str | None = "commercial-" + uuid.uuid4().hex
         dispatched = False
@@ -282,6 +358,11 @@ class CommercialGateway:
                 self._prepared(command, scope, prepared)
                 if await self.source.admit(scope) != prepared.publication:
                     raise CommercialRefusalError("uncertain", "reconciliation_required")
+                response_proof = None
+                if result.status == "succeeded" and result.requires_current_result:
+                    self._operation_scope(scope, result.authorization_command or command.command)
+                    response_proof = await self.source.result_authority(command, scope, result)
+                    self._result_authority(command, scope, result, response_proof)
                 # Authority checks may await IO. Revalidate ephemeral hosted URLs
                 # and their current issuer-origin binding at actual disclosure.
                 if self.codec.parse_result(result.wire_bytes, command) != result:
@@ -290,6 +371,8 @@ class CommercialGateway:
                 # checks are local and do not start another authority IO cycle.
                 self._scope(scope)
                 self._prepared(command, scope, prepared)
+                if response_proof is not None:
+                    self._result_authority(command, scope, result, response_proof)
                 return result
         except asyncio.CancelledError:
             # Source execution owns durable uncertainty/outbox custody. Cancellation
@@ -310,3 +393,94 @@ class CommercialGateway:
                 "reconciliation_required" if dispatched else "source_unavailable",
                 operation_ref,
             )
+
+
+class PublicCatalogGateway:
+    """Separate current server-machine read path; no customer identity or intake."""
+
+    def __init__(
+        self,
+        *,
+        codec: CommercialCodec,
+        admission: PublicCatalogAdmission | None = None,
+        source: PublicCatalogSource | None = None,
+        timeout_seconds: float = 5.0,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        if (
+            not isinstance(codec, CommercialCodec)
+            or not math.isfinite(timeout_seconds)
+            or not 0 < timeout_seconds <= 30
+        ):
+            raise ValueError("commercial_composition_invalid")
+        self.codec, self.admission, self.source = codec, admission, source
+        self.timeout_seconds = timeout_seconds
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    def _scope(self, scope: PublicCatalogScope) -> None:
+        if (
+            not isinstance(scope, PublicCatalogScope)
+            or scope.purpose != "sales_public_catalog"
+            or scope.granted_scope != "interop/sales.catalog.public.read"
+            or not all(
+                _ref(value)
+                for value in (
+                    scope.workload_ref,
+                    scope.tenant_ref,
+                    scope.legal_entity_ref,
+                    scope.operator_ref,
+                    scope.source_grant_ref,
+                    scope.source_binding_revision,
+                    scope.publication_ref,
+                    scope.lifecycle_ref,
+                    scope.currentness_ref,
+                )
+            )
+            or not _future(scope.valid_until, self._clock())
+        ):
+            raise CommercialRefusalError("unavailable", "source_unavailable")
+
+    def _proof(self, proof: PublicCatalogProof, scope: PublicCatalogScope, result_digest: str | None) -> None:
+        if (
+            not isinstance(proof, PublicCatalogProof)
+            or proof.scope_digest != public_scope_digest(scope)
+            or proof.schema_digest != self.codec.schema_digest
+            or proof.publication_ref != scope.publication_ref
+            or proof.result_digest != result_digest
+            or not _ref(proof.currentness_ref)
+            or not _future(proof.valid_until, self._clock())
+        ):
+            raise CommercialRefusalError("unavailable", "source_unavailable")
+
+    async def admit(self, transport: SalesTransport) -> PublicCatalogScope:
+        if not isinstance(self.admission, PublicCatalogAdmission) or not isinstance(
+            self.source, PublicCatalogSource
+        ):
+            raise CommercialRefusalError("unavailable", "source_unavailable")
+        if transport.method != "GET" or transport.path != "/api/v1/sales/public/catalog":
+            raise CommercialRefusalError("unavailable", "source_unavailable")
+        async with asyncio.timeout(self.timeout_seconds):
+            scope = await self.admission.acquire(transport)
+            self._scope(scope)
+            if await self.admission.current(scope, phase="before_source") != scope:
+                raise CommercialRefusalError("unavailable", "source_unavailable")
+            self._scope(scope)
+            self._proof(await self.source.authorize(scope, None), scope, None)
+            self._scope(scope)
+            return scope
+
+    async def read(self, transport: SalesTransport) -> bytes:
+        scope = await self.admit(transport)
+        if self.admission is None or self.source is None:
+            raise CommercialRefusalError("unavailable", "source_unavailable")
+        async with asyncio.timeout(self.timeout_seconds):
+            raw = await self.source.read(scope)
+            self.codec.parse_public_result(raw)
+            if await self.admission.current(scope, phase="before_disclosure") != scope:
+                raise CommercialRefusalError("unavailable", "source_unavailable")
+            body_digest = hashlib.sha256(raw).hexdigest()
+            proof = await self.source.authorize(scope, body_digest)
+            # All source/authority IO is over: pure proof/DTO deadlines only.
+            self._proof(proof, scope, body_digest)
+            self._scope(scope)
+            return self.codec.parse_public_result(raw)

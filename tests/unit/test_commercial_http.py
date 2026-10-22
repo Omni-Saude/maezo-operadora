@@ -1,6 +1,6 @@
 """Candidate-wire HTTP UNIT: synthetic verified ports, no engine/REAL integration.
 
-The immutable TEST artifact records exact source-owned C5 bytes and provenance.
+The immutable TEST artifact records exact source-owned C6-4 bytes and provenance.
 An optional COMMERCIAL_CANDIDATE_SCHEMA override must match those same bytes.
 This artifact is never runtime admission or an editable canonical schema.
 """
@@ -41,24 +41,24 @@ def schema_bytes():
     # Required for this actual-codec evidence. Missing source artifact is a failure,
     # never converted to a skip, invented local schema or synthetic codec.
     artifact_dir = Path(__file__).resolve().parents[1] / "candidate_artifacts" / "commercial"
-    provenance = json.loads((artifact_dir / "PROVENANCE-C5.json").read_text(encoding="utf-8"))
+    provenance = json.loads((artifact_dir / "PROVENANCE-C6-4.json").read_text(encoding="utf-8"))
     assert provenance["schema"] == "commercial-candidate-test-custody.v1"
     assert provenance["classification"] == "IMMUTABLE_CANDIDATE_TEST_ARTIFACT_NOT_CANONICAL_OR_PUBLISHED"
     assert provenance["source_repository"] == "Omni-Saude/amh-data-platform"
-    assert provenance["source_commit"] == "d96520a16a31dbe0bbc07e3cd83c902bca30fee0"
+    assert provenance["source_commit"] == "b3ab95a07a016526aa5dc09ead22aafccd630b45"
     assert len(provenance["source_commit"]) == 40
     assert all(character in "0123456789abcdef" for character in provenance["source_commit"])
     assert provenance["source_path"] == (
-        "schemas/proposals/maezo/commercial-v1/shared-contract-c5.proposed.v1.json"
+        "schemas/proposals/maezo/commercial-v1/shared-contract-c6-4.proposed.v1.json"
     )
-    expected_digest = "6aef2e1ec987834179db1acbd1ff2be32f5c406ca73622af5f905ec5b992d1e6"
+    expected_digest = "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea"
     assert provenance["source_sha256"] == CANDIDATE_SCHEMA_SHA256 == expected_digest
     assert provenance["publication"] == "NOT_PUBLISHED"
     assert provenance["runtime_admission"] == "UNBOUND"
     assert provenance["runtime_import_allowed"] is False
     assert provenance["existing_published_pin_modified"] is False
-    artifact = (artifact_dir / "contract-c5.json").read_bytes()
-    assert len(artifact) == provenance["bytes"] == 148990
+    artifact = (artifact_dir / "contract-c6-4.json").read_bytes()
+    assert len(artifact) == provenance["bytes"] == 320163
     assert hashlib.sha256(artifact).hexdigest() == expected_digest
     override = os.environ.get("COMMERCIAL_CANDIDATE_SCHEMA")
     supplied = Path(override).read_bytes() if override is not None else artifact
@@ -103,6 +103,16 @@ def wire_command():
     }
 
 
+def unavailable_capabilities(kind, ref):
+    return {
+        "status": "unavailable",
+        "scope": {"kind": kind, "ref": ref},
+        "reason": "refresh_required",
+        "choices": [],
+        "default_card_choice_ref": None,
+    }
+
+
 def wire_result():
     return {
         "schema_version": "omni-commercial.proposed.v1",
@@ -117,6 +127,7 @@ def wire_result():
             "configuration_state": "qualified",
             "available_methods": ["pix", "card", "boleto"],
             "contracting_ready": True,
+            "payment_capabilities": unavailable_capabilities("operator", "SYN-OPERATOR"),
         },
     }
 
@@ -367,6 +378,7 @@ def hosted_case(kind, provider="stripe", method="card", url=STRIPE_HOSTED_URL):
                 "method": method,
                 "provider": provider,
                 "mandate_ref": None,
+                "choice_ref": "SYN-CHOICE",
             },
         }
         data = {
@@ -384,13 +396,16 @@ def hosted_case(kind, provider="stripe", method="card", url=STRIPE_HOSTED_URL):
                 "tasy_ack_state": "pending",
                 "tasy_ack_receipt_ref": None,
                 "hosted_action": action,
+                "observed_method": None,
+                "observed_method_receipt_ref": None,
+                "payment_capabilities": unavailable_capabilities("payment", "SYN-ATTEMPT"),
             },
         }
     else:
         command = {
             **wire_command(),
             "command": "mandate.create",
-            "payload": {"contract_ref": "SYN-CONTRACT", "provider": provider},
+            "payload": {"contract_ref": "SYN-CONTRACT", "provider": provider, "choice_ref": "SYN-CHOICE"},
         }
         data = {
             "kind": "mandate",
@@ -401,6 +416,7 @@ def hosted_case(kind, provider="stripe", method="card", url=STRIPE_HOSTED_URL):
                 "state": "pending",
                 "provider_receipt_ref": None,
                 "hosted_action": action,
+                "payment_capabilities": unavailable_capabilities("mandate", "SYN-MANDATE"),
             },
         }
     return command, {**wire_result(), "data": data}

@@ -57,6 +57,9 @@ class CommercialScope:
     represented_party_ref: str | None = None
     representation_ref: str | None = None
     account_ref: str | None = None
+    granted_scopes: frozenset[str] = frozenset()
+    resource_grant_ref: str | None = None
+    journey_linkage_ref: str | None = None
 
 
 class CommercialRefusalError(Exception):
@@ -130,6 +133,14 @@ CommercialOperation = Literal[
     "financial_action.request",
     "acceptance.record",
     "operation.get",
+    "work.list",
+    "work.claim",
+    "work.assign",
+    "work.handoff",
+    "work.reconcile",
+    "journey.save",
+    "journey.get",
+    "support.handoff",
 ]
 CommercialStatus = Literal["succeeded", "denied", "conflict", "uncertain", "unavailable"]
 
@@ -185,6 +196,82 @@ class TermsReviewAuthority:
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class PaymentChoiceSelection:
+    """Closed request selectors; a current resource-bound proof is still required."""
+
+    choice_ref: str
+    scope_kind: Literal["receivable", "contract"]
+    scope_ref: str
+    provider: str
+    method: str
+    operation: str
+    use: str
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class PaymentChoiceAuthority:
+    """Source-qualified exact choice intersection, never administrative readiness.
+
+    The provider resolves current original account, implemented wire profile,
+    contractual use, actor/payer/representation and resource eligibility. It
+    revalidates the immutable tuple/version at each phase and atomically at AMH.
+    """
+
+    selection: PaymentChoiceSelection
+    scope_digest: str
+    command_digest: str
+    capability_ref: str
+    source_revision: int
+    account_binding_ref: str
+    contractual_use_ref: str
+    currentness_ref: str
+    valid_until: datetime
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class CommercialResultAuthority:
+    """Current qualified exact response, resolved after source IO.
+
+    Binds each resource to current tenant/actor/payer/representation and purpose;
+    work queues/directory, customer discovery, case vocabulary/labels/topics,
+    public fields and resource payment choices require their own source grants.
+    Empty discovery is valid only after a real authorized current source read.
+    C6-3 includes each journey's independently sourced profile, exact progressive
+    linkage/commercial acceptance and quote facts, plus every receivable/payment/
+    mandate/financial-action read reference under its ORIGINAL journey, contract,
+    payer, account, tenant and purpose. Profile/account/prospect and OP03/commercial
+    acceptance are separate identities, never aliases or inferred replacements.
+    Null/empty is no usable continuation fact, not proof of absent obligations.
+    C6-4 fresh plan choices require the exact active approved catalog/version/
+    product tuple and label under the current owner/operator/tenant/purpose, even
+    when no journey exists. Private option_ref is source-qualified independently,
+    never inferred from public optionRef. Recovery plan choices are always empty.
+    Digest equality alone does not supply this authority.
+    """
+
+    command_digest: str
+    scope_digest: str
+    result_digest: str
+    resource_grant_ref: str
+    currentness_ref: str
+    valid_until: datetime
+
+
+class CommercialDeliveryOrigins(ABC):
+    """Current administrative issuer / external clinical channel policy.
+
+    Separate from PSP origins and terms selection. Implementations verify exact
+    resource ownership, published document/topic lineage, authentication/redirect
+    policy and present delivery validity, including explicitly unknown expiry.
+    """
+
+    @abstractmethod
+    def current_origins(
+        self, *, kind: str, resource_ref: str, document_ref: str, source_revision: int
+    ) -> frozenset[str]: ...
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class CommercialCommand:
     """Closed envelope plus immutable bytes validated by source-owned candidate schema.
 
@@ -197,6 +284,7 @@ class CommercialCommand:
     expected_revision: int | None
     wire_bytes: bytes
     terms_selection: TermsSelection | None = None
+    payment_selection: PaymentChoiceSelection | None = None
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -206,6 +294,8 @@ class OperationalResult:
     reason_code: str | None
     wire_bytes: bytes
     terms_presentation: TermsPresentation | None = None
+    authorization_command: CommercialOperation | None = None
+    requires_current_result: bool = False
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -260,6 +350,7 @@ class CommercialPreparation:
     ready_methods: frozenset[str] = frozenset()
     issued_contract: IssuedContractAuthority | None = None
     terms_review: TermsReviewAuthority | None = None
+    payment_choice: PaymentChoiceAuthority | None = None
 
 
 class CommercialCodec(ABC):
@@ -274,6 +365,9 @@ class CommercialCodec(ABC):
 
     @abstractmethod
     def parse_result(self, body: bytes, command: CommercialCommand) -> OperationalResult: ...
+
+    def parse_public_result(self, body: bytes) -> bytes:
+        raise CommercialRefusalError("unavailable", "source_unavailable")
 
     @abstractmethod
     def refusal(
@@ -303,6 +397,69 @@ class CommercialSource(ABC):
         self, command: CommercialCommand, scope: CommercialScope, preparation: CommercialPreparation
     ) -> OperationalResult: ...
 
+    async def result_authority(
+        self, command: CommercialCommand, scope: CommercialScope, result: OperationalResult
+    ) -> CommercialResultAuthority:
+        raise CommercialRefusalError("unavailable", "source_unavailable")
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class PublicCatalogScope:
+    """Machine-only public-data scope, independent of every customer admission."""
+
+    workload_ref: str
+    tenant_ref: str
+    legal_entity_ref: str
+    operator_ref: str
+    source_grant_ref: str
+    source_binding_revision: str
+    publication_ref: str
+    lifecycle_ref: str
+    currentness_ref: str
+    purpose: Literal["sales_public_catalog"]
+    granted_scope: Literal["interop/sales.catalog.public.read"]
+    valid_until: datetime
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class PublicCatalogProof:
+    """Exact current public-audience publication/field policy from trusted source.
+
+    A response digest requires independent verification of its source authority,
+    operator/catalogue lineage, current price/network/association revisions,
+    withdrawal/expiry and every field's public audience. Unknown expiry is
+    explicitly qualified here, not interpreted as unlimited validity.
+    """
+
+    scope_digest: str
+    schema_digest: str
+    publication_ref: str
+    currentness_ref: str
+    result_digest: str | None
+    valid_until: datetime
+
+
+class PublicCatalogAdmission(ABC):
+    @abstractmethod
+    async def acquire(self, transport: SalesTransport) -> PublicCatalogScope: ...
+
+    @abstractmethod
+    async def current(self, scope: PublicCatalogScope, *, phase: str) -> PublicCatalogScope: ...
+
+
+class PublicCatalogSource(ABC):
+    @abstractmethod
+    async def authorize(self, scope: PublicCatalogScope, result_digest: str | None) -> PublicCatalogProof: ...
+
+    @abstractmethod
+    async def read(self, scope: PublicCatalogScope) -> bytes: ...
+
+
+def public_scope_digest(scope: PublicCatalogScope) -> str:
+    values = asdict(scope)
+    values["valid_until"] = scope.valid_until.isoformat()
+    return hashlib.sha256(json.dumps(values, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
 
 def command_digest(command: CommercialCommand) -> str:
     return hashlib.sha256(command.wire_bytes).hexdigest()
@@ -311,6 +468,7 @@ def command_digest(command: CommercialCommand) -> str:
 def scope_digest(scope: CommercialScope) -> str:
     values = asdict(scope)
     values["allowed_operations"] = sorted(scope.allowed_operations)
+    values["granted_scopes"] = sorted(scope.granted_scopes)
     values["valid_from"] = scope.valid_from.isoformat()
     values["valid_until"] = scope.valid_until.isoformat()
     return hashlib.sha256(
