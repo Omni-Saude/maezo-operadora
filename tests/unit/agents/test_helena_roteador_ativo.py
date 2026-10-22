@@ -223,6 +223,27 @@ async def test_roteador_plano_depois_de_uma_resposta_de_cobertura_nao_cai_no_rol
     assert "para quem" not in whatsapp.enviados[-1].lower()
 
 
+async def test_nao_a_oferta_da_equipe_fica_com_a_dona_da_pendencia() -> None:
+    """Contrato: a resposta a pendencia e' da habilidade dona dela, mesmo com o roteador dizendo `equipe`."""
+    modelo = _Modelo([_decisao("equipe", responde=True)], [])
+    grafo, whatsapp, cib, _fonte = _grafo(modelo)
+    contexto = ca.Contexto(termos=["qwxzk"], quem="titular", tentativas=2).codificar()
+    await grafo.ainvoke(_entrada("não") | {"coleta_pendente": ca.PEND_EQUIPE, "coleta_contexto": contexto})
+    from tests.unit.agents.test_helena_rodada_3_simulador import _starts
+
+    assert _starts(cib) == 0 and whatsapp.enviados[-1] == ca.TEXTO_SEM_EQUIPE
+
+
+async def test_deixa_pra_la_a_pendencia_da_cobertura_encerra_com_a_dona() -> None:
+    modelo = _Modelo([_decisao("conversa", responde=False)], [])
+    grafo, whatsapp, _cib, fonte = _grafo(modelo)
+    contexto = ca.Contexto(termos=["qwxzk"], quem="titular", tentativas=1).codificar()
+    await grafo.ainvoke(
+        _entrada("deixa pra lá") | {"coleta_pendente": ca.PEND_FORMA, "coleta_contexto": contexto}
+    )
+    assert whatsapp.enviados[-1] == ca.TEXTO_ASSUNTO_ENCERRADO and fonte.pedidos == []
+
+
 class _ModeloQueEspera(_Modelo):
     """O roteador so' responde DEPOIS que a extracao da cobertura comecou (prova o paralelo)."""
 
