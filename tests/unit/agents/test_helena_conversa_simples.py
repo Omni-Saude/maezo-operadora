@@ -374,3 +374,26 @@ async def test_categoria_real_vaga_continua_perguntando_qual() -> None:
     from maezo.agents.helena.cobertura_fluxo import VAGO
 
     assert (await _decisao_vaga("ultrassonografia")).tipo == VAGO
+
+
+# --- roteiro de 22/10/2026 (roteador ativo) -----
+async def test_discordancia_sem_procedimento_vence_o_desvio_da_autorizacao() -> None:
+    m = _Mundo(pedido=ca.Pedido(discorda=True, assunto="autorizacao", pelo_modelo=True))
+    up = await _fluxo(m).responder("a clinica disse que cobre, mas voces recusaram a minha guia", "", "")
+    assert "desviar_para" not in up
+    assert up["response_text"].endswith(ca.TEXTO_OFERTA_DA_DISCORDANCIA)
+    assert up["coleta_pendente"] == ca.PEND_EQUIPE
+
+
+async def test_lista_mista_com_exclusao_responde_todos_os_itens() -> None:
+    pedido = ca.Pedido(
+        procedimentos=("hemograma",),
+        outros=(("dipirona", "remedio"),),
+        exclusao_legal="estetica",
+        pelo_modelo=True,
+        total=1,
+    )
+    m = _Mundo(pedido=pedido, coberturas=_HEMO)
+    up = await _fluxo(m).responder("cobre hemograma, dipirona e preenchimento labial?", "", "")
+    texto = up["response_text"]
+    assert "dipirona:" in texto and ca.NOME_DO_ITEM_EXCLUIDO["estetica"] in texto and "consta no Rol" in texto
