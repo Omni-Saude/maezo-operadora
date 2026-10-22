@@ -265,7 +265,11 @@ class BrResidentInferenceProvider(BaseInferenceProvider):
                 "residency escape (ADR-0006/ADR-0017): the completion is DISCARDED and never "
                 "returned to the caller. Route to a human / incident; never retry elsewhere."
             )
-        if response.served_region != BR_REGIONAL_ATTESTED_REGION:
+        from maezo.runtime.inference.excecao_regional import REGIAO_EXCECAO, excecao_ativa
+
+        # EXCECAO REGIONAL do dev (DPO, 21/10/2026): com ela LIGADA, so' a regiao dela tambem vale.
+        excecao = excecao_ativa() and response.served_region == REGIAO_EXCECAO
+        if response.served_region != BR_REGIONAL_ATTESTED_REGION and not excecao:
             raise BrEndpointNotApprovedError(
                 f"BR-regional endpoint attested served_region={response.served_region!r}, but "
                 f"only {BR_REGIONAL_ATTESTED_REGION!r} is accepted for PHI-zone inference "

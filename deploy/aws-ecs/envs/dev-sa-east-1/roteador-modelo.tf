@@ -16,7 +16,7 @@ data "aws_iam_policy_document" "roteador_modelo" {
     sid       = "RoteadorModeloRegionalSaEast1"
     effect    = "Allow"
     actions   = ["bedrock:InvokeModel"]
-    resources = ["arn:${data.aws_partition.current.partition}:bedrock:sa-east-1::foundation-model/${var.helena_roteador_modelo == "" ? var.phi_model_id : var.helena_roteador_modelo}"]
+    resources = ["arn:${data.aws_partition.current.partition}:bedrock:${local.phi_regiao}::foundation-model/${var.helena_roteador_modelo == "" ? var.phi_model_id : var.helena_roteador_modelo}"]
   }
 }
 
