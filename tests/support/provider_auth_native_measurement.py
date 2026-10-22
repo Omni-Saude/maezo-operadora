@@ -56,13 +56,22 @@ _CHECKPOINT_SQL = """SELECT clock_timestamp() AS observed_at,
  a.pid::text AS backend_pid,a.backend_start,a.xact_start AS transaction_started_at,
  a.backend_xid::text AS backend_xid32,a.usename::text AS session_login,
  a.client_addr::text AS client_address,a.client_port,s.ssl AS backend_ssl,
- s.version::text AS backend_tls_version,
- x.active_full_xids FROM pg_catalog.pg_stat_activity a
+ s.version::text AS backend_tls_version
+ FROM pg_catalog.pg_stat_activity a
  JOIN pg_catalog.pg_stat_ssl s ON s.pid=a.pid
  CROSS JOIN pg_catalog.pg_database d
- CROSS JOIN LATERAL (SELECT ARRAY(SELECT y::text FROM pg_catalog.pg_snapshot_xip(
-   pg_catalog.pg_current_snapshot()) y) AS active_full_xids) x
  WHERE a.pid=$1 AND d.datname=current_database()"""
+# CI #60 root cause: the committing HOLD frame is emitted at the exact instant the
+# stage transaction's first write assigns its xid (HOLD-2 witness xid=None; HOLD-5
+# witness xid=761, same tx). One combined statement straddles that assignment
+# (snapshot evaluated before, row after) — 'full-XID mapping absent' at EVERY
+# committing-hold checkpoint. Two statements in dependency order fix it: the ROW
+# first (corroborates the witness against live pg_stat_activity), the SNAPSHOT
+# second (a later statement cannot predate an xid the row already showed).
+_SNAPSHOT_SQL = (
+    "SELECT ARRAY(SELECT y::text FROM pg_catalog.pg_snapshot_xip("
+    "pg_catalog.pg_current_snapshot()) y) AS active_full_xids"
+)
 
 
 def sha(raw: bytes) -> str:
@@ -250,6 +259,13 @@ async def acquire_pg_checkpoint(
             guard.check()
             if row is None:
                 raise runtime.NativeObservationError("Held PostgreSQL backend absent")
+            guard.check()
+            snapshot_row = await connection.fetchrow(_SNAPSHOT_SQL, timeout=remaining(guard))
+            guard.check()
+            if snapshot_row is None:
+                raise runtime.NativeObservationError("Actual full-XID snapshot refused")
+            row = dict(row)
+            row["active_full_xids"] = list(snapshot_row["active_full_xids"])
             capture = dict(
                 schema="provider-native-root-pg-checkpoint-capture.v1",
                 source="root-independent-pg-stat-snapshot-and-ssl-query",
