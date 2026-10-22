@@ -9229,15 +9229,15 @@ class HelenaGraph:
             "falha_tecnica" if state.get("error") else None
         )
         severidade: Severidade | None = state.get("escalation_severidade")
-        barrado = self._trava_caso_sem_pedido(state, motivo)
+        barrado = await self._trava_caso_sem_pedido(state, motivo)
         if barrado is not None:
             return barrado
         return await self._start_escalation(
             state, motivo=motivo, severidade=severidade, response_kind="escalate"
         )
 
-    def _trava_caso_sem_pedido(
-        self, state: Mapping[str, Any], motivo: MotivoCategoria | None
+    async def _trava_caso_sem_pedido(
+        self, state: HelenaState, motivo: MotivoCategoria | None
     ) -> dict[str, Any] | None:
         """TRAVA DE SAIDA `caso_so_com_sim` (ADR-0066; regra do dono: caso so' com "sim" ou pedido EXPLICITO
         de pessoa). Um pedido de pessoa (`solicitacao_humano` com `intent=human_request`) so' abre o caso
@@ -9258,6 +9258,10 @@ class HelenaGraph:
             or _CITA_UMA_PESSOA.search(plano)
             or _ameaca_regulatoria(texto)
         ):
+            return None
+        if await self._motivo_do_caso_aberto(_business_key(state)):
+            # Ja' ha' caso ABERTO nesta conversa: nada de caso NOVO aqui. O start reaproveita o aberto e
+            # responde com o texto do caso aberto ("quanto tempo demora?", recado ao atendente), como sempre.
             return None
         from maezo.agents.helena import cobertura_assistida as _ca
 
