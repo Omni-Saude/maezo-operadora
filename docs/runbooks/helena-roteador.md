@@ -42,6 +42,19 @@ concordância por roteiro, as falhas, o tempo e cada desacordo com o texto do pa
 - Medição por turno de cobertura (um procedimento × lista, etapas em sequência): `C:/vc/latencia_cobertura.py`
   sobre o log exportado da tarefa do simulador.
 
+## 2b-2. F2 fechada (r4 de 22/10/2026): as regras de palavra não competem com o roteador
+
+- Com o roteador ATIVO decidindo, a habilidade limita as intenções do turno (`_INTENTS_DA_HABILIDADE`):
+  `plano` → consulta do plano (subtipo do modelo ou da própria habilidade); `cobranca` → Lucas; `sintoma` →
+  sintoma; `saude` → informação; `conversa` → saudação/informação; `equipe` → informação ou pedido de pessoa
+  (só os portões de pedido explícito abrem caso: trava `caso_so_com_sim`). Log
+  `helena_habilidade_fecha_intencao habilidade=... intent_do_modelo=...` quando o modelo vinha de fora.
+- As regras de PALAVRA do `classify` que levariam o turno para OUTRA habilidade (cobrança negada, identidade,
+  despedida, pergunta financeira, dependentes, pergunta do plano → consulta, conversa sem relato, pedido de
+  pessoa léxico/explícito) só valem sem roteador decidindo ou dentro da habilidade dela (`_regra_vale`).
+- Ficam SEMPRE: as travas de segurança (risco, alarme determinístico e da base, neonatal, caso aberto com sinal
+  de emergência, ameaça regulatória), as respostas às pendências e as regras internas de cada habilidade.
+
 ## 2c. Lista da F5 — condicionais de transição no `graph.py` (remover ou migrar para o contrato)
 
 São pontes da F2 entre a decisão do roteador e o código de hoje; na F5 saem do `graph.py` (a decisão passa a
@@ -53,8 +66,8 @@ ser do contrato `spec/agents/helena/roteador.yaml` e de cada habilidade fechada)
 2. `habilidade_roteador` no estado barrando a cobertura assistida e o caminho do Rol no `consultar_plano`
    quando o roteador escolheu outra habilidade (#897, #900) → a habilidade `plano` fechada, sem passar pelas
    regras de cobertura.
-3. `_HABILIDADE_DO_TURNO` valendo sobre as regras lexicais de cobertura no `classify` (#877) → some com o
-   `classify` antigo.
+3. `_HABILIDADE_DO_TURNO` valendo sobre as regras lexicais no `classify` (#877; generalizado na F2 fechada:
+   `_regra_vale` / `_INTENTS_DA_HABILIDADE`) → some com o `classify` antigo.
 4. Extração da cobertura antecipada pelo detector lexical `_pergunta_de_cobertura_ampla` (latência, 22/10) →
    a habilidade `cobertura` recebe a extração do próprio roteador ou dispara em paralelo sem detector.
 5. Discordância sem procedimento tratada antes do desvio para autorização (#897) → regra da habilidade

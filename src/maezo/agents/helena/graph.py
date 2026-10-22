@@ -381,6 +381,20 @@ logger = structlog.get_logger(__name__)
 
 #: F2 (ADR-0066): a habilidade que o roteador ATIVO escolheu neste turno; `None` fora do modo ativo.
 _HABILIDADE_DO_TURNO: ContextVar[str | None] = ContextVar("helena_habilidade_do_turno", default=None)
+#: F2 FECHADA (r4 de 22/10/2026): com o roteador ATIVO, a habilidade escolhida limita as intencoes do turno
+#: (as do modelo fora dela viram a padrao da habilidade) e as regras de PALAVRA que levariam o turno para
+#: OUTRA habilidade nao rodam (`_regra_vale`). Ficam sempre as travas de seguranca (risco, alarme, neonatal,
+#: caso aberto com sinal de emergencia, ameaca regulatoria) e as respostas as pendencias.
+_INTENTS_DA_HABILIDADE: Mapping[str, tuple[tuple[str, ...], str]] = {
+    "plano": (("consulta_plano",), "consulta_plano"),
+    "cobranca": (("cobranca",), "cobranca"),
+    "sintoma": (("symptom", "clinical_question"), "symptom"),
+    "saude": (("information", "clinical_question"), "information"),
+    "conversa": (("greeting", "information"), "information"),
+    # `equipe` nunca FORCA o pedido de pessoa (trava `caso_so_com_sim`): so' os portoes de pedido explicito
+    # abrem caso; a recusa/encerramento seguem como informacao.
+    "equipe": (("human_request", "information"), "information"),
+}
 
 # --- Domain enums (mirror the SP-OP-ESCALATION-001 contract + DMN schema) -------------------
 
@@ -5213,8 +5227,10 @@ class HelenaGraph:
         # aqui (`pend_v4`) e a memoria da coleta zera ja', para que QUALQUER saida deste turno (inclusive os
         # portoes de seguranca, que respondem antes da v4) nao deixe uma pergunta velha esperando.
         pend_v4, pend_encerrar = self._expirar_pendencias_do_turno(state, update)
+        intent = self._intent_da_habilidade(intent, extraction, update, state)
         if (
-            intent == INTENT_COBRANCA
+            self._regra_vale("conversa", "saude")
+            and intent == INTENT_COBRANCA
             and _COBRANCA_NEGADA.search(_plano(str(state.get("message_body") or "")))
             and not _pergunta_de_cobranca(str(state.get("message_body") or ""))
         ):
@@ -5366,7 +5382,8 @@ class HelenaGraph:
         # virtual") e' o atendimento. Sem codigo de sintoma, porque com sintoma o caminho certo e'
         # a tabela, e o gatilho 1 ja' a consulta antes de qualquer intencao.
         if (
-            intent == "human_request"
+            self._regra_vale("conversa")
+            and intent == "human_request"
             and not extraction.get("sintoma_codigo")
             and _pergunta_de_identidade_sem_pedido(
                 str(state.get("message_body") or ""), incluir_quem_sou_eu=_desfecho_determinado(state)
@@ -5381,7 +5398,8 @@ class HelenaGraph:
         # conversa mista recebeu a lista de carencias (o modelo devolveu `consulta_plano`). Despedida sem
         # pergunta nova, sem sintoma e sem sinal de saude e' `information`: o `inform` responde a despedida.
         encerramento = (
-            not extraction.get("sintoma_codigo")
+            self._regra_vale("conversa")
+            and not extraction.get("sintoma_codigo")
             and not psychosocial
             and not _mensagem_de_saude(state)
             and _e_encerramento(str(state.get("message_body") or ""))
@@ -5407,6 +5425,7 @@ class HelenaGraph:
         # #726, o mesmo vale para pedido de LISTA e insistencia logo depois do Lucas (`_continua_a_cobranca`).
         if (
             self._roteador_lucas_enabled
+            and self._regra_vale("cobranca")
             and not extraction.get("sintoma_codigo")
             and not psychosocial
             and state.get("sinal_saude_lexico") is not True
@@ -5440,7 +5459,8 @@ class HelenaGraph:
         # improvisou "nao consta essa informacao no cadastro" (FALSO: o lago tem o dependente). O turno vira
         # `information` e o `inform` responde `RESPOSTA_DEPENDENTES`. Cobranca no texto continua no Lucas.
         if (
-            _pergunta_de_dependentes(str(state.get("message_body") or ""))
+            self._regra_vale("plano")
+            and _pergunta_de_dependentes(str(state.get("message_body") or ""))
             and intent != INTENT_COBRANCA
             and not extraction.get("sintoma_codigo")
             and not psychosocial
@@ -5467,6 +5487,7 @@ class HelenaGraph:
         texto_da_mensagem = str(state.get("message_body") or "")
         if (
             self._consultas is not None
+            and self._regra_vale("plano")
             and intent in (*_INTENTS_QUE_VIRAM_COBRANCA, "clinical_question")
             and not extraction.get("sintoma_codigo")
             and not psychosocial
@@ -5502,7 +5523,10 @@ class HelenaGraph:
         # do roteador (`sinal_saude_lexico`) tambem: se ele acendeu, o caminho e' o de sempre.
         conversa = _conversa_sem_relato_clinico(str(state.get("message_body") or ""))
         sem_relato_clinico = (
-            conversa is not None and not psychosocial and state.get("sinal_saude_lexico") is not True
+            self._regra_vale("conversa", "equipe")
+            and conversa is not None
+            and not psychosocial
+            and state.get("sinal_saude_lexico") is not True
         )
         if sem_relato_clinico:
             logger.info(
@@ -5831,7 +5855,8 @@ class HelenaGraph:
         # RODADA 2: pergunta sobre o PLANO (cobertura, carencia, tipo) com a fonte do plano desligada nao
         # e' pergunta clinica: "o plano cobre dermatologista?" recebe onde ver, sem abrir caso.
         if (
-            intent == "clinical_question"
+            self._regra_vale("conversa", "plano")
+            and intent == "clinical_question"
             and self._consultas is None
             and not extraction.get("sintoma_codigo")
             and _pergunta_do_plano(texto_do_turno)
@@ -5846,7 +5871,8 @@ class HelenaGraph:
         # cpf_errado). O pedido explicito continua vencendo tudo isto.
         sem_pedido_explicito = not _pedido_explicito_de_pessoa(texto_do_turno)
         conversa_respondida = (
-            not extraction.get("sintoma_codigo")
+            self._regra_vale("conversa", "equipe")
+            and not extraction.get("sintoma_codigo")
             and not _mensagem_de_saude(state)
             and sem_pedido_explicito
             and state.get("pedido_humano_lexico") is not True
@@ -5888,7 +5914,8 @@ class HelenaGraph:
         # DL-0088: a RECUSA explicita ("nao quero falar com nenhum atendente") casa o lexico de pessoa
         # pela palavra, e e' o contrario de um pedido. `conversa` ja' exclui a recusa com pedido junto.
         pedido_lexico = (
-            state.get("pedido_humano_lexico") is True
+            self._regra_vale("equipe")
+            and state.get("pedido_humano_lexico") is True
             and conversa != CONVERSA_RECUSA_DE_EQUIPE
             and not _pergunta_de_identidade_sem_pedido(
                 str(state.get("message_body") or ""), incluir_quem_sou_eu=_desfecho_determinado(state)
@@ -5901,6 +5928,7 @@ class HelenaGraph:
         # perguntado (`_texto_de_caso_aberto`), nunca o mesmo aviso generico.
         if (
             caso_aberto is not None
+            and self._regra_vale("equipe", "conversa")
             and intent != INTENT_COBRANCA
             and (
                 _pergunta_sobre_caso_aberto(texto_do_turno) is not None
@@ -5914,7 +5942,8 @@ class HelenaGraph:
             # texto vai ao Lucas mesmo com pedido de pessoa (so' pedido SEM cobranca recebe o caso da Helena).
             pedido_lexico = False
         if (
-            intent not in (INTENT_COBRANCA, "human_request")
+            self._regra_vale("equipe")
+            and intent not in (INTENT_COBRANCA, "human_request")
             and not encerramento
             and conversa != CONVERSA_RECUSA_DE_EQUIPE
             and not _RECUSA_DE_PESSOA.search(_plano(texto_do_turno))
@@ -6037,6 +6066,46 @@ class HelenaGraph:
 
         return _rota_informativa(update)
 
+    @staticmethod
+    def _regra_vale(*habilidades: str) -> bool:
+        """F2 fechada: a regra de PALAVRA que leva o turno a uma habilidade so' vale sem roteador ativo
+        decidindo, ou quando ele escolheu uma das `habilidades` (a regra e' interna da habilidade)."""
+        roteada = _HABILIDADE_DO_TURNO.get()
+        return roteada is None or roteada in habilidades
+
+    def _intent_da_habilidade(
+        self, intent: Any, extraction: Mapping[str, Any], update: dict[str, Any], state: Mapping[str, Any]
+    ) -> Any:
+        """F2 fechada: a intencao do modelo fora da habilidade escolhida pelo roteador vira a padrao dela.
+        Sem roteador ativo decidindo, nada muda."""
+        roteada = _HABILIDADE_DO_TURNO.get()
+        if roteada is None or roteada not in _INTENTS_DA_HABILIDADE:
+            return intent
+        permitidas, padrao = _INTENTS_DA_HABILIDADE[roteada]
+        if intent in permitidas:
+            return intent
+        if (padrao == INTENT_CONSULTA_PLANO and self._consultas is None) or (
+            padrao == INTENT_COBRANCA and not self._roteador_lucas_enabled
+        ):
+            return intent
+        logger.info(
+            "helena_habilidade_fecha_intencao", node="classify", habilidade=roteada, intent_do_modelo=intent
+        )
+        texto = str(state.get("message_body") or "")
+        update["intent"] = padrao
+        if padrao == INTENT_CONSULTA_PLANO:
+            update["consulta_subtipo"] = extraction.get("consulta_subtipo") or _subtipo_da_consulta(texto)
+        else:
+            update.pop("consulta_subtipo", None)
+        if padrao == INTENT_COBRANCA:
+            self._preencher_cobranca(
+                update,
+                extraction.get("cobranca_subtipo") or _subtipo_pelo_texto(texto),
+                cast(str | None, extraction.get("competencia")),
+                state,
+            )
+        return padrao
+
     def _expirar_pendencias_do_turno(
         self, state: Mapping[str, Any], update: dict[str, Any]
     ) -> tuple[Pendente | None, bool]:
@@ -6138,6 +6207,7 @@ class HelenaGraph:
         (handoff) ou `None`."""
         if (
             not self._roteador_lucas_enabled
+            or not self._regra_vale("cobranca")
             or state.get("sinal_saude_lexico") is not False
             or state.get("pedido_humano_lexico") is not False
             or _caso_aberto_no_historico(state) != CASO_ABERTO_CLINICO
@@ -9332,12 +9402,16 @@ class HelenaGraph:
         aqui."""
         if motivo != "solicitacao_humano" or state.get("intent") != "human_request":
             return None
+        from maezo.agents.helena import cobertura_assistida as _ca
+
         texto = str(state.get("message_body") or "")
         plano = _plano(texto)
         if (
             _pedido_explicito_com_verbo(texto)
             or _pedido_explicito_de_pessoa(texto)
             or _SIM_A_OFERTA.search(plano)
+            # Avaliacao r4 de 22/10/2026: o polegar sozinho a uma oferta e' "sim" no contexto.
+            or _ca.so_emoji_de_acordo(texto)
             or _ESCOLHA_DE_OPCAO.match(plano.strip())
             or _CITA_UMA_PESSOA.search(plano)
             or _ameaca_regulatoria(texto)
@@ -9347,8 +9421,6 @@ class HelenaGraph:
             # Ja' ha' caso ABERTO nesta conversa: nada de caso NOVO aqui. O start reaproveita o aberto e
             # responde com o texto do caso aberto ("quanto tempo demora?", recado ao atendente), como sempre.
             return None
-        from maezo.agents.helena import cobertura_assistida as _ca
-
         logger.warning("helena_trava_caso_sem_pedido", node="escalate")
         return {
             "response_text": _ca.resposta_de_cortesia(texto),
@@ -11021,7 +11093,7 @@ class HelenaGraph:
                 update["coleta_pendente"] = antes
                 update["coleta_contexto"] = str(state.get("coleta_contexto") or "")
             return {**self._rota_de_consulta(update), "habilidade_roteador": habilidade}
-        if habilidade == "conversa" and not mantem and _ca.e_cortesia(texto):
+        if habilidade == "conversa" and not mantem and (_ca.e_cortesia(texto) or _ca.e_cumprimento(texto)):
             cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _ca.resposta_de_cortesia(texto))
             return {**cortesia, "habilidade_roteador": habilidade}
         marca = _HABILIDADE_DO_TURNO.set(habilidade)
@@ -11040,7 +11112,9 @@ class HelenaGraph:
         from maezo.agents.helena import cobertura_assistida as _ca
 
         inicio_da_duvida = self._roteador_contrato.texto_da_duvida.split("{x}")[0]
-        return texto in (_ca.TEXTO_DE_NADA, _ca.TEXTO_COMBINADO) or texto.startswith(inicio_da_duvida)
+        return texto in (_ca.TEXTO_DE_NADA, _ca.TEXTO_COMBINADO, _ca.TEXTO_SAUDACAO) or texto.startswith(
+            inicio_da_duvida
+        )
 
     @staticmethod
     def _sem_pendencia_velha(update: dict[str, Any], descartou: bool) -> dict[str, Any]:
