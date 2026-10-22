@@ -24,6 +24,8 @@ data "aws_iam_policy_document" "medicao_roteador" {
         "openai.gpt-oss-20b-1:0",
         "google.gemma-3-27b-it",
         "mistral.mistral-large-3-675b-instruct",
+        # 22/10/2026: o GLM-5 (antes zona PHI do dev), para o simulador testar se ele voltou sem depender da zona PHI.
+        "zai.glm-5",
       ] : "arn:${data.aws_partition.current.partition}:bedrock:sa-east-1::foundation-model/${m}"
     ]
   }
