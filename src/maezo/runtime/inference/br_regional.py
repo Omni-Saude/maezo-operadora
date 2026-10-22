@@ -446,7 +446,10 @@ class BedrockBrRegionalTransport:
         # e a chamada podia levar a soma). Alem do cliente, `send` corta no prazo total (+0,5 s de folga).
         self._prazo_total = float(timeout_s)
         conexao = min(3.0, max(0.5, timeout_s / 5))
-        leitura = max(0.5, timeout_s - conexao)
+        # Medido na AWS em 22/10/2026: com o modelo sem responder, o tempo de leitura do botocore corre DUAS
+        # vezes (a thread ficou presa ~34 s com prazo de 20 s e esgotou o pool de 16). Metade do resto para a
+        # leitura: a thread abandonada no corte volta em ~`timeout_s`, nao no dobro.
+        leitura = max(0.5, (timeout_s - conexao) / 2)
         if client is not None:
             self._client = client
         else:
