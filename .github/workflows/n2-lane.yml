@@ -52,6 +52,13 @@ jobs:
           docker pull maven:3.9-eclipse-temurin-17@sha256:1ed5d1f54416b706707b4f3238f63a20bb06aab27c6d240090a2bb9ad895ed45
           mkdir -p /tmp/lane-x && tar xzf /tmp/lane-harness.tar.gz -C /tmp/lane-x
           ls -la /tmp/lane-x/lane
+          # repro probe for the docker-cp-from-created-container failure
+          docker version --format 'client={{.Client.Version}} server={{.Server.Version}}'
+          docker info --format 'driver={{.Driver}} status={{.DriverStatus}}'
+          docker create --name cp-probe maezo-provider-vertical-e0-parent:n2fix-r14 true
+          docker cp cp-probe:/camunda/BUILDING.txt /tmp/cp-probe-out.txt 2>&1 | head -3
+          ls -la /tmp/cp-probe-out.txt 2>/dev/null || echo "CP-PROBE FAILED"
+          docker rm -f cp-probe >/dev/null 2>&1 || true
 
       - name: Point the harness at this checkout
         run: |
