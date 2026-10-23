@@ -198,7 +198,10 @@ consultas rodam dentro de `BEGIN TRANSACTION READ ONLY; ... ROLLBACK;`, por um l
 do motor (o login do job, `portal_task_source_amh`, so' le colunas de `act_ru_task`; para (a) e (c)
 use `scripts/ops/run-db-task.ps1` com um script que abre a transacao READ ONLY e so' faz `SELECT`).
 NAO rode `deploy-processes`, NAO reassine material e NAO conclua tarefa para "testar": se H1 se
-confirmar, o caminho e' o repin/reassinatura da admissao (decisao do dono, secoes 4-8).
+confirmar, o caminho e' o repin/reassinatura da admissao (decisao do dono, secoes 4-8; receita em
+`material-staff-na-aws.md`, passo 5, "Versao nova de processo ja admitido", feita em 23/10/2026 para a v3).
+Nota: a imagem staff-ops de 16/10 (`bb19425c`) ainda NAO emite `human_task_skipped` (#846 e de 19/10); com ela, o sinal
+e' `tasks_published: 0, tasks_unchanged: 0` com tarefa viva em (b).
 
 ```sql
 BEGIN TRANSACTION READ ONLY;

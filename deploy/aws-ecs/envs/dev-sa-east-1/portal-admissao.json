@@ -1,0 +1,41 @@
+{
+  "schema": "maezo-portal-admissao.v1",
+  "nota": "Espelho PUBLICO do que a admissao Q2 viva do portal (dev/amh) nomeia: so ids e SHA-256 dos bytes do BPMN publicado, nada secreto. Atualizado na MESMA PR de cada renovacao do material (docs/runbooks/material-staff-na-aws.md). Lido por scripts/ci/check_portal_admissao.py: um BPMN do repo com tarefa no portal cujos bytes nao estao aqui faria o deploy-processes criar uma versao que NENHUMA fila mostra.",
+  "admission_revision": "8",
+  "renovado_em": "2026-10-23T20:52:05Z",
+  "admitidos": [
+    {
+      "process_definition_key": "SP-OP-ESCALATION-001",
+      "process_definition_version": "2",
+      "process_definition_id": "SP-OP-ESCALATION-001:2:86c0ccc3-bae7-11f1-90e5-06fff85ea971",
+      "process_definition_digest": "e46436c927ff8aebc9c70c5a1ef7c2e89990c0a22983f1c8e0fe8e4e3f0efcd3",
+      "tarefas": ["UT_SupervisorAssume", "UT_TratarEscalonamento"]
+    },
+    {
+      "process_definition_key": "SP-OP-ESCALATION-001",
+      "process_definition_version": "3",
+      "process_definition_id": "SP-OP-ESCALATION-001:3:54460c89-ca4f-11f1-9fd8-02ffe2b01f3f",
+      "process_definition_digest": "87e6674193832e78930f6cbc6e80bf2a45a5a4b390877362014c8bdd4ade6425",
+      "tarefas": ["UT_SupervisorAssume", "UT_TratarEscalonamento"]
+    },
+    {
+      "process_definition_key": "SP-OP-CANCEL-001",
+      "process_definition_version": "2",
+      "process_definition_id": "SP-OP-CANCEL-001:2:8d4fa921-c8e5-11f1-8e85-06ffc63e4cc5",
+      "process_definition_digest": "acaf477feb7367707effeec7fb0351bcedabac54f6448317508bed09c0218702",
+      "tarefas": [
+        "UT_AnaliseRescisao",
+        "UT_CoordenacaoCancelamento",
+        "UT_CoordenacaoExecucaoCadastro",
+        "UT_ExecutarCancelamentoCadastro"
+      ]
+    }
+  ],
+  "aguardando_admissao": [
+    {
+      "process_definition_key": "SP-OP-ESCALATION-001",
+      "process_definition_digest": "798fa8f40f78f5d1330e0814a0d5eab2f9278777c7b9c35f825174863869ca2d",
+      "motivo": "#848 (DL-0145, prazo da tarefa vindo da DMN) mudou o BPMN e ainda NAO foi implantado. O deploy-processes dele cria a v4 do tenant amh: no mesmo corte, repinar a admissao (material-staff-na-aws.md, passo 5, 'Versao nova de processo ja admitido') ou os casos novos somem das filas."
+    }
+  ]
+}

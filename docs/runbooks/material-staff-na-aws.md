@@ -182,6 +182,26 @@ atualiza o `catalog_digest` e acrescenta as entradas, e o `review_admission` rec
 divergencia entre catalogo e admissao. **Ordem obrigatoria** (cancel-001-pf §3.3): imagem nova do motor, depois o
 catalogo; um catalogo com tarefa que o plugin nao conhece derruba as filas (503).
 
+**Versao nova de processo ja admitido (repin).** Todo `deploy-processes` que muda os bytes de um BPMN com fila no
+portal (hoje `SP-OP-ESCALATION-001` e `SP-OP-CANCEL-001`; lista em `deploy/aws-ecs/envs/dev-sa-east-1/portal-admissao.json`)
+cria a versao N+1 no motor; as instancias novas nascem nela e as tarefas delas ficam SEM recurso de leitura e fora de
+TODAS as filas (`T15_RESULT ok=true`, nada falha) ate a admissao ser reassinada. Aconteceu em 28/09, 13/10 e 17/10/2026
+(v3 do escalonamento, #816; casos P1 dos testes do dono de 22/10 invisiveis). O CI (`scripts/ci/check_portal_admissao.py`)
+reprova o PR que muda esses bytes sem declarar `aguardando_admissao` no espelho. Para repinar (mesmas tarefas e grupos;
+se mudaram, e o fluxo de processo novo acima):
+
+```bash
+# fatos do motor (task bateria, so GET): id da definicao NOVA do tenant amh e SHA-256 de .../resources/{id}/data
+AWS_PROFILE=adm-dev python scripts/ops/staff_material_repin_catalogo.py --process-id <CHAVE>:<N+1>:<uuid> \
+  --bpmn-sha256 <hex> --out <dir fora do repo>      # clona as entradas da versao admitida mais nova; a anterior fica
+aws s3 cp <dir>/task-catalog.json s3://<bucket>/insumos/<id>/ --sse aws:kms --sse-kms-key-id <CMK>   # e entradas-humanas.json
+# passo 2, depois o passo 5 com MATERIAL_CATALOGO=<id>/task-catalog.json MATERIAL_ENTRADAS_HUMANAS=<id>/entradas-humanas.json
+#   MATERIAL_CATALOG_REVISION=<acima de max(REVISION_) de MZO_PORTAL_READ_CATALOG; o job sobe ~1 a cada 15 min>
+```
+
+Passos 6 a 9 como sempre. Na MESMA PR dos pins, atualize `portal-admissao.json` (entrada nova em `admitidos`, tire a de
+`aguardando_admissao`). Mesma imagem do motor: nao passe `MATERIAL_CODE_*`.
+
 **Rollback:** apagar o prefixo e impossivel por API; basta gerar com **outro** `MATERIAL_SAIDA_ID`. Nada vivo muda.
 
 ### Passo 6. Publicar os segredos (OAAR, sem Docker)
@@ -332,6 +352,21 @@ raiz ja aprovada), passos 6 a 9. Cada `gerar` remonta do que esta **vivo**, enta
 
 ## Historico
 
+- **23/10/2026 (repin do escalonamento v3 + renovacao, item 10 do plano aprovado):** causa: `deploy-processes` manual
+  de 17/10 17:22Z (OAAR, passo 2 de `helena-base-saude.md`, #816) criou `SP-OP-ESCALATION-001:3:54460c89-...` (amh)
+  e a admissao r7 so nomeava a v2; 2 tarefas P1 vivas (`UT_SupervisorAssume`, `supervisao-atendimento`) sem recurso de
+  leitura. Insumo `insumos/escalation-v3-20261023/` (`staff_material_repin_catalogo.py`; catalogo `ac2c0d45...`, 8
+  entradas, +2 `human`), `verificar` ok, `gerar` `onda13-20261023` com `MATERIAL_CATALOG_REVISION=4000` (viva 3155),
+  janela 2026-10-23T20:52:05Z a 2026-11-06T20:52:05Z. Designacao r5 `4ec748ac...`, admissao Q2 r8 `d38b70c5...`,
+  `staff_native_configuration_digest` `0c591ab5...`; staff `amh-dev-staff-6a3d3a8d7ad41853b99ec280b2`, human
+  `amh-dev-human-ff3e3c3c69d3bb371d85550cf0`; native-materials `151c76b5-0d60-4c86-a427-39f091c3e2c9`, job
+  `5ba0f7c5-d051-480c-b877-b6c79a43d79a`, rows `49e8d5d4-cbbf-4740-a60e-d83d40bf7b87`, syn-fixture
+  `2a8c7fe0-dd5c-491b-8467-9f6b0c728426`. Snapshot `pre-material-aws-20261023`. `staff-rows` 21:00:37Z, cibseven :19
+  (mesma imagem, so o VersionId), boot 21:06:47Z; portal :37, staff-job :28; job de volta 21:12Z (`tasks_published: 2`).
+  Emissor sem pendencia; AUTH `2026-10-30T13:04:34Z` -> `2026-11-06T20:52:05Z`. Verificado: `task-read` do principal de
+  `supervisao-atendimento` lista as 2 tarefas (detalhe ok), `MZO_PORTAL_READ_RESOURCE` = 1 para cada, `root_sha256`
+  `a03ab845...`, `/api/v1/portal/session` 401. Casos NAO concluidos nem cancelados. Pendente: o BPMN da main (#848) ainda
+  nao implantado (`aguardando_admissao` no espelho): o proximo `deploy-processes` cria a v4 e exige o mesmo repin.
 - **16/10/2026 (troca de ancora, DL-0113):** raiz nova `a03ab84558894040cf34d984763cd1e47e3eaccdcc2d3c6ab7b51476bb383c81`
   (`raiz-20261016`); janela 2026-10-16T13:04:34Z a 2026-10-30T13:04:34Z (prova ate 13:03:34Z); designacao r4 `fb9f7524...`,
   admissao Q2 r7 `ac1c8868...` (6 tarefas: 2 do escalonamento e 4 do CANCEL-001 v0.2.0), `staff_native_configuration_digest`

@@ -765,6 +765,14 @@ jobs:
       - name: Validate BPMN / DMN / policies / agent definitions
         run: make validate-artifacts
 
+      # Incidente 17/10/2026 (SP-OP-ESCALATION-001 v3, casos P1 fora de todas as filas do portal): o
+      # deploy-processes implanta os bytes do BPMN como estao, e o portal so le tarefas da versao que a
+      # admissao Q2 viva nomeia. Reprova o BPMN de processo com fila no portal cujos bytes nao estao no
+      # espelho `deploy/aws-ecs/envs/dev-sa-east-1/portal-admissao.json` (admitidos ou declarados em
+      # `aguardando_admissao`, com o motivo). Ver scripts/ci/check_portal_admissao.py.
+      - name: BPMN com fila no portal x admissao Q2 viva (portal-admissao.json)
+        run: uv run python scripts/ci/check_portal_admissao.py
+
       # ADR-0030 §2 boundary-proof gate: every WorkerBpmnError a worker raises must be a
       # consumption-covered spec-declared boundary code on its external task (b1/b2); an
       # uncatalogued/unproven raise fails the build. Dead-model (clause c) is warn-only during the
