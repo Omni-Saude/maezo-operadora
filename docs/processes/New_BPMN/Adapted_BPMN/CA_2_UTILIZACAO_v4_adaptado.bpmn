@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_CA_UTILIZACAO" targetNamespace="http://central-atendimento/bpmn/arq01" exporter="Camunda Modeler" exporterVersion="5.36.1" modeler:executionPlatform="Camunda Platform" modeler:executionPlatformVersion="7.24.0">
   <bpmn:collaboration id="Collaboration_CA_UTILIZACAO" name="Central de Atendimento — 2 · UTILIZAÇÃO">
-    <bpmn:documentation>UTILIZAÇÃO cobre preparo, entrega, acompanhamento e liquidação. Cancelamento pelo cliente, cancelamento pelo prestador e evento clínico têm planos de diagrama próprios. Coordenadas iguais em canvases independentes não demonstram sobreposição visual. TKN-01 separa apenas o ramo do prestador e acrescenta seu shape/associação no plano principal; os demais layouts são preservados.</bpmn:documentation>
+    <bpmn:documentation>UTILIZAÇÃO cobre preparo, entrega, acompanhamento e liquidação. Cancelamento pelo cliente, cancelamento pelo prestador e evento clínico têm planos de diagrama próprios. Coordenadas iguais em canvases independentes não demonstram sobreposição visual. TKN-01 separa apenas o ramo do prestador e acrescenta seu shape/associação no plano principal; os demais layouts são preservados. CORP-2.1 (2026-10-23): MF_UT_11 restaura a cobertura por mensagem do ramo do prestador, espelhando o padrão container-level de MF_UT_06/07; os nomes de MF_UT_06/07 tornam explícita a cobertura cliente/clínico. CORP-2.2: cancelActivity dos 2 boundary timers interruptivos explícito (U1_B_DiaServico, U4_B_Pesquisa). CORP-2.3: os 4 planos de diagrama ganham id e empilhamento vertical entre planos, sem sobreposição; layouts internos preservados.</bpmn:documentation>
     <bpmn:participant id="Participant_Cliente" name="Cliente — necessidade · visão · intenção"/>
     <bpmn:participant id="Participant_CompraSup" name="Macroprocessos COMPRA · SUPORTE"/>
     <bpmn:participant id="Participant_CA_UTILIZACAO" name="UTILIZAÇÃO — Receber o cuidado contratado" processRef="Process_CA_UTILIZACAO"/>
@@ -14,11 +14,12 @@
     <bpmn:messageFlow id="MF_UT_02" name="T-02 No-show" sourceRef="UT_End_NoShow" targetRef="Participant_CompraSup"/>
     <bpmn:messageFlow id="MF_UT_03" name="T-05 SLA violado" sourceRef="UT_End_SLA" targetRef="Participant_CompraSup"/>
     <bpmn:messageFlow id="MF_UT_04" name="T-04 Insatisfação" sourceRef="UT_End_Insatisfeito" targetRef="Participant_CompraSup"/>
-    <bpmn:messageFlow id="MF_UT_06" sourceRef="Participant_Cliente" targetRef="UT_ES_Cancelamento"/>
-    <bpmn:messageFlow id="MF_UT_07" sourceRef="Participant_Prestador" targetRef="UT_ES_EventoClinico"/>
+    <bpmn:messageFlow id="MF_UT_06" name="Cancelamento pelo cliente" sourceRef="Participant_Cliente" targetRef="UT_ES_Cancelamento"/>
+    <bpmn:messageFlow id="MF_UT_07" name="Evento clínico do prestador" sourceRef="Participant_Prestador" targetRef="UT_ES_EventoClinico"/>
     <bpmn:messageFlow id="MF_UT_08" name="Chegada do cliente" sourceRef="Participant_Prestador" targetRef="U2_EV_Chegou"/>
     <bpmn:messageFlow id="MF_UT_09" name="Serviço realizado" sourceRef="Participant_Prestador" targetRef="U2_T_Aguardar"/>
     <bpmn:messageFlow id="MF_UT_10" name="Resultado disponível" sourceRef="Participant_Prestador" targetRef="U3_T_Aguardar"/>
+    <bpmn:messageFlow id="MF_UT_11" name="Cancelamento pelo prestador" sourceRef="Participant_Prestador" targetRef="UT_ES_CancelamentoPrestador"/>
   </bpmn:collaboration>
   <bpmn:process id="Process_CA_UTILIZACAO" name="UTILIZAÇÃO — Receber o cuidado contratado" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
     <bpmn:documentation>Macroprocesso 2 (ARQ-01 §5). Entrada: direito habilitado (T-01). Resultado: cuidado realizado, resultado entregue, consumo encerrado e avaliado. Variantes: requerPreparo, geraResultado, statusEntrega. A business key existente é preservada na instância e nas chamadas. Journey ID do payload não é automaticamente seu alias; o contrato externo deve especificar associação e correlação dos cancelamentos/eventos clínicos à instância vigente, sem derivar um identificador do outro.</bpmn:documentation>
@@ -398,7 +399,7 @@
       <bpmn:documentation>Origem: ES_End_Lembrete</bpmn:documentation>
       <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_07</bpmn:incoming>
     </bpmn:endEvent>
-    <bpmn:boundaryEvent id="U1_B_DiaServico" name="Dia do serviço" attachedToRef="U1_T_CheckIn">
+    <bpmn:boundaryEvent id="U1_B_DiaServico" name="Dia do serviço" cancelActivity="true" attachedToRef="U1_T_CheckIn">
       <bpmn:documentation>Origem: ES_Boundary_SemCheckin</bpmn:documentation>
       <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_05</bpmn:outgoing>
       <bpmn:timerEventDefinition>
@@ -705,7 +706,7 @@
       <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_03</bpmn:incoming>
       <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_09</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:boundaryEvent id="U4_B_Pesquisa" name="72h sem resposta" attachedToRef="U4_T_Pesquisa">
+    <bpmn:boundaryEvent id="U4_B_Pesquisa" name="72h sem resposta" cancelActivity="true" attachedToRef="U4_T_Pesquisa">
       <bpmn:documentation>Timeout evita deadlock do join. | Origem: M2_Boundary_SLAPesquisa | Boundary interruptivo por padrão, preservado: cancela a tarefa de pesquisa e produz um único token no XOR de escape, assim como a resposta. PT72H é proposta operacional existente, sem homologação regulatória.</bpmn:documentation>
       <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_10</bpmn:outgoing>
       <bpmn:timerEventDefinition>
@@ -1454,54 +1455,60 @@
         <di:waypoint x="250" y="1654"/>
         <di:waypoint x="250" y="1630"/>
       </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_UT_11_di" bpmnElement="MF_UT_11">
+        <di:waypoint x="620" y="1800"/>
+        <di:waypoint x="620" y="1650"/>
+        <di:waypoint x="530" y="1650"/>
+        <di:waypoint x="530" y="1630"/>
+      </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
-  <bpmndi:BPMNDiagram>
-    <bpmndi:BPMNPlane bpmnElement="UT_ES_Cancelamento">
+  <bpmndi:BPMNDiagram id="BPMNDiagram_UT_ES_Cancelamento">
+    <bpmndi:BPMNPlane bpmnElement="UT_ES_Cancelamento" id="BPMNPlane_UT_ES_Cancelamento">
       <bpmndi:BPMNShape id="UT_ES_Start_CancCliente_di" bpmnElement="UT_ES_Start_CancCliente">
-        <dc:Bounds x="180" y="160" width="36" height="36"/>
+        <dc:Bounds x="180" y="3490" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="UT_ES_End_CancCliente_di" bpmnElement="UT_ES_End_CancCliente">
-        <dc:Bounds x="330" y="160" width="36" height="36"/>
+        <dc:Bounds x="330" y="3490" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="UT_ES_F1_di" bpmnElement="UT_ES_F1">
-        <di:waypoint x="216" y="178"/>
-        <di:waypoint x="330" y="178"/>
+        <di:waypoint x="216" y="3508"/>
+        <di:waypoint x="330" y="3508"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
   <bpmndi:BPMNDiagram id="BPMNDiagram_UT_ES_CancelamentoPrestador">
     <bpmndi:BPMNPlane id="BPMNPlane_UT_ES_CancelamentoPrestador" bpmnElement="UT_ES_CancelamentoPrestador">
       <bpmndi:BPMNShape id="UT_ES_Start_CancPrestador_di" bpmnElement="UT_ES_Start_CancPrestador">
-        <dc:Bounds x="180" y="300" width="36" height="36"/>
+        <dc:Bounds x="180" y="3586" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="UT_ES_End_CancPrestador_di" bpmnElement="UT_ES_End_CancPrestador">
-        <dc:Bounds x="330" y="300" width="36" height="36"/>
+        <dc:Bounds x="330" y="3586" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="UT_ES_F2_di" bpmnElement="UT_ES_F2">
-        <di:waypoint x="216" y="318"/>
-        <di:waypoint x="330" y="318"/>
+        <di:waypoint x="216" y="3604"/>
+        <di:waypoint x="330" y="3604"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
-  <bpmndi:BPMNDiagram>
-    <bpmndi:BPMNPlane bpmnElement="UT_ES_EventoClinico">
+  <bpmndi:BPMNDiagram id="BPMNDiagram_UT_ES_EventoClinico">
+    <bpmndi:BPMNPlane bpmnElement="UT_ES_EventoClinico" id="BPMNPlane_UT_ES_EventoClinico">
       <bpmndi:BPMNShape id="UT_EC_Start_di" bpmnElement="UT_EC_Start">
-        <dc:Bounds x="180" y="160" width="36" height="36"/>
+        <dc:Bounds x="180" y="3682" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="UT_EC_Comunicar_di" bpmnElement="UT_EC_Comunicar">
-        <dc:Bounds x="330" y="160" width="36" height="36"/>
+        <dc:Bounds x="330" y="3682" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="UT_EC_End_di" bpmnElement="UT_EC_End">
-        <dc:Bounds x="480" y="160" width="36" height="36"/>
+        <dc:Bounds x="480" y="3682" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="sub_clin_01_di" bpmnElement="sub_clin_01">
-        <di:waypoint x="216" y="178"/>
-        <di:waypoint x="330" y="178"/>
+        <di:waypoint x="216" y="3700"/>
+        <di:waypoint x="330" y="3700"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="sub_clin_02_di" bpmnElement="sub_clin_02">
-        <di:waypoint x="366" y="178"/>
-        <di:waypoint x="480" y="178"/>
+        <di:waypoint x="366" y="3700"/>
+        <di:waypoint x="480" y="3700"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
