@@ -157,6 +157,24 @@ from maezo.conhecimento import base_saude as _bs
 from maezo.conhecimento import jornadas as _jornadas
 from maezo.conhecimento import saude_gerativa as _sg
 from maezo.conhecimento.catalogo_procedimentos import BuscaDeProcedimentos
+
+# P5 (16/10/2026): a cerca de saida e a mensagem da retomada moram em modulos leves (o portal as usa).
+from maezo.domain.comunicacao.cerca_de_saida import (
+    RECUSA_DE_SAIDA_VERSION,
+    RECUSA_ESCALONAMENTO_JA_ABERTO,
+    RECUSA_HANDOFF_SEM_MENCAO,
+    RECUSA_NEGATIVA_CLINICA,
+    menciona_encaminhamento,
+    motivo_de_canal_nao_confirmado,
+    motivo_de_recusa,
+)
+from maezo.domain.comunicacao.cerca_de_saida import _normalizar as _normalizar_texto
+from maezo.domain.comunicacao.retomada_saida import RESPONSE_KIND_RETOMADA as RESPONSE_KIND_RETOMADA
+from maezo.domain.comunicacao.retomada_saida import RETOMADA_TEMPLATE as RETOMADA_TEMPLATE
+from maezo.domain.comunicacao.retomada_saida import compor_mensagem_de_retomada as compor_mensagem_de_retomada
+from maezo.domain.comunicacao.retomada_saida import (
+    motivo_de_recusa_da_retomada as motivo_de_recusa_da_retomada,
+)
 from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
 from maezo.ports.tina import ElegibilidadeView
 from maezo.runtime.caso_clinico import (
@@ -211,18 +229,6 @@ from maezo.tools.workers.dmn_transport import (
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
 from .alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
-
-# P5 (16/10/2026): a cerca de saida e a mensagem da retomada moram em modulos leves (o portal as usa).
-from .cerca_de_saida import (
-    RECUSA_DE_SAIDA_VERSION,
-    RECUSA_ESCALONAMENTO_JA_ABERTO,
-    RECUSA_HANDOFF_SEM_MENCAO,
-    RECUSA_NEGATIVA_CLINICA,
-    menciona_encaminhamento,
-    motivo_de_canal_nao_confirmado,
-    motivo_de_recusa,
-)
-from .cerca_de_saida import _normalizar as _normalizar_texto
 from .cobertura_rol import (
     AVISO_DO_DEPENDENTE,
     INICIO_DA_PERGUNTA_PARA_QUEM,
@@ -332,10 +338,6 @@ from .prompts import (
     response_prompt,
     sintoma_em_palavras,
 )
-from .retomada_saida import RESPONSE_KIND_RETOMADA as RESPONSE_KIND_RETOMADA
-from .retomada_saida import RETOMADA_TEMPLATE as RETOMADA_TEMPLATE
-from .retomada_saida import compor_mensagem_de_retomada as compor_mensagem_de_retomada
-from .retomada_saida import motivo_de_recusa_da_retomada as motivo_de_recusa_da_retomada
 from .roteador import ROTEADOR_PROMPT_VERSION
 from .triagem_v2 import (
     COLETA_MAX_RODADAS_TRIAGEM_V2,

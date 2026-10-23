@@ -47,6 +47,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Any, Final, Literal, Protocol, get_args, runtime_checkable
 
+from maezo.domain.comunicacao.cerca_de_saida import motivo_de_canal_nao_confirmado, motivo_de_recusa
 from maezo.ports.tina import (
     MAX_DEPENDENTES,
     CarenciasView,
@@ -62,7 +63,6 @@ from maezo.ports.tina import (
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT, render_untrusted_block
 
-from .cerca_de_saida import motivo_de_canal_nao_confirmado, motivo_de_recusa
 from .prompts import SYSTEM_PROMPT
 
 INTENT_CONSULTA_PLANO: Final[str] = "consulta_plano"

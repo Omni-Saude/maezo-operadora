@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from .cerca_de_saida import motivo_de_canal_nao_confirmado, motivo_de_recusa
+from maezo.domain.comunicacao.cerca_de_saida import motivo_de_canal_nao_confirmado, motivo_de_recusa
 
 #: `response_kind` (e rota de telemetria) do turno de retomada.
 RESPONSE_KIND_RETOMADA: str = "retomada"

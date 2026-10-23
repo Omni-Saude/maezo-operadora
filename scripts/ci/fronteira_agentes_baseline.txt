@@ -4,13 +4,10 @@
 # NAO acrescente linha a mao: dependencia nova para dentro de um agente e' proibida. Este arquivo
 # so' encolhe — ao mover codigo para o lugar certo, rode `--gerar-baseline` e commite a reducao.
 
-# plataforma->agente: 53
+# plataforma->agente: 49
 src/maezo/gateway/amh_interop.py -> maezo.agents.lucas.fonte_v4
 src/maezo/gateway/capabilities/journeys/contracts.py -> maezo.agents.lucas.administrative.handoff
-src/maezo/gateway/human/retomada_precheck.py -> maezo.agents.helena.cerca_de_saida
-src/maezo/gateway/human/retomada_precheck.py -> maezo.agents.helena.retomada_saida
 src/maezo/gateway/seams/population.py -> maezo.agents.andre.graph
-src/maezo/gateway/tool_registry.py -> maezo.agents.helena.adapters
 src/maezo/gateway/tool_registry.py -> maezo.agents.lucas.adapters
 src/maezo/gateway/tool_registry.py -> maezo.agents.lucas.administrative.runtime
 src/maezo/gateway/tool_registry.py -> maezo.agents.rafael.adapters
@@ -40,7 +37,6 @@ src/maezo/platform/webhooks/whatsapp/helena_consultas.py -> maezo.agents.helena.
 src/maezo/platform/webhooks/whatsapp/helena_consultas.py -> maezo.agents.lucas.fonte_cobranca_amh
 src/maezo/platform/webhooks/whatsapp/helena_identidade.py -> maezo.agents.helena.graph
 src/maezo/platform/webhooks/whatsapp/helena_identidade.py -> maezo.agents.lucas.fonte_cobranca_amh
-src/maezo/platform/webhooks/whatsapp/lucas_retomada.py -> maezo.agents.helena.retomada_saida
 src/maezo/platform/webhooks/whatsapp/lucas_retomada.py -> maezo.agents.lucas.cancelamento_pf
 src/maezo/platform/webhooks/whatsapp/lucas_retomada.py -> maezo.agents.lucas.prompts
 src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.cancelamento_pf
