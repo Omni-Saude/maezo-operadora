@@ -8,7 +8,7 @@ cite this path for the boundary below.
 The live path never uses it: a caller passing a phone-number HASH (Helena's graph only ever has a
 hash, never a raw number — ADR-0006) would send to the hash literal, not a real recipient. The
 per-turn resolution from hash back to the raw number is the dispatch driver's job
-(`maezo.platform.webhooks.whatsapp.dispatch`) — no persistent, reversible hash->phone vault exists.
+(`maezo.platform.webhooks.whatsapp.dispatch`) — no persistent, reversible hash->phone vault exists in v2 yet.
 """
 
 from __future__ import annotations
