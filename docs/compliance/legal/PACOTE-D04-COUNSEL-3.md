@@ -136,16 +136,16 @@
 
 ## 5. Quadro factual — legitimidade de contratação coletiva nas duas normas
 
-| Tema | RN 195/2009 (REVOGADA — art. 40, I, da RN 557/2022; vigente 3/11/2009–28/2/2023) | RN 557/2022 (vigorando desde 1º/2/2023) |
+| Tema | RN 195/2009 (REVOGADA — art. 40, I, da RN 557/2022; vigor a partir de 14/8/2009 — art. 34 "trinta dias após sua publicação", DOU 15/7/2009; revogação operada a partir de 1º/2/2023, art. 41 da RN 557/2022) | RN 557/2022 (vigorando desde 1º/2/2023) |
 |---|---|---|
 | Coletivo empresarial — definição/elegibilidade | Art. 5º (vínculo empregatício/estatutário; §1º I–VII; §2º) | Art. 5º (mesma estrutura; incisos do §1º correspondentemente) |
 | Coletivo por adesão — quem pode contratar | Art. 9º (PJ de caráter profissional, classista ou setorial, I–VII, com inciso VII aberto mediante autorização da DIOPE) | Art. 15 (rol taxativo I–VI; o inciso aberto com autorização da DIOPE NÃO foi reproduzido) |
 | Antiguidade mínima da PJ de adesão | Art. 10 (1 ano, exceto incisos I e II do art. 9º) | Art. 16 (1 ano, exceto incisos I e II do art. 15) |
 | Quem comprova legitimidade | Art. 9º §3º (operadora); §4º (AB e operadora, na forma de contratação do inciso III do art. 23) | Art. 15 §3º (operadora); §4º (AB e operadora, na forma do inciso III do art. 29) |
 | Formas de contratação coletiva | Art. 23 (I — direta; II — com AB; III — estipulação por AB, nos termos da RN 196/2009) | Art. 29 (I — direta; II — com AB nos termos do art. 4º da RN 515/2022 "ou norma que vier a sucedê-la"; III — AB coestipulante assumindo risco, com ativos garantidores) |
-| Vedação sem PJ legitimada | (consta da lógica do art. 23 e do art. 24 da RN 489/2022 como tipo infrativo) | Art. 29 §1º expresso: "Fica vedada a inclusão de beneficiários sem a participação da pessoa jurídica legitimada." |
+| Vedação sem PJ legitimada | Art. 23, parágrafo único, expresso: "Fica vedada a inclusão de beneficiários sem a participação da pessoa jurídica legitimada." (tipo infrativo associado: art. 24 da RN 489/2022) | Art. 29 §1º expresso: "Fica vedada a inclusão de beneficiários sem a participação da pessoa jurídica legitimada." |
 | Empresário individual | (não tratado na RN 195/2009) | Arts. 9º–14 (documentação, comprovação anual, ilegitimidade → rescisão/equiparação a individual; art. 12 — guarda de documentos) |
-| Ingresso irregular — consequência | (tratamento disposto em outros atos) | Art. 39 (vínculo direto individual, equiparado a plano individual/familiar) |
+| Ingresso irregular — consequência | Art. 32 expresso: "O ingresso de novos beneficiários que não atendam aos requisitos de elegibilidade previstos nos artigos 5o e 9o desta resolução constituirá vínculo direto e individual com a operadora, equiparando-se para todos os efeitos legais ao plano individual ou familiar." (sucessor: art. 39 da RN 557/2022) | Art. 39 (vínculo direto individual, equiparado a plano individual/familiar) |
 | Tipo infrativo associado (ponte D-03) | RN 489/2022 original: arts. 23 e 24 (multa R$ 50.000,00) | RN 489/2022 red. RN 659/2025: arts. 23, 23-A, 24, 24-A (multa conforme Anexo, com escalonamento) |
 
 **Observação factual sobre o drift F-E06:** o checklist do OP21 cita "RN 195/2009 arts. 5º/9º" — dispositivos de uma norma revogada desde 1º/2/2023; o GP7 cita "RN 557/659" agregando duas normas de matérias distintas (contratação × penalidades). Ambas as âncoras estão imprecisas sob o texto primário acima. A correção é D-04 (jurídico).
