@@ -16,7 +16,6 @@ from typing import Any
 import pytest
 
 from maezo.adapters.amh import tina as tina_mod
-from maezo.agents.helena import cobertura_rol as cr
 from maezo.agents.helena import consultas_plano as cp
 from maezo.agents.helena.graph import HelenaGraph
 from maezo.ports.tina import DependenteAnonimo, DependenteNominal, DependentesNominaisView, DependentesView
@@ -145,7 +144,7 @@ async def test_qualquer_duvida_volta_ao_texto_sem_nomes(nominal: Any) -> None:
 
 
 def test_o_envio_sem_nome_no_turno_nunca_mostra_o_marcador() -> None:
-    texto = cr.pergunta_para_quem(["filho ou filha"], com_nome=True)
+    texto = f"Responda 1) para você; 2) para {cp.marcador_do_dependente(1)} (filho ou filha)."
     assert cp.sem_marcador_de_dependente(texto).endswith("2) para dependente 1 (filho ou filha).")
     assert cp.NomesDoTurno({1: _ANA}).preencher(texto).endswith(f"2) para {_ANA} (filho ou filha).")
 
@@ -158,42 +157,6 @@ def test_nomes_do_turno_nao_vazam() -> None:
     with pytest.raises(TypeError):
         pickle.dumps(nomes)
     assert _ANA not in repr(DependenteNominal(ordem=1, relacao_dependencia=None, nome_completo=_ANA))
-
-
-class _FonteCobertura(_Fonte):
-    async def consultar_cobertura(self, ref: str, procedimento: str) -> Any:
-        return None
-
-
-async def test_para_quem_leva_o_nome_de_cada_dependente() -> None:
-    from tests.unit.agents.test_helena_saude_gerativa import _DONO, _Conversa
-
-    conversa = _Conversa()
-    fonte = _FonteCobertura(_anonima("Filho(a) até 23 anos"), _nominal((_ANA, "Filho(a) até 23 anos")))
-    grafo = HelenaGraph(
-        inference=conversa.modelo,  # type: ignore[arg-type]
-        dmn=None,  # type: ignore[arg-type]
-        cibseven=conversa.cib,
-        audit_sink=None,  # type: ignore[arg-type]
-        whatsapp=conversa.whatsapp,
-        consultas_plano=fonte,  # type: ignore[arg-type]
-        helena_v4_enabled=True,
-        helena_base_saude_enabled=True,
-        base_saude=conversa.base,
-        saude_gerativa=conversa.redator,
-        helena_dependentes_nome_enabled=True,
-    )
-    estado: Any = {
-        "conversation_id": _DONO,
-        "message_body": "Meu plano cobre mamografia?",
-        "message_ref": "m1",
-    }
-    pergunta = await grafo._cobertura_do_procedimento(estado, REF)
-    assert pergunta is not None
-    assert "2) para {{DEPENDENTE:1}} (filho ou filha)" in pergunta["response_text"]
-    assert grafo._texto_do_envio(estado, pergunta["response_text"]).endswith(
-        f"2) para {_ANA} (filho ou filha)."
-    )
 
 
 # --- adaptador -------------------------------------------------------------------------------------

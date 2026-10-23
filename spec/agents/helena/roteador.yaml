@@ -54,7 +54,7 @@ travas_de_entrada:            # sempre, nesta ordem; a primeira que decide encer
 
 travas_de_saida:              # sempre, sobre o texto que vai sair
   - id: cobertura_sem_promessa
-    descricao: nunca prometer nem negar cobertura; a confirmação oficial é a autorização
+    descricao: nunca prometer nem negar cobertura (a Helena não trata de cobertura, DL-0154)
   - id: sem_dose_nem_diagnostico
     descricao: sem dose, conduta ou diagnóstico (ADR-0012)
   - id: sem_link
@@ -67,12 +67,13 @@ travas_de_saida:              # sempre, sobre o texto que vai sair
 habilidades:
   - id: cobertura
     titulo: cobertura de exames e procedimentos
-    resumo: 'se o plano cobre (paga, autoriza) exame, procedimento, cirurgia, terapia ou lista deles (nunca consulta com medico ou especialista); resposta a pergunta pendente da cobertura; outro exame, outra pessoa ou "faltou algum?" depois de uma resposta de cobertura'
-    descricao: se o plano cobre um exame, procedimento, cirurgia, terapia ou uma lista deles, para quem
+    resumo: 'se o plano cobre (paga, autoriza, libera) exame, procedimento, cirurgia, terapia, remedio ou lista deles (nunca consulta com medico ou especialista); a Helena nao trata de cobertura e so avisa os canais'
+    descricao: >-
+      se o plano cobre um exame, procedimento, cirurgia, terapia ou uma lista deles. A Helena NÃO trata de
+      cobertura (decisão do dono de 23/10/2026, DL-0154): a resposta é só o aviso com os canais da empresa.
     quando_usar:
-      - a pessoa pergunta se o plano cobre um ou mais procedimentos, com ou sem o nome
-      - a pessoa responde à pergunta pendente da cobertura (para quem, qual opção, como está no pedido)
-      - depois de uma resposta de cobertura, cita outro procedimento, outra pessoa, ou pergunta se faltou algum
+      - a pessoa pergunta se o plano cobre (paga, libera, autoriza) um ou mais procedimentos, com ou sem o nome
+      - depois do aviso de cobertura, a pessoa insiste na cobertura de outro procedimento
     quando_nao_usar:
       - valor de mensalidade, boleto ou coparticipação já cobrada (cobranca)
       - dúvida sobre o que é um exame ou para que serve (saude)
@@ -84,7 +85,7 @@ habilidades:
       - "e a cintilografia, cobre também?"
     pendencias: ["COB2:", "BS_COBERTURA_PARA_QUEM", "BS_COBERTURA_QUEM:"]
     processo: null
-    modulos_atuais: [cobertura_assistida.py, cobertura_fluxo.py, cobertura_rol.py, catalogo_procedimentos.py]
+    modulos_atuais: [habilidades/cobertura_fora]
   - id: plano
     titulo: dados do seu plano
     resumo: 'carteirinha, dependentes, carencia, plano ativo'

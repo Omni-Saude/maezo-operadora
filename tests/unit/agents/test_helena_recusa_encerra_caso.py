@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 import tests.unit.agents.test_helena_saude_gerativa as sg_tests
-from maezo.agents.helena import cobertura_assistida as ca
+from maezo.agents.helena.habilidades.conversa import leitura_curta as ca
 from tests.unit.agents.test_helena_base_saude import _classify, _Motor
 
 

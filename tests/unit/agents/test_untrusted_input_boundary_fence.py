@@ -544,9 +544,11 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     # 22/17 desde 22/10/2026 (latencia, F2): a EXTRACAO da cobertura saiu da funcao interna `extrair` para o
     # metodo `graph.py::_extrair_pedido` (iniciada junto com o roteador); deixa de contar o sitio da funcao de
     # fora (`_cobertura_assistida`), sem chamada LLM nova.
-    assert (total, com_entrada) == (22, 17), (
+    # 17/17 desde 23/10/2026 (DL-0154): a cobertura saiu da Helena — a extracao do pedido e as escolhas do
+    # catalogo (5 sitios, todos sem campo de estado) deixaram de existir.
+    assert (total, com_entrada) == (17, 17), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 22/17 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 17/17 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )

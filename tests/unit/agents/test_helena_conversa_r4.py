@@ -1,13 +1,13 @@
-"""Conversa simples e textos de regra propria (avaliacao r4 de 22/10/2026): cumprimento nao e' despedida, o
-polegar vale no contexto, e o texto de regra propria nunca sai cortado no meio.
+"""Conversa simples (avaliacao r4 de 22/10/2026): cumprimento nao e' despedida e o polegar vale no contexto.
 
-Frases escritas para cada comportamento (nenhuma copiada de roteiro do simulador)."""
+Frases escritas para cada comportamento (nenhuma copiada de roteiro do simulador). Os textos de regra propria
+da cobertura sairam com a cobertura (DL-0154)."""
 
 from __future__ import annotations
 
 import pytest
 
-from maezo.agents.helena import cobertura_assistida as ca
+from maezo.agents.helena.habilidades.conversa import leitura_curta as ca
 from tests.unit.agents.test_helena_rodada_3_simulador import _entrada, _starts
 from tests.unit.agents.test_helena_roteador_ativo import _decisao, _grafo, _Modelo
 
@@ -33,18 +33,23 @@ async def test_polegar_sozinho_e_cortesia_sem_caso(polegar: str) -> None:
     assert whatsapp.enviados[-1] in (ca.TEXTO_COMBINADO, ca.TEXTO_DE_NADA) and _starts(cib) == 0
 
 
-@pytest.mark.parametrize("polegar", ["👍", "👍🏽", "👌"])
-async def test_polegar_a_oferta_da_equipe_e_sim(polegar: str) -> None:
-    modelo = _Modelo([_decisao("cobertura", responde=True)], [])
-    grafo, _whatsapp, cib, _fonte = _grafo(modelo)
-    contexto = ca.Contexto(termos=["qwxzk"], quem="titular", tentativas=2).codificar()
-    await grafo.ainvoke(_entrada(polegar) | {"coleta_pendente": ca.PEND_EQUIPE, "coleta_contexto": contexto})
-    assert _starts(cib) == 1
+@pytest.mark.parametrize(
+    ("texto", "curta"),
+    [
+        ("1", True),
+        ("sim", True),
+        ("ok.", True),
+        ("Ana", True),
+        ("eu ja disse que e pra mim", True),
+        ("Quem são meus dependentes?", False),
+        ("quero saber da minha carência", False),
+        ("qual o telefone da central?", False),
+    ],
+)
+def test_resposta_curta(texto: str, curta: bool) -> None:
+    assert ca.resposta_curta(texto) is curta
 
 
-@pytest.mark.parametrize("tipo", ["estetica", "inseminacao", "experimental", "remedio", "material"])
-def test_linha_de_regra_propria_nunca_corta_no_meio(tipo: str) -> None:
-    linha = ca.frase_de_outro_item("Item", tipo)
-    frase = linha.removeprefix("Item: ")
-    assert frase.endswith(".") and not frase.endswith(" art.") and "(" not in frase.split(")")[-1]
-    assert frase.count("(") == frase.count(")"), "parentese aberto = frase cortada no meio"
+def test_quero_alguma_coisa_nao_e_sim() -> None:
+    assert ca.ler_resposta("quero saber da minha carencia") is None
+    assert ca.ler_resposta("quero sim, por favor") == "sim"

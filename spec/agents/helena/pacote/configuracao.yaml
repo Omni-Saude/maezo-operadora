@@ -17,7 +17,6 @@ v4: true                    # DL-0115
 carteirinha_completa: true  # dono, 17/10/2026
 dependentes_nome: true      # DL-0127
 base_saude: true            # DL-0118 / ADR-0064
-cobertura_modo: simples     # DL-0140: simples | consulta
 identidade_nome_operadora: "Austa Clínicas"  # DL-0078
 
 # Roteador de habilidades (ADR-0066).

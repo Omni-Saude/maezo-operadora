@@ -16,6 +16,7 @@ from typing import Any, Final
 
 import yaml
 
+from maezo.agents.helena.textos import ARQUIVO_TEXTOS, FORMATO_TEXTOS, erros_dos_textos
 from maezo.runtime.pacote_do_agente import (
     CarregadorDePacote,
     PacoteDoAgente,
@@ -36,6 +37,8 @@ _BOOLEANAS: Final[dict[str, tuple[str, ...]]] = {
     "dependentes_nome": ("helena_dependentes_nome_enabled",),
     "base_saude": ("helena_base_saude_enabled",),
 }
+#: DL-0154 (dono, 23/10/2026): a cobertura saiu da Helena. `cobertura_modo` continua ACEITO (e ignorado) so'
+#: para um pacote antigo nao ser recusado inteiro durante a troca; o pacote atual nao o traz.
 _MODOS_COBERTURA: Final[frozenset[str]] = frozenset({"simples", "consulta"})
 _MODOS_ROTEADOR: Final[frozenset[str]] = frozenset({"desligado", "sombra", "ativo"})
 _CHAVES: Final[frozenset[str]] = frozenset(
@@ -105,9 +108,29 @@ def _erros_do_roteador(roteador: object) -> list[str]:
     return erros
 
 
+def textos(pacote: PacoteDoAgente) -> dict[str, str]:
+    """Os textos do pacote (`textos.yaml`), VALIDADOS; sem o arquivo, nenhum (vale o padrao do codigo)."""
+    bruto = pacote.arquivos.get(ARQUIVO_TEXTOS)
+    if bruto is None:
+        return {}
+    try:
+        dados = yaml.safe_load(bruto)
+    except yaml.YAMLError as exc:
+        raise PacoteInvalidoError(f"{ARQUIVO_TEXTOS}: YAML invalido ({type(exc).__name__})") from None
+    if not isinstance(dados, dict) or set(dados) != {"formato", "textos"}:
+        raise PacoteInvalidoError(f"{ARQUIVO_TEXTOS}: mapeamento com 'formato' e 'textos'")
+    if dados.get("formato") != FORMATO_TEXTOS:
+        raise PacoteInvalidoError(f"{ARQUIVO_TEXTOS}: formato tem de ser {FORMATO_TEXTOS!r}")
+    erros = erros_dos_textos(dados.get("textos"))
+    if erros:
+        raise PacoteInvalidoError(f"{ARQUIVO_TEXTOS}: " + "; ".join(erros))
+    return dict(dados["textos"])
+
+
 def validar(pacote: PacoteDoAgente) -> None:
     """O validador que o carregador chama antes de aceitar um pacote novo."""
     configuracao(pacote)
+    textos(pacote)
 
 
 class PacoteDaHelena:
@@ -123,6 +146,12 @@ class PacoteDaHelena:
         pacote = self._carregador.atual()
         return configuracao(pacote) if pacote is not None else None
 
+    def textos_ativos(self) -> dict[str, str] | None:
+        if self._carregador is None:
+            return None
+        pacote = self._carregador.atual()
+        return textos(pacote) if pacote is not None else None
+
     def aplicar_no_grafo(self, config: Mapping[str, Any]) -> dict[str, Any]:
         """A configuracao do `graph.build` com o pacote por cima. Sem pacote: a mesma, sem a fabrica."""
         saida = dict(config)
@@ -131,8 +160,9 @@ class PacoteDaHelena:
         if dados is None:
             return saida
         self._aplicar_booleanas(saida, dados)
-        if "cobertura_modo" in dados:
-            saida["cobertura_modo"] = dados["cobertura_modo"]
+        textos_do_pacote = self.textos_ativos()
+        if textos_do_pacote:
+            saida["textos_do_pacote"] = textos_do_pacote
         if "identidade_nome_operadora" in dados:
             saida["identidade_nome_operadora"] = dados["identidade_nome_operadora"]
         roteador = dados.get("roteador")

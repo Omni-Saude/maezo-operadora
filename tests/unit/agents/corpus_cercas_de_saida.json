@@ -2881,6 +2881,28 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Por aqui eu não pesquiso prestadores. A rede credenciada do seu plano está no aplicativo Austa Clínicas e no portal do plano. Lá dá para buscar por especialidade e cidade.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante — DL-0154 (23/10/2026, cobertura fora): TEXTO_REDE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Por aqui eu não trato de cobertura. Você consegue essa informação pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de atendimento do plano.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante — DL-0154 (23/10/2026, cobertura fora): TEXTO_COBERTURA_FORA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

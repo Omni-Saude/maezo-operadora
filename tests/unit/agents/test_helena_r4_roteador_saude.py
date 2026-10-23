@@ -16,9 +16,8 @@ from maezo.conhecimento import saude_gerativa as sg
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
-from tests.unit.agents.test_helena_cobertura_assistida import _busca, _FonteGrafo
 from tests.unit.agents.test_helena_rodada_3_simulador import _CONVERSA, _classify, _entrada, _WhatsApp
-from tests.unit.agents.test_helena_roteador_ativo import _decisao, _Modelo
+from tests.unit.agents.test_helena_roteador_ativo import _decisao, _FonteGrafo, _Modelo
 from tests.unit.agents.test_helena_saude_gerativa import _Conversa, _Transporte
 
 
@@ -35,10 +34,9 @@ def _grafo(modelo: _Modelo) -> tuple[Any, _WhatsApp, Any]:
         historico_enabled=True,
         coleta_enabled=True,
         helena_v4_enabled=True,
-        consultas_plano=_FonteGrafo({}),  # type: ignore[arg-type]
+        consultas_plano=_FonteGrafo(),  # type: ignore[arg-type]
         relogio=lambda: datetime(2026, 10, 22, 15, 0, tzinfo=UTC),
         saude_gerativa=sg.RedatorDeSaude(transporte=_Transporte(), conversas=frozenset({_CONVERSA})),
-        catalogo_procedimentos=_busca(),
         helena_base_saude_enabled=True,
         base_saude=_Conversa().base,
         helena_roteador="ativo",
