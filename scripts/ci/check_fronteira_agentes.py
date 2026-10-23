@@ -187,7 +187,8 @@ def escrever_baseline(caminho: Path, deps: Sequence[Dependencia]) -> None:
         grupo = [d for d in deps if d.direcao == direcao]
         corpo.append(f"\n# {direcao}: {len(grupo)}\n")
         corpo.extend(f"{d.chave()}\n" for d in grupo)
-    caminho.write_text("".join(corpo), encoding="utf-8")
+    # LF sempre: no Windows o modo texto gravaria CRLF e a baseline mudaria de bytes sem mudar de conteudo.
+    caminho.write_text("".join(corpo), encoding="utf-8", newline="\n")
 
 
 def catraca(deps: Sequence[Dependencia], baseline: set[str]) -> tuple[list[str], list[str]]:

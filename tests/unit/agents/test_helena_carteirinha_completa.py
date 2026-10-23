@@ -624,7 +624,10 @@ def test_o_despachante_passa_a_chave_ao_grafo(ligado: bool) -> None:
         return _Grafo()
 
     nada: Any = None
-    with mock.patch.object(dispatch_module, "build", _build):
+    # ADR-0067: o despachante monta o grafo pela porta do agente de entrada, que le' `graph.build`.
+    from maezo.agents.helena import graph as helena_graph_module
+
+    with mock.patch.object(helena_graph_module, "build", _build):
         despachante = dispatch_module.HelenaDispatcher(
             tenant_id="amh",
             inference=nada,

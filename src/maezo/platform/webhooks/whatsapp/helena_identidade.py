@@ -56,13 +56,13 @@ from typing import Any, Final, Protocol, runtime_checkable
 
 import structlog
 
-from maezo.agents.helena.graph import (
+from maezo.agents.lucas.fonte_cobranca_amh import FonteDeConsentimento, ResolvedorDeSujeito
+from maezo.contratos.identidade_beneficiario import (
     IDENTIDADE_INDETERMINADA,
     IDENTIDADE_NAO_ENCONTRADA,
     IDENTIDADE_RECONHECIDA,
     normalizar_identidade,
 )
-from maezo.agents.lucas.fonte_cobranca_amh import FonteDeConsentimento, ResolvedorDeSujeito
 from maezo.ports.subject_resolution import SubjectProfile, SubjectResolutionPort
 
 logger = structlog.get_logger(__name__)

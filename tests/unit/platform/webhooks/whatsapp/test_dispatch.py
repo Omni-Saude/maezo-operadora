@@ -9,6 +9,7 @@ import pytest
 import structlog
 from langgraph.checkpoint.memory import InMemorySaver
 
+from maezo.agents.helena import graph as helena_graph_module
 from maezo.agents.helena.graph import HELENA_INPUT_FIELDS
 from maezo.gateway.effect_pep import DecisionContext
 from maezo.gateway.pseudonymizer import KEYED_PSEUDONYM_PREFIX, Pseudonymizer
@@ -410,7 +411,7 @@ async def test_dispatch_constructs_state_with_only_input_fields(monkeypatch: pyt
             captured["checkpointer"] = checkpointer
             return _RecordingCompiled()
 
-    monkeypatch.setattr(dispatch_module, "build", lambda _config: _RecordingGraph())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _config: _RecordingGraph())
 
     dispatcher = HelenaDispatcher(
         tenant_id="amh",
@@ -476,7 +477,7 @@ async def test_dispatch_with_checkpointer_uses_phi_safe_thread_config(
             captured["checkpointer"] = checkpointer
             return _RecordingCompiled()
 
-    monkeypatch.setattr(dispatch_module, "build", lambda _config: _RecordingGraph())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _config: _RecordingGraph())
 
     saver = InMemorySaver()
     dispatcher = _info_dispatcher(Checkpointer(saver=saver))
@@ -770,7 +771,7 @@ async def test_acknowledge_non_text_runs_no_graph_and_writes_no_checkpoint(
     def _no_graph(_config: Any) -> Any:
         raise AssertionError("the non-text acknowledgement must never build Helena's graph")
 
-    monkeypatch.setattr(dispatch_module, "build", _no_graph)
+    monkeypatch.setattr(helena_graph_module, "build", _no_graph)
     saver = InMemorySaver()
     dispatcher, client, audit_sink = _ack_dispatcher(
         seam_context=_seam_context(), checkpointer=Checkpointer(saver=saver)

@@ -508,6 +508,9 @@ _WHOLE_MODULE_SANCTIONED_FILES: Final[frozenset[str]] = frozenset(
     {
         "gateway/tool_registry.py",
         "tools/mcp_whatsapp/__init__.py",
+        # ADR-0067: o adaptador `WhatsAppServerSender` saiu de `agents/helena/adapters.py` para o
+        # pacote da propria ferramenta; o import de `WhatsAppServer` e' o mesmo, so' mudou de casa.
+        "tools/mcp_whatsapp/sender.py",
         "tools/mcp_fhir/__init__.py",
         "platform/webhooks/service.py",
         "platform/webhooks/whatsapp/dispatch.py",

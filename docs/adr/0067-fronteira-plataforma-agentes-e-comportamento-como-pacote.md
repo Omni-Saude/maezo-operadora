@@ -59,6 +59,11 @@ A plataforma fala com o agente por um contrato em `src/maezo/contratos/` — par
 `AgenteDeConversa` (entrada do turno → saída tipada com intenção, tipo de resposta, handoff e texto). O contrato é
 versionado; mudança nele roda as suítes dos dois lados.
 
+A plataforma não importa a implementação: guarda só o id do agente e pede ao framework de agentes, que
+a encontra por convenção (`maezo.agents.carregar_agente_de_entrada("helena")` → `maezo.agents.helena.conversa`,
+atributo `AGENTE_DE_ENTRADA`) e falha fechado na construção do despachante. Tipos que os dois lados usam
+(vocabulário da identidade, porta dos fatos do plano) também moram em `maezo.contratos`.
+
 ### 2. Catraca no CI (fase 1, entregue com esta ADR)
 
 `scripts/ci/check_fronteira_agentes.py` (alvo `make check-fronteira-agentes`, passo do CI ao lado da cerca do QA)
