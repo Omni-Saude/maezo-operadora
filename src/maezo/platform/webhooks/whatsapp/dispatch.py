@@ -84,6 +84,7 @@ exists) — see `agent_resume.RecipientResolver`.
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -132,6 +133,10 @@ if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
     from .roteamento import ContextoDoTurno, ConversaRouter, PedidoDeHandoff
 
 logger = structlog.get_logger(__name__)
+
+#: ADR-0067 fase 4b: a URL interna do servico do agente de entrada. Definida, o turno roda la' (porta remota);
+#: ausente, em processo, como sempre.
+ENV_AGENTE_DE_ENTRADA_URL: Final[str] = "MAEZO_AGENTE_DE_ENTRADA_URL"
 
 
 #: O `error` do turno em que o Lucas caiu depois da passagem (review do #589). O sufixo e' so' o
@@ -546,10 +551,29 @@ class HelenaDispatcher:
     _entrada: AgenteDeEntrada = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        # ADR-0067 fase 4b: com `MAEZO_AGENTE_DE_ENTRADA_URL` o turno do agente roda no servico PROPRIO dele
+        # (`python -m maezo.platform.agente_remoto`), pela mesma porta. Sem a variavel, o de sempre (em
+        # processo), byte a byte. Falha FECHADA aqui, na construcao: URL sem `PHI_HMAC_KEY` (sem chave de
+        # assinatura) levanta, e o receptor recusa servir.
+        url = os.environ.get(ENV_AGENTE_DE_ENTRADA_URL, "").strip()
+        if url:
+            from maezo.platform.agente_remoto.cliente import AgenteDeEntradaRemoto
+
+            self._entrada = AgenteDeEntradaRemoto.do_ambiente(url, self.agente_de_entrada_id)
+            logger.warning(
+                "agente_de_entrada_remoto", tenant_id=self.tenant_id, agent_id=self.agente_de_entrada_id
+            )
+            return
         self._entrada = carregar_agente_de_entrada(self.agente_de_entrada_id)
 
+    @property
+    def agente_de_entrada(self) -> AgenteDeEntrada:
+        """O agente de entrada resolvido (em processo ou remoto). O app do receptor o le' para montar a rota
+        interna de envio do turno remoto (`maezo.platform.agente_remoto.rota_de_envio`)."""
+        return self._entrada
+
     def _dependencias_do_agente(
-        self, sender: WhatsAppSender, *, roteador_lucas_enabled: bool
+        self, sender: WhatsAppSender | None, *, roteador_lucas_enabled: bool
     ) -> dict[str, Any]:
         """As dependencias e chaves com que os NOS do agente rodam fora do grafo compilado (escalonamentos).
 
@@ -866,12 +890,21 @@ class HelenaDispatcher:
             "aviso_suprimido": False,
         }
 
-    def _compile_turn_graph(self, sender: WhatsAppSender) -> tuple[Any, Any]:
+    def _compile_turn_graph(
+        self, sender: WhatsAppSender | None, *, roteador_lucas_enabled: bool | None = None
+    ) -> tuple[Any, Any]:
         """Build + compile Helena's graph for ONE turn. Returns `(compiled, thread_saver)`.
 
         Shared by `dispatch` and `resume` so the two entry doors can never drift in which
         dependencies, agent version or memory flag the graph is built with.
+
+        `roteador_lucas_enabled` (ADR-0067 fase 4b): `None` = o deste despachante. O servico do agente remoto
+        (`maezo.platform.agente_remoto.servidor`) compoe as dependencias como o receptor e chega aqui com o
+        valor que o RECEPTOR mandou, porque o Lucas e o roteador so' existem do lado dele.
         """
+        roteamento_completo = (
+            self._roteamento_completo if roteador_lucas_enabled is None else roteador_lucas_enabled
+        )
         graph = self._entrada.construir_grafo(
             {
                 "inference": self.inference,
@@ -888,7 +921,7 @@ class HelenaDispatcher:
                 "memoria_clinica_enabled": self.memoria_clinica_enabled,
                 # NUMERO UNICO (onda e): `classify-v6` + a passagem ao Lucas so' com o roteamento
                 # completo. Desligado, a chave vai `False` e o grafo e' o de antes no a no'.
-                "roteador_lucas_enabled": self._roteamento_completo,
+                "roteador_lucas_enabled": roteamento_completo,
                 # DL-0078: so' o NOME de exibicao da operadora; os textos de identidade so' saem com o
                 # desfecho que `dispatch` entrega no estado (flag desligada = nenhum texto).
                 "identidade_nome_operadora": self.identidade_nome_operadora,
