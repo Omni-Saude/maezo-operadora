@@ -7,13 +7,7 @@ do dono
 **Decisor:** dono do repositório (filipecarmo81 — CTO e DPO). A ratificação de conteúdo de PHI (fase 3) exige
 também o médico auditor; nenhum agente assina.
 **Complementa (não altera):** ADR-0066 (roteador de habilidades, fases F2/F5), ADR-0009 (abstração de inferência e
-versões de prompt), ADR-0003/ADR-0015 (A2A entre agentes).
-
-**Nota de complemento (23/10/2026, DL-0154):** a divisão do §5 é executada pela parte C do Plano de ajustes da
-Helena v2, uma habilidade por vez (primeiro um PR só de mudança de lugar, com os testes provando o mesmo
-comportamento; depois o PR de comportamento). Os textos fixos entram no pacote do §4 como
-`spec/agents/helena/pacote/textos.yaml` (formato `helena-textos-v1`, validado por `agents/helena/pacote.py`:
-só chaves conhecidas, sem link, sem marcador novo); sem o arquivo vale o texto padrão do código. **Apoia-se em:** Ratificação Q-6 de 12/08/2026
+versões de prompt), ADR-0003/ADR-0015 (A2A entre agentes). **Apoia-se em:** Ratificação Q-6 de 12/08/2026
 (PLANS §0.8: produção recusa `MAEZO_SPEC_DIR`; exceção futura "somente por bundle imutável com digest permitido").
 
 ## Contexto
