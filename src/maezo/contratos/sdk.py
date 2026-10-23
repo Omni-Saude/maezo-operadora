@@ -29,6 +29,8 @@ MODULOS_DO_SDK: Final[frozenset[str]] = frozenset(
         "maezo.runtime.error_text",
         "maezo.runtime.start_outcome",
         "maezo.runtime.turn_telemetry",
+        # O pacote de comportamento do agente, fora da imagem (ADR-0067 fase 3).
+        "maezo.runtime.pacote_do_agente",
         "maezo.platform.observability",
         # Transportes: motor (processos e DMN), WhatsApp, redacao de PHI nas variaveis, delegacao A2A.
         "maezo.tools.mcp_cibseven.transport",

@@ -117,3 +117,6 @@ engine_native = {
   staff_case_issuer        = true
   assignment_trust         = true
 }
+
+// ADR-0067 fase 3 (23/10/2026): pacotes de comportamento dos agentes fora da imagem (pacotes-dos-agentes.tf).
+pacotes_dos_agentes = true

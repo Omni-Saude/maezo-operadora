@@ -124,6 +124,13 @@ _SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 38
 #:      ambiente mal configurado — pior para o beneficiario e para a escalacao ja' aberta. Ficam
 #:      largos, e a afirmacao 3 desta cerca garante que o bug propaga mesmo assim.
 BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
+    # -- ADR-0067 fase 3: o pacote de comportamento do agente -----------------------------
+    "src/maezo/runtime/pacote_do_agente.py::CarregadorDePacote::atual": (
+        1,
+        "releitura do pacote do agente no S3 a cada TTL: PROGRAMMING_ERRORS re-levanta; rede (o ClientError "
+        "do S3 nao e' OSError), hash ou validacao do agente mantem o ULTIMO PACOTE BOM e vao ao log "
+        "`pacote_do_agente_nao_carregado` — trocar por EXTERNAL_DEPENDENCY_FAILURES derrubaria o turno",
+    ),
     # -- (a) conta-e-re-levanta -----------------------------------------------------------
     "src/maezo/agents/lucas/bateria.py::executar_caso": (
         1,
