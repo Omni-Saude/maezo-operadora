@@ -34,7 +34,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Final, Literal, Protocol, runtime_checkable
 
-from maezo.runtime.competencia import competencia_valida
+from maezo.domain.conversa.competencia import competencia_valida
 
 #: Motivos de `Indisponivel`. Fechado: a fonte real tem de mapear as falhas dela para um destes.
 MotivoIndisponivel = Literal[
@@ -225,7 +225,7 @@ class FonteCobrancaSimulada:
         del phone_hash  # a simulada decide pelo pseudonimo; so' a fonte real precisa do hash do telefone
         if not pseudo_id:
             return Indisponivel("pseudo_id_ausente")
-        # `YYYY-MM`: a regra unica de `runtime/competencia.py` (a da coluna `lucas_competencia`).
+        # `YYYY-MM`: a regra unica de `domain/conversa/competencia.py` (a da coluna `lucas_competencia`).
         if competencia is not None and not competencia_valida(competencia):
             return Indisponivel("competencia_invalida")
         perfil = perfil_simulado(pseudo_id)

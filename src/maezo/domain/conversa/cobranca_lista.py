@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Final, Literal
 
-from maezo.runtime.competencia import competencia_valida, resolver_ano_da_competencia
+from maezo.domain.conversa.competencia import competencia_valida, resolver_ano_da_competencia
 
 SituacaoDaLista = Literal["paga", "em_aberto"]
 

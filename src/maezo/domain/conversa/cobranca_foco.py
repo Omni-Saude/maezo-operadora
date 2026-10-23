@@ -40,7 +40,7 @@ FOCO_GERAL: Final[str] = "geral"
 
 #: `ultima` (simulador, 13/10/2026): pergunta de CONFIRMACAO sobre a mensalidade mais recente ("Essa e' a
 #: ultima? Nao e' novembro?"). `esclarecimento` NAO sai do lexico: o despachante o poe quando reaproveita a
-#: resposta anterior ("de qual ano?", `runtime/cobranca_esclarecimento.py`) — a resposta e' a curta.
+#: resposta anterior ("de qual ano?", `domain/conversa/cobranca_esclarecimento.py`) — a resposta e' a curta.
 FOCO_ULTIMA: Final[str] = "ultima"
 FOCO_ESCLARECIMENTO: Final[str] = "esclarecimento"
 #: Rodada 5 (13/10/2026): "manda o extrato detalhado" (o Lucas nao envia extrato) e "paguei a consulta

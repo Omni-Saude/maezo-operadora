@@ -6,6 +6,7 @@ through, `maezo.domain` declares the VALUES it talks about.
 
     maezo.domain.integration.identity   portable identity + tenant value objects (XRD-05, MZO-020)
     maezo.domain.comunicacao            exit fences for any text sent to a beneficiary (ADR-0067)
+    maezo.domain.conversa               lexical/calendar rules of the conversation, shared by agents
 
 Deliberately NOT a re-export surface: subpackages are imported by their own path, so a new value
 family cannot become part of `maezo.domain`'s public shape without a deliberate edit here.

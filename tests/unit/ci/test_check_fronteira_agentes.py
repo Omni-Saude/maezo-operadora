@@ -25,6 +25,10 @@ def _arvore(tmp_path: Path, arquivos: dict[str, str]) -> Path:
         "agents/helena/__init__.py": "",
         "agents/lucas/__init__.py": "",
         "qa/__init__.py": "",
+        "contratos/__init__.py": "",
+        "contratos/sdk.py": (
+            'MODULOS_DO_SDK: Final[frozenset[str]] = frozenset({"maezo.runtime.inference"})\n'
+        ),
     }
     for relativo, texto in {**base, **arquivos}.items():
         caminho = src / relativo
@@ -141,7 +145,39 @@ def test_baseline_ignora_comentarios_e_relatorio_agrupa_por_agente(tmp_path: Pat
     assert ler_baseline(baseline) == {d.chave() for d in deps}
     md = relatorio(deps, src)
     assert "### `helena`" in md and "### `lucas`" in md
-    assert "`maezo.runtime.inference` | 1" in md
+    assert "## agente->plataforma-fora-do-sdk (0)" in md
+
+
+def test_agente_importando_plataforma_fora_do_sdk_conta(tmp_path: Path) -> None:
+    src = _arvore(
+        tmp_path,
+        {
+            "runtime/__init__.py": "",
+            "runtime/inference.py": "class InferenceProvider: ...\n",
+            "runtime/harness.py": "class Harness: ...\n",
+            "domain/__init__.py": "",
+            "agents/helena/graph.py": (
+                "from maezo.runtime.inference import InferenceProvider\n"  # no SDK
+                "from maezo.runtime.harness import Harness\n"  # fora do SDK
+                "from maezo.contratos import sdk\n"  # contratos: so' a entrada do SDK minimo conta
+                "from maezo.agents import AgentLoader\n"  # framework de agentes: permitido
+                "from maezo.agents.helena import prompts\n"  # o proprio agente
+            ),
+            "agents/helena/prompts.py": "",
+            "platform/__init__.py": "",
+            "platform/x.py": "from maezo.runtime.harness import Harness\n",  # plataforma: fora do escopo
+        },
+    )
+    assert _chaves(src) == {
+        "agente->plataforma-fora-do-sdk src/maezo/agents/helena/graph.py -> maezo.runtime.harness",
+        "agente->plataforma-fora-do-sdk src/maezo/agents/helena/graph.py -> maezo.contratos.sdk",
+    }
+
+
+def test_a_helena_so_usa_o_sdk() -> None:
+    """Saida da fase 2 do ADR-0067: a Helena importa da plataforma SO' o que `MODULOS_DO_SDK` declara."""
+    deps, _, _ = coletar(_RAIZ / "src" / "maezo")
+    assert [d.chave() for d in deps if "/agents/helena/" in d.importador or ".helena" in d.alvo] == []
 
 
 def test_sem_agentes_ou_arquivo_que_nao_parseia_reprova(tmp_path: Path) -> None:

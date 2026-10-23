@@ -24,6 +24,8 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any, Final
 
+from maezo.domain.conversa.normalizacao import normalizar
+
 from .graph import RESPOSTA_PLANO_POR_CANAIS, eh_pergunta_quem_sou_eu
 
 TIPO_QUEM_SOU_EU: Final[str] = "quem_sou_eu"
@@ -96,9 +98,6 @@ _FAIXA: Final[re.Pattern[str]] = re.compile(
 
 def tipo_de_pergunta(texto: str) -> str | None:
     """O tipo fechado da pergunta de cadastro/identidade, ou `None` (a mensagem segue para o grafo)."""
-    # Import tardio: o pacote `platform.webhooks` carrega o receptor inteiro, que carrega este modulo.
-    from maezo.platform.webhooks.whatsapp.pre_roteamento import normalizar
-
     plano = normalizar(texto or "")
     if not plano:
         return None

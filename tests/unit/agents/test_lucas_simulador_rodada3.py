@@ -29,9 +29,9 @@ from maezo.agents.lucas.graph import (
     ref_de_resposta,
 )
 from maezo.agents.lucas.prompts import motivo_de_recusa
+from maezo.domain.conversa.cobranca_foco import decidir_foco_da_cobranca
+from maezo.domain.conversa.competencia import mes_unico_do_texto, resolver_ano_da_competencia
 from maezo.platform.webhooks.whatsapp.dispatch import _handoff_com_mes_do_texto
-from maezo.runtime.cobranca_foco import decidir_foco_da_cobranca
-from maezo.runtime.competencia import mes_unico_do_texto, resolver_ano_da_competencia
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.evals.lucas.programa import DmnDraftLocal
 from tests.support.audit_fakes import FakeStartAuditSink

@@ -87,6 +87,15 @@ o ponteiro. A promoção do pacote passa por um validador (esquema, política de
 pelos roteiros maduros do simulador com modelo real. A ratificação de prompt que hoje carimba o hash do código
 passa a carimbar o pacote; isso exige DPO e médico auditor.
 
+### 4.1. O SDK do runtime (saída da fase 2)
+
+O que um agente pode importar da plataforma é uma lista fechada, `MODULOS_DO_SDK` em
+`src/maezo/contratos/sdk.py`: contratos, domínio, portas, conhecimento, o runtime de inferência, prompt,
+falhas e telemetria, e os transportes (motor, DMN, WhatsApp, A2A). A catraca reprova import de agente fora
+dela. As regras léxicas e de calendário da conversa que a Helena, o Lucas e o despachante compartilhavam
+em `maezo.runtime` (`cobranca_*`, `competencia`, `caso_clinico`, `terceiro_no_texto`, a normalização do
+texto) foram para `maezo.domain.conversa`. Acrescentar um módulo ao SDK é decisão de contrato.
+
 ### 5. O grafo da Helena por habilidade (junto com as fases F2/F5 da ADR-0066)
 
 O `graph.py` deixa de concentrar a regra. Estrutura alvo, no mesmo processo:
@@ -120,7 +129,7 @@ Separar o repositório volta a ser avaliado quando, ao mesmo tempo: outro time c
 | Fase | Entrega | Sai quando |
 |---|---|---|
 | 1 | Catraca + inventário (este PR) | CI com a cerca obrigatória |
-| 2 | `maezo.contratos` + regra devolvida aos agentes | baseline da Helena = 0; lista do SDK do runtime fechada |
+| 2 | `maezo.contratos` + regra devolvida aos agentes | baseline da Helena = 0; lista do SDK do runtime fechada (`src/maezo/contratos/sdk.py`, catraca agente→plataforma fora do SDK) |
 | 3 | Pacote de comportamento + validador + simulador como portão | uma mudança de texto vai a dev sem build |
 | 4 | Imagem e serviço da Helena + trilhas de CI/CD | mudança de lógica da Helena implanta só o serviço dela |
 | 5 | Baseline zerada para todos os agentes | `fronteira_agentes_baseline.txt` vazio |

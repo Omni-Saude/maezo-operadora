@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from maezo.runtime.cobranca_foco import COBRANCA_FOCOS, decidir_foco_da_cobranca, foco_valido
+from maezo.domain.conversa.cobranca_foco import COBRANCA_FOCOS, decidir_foco_da_cobranca, foco_valido
 
 
 def test_o_dominio_e_fechado_e_e_o_do_dono() -> None:
