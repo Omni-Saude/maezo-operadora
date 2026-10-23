@@ -34,7 +34,7 @@ from maezo.agents.helena.graph import (
 from maezo.conhecimento import base_saude as b
 from maezo.conhecimento import busca_semantica as bsem
 from maezo.conhecimento import saude_gerativa as sg
-from maezo.runtime.cobranca_intencao import e_confirmacao_pura_do_cancelamento
+from maezo.domain.conversa.cobranca_intencao import e_confirmacao_pura_do_cancelamento
 from tests.unit.agents.test_helena_saude_gerativa import (
     _CLINICA,
     _DONO,

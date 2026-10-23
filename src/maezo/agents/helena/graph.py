@@ -186,31 +186,32 @@ from maezo.domain.comunicacao.retomada_saida import compor_mensagem_de_retomada 
 from maezo.domain.comunicacao.retomada_saida import (
     motivo_de_recusa_da_retomada as motivo_de_recusa_da_retomada,
 )
-from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
-from maezo.ports.tina import ElegibilidadeView
-from maezo.runtime.caso_clinico import (
+from maezo.domain.conversa.caso_clinico import (
     MOTIVOS_DE_ALERTA_CLINICO,
     SUFIXO_CASO_CLINICO,
     chave_do_escalonamento,
 )
-from maezo.runtime.cobranca_esclarecimento import (
+from maezo.domain.conversa.cobranca_esclarecimento import (
     e_mensagem_curta_sem_ruido_de_cobranca,
     e_pergunta_de_esclarecimento,
     e_seguimento_de_cobranca,
 )
-from maezo.runtime.cobranca_foco import (
+from maezo.domain.conversa.cobranca_foco import (
     FOCO_GERAL,
     CobrancaFoco,
     decidir_foco_da_cobranca,
     foco_valido,
 )
-from maezo.runtime.cobranca_lista import decidir_lista_da_cobranca
-from maezo.runtime.competencia import (
+from maezo.domain.conversa.cobranca_lista import decidir_lista_da_cobranca
+from maezo.domain.conversa.competencia import (
     competencia_valida,
     hoje_em_brasilia,
     mes_unico_do_texto,
     resolver_ano_da_competencia,
 )
+from maezo.domain.conversa.terceiro_no_texto import com_aviso_se_for_de_outra_pessoa
+from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
+from maezo.ports.tina import ElegibilidadeView
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -219,7 +220,6 @@ from maezo.runtime.error_text import (
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_untrusted_block
 from maezo.runtime.start_outcome import notify_start_failure as emit_start_failure_notice
-from maezo.runtime.terceiro_no_texto import com_aviso_se_for_de_outra_pessoa
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
 from maezo.tools.mcp_cibseven.transport import (
     AgentDecisionProvenance,
@@ -1743,7 +1743,7 @@ class HandoffCobranca(TypedDict):
     para: Literal["lucas"]
     cobranca_subtipo: CobrancaSubtipo
     competencia: str | None
-    #: DL-0087 (10/10/2026): o campo perguntado (`runtime/cobranca_foco.py`), enum fechado decidido
+    #: DL-0087 (10/10/2026): o campo perguntado (`domain/conversa/cobranca_foco.py`), enum fechado decidido
     #: aqui, onde o texto existe. NAO e' persistido pelo roteador: vive so' neste turno.
     cobranca_foco: CobrancaFoco
     message_ref: str
@@ -1807,7 +1807,8 @@ class HelenaState(TypedDict, total=False):
     # dominio fechado. `None` em todo turno que nao e' `intent="cobranca"`.
     cobranca_subtipo: CobrancaSubtipo | None
     cobranca_competencia: str | None
-    #: DL-0087: o foco da pergunta de cobranca (`runtime/cobranca_foco.py`), decidido pelo lexico sobre
+    #: DL-0087: o foco da pergunta de cobranca (`domain/conversa/cobranca_foco.py`), decidido pelo lexico
+    #: sobre
     #: o texto deste turno. `None` em todo turno que nao e' `intent="cobranca"`.
     cobranca_foco: CobrancaFoco | None
     #: Onda (e): a passagem ao Lucas, escrita SO' pelo no' `handoff_cobranca`.
@@ -6222,7 +6223,8 @@ class HelenaGraph:
 
         "Quais foram as ultimas tres mensalidades pagas?" e, logo depois da resposta do Lucas, "Mas eu te
         perguntei das ultimas tres" sairam do classificador como `information`/`outro` e ficaram com a
-        Helena. O parser de lista (`runtime/cobranca_lista.py`) e o de esclarecimento sao do PROPRIO texto,
+        Helena. O parser de lista (`domain/conversa/cobranca_lista.py`) e o de esclarecimento sao do PROPRIO
+        texto,
         deterministicos. Lista so' conta com contexto de cobranca — o Lucas acabou de responder, a lista
         tem situacao (paga/em aberto) ou o texto cita assunto financeiro —, porque "dor de cabeca nos
         ultimos tres meses" tambem e' lista para o parser (e o sintoma, nesse caso, ja' saiu do modelo e
@@ -9240,7 +9242,7 @@ class HelenaGraph:
             # Ja' validado em `_validate_extraction` e de novo em `_handoff_recusado` (2 camadas).
             "cobranca_subtipo": cast(CobrancaSubtipo, state.get("cobranca_subtipo")),
             "competencia": state.get("cobranca_competencia"),
-            # Ja' validado em `_handoff_recusado` (dominio fechado de `runtime/cobranca_foco.py`).
+            # Ja' validado em `_handoff_recusado` (dominio fechado de `domain/conversa/cobranca_foco.py`).
             "cobranca_foco": cast(CobrancaFoco, state.get("cobranca_foco") or FOCO_GERAL),
             "message_ref": str(state.get("message_ref") or ""),
         }

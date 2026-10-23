@@ -25,7 +25,10 @@ Seja `<id>` um pacote de agente (`src/maezo/agents/<id>/__init__.py`). O framewo
   * plataforma -> agente: qualquer `.py` de `src/maezo/` fora de `agents/<id>/` e fora de `qa/`
     que importe `maezo.agents.<id>[...]` (import absoluto, relativo, ou string fora de docstring —
     o caminho do `importlib`);
-  * agente -> agente: `agents/<x>/` importando `maezo.agents.<y>`, com x != y.
+  * agente -> agente: `agents/<x>/` importando `maezo.agents.<y>`, com x != y;
+  * agente -> plataforma fora do SDK: `agents/<x>/` importando um modulo `maezo.*` que nao e' do proprio
+    agente, nem o framework de agentes, nem esta' em `maezo.contratos.sdk.MODULOS_DO_SDK` (saida da fase 2:
+    o SDK do runtime e' a lista fechada do que um agente pode usar da plataforma).
 `maezo.qa` fica de fora: e' ferramenta de teste, ja' isolada de producao por `check_qa_isolada.py`.
 
 Uso:
@@ -46,6 +49,8 @@ from pathlib import Path
 
 _RAIZ = Path(__file__).resolve().parents[2]
 BASELINE_PADRAO = _RAIZ / "scripts" / "ci" / "fronteira_agentes_baseline.txt"
+SDK_RELATIVO = Path("contratos") / "sdk.py"
+DIRECOES = ("plataforma->agente", "agente->agente", "agente->plataforma-fora-do-sdk")
 PREFIXO_AGENTES = "maezo.agents."
 
 _CABECALHO_BASELINE = """\
@@ -59,7 +64,7 @@ _CABECALHO_BASELINE = """\
 
 @dataclass(frozen=True, order=True)
 class Dependencia:
-    direcao: str  # "plataforma->agente" | "agente->agente"
+    direcao: str  # um de DIRECOES
     importador: str  # caminho posix relativo a raiz do repo
     alvo: str  # modulo importado (ou "string:<valor>")
 
@@ -146,12 +151,65 @@ def _alvos_do_arquivo(caminho: Path, src_dir: Path, agentes: set[str]) -> list[s
     return alvos
 
 
+def ler_sdk(src_dir: Path) -> frozenset[str]:
+    """`MODULOS_DO_SDK` de `maezo/contratos/sdk.py`, lido pelo AST (sem importar o pacote)."""
+    arvore = ast.parse((src_dir / SDK_RELATIVO).read_text(encoding="utf-8"))
+    for no in ast.walk(arvore):
+        if (
+            isinstance(no, ast.AnnAssign)
+            and isinstance(no.target, ast.Name)
+            and no.target.id == "MODULOS_DO_SDK"
+        ):
+            chamada = no.value
+            if isinstance(chamada, ast.Call) and chamada.args:
+                return frozenset(ast.literal_eval(chamada.args[0]))
+    raise ValueError(f"{src_dir / SDK_RELATIVO}: MODULOS_DO_SDK nao encontrado")
+
+
+def _no_sdk(modulo: str, sdk: frozenset[str]) -> bool:
+    return any(modulo == m or modulo.startswith(m + ".") for m in sdk)
+
+
+def _modulo_existente(src_dir: Path, nome: str) -> str | None:
+    """O modulo `maezo.*` mais profundo que existe em disco para `nome` (`a.b.Classe` -> `a.b`)."""
+    while nome:
+        if _e_submodulo(src_dir, nome):
+            return nome
+        nome = nome.rpartition(".")[0]
+    return None
+
+
+def _plataforma_importada(caminho: Path, src_dir: Path) -> set[str]:
+    """Modulos `maezo.*` (fora de `maezo.agents`) que o arquivo de agente importa."""
+    arvore = ast.parse(caminho.read_text(encoding="utf-8"), filename=str(caminho))
+    pacote = _pacote_do_arquivo(caminho, src_dir)
+    alvos: set[str] = set()
+    for no in ast.walk(arvore):
+        nomes: list[str] = []
+        if isinstance(no, ast.Import):
+            nomes = [n.name for n in no.names]
+        elif isinstance(no, ast.ImportFrom):
+            base = no.module if no.level == 0 else _resolver_relativo(pacote, no.level, no.module)
+            nomes = [f"{base}.{n.name}" for n in no.names] if base else []
+        for nome in nomes:
+            if not nome.startswith("maezo.") or nome == "maezo.agents" or nome.startswith(PREFIXO_AGENTES):
+                continue
+            modulo = _modulo_existente(src_dir, nome)
+            if modulo and modulo != "maezo":
+                alvos.add(modulo)
+    return alvos
+
+
 def coletar(src_dir: Path) -> tuple[list[Dependencia], list[str], int]:
     """(dependencias proibidas, erros, arquivos lidos)."""
     agentes = ids_de_agentes(src_dir)
     erros: list[str] = []
     if not agentes:
         return [], [f"{src_dir}/agents: nenhum pacote de agente — a cerca ficaria vacua"], 0
+    try:
+        sdk = ler_sdk(src_dir)
+    except (OSError, SyntaxError, ValueError) as exc:
+        return [], [f"SDK ilegivel ({type(exc).__name__}: {exc}) — a cerca ficaria vacua"], 0
     deps: set[Dependencia] = set()
     lidos = 0
     for caminho in sorted(src_dir.rglob("*.py")):
@@ -171,6 +229,10 @@ def coletar(src_dir: Path) -> tuple[list[Dependencia], list[str], int]:
                 deps.add(Dependencia("plataforma->agente", importador, alvo))
             elif agente_alvo != dono:
                 deps.add(Dependencia("agente->agente", importador, alvo))
+        if dono is not None:
+            for modulo in _plataforma_importada(caminho, src_dir):
+                if not _no_sdk(modulo, sdk):
+                    deps.add(Dependencia("agente->plataforma-fora-do-sdk", importador, modulo))
     return sorted(deps), erros, lidos
 
 
@@ -183,7 +245,7 @@ def ler_baseline(caminho: Path) -> set[str]:
 
 def escrever_baseline(caminho: Path, deps: Sequence[Dependencia]) -> None:
     corpo = [_CABECALHO_BASELINE]
-    for direcao in ("plataforma->agente", "agente->agente"):
+    for direcao in DIRECOES:
         grupo = [d for d in deps if d.direcao == direcao]
         corpo.append(f"\n# {direcao}: {len(grupo)}\n")
         corpo.extend(f"{d.chave()}\n" for d in grupo)
@@ -198,57 +260,37 @@ def catraca(deps: Sequence[Dependencia], baseline: set[str]) -> tuple[list[str],
 
 
 def relatorio(deps: Sequence[Dependencia], src_dir: Path) -> str:
-    """Inventario em markdown: o que mover, agrupado por agente alvo e por importador."""
+    """Inventario em markdown: o que mover, por direcao e por agente."""
     agentes = ids_de_agentes(src_dir)
     linhas = ["# Inventario da fronteira plataforma x agentes (ADR-0067)", ""]
     por_direcao = Counter(d.direcao for d in deps)
     linhas.append(
         f"Total: **{len(deps)}** dependencias proibidas — "
-        f"plataforma->agente {por_direcao['plataforma->agente']}, "
-        f"agente->agente {por_direcao['agente->agente']}."
+        + ", ".join(f"{direcao} {por_direcao[direcao]}" for direcao in DIRECOES)
+        + "."
     )
-    for direcao in ("plataforma->agente", "agente->agente"):
+    for direcao in DIRECOES:
         grupo = [d for d in deps if d.direcao == direcao]
         linhas += ["", f"## {direcao} ({len(grupo)})", ""]
-        por_alvo: dict[str, list[Dependencia]] = defaultdict(list)
+        por_agente: dict[str, list[Dependencia]] = defaultdict(list)
         for d in grupo:
-            por_alvo[_agente_do_modulo(d.alvo.removeprefix("string:"), agentes) or "?"].append(d)
-        for agente, itens in sorted(por_alvo.items(), key=lambda kv: -len(kv[1])):
+            if direcao == "agente->plataforma-fora-do-sdk":
+                # o agente e' o IMPORTADOR: `src/maezo/agents/<id>/...`
+                agente = Path(d.importador).parts[3]
+            else:
+                agente = _agente_do_modulo(d.alvo.removeprefix("string:"), agentes) or "?"
+            por_agente[agente].append(d)
+        for agente, itens in sorted(por_agente.items(), key=lambda kv: (-len(kv[1]), kv[0])):
             importadores = Counter(d.importador for d in itens)
             linhas.append(f"### `{agente}` — {len(itens)} dependencias, {len(importadores)} arquivos")
             linhas.append("")
-            linhas.append("| Arquivo importador | Modulos do agente que ele usa |")
+            linhas.append("| Arquivo importador | Modulos importados |")
             linhas.append("|---|---|")
             for importador in sorted(importadores):
                 modulos = sorted({d.alvo for d in itens if d.importador == importador})
                 linhas.append(f"| `{importador}` | {', '.join(f'`{m}`' for m in modulos)} |")
             linhas.append("")
-    linhas += ["## helena -> plataforma (informativo, sem catraca nesta fase)", ""]
-    linhas += _helena_para_plataforma(src_dir)
     return "\n".join(linhas) + "\n"
-
-
-def _helena_para_plataforma(src_dir: Path) -> list[str]:
-    """Modulos internos da plataforma que a Helena usa: o candidato a 'SDK do runtime' (ADR-0067 §4)."""
-    contagem: Counter[str] = Counter()
-    for caminho in sorted((src_dir / "agents" / "helena").rglob("*.py")):
-        arvore = ast.parse(caminho.read_text(encoding="utf-8"))
-        pacote = _pacote_do_arquivo(caminho, src_dir)
-        for no in ast.walk(arvore):
-            modulos: list[str] = []
-            if isinstance(no, ast.Import):
-                modulos = [n.name for n in no.names]
-            elif isinstance(no, ast.ImportFrom):
-                base = no.module if no.level == 0 else _resolver_relativo(pacote, no.level, no.module)
-                modulos = [base] if base else []
-            for modulo in modulos:
-                if modulo.startswith("maezo.") and not modulo.startswith(
-                    ("maezo.agents.helena", "maezo.agents")
-                ):
-                    contagem[modulo] += 1
-    linhas = ["| Modulo da plataforma | Imports |", "|---|---|"]
-    linhas += [f"| `{m}` | {n} |" for m, n in sorted(contagem.items(), key=lambda kv: (-kv[1], kv[0]))]
-    return linhas
 
 
 def main(argv: Sequence[str] | None = None) -> int:

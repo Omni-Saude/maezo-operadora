@@ -96,6 +96,7 @@ from maezo.agents import carregar_agente_de_entrada
 from maezo.contratos.conversa import INTENT_COBRANCA, RESPONSE_KIND_HANDOFF, AgenteDeEntrada
 from maezo.contratos.conversa import RemetenteDoTurno as WhatsAppSender
 from maezo.contratos.identidade_beneficiario import NOME_OPERADORA_PADRAO
+from maezo.domain.conversa.terceiro_no_texto import com_aviso_se_for_de_outra_pessoa
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.recipient_custody import RecipientSealer
 from maezo.gateway.seams import SeamContext
@@ -109,7 +110,6 @@ from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
-from maezo.runtime.terceiro_no_texto import com_aviso_se_for_de_outra_pessoa
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import DmnTransport
@@ -323,17 +323,17 @@ def _handoff_com_mes_do_texto(texto: str, handoff: Mapping[str, Any]) -> Mapping
     """Rodada 3 do simulador (13/10/2026): "A mensalidade de julho foi paga?" e "Novembro ta' lancado?"
     chegavam ao Lucas sem mes (o classify so' extrai com o ano) ou com o ano errado. Sem mes no handoff e
     sem pedido de lista, UM mes nomeado no texto vira a competencia — o ano pela regra unica de
-    `runtime/competencia.py` (pistas de "lancado"/"vence"/"ultima" -> o que vem). Uma pergunta de
+    `domain/conversa/competencia.py` (pistas de "lancado"/"vence"/"ultima" -> o que vem). Uma pergunta de
     confirmacao ("essa e' a ultima?") num assunto "outro" e' consulta de valores."""
-    from maezo.runtime.cobranca_foco import (
+    from maezo.domain.conversa.cobranca_foco import (
         FOCO_COMO_PAGAR,
         FOCO_EXTRATO,
         FOCO_JA_PAGUEI,
         FOCO_PAGAMENTO_AO_PRESTADOR,
         FOCO_ULTIMA,
     )
-    from maezo.runtime.cobranca_reclamacao import decidir_reclamacao
-    from maezo.runtime.competencia import (
+    from maezo.domain.conversa.cobranca_reclamacao import decidir_reclamacao
+    from maezo.domain.conversa.competencia import (
         hoje_em_brasilia,
         mes_relativo_do_texto,
         mes_unico_do_texto,
@@ -385,7 +385,7 @@ def _handoff_com_intencao(
       cancelamento. Se o Lucas estava nesse assunto (`assunto_anterior == "cancelamento"`) a mensagem
       afirmativa volta ao Lucas como `cancelamento` + `cobranca_confirmacao` ("confirma"/"nega"); a validade
       (pergunta pendente) e' conferida no grafo pela referencia do ultimo texto enviado."""
-    from maezo.runtime.cobranca_intencao import decidir_confirmacao, pede_negociacao
+    from maezo.domain.conversa.cobranca_intencao import decidir_confirmacao, pede_negociacao
 
     ajustado = dict(handoff)
     if pede_negociacao(texto):
@@ -1501,7 +1501,7 @@ class HelenaDispatcher:
         ligada = getattr(lucas, "cancelamento_pf_v1", False) is True
         if lucas is None or not ligada or not self._roteamento_completo:
             return None
-        from maezo.runtime.cobranca_intencao import (
+        from maezo.domain.conversa.cobranca_intencao import (
             e_confirmacao_pura_do_cancelamento,
             e_recuo_do_cancelamento,
         )
@@ -1526,7 +1526,7 @@ class HelenaDispatcher:
             TEXTO_CONFIRMA_CANCELAMENTO
         ):
             return None
-        from maezo.runtime.cobranca_foco import FOCO_GERAL
+        from maezo.domain.conversa.cobranca_foco import FOCO_GERAL
 
         logger.info(
             "lucas_recuo_do_cancelamento" if confirmacao == "nega" else "lucas_confirmacao_do_cancelamento",
@@ -1571,7 +1571,7 @@ class HelenaDispatcher:
         reaproveita o ASSUNTO (so' os informativos) e o MES daquela resposta; o mes que a mensagem
         trouxer vence o lembrado. Sem esclarecimento, sem contexto ou com falha de leitura: o handoff
         da Helena, intacto (o caminho de sempre)."""
-        from maezo.runtime.cobranca_esclarecimento import (
+        from maezo.domain.conversa.cobranca_esclarecimento import (
             SUBTIPOS_QUE_NAO_SE_SOBRESCREVEM,
             SUBTIPOS_REAPROVEITAVEIS,
             e_pergunta_de_esclarecimento,
@@ -1603,7 +1603,7 @@ class HelenaDispatcher:
             ajustado["competencia"] = competencia_anterior
         # Rodada 3 (13/10/2026): "de qual ano?" repetia o texto anterior, identico. O foco proprio pede a
         # resposta CURTA, com o ano ("E' julho de 2026: paga em 18/08.").
-        from maezo.runtime.cobranca_foco import FOCO_ESCLARECIMENTO
+        from maezo.domain.conversa.cobranca_foco import FOCO_ESCLARECIMENTO
 
         ajustado["cobranca_foco"] = FOCO_ESCLARECIMENTO
         logger.info(
@@ -1698,14 +1698,15 @@ class HelenaDispatcher:
         self, texto: str, conversation_id: str, handoff: Mapping[str, Any]
     ) -> Mapping[str, Any]:
         """PEDIDO DE LISTA (teste real do dono, 12/10/2026): "as ultimas tres mensalidades pagas" recebeu um
-        mes so'. Quando o texto pede varios meses (`runtime/cobranca_lista.py`), o handoff ganha a chave
+        mes so'. Quando o texto pede varios meses (`domain/conversa/cobranca_lista.py`), o handoff ganha a
+        chave
         opcional `cobranca_lista` (numeros e `AAAA-MM`, nunca texto). Uma confirmacao de pagamento em lista
         ("ja paguei as ultimas tres?") e' uma consulta de valores; um "outro" em lista (a insistencia "mas
         eu te perguntei das ultimas tres") reaproveita o assunto informativo da resposta anterior do Lucas.
         Sem pedido de lista: o handoff intacto."""
-        from maezo.runtime.cobranca_esclarecimento import SUBTIPOS_REAPROVEITAVEIS
-        from maezo.runtime.cobranca_lista import decidir_lista_da_cobranca
-        from maezo.runtime.competencia import hoje_em_brasilia
+        from maezo.domain.conversa.cobranca_esclarecimento import SUBTIPOS_REAPROVEITAVEIS
+        from maezo.domain.conversa.cobranca_lista import decidir_lista_da_cobranca
+        from maezo.domain.conversa.competencia import hoje_em_brasilia
 
         lista = decidir_lista_da_cobranca(texto, hoje_em_brasilia(datetime.now(UTC)))
         if lista is None:
@@ -1775,7 +1776,7 @@ class HelenaDispatcher:
     async def _caso_aberto_na_conversa(self, conversation_id: str) -> bool:
         """Ha' um SP-OP-ESCALATION-001 vivo na chave desta conversa? Falha de leitura = `False` (o start
         idempotente reaproveita o caso de qualquer jeito, so' com o aviso a mais)."""
-        from maezo.runtime.caso_clinico import chave_do_escalonamento
+        from maezo.domain.conversa.caso_clinico import chave_do_escalonamento
 
         try:
             ativa = await self.cibseven.find_active_instance(

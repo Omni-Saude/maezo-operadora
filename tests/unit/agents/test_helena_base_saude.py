@@ -51,8 +51,8 @@ from maezo.agents.helena.prompts import (
     motivo_de_recusa,
 )
 from maezo.conhecimento import base_saude as b
+from maezo.domain.conversa.caso_clinico import chave_do_escalonamento
 from maezo.qa.simulador.checagens import frases_longas
-from maezo.runtime.caso_clinico import chave_do_escalonamento
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     FakeCibSevenTransport,

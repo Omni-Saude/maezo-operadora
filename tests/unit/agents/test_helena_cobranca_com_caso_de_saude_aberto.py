@@ -19,7 +19,7 @@ from maezo.agents.helena.graph import (
     RESPOSTA_ESCALONAMENTO_URGENTE,
     HelenaGraph,
 )
-from maezo.runtime.cobranca_esclarecimento import e_mensagem_curta_sem_ruido_de_cobranca
+from maezo.domain.conversa.cobranca_esclarecimento import e_mensagem_curta_sem_ruido_de_cobranca
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 from tests.unit.agents.test_helena_rodada_2_simulador import (

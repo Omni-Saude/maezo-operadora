@@ -21,30 +21,22 @@ casado e nenhum trecho do texto e' devolvido, para que nada disso possa chegar a
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
 import yaml
 
+# A normalizacao e' do dominio da conversa (ADR-0067): a Helena a usa sem importar a plataforma.
+from maezo.domain.conversa.normalizacao import normalizar as normalizar
+
 #: Caminho relativo a `spec/`.
 LEXICO_RELATIVO: Final[str] = "policies/roteamento/pre-roteamento.yaml"
 STATUS_ACEITOS: Final[frozenset[str]] = frozenset({"DRAFT", "RATIFICADO"})
 
-_NAO_PALAVRA = re.compile(r"[^0-9a-z]+")
-
 
 class LexicoInvalidoError(ValueError):
     """O arquivo de lexicos nao serve: a mensagem diz o porque, nunca o texto de beneficiario."""
-
-
-def normalizar(texto: str) -> str:
-    """Sem acento (NFKD), caixa baixa, pontuacao vira espaco, espacos colapsados."""
-    decomposto = unicodedata.normalize("NFKD", texto)
-    sem_acento = "".join(c for c in decomposto if not unicodedata.combining(c))
-    return _NAO_PALAVRA.sub(" ", sem_acento.casefold()).strip()
 
 
 @dataclass(frozen=True, slots=True)

@@ -1174,6 +1174,18 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "comunicacao/__init__.py",
         "comunicacao/cerca_de_saida.py",
         "comunicacao/retomada_saida.py",
+        # ADR-0067 (saida da fase 2): regras lexicas/de calendario da conversa, compartilhadas pela
+        # Helena, pelo Lucas e pelo despachante; moravam em `maezo.runtime`.
+        "conversa/__init__.py",
+        "conversa/caso_clinico.py",
+        "conversa/cobranca_esclarecimento.py",
+        "conversa/cobranca_foco.py",
+        "conversa/cobranca_intencao.py",
+        "conversa/cobranca_lista.py",
+        "conversa/cobranca_reclamacao.py",
+        "conversa/competencia.py",
+        "conversa/normalizacao.py",
+        "conversa/terceiro_no_texto.py",
     }
 )
 
@@ -1348,7 +1360,7 @@ def test_domain_modules_discovered() -> None:
     assert set(modules) == _EXPECTED_MODULES, (
         f"maezo.domain module set drifted: found {sorted(modules)}, expected {sorted(_EXPECTED_MODULES)}"
     )
-    assert len(modules) == 6
+    assert len(modules) == 16
 
 
 def test_import_extraction_is_not_vacuous() -> None:
