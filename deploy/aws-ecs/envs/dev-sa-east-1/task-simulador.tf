@@ -123,8 +123,7 @@ resource "aws_ecs_task_definition" "simulador" {
         { name = "MAEZO_SIMULADOR_KMS_KEY", value = aws_kms_alias.qa_simulador.name },
         { name = "SIMULADOR_ARGS", value = "--conversas 10" },
       ],
-      # ADR-0067 §6: o simulador chama o MESMO agente remoto que o receptor (agente-remoto.tf).
-      local.agente_remoto_env_cliente,
+      # ADR-0067 fase 4b: o simulador NAO chama o agente remoto; roda a Helena em processo (agente-remoto.tf).
     )
 
     secrets = concat(

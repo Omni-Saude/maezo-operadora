@@ -57,13 +57,12 @@ locals {
 
   agente_remoto_comando = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.platform.agente_remoto"]
 
-  # Lado CLIENTE: receptor e simulador. Fora do `webhook_receiver_contrato` de proposito — o contrato
-  # tambem alimenta o proprio agente remoto, que nao pode receber a URL de si mesmo.
+  # Lado CLIENTE: SO' o receptor. Fora do `webhook_receiver_contrato` de proposito — o contrato tambem
+  # alimenta o proprio agente remoto, que nao pode receber a URL de si mesmo.
   #
-  # O SIMULADOR TAMBEM CHAMA o agente remoto: ele compoe o mesmo despachante do receptor, e testar o
-  # caminho em processo depois que o receptor deixou de usa-lo seria testar um receptor que nao existe.
-  # Consequencia a conhecer: o callback do agente vai para o RECEPTOR (`MAEZO_RECEPTOR_URL`), nao para
-  # o simulador — o lado Python precisa garantir que turno do simulador nao vire envio pelo receptor.
+  # O SIMULADOR NAO chama o agente remoto (decisao de 23/10/2026): o callback de envio do agente vai para
+  # o RECEPTOR (`MAEZO_RECEPTOR_URL`), que nao conhece o turno simulado — o envio do simulador e' capturado
+  # dentro do proprio processo dele. O simulador segue rodando a Helena EM PROCESSO, com a mesma imagem.
   agente_remoto_env_cliente = var.helena_agente_remoto ? [
     { name = "MAEZO_AGENTE_DE_ENTRADA_URL", value = local.agente_remoto_url },
   ] : []
