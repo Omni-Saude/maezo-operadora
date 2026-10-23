@@ -23,7 +23,7 @@ from tests.unit.agents.test_helena_roteador_ativo import _grafo as _grafo_rotead
 def test_o_aviso_e_o_texto_do_dono_palavra_por_palavra() -> None:
     assert TEXTO_COBERTURA_FORA == (
         "Por aqui eu não trato de cobertura. Você consegue essa informação pelo aplicativo Austa Clínicas, "
-        "pelo portal ou pela central."
+        "pelo portal do plano ou pela central de atendimento do plano."
     )
     assert PADRAO["cobertura_fora"] == TEXTO_COBERTURA_FORA
     for texto in (graph.RESPOSTA_COBERTURA_ESPECIFICA, graph.RESPOSTA_COBERTURA_ESPECIFICA_2):

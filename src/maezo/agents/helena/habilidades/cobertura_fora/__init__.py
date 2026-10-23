@@ -15,10 +15,10 @@ from __future__ import annotations
 
 from typing import Final
 
-#: O aviso do dono (23/10/2026), palavra por palavra.
+#: O aviso do dono (23/10/2026), com os nomes CONFIRMADOS dos canais (cerca de canal; coordenador, 23/10).
 TEXTO_COBERTURA_FORA: Final[str] = (
     "Por aqui eu não trato de cobertura. Você consegue essa informação pelo aplicativo Austa Clínicas, "
-    "pelo portal ou pela central."
+    "pelo portal do plano ou pela central de atendimento do plano."
 )
 #: A chave do texto no pacote de comportamento (`spec/agents/helena/pacote/textos.yaml`).
 CHAVE_TEXTO: Final[str] = "cobertura_fora"
