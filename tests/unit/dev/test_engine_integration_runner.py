@@ -46,6 +46,16 @@ ROOT_FIXTURE_SUITES = [
     "tests/integration/test_staff_installer_live_pg.py",
 ]
 
+#: Orcamento de relogio de UM `discover` completo do repositorio real: clone + checkout + venv
+#: proprio do `uv run` + SEIS coletas completas do pytest. A descoberta canonica e a POLUIDA sao a
+#: MESMA operacao (o runner descarta o ambiente herdado antes de cada filho), entao dividem o
+#: mesmo orcamento — o teto de 120 s da variante poluida era a metade do da canonica e, com a
+#: arvore de testes de out/2026, a descoberta passou a medir perto disso no runner do CI
+#: (`TimeoutExpired` sem saida porque o runner so escreve ao terminar). A operacao e' finita por
+#: construcao: cada filho do runner tem teto proprio (clone/checkout 120 s, sonda 180 s, cada
+#: coleta 180 s), e este teto externo e' apenas o do conjunto.
+DISCOVERY_TIMEOUT = 300.0
+
 
 def _run(
     *args: str,
@@ -94,7 +104,7 @@ def baseline_discovery(tmp_path_factory: pytest.TempPathFactory) -> dict[str, An
         _head_sha(),
         "--results-dir",
         str(directory),
-        timeout=300,
+        timeout=DISCOVERY_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr
     payload: dict[str, Any] = json.loads((directory / "discovery.json").read_text())
@@ -476,7 +486,7 @@ def test_discovery_ignores_ambient_pytest_selectors_and_plugins(
         sha,
         "--results-dir",
         str(polluted_dir),
-        timeout=120,
+        timeout=DISCOVERY_TIMEOUT,
         extra_env={
             "PYTEST_ADDOPTS": "-k not\\ test_alerta_interno_nao_interruptivo",
             "PYTHONPATH": str(plugin_dir),
