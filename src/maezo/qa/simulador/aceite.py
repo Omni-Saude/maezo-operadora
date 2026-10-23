@@ -980,7 +980,7 @@ HELENA_V4: tuple[Segmento, ...] = (
                     "consulta com endocrinologista",
                     r"14 dias uteis",
                     "(aplicativo|portal|central)",
-                    "nao consigo confirmar cobertura",
+                    "nao trato de cobertura",  # DL-0154 (dono, 23/10/2026): o aviso da cobertura
                 ),
                 nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _ENCAMINHOU),
             ),
@@ -997,8 +997,8 @@ HELENA_V4: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre ressonância?",
                 escalacao=ESCALACAO_NENHUMA,
-                # Modo simples (decisao do dono, DL-0140): a oferta da equipe no lugar dos canais.
-                deve=(r"(a equipe confirma para voce|quer que eu encaminhe)",),
+                # Cobertura fora (decisao do dono de 23/10/2026, DL-0154): so' o aviso com os canais.
+                deve=(r"nao trato de cobertura",),
                 nao_deve=(_COBERTURA_PROMETIDA, r"14 dias uteis", "consulta de especialista"),
             ),
         ),

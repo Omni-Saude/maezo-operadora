@@ -156,7 +156,6 @@ from langgraph.graph import END, START, StateGraph
 from maezo.conhecimento import base_saude as _bs
 from maezo.conhecimento import jornadas as _jornadas
 from maezo.conhecimento import saude_gerativa as _sg
-from maezo.conhecimento.catalogo_procedimentos import BuscaDeProcedimentos
 
 # P5 (16/10/2026): a cerca de saida e a mensagem da retomada moram em modulos leves (o portal as usa).
 from maezo.contratos.conversa import INTENT_COBRANCA as INTENT_COBRANCA
@@ -240,20 +239,6 @@ from maezo.tools.workers.dmn_transport import (
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
 from .alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
-from .cobertura_rol import (
-    AVISO_DO_DEPENDENTE,
-    INICIO_DA_PERGUNTA_PARA_QUEM,
-    PENDENTE_COBERTURA_PARA_QUEM,
-    PREFIXO_COBERTURA_QUEM,
-    QUEM_TITULAR,
-    literais_da_cobertura,
-    pergunta_para_quem,
-    quem_da_resposta,
-    termo_da_continuacao,
-    termo_da_mensagem,
-    termo_valido,
-    texto_da_cobertura,
-)
 from .consultas_plano import (
     ADENDO_CLASSIFY_CONSULTAS,
     CLASSIFY_CONSULTAS_ADENDO_VERSION,
@@ -273,7 +258,6 @@ from .consultas_plano import (
     ler_carteirinhas_completas,
     ler_dependentes_nominais,
     literais_dos_fatos,
-    marcador_do_dependente,
     motivo_de_omissao_da_elegibilidade,
     motivo_de_recusa_da_consulta,
     resposta_deterministica,
@@ -282,9 +266,11 @@ from .consultas_plano import (
     sem_marcador_de_dependente,
     so_deterministica,
     texto_de_dependentes_com_nomes,
-    texto_do_parentesco,
     texto_para_cerca,
 )
+from .habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
+from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
+from .habilidades.conversa import leitura_curta as _lc
 from .helena_v4 import (
     ALERTAS,
     ECO_GENERICO,
@@ -325,7 +311,6 @@ from .historico import (
     CHAVE_RESPOSTA_COM_DADOS_DO_PLANO,
     HISTORICO_JANELA_HORAS,
     MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO,
-    MARCADOR_RESPOSTA_DE_COBERTURA,
     acrescentar_turno,
     historico_em_texto,
     historico_valido,
@@ -350,6 +335,7 @@ from .prompts import (
     sintoma_em_palavras,
 )
 from .roteador import ROTEADOR_PROMPT_VERSION
+from .textos import TextosDaHelena
 from .triagem_v2 import (
     COLETA_MAX_RODADAS_TRIAGEM_V2,
     COLETA_VEREDITO_PERGUNTAR_MAIS,
@@ -1541,16 +1527,6 @@ ERRO_CONSULTA_RECUSADA: str = "consulta recusada"
 NEXT_KIND_CONSULTA_PLANO: str = "consulta_plano"
 #: Teto do tempo que a consulta a AMH soma ao turno (cada leitura ja' e' limitada pelo port).
 CONSULTA_PRAZO_S: float = 6.0
-#: ROTEIRO helena_fases_18_10 (18/10/2026): a busca de cobertura da AMH (termo no Rol x plano) passou dos 6 s
-#: da
-#: consulta do plano; o leitor ja' tem o proprio teto (`helena_consultas.PRAZO_TOTAL_S`, 20 s).
-COBERTURA_PRAZO_S: float = 18.0
-#: DL-0129: a escolha do GLM-5 entre os candidatos do catalogo; estourou = a decisao por nota.
-ESCOLHA_PRAZO_S: float = 20.0
-#: DL-0129: a cobertura lida por (titular, codigo) fica em memoria por 5 min (o `max-age` das leituras TINA).
-COBERTURA_EM_MEMORIA_S: float = 300.0
-#: DL-0131: a pessoa escolhida para a cobertura ("para quem") e' lembrada na conversa por 2 h.
-QUEM_EM_MEMORIA_S: float = 7200.0
 #: DL-0131: os nomes dos dependentes lidos ficam em memoria por 2 h (nunca em estado ou log).
 NOMES_EM_MEMORIA_S: float = 7200.0
 #: DL-0130: a CPT vigente lida por titular fica em memoria por 5 min (o limite por sujeito da rota e'
@@ -3337,10 +3313,7 @@ RESPOSTA_CANAIS_DO_PLANO: str = (
 )
 #: A parte de cobertura de uma mensagem que tambem pergunta de cobranca: a cobranca vai ao Lucas, e a
 #: Helena diz onde ver a cobertura (a fonte do plano esta' desligada).
-RESPOSTA_COBERTURA_NA_PASSAGEM: str = (
-    "Sobre cobertura, essa informação ainda não está disponível por este chat. Veja no aplicativo "
-    "Austa Clínicas, no portal do plano ou na central de atendimento do plano."
-)
+RESPOSTA_COBERTURA_NA_PASSAGEM: str = TEXTO_COBERTURA_FORA
 #: Duvida de saude sem sintoma que pede CONDUTA ("de quanto em quanto tempo fazer check-up?"). O modelo
 #: respondeu "check-up e colesterol a cada 1 ou 2 anos" — recomendacao clinica, que a Helena nunca da'.
 RESPOSTA_DUVIDA_CLINICA: str = (
@@ -3464,20 +3437,9 @@ RESPOSTA_PLANO_INDISPONIVEL_3: str = (
     "Sinto muito pela dificuldade. Por aqui as informações do plano ainda não estão disponíveis. "
     "Uma pessoa da equipe pode te ajudar com isso: é só me pedir."
 )
-#: Cobertura de procedimento ESPECIFICO: a segmentacao do cadastro nao confirma o procedimento.
-RESPOSTA_COBERTURA_ESPECIFICA: str = (
-    "Por aqui eu não consigo confirmar cobertura de um procedimento específico. Para isso, fale com a "
-    "central de atendimento do plano ou com uma pessoa da equipe. O aplicativo Austa Clínicas e o portal "
-    "do plano também ajudam."
-)
-#: RODADA 4: a mesma resposta, com outra redacao, para quem insiste na cobertura (sem reenviar os dados).
-RESPOSTA_COBERTURA_ESPECIFICA_2: str = (
-    "Entendo que você precisa dessa confirmação. A cobertura de um procedimento específico é confirmada "
-    "pela central de atendimento do plano ou por uma pessoa da equipe: é só me pedir."
-)
-#: RODADA 8: o texto de cobertura com a SEGMENTACAO registrada (so' o fato do cadastro; nunca promessa).
-#: "{segmentacao}" e' o valor do cadastro. Seguido de `RESPOSTA_COBERTURA_ESPECIFICA`.
-MODELO_SEGMENTACAO_DO_CADASTRO: str = "No cadastro, seu plano consta com segmentação {segmentacao}."
+#: COBERTURA FORA (dono, 23/10/2026, DL-0154): toda resposta de cobertura e' o aviso unico com os canais.
+RESPOSTA_COBERTURA_ESPECIFICA: str = TEXTO_COBERTURA_FORA
+RESPOSTA_COBERTURA_ESPECIFICA_2: str = TEXTO_COBERTURA_FORA
 #: RODADA 8 (teste real do dono): com os fatos do plano LIGADOS e a pessoa verificada, a falha da consulta
 #: NUNCA diz que a informacao "nao esta' disponivel por este chat" (e' falso): diz que a consulta falhou
 #: agora, e avanca a cada repeticao (retentar -> pessoa -> canais).
@@ -3566,13 +3528,10 @@ _PERGUNTA_DE_COBERTURA_AMPLA = re.compile(
     r"|tem cobertura|e coberto|e coberta"
     r"|onde (?:faco|fazer|posso fazer|eu faco)\b.{0,60}\bpelo (?:plano|convenio))\b"
 )
-#: O prefixo das pendencias da cobertura assistida (`cobertura_assistida.PREFIXO`).
-PREFIXO_COBERTURA_ASSISTIDA = "COB2:"
 #: D2 (DL-0052): a Helena nao pesquisa prestador; diz onde a pessoa encontra a rede.
 TEXTO_REDE: str = (
     "Por aqui eu não pesquiso prestadores. A rede credenciada do seu plano está no aplicativo Austa Clínicas "
-    "e no portal do plano. Lá dá para buscar por especialidade e cidade. Para saber se um exame ou "
-    "procedimento está no seu plano, me diga o nome como está no pedido médico."
+    "e no portal do plano. Lá dá para buscar por especialidade e cidade."
 )
 
 
@@ -3602,23 +3561,6 @@ _TITULAR_DITO: re.Pattern[str] = re.compile(
 _ESCOLHA_CURTA: re.Pattern[str] = re.compile(
     r"(?:(?:a |o )?opcao )?\d{1,2}|(?:o |a )?(?:primeir[oa]|segund[oa]|terceir[oa]|ultim[oa])(?: opcao)?"
 )
-#: A pendencia "ja' respondido" da cobertura assistida (`cobertura_fluxo.PEND_RESPONDIDO`).
-_PEND_RESPONDIDO = "COB2:RESPONDIDO"
-#: D3/D4 (avaliacao de 20/10/2026): coparticipacao ou reembolso de um PROCEDIMENTO e' assunto de cobertura
-#: (resposta honesta da Helena), nunca o valor da mensalidade do Lucas. Com palavra de COBRANCA de fato
-#: (boleto, mensalidade, fatura, cobrado, vencimento) a coparticipacao segue o Lucas; reembolso, sempre aqui.
-_COPART_OU_REEMBOLSO: re.Pattern[str] = re.compile(r"\b(?:coparticipac\w*|reembols\w*|ressarcimento)\b")
-_REEMBOLSO: re.Pattern[str] = re.compile(r"\b(?:reembols\w*|ressarcimento)\b")
-_COBRANCA_DE_FATO: re.Pattern[str] = re.compile(
-    r"\b(?:boletos?|mensalidades?|faturas?|vence|vencem|vencimento|vencid[oa]s?|segunda via|2a via"
-    r"|codigo de barras|cobrad[oa]s?|cobraram|cobrando|debitos?|estorno|multa|duplicad[oa]|extrato)\b"
-)
-
-
-def _copart_ou_reembolso_do_procedimento(plano: str) -> bool:
-    if not _COPART_OU_REEMBOLSO.search(plano):
-        return False
-    return bool(_REEMBOLSO.search(plano)) or not _COBRANCA_DE_FATO.search(plano)
 
 
 def _pede_telefone(texto: str) -> bool:
@@ -3806,61 +3748,6 @@ _PEDE_OUTRO_FATO_DO_PLANO = re.compile(
 def _pergunta_de_outro_fato_do_plano(texto: str) -> bool:
     """A mensagem, alem de cobertura, pede carencia, autorizacao ou o numero da carteirinha?"""
     return bool(_PEDE_OUTRO_FATO_DO_PLANO.search(_plano(texto)))
-
-
-#: RODADA DO DONO (18/10/2026): o que cada SEGMENTACAO abrange pela regra da ANS (Lei 9.656/98, art. 12;
-#: RN 465/2021), em linhas gerais — nunca a promessa de um procedimento.
-_O_QUE_A_SEGMENTACAO_ABRANGE: tuple[tuple[re.Pattern[str], str], ...] = (
-    (
-        re.compile(r"\breferencia\b"),
-        "o plano-referência reúne as partes ambulatorial, hospitalar e de obstetrícia",
-    ),
-    (
-        re.compile(r"\bambulatorial\b"),
-        "a parte ambulatorial abrange consultas, exames e terapias sem internação",
-    ),
-    (re.compile(r"\bhospitalar\b"), "a hospitalar abrange internações e cirurgias"),
-    (re.compile(r"\bobstetric\w*"), "com obstetrícia, inclui o pré-natal e o parto"),
-    (re.compile(r"\bodonto\w*"), "a odontológica abrange o atendimento com dentista"),
-)
-AVISO_DA_SEGMENTACAO: str = (
-    "Isso vale para o que está no Rol da ANS; cada procedimento depende de carência, autorização e indicação "
-    "médica."
-)
-
-
-def explicacao_da_segmentacao(segmentacao: str) -> str | None:
-    """Em linhas gerais, pela regra da ANS, o que a segmentacao registrada abrange, ou `None`."""
-    plano = _plano(segmentacao)
-    partes = [texto for padrao, texto in _O_QUE_A_SEGMENTACAO_ABRANGE if padrao.search(plano)]
-    if not partes:
-        return None
-    if partes[0].startswith("o plano-referência"):
-        partes = partes[:1]
-    frase = "Pela regra da ANS, " + "; ".join(partes) + "."
-    return f"{frase} {AVISO_DA_SEGMENTACAO}"
-
-
-#: A pergunta GERAL de cobertura ("o que ele cobre?", "qual a cobertura do meu plano?") — nao a de um
-#: procedimento ("cobre parto?").
-_PERGUNTA_GERAL_DE_COBERTURA = re.compile(
-    r"\bo que (?:ele |o (?:meu )?plano |meu plano |o plano )?(?:cobre|abrange|inclui)\b"
-    r"|\bqual (?:e )?a cobertura\b|\bo que (?:esta|ta) coberto\b|\bcobre o que\b"
-)
-
-
-def _texto_de_cobertura(fatos: Mapping[str, Any] | None, *, geral: bool = False) -> str:
-    """A resposta a "meu plano cobre X?": a SEGMENTACAO registrada (fato do cadastro), o que ela abrange em
-    linhas gerais pela regra da ANS, e onde confirmar um procedimento especifico — nunca a promessa de
-    cobertura. Sem segmentacao, so' o onde confirmar."""
-    segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
-    if segmentacao is None:
-        return RESPOSTA_COBERTURA_ESPECIFICA
-    explicacao = explicacao_da_segmentacao(segmentacao) if geral else None
-    cadastro = MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=segmentacao)
-    if explicacao:
-        return f"{cadastro} {explicacao} {RESPOSTA_COBERTURA_ESPECIFICA}"
-    return f"{cadastro} {RESPOSTA_COBERTURA_ESPECIFICA}"
 
 
 def _texto_plano_indisponivel(estado: Mapping[str, Any], *, fonte_ligada: bool = False) -> str:
@@ -4083,20 +3970,7 @@ def _pergunta_de_terceiro(pergunta: str, paciente: tuple[str, str]) -> str:
 
 def _ja_mostrou_dados_do_plano(estado: Mapping[str, Any]) -> bool:
     """A Helena ja' respondeu com dados do plano nesta conversa (o historico guarda so' o marcador)."""
-    return any(
-        f.strip() in (MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO, MARCADOR_RESPOSTA_DE_COBERTURA)
-        for f in _falas_da_helena(estado)
-    )
-
-
-def _ja_respondeu_cobertura(estado: Mapping[str, Any]) -> bool:
-    """RODADA 8: a Helena ja' respondeu uma pergunta de COBERTURA nesta conversa (marcador proprio ou a
-    resposta curta da insistencia). So' a insistencia na COBERTURA ganha a resposta curta — a primeira
-    pergunta de cobertura, mesmo depois de outras respostas do plano, recebe a segmentacao."""
-    return any(
-        f.strip() == MARCADOR_RESPOSTA_DE_COBERTURA or RESPOSTA_COBERTURA_ESPECIFICA[:50] in f
-        for f in _falas_da_helena(estado)
-    )
+    return any(f.strip() == MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO for f in _falas_da_helena(estado))
 
 
 def _com_emergencia_se_preciso(estado: Mapping[str, Any], texto: str) -> str:
@@ -4201,15 +4075,6 @@ _COBRANCA_NEGADA = re.compile(
     r"(?: (?:sobre|da|de|do|a|o|minha|meu))*\s*"
     r"(?:mensalidades?|boletos?|cobrancas?|pagamentos?|faturas?|financeiro)\b"
 )
-
-
-def _cobertura_recente(estado: Mapping[str, Any]) -> bool:
-    """Uma das duas ultimas falas da Helena foi resposta de cobertura (marcador) ou a pergunta "para quem e'?"
-    (rodada do dono de 19/10/2026)."""
-    return any(
-        f.strip() == MARCADOR_RESPOSTA_DE_COBERTURA or f.startswith(INICIO_DA_PERGUNTA_PARA_QUEM)
-        for f in _falas_da_helena(estado)[-2:]
-    )
 
 
 def _pergunta_de_cobranca(texto: str) -> bool:
@@ -4761,19 +4626,16 @@ class HelenaGraph:
         base_saude: _bs.BaseSaude | None = None,
         helena_dependentes_nome_enabled: bool = False,
         saude_gerativa: _sg.RedatorDeSaude | None = None,
-        catalogo_procedimentos: BuscaDeProcedimentos | None = None,
         helena_roteador: str = "desligado",
         roteador_inference: InferenceProvider | None = None,
         roteador_concorrencia: int = 4,
         helena_roteador_conversas: frozenset[str] = frozenset(),
-        cobertura_modo: str = "consulta",
+        textos: Mapping[str, str] | None = None,
     ) -> None:
         self._llm = inference
-        # COBERTURA (decisao do dono de 22/10/2026, DL-0140, `MAEZO_HELENA_COBERTURA_MODO`): `simples` nunca
-        # consulta catalogo/AMH por procedimento (texto geral + oferta da equipe); `consulta` = a consulta
-        # automatica. O padrao do RUNTIME vem da configuracao (`simples`); aqui `consulta` mantem os testes da
-        # consulta como estao. Valor desconhecido = `simples` (falha fechada: nunca afirma cobertura).
-        self._cobertura_modo = cobertura_modo if cobertura_modo in ("simples", "consulta") else "simples"
+        # TEXTOS DO PACOTE (ADR-0067 §4): o texto de cada chave vem do pacote de comportamento, quando ha';
+        # senao, o padrao aprovado do codigo (`textos.PADRAO`).
+        self._textos = TextosDaHelena(textos)
         # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134/0135/0136, `MAEZO_HELENA_ROTEADOR`): `desligado`
         # e' o grafo de antes no a no'. `sombra` (F1) roda o roteador e as travas EM PARALELO e so' registra a
         # decisao (`helena_roteador_sombra`). `ativo` (F2) faz o roteador DECIDIR, mas SO' nas conversas da
@@ -4783,9 +4645,6 @@ class HelenaGraph:
         self._roteador_contrato: Any = None
         self._roteador_conversas = frozenset(helena_roteador_conversas or ())
         self._roteador_em_voo: dict[tuple[str, str], tuple[Any, Any, str | None, str | None]] = {}
-        # Latencia (22/10/2026): a extracao da cobertura iniciada JUNTO com o roteador (texto, tarefa)
-        # por turno.
-        self._extracoes_antecipadas: dict[tuple[str, str], tuple[str, asyncio.Future[Any]]] = {}
         # ORCAMENTO (21/10/2026): provedor proprio (prazo real curto, teto de saida pequeno, pool proprio) e
         # um
         # limite de chamadas simultaneas; com o limite cheio, o turno segue sem o roteador (`falha=ocupado`).
@@ -4818,22 +4677,6 @@ class HelenaGraph:
         # Rodada do dono de 19/10/2026 (DL-0128): os nomes lidos ficam EM MEMORIA por ate' 15 min por titular
         # (nunca em estado ou log), para a mesma conversa nao gastar o limite de leituras da rota.
         self._nomes_em_memoria: dict[str, tuple[float, NomesDoTurno, tuple[tuple[int, str], ...]]] = {}
-        # DL-0129 (capacidade): a cobertura lida por (titular, codigo) fica EM MEMORIA por 5 min (o mesmo
-        # `max-age` das leituras TINA), para opcoes, confirmacao e repeticao nao gastarem o limite por
-        # sujeito da rota. Nunca em estado ou log.
-        self._cobertura_em_memoria: dict[tuple[str, str], tuple[float, Any]] = {}
-        # DL-0131 (velocidade e conversa): elegibilidade do titular por 5 min; a pessoa escolhida ("para
-        # quem") por conversa por 2 h. Em memoria, nunca em estado ou log.
-        self._elegibilidade_em_memoria: dict[str, tuple[float, Mapping[str, Any]]] = {}
-        self._quem_em_memoria: dict[str, tuple[float, str]] = {}
-        # DL-0130: a CPT vigente lida por titular fica EM MEMORIA por 5 min (limite por sujeito compartilhado
-        # com a cobertura), no maximo 256 titulares. Nunca em estado ou log.
-        self._cpt_em_memoria: dict[str, tuple[float, Any]] = {}
-        # COBERTURA ASSISTIDA (DL-0128): o catalogo de procedimentos (traducao para o nome oficial), so' na
-        # allowlist da saude gerativa. `None` = a busca por texto da propria rota de cobertura.
-        self._busca_procedimentos = catalogo_procedimentos or (
-            getattr(saude_gerativa, "catalogo", None) if saude_gerativa is not None else None
-        )
         # BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, `MAEZO_HELENA_BASE_SAUDE`): DESLIGADA por default,
         # e desligada e' o grafo de antes byte a byte (`self._base_saude` falso: nenhum ramo `_base_*` roda).
         # Ligada (so' em dev): a Helena INFORMA perguntas gerais de saude a partir da base curada versionada
@@ -6086,9 +5929,9 @@ class HelenaGraph:
         pend_encerrar = self._base_saude and state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
         if pend_encerrar:
             update["coleta_pendente"] = None
-        if str(state.get("coleta_pendente") or "").startswith(("BS_COBERTURA", PREFIXO_COBERTURA_ASSISTIDA)):
-            # "Para quem e'?" (rodada do dono de 19/10/2026) sem a escolha neste turno: a pergunta vale so'
-            # uma vez.
+        if str(state.get("coleta_pendente") or "").startswith(("BS_COBERTURA", "COB2:")):
+            # COBERTURA FORA (DL-0154): uma pergunta pendente da cobertura de antes (estado gravado antes da
+            # retirada) nunca sobrevive ao turno.
             update["coleta_pendente"] = None
             update["coleta_contexto"] = ""
         return pend_v4, pend_encerrar
@@ -6763,209 +6606,41 @@ class HelenaGraph:
     # traz
     #     sintoma nem risco por construcao; o modelo nao tem o que acrescentar.
 
-    def _continuidade_da_cobertura(
-        self, state: Mapping[str, Any], plano: str, texto: str
-    ) -> dict[str, Any] | None:
-        """RODADA DO DONO (19/10/2026), so' na allowlist: (a) a RESPOSTA a "para quem e'?" vai a consulta de
-        cobertura do escolhido; (b) depois de uma resposta de cobertura (nas duas ultimas falas da Helena), a
-        mensagem que e' so' o nome do procedimento ("Mamografia", "e vasectomia?") continua sendo cobertura —
-        vai a
-        consulta AMH, nunca ao Lucas nem a redacao. `None` = o caminho de sempre."""
-        if self._consultas is None or getattr(self._consultas, "consultar_cobertura", None) is None:
-            return None
+    def _cobertura_fora(self, state: Mapping[str, Any], plano: str, texto: str) -> dict[str, Any] | None:
+        """COBERTURA FORA (decisao do dono de 23/10/2026, DL-0154): a pergunta de cobertura recebe SO' o aviso
+        com os canais da empresa — sem consulta, sem Rol nem carencia, sem oferta da equipe. Emergencia,
+        queixa atual, risco e cobranca seguem o caminho de sempre (as travas e o Lucas vencem). Com o
+        roteador ATIVO decidindo outra habilidade, o detector nao pega a mensagem. `None` = o caminho de
+        sempre."""
         habilidade_do_turno = _HABILIDADE_DO_TURNO.get()
         if habilidade_do_turno is not None and habilidade_do_turno != "cobertura":
-            # F2 (ADR-0066): o roteador decidiu OUTRA habilidade; nenhuma regra de cobertura pega a mensagem.
             return None
-        assistida = self._rota_da_cobertura_assistida(state, plano, texto)
-        if assistida is not None:
-            return assistida
-        pendente = state.get("coleta_pendente")
-        if pendente == PENDENTE_COBERTURA_PARA_QUEM:
-            contexto = str(state.get("coleta_contexto") or "")
-            termo_guardado, _, quantos_txt = contexto.rpartition("|")
-            quem = quem_da_resposta(texto, int(quantos_txt) if quantos_txt.isdigit() else 1)
-        else:
-            termo_guardado, quem = "", None
-        if quem is not None:
-            update = self._update_sem_modelo(state)
-            update.update(
-                {
-                    "intent": INTENT_CONSULTA_PLANO,
-                    "consulta_subtipo": "elegibilidade",
-                    "coleta_pendente": f"{PREFIXO_COBERTURA_QUEM}{quem}",
-                    "coleta_contexto": termo_guardado,
-                }
-            )
-            logger.info("helena_cobertura_para_quem_respondida", node="classify", quem=quem.split(":")[0])
-            return self._rota_de_consulta(update)
-        if _sinal_forte_de_emergencia(texto) or _sg.queixa_atual(plano):
+        if not _pergunta_de_cobertura_ampla(texto) or _pergunta_de_cobranca(texto):
             return None
         if (
-            _COBRANCA_NEGADA.search(plano)
-            and _pergunta_de_cobertura(texto)
-            and not _pergunta_de_cobranca(texto)
+            _pergunta_de_outro_fato_do_plano(texto)
+            or especialidade_pedida(plano) is not None
+            or _pergunta_de_navegacao(texto)
         ):
-            # "Nao, a minha duvida nao e' sobre mensalidade, e' se o plano cobre mamografia": cobertura,
-            # nunca o Lucas (nem o classificador, que via "mensalidade").
-            update_neg = self._update_sem_modelo(state)
-            update_neg.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
-            logger.info("helena_cobertura_com_cobranca_negada", node="classify")
-            return self._rota_de_consulta(update_neg)
-        continua = _pergunta_de_cobertura(texto) or (
-            # Avaliacao de 21/10/2026: "valeu"/"ok"/"blz" nunca viram busca de procedimento.
-            self._nome_de_procedimento(texto)
-            if self._busca_procedimentos is not None
-            else bool(termo_da_continuacao(texto))
-        )
-        if not _cobertura_recente(state) or not continua:
+            # Outro dado do plano (carencia, carteirinha), o pedido de especialista ou a navegacao ("vou na
+            # UBS ou espero?") na mesma mensagem: o caminho de sempre responde e acrescenta o aviso.
             return None
-        update = self._update_sem_modelo(state)
-        update.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
-        logger.info("helena_cobertura_continua", node="classify")
-        return self._rota_de_consulta(update)
+        if _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto) or _sg.queixa_atual(plano):
+            return None
+        return self._texto_da_cobertura_fora(state)
 
-    def _rota_da_cobertura_assistida(
-        self, state: Mapping[str, Any], plano: str, texto: str
-    ) -> dict[str, Any] | None:
-        """COBERTURA ASSISTIDA (DL-0128), so' na allowlist e ANTES do classificador: a pergunta de cobertura
-        (em qualquer forma) e as RESPOSTAS as perguntas do fluxo (para quem, opcoes, nome do pedido, equipe)
-        vao a consulta do plano com a pendencia preservada. "Sim" a oferta da equipe abre o caso (pedido de
-        pessoa, `solicitacao_humano`); so' com "sim". Emergencia, queixa atual e cobranca seguem o caminho de
-        sempre."""
-        from maezo.agents.helena import cobertura_assistida as _ca
-
-        if not self._gerativa_para(state):
-            return None
-        pendente = str(state.get("coleta_pendente") or "")
-        if _sinal_forte_de_emergencia(texto) or _sg.queixa_atual(plano):
-            return None
-        do_procedimento = _copart_ou_reembolso_do_procedimento(plano)
-        if _pergunta_de_cobranca(texto) and not (_pergunta_de_cobertura_ampla(texto) or do_procedimento):
-            return None
-        com_pendencia = pendente.startswith(PREFIXO_COBERTURA_ASSISTIDA)
-        if (
-            com_pendencia
-            and pendente in (_ca.PEND_EQUIPE, _ca.PEND_FALHA)
-            and (_ca.e_sim(texto) if pendente == _ca.PEND_EQUIPE else _ca.falar_com_equipe(texto))
-        ):
-            update = self._update_sem_modelo(state)
-            update.update(
-                {
-                    "intent": "human_request",
-                    "next_kind": "escalate",
-                    "escalation_motivo": "solicitacao_humano",
-                    "escalation_severidade": "leve",
-                    "coleta_pendente": pendente,
-                    "coleta_contexto": str(state.get("coleta_contexto") or ""),
-                }
-            )
-            logger.info("helena_cobertura_equipe_aceita", node="classify")
-            return update
-        ampla = _pergunta_de_cobertura_ampla(texto)
-        lista = self._parece_lista_de_procedimentos(texto)
-        if com_pendencia and (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto)):
-            # Avaliacao de 21/10/2026: pedido EXPLICITO de pessoa no meio da cobertura abre o caso pelo
-            # caminho
-            # de sempre (gatilho de pedido de pessoa), nunca a resposta da cobertura.
-            return None
-        if com_pendencia and pendente == _PEND_RESPONDIDO and not (ampla or lista):
-            # Depois de uma resposta ja' dada, SO' ficam na cobertura: cortesia ("ok", "valeu"), "faltou
-            # algum?", a troca de pessoa ("e' pra minha esposa"), "deixa pra la" e o NOME de outro exame.
-            # Qualquer outra fala (dependentes, mensalidade, reclamacao, pedido de pessoa) vai ao roteamento
-            # normal — nunca a resposta "quais exames?".
-            from maezo.agents.helena.cobertura_fluxo import cita_outra_pessoa
-
-            fica = (
-                _ca.e_cortesia(texto)
-                or _ca.ler_resposta(texto) == "encerrar"
-                or _ca.pergunta_se_faltou(texto)
-                or (len(plano.split()) <= 10 and (cita_outra_pessoa(texto) or _TITULAR_DITO.search(plano)))
-                or self._nome_de_procedimento(texto)
-            )
-            if not fica:
-                logger.info("helena_cobertura_pendencia_escapou", node="classify", pendencia=pendente)
-                return None
-        elif com_pendencia and not (ampla or do_procedimento or lista):
-            # DL-0131: so' a resposta CURTA ("1", "sim", "nao", um nome, "eu ja' disse") e a reclamacao sao
-            # lidas contra a pergunta pendente; pergunta ou pedido NOVO escapa para o roteamento normal.
-            if not (_ca.e_reclamacao(texto) or self._responde_a_pendencia(pendente, texto, plano)):
-                logger.info("helena_cobertura_pendencia_escapou", node="classify", pendencia=pendente)
-                return None
-        elif not (ampla or do_procedimento or lista):
-            return None
-        update = self._update_sem_modelo(state)
-        update.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
-        if com_pendencia:
-            update["coleta_pendente"] = pendente
-            update["coleta_contexto"] = str(state.get("coleta_contexto") or "")
-        logger.info("helena_cobertura_assistida_rota", node="classify", pendencia=pendente or None)
-        return self._rota_de_consulta(update)
+    def _texto_da_cobertura_fora(self, state: Mapping[str, Any]) -> dict[str, Any]:
+        logger.info("helena_cobertura_fora", node="classify")
+        # "E' urgente" de gestante sem sinal de saude leva o 192 no fim (DL-0091), como antes.
+        texto = _com_emergencia_se_preciso(state, self._textos[CHAVE_TEXTO_COBERTURA_FORA])
+        return self._base_texto_fixo(self._update_sem_modelo(state), texto)
 
     def _reclamacao_sem_pedido(self, state: Mapping[str, Any], texto: str) -> bool:
         """DL-0131, so' na allowlist: a mensagem e' irritacao/reclamacao/"nao entendi" SEM pedido explicito
         de pessoa ("quero falar com um atendente", "me passa para a equipe")."""
-        from maezo.agents.helena import cobertura_assistida as _ca
-
-        if not self._gerativa_para(state) or not _ca.e_reclamacao(texto):
+        if not self._gerativa_para(state) or not _lc.e_reclamacao(texto):
             return False
         return not _QUERO_UMA_PESSOA.search(_plano(texto))
-
-    def _nome_de_procedimento(self, texto: str) -> bool:
-        """Avaliacao de 21/10/2026: a fala curta e' o NOME de um exame/procedimento (palavra do catalogo), sem
-        pergunta nem pedido — so' entao ela continua a cobertura sem dizer "cobre"."""
-        from maezo.agents.helena import cobertura_assistida as _ca
-
-        busca = self._busca_procedimentos
-        plano = _plano(texto)
-        if busca is None or not busca.pronto or _ca.e_cortesia(texto) or len(plano.split()) > 12:
-            return False
-        return bool(termo_da_continuacao(texto)) and busca.parece_procedimento(texto)
-
-    def _responde_a_pendencia(self, pendente: str, texto: str, plano: str) -> bool:
-        """DL-0131: a mensagem e' RESPOSTA a pergunta pendente da cobertura (e nao um pedido novo)?
-        Sim/nao/nao sei/encerrar, "eu ja' disse", cortesia e a escolha por numero valem para todas; o resto
-        depende do que foi perguntado: um nome (para quem), o nome de uma opcao, o nome de um exame (como
-        esta'
-        no pedido / confirmacao)."""
-        from maezo.agents.helena import cobertura_assistida as _ca
-
-        if (
-            _ca.ler_resposta(texto) is not None
-            or _ca.ja_disse(texto)
-            or _ca.e_cortesia(texto)
-            or _ESCOLHA_CURTA.fullmatch(plano)
-        ):
-            return True
-        if "?" in texto or not _ca.resposta_curta(texto):
-            return False
-        n = len(plano.split())
-        if pendente == _ca.PEND_QUEM:
-            return n <= 5
-        if pendente == _ca.PEND_OPCOES:
-            return n <= 6
-        if pendente in (_ca.PEND_FORMA, _ca.PEND_CONFIRMA):
-            busca = self._busca_procedimentos
-            parece = busca is not None and busca.pronto and busca.parece_procedimento(texto)
-            # Ate' 6 palavras sem pedido e' o nome escrito no pedido medico (mesmo desconhecido); mais longo,
-            # so'
-            # com palavra do catalogo.
-            return n <= 6 or (n <= 12 and parece)
-        return False
-
-    def _parece_lista_de_procedimentos(self, texto: str) -> bool:
-        """DL-0131: uma LISTA de exames/procedimentos (linhas, virgulas, marcadores, maiusculas), com ou sem
-        "cobre": dois ou mais itens curtos e ao menos dois com palavra do catalogo de procedimentos."""
-        from maezo.agents.helena import cobertura_assistida as _ca
-
-        busca = self._busca_procedimentos
-        if busca is None or not busca.pronto:
-            return False
-        itens = _ca.itens_da_lista(texto)
-        if len(itens) < 2 or any(len(i.split()) > 8 for i in itens):
-            return False
-        com_cara = sum(1 for i in itens if busca.parece_procedimento(i))
-        return com_cara >= max(2, (len(itens) + 1) // 2)
 
     @staticmethod
     def _update_sem_modelo(state: Mapping[str, Any], populacao: str = "none") -> dict[str, Any]:
@@ -7013,11 +6688,11 @@ class HelenaGraph:
                 )
             logger.info("helena_recusa_de_equipe_sem_modelo", node="classify", caso_aberto=False)
             return _rota_informativa(update)
-        if not self._gerativa_para(state):
-            return None
-        cobertura = self._continuidade_da_cobertura(state, plano, texto)
+        cobertura = self._cobertura_fora(state, plano, texto)
         if cobertura is not None:
             return cobertura
+        if not self._gerativa_para(state):
+            return None
         pendente = state.get("coleta_pendente")
         if self._base_saude and pendente == PENDENTE_ENCERRAR_CASO:
             if not (_RESPOSTA_SIM.match(plano) or _RESPOSTA_NAO.match(plano)):
@@ -7289,9 +6964,7 @@ class HelenaGraph:
             basica=basica,
             segmentacao=segmentacao,
             frase_cobertura=(
-                RESPOSTA_COBERTURA_ESPECIFICA
-                if _pergunta_de_cobertura(texto) and not self._gerativa_para(state)
-                else None
+                self._textos[CHAVE_TEXTO_COBERTURA_FORA] if _pergunta_de_cobertura_ampla(texto) else None
             ),
         )
         if literais is not None:
@@ -7457,10 +7130,8 @@ class HelenaGraph:
         # da v4 levava a recusa para a v4, que a lia como sintoma novo). A recusa e' a do leitor de
         # encerrar que ja' existe (`pede_para_encerrar_o_atendimento`) ou a resposta curta de recusa
         # (`cobertura_assistida.ler_resposta` = encerrar).
-        from maezo.agents.helena import cobertura_assistida as _ca
-
         pede_encerrar = pede_para_encerrar_o_atendimento(texto)
-        desiste = _ca.ler_resposta(texto) == "encerrar"
+        desiste = _lc.ler_resposta(texto) == "encerrar"
         if (pede_encerrar or desiste) and not _pedido_explicito_com_verbo(
             _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO.sub(" ", _RECUSA_DE_EQUIPE.sub(" ", plano))
         ):
@@ -8255,6 +7926,9 @@ class HelenaGraph:
         if state.get("response_text") == RESPOSTA_PECA_REENVIO:
             # RODADA 6: o classificador falhou neste turno (ver `classify`); o texto ja' vem pronto.
             return {"response_text": RESPOSTA_PECA_REENVIO, "response_kind": "inform"}
+        if str(state.get("response_text") or "").startswith(self._textos[CHAVE_TEXTO_COBERTURA_FORA]):
+            # COBERTURA FORA (dono, 23/10/2026, DL-0154): o aviso fixo que `classify` deixou, sem modelo.
+            return {"response_text": str(state.get("response_text")), "response_kind": "inform"}
         if self._e_texto_do_roteador(state.get("response_text")):
             # F2 (ADR-0066): o texto FIXO que o roteador ativo deixou pronto (cortesia, pergunta "X ou Y?").
             return {"response_text": str(state.get("response_text")), "response_kind": "inform"}
@@ -8351,19 +8025,12 @@ class HelenaGraph:
                 return {"response_text": substituto_d7, "response_kind": "inform"}
             if _AFIRMA_COBERTURA.search(_plano(text)):
                 # RODADA 19/10/2026: o rascunho afirmou cobertura (ex.: "tem cobertura", "o plano cobre") —
-                # so' a consulta ao plano responde isso. Texto fixo no lugar.
+                # A Helena nao trata de cobertura (dono, 23/10/2026, DL-0154): o aviso unico no lugar.
                 logger.warning("helena_afirmacao_de_cobertura_barrada", node="inform")
-                if self._gerativa_para(state):
-                    # DL-0131: na allowlist, o caminho unico — pede os exames para consultar no cadastro.
-                    from maezo.agents.helena import cobertura_assistida as _ca
-
-                    return {
-                        "response_text": _ca.TEXTO_PEDE_LISTA,
-                        "response_kind": "inform",
-                        "coleta_pendente": _ca.PEND_FORMA,
-                        "coleta_contexto": _ca.Contexto().codificar(),
-                    }
-                return {"response_text": RESPOSTA_COBERTURA_ESPECIFICA, "response_kind": "inform"}
+                return {
+                    "response_text": self._textos[CHAVE_TEXTO_COBERTURA_FORA],
+                    "response_kind": "inform",
+                }
             if _PROMESSA_DE_REPASSE.search(_plano(text)):
                 # RODADA 6: "Vou levar isso para a equipe financeira" — promessa que a Helena nao cumpre
                 # (ela nao repassa nada). Trocada como uma recusa de saida (o substituto depende do caso).
@@ -8541,80 +8208,20 @@ class HelenaGraph:
             )
             return fixo
         mensagem_do_turno = str(state.get("message_body") or "")
-        pendente_do_turno = str(state.get("coleta_pendente") or "")
         habilidade_do_roteador = state.get("habilidade_roteador")
-        if (
-            self._gerativa_para(state)
-            and habilidade_do_roteador in (None, "", "cobertura")
-            and (
-                # F2 (r4 de 22/10/2026): com o roteador ATIVO escolhendo `cobertura`, a habilidade e' a
-                # cobertura — sem o detector de palavras competindo ("voces pagam endoscopia?").
-                habilidade_do_roteador == "cobertura"
-                or pendente_do_turno.startswith(PREFIXO_COBERTURA_ASSISTIDA)
-                or _pergunta_de_cobertura_ampla(mensagem_do_turno)
-                # DL-0129: coparticipacao/reembolso de procedimento ja' veio para ca' pelo roteamento sem
-                # modelo.
-                or _copart_ou_reembolso_do_procedimento(_plano(mensagem_do_turno))
-                # DL-0131: CAMINHO UNICO na allowlist — a lista de exames e qualquer intencao de cobertura.
-                or self._parece_lista_de_procedimentos(mensagem_do_turno)
-                or (self._nome_de_procedimento(mensagem_do_turno) and _cobertura_recente(state))
-            )
+        if habilidade_do_roteador == "cobertura" or (
+            habilidade_do_roteador in (None, "")
+            and _pergunta_de_cobertura_ampla(mensagem_do_turno)
+            and not _pergunta_de_outro_fato_do_plano(mensagem_do_turno)
         ):
-            assistida = await self._cobertura_assistida(state, ref)
-            if assistida is not None and assistida.get("desviar_para") == "autorizacao":
-                subtipo = "autorizacao"
-            elif assistida is not None and assistida.get("desviar_para") == "rede":
-                return {
-                    "response_text": _com_emergencia_se_preciso(state, TEXTO_REDE),
-                    "response_kind": "inform",
-                }
-            elif assistida is not None:
-                return assistida
-        if habilidade_do_roteador in (None, "", "cobertura") and (
-            # F2 (roteiro de 22/10/2026): com o roteador ATIVO decidindo outra habilidade (ex.: `plano`
-            # para "e eu ainda estou em carencia?" logo depois de uma resposta de cobertura), o caminho
-            # do Rol tambem nao pega a mensagem: a mesma regra da cobertura assistida acima (lista da F5,
-            # item 2).
-            _pergunta_de_cobertura(mensagem_do_turno)
-            or str(state.get("coleta_pendente") or "").startswith(PREFIXO_COBERTURA_QUEM)
-            or (
-                self._gerativa_para(state)
-                and termo_da_continuacao(mensagem_do_turno)
-                and _cobertura_recente(state)
-            )
-        ):
-            # FASE 3.5 (decisao D1 do dono, 18/10/2026), so' na allowlist: o procedimento consta no Rol da ANS
-            # para a segmentacao do plano? Fatos do contrato TINA cobertura (v1.9), texto deterministico com o
-            # aviso. `None` = sem termo, sem a rota ou falha: o caminho de antes (segmentacao + onde
-            # confirmar).
-            cobertura = (
-                None
-                if self._cobertura_modo == "simples"
-                else await self._cobertura_do_procedimento(state, ref)
-            )
-            if cobertura is not None:
-                return cobertura
-        if _pergunta_de_cobertura(mensagem_do_turno) and _ja_respondeu_cobertura(state):
-            # RODADA 4: quem INSISTE na cobertura de um procedimento nao recebe de novo os dados do plano
-            # (o transcrito reenviou o mesmo bloco 4x): a resposta curta de onde confirmar.
+            # COBERTURA FORA (dono, 23/10/2026, DL-0154): o aviso unico com os canais, sem consulta.
             logger.info(
-                "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="insistencia"
+                "helena_consulta_plano", node="consultar_plano", subtipo=subtipo, resultado="cobertura_fora"
             )
-            # RODADA 8: a primeira resposta de cobertura ja' trouxe a frase de "onde confirmar"; a insistencia
-            # recebe a OUTRA redacao (e, da terceira vez, `_sem_repetir` varia de novo).
             return {
-                "response_text": _com_emergencia_se_preciso(state, RESPOSTA_COBERTURA_ESPECIFICA_2),
+                "response_text": _com_emergencia_se_preciso(state, self._textos[CHAVE_TEXTO_COBERTURA_FORA]),
                 "response_kind": "inform",
             }
-        if _pergunta_de_cobertura(mensagem_do_turno) and not _pergunta_de_outro_fato_do_plano(
-            mensagem_do_turno
-        ):
-            # Cobertura pede a segmentacao — nao a carteirinha, e NAO a carencia. RODADA 9 (roteiro do dono,
-            # 13/10/2026): "Meu plano cobre parto?" logo depois de "Estou em carencia?" saiu `carencia` do
-            # modelo (o historico puxa o assunto anterior, e "parto" e' tema de carencia) e a Helena
-            # respondeu a carencia de novo, sem a segmentacao. O SUBTIPO de uma pergunta de cobertura e'
-            # decidido pelo TEXTO, nunca pelo modelo: so' cede se a propria mensagem pede outro fato.
-            subtipo = "elegibilidade"
         view = await self._ler_consulta(ref, subtipo)
         if subtipo == "dependentes" and isinstance(view, FonteIndisponivel):
             # A rota de dependentes nao esta' carregada neste ambiente: o texto provisorio da rodada 10.
@@ -8677,15 +8284,8 @@ class HelenaGraph:
                 "resposta_com_dados_do_plano": True,
             }
         texto: str | None = None
-        if _pergunta_de_cobertura(mensagem_do_turno) and subtipo == "elegibilidade":
-            # RODADA 8 (teste real do dono): "Meu plano cobre parto?" — a segmentacao REGISTRADA (com
-            # obstetricia, se houver) e onde confirmar o procedimento; nunca a promessa e nunca o bloco
-            # inteiro do plano (o dono perguntou so' a cobertura). Texto deterministico, sem modelo.
-            texto = _texto_de_cobertura(
-                fatos, geral=bool(_PERGUNTA_GERAL_DE_COBERTURA.search(_plano(mensagem_do_turno)))
-            )
-            recusa: str | None = "cobertura_deterministica"
-        elif subtipo in SUBTIPOS_REDIGIDOS and not so_deterministica(
+        recusa: str | None
+        if subtipo in SUBTIPOS_REDIGIDOS and not so_deterministica(
             subtipo, fatos, carteirinha_completa=self._carteirinha_completa
         ):
             texto = await self._redigir_consulta(state, subtipo, fatos)
@@ -8696,9 +8296,7 @@ class HelenaGraph:
         else:
             # Autorizacao e carencia (revisao do #690): SEMPRE a resposta deterministica, sem modelo.
             recusa = "subtipo_deterministico"
-        if recusa == "cobertura_deterministica" and isinstance(texto, str):
-            pass
-        elif recusa is not None or not isinstance(texto, str):
+        if recusa is not None or not isinstance(texto, str):
             texto = resposta_deterministica(
                 subtipo, fatos, completos=numeros.mascaras, so_ativos=self._carteirinha_completa
             )
@@ -8729,318 +8327,6 @@ class HelenaGraph:
             "consulta_literais": literais_dos_fatos(fatos),
             # Onda 0 (historico): a resposta carrega dados do plano -> o historico grava so' um marcador.
             "resposta_com_dados_do_plano": True,
-        }
-
-    async def _termo_do_procedimento(self, state: Mapping[str, Any], texto: str) -> str | None:
-        """O termo de busca do procedimento: o TITULO do assunto da base (procedimento, cirurgia, exame) pela
-        busca
-        lexica confiavel ou por significado; sem ele, o que vem depois de "cobre"/antes de "consta no Rol"."""
-        categorias = ("procedimento", "cirurgia", "exame", "material", "vacina")
-        if self._base_saude:
-            base = self._base_hoje()
-            assunto = _sg.assunto_confiavel(base, texto)
-            if assunto is None:
-                assunto = await self._busca_semantica(state, base, texto)
-            if assunto is not None and assunto.categoria in categorias:
-                termo = termo_valido(assunto.titulo)
-                if termo is not None:
-                    return termo
-        return termo_da_mensagem(texto)
-
-    async def _extrair_pedido(self, tenant: str, texto: str) -> Any:
-        """A extracao do pedido de cobertura (DL-0128): so' o texto da mensagem, demarcado."""
-        from maezo.agents.helena import cobertura_assistida as _ca
-
-        prompt = f"{_ca.PROMPT_EXTRACAO}\n{render_untrusted_block('message_body', texto)}"
-        bruto = await self._llm.generate(
-            prompt, phi=True, agent_id="helena", tenant_id=tenant, task_kind="task_default"
-        )
-        return _ca.pedido_do_modelo(bruto)
-
-    async def _cobertura_assistida(self, state: HelenaState, ref: str) -> dict[str, Any] | None:
-        """COBERTURA ASSISTIDA (DL-0128), so' na allowlist: extracao (GLM-5), traducao para o nome oficial,
-        opcoes, para quem, 2 tentativas e equipe so' com "sim". Devolve o `update` (nunca os textos antigos
-        de cobertura especifica) ou `{"desviar_para": ...}` (autorizacao/rede)."""
-        leitor = getattr(self._consultas, "consultar_cobertura", None)
-        if leitor is None or not self._gerativa_para(state):
-            return None
-        from maezo.agents.helena import cobertura_assistida as _ca
-        from maezo.agents.helena.cobertura_fluxo import Dependencias, FluxoDeCobertura
-
-        tenant = str(state.get("tenant_id") or "")
-
-        chave_do_turno = self._roteador_chave(state)
-
-        async def extrair(texto: str) -> _ca.Pedido | None:
-            antecipada = self._extracoes_antecipadas.pop(chave_do_turno, None)
-            if antecipada is not None and antecipada[0] == texto:
-                # A MESMA extracao (mesmo texto, mesmo prompt), so' que iniciada junto com o roteador.
-                logger.info("helena_cobertura_extracao_antecipada")
-                pedido: _ca.Pedido | None = await antecipada[1]
-                return pedido
-            if antecipada is not None:
-                antecipada[1].cancel()
-            extraido: _ca.Pedido | None = await self._extrair_pedido(tenant, texto)
-            return extraido
-
-        async def escolher(
-            termos: Sequence[str], termo: str, itens_do_catalogo: Sequence[str]
-        ) -> _ca.Escolha | None:
-            # Os nomes do catalogo sao dado de REFERENCIA (sem pessoa); o que a pessoa escreveu vai demarcado.
-            pedido_inteiro = "; ".join(" ".join(t.split())[:80] for t in termos)
-            bloco_escolha = render_untrusted_block(
-                "pedido_da_pessoa", f"procedimento: {termo}. Pedido inteiro: {pedido_inteiro}"
-            )
-            lista_do_catalogo = _ca.lista_para_escolha(itens_do_catalogo)
-            prompt_escolha = f"{_ca.PROMPT_ESCOLHA}\n{bloco_escolha}\nLISTA:\n{lista_do_catalogo}"
-            async with asyncio.timeout(ESCOLHA_PRAZO_S):
-                bruto_escolha = await self._llm.generate(
-                    prompt_escolha, phi=True, agent_id="helena", tenant_id=tenant, task_kind="task_default"
-                )
-            return _ca.escolha_do_modelo(bruto_escolha, len(itens_do_catalogo))
-
-        async def cobertura(procedimento: str) -> Any:
-            chave = (ref, procedimento)
-            agora = self._relogio().timestamp()
-            guardada = self._cobertura_em_memoria.get(chave)
-            if guardada is not None and agora - guardada[0] < COBERTURA_EM_MEMORIA_S:
-                return guardada[1]
-            try:
-                async with asyncio.timeout(COBERTURA_PRAZO_S):
-                    view = await leitor(ref, procedimento)
-            except PROGRAMMING_ERRORS:
-                raise
-            except EXTERNAL_DEPENDENCY_FAILURES:
-                return None
-            if view is not None:
-                while len(self._cobertura_em_memoria) >= 256:
-                    self._cobertura_em_memoria.pop(next(iter(self._cobertura_em_memoria)))
-                self._cobertura_em_memoria[chave] = (agora, view)
-            return view
-
-        leitor_cpt = getattr(self._consultas, "consultar_cpt", None)
-
-        async def cpt() -> Any:
-            # DL-0130: a CPT do TITULAR verificado (o fluxo so' chama para o titular). Em memoria por ref.
-            agora = self._relogio().timestamp()
-            guardada = self._cpt_em_memoria.get(ref)
-            if guardada is not None and agora - guardada[0] < CPT_EM_MEMORIA_S:
-                return guardada[1]
-            try:
-                async with asyncio.timeout(CPT_PRAZO_S):
-                    view = await leitor_cpt(ref) if leitor_cpt is not None else None
-            except PROGRAMMING_ERRORS:
-                raise
-            except EXTERNAL_DEPENDENCY_FAILURES:
-                view = None
-            while len(self._cpt_em_memoria) >= 256:
-                self._cpt_em_memoria.pop(next(iter(self._cpt_em_memoria)))
-            self._cpt_em_memoria[ref] = (agora, view)
-            return view
-
-        async def dependentes() -> tuple[list[str], bool, Mapping[int, str]]:
-            graus, com_nome = await self._graus_dos_dependentes(state, ref)
-            nomes = self._nomes_do_turno.get(self._chave_do_turno(state)) if com_nome else None
-            return graus, com_nome, (nomes.primeiros_nomes() if nomes is not None else {})
-
-        async def elegibilidade() -> Mapping[str, Any] | None:
-            # DL-0131 (velocidade): os fatos de elegibilidade do titular ficam em memoria por 5 min.
-            agora_e = self._relogio().timestamp()
-            guardados = self._elegibilidade_em_memoria.get(ref)
-            if guardados is not None and agora_e - guardados[0] < COBERTURA_EM_MEMORIA_S:
-                return guardados[1]
-            view = await self._ler_consulta(ref, "elegibilidade")
-            fatos = fatos_da_consulta(
-                "elegibilidade", view, so_ativos=self._carteirinha_completa, hoje=self._hoje_dos_vinculos()
-            )
-            if fatos:
-                while len(self._elegibilidade_em_memoria) >= 256:
-                    self._elegibilidade_em_memoria.pop(next(iter(self._elegibilidade_em_memoria)))
-                self._elegibilidade_em_memoria[ref] = (agora_e, fatos)
-            return fatos
-
-        async def escolher_varios(
-            pedidos_do_lote: Sequence[tuple[str, Sequence[str]]],
-        ) -> list[_ca.Escolha | None]:
-            # DL-0131: a lista inteira numa chamada so' ao modelo; o que a pessoa escreveu vai demarcado.
-            pedidos_texto = "\n".join(f"pedido {i}: {r[:160]}" for i, (r, _) in enumerate(pedidos_do_lote, 1))
-            bloco_lote = render_untrusted_block("pedidos_da_pessoa", pedidos_texto)
-            listas_do_lote = "\n\n".join(
-                f"LISTA DO PEDIDO {i}:\n{_ca.lista_para_escolha(itens)}"
-                for i, (_, itens) in enumerate(pedidos_do_lote, 1)
-            )
-            prompt_lote = f"{_ca.PROMPT_ESCOLHA_VARIOS}\n{bloco_lote}\n{listas_do_lote}"
-            async with asyncio.timeout(ESCOLHA_PRAZO_S):
-                bruto_lote = await self._llm.generate(
-                    prompt_lote, phi=True, agent_id="helena", tenant_id=tenant, task_kind="task_default"
-                )
-            return _ca.escolhas_do_modelo(bruto_lote, [len(itens) for _, itens in pedidos_do_lote])
-
-        conversa = str(state.get("conversation_id") or "")
-
-        def quem_lembrado() -> str | None:
-            guardado = self._quem_em_memoria.get(conversa)
-            if guardado is None or self._relogio().timestamp() - guardado[0] > QUEM_EM_MEMORIA_S:
-                return None
-            return guardado[1]
-
-        def lembrar_quem(quem: str) -> None:
-            if not conversa or quem not in ("titular",) and not quem.startswith("dependente:"):
-                return
-            while len(self._quem_em_memoria) >= 512:
-                self._quem_em_memoria.pop(next(iter(self._quem_em_memoria)))
-            self._quem_em_memoria[conversa] = (self._relogio().timestamp(), quem)
-
-        def rotulo_de_quem(quem: str) -> str:
-            """ "Para voce (titular)" ou o nome do dependente (marcador; o nome so' no envio, em Title Case).
-            Sem o nome em memoria, o parentesco ("o seu filho") — nunca "dependente 1"."""
-            if quem == "titular":
-                return _ca.PARA_O_TITULAR
-            if quem.startswith("dependente:") and quem.split(":")[1].isdigit():
-                n = int(quem.split(":")[1])
-                guardado = self._nomes_em_memoria.get(ref)
-                if guardado is not None and guardado[1].tem(n):
-                    self._guardar_nomes(state, guardado[1])
-                    return f"Para {marcador_do_dependente(n)}"
-                graus_guardados = dict(guardado[2]) if guardado is not None else {}
-                grau = graus_guardados.get(n)
-                return f"Para {texto_do_parentesco(grau)}" if grau else "Para o seu dependente"
-            return "Para o seu dependente"
-
-        async def texto_geral() -> str:
-            fatos = await elegibilidade()
-            segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
-            fim = "Se quiser saber de um exame ou procedimento, me diga o nome como está no pedido médico."
-            if segmentacao is None:
-                return fim
-            explicacao = explicacao_da_segmentacao(segmentacao) or ""
-            cadastro = MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=segmentacao)
-            return " ".join(p for p in (cadastro, explicacao, fim) if p)
-
-        def _para_quem(graus: list[str], com_nome: bool) -> str:
-            return pergunta_para_quem(graus, com_nome=com_nome)
-
-        if self._busca_procedimentos is not None and self._cobertura_modo != "simples":
-            self._garantir_catalogo()
-        fluxo = FluxoDeCobertura(
-            Dependencias(
-                extrair=extrair,
-                cobertura=cobertura,
-                dependentes=dependentes,
-                elegibilidade=elegibilidade,
-                busca=self._busca_procedimentos,
-                pergunta_para_quem=_para_quem,
-                texto_geral=texto_geral,
-                escolher=escolher,
-                escolher_varios=escolher_varios,
-                quem_lembrado=quem_lembrado,
-                lembrar_quem=lembrar_quem,
-                rotulo_de_quem=rotulo_de_quem,
-                cpt=cpt if leitor_cpt is not None else None,
-                modo=self._cobertura_modo,
-            )
-        )
-        resultado = await fluxo.responder(
-            str(state.get("message_body") or ""),
-            str(state.get("coleta_pendente") or ""),
-            state.get("coleta_contexto"),
-        )
-        if "response_text" in resultado:
-            resultado["response_text"] = _com_emergencia_se_preciso(state, str(resultado["response_text"]))
-        return resultado
-
-    def _garantir_catalogo(self) -> None:
-        """Carrega o catalogo (rota `tina-procedimentos`) em SEGUNDO PLANO, uma vez por processo."""
-        busca = self._busca_procedimentos
-        leitor = getattr(self._consultas, "consultar_catalogo_procedimentos", None)
-        if busca is not None and self._base_saude and not getattr(busca, "com_base", False):
-            # Os sinonimos JA' curados da base de saude (exames, procedimentos, cirurgias) somam aos da lista.
-            from maezo.conhecimento.catalogo_procedimentos import sinonimos_da_base
-
-            busca.sinonimos = (*busca.sinonimos, *sinonimos_da_base(self._base_hoje()))
-            busca.com_base = True
-        if busca is None or busca.pronto or leitor is None:
-            return
-        tarefa = getattr(self, "_carregando_catalogo", None)
-        if tarefa is not None and not tarefa.done():
-            return
-
-        async def _carregar() -> None:
-            try:
-                itens, versao = await leitor()
-            except PROGRAMMING_ERRORS:
-                raise
-            except EXTERNAL_DEPENDENCY_FAILURES:
-                return
-            if itens:
-                busca.carregar(itens, versao)
-                busca.agendar_indice()
-
-        self._carregando_catalogo = asyncio.create_task(_carregar())
-
-    async def _cobertura_do_procedimento(self, state: HelenaState, ref: str) -> dict[str, Any] | None:
-        leitor = getattr(self._consultas, "consultar_cobertura", None)
-        if leitor is None or not self._gerativa_para(state):
-            return None
-        texto = str(state.get("message_body") or "")
-        pendente = str(state.get("coleta_pendente") or "")
-        quem = (
-            pendente[len(PREFIXO_COBERTURA_QUEM) :] if pendente.startswith(PREFIXO_COBERTURA_QUEM) else None
-        )
-        if quem is not None:
-            termo = termo_valido(str(state.get("coleta_contexto") or ""))
-        elif _pergunta_de_cobertura(texto):
-            termo = await self._termo_do_procedimento(state, texto)
-        else:
-            # Continuacao ("Mamografia convencional bilateral", "e vasectomia?"): o proprio texto e' o termo.
-            termo = termo_da_continuacao(texto) or await self._termo_do_procedimento(state, texto)
-        if termo is None:
-            logger.info("helena_cobertura_rol", node="consultar_plano", resultado="sem_termo")
-            return None
-        if quem is None:
-            graus, com_nome = await self._graus_dos_dependentes(state, ref)
-            if graus:
-                # PARA QUEM (rodada do dono de 19/10/2026): com dependentes, pergunta antes de consultar.
-                logger.info(
-                    "helena_cobertura_pergunta_para_quem", node="consultar_plano", dependentes=len(graus)
-                )
-                return {
-                    "response_text": pergunta_para_quem(graus, com_nome=com_nome),
-                    "response_kind": "inform",
-                    "coleta_pendente": PENDENTE_COBERTURA_PARA_QUEM,
-                    "coleta_contexto": f"{termo}|{len(graus)}",
-                }
-        try:
-            async with asyncio.timeout(COBERTURA_PRAZO_S):
-                view = await leitor(ref, termo)
-        except PROGRAMMING_ERRORS:
-            raise
-        except EXTERNAL_DEPENDENCY_FAILURES:
-            view = None
-        if view is None:
-            logger.info("helena_cobertura_rol", node="consultar_plano", resultado="indisponivel")
-            return None
-        resposta = texto_da_cobertura(view)
-        if quem is not None and quem != QUEM_TITULAR:
-            # O contrato v1.9 so' aceita o sujeito VERIFICADO (o titular): a consulta e' a do contrato, e a
-            # carencia
-            # do dependente fica para a central (lacuna registrada no DL-0126).
-            resposta = f"{resposta} {AVISO_DO_DEPENDENTE}"
-        logger.info(
-            "helena_cobertura_rol",
-            node="consultar_plano",
-            resultado="respondida",
-            itens=len(getattr(view, "itens", ()) or ()),
-            situacoes=sorted({str(getattr(i, "situacao", "")) for i in getattr(view, "itens", ()) or ()}),
-        )
-        return {
-            "response_text": _com_emergencia_se_preciso(state, resposta),
-            "response_kind": "inform",
-            "consulta_literais": literais_da_cobertura(view),
-            "resposta_com_dados_do_plano": True,
-            "coleta_pendente": None,
-            "coleta_contexto": "",
-            "coleta_rodadas": 0,
         }
 
     async def _dependentes_com_nome(
@@ -9182,11 +8468,13 @@ class HelenaGraph:
 
         Sem a fonte (ou sem a pessoa verificada), ou com a fonte falhando, so' o "onde confirmar"."""
         mensagem = str(state.get("message_body") or "")
-        cobertura = _pergunta_de_cobertura(mensagem)
+        if _pergunta_de_cobertura(mensagem):
+            # COBERTURA FORA (dono, 23/10/2026, DL-0154): a parte de cobertura recebe so' o aviso.
+            return (self._textos[CHAVE_TEXTO_COBERTURA_FORA], {})
         ref = self._ref_verificada(state)
         if ref is None:
-            return (RESPOSTA_COBERTURA_NA_PASSAGEM, {})
-        subtipo = "elegibilidade" if cobertura else _subtipo_da_consulta(mensagem)
+            return (RESPOSTA_PLANO_FALHA_NA_PASSAGEM, {})
+        subtipo = _subtipo_da_consulta(mensagem)
         fatos = fatos_da_consulta(
             subtipo,
             await self._ler_consulta(ref, subtipo),
@@ -9194,12 +8482,8 @@ class HelenaGraph:
             hoje=self._hoje_dos_vinculos(),
         )
         if fatos is None:
-            return (RESPOSTA_COBERTURA_ESPECIFICA if cobertura else RESPOSTA_PLANO_FALHA_NA_PASSAGEM, {})
-        texto = (
-            _texto_de_cobertura(fatos)
-            if cobertura
-            else resposta_deterministica(subtipo, fatos, so_ativos=self._carteirinha_completa)
-        )
+            return (RESPOSTA_PLANO_FALHA_NA_PASSAGEM, {})
+        texto = resposta_deterministica(subtipo, fatos, so_ativos=self._carteirinha_completa)
         return (
             texto,
             {"consulta_literais": literais_dos_fatos(fatos), "resposta_com_dados_do_plano": True},
@@ -9383,8 +8667,6 @@ class HelenaGraph:
         aqui."""
         if motivo != "solicitacao_humano" or state.get("intent") != "human_request":
             return None
-        from maezo.agents.helena import cobertura_assistida as _ca
-
         texto = str(state.get("message_body") or "")
         plano = _plano(texto)
         if (
@@ -9392,7 +8674,7 @@ class HelenaGraph:
             or _pedido_explicito_de_pessoa(texto)
             or _SIM_A_OFERTA.search(plano)
             # Avaliacao r4 de 22/10/2026: o polegar sozinho a uma oferta e' "sim" no contexto.
-            or _ca.so_emoji_de_acordo(texto)
+            or _lc.so_emoji_de_acordo(texto)
             or _ESCOLHA_DE_OPCAO.match(plano.strip())
             or _CITA_UMA_PESSOA.search(plano)
             or _ameaca_regulatoria(texto)
@@ -9404,7 +8686,7 @@ class HelenaGraph:
             return None
         logger.warning("helena_trava_caso_sem_pedido", node="escalate")
         return {
-            "response_text": _ca.resposta_de_cortesia(texto),
+            "response_text": _lc.resposta_de_cortesia(texto),
             "response_kind": "inform",
             "next_kind": "inform",
             "intent": "information",
@@ -9871,13 +9153,7 @@ class HelenaGraph:
             mensagem = redact_free_text(mensagem, max_chars=len(mensagem) + 64)
         resposta = resposta_enviada
         if resposta and cast(Mapping[str, Any], state).get(CHAVE_RESPOSTA_COM_DADOS_DO_PLANO) is True:
-            # RODADA 8: a resposta de COBERTURA tem marcador proprio, para a insistencia na cobertura ser
-            # reconhecida sem confundir com qualquer outra resposta que mostrou dados do plano.
-            resposta = (
-                MARCADOR_RESPOSTA_DE_COBERTURA
-                if RESPOSTA_COBERTURA_ESPECIFICA[:50] in resposta or "cobertura final depende" in resposta
-                else MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
-            )
+            resposta = MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO
         return {
             "historico_conversa": acrescentar_turno(
                 state.get("historico_conversa"),
@@ -10760,12 +10036,6 @@ class HelenaGraph:
         raise RespostaRecusadaError(grupo, padrao, response_kind)
 
     async def _resumo_contexto(self, state: HelenaState, motivo: MotivoCategoria | None) -> str:
-        if str(state.get("coleta_pendente") or "").startswith(PREFIXO_COBERTURA_ASSISTIDA):
-            # COBERTURA ASSISTIDA (DL-0128): o caso aberto com o "sim" leva o resumo escrito pelo CODIGO
-            # (pedido, para quem, termos tentados; sem CPF), sem modelo.
-            from maezo.agents.helena import cobertura_assistida as _ca
-
-            return _ca.resumo_para_a_equipe(_ca.Contexto.decodificar(state.get("coleta_contexto")))
         if self._v4:
             # HELENA V4 (DL-0115): o caso aberto pela v4 tem resumo FIXO e legivel (so' o relato desta queixa,
             # o que foi perguntado e respondido), sem modelo.
@@ -10930,29 +10200,6 @@ class HelenaGraph:
             self._roteador_em_voo.pop(velha)[0].cancel()
         self._roteador_em_voo[self._roteador_chave(state)] = registro
 
-    def _antecipar_extracao(self, state: Mapping[str, Any], trava: str | None) -> None:
-        """Latencia (22/10/2026): sem trava de entrada e com pergunta de cobertura pelo detector que ja'
-        existe, a extracao da cobertura comeca JUNTO com o roteador (antes so' comecava depois dele). Nada
-        muda na decisao: o roteador continua decidindo; se ele escolher outra habilidade, a extracao e'
-        descartada; a cobertura so' usa a extracao antecipada do MESMO texto."""
-        texto = str(state.get("message_body") or "")
-        if (
-            trava is not None
-            or getattr(self._consultas, "consultar_cobertura", None) is None
-            or not _pergunta_de_cobertura_ampla(texto)
-        ):
-            return
-        tarefa = asyncio.ensure_future(self._extrair_pedido(str(state.get("tenant_id") or ""), texto))
-        tarefa.add_done_callback(_recolher_falha)
-        while len(self._extracoes_antecipadas) >= 256:
-            self._extracoes_antecipadas.pop(next(iter(self._extracoes_antecipadas)))[1].cancel()
-        self._extracoes_antecipadas[self._roteador_chave(state)] = (texto, tarefa)
-
-    def _descartar_extracao(self, state: Mapping[str, Any]) -> None:
-        antecipada = self._extracoes_antecipadas.pop(self._roteador_chave(state), None)
-        if antecipada is not None:
-            antecipada[1].cancel()
-
     async def _classify_com_sombra(self, state: HelenaState) -> dict[str, Any]:
         # So' codigo deterministico aqui (sem dependencia injetada): a chamada ao modelo roda na tarefa
         # paralela, cuja falha vira o campo `falha` do log.
@@ -10981,18 +10228,16 @@ class HelenaGraph:
           o estado INTEIRO (as portas de seguranca de hoje rodam como sempre).
         - A pergunta pendente so' vale quando o roteador diz que a mensagem RESPONDE a ela; senao ela e'
           descartada antes da habilidade (a pendencia nunca sequestra a mensagem).
-        - "X ou Y?" na duvida; cortesia sem pendencia = resposta curta; cobertura vai direto a consulta; as
+        - "X ou Y?" na duvida; cortesia sem pendencia = resposta curta; cobertura = o aviso unico; as
           demais habilidades usam o codigo de hoje com a decisao do roteador valendo sobre as regras de
           cobertura (`_HABILIDADE_DO_TURNO`).
         """
-        from maezo.agents.helena import cobertura_assistida as _ca
         from maezo.agents.helena import roteador as _rt
 
         if state.get("error") or self._seguimento_com_o_lucas(state) is not None:
             # Falha do proprio turno (`receive`) ou conversa em seguimento com o Lucas: o caminho de sempre.
             return await self.classify(state)
         antes, pendente, trava = self._roteador_entrada(state)
-        self._antecipar_extracao(state, trava)
         decisao, falha, ms = await self._roteador_decidir(dict(state), pendente)
         feita: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
         feita.set_result((decisao, falha, ms))
@@ -11021,15 +10266,13 @@ class HelenaGraph:
         habilidade = (
             decisao.habilidade if decisao.habilidade != "duvida" else (decisao.provavel or "conversa")
         )
-        if habilidade != "cobertura":
-            self._descartar_extracao(state)
         mantem = bool(antes) and decisao.responde_a_pendencia and not duvida_antes
         if (
             antes
             and not mantem
             and not duvida_antes
             and habilidade in ("conversa", "equipe")
-            and _ca.e_reclamacao(texto)
+            and _lc.e_reclamacao(texto)
             and not (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto))
         ):
             # Reclamacao sobre a resposta anterior ("ue, como assim?", "voce falou outra coisa") pertence a
@@ -11040,7 +10283,7 @@ class HelenaGraph:
         dona = self._roteador_contrato.dona_da_pendencia(antes) if antes and not duvida_antes else None
         if (
             dona is not None
-            and (mantem or _ca.ler_resposta(texto) is not None)
+            and (mantem or _lc.ler_resposta(texto) is not None)
             and not (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto))
         ):
             # Contrato (ADR-0066): a resposta a pergunta pendente e' da habilidade DONA dela. Roteiro de
@@ -11060,22 +10303,11 @@ class HelenaGraph:
             pendencia_mantida=mantem,
             ms=ms,
         )
-        if habilidade == "cobertura" and self._consultas is not None:
-            if mantem and antes:
-                # A resposta a pergunta da propria cobertura segue as regras dela: "sim" a oferta da
-                # equipe abre o caso (`_rota_da_cobertura_assistida`, trava `caso_so_com_sim`), nunca a
-                # oferta de novo.
-                propria = self._rota_da_cobertura_assistida(state, _plano(texto), texto)
-                if propria is not None and propria.get("next_kind") == "escalate":
-                    return {**propria, "habilidade_roteador": habilidade}
-            update = self._update_sem_modelo(state)
-            update.update({"intent": INTENT_CONSULTA_PLANO, "consulta_subtipo": "elegibilidade"})
-            if mantem and antes:
-                update["coleta_pendente"] = antes
-                update["coleta_contexto"] = str(state.get("coleta_contexto") or "")
-            return {**self._rota_de_consulta(update), "habilidade_roteador": habilidade}
-        if habilidade == "conversa" and not mantem and (_ca.e_cortesia(texto) or _ca.e_cumprimento(texto)):
-            cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _ca.resposta_de_cortesia(texto))
+        if habilidade == "cobertura":
+            # COBERTURA FORA (dono, 23/10/2026, DL-0154): o aviso unico, sem consulta e sem oferta da equipe.
+            return {**self._texto_da_cobertura_fora(state), "habilidade_roteador": habilidade}
+        if habilidade == "conversa" and not mantem and (_lc.e_cortesia(texto) or _lc.e_cumprimento(texto)):
+            cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
             return {**cortesia, "habilidade_roteador": habilidade}
         marca = _HABILIDADE_DO_TURNO.set(habilidade)
         try:
@@ -11090,10 +10322,8 @@ class HelenaGraph:
     def _e_texto_do_roteador(self, texto: object) -> bool:
         if self._roteador_modo != "ativo" or not isinstance(texto, str) or self._roteador_contrato is None:
             return False
-        from maezo.agents.helena import cobertura_assistida as _ca
-
         inicio_da_duvida = self._roteador_contrato.texto_da_duvida.split("{x}")[0]
-        return texto in (_ca.TEXTO_DE_NADA, _ca.TEXTO_COMBINADO, _ca.TEXTO_SAUDACAO) or texto.startswith(
+        return texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO, _lc.TEXTO_SAUDACAO) or texto.startswith(
             inicio_da_duvida
         )
 
@@ -11106,7 +10336,6 @@ class HelenaGraph:
 
     async def _respond_com_sombra(self, state: HelenaState) -> dict[str, Any]:
         saida = await self.respond(state)
-        self._descartar_extracao(state)
         em_voo = self._roteador_em_voo.pop(self._roteador_chave(state), None)
         if em_voo is None:
             return saida
@@ -11256,8 +10485,6 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     helena_carteirinha_completa_enabled = cfg.get("helena_carteirinha_completa_enabled", False) is True
     # Nome completo dos dependentes (dono e DPO, 19/10/2026, DL-0127): `True` SO' quando a composicao disser.
     helena_dependentes_nome_enabled = cfg.get("helena_dependentes_nome_enabled", False) is True
-    # COBERTURA ASSISTIDA (DL-0128): o catalogo SO' quando a composicao o passar.
-    catalogo = cfg.get("catalogo_procedimentos")
     # BASE DE SAUDE (ADR-0064, DL-0118): como a coleta, `True` SO' quando a composicao disser explicitamente.
     helena_base_saude_enabled = cfg.get("helena_base_saude_enabled", False) is True
     # SAUDE GERATIVA (ADR-0065, DL-0119): o redator SO' quando a composicao o passar (chave ligada).
@@ -11279,7 +10506,6 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         helena_v4_enabled=helena_v4_enabled,
         helena_carteirinha_completa_enabled=helena_carteirinha_completa_enabled,
         helena_dependentes_nome_enabled=helena_dependentes_nome_enabled,
-        catalogo_procedimentos=catalogo if isinstance(catalogo, BuscaDeProcedimentos) else None,
         helena_base_saude_enabled=helena_base_saude_enabled,
         saude_gerativa=saude_gerativa if isinstance(saude_gerativa, _sg.RedatorDeSaude) else None,
         # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134): so' o valor que a composicao disser; senao desligado.
@@ -11289,8 +10515,9 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         else None,
         roteador_concorrencia=int(cfg.get("roteador_concorrencia") or 4),
         helena_roteador_conversas=frozenset(cfg.get("helena_roteador_conversas") or ()),
-        # COBERTURA (DL-0140): o modo que a composicao disser; sem ele, `simples` (nunca afirma cobertura).
-        cobertura_modo=str(cfg.get("cobertura_modo") or "simples"),
+        # TEXTOS DO PACOTE (ADR-0067 §4): os textos fixos que o pacote de comportamento trouxer.
+        # (`cobertura_modo` e `catalogo_procedimentos` da composicao: ignorados, a cobertura saiu, DL-0154.)
+        textos=cfg.get("textos_do_pacote") if isinstance(cfg.get("textos_do_pacote"), Mapping) else None,
     ).compile_graph()
 
 

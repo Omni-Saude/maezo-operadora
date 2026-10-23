@@ -9,9 +9,6 @@ import pytest
 import yaml
 
 from maezo.agents.helena import roteador_contrato as rc
-from maezo.agents.helena.cobertura_assistida import PEND_EQUIPE, PEND_QUEM
-from maezo.agents.helena.cobertura_fluxo import PEND_RESPONDIDO
-from maezo.agents.helena.cobertura_rol import PENDENTE_COBERTURA_PARA_QUEM, PREFIXO_COBERTURA_QUEM
 from maezo.agents.helena.graph import PENDENTE_ENCERRAR_CASO
 from maezo.agents.helena.helena_v4 import PREFIXO_PENDENTE
 from maezo.agents.helena.triagem_v2 import PREFIXO_PERGUNTA_DA_FICHA
@@ -33,11 +30,13 @@ def test_o_contrato_do_repositorio_carrega() -> None:
 @pytest.mark.parametrize(
     ("codigo", "dona"),
     [
-        (PEND_QUEM, "cobertura"),
-        (PEND_EQUIPE, "cobertura"),
-        (PEND_RESPONDIDO, "cobertura"),
-        (PENDENTE_COBERTURA_PARA_QUEM, "cobertura"),
-        (f"{PREFIXO_COBERTURA_QUEM}2", "cobertura"),
+        # As pendencias da cobertura de antes (DL-0154: a cobertura saiu) continuam com dona, para o estado
+        # gravado antes da retirada ser lido e expirado sem sequestrar a mensagem.
+        ("COB2:QUEM", "cobertura"),
+        ("COB2:EQUIPE", "cobertura"),
+        ("COB2:RESPONDIDO", "cobertura"),
+        ("BS_COBERTURA_PARA_QUEM", "cobertura"),
+        ("BS_COBERTURA_QUEM:2", "cobertura"),
         (f"{PREFIXO_PENDENTE}ALERTA:GERAL:adult", "sintoma"),
         (f"{PREFIXO_PERGUNTA_DA_FICHA}IDADE", "sintoma"),
         (PENDENTE_ENCERRAR_CASO, "equipe"),

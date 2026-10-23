@@ -1,0 +1,16 @@
+# Pacote de comportamento da Helena (ADR-0067 §4) — TEXTOS fixos.
+#
+# Cada chave e' um texto que a Helena manda. Mudar aqui + merge = pacote novo no dev (sem build, sem deploy):
+# o agente le' o pacote ativo a cada 60 s. Sem este arquivo (ou sem uma chave) vale o texto padrao do codigo
+# (`src/maezo/agents/helena/textos.py::PADRAO`), que e' o mesmo aprovado.
+#
+# Validacao estrita (`agents/helena/pacote.py::textos`): chave desconhecida, texto vazio, link (http, www.,
+# dominio) ou marcador {..} novo recusam o pacote inteiro — o agente fica com o ultimo pacote bom.
+formato: helena-textos-v1
+
+textos:
+  # Decisao do dono de 23/10/2026 (DL-0154): a cobertura saiu da Helena; toda pergunta de cobertura recebe so'
+  # este aviso, sem explicacao de Rol/carencia e sem oferta da equipe.
+  cobertura_fora: >-
+    Por aqui eu não trato de cobertura. Você consegue essa informação pelo aplicativo Austa Clínicas,
+    pelo portal ou pela central.

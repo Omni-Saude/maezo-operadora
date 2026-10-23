@@ -50,8 +50,8 @@ out_of_scope:                          # o que Helena NAO faz, rastreado (nao e 
     onde: "graph.py:handoff_cobranca()"
   - id: confirmacao_de_cobertura_de_procedimento_especifico   # a confirmacao OFICIAL e' a autorizacao
     fase: 0
-    disposicao: "na allowlist (DL-0128) a Helena diz o que CONSTA no cadastro, nunca promete nem encerra com 'nao cobre'; a confirmacao oficial e' a analise da autorizacao. Fora da allowlist, RESPOSTA_COBERTURA_ESPECIFICA"
-    onde: "graph.py:consultar_plano() -> _cobertura_assistida() (cobertura_fluxo.py)"
+    disposicao: "DL-0154 (dono, 23/10/2026): a Helena nao trata de cobertura; toda pergunta de cobertura recebe so' o aviso com os canais da empresa (aplicativo Austa Clinicas, portal, central), sem consulta, sem Rol/carencia e sem oferta da equipe"
+    onde: "habilidades/cobertura_fora (graph.py: _cobertura_fora, consultar_plano, roteador ativo)"
 process_keys:
   - SP-OP-ESCALATION-001
 reports_to: "gestor.atendimento@amh"

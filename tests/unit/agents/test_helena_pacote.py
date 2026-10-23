@@ -95,7 +95,7 @@ def test_o_pacote_vence_a_plataforma_e_escolhe_o_modelo_do_roteador() -> None:
     saida = ph.aplicar_no_grafo(config)
     assert saida["helena_v4_enabled"] is False
     assert saida["historico_enabled"] is True and saida["coleta_enabled"] is True
-    assert saida["cobertura_modo"] == "consulta"
+    assert saida["cobertura_modo"] == "simples", "o cobertura_modo de um pacote antigo e' ignorado (DL-0154)"
     assert saida["identidade_nome_operadora"] == "Operadora Exemplo"
     assert saida["helena_roteador"] == "ativo"
     assert saida["helena_roteador_conversas"] == frozenset({"wa:amh:hk1_abc"})
@@ -130,3 +130,61 @@ def test_o_adaptador_da_helena_aplica_o_pacote_ao_construir_o_grafo(monkeypatch:
     entrada._pacote_da_helena = hp.PacoteDaHelena(_Carregador(_pacote(_VALIDO)))  # type: ignore[arg-type]
     assert entrada.construir_grafo({"helena_v4_enabled": True, "fabrica_de_inferencia": None}) == "grafo"
     assert capturado["helena_v4_enabled"] is False and "fabrica_de_inferencia" not in capturado
+
+
+# --- Textos do pacote (ADR-0067 §4; etapa 5 do Plano de ajustes v2) -----------------------------------------
+
+
+def _com_textos(textos_yaml: str) -> pda.PacoteDoAgente:
+    return pda.PacoteDoAgente(
+        agente="helena",
+        versao="t",
+        sha256="0" * 64,
+        arquivos={"configuracao.yaml": _VALIDO, "textos.yaml": textos_yaml},
+    )
+
+
+def test_os_textos_do_repositorio_sao_validos_e_so_chaves_conhecidas() -> None:
+    from maezo.agents.helena import textos as ht
+
+    _, pacote = pda.montar("helena", "repo", _SPEC)
+    textos = hp.textos(pacote)
+    assert textos, "o pacote do repositorio traz textos.yaml"
+    assert set(textos) <= set(ht.PADRAO)
+    assert textos["cobertura_fora"] == ht.PADRAO["cobertura_fora"]
+
+
+@pytest.mark.parametrize(
+    ("texto", "motivo"),
+    [
+        ("formato: helena-textos-v1\ntextos: {nova_chave: oi}\n", "desconhecidas"),
+        ("formato: outro\ntextos: {}\n", "formato"),
+        ("formato: helena-textos-v1\ntextos: {cobertura_fora: ''}\n", "nao vazio"),
+        (
+            "formato: helena-textos-v1\ntextos: {cobertura_fora: 'Veja https://exemplo.com.br/x'}\n",
+            "sem link",
+        ),
+        ("formato: helena-textos-v1\ntextos: {cobertura_fora: 'Veja em www.exemplo.org'}\n", "sem link"),
+        ("formato: helena-textos-v1\ntextos: {cobertura_fora: 'Veja no gov.br'}\n", "sem link"),
+        ("formato: helena-textos-v1\ntextos: {cobertura_fora: 'Oi {nome}'}\n", "marcadores"),
+        ("formato: helena-textos-v1\n", "formato"),
+    ],
+)
+def test_texto_invalido_recusa_o_pacote_inteiro(texto: str, motivo: str) -> None:
+    with pytest.raises(pda.PacoteInvalidoError, match=motivo):
+        hp.validar(_com_textos(texto))
+
+
+def test_os_textos_do_pacote_chegam_ao_grafo() -> None:
+    aviso = "formato: helena-textos-v1\ntextos: {cobertura_fora: 'Aviso novo de cobertura.'}\n"
+    ph = hp.PacoteDaHelena(_Carregador(_com_textos(aviso)))  # type: ignore[arg-type]
+    saida = ph.aplicar_no_grafo({"helena_roteador": "desligado"})
+    assert saida["textos_do_pacote"] == {"cobertura_fora": "Aviso novo de cobertura."}
+
+
+def test_sem_textos_no_pacote_vale_o_padrao_do_codigo() -> None:
+    from maezo.agents.helena.textos import PADRAO, TextosDaHelena
+
+    assert TextosDaHelena(None)["cobertura_fora"] == PADRAO["cobertura_fora"]
+    assert TextosDaHelena({"cobertura_fora": "Outro."})["cobertura_fora"] == "Outro."
+    assert TextosDaHelena({"chave_estranha": "x"})["cobertura_fora"] == PADRAO["cobertura_fora"]

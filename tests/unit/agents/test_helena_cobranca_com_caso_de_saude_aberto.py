@@ -219,7 +219,7 @@ async def test_caso_administrativo_aberto_nao_aciona_a_regra() -> None:
 @pytest.mark.parametrize(
     "mensagem",
     [
-        "o plano cobre a consulta do bebê?",  # pista de plano
+        "o bebê já está no meu plano?",  # pista de plano (a cobertura saiu: DL-0154)
         "meu filho está com dor, e a mensalidade?",  # pessoa/saude
         "quero cancelar o plano, e a mensalidade?",  # cancelamento + plano
         "o boleto está errado, fui cobrado duas vezes",  # discordancia: contestacao e' do modelo

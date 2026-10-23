@@ -1,29 +1,30 @@
 """Roteador de habilidades ATIVO (ADR-0066, DL-0136, F2): decide só na allowlist; travas antes; pendência
-só vale quando a mensagem responde a ela."""
+só vale quando a mensagem responde a ela. A cobertura saiu da Helena (DL-0154): `cobertura` = o aviso."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any
 
-import pytest
 from structlog.testing import capture_logs
 
-from maezo.agents.helena import cobertura_assistida as ca
 from maezo.agents.helena import roteador as rt
-from maezo.agents.helena.cobertura_fluxo import PEND_RESPONDIDO
 from maezo.agents.helena.graph import HelenaGraph
+from maezo.agents.helena.habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
+from maezo.agents.helena.habilidades.conversa import leitura_curta as ca
 from maezo.conhecimento import saude_gerativa as sg
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
-from tests.unit.agents.test_helena_cobertura_assistida import _busca, _FonteGrafo, _Item, _json_pedido, _View
-from tests.unit.agents.test_helena_rodada_3_simulador import _CONVERSA, _classify, _entrada, _WhatsApp
+from tests.unit.agents.test_helena_rodada_3_simulador import (
+    _CONVERSA,
+    _classify,
+    _entrada,
+    _starts,
+    _WhatsApp,
+)
 from tests.unit.agents.test_helena_saude_gerativa import _Conversa, _Transporte
-
-_HEMO = {"40304361": _View((_Item("HEMOGRAMA"),))}
 
 
 def _decisao(habilidade: str, *, confianca: str = "alta", responde: bool = False, **extra: Any) -> str:
@@ -48,12 +49,23 @@ class _Modelo:
         return self.respostas.pop(0) if self.respostas else ""
 
 
+class _FonteGrafo:
+    """A fonte de fatos do plano do grafo; registra qualquer pedido (a cobertura nunca pede nada)."""
+
+    def __init__(self) -> None:
+        self.pedidos: list[str] = []
+
+    async def consultar(self, portable_subject_ref: str, subtipo: str) -> Any:
+        self.pedidos.append(subtipo)
+        return None
+
+
 def _grafo(
     modelo: _Modelo, *, na_allowlist: bool = True
-) -> tuple[Any, _WhatsApp, FakeCibSevenTransport, Any]:
+) -> tuple[Any, _WhatsApp, FakeCibSevenTransport, _FonteGrafo]:
     whatsapp = _WhatsApp()
     cib = FakeCibSevenTransport()
-    fonte = _FonteGrafo(_HEMO)
+    fonte = _FonteGrafo()
     grafo = HelenaGraph(
         inference=modelo,  # type: ignore[arg-type]
         dmn=FakeDmnTransport(),
@@ -65,7 +77,6 @@ def _grafo(
         consultas_plano=fonte,  # type: ignore[arg-type]
         relogio=lambda: datetime(2026, 10, 21, 15, 0, tzinfo=UTC),
         saude_gerativa=sg.RedatorDeSaude(transporte=_Transporte(), conversas=frozenset({_CONVERSA})),
-        catalogo_procedimentos=_busca(),
         helena_base_saude_enabled=True,
         base_saude=_Conversa().base,
         helena_roteador="ativo",
@@ -74,35 +85,21 @@ def _grafo(
     return grafo.compile_graph().compile(), whatsapp, cib, fonte
 
 
-async def test_cobertura_vai_direto_a_consulta_sem_o_classificador() -> None:
-    modelo = _Modelo([_decisao("cobertura")], [_json_pedido("hemograma"), ""])
-    grafo, whatsapp, _cib, fonte = _grafo(modelo)
-    resultado = await grafo.ainvoke(_entrada("o convênio paga um hemograma pra mim?"))
-    assert fonte.pedidos == ["40304361"] and resultado["coleta_pendente"] == PEND_RESPONDIDO
-    assert "consta no Rol" in whatsapp.enviados[-1]
+async def test_cobertura_pelo_roteador_e_o_aviso_sem_consulta_e_sem_o_classificador() -> None:
+    modelo = _Modelo([_decisao("cobertura")], [])
+    grafo, whatsapp, cib, fonte = _grafo(modelo)
+    await grafo.ainvoke(_entrada("o convênio paga um hemograma pra mim?"))
+    assert whatsapp.enviados[-1] == TEXTO_COBERTURA_FORA
+    assert fonte.pedidos == [] and modelo.outras == 0 and _starts(cib) == 0
 
 
 async def test_pendencia_que_nao_e_respondida_e_descartada_e_nao_sequestra() -> None:
     modelo = _Modelo([_decisao("plano", responde=False)], [_classify(intent="information")])
-    grafo, whatsapp, _cib, fonte = _grafo(modelo)
-    contexto = ca.Contexto(termos=["hemograma"], quem="titular", respondidos=["Hemograma"]).codificar()
+    grafo, _whatsapp, _cib, _fonte = _grafo(modelo)
     resultado = await grafo.ainvoke(
-        _entrada("e quanto tempo de carência falta?")
-        | {"coleta_pendente": PEND_RESPONDIDO, "coleta_contexto": contexto}
+        _entrada("e quanto tempo de carência falta?") | {"coleta_pendente": "COB2:RESPONDIDO"}
     )
-    assert fonte.pedidos == [], "a pendencia da cobertura nao pegou a mensagem"
     assert resultado.get("coleta_pendente") in (None, "")
-    assert ca.TEXTO_PEDE_LISTA not in whatsapp.enviados[-1]
-
-
-async def test_resposta_a_pendencia_mantem_a_pendencia_da_habilidade() -> None:
-    modelo = _Modelo([_decisao("cobertura", responde=True)], [])
-    grafo, whatsapp, _cib, _fonte = _grafo(modelo)
-    contexto = ca.Contexto(termos=["hemograma", "glicose"], quem="titular").codificar()
-    await grafo.ainvoke(
-        _entrada("faltou algum?") | {"coleta_pendente": PEND_RESPONDIDO, "coleta_contexto": contexto}
-    )
-    assert whatsapp.enviados[-1] == ca.texto_do_que_respondi(["hemograma", "glicose"])
 
 
 async def test_cortesia_sem_pendencia_e_resposta_curta() -> None:
@@ -118,7 +115,7 @@ async def test_duvida_pergunta_x_ou_y_e_a_resposta_volta_ao_roteador() -> None:
             _decisao("duvida", habilidade_provavel="cobertura", alternativa="cobranca"),
             _decisao("cobertura", responde=True),
         ],
-        [_json_pedido("hemograma"), ""],
+        [],
     )
     grafo, whatsapp, _cib, fonte = _grafo(modelo)
     r1 = await grafo.ainvoke(_entrada("e a coparticipação do hemograma?"))
@@ -127,12 +124,13 @@ async def test_duvida_pergunta_x_ou_y_e_a_resposta_volta_ao_roteador() -> None:
     assert r1["coleta_pendente"] == f"{rt.PREFIXO_DUVIDA}cobertura:cobranca"
     memoria = {k: r1[k] for k in ("coleta_pendente", "coleta_contexto", "historico_conversa")}
     r2 = await grafo.ainvoke(_entrada("hemograma, se cobre") | memoria)
-    assert fonte.pedidos == ["40304361"] and not str(r2.get("coleta_pendente") or "").startswith("ROT_")
+    assert whatsapp.enviados[-1] == TEXTO_COBERTURA_FORA and fonte.pedidos == []
+    assert not str(r2.get("coleta_pendente") or "").startswith("ROT_")
 
 
 async def test_trava_de_alarme_vence_o_roteador() -> None:
     modelo = _Modelo([_decisao("cobertura")], [_classify(intent="symptom")])
-    grafo, whatsapp, cib, fonte = _grafo(modelo)
+    grafo, whatsapp, _cib, fonte = _grafo(modelo)
     with capture_logs() as logs:
         await grafo.ainvoke(_entrada("estou com dor no peito forte e falta de ar, o plano cobre?"))
     assert fonte.pedidos == []
@@ -171,135 +169,24 @@ def test_opcoes_da_duvida() -> None:
     assert rt.DecisaoDoRoteador("cobertura", "baixa", None, False).opcoes_da_duvida() is None
 
 
-async def test_reclamacao_sobre_a_resposta_fica_com_a_dona_da_pendencia() -> None:
-    modelo = _Modelo([_decisao("equipe", responde=False)], [])
-    grafo, whatsapp, cib, _fonte = _grafo(modelo)
-    contexto = ca.Contexto(termos=["hemograma"], quem="titular", respondidos=["Hemograma"]).codificar()
-    await grafo.ainvoke(
-        _entrada("Ué, como assim? Você acabou de verificar e falou outra coisa com a equipe")
-        | {"coleta_pendente": PEND_RESPONDIDO, "coleta_contexto": contexto}
-    )
-    from tests.unit.agents.test_helena_rodada_3_simulador import _starts
-
-    assert _starts(cib) == 0, "reclamacao sem pedido nao abre caso"
-    assert whatsapp.enviados[-1].startswith(ca.TEXTO_DESCULPA)
-
-
-async def test_roteador_plano_nao_cai_na_cobertura_assistida() -> None:
+async def test_roteador_plano_nunca_responde_cobertura() -> None:
     modelo = _Modelo(
         [_decisao("plano")],
         [_classify(intent="consulta_plano", consulta_subtipo="elegibilidade")],
     )
-    grafo, whatsapp, _cib, fonte = _grafo(modelo)
+    grafo, whatsapp, _cib, _fonte = _grafo(modelo)
     with capture_logs() as logs:
         await grafo.ainvoke(_entrada("beleza. e eu ainda estou em carência de alguma coisa?"))
-    assert not any(e.get("event") == "helena_cobertura_extraida" for e in logs)
-    assert ca.TEXTO_PEDE_LISTA not in (whatsapp.enviados[-1] if whatsapp.enviados else "")
-    assert fonte.pedidos == []
+    assert not any(e.get("event") == "helena_cobertura_fora" for e in logs)
+    assert TEXTO_COBERTURA_FORA not in (whatsapp.enviados[-1] if whatsapp.enviados else "")
 
 
-async def test_roteador_plano_depois_de_uma_resposta_de_cobertura_nao_cai_no_rol() -> None:
-    """Roteiro de 22/10/2026 (segmento 20): carencia logo depois de uma cobertura respondida, com o roteador
-    escolhendo `plano`, nunca vira "e' para quem?" nem consulta de cobertura pelo caminho do Rol."""
-    from maezo.agents.helena import graph as g
-    from maezo.agents.helena.historico import PAPEL_BENEFICIARIO, PAPEL_HELENA
-
-    modelo = _Modelo(
-        [_decisao("plano")], [_classify(intent="consulta_plano", consulta_subtipo="elegibilidade")]
-    )
-    grafo, whatsapp, _cib, fonte = _grafo(modelo)
-    agora = datetime.now(UTC).isoformat()
-    historico = [
-        {"papel": PAPEL_BENEFICIARIO, "texto": "Vocês cobrem hemograma?", "em": agora},
-        {"papel": PAPEL_HELENA, "texto": g.MARCADOR_RESPOSTA_DE_COBERTURA, "em": agora},
-    ]
-    with capture_logs() as logs:
-        await grafo.ainvoke(
-            _entrada("beleza. e eu ainda estou em carência de alguma coisa?")
-            | {"historico_conversa": historico, "ultima_mensagem_em": agora}
-        )
-    eventos = {e.get("event") for e in logs}
-    assert "helena_cobertura_pergunta_para_quem" not in eventos and "helena_cobertura_rol" not in eventos
-    assert fonte.pedidos == [], "nenhuma consulta de cobertura"
-    assert "para quem" not in whatsapp.enviados[-1].lower()
-
-
-async def test_nao_a_oferta_da_equipe_fica_com_a_dona_da_pendencia() -> None:
-    """Contrato: a resposta a pendencia e' da habilidade dona dela, mesmo com o roteador dizendo `equipe`."""
-    modelo = _Modelo([_decisao("equipe", responde=True)], [])
+async def test_pendencia_velha_da_cobertura_nunca_sequestra_a_resposta() -> None:
+    """Estado gravado antes da retirada (DL-0154): a pendencia da cobertura de antes nao abre caso nem volta
+    a perguntar; o "sim" a uma oferta que nao existe mais e' cortesia."""
+    modelo = _Modelo([_decisao("cobertura", responde=True)], [])
     grafo, whatsapp, cib, _fonte = _grafo(modelo)
-    contexto = ca.Contexto(termos=["qwxzk"], quem="titular", tentativas=2).codificar()
-    await grafo.ainvoke(_entrada("não") | {"coleta_pendente": ca.PEND_EQUIPE, "coleta_contexto": contexto})
-    from tests.unit.agents.test_helena_rodada_3_simulador import _starts
-
-    assert _starts(cib) == 0 and whatsapp.enviados[-1] == ca.TEXTO_SEM_EQUIPE
-
-
-@pytest.mark.parametrize("decisao", ["equipe", "cobertura"])
-async def test_quero_sim_a_oferta_da_equipe_da_cobertura_abre_o_caso(decisao: str) -> None:
-    """Roteiro de 22/10/2026 (segmento 9): com a pendencia na dona (cobertura), o "sim" a oferta da equipe
-    continua abrindo o caso, nunca a oferta de novo."""
-    modelo = _Modelo([_decisao(decisao, responde=True)], [])
-    grafo, whatsapp, cib, _fonte = _grafo(modelo)
-    contexto = ca.Contexto(termos=["qwxzk"], quem="titular", tentativas=2).codificar()
-    await grafo.ainvoke(
-        _entrada("quero sim") | {"coleta_pendente": ca.PEND_EQUIPE, "coleta_contexto": contexto}
-    )
-    from tests.unit.agents.test_helena_rodada_3_simulador import _starts
-
-    assert _starts(cib) == 1, "o 'sim' a oferta da equipe abre o caso"
-    assert ca.TEXTO_OFERTA_EQUIPE not in whatsapp.enviados[-1]
-
-
-async def test_deixa_pra_la_a_pendencia_da_cobertura_encerra_com_a_dona() -> None:
-    modelo = _Modelo([_decisao("conversa", responde=False)], [])
-    grafo, whatsapp, _cib, fonte = _grafo(modelo)
-    contexto = ca.Contexto(termos=["qwxzk"], quem="titular", tentativas=1).codificar()
-    await grafo.ainvoke(
-        _entrada("deixa pra lá") | {"coleta_pendente": ca.PEND_FORMA, "coleta_contexto": contexto}
-    )
-    assert whatsapp.enviados[-1] == ca.TEXTO_ASSUNTO_ENCERRADO and fonte.pedidos == []
-
-
-class _ModeloQueEspera(_Modelo):
-    """O roteador so' responde DEPOIS que a extracao da cobertura comecou (prova o paralelo)."""
-
-    def __init__(self, roteador: list[str], respostas: list[str]) -> None:
-        super().__init__(roteador, respostas)
-        self.extracao_comecou = asyncio.Event()
-        self.extracoes = 0
-
-    async def generate(self, prompt: str, **kw: Any) -> str:
-        if "roteador de um assistente" in prompt:
-            await asyncio.wait_for(self.extracao_comecou.wait(), timeout=2)
-        elif prompt.startswith(ca.PROMPT_EXTRACAO):
-            self.extracoes += 1
-            self.extracao_comecou.set()
-        return await super().generate(prompt, **kw)
-
-
-async def test_extracao_da_cobertura_roda_junto_com_o_roteador_e_e_reaproveitada() -> None:
-    modelo = _ModeloQueEspera([_decisao("cobertura")], [_json_pedido("hemograma"), ""])
-    grafo, whatsapp, _cib, fonte = _grafo(modelo)
-    with capture_logs() as logs:
-        await grafo.ainvoke(_entrada("o convênio paga um hemograma pra mim?"))
-    assert modelo.extracoes == 1, "a extracao antecipada e' a MESMA (nunca duas)"
-    assert any(e.get("event") == "helena_cobertura_extracao_antecipada" for e in logs)
-    assert fonte.pedidos == ["40304361"] and "consta no Rol" in whatsapp.enviados[-1]
-
-
-async def test_outra_habilidade_descarta_a_extracao_antecipada() -> None:
-    modelo = _Modelo([_decisao("plano")], [_json_pedido("hemograma"), _classify(intent="information")])
-    grafo, _whatsapp, _cib, fonte = _grafo(modelo)
-    with capture_logs() as logs:
-        await grafo.ainvoke(_entrada("o convênio paga um hemograma pra mim?"))
-    assert fonte.pedidos == [], "a decisao do roteador vale: nada de consulta de cobertura"
-    assert not any(e.get("event") == "helena_cobertura_extracao_antecipada" for e in logs)
-
-
-async def test_trava_de_entrada_nao_antecipa_extracao() -> None:
-    modelo = _ModeloQueEspera([], [_classify(intent="symptom")])
-    modelo.extracao_comecou.set()
-    grafo, whatsapp, _cib, _fonte = _grafo(modelo)
-    await grafo.ainvoke(_entrada("estou com dor no peito forte e falta de ar, o plano cobre?"))
-    assert modelo.extracoes == 0 and "192" in whatsapp.enviados[-1]
+    resultado = await grafo.ainvoke(_entrada("quero sim") | {"coleta_pendente": "COB2:EQUIPE"})
+    assert _starts(cib) == 0
+    assert whatsapp.enviados[-1] == TEXTO_COBERTURA_FORA
+    assert not str(resultado.get("coleta_pendente") or "").startswith("COB2:")

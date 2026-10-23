@@ -20,6 +20,7 @@ from maezo.agents.helena.graph import (
     RESPOSTA_CASO_ABERTO_CURTO_3,
     RESPOSTA_CASO_ABERTO_PRAZO,
     RESPOSTA_CASO_ABERTO_RECADO,
+    RESPOSTA_COBERTURA_ESPECIFICA,
     RESPOSTA_COBERTURA_ESPECIFICA_2,
     RESPOSTA_DESPEDIDA,
     RESPOSTA_DESPEDIDA_CASO_ABERTO,
@@ -142,10 +143,8 @@ async def test_insistencia_na_cobertura_nao_reenvia_os_dados_do_plano() -> None:
     await grafo.ainvoke(_entrada("mas cobre dermatologia ou não?", [MARCADOR_RESPOSTA_DE_COBERTURA]))
 
     assert fonte.chamadas == []
-    # DL-0095: a primeira resposta de cobertura ja' trouxe a frase de "onde confirmar"; a insistencia
-    # recebe a outra redacao.
+    # DL-0154 (dono, 23/10/2026): a insistencia recebe o mesmo aviso (nunca oferta da equipe nem dados).
     assert whatsapp.enviados == [RESPOSTA_COBERTURA_ESPECIFICA_2]
-    assert "cobertura de um procedimento específico" in whatsapp.enviados[0]
     assert "não consta" not in whatsapp.enviados[0]
 
 
@@ -177,7 +176,9 @@ async def test_e_urgente_sobre_cobertura_responde_a_cobertura_e_192_no_fim() -> 
     enviado = whatsapp.enviados[0]
     assert not enviado.startswith("Se for uma emergência")
     assert enviado.endswith(_EMERGENCIA_192)
-    assert "Ambulatorial + Hospitalar" in enviado
+    assert enviado.startswith(RESPOSTA_COBERTURA_ESPECIFICA), (
+        "DL-0154: o aviso da cobertura, sem a segmentacao"
+    )
 
 
 def test_com_sinal_de_saude_o_192_vai_na_frente() -> None:
