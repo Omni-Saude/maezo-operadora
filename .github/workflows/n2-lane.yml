@@ -1,9 +1,40 @@
-name: N2 lane (ROOT manual)
+name: N2 lane
 
-# Manual-only: the provider N2 served lane (scope v16, sealed parent n2fix-r14).
-# Runs on a clock-stable hosted Linux runner — the local macOS/Colima host steps
-# its wall clock backward, which the instrument's anti-tamper correctly refuses.
-# Never on push/PR. Budget: ~30-40 min per dispatch.
+# Provider N2 served lane (scope v16, sealed parent n2fix-r14) on a hosted Linux
+# runner. The local macOS/Colima host steps its wall clock backward, which the
+# instrument's anti-tamper correctly refuses (8 recorded attempts) — the hosted
+# runner is the clock-stable host the lane needs.
+#
+# Triggers:
+#   * workflow_dispatch — ROOT manual, unchanged (inputs below).
+#   * push to main, paths-filtered to THIS file (W4 PROV 4.3). Safety argument:
+#       - The instrument fail-closes on clock drift (refusal, not a pass) and on
+#         every other missing precondition: the lane is single-shot with a 14-min
+#         deadline, "no retry-until-green", and every LaneRefusal is preserved in
+#         the evidence artifact. An automatic run can never produce a false
+#         positive — it yields a genuine measurement or an honest refusal.
+#       - The job is NOT a gate: it stays out of every ruleset/required-check
+#         set, and the run step still `exit 0`s — the recorded outcome lives in
+#         the artifact, so "success" never means "lane positive".
+#     Why this paths filter is CLOSED here: the job checks out the sealed ref
+#     `provider/n2-startupnaming-envsub` and consumes sha-pinned inputs from the
+#     release `n2-lane-v16` — it does not read main's engine/tests at all. No
+#     other main path can change what the lane measures, so widening the filter
+#     would only burn paid minutes on runs that prove nothing about the changed
+#     code.
+#     Why there is no `pull_request` trigger: workflow-file bumps (Dependabot)
+#     would run the lane unprivileged on every such PR, and PR+push would
+#     double-bill each merge. Actions budget is a hard org cap — no schedule,
+#     no per-PR runs. Measured cost: 1.5-4 min for early refusals, 29.4 min for
+#     the deepest run; expected cadence on this filter ≈ 0-1 runs/month (this
+#     file changed once in repo history).
+#   * The guard step below implements the T2.3 precondition pattern (cf.
+#     red-main-alarm.yml notes): the lane's inputs are a ROOT-curated release —
+#     an out-of-band manual input. If they are absent, the job emits a LOUD
+#     skip (::notice:: + step summary) and exits 0 — never a silent `if: false`,
+#     never continue-on-error. A stale/absent release must not fake a red main:
+#     red-main-alarm pages on the latest completed push-event run of ANY
+#     workflow on the tip, grouped by workflow name.
 
 on:
   workflow_dispatch:
@@ -12,9 +43,18 @@ on:
         description: "Lane scope file name inside lane-harness.tar.gz/lane/"
         required: false
         default: "N2-LANE-SCOPE-v16.json"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/n2-lane.yml"
 
 permissions:
   contents: read
+
+# Coalesce rapid pushes of this file: one lane run per tip, not one per push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lane:
@@ -26,14 +66,45 @@ jobs:
           ref: provider/n2-startupnaming-envsub
           fetch-depth: 1
 
+      # T2.3 precondition guard: run the lane only when its ROOT-curated inputs
+      # are actually present; otherwise skip LOUDLY (never a silent skip, never
+      # a red job that would page red-main-alarm for a non-code reason).
+      - name: Guard - lane inputs present in release n2-lane-v16
+        id: precondicao
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # A missing release must land in the loud skip below, never in a red
+          # step — hence the `|| echo false` (set -e would otherwise kill the
+          # guard exactly when it is doing its job).
+          ok="$(gh release view n2-lane-v16 --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '[.assets[].name] | (contains(["images.tar.gz"]) and contains(["lane-harness.tar.gz"]))' 2>/dev/null || echo false)"
+          if [ "$ok" = "true" ]; then
+            echo "disponivel=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "disponivel=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "## N2 lane skipped — ROOT-only inputs absent"
+            echo ""
+            echo "Release \`n2-lane-v16\` is missing \`images.tar.gz\` and/or \`lane-harness.tar.gz\`."
+            echo "These are ROOT-curated, out-of-band inputs (sha-pinned lane scope v16, sealed"
+            echo "parent \`n2fix-r14\`). Re-stage them, then re-run via workflow_dispatch."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::N2 lane skipped: release n2-lane-v16 lacks images.tar.gz/lane-harness.tar.gz (ROOT-only inputs, out of band)."
+
       - uses: actions/setup-python@v5
+        if: steps.precondicao.outputs.disponivel == 'true'
         with:
           python-version: "3.12"
 
       - name: Install lane python deps
+        if: steps.precondicao.outputs.disponivel == 'true'
         run: pip install "cryptography>=42" asyncpg jsonschema h11 httpx
 
-      - name: Download lane inputs (draft release)
+      - name: Download lane inputs (release n2-lane-v16)
+        if: steps.precondicao.outputs.disponivel == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -44,6 +115,7 @@ jobs:
           ls -la /tmp/lane-x/lane
 
       - name: Point the harness at this checkout
+        if: steps.precondicao.outputs.disponivel == 'true'
         run: |
           LANE_DIR=/tmp/lane-x/lane
           echo "LANE_DIR=$LANE_DIR" >> "$GITHUB_ENV"
@@ -51,8 +123,11 @@ jobs:
           grep -n "^WORKTREE" "$LANE_DIR/runner.py"
 
       - name: Run the N2 lane
+        if: steps.precondicao.outputs.disponivel == 'true'
         env:
-          N2_SCOPE: ${{ inputs.scope }}
+          # `inputs.*` defaults apply ONLY to workflow_dispatch; on push the
+          # value is an empty string, so fall back to the same default here.
+          N2_SCOPE: ${{ inputs.scope || 'N2-LANE-SCOPE-v16.json' }}
         run: |
           set +e
           cd "$GITHUB_WORKSPACE"
