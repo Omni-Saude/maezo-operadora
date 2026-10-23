@@ -55,7 +55,12 @@ final class Fixtures {
     if(directory==null)throw new IllegalStateException(
         "explicit real integration setting missing: fixture directory (@TempDir not injected before @BeforeAll)");
     directory=directory.toRealPath();
-    Path ca=directory.resolve("ca.pem");Files.write(ca,Fixtures.class.getResourceAsStream("/d7/ca.pem").readAllBytes());
+    // Close the resource stream deterministically. A leaked FileInputStream is closed later by the
+    // Cleaner thread after a GC; that concurrent close frees an FD number which the protected read
+    // under test can reuse between its two descriptor censuses, and RuntimeObservationAdmission
+    // correctly refuses such a reused descriptor (engine_profile_unavailable): flaky in CI.
+    Path ca=directory.resolve("ca.pem");
+    try(var in=Fixtures.class.getResourceAsStream("/d7/ca.pem")){Files.write(ca,in.readAllBytes());}
     var leaf=certificate("client");long now=Instant.now().getEpochSecond();
     Map<String,Object> peer=new HashMap<>();
     peer.put("certificate_sha256",BoundaryPolicy.hashCertificate(leaf));peer.put("spki_sha256",Jcs.digest(leaf.getPublicKey().getEncoded()));
