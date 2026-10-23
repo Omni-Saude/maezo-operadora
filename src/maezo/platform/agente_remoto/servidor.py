@@ -134,7 +134,16 @@ class ServicoDoAgente:
         compiled = self._compilar(pedido)
         bruto = pedido.get("estado")
         estado = self._materializar(bruto)
-        resultado = await compiled.ainvoke(estado, self._config_de_thread(pedido.get("config")))
+        try:
+            resultado = await compiled.ainvoke(estado, self._config_de_thread(pedido.get("config")))
+        except Exception as exc:
+            # ALERTS-WITHOUT-METRICS-a: este e' agora o sitio que EXECUTA o turno do agente remoto; a falha
+            # conta em `maezo_agent_errors_total` aqui (o receptor ve' so' a falha externa) e sobe nua.
+            from maezo.platform.observability import record_agent_error
+            from maezo.runtime.metrics import classify_agent_error_type
+
+            record_agent_error(agent=self.entrada.agent_id, error_type=classify_agent_error_type(exc))
+            raise
         # O despachante pergunta, logo depois, se ESTE texto pede uma pessoa (porta sincrona): a resposta vai
         # junto, para o cliente nao precisar de uma chamada sincrona.
         pedido_de_pessoa: bool | None = None

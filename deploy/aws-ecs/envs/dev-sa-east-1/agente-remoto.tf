@@ -10,8 +10,8 @@
 #     mas com segredos e role PROPRIOS e menores (revisao de seguranca da 4b, abaixo). A imagem continua
 #     `var.agents_image_digest` — e' isso que separa o deploy da Helena do deploy do receptor;
 #   * o receptor recebe `MAEZO_AGENTE_DE_ENTRADA_URL` e passa a chamar o agente pela porta;
-#   * o agente recebe `MAEZO_RECEPTOR_URL` para o callback de envio: quem envia WhatsApp continua
-#     sendo o receptor. Por isso o agente NAO recebe `secrets_envio` (credenciais da Meta) nem a
+#   * o callback de envio volta ao endereco que o receptor manda em cada pedido: quem envia WhatsApp
+#     continua sendo o receptor. Por isso o agente NAO recebe `secrets_envio` (credenciais da Meta) nem a
 #     custodia do telefone (`local.recipient_vault_env`): ele nunca envia e nunca ve o numero.
 #
 # Desligada (default) nenhum recurso muda: as listas abaixo ficam vazias e os ternarios de
@@ -68,13 +68,13 @@ locals {
   # Lado SERVIDOR: o contrato do receptor, com tres trocas:
   #   HEALTH_PORT  8000 (o contrato traz a 8080 do receptor);
   #   AGENT_ID     `helena` (o contrato ja' traz; repetido aqui para nao depender disso);
-  #   MAEZO_RECEPTOR_URL  o callback de envio.
+  #   (sem MAEZO_RECEPTOR_URL: o endereco de retorno do envio vem em cada pedido — o IP da task do
+  #    receptor que abriu o turno —, entao o agente nao precisa conhecer o receptor de antemao.)
   agente_remoto_environment = concat(
     [for e in local.webhook_receiver_contrato.environment_app : e if !contains(["HEALTH_PORT", "AGENT_ID"], e.name)],
     [
       { name = "AGENT_ID", value = "helena" },
       { name = "HEALTH_PORT", value = tostring(local.agente_remoto_porta) },
-      { name = "MAEZO_RECEPTOR_URL", value = local.receptor_url },
     ],
     local.webhook_receiver_contrato.environment_amh,
   )
