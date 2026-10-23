@@ -71,9 +71,7 @@ def _sequence_flow_index(root: ET.Element) -> dict[str, list[tuple[str, str]]]:
     """sourceRef -> [(flowId, targetRef), ...] over every process in the file."""
     adj: dict[str, list[tuple[str, str]]] = {}
     for flow in root.iter(f"{{{BPMN_NS}}}sequenceFlow"):
-        adj.setdefault(flow.get("sourceRef", ""), []).append(
-            (flow.get("id", ""), flow.get("targetRef", ""))
-        )
+        adj.setdefault(flow.get("sourceRef", ""), []).append((flow.get("id", ""), flow.get("targetRef", "")))
     return adj
 
 
@@ -183,11 +181,7 @@ def test_u4_escape_gateway_is_the_pinned_convergence_point() -> None:
     """(c) U4-specific pin: the v4 escape gateway exists, is exclusive, and is the
     separating convergence point for the (boundary, host) -> join pair."""
     root = _load()
-    escape = [
-        gw
-        for gw in root.iter(f"{{{BPMN_NS}}}exclusiveGateway")
-        if gw.get("id") == ESCAPE_ID
-    ]
+    escape = [gw for gw in root.iter(f"{{{BPMN_NS}}}exclusiveGateway") if gw.get("id") == ESCAPE_ID]
     assert escape, f"{ESCAPE_ID} (the v4 F-E01 fix) is missing"
     adj = _sequence_flow_index(root)
     assert JOIN_ID not in _reachable(adj, BOUNDARY_ID, skip=ESCAPE_ID), (
@@ -196,6 +190,4 @@ def test_u4_escape_gateway_is_the_pinned_convergence_point() -> None:
     assert JOIN_ID not in _reachable(adj, HOST_ID, skip=ESCAPE_ID), (
         f"without {ESCAPE_ID} the host {HOST_ID} still reaches {JOIN_ID} directly"
     )
-    assert JOIN_ID in _reachable(adj, ESCAPE_ID), (
-        f"{ESCAPE_ID} must route toward {JOIN_ID}"
-    )
+    assert JOIN_ID in _reachable(adj, ESCAPE_ID), f"{ESCAPE_ID} must route toward {JOIN_ID}"
