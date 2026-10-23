@@ -141,11 +141,12 @@
     </bpmn:exclusiveGateway>
     <bpmn:intermediateCatchEvent id="H2_EV_Janela" name="Aguardar próxima janela permitida">
       <bpmn:documentation>Proposta de contrato de espera compartilhada: proximaJanela deve representar data válida e futura para esta tentativa. Ao despertar, o retorno ao seletor reavalia preferência, finalidade e política aplicável; o executor deve evitar repetir imediatamente uma janela já vencida. Não foi definido prazo máximo nem teto de tentativas nesta revisão; cálculo externo da janela e progressão não executados.</bpmn:documentation>
+      <bpmn:documentation>Contrato de default explícito (CORP-2.2 · IA-05/F-E03): se proximaJanela vier nula do seletor (H2_CA_Canal, saída de SC_T_Capping), a espera usa a âncora conservadora 2027-01-01T03:00:00Z (horizonte além do pino regulatório 31/12/2026, no horário do ciclo diário do conjunto) em vez de interromper a instância na avaliação do timer; variable realmente ausente continua falhando como antes (PropertyNotFoundException), sem silêncio e sem loop sem teto. Âncora a substituir pela política de janela na ponte de runtime.</bpmn:documentation>
       <bpmn:documentation>Horário silencioso / batching. | Origem: M3_EV_AguardarJanela</bpmn:documentation>
       <bpmn:incoming>F_CA_H2_ComunicarCliente_13</bpmn:incoming>
       <bpmn:outgoing>F_CA_H2_ComunicarCliente_15</bpmn:outgoing>
       <bpmn:timerEventDefinition>
-        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${proximaJanela}</bpmn:timeDate>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${proximaJanela != null ? proximaJanela : "2027-01-01T03:00:00Z"}</bpmn:timeDate>
       </bpmn:timerEventDefinition>
     </bpmn:intermediateCatchEvent>
     <bpmn:endEvent id="H2_End_Suprimido" name="Suprimido ou agrupado por preferência">
@@ -965,6 +966,25 @@
   <bpmn:dataStore id="DS_INS_021" name="Repositório de pesquisas respondidas">
     <bpmn:documentation>Insumo INS-021 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte interna; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Pesquisas · rótulo; CA_0 · EC_T_Pesquisas · documentation</bpmn:documentation>
   </bpmn:dataStore>
+  <bpmn:process id="Process_CA_DS_Monitoramento" name="DS — Consumir alerta do time de ciência de dados" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Proposta de contrato de captura do sinal global "Alerta Time Data Science" (CORP-2.4 · IA-06/F-E10): este processo consome o sinal lançado por H3_EV_AlertaDS no mesmo arquivo; correlação pelo NOME do sinal, id e nome inalterados. O consumo externo documentado no throw (monitoramento do time de Ciência de Dados) permanece possível — sinais são broadcast e assinantes adicionais não são excluídos. Payload do sinal a definir pelo time; recepção real não executada nesta devolutiva.</bpmn:documentation>
+    <bpmn:startEvent id="DS_Start_AlertaDS" name="Alerta Time Data Science recebido">
+      <bpmn:documentation>Captura por início de processo com definição de sinal — idioma BPMN para consumidor de monitoramento, que reage a cada emissão sem rewiring de fluxos existentes (mudança estritamente aditiva). | Ref: CORP-2.4 · IA-06</bpmn:documentation>
+      <bpmn:outgoing>F_CA_DS_01</bpmn:outgoing>
+      <bpmn:signalEventDefinition signalRef="Signal_CA_AlertaDS"/>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="DS_T_RegistrarAlerta" name="Registrar alerta para o time de dados" camunda:asyncBefore="true">
+      <bpmn:documentation>Proposta de executor compartilhado de monitoramento: registrar recebimento do alerta, jornada/caso de origem e recibo para o time de Ciência de Dados. Binding de implementação não fornecido no corpus; esta documentação não implementa automação nem qualifica implantação/execução. Sem prazo nem teto de reprocessamento definidos nesta revisão.</bpmn:documentation>
+      <bpmn:incoming>F_CA_DS_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_DS_02</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="DS_End_AlertaRegistrado" name="Alerta registrado para consumo do time">
+      <bpmn:documentation>Desfecho do consumo modelado do alerta; marco factual de registro, não de ação do time.</bpmn:documentation>
+      <bpmn:incoming>F_CA_DS_02</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_DS_01" sourceRef="DS_Start_AlertaDS" targetRef="DS_T_RegistrarAlerta"/>
+    <bpmn:sequenceFlow id="F_CA_DS_02" sourceRef="DS_T_RegistrarAlerta" targetRef="DS_End_AlertaRegistrado"/>
+  </bpmn:process>
   <bpmn:message id="Message_CA_ComunicarCliente" name="CA_ComunicarCliente"/>
   <bpmn:message id="Message_CA_EventoNegocio" name="CA_EventoNegocio"/>
   <bpmn:error id="Error_CA_ConsentimentoNegado" name="Consentimento LGPD negado/expirado" errorCode="LGPD_CONSENT_NEGADO"/>
@@ -2043,6 +2063,33 @@
       <bpmndi:BPMNEdge id="DIA_INS_013_1_di" bpmnElement="DIA_INS_013_1">
         <di:waypoint x="448" y="5189"/>
         <di:waypoint x="448" y="5165"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_CA_DS_Monitoramento">
+    <bpmndi:BPMNPlane id="BPMNPlane_CA_DS_Monitoramento" bpmnElement="Process_CA_DS_Monitoramento">
+      <bpmndi:BPMNShape id="DS_Start_AlertaDS_di" bpmnElement="DS_Start_AlertaDS">
+        <dc:Bounds x="160" y="5622" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="131" y="5666" width="94" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DS_T_RegistrarAlerta_di" bpmnElement="DS_T_RegistrarAlerta">
+        <dc:Bounds x="246" y="5600" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DS_End_AlertaRegistrado_di" bpmnElement="DS_End_AlertaRegistrado">
+        <dc:Bounds x="396" y="5622" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="367" y="5666" width="94" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_DS_01_di" bpmnElement="F_CA_DS_01">
+        <di:waypoint x="196" y="5640"/>
+        <di:waypoint x="246" y="5640"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_DS_02_di" bpmnElement="F_CA_DS_02">
+        <di:waypoint x="346" y="5640"/>
+        <di:waypoint x="396" y="5640"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
