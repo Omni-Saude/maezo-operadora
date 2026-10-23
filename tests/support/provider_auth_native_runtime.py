@@ -1673,7 +1673,11 @@ class NativeObservationRootCrosslink:
             if (
                 type(mapping) is not dict
                 or set(mapping) != {"source", "backend_xid32", "active_full_xids"}
-                or mapping["source"] != "root-pg-current-snapshot-and-stat-activity"
+                or mapping["source"]
+                not in (
+                    "root-pg-current-snapshot-and-stat-activity",
+                    "root-pg-clog-committed-and-stat-activity",
+                )
                 or type(mapping["active_full_xids"]) is not list
                 or any(
                     type(value) is not str
@@ -1688,6 +1692,28 @@ class NativeObservationRootCrosslink:
             if xid is None:
                 if xid32 is not None:
                     raise NativeObservationError("ROOT unassigned XID readback differs")
+            elif mapping["source"] == "root-pg-clog-committed-and-stat-activity":
+                # v23 committed decisive source (DESIGN-OPTION-REFUSAL-60-v1): the
+                # checkpoint observed the commit boundary — the witness xid has left
+                # the in-progress set, so the closed mapping carries ZERO candidates
+                # congruent to the witness modulo 2**32 and the lagging
+                # pg_stat_activity projection must not contradict it (null = the
+                # projection already cleared; a congruent value is the pre-clear
+                # lag; anything else is an epoch/identity contradiction). The live
+                # txid_status == 'committed' verdict itself is proven at acquisition
+                # time by the collector; this closed-form check refuses any mapping
+                # whose xip still shows the witness in progress.
+                if xid32 is not None and (
+                    type(xid32) is not str
+                    or re.fullmatch(r"[1-9][0-9]{0,9}", xid32) is None
+                    or int(xid32) >= 2**32
+                    or int(xid32) != int(xid) % 2**32
+                ):
+                    raise NativeObservationError("ROOT committed full-XID mapping contradicted")
+                if any(int(value) % 2**32 == int(xid) % 2**32 for value in mapping["active_full_xids"]):
+                    raise NativeObservationError(
+                        "ROOT committed full-XID mapping still in progress, never forced"
+                    )
             else:
                 if (
                     type(xid32) is not str

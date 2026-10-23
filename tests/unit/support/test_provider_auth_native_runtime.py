@@ -923,7 +923,19 @@ def test_observer_reused_backend_is_valid_for_genuine_new_transaction_shape(
     assert _parse_observer_unit(case).route_probe["root_crosslink_status"] == "PENDING_ROOT_READBACK"
 
 
-@pytest.mark.parametrize("mapping_mode", ["legitimate-full", "only-xid32", "ambiguous-epoch"])
+@pytest.mark.parametrize(
+    "mapping_mode",
+    [
+        "legitimate-full",
+        "only-xid32",
+        "ambiguous-epoch",
+        "committed-cleared-projection",
+        "committed-lagged-projection",
+        "committed-still-in-progress",
+        "committed-contradictory-xid32",
+        "committed-foreign-source",
+    ],
+)
 def test_observer_root_full_xid_requires_actual_snapshot_epoch_mapping(
     observation_v3_unit_case, mapping_mode
 ):
@@ -940,10 +952,37 @@ def test_observer_root_full_xid_requires_actual_snapshot_epoch_mapping(
         mapping["active_full_xids"] = ["102"]
     elif mapping_mode == "ambiguous-epoch":
         mapping["active_full_xids"] = ["102", full]
+    elif mapping_mode == "committed-cleared-projection":
+        mapping["source"] = "root-pg-clog-committed-and-stat-activity"
+        mapping["active_full_xids"] = []
+        mapping["backend_xid32"] = None
+    elif mapping_mode == "committed-lagged-projection":
+        mapping["source"] = "root-pg-clog-committed-and-stat-activity"
+        mapping["active_full_xids"] = []
+    elif mapping_mode == "committed-still-in-progress":
+        mapping["source"] = "root-pg-clog-committed-and-stat-activity"
+        mapping["active_full_xids"] = [full]
+    elif mapping_mode == "committed-contradictory-xid32":
+        mapping["source"] = "root-pg-clog-committed-and-stat-activity"
+        mapping["active_full_xids"] = []
+        mapping["backend_xid32"] = "103"
+    elif mapping_mode == "committed-foreign-source":
+        mapping["source"] = "root-pg-clog-committed-and-stat-activity-x"
+        mapping["active_full_xids"] = []
+        mapping["backend_xid32"] = None
     pin = case.pin("root-crosslink.json", case.encode(root), secret=True)
     crosslink = runtime.NativeObservationRootCrosslink(pin)
-    if mapping_mode == "legitimate-full":
+    if mapping_mode in ("legitimate-full", "committed-cleared-projection", "committed-lagged-projection"):
         assert crosslink.validate(engine, inputs=case.inputs, deadline=case.until)
+    elif mapping_mode == "committed-still-in-progress":
+        with pytest.raises(runtime.NativeObservationError, match="still in progress"):
+            crosslink.validate(engine, inputs=case.inputs, deadline=case.until)
+    elif mapping_mode == "committed-contradictory-xid32":
+        with pytest.raises(runtime.NativeObservationError, match="committed full-XID mapping"):
+            crosslink.validate(engine, inputs=case.inputs, deadline=case.until)
+    elif mapping_mode == "committed-foreign-source":
+        with pytest.raises(runtime.NativeObservationError, match="snapshot readback missing"):
+            crosslink.validate(engine, inputs=case.inputs, deadline=case.until)
     else:
         with pytest.raises(runtime.NativeObservationError, match="full-XID mapping"):
             crosslink.validate(engine, inputs=case.inputs, deadline=case.until)

@@ -56,18 +56,28 @@ _CHECKPOINT_SQL = """SELECT clock_timestamp() AS observed_at,
  a.pid::text AS backend_pid,a.backend_start,a.xact_start AS transaction_started_at,
  a.backend_xid::text AS backend_xid32,a.usename::text AS session_login,
  a.client_addr::text AS client_address,a.client_port,s.ssl AS backend_ssl,
- s.version::text AS backend_tls_version
+ s.version::text AS backend_tls_version,
+ pg_catalog.txid_status($2::bigint) AS witness_xact_status
  FROM pg_catalog.pg_stat_activity a
  JOIN pg_catalog.pg_stat_ssl s ON s.pid=a.pid
  CROSS JOIN pg_catalog.pg_database d
  WHERE a.pid=$1 AND d.datname=current_database()"""
 # CI #60 root cause: the committing HOLD frame is emitted at the exact instant the
 # stage transaction's first write assigns its xid (HOLD-2 witness xid=None; HOLD-5
-# witness xid=761, same tx). One combined statement straddles that assignment
+# witness xid=761, same tx). One combined statement straddled that assignment
 # (snapshot evaluated before, row after) — 'full-XID mapping absent' at EVERY
-# committing-hold checkpoint. Two statements in dependency order fix it: the ROW
+# committing-hold checkpoint. Two statements in dependency order (v22): the ROW
 # first (corroborates the witness against live pg_stat_activity), the SNAPSHOT
 # second (a later statement cannot predate an xid the row already showed).
+# v22 still refused with the SAME guard as v16 (discriminator): by the time the
+# ROOT checkpoint reads the row the stage transaction has already LEFT the
+# in-progress set (committed between the instrument's witness read and the
+# checkpoint) while pg_stat_activity still projects backend_xid32 by report lag.
+# The xip-only admission invariant is unsatisfiable BY CONSTRUCTION at that
+# boundary, so the ROW statement also reads the witness's own commit-log verdict
+# in the SAME statement (no straddle): pg_catalog.txid_status($2::bigint). The
+# value never enters the capture document — it is consumed by full_xid() and
+# recorded only in the acquisition record/crosslink decisive source.
 _SNAPSHOT_SQL = (
     "SELECT ARRAY(SELECT y::text FROM pg_catalog.pg_snapshot_xip("
     "pg_catalog.pg_current_snapshot()) y) AS active_full_xids"
@@ -199,26 +209,101 @@ def installed_measurement_origin(
     return present
 
 
-def full_xid(xid32: Any, active: Any) -> str | None:
+# v23 decisive full-XID sources (DESIGN-OPTION-REFUSAL-60-v1). Admission is
+# state-dependent and evaluated over ONE observation, never retried:
+# * exactly one xip candidate congruent to the witness modulo 2**32 AND equal to
+#   it, with an assigned non-contradictory backend_xid32 -> the em-progresso path
+#   'pg_snapshot_xip-in-progress' (unchanged evidence, the strongest kind);
+# * zero such candidates AND the same statement's pg_catalog.txid_status verdict
+#   == 'committed' (the authoritative persistent commit log — written by the
+#   commit path itself, immune to pg_stat_activity report lag) AND backend_xid32
+#   non-contradictory, where null means the lagging projection already cleared
+#   -> 'pg_xact_clog-committed';
+# * EVERY other state refuses with a discriminating reason: aborted, in progress
+#   (non-decisive: the clog zero-initializes a never-assigned recent xid as in
+#   progress, so 'in progress' without xip candidacy can never waive),
+#   subcommitted (a stage witness is top-level), None (clog horizon), ambiguous,
+#   epoch mismatch, or a backend_xid32 contradiction. Only the exact committed
+#   literal admits the clog path — never 'inprogress'/'in progress',
+#   'subcommitted' or NULL.
+XID_SOURCE_IN_PROGRESS = "pg_snapshot_xip-in-progress"
+XID_SOURCE_CLOG_COMMITTED = "pg_xact_clog-committed"
+# Sentinel: full_xid called WITHOUT a live txid_status verdict is an offline
+# re-derivation of a stored capture (pair verdict checks and provenance
+# revalidation read artifacts, not the database). Zero-candidate captures can
+# only exist because the live committed guard admitted them at acquisition (the
+# non-decisive states refuse before any artifact is written) and the clog is
+# terminal, so the committed verdict is a stable property of such a capture.
+_LIVE_STATUS_UNSET = object()
+
+
+def full_xid(
+    xid32: Any, active: Any, *, witness: Any, live_status: Any = _LIVE_STATUS_UNSET
+) -> tuple[str | None, str]:
     if type(active) is not list or len(active) > 4096 or len(set(active)) != len(active):
         raise runtime.NativeObservationError("Actual full-XID snapshot refused")
     for value in active:
         if type(value) is not str or re.fullmatch(r"[1-9][0-9]{0,19}", value) is None or int(value) >= 2**64:
             raise runtime.NativeObservationError("Actual snapshot XID refused")
-    if xid32 is None:
-        return None
-    if type(xid32) is not str or re.fullmatch(r"[1-9][0-9]{0,9}", xid32) is None or int(xid32) >= 2**32:
+    if witness is None:
+        if xid32 is not None:
+            raise runtime.NativeObservationError(
+                "Actual unassigned witness contradicted by assigned backend xid32"
+            )
+        return None, XID_SOURCE_IN_PROGRESS
+    if (
+        type(witness) is not str
+        or re.fullmatch(r"[1-9][0-9]{0,19}", witness) is None
+        or int(witness) >= 2**64
+    ):
+        raise runtime.NativeObservationError("Actual witness full XID refused")
+    if xid32 is not None and (
+        type(xid32) is not str or re.fullmatch(r"[1-9][0-9]{0,9}", xid32) is None or int(xid32) >= 2**32
+    ):
         raise runtime.NativeObservationError("Actual backend xid32 refused")
-    matches: list[str] = [value for value in active if int(value) % 2**32 == int(xid32)]
-    if len(matches) != 1:
-        raise runtime.NativeObservationError("Actual full-XID mapping absent/ambiguous")
-    return matches[0]
+    matches: list[str] = [value for value in active if int(value) % 2**32 == int(witness) % 2**32]
+    if len(matches) == 1 and matches[0] == witness:
+        if xid32 is None:
+            raise runtime.NativeObservationError(
+                "Actual witness in progress with cleared backend xid32 projection"
+            )
+        if int(xid32) != int(witness) % 2**32:
+            raise runtime.NativeObservationError("Actual backend xid32 differs from witness epoch")
+        return witness, XID_SOURCE_IN_PROGRESS
+    if len(matches) > 1:
+        raise runtime.NativeObservationError("Actual full-XID mapping ambiguous, never forced")
+    if matches:
+        raise runtime.NativeObservationError(
+            f"Actual full-XID candidate {matches[0]} differs from witness epoch"
+        )
+    if xid32 is not None and int(xid32) != int(witness) % 2**32:
+        raise runtime.NativeObservationError("Actual backend xid32 differs from witness epoch")
+    if live_status is _LIVE_STATUS_UNSET:
+        return witness, XID_SOURCE_CLOG_COMMITTED
+    if live_status == "committed":
+        return witness, XID_SOURCE_CLOG_COMMITTED
+    if live_status == "aborted":
+        raise runtime.NativeObservationError("Actual witness transaction aborted in the clog")
+    if live_status in ("in progress", "inprogress"):
+        raise runtime.NativeObservationError(
+            "Actual witness clog in progress without xip candidacy (non-decisive, never waived)"
+        )
+    if live_status == "subcommitted":
+        raise runtime.NativeObservationError("Actual witness transaction subcommitted")
+    if live_status is None:
+        raise runtime.NativeObservationError("Actual witness full XID outside the clog horizon")
+    raise runtime.NativeObservationError(f"Actual witness clog status {live_status!r} unknown")
 
 
-def session(capture: dict[str, Any]) -> dict[str, Any]:
+def session(
+    capture: dict[str, Any], *, witness: Any, live_status: Any = _LIVE_STATUS_UNSET
+) -> dict[str, Any]:
+    mapping, _source = full_xid(
+        capture["backend_xid32"], capture["active_full_xids"], witness=witness, live_status=live_status
+    )
     return {
         **{k: capture[k] for k in SESSION_KEYS if k != "transaction_id_if_assigned"},
-        "transaction_id_if_assigned": full_xid(capture["backend_xid32"], capture["active_full_xids"]),
+        "transaction_id_if_assigned": mapping,
     }
 
 
@@ -253,8 +338,19 @@ async def acquire_pg_checkpoint(
             ):
                 raise runtime.NativeObservationError("Actual PostgreSQL stats visibility unavailable")
             witness = hold["measurement"]["session_transaction"]
+            witness_txid = witness["transaction_id_if_assigned"]
+            # The xid8 decimal rendering IS the epoch<<32|xid encoding txid_status
+            # consumes; bigint is signed, so a witness beyond 2**63-1 (epoch >=
+            # 2**31) has no admissible txid_status encoding and refuses here.
+            if witness_txid is not None and int(witness_txid) >= 2**63:
+                raise runtime.NativeObservationError(
+                    "Actual witness full XID exceeds the txid_status bigint encoding"
+                )
             row = await connection.fetchrow(
-                _CHECKPOINT_SQL, int(witness["backend_pid"]), timeout=remaining(guard)
+                _CHECKPOINT_SQL,
+                int(witness["backend_pid"]),
+                None if witness_txid is None else int(witness_txid),
+                timeout=remaining(guard),
             )
             guard.check()
             if row is None:
@@ -265,6 +361,7 @@ async def acquire_pg_checkpoint(
             if snapshot_row is None:
                 raise runtime.NativeObservationError("Actual full-XID snapshot refused")
             row = dict(row)
+            witness_status = row["witness_xact_status"]
             row["active_full_xids"] = list(snapshot_row["active_full_xids"])
             capture = dict(
                 schema="provider-native-root-pg-checkpoint-capture.v1",
@@ -301,7 +398,9 @@ async def acquire_pg_checkpoint(
             capture["transaction_started_at"] = runtime.clock(row["transaction_started_at"])
             capture["active_full_xids"] = list(row["active_full_xids"])
             validate(schema, "RootPgRawCapture", capture)
-            if session(capture) != {k: witness[k] for k in SESSION_KEYS}:
+            if session(capture, witness=witness_txid, live_status=witness_status) != {
+                k: witness[k] for k in SESSION_KEYS
+            }:
                 raise runtime.NativeObservationError("Root PG tuple differs from held enlisted session")
             physical = hold["measurement"]["stable_database_projection"]
             if (
@@ -926,7 +1025,13 @@ class NativeMeasurementCollector:
                         )
                         self.pg_captures.append(item)
                         captures.append(capture)
-                    if session(captures[0]) != session(captures[1]):
+                    if session(
+                        captures[0],
+                        witness=hold["measurement"]["session_transaction"]["transaction_id_if_assigned"],
+                    ) != session(
+                        captures[1],
+                        witness=hold["measurement"]["session_transaction"]["transaction_id_if_assigned"],
+                    ):
                         raise runtime.NativeObservationError(
                             "Held session changed between fresh ROOT snapshots"
                         )
@@ -1496,7 +1601,9 @@ class NativeMeasurementProvenance:
                     ):
                         raise runtime.NativeObservationError("Release PG raw acquisition hash differs")
                     witness = hold["measurement"]["session_transaction"]
-                    if session(capture) != {key: witness[key] for key in SESSION_KEYS}:
+                    if session(capture, witness=witness["transaction_id_if_assigned"]) != {
+                        key: witness[key] for key in SESSION_KEYS
+                    }:
                         raise runtime.NativeObservationError("Fresh real snapshot/session tuple differs")
                     at = runtime._observation_time(capture["root_observed_at"])
                     if (
