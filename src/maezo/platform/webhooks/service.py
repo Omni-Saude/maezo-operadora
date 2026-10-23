@@ -966,7 +966,7 @@ async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
     )
 
 
-async def _aquecer_catalogo(dispatcher: Any) -> None:
+async def aquecer_catalogo(dispatcher: Any) -> None:
     """Carrega o catalogo de procedimentos (rota TINA v1.14) e agenda o indice (DL-0128). Nunca levanta."""
     busca = getattr(getattr(dispatcher, "saude_gerativa", None), "catalogo", None)
     leitor = getattr(getattr(dispatcher, "consultas_plano", None), "consultar_catalogo_procedimentos", None)
@@ -981,12 +981,17 @@ async def _aquecer_catalogo(dispatcher: Any) -> None:
         logger.warning("catalogo_procedimentos_aquecimento_falhou", error_type=type(exc).__name__)
 
 
-async def _bring_up_dependencies(state: WebhookState) -> None:
+async def _bring_up_dependencies(state: WebhookState, *, so_o_agente: bool = False) -> None:
     """STEP A: bounded, non-fatal. Pure dispatcher CONSTRUCTION (no I/O) followed by the ONE
     bounded bring-up I/O this receiver now performs — the durable checkpointer's connect+setup()
     (T4b), bounded by `dep_connect_timeout_s`. Any failure leaves `state.dispatcher` `None` —
     `/webhook` degrades to the explicit 501 for a message needing dispatch (never a fabricated
-    dispatch, never a silently-stateless prod dispatch)."""
+    dispatch, never a silently-stateless prod dispatch).
+
+    `so_o_agente` (ADR-0067 fase 4b): a MESMA composicao, para o servico do agente de entrada remoto
+    (`maezo.platform.agente_remoto`) — as dependencias do grafo e dos nos (costuras cercadas, consultas do
+    plano, saude gerativa, checkpointer) sem o que so' o receptor usa: a ponte do acesso, o Lucas e o acesso.
+    """
     try:
         state.dispatcher, state.cibseven_transport = _build_dispatcher(state.settings)
         logger.info("webhook_dispatcher_ready", tenant=state.settings.tenant_id)
@@ -1019,7 +1024,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         return
     logger.info("webhook_effect_seams_gated", tenant=state.settings.tenant_id, detail=detail)
 
-    if state.settings.acesso_beneficiario:
+    if state.settings.acesso_beneficiario and not so_o_agente:
         # DL-0083: a ponte com os agentes existe ANTES de o Lucas e a identidade serem construidos, para que
         # os dois resolvam pela referencia verificada e nunca pelo telefone.
         from .whatsapp.acesso_ponte import RefsVerificadas
@@ -1029,7 +1034,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
     # NUMERO UNICO, onda (d): o turno do Lucas, so' com o roteador ligado, sob a MESMA assercao de
     # boot. Ligado e quebrado = recusa servir (o mesmo formato de um lexico invalido).
     try:
-        state.lucas_turno = _build_lucas_turno(state.settings, state.dispatcher)
+        state.lucas_turno = None if so_o_agente else _build_lucas_turno(state.settings, state.dispatcher)
     except Exception as exc:  # isolated: liveness/readiness must stay up.
         state.dispatcher = None
         state.dispatcher_error = f"lucas turn build failed — refusing to serve: {type(exc).__name__}: {exc}"
@@ -1080,7 +1085,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
     # DL-0083: o acesso do beneficiario. Ligado e quebrado (contrato nao pinado, chave ausente...) = recusa
     # servir.
     try:
-        state.acesso = _build_acesso(state.settings, state.dispatcher)
+        state.acesso = None if so_o_agente else _build_acesso(state.settings, state.dispatcher)
     except Exception as exc:  # isolated: liveness/readiness must stay up.
         state.dispatcher = None
         state.dispatcher_error = f"access build failed — refusing to serve: {type(exc).__name__}: {exc}"
@@ -1111,6 +1116,18 @@ async def build_live_dispatcher(settings: WhatsAppWebhookSettings) -> WebhookSta
     # STEP A: bring up dispatch dependencies — pure construction + the ONE bounded I/O (the T4b
     # durable checkpointer connect+setup, `dep_connect_timeout_s`-bounded; module docstring).
     await _bring_up_dependencies(state)
+    return state
+
+
+async def build_agent_dependencies(settings: WhatsAppWebhookSettings) -> WebhookState:
+    """As dependencias do turno do agente de entrada, para o SERVICO dele (ADR-0067 fase 4b).
+
+    A mesma composicao do receptor (`_bring_up_dependencies`, nunca uma copia), sem a ponte do acesso, o
+    Lucas e o acesso, que so' o receptor usa. O `dispatcher` devolvido e' so' o PORTADOR dessas dependencias:
+    o servico do agente nao despacha mensagem nenhuma por ele. Nunca levanta (como `build_live_dispatcher`).
+    """
+    state = WebhookState(settings=settings)
+    await _bring_up_dependencies(state, so_o_agente=True)
     return state
 
 
@@ -1160,9 +1177,7 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     # PLANO no boot (uns 4 minutos), para a primeira pergunta de cobertura ja' achar o nome oficial.
     catalogo_task: asyncio.Task[None] | None = None
     if state.dispatcher is not None:
-        catalogo_task = asyncio.create_task(
-            _aquecer_catalogo(state.dispatcher), name="catalogo-procedimentos"
-        )
+        catalogo_task = asyncio.create_task(aquecer_catalogo(state.dispatcher), name="catalogo-procedimentos")
 
     logger.info("webhook_receiver_running")
     await shutdown.wait()
@@ -1201,6 +1216,12 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     if dedup is not None:
         with contextlib.suppress(Exception):
             await dedup.aclose()
+
+    # ADR-0067 fase 4b: o cliente HTTP do agente de entrada remoto (so' com MAEZO_AGENTE_DE_ENTRADA_URL).
+    fechar_agente = getattr(getattr(state.dispatcher, "agente_de_entrada", None), "aclose", None)
+    if fechar_agente is not None:
+        with contextlib.suppress(Exception):
+            await fechar_agente()
 
     logger.info("webhook_receiver_stopped", tenant=settings.tenant_id)
 

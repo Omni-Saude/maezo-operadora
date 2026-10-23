@@ -346,6 +346,16 @@ _HTTPX_CLIENT_ADDITIONAL_MODULES: Final[frozenset[str]] = frozenset(
         # acima. NAO entra em `REST_PATH_SANCTIONED_MODULES`: literal de rota de efeito aqui
         # continua recusado pelo gate.
         "gateway/d7_external_owner.py",
+        # ADICAO DA FASE 4b DO ADR-0067 (23/10/2026): o protocolo INTERNO entre o receptor do WhatsApp e o
+        # servico do agente de entrada (`agent-helena`). Categoria diferente dos selos de efeito: e' a porta
+        # `AgenteDeEntrada` atravessando processo, servico a servico, corpo assinado (HMAC derivado da
+        # `PHI_HMAC_KEY`), `trust_env=False`, sem redirecionamento. Nenhum efeito de negocio sai por este
+        # cliente: o envio de WhatsApp VOLTA ao receptor com um token e sai pelo MESMO remetente cercado
+        # (`_ScopedWhatsAppSender` + `gate_whatsapp`); inferencia, DMN e motor do turno remoto sao as costuras
+        # cercadas que o servico do agente compoe pela raiz de sempre (`webhooks/service.py`). Um arquivo so'
+        # constroi o cliente (assincrono; nenhum I/O sincrono no laco do receptor). NAO entra em
+        # `REST_PATH_SANCTIONED_MODULES`.
+        "platform/agente_remoto/cliente.py",
     }
 )
 

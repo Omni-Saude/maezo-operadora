@@ -228,6 +228,8 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       local.webhook_receiver_contrato.environment_app,
       local.recipient_vault_env,
       local.webhook_receiver_contrato.environment_amh,
+      # ADR-0067 §6 (agente-remoto.tf): URL do runtime remoto da Helena; vazio = turno em processo.
+      local.agente_remoto_env_cliente,
     )
 
     secrets = concat(

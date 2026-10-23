@@ -172,7 +172,8 @@ resource "aws_ecs_task_definition" "agente" {
   cpu                      = tostring(var.agent_cpu)
   memory                   = tostring(var.agent_memory)
   execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  # Runtime remoto (agente-remoto.tf): role PROPRIA e minima (Bedrock, pacotes, ECS Exec; sem custodia).
+  task_role_arn = local.agente_remoto_em[each.key] ? aws_iam_role.agente_remoto_task[0].arn : aws_iam_role.task.arn
 
   runtime_platform {
     cpu_architecture        = "X86_64"
@@ -189,11 +190,13 @@ resource "aws_ecs_task_definition" "agente" {
     image     = "${aws_ecr_repository.app.repository_url}@${var.agents_image_digest}"
     essential = true
 
-    command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.runtime.agent_runtime"]
+    # Com `helena_agente_remoto` a helena executa o turno (agente-remoto.tf); os demais seguem o daemon.
+    command = local.agente_remoto_em[each.key] ? local.agente_remoto_comando : ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.runtime.agent_runtime"]
 
     portMappings = [{ containerPort = 8000, protocol = "tcp" }]
 
-    environment = concat(local.db_env, [
+    # Runtime remoto: o contrato do receptor (agente-remoto.tf), nao o bloco abaixo.
+    environment = local.agente_remoto_em[each.key] ? local.agente_remoto_environment : concat(local.db_env, [
       { name = "DSN_SCHEME", value = "postgresql+asyncpg" },
       { name = "TENANT_ID", value = var.tenant_id },
       { name = "AGENT_ID", value = each.key },
@@ -283,7 +286,7 @@ resource "aws_ecs_task_definition" "agente" {
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ])
 
-    secrets = concat(local.db_secrets_maezo, [
+    secrets = local.agente_remoto_em[each.key] ? local.agente_remoto_secrets : concat(local.db_secrets_maezo, [
       # Sem esta, o Pseudonymizer falha FECHADO em producao (ADR-0035) — nunca cai
       # para pseudonimo reversivel.
       { name = "PHI_HMAC_KEY", valueFrom = "${aws_secretsmanager_secret.phi_hmac_key.arn}:key::" },
