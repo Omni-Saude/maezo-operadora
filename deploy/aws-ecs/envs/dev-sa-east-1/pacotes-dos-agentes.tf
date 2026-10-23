@@ -10,62 +10,28 @@
 # Desligado (`pacotes_dos_agentes = false`, o default) nada disto existe e a task fica byte a byte igual.
 
 variable "pacotes_dos_agentes" {
-  description = "Liga o bucket dos pacotes de comportamento dos agentes, a leitura pelo receptor/simulador e a role de publicacao do GitHub (ADR-0067 fase 3)."
+  description = "Liga os pacotes de comportamento dos agentes (prefixo no bucket de artefatos), a leitura pelo receptor/simulador e a role de publicacao do GitHub (ADR-0067 fase 3)."
   type        = bool
   default     = false
 }
 
+# O BUCKET e' o de artefatos de pipeline (`var.bucket_fonte_build`, o mesmo do fonte do CodeBuild; outro
+# state), sob `maezo-operadora/agentes/`: versionado, AES256 por padrao e com a politica que exige
+# criptografia em todo PutObject. Bucket proprio nao: a SCP da organizacao nega `s3:CreateBucket` (medido
+# em 23/10/2026).
 locals {
-  pacotes_bucket  = "${local.name}-agentes-${var.aws_account_id}"
-  pacotes_prefixo = "agentes"
+  pacotes_bucket  = var.bucket_fonte_build
+  pacotes_prefixo = "${var.prefixo_fonte_build}/agentes"
   pacotes_dos_agentes_env = var.pacotes_dos_agentes ? [
     { name = "MAEZO_PACOTES_URI", value = "s3://${local.pacotes_bucket}/${local.pacotes_prefixo}" },
     { name = "MAEZO_PACOTES_AMBIENTE", value = "dev" },
   ] : []
 }
 
-resource "aws_s3_bucket" "pacotes" {
-  count         = var.pacotes_dos_agentes ? 1 : 0
-  bucket        = local.pacotes_bucket
-  force_destroy = false
-  tags          = merge(local.base_tags, { Name = local.pacotes_bucket, proposito = "pacotes-dos-agentes" })
-}
 
-resource "aws_s3_bucket_ownership_controls" "pacotes" {
-  count  = var.pacotes_dos_agentes ? 1 : 0
-  bucket = aws_s3_bucket.pacotes[0].id
-  rule {
-    object_ownership = "BucketOwnerEnforced"
-  }
-}
 
-resource "aws_s3_bucket_public_access_block" "pacotes" {
-  count                   = var.pacotes_dos_agentes ? 1 : 0
-  bucket                  = aws_s3_bucket.pacotes[0].id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
 
-# Versionamento: o historico dos ponteiros (quem apontou o que, quando) e a protecao contra sobrescrita.
-resource "aws_s3_bucket_versioning" "pacotes" {
-  count  = var.pacotes_dos_agentes ? 1 : 0
-  bucket = aws_s3_bucket.pacotes[0].id
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "pacotes" {
-  count  = var.pacotes_dos_agentes ? 1 : 0
-  bucket = aws_s3_bucket.pacotes[0].id
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
 
 # Leitura: receptor, task generica e simulador. So' o prefixo dos pacotes, so' GetObject.
 data "aws_iam_policy_document" "pacotes_leitura" {
@@ -74,7 +40,7 @@ data "aws_iam_policy_document" "pacotes_leitura" {
     sid       = "LePacotesDosAgentes"
     effect    = "Allow"
     actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.pacotes[0].arn}/${local.pacotes_prefixo}/*"]
+    resources = ["${data.aws_s3_bucket.fonte.arn}/${local.pacotes_prefixo}/*"]
   }
 }
 
@@ -139,8 +105,8 @@ data "aws_iam_policy_document" "github_agentes" {
     effect  = "Allow"
     actions = ["s3:GetObject", "s3:PutObject"]
     resources = [
-      "${aws_s3_bucket.pacotes[0].arn}/${local.pacotes_prefixo}/*/pacotes/*",
-      "${aws_s3_bucket.pacotes[0].arn}/${local.pacotes_prefixo}/*/dev/ativo.json",
+      "${data.aws_s3_bucket.fonte.arn}/${local.pacotes_prefixo}/*/pacotes/*",
+      "${data.aws_s3_bucket.fonte.arn}/${local.pacotes_prefixo}/*/dev/ativo.json",
     ]
   }
 }

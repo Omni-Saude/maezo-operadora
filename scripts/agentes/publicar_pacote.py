@@ -50,7 +50,13 @@ def publicar(conteudo: bytes, pacote: pda.PacoteDoAgente, *, uri: str, ambiente:
     except s3.exceptions.NoSuchKey:
         existente = None
     if existente is None:
-        s3.put_object(Bucket=bucket, Key=chave_pacote, Body=conteudo, ContentType="application/json")
+        s3.put_object(
+            Bucket=bucket,
+            Key=chave_pacote,
+            Body=conteudo,
+            ContentType="application/json",
+            ServerSideEncryption="AES256",
+        )
     elif existente != conteudo:
         raise SystemExit(f"{chave_pacote} ja' existe com outro conteudo — pacote imutavel, recusado")
     ponteiro = {
@@ -63,6 +69,7 @@ def publicar(conteudo: bytes, pacote: pda.PacoteDoAgente, *, uri: str, ambiente:
         Key=f"{base}/{ambiente}/ativo.json",
         Body=json.dumps(ponteiro).encode("utf-8"),
         ContentType="application/json",
+        ServerSideEncryption="AES256",  # a politica do bucket recusa PutObject sem criptografia
     )
 
 
