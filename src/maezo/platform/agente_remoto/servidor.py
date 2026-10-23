@@ -7,7 +7,8 @@ pelo framework (`maezo.agents.carregar_agente_de_entrada(AGENT_ID)`). O `HelenaD
 composicao devolve e' so' o PORTADOR das dependencias: daqui ele so' monta o `config` do grafo
 (`_compile_turn_graph`) e o dos nos (`_dependencias_do_agente`), exatamente as funcoes que o receptor
 usaria em processo — nenhuma lista de chaves duplicada. O remetente do turno e' um `RemetenteRemoto` que
-volta ao receptor (`MAEZO_RECEPTOR_URL`) com o token do turno. O checkpointer e' o MESMO Postgres (mesmo
+volta a REPLICA do receptor que abriu o turno (o `retorno` do pedido) com o token. O checkpointer e' o
+MESMO Postgres (mesmo
 DSN), entao o thread da conversa e' o mesmo.
 
 Toda rota de operacao exige o corpo assinado (`X-Maezo-Assinatura`); sem assinatura valida = 401 sem corpo. A
@@ -21,6 +22,7 @@ deste servico.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -69,7 +71,11 @@ class ServicoDoAgente:
             return None
         if not isinstance(token, str) or not token:
             raise ValueError("token de remetente invalido")
-        return RemetenteRemoto(http=self.receptor, chave=self.chave, token=token)
+        retorno = pedido.get("retorno")
+        if not fio.retorno_valido(retorno):
+            raise ValueError("endereco de retorno fora do formato")
+        # O envio volta a REPLICA que abriu o turno (o token so' existe nela), nunca ao nome do servico.
+        return RemetenteRemoto(http=self.receptor, chave=self.chave, token=token, retorno=str(retorno))
 
     @staticmethod
     def _flag_do_lucas(pedido: Mapping[str, Any]) -> bool:
@@ -98,9 +104,9 @@ class ServicoDoAgente:
         return checkpoint_thread_config(thread_id, checkpoint_ns=ns if isinstance(ns, str) else "")
 
     def _conferir_tenant(self, estado: Mapping[str, Any]) -> None:
-        tenant = estado.get("tenant_id")
-        if tenant is not None and tenant != self.tenant_id:
-            raise PermissionError("agente remoto: estado de outro tenant")
+        """Todo estado (e todo estado adiado com campos) tem de DIZER o tenant, e ele tem de ser este."""
+        if estado.get("tenant_id") != self.tenant_id:
+            raise PermissionError("agente remoto: estado sem tenant_id ou de outro tenant")
 
     def _materializar(self, estado: Any) -> dict[str, Any]:
         """O estado do pedido; um marcador ADIADO e' montado aqui, pela logica do agente."""
@@ -220,13 +226,20 @@ class ServicoDoAgente:
         }
 
 
-def _montar_rota(app: FastAPI, rota: str, chave: bytes, operacao: Operacao, agent_id: str) -> None:
-    def _assinar(corpo: bytes) -> str:
-        return fio.assinar(chave, corpo)
-
+def _montar_rota(
+    app: FastAPI,
+    rota: str,
+    chave: bytes,
+    operacao: Operacao,
+    agent_id: str,
+    nonces: fio.GuardaDeNonces,
+    relogio: Callable[[], float],
+) -> None:
     async def _tratar(request: Request) -> Response:
         corpo = await request.body()
-        if not fio.assinatura_valida(chave, corpo, request.headers.get(fio.CABECALHO_ASSINATURA)):
+        # Versao, assinatura (rota/carimbo/nonce/corpo), desvio de relogio e nonce inedito; senao 401 seco.
+        assinatura = fio.conferir_pedido(chave, nonces, rota, request.headers, corpo, relogio=relogio)
+        if assinatura is None:
             return Response(status_code=401)
         try:
             pedido = fio.decodificar(corpo)
@@ -236,14 +249,13 @@ def _montar_rota(app: FastAPI, rota: str, chave: bytes, operacao: Operacao, agen
             return Response(status_code=400)
         try:
             resultado = await operacao(pedido)
-        except (
-            Exception
-        ) as exc:  # so' o tipo atravessa; o despachante do receptor decide (falha externa ou bug).
+            # Codificado DENTRO do try: um tipo sem representacao no fio vira erro do protocolo, nao 500 cru.
+            return resposta_assinada(chave, assinatura, {"resultado": resultado})
+        except Exception as exc:  # so' o tipo atravessa; o despachante do receptor decide (externa ou bug).
             logger.warning(
                 "agente_remoto_operacao_falhou", agent_id=agent_id, rota=rota, error_type=type(exc).__name__
             )
-            return resposta_assinada(_assinar, corpo_de_erro(exc), status_code=500)
-        return resposta_assinada(_assinar, {"resultado": resultado})
+            return resposta_assinada(chave, assinatura, corpo_de_erro(exc), status_code=500)
 
     app.add_api_route(rota, _tratar, methods=["POST"], include_in_schema=False)
 
@@ -254,6 +266,7 @@ def criar_app(
     chave: bytes,
     is_live: Callable[[], bool] | None = None,
     motivo_indisponivel: str | None = None,
+    relogio: Callable[[], float] = time.time,
 ) -> FastAPI:
     """O app interno: `/healthz`, `/readyz`, `/metrics` e as rotas assinadas da porta.
 
@@ -287,8 +300,10 @@ def criar_app(
         ):
             app.add_api_route(rota, _indisponivel, methods=["POST"], include_in_schema=False)
         return app
+    # Anti-replay: um so' conjunto de nonces vistos (60 s) para todas as rotas deste servico.
+    nonces = fio.GuardaDeNonces(relogio=relogio)
     for rota, operacao in servico.operacoes().items():
-        _montar_rota(app, rota, chave, operacao, servico.entrada.agent_id)
+        _montar_rota(app, rota, chave, operacao, servico.entrada.agent_id, nonces, relogio)
     return app
 
 

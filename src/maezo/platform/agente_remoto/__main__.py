@@ -7,15 +7,13 @@ from __future__ import annotations
 
 import asyncio
 
-from maezo.platform.webhooks.whatsapp.settings import WhatsAppWebhookSettings
-
 from .servico import run
+from .settings import AgenteRemotoSettings
 
 
 def main() -> None:
-    # Mesma friccao pydantic-settings/mypy do receptor (`webhooks/__main__.py`): os campos obrigatorios vem do
-    # ambiente em tempo de execucao, e a construcao levanta se faltarem.
-    asyncio.run(run(WhatsAppWebhookSettings()))  # type: ignore[call-arg]
+    # Settings proprias: as do receptor SEM os segredos do webhook (que o agente nao recebe nem guarda).
+    asyncio.run(run(AgenteRemotoSettings()))
 
 
 if __name__ == "__main__":

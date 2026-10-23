@@ -1,13 +1,14 @@
 """A partida do servico do agente de entrada (`python -m maezo.platform.agente_remoto`, ADR-0067 fase 4b).
 
-Variaveis (alem das do receptor, que a composicao reaproveita: `DATABASE_URL`, `PHI_HMAC_KEY`, `TENANT_ID`,
-chaves `MAEZO_HELENA_*`, credenciais AMH...):
+Variaveis (as da composicao do receptor, `AgenteRemotoSettings`: `DATABASE_URL`, `PHI_HMAC_KEY`, `TENANT_ID`,
+chaves `MAEZO_HELENA_*`, credenciais AMH... — SEM `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` e a
+chave A2A):
 
     AGENT_ID                      o agente carregado pelo framework (padrao `helena`)
-    MAEZO_RECEPTOR_URL            a URL interna do receptor, para a volta do envio (OBRIGATORIA)
     MAEZO_AGENTE_REMOTO_PORTA     a porta do app interno (padrao 8000)
 
-Falha FECHADA na partida: sem `MAEZO_RECEPTOR_URL` ou sem `PHI_HMAC_KEY` o processo nao sobe; com
+O envio do turno volta ao endereco que o RECEPTOR manda em cada pedido (a replica que abriu o turno), nao a um
+nome configurado aqui. Falha FECHADA na partida: sem `PHI_HMAC_KEY` o processo nao sobe; com
 `MAEZO_AGENTE_DE_ENTRADA_URL` definida tambem nao (o servico do agente nao pode, ele mesmo, delegar o turno).
 Uma composicao que falha (DSN, costura nao cercada, checkpointer em producao) mantem `/healthz` de pe' e
 responde 503 nas operacoes, como o receptor responde 501 sem despachante.
@@ -28,37 +29,33 @@ from maezo.contratos import conversa_remota as fio
 from maezo.platform.health import build_health_server
 from maezo.platform.webhooks.service import aquecer_catalogo, build_agent_dependencies
 from maezo.platform.webhooks.whatsapp.dispatch import ENV_AGENTE_DE_ENTRADA_URL
-from maezo.platform.webhooks.whatsapp.settings import WhatsAppWebhookSettings
 
 from .cliente import PRAZO_PADRAO_S, cliente_http
 from .servidor import ServicoDoAgente, criar_app
+from .settings import AgenteRemotoSettings
 
 logger = structlog.get_logger(__name__)
 
 ENV_AGENT_ID: Final[str] = "AGENT_ID"
-ENV_RECEPTOR_URL: Final[str] = "MAEZO_RECEPTOR_URL"
 ENV_PORTA: Final[str] = "MAEZO_AGENTE_REMOTO_PORTA"
 PORTA_PADRAO: Final[int] = 8000
 #: Prazo da volta do envio ao receptor (um envio de WhatsApp, nao um turno).
 PRAZO_DO_ENVIO_S: Final[float] = 30.0
 
 
-async def run(settings: WhatsAppWebhookSettings) -> None:
+async def run(settings: AgenteRemotoSettings) -> None:
     """Sobe o servico ate' SIGTERM/SIGINT."""
     if os.environ.get(ENV_AGENTE_DE_ENTRADA_URL, "").strip():
         raise RuntimeError(
             f"servico do agente com {ENV_AGENTE_DE_ENTRADA_URL} definida: recusando delegar o turno"
         )
-    receptor_url = os.environ.get(ENV_RECEPTOR_URL, "").strip()
-    if not receptor_url:
-        raise RuntimeError(f"{ENV_RECEPTOR_URL} ausente: sem ela o envio do turno nao volta ao receptor")
     chave = fio.derivar_chave(settings.phi_hmac_key or "")
     agent_id = os.environ.get(ENV_AGENT_ID, "").strip() or "helena"
     porta = int(os.environ.get(ENV_PORTA, "").strip() or PORTA_PADRAO)
     entrada = carregar_agente_de_entrada(agent_id)
 
     estado = await build_agent_dependencies(settings)
-    receptor = cliente_http(receptor_url, prazo_s=PRAZO_DO_ENVIO_S)
+    receptor = cliente_http(None, prazo_s=PRAZO_DO_ENVIO_S)
     servico = (
         ServicoDoAgente(entrada=entrada, dependencias=estado.dispatcher, chave=chave, receptor=receptor)
         if estado.dispatcher is not None
@@ -122,4 +119,4 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     logger.info("agente_remoto_parado", agent_id=agent_id)
 
 
-__all__ = ["ENV_AGENT_ID", "ENV_PORTA", "ENV_RECEPTOR_URL", "run"]
+__all__ = ["ENV_AGENT_ID", "ENV_PORTA", "run"]

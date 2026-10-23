@@ -353,7 +353,7 @@ _HTTPX_CLIENT_ADDITIONAL_MODULES: Final[frozenset[str]] = frozenset(
         # cliente: o envio de WhatsApp VOLTA ao receptor com um token e sai pelo MESMO remetente cercado
         # (`_ScopedWhatsAppSender` + `gate_whatsapp`); inferencia, DMN e motor do turno remoto sao as costuras
         # cercadas que o servico do agente compoe pela raiz de sempre (`webhooks/service.py`). Um arquivo so'
-        # constroi os dois clientes (o assincrono e o sincrono curto do pedido de pessoa). NAO entra em
+        # constroi o cliente (assincrono; nenhum I/O sincrono no laco do receptor). NAO entra em
         # `REST_PATH_SANCTIONED_MODULES`.
         "platform/agente_remoto/cliente.py",
     }

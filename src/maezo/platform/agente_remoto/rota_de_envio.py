@@ -26,15 +26,32 @@ from .cliente import AgenteDeEntradaRemoto, corpo_de_erro
 logger = structlog.get_logger(__name__)
 
 
-def resposta_assinada(assinar: Any, conteudo: Any, *, status_code: int = 200) -> Response:
-    """Resposta do protocolo: corpo codificado + assinatura no cabecalho."""
+def resposta_assinada(
+    chave: bytes, assinatura_do_pedido: str, conteudo: Any, *, status_code: int = 200
+) -> Response:
+    """Resposta do protocolo: corpo codificado + assinatura AMARRADA ao pedido que a originou."""
     corpo = fio.codificar(conteudo)
     return Response(
         content=corpo,
         status_code=status_code,
         media_type=fio.TIPO_DO_CORPO,
-        headers={fio.CABECALHO_ASSINATURA: assinar(corpo)},
+        headers={fio.CABECALHO_ASSINATURA: fio.assinar_resposta(chave, assinatura_do_pedido, corpo)},
     )
+
+
+def recibo_do_envio(resultado: Any) -> dict[str, bool]:
+    """O que volta ao servico do agente sobre um envio: SO' booleanos (revisao de seguranca da 4b).
+
+    A resposta crua da Cloud API traz `contacts[].input`/`wa_id` (o telefone) e o `wamid` cru: devolve-la
+    tiraria o numero do receptor. `enviada` = a Cloud API aceitou (nao suprimido pela deduplicacao de saida).
+    """
+    bruto = resultado if isinstance(resultado, dict) else {}
+    recibo: dict[str, bool] = {}
+    for chave in ("suppressed_duplicate", "suppressed_synthetic"):
+        if chave in bruto:
+            recibo[chave] = bool(bruto[chave])
+    recibo["enviada"] = not any(recibo.values())
+    return recibo
 
 
 def registrar_rota_de_envio(app: FastAPI, agente: AgenteDeEntradaRemoto) -> None:
@@ -43,7 +60,8 @@ def registrar_rota_de_envio(app: FastAPI, agente: AgenteDeEntradaRemoto) -> None
     @app.post(fio.ROTA_ENVIO, include_in_schema=False)
     async def envio_do_agente_remoto(request: Request) -> Response:
         corpo = await request.body()
-        if not agente.assinatura_valida(corpo, request.headers.get(fio.CABECALHO_ASSINATURA)):
+        assinatura = fio.conferir_pedido(agente.chave, agente.nonces, fio.ROTA_ENVIO, request.headers, corpo)
+        if assinatura is None:  # assinatura, rota, carimbo velho ou nonce repetido: tudo e' 401 sem detalhe
             return Response(status_code=401)
         try:
             pedido = fio.decodificar(corpo)
@@ -63,8 +81,8 @@ def registrar_rota_de_envio(app: FastAPI, agente: AgenteDeEntradaRemoto) -> None
             logger.warning(
                 "agente_remoto_envio_falhou", agent_id=agente.agent_id, error_type=type(exc).__name__
             )
-            return resposta_assinada(agente.assinar, corpo_de_erro(exc), status_code=502)
-        return resposta_assinada(agente.assinar, {"resultado": dict(resultado or {})})
+            return resposta_assinada(agente.chave, assinatura, corpo_de_erro(exc), status_code=502)
+        return resposta_assinada(agente.chave, assinatura, {"resultado": recibo_do_envio(resultado)})
 
 
-__all__ = ["registrar_rota_de_envio", "resposta_assinada"]
+__all__ = ["recibo_do_envio", "registrar_rota_de_envio", "resposta_assinada"]

@@ -14,7 +14,12 @@ Tres pecas:
 * a ASSINATURA: HMAC-SHA256 do corpo, com chave DERIVADA `hmac(PHI_HMAC_KEY, b"maezo-agente-remoto-v1")`
   (os dois servicos ja' tem a `PHI_HMAC_KEY`; a derivacao separa o uso, entao a assinatura nunca e' um
   pseudonimo valido nem o contrario), em hexadecimal no cabecalho `X-Maezo-Assinatura`, comparada em tempo
-  constante.
+  constante. ANTI-REPLAY (revisao de seguranca da 4b): o PEDIDO assina
+  `VERSAO\\nPOST\\n<rota>\\n<carimbo>\\n<nonce>\\n` + corpo (`X-Maezo-Carimbo` em segundos Unix,
+  `X-Maezo-Nonce`
+  aleatorio); quem recebe recusa desvio de relogio > 60 s e nonce ja' visto (`GuardaDeNonces`, 60 s), entao
+  um pedido capturado nao vale de novo nem em outra rota. A RESPOSTA assina
+  `VERSAO\\nRESPOSTA\\n<assinatura do pedido>\\n` + corpo: uma resposta so' vale para o pedido que a originou.
 
 O estado ADIADO: `estado_inicial`, `estado_de_retomada` e `memoria_neutra` sao SINCRONOS na porta e o
 despachante os chama dentro do laco assincrono. Remotos, uma chamada HTTP sincrona ali congelaria o
@@ -30,6 +35,11 @@ import base64
 import hashlib
 import hmac
 import json
+import re
+import secrets
+import time
+from collections import OrderedDict
+from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from typing import Any, Final
 
@@ -39,6 +49,14 @@ VERSAO: Final[str] = "maezo-agente-remoto-v1"
 CONTEXTO_DA_CHAVE: Final[bytes] = b"maezo-agente-remoto-v1"
 #: O cabecalho com a assinatura hexadecimal do corpo.
 CABECALHO_ASSINATURA: Final[str] = "X-Maezo-Assinatura"
+#: Segundos Unix (inteiro) da emissao do pedido.
+CABECALHO_CARIMBO: Final[str] = "X-Maezo-Carimbo"
+#: Valor aleatorio unico por pedido.
+CABECALHO_NONCE: Final[str] = "X-Maezo-Nonce"
+#: A versao do protocolo (`VERSAO`), conferida explicitamente antes da assinatura (que tambem a cobre).
+CABECALHO_VERSAO: Final[str] = "X-Maezo-Versao"
+#: Desvio maximo de relogio aceito, e o prazo em que um nonce visto continua recusado.
+DESVIO_MAXIMO_S: Final[int] = 60
 TIPO_DO_CORPO: Final[str] = "application/json"
 
 # --- rotas do SERVICO DO AGENTE (`python -m maezo.platform.agente_remoto`) ---------------------------------
@@ -53,6 +71,22 @@ ROTA_RESPOSTA_DE_CADASTRO: Final[str] = f"{_PREFIXO}/resposta-de-cadastro"
 
 # --- rota do RECEPTOR (o envio do turno remoto volta por ela) -----------------------------------------------
 ROTA_ENVIO: Final[str] = "/interno/agentes/envio"
+
+
+class AgenteRemotoIndisponivelError(RuntimeError):
+    """O servico do agente (ou o receptor, no envio) nao respondeu, respondeu fora do protocolo ou sem
+    assinatura valida. Falha EXTERNA: o despachante responde ao beneficiario com o texto fixo de
+    indisponibilidade em vez de deixa-lo sem resposta."""
+
+
+#: Endereco de retorno aceito (o receptor que abriu o turno): `http(s)://host[:porta]`, sem caminho.
+_FORMATO_DO_RETORNO: Final[str] = r"^https?://[A-Za-z0-9.\-]+(:[0-9]{1,5})?$"
+
+
+def retorno_valido(retorno: Any) -> bool:
+    """`True` para um endereco de retorno no formato aceito (sem caminho, consulta nem credencial)."""
+    return isinstance(retorno, str) and re.fullmatch(_FORMATO_DO_RETORNO, retorno) is not None
+
 
 # --- estado adiado -----------------------------------------------------------------------------------------
 #: Chave do marcador de estado adiado (ver docstring do modulo).
@@ -164,13 +198,118 @@ def assinatura_valida(chave: bytes, corpo: bytes, assinatura: str | None) -> boo
     return hmac.compare_digest(recebida, assinar(chave, corpo).encode("ascii"))
 
 
+# --- anti-replay: pedido amarrado a rota/carimbo/nonce, resposta amarrada ao pedido -----------------------
+def material_do_pedido(rota: str, carimbo: str, nonce: str, corpo: bytes) -> bytes:
+    """O que o PEDIDO assina: versao, metodo, rota, carimbo e nonce, e o corpo."""
+    return f"{VERSAO}\nPOST\n{rota}\n{carimbo}\n{nonce}\n".encode() + corpo
+
+
+def material_da_resposta(assinatura_do_pedido: str, corpo: bytes) -> bytes:
+    """O que a RESPOSTA assina: a assinatura do pedido que a originou, e o corpo."""
+    return f"{VERSAO}\nRESPOSTA\n{assinatura_do_pedido}\n".encode() + corpo
+
+
+def cabecalhos_do_pedido(
+    chave: bytes, rota: str, corpo: bytes, *, relogio: Callable[[], float] = time.time
+) -> dict[str, str]:
+    """Carimbo, nonce novo e assinatura de um pedido a `rota`."""
+    carimbo = str(int(relogio()))
+    nonce = secrets.token_hex(16)
+    return {
+        CABECALHO_VERSAO: VERSAO,
+        CABECALHO_CARIMBO: carimbo,
+        CABECALHO_NONCE: nonce,
+        CABECALHO_ASSINATURA: assinar(chave, material_do_pedido(rota, carimbo, nonce, corpo)),
+        "content-type": TIPO_DO_CORPO,
+    }
+
+
+def assinar_resposta(chave: bytes, assinatura_do_pedido: str, corpo: bytes) -> str:
+    return assinar(chave, material_da_resposta(assinatura_do_pedido, corpo))
+
+
+def resposta_valida(chave: bytes, assinatura_do_pedido: str, corpo: bytes, assinatura: str | None) -> bool:
+    """A resposta veio assinada para ESTE pedido (uma resposta de outro pedido e' recusada)."""
+    return assinatura_valida(chave, material_da_resposta(assinatura_do_pedido, corpo), assinatura)
+
+
+class GuardaDeNonces:
+    """Nonces vistos nos ultimos `prazo_s` segundos (LRU por idade, com teto de itens). So' em memoria.
+
+    Um nonce repetido dentro do prazo e' recusado; fora do prazo o carimbo do pedido ja' o recusa. O teto
+    (`maximo`) limita a memoria sob abuso: cheio, o mais velho sai antes do prazo — o carimbo continua
+    valendo.
+    """
+
+    def __init__(
+        self,
+        *,
+        prazo_s: float = DESVIO_MAXIMO_S,
+        maximo: int = 100_000,
+        relogio: Callable[[], float] = time.time,
+    ) -> None:
+        self._prazo_s = prazo_s
+        self._maximo = maximo
+        self._relogio = relogio
+        self._vistos: OrderedDict[str, float] = OrderedDict()
+
+    def registrar(self, nonce: str) -> bool:
+        """`True` se `nonce` e' novo (e passa a ser visto); `False` se ja' foi visto dentro do prazo."""
+        agora = self._relogio()
+        while self._vistos:
+            mais_velho, quando = next(iter(self._vistos.items()))
+            if agora - quando < self._prazo_s and len(self._vistos) < self._maximo:
+                break
+            del self._vistos[mais_velho]
+        if nonce in self._vistos:
+            return False
+        self._vistos[nonce] = agora
+        return True
+
+
+def conferir_pedido(
+    chave: bytes,
+    guarda: GuardaDeNonces,
+    rota: str,
+    cabecalhos: Mapping[str, str],
+    corpo: bytes,
+    *,
+    relogio: Callable[[], float] = time.time,
+) -> str | None:
+    """A assinatura do pedido se ele e' autentico, fresco e inedito; senao `None` (recusa sem detalhe).
+
+    Ordem: assinatura (rota/carimbo/nonce/corpo) -> desvio de relogio -> nonce. O nonce so' e' registrado
+    depois da assinatura valida, para um pedido forjado nao "queimar" nonce de ninguem.
+    """
+    if cabecalhos.get(CABECALHO_VERSAO) != VERSAO:
+        return None
+    assinatura = cabecalhos.get(CABECALHO_ASSINATURA)
+    carimbo = cabecalhos.get(CABECALHO_CARIMBO) or ""
+    nonce = cabecalhos.get(CABECALHO_NONCE) or ""
+    if not assinatura or not carimbo.isdigit() or not nonce or len(nonce) > 128 or not nonce.isascii():
+        return None
+    if not assinatura_valida(chave, material_do_pedido(rota, carimbo, nonce, corpo), assinatura):
+        return None
+    if abs(relogio() - int(carimbo)) > DESVIO_MAXIMO_S:
+        return None
+    if not guarda.registrar(nonce):
+        return None
+    return assinatura.strip()
+
+
 __all__ = [
     "ADIADO_INICIAL",
     "ADIADO_MEMORIA_NEUTRA",
     "ADIADO_RETOMADA",
+    "AgenteRemotoIndisponivelError",
     "CABECALHO_ASSINATURA",
+    "CABECALHO_CARIMBO",
+    "CABECALHO_NONCE",
+    "CABECALHO_VERSAO",
     "CONTEXTO_DA_CHAVE",
+    "DESVIO_MAXIMO_S",
     "ESTADO_ADIADO",
+    "GuardaDeNonces",
     "ROTA_ATUALIZAR_ESTADO",
     "ROTA_ENVIO",
     "ROTA_ESCALAR_E_RESPONDER",
@@ -183,9 +322,16 @@ __all__ = [
     "TIPO_DO_CORPO",
     "VERSAO",
     "assinar",
+    "assinar_resposta",
     "assinatura_valida",
+    "cabecalhos_do_pedido",
     "codificar",
+    "conferir_pedido",
     "decodificar",
     "derivar_chave",
     "estado_adiado",
+    "material_da_resposta",
+    "material_do_pedido",
+    "resposta_valida",
+    "retorno_valido",
 ]
