@@ -100,6 +100,19 @@ resource "aws_iam_role" "github_agentes" {
 
 data "aws_iam_policy_document" "github_agentes" {
   count = var.pacotes_dos_agentes ? 1 : 0
+  # Sem ListBucket o S3 responde AccessDenied (e nao NoSuchKey) ao GetObject de um pacote que ainda nao
+  # existe — medido na primeira publicacao pela esteira, 23/10/2026. So' o prefixo dos pacotes.
+  statement {
+    sid       = "ListaSoOPrefixoDosPacotes"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = [data.aws_s3_bucket.fonte.arn]
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["${local.pacotes_prefixo}/*"]
+    }
+  }
   statement {
     sid     = "PublicaPacotesEMoveOPonteiroDoDev"
     effect  = "Allow"
