@@ -1129,7 +1129,7 @@ def build_whatsapp_seam(
 
             inner = LucasWhatsAppServerSender(server)
         else:
-            from maezo.agents.helena.adapters import WhatsAppServerSender
+            from maezo.tools.mcp_whatsapp.sender import WhatsAppServerSender
 
             inner = WhatsAppServerSender(server)
     return gate_whatsapp(inner, seam)

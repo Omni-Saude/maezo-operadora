@@ -363,18 +363,24 @@ class TestWhatsappPostureRuntimeBinding:
         import ast
         import inspect
 
-        from maezo.agents import AgentLoader
-        from maezo.agents.helena import graph
+        from maezo.agents import AgentLoader, carregar_agente_de_entrada
+        from maezo.agents.helena import conversa
         from maezo.platform.webhooks.whatsapp import dispatch
 
-        # The symbols actually invoked by dispatch belong to Helena; HTTP ingress is separate.
-        assert dispatch.build is graph.build
-        assert dispatch.new_helena_state is graph.new_helena_state
-        tree = ast.parse(inspect.getsource(dispatch.HelenaDispatcher))
+        # ADR-0067: the dispatcher reaches its entrance agent through the `AgenteDeEntrada` port, by id —
+        # Helena by default — and it is Helena's adapter that builds her graph and her input state.
+        # HTTP ingress is separate.
+        assert dispatch.HelenaDispatcher.__dataclass_fields__["agente_de_entrada_id"].default == "helena"
+        assert carregar_agente_de_entrada("helena") is conversa.AGENTE_DE_ENTRADA
+        tree = ast.parse(inspect.getsource(conversa.HelenaDeEntrada))
         called = {
-            n.func.id for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            f"{n.func.value.id}.{n.func.attr}"
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and isinstance(n.func.value, ast.Name)
         }
-        assert {"build", "new_helena_state"} <= called
+        assert {"graph.build", "graph.new_helena_state"} <= called
         root = Path(__file__).resolve().parents[3] / "spec" / "agents"
         senders = {}
         loader = AgentLoader()

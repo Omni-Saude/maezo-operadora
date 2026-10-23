@@ -1169,6 +1169,11 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "__init__.py",  # maezo.domain — docstring + empty __all__
         "integration/__init__.py",  # public surface (re-exports only)
         "integration/identity.py",  # the five identity/tenant value objects (XRD-05)
+        # ADR-0067: the exit fences for ANY text sent to a beneficiary (stdlib-only), moved out of
+        # `agents/helena/` because the gateway and Lucas apply them too.
+        "comunicacao/__init__.py",
+        "comunicacao/cerca_de_saida.py",
+        "comunicacao/retomada_saida.py",
     }
 )
 
@@ -1343,7 +1348,7 @@ def test_domain_modules_discovered() -> None:
     assert set(modules) == _EXPECTED_MODULES, (
         f"maezo.domain module set drifted: found {sorted(modules)}, expected {sorted(_EXPECTED_MODULES)}"
     )
-    assert len(modules) == 3
+    assert len(modules) == 6
 
 
 def test_import_extraction_is_not_vacuous() -> None:

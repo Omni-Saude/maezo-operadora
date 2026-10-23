@@ -148,7 +148,7 @@ import time
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from contextvars import ContextVar
 from datetime import UTC, date, datetime
-from typing import Any, Literal, Protocol, TypedDict, cast, get_args
+from typing import Any, Literal, TypedDict, cast, get_args
 
 import structlog
 from langgraph.graph import END, START, StateGraph
@@ -157,6 +157,35 @@ from maezo.conhecimento import base_saude as _bs
 from maezo.conhecimento import jornadas as _jornadas
 from maezo.conhecimento import saude_gerativa as _sg
 from maezo.conhecimento.catalogo_procedimentos import BuscaDeProcedimentos
+
+# P5 (16/10/2026): a cerca de saida e a mensagem da retomada moram em modulos leves (o portal as usa).
+from maezo.contratos.conversa import INTENT_COBRANCA as INTENT_COBRANCA
+from maezo.contratos.conversa import RESPONSE_KIND_HANDOFF as RESPONSE_KIND_HANDOFF
+from maezo.contratos.conversa import RemetenteDoTurno as WhatsAppSender
+from maezo.contratos.identidade_beneficiario import IDENTIDADE_CHAVES as IDENTIDADE_CHAVES
+from maezo.contratos.identidade_beneficiario import IDENTIDADE_DESFECHOS as IDENTIDADE_DESFECHOS
+from maezo.contratos.identidade_beneficiario import IDENTIDADE_FAIXAS_ETARIAS as IDENTIDADE_FAIXAS_ETARIAS
+from maezo.contratos.identidade_beneficiario import IDENTIDADE_INDETERMINADA as IDENTIDADE_INDETERMINADA
+from maezo.contratos.identidade_beneficiario import IDENTIDADE_NAO_ENCONTRADA as IDENTIDADE_NAO_ENCONTRADA
+from maezo.contratos.identidade_beneficiario import IDENTIDADE_RECONHECIDA as IDENTIDADE_RECONHECIDA
+from maezo.contratos.identidade_beneficiario import NOME_OPERADORA_PADRAO as NOME_OPERADORA_PADRAO
+from maezo.contratos.identidade_beneficiario import normalizar_identidade as normalizar_identidade
+from maezo.domain.comunicacao.cerca_de_saida import (
+    RECUSA_DE_SAIDA_VERSION,
+    RECUSA_ESCALONAMENTO_JA_ABERTO,
+    RECUSA_HANDOFF_SEM_MENCAO,
+    RECUSA_NEGATIVA_CLINICA,
+    menciona_encaminhamento,
+    motivo_de_canal_nao_confirmado,
+    motivo_de_recusa,
+)
+from maezo.domain.comunicacao.cerca_de_saida import _normalizar as _normalizar_texto
+from maezo.domain.comunicacao.retomada_saida import RESPONSE_KIND_RETOMADA as RESPONSE_KIND_RETOMADA
+from maezo.domain.comunicacao.retomada_saida import RETOMADA_TEMPLATE as RETOMADA_TEMPLATE
+from maezo.domain.comunicacao.retomada_saida import compor_mensagem_de_retomada as compor_mensagem_de_retomada
+from maezo.domain.comunicacao.retomada_saida import (
+    motivo_de_recusa_da_retomada as motivo_de_recusa_da_retomada,
+)
 from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
 from maezo.ports.tina import ElegibilidadeView
 from maezo.runtime.caso_clinico import (
@@ -211,18 +240,6 @@ from maezo.tools.workers.dmn_transport import (
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
 from .alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
-
-# P5 (16/10/2026): a cerca de saida e a mensagem da retomada moram em modulos leves (o portal as usa).
-from .cerca_de_saida import (
-    RECUSA_DE_SAIDA_VERSION,
-    RECUSA_ESCALONAMENTO_JA_ABERTO,
-    RECUSA_HANDOFF_SEM_MENCAO,
-    RECUSA_NEGATIVA_CLINICA,
-    menciona_encaminhamento,
-    motivo_de_canal_nao_confirmado,
-    motivo_de_recusa,
-)
-from .cerca_de_saida import _normalizar as _normalizar_texto
 from .cobertura_rol import (
     AVISO_DO_DEPENDENTE,
     INICIO_DA_PERGUNTA_PARA_QUEM,
@@ -332,10 +349,6 @@ from .prompts import (
     response_prompt,
     sintoma_em_palavras,
 )
-from .retomada_saida import RESPONSE_KIND_RETOMADA as RESPONSE_KIND_RETOMADA
-from .retomada_saida import RETOMADA_TEMPLATE as RETOMADA_TEMPLATE
-from .retomada_saida import compor_mensagem_de_retomada as compor_mensagem_de_retomada
-from .retomada_saida import motivo_de_recusa_da_retomada as motivo_de_recusa_da_retomada
 from .roteador import ROTEADOR_PROMPT_VERSION
 from .triagem_v2 import (
     COLETA_MAX_RODADAS_TRIAGEM_V2,
@@ -521,7 +534,7 @@ _VALID_INTENTS: frozenset[str] = frozenset(
 )
 #: A intencao de cobranca (onda e). Membro de `_VALID_INTENTS` (o espelho do `Literal`), mas so'
 #: aceita pelo validador com o roteador ligado — `_intents_validos` decide, por chamada.
-INTENT_COBRANCA: str = "cobranca"
+#: (`INTENT_COBRANCA` vem do contrato da conversa, `maezo.contratos.conversa` — ADR-0067.)
 #: Dominio FECHADO de `cobranca_subtipo` (§2.4 do plano). O MESMO de
 #: `platform/webhooks/whatsapp/roteamento.py::COBRANCA_SUBTIPOS` e do CHECK da migration 0024 (que
 #: substituiu o da 0017); o grafo nao importa a plataforma, entao a copia e' conferida por
@@ -1563,7 +1576,7 @@ _FRASE_PASSAGEM_ANTERIOR: str = "Vou chamar quem cuida da parte financeira."
 #: RODADA DO DONO (18/10/2026): cancelamento nao e' "financeiro".
 FRASE_PASSAGEM_CANCELAMENTO: str = "Vou te passar para o Lucas, que cuida de pedidos do seu plano."
 #: `response_kind` do turno que passou a conversa ao Lucas.
-RESPONSE_KIND_HANDOFF: str = "handoff"
+#: (`RESPONSE_KIND_HANDOFF` vem do contrato da conversa, `maezo.contratos.conversa` — ADR-0067.)
 #: Desfechos do turno de passagem. Declarados tambem em `runtime/turn_telemetry.py` (vocabulario da
 #: helena); `test_helena_passagem_cobranca.py` impede a divergencia. Dois porque sao dois fatos: a
 #: frase saiu (primeira passagem) ou nada saiu (o Lucas ja' estava com a conversa).
@@ -1572,83 +1585,10 @@ DESFECHO_PASSAGEM_SEM_FRASE: str = "passagem_cobranca_sem_frase"
 #: Quem esta' com a conversa, como o despachante le' da tabela `conversa_agente_ativo`.
 AGENTES_DA_CONVERSA: frozenset[str] = frozenset({"helena", "lucas"})
 
-#: IDENTIDADE DO BENEFICIARIO (DL-0077). Quem escreve, resolvido pela AMH a partir do telefone (hash) e
-#: entregue pelo despachante SO' com `MAEZO_HELENA_IDENTIDADE_AMH` ligada e SO' quando o telefone aponta
-#: para UMA pessoa. E' CONTEXTO, nunca insumo de decisao: nenhum no' da Helena le' este campo para
-#: classificar, tabelar, escalar ou redigir (nao entra no prompt nem na extracao); ele viaja no estado e
-#: na telemetria para personalizacao futura e roteamento correto. Vocabulario FECHADO (Zona Geral,
-#: ADR-0006): referencia opaca, faixa etaria grossa (nunca idade exata nem nascimento), e os fatos de
-#: plano do contrato. Nunca telefone, CPF ou nome. `None` = sem identidade = a Helena de sempre.
-#: UNICA EXCECAO DECLARADA (DL de 07/10/2026): o no' `consultar_plano`, so' com
-#: `MAEZO_HELENA_CONSULTAS_AMH` ligada, le' a REFERENCIA OPACA para consultar os fatos do plano na AMH —
-#: a referencia nunca entra no prompt, e o resto da identidade continua sem leitor.
-IDENTIDADE_FAIXAS_ETARIAS: frozenset[str] = frozenset(
-    {"lactente", "crianca", "adolescente", "adulto", "idoso"}
-)
-IDENTIDADE_CHAVES: frozenset[str] = frozenset(
-    {
-        "portable_subject_ref",
-        "faixa_etaria",
-        "plano_ativo",
-        "vigencia_inicio",
-        "vigencia_fim",
-        "carencia_vigente",
-        "titular_ref",
-    }
-)
-_IDENTIDADE_REF: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._:~-]{1,256}$")
-_IDENTIDADE_DATA: re.Pattern[str] = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-
-
-def normalizar_identidade(valor: object) -> dict[str, Any] | None:
-    """A identidade em forma canonica, ou `None` quando ela nao pode ser confiada.
-
-    Estrita e fail-closed: mapeamento com exatamente `IDENTIDADE_CHAVES`, referencia opaca no formato
-    esperado, faixa dentro do vocabulario, booleanos/`None` e datas ISO (`YYYY-MM-DD`). Qualquer desvio
-    devolve `None` — nunca uma identidade "parcial" ou corrigida. Nao levanta.
-    """
-    if not isinstance(valor, Mapping) or frozenset(valor) != IDENTIDADE_CHAVES:
-        return None
-    ref = valor["portable_subject_ref"]
-    titular = valor["titular_ref"]
-    faixa = valor["faixa_etaria"]
-    if not isinstance(ref, str) or not _IDENTIDADE_REF.fullmatch(ref):
-        return None
-    if titular is not None and (not isinstance(titular, str) or not _IDENTIDADE_REF.fullmatch(titular)):
-        return None
-    if faixa is not None and faixa not in IDENTIDADE_FAIXAS_ETARIAS:
-        return None
-    for chave in ("plano_ativo", "carencia_vigente"):
-        if valor[chave] is not None and not isinstance(valor[chave], bool):
-            return None
-    for chave in ("vigencia_inicio", "vigencia_fim"):
-        data = valor[chave]
-        if data is not None and (not isinstance(data, str) or not _IDENTIDADE_DATA.fullmatch(data)):
-            return None
-    return {chave: valor[chave] for chave in sorted(IDENTIDADE_CHAVES)}
-
-
-#: AVISO DE IDENTIDADE (DL-0078, decisao do dono de 07/10/2026). O DESFECHO da resolucao pela AMH, em
-#: vocabulario FECHADO, entregue pelo despachante ao lado da identidade (campo de ENTRADA
-#: `identidade_desfecho`):
-#:   * `reconhecido`    — candidato UNICO e identidade de vocabulario fechado montada;
-#:   * `nao_encontrado` — a AMH respondeu DEFINITIVAMENTE que nao ha' candidato (`nenhum`, conjunto vazio);
-#:   * `indeterminado`  — todo o resto (telefone compartilhado, falha, prazo, sem base legal, perfil fora
-#:     do vocabulario). Indeterminado NAO fala nada sobre identidade: a Helena de sempre.
-#: `None` = flag desligada (ou entrada sem despachante) = a Helena de sempre, byte a byte.
-#:
-#: SO' O FATO "reconheci / nao encontrei" chega a pessoa. NENHUM dado do plano (ativo, vigencia,
-#: carencia, faixa etaria, titular) e' dito, nunca: identificar pelo telefone nao e' autenticar, e a
-#: pessoa do outro lado pode nao ser o beneficiario. A identidade continua fora de todo prompt.
-IDENTIDADE_RECONHECIDA: str = "reconhecido"
-IDENTIDADE_NAO_ENCONTRADA: str = "nao_encontrado"
-IDENTIDADE_INDETERMINADA: str = "indeterminado"
-IDENTIDADE_DESFECHOS: frozenset[str] = frozenset(
-    {IDENTIDADE_RECONHECIDA, IDENTIDADE_NAO_ENCONTRADA, IDENTIDADE_INDETERMINADA}
-)
-#: O nome de exibicao da operadora nos textos de identidade. O despachante passa o valor da settings
-#: `helena_identidade_nome_operadora` (`MAEZO_HELENA_IDENTIDADE_NOME_OPERADORA`); este e' o default.
-NOME_OPERADORA_PADRAO: str = "Austa Clínicas"
+#: IDENTIDADE DO BENEFICIARIO (DL-0077/DL-0078): o vocabulario fechado (`IDENTIDADE_*`,
+#: `normalizar_identidade`, `NOME_OPERADORA_PADRAO`) mora em `maezo.contratos.identidade_beneficiario`
+#: (ADR-0067): o despachante e o adaptador da AMH o usam sem importar a Helena. Os nomes seguem exportados
+#: daqui (imports do topo).
 #: Os textos FIXOS do dono (DL-0078), sem modelo. Modelos com `{operadora}`; com o nome padrao o texto
 #: renderizado e' EXATAMENTE o ditado pelo dono (o teste fixa os tres).
 #:   * primeiro contato, numero reconhecido -> `RESPOSTA_AVISO_IDENTIDADE_RECONHECIDA_MODELO`;
@@ -1788,13 +1728,8 @@ class RetomadaEnvioFalhouError(RuntimeError):
     """
 
 
-class WhatsAppSender(Protocol):
-    """Outbound WhatsApp send seam. Operates on a phone HASH, never a raw number — Helena's
-    state is pseudonymized end to end (ADR-0006); resolving the hash back to a real number for
-    actual delivery is the DISPATCH layer's job (it has the raw number in-hand for the inbound
-    turn it is currently handling), never this graph's."""
-
-    async def send(self, to_hash: str, text: str) -> dict[str, Any]: ...
+#: `WhatsAppSender` — the outbound send seam (hash only, never a raw number; ADR-0006) — is the
+#: conversation contract's `RemetenteDoTurno` (ADR-0067), imported at the top under this name.
 
 
 class HandoffCobranca(TypedDict):

@@ -35,11 +35,9 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
-
 # P5 (16/10/2026): a cerca de saida mora num modulo leve (sem `maezo.runtime`); estes nomes
 # continuam aqui para quem le `prompts.X` (mesmos objetos).
-from .cerca_de_saida import (  # noqa: F401
+from maezo.domain.comunicacao.cerca_de_saida import (  # noqa: F401
     _ACAO_DE_ASSUNCAO,
     _ASSUNTO_QUE_O_APP_NAO_RESOLVE,
     _AUTOATENDIMENTO,
@@ -83,6 +81,7 @@ from .cerca_de_saida import (  # noqa: F401
     motivo_de_recusa,
     padrao_de_encaminhamento,
 )
+from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
 CLASSIFY_PROMPT_VERSION = "classify-v5.4"  # 14/10/2026 (DL-0101): recem-nascido (codigos neonatais, idade 0).

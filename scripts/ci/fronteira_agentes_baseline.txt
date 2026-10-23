@@ -1,0 +1,53 @@
+# Inventario da divida de fronteira plataforma x agentes (ADR-0067) — catraca de
+# `scripts/ci/check_fronteira_agentes.py`. Uma linha por (arquivo importador -> modulo importado).
+#
+# NAO acrescente linha a mao: dependencia nova para dentro de um agente e' proibida. Este arquivo
+# so' encolhe — ao mover codigo para o lugar certo, rode `--gerar-baseline` e commite a reducao.
+
+# plataforma->agente: 44
+src/maezo/gateway/amh_interop.py -> maezo.agents.lucas.fonte_v4
+src/maezo/gateway/capabilities/journeys/contracts.py -> maezo.agents.lucas.administrative.handoff
+src/maezo/gateway/seams/population.py -> maezo.agents.andre.graph
+src/maezo/gateway/tool_registry.py -> maezo.agents.lucas.adapters
+src/maezo/gateway/tool_registry.py -> maezo.agents.lucas.administrative.runtime
+src/maezo/gateway/tool_registry.py -> maezo.agents.rafael.adapters
+src/maezo/gateway/tool_registry.py -> maezo.agents.valentina.adapters
+src/maezo/platform/integrations/agent_resume.py -> maezo.agents.lucas.administrative.handoff
+src/maezo/platform/integrations/agent_resume.py -> maezo.agents.lucas.administrative.runtime
+src/maezo/platform/integrations/agent_resume.py -> maezo.agents.lucas.cancelamento_pf
+src/maezo/platform/lembretes/job.py -> maezo.agents.lucas.fonte_cobranca
+src/maezo/platform/lembretes/leitura.py -> maezo.agents.lucas.fonte_cobranca
+src/maezo/platform/lembretes/regras.py -> maezo.agents.lucas.fonte_cobranca
+src/maezo/platform/privacy/population_policy.py -> maezo.agents.andre.graph
+src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.administrative.runtime
+src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.cancelamento_pf
+src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.fonte_cobranca
+src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.fonte_cobranca_amh
+src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.fonte_v4
+src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.identidade_amh
+src/maezo/platform/webhooks/service.py -> maezo.agents.lucas.politica_atraso
+src/maezo/platform/webhooks/whatsapp/acesso_ponte.py -> maezo.agents.lucas.fonte_cobranca_amh
+src/maezo/platform/webhooks/whatsapp/dispatch.py -> maezo.agents.lucas.administrative.handoff
+src/maezo/platform/webhooks/whatsapp/dispatch.py -> maezo.agents.lucas.administrative.runtime
+src/maezo/platform/webhooks/whatsapp/dispatch.py -> maezo.agents.lucas.graph
+src/maezo/platform/webhooks/whatsapp/helena_consultas.py -> maezo.agents.lucas.fonte_cobranca_amh
+src/maezo/platform/webhooks/whatsapp/helena_identidade.py -> maezo.agents.lucas.fonte_cobranca_amh
+src/maezo/platform/webhooks/whatsapp/lucas_retomada.py -> maezo.agents.lucas.cancelamento_pf
+src/maezo/platform/webhooks/whatsapp/lucas_retomada.py -> maezo.agents.lucas.prompts
+src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.cancelamento_pf
+src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.fonte_cobranca
+src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.fonte_v4
+src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.graph
+src/maezo/platform/webhooks/whatsapp/lucas_turno.py -> maezo.agents.lucas.politica_atraso
+src/maezo/runtime/agent_runtime/a2a_composition.py -> maezo.agents.andre.delegation
+src/maezo/runtime/agent_runtime/a2a_composition.py -> maezo.agents.andre.graph
+src/maezo/runtime/agent_runtime/a2a_composition.py -> maezo.agents.carolina.delegation
+src/maezo/runtime/agent_runtime/a2a_composition.py -> maezo.agents.fernando.delegation
+src/maezo/runtime/agent_runtime/a2a_composition.py -> maezo.agents.rafael.delegation
+src/maezo/runtime/agent_runtime/ingress.py -> maezo.agents.rafael.graph
+src/maezo/tools/workers/adequacao.py -> maezo.agents.andre.delegation
+src/maezo/tools/workers/credenciamento.py -> maezo.agents.carolina.delegation
+src/maezo/tools/workers/inadimplencia.py -> maezo.agents.fernando.delegation
+src/maezo/tools/workers/pagto.py -> maezo.agents.andre.delegation
+
+# agente->agente: 0

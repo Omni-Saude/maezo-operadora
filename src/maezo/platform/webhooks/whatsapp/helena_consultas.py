@@ -35,8 +35,8 @@ from typing import Any, Final
 
 import structlog
 
-from maezo.agents.helena.consultas_plano import LIMITE_CARENCIAS, LIMITE_REQUISICOES, FonteIndisponivel
 from maezo.agents.lucas.fonte_cobranca_amh import FonteDeConsentimento
+from maezo.contratos.fatos_do_plano import LIMITE_CARENCIAS, LIMITE_REQUISICOES, FonteIndisponivel
 from maezo.ports.errors import PortFailureReason, PortResult
 from maezo.ports.tina import (
     CarenciasView,

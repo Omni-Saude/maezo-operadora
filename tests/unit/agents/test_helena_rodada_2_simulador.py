@@ -22,6 +22,14 @@ from typing import Any
 
 import pytest
 
+from maezo.agents.helena.cadastro import (
+    RESPOSTA_IDENTIDADE_E_PLANO,
+    RESPOSTA_SEM_INFORMACAO,
+    TIPO_IDENTIDADE_E_PLANO,
+    TIPO_PLANO_DETALHE,
+    resposta_de_cadastro,
+    tipo_de_pergunta,
+)
 from maezo.agents.helena.graph import (
     FRASE_PASSAGEM_COBRANCA,
     PROCESS_KEY,
@@ -45,14 +53,6 @@ from maezo.agents.helena.graph import (
     new_helena_state,
 )
 from maezo.agents.helena.prompts import RESPOSTA_SOU_ASSISTENTE_VIRTUAL, response_prompt
-from maezo.platform.webhooks.whatsapp.acesso_cadastro import (
-    RESPOSTA_IDENTIDADE_E_PLANO,
-    RESPOSTA_SEM_INFORMACAO,
-    TIPO_IDENTIDADE_E_PLANO,
-    TIPO_PLANO_DETALHE,
-    resposta_de_cadastro,
-    tipo_de_pergunta,
-)
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessInstance
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink

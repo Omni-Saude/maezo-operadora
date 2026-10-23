@@ -1,5 +1,5 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
-        check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence check-qa-isolada \
+        check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence check-qa-isolada check-fronteira-agentes \
         verify-amh-contract-pin \
         check-alert-runbook-urls \
         check-revisao-das-reguas \
@@ -132,6 +132,12 @@ check-qa-isolada: ## Simulador de beneficiario: nenhum codigo de producao import
 	# maezo.qa ou string `maezo.qa...` fora de docstring (importlib) reprovam. O QA troca as bordas
 	# do receptor (Meta -> captura, ESC -> interceptado); em producao isso seria um caminho que finge.
 	.venv/bin/python scripts/ci/check_qa_isolada.py
+
+check-fronteira-agentes: ## ADR-0067: catraca da fronteira plataforma x agentes (nenhuma dependencia nova para dentro de um agente; a baseline so' encolhe)
+	# AST-scan de src/maezo (fora de qa/): plataforma importando maezo.agents.<id>, ou agente importando
+	# outro agente, reprova se nao estiver em scripts/ci/fronteira_agentes_baseline.txt; linha da baseline
+	# que ja' nao existe no codigo tambem reprova. Inventario: `--relatorio`.
+	.venv/bin/python scripts/ci/check_fronteira_agentes.py
 
 verify-amh-contract-pin: ## ADR-0037 XRD-04 (MZO-010/XRG-3): pin imutavel do contrato AMH intacto, completo e nao-regressivo
 	# XRD-04 verbatim: "Digest divergente, schema ausente, topico errado ou versao rebaixada falham
