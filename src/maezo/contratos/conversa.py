@@ -53,7 +53,11 @@ class AgenteDeEntrada(Protocol):
     agent_version: str
 
     def construir_grafo(self, config: Mapping[str, Any]) -> Any:
-        """O grafo (LangGraph `StateGraph`, ainda nao compilado) com as dependencias e chaves de `config`."""
+        """O grafo (LangGraph `StateGraph`, ainda nao compilado) com as dependencias e chaves de `config`.
+
+        `config["fabrica_de_inferencia"]` (opcional): `fabrica(modelo=, prazo_s=, max_tokens=, concorrencia=)`
+        devolve um provedor de inferencia DEDICADO, ja' pela costura do gateway — e' assim que o pacote de
+        comportamento do agente (ADR-0067 fase 3) escolhe modelo e orcamento sem a plataforma mudar."""
         ...
 
     def estado_inicial(self, **campos: Any) -> dict[str, Any]:

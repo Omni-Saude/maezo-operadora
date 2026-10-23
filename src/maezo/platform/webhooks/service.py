@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import signal
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -358,6 +359,8 @@ def _build_dispatcher(
         # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134): `MAEZO_HELENA_ROTEADOR`, default `desligado` (so' dev).
         helena_roteador=settings.helena_roteador,
         roteador_inference=roteador_inference,
+        # ADR-0067 fase 3: o pacote de comportamento da Helena escolhe o modelo do roteador por aqui.
+        fabrica_de_inferencia=functools.partial(_inferencia_dedicada, seam_context),
         roteador_concorrencia=settings.helena_roteador_concorrencia,
         helena_roteador_conversas=_conversas_do_roteador(settings.helena_roteador_conversas),
         # COBERTURA (DL-0140): `MAEZO_HELENA_COBERTURA_MODO`, default `simples`.
@@ -1238,6 +1241,23 @@ def _inferencia_do_roteador(settings: Any, seam_context: Any) -> Any:
     (o grafo usa o provedor da conversa, como na F1). Passa pela mesma porta (`build_inference_seam`)."""
     if settings.helena_roteador == "desligado":
         return None
+    return _inferencia_dedicada(
+        seam_context,
+        modelo=settings.helena_roteador_modelo,
+        prazo_s=settings.helena_roteador_prazo_s,
+        max_tokens=settings.helena_roteador_max_tokens,
+        concorrencia=settings.helena_roteador_concorrencia,
+    )
+
+
+def _inferencia_dedicada(
+    seam_context: Any, *, modelo: str, prazo_s: float, max_tokens: int, concorrencia: int
+) -> Any:
+    """Um provedor de inferencia DEDICADO na zona PHI regional (`bedrock_br`): prazo real curto, teto de
+    saida, sem retentativa e pool proprio, pela mesma costura do gateway. Fora do `bedrock_br`, `None`.
+
+    E' tambem a `fabrica_de_inferencia` do despachante (ADR-0067 fase 3): o pacote de comportamento do agente
+    escolhe modelo e orcamento por ela, sem a plataforma mudar."""
     from maezo.gateway.tool_registry import build_inference_seam
     from maezo.runtime.inference import InferenceProvider
     from maezo.runtime.inference.settings import InferenceSettings
@@ -1247,11 +1267,11 @@ def _inferencia_do_roteador(settings: Any, seam_context: Any) -> Any:
         return None
     curta = base.model_copy(
         update={
-            "model": settings.helena_roteador_modelo.strip() or base.model,
-            "timeout_s": settings.helena_roteador_prazo_s,
-            "max_tokens": settings.helena_roteador_max_tokens,
+            "model": modelo.strip() or base.model,
+            "timeout_s": prazo_s,
+            "max_tokens": max_tokens,
             "max_retries": 0,
-            "dedicated_workers": settings.helena_roteador_concorrencia,
+            "dedicated_workers": concorrencia,
         }
     )
     return build_inference_seam(

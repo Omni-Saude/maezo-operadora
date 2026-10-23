@@ -477,6 +477,10 @@ class HelenaDispatcher:
     #: ADR-0066: o provedor PROPRIO do roteador (prazo e teto curtos, pool proprio); `None` = o da conversa.
     roteador_inference: Any = None
     roteador_concorrencia: int = 4
+    #: ADR-0067 fase 3: `fabrica(modelo=, prazo_s=, max_tokens=, concorrencia=)` de provedores de inferencia
+    #: DEDICADOS, ja' pela costura do gateway. O agente a usa quando o pacote de comportamento dele escolhe o
+    #: modelo do roteador; `None` (testes) = so' o `roteador_inference` acima.
+    fabrica_de_inferencia: Callable[..., Any] | None = None
     #: F2 (DL-0136): as conversas em que o roteador ativo decide (vazio = ninguem).
     helena_roteador_conversas: frozenset[str] = frozenset()
     # DL-0140 (dono, 22/10/2026): o modo da cobertura (`simples` | `consulta`).
@@ -904,6 +908,8 @@ class HelenaDispatcher:
                 # DL-0134: o roteador de habilidades (ADR-0066), so com a chave; desligado = grafo de antes.
                 "helena_roteador": self.helena_roteador,
                 "roteador_inference": self.roteador_inference,
+                # ADR-0067 fase 3: o pacote do agente escolhe modelo/orcamento do roteador por esta fabrica.
+                "fabrica_de_inferencia": self.fabrica_de_inferencia,
                 "roteador_concorrencia": self.roteador_concorrencia,
                 "helena_roteador_conversas": self.helena_roteador_conversas,
                 # DL-0140: o modo da cobertura (`simples` nunca consulta procedimento).

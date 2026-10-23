@@ -17,6 +17,7 @@ from typing import Any, Final, cast
 from maezo.contratos.conversa import RespostaDeCadastro
 
 from . import cadastro, graph
+from .pacote import PacoteDaHelena, do_ambiente
 
 
 class HelenaDeEntrada:
@@ -25,8 +26,17 @@ class HelenaDeEntrada:
     agent_id: str = "helena"
     agent_version: str = "helena@v0"
 
+    def __init__(self) -> None:
+        self._pacote_da_helena: PacoteDaHelena | None = None
+
+    def _pacote(self) -> PacoteDaHelena:
+        """O pacote de comportamento (ADR-0067 fase 3), resolvido na primeira chamada (le' a task)."""
+        if self._pacote_da_helena is None:
+            self._pacote_da_helena = do_ambiente()
+        return self._pacote_da_helena
+
     def construir_grafo(self, config: Mapping[str, Any]) -> Any:
-        return graph.build(dict(config))
+        return graph.build(self._pacote().aplicar_no_grafo(config))
 
     def estado_inicial(self, **campos: Any) -> dict[str, Any]:
         return dict(graph.new_helena_state(**campos))
@@ -40,7 +50,7 @@ class HelenaDeEntrada:
     async def escalar_identidade(
         self, dependencias: Mapping[str, Any], estado: dict[str, Any], *, motivo: str
     ) -> Mapping[str, Any]:
-        helena = graph.HelenaGraph(**dependencias)
+        helena = graph.HelenaGraph(**self._pacote().aplicar_nos_nos(dependencias))
         if motivo == "revogacao_consentimento_pendente":
             return await helena.escalar_revogacao_pendente(cast(graph.HelenaState, estado))
         return await helena.escalar_identidade_nao_verificada(cast(graph.HelenaState, estado))
@@ -48,7 +58,7 @@ class HelenaDeEntrada:
     async def escalar_e_responder(
         self, dependencias: Mapping[str, Any], estado: dict[str, Any]
     ) -> dict[str, Any]:
-        helena = graph.HelenaGraph(**dependencias)
+        helena = graph.HelenaGraph(**self._pacote().aplicar_nos_nos(dependencias))
         estado.update(await helena.escalate(cast(graph.HelenaState, estado)))
         estado.update(await helena.respond(cast(graph.HelenaState, estado)))
         return estado

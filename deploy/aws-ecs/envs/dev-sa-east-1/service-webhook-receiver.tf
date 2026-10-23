@@ -172,7 +172,7 @@ locals {
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
       # Fonte AMH do Lucas: `environment_amh` (abaixo; amh-interop.tf) e' vazia com a fonte
       # `simulada`, entao esta task definition fica byte a byte igual enquanto ela nao for ligada.
-    ])
+    ], local.pacotes_dos_agentes_env) # ADR-0067 fase 3 (pacotes-dos-agentes.tf); vazio = desligado
     environment_amh = concat(local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env, local.amh_billing_contratacao_env, local.amh_v4_env)
     secrets_app = concat(local.db_secrets_maezo, [
       # Sem esta o Pseudonymizer falha FECHADO (ADR-0035) — e o receptor e' quem pseudonimiza
