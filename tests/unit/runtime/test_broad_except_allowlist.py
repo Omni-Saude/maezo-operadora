@@ -56,6 +56,7 @@ from types import ModuleType
 from typing import Any, Final
 
 import pytest
+from tests.support.fontes_do_grafo import arquivos_de_grafo, rotulo
 
 from maezo.runtime.dependency_failures import (
     DECLARED_INFERENCE_FAILURES,
@@ -490,7 +491,10 @@ def _exige_clausula_de_guarda(node: ast.Try, modulo: ModuleType) -> bool:
 
 
 def _modulo_do_grafo(graph_path: Path) -> ModuleType:
-    return importlib.import_module(f"maezo.agents.{graph_path.parent.name}.graph")
+    # O modulo do PROPRIO arquivo (o `graph.py` ou um modulo dividido por habilidade, ADR-0067 §5): os nomes
+    # do `except` resolvem nos globals de quem os escreveu.
+    rel = graph_path.relative_to(_REPO_ROOT / "src").with_suffix("")
+    return importlib.import_module(".".join(rel.parts))
 
 
 def _sitios_que_exigem_guarda(graph_path: Path) -> list[tuple[str, ast.Try]]:
@@ -507,8 +511,9 @@ def _sitios_que_exigem_guarda(graph_path: Path) -> list[tuple[str, ast.Try]]:
 
 @pytest.mark.parametrize(
     "graph_path",
-    sorted((_REPO_ROOT / "src/maezo/agents").glob("*/graph.py")),
-    ids=lambda p: p.parent.name,
+    # ADR-0067 §5: o grafo dividido por habilidade (Helena) continua inteiro sob a cerca.
+    arquivos_de_grafo(_REPO_ROOT / "src/maezo/agents"),
+    ids=lambda p: rotulo(_REPO_ROOT / "src/maezo/agents", p),
 )
 def test_todo_try_de_graph_py_re_levanta_erro_de_programacao(graph_path: Path) -> None:
     """Em `graph.py`, todo `try` que absorve falha de dependencia re-levanta o BUG primeiro.
@@ -540,7 +545,7 @@ def test_a_afirmacao_3_cobre_os_sitios_de_fronteira_esperados() -> None:
     """
     medidos = {
         rotulo
-        for graph_path in sorted((_REPO_ROOT / "src/maezo/agents").glob("*/graph.py"))
+        for graph_path in arquivos_de_grafo(_REPO_ROOT / "src/maezo/agents")
         for rotulo, _ in _sitios_que_exigem_guarda(graph_path)
     }
     assert len(medidos) == _SITIOS_COM_GUARDA_EXIGIDA, (

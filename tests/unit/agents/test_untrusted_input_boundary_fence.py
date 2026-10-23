@@ -54,8 +54,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.fontes_do_grafo import fonte_do_agente
+
 _RAIZ = Path(__file__).resolve().parents[3]
 _DIR_AGENTES = _RAIZ / "src" / "maezo" / "agents"
+#: Um `graph.py` por agente; o codigo lido e' o do grafo INTEIRO (`fonte_do_agente`: o `graph.py` e os
+#: modulos divididos por habilidade, ADR-0067 §5), para os sitios movidos continuarem sob a cerca.
 _GRAFOS = sorted(_DIR_AGENTES.glob("*/graph.py"))
 
 #: Os dois nomes de atributo sob os quais um grafo guarda seu seam de inferencia (mesma lista de
@@ -434,10 +438,10 @@ def test_todo_valor_de_entrada_que_chega_a_um_prompt_passa_por_bloco_nao_confiav
     estruturado — e o allowlist e' default-deny (campo novo reprova ate' ser classificado)."""
     agente = arquivo.parent.name
     permitidos = _CAMPOS_ESTRUTURADOS_POR_AGENTE.get(agente, frozenset())
-    entradas = _campos_de_entrada(ast.parse(arquivo.read_text(encoding="utf-8")))
+    entradas = _campos_de_entrada(ast.parse(fonte_do_agente(arquivo)))
 
     achados: list[str] = []
-    for nome_fn, linha, lidas, demarcadas in _sitios_de_prompt(arquivo.read_text(encoding="utf-8")):
+    for nome_fn, linha, lidas, demarcadas in _sitios_de_prompt(fonte_do_agente(arquivo)):
         crus = sorted((lidas & entradas) - permitidos - demarcadas)
         if crus:
             achados.append(f"{nome_fn} (linha {linha}): {crus}")
@@ -460,7 +464,7 @@ def test_os_campos_de_texto_livre_conhecidos_estao_de_fato_demarcados(agente: st
     arquivo = _DIR_AGENTES / agente / "graph.py"
     esperados = _CAMPOS_TEXTO_LIVRE_POR_AGENTE[agente]
     demarcadas: set[str] = set()
-    for _fn, _linha, _lidas, marcadas in _sitios_de_prompt(arquivo.read_text(encoding="utf-8")):
+    for _fn, _linha, _lidas, marcadas in _sitios_de_prompt(fonte_do_agente(arquivo)):
         demarcadas |= marcadas
     faltando = sorted(esperados - demarcadas)
     assert not faltando, (
@@ -491,7 +495,7 @@ def test_o_allowlist_estruturado_nao_tem_entrada_morta(agente: str) -> None:
     `tests/unit/a2a/test_agent_card_handlers_parity.py::test_the_undeclared_task_type_record_has_no_stale_entries`
     fecha para os task types nao declarados)."""
     arquivo = _DIR_AGENTES / agente / "graph.py"
-    fonte = arquivo.read_text(encoding="utf-8")
+    fonte = fonte_do_agente(arquivo)
     entradas = _campos_de_entrada(ast.parse(fonte))
     alcancam: set[str] = set()
     for _fn, _linha, lidas, _marcadas in _sitios_de_prompt(fonte):
@@ -513,7 +517,7 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     total = 0
     com_entrada = 0
     for arquivo in _GRAFOS:
-        fonte = arquivo.read_text(encoding="utf-8")
+        fonte = fonte_do_agente(arquivo)
         entradas = _campos_de_entrada(ast.parse(fonte))
         for _fn, _linha, lidas, _marcadas in _sitios_de_prompt(fonte):
             total += 1

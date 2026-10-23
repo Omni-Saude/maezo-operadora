@@ -54,6 +54,8 @@ import ast
 from pathlib import Path
 from typing import Final, NamedTuple
 
+from tests.support.fontes_do_grafo import arquivos_de_grafo, rotulo
+
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 _AGENTS_DIR: Final[Path] = _REPO_ROOT / "src" / "maezo" / "agents"
 
@@ -227,7 +229,8 @@ def _scan(path: Path) -> dict[_Hit, list[int]]:
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
     parents = _parent_map(tree)
-    relpath = f"{path.parent.name}/graph.py"
+    relpath = rotulo(_AGENTS_DIR, path)
+    relpath = f"{relpath}/graph.py" if path.name == "graph.py" else f"{relpath}.py"
     hits: dict[_Hit, list[int]] = {}
     for node in _find_or_zero_nodes(tree):
         hit = _Hit(relpath, _enclosing_function(node, parents), _dict_key_or_source(node, source, parents))
@@ -237,7 +240,8 @@ def _scan(path: Path) -> dict[_Hit, list[int]]:
 
 def _all_hits() -> dict[_Hit, list[int]]:
     hits: dict[_Hit, list[int]] = {}
-    for graph_path in sorted(_AGENTS_DIR.glob("*/graph.py")):
+    # ADR-0067 §5: o grafo dividido por habilidade (Helena) continua inteiro sob a cerca.
+    for graph_path in arquivos_de_grafo(_AGENTS_DIR):
         for hit, linenos in _scan(graph_path).items():
             hits.setdefault(hit, []).extend(linenos)
     return hits

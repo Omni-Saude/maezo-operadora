@@ -145,7 +145,7 @@ import asyncio
 import json
 import re
 import time
-from collections.abc import Callable, Hashable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Mapping
 from contextvars import ContextVar
 from datetime import UTC, date, datetime
 from typing import Any, Literal, TypedDict, cast, get_args
@@ -154,7 +154,6 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.conhecimento import base_saude as _bs
-from maezo.conhecimento import jornadas as _jornadas
 from maezo.conhecimento import saude_gerativa as _sg
 
 # P5 (16/10/2026): a cerca de saida e a mensagem da retomada moram em modulos leves (o portal as usa).
@@ -213,7 +212,6 @@ from maezo.platform.observability import record_resposta_recusada, record_sintom
 from maezo.ports.tina import ElegibilidadeView
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
-    dmn_unavailable_error,
     start_unavailable_error,
 )
 from maezo.runtime.inference import InferenceProvider
@@ -231,10 +229,7 @@ from maezo.tools.mcp_cibseven.transport import (
     start_process_idempotent,
 )
 from maezo.tools.workers.dmn_transport import (
-    DmnEvaluationError,
-    DmnNoResultError,
     DmnTransport,
-    first_row,
 )
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
@@ -261,7 +256,6 @@ from .consultas_plano import (
     motivo_de_omissao_da_elegibilidade,
     motivo_de_recusa_da_consulta,
     resposta_deterministica,
-    segmentacao_dos_fatos,
     sem_marcador_de_carteirinha,
     sem_marcador_de_dependente,
     so_deterministica,
@@ -273,39 +267,21 @@ from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from .habilidades.conversa import leitura_curta as _lc
 from .helena_v4 import (
     ALERTAS,
-    ECO_GENERICO,
     ETAPA_ALERTA,
-    ETAPA_CASO_EQUIPE,
     ETAPA_CASO_PEDIU_PESSOA,
-    ETAPA_CASO_SEM_RESPOSTA,
-    ETAPA_CASO_SIM,
     ETAPA_ESCOLHA,
     GRUPO_GERAL,
-    LEITURA_NAO,
-    LEITURA_SIM,
-    POPULACAO_ADULTO,
-    POPULACAO_CRIANCA,
     PREFIXO_PENDENTE,
-    AlertaDoGrupo,
     Pendente,
-    codigo_pendente,
     e_texto_da_v4,
-    eco_do_relato,
     escolha_da_resposta,
     especialidade_pedida,
     fatos_da_carteirinha,
-    grupo_do_sintoma,
     ler_pendente,
     pede_carteirinha,
-    populacao_da_v4,
-    relato_cru,
-    resposta_ao_alerta,
     resumo_do_caso,
     texto_da_carteirinha,
-    texto_da_opcao_1,
     texto_da_pergunta_de_alerta,
-    texto_do_especialista,
-    texto_final_do_sintoma,
 )
 from .historico import (
     CHAVE_RESPOSTA_COM_DADOS_DO_PLANO,
@@ -339,41 +315,15 @@ from .textos import TextosDaHelena
 from .triagem_v2 import (
     COLETA_MAX_RODADAS_TRIAGEM_V2,
     COLETA_VEREDITO_PERGUNTAR_MAIS,
-    DECISAO_ESCLARECER,
-    DECISAO_PASSAR_AO_LUCAS,
-    DECISAO_PERGUNTAR_MAIS,
-    DECISOES_QUE_ABREM_CASO,
-    ITEM_IDADE,
-    ITEM_INTENSIDADE,
-    ITEM_SEMANAS,
-    NECESSIDADE_NAO_CLARA,
-    NECESSIDADES_DE_SINTOMA,
     PREFIXO_PERGUNTA_DA_FICHA,
     RESPOSTA_TRIAGEM_BEBE_PEQUENO,
-    RESPOSTA_TRIAGEM_ESCLARECER,
     RESPOSTA_TRIAGEM_OPCAO_PLANO,
     RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
     RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_GESTANTE,
     TEXTOS_POR_ID,
     TRIAGEM_V2_DMN_KEY,
-    SaidaInvalidaError,
-    bebe_pequeno,
-    codigo_da_ficha,
-    grupo_da_queixa,
-    itens_ja_respondidos,
-    itens_que_faltam,
-    ler_codigo_da_ficha,
-    ler_linha,
     linha_da_ficha,
-    necessidade_da_pergunta_clinica,
-    necessidade_do_sintoma,
-    necessidade_vaga,
-    paciente_da_conversa,
     pergunta_da_ficha,
-    relata_sintoma,
-    resposta_curta,
-    resposta_numerada,
-    texto_de_orientacao,
 )
 
 logger = structlog.get_logger(__name__)
@@ -4595,6 +4545,18 @@ def _validate_extraction(
 PREFIXO_RELATO_NAO_VERIFICADO: str = "Relato do beneficiário (não verificado): "
 
 
+# ADR-0067 §5: os metodos desta habilidade moram em `habilidades.sintoma.fluxo` (importado AQUI, depois
+# dos helpers de modulo que ele usa, para o import circular ser seguro).
+# ADR-0067 §5: os metodos desta habilidade moram em `travas_entrada` (importado AQUI, depois
+# dos helpers de modulo que ele usa, para o import circular ser seguro).
+from . import travas_entrada as _travas_entrada  # noqa: E402
+
+# ADR-0067 §5: os metodos desta habilidade moram em `habilidades.saude.informar` (importado AQUI, depois
+# dos helpers de modulo que ele usa, para o import circular ser seguro).
+from .habilidades.saude import informar as _saude  # noqa: E402
+from .habilidades.sintoma import fluxo as _sintoma  # noqa: E402
+
+
 class HelenaGraph:
     """Wires Helena's injected dependencies into a compilable `StateGraph[HelenaState]`.
 
@@ -5936,41 +5898,7 @@ class HelenaGraph:
             update["coleta_contexto"] = ""
         return pend_v4, pend_encerrar
 
-    async def _risco_pelo_texto(self, state: HelenaState) -> dict[str, Any] | None:
-        """RISCO PSICOSSOCIAL PELO TEXTO, ANTES DO MODELO (pendencia 15, DL-0151).
-
-        Termo de autolesao ou de nao querer viver na mensagem (`saude_gerativa.tem_risco`, lista do
-        DL-0123, inalterada) escala `risco_psicossocial` SEM chamar o classificador: a falha do modelo nao
-        rebaixa mais o turno a `falha_tecnica`. A severidade continua sendo a da tabela `mental_health`
-        (mesmo bloco do gatilho 5 em `classify`; tabela fora do ar = `grave`) e nenhum `sintoma_codigo` e'
-        inventado a partir do texto; o ROTEAMENTO e' a `r2` da `escalation_routing` (P1, plantao clinico,
-        qualquer severidade). O texto e' o fixo `RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL` (CVV 188, 192), que
-        `escalate` escolhe pelo motivo. Sem o termo devolve `None` e o turno segue como antes."""
-        if not _sg.tem_risco(_plano(str(state.get("message_body") or ""))):
-            return None
-        logger.warning("helena_risco_psicossocial_pelo_texto", node="classify", antes_do_modelo=True)
-        update: dict[str, Any] = {
-            "intent": "symptom",
-            "population": "mental_health",
-            "psychosocial_risk": True,
-            "sintoma_codigo": None,
-            "intensidade": "desconhecida",
-            "idade_anos": None,
-            "idade_meses": None,
-            "idade_gestacional_semanas": None,
-        }
-        self._expirar_pendencias_do_turno(state, update)
-        # `risco_imediato` ausente = risco imediato (`_evaluate_dmn`, postura conservadora).
-        dmn_out = await self._evaluate_dmn({"psychosocial_risk": True}, force_population="mental_health")
-        update.update(dmn_out)
-        update["next_kind"] = "escalate"
-        update["escalation_motivo"] = "risco_psicossocial"
-        if dmn_out.get("error"):
-            update["escalation_severidade"] = "grave"
-        else:
-            prioridade = str((dmn_out.get("dmn_decision") or {}).get("prioridade", ""))
-            update["escalation_severidade"] = _severidade_from_prioridade(prioridade)
-        return update
+    _risco_pelo_texto = _travas_entrada._risco_pelo_texto
 
     def _seguimento_com_o_lucas(self, state: Mapping[str, Any]) -> dict[str, Any] | None:
         """SEGUIMENTO CURTO COM O LUCAS ATIVO VAI AO LUCAS, NAO IMPORTA O MODELO (rodada 11, 14/10/2026).
@@ -6112,140 +6040,11 @@ class HelenaGraph:
         # quem sabe qual e' o texto da pessoa, que o Lucas nao ve'. Lexico pequeno, sem modelo.
         update["cobranca_foco"] = decidir_foco_da_cobranca(state.get("message_body", ""))
 
-    async def _triar_red_flag(self, extraction: dict[str, Any], update: dict[str, Any]) -> bool:
-        """Consulta a tabela de red flag da populacao e ESCREVE o veredito em `update`. Devolve
-        `True` quando a tabela decidiu o roteamento do turno.
-
-        EXTRAIDO DO RAMO `symptom` EM 22/09/2026 (CRITICO 3), sem mudar uma linha do que ele fazia:
-        a triagem precisava acontecer ANTES dos gatilhos de INTENCAO, e duas copias da mesma
-        sequencia (avaliar -> tratar tabela fora do ar -> marcar a avaliacao -> ler a bandeira)
-        derivariam na primeira edicao que tocasse so' uma delas.
-
-        DECIDE O ROTEAMENTO em dois casos, e os dois sao `escalate`:
-          * a tabela nao respondeu (gatilho 4, `falha_tecnica`) — NUNCA lido como "sem bandeira"
-            (fail-safe, ADR-0028 §3);
-          * a tabela acusou bandeira (`red_flag` ou `conduta` `ESCALATE*`) — e ai a severidade sai
-            da PRIORIDADE que ela emitiu, nunca de um literal.
-        Fora esses dois, devolve `False` e quem chamou segue com os proprios gatilhos.
-        """
-        dmn_out = await self._evaluate_dmn(extraction)
-        update.update(dmn_out)
-        if dmn_out.get("error"):
-            # Gatilho 4: DMN unavailable/no-result is a technical failure -> human, NEVER
-            # treated as "no red flag" (fail-safe, ADR-0028 §3).
-            update["next_kind"] = "escalate"
-            update["escalation_motivo"] = "falha_tecnica"
-            # HEL-04: AQUI ha' classificacao — o sintoma foi extraido e validado antes de a DMN
-            # cair —, entao a severidade DERIVA dela em vez de ser um literal.
-            update["escalation_severidade"] = _severidade_de_intensidade(update.get("intensidade"))
-            return True
-        # F5: a avaliacao ACONTECEU — so' AQUI, depois de a tabela responder, "houve avaliacao" e'
-        # fato e nao intencao. A conversa passa a lembrar QUAL dado ela usou, que e' a unica
-        # informacao que permite refaze-la se a pessoa corrigir esse dado
-        # (`_correcao_de_dado_avaliado`). NAO e' lembrar o sintoma da mensagem anterior — ver a nota
-        # em `_MEMORIA_SINTOMA_AVALIADO` para a diferenca e por que ela importa.
-        update["memoria_clinica"] = _marcar_avaliacao(
-            update.get("memoria_clinica"),
-            sintoma_codigo=extraction.get("sintoma_codigo"),
-            intensidade=update.get("intensidade"),
-        )
-        decision = dmn_out.get("dmn_decision", {})
-        conduta = str(decision.get("conduta", "CONTINUE"))
-        if decision.get("red_flag") is True or conduta.startswith("ESCALATE"):
-            prioridade = str(decision.get("prioridade", "P2"))
-            is_mental = dmn_out.get("dmn_table") == _DMN_BY_POPULATION["mental_health"]
-            update["next_kind"] = "escalate"
-            update["escalation_motivo"] = "risco_psicossocial" if is_mental else "red_flag_clinico"
-            update["escalation_severidade"] = _severidade_from_prioridade(prioridade)
-            return True
-        return False
+    _triar_red_flag = _travas_entrada._triar_red_flag
 
     # -- COLETA (passo 4) ---------------------------------------------------------------------
 
-    async def _avaliar_suficiencia(self, state: HelenaState, update: dict[str, Any]) -> dict[str, Any] | None:
-        """Consulta `triage_sufficiency` e devolve a ATUALIZACAO de estado que decide o turno —
-        ou `None` quando os dados bastam e o caminho informativo segue como antes.
-
-        A tabela recebe FATOS sobre o que foi apurado (nunca o texto): a intencao, a populacao,
-        se o sintoma casou com um codigo, se a intensidade foi dita, se o campo da populacao esta'
-        presente e quantas perguntas ja' foram feitas. Ela devolve UM veredito. Este metodo nao
-        interpreta clinica: converte o veredito em rota.
-
-        TEM FIM antes de perguntar a tabela: com `coleta_rodadas >= COLETA_MAX_RODADAS` escala,
-        qualquer que fosse o veredito — e' a regra 2 do desenho, e mora no codigo porque nao pode
-        depender de a tabela lembrar-se dela.
-
-        FAIL-CLOSED em tres formas: tabela indisponivel, sem linha casada, ou veredito fora do
-        vocabulario -> `falha_tecnica` -> humano. Nunca "assume suficiente".
-        """
-        rodadas = _rodadas_de_coleta(state.get("coleta_rodadas", 0))
-        if rodadas >= COLETA_MAX_RODADAS:
-            logger.info("helena_coleta_esgotada", rodadas=rodadas, node="classify")
-            return {
-                "coleta_veredito": COLETA_VEREDITO_ESCALAR,
-                "next_kind": "escalate",
-                "escalation_motivo": MOTIVO_COLETA_ESGOTADA,
-                "escalation_severidade": _severidade_de_intensidade(update.get("intensidade")),
-                "coleta_pendente": None,
-            }
-
-        entrada = _entrada_de_suficiencia(update, rodadas)
-        try:
-            rows, version = await self._dmn.evaluate(SUFFICIENCY_DMN_KEY, entrada)
-            row = first_row(rows, SUFFICIENCY_DMN_KEY, entrada)
-        except (DmnEvaluationError, DmnNoResultError) as exc:
-            return {
-                "coleta_veredito": None,
-                "next_kind": "escalate",
-                "escalation_motivo": "falha_tecnica",
-                "escalation_severidade": _severidade_de_intensidade(update.get("intensidade")),
-                "error": dmn_unavailable_error(SUFFICIENCY_DMN_KEY, exc),
-            }
-        veredito = row.get("veredito")
-        veredito = veredito.get("value") if isinstance(veredito, dict) else veredito
-        veredito = str(veredito or "")
-        ref = f"{SUFFICIENCY_DMN_KEY}#{version.id}"
-        if veredito == COLETA_VEREDITO_SUFICIENTE:
-            logger.info("helena_coleta_suficiente", ref=ref, node="classify")
-            return None
-        if veredito in COLETA_VEREDITOS_PERGUNTA:
-            logger.info(
-                "helena_coleta_pergunta", veredito=veredito, rodada=rodadas + 1, ref=ref, node="classify"
-            )
-            return {
-                "coleta_veredito": veredito,
-                "coleta_pergunta": veredito,
-                "coleta_rodadas": rodadas + 1,
-                "coleta_pendente": veredito,
-                # O texto da mensagem ja' chegou pseudonimizado na borda; guarda-lo aqui e' o que
-                # permite ao turno seguinte classificar "forte" junto com "dor de cabeca".
-                "coleta_contexto": " | ".join(
-                    t for t in (state.get("coleta_contexto") or "", state.get("message_body") or "") if t
-                ),
-                "next_kind": "collect",
-            }
-        if veredito == COLETA_VEREDITO_ESCALAR:
-            return {
-                "coleta_veredito": veredito,
-                "next_kind": "escalate",
-                "escalation_motivo": MOTIVO_COLETA_ESGOTADA,
-                "escalation_severidade": _severidade_de_intensidade(update.get("intensidade")),
-                "coleta_pendente": None,
-            }
-        # Vocabulario desconhecido: a tabela nao e' confiavel para este caso -> humano.
-        logger.warning(
-            "helena_coleta_veredito_desconhecido",
-            classification="fora_do_vocabulario",
-            ref=ref,
-            node="classify",
-        )
-        return {
-            "coleta_veredito": None,
-            "next_kind": "escalate",
-            "escalation_motivo": "falha_tecnica",
-            "escalation_severidade": _severidade_de_intensidade(update.get("intensidade")),
-            "error": f"{SUFFICIENCY_DMN_KEY}: veredito fora do vocabulario",
-        }
+    _avaliar_suficiencia = _sintoma._avaliar_suficiencia
 
     # -- NOVA TRIAGEM (DL-0104, `MAEZO_HELENA_TRIAGEM_V2`) ---------------------------------------------
     #
@@ -6255,327 +6054,17 @@ class HelenaGraph:
     # recem-nascido, pedido de pessoa, ANS/Procon, consulta do plano, cobranca). Ela nunca decide se ha'
     # alarme — isso e' das tabelas triage_redflag_*, que rodam ANTES, inclusive em cada mensagem da ficha.
 
-    @staticmethod
-    def _esclarecimento_ja_pedido(state: Mapping[str, Any]) -> bool:
-        """A pergunta de esclarecimento (T11) ja' saiu nesta conversa? Pelo historico curto (DL-0080)."""
-        inicio = RESPOSTA_TRIAGEM_ESCLARECER[:60]
-        return any(_sem_prefixo(f).startswith(inicio) for f in _falas_da_helena(state))
+    _esclarecimento_ja_pedido = staticmethod(_sintoma._esclarecimento_ja_pedido)
 
-    @staticmethod
-    def _opcao_do_esclarecimento(state: Mapping[str, Any], texto: str) -> str | None:
-        """A opcao ("1".."4") que a mensagem escolhe, SO' com a oferta de opcoes (T11) RECENTE: entre as
-        ultimas `_FALAS_DA_OFERTA_RECENTE` falas da Helena no historico curto (DL-0080) — inclusive depois
-        do "Ainda nao entendi" (catch-all). Sem oferta recente, um numero solto segue o fluxo normal."""
-        numero = resposta_numerada(_plano(texto))
-        if numero is None:
-            return None
-        inicio = RESPOSTA_TRIAGEM_ESCLARECER[:60]
-        recentes = _falas_da_helena(state)[-_FALAS_DA_OFERTA_RECENTE:]
-        if not any(_sem_prefixo(f).startswith(inicio) for f in recentes):
-            return None
-        return numero
+    _opcao_do_esclarecimento = staticmethod(_sintoma._opcao_do_esclarecimento)
 
-    def _triagem_v2_opcao(
-        self,
-        opcao: str,
-        state: HelenaState,
-        update: dict[str, Any],
-        *,
-        pessoa_dentro_da_triagem: bool,
-    ) -> dict[str, Any] | None:
-        """O turno ja' roteado para a OPCAO escolhida do T11, ou `None` (opcao 1 com sintoma ja' relatado:
-        o turno segue como sintoma e a tabela nova leva a ficha).
+    _triagem_v2_opcao = _sintoma._triagem_v2_opcao
 
-          1 -> convite a contar o que sente (`RESPOSTA_DUVIDA_DE_SAUDE`), sem caso;
-          2 -> o caminho da consulta do plano pela Helena (`RESPOSTA_TRIAGEM_OPCAO_PLANO`), sem caso;
-          3 -> o Lucas pela passagem de cobranca de sempre (`_rota_de_cobranca`, precondicao de 2
-               camadas; o handoff so' nasce no no' `handoff_cobranca`). Sem o roteador, fora do canal;
-          4 -> pedido de pessoa (RN 623/2024, art. 9, III): abre o caso como o pedido explicito —
-               `solicitacao_humano`/`leve`; dentro da triagem, falando do quadro, `intencao_clinica`.
-        """
-        logger.info("helena_triagem_v2_opcao", node="classify", opcao=opcao)
-        if opcao == "4":
-            update["intent"] = "human_request"
-            update["next_kind"] = "escalate"
-            if pessoa_dentro_da_triagem:
-                update["escalation_motivo"] = "intencao_clinica"
-                update["escalation_severidade"] = "moderada"
-            else:
-                update["escalation_motivo"] = "solicitacao_humano"
-                update["escalation_severidade"] = "leve"
-            return update
-        if opcao == "1" and update.get("sintoma_codigo"):
-            update["intent"] = "symptom"
-            return None
-        if opcao == "3" and self._roteador_lucas_enabled:
-            update["intent"] = INTENT_COBRANCA
-            subtipo = _subtipo_pelo_texto(str(state.get("message_body") or ""))
-            self._preencher_cobranca(update, subtipo, None, state)
-            return _rota_de_cobranca(update, state, roteador_ligado=self._roteador_lucas_enabled)
-        update["intent"] = "information"
-        update["response_text"] = {
-            "1": RESPOSTA_DUVIDA_DE_SAUDE,
-            "2": RESPOSTA_TRIAGEM_OPCAO_PLANO,
-        }.get(opcao, RESPOSTA_FORA_DO_CANAL)
-        return _rota_informativa(update)
+    _triagem_v2_decidir = _sintoma._triagem_v2_decidir
 
-    async def _triagem_v2_decidir(
-        self,
-        state: HelenaState,
-        update: dict[str, Any],
-        extraction: dict[str, Any],
-        *,
-        ja_triado: bool,
-        conversa: str | None,
-    ) -> dict[str, Any] | None:
-        """Apura a NECESSIDADE do catalogo, faz a ficha (se for sintoma), consulta a tabela nova e devolve o
-        `update` roteado — ou `None` quando o turno nao e' da nova triagem (segue o caminho de antes).
+    _triagem_v2_falhou = staticmethod(_sintoma._triagem_v2_falhou)
 
-        (a) pergunta clinica SEM sintoma -> S06/S08/S09/S10: texto que nao avalia, mostra o caminho e
-            oferece uma pessoa, SEM caso (R15/R16/R18);
-        (b) pergunta clinica COM sintoma relatado -> vira sintoma: tabela de alarme e ficha, sem escalar
-            na hora;
-        (c) necessidade nao clara -> UMA pergunta de esclarecimento (R23); depois, oferta de pessoa sem caso;
-        (d) sintoma sem alarme -> ficha de ate' 3 rodadas (`_ficha_v2`) e, completa ou esgotada, o caminho
-            (T05) sem caso.
-        """
-        intent = str(update.get("intent") or "")
-        texto = str(state.get("message_body") or "")
-        plano = _plano(texto)
-
-        # A escolha de uma opcao do T11 ("4") ja' foi decidida em `classify` (`_triagem_v2_opcao`), antes
-        # dos portoes de intencao: aqui `pedido_pessoa` e' sempre falso.
-        sintoma = intent == "symptom" or bool(update.get("sintoma_codigo"))
-        if intent == "clinical_question" and not sintoma and relata_sintoma(plano, update.get("intensidade")):
-            sintoma = True
-        ficha: dict[str, Any] = {"completa": False, "pergunta": None, "rodadas": 0}
-        if sintoma:
-            if intent != "symptom":
-                # (b) "o que pode ser essa dor ao urinar?" e' relato de sintoma: tabela de alarme + ficha.
-                logger.info(
-                    "helena_triagem_v2_pergunta_com_sintoma", node="classify", intent_do_modelo=intent
-                )
-                update["intent"] = "symptom"
-            if not ja_triado and await self._triar_red_flag(extraction, update):
-                return update
-            necessidade = necessidade_do_sintoma(update.get("population"))
-            resultado = await self._ficha_v2(state, update)
-            if "next_kind" in resultado:
-                # A tabela de suficiencia nao respondeu (ou respondeu fora do vocabulario): falha tecnica,
-                # como hoje — nunca "suficiente" por suposicao.
-                update.update(resultado)
-                return update
-            ficha = resultado
-        elif intent == "clinical_question":
-            necessidade = necessidade_da_pergunta_clinica(plano, navegacao=_pergunta_de_navegacao(texto))
-        elif intent in ("information", "greeting") and conversa is None and necessidade_vaga(plano):
-            necessidade = NECESSIDADE_NAO_CLARA
-        else:
-            return None
-
-        entrada: dict[str, Any] = {
-            "necessidade": necessidade,
-            # REDE DE SEGURANCA: com a ordem de hoje, chegar aqui ja' significa sem alarme e sem risco (os
-            # portoes acima escalaram), e sem pedido de pessoa (o portao de pessoa e a opcao "4" do T11,
-            # acima, escalaram).
-            "sinal_alarme": False,
-            "risco_psicossocial": bool(update.get("psychosocial_risk")),
-            "pedido_pessoa": False,
-            "ficha_completa": bool(ficha["completa"]),
-            "rodadas": int(ficha["rodadas"]),
-            "esclarecimento_pedido": self._esclarecimento_ja_pedido(state),
-        }
-        try:
-            rows, version = await self._dmn.evaluate(TRIAGEM_V2_DMN_KEY, entrada)
-            row = first_row(rows, TRIAGEM_V2_DMN_KEY, entrada)
-            decisao, motivo, severidade, texto_id = ler_linha(row)
-        except (DmnEvaluationError, DmnNoResultError) as exc:
-            # O erro e' montado AQUI pelo helper sancionado (token de classe, nunca o texto cru da excecao;
-            # cerca LUC-06/NEW-01) e so' a string segue para o fallback.
-            return self._triagem_v2_falhou(
-                update, necessidade, dmn_unavailable_error(TRIAGEM_V2_DMN_KEY, exc)
-            )
-        except SaidaInvalidaError:
-            return self._triagem_v2_falhou(update, necessidade, ERRO_TRIAGEM_V2_FORA_DO_VOCABULARIO)
-        logger.info(
-            "helena_triagem_v2_decisao",
-            node="classify",
-            necessidade=necessidade,
-            decisao=decisao,
-            texto=texto_id or "",
-            ref=f"{TRIAGEM_V2_DMN_KEY}#{version.id}",
-        )
-        if decisao in DECISOES_QUE_ABREM_CASO:
-            update["next_kind"] = "escalate"
-            update["escalation_motivo"] = motivo
-            update["escalation_severidade"] = severidade
-            return update
-        if decisao == DECISAO_PASSAR_AO_LUCAS:
-            # Reservada (R08): hoje a cobranca e' decidida antes da tabela. Mesmo assim, a passagem so' sai
-            # pela precondicao de duas camadas de sempre.
-            update["intent"] = INTENT_COBRANCA
-            self._preencher_cobranca(update, SUBTIPO_COBRANCA_PADRAO, None, state)
-            return _rota_de_cobranca(update, state, roteador_ligado=self._roteador_lucas_enabled)
-        if decisao == DECISAO_PERGUNTAR_MAIS:
-            pergunta = ficha["pergunta"]
-            if not (necessidade in NECESSIDADES_DE_SINTOMA and isinstance(pergunta, str) and pergunta):
-                # A tabela mandou perguntar, mas a ficha nao tem pergunta: estado injustificado -> humano.
-                return self._triagem_v2_falhou(update, necessidade, ERRO_TRIAGEM_V2_FORA_DO_VOCABULARIO)
-            update.update(
-                {
-                    "coleta_veredito": COLETA_VEREDITO_PERGUNTAR_MAIS,
-                    "coleta_pergunta": pergunta,
-                    "coleta_rodadas": int(ficha["rodadas"]) + 1,
-                    "coleta_pendente": pergunta,
-                    # O texto ja' chegou pseudonimizado na borda (o mesmo de `_avaliar_suficiencia`).
-                    "coleta_contexto": " | ".join(
-                        t for t in (state.get("coleta_contexto") or "", texto) if t
-                    ),
-                    "next_kind": "collect",
-                }
-            )
-            return update
-        # ORIENTAR / RESPONDER / ESCLARECER: texto FIXO escolhido pela tabela, sem caso.
-        if texto_id == "T12":
-            update["response_text"] = self._texto_de_navegacao(state)
-        elif texto_id == "T05":
-            # O caminho da POPULACAO (aceite de 15/10/2026): crianca -> pediatra (bebe com menos de 3 meses ->
-            # oferta da equipe de saude agora, DECISAO CLINICA PENDENTE); gestante -> obstetra; adulto ->
-            # clinico geral.
-            contexto_da_ficha = _plano(f"{state.get('coleta_contexto') or ''} {texto}")
-            update["response_text"] = texto_de_orientacao(
-                update.get("population"),
-                bebe_com_menos_de_3_meses=_contexto_de_recem_nascido(state)
-                or bebe_pequeno(contexto_da_ficha, update.get("idade_meses")),
-            )
-        else:
-            update["response_text"] = TEXTOS_POR_ID[str(texto_id)]
-        if update.get("intent") == "symptom":
-            # A ficha terminou (completa ou esgotada): a pergunta deixa de estar em aberto.
-            update["coleta_pendente"] = None
-        else:
-            # Pergunta clinica sem sintoma e necessidade nao clara saem como `information` (allowlist de
-            # `inform`); sintoma continua `symptom` e a precondicao exige o veredito da tabela de alarme.
-            update["intent"] = "information"
-        if decisao == DECISAO_ESCLARECER:
-            logger.info("helena_triagem_v2_esclarecimento", node="classify")
-        return _rota_informativa(update)
-
-    @staticmethod
-    def _triagem_v2_falhou(update: dict[str, Any], necessidade: str, erro: str) -> dict[str, Any]:
-        """FALLBACK SEGURO quando a tabela nova nao responde (ou responde fora do vocabulario): o
-        comportamento de falha de hoje, nunca silencio. Assunto de SAUDE -> `falha_tecnica` (humano), com a
-        severidade derivada da intensidade; necessidade nao clara -> pedir para a pessoa mandar de novo.
-
-        `erro` ja' chega como TOKEN montado no `except` de quem chamou (nunca a excecao)."""
-        logger.warning("helena_triagem_v2_tabela_indisponivel", node="classify", necessidade=necessidade)
-        if necessidade == NECESSIDADE_NAO_CLARA and not update.get("sintoma_codigo"):
-            update["intent"] = "information"
-            update["response_text"] = RESPOSTA_PECA_REENVIO
-            update["next_kind"] = "inform"
-            return update
-        update["next_kind"] = "escalate"
-        update["escalation_motivo"] = "falha_tecnica"
-        update["escalation_severidade"] = _severidade_de_intensidade(update.get("intensidade"))
-        update["error"] = erro
-        return update
-
-    async def _ficha_v2(self, state: HelenaState, update: dict[str, Any]) -> dict[str, Any]:
-        """A FICHA MINIMA da nova triagem: `{"completa", "pergunta", "rodadas"}` — ou, se a tabela de
-        suficiencia falhar, o `update` de falha tecnica (com `next_kind`).
-
-        ORDEM (aba 4 do catalogo; CONTEUDO DRAFT, o medico decide):
-          1. primeira rodada: a pergunta POR TIPO DE QUEIXA (texto fixo da aba 4) quando o tipo e' conhecido;
-          2. depois, `triage_sufficiency` diz o que ainda falta (intensidade, idade, semanas). O LIMITE de
-             rodadas e' da tabela nova (3); a de suficiencia e' consultada com `rodadas` abaixo do limite
-             DELA (2), para responder so' "o que falta?";
-          3. sintoma sem codigo da allowlist ja' descrito (uma rodada feita): a caracterizacao nao tem como
-             casar um codigo, entao conta como respondida — perguntar de novo seria interrogatorio;
-          4. 3 rodadas feitas: ficha esgotada (a tabela nova decide o que fazer).
-
-        NAO PERGUNTA O QUE JA' FOI DITO (aceite em dev, 15/10/2026: "Estou com dor nas costas" ouviu "Em
-        que parte do corpo e' a dor?"). `itens_ja_respondidos` junta a extracao (com a memoria clinica
-        fundida), o recem-nascido dito em palavras (DL-0101) e o lexico sobre o texto acumulado da ficha: a
-        pergunta da aba 4 leva SO' as frases que faltam, falando do paciente como a pessoa disse ("sua
-        filha"); com a ficha da queixa toda respondida ja' na primeira mensagem, conta como caracterizada e
-        o veredito segue sem perguntar. E NAO CONCLUI SEM RESPOSTA: item perguntado e nao respondido volta
-        na rodada seguinte ("So' para eu entender: ..."), dentro do limite de 3 rodadas. Na
-        `triage_sufficiency`, intensidade/idade/semanas ditas no texto contam como informadas — so' para ela
-        nao mandar perguntar de novo; as tabelas de alarme ja' rodaram com a extracao e nao mudam.
-        """
-        rodadas = _rodadas_de_coleta(state.get("coleta_rodadas", 0), teto=COLETA_MAX_RODADAS_TRIAGEM_V2)
-        if rodadas >= COLETA_MAX_RODADAS_TRIAGEM_V2:
-            logger.info("helena_triagem_v2_ficha_esgotada", rodadas=rodadas, node="classify")
-            return {"completa": False, "pergunta": None, "rodadas": rodadas}
-        atual = _plano(str(state.get("message_body") or ""))
-        contexto = _plano(f"{state.get('coleta_contexto') or ''} {state.get('message_body') or ''}")
-        grupo = grupo_da_queixa(update.get("population"), update.get("sintoma_codigo"), contexto)
-        respondidos = itens_ja_respondidos(contexto, update)
-        if _contexto_de_recem_nascido(state):
-            # DL-0101: recem-nascido dito em palavras e' idade informada (`idade_meses = 0`).
-            respondidos = respondidos | {ITEM_IDADE}
-        paciente = paciente_da_conversa(contexto)
-        if grupo is not None:
-            anterior = ler_codigo_da_ficha(state.get("coleta_pendente"))
-            faltam: tuple[int, ...] = ()
-            if rodadas == 0:
-                faltam = itens_que_faltam(grupo, contexto, respondidos)
-            elif anterior is not None and anterior.grupo == grupo and not resposta_curta(atual):
-                # PERGUNTADO E NAO RESPONDIDO volta na rodada seguinte, so' ele (aceite de 15/10/2026: a
-                # pessoa respondeu outra coisa e a ficha concluiu "suficiente"). Uma resposta curta ("nao",
-                # "tudo normal") cobre o que foi perguntado.
-                faltam = itens_que_faltam(grupo, contexto, respondidos, anterior.indices)
-            if faltam:
-                codigo = codigo_da_ficha(grupo, faltam, paciente=paciente, de_novo=rodadas > 0)
-                return {"completa": False, "pergunta": codigo, "rodadas": rodadas}
-            if rodadas == 0:
-                logger.info("helena_triagem_v2_ficha_ja_respondida", grupo=grupo, node="classify")
-        # Caracterizado: uma rodada ja' feita, ou a ficha da queixa toda respondida na propria mensagem.
-        caracterizado = rodadas >= 1 or grupo is not None
-        entrada = _entrada_de_suficiencia(update, min(rodadas, COLETA_MAX_RODADAS - 1))
-        if ITEM_INTENSIDADE in respondidos:
-            entrada["intensidade_informada"] = True
-        population = entrada["population"]
-        if (population in ("adult", "pediatric") and ITEM_IDADE in respondidos) or (
-            population == "gestante" and ITEM_SEMANAS in respondidos
-        ):
-            entrada["campo_populacao_disponivel"] = True
-        try:
-            rows, version = await self._dmn.evaluate(SUFFICIENCY_DMN_KEY, entrada)
-            row = first_row(rows, SUFFICIENCY_DMN_KEY, entrada)
-        except (DmnEvaluationError, DmnNoResultError) as exc:
-            return {
-                "coleta_veredito": None,
-                "next_kind": "escalate",
-                "escalation_motivo": "falha_tecnica",
-                "escalation_severidade": _severidade_de_intensidade(update.get("intensidade")),
-                "error": dmn_unavailable_error(SUFFICIENCY_DMN_KEY, exc),
-            }
-        bruto = row.get("veredito")
-        veredito = str((bruto.get("value") if isinstance(bruto, dict) else bruto) or "")
-        logger.info(
-            "helena_triagem_v2_suficiencia",
-            veredito=veredito,
-            rodadas=rodadas,
-            ref=f"{SUFFICIENCY_DMN_KEY}#{version.id}",
-            node="classify",
-        )
-        if veredito == COLETA_VEREDITO_SUFICIENTE or (
-            veredito == "PERGUNTAR_CARACTERIZACAO" and caracterizado
-        ):
-            return {"completa": True, "pergunta": None, "rodadas": rodadas}
-        if veredito in COLETA_VEREDITOS_PERGUNTA:
-            return {"completa": False, "pergunta": veredito, "rodadas": rodadas}
-        logger.warning(
-            "helena_coleta_veredito_desconhecido", classification="fora_do_vocabulario", node="classify"
-        )
-        return {
-            "coleta_veredito": None,
-            "next_kind": "escalate",
-            "escalation_motivo": "falha_tecnica",
-            "escalation_severidade": _severidade_de_intensidade(update.get("intensidade")),
-            "error": f"{SUFFICIENCY_DMN_KEY}: veredito fora do vocabulario",
-        }
+    _ficha_v2 = _sintoma._ficha_v2
 
     # -- HELENA V4 (DL-0115, `MAEZO_HELENA_V4`) --------------------------------------------------------
     #
@@ -6718,277 +6207,25 @@ class HelenaGraph:
                 return decidido
         return self._v4_seguimento(state, update, pend, texto)
 
-    @staticmethod
-    def _v4_pede_pessoa(state: Mapping[str, Any], texto: str) -> bool:
-        """A mensagem pede uma pessoa (ou ameaca ANS/Procon, ou e' cobranca)? Entao a v4 NAO responde: o
-        gatilho de sempre (pedido de pessoa, RN 623/2024 art. 9, III; ANS/Procon; Lucas) decide."""
-        return bool(
-            state.get("pedido_humano_lexico") is True
-            or _pedido_explicito_de_pessoa(texto)
-            or _pedido_explicito_com_verbo(texto)
-            or _ameaca_regulatoria(texto)
-            or _pergunta_de_cobranca(texto)
-        )
+    _v4_pede_pessoa = staticmethod(_sintoma._v4_pede_pessoa)
 
-    def _v4_pede_pessoa_no_alerta(self, state: Mapping[str, Any], pend: Pendente, texto: str) -> bool:
-        """A pessoa pediu EXPLICITAMENTE uma pessoa quando a v4 esperava a resposta de alerta, e a mensagem em
-        si nao traz queixa, emergencia, cobranca nem recusa? So' entao a v4 abre o caso sem rodar a tabela."""
-        if not self._v4 or pend.etapa != ETAPA_ALERTA:
-            return False
-        plano = _plano(texto)
-        return bool(
-            _pedido_explicito_de_pessoa(texto)
-            and not _RECUSA_DE_PESSOA.search(plano)
-            and not _conteudo_clinico(texto)
-            and state.get("sinal_saude_lexico") is not True
-            and not _sinal_forte_de_emergencia(texto)
-            and not _sinal_fraco_de_emergencia(texto)
-            and not _pergunta_de_cobranca(texto)
-            and not _ameaca_regulatoria(texto)
-        )
+    _v4_pede_pessoa_no_alerta = _sintoma._v4_pede_pessoa_no_alerta
 
-    def _v4_escolha_pura(self, state: Mapping[str, Any], pend: Pendente, texto: str) -> bool:
-        """A mensagem e' SO' a escolha de uma opcao da oferta da v4 ("2", "opcao 2", "falar com a equipe") e
-        nao traz queixa, emergencia nem sinal de saude? Entao a escolha vale sem passar pela tabela."""
-        if not self._v4 or pend.etapa != ETAPA_ESCOLHA:
-            return False
-        plano = _plano(texto)
-        return bool(
-            escolha_da_resposta(plano) is not None
-            and not _conteudo_clinico(texto)
-            and state.get("sinal_saude_lexico") is not True
-            and not _sinal_forte_de_emergencia(texto)
-            and not _sinal_fraco_de_emergencia(texto)
-        )
+    _v4_escolha_pura = _sintoma._v4_escolha_pura
 
-    @staticmethod
-    def _v4_eco(relato: str) -> str:
-        """O eco do que a pessoa disse ("dor nas costas desde ontem"), passado pelas cercas de saida: se uma
-        delas barrar o trecho, volta o generico."""
-        eco = eco_do_relato(relato)
-        if eco != ECO_GENERICO and (motivo_de_canal_nao_confirmado(eco) or motivo_de_recusa(eco, "inform")):
-            logger.info("helena_v4_eco_barrado", node="classify")
-            return ECO_GENERICO
-        return eco
+    _v4_eco = staticmethod(_sintoma._v4_eco)
 
-    async def _v4_antes_dos_gatilhos(
-        self,
-        state: HelenaState,
-        update: dict[str, Any],
-        extraction: dict[str, Any],
-        pend: Pendente | None,
-    ) -> dict[str, Any] | None:
-        """O que a v4 decide ANTES dos gatilhos de intencao: a resposta da pessoa ao que a v4 perguntou/
-        ofereceu no turno anterior, e o pedido de especialista. `None` = o turno segue o caminho de sempre."""
-        texto = str(state.get("message_body") or "")
-        if pend is not None and pend.etapa == ETAPA_ALERTA and self._gerativa_para(state):
-            # SAUDE GERATIVA (ADR-0065), so' na allowlist: o "nao" e o CONTEXTO sem alarme recebem a
-            # orientacao
-            # redigida; o resto ("sim", duvida, alarme, pedido de pessoa) segue a v4 de sempre, logo abaixo.
-            decidido_g = await self._gerativa_no_alerta(state, update, pend, texto)
-            if decidido_g is not None:
-                return decidido_g
-        if pend is not None:
-            decidido = self._v4_seguimento(state, update, pend, texto)
-            if decidido is not None:
-                return decidido
-        return await self._v4_especialista(state, update, extraction, texto)
+    _v4_antes_dos_gatilhos = _sintoma._v4_antes_dos_gatilhos
 
-    def _v4_abrir_caso(
-        self,
-        update: dict[str, Any],
-        pend: Pendente,
-        relato: str,
-        etapa: str,
-        *,
-        motivo: str,
-        severidade: str,
-    ) -> dict[str, Any]:
-        """Abre o caso pelo no' `escalate` de sempre. O codigo da etapa fica em `coleta_pendente` e o
-        relato em `coleta_contexto` SO' neste turno: `_resumo_contexto` os le' para o resumo do atendente."""
-        update["intent"] = "symptom" if etapa == ETAPA_CASO_SIM else "human_request"
-        update["next_kind"] = "escalate"
-        update["escalation_motivo"] = motivo
-        update["escalation_severidade"] = severidade
-        update["coleta_pendente"] = codigo_pendente(etapa, pend.grupo, pend.populacao)
-        update["coleta_contexto"] = relato
-        logger.info("helena_v4_caso", node="classify", etapa=etapa, motivo=motivo)
-        return update
+    _v4_abrir_caso = _sintoma._v4_abrir_caso
 
-    def _v4_seguimento(
-        self, state: HelenaState, update: dict[str, Any], pend: Pendente, texto: str
-    ) -> dict[str, Any] | None:
-        """A resposta da pessoa ao que a v4 perguntou (ALERTA) ou ofereceu (ESCOLHA) no turno anterior.
+    _v4_seguimento = _sintoma._v4_seguimento
 
-        ESCOLHA: "1" -> como marcar pelo plano, sem diagnostico; "2" -> abre o caso com o resumo pronto.
-        ALERTA: "nao" -> a resposta final do dono; "sim" (ou duvida) -> alerta clinico, P1; nao deu para
-        entender -> pergunta UMA vez de novo e, se continuar sem resposta, abre o caso por precaucao.
-        Pedido de pessoa, outro assunto e tudo o que nao e' resposta -> `None` (o caminho de sempre)."""
-        plano = _plano(texto)
-        relato = str(state.get("coleta_contexto") or "")
-        if pend.etapa == ETAPA_ESCOLHA:
-            escolha = escolha_da_resposta(plano)
-            if escolha == "1":
-                logger.info("helena_v4_escolha", node="classify", opcao="1")
-                update["intent"] = "information"
-                update["sintoma_codigo"] = None
-                update["response_text"] = texto_da_opcao_1(pend.populacao)
-                return _rota_informativa(update)
-            if escolha == "2":
-                logger.info("helena_v4_escolha", node="classify", opcao="2")
-                return self._v4_abrir_caso(
-                    update, pend, relato, ETAPA_CASO_EQUIPE, motivo="intencao_clinica", severidade="moderada"
-                )
-            return None
-        if pend.etapa != ETAPA_ALERTA or self._v4_pede_pessoa(state, texto):
-            return None
-        resposta = resposta_ao_alerta(plano)
-        if resposta == LEITURA_NAO:
-            logger.info("helena_v4_alerta", node="classify", resposta="nao")
-            update["intent"] = "information"
-            update["sintoma_codigo"] = None
-            assunto_sin = self._base_assunto_do_grupo(pend.grupo)
-            update["response_text"] = (
-                _bs.texto_final_do_sintoma_com_orientacao(self._v4_eco(relato), assunto_sin)
-                if assunto_sin is not None
-                else texto_final_do_sintoma(self._v4_eco(relato))
-            )
-            update["coleta_pendente"] = codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao)
-            update["coleta_contexto"] = relato
-            return _rota_informativa(update)
-        if resposta == LEITURA_SIM:
-            logger.warning("helena_v4_alerta", node="classify", resposta="sim")
-            return self._v4_abrir_caso(
-                update, pend, relato, ETAPA_CASO_SIM, motivo="red_flag_clinico", severidade="grave"
-            )
-        # Nao deu para entender. So' insiste se a mensagem parece uma resposta (curta ou ainda falando do
-        # sintoma); outro assunto segue o caminho de sempre.
-        parece_resposta = relata_sintoma(plano) or len(plano.split()) <= 4
-        if not parece_resposta:
-            return None
-        if pend.repetida:
-            return self._v4_abrir_caso(
-                update,
-                pend,
-                relato,
-                ETAPA_CASO_SEM_RESPOSTA,
-                motivo="intencao_clinica",
-                severidade="moderada",
-            )
-        codigo = codigo_pendente(ETAPA_ALERTA, pend.grupo, pend.populacao, repetida=True)
-        logger.info("helena_v4_alerta", node="classify", resposta="repete")
-        update.update(
-            {
-                "coleta_veredito": COLETA_VEREDITO_PERGUNTAR_MAIS,
-                "coleta_pergunta": codigo,
-                "coleta_pendente": codigo,
-                "coleta_contexto": relato,
-                "coleta_rodadas": 2,
-                "next_kind": "collect",
-            }
-        )
-        return update
+    _v4_sintoma_leve = _sintoma._v4_sintoma_leve
 
-    def _v4_sintoma_leve(self, state: HelenaState, update: dict[str, Any]) -> dict[str, Any] | None:
-        """O sintoma que passou pela tabela de alarme sem bandeira: UMA mensagem com 1 ou 2 perguntas de
-        ALERTA do tipo de queixa (`helena_v4.ALERTAS`). `None` quando a v4 nao trata (gestante, saude
-        mental, recem-nascido ou bebe com menos de 3 meses): o caminho de hoje."""
-        texto = str(state.get("message_body") or "")
-        plano = _plano(texto)
-        populacao = populacao_da_v4(update.get("population"), plano)
-        if populacao is None or _contexto_de_recem_nascido(state):
-            return None
-        if bebe_pequeno(plano, update.get("idade_meses")):
-            return None
-        grupo = grupo_do_sintoma(populacao, plano)
-        if self._base_saude:
-            # BASE DE SAUDE (ADR-0064): um arquivo `sin-*` da base para ESTA queixa (e esta populacao) traz as
-            # perguntas de alerta proprias; sem arquivo, as genericas do grupo (v4).
-            assunto_sin = self._base_sintoma_do_texto(texto, populacao)
-            if assunto_sin is not None:
-                grupo = assunto_sin.id
-            else:
-                # Avaliacao de 21/10/2026: o CONTEXTO do sintoma persiste ate' ser resolvido — sem citar outro
-                # assunto, o turno seguinte continua no assunto em curso (nunca as genericas da populacao).
-                anterior = ler_pendente(state.get("coleta_pendente"))
-                if anterior is not None and anterior.grupo.startswith("sin-"):
-                    grupo = anterior.grupo
-        codigo = codigo_pendente(ETAPA_ALERTA, grupo, populacao)
-        logger.info("helena_v4_sintoma_leve", node="classify", grupo=grupo, populacao=populacao)
-        update.update(
-            {
-                "coleta_veredito": COLETA_VEREDITO_PERGUNTAR_MAIS,
-                "coleta_pergunta": codigo,
-                "coleta_pendente": codigo,
-                # So' o relato DESTA queixa: o que a pessoa falou antes, de outro assunto, nao entra.
-                "coleta_contexto": relato_cru(texto),
-                "coleta_rodadas": 1,
-                "next_kind": "collect",
-            }
-        )
-        return update
+    _v4_especialista = _sintoma._v4_especialista
 
-    async def _v4_especialista(
-        self,
-        state: HelenaState,
-        update: dict[str, Any],
-        extraction: dict[str, Any],
-        texto: str,
-    ) -> dict[str, Any] | None:
-        """Pedido de especialista ("Preciso consultar com um cardiologista", "Onde tem dermatologista pelo
-        plano?"): o texto fixo do catalogo v4. NAO pesquisa especialidade nem agenda; NAO e' sintoma, pedido
-        de pessoa nem pergunta de cobertura de procedimento ("cobre ressonancia?" segue o caminho de hoje).
-
-        A INTENCAO do modelo nao decide: "preciso de um cardiologista" pode sair `symptom`, `scheduling` ou
-        `clinical_question`. Decide o TEXTO — sem codigo de sintoma e sem palavra de sintoma, e' consulta."""
-        plano = _plano(texto)
-        achado = especialidade_pedida(plano)
-        if achado is None:
-            return None
-        if (
-            extraction.get("sintoma_codigo")
-            or relata_sintoma(plano, extraction.get("intensidade"))
-            or self._v4_pede_pessoa(state, texto)
-        ):
-            return None
-        nome, basica = achado
-        segmentacao, literais = await self._v4_segmentacao(state)
-        logger.info(
-            "helena_v4_especialista", node="classify", basica=basica, com_segmentacao=literais is not None
-        )
-        update["intent"] = "information"
-        update["sintoma_codigo"] = None
-        update.pop("consulta_subtipo", None)
-        update["response_text"] = texto_do_especialista(
-            nome,
-            basica=basica,
-            segmentacao=segmentacao,
-            frase_cobertura=(
-                self._textos[CHAVE_TEXTO_COBERTURA_FORA] if _pergunta_de_cobertura_ampla(texto) else None
-            ),
-        )
-        if literais is not None:
-            update["consulta_literais"] = literais
-            update["resposta_com_dados_do_plano"] = True
-        return _rota_informativa(update)
-
-    async def _v4_segmentacao(self, state: HelenaState) -> tuple[str | None, tuple[str, ...] | None]:
-        """A segmentacao REGISTRADA no cadastro (e os literais do cadastro, para as cercas) quando a fonte do
-        plano esta' ligada, a pessoa e' a verificada e o cadastro a traz; senao `(None, None)` e o texto sai
-        sem ela."""
-        ref = self._ref_verificada(state)
-        if ref is None:
-            return None, None
-        fatos = fatos_da_consulta(
-            "elegibilidade",
-            await self._ler_consulta(ref, "elegibilidade"),
-            so_ativos=self._carteirinha_completa,
-            hoje=self._hoje_dos_vinculos(),
-        )
-        segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
-        if fatos is None or segmentacao is None:
-            return None, None
-        return segmentacao, literais_dos_fatos(fatos)
+    _v4_segmentacao = _sintoma._v4_segmentacao
 
     # -- BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, `MAEZO_HELENA_BASE_SAUDE`) ---------------------
     #
@@ -6999,296 +6236,21 @@ class HelenaGraph:
     # pergunta informativa/resultado pessoal -> resposta da base, SEM caso. Pedido de pessoa, ANS/Procon,
     # cobranca e consulta do plano nunca sao respondidos pela base.
 
-    def _base_hoje(self) -> _bs.BaseSaude:
-        """A base APLICAVEL hoje (sem os assuntos com `revisar_ate` vencido ou outro problema de politica),
-        recalculada uma vez por dia (o relogio e' o injetavel do grafo)."""
-        hoje = self._relogio().date()
-        chave = hoje.isoformat()
-        if self._base_do_dia is None or self._base_do_dia[0] != chave:
-            self._base_do_dia = (chave, _bs.base_aplicavel(self._base, hoje=hoje))
-        return self._base_do_dia[1]
+    _base_hoje = _saude._base_hoje
 
-    def _base_assunto_do_grupo(self, grupo: str) -> _bs.Assunto | None:
-        """O arquivo `sin-*` de um grupo que e' id da base (`None` para os grupos da v4 ou id ausente)."""
-        if not self._base_saude or not grupo.startswith("sin-"):
-            return None
-        assunto = self._base_hoje().get(grupo)
-        return assunto if assunto is not None and assunto.categoria == _bs.CATEGORIA_SINTOMA else None
+    _base_assunto_do_grupo = _sintoma._base_assunto_do_grupo
 
-    def _base_alerta_do_grupo(self, grupo: str) -> AlertaDoGrupo | None:
-        """As perguntas de alerta do arquivo `sin-*` (ou, se o id sumiu da base, as GERAIS da v4); `None`
-        para os grupos da propria v4 (o texto de sempre)."""
-        if not grupo.startswith("sin-"):
-            return None
-        assunto = self._base_assunto_do_grupo(grupo)
-        if assunto is None:
-            return ALERTAS[GRUPO_GERAL]
-        return AlertaDoGrupo(tuple(assunto.perguntas_alerta or ()), ", ".join(assunto.sinais_alarme or ()))
+    _base_alerta_do_grupo = _sintoma._base_alerta_do_grupo
 
-    def _base_sintoma_do_texto(self, texto: str, populacao: str) -> _bs.Assunto | None:
-        """O arquivo `sin-*` da queixa, so' quando a busca e' DETERMINISTICA (sem modelo) e a populacao do
-        arquivo cobre a da conversa."""
-        busca = _bs.buscar(self._base_hoje(), texto, categorias=(_bs.CATEGORIA_SINTOMA,))
-        if busca.achado is None:
-            return None
-        assunto = self._base_hoje().get(busca.achado)
-        if assunto is None:
-            return None
-        compativel = {POPULACAO_ADULTO: ("adulto", "todos"), POPULACAO_CRIANCA: ("crianca", "todos")}
-        return assunto if assunto.populacao in compativel.get(populacao, ()) else None
+    _base_sintoma_do_texto = _sintoma._base_sintoma_do_texto
 
-    def _base_dor_sem_alarme(
-        self, state: Mapping[str, Any], update: Mapping[str, Any], pend: Pendente | None
-    ) -> bool:
-        """A tabela escalou SO' pelo fail-safe de intensidade (r10 da tabela de ADULTO) uma DOR sem sinal de
-        alarme? So' entao (chaves da base e da v4 ligadas) o turno segue para as perguntas de alerta.
+    _base_dor_sem_alarme = _sintoma._base_dor_sem_alarme
 
-        Conferido, TUDO: a tabela e' a de adulto; a saida e' EXATAMENTE a da r10 (`MOTIVO_FAILSAFE_ADULTO`,
-        P2, ESCALATE_NURSE — o teste amarra o literal ao arquivo da DMN); a populacao e' adulto (nao gestante,
-        nao saude mental, nao crianca); o relato (esta mensagem, ou a queixa que esta' sendo perguntada) fala
-        de DOR; e nao ha' sinal de emergencia do lexico nem termo de alarme dos arquivos `sin-*`."""
-        if not (self._base_saude and self._v4):
-            return False
-        if update.get("dmn_table") != _DMN_BY_POPULATION["adult"]:
-            return False
-        decisao = update.get("dmn_decision") or {}
-        if not (
-            str(decisao.get("motivo", "")) == MOTIVO_FAILSAFE_ADULTO
-            and str(decisao.get("prioridade", "")) == "P2"
-            and str(decisao.get("conduta", "")) == "ESCALATE_NURSE"
-        ):
-            return False
-        texto = str(state.get("message_body") or "")
-        relato = texto
-        if pend is not None and pend.etapa == ETAPA_ALERTA:
-            relato = f"{state.get('coleta_contexto') or ''} {texto}"
-        plano = _plano(relato)
-        if populacao_da_v4(update.get("population"), plano) != POPULACAO_ADULTO:
-            return False
-        if not _DOR_NO_RELATO.search(plano):
-            return False
-        if (
-            _sinal_forte_de_emergencia(relato)
-            or _sinal_fraco_de_emergencia(relato)
-            or _bs.alarme_no_texto(self._base_hoje(), relato)
-        ):
-            return False
-        logger.warning("helena_base_saude_failsafe_de_dor_sem_alarme", node="classify")
-        return True
+    _base_antes_dos_gatilhos = _saude._base_antes_dos_gatilhos
 
-    async def _base_antes_dos_gatilhos(
-        self,
-        state: HelenaState,
-        update: dict[str, Any],
-        extraction: dict[str, Any],
-        pend_v4: Pendente | None,
-        conversa: str | None,
-    ) -> dict[str, Any] | None:
-        """O que a base decide depois dos portoes de seguranca e antes dos gatilhos de intencao/pessoa.
-        `None` = o turno segue o caminho de sempre (inclusive a v4)."""
-        texto = str(state.get("message_body") or "")
-        plano = _plano(texto)
-        base = self._base_hoje()
-        informativa = _bs.pergunta_informativa(plano)
-        gerativa = self._gerativa_para(state)
-        # RODADA DO DONO (18/10/2026), so' na allowlist: DUVIDA EDUCATIVA com palavras de sintoma ("alteracoes
-        # no
-        # fluxo, colicas intensas... sao normais ou podem indicar endometriose?") nao e' queixa atual: vai a
-        # redacao, sem perguntas de alerta, sem caso.
-        duvida = gerativa and _sg.e_duvida_educativa(plano)
-        if duvida:
-            informativa = True
-        # Seguranca (r4 de 22/10/2026): um SINTOMA da base citado em primeira pessoa ou de um familiar ("minha
-        # filha bateu a cabeca na quina da mesa") e' queixa, mesmo sem o verbo de sintoma: recebe as perguntas
-        # de alerta do arquivo, nunca a informacao geral.
-        queixa = (
-            (relata_sintoma(plano, None) or bool(_bs.sintomas_citados(base, texto)))
-            and _bs.primeira_pessoa(plano)
-            and not duvida
-        )
-        # (1) ALARME de um arquivo `sin-*` numa QUEIXA: escala na hora, como a tabela (192 no texto).
-        # Avaliacao de 21/10/2026 (seguranca): com um assunto de sintoma EM CURSO (pergunta de alerta ou
-        # opcoes
-        # pendentes), a resposta e o que vier no turno seguinte sao avaliados contra os sinais DAQUELE assunto
-        # ("vomitou duas vezes" depois da batida na cabeca), sem precisar citar o sintoma de novo.
-        em_curso = pend_v4.grupo if pend_v4 is not None and pend_v4.grupo.startswith("sin-") else None
-        alarme_em_curso = (
-            em_curso is not None and _bs.alarme_do_assunto(base, em_curso, texto)
-        ) or _bs.alarme_dos_citados_antes(base, self._falas_da_pessoa(state), texto)
-        if alarme_em_curso or (
-            not duvida and (queixa or extraction.get("sintoma_codigo")) and _bs.alarme_no_texto(base, texto)
-        ):
-            logger.warning("helena_base_saude_alarme_do_sintoma", node="classify")
-            update["intent"] = "symptom"
-            update["next_kind"] = "escalate"
-            update["escalation_motivo"] = "red_flag_clinico"
-            update["escalation_severidade"] = "grave"
-            return update
-        # (2) RECUSA explicita / pedido de encerrar com caso aberto. Avaliacao r4 de 22/10/2026 (regra do
-        # dono): a recusa depois da oferta/abertura do caso ("nao quero falar com ninguem", "nao, deixa,
-        # desisto") ENCERRA o caso P2/P3 — inclusive logo depois do caso aberto pela v4 (antes a pendencia
-        # da v4 levava a recusa para a v4, que a lia como sintoma novo). A recusa e' a do leitor de
-        # encerrar que ja' existe (`pede_para_encerrar_o_atendimento`) ou a resposta curta de recusa
-        # (`cobertura_assistida.ler_resposta` = encerrar).
-        pede_encerrar = pede_para_encerrar_o_atendimento(texto)
-        desiste = _lc.ler_resposta(texto) == "encerrar"
-        if (pede_encerrar or desiste) and not _pedido_explicito_com_verbo(
-            _PEDIDO_DE_ENCERRAR_O_ATENDIMENTO.sub(" ", _RECUSA_DE_EQUIPE.sub(" ", plano))
-        ):
-            if await self._casos_abertos_da_conversa(state):
-                if gerativa:
-                    # DL-0131 / avaliacao de 21/10/2026: na allowlist a recusa ENCERRA direto os casos P2/P3.
-                    return await self._base_confirmacao_de_encerramento(state, update, "sim")
-                logger.info("helena_base_saude_confirma_encerramento", node="classify")
-                return self._base_texto_fixo(
-                    update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO
-                )
-            if pede_encerrar:
-                return None
-        pergunta_nova = (
-            # RODADA DO DONO (18/10/2026): com as perguntas de ALERTA pendentes, uma PERGUNTA NOVA (nao
-            # sim/nao,
-            # sem quadro atual) sai do alerta e e' tratada como nova — nunca vira caso.
-            pend_v4 is not None
-            and pend_v4.etapa == ETAPA_ALERTA
-            and resposta_ao_alerta(plano) is None
-            and (duvida or ("?" in texto and not _sg.queixa_atual(plano)))
-        )
-        if pend_v4 is not None and not (
-            # FASE 2 (18/10/2026), so' na allowlist: depois das OPCOES 1/2, uma mensagem que NAO e' a escolha
-            # ("tenho SOP, e' a mesma coisa que cisto?") e' uma pergunta nova, nao resposta a v4. Antes ela
-            # caia no gatilho 2 (`intencao_clinica`, caso P2 na enfermagem — teste do dono de 17/10, 22:28).
-            gerativa
-            and ((pend_v4.etapa == ETAPA_ESCOLHA and escolha_da_resposta(plano) is None) or pergunta_nova)
-        ):
-            # A pessoa esta' respondendo a v4 (alerta/opcao): quem decide e' a v4.
-            return None
-        # (3) PERGUNTA INFORMATIVA / RESULTADO PESSOAL. Nunca por cima de pedido de pessoa, ANS/Procon,
-        # cobranca, consulta/cobertura do plano ou pedido de especialista (a v4 responde onde marcar).
-        if self._v4_pede_pessoa(state, texto) or conversa is not None:
-            return None
-        if update.get("intent") in (INTENT_COBRANCA, INTENT_CONSULTA_PLANO, "human_request"):
-            return None
-        if _pergunta_do_plano(texto) or _pergunta_de_cobertura(texto):
-            return None
-        pessoal = _bs.resultado_pessoal(plano)
-        if queixa:
-            # QUEIXA ATUAL (sintoma dito em primeira pessoa ou de um familiar: "estou com", "meu filho esta'
-            # com dor"): nunca e' "duvida geral" nem "resultado pessoal" — segue a tabela/v4 (alerta).
-            if gerativa and update.get("intent") == "clinical_question" and _sg.queixa_atual(plano):
-                # ROTEIRO helena_fases_18_10 (18/10/2026), so' na allowlist: "estou com dor nas costas, e'
-                # grave?" e' QUEIXA com uma pergunta junto — vai a tabela e as perguntas de alerta como
-                # sintoma,
-                # nunca ao gatilho 2 (`intencao_clinica`, o transbordo falso que o dono quer eliminar).
-                logger.info("helena_queixa_com_pergunta_vira_sintoma", node="classify")
-                update["intent"] = "symptom"
-            return None
-        # SAUDE GERATIVA (ADR-0065), so' na allowlist: mais formas de pergunta de saude ("como tratar?",
-        # "quais
-        # os sintomas?") e o SEGUIMENTO curto de uma pergunta de saude anterior ("E osteoporose?").
-        seguimento = False
-        clinica = update.get("intent") == "clinical_question"
-        pessoal_saude = False
-        if gerativa:
-            informativa = informativa or _sg.pergunta_de_saude(plano)
-            seguimento = _sg.e_seguimento(plano, self._falas_da_pessoa(state))
-            if not (informativa or pessoal or seguimento) and not (
-                _sinal_forte_de_emergencia(texto) or _sinal_fraco_de_emergencia(texto)
-            ):
-                # FASE 2 (18/10/2026): DUVIDA sobre um diagnostico/condicao DA PESSOA, sem queixa atual
-                # ("tenho SOP, e' a mesma coisa que cisto?", "fui diagnosticada com mioma, e' perigoso?"). A
-                # tabela de
-                # alarme ja' rodou acima (gatilho 1, com codigo de sintoma) e a queixa atual ja' saiu
-                # (`queixa`): vai a redacao, nunca ao gatilho 2.
-                assunto_de_saude = (
-                    clinica
-                    or update.get("intent") == "symptom"
-                    or bool(extraction.get("sintoma_codigo"))
-                    or _bs.buscar(base, texto).achado is not None
-                    or await self._busca_semantica(state, base, texto) is not None
-                )
-                pessoal_saude = _sg.pergunta_pessoal_de_saude(plano, texto, assunto_de_saude=assunto_de_saude)
-                informativa = pessoal_saude
-        if extraction.get("sintoma_codigo") and not (informativa or pessoal or seguimento):
-            return None
-        if not (informativa or pessoal or clinica or seguimento):
-            return None
-        if pergunta_nova and not (informativa or pessoal or clinica or seguimento):
-            informativa = True
-        if not informativa and especialidade_pedida(plano) is not None:
-            return None  # "preciso de um cardiologista": o texto de onde marcar (v4), nao "o que e'"
-        if gerativa:
-            if pessoal_saude:
-                logger.info("helena_saude_gerativa_pergunta_pessoal", node="classify")
-            decidido_g = await self._gerativa_informar(
-                state,
-                update,
-                base,
-                modo=_sg.MODO_RESULTADO if pessoal else _sg.MODO_INFORMAR,
-                pessoal=pessoal_saude,
-            )
-            if decidido_g is not None:
-                return decidido_g
-        assunto = await self._base_achar_assunto(state, base)
-        if assunto is None:
-            if not (informativa or clinica):
-                return None  # "minha ... esta ..." sem assunto da base e sem pergunta de saude: o de sempre
-            logger.info("helena_base_saude_nao_encontrado", node="classify", pessoal=pessoal)
-            return self._base_texto_fixo(
-                update, _bs.RESPOSTA_RESULTADO_NAO_ENCONTRADO if pessoal else _bs.RESPOSTA_NAO_ENCONTRADO
-            )
-        logger.info("helena_base_saude_responde", node="classify", assunto=assunto.id, pessoal=pessoal)
-        return self._base_texto_fixo(
-            update,
-            _bs.resposta_de_resultado_pessoal(assunto) if pessoal else _bs.resposta_informativa(assunto),
-        )
+    _base_achar_assunto = _saude._base_achar_assunto
 
-    async def _base_achar_assunto(self, state: HelenaState, base: _bs.BaseSaude) -> _bs.Assunto | None:
-        """Busca DETERMINISTICA primeiro; so' quando ela fica ambigua o modelo escolhe UM id da lista fechada
-        de candidatos (ou "nenhum"). Falha do modelo = nenhum (o texto de 'nao tenho informacao aprovada').
-        A mensagem vai ao prompt DEMARCADA (`render_untrusted_block`, HEL-06)."""
-        texto = str(state.get("message_body") or "")
-        busca = _bs.buscar(base, texto)
-        if busca.achado is not None:
-            return base.get(busca.achado)
-        if not busca.candidatos:
-            return None
-        prompt = _bs.prompt_de_classificacao(
-            base, busca.candidatos, render_untrusted_block("message_body", texto)
-        )
-        try:
-            bruto = await self._llm.generate(
-                prompt,
-                phi=True,
-                agent_id="helena",
-                tenant_id=state.get("tenant_id", ""),
-                task_kind="task_default",
-            )
-        except PROGRAMMING_ERRORS:
-            raise
-        except EXTERNAL_DEPENDENCY_FAILURES:
-            logger.warning("helena_base_saude_classificacao_falhou", node="classify")
-            return None
-        escolhido = _bs.ler_classificacao(str(bruto), busca.candidatos)
-        logger.info(
-            "helena_base_saude_classificacao",
-            node="classify",
-            candidatos=len(busca.candidatos),
-            escolhido=escolhido or _bs.NENHUM,
-        )
-        return base.get(escolhido) if escolhido else None
-
-    @staticmethod
-    def _base_texto_fixo(
-        update: dict[str, Any], texto: str, *, pendente: str | None = None
-    ) -> dict[str, Any]:
-        update["intent"] = "information"
-        update["sintoma_codigo"] = None
-        update.pop("consulta_subtipo", None)
-        update["response_text"] = texto
-        if pendente is not None:
-            update["coleta_pendente"] = pendente
-        return _rota_informativa(update)
+    _base_texto_fixo = staticmethod(_saude._base_texto_fixo)
 
     # -- SAUDE GERATIVA (ADR-0065, DL-0119, `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist) ----------------------
     #
@@ -7299,280 +6261,29 @@ class HelenaGraph:
     # da orientacao de uma queixa sem alarme — o modelo (rota global autorizada pelo DPO) redige, a checagem
     # confere, e o que reprova vira a resposta segura padrao.
 
-    def _gerativa_para(self, state: Mapping[str, Any]) -> bool:
-        return self._gerativa is not None and self._gerativa.autorizada(state.get("conversation_id"))
+    _gerativa_para = _saude._gerativa_para
 
-    @staticmethod
-    def _falas_da_pessoa(state: Mapping[str, Any]) -> list[str]:
-        """As mensagens ANTERIORES da pessoa no historico curto (DL-0080), da mais antiga para a mais recente.
-        As falas da Helena NUNCA entram (podem ter dado do plano/carteirinha)."""
-        historico = state.get("historico_conversa")
-        if not isinstance(historico, list):
-            return []
-        return [
-            str(e.get("texto") or "")
-            for e in historico
-            if isinstance(e, Mapping) and e.get("papel") == "beneficiario" and e.get("texto")
-        ]
+    _falas_da_pessoa = staticmethod(_saude._falas_da_pessoa)
 
-    @staticmethod
-    def _cercas_da_helena(texto: str) -> list[str]:
-        """As cercas de saida da Helena sobre um texto redigido (rotulos, nunca o texto): canal nao
-        confirmado, recusa de saida (promessa, negativa clinica...), conduta clinica, negativa de acesso e
-        promessa de repasse."""
-        rotulos: list[str] = []
-        canal = motivo_de_canal_nao_confirmado(texto)
-        if canal is not None:
-            rotulos.append(str(canal[0]))
-        # ROTEIRO 19/10/2026 (PSA): a redacao de saude nunca abre caso, entao a cerca e' a do ENVIO
-        # (`start_aconteceu=False`): "o medico vai avaliar" reprova AQUI (e vai para a reescrita), em vez de
-        # passar e cair no texto generico de `respond` (`promessa_sem_start`).
-        recusa = motivo_de_recusa(texto, "inform", start_aconteceu=False)
-        if recusa is not None:
-            rotulos.append(str(recusa[0]))
-        if _conduta_clinica(texto):
-            rotulos.append("conduta_clinica")
-        if _nega_acesso(texto):
-            rotulos.append("nega_acesso")
-        if _PROMESSA_DE_REPASSE.search(_plano(texto)):
-            rotulos.append("promessa_de_repasse")
-        return rotulos
+    _cercas_da_helena = staticmethod(_saude._cercas_da_helena)
 
-    def _guardar_gerativa(self, state: Mapping[str, Any], texto: str) -> None:
-        chave = self._chave_do_turno(state)
-        while len(self._gerativas_do_turno) >= 16:
-            self._gerativas_do_turno.pop(next(iter(self._gerativas_do_turno)))
-        self._gerativas_do_turno[chave] = texto
+    _guardar_gerativa = _saude._guardar_gerativa
 
-    def _e_gerativa_do_turno(self, state: Mapping[str, Any]) -> bool:
-        texto = state.get("response_text")
-        return (
-            self._gerativa is not None
-            and isinstance(texto, str)
-            and bool(texto)
-            and self._gerativas_do_turno.get(self._chave_do_turno(state)) == texto
-        )
+    _e_gerativa_do_turno = _saude._e_gerativa_do_turno
 
-    @staticmethod
-    def _gerativa_e_crianca(update: Mapping[str, Any], plano: str) -> bool:
-        # RODADA DO DONO (18/10/2026): a populacao vale SO' para a pergunta atual (ou quando a pessoa a cita)
-        # —
-        # "existe alguma pilula que eu possa substituir..." herdou "crianca" do assunto anterior (o bebe).
-        return populacao_da_v4("none", plano) == POPULACAO_CRIANCA
+    _gerativa_e_crianca = staticmethod(_saude._gerativa_e_crianca)
 
-    async def _busca_semantica(
-        self, state: Mapping[str, Any], base: _bs.BaseSaude, texto: str, *, crianca: bool | None = None
-    ) -> _bs.Assunto | None:
-        """FASE 3: o assunto da base pela busca por SIGNIFICADO (embeddings regionais em sa-east-1), so' com a
-        chave ligada e na allowlist; uma vez por turno (o resultado fica guardado pela chave do turno).
-        `None` =
-        abaixo do limiar, chave desligada ou falha (o lexico de antes vale)."""
-        busca = getattr(self._gerativa, "busca", None)
-        if busca is None or not self._gerativa_para(state):
-            return None
-        chave = (self._chave_do_turno(state), texto, crianca)
-        if chave in self._semantica_do_turno:
-            return self._semantica_do_turno[chave]
+    _busca_semantica = _saude._busca_semantica
 
-        def _compativel(assunto: _bs.Assunto) -> bool:
-            if crianca is None or assunto.populacao in (None, "todos"):
-                return True
-            return assunto.populacao == ("crianca" if crianca else "adulto") or (
-                not crianca and assunto.populacao == "gestante"
-            )
+    _apoio_da_pergunta = _saude._apoio_da_pergunta
 
-        achado = await busca.buscar(base, _sg.minimizar(texto), filtro=_compativel)
-        assunto = base.get(achado.assunto_id) if achado is not None else None
-        while len(self._semantica_do_turno) >= 32:
-            self._semantica_do_turno.pop(next(iter(self._semantica_do_turno)))
-        self._semantica_do_turno[chave] = assunto
-        return assunto
+    _contexto_do_mesmo_assunto = _saude._contexto_do_mesmo_assunto
 
-    async def _apoio_da_pergunta(
-        self, state: Mapping[str, Any], base: _bs.BaseSaude, texto: str, *, crianca: bool
-    ) -> _sg.Apoio | None:
-        """O APOIO da redacao: o assunto pela busca por significado (acima do limiar, com o lexico como
-        desempate)
-        e, sem ele, a busca lexica confiavel de antes. Nunca e' portao: sem apoio, a redacao segue sem
-        fonte."""
-        assunto = await self._busca_semantica(state, base, texto, crianca=crianca)
-        if assunto is not None:
-            apoio = _sg.apoio_do_assunto(assunto)
-            if apoio is not None:
-                return apoio
-        return _sg.apoio_para(base, texto)
+    _populacao_do_resumo = staticmethod(_saude._populacao_do_resumo)
 
-    def _contexto_do_mesmo_assunto(
-        self,
-        state: Mapping[str, Any],
-        base: _bs.BaseSaude,
-        anteriores: tuple[str, ...],
-        apoio: _sg.Apoio | None,
-        plano: str,
-    ) -> tuple[tuple[str, ...], str]:
-        """FASE 3: so' as mensagens anteriores da pessoa do MESMO assunto (uma anterior de outro assunto da
-        base
-        sai; seguimento curto "E osteoporose?" mantem tudo) e o TITULO do assunto anterior (resumo
-        fechado)."""
-        assunto_anterior = ""
-        mantidas: list[str] = []
-        seguimento = _sg.e_seguimento(plano, self._falas_da_pessoa(state))
-        for anterior in anteriores:
-            achado = _sg.assunto_confiavel(base, anterior)
-            if achado is not None and (apoio is None or achado.id != apoio.assunto_id):
-                assunto_anterior = achado.titulo
-                if apoio is not None and not seguimento:
-                    continue
-            mantidas.append(anterior)
-        return tuple(mantidas), assunto_anterior
+    _gerativa_informar = _saude._gerativa_informar
 
-    @staticmethod
-    def _populacao_do_resumo(
-        state: Mapping[str, Any], update: Mapping[str, Any], contexto: str, crianca: bool
-    ) -> str:
-        """FASE 3: a populacao em vocabulario fechado para o resumo da redacao."""
-        if crianca:
-            return "crianca"
-        # RODADA DO DONO (18/10/2026): so' o que a pergunta atual diz (nunca a memoria de outro assunto).
-        if re.search(r"\b(?:gravida|gestante|gravidez|gestacao)\b", _plano(contexto)):
-            return "gestante"
-        idade = update.get("idade_anos")
-        if isinstance(idade, int) and idade >= 60:
-            return "idoso"
-        return "adulto"
-
-    async def _gerativa_informar(
-        self,
-        state: HelenaState,
-        update: dict[str, Any],
-        base: _bs.BaseSaude,
-        *,
-        modo: str,
-        pessoal: bool = False,
-    ) -> dict[str, Any] | None:
-        """Pergunta informativa / resultado pessoal: o modelo redige (com o apoio da base quando o assunto
-        casa de verdade). `None` = a rota recusou a mensagem (risco): o turno segue o caminho da base."""
-        assert self._gerativa is not None
-        texto = str(state.get("message_body") or "")
-        plano = _plano(texto)
-        anteriores = _sg.contexto_da_pessoa(self._falas_da_pessoa(state))
-        contexto = " ".join((*anteriores, texto))
-        crianca = self._gerativa_e_crianca(update, plano)
-        if not crianca:
-            # As mensagens anteriores que falam de crianca nao entram numa pergunta nova de adulto.
-            anteriores = tuple(
-                a for a in anteriores if populacao_da_v4("none", _plano(a)) != POPULACAO_CRIANCA
-            )
-        apoio = await self._apoio_da_pergunta(state, base, texto, crianca=crianca)
-        anteriores, assunto_anterior = self._contexto_do_mesmo_assunto(state, base, anteriores, apoio, plano)
-        # TINA (18/10/2026): no maximo UM passo da jornada do plano (texto fixo da operadora, acrescentado no
-        # fim).
-        jornada = _jornadas.jornada_da_pergunta(plano, apoio.categoria if apoio is not None else None)
-        pedido = _sg.Pedido(
-            modo=modo,
-            mensagem=_sg.minimizar(texto),
-            anteriores=anteriores,
-            apoio=apoio,
-            crianca=crianca,
-            # FASE 3: oferta so' quando faz sentido (resultado, duvida sobre a propria condicao, tratamento).
-            oferecer=modo == _sg.MODO_RESULTADO or pessoal or _sg.pede_tratamento(plano),
-            forma_da_oferta=len(_falas_da_helena(state)),
-            populacao=self._populacao_do_resumo(state, update, contexto, crianca),
-            assunto_anterior=assunto_anterior,
-            # TINA (18/10/2026): o que a PROPRIA pessoa disse de si antes (fuma, bebe...), so' dela.
-            fatos_da_pessoa=_sg.fatos_ditos_pela_pessoa(self._falas_da_pessoa(state)),
-            com_jornada=jornada is not None,
-        )
-        redacao = await self._gerativa.redigir(pedido, cercas=self._cercas_da_helena)
-        if redacao is None:
-            return None
-        if redacao.desfecho not in ("padrao", "falha") and "Fonte:" not in redacao.texto:
-            # Regra do dono (r4, "citando a fonte", a fonte so' pelo nome): sem a linha da fonte, a
-            # redacao nao sai; o turno segue o caminho da base (texto aprovado com o credito e o aviso).
-            logger.info("helena_saude_gerativa_sem_fonte", node="classify", modo=modo)
-            return None
-        texto_final = redacao.texto
-        if (
-            redacao.desfecho not in ("padrao", "falha")
-            and "não substitui avaliação médica" not in texto_final
-        ):
-            texto_final = f"{texto_final}\n{_bs.AVISO_PADRAO}"
-        if jornada is not None and redacao.desfecho not in ("padrao", "falha"):
-            texto_final = f"{texto_final}\n{_jornadas.TEXTOS[jornada]}"
-            logger.info("helena_jornada_do_plano", node="classify", jornada=jornada)
-        self._guardar_gerativa(state, texto_final)
-        logger.info("helena_saude_gerativa_responde", node="classify", modo=modo, desfecho=redacao.desfecho)
-        return self._base_texto_fixo(update, texto_final)
-
-    async def _gerativa_no_alerta(
-        self, state: HelenaState, update: dict[str, Any], pend: Pendente, texto: str
-    ) -> dict[str, Any] | None:
-        """A resposta da pessoa as perguntas de ALERTA (so' na allowlist): "nao" -> a orientacao redigida
-        (no lugar do texto fixo com o eco truncado e o "clinico geral ou pediatra"); CONTEXTO sem sinal de
-        alarme ("comecou hoje, ja usei X e nao melhorou") -> a orientacao redigida com os sinais que pedem 192
-        (no lugar de repetir a pergunta). "Sim", duvida, agravamento, alarme, pedido de pessoa ou outro
-        assunto
-        -> `None` (a v4 de sempre decide). O fecho com as opcoes 1/2 e' FIXO e a escolha seguinte, da v4."""
-        assert self._gerativa is not None
-        if not _GERATIVA_NO_ALERTA:
-            # Avaliacao r4 de 22/10/2026: o SINTOMA relatado segue o fluxo do sintoma (pergunta de alarme e o
-            # texto fixo da v4); a redacao fica so' para a PERGUNTA informativa. A redacao no alerta citava o
-            # 192 para dor leve sem sinal de alarme (alarme falso).
-            return None
-        if self._v4_pede_pessoa(state, texto):
-            return None
-        plano = _plano(texto)
-        relato = str(state.get("coleta_contexto") or "")
-        leitura = resposta_ao_alerta(plano)
-        if leitura == LEITURA_SIM:
-            return None
-        if leitura == LEITURA_NAO:
-            modo = _sg.MODO_SINTOMA_SEM_ALARME
-        else:
-            junto = f"{relato} {texto}"
-            if (
-                _sinal_forte_de_emergencia(texto)
-                or _sinal_fraco_de_emergencia(texto)
-                or _bs.alarme_no_texto(self._base_hoje(), junto)
-                or _pergunta_do_plano(texto)
-                or _pergunta_de_cobertura(texto)
-                or not _sg.traz_contexto_da_queixa(plano)
-            ):
-                return None
-            modo = _sg.MODO_SINTOMA_CONTEXTO
-        assunto_sin = self._base_assunto_do_grupo(pend.grupo)
-        if assunto_sin is not None:
-            apoio = _sg.apoio_de_sintoma(assunto_sin)
-            sinais = ", ".join((assunto_sin.sinais_alarme or ())[:4])
-        else:
-            alerta = ALERTAS.get(pend.grupo, ALERTAS[GRUPO_GERAL])
-            apoio = _sg.apoio_de_sinais(alerta.sinais)
-            sinais = alerta.sinais
-        anteriores = _sg.contexto_da_pessoa(self._falas_da_pessoa(state) or [relato])
-        crianca = pend.populacao == POPULACAO_CRIANCA
-        pedido = _sg.Pedido(
-            modo=modo,
-            mensagem=_sg.minimizar(texto),
-            anteriores=anteriores,
-            apoio=apoio,
-            crianca=crianca,
-            sinais=sinais,
-            # FASE 3: o resumo em variaveis fechadas (populacao, alarme ja' negado).
-            populacao=self._populacao_do_resumo(state, update, f"{relato} {texto}", crianca),
-            alarme_negado=modo == _sg.MODO_SINTOMA_SEM_ALARME,
-        )
-        redacao = await self._gerativa.redigir(pedido, cercas=self._cercas_da_helena)
-        if redacao is None:
-            return None
-        final = f"{redacao.texto}\n{_sg.opcoes_do_sintoma(crianca)}"
-        self._guardar_gerativa(state, final)
-        logger.info("helena_saude_gerativa_responde", node="classify", modo=modo, desfecho=redacao.desfecho)
-        update["intent"] = "information"
-        update["sintoma_codigo"] = None
-        update["response_text"] = final
-        update["coleta_pendente"] = codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao)
-        update["coleta_contexto"] = relato
-        return _rota_informativa(update)
+    _gerativa_no_alerta = _saude._gerativa_no_alerta
 
     def _chaves_da_conversa(self, state: Mapping[str, Any]) -> tuple[str, str]:
         tenant, conversa = str(state.get("tenant_id", "")), str(state.get("conversation_id", ""))
@@ -9746,53 +8457,7 @@ class HelenaGraph:
 
     # -- DMN (ADR-0012/ADR-0028): the DMN decides red flag, never the LLM -------------------
 
-    async def _evaluate_dmn(
-        self,
-        extraction: dict[str, Any],
-        *,
-        force_population: str | None = None,
-    ) -> dict[str, Any]:
-        population = force_population or extraction.get("population") or "adult"
-        table = _DMN_BY_POPULATION.get(population, "triage_redflag_adult")
-
-        dmn_input: dict[str, Any] = {
-            "sintoma_codigo": extraction.get("sintoma_codigo"),
-            "intensidade": extraction.get("intensidade", "desconhecida"),
-        }
-        if table == "triage_redflag_adult":
-            dmn_input["idade_anos"] = extraction.get("idade_anos")
-        elif table == "triage_redflag_pediatric":
-            dmn_input["idade_meses"] = extraction.get("idade_meses")
-        elif table == "triage_redflag_gestante":
-            dmn_input["idade_gestacional_semanas"] = extraction.get("idade_gestacional_semanas")
-        elif table == "triage_redflag_mental_health":
-            risco = extraction.get("risco_imediato")
-            # Conservative posture: immediate risk UNLESS the LLM says explicitly false. This
-            # matches the DMN's fail-safe stance and the classify prompt's instruction, and fixes
-            # a wrong coercion: the prior `bool(risco)` read the string `"false"` as `True`
-            # (harmless here — it fails safe) but also read `""`/`0`/`[]` as `False` (fail-OPEN).
-            # `_is_explicitly_false` yields True only for native `False`/`"false"`; everything
-            # else (None, "true", unparseable) stays immediate-risk.
-            dmn_input["risco_imediato"] = not _is_explicitly_false(risco)
-
-        try:
-            rows, version = await self._dmn.evaluate(table, dmn_input)
-            row = first_row(rows, table, dmn_input)
-        except (DmnEvaluationError, DmnNoResultError) as exc:
-            # HEL-05 (feeder): the DMN-down path routes to escalate `falha_tecnica` in THIS turn,
-            # so this message reaches `resumo_contexto` directly (`table` is a class token).
-            return {
-                "dmn_table": table,
-                "dmn_decision": {},
-                "error": dmn_unavailable_error(table, exc),
-            }
-
-        # Provenance reference: `{table}#{decision-definition id}` — the engine's evaluate
-        # response does not return which RULE fired (no `ruleId` in the Camunda 7 REST evaluate
-        # contract), so this cites the authoritative deployed decision-definition id/version
-        # (ADR-0028 §2) rather than fabricating a rule id the engine never gave us.
-        ref = f"{table}#{version.id}"
-        return {"dmn_table": table, "dmn_decision": row, "dmn_decision_ref": ref}
+    _evaluate_dmn = _travas_entrada._evaluate_dmn
 
     # -- LLM helpers (all PHI-tagged — ADR-0006/ADR-0017/T1.7) ------------------------------
 
@@ -10106,24 +8771,7 @@ class HelenaGraph:
     def _roteador_chave(self, state: Mapping[str, Any]) -> tuple[str, str]:
         return (str(state.get("conversation_id") or ""), str(state.get("message_ref") or ""))
 
-    def _roteador_alarme(
-        self, texto: str, pendente: str | None, falas_anteriores: Sequence[str] = ()
-    ) -> bool:
-        plano = _plano(texto)
-        if alarme_no_relato(plano) is not None or _sinal_forte_de_emergencia(texto):
-            return True
-        if not self._base_saude:
-            return False
-        anterior = ler_pendente(pendente)
-        if (
-            anterior is not None
-            and anterior.grupo.startswith("sin-")
-            and _bs.alarme_do_assunto(self._base, anterior.grupo, texto)
-        ):
-            return True
-        if falas_anteriores and _bs.alarme_dos_citados_antes(self._base, falas_anteriores, texto):
-            return True
-        return _bs.alarme_no_texto(self._base, texto)
+    _roteador_alarme = _travas_entrada._roteador_alarme
 
     async def _roteador_decidir(self, state: Mapping[str, Any], pendente: Any) -> tuple[Any, str | None, int]:
         from maezo.agents.helena import roteador as _rt
