@@ -7,6 +7,7 @@ de um agente e' resolvida pelo framework de agentes a partir do id
 (`maezo.agents.carregar_agente_de_entrada`).
 
     maezo.contratos.conversa                o turno do agente de entrada do numero unico
+    maezo.contratos.conversa_remota         o fio dessa porta quando o agente roda em servico proprio
     maezo.contratos.identidade_beneficiario o vocabulario fechado da identidade (DL-0077/DL-0078)
     maezo.contratos.fatos_do_plano          a porta das consultas do plano na AMH (contrato TINA)
 
