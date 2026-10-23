@@ -10993,6 +10993,38 @@
         },
         "summary": "Read"
       }
+    },
+    "/api/v1/sales/commercial": {
+      "post": {
+        "operationId": "commercial_command_api_v1_sales_commercial_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Commercial Command"
+      }
+    },
+    "/api/v1/sales/public/catalog": {
+      "get": {
+        "operationId": "public_catalog_api_v1_sales_public_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Public Catalog"
+      }
     }
   }
 }

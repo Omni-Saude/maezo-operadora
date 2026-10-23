@@ -19,6 +19,9 @@ EXPORTER = ROOT / "scripts/dev/export_portal_openapi.py"
 # The train's earlier set stopped at the D4-D6 routes; every path below is served by
 # `create_app` today and PR-B's generated client is checked against this export.
 EXPECTED_PATHS = {
+    # C6 proposed machine boundaries are documented even while default composition refuses.
+    "/api/v1/sales/commercial",
+    "/api/v1/sales/public/catalog",
     "/api/v1/portal/auth/callback",
     "/api/v1/portal/auth/login",
     "/api/v1/portal/auth/logout",
