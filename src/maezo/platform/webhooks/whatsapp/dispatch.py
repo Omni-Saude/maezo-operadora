@@ -92,18 +92,10 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
 
-from maezo.agents.helena.graph import (
-    NOME_OPERADORA_PADRAO,
-    RESPOSTA_PLANO_POR_CANAIS,
-    HelenaGraph,
-    HelenaState,
-    WhatsAppSender,
-    build,
-    eh_pedido_explicito_de_pessoa,
-    memoria_de_conversa_neutra,
-    new_helena_resume_state,
-    new_helena_state,
-)
+from maezo.agents import carregar_agente_de_entrada
+from maezo.contratos.conversa import INTENT_COBRANCA, RESPONSE_KIND_HANDOFF, AgenteDeEntrada
+from maezo.contratos.conversa import RemetenteDoTurno as WhatsAppSender
+from maezo.contratos.identidade_beneficiario import NOME_OPERADORA_PADRAO
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.recipient_custody import RecipientSealer
 from maezo.gateway.seams import SeamContext
@@ -127,8 +119,8 @@ from .limite import LimitadorDeVolume, Veredito
 from .security import hash_phone, log_safe_message_id
 
 if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
-    from maezo.agents.helena.consultas_plano import FonteDeFatosDoPlano
     from maezo.agents.lucas.administrative.runtime import AdministrativeJourneyRuntime, RuntimeTurnStimulus
+    from maezo.contratos.fatos_do_plano import FonteDeFatosDoPlano
     from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyDispatchOutcome
     from maezo.gateway.capabilities.models import CapabilityRefusalReason
 
@@ -543,12 +535,43 @@ class HelenaDispatcher:
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
     administrative_binding: JourneyBinding | None = None
+    #: O AGENTE DE ENTRADA do numero unico (ADR-0062), pelo id (ADR-0067). O despachante nao importa o
+    #: agente: o framework resolve a implementacao de `AgenteDeEntrada` na construcao (falha fechada aqui,
+    #: nunca no meio de um turno).
+    agente_de_entrada_id: str = "helena"
+    _entrada: AgenteDeEntrada = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._entrada = carregar_agente_de_entrada(self.agente_de_entrada_id)
+
+    def _dependencias_do_agente(
+        self, sender: WhatsAppSender, *, roteador_lucas_enabled: bool
+    ) -> dict[str, Any]:
+        """As dependencias e chaves com que os NOS do agente rodam fora do grafo compilado (escalonamentos).
+
+        As mesmas que `_compile_turn_graph` passa ao grafo, no subconjunto que o construtor do agente aceita.
+        """
+        return {
+            "inference": self.inference,
+            "dmn": self.dmn,
+            "cibseven": self.cibseven,
+            "audit_sink": self.audit_sink,
+            "whatsapp": sender,
+            "agent_version": self._entrada.agent_version,
+            "memoria_clinica_enabled": self.memoria_clinica_enabled,
+            "roteador_lucas_enabled": roteador_lucas_enabled,
+            "historico_enabled": self.historico_enabled,
+            "triagem_v2_enabled": self.triagem_v2_enabled,
+            "helena_v4_enabled": self.helena_v4_enabled,
+            "helena_carteirinha_completa_enabled": self.helena_carteirinha_completa_enabled,
+            "helena_dependentes_nome_enabled": self.helena_dependentes_nome_enabled,
+            "helena_base_saude_enabled": self.helena_base_saude_enabled,
+        }
 
     async def accept_administrative_turn(
         self, stimulus: RuntimeTurnStimulus
     ) -> JourneyDispatchOutcome | CapabilityRefusalReason:
         """Trusted typed entry; canonical values never invoke caller copy/serialization hooks."""
-        from typing import cast
 
         from pydantic import BaseModel
 
@@ -845,14 +868,14 @@ class HelenaDispatcher:
         Shared by `dispatch` and `resume` so the two entry doors can never drift in which
         dependencies, agent version or memory flag the graph is built with.
         """
-        graph = build(
+        graph = self._entrada.construir_grafo(
             {
                 "inference": self.inference,
                 "dmn": self.dmn,
                 "cibseven": self.cibseven,
                 "whatsapp": sender,
                 "audit_sink": self.audit_sink,
-                "agent_version": "helena@v0",
+                "agent_version": self._entrada.agent_version,
                 # MEMORIA CLINICA (Frente 2.1). Passada EXPLICITAMENTE em vez de deixada no default
                 # do `build`: o despachante e' quem sabe se ha' checkpointer, e uma memoria ligada
                 # sem estado duravel nao e' um erro, mas tambem nao lembra nada — deixar a decisao
@@ -936,7 +959,7 @@ class HelenaDispatcher:
         )
         compiled, saver = self._compile_turn_graph(sender)
         thread_config = checkpoint_thread_config(conversation_id) if saver is not None else None
-        initial_state: HelenaState = new_helena_resume_state(
+        initial_state = self._entrada.estado_de_retomada(
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
             canal="whatsapp",
@@ -954,7 +977,7 @@ class HelenaDispatcher:
             # Same counter as `dispatch` (ALERTS-WITHOUT-METRICS-a): a resume turn is a Helena turn.
             from maezo.platform.observability import record_agent_error
 
-            record_agent_error(agent="helena", error_type=classify_agent_error_type(exc))
+            record_agent_error(agent=self._entrada.agent_id, error_type=classify_agent_error_type(exc))
             raise
         logger.info(
             "helena_resume_turn_completed",
@@ -1067,7 +1090,7 @@ class HelenaDispatcher:
         if not getattr(atual, "values", None):
             return
         # `respond` -> END: o checkpoint gravado nao deixa no' pendente; o proximo turno recomeca em START.
-        await compiled.aupdate_state(config, memoria_de_conversa_neutra(), as_node="respond")
+        await compiled.aupdate_state(config, self._entrada.memoria_neutra(), as_node="respond")
         logger.info(
             "acesso_memoria_da_conversa_apagada", tenant_id=self.tenant_id, conversation_id=conversation_id
         )
@@ -1084,22 +1107,7 @@ class HelenaDispatcher:
         texto
         da pessoa. Levanta se o processo nao abriu: o turno falha e a reentrega tenta de novo, em vez de
         prometer um atendente que ninguem acionou."""
-        helena = HelenaGraph(
-            inference=self.inference,
-            dmn=self.dmn,
-            cibseven=self.cibseven,
-            audit_sink=self.audit_sink,
-            whatsapp=sender,
-            agent_version="helena@v0",
-            memoria_clinica_enabled=self.memoria_clinica_enabled,
-            roteador_lucas_enabled=self._roteamento_completo,
-            historico_enabled=self.historico_enabled,
-            triagem_v2_enabled=self.triagem_v2_enabled,
-            helena_v4_enabled=self.helena_v4_enabled,
-            helena_carteirinha_completa_enabled=self.helena_carteirinha_completa_enabled,
-            helena_dependentes_nome_enabled=self.helena_dependentes_nome_enabled,
-            helena_base_saude_enabled=self.helena_base_saude_enabled,
-        )
+        dependencias = self._dependencias_do_agente(sender, roteador_lucas_enabled=self._roteamento_completo)
         estado: dict[str, Any] = {
             "tenant_id": self.tenant_id,
             "conversation_id": conversation_id,
@@ -1107,10 +1115,7 @@ class HelenaDispatcher:
             "canal": "whatsapp",
             "message_body": "",
         }
-        if motivo == "revogacao_consentimento_pendente":
-            resultado = await helena.escalar_revogacao_pendente(cast(HelenaState, estado))
-        else:
-            resultado = await helena.escalar_identidade_nao_verificada(cast(HelenaState, estado))
+        resultado = await self._entrada.escalar_identidade(dependencias, estado, motivo=motivo)
         if resultado.get("escalation_started") is not True:
             logger.error(
                 "acesso_escalonamento_nao_aberto", tenant_id=self.tenant_id, conversation_id=conversation_id
@@ -1142,38 +1147,26 @@ class HelenaDispatcher:
         idade
         exata nunca entram. `None` = nao e' pergunta de cadastro: o fluxo de sempre.
         """
-        from .acesso_cadastro import resposta_de_cadastro, tipo_de_pergunta
-
-        tipo = tipo_de_pergunta(message.text)
-        if tipo is None:
-            return None
-        from .acesso_cadastro import TIPO_CARENCIA, TIPO_PLANO_DETALHE
-
-        if self.consultas_plano is not None and tipo in (TIPO_PLANO_DETALHE, TIPO_CARENCIA):
-            # RODADA 3: com os fatos do plano ligados (TINA), tipo de plano, cobertura e carencia sao
-            # respondidos pela consulta da Helena, com segmentacao e carencias do cadastro.
-            return None
         assert self.acesso is not None
-        if self.acesso.sinal_de_emergencia(message.text):
-            return None
-        from .acesso_cadastro import TIPO_IDENTIDADE_E_PLANO, TIPO_NOME, TIPO_PLANO_DETALHE, TIPO_QUEM_SOU_EU
+        identidade = self.identidade
 
-        # Tipos respondidos sem o perfil da AMH (RODADA 2).
-        sem_perfil = frozenset({TIPO_QUEM_SOU_EU, TIPO_NOME, TIPO_IDENTIDADE_E_PLANO, TIPO_PLANO_DETALHE})
-
-        identidade: dict[str, Any] | None = None
-        if tipo not in sem_perfil and self.identidade is not None:
-            resolvida = await self.identidade.resolver_com_desfecho(
+        async def _identidade_do_perfil() -> dict[str, Any] | None:
+            assert identidade is not None
+            resolvida = await identidade.resolver_com_desfecho(
                 message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
             )
-            identidade = resolvida.identidade
-        texto = resposta_de_cadastro(tipo, identidade, fonte_ligada=self.identidade is not None)
-        if self.consultas_plano is not None and texto == RESPOSTA_PLANO_POR_CANAIS:
-            # RODADA 8: com os fatos do plano (TINA) ligados e a pessoa verificada, "ainda nao estao
-            # disponiveis por este chat" nunca sai: o fato ausente do perfil segue para o grafo, que consulta.
-            # A comparacao vem ANTES do aviso de terceiro (revisao do #785): com o aviso colado, o texto
-            # deixava de ser igual e o "nao estao disponiveis" saia ao beneficiario.
+            return resolvida.identidade
+
+        resposta = await self._entrada.resposta_de_cadastro(
+            message.text,
+            consultas_ligadas=self.consultas_plano is not None,
+            fonte_ligada=identidade is not None,
+            sinal_de_emergencia=self.acesso.sinal_de_emergencia,
+            resolver_identidade=_identidade_do_perfil if identidade is not None else None,
+        )
+        if resposta is None:
             return None
+        tipo, texto = resposta.tipo, resposta.texto
         # D-01 (red team): quem fala de outra pessoa recebe o aviso de que so' o PROPRIO cadastro e' mostrado.
         texto = com_aviso_se_for_de_outra_pessoa(message.text, texto)
         await sender.send(phone_hash, texto)
@@ -1182,7 +1175,7 @@ class HelenaDispatcher:
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
             tipo=tipo,
-            com_dados=identidade is not None,
+            com_dados=resposta.com_dados,
         )
         return {
             "conversation_id": conversation_id,
@@ -1288,7 +1281,7 @@ class HelenaDispatcher:
             # NUMERO UNICO (onda e): as entradas do roteador, todas TIPADAS e sem texto. Quem estava
             # com a conversa decide so' se a frase de passagem sai; os sinais lexicos so' puxam para
             # a Helena ou para uma pessoa (§2.3); `message_ref` amarra o handoff a ESTA mensagem.
-            initial_state: HelenaState = new_helena_state(
+            initial_state = self._entrada.estado_inicial(
                 tenant_id=self.tenant_id,
                 conversation_id=conversation_id,
                 canal="whatsapp",
@@ -1305,7 +1298,7 @@ class HelenaDispatcher:
                 identidade_desfecho=identidade_desfecho,
             )
         else:
-            initial_state = new_helena_state(
+            initial_state = self._entrada.estado_inicial(
                 tenant_id=self.tenant_id,
                 conversation_id=conversation_id,
                 canal="whatsapp",
@@ -1350,13 +1343,15 @@ class HelenaDispatcher:
             # (`agent_version="helena@v0"` above), so the `agent` label is the literal id.
             from maezo.platform.observability import record_agent_error
 
-            record_agent_error(agent="helena", error_type=classify_agent_error_type(exc))
+            record_agent_error(agent=self._entrada.agent_id, error_type=classify_agent_error_type(exc))
             raise
         # GAP 11.2: the turn completed (whatever the outcome) — `respond()`, Helena's one terminal
         # node, always attempts exactly one WhatsApp send by this point. Observed AFTER `ainvoke`
         # returns, never in the `except` branch above: an `ainvoke` that raised means no reply was
         # even attempted, so there is nothing honest to time.
-        record_agent_first_response(agent_id="helena", seconds=time.monotonic() - turn_started_at)
+        record_agent_first_response(
+            agent_id=self._entrada.agent_id, seconds=time.monotonic() - turn_started_at
+        )
         logger.info(
             "helena_dispatch_turn_completed",
             tenant_id=self.tenant_id,
@@ -1441,7 +1436,7 @@ class HelenaDispatcher:
                     not lucas_escalou
                     # DL-0144: start falho do Lucas nao abre outro caso aqui (nenhum envio novo).
                     and not lucas_start_falhou
-                    and eh_pedido_explicito_de_pessoa(message.text)
+                    and self._entrada.eh_pedido_explicito_de_pessoa(message.text)
                     # RODADA 6: com caso ja' aberto o Lucas ja' reconhece o pedido; o aviso da Helena
                     # ("seu atendimento ja' esta' aberto") so' duplicava a resposta (4 turnos seguidos).
                     and not await self._caso_aberto_na_conversa(conversation_id)
@@ -1531,7 +1526,6 @@ class HelenaDispatcher:
             TEXTO_CONFIRMA_CANCELAMENTO
         ):
             return None
-        from maezo.agents.helena.graph import INTENT_COBRANCA, RESPONSE_KIND_HANDOFF
         from maezo.runtime.cobranca_foco import FOCO_GERAL
 
         logger.info(
@@ -1815,22 +1809,7 @@ class HelenaDispatcher:
             conversation_id=conversation_id,
             idempotency_key_for=self._outbound_key_factory(f"{espaco_da_chave}:{message.message_id}"),
         )
-        helena = HelenaGraph(
-            inference=self.inference,
-            dmn=self.dmn,
-            cibseven=self.cibseven,
-            audit_sink=self.audit_sink,
-            whatsapp=sender,
-            agent_version="helena@v0",
-            memoria_clinica_enabled=self.memoria_clinica_enabled,
-            roteador_lucas_enabled=True,
-            historico_enabled=self.historico_enabled,
-            triagem_v2_enabled=self.triagem_v2_enabled,
-            helena_v4_enabled=self.helena_v4_enabled,
-            helena_carteirinha_completa_enabled=self.helena_carteirinha_completa_enabled,
-            helena_dependentes_nome_enabled=self.helena_dependentes_nome_enabled,
-            helena_base_saude_enabled=self.helena_base_saude_enabled,
-        )
+        dependencias = self._dependencias_do_agente(sender, roteador_lucas_enabled=True)
         estado: dict[str, Any] = {
             **resultado_helena,
             "next_kind": "escalate",
@@ -1842,9 +1821,7 @@ class HelenaDispatcher:
             "response_text": None,
             "desfecho": "",
         }
-        estado.update(await helena.escalate(cast(HelenaState, estado)))
-        estado.update(await helena.respond(cast(HelenaState, estado)))
-        return estado
+        return await self._entrada.escalar_e_responder(dependencias, estado)
 
     def _pre_rotear(self, texto: str, conversation_id: str) -> SinaisLexicos | None:
         """Os lexicos de §2.3, antes de qualquer LLM. Em sombra so' vao para o log, e so' como
