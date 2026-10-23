@@ -43,17 +43,15 @@ import re
 import unicodedata
 import uuid
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import date, datetime
-from typing import Any, Final, Literal, Protocol, get_args, runtime_checkable
+from typing import Any, Final, Literal, get_args
 
 from maezo.domain.comunicacao.cerca_de_saida import motivo_de_canal_nao_confirmado, motivo_de_recusa
 from maezo.ports.tina import (
     MAX_DEPENDENTES,
     CarenciasView,
     CarteirinhasView,
-    CoberturaView,
-    CptVigenteView,
     DependentesNominaisView,
     DependentesView,
     ElegibilidadeView,
@@ -80,9 +78,6 @@ CLASSIFY_CONSULTAS_ADENDO_VERSION: Final[str] = "classify-consultas-v3"
 #: v2 — 10/10/2026 (DL-0087): regra 7, o tom humanizado (curto, cordial, so' o perguntado, sem emoji).
 CONSULTA_PLANO_PROMPT_VERSION: Final[str] = "consulta-plano-v2"
 
-#: Quantas requisicoes/carencias vao ao texto. O agente conversa, nao exporta (contrato: 1..50).
-LIMITE_REQUISICOES: Final[int] = 5
-LIMITE_CARENCIAS: Final[int] = 20
 #: Teto do texto redigido; acima disso a resposta deterministica e' mais honesta que um extrato.
 MAX_CHARS_RESPOSTA: Final[int] = 1200
 
@@ -101,73 +96,21 @@ _FECHO: Final[str] = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class FonteIndisponivel:
-    """A fonte NAO esta' carregada neste ambiente (o artefato da rota nao foi configurado): diferente de uma
-    falha da consulta. So' `dependentes` a usa — com ela o texto provisorio da rodada 10 continua valendo."""
-
-    subtipo: str
-
-
-@runtime_checkable
-class FonteDeFatosDoPlano(Protocol):
-    """Consulta a AMH para UM sujeito e UM subtipo. Nunca levanta; falha = `None`."""
-
-    async def consultar(
-        self, portable_subject_ref: str, subtipo: str
-    ) -> ElegibilidadeView | CarenciasView | RequisicoesView | DependentesView | FonteIndisponivel | None: ...
-
-
-@runtime_checkable
-class FonteDeCarteirinhaCompleta(Protocol):
-    """A fonte que TAMBEM le' o numero completo da carteirinha (rota `tina-carteirinha`, manifest v1.12).
-
-    Protocolo SEPARADO: a fonte de sempre nao muda, e o grafo so' pede o numero quando a fonte injetada o
-    implementa E a chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA` esta' ligada. Nunca levanta; falha = `None`
-    (o grafo cai no mascarado). `request_ref` e' o id OPACO da solicitacao (`X-Amh-Request-Ref`)."""
-
-    async def consultar_carteirinha(
-        self, portable_subject_ref: str, request_ref: str
-    ) -> CarteirinhasView | None: ...
-
-
-@runtime_checkable
-class FonteDeNomesDosDependentes(Protocol):
-    """A fonte que TAMBEM le' os NOMES dos dependentes do proprio titular (rota `tina-dependentes-nome`,
-    manifest v1.13; decisao do dono e DPO de 19/10/2026, DL-0127).
-
-    Protocolo SEPARADO: a fonte de sempre nao muda, e o grafo so' pede os nomes quando a fonte injetada o
-    implementa E a chave `MAEZO_HELENA_DEPENDENTES_NOME` esta' ligada. Nunca levanta; falha = `None` (o grafo
-    cai em "dependente N"). `request_ref` e' o id OPACO da solicitacao (`X-Amh-Request-Ref`)."""
-
-    async def consultar_dependentes_nominais(
-        self, portable_subject_ref: str, request_ref: str
-    ) -> DependentesNominaisView | None: ...
-
-
-@runtime_checkable
-class FonteDeCobertura(Protocol):
-    """A fonte que TAMBEM le' os fatos de cobertura de um procedimento (rota `tina-cobertura`, manifest v1.9;
-    decisao do dono D1 de 18/10/2026).
-
-    Protocolo SEPARADO: a fonte de sempre nao muda. Nunca levanta; falha = `None`. `procedimento` e' o
-    codigo ou o termo no padrao do contrato e nunca vai a log."""
-
-    async def consultar_cobertura(
-        self, portable_subject_ref: str, procedimento: str
-    ) -> CoberturaView | None: ...
-
-
-@runtime_checkable
-class FonteDeCpt(Protocol):
-    """A fonte que TAMBEM le' a CPT vigente do proprio sujeito (rota `tina-cpt`, manifest v1.15; caso C1 do
-    dono e DPO de 20/10/2026, DL-0130).
-
-    Protocolo SEPARADO: a fonte de sempre nao muda, e o grafo so' pede a CPT na cobertura assistida (allowlist
-    da saude gerativa), para o TITULAR. Nunca levanta; falha = `None` (nenhum aviso de CPT)."""
-
-    async def consultar_cpt(self, portable_subject_ref: str) -> CptVigenteView | None: ...
-
+# A porta das consultas (a fonte injetada e os limites de itens no texto) mora em
+# `maezo.contratos.fatos_do_plano` (ADR-0067): o adaptador da AMH na plataforma a implementa sem importar a
+# Helena. Os nomes seguem exportados daqui.
+from maezo.contratos.fatos_do_plano import LIMITE_CARENCIAS as LIMITE_CARENCIAS  # noqa: E402
+from maezo.contratos.fatos_do_plano import LIMITE_REQUISICOES as LIMITE_REQUISICOES  # noqa: E402
+from maezo.contratos.fatos_do_plano import (  # noqa: E402
+    FonteDeCarteirinhaCompleta as FonteDeCarteirinhaCompleta,
+)
+from maezo.contratos.fatos_do_plano import FonteDeCobertura as FonteDeCobertura  # noqa: E402
+from maezo.contratos.fatos_do_plano import FonteDeCpt as FonteDeCpt  # noqa: E402
+from maezo.contratos.fatos_do_plano import FonteDeFatosDoPlano as FonteDeFatosDoPlano  # noqa: E402
+from maezo.contratos.fatos_do_plano import (  # noqa: E402
+    FonteDeNomesDosDependentes as FonteDeNomesDosDependentes,
+)
+from maezo.contratos.fatos_do_plano import FonteIndisponivel as FonteIndisponivel  # noqa: E402
 
 # --------------------------------------------------------------------------------------------
 # Classify (adendo) e redacao

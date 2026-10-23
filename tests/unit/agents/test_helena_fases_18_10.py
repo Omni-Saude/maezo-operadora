@@ -627,7 +627,7 @@ def test_unidade_de_exame_sozinha_nao_e_quantidade_de_remedio() -> None:
 
 
 def test_faixa_etaria_em_pergunta_de_saude_nao_e_cadastro() -> None:
-    from maezo.platform.webhooks.whatsapp import acesso_cadastro as acad
+    from maezo.agents.helena import cadastro as acad
 
     assert (
         acad.tipo_de_pergunta(

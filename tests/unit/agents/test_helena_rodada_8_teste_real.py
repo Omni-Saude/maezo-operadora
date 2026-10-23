@@ -18,6 +18,8 @@ from typing import Any, cast
 
 import pytest
 
+from maezo.agents.helena import cadastro as cad
+from maezo.agents.helena import graph as helena_graph_module
 from maezo.agents.helena.consultas_plano import (
     RESPOSTA_CONSULTA_SEM_IDENTIDADE,
     fatos_da_consulta,
@@ -36,8 +38,6 @@ from maezo.agents.helena.graph import (
     RESPOSTA_PLANO_POR_CANAIS,
 )
 from maezo.agents.helena.historico import MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO, MARCADOR_RESPOSTA_DE_COBERTURA
-from maezo.platform.webhooks.whatsapp import acesso_cadastro as cad
-from maezo.platform.webhooks.whatsapp import dispatch as dispatch_module
 from maezo.platform.webhooks.whatsapp.helena_consultas import ConsultasPlanoAmh
 from maezo.ports.errors import PortFailureReason, PortResult
 from maezo.ports.tina import CarenciasView, ElegibilidadeView, VinculoPlano
@@ -394,7 +394,7 @@ async def test_com_a_fonte_ligada_o_fato_ausente_do_perfil_vai_ao_grafo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _GrafoMarcador.rodou.clear()
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     identidade = {
         "portable_subject_ref": REF,
         "faixa_etaria": "adulto",
@@ -425,7 +425,7 @@ async def test_com_a_fonte_ligada_o_aviso_de_terceiro_nao_esconde_o_fato_ausente
     `RESPOSTA_PLANO_POR_CANAIS`; o texto deixava de ser igual e o "nao estao disponiveis por este chat" saia
     ao beneficiario mesmo com a fonte do plano ligada (contra a RODADA 8)."""
     _GrafoMarcador.rodou.clear()
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     identidade = {
         "portable_subject_ref": REF,
         "faixa_etaria": "adulto",
