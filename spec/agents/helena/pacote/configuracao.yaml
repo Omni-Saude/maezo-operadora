@@ -23,7 +23,7 @@ identidade_nome_operadora: "Austa Clínicas"  # DL-0078
 # Roteador de habilidades (ADR-0066).
 roteador:
   modo: ativo               # desligado | sombra | ativo
-  modelo: mistral.magistral-small-2509  # 23/10: GLM-5 fora do ar em sa-east-1 desde 20/10 (CloudWatch); Magistral 30/30 no teste de risco
+  modelo: zai.glm-5         # modelo Bedrock da zona PHI regional; vazio = o da conversa
   prazo_s: 3.0
   max_tokens: 256
   concorrencia: 4
