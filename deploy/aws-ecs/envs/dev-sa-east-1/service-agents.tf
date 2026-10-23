@@ -172,8 +172,8 @@ resource "aws_ecs_task_definition" "agente" {
   cpu                      = tostring(var.agent_cpu)
   memory                   = tostring(var.agent_memory)
   execution_role_arn       = aws_iam_role.task_execution.arn
-  # Runtime remoto (agente-remoto.tf): a helena herda a role do receptor, que compoe o mesmo turno.
-  task_role_arn = local.agente_remoto_em[each.key] ? local.webhook_receiver_task_role_arn : aws_iam_role.task.arn
+  # Runtime remoto (agente-remoto.tf): role PROPRIA e minima (Bedrock, pacotes, ECS Exec; sem custodia).
+  task_role_arn = local.agente_remoto_em[each.key] ? aws_iam_role.agente_remoto_task[0].arn : aws_iam_role.task.arn
 
   runtime_platform {
     cpu_architecture        = "X86_64"

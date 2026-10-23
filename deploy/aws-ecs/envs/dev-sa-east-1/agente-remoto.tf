@@ -6,11 +6,9 @@
 #
 #   * a task do `agent-helena` (so' ela; rafael e marina ficam byte a byte iguais) troca o comando para
 #     `python -m maezo.platform.agente_remoto` (FastAPI interna, porta 8000, `/healthz`) e passa a
-#     compor o turno com o MESMO contrato de ambiente e segredos do receptor
-#     (`local.webhook_receiver_contrato`) e com a MESMA role (`local.webhook_receiver_task_role_arn`:
-#     Bedrock, segredos, leitura dos pacotes de pacotes-dos-agentes.tf e, com a custodia ligada, a
-#     role propria do receptor). A imagem continua `var.agents_image_digest` — e' isso que separa o
-#     deploy da Helena do deploy do receptor;
+#     compor o turno com o MESMO contrato de AMBIENTE do receptor (`local.webhook_receiver_contrato`),
+#     mas com segredos e role PROPRIOS e menores (revisao de seguranca da 4b, abaixo). A imagem continua
+#     `var.agents_image_digest` — e' isso que separa o deploy da Helena do deploy do receptor;
 #   * o receptor recebe `MAEZO_AGENTE_DE_ENTRADA_URL` e passa a chamar o agente pela porta;
 #   * o agente recebe `MAEZO_RECEPTOR_URL` para o callback de envio: quem envia WhatsApp continua
 #     sendo o receptor. Por isso o agente NAO recebe `secrets_envio` (credenciais da Meta) nem a
@@ -34,7 +32,7 @@
 # nunca IP fixo — o IP da task muda a cada deploy.
 
 variable "helena_agente_remoto" {
-  description = "Liga o runtime remoto da Helena (ADR-0067 §6): agent-helena executa o turno em `maezo.platform.agente_remoto` (porta 8000) e o receptor/simulador o chamam por HTTP interno. Desligada, nada muda."
+  description = "Liga o runtime remoto da Helena (ADR-0067 §6): agent-helena executa o turno em `maezo.platform.agente_remoto` (porta 8000) e o receptor o chama por HTTP interno (o simulador segue em processo). Desligada, nada muda."
   type        = bool
   default     = false
 }
@@ -81,12 +79,86 @@ locals {
     local.webhook_receiver_contrato.environment_amh,
   )
 
-  # `secrets_app` (banco, PHI_HMAC_KEY, chave A2A e os dois que o boot do webhook exige) + os da fonte
-  # AMH. SEM `secrets_envio`: o agente nao envia.
+  # Contrato de segredos PROPRIO do agente (revisao de seguranca da 4b): banco, PHI_HMAC_KEY e AMH.
+  # FORA de proposito, e nao por esquecimento:
+  #   WHATSAPP_APP_SECRET   com ele quem compromete o agente forja webhook valido no /webhook publico;
+  #   WHATSAPP_VERIFY_TOKEN idem para o handshake da Meta;
+  #   chave de assinatura A2A (MAEZO_A2A_CARD_SIGNING_KEY__*) o agente remoto nao publica Card;
+  #   `secrets_envio`        o agente nao envia (o callback e' do receptor).
+  # PHI_HMAC_KEY vem do MESMO segredo do receptor: o pseudonimo tem de ser igual dos dois lados.
   agente_remoto_secrets = concat(
-    local.webhook_receiver_contrato.secrets_app,
+    local.db_secrets_maezo,
+    [
+      { name = "PHI_HMAC_KEY", valueFrom = "${aws_secretsmanager_secret.phi_hmac_key.arn}:key::" },
+    ],
     local.amh_interop_secrets,
   )
+}
+
+# ---------------------------------------------------------------------------
+# ROLE PROPRIA DO AGENTE REMOTO (revisao de seguranca da 4b)
+# ---------------------------------------------------------------------------
+# Antes ele herdava a role do receptor, que com a custodia ligada tem `CustodiaSoCifra` (kms:Encrypt na
+# chave da custodia, recipient-vault.tf): quem comprometesse o agente plantaria custodia com o numero
+# do atacante. Esta role tem SO' o que o turno usa:
+#   Bedrock     os MESMOS documentos do receptor (`task_bedrock`, busca semantica, saude gerativa e o
+#               modelo proprio do roteador) — mesma lista de modelos e a mesma excecao regional do DPO;
+#   pacotes     leitura do prefixo dos pacotes (pacotes-dos-agentes.tf), quando ligados;
+#   ECS Exec    o servico `agent-helena` tem `enable_execute_command = true`.
+# Segredos (`valueFrom`) e logs (`awslogs`) sao da role de EXECUCAO (`task_execution`), nao desta.
+# SEM kms da custodia. Desligada a chave, nada disto existe.
+locals {
+  agente_remoto_role = var.helena_agente_remoto ? 1 : 0
+}
+
+resource "aws_iam_role" "agente_remoto_task" {
+  count              = local.agente_remoto_role
+  name               = "${local.name}-agent-helena-remoto-task"
+  description        = "Runtime remoto da Helena (ADR-0067 fase 4b): Bedrock, pacotes e ECS Exec. Sem custodia e sem segredos do webhook."
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+  tags               = merge(local.base_tags, { agente = "helena" })
+}
+
+resource "aws_iam_role_policy" "agente_remoto_bedrock" {
+  count  = local.agente_remoto_role
+  name   = "${local.name}-bedrock"
+  role   = aws_iam_role.agente_remoto_task[0].id
+  policy = data.aws_iam_policy_document.task_bedrock.json
+}
+
+resource "aws_iam_role_policy" "agente_remoto_busca_semantica" {
+  count  = local.agente_remoto_role
+  name   = "${local.name}-busca-semantica-saude"
+  role   = aws_iam_role.agente_remoto_task[0].id
+  policy = data.aws_iam_policy_document.busca_semantica_saude.json
+}
+
+resource "aws_iam_role_policy" "agente_remoto_saude_gerativa" {
+  count  = local.agente_remoto_role
+  name   = "${local.name}-saude-gerativa-experimental"
+  role   = aws_iam_role.agente_remoto_task[0].id
+  policy = data.aws_iam_policy_document.saude_gerativa_experimental.json
+}
+
+resource "aws_iam_role_policy" "agente_remoto_roteador_modelo" {
+  count  = local.agente_remoto_role * local.roteador_modelo_ativo
+  name   = "${local.name}-roteador-modelo"
+  role   = aws_iam_role.agente_remoto_task[0].id
+  policy = data.aws_iam_policy_document.roteador_modelo.json
+}
+
+resource "aws_iam_role_policy" "agente_remoto_pacotes" {
+  count  = var.pacotes_dos_agentes ? local.agente_remoto_role : 0
+  name   = "pacotes-dos-agentes-leitura"
+  role   = aws_iam_role.agente_remoto_task[0].id
+  policy = data.aws_iam_policy_document.pacotes_leitura[0].json
+}
+
+resource "aws_iam_role_policy" "agente_remoto_exec_ssm" {
+  count  = local.agente_remoto_role
+  name   = "${local.name}-ecs-exec"
+  role   = aws_iam_role.agente_remoto_task[0].id
+  policy = data.aws_iam_policy_document.task_exec_ssm.json
 }
 
 output "helena_agente_remoto" {
