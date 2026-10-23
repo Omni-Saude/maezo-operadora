@@ -1,6 +1,6 @@
 # Plano — Programa de Completude Maezo (clientes, vendors, providers, equipe)
 
-**Status:** PLANO (aprovação do dono recebida 2026-10-23 para o documento; **nenhuma onda de engenharia iniciada** — a plataforma segue PAUSADA por diretiva do dono 2026-10-22 até o protocolo de retomada §0 ser executado). **Data:** 23/10/2026 (`main` em `d21aed72`; auditoria-base `docs/audits/JOURNEYS-COMPLETENESS-2026-10/`, gate cego Tier-2/3 fechado). **Autor:** orquestrador (agente), a pedido do dono. **Este documento não aprova nada**: separa quem GERA de quem APROVA (§HDR) e todo bloqueio de aprovação/ratificação permanece com humanos nomeados.
+**Status:** **ATIVO** — retomada registrada 2026-10-23 (D-01, dono via sessão interativa; ver §Decisões). Todas as ondas despachadas conforme seus gates. **Data:** 23/10/2026 (`main` em `d21aed72`; auditoria-base `docs/audits/JOURNEYS-COMPLETENESS-2026-10/`, gate cego Tier-2/3 fechado). **Autor:** orquestrador (agente), a pedido do dono. **Este documento não aprova nada**: separa quem GERA de quem APROVA (§HDR) e todo bloqueio de aprovação/ratificação permanece com humanos nomeados.
 
 Regra de leitura: toda afirmação de fato traz `arquivo:linha`, finding `F-*` ou PR# — base: bundle de auditoria acima (INVENTORY A/A-V4/B/C, TRACEABILITY, FINDINGS, REGULATORY-SWEEP, COMPARISON-V3-V4, VERIFICATION-TIER2). O que não foi executado está **NÃO VERIFICADO**.
 
@@ -44,6 +44,21 @@ Classes de esforço: **S** dispatch único · **M** multi-dispatch + 1 gate cego
 | GOV-0.10 | **Ativação da security-team** (desbloqueia W3 e todo flip): conceder WRITE a Omni-Saude/security-team; ≥1 humano ≠ rodaquino-OMNI (roster: filipecarmo81, gtaquino-automatelabs, hugohiroshi92, joaopanisi, lucasreisEvah, robsonfelix); confirmar/vetar lucasreisEvah nas linhas de privacidade; lint CODEOWNERS = 0; adicionar `flip-path-review-gate` aos required checks do ruleset 20775655 | R-051 | S (atos owner/admin) | procedimento pré-estacionado (D-14) |
 
 Aceitação W0: log reparado confere sha-a-sha c/ `git log main` por terceiro; greps de deadline-velho e citação-pendente = 0; gate no ruleset OU deferral datado do dono.
+
+### §GOV-0.10 Runbook de ativação da security-team (D-14 — DECIDIDO: ATIVAR AGORA)
+
+Estado medido em 2026-10-23 (API GitHub, leitura): time `security-team` (id `18091084`) existe com permissão **pull** neste repo e membros **{rodaquino-OMNI, T01SS0}** — nenhum humano ≠ dono (T01SS0 é conta de serviço). Ruleset `main-protection` (20775655) ativo com 5 required checks, **sem** `flip-path-review-gate`. Passos (dono executa; comandos prontos — o orquestrador executa os marcados ◆ assim que o token tiver escopo `admin:org`, ou o dono cola no terminal):
+
+1. **Adicionar ≥1 humano qualificado ao time** (roster候选: filipecarmo81, gtaquino-automatelabs, hugohiroshi92, joaopanisi, lucasreisEvah — confirmar/vetar lucasreisEvah nas linhas de privacidade):
+   `gh api -X PUT teams/18091084/memberships/<login> -f role=member` ◆
+2. **Elevar a permissão do time no repo para WRITE**:
+   `gh api -X PUT repos/Omni-Saude/maezo-operadora/teams/security-team -f permission=push` ◆
+3. **Lint CODEOWNERS = 0 erros** (o orquestrador roda e reporta; hoje a linha 294 já exige security-team p/ `.gitleaks.toml`).
+4. **Adicionar `flip-path-review-gate` aos required checks do ruleset 20775655** (via UI Settings→Rulesets→main-protection, ou API `PUT /repos/.../rulesets/20775655` com o contexto acrescentado aos 5 existentes) ◆
+5. **Verificação**: `gh api repos/Omni-Saude/maezo-operadora/rulesets/20775655` lista 6 contexts; `gh api teams/18091084/members` mostra ≥2 humans; branch-protection-check job relata os passos pendentes cumpridos.
+6. **Efeito imediato**: o flip-gate do PR #907 (run 39872763178) passa a satisfazível — revisor security-team ≠ autor aprova; BRDG-3.1 prossegue.
+
+R-051 herda: se nenhuma das pessoas puder atuar, registrar deferral datado do dono com caminho compensatório (revisão manual de cada flip pelo próprio dono, registrada no PR) — nunca bypass.
 
 ## W1 REG — completude regulatória (M/L; gated por jurídico)
 
@@ -92,6 +107,29 @@ Alvo: SOMENTE `docs/processes/New_BPMN/Adapted_BPMN/`. CORP-2.1 catches mortos I
 ## W8 CLOSE (M; alvo 2027-01-26)
 
 Reconciliação re-rodada em todos os inventários · verificação cega Tier-2 do relatório de completude · pacote de evidências de prazo (OP21 pré-2027; janela C2; muro) · matriz final no anexo + supercessão formal · backlog ROLL entregue ao dono (cada flip = mudança de dados + pacote estacionado) · assinatura do dono (D-29).
+
+## §Decisões registradas (2026-10-23, dono, sessão interativa)
+
+| ID | Decisão | Efeito |
+|---|---|---|
+| D-01 | **RETOMADA — todas as ondas** | `state: ATIVO`; W0/W2/W4/W5 despacham já; W1 espera jurídico (D-03/D-04); W3 espera security (D-14) |
+| D-02 | **Mapa primeiro + ponte delimitada SP-OP-nativa** (delegada pelo dono ao orquestrador: "excelência, sem workarounds, considerando impacto nas demais builds") — ver ruling abaixo | CORP-2.7 = mapa 355 elementos → capacidades → processos SP-OP → código/teste; ponte APENAS para lacunas provadas pelo mapa, como NOVOS process-keys SP-OP-* pelo caminho canônico (allowlist + engine_deploy + cercas), NUNCA como os 44 beans AI delegados (esses permanecem vocabulário de desenho mapeado às capacidades existentes do gateway) |
+| D-05 | Timers CA_1 = **classes RN 623/2024 art. 12** (urgência imediata; demais 5 dias úteis; PAC/internação eletiva 10 dias úteis) | REG-1.2 |
+| D-07 | LA-02 **modelado por inteiro** (coparticipação/faturamento/contas como objetos+tasks explícitos; reembolso 30d art. 12 VIII como timer) | REG-1.5 |
+| D-09 | NBA reward **dark** (constrói flag-off; ruling art. 11 §4º é a condição de habilitação) | REG-1.8 |
+| D-10 | **Enfrentar o muro** 2027-02-09 (W8 entrega pacotes de flip até 2027-01-26; sem segunda renovação) | W8 |
+| D-11 | **v4 = linhagem** ratificada (v3 = referência de autoria imutável) | cerca §0(1) |
+| D-12 | **Alvo agressivo 80%** ≥implemented global (inclui admin 7/7 vivo + DSR e2e; risco de agenda aceito contra o muro) | W5 integral |
+| D-14 | **Ativar security-team AGORA** — runbook §GOV-0.10 abaixo; dono executa os passos admin (ou concede escopo) | destrava #907 + todos os flips |
+| D-15 | Congelar contrato **logo pós-merge #907** | BRDG-3.2 |
+| D-16 | Admissões A1–A10 **incrementais** (teste negativo por admissão) | BRDG-3.3 |
+| D-21 | Lucas Compras/Suporte **monta pós-ponte** | BRDG-3.6 |
+| D-30 | **Broker agora, 3 arquivos primeiro** (W2 começa em CA_0/CA_2/CA_3; proposta de coordenação CA_1 via canal broker) | CORP |
+| D-31a | GAP-REGISTER = **espelho rastreado** `docs/compliance/GAP-REGISTER.yaml` gerado dos registros vivos + cerca CI anti-citação-pendente | GOV-0.8 |
+| D-31b | deriva-dev = **ausência aceita** (nota datada do dono; sem novo papel AWS) | GOV-0.9 |
+| Q10 | **Não** — canal vendor NÃO vende a entes públicos | OP17 desbloqueado do lado do fato (DISC-6.3/6.4) |
+
+**Ruling D-02 (racional):** ponte total (44 beans AI) duplicaria capacidades que já existem no gateway/agentes (eventClassifierAI ≈ roteador helena; authorizationRequestService ≈ workers SP-OP-AUTH; recommendationRankingService ≈ NBA) criando forquilha de autoridade de efeitos — viola o chokepoint único (`start_process_idempotent`, PEP subtrativo, allowlist). Mapa-sozinho deixaria a riqueza normativa do v4 como documentação morta. A alternativa escolhida preserva autoridade única de runtime (SP-OP/engine), mantém o v4 como especificação viva (cada elemento ganha casa real), e reutiliza o substrato verificado/ratificado — impacto nas demais builds: W3 já é SP-OP-nativa (intacta), W5 ganha process-keys concretos, lanes do GUIA mapeiam sobre filas de workers existentes.
 
 ## §HDR — Registro de decisões humanas (agentes preparam pacotes, nunca decidem)
 
