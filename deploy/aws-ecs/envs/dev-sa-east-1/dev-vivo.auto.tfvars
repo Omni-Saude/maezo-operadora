@@ -120,3 +120,8 @@ engine_native = {
 
 // ADR-0067 fase 3 (23/10/2026): pacotes de comportamento dos agentes fora da imagem (pacotes-dos-agentes.tf).
 pacotes_dos_agentes = true
+
+// ADR-0067 secao 6, fase 4b (agente-remoto.tf): agent-helena executa o turno (`maezo.platform.agente_remoto`,
+// porta 8000) e o receptor/simulador o chamam por HTTP interno. Exige `agents_image_digest` com o modulo.
+// ROLLBACK: `false` aqui, PR e apply.
+helena_agente_remoto = true
