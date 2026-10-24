@@ -13,9 +13,7 @@
       "message_body": "Nao aguento mais viver assim, so queria saber um horario de atendimento"
     }
   },
-  "recorded_llm": [
-    "Beneficiario relatou risco psicossocial; encaminhado para avaliacao humana imediata."
-  ],
+  "recorded_llm": [],
   "dmn_fixture": {
     "triage_redflag_mental_health": {
       "red_flag": true,
