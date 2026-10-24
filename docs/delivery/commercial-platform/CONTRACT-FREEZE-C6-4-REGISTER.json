@@ -1,0 +1,179 @@
+{
+  "schema": "omni-commercial-contract-freeze.v1",
+  "freeze_id": "CONTRACT-FREEZE-C6-4",
+  "citable_version": "C6-4-frozen@3c619d91",
+  "frozen_at": "2026-10-23T22:34:57Z",
+  "frozen_by": "orquestrador BRDG-3.2 (agente), por decisao D-15 do dono (docs/plans/maezo-completion-program.md, Secao Decisoes)",
+  "repository": "Omni-Saude/maezo-operadora",
+  "main_sha": "3c619d919738878331c21dadda4b112993f430ef",
+  "merge_pr": 907,
+  "merge_sha": "7b2dfb86f2680f0287bc37e3b4b31c23ca4bc98b",
+  "contract": {
+    "contract_id": "omni-commercial.proposed.v1",
+    "revision": "C6-4",
+    "sha256": "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea",
+    "bytes": 320163,
+    "local_mirror_path": "tests/candidate_artifacts/commercial/contract-c6-4.json",
+    "sha256_recomputed_at_freeze": true,
+    "sha256_matches_existing_pins": true,
+    "commands": 42,
+    "recoverable_commands": 41,
+    "public_gets": 3
+  },
+  "lineage": [
+    {
+      "path": "tests/candidate_artifacts/commercial/contract-c6-4.json",
+      "sha256": "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea",
+      "bytes": 320163,
+      "role": "espelho TEST-only do contrato C6-4 (conformacao UNIT do codec; NOT_PUBLISHED; nunca carregado em runtime)"
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/PROVENANCE-C6-4.json",
+      "sha256": "227737840da47183ce72bb5113b7a821f252a77f276f04ba57cb998b928fa4f2",
+      "bytes": 1026,
+      "role": "custodia imutavel do candidato (import AMH commit b3ab95a07a016526aa5dc09ead22aafccd630b45)"
+    },
+    {
+      "path": "config/integrations/amh/commercial-c6-4.source.lock.json",
+      "sha256": "e969e5ff32532f30ae3d4bae60bd26cb08ad6093b19e946ba379cdbae7764228",
+      "bytes": 1626,
+      "role": "pin de fonte C6-4 (origem AMH main, PR 282; classificacao SOURCE_PUBLISHED_PROPOSED_EXTENSION_NOT_RUNTIME_ADMISSION)"
+    },
+    {
+      "path": "config/integrations/amh/contracts.lock.json",
+      "sha256": "098ff7b5077792ee5bc8126cf01fec6b9de89bd3f78d5bc0f63f8b5f73f6e55a",
+      "bytes": 36285,
+      "role": "lock canonico historico AMH1.x (preservado intocado; gate verify_amh_contract_pin.py)"
+    },
+    {
+      "path": "docs/delivery/commercial-platform/AMH-C6-4-MAIN-ORIGIN.json",
+      "sha256": "6db52d995f753dda6515dbe5e31abbdbf01cdf0bc87df225684d74c15a73b61d",
+      "bytes": 1855,
+      "role": "custodia da origem main do contrato publicado no AMH"
+    },
+    {
+      "path": "docs/delivery/commercial-platform/AMH-C6-4-MAIN-ORIGIN.md",
+      "sha256": "d4e2216f9760cf89a940736ae64a74becd25e06bfb9862747b0521733efa90d8",
+      "bytes": 1469,
+      "role": "narrativa da origem main (verificacao byte a byte via connector)"
+    },
+    {
+      "path": "docs/delivery/commercial-platform/MAEZO-C6-4-DELTA.md",
+      "sha256": "de51ac5d173fcb45909e0ff39d8a5c1ce1e8fbf3a1e50637a4fe49c94a3aee2e",
+      "bytes": 4262,
+      "role": "delta formal C6-4 (plan_choices, limites S03-S10 / NR-02-06,09-10 / CAP-03-16,24-29; evidencia 231 UNIT)"
+    },
+    {
+      "path": "src/maezo/ports/commercial.py",
+      "sha256": "01e9db9618eb90389710ccff99389a63ccdfb465224e9cbd604a2af852ed8d9f",
+      "bytes": 16525,
+      "role": "porta comercial (contrato interno tipado)"
+    },
+    {
+      "path": "src/maezo/adapters/amh/commercial.py",
+      "sha256": "6f048f638ae08b4b43b74edecf84c526ee431a1a16a1600097069494ea380ca0",
+      "bytes": 35550,
+      "role": "codec/consumidor AMH (confere digest dos bytes injetados por composicao confiavel; nao le a copia TEST)"
+    },
+    {
+      "path": "src/maezo/adapters/amh/commercial_http.py",
+      "sha256": "b151ccd4947f89a3e0b263727a21782b1bbce12f0c7889430cc688de3bbaa943",
+      "bytes": 14479,
+      "role": "transporte HTTP do consumidor (estado em main 3c619d91; versao do freeze pre-#907 = dd62500e1a77dd7f93647f237f454e4c031394fbf10b533c0d71bd3032032416)"
+    },
+    {
+      "path": "src/maezo/gateway/commercial.py",
+      "sha256": "952bd672ec3f411897970cd5804549b231df3e8dabd050e8a86848ae9fa10877",
+      "bytes": 22795,
+      "role": "gateway comercial (estado em main 3c619d91; versao do freeze pre-#907 = 5ddcbe8ddc29438e0f51d02a9d6e74d67044b44701ee912b701f8c289f487c28)"
+    },
+    {
+      "path": "src/maezo/gateway/commercial_admission.py",
+      "sha256": "09b1aee43f5042f8d6635630c0fc5eaa4c64210579dd315e8638b93c28badd13",
+      "bytes": 9490,
+      "role": "admissao runtime (UNBOUND por default; provider-dependent)"
+    },
+    {
+      "path": "src/maezo/portal/api/commercial.py",
+      "sha256": "6cf6daae32a7626d9a2c0568a7e99d3e8173b3162fed122b1990dd500cc9c6fc",
+      "bytes": 6664,
+      "role": "API do portal comercial"
+    }
+  ],
+  "lineage_note": "Os cinco freezes SOURCE-FREEZE-C6-4*.json foram registrados em checkpoints PRE-#907. Em main 3c619d91, exatamente dois consumidores evoluiram no merge #907 (src/maezo/adapters/amh/commercial_http.py e src/maezo/gateway/commercial.py); o sha256 do contrato e os dois pins (commercial-c6-4.source.lock.json, contracts.lock.json) permanecem identicos aos pins registrados. Os shas desta linhagem sao os observados em main 3c619d91.",
+  "prior_freezes": [
+    {
+      "path": "docs/delivery/commercial-platform/SOURCE-FREEZE-C6-4.json",
+      "sha256": "b820c563cca651dab60f66453e1daf925a8f7b10f73c865530b9f532d9694d9b",
+      "freeze": "C6-4-Maezo-owned-and-factory",
+      "checkpoint_head": "dfac0714ef8fe528149650c640761e936ad78a65"
+    },
+    {
+      "path": "docs/delivery/commercial-platform/SOURCE-FREEZE-C6-4-PREBODY.json",
+      "sha256": "7394e76d5f6054e7aa5c9bc75bc7808a97a1e464f3d9e0192f5c8cab155b1dea",
+      "freeze": "C6-4-Maezo-prebody-third-repair",
+      "checkpoint_head": "dfac0714ef8fe528149650c640761e936ad78a65"
+    },
+    {
+      "path": "docs/delivery/commercial-platform/SOURCE-FREEZE-C6-4-MAEZO-R2.json",
+      "sha256": "cd18c7a041a331901c753ab7a0ede2b65afc36541ab3824a5715facbf50417b3",
+      "freeze": "C6-4-MAEZO-R2-PRE-MAIN-ORIGIN",
+      "checkpoint_head": "5f64f0e07f8cd13ee2ef6607c7f7652e1507ba80"
+    },
+    {
+      "path": "docs/delivery/commercial-platform/SOURCE-FREEZE-C6-4-MAEZO-R3.json",
+      "sha256": "1f82ba54b8af19720761caa56e7ed11bdf9b0e5906163984802be9e4d26d6128",
+      "freeze": "C6-4-MAEZO-R3-MAIN-ORIGIN",
+      "checkpoint_head": "0f1602d2259cb5e374d8163df1bbd5540fff255d"
+    },
+    {
+      "path": "docs/delivery/commercial-platform/SOURCE-FREEZE-C6-4-MAEZO-R4.json",
+      "sha256": "9bb272e7039120c4ec8b46b5163b67208d3add1f59807198be2e375f65845ab2",
+      "freeze": "C6-4-MAEZO-R4-SCANNER",
+      "checkpoint_head": "6a7c0d9bb093a438d27f0fd7dfdb253c81d41722"
+    }
+  ],
+  "amh_pin": {
+    "source_repository": "Omni-Saude/amh-data-platform",
+    "source_commit": "a4f2ac237f02ea54873e245de3dceac922b8891d",
+    "source_tree": "11ee7dd7367e608284cc9e00492c91d5bd421e35",
+    "source_pr": 282,
+    "source_path": "schemas/proposals/maezo/commercial-v1/shared-contract-c6-4.proposed.v1.json",
+    "source_blob": "08e4d70dae5605d9000ad23db7df355eaa5fc940",
+    "candidate_import_commit": "b3ab95a07a016526aa5dc09ead22aafccd630b45",
+    "classification": "SOURCE_PUBLISHED_PROPOSED_EXTENSION_NOT_RUNTIME_ADMISSION",
+    "pin_path": "config/integrations/amh/commercial-c6-4.source.lock.json",
+    "historical_canonical_pin_path": "config/integrations/amh/contracts.lock.json",
+    "publication_note": "Publicacao da extensao proposta no Git do AMH nao significa homologacao Tasy, habilitacao PSP nem admissao operacional."
+  },
+  "runtime_admission": "UNBOUND",
+  "freeze_is_not_admission": {
+    "statement": "Congelamento NAO e admissao runtime. O runtime_admission permanece UNBOUND; nenhuma rota, scope, endpoint, capability ou provider de fonte foi criado ou habilitado por este registro.",
+    "portal_admissions": "As admissoes A1-A10 do portal externo omni_sales_platform permanecem PENDING (docs/delivery/admissions/A-INDEX.json, schema omni-sales-admissions-index.v1, 10 dossies status pending; src/server/admission/sales.ts retorna blocked/qualification_required). Erguer A1-A10 incrementalmente, com teste negativo por admissao, e o item BRDG-3.3 (decisao D-16) — fora do escopo deste congelamento.",
+    "gap_catalog": "A resolucao do GAP-CATALOG pela autoridade em main (item BRDG-3.3) e precondition das admissoes e nao e afetada por este registro."
+  },
+  "brdg_3_5_java_lane": {
+    "workflow": "ci.yml",
+    "branch": "main",
+    "run_id": 40010989062,
+    "run_started_at": "2026-10-23T19:23:08Z",
+    "head_sha": "3c619d919738878331c21dadda4b112993f430ef",
+    "job_name": "plugin humano Java (mvn verify)",
+    "job_conclusion": "success",
+    "run_conclusion": "success",
+    "note": "Lane verificada verde em main; nenhuma mudanca de workflow neste pacote."
+  },
+  "portal_mirror_pin": {
+    "path": "docs/delivery/commercial-platform/portal-mirror/PORTAL-MIRROR-PIN-C6-4.json",
+    "target_repository": "Omni-Saude/omni_sales_platform",
+    "target_path": "docs/delivery/commercial-platform/PORTAL-MIRROR-PIN-C6-4.json",
+    "copy_owner": "dono (o portal esta fora do write-scope do orquestrador)",
+    "instructions": "docs/delivery/commercial-platform/portal-mirror/README.md"
+  },
+  "successor_rule": "Sucessor do contrato exige nova custodia e gates independentes (canonical_editor: AMH only). Este registro nao aprova, nao ratifica e nao habilita nada; blocos de decisao humana permanecem com os donos nomeados (ADR-0007).",
+  "replay_commands": [
+    "shasum -a 256 tests/candidate_artifacts/commercial/contract-c6-4.json",
+    "shasum -a 256 docs/delivery/commercial-platform/CONTRACT-FREEZE-C6-4-REGISTER.json",
+    "git rev-parse HEAD"
+  ]
+}

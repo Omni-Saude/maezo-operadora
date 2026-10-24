@@ -313,14 +313,28 @@ async def test_rascunho_recusado_vira_resposta_deterministica_so_com_os_fatos(ra
 async def test_rascunho_que_omite_segmentacao_ou_acomodacao_vira_resposta_deterministica(
     rascunho: str,
 ) -> None:
+    # DL-0154 (etapa 8): a exigencia vale para a pergunta do TIPO do plano.
     inferencia = _FakeInference([_classify(), rascunho])
     compilado, sender, _ = _grafo(inferencia, _Fonte())
-    await compilado.ainvoke(_entrada())
+    await compilado.ainvoke(_entrada(message_body="qual é o tipo do meu plano?"))
     enviado = sender.sent[-1]
     assert enviado == resposta_deterministica(
         "elegibilidade", fatos_da_consulta("elegibilidade", ELEGIBILIDADE)
     )
     assert "Ambulatorial + Hospitalar" in enviado and "Enfermaria" in enviado
+
+
+@pytest.mark.parametrize(
+    "pergunta", ["meu plano esta ativo?", "to com o plano liberado pra usar?", "meu convênio tá valendo?"]
+)
+async def test_rascunho_certo_de_outra_pergunta_do_plano_nao_vira_o_cadastro_inteiro(pergunta: str) -> None:
+    """DL-0154 (etapa 8, "texto do plano no lugar da resposta"): o rascunho que responde a pergunta fica."""
+    rascunho = "Sim, seu plano PLANO SINTETICO ENFERMARIA está ativo e com atendimento liberado."
+    inferencia = _FakeInference([_classify(), rascunho])
+    compilado, sender, _ = _grafo(inferencia, _Fonte())
+    await compilado.ainvoke(_entrada(message_body=pergunta))
+    assert "está ativo e com atendimento liberado" in sender.sent[-1]
+    assert "segmentação" not in sender.sent[-1]
 
 
 def test_omissao_so_vale_para_o_que_o_cadastro_tem() -> None:
@@ -360,6 +374,48 @@ async def test_autorizacao_com_status_do_cadastro_em_analise_sai_inteiro() -> No
     assert "aprovada" not in enviado  # o rascunho nem foi pedido
     assert not out.get("error")
     assert out["resposta_com_dados_do_plano"] is True
+
+
+def _varias_requisicoes() -> Any:
+    from dataclasses import replace
+
+    base = REQUISICOES.requisicoes[0]
+    return replace(
+        REQUISICOES,
+        requisicoes=(
+            replace(base, solicitacao=111111, solicitada_em="2026-09-01T09:00:00Z", status="Liberada"),
+            base,
+            replace(base, solicitacao=222222, solicitada_em="2026-08-01T09:00:00Z", status="Negada"),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "pergunta",
+    ["minha autorizacao ja saiu?", "e a guia do exame, liberou?", "como está meu pedido de autorização?"],
+)
+def test_autorizacao_responde_a_mais_recente_e_conta_as_outras(pergunta: str) -> None:
+    from maezo.agents.helena.consultas_plano import pede_todas_as_autorizacoes
+
+    fatos = fatos_da_consulta("autorizacao", _varias_requisicoes())
+    assert fatos is not None
+    texto = resposta_deterministica(
+        "autorizacao", fatos, todas_as_autorizacoes=pede_todas_as_autorizacoes(pergunta)
+    )
+    assert "123456" in texto and "111111" not in texto and "222222" not in texto
+    assert "No cadastro há mais 2 solicitações; se quiser, me peça a lista." in texto
+
+
+@pytest.mark.parametrize("pergunta", ["quais são as outras?", "me manda a lista das autorizações", "todas"])
+def test_autorizacao_lista_todas_quando_a_pessoa_pede(pergunta: str) -> None:
+    from maezo.agents.helena.consultas_plano import pede_todas_as_autorizacoes
+
+    fatos = fatos_da_consulta("autorizacao", _varias_requisicoes())
+    assert fatos is not None
+    texto = resposta_deterministica(
+        "autorizacao", fatos, todas_as_autorizacoes=pede_todas_as_autorizacoes(pergunta)
+    )
+    assert all(n in texto for n in ("123456", "111111", "222222"))
 
 
 async def test_carencia_responde_o_que_consta_no_cadastro() -> None:
@@ -468,7 +524,7 @@ def test_fatos_nunca_levam_nome_nem_valor_nao_mascarado() -> None:
 
 
 def test_versoes_da_consulta_estao_no_mapa_de_prompts() -> None:
-    assert PROMPT_VERSIONS["classify_consultas"] == "classify-consultas-v2"
+    assert PROMPT_VERSIONS["classify_consultas"] == "classify-consultas-v3"
     assert PROMPT_VERSIONS["consulta_plano"] == "consulta-plano-v2"
 
 

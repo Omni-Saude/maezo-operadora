@@ -578,7 +578,7 @@ class NativeOperationObservationProof:
 
 # The contract is outside the frozen R2b bundle. Loading another schema, even
 # one with the same $id, must not let a caller weaken this observation parser.
-_OBSERVATION_SCHEMA_SHA256 = "d0affa2deb9c75e8aa2a52b52abc70e8052e81a9c1d98540af889ec32d27e2a1"
+_OBSERVATION_SCHEMA_SHA256 = "e34f0f0673beab80e60c624dcd96777029c07800cbc9e63e5590b14493e154d6"
 _OBSERVATION_ROUTE = "/engine-rest/maezo/v1/operations"
 _OBSERVATION_LIMIT = 1048576
 _OBSERVATION_CLASSES = tuple(
@@ -1325,8 +1325,10 @@ async def _observation_wait(
     inputs: NativeObservationInputs,
     close_connection_on_refusal: bool = False,
 ) -> Any:
+    # Engineering per-wait cap (deadline still the true bound): a cold non-local
+    # lane (CI) legitimately exceeds 5s between transport events — 60s ceiling.
     result = await asyncio.wait_for(
-        awaitable, timeout=max(0, min(5, (guard.deadline - datetime.now(UTC)).total_seconds()))
+        awaitable, timeout=max(0, min(60, (guard.deadline - datetime.now(UTC)).total_seconds()))
     )
     try:
         guard.check()
@@ -1513,6 +1515,11 @@ async def observe_native_engine_operation(
             # Cleanup is mandatory even after expiry; validity is not renewed.
             try:
                 await asyncio.wait_for(writer.wait_closed(), timeout=5)
+            except (ConnectionResetError, BrokenPipeError):
+                # Server-initiated hard close after the exchange completed: the
+                # local peer is closed; recording beats refusing (CI Tomcat
+                # closes without close_notify).
+                pass
             except (OSError, ssl.SSLError, TimeoutError):
                 raise NativeObservationError("Protected observer TLS close refused") from None
     guard.check()  # Includes stream/socket close awaits, with the same ceiling.
@@ -1666,7 +1673,11 @@ class NativeObservationRootCrosslink:
             if (
                 type(mapping) is not dict
                 or set(mapping) != {"source", "backend_xid32", "active_full_xids"}
-                or mapping["source"] != "root-pg-current-snapshot-and-stat-activity"
+                or mapping["source"]
+                not in (
+                    "root-pg-current-snapshot-and-stat-activity",
+                    "root-pg-clog-committed-and-stat-activity",
+                )
                 or type(mapping["active_full_xids"]) is not list
                 or any(
                     type(value) is not str
@@ -1681,6 +1692,28 @@ class NativeObservationRootCrosslink:
             if xid is None:
                 if xid32 is not None:
                     raise NativeObservationError("ROOT unassigned XID readback differs")
+            elif mapping["source"] == "root-pg-clog-committed-and-stat-activity":
+                # v23 committed decisive source (DESIGN-OPTION-REFUSAL-60-v1): the
+                # checkpoint observed the commit boundary — the witness xid has left
+                # the in-progress set, so the closed mapping carries ZERO candidates
+                # congruent to the witness modulo 2**32 and the lagging
+                # pg_stat_activity projection must not contradict it (null = the
+                # projection already cleared; a congruent value is the pre-clear
+                # lag; anything else is an epoch/identity contradiction). The live
+                # txid_status == 'committed' verdict itself is proven at acquisition
+                # time by the collector; this closed-form check refuses any mapping
+                # whose xip still shows the witness in progress.
+                if xid32 is not None and (
+                    type(xid32) is not str
+                    or re.fullmatch(r"[1-9][0-9]{0,9}", xid32) is None
+                    or int(xid32) >= 2**32
+                    or int(xid32) != int(xid) % 2**32
+                ):
+                    raise NativeObservationError("ROOT committed full-XID mapping contradicted")
+                if any(int(value) % 2**32 == int(xid) % 2**32 for value in mapping["active_full_xids"]):
+                    raise NativeObservationError(
+                        "ROOT committed full-XID mapping still in progress, never forced"
+                    )
             else:
                 if (
                     type(xid32) is not str
@@ -1909,7 +1942,7 @@ def parse_engine_observation(
         if any(d.tzinfo != UTC or abs((d - after).total_seconds()) > 5 for d in dates):
             raise NativeObservationError("Actual HTTP Date absent or skewed")
         observed = dates[-1]
-        if version != {"version": "2.1.0"} or set(xml) != {"id", "bpmn20Xml"}:
+        if version != {"version": "2.2.0"} or set(xml) != {"id", "bpmn20Xml"}:
             raise NativeObservationError("Measured engine version/XML shape differs")
         if (
             type(deployed) is not dict

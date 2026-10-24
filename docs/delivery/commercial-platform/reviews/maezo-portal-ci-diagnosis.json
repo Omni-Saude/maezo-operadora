@@ -1,0 +1,20 @@
+{
+  "schema": "commercial.portal-ci-diagnosis.v1",
+  "candidate_head": "ddb7116223067b32c123afcd24f3cb5a0bdd3c27",
+  "base_sha": "c1a6a64d54bb1966e5419dd6677775aeeb7e2d83",
+  "ci_checkout": "GitHub merge candidate of stated head into base",
+  "run_id": 39851012097,
+  "job_id": 120076853709,
+  "stages": {"check_generated": "PASS", "typecheck": "PASS", "test": {"total": 670, "pass": 669, "fail": 1}, "build": "NOT_REACHED_AFTER_TEST_FAILURE"},
+  "failure": {"file": "src/maezo/portal/web/src/App.test.tsx", "test": "revalidação automática anuncia o estado sem focar o destino", "line": 801, "missing_heading": "Revalidando sua sessão", "dom_remained_authenticated": true},
+  "verified_source_sha256": {"App.tsx": "9ec73770b0fcce826b9637b630ffac0372094063efeb7620962ff77058861b7c", "App.test.tsx": "4ad011981fe3533db4c90e6c920d5cebdcb9e839c374c5280b0d64a4a905edc2"},
+  "confirmed_source_gap": "one-shot visibility dispatch has no explicit passive-effect/listener-registration readiness precondition",
+  "candidate_hypothesis": "authenticated DOM observed before passive visibility subscription settled",
+  "actual_ci_listener_absence": "NOT_PROVEN",
+  "base_file_equality_and_success": "ROOT_REPORTED_NOT_RECHECKED_BY_DIAGNOSTICIAN",
+  "minimal_scope": "failing App.test.tsx fixture only; awaited act/effect readiness and non-vacuous registration evidence",
+  "preserve": ["real visibility event", "visible document", "pending second response", "loading not focused", "active-session absence during loading", "destination not focused", "exact status announcement", "existing test budget", "all original cases"],
+  "prohibited_shortcuts": ["production change", "arbitrary sleep", "timeout increase", "rerun-only conclusion", "skip", "conditional assertion"],
+  "reviewer_tests": "NOT_RUN",
+  "next_gate": "distinct third-party minimal fixture repair, original reviewer recheck, ROOT final exact-head portal verify"
+}

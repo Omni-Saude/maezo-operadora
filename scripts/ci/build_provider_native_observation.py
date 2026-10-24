@@ -37,7 +37,7 @@ OWNERS = ("br/com/maezo/human/ProviderAuthTestOwner", "br/com/maezo/human/Provid
 MEASUREMENT_OWNER = "br/com/maezo/workload/ProviderNativeIndependentMeasurement"
 MEASUREMENT_OWNERS = (*OWNERS, MEASUREMENT_OWNER)
 MEASUREMENT_SCHEMA = "provider-native-independent-measurement-schema-v1.json"
-MEASUREMENT_SCHEMA_SHA = "d55733ba7703f39c7c71f13da0eb20f14825cbff03c1106894aae610423cebfe"
+MEASUREMENT_SCHEMA_SHA = "91d5549125eec95cc50552d127974a27071a6415a76aa2a427c15dc1e410d88d"
 MEASUREMENT_INPUT_SCHEMA = "provider-native-independent-measurement-build-inputs.v1"
 MEASUREMENT_CLASSES = frozenset(
     (

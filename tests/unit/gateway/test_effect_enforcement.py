@@ -982,8 +982,13 @@ def test_mapeamento_topicos_is_byte_unchanged_in_content(shipped: dict[str, Any]
         `registrar_glosa` + `emitir_demonstrativo` (`negativa_notificacao`) and
         `handoff_pagamento` (`inicio_processo_regulatorio`).
     No EXISTING entry was touched or reclassified, and no class was invented.
+
+    32 entries as of DL-0150: ADDED `operadora.escalation.notify_team` and
+    `operadora.escalation.notify_supervisor` (`notificacao_interna_equipe`, declared and UNAPPROVED in
+    the same PR). Still no existing entry touched; `operadora.events.publish` deliberately unmapped.
     """
-    assert len(shipped[TOPIC_MAP_KEY]) == 30
+    assert len(shipped[TOPIC_MAP_KEY]) == 32
+    assert "operadora.events.publish" not in shipped[TOPIC_MAP_KEY]
     assert not set(shipped[TOPIC_MAP_KEY]) & set(shipped[ACTION_MAP_KEY])
 
 
@@ -1023,6 +1028,14 @@ _DESIGN_6_1_LADDER: tuple[tuple[str, str, str], ...] = (
         "comunicacao_beneficiario",
         effect_classes.RUNG_C1_NOTIFICACAO,
         effect_classes.SHAPE_ESCALONAMENTO_HUMANO,
+    ),
+    # DL-0150 (fora do §6.1 original): o aviso INTERNO a equipe/supervisor do SP-OP-ESCALATION-001.
+    # Mesmo degrau de notificacao, mas a superficie e' worker de external task: "Denied → recusa
+    # auditada + incidente fail-closed (retries=0)", nunca um aviso silenciosamente perdido.
+    (
+        "notificacao_interna_equipe",
+        effect_classes.RUNG_C1_NOTIFICACAO,
+        effect_classes.SHAPE_INCIDENTE_FALHA_FECHADA,
     ),
     # -- C2 — PHI read / model egress ---------------------------------------------------------------
     # §6.1 C2 row 1: "Denied read degrades to the **disclosed gap note** every graph already
@@ -1079,7 +1092,10 @@ _DESIGN_6_1_LADDER: tuple[tuple[str, str, str], ...] = (
 
 
 def test_every_class_carries_the_exact_rung_and_denial_shape_design_6_1_assigns() -> None:
-    """§6.1's ladder, pinned as a TABLE: all 15 classes, both columns, in both directions.
+    """§6.1's ladder, pinned as a TABLE: all 17 classes, both columns, in both directions.
+
+    Fifteen from design §6.1, plus `registro_consentimento` (DL-0083) and
+    `notificacao_interna_equipe` (DL-0150).
 
     Dict equality rather than a per-row loop on purpose — it fails on a swapped shape, a changed
     rung, a class added to the catalogue without a design row, AND a class quietly dropped from
@@ -1088,8 +1104,9 @@ def test_every_class_carries_the_exact_rung_and_denial_shape_design_6_1_assigns(
     assert {name: (spec.rung, spec.denial_shape) for name, spec in effect_classes.ACTION_CLASSES.items()} == {
         name: (rung, shape) for name, rung, shape in _DESIGN_6_1_LADDER
     }
-    assert len(_DESIGN_6_1_LADDER) == 16, (
+    assert len(_DESIGN_6_1_LADDER) == 17, (
         "design §6.1 declares fifteen classes across five rungs, plus `registro_consentimento` (DL-0083)"
+        " and `notificacao_interna_equipe` (DL-0150)"
     )
     assert {rung for _, rung, _ in _DESIGN_6_1_LADDER} == {
         effect_classes.RUNG_C0_LEITURA_INTERNA,

@@ -1,0 +1,51 @@
+# Pacote de comportamento da Helena (ADR-0067 fase 3) — configuracao.
+#
+# Este diretorio vira um pacote IMUTAVEL (sha256) publicado fora da imagem; o ponteiro de cada ambiente diz
+# qual versao vale. Mudar aqui + merge = pacote novo no dev, SEM build e SEM deploy do Maezo. O receptor le' o
+# pacote ativo a cada 60 s (`maezo.runtime.pacote_do_agente`); o que estiver aqui VENCE as variaveis
+# `MAEZO_HELENA_*` da task (que ficam como valor de partida enquanto o pacote nao carrega).
+#
+# Validacao estrita em `agents/helena/pacote.py`: chave desconhecida, tipo errado ou valor fora do dominio
+# recusam o pacote inteiro (o receptor fica com o ultimo pacote bom).
+formato: helena-configuracao-v1
+
+# Chaves de comportamento (os mesmos significados das antigas MAEZO_HELENA_*).
+memoria_clinica: true       # Frente 2.1
+historico: true             # DL-0080 (liga junto o modo coleta)
+triagem_v2: false           # DL-0104
+v4: true                    # DL-0115
+carteirinha_completa: true  # dono, 17/10/2026
+dependentes_nome: true      # DL-0127
+base_saude: true            # DL-0118 / ADR-0064
+identidade_nome_operadora: "Austa Clínicas"  # DL-0078
+
+# Roteador de habilidades (ADR-0066).
+roteador:
+  modo: ativo               # desligado | sombra | ativo
+  modelo: zai.glm-5         # modelo Bedrock da zona PHI regional; vazio = o da conversa
+  prazo_s: 6.0               # contrato v7 (etapa 7): a leitura completa; medido p90 2,9 s
+  max_tokens: 400           # o JSON v7 tem 13 chaves
+  concorrencia: 4
+  conversas: &conversas_do_teste  # F2: as conversas (ids keyed) em que o roteador ativo decide
+    - wa:amh:hk1_41a907864e3b318fe11d8124e2eed5d8a0ad8d076a8cf69449e60e28043290d7
+    - wa:amh:hk1_c416ceac7076a3946bcacc8c0ca3c5c68083ee7d5c3d3cdbc0335bedf5f0d086
+    - wa:amh:hk1_dbae14094dd97675d3564309f70861c3f644d3134704cbe25f80e1dbb95956e5
+    - wa:amh:hk1_0909c2f1979a1326c2210f50c38ac2da42b9f1462c36fe6f5bddb268acedc69a
+    - wa:amh:hk1_2c6d769d38c68af9df7dad00393e8caed88e3f852b1c68f3aac2105c11ce3514
+    - wa:amh:hk1_779f711a77180fa0ec38b23f7fe83848344447e1ed131e4c6c2cff2af784dbed
+    - wa:amh:hk1_e4e695ffef67a87c66dfb14c14a38a2a7db4258ee10a642133e05c8f0fb04d31
+    - wa:amh:hk1_c9a42214bf91e285a511878d57f169a2af5a67cbd964f194b6b1e7811698f9dd
+    - wa:amh:hk1_298020f13ddf83ff5cc1e695591075729db2e5614775c824e192cbe1359363a0
+    - wa:amh:hk1_1af788a6ccaa52b4135ae61ac2e816608024fc6307b04c2caf5303a1f606581f
+    - wa:amh:hk1_34d934f10c9167de002295ee0412fe6cf4eb0ba9885aef3a5f9ab7029e53e8f6
+    - wa:amh:hk1_0f251a8e67a29606f4f20e7a1e81f27be3b927b8472560e434c066ff83e6219b
+    - wa:amh:hk1_9d38c66cee23a2ddd89b80eb9b616e7f2e9e5f601e1ab537d19927c39b6e71d2
+    - wa:amh:hk1_9d2b6c9bdfa8f71d0187db6716a68e1e61c944d5610ae161152b90db97acf244
+
+# Esperar e juntar (Plano de ajustes da Helena v2, etapa 9a; DL-0154): nas conversas da lista, a Helena espera
+# `espera_s` depois de cada mensagem e responde UMA vez as mensagens picotadas; mensagem nova antes do envio
+# refaz a resposta com tudo. Sinal claro de emergencia nao espera. Ligado so' depois de o agent-helena e o
+# receptor com a etapa 9a estarem no dev (24/10/2026). Fora da lista (ou sem esta chave): nada muda.
+juntar_mensagens:
+  espera_s: 4.0
+  conversas: *conversas_do_teste

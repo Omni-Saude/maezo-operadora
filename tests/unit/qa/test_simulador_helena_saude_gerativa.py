@@ -102,7 +102,12 @@ def test_os_telefones_9_na_allowlist_e_o_ultimo_fora() -> None:
 def test_respostas_reais_do_haiku_passam_nos_passos_de_utilidade() -> None:
     assert _passa("1-endometriose-e-osteoporose", _HAIKU_ENDOMETRIOSE) == []
     assert _passa("1-endometriose-e-osteoporose", _HAIKU_OSTEOPOROSE, 1) == []
-    assert _passa("2-dor-de-cabeca-ja-usou-remedio", _HAIKU_DOR_DE_CABECA, 1) == []
+    # DL-0154: o passo 2 deixou de ser redigido (a Helena nao orienta o sintoma): e' a pergunta de novo.
+    from maezo.agents.helena.helena_v4 import ALERTAS, GRUPO_CABECA, TEXTO_DA_REPERGUNTA
+
+    repergunta = TEXTO_DA_REPERGUNTA.format(sinais=ALERTAS[GRUPO_CABECA].sinais)
+    assert _passa("2-dor-de-cabeca-ja-usou-remedio", repergunta, 1) == []
+    assert _passa("2-dor-de-cabeca-ja-usou-remedio", _HAIKU_DOR_DE_CABECA, 1) != []
     assert _passa("3-infeccao-urinaria", _HAIKU_CISTITE) == []
     assert _passa("4-o-que-e-sinal-de-alarme", _HAIKU_SINAL_DE_ALARME) == []
     assert _passa("5-dipirona", _HAIKU_DIPIRONA) == []

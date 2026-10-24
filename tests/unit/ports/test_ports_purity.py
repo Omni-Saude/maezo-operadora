@@ -70,6 +70,7 @@ import maezo.ports as ports_pkg
 _EXPECTED_MODULES: frozenset[str] = frozenset(
     {
         "__init__",  # public surface (re-exports only)
+        "commercial",  # C6 proposed opaque command/authority seams; stdlib-only, not source admission
         "envelope",  # the 28 frozen envelope fields, in the pinned order
         "errors",  # the ONE closed refusal taxonomy + the pinned timeout default
         "work_items",  # WorkItemSource
@@ -308,7 +309,7 @@ def test_port_modules_discovered() -> None:
         "Adding/removing a port module is a deliberate change to the boundary's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 14, f"expected exactly 14 port modules, found {sorted(mods)}"
+    assert len(mods) == 15, f"expected exactly 15 port modules, found {sorted(mods)}"
 
 
 def test_import_extraction_is_not_vacuous() -> None:
@@ -511,8 +512,9 @@ def test_no_port_value_type_has_a_phi_shaped_field() -> None:
     # +2 (19/10/2026, DL-0128): catalogo de procedimentos TINA v1.14 (ProcedimentoCatalogo,
     # CatalogoProcedimentosView).
     # +1 (20/10/2026, DL-0130): CPT vigente TINA v1.15 (CptVigenteView).
-    assert len(value_types) == 47, (
-        f"expected 47 port value types, found {sorted(value_types)} — update this non-vacuity pin "
+    # +15 (22/10/2026, C6): opaque commercial scope, proof and command value types.
+    assert len(value_types) == 62, (
+        f"expected 62 port value types, found {sorted(value_types)} — update this non-vacuity pin "
         "when a value type is deliberately added or removed"
     )
     offenders: dict[str, list[str]] = {}

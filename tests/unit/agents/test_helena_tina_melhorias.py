@@ -60,11 +60,29 @@ async def test_a_jornada_entra_no_fim_da_resposta_redigida() -> None:
     resultado = await conversa.diz(
         "Quais exames de sangue avaliam meu metabolismo? Como faço pelo plano?", _CLINICA
     )
-    texto = _texto(resultado)
-    assert texto.startswith(_RESPOSTA) and texto.endswith(j.TEXTOS[j.JORNADA_EXAME])
+    # DL-0154: o rascunho valido sem a linha da fonte SAI (antes era descartado); o prompt da jornada segue.
     assert conversa.motivos == []
     prompt = conversa.transporte.chamadas[-1][1][0]["content"][0]["text"]
     assert "o sistema acrescenta, no fim, o passo de como usar o plano" in prompt
+    assert _texto(resultado).startswith(_RESPOSTA)
+
+
+async def test_a_jornada_entra_no_fim_da_resposta_redigida_com_fonte() -> None:
+    conversa = _Conversa(_Transporte())
+    com_fonte = _RESPOSTA + chr(10) + "Fonte: Ministerio da Saude"
+
+    async def redigir(pedido: object, **_: object) -> sg.Redacao:
+        return sg.Redacao(texto=com_fonte, desfecho="primeira")
+
+    conversa.redator.redigir = redigir  # type: ignore[method-assign]
+    resultado = await conversa.diz(
+        "Quais exames de sangue avaliam meu metabolismo? Como faço pelo plano?", _CLINICA
+    )
+    texto = _texto(resultado)
+    assert texto.startswith(com_fonte) and b.AVISO_PADRAO not in texto
+    # OPCAO C (DL-0154): a jornada do plano e, por ultimo, o fecho "Posso ajudar em mais alguma coisa?".
+    assert j.TEXTOS[j.JORNADA_EXAME] in texto
+    assert texto.endswith("Posso ajudar em mais alguma coisa?")
 
 
 def test_isso_e_normal_mais_direto_no_prompt_e_a_checagem_continua() -> None:

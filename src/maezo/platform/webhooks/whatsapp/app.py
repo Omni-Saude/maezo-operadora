@@ -551,4 +551,15 @@ def create_app(
             ok_content["conversation_id"] = turno_do_lote.get("conversation_id", "")
         return JSONResponse(status_code=200, content=ok_content)
 
+    # ADR-0067 fase 4b: com o agente de entrada REMOTO (`MAEZO_AGENTE_DE_ENTRADA_URL`), o envio do turno volta
+    # por uma rota interna assinada, resolvida no registro de remetentes do cliente. Em processo (o de sempre)
+    # a rota nao existe.
+    from maezo.platform.agente_remoto.cliente import AgenteDeEntradaRemoto
+
+    entrada = getattr(dispatcher, "agente_de_entrada", None)
+    if isinstance(entrada, AgenteDeEntradaRemoto):
+        from maezo.platform.agente_remoto.rota_de_envio import registrar_rota_de_envio
+
+        registrar_rota_de_envio(app, entrada)
+
     return app

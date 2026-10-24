@@ -18,6 +18,8 @@ from typing import Any, cast
 
 import pytest
 
+from maezo.agents.helena import cadastro as cad
+from maezo.agents.helena import graph as helena_graph_module
 from maezo.agents.helena.consultas_plano import (
     RESPOSTA_CONSULTA_SEM_IDENTIDADE,
     fatos_da_consulta,
@@ -25,7 +27,6 @@ from maezo.agents.helena.consultas_plano import (
 )
 from maezo.agents.helena.graph import (
     FRASE_PASSAGEM_COBRANCA,
-    MODELO_SEGMENTACAO_DO_CADASTRO,
     RESPONSE_KIND_HANDOFF,
     RESPOSTA_COBERTURA_ESPECIFICA,
     RESPOSTA_COBERTURA_ESPECIFICA_2,
@@ -36,8 +37,6 @@ from maezo.agents.helena.graph import (
     RESPOSTA_PLANO_POR_CANAIS,
 )
 from maezo.agents.helena.historico import MARCADOR_RESPOSTA_COM_DADOS_DO_PLANO, MARCADOR_RESPOSTA_DE_COBERTURA
-from maezo.platform.webhooks.whatsapp import acesso_cadastro as cad
-from maezo.platform.webhooks.whatsapp import dispatch as dispatch_module
 from maezo.platform.webhooks.whatsapp.helena_consultas import ConsultasPlanoAmh
 from maezo.ports.errors import PortFailureReason, PortResult
 from maezo.ports.tina import CarenciasView, ElegibilidadeView, VinculoPlano
@@ -241,25 +240,24 @@ def test_a_segunda_falha_oferece_uma_pessoa() -> None:
 # =================================================================================================
 
 
-async def test_cobre_parto_diz_a_segmentacao_com_obstetricia_e_nao_promete() -> None:
+async def test_cobre_parto_recebe_so_o_aviso_da_cobertura_sem_consulta() -> None:
+    """DL-0154 (dono, 23/10/2026): a cobertura saiu da Helena — nem a segmentacao do cadastro."""
     fonte = _Fonte()
     grafo, whatsapp, _, _ = _grafo([_classify(intent="clinical_question")], fonte=cast(Any, fonte))
 
     resultado = await grafo.ainvoke(_entrada("Meu plano cobre parto?"))
 
     assert resultado["response_kind"] == "inform"
-    assert fonte.chamadas == ["elegibilidade"]
+    assert fonte.chamadas == []
     enviado = whatsapp.enviados[0]
-    assert enviado == (
-        f"{MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=SEGMENTACAO)} {RESPOSTA_COBERTURA_ESPECIFICA}"
-    )
-    assert "Obstetrícia" in enviado
+    assert enviado == RESPOSTA_COBERTURA_ESPECIFICA
+    assert SEGMENTACAO not in enviado
     for promessa in ("está coberto", "cobre o parto", "tem cobertura para", "garant"):
         assert promessa not in enviado.lower()
 
 
-async def test_cobre_parto_depois_de_outras_respostas_do_plano_ainda_recebe_a_segmentacao() -> None:
-    """O roteiro do dono: tipo do plano, carencia e so' depois "cobre parto"."""
+async def test_cobre_parto_depois_de_outras_respostas_do_plano_recebe_so_o_aviso() -> None:
+    """O roteiro do dono: tipo do plano, carencia e so' depois "cobre parto" (DL-0154: so' o aviso)."""
     fonte = _Fonte()
     grafo, whatsapp, _, _ = _grafo([_classify(intent="clinical_question")], fonte=cast(Any, fonte))
 
@@ -270,8 +268,8 @@ async def test_cobre_parto_depois_de_outras_respostas_do_plano_ainda_recebe_a_se
         )
     )
 
-    assert fonte.chamadas == ["elegibilidade"]
-    assert SEGMENTACAO in whatsapp.enviados[0]
+    assert fonte.chamadas == []
+    assert whatsapp.enviados[0] == RESPOSTA_COBERTURA_ESPECIFICA
 
 
 async def test_insistir_na_cobertura_nao_reenvia_a_segmentacao_nem_repete() -> None:
@@ -313,11 +311,8 @@ async def test_mista_entrega_a_parte_do_plano_junto_da_frase_de_passagem() -> No
 
     assert resultado["response_kind"] == RESPONSE_KIND_HANDOFF
     assert resultado["handoff"]["cobranca_subtipo"] == "vencimento"
-    assert fonte.chamadas == ["elegibilidade"]
-    esperado = (
-        f"{FRASE_PASSAGEM_COBRANCA} "
-        f"{MODELO_SEGMENTACAO_DO_CADASTRO.format(segmentacao=SEGMENTACAO)} {RESPOSTA_COBERTURA_ESPECIFICA}"
-    )
+    assert fonte.chamadas == [], "a parte da cobertura e' so' o aviso (DL-0154), sem consulta"
+    esperado = f"{FRASE_PASSAGEM_COBRANCA} {RESPOSTA_COBERTURA_ESPECIFICA}"
     assert whatsapp.enviados == [esperado]
     assert "perguntar de novo" not in whatsapp.enviados[0]
     assert _starts(cib) == 0
@@ -329,7 +324,7 @@ async def test_mista_com_o_lucas_ja_ativo_so_a_parte_do_plano() -> None:
     resultado = await grafo.ainvoke(_entrada(MISTA, agente_ativo_conversa="lucas"))
 
     assert resultado["response_kind"] == RESPONSE_KIND_HANDOFF
-    assert len(whatsapp.enviados) == 1 and whatsapp.enviados[0].startswith("No cadastro, seu plano consta")
+    assert whatsapp.enviados == [RESPOSTA_COBERTURA_ESPECIFICA]
     assert FRASE_PASSAGEM_COBRANCA not in whatsapp.enviados[0]
 
 
@@ -394,7 +389,7 @@ async def test_com_a_fonte_ligada_o_fato_ausente_do_perfil_vai_ao_grafo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _GrafoMarcador.rodou.clear()
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     identidade = {
         "portable_subject_ref": REF,
         "faixa_etaria": "adulto",
@@ -425,7 +420,7 @@ async def test_com_a_fonte_ligada_o_aviso_de_terceiro_nao_esconde_o_fato_ausente
     `RESPOSTA_PLANO_POR_CANAIS`; o texto deixava de ser igual e o "nao estao disponiveis por este chat" saia
     ao beneficiario mesmo com a fonte do plano ligada (contra a RODADA 8)."""
     _GrafoMarcador.rodou.clear()
-    monkeypatch.setattr(dispatch_module, "build", lambda _c: _GrafoMarcador())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _c: _GrafoMarcador())
     identidade = {
         "portable_subject_ref": REF,
         "faixa_etaria": "adulto",

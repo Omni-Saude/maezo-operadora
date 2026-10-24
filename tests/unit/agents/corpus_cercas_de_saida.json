@@ -2881,6 +2881,94 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Por aqui eu não pesquiso prestadores. A rede credenciada do seu plano está no aplicativo Austa Clínicas e no portal do plano. Lá dá para buscar por especialidade e cidade.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante — DL-0154 (23/10/2026, cobertura fora): TEXTO_REDE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Por aqui eu não trato de cobertura. Você consegue essa informação pelo aplicativo Austa Clínicas, pelo portal do plano ou pela central de atendimento do plano.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante — DL-0154 (23/10/2026, cobertura fora): TEXTO_COBERTURA_FORA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Entendi. Mantive o seu caso para a equipe de saúde confirmar com você.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante — DL-0154 (23/10/2026, saude e seguranca): TEXTO_CASO_MANTIDO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Não consegui entender bem a sua resposta. Para não arriscar, posso passar o seu caso para a nossa equipe de saúde avaliar com você. Quer? Responda sim ou não.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante — DL-0154 (23/10/2026, saude e seguranca): TEXTO_OFERTA_EQUIPE",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Tudo bem. Se o sintoma mudar ou piorar, é só me chamar.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante — DL-0154 (23/10/2026, saude e seguranca): TEXTO_OFERTA_RECUSADA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Quem pode avaliar a causa é o médico. Quer que eu te mostre onde marcar a consulta ou prefere falar com a equipe de saúde?",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante — DL-0154 (23/10/2026, saude e seguranca): TEXTO_AVALIAR_CAUSA",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Esta informação é geral e não substitui avaliação médica. Posso ajudar em mais alguma coisa?",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante — DL-0154 (23/10/2026, saude e seguranca): TEXTO_FECHO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Para ir além disso, quem pode te orientar é o médico. Quer que eu te mostre onde marcar a consulta ou prefere falar com a equipe de saúde?",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante — DL-0154 (23/10/2026, saude e seguranca): TEXTO_OFERTA_MEDICO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

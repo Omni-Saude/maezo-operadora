@@ -20,7 +20,7 @@ reguas:
       populacao, idade). Cinco regras em docs/design/regua-de-extracao.md.
     documento: docs/design/regua-de-extracao.md
     corpus: tests/evals/extracao/casos.json
-    # Quem assina a regua e' quem assina as 34 regras clinicas — nao ha dois donos aqui.
+    # Quem assina a regua e' quem assina as 40 regras clinicas — nao ha dois donos aqui.
     dono: medico auditor
     revisar_ate: "2026-12-15"
     ou_apos_conversas: 1000
@@ -31,8 +31,8 @@ reguas:
 
   - id: regras-clinicas
     o_que: >-
-      As 34 regras de red flag das quatro tabelas DMN (11 adulto, 8 pediatrica, 8 gestante,
-      7 saude mental).
+      As 40 regras de red flag das quatro tabelas DMN (12 adulto, 13 pediatrica, 8 gestante,
+      7 saude mental). Eram 34 ate' a r7a do adulto e as r9-r13 neonatais da pediatrica.
     # A REGUA E' A TABELA, nao o relatorio sobre ela. O relatorio de 14/09
     # (`docs/reports/revisao-das-34-regras-14-09-2026.md`) e' EVIDENCIA da ultima leitura e chega
     # com o PR da onda 1; apontar a cadencia para ele faria a cerca depender de um documento de

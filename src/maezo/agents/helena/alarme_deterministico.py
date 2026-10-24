@@ -26,6 +26,13 @@ ALARME_CRIANCA: Final[str] = "crianca_febre_prostrada"
 ALARME_INTOXICACAO: Final[str] = "intoxicacao"
 ALARME_ABDOME: Final[str] = "abdome_direito"
 ALARME_ALERGIA: Final[str] = "reacao_alergica_grave"
+#: Plano de ajustes v2 (DL-0154, lista de alarmes reais que SEMPRE dao 192): os sinais da propria tabela
+#: (A1/A3/A5 do catalogo v1, C4/N3 da crianca, a batida na cabeca do bebe < 1 ano da base) que dependiam do
+#: classificador devolver o codigo: agora reconhecidos tambem pelo TEXTO. Nenhum sinal novo; so' escala mais.
+ALARME_DEFICIT_NEUROLOGICO: Final[str] = "deficit_neurologico"
+ALARME_SANGRAMENTO: Final[str] = "sangramento_digestivo_ou_respiratorio"
+ALARME_CRIANCA_SEM_REAGIR: Final[str] = "crianca_sem_reagir"
+ALARME_BEBE_BATEU_A_CABECA: Final[str] = "bebe_bateu_a_cabeca"
 
 _GESTACAO_NO_TEXTO: Final[re.Pattern[str]] = re.compile(
     r"\b(?:gravida|gestante|gravidez|gestacao|semanas de gestacao|gestando|bebe na barriga)\b"
@@ -88,6 +95,43 @@ _PIORANDO: Final[re.Pattern[str]] = re.compile(
 )
 
 
+#: A3 (deficit neurologico): um lado do corpo paralisado/sem forca/dormente, boca torta, fala enrolada.
+_DEFICIT_NEUROLOGICO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:braco|perna|mao|lado do corpo|metade do corpo)\b[^.?!]{0,25}\b(?:paralisad\w*|sem forca|nao mexe"
+    r"|nao consigo mexer|dormente|adormecid\w*|caido|caida)\b"
+    r"|\bnao (?:mexo|consigo mexer|sinto) (?:o |a |meu |minha )?(?:braco|perna|mao)\b"
+    r"|\b(?:fraqueza|formigamento|dormencia) (?:de|em|no|na) um lado\b|\bboca torta\b|\brosto caido\b"
+    r"|\bfala (?:enrolada|arrastada)\b"
+)
+#: A5: sangue no vomito, vomito com sangue, tosse/cuspe com sangue.
+_SANGRAMENTO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:vomit\w*|golfad\w*)\b[^.?!]{0,15}\bsangue\b|\bsangue no vomito\b"
+    r"|\b(?:tossi\w*|tosse|tossindo|cuspi\w*|cuspindo|escarr\w*)\b[^.?!]{0,15}\bsangue\b"
+)
+#: C4/N3: a crianca nao reage, nao acorda, desmaiou ou convulsionou (com ou sem febre).
+_SEM_REAGIR: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:nao reage|sem reacao|nao responde|nao acorda|desacordad[oa]|desmai\w*|convuls\w*|ficou roxo"
+    r"|ficou roxa|esta roxo|esta roxa|ta roxo|ta roxa)\b"
+)
+#: Batida na cabeca de BEBE com menos de 1 ano (o arquivo da base de batida na cabeca, populacao bebe).
+_BATIDA_NA_CABECA: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:bateu|batido|batida|bater)\b[^.?!]{0,20}\bcabeca\b|\bcaiu\b[^.?!]{0,40}\bcabeca\b"
+)
+#: Menos de 1 ano DITO (a idade em meses ou "recem-nascido"); "bebe" sem idade segue as perguntas de alerta do
+#: arquivo da base (avaliacao de 21/10/2026), com a tabela decidindo.
+_BEBE_MENOR_DE_1_ANO: Final[re.Pattern[str]] = re.compile(
+    r"\brecem nascid[oa]\b|\bde (?P<meses>\d{1,2}) mes(?:es)?\b"
+)
+
+
+def _bebe_menor_de_1_ano(plano: str) -> bool:
+    for m in _BEBE_MENOR_DE_1_ANO.finditer(plano):
+        meses = m.group("meses")
+        if meses is None or int(meses) < 12:
+            return True
+    return False
+
+
 def _pressao_em_mmhg(valor: int) -> int:
     """ "18 por 11" (cmHg, como se fala no Brasil) -> 180/110; "180 por 110" fica."""
     return valor * 10 if valor < 30 else valor
@@ -120,19 +164,42 @@ def alarme_no_relato(plano: str) -> str | None:
         return ALARME_ALERGIA
     if _ABDOME_DIREITO.search(plano) and _PIORANDO.search(plano):
         return ALARME_ABDOME
+    if _afirmado(_DEFICIT_NEUROLOGICO, plano):
+        return ALARME_DEFICIT_NEUROLOGICO
+    if _afirmado(_SANGRAMENTO, plano):
+        return ALARME_SANGRAMENTO
+    if _CRIANCA.search(plano) and _afirmado(_SEM_REAGIR, plano):
+        return ALARME_CRIANCA_SEM_REAGIR
+    if _afirmado(_BATIDA_NA_CABECA, plano) and _bebe_menor_de_1_ano(plano):
+        return ALARME_BEBE_BATEU_A_CABECA
     return None
+
+
+#: A negacao colada ANTES do sinal ("nao tem sangue no vomito", "sem boca torta"): o sinal nao conta.
+_NEGACAO_ANTES: Final[re.Pattern[str]] = re.compile(r"\b(?:nao|sem|nunca|nenhum|nenhuma|nem)\b[^.?!,]{0,12}$")
+
+
+def _afirmado(padrao: re.Pattern[str], plano: str) -> bool:
+    """O sinal aparece ao menos uma vez SEM negacao colada antes."""
+    return any(not _NEGACAO_ANTES.search(plano[: m.start()]) for m in padrao.finditer(plano))
 
 
 #: A populacao da tabela que o alerta leva para o caso (o roteamento clinico de sempre).
 POPULACAO_DO_ALARME: Final[dict[str, str]] = {
     ALARME_GESTACAO: "gestante",
     ALARME_CRIANCA: "pediatric",
+    ALARME_CRIANCA_SEM_REAGIR: "pediatric",
+    ALARME_BEBE_BATEU_A_CABECA: "pediatric",
 }
 
 
 __all__ = [
     "ALARME_ABDOME",
     "ALARME_ALERGIA",
+    "ALARME_BEBE_BATEU_A_CABECA",
+    "ALARME_CRIANCA_SEM_REAGIR",
+    "ALARME_DEFICIT_NEUROLOGICO",
+    "ALARME_SANGRAMENTO",
     "ALARME_CRIANCA",
     "ALARME_GESTACAO",
     "ALARME_INTOXICACAO",

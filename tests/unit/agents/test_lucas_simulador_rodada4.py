@@ -30,10 +30,10 @@ from maezo.agents.lucas.graph import (
     ref_de_resposta,
 )
 from maezo.agents.lucas.prompts import motivo_de_recusa
+from maezo.domain.conversa.cobranca_lista import PedidoDeLista, decidir_lista_da_cobranca
+from maezo.domain.conversa.cobranca_reclamacao import decidir_reclamacao
+from maezo.domain.conversa.competencia import mes_relativo_do_texto
 from maezo.platform.webhooks.whatsapp.dispatch import _handoff_com_mes_do_texto
-from maezo.runtime.cobranca_lista import PedidoDeLista, decidir_lista_da_cobranca
-from maezo.runtime.cobranca_reclamacao import decidir_reclamacao
-from maezo.runtime.competencia import mes_relativo_do_texto
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.evals.lucas.programa import DmnDraftLocal
 from tests.support.audit_fakes import FakeStartAuditSink

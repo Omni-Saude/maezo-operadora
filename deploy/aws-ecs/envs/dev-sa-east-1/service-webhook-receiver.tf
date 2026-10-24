@@ -74,8 +74,15 @@ locals {
       # Os tres portoes da zona PHI + o modelo explicito — lidos SO' quando o provedor e'
       # `bedrock_br`/`br_resident` (ver `service-agents.tf`). Vazios nao afrouxam nada.
       { name = "MAEZO_PHI_ENDPOINT_URL", value = var.phi_endpoint_url },
+      # Excecao regional do dev autorizada pelo DPO (excecao-regional-phi.tf); vazio = sa-east-1.
+      { name = "MAEZO_PHI_EXCECAO_REGIONAL", value = var.phi_excecao_regional },
       { name = "MAEZO_PHI_VENDOR_DPA_REF", value = var.phi_vendor_dpa_ref },
       { name = "MAEZO_INFERENCE_MODEL", value = local.agentes.helena.provider == "bedrock_br" || local.agentes.helena.provider == "br_resident" ? var.phi_model_id : "" },
+      # Protecoes de TODA chamada a zona PHI (inferencia-alarmes.tf): prazo REAL (tempo de leitura do cliente), teto
+      # de tokens de saida e pool proprio de threads.
+      { name = "MAEZO_INFERENCE_TIMEOUT_S", value = tostring(var.inferencia_prazo_s) },
+      { name = "MAEZO_INFERENCE_MAX_TOKENS", value = tostring(var.inferencia_max_tokens) },
+      { name = "MAEZO_INFERENCE_DEDICATED_WORKERS", value = tostring(var.inferencia_workers) },
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },
@@ -126,6 +133,13 @@ locals {
       { name = "MAEZO_HELENA_DEPENDENTES_NOME", value = tostring(var.helena_dependentes_nome) },
       # DL-0118: base de conhecimento de saude da Helena (ADR-0064; default `false`; so' dev, ver `helena_base_saude`).
       { name = "MAEZO_HELENA_BASE_SAUDE", value = tostring(var.helena_base_saude) },
+      # DL-0134: roteador de habilidades da Helena (ADR-0066; default `desligado`; F1 `sombra` so' registra).
+      { name = "MAEZO_HELENA_ROTEADOR", value = var.helena_roteador },
+      # DL-0140 (dono, 22/10/2026): modo da cobertura (`simples` nunca consulta procedimento).
+      { name = "MAEZO_HELENA_COBERTURA_MODO", value = var.helena_cobertura_modo },
+      { name = "MAEZO_HELENA_ROTEADOR_CONVERSAS", value = join(",", var.helena_roteador_conversas) },
+      # DL-0137: o modelo PROPRIO do roteador (vazio = o da zona PHI).
+      { name = "MAEZO_HELENA_ROTEADOR_MODELO", value = var.helena_roteador_modelo },
       # DL-0119: saude gerativa (ADR-0065; default `false`; rota global autorizada pelo DPO so' para a allowlist).
       { name = "MAEZO_HELENA_SAUDE_GERATIVA", value = tostring(var.helena_saude_gerativa) },
       { name = "MAEZO_HELENA_SAUDE_GERATIVA_CONVERSAS", value = join(",", var.helena_saude_gerativa_conversas) },
@@ -158,7 +172,7 @@ locals {
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
       # Fonte AMH do Lucas: `environment_amh` (abaixo; amh-interop.tf) e' vazia com a fonte
       # `simulada`, entao esta task definition fica byte a byte igual enquanto ela nao for ligada.
-    ])
+    ], local.pacotes_dos_agentes_env) # ADR-0067 fase 3 (pacotes-dos-agentes.tf); vazio = desligado
     environment_amh = concat(local.amh_interop_env, local.amh_tina_env, local.amh_acesso_env, local.amh_billing_contratacao_env, local.amh_v4_env)
     secrets_app = concat(local.db_secrets_maezo, [
       # Sem esta o Pseudonymizer falha FECHADO (ADR-0035) — e o receptor e' quem pseudonimiza
@@ -214,6 +228,8 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       local.webhook_receiver_contrato.environment_app,
       local.recipient_vault_env,
       local.webhook_receiver_contrato.environment_amh,
+      # ADR-0067 §6 (agente-remoto.tf): URL do runtime remoto da Helena; vazio = turno em processo.
+      local.agente_remoto_env_cliente,
     )
 
     secrets = concat(

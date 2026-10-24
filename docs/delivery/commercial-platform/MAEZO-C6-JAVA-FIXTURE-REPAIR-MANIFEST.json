@@ -1,0 +1,73 @@
+{
+  "schema": "commercial.java-fixture-third-repair.v1",
+  "status": "FROZEN_PENDING_ORIGINAL_RECHECK_AND_LINUX_CI",
+  "owned_source": {
+    "src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/RuntimeDefinitionObservationTest.java": "8f91c1436352780084cddd677d70376c1f9c51b21ec07f5fe3cdc9adce10ce80"
+  },
+  "preimage_sha256": "f8d235aacaab5fa3a945d4e02cb088aab9f7eddee16a03b83f55680049d949e2",
+  "original_ci": {
+    "run_id": 39837960315,
+    "job_id": 120031149983,
+    "log_sha256": "76af084901c04f3a3738d19682ae75e1ce97c184ec28a051dfd17e8ad0794403",
+    "causal_link_to_fixture_race": "NOT_PROVEN"
+  },
+  "validation": {
+    "new_lifecycle": {
+      "tests": 1,
+      "passed": 1,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "old_cleanup_mutation": {
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0,
+      "classification": "deterministic test of old cleanup algorithm, not exact original CI reproduction"
+    },
+    "original_host_class": {
+      "tests": 59,
+      "passed": 41,
+      "failures": 2,
+      "errors": 15,
+      "skips": 1
+    },
+    "repaired_host_class": {
+      "tests": 60,
+      "passed": 42,
+      "failures": 2,
+      "errors": 15,
+      "skips": 1
+    },
+    "changed_original_case_outcomes": [],
+    "host_java": "25.0.4",
+    "compiler_release": 17,
+    "linux_proc_branch": "NOT_RUN_HOST_UNSUPPORTED",
+    "deployed_profile": "NOT_RUN",
+    "initial_offline_attempt": "dependency resolution failed before compilation"
+  },
+  "preservation": {
+    "original_test_cases": 59,
+    "all_original_bodies_outside_churn_byte_equal": true,
+    "churn_original_assumption_assertion_timeout_retained": true,
+    "production_java_modified": false,
+    "pom_workflow_scanner_environment_modified": false
+  },
+  "evidence": {
+    "RuntimeDefinitionObservationTest.frozen.java": "8f91c1436352780084cddd677d70376c1f9c51b21ec07f5fe3cdc9adce10ce80",
+    "RuntimeDefinitionObservationTest.old-cleanup-mutant.java": "dfd3ca549fe7d8d44f02aded1493cc064d7f7d6cb261525c089cfc73f4820a14",
+    "RuntimeDefinitionObservationTest.preimage.java": "f8d235aacaab5fa3a945d4e02cb088aab9f7eddee16a03b83f55680049d949e2",
+    "RuntimeDefinitionObservationTest.repaired.java": "8f91c1436352780084cddd677d70376c1f9c51b21ec07f5fe3cdc9adce10ce80",
+    "ci-120031149983.log": "76af084901c04f3a3738d19682ae75e1ce97c184ec28a051dfd17e8ad0794403",
+    "lifecycle-final.log": "b92331f7a3daee31d2063cad84ec4610c42344d1eec59359b6284851eda6ea9d",
+    "lifecycle-final.xml": "4cee13351e3dd323bb7f96d4e9c4c7ed5dc335d334e227e60d33280c9a7b9e9a",
+    "lifecycle-first.log": "1c87ec3778821cbbec32c45bcb1d5c65a5479c099b05da3dfcfe99a6b25e8900",
+    "lifecycle-old-cleanup-negative.log": "f44c8f1a2c0365811f99dbbfcba95559c230687c4e4e29dc02d190125ab5d5f6",
+    "original-host-baseline.log": "fd3817c570511c6d856232d73614fd4c8a24f22e76cabca7c161fd3b76f222c2",
+    "original-host-baseline.xml": "55aaa573a1aeb3952207b77f83b95330202683a3b4e421fa2278ba88f1db6364",
+    "repaired-full.xml": "015ec11a513a511db081d87adf839bd0a691dccb6350538a73f23a3475238fc7",
+    "targeted-final.log": "68cc9f93f3cdf49f85e2ee230524abe06f0e37ad4da65e0214123cb0ee7c438e",
+    "targeted-first.log": "a8e8e5ef1d6191d4f262870698e2350c523f4459ea9e0716197f8f47bd4e3197"
+  }
+}

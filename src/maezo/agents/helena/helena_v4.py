@@ -440,31 +440,48 @@ ALERTAS: Final[Mapping[str, AlertaDoGrupo]] = {
     ),
 }
 _PEDIDO_DE_RESPOSTA: Final[str] = "Responda sim ou não."
-_ABERTURA_DA_REPETICAO: Final[str] = "Só para eu entender:"
+#: Decisao do dono de 23/10/2026 (DL-0154, regra da ambiguidade): a resposta sem clareza recebe a pergunta UMA
+#: vez de novo, COM OUTRAS PALAVRAS (os sinais em resumo, nao as mesmas perguntas). `{sinais}` = o resumo do
+#: grupo (`AlertaDoGrupo.sinais`). Chave `sintoma_repergunta` do pacote de textos.
+TEXTO_DA_REPERGUNTA: Final[str] = (
+    "Só para eu ter certeza: neste momento, existe algum destes sinais: {sinais}? "
+    "Pode responder só sim ou não."
+)
 
 
 def texto_da_pergunta_de_alerta(
-    grupo: str, eco: str, *, repetida: bool = False, alerta: AlertaDoGrupo | None = None
+    grupo: str,
+    eco: str,
+    *,
+    repetida: bool = False,
+    alerta: AlertaDoGrupo | None = None,
+    modelo_da_repergunta: str = TEXTO_DA_REPERGUNTA,
 ) -> str:
     """A mensagem com as perguntas de ALERTA do grupo (texto fixo, sem modelo). `alerta` (BASE DE SAUDE,
-    ADR-0064): as perguntas de um arquivo `sin-*` da base, no lugar das do grupo."""
-    perguntas = " ".join((alerta or ALERTAS.get(grupo, ALERTAS[GRUPO_GERAL])).perguntas)
+    ADR-0064): as perguntas de um arquivo `sin-*` da base, no lugar das do grupo. `repetida`: a pergunta de
+    novo, com outras palavras (`modelo_da_repergunta`, com `{sinais}`)."""
+    escolhido = alerta or ALERTAS.get(grupo, ALERTAS[GRUPO_GERAL])
+    perguntas = " ".join(escolhido.perguntas)
     if repetida:
-        # A abertura termina em ":", entao a primeira pergunta continua em minuscula.
-        return f"{_ABERTURA_DA_REPETICAO} {perguntas[:1].lower()}{perguntas[1:]} {_PEDIDO_DE_RESPOSTA}"
+        return modelo_da_repergunta.format(sinais=escolhido.sinais)
     return (
         f"Entendi: {eco}. Antes de te mostrar o caminho, preciso de uma informação rápida. "
         f"{perguntas} {_PEDIDO_DE_RESPOSTA}"
     )
 
 
-def texto_final_do_sintoma(eco: str) -> str:
-    """A resposta depois do "nao" — NO FORMATO DO DONO (v4, coluna "RECEBERIA", 16/10/2026), palavra por
-    palavra. As duas opcoes tem tratamento deterministico (`escolha_da_resposta`)."""
+def texto_final_do_sintoma(eco: str, populacao: str = POPULACAO_ADULTO) -> str:
+    """A resposta depois do "nao" — NO FORMATO DO DONO (v4, coluna "RECEBERIA", 16/10/2026). As duas opcoes
+    tem tratamento deterministico (`escolha_da_resposta`).
+
+    Decisao do dono de 23/10/2026 (DL-0154): o "nao" leva ao CAMINHO (consulta pelo plano com o prazo da ANS)
+    ou a equipe, e FECHA — sem orientar o sintoma nem explicar causa; o profissional vem pela idade (adulto:
+    clinico geral; crianca: pediatra), nunca "clinico geral ou pediatra" para um adulto."""
+    profissional = "pediatra" if populacao == POPULACAO_CRIANCA else "clínico geral"
     return (
         f"Entendi: {eco}. Eu não avalio sintomas, mas te ajudo com o caminho. "
-        "Você prefere: 1) saber onde marcar consulta pelo plano (clínico geral ou pediatra: "
-        "até 7 dias úteis pela ANS); ou 2) falar com a nossa equipe de saúde? "
+        f"Você prefere: 1) saber onde marcar consulta com {profissional} pelo plano "
+        "(até 7 dias úteis pela ANS); ou 2) falar com a nossa equipe de saúde? "
         "Se piorar, procure um pronto-atendimento; se for grave, ligue 192."
     )
 
@@ -490,9 +507,13 @@ ETAPA_CASO_EQUIPE: Final[str] = "CASO_EQUIPE"
 ETAPA_CASO_SEM_RESPOSTA: Final[str] = "CASO_SEM_RESPOSTA"
 #: A pessoa pediu uma pessoa no meio das perguntas de alerta (nao e' obrigada a responde-las).
 ETAPA_CASO_PEDIU_PESSOA: Final[str] = "CASO_PEDIU_PESSOA"
+#: DL-0154 (regra da ambiguidade): depois de DUAS respostas sem clareza a pergunta de alerta, a OFERTA da
+#: equipe de saude (sem 192 e sem caso): o caso so' abre com "sim".
+ETAPA_OFERTA: Final[str] = "OFERTA"
 _ETAPAS: Final[frozenset[str]] = frozenset(
     {
         ETAPA_ALERTA,
+        ETAPA_OFERTA,
         ETAPA_ESCOLHA,
         ETAPA_CASO_SIM,
         ETAPA_CASO_EQUIPE,
@@ -543,9 +564,13 @@ LEITURA_NAO: Final[str] = "nao"
 LEITURA_SIM: Final[str] = "sim"
 #: Palavras que dizem "nao" quando a mensagem COMECA por elas.
 _NEGATIVAS: Final[frozenset[str]] = frozenset({"nao", "nenhum", "nenhuma", "nada", "negativo", "nem"})
-#: Duvida ou meio-termo: lado seguro, vale como "sim" (a equipe olha).
+#: DUVIDA ou meio-termo ("pode ser", "acho que", "talvez", "nao sei", "sera' que"). Decisao do dono de
+#: 23/10/2026 (DL-0154): a duvida NAO vale mais como "sim" (era o que abria P1 com 192 por engano) — e' SEM
+#: CLAREZA: a pergunta vai de novo uma vez, com outras palavras, e depois a oferta da equipe, sem 192. Aval do
+#: medico responsavel recomendado antes de producao.
 _INCERTEZA: Final[re.Pattern[str]] = re.compile(
-    r"\b(?:nao sei|talvez|acho que|as vezes|um pouco|mais ou menos|nao tenho certeza|pode ser)\b"
+    r"\b(?:nao sei|talvez|acho que|as vezes|um pouco|mais ou menos|nao tenho certeza|pode ser|sera que"
+    r"|nao lembro|sei la|acredito que|creio que)\b"
 )
 #: "nao" que NAO e' negativa: incapacidade ou agravamento ("nao consigo respirar", "piorou").
 _AGRAVANTE: Final[re.Pattern[str]] = re.compile(
@@ -554,27 +579,67 @@ _AGRAVANTE: Final[re.Pattern[str]] = re.compile(
     r"|sangrou)\b"
 )
 _RESSALVA: Final[re.Pattern[str]] = re.compile(r"\b(?:mas|porem|so que|entretanto)\b")
+#: A pessoa diz que esta' tudo bem ("ta' brincando normal", "esta' bem", "comendo normal", "tranquilo").
+_TRANQUILIZA: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:brincando|comendo|mamando|dormindo bem|acordad[oa]|esperto|esperta|disposto|disposta)"
+    r"(?: \w+)? normal\b|\b(?:ta|esta|estou|to) (?:bem|otimo|otima|tranquil[oa]|normal)\b"
+    r"|\btudo (?:bem|normal|certo)\b|\bnormalzinh[oa]\b|\bnada de mais\b"
+)
+#: A NEGATIVA dita no meio da frase ("eu ja' disse que nao", "acho que nao", "nao tenho nada disso", "nao,
+#: e' so' mau jeito"): DL-0154, o "nao" da pessoa e' "nao" mesmo fora do comeco da mensagem.
+_NEGATIVA_DITA: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:disse|falei|respondi|acho|acredito|creio) que nao\b"
+    r"|\bnao (?:tenho|tem|tive|teve|senti|sinto nada|estou|to|ta|esta|e nada|nada)\b(?! certeza)"
+    r"|\b(?:nenhum|nenhuma) (?:desses|dessas|disso)\b|\bnada disso\b"
+)
+#: A duvida que COMECA com "nao" ("nao sei", "nao tenho certeza", "nao lembro"): sem clareza, nunca "nao".
+_DUVIDA_NA_NEGATIVA: Final[re.Pattern[str]] = re.compile(r"\bnao (?:sei|tenho certeza|lembro|me lembro)\b")
 _AFIRMATIVAS_INICIAIS: Final[frozenset[str]] = frozenset(
     {"sim", "tenho", "tem", "tive", "teve", "estou", "esta", "sinto", "claro", "isso"}
 )
 _MAX_PALAVRAS_DA_RESPOSTA: Final[int] = 14
 
 
-def resposta_ao_alerta(plano: str) -> str | None:
-    """`LEITURA_NAO` / `LEITURA_SIM` / `None` (nao deu para entender) sobre a mensagem normalizada.
+def e_agravamento(plano: str) -> bool:
+    """Agravamento ou incapacidade ("nao consigo respirar", "piorou"): sempre "sim" a pergunta de alerta."""
+    return bool(_AGRAVANTE.search(plano))
 
-    DETERMINISTICO e do LADO SEGURO: so' e' "nao" quando a mensagem COMECA por uma negativa, e' curta, nao
-    tem ressalva ("nao, mas...") e nao traz agravamento ou incapacidade ("nao consigo respirar", "piorou");
-    duvida ("nao sei", "um pouco") vale como "sim"."""
+
+def resposta_ao_alerta(plano: str) -> str | None:
+    """`LEITURA_NAO` / `LEITURA_SIM` / `None` (SEM CLAREZA) sobre a mensagem normalizada.
+
+    DETERMINISTICO e do LADO SEGURO para o sinal: agravamento ou incapacidade ("nao consigo respirar",
+    "piorou") e a afirmacao ("sim", "tenho...") sao "sim". A negativa clara e' "nao", no comeco ou no meio
+    ("eu ja' disse que nao", "acho que nao"), sem ressalva ("nao, mas..."). A DUVIDA ("pode ser", "talvez",
+    "sera' que") e' SEM CLAREZA — nunca mais "sim" (DL-0154). O sinal de alarme dito na mensagem e' avaliado
+    pela tabela ANTES deste leitor (travas de entrada)."""
     palavras = plano.split()
     if not palavras or len(palavras) > _MAX_PALAVRAS_DA_RESPOSTA:
         return None
-    if _INCERTEZA.search(plano) or _AGRAVANTE.search(plano) or "sim" in palavras:
+    if _AGRAVANTE.search(plano):
         return LEITURA_SIM
+    if "sim" in palavras:
+        # "sim e nao", "nao sei se sim": a resposta que diz as duas coisas e' SEM CLAREZA.
+        return None if {"nao", "nem"} & set(palavras) else LEITURA_SIM
+    if _TRANQUILIZA.search(plano) and not _RESSALVA.search(plano):
+        # Avaliacao de 21/10/2026: "ele ta' brincando normal", "estou bem" respondem as perguntas de alerta
+        # (sem sinal de alarme): e' "nao", nunca queixa nova. Agravante ja' saiu acima como "sim".
+        return LEITURA_NAO
+    if palavras[0] in _AFIRMATIVAS_INICIAIS and not _DUVIDA_NA_NEGATIVA.search(plano):
+        return LEITURA_SIM
+    if _DUVIDA_NA_NEGATIVA.search(plano):
+        return None
+    ressalva = bool(_RESSALVA.search(plano))
     if palavras[0] in _NEGATIVAS:
-        return None if _RESSALVA.search(plano) else LEITURA_NAO
-    if palavras[0] in _AFIRMATIVAS_INICIAIS:
-        return LEITURA_SIM
+        return None if ressalva else LEITURA_NAO
+    if not ressalva and _NEGATIVA_DITA.search(plano):
+        return LEITURA_NAO
+    if _INCERTEZA.search(plano):
+        return None
+    if _TRANQUILIZA.search(plano):
+        # Avaliacao de 21/10/2026: "mas ele ta' brincando normal" responde as perguntas de alerta (sem sinal
+        # de alarme): e' "nao", nunca queixa nova. Agravante ja' saiu acima como "sim".
+        return LEITURA_NAO
     return None
 
 
@@ -680,12 +745,15 @@ def e_texto_da_v4(texto: object) -> bool:
 __all__ = [
     "ALERTAS",
     "ECO_GENERICO",
+    "TEXTO_DA_REPERGUNTA",
+    "e_agravamento",
     "ETAPA_ALERTA",
     "ETAPA_CASO_EQUIPE",
     "ETAPA_CASO_PEDIU_PESSOA",
     "ETAPA_CASO_SEM_RESPOSTA",
     "ETAPA_CASO_SIM",
     "ETAPA_ESCOLHA",
+    "ETAPA_OFERTA",
     "GRUPO_CABECA",
     "GRUPO_CRIANCA",
     "GRUPO_GASTRO",

@@ -1,0 +1,25 @@
+{
+  "schema": "commercial.portal-listener-fixture-original-recheck.v1",
+  "verdict": "APPROVE_NARROW_FIXTURE_SYNCHRONIZATION",
+  "new_findings": [],
+  "verified_before_and_after": {
+    "App.test.tsx": "d4ef473b81699558210df90488eb8c2b6c115a2376bd5081651777f8da9698ca",
+    "App.tsx": "9ec73770b0fcce826b9637b630ffac0372094063efeb7620962ff77058861b7c",
+    "handoff": "470672f6429db88c054aabf16ebe0ad7d546db37928f1f4085e16ba54ae7effc",
+    "manifest": "8aec4acb011e1a9842a383c538434f29a2374ef95144d8d3c8ea93dd2d95db5c"
+  },
+  "independent_private_qualification": {"portal_paths_current_and_copy": 91, "changed_portal_paths": ["src/maezo/portal/web/src/App.test.tsx"], "context_paths": 3, "preimage_hashes": 4, "lock_matched": true, "installed_package_versions_vs_lock": 138, "installed_dependency_file_hashes": 5953, "all_matched": true, "vitest": "5.0.5", "vite": "8.3.4", "prior_dependency_graph": "UNQUALIFIED_VERSION_DRIFT"},
+  "source_preservation": {"prefix_before_last_test_byte_equal": true, "all_original_focus_status_absence_event_assertions_retained": true, "production_app_unchanged": true, "case_denominator_unchanged": 670, "no_new_timeout_retry_skip": true},
+  "qualified_preserved_executions": {
+    "exact_lock_preimage_target": {"selected_pass": 1, "filtered": 24},
+    "exact_lock_successor_target": {"selected_pass": 1, "filtered": 24},
+    "controlled_withheld_registration": {"selected_fail": 1, "filtered": 24, "failure_before_event": true},
+    "final_verify": {"generated_parity": "PASS", "types": "PASS", "tests_pass": 670, "tests_fail": 0, "tests_skip": 0, "files_pass": 31, "build": "PASS", "build_warning": "existing >500kB chunk advisory"},
+    "prior_private_layout_failure": {"pass": 666, "fail": 4, "cause": "three missing context files; retained evidence"}
+  },
+  "reviewer_log_sha256": {"original_ci": "2fd84b791bd8a0a9cc61e4eb062dfbb360db785249dd95abfe4382e5f6b800cc", "final_verify": "371376106383c7bb8210e58a9924340589730d501e07c1cb585b2ea1a41f9d3c", "controlled_negative": "d94fe3104b5297028bc1e6074bad2f5fb89a4c1eccb4886e89114dda89d3b60c", "qualified_preimage": "6d931a881a99dda279b5748c866270a9de1354e81c9cf8c81f823e70d272c870", "qualified_successor": "def07ee446e3a94e2d51eb9dd7e8b009455d326ad0b720817e84bd9d3ee620c9"},
+  "original_ci_cause": "NOT_PROVEN",
+  "reviewer_tests": "NOT_RUN_READ_ONLY_RECHECK",
+  "out_of_scope": "other runner/startup repairs",
+  "next_gate": "ROOT integration/current-main reconciliation and final exact-head CI"
+}

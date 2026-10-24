@@ -74,6 +74,42 @@ amh_tina_cpt_openapi_path = "/app/config/integrations/amh/openapi/tina-cpt.opena
 // docs/runbooks/helena-base-saude.md).
 helena_base_saude = true
 
+// ROTEADOR DE HABILIDADES da Helena (ADR-0066, DL-0134, decisao do dono de 21/10/2026): F1 em SOMBRA. O roteador
+// (GLM-5 regional) e as travas rodam em paralelo e so' registram a decisao no log `helena_roteador_sombra`; a
+// resposta continua a da Helena de antes. Desligado em 21/10/2026 (sombra passava do prazo com o GLM-5 falhando);
+// RELIGADO em sombra com o conserto do #881 (prazo real 3 s, teto 256, pool e limite proprios). Voltar: "desligado".
+// F2 (DL-0136), 21/10/2026: ATIVO -- o roteador DECIDE so' nas conversas de `helena_roteador_conversas` (SO' as do
+// simulador, abaixo); fora delas (o dono, a Tania, o time) continua em SOMBRA. Voltar: "sombra".
+helena_roteador = "ativo"
+// DL-0140 (dono, 22/10/2026): cobertura em MODO SIMPLES (sem consulta por procedimento; a equipe confirma).
+// Voltar para a consulta automatica: "consulta".
+helena_cobertura_modo = "simples"
+// DL-0137: modelo PROPRIO do roteador, fixado EXPLICITAMENTE por decisao do dono de 21/10/2026 (medicao: 100%
+// de acerto em 50 mensagens sinteticas, p50 0,60 s); o roteador nao muda quando a zona PHI mudar. IAM: `roteador-modelo.tf`.
+// 22/10/2026: o Mistral Large 3 regional parou de responder; o roteador acompanha a zona PHI no Gemma 3 27B
+// (50/50 na medicao, p50 0,31 s) ate' o Mistral normalizar.
+// Excecao regional (DPO, 21/10/2026): o roteador acompanha a zona PHI no GLM-5 em us-east-1.
+helena_roteador_modelo = "zai.glm-5"
+// F2 (DL-0136): com `ativo`, o roteador DECIDE so' nas conversas de `helena_roteador_conversas` (SO' as do
+// simulador); fora delas, sombra. A lista de teste das pessoas entra so' na F4, com o OK do dono.
+helena_roteador_conversas = [
+  "wa:amh:hk1_41a907864e3b318fe11d8124e2eed5d8a0ad8d076a8cf69449e60e28043290d7", // simulador ...790
+  "wa:amh:hk1_c416ceac7076a3946bcacc8c0ca3c5c68083ee7d5c3d3cdbc0335bedf5f0d086", // simulador ...791
+  "wa:amh:hk1_dbae14094dd97675d3564309f70861c3f644d3134704cbe25f80e1dbb95956e5", // simulador ...792
+  "wa:amh:hk1_0909c2f1979a1326c2210f50c38ac2da42b9f1462c36fe6f5bddb268acedc69a", // simulador ...793
+  "wa:amh:hk1_2c6d769d38c68af9df7dad00393e8caed88e3f852b1c68f3aac2105c11ce3514", // simulador ...794
+  "wa:amh:hk1_779f711a77180fa0ec38b23f7fe83848344447e1ed131e4c6c2cff2af784dbed", // simulador ...795
+  "wa:amh:hk1_e4e695ffef67a87c66dfb14c14a38a2a7db4258ee10a642133e05c8f0fb04d31", // simulador ...796
+  "wa:amh:hk1_c9a42214bf91e285a511878d57f169a2af5a67cbd964f194b6b1e7811698f9dd", // simulador ...797
+  "wa:amh:hk1_298020f13ddf83ff5cc1e695591075729db2e5614775c824e192cbe1359363a0", // simulador ...798
+  "wa:amh:hk1_1af788a6ccaa52b4135ae61ac2e816608024fc6307b04c2caf5303a1f606581f", // simulador ...799
+  // F4 (22/10/2026, coordenador: o dono testa hoje): o dono, a Tania e o time (ja na allowlist da saude gerativa).
+  "wa:amh:hk1_34d934f10c9167de002295ee0412fe6cf4eb0ba9885aef3a5f9ab7029e53e8f6", // o dono
+  "wa:amh:hk1_0f251a8e67a29606f4f20e7a1e81f27be3b927b8472560e434c066ff83e6219b", // a Tania
+  "wa:amh:hk1_9d38c66cee23a2ddd89b80eb9b616e7f2e9e5f601e1ab537d19927c39b6e71d2", // time-1
+  "wa:amh:hk1_9d2b6c9bdfa8f71d0187db6716a68e1e61c944d5610ae161152b90db97acf244", // time-2
+]
+
 // SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
 // informativas de saude, com checagem antes de enviar, pela rota PROPRIA
 // `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono
@@ -87,6 +123,10 @@ helena_saude_gerativa_conversas = [
   // A Tania (beneficiaria real que consentiu com os testes): AUTORIZACAO DO DPO (o dono) de 18/10/2026, que
   // confirmou que ela concorda com o perfil global (DL-0119, adendo de 18/10/2026).
   "wa:amh:hk1_0f251a8e67a29606f4f20e7a1e81f27be3b927b8472560e434c066ff83e6219b", // a Tania
+  // Pessoa do time — autorizacao do DPO (o dono) de 20/10/2026 (DL-0119, adendo).
+  "wa:amh:hk1_9d38c66cee23a2ddd89b80eb9b616e7f2e9e5f601e1ab537d19927c39b6e71d2", // time-1
+  // Pessoa do time — autorizacao do DPO (o dono) de 20/10/2026 (DL-0119, adendo).
+  "wa:amh:hk1_9d2b6c9bdfa8f71d0187db6716a68e1e61c944d5610ae161152b90db97acf244", // time-2
   "wa:amh:hk1_41a907864e3b318fe11d8124e2eed5d8a0ad8d076a8cf69449e60e28043290d7", // simulador ...790
   "wa:amh:hk1_c416ceac7076a3946bcacc8c0ca3c5c68083ee7d5c3d3cdbc0335bedf5f0d086", // simulador ...791
   "wa:amh:hk1_dbae14094dd97675d3564309f70861c3f644d3134704cbe25f80e1dbb95956e5", // simulador ...792

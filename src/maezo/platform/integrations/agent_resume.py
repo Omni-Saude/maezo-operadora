@@ -112,6 +112,7 @@ from maezo.agents.lucas.cancelamento_pf import (
     data_br,
     protocolo_do_cancelamento,
 )
+from maezo.domain.conversa.caso_clinico import chave_e_da_conversa
 from maezo.gateway.recipient_custody import (
     DEFAULT_TTL_DAYS,
     RecipientRecord,
@@ -135,7 +136,6 @@ from maezo.platform.integrations.notifications_bridge import (
 from maezo.platform.integrations.partition_key import derive_partition_key
 from maezo.platform.notification_bridge import PROCESS_KEY_ESCALATION
 from maezo.platform.topic_registry import dlq_topic_for
-from maezo.runtime.caso_clinico import chave_e_da_conversa
 from maezo.tools.mcp_cibseven.transport import HistoricVariableReadingTransport
 from maezo.tools.workers.phi_vars import PHI_PROCESS_VARS
 

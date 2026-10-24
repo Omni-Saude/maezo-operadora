@@ -112,7 +112,9 @@ class Fonte(_Modelo):
 class Revisao(_Modelo):
     status: Literal["rascunho_dono_aprovado_dev", "rascunho_pendente_revisao_medica"]
     autor: str = Field(min_length=2, max_length=80)
-    aprovado_por: Literal["dono (17/10/2026, dev)", "dono (18/10/2026, fase 5, dev)"]
+    aprovado_por: Literal[
+        "dono (17/10/2026, dev)", "dono (18/10/2026, fase 5, dev)", "dono (20/10/2026, DL-0132, dev)"
+    ]
     revisao_medica: Literal["pendente", "aprovada"]
     revisar_ate: date
     #: Quem ESCREVEU o texto (obrigatorio no rascunho da fase 5: "claude-sonnet-5.5 (rascunho)").
@@ -156,6 +158,10 @@ class Assunto(_Modelo):
     perguntas_alerta: tuple[str, ...] | None = None
     sinais_alarme: tuple[str, ...] | None = None
     populacao: Literal["adulto", "crianca", "gestante", "todos"] | None = None
+    #: Seguranca (r4 de 22/10/2026): o sintoma tambem e' citado quando aparece UMA palavra de CADA lista,
+    #: perto uma da outra (`JANELA_DA_COMBINACAO`): "levou uma pancada forte na testa" e' batida na cabeca
+    #: sem um sinonimo para cada adjetivo. So' em `sintoma`.
+    combinacoes: tuple[tuple[str, ...], ...] | None = None
 
     @field_validator("texto")
     @classmethod
@@ -185,7 +191,11 @@ class Assunto(_Modelo):
             raise ValueError(f"id fora do formato kebab com prefixo de categoria: {self.id!r}")
         if not self.id.startswith(CATEGORIAS[self.categoria]):
             raise ValueError(f"id {self.id!r} nao tem o prefixo da categoria {self.categoria!r}")
-        extras = (self.perguntas_alerta, self.sinais_alarme, self.populacao)
+        extras = (self.perguntas_alerta, self.sinais_alarme, self.populacao, self.combinacoes)
+        if self.combinacoes is not None and (
+            len(self.combinacoes) < 2 or any(not lista for lista in self.combinacoes)
+        ):
+            raise ValueError("combinacoes precisa de pelo menos duas listas nao vazias")
         if self.categoria == CATEGORIA_SINTOMA:
             if not self.perguntas_alerta or not 1 <= len(self.perguntas_alerta) <= 3:
                 raise ValueError("sintoma precisa de 1 a 3 perguntas_alerta")
@@ -704,6 +714,12 @@ def buscar(base: BaseSaude, texto: str, *, categorias: Iterable[str] | None = No
             continue
         if re.search(rf"(?<!\w){re.escape(termo)}(?!\w)", plano):
             contidos[assunto_id] = max(contidos.get(assunto_id, 0), len(termo))
+    for assunto in base.assuntos.values():
+        if _ok(assunto.id) and assunto.id not in contidos:
+            # A combinacao (r4 de 22/10/2026) vale como um sinonimo do tamanho do trecho que casou.
+            tamanho = _combinacao(plano, assunto.combinacoes)
+            if tamanho:
+                contidos[assunto.id] = tamanho
     if contidos:
         maior = max(contidos.values())
         melhores = sorted(i for i, n in contidos.items() if n == maior)
@@ -788,7 +804,11 @@ _ABERTURA_RESULTADO: Final[str] = "Posso te passar a informação geral sobre"
 
 def linha_de_credito(assunto: Assunto) -> str:
     fonte = fonte_creditada(assunto)
-    if fonte is None:
+    if fonte is None or assunto.categoria == CATEGORIA_SINTOMA:
+        # Etapa 10 (dono, 23/10/2026): o texto de um SINTOMA e' a orientacao da operadora (onde marcar,
+        # quando procurar urgencia). As fontes do arquivo sao das condicoes de ALARME (Infarto, AVC,
+        # Tuberculose) e ficam como procedencia: credita-las ("com base em Infarto" na dor nas costas)
+        # dizia o que o texto nao e'.
         return "Texto da operadora."
     if assunto.tipo_texto == TIPO_CITACAO_LITERAL:
         return f"Fonte: {_nome_no_credito(fonte)}."
@@ -796,14 +816,13 @@ def linha_de_credito(assunto: Assunto) -> str:
 
 
 def _bloco(assunto: Assunto) -> list[str]:
-    partes = [assunto.texto, linha_de_credito(assunto)]
-    if assunto.link_leitura:
-        partes.append(f"Para ler mais: {assunto.link_leitura}")
-    return partes
+    # Sem link (dono, 18/10/2026; Plano de ajustes v2, etapa 10): a fonte vai pelo NOME na linha de credito;
+    # `link_leitura` continua no arquivo (procedencia), mas nunca sai na resposta.
+    return [assunto.texto, linha_de_credito(assunto)]
 
 
 def resposta_informativa(assunto: Assunto) -> str:
-    """(i) Pergunta informativa: texto + credito + link + aviso."""
+    """(i) Pergunta informativa: texto + credito (a fonte pelo nome) + aviso."""
     return "\n".join([*_bloco(assunto), AVISO_PADRAO])
 
 
@@ -814,17 +833,19 @@ def resposta_de_resultado_pessoal(assunto: Assunto) -> str:
     )
 
 
-def texto_final_do_sintoma_com_orientacao(eco: str, assunto: Assunto) -> str:
+def texto_final_do_sintoma_com_orientacao(eco: str, assunto: Assunto, populacao: str = "adult") -> str:
     """(iv) O "nao" as perguntas de alerta de um sintoma da base: o texto de orientacao do arquivo (SEM
-    alarme), o credito e as mesmas opcoes 1/2 da Helena v4 (palavra por palavra) com o 192."""
+    alarme), o credito e as mesmas opcoes 1/2 da Helena v4 com o 192. O profissional vai pela IDADE
+    (etapa 10): pediatra so' para crianca; adulto, clinico geral (nunca "pediatra" para adulto)."""
+    profissional = "pediatra" if populacao == "pediatric" else "clínico geral"
     return "\n".join(
         [
             f"Entendi: {eco}.",
             assunto.texto,
             linha_de_credito(assunto),
             "Eu não avalio sintomas, mas te ajudo com o caminho. "
-            "Você prefere: 1) saber onde marcar consulta pelo plano (clínico geral ou pediatra: "
-            "até 7 dias úteis pela ANS); ou 2) falar com a nossa equipe de saúde? "
+            f"Você prefere: 1) saber onde marcar consulta com {profissional} pelo plano "
+            "(até 7 dias úteis pela ANS); ou 2) falar com a nossa equipe de saúde? "
             "Se piorar, procure um pronto-atendimento; se for grave, ligue 192.",
         ]
     )
@@ -853,11 +874,90 @@ def _contem(plano: str, termo: str) -> bool:
     return bool(termo) and re.search(rf"(?<!\w){re.escape(termo)}(?!\w)", plano) is not None
 
 
+#: TRAVA DE SEGURANCA (r4 de 22/10/2026; ADR-0066, trava de alarme): a NEGACAO de um sinal de alarme e'
+#: lida como negacao. "Nao, sem falta de ar, sem febre alta" respondia 192 e abria caso clinico. Um termo
+#: so' e' NEGADO quando a palavra logo antes dele (pulando no maximo `_MAX_LIGACOES` palavras de ligacao) e'
+#: uma negativa, na mesma frase. Do lado seguro: "nao para de vomitar", "sem conseguir respirar" e
+#: "nao, mas vomitou" continuam alarme (a negativa nao esta' colada ao termo).
+NEGATIVAS_DE_SINAL: Final[frozenset[str]] = frozenset({"sem", "nao", "nem", "nenhum", "nenhuma", "nada"})
+LIGACOES_DA_NEGATIVA: Final[frozenset[str]] = frozenset(
+    {"tem", "teve", "tinha", "ha", "houve", "apresentou", "apresenta", "sentiu", "sente", "senti", "sinto",
+     "esta", "ta", "estou", "to", "com", "de", "o", "a", "os", "as", "um", "uma", "qualquer", "sinal",
+     "sinais", "foi", "deu", "notei", "percebi", "vi"}
+)  # fmt: skip
+_MAX_LIGACOES: Final[int] = 3
+
+
+#: A pontuacao que separa trechos vira esta marca no texto normalizado: a negativa nunca atravessa uma virgula
+#: ("nao, falta de ar sim" e' alarme).
+CORTE_DE_TRECHO: Final[str] = "xcortedetrechox"
+_SEPARADORES: Final[re.Pattern[str]] = re.compile(r"[,.;:!?]")
+_FIM_DO_ALCANCE: Final[re.Pattern[str]] = re.compile(rf"[,.;:!?]|\b(?:mas|porem|{CORTE_DE_TRECHO})\b")
+
+
+def normalizar_com_cortes(texto: str) -> str:
+    """Como `normalizar`, com a pontuacao que separa trechos virando `CORTE_DE_TRECHO`."""
+    return normalizar(_SEPARADORES.sub(f" {CORTE_DE_TRECHO} ", texto or ""))
+
+
+def negado(plano: str, inicio: int) -> bool:
+    """O trecho que comeca em `inicio` esta' NEGADO pela palavra logo antes dele (mesmo trecho da frase)?"""
+    antes = _FIM_DO_ALCANCE.split(plano[:inicio])[-1].split()
+    for puladas, palavra in enumerate(reversed(antes)):
+        if palavra in NEGATIVAS_DE_SINAL:
+            return True
+        if palavra not in LIGACOES_DA_NEGATIVA or puladas >= _MAX_LIGACOES:
+            return False
+    return False
+
+
+def mencao_afirmada(padrao: re.Pattern[str], plano: str) -> bool:
+    """Algum trecho do `padrao` aparece no texto (normalizado, com a pontuacao ou os cortes) SEM estar negado.
+    Sem nenhuma ocorrencia, `False`."""
+    return any(not negado(plano, m.start()) for m in padrao.finditer(plano))
+
+
+def _alarme_afirmado(texto: str, termo: str) -> bool:
+    """O termo (normalizado) aparece na mensagem e nao esta' negado. Do lado seguro: se ele so' aparece no
+    texto sem os cortes (a pontuacao partia o termo), conta como afirmado."""
+    if not termo or not _contem(normalizar(texto), termo):
+        return False
+    padrao = re.compile(rf"(?<!\w){re.escape(termo)}(?!\w)")
+    cortado = normalizar_com_cortes(texto)
+    return not padrao.search(cortado) or mencao_afirmada(padrao, cortado)
+
+
+JANELA_DA_COMBINACAO: Final[int] = 4
+
+
+def _combinacao(plano: str, combinacoes: tuple[tuple[str, ...], ...] | None) -> int:
+    """O tamanho (em caracteres) do menor trecho com uma palavra de CADA lista, com no maximo
+    `JANELA_DA_COMBINACAO` palavras entre elas; 0 = nao casa."""
+    if not combinacoes:
+        return 0
+    palavras = re.sub(r"[^a-z0-9 ]", " ", plano).split()
+    alvos = [{normalizar(x) for x in lista} for lista in combinacoes]
+    melhor = 0
+    for inicio in range(len(palavras)):
+        fim_maximo = min(len(palavras), inicio + JANELA_DA_COMBINACAO + len(alvos))
+        for fim in range(inicio + 1, fim_maximo + 1):
+            trecho = palavras[inicio:fim]
+            if all(any(w in alvo for w in trecho) for alvo in alvos):
+                tamanho = len(" ".join(trecho))
+                melhor = tamanho if melhor == 0 else min(melhor, tamanho)
+                break
+    return melhor
+
+
 def sintomas_citados(base: BaseSaude, texto: str) -> tuple[Assunto, ...]:
-    """Os arquivos `sin-*` cujo titulo ou algum sinonimo aparece INTEIRO na mensagem (normalizada)."""
+    """Os arquivos `sin-*` cujo titulo ou algum sinonimo aparece INTEIRO na mensagem (normalizada), ou
+    cuja `combinacoes` casa."""
     plano = normalizar(texto)
     return tuple(
-        a for a in base.sintomas() if any(_contem(plano, normalizar(t)) for t in (*a.sinonimos, a.titulo))
+        a
+        for a in base.sintomas()
+        if any(_contem(plano, normalizar(t)) for t in (*a.sinonimos, a.titulo))
+        or _combinacao(plano, a.combinacoes) > 0
     )
 
 
@@ -871,11 +971,36 @@ def sinais_de_alarme(base: BaseSaude, texto: str) -> tuple[str, ...]:
 
 
 def alarme_no_texto(base: BaseSaude, texto: str) -> bool:
-    plano = normalizar(texto)
-    return any(_contem(plano, t) for t in sinais_de_alarme(base, texto))
+    return any(_alarme_afirmado(texto, t) for t in sinais_de_alarme(base, texto))
+
+
+def alarme_do_assunto(base: BaseSaude, assunto_id: str, texto: str) -> bool:
+    """Avaliacao de 21/10/2026 (seguranca): um sinal de alarme do assunto de sintoma EM CURSO (o da pergunta
+    de alerta pendente) aparece no texto? "Vomitou duas vezes" depois de "bateu a cabeca" e' alarme da batida,
+    mesmo sem a mensagem citar a batida de novo."""
+    assunto = base.get(assunto_id)
+    if assunto is None or assunto.categoria != CATEGORIA_SINTOMA:
+        return False
+    return any(_alarme_afirmado(texto, normalizar(t)) for t in assunto.sinais_alarme or ())
+
+
+def alarme_dos_citados_antes(base: BaseSaude, falas_anteriores: Sequence[str], texto: str) -> bool:
+    """Seguranca (r4 de 22/10/2026): um sinal de alarme de um sintoma que a pessoa citou ANTES na conversa
+    (historico curto) vale neste turno, mesmo depois de a pergunta de alerta ter sido respondida: "bateu a
+    cabeca" ... "nao" ... "agora ele vomitou" = alarme da batida."""
+    citados = {a.id for f in falas_anteriores for a in sintomas_citados(base, f)}
+    return any(alarme_do_assunto(base, i, texto) for i in sorted(citados))
 
 
 __all__ = [
+    "JANELA_DA_COMBINACAO",
+    "LIGACOES_DA_NEGATIVA",
+    "NEGATIVAS_DE_SINAL",
+    "alarme_do_assunto",
+    "alarme_dos_citados_antes",
+    "mencao_afirmada",
+    "negado",
+    "normalizar_com_cortes",
     "APROVADO_POR_DEV",
     "APROVADO_POR_FASE5",
     "AVISO_PADRAO",

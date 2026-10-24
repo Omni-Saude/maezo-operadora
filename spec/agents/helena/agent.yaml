@@ -22,10 +22,19 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
   - busca_por_significado              # Titan v2 regional sa-east-1 (DL-0121, MAEZO_HELENA_BUSCA_SEMANTICA)
   - perguntas_de_alerta_e_especialista # Helena v4 (DL-0115): perguntas de alerta na dor sem alarme, especialista e carteirinha por texto fixo
   - encerramento_de_caso_a_pedido      # recusa explicita com caso P2/P3 aberto encerra com confirmacao (DL-0118)
-  - cobertura_de_procedimento          # FATOS do cadastro (Rol x segmentacao, DUT, carencia; TINA cobertura v1.9) e a COBERTURA ASSISTIDA (DL-0128): extracao pelo GLM-5, traducao para o nome oficial (catalogo TINA v1.14, so' itens assistenciais), escolha do GLM-5 entre os candidatos com confirmacao de uma linha (DL-0129), ate' 3 opcoes, 2 tentativas, equipe so' com "sim"; aviso GERAL de CPT so' para o titular com CPT vigente no cadastro (TINA cpt v1.15, DL-0130; nunca cita doenca; sem CPT, nada sobre CPT)
+  - cobertura_de_procedimento          # FATOS do cadastro (Rol x segmentacao, DUT, carencia; TINA cobertura v1.9) e a COBERTURA ASSISTIDA (DL-0128): extracao pelo GLM-5, traducao para o nome oficial (catalogo TINA v1.14, so' itens assistenciais), escolha do GLM-5 entre os candidatos com confirmacao de uma linha (DL-0129), conversa simples com o titular por padrao e a lista inteira (DL-0131), ate' 3 opcoes, 2 tentativas, equipe so' com "sim"; aviso GERAL de CPT so' para o titular com CPT vigente no cadastro (TINA cpt v1.15, DL-0130; nunca cita doenca; sem CPT, nada sobre CPT)
   - carteirinha_completa_do_proprio    # numero completo so' do proprio verificado, so' no envio (v1.12, MAEZO_HELENA_CARTEIRINHA_COMPLETA)
   - nome_completo_dos_dependentes      # so' dos dependentes do proprio titular, so' no envio (v1.13, DL-0127, MAEZO_HELENA_DEPENDENTES_NOME)
   - passagem_cancelamento              # pedido de cancelamento -> Lucas (CANCEL-001 PF, DL-0111)
+  # NOVA ARQUITETURA (ADR-0066, DL-0134, decisao do dono de 21/10/2026; so' dev, chave MAEZO_HELENA_ROTEADOR
+  # desligado|sombra|ativo, default desligado = a Helena de antes byte a byte). Fluxo por turno: TRAVAS DE ENTRADA
+  # fixas (consentimento/identificacao -> alarme pela DMN 192/CVV 188 -> risco psicossocial -> dados pessoais) ->
+  # ROTEADOR (GLM-5 sa-east-1, ultimas mensagens + pergunta pendente, UMA habilidade com confianca; na duvida
+  # pergunta "X ou Y?") -> UMA HABILIDADE fechada (cobertura, plano, saude, sintoma, equipe, pedidos, cobranca,
+  # conversa) -> TRAVAS DE SAIDA fixas (sem promessa/negativa de cobertura, sem dose/diagnostico, sem link, caso
+  # so' com "sim" ou pedido explicito, nome de dependente so' do proprio titular). Contrato:
+  # spec/agents/helena/roteador.yaml (roteador_contrato.py). Fases F0..F5 na ADR; habilidades novas pausadas ate' F4.
+  - roteador_de_habilidades            # F0: contrato; F1: em sombra (so' registra); F2: ativo so' na allowlist
 out_of_scope:                          # o que Helena NAO faz, rastreado (nao e recusa muda)
   - id: agendamento_direto             # trabalho #1 do beneficiario (D9/D11) — nao entregue aqui
     fase: 0
@@ -41,8 +50,8 @@ out_of_scope:                          # o que Helena NAO faz, rastreado (nao e 
     onde: "graph.py:handoff_cobranca()"
   - id: confirmacao_de_cobertura_de_procedimento_especifico   # a confirmacao OFICIAL e' a autorizacao
     fase: 0
-    disposicao: "na allowlist (DL-0128) a Helena diz o que CONSTA no cadastro, nunca promete nem encerra com 'nao cobre'; a confirmacao oficial e' a analise da autorizacao. Fora da allowlist, RESPOSTA_COBERTURA_ESPECIFICA"
-    onde: "graph.py:consultar_plano() -> _cobertura_assistida() (cobertura_fluxo.py)"
+    disposicao: "DL-0154 (dono, 23/10/2026): a Helena nao trata de cobertura; toda pergunta de cobertura recebe so' o aviso com os canais da empresa (aplicativo Austa Clinicas, portal, central), sem consulta, sem Rol/carencia e sem oferta da equipe"
+    onde: "habilidades/cobertura_fora (graph.py: _cobertura_fora, consultar_plano, roteador ativo)"
 process_keys:
   - SP-OP-ESCALATION-001
 reports_to: "gestor.atendimento@amh"
@@ -64,7 +73,7 @@ reports_to: "gestor.atendimento@amh"
 # antes seria a quinta casca vazia deste projeto.
 owners:
   tecnico: "Leonardo Silva <lsilva@austa.com.br>"
-  clinico: ""   # preenchido pelo mesmo ato que assina as 34 regras (Frente 4)
+  clinico: ""   # preenchido pelo mesmo ato que assina as 40 regras (Frente 4)
   runbook_incidente: docs/runbooks/helena-erro-com-beneficiario.md
 security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
@@ -186,7 +195,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # clinica, promessa de humano e de capacidade (PR #395).
   classify_historico: classify-historico-v1  # 07/10/2026 (DL-0080): adendo do historico curto, so' com MAEZO_HELENA_HISTORICO
   response_historico: response-historico-v1  # 07/10/2026 (DL-0080): idem, so' na redacao do inform
-  classify_consultas: classify-consultas-v2  # 14/10/2026 (DL-0100): + subtipo `dependentes`. v1: 07/10/2026 (DL de fatos do plano): ADENDO ao classify,
+  classify_consultas: classify-consultas-v3  # 22/10/2026: dependentes = quem mais esta' no plano. v2: 14/10/2026 (DL-0100): + subtipo `dependentes`. v1: 07/10/2026 (DL de fatos do plano): ADENDO ao classify,
                                      # SO' com MAEZO_HELENA_CONSULTAS_AMH ligada: intent
                                      # `consulta_plano` + `consulta_subtipo` (elegibilidade,
                                      # carteirinha, carencia, autorizacao). Desligada, o classify
@@ -195,6 +204,9 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # v1 — 07/10/2026: redacao da resposta com os FATOS do cadastro
                                      # (contrato TINA da AMH) num bloco delimitado; recusa da
                                      # cerca propria = resposta deterministica so' com os fatos.
+  roteador: roteador-v7                # 22/10/2026: especialista = saude. v5: 22/10/2026 (DL-0136): saude x cobertura (exames indicados p/ idade
+                                     # = saude). v4: F2 (duvida pendente; depois
+                                     # da cobertura). v3: enxuto (DL-0137); v1: sombra (DL-0135).
 
 model:
   task_default: { tier: fast }        # triagem/classificacao

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from maezo.runtime.terceiro_no_texto import (
+from maezo.domain.conversa.terceiro_no_texto import (
     AVISO_SO_O_PROPRIO_CADASTRO,
     com_aviso_se_for_de_outra_pessoa,
     fala_de_outra_pessoa,

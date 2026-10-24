@@ -51,8 +51,8 @@ from maezo.agents.helena.prompts import (
     motivo_de_recusa,
 )
 from maezo.conhecimento import base_saude as b
+from maezo.domain.conversa.caso_clinico import chave_do_escalonamento
 from maezo.qa.simulador.checagens import frases_longas
-from maezo.runtime.caso_clinico import chave_do_escalonamento
 from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     FakeCibSevenTransport,
@@ -252,7 +252,7 @@ def _texto(resultado: dict[str, Any]) -> str:
 # =================================================================================================
 
 
-async def test_pra_que_serve_dipirona_responde_da_base_sem_caso_com_fonte_e_link_sem_dose() -> None:
+async def test_pra_que_serve_dipirona_responde_da_base_sem_caso_com_fonte_sem_link_sem_dose() -> None:
     conversa = _Conversa()
     resultado = await conversa.diz("Pra que serve dipirona?", _CLINICA)
 
@@ -261,8 +261,10 @@ async def test_pra_que_serve_dipirona_responde_da_base_sem_caso_com_fonte_e_link
     assert dipirona is not None
     assert dipirona.texto in texto
     assert "Texto da operadora com base em Bula do paciente (ANVISA)." in texto
-    assert "Para ler mais: https://consultas.anvisa.gov.br/" in texto
-    assert texto.endswith(b.AVISO_PADRAO)
+    # Sem link (etapa 10): a fonte vai pelo NOME, nunca o endereco.
+    assert "http" not in texto and "anvisa.gov.br" not in texto
+    # OPCAO C (DL-0154): respondida uma vez, com o fecho "Posso ajudar em mais alguma coisa?".
+    assert texto.endswith("Posso ajudar em mais alguma coisa?") and b.AVISO_PADRAO not in texto
     assert not re.search(r"\b\d+ ?mg\b|\bdose\b|\btome\b", texto.lower())
     assert conversa.cib.inicios == [], "pergunta informativa nao abre caso"
     assert resultado["response_kind"] == "inform"
@@ -399,8 +401,9 @@ async def test_muita_dor_de_cabeca_recebe_as_perguntas_do_arquivo_e_nao_abre_cas
     resposta = await conversa.diz("Não", _INFO)
     final = _texto(resposta)
     sin = conversa.base.get("sin-dor-de-cabeca")
-    assert sin is not None and sin.texto in final
-    assert "1) saber onde marcar consulta pelo plano" in final
+    # DL-0154: o "nao" leva ao caminho ou a equipe e FECHA — sem o texto de orientacao do arquivo.
+    assert sin is not None and sin.texto not in final
+    assert "1) saber onde marcar consulta com clínico geral pelo plano" in final
     assert "2) falar com a nossa equipe de saúde" in final
     assert "ligue 192" in final
     assert conversa.cib.inicios == []
@@ -738,3 +741,54 @@ def test_a_chave_so_e_ligada_no_dev_pelo_terraform() -> None:
         if outro.is_dir() and outro.name != "dev-sa-east-1":
             for arquivo in outro.rglob("*.tf*"):
                 assert "helena_base_saude" not in arquivo.read_text(encoding="utf-8"), arquivo
+
+
+# --- Avaliacao de 21/10/2026 (seguranca): o contexto do sintoma persiste ------------------------------------
+def _base_do_repositorio() -> b.BaseSaude:
+    return b.carregar_base(Path(__file__).resolve().parents[3] / "spec" / "conhecimento" / "saude")
+
+
+class _ConversaDe21(_Conversa):
+    """A base do repositorio com o relogio de 21/10/2026 (o arquivo da batida foi coletado em 20/10)."""
+
+    def __init__(self) -> None:
+        super().__init__(base=_base_do_repositorio())
+
+    def _grafo(self) -> Any:
+        grafo = HelenaGraph(
+            inference=self.modelo,  # type: ignore[arg-type]
+            dmn=self.dmn,  # type: ignore[arg-type]
+            cibseven=self.cib,
+            audit_sink=self.auditoria,
+            whatsapp=self.whatsapp,
+            historico_enabled=True,
+            coleta_enabled=True,
+            helena_v4_enabled=self.v4,
+            helena_base_saude_enabled=self.chave,
+            base_saude=self.base,
+            relogio=lambda: datetime(2026, 10, 21, 15, 0, tzinfo=UTC),
+        )
+        return grafo.compile_graph().compile()
+
+
+async def test_batida_na_cabeca_e_vomito_no_turno_seguinte_escala_com_192() -> None:
+    conversa = _ConversaDe21()
+    primeiro = await conversa.diz(
+        "Meu filho caiu no chão e bateu a cabeça", _classify(intent="symptom", population="pediatric")
+    )
+    assert conversa.memoria["coleta_pendente"].startswith("V4_ALERTA:sin-batida-na-cabeca:")
+    assert "vômito" in _texto(primeiro)
+    resultado = await conversa.diz("Vomitou duas vezes", _classify(intent="symptom", population="pediatric"))
+    assert conversa.motivos == ["red_flag_clinico"], "vomito depois da batida e' alarme da batida"
+    assert "192" in _texto(resultado)
+
+
+async def test_batida_na_cabeca_e_tranquilizacao_nao_vira_queixa_nova() -> None:
+    conversa = _ConversaDe21()
+    await conversa.diz(
+        "Meu bebê caiu do sofá e bateu a cabeça", _classify(intent="symptom", population="pediatric")
+    )
+    resultado = await conversa.diz("mas ele tá brincando normal", _INFO)
+    texto = _texto(resultado)
+    assert "manchinhas" not in texto and "pouco xixi" not in texto
+    assert conversa.cib.inicios == []
