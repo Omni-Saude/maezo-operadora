@@ -17,6 +17,7 @@ from typing import Any, Final, cast
 from maezo.contratos.conversa import RespostaDeCadastro
 
 from . import cadastro, graph
+from . import juntar as _juntar
 from .pacote import PacoteDaHelena, do_ambiente
 
 
@@ -36,7 +37,23 @@ class HelenaDeEntrada:
         return self._pacote_da_helena
 
     def construir_grafo(self, config: Mapping[str, Any]) -> Any:
-        return graph.build(self._pacote().aplicar_no_grafo(config))
+        juntar = self._pacote().juntar_mensagens()
+        if juntar is None:
+            return graph.build(self._pacote().aplicar_no_grafo(config))
+        # Etapa 9 (esperar e juntar): o remetente barra a resposta superada por mensagem nova.
+        com_trava = {**config, "whatsapp": _juntar.remetente_que_junta(config.get("whatsapp"))}
+        return graph.build(self._pacote().aplicar_no_grafo(com_trava))
+
+    def turno_juntado(self, estado: Mapping[str, Any], config: Any, compilado: Any) -> Any:
+        """Etapa 9 (esperar e juntar): o contexto do turno para a costura que roda o grafo (espera, junta as
+        mensagens picotadas e escolhe o checkpoint; `juntado` = nao rodar). Fora da lista: o de sempre."""
+        juntar = self._pacote().juntar_mensagens()
+        if juntar is None:
+            return _juntar.sem_juntar(estado, config, compilado)
+        espera_s, conversas = juntar
+        return _juntar.turno_juntado(
+            estado, config, compilado, espera_s=espera_s, conversas=conversas, urgente=graph.mensagem_urgente
+        )
 
     def estado_inicial(self, **campos: Any) -> dict[str, Any]:
         return dict(graph.new_helena_state(**campos))

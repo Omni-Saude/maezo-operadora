@@ -3656,6 +3656,13 @@ def _pedido_explicito_de_pessoa(texto: str) -> bool:
     return bool(_PEDIDO_EXPLICITO_DE_PESSOA.search(_texto_do_pedido(texto)))
 
 
+def mensagem_urgente(texto: str) -> bool:
+    """Sinal CLARO de emergencia ou de risco na mensagem (lexicos e alarme deterministico de sempre): o
+    esperar-e-juntar (etapa 9) nao espera — o 192 sai na hora."""
+    plano = _plano(texto)
+    return bool(_sinal_forte_de_emergencia(texto) or alarme_no_relato(plano) or _sg.tem_risco(plano))
+
+
 def eh_pedido_explicito_de_pessoa(texto: str) -> bool:
     """Entrada publica (DL-0092) para o despachante: o texto pede EXPLICITAMENTE uma pessoa da nossa
     equipe (atendente, humano, pessoa, alguem da equipe, supervisor)? "Me passa pro RH" nao pede."""
