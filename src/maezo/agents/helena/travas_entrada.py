@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from maezo.agents.helena.alarme_deterministico import alarme_no_relato
-from maezo.agents.helena.helena_v4 import ler_pendente
+from maezo.agents.helena.helena_v4 import e_agravamento, ler_pendente
 from maezo.conhecimento import base_saude as _bs
 from maezo.conhecimento import saude_gerativa as _sg
 from maezo.runtime.error_text import dmn_unavailable_error
@@ -236,6 +236,19 @@ def _sinal_do_modelo_e_novo(self: HelenaGraph, state: HelenaState, sinais: Seque
     falas = self._falas_da_pessoa(state)
     antes = set().union(*(_radicais(f) for f in falas)) if falas else set()
     return any(not (_radicais(s) & antes) for s in sinais)
+
+
+def _urgencia_que_piorou(self: HelenaGraph, update: dict[str, Any], texto: str) -> dict[str, Any] | None:
+    """Rodada de 24/10/2026: depois do 192, "piorou" / "nao consigo respirar" e' urgencia NOVA (nunca
+    "mantive o seu caso"): o mesmo escalonamento do alarme (`red_flag_clinico` grave, 192 no texto)."""
+    if not e_agravamento(_plano(texto)):
+        return None
+    logger.warning("helena_urgencia_piorou_depois_do_alarme", node="classify")
+    update.update(
+        {"intent": "symptom", "next_kind": "escalate", "escalation_motivo": "red_flag_clinico"}
+        | {"escalation_severidade": "grave"}
+    )
+    return update
 
 
 # Os nomes de modulo do graph.py que estes corpos usam (no FIM: import circular seguro, ver o docstring).
