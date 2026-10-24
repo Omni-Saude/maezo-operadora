@@ -597,3 +597,51 @@ A seção 5 e a A-06 falavam em "nove interseções inter-plano" no CA_2. A cont
 | 2.6 pinar o fix F-E01 como asserção de regressão | #933 `5a8ba09e` | `tests/processes/test_ca2_v4_regression_f_e01.py` (193 linhas) na árvore | fix sem asserção → **pinado** |
 
 Shas dos 4 arquivos em main @ `5a8ba09e` (recomputados nesta data): CA_0 `a01b1a3e2e9ec6b6ad2e4625bd9b8740e88fd9346890075dc8e8a07cf2f0a14e` · CA_1 `067cf607ddb0c6647598d1b52d1237f2e1eafbbfc944aedcfbdddf91bcf12cb9` · CA_2 `a2f2ddde119ec1841864c7c1952dec4e5082999fcb809ff140b82b3a0b4f0ce3` · CA_3 `f9db45745e8634deb0dc9b668df9408017de30da82fcff9f8f33f5304e7aa390`. CA_1 **intocado** desde o encerramento (cerca D-30).
+
+## 10. Onda W2 CORP — pacote CA_1 v4 (handover ii, D-30) — LEDGER ANTI-CLOBBER (2026-10-24)
+
+Pacote de reparos do CA_1 decidido pelo dono (opção (ii) do broker D-30, 2026-10-24, registrada no COORDINATION.md). Base: CA_1 v4 `067cf607…bcf12cb9` (intocado desde o encerramento, cerca D-30) · branch `corp/ca1-v4-reparos` de main `93d808ee` + merge fast-forward de `reg/rn623-repin` `33ffcc42` (textos-base RN 623/2024 checksumados em `docs/compliance/legal/textos-base/RN-623-2024.md`). Mudanças estritamente aditivas em `.bpmn`: **+6 blocos `<bpmn:documentation>`, 3 valores de timer, 0 ids criados/removidos/renomeados, 0 shapes/edges de DI**. Fontes de auditoria consumidas com cp+sha256 (`/tmp/ca1w2_snapshot`: FINDINGS `ba2ed41e…`, VERIFICATION-TIER2 `2906b6e3…`, COMPARISON `b788149e…`, INVENTORY-A-V4 `428dac64…`, este documento (pré-editado) `5d41a866…`, MAPA `0dc210fa…` do worktree).
+
+### 10.1 Deltas id a id aplicados neste pacote
+
+| # | Elemento (id) | Operação | Antes → depois | Achado de origem |
+|---|---|---|---|---|
+| D1 | `C4_B_SemSlot` | +1 documentation | 2 → 3 documentações: contrato de **pareamento adjudicado** (emissor = delegate `${autoRebookingService}` do host em runtime; cadeia grafo C4_GW_Motivo → C4_T_Reagendar → C4_B_SemSlot → F_…_10 → C4_End_SemSlot → CP_GW_Manutencao → CP_End_Recovery → MF_CP_15; **nenhum thrower sintético fabricado**) | F-E10 · IA-07 |
+| D2 | `C2_B_Recusa` | +1 documentation | 2 → 3 documentações: **contrato de cobertura** (emissor = ação do cliente no canal, fora do conjunto por desenho; entrega por correlação businessKey/journeyId; sem correlação encerra pelo prazo) | F-E02 (família IA-02) |
+| D3 | `C3_EV_Expirou` | +1 documentation + timer | 1 → 2 documentações (**re-ancoragem** RN 395/2016 → RN 623/2024 art. 12, II, "a", com incisos I/II"a"/II"b", § 1º e URL DOU); `timeDuration` **PT48H → PT168H** (5 dias úteis em horas corridas) | F-E04 · REG-1.2 · D-05 |
+| D4 | `C3_B_SLA_Parecer` | +1 documentation | 2 → 3 documentações: coerência pós-re-ancoragem — a referência ao "mesmo prazo do catch de autorização (PT48H)" fica histórica; SLA interno de 48h **mantido** (agora dispara estritamente antes do prazo legal) | derivado de F-E04/D-05 |
+| D5 | `C2_B_PrazoMax` | +1 documentation + timer | 2 → 3 documentações (default explícito CORP-2.2, âncora conservadora PT168H = guarda nula, PD-02 permanece PENDENTE); `timeDuration` **`${prazoMaximoDecisao}` → `${prazoMaximoDecisao != null ? prazoMaximoDecisao : "PT168H"}`** | IA-05 · F-E03 · CORRECOES §6.5 |
+| D6 | `C4_B_PrazoMax` | +1 documentation + timer | 1 → 2 documentações + mesmo default null-safe do D5 | IA-05 · F-E03 |
+
+**Guardrail (handover ii): QUALQUER regeneração futura v3→v4 do CA_1 DEVE re-aplicar D1–D6** — nenhum destes deltas existe no v3 nem no pipeline de adaptação; uma regeneração sem re-aplicação repõe PT48H em `C3_EV_Expirou`, os timers crus `${prazoMaximoDecisao}` e apaga os 3 contratos documentados (pareamento SEM_SLOT, cobertura da recusa, re-ancoragem RN 623). A re-aplicação é literal a partir desta tabela.
+
+### 10.2 Gate-3 (contrato) — veredito manual do set-level com query de grafo
+
+O validador estrutural só reconhece emissor por `errorEventDefinition` em throw/end (`audit_bpmn.py:85`) — o delegate do host **nunca** aparecerá como emissor XML, por desenho. O conjunto segue com **exatamente 1 linha FAIL** no gate 3 (`error:Sem slot equivalente para reagendamento` capturado e não lançado em XML), adjudicada como **falso-positivo documentado** (F-E10: documentation-action; missão W2: "o validador set-level deve reconhecer **ou** você documenta o veredito manual com a query de grafo"). Evidência máquina-checada (11 pernas, todas OK): P1 `C4_B_SemSlot attachedToRef=C4_T_Reagendar` · P2 host com `camunda:delegateExpression=${autoRebookingService}` · P3 captura `errorRef=Error_CA_SemSlotEquivalente` · P4 declaração name+errorCode · P5 edge `F_…_10` → `C4_End_SemSlot` · P6 listener seta `resultadoManutencao=SEM_SLOT` · P7 upstream `C4_GW_Motivo → C4_T_Reagendar` · P8 `CP_CA_C4` `camunda:out resultadoManutencao` · P9 `CP_GW_Manutencao → F_CA_COMPRA_28 (${resultadoManutencao == "SEM_SLOT"}) → CP_End_Recovery` · P10 `MF_CP_15` → `Participant_Suporte` · P11 zero emissores XML (nenhum thrower sintético). Demais pares OK no set-level: erro LGPD (lançado por `H1_End_Negado`) e sinal AlertaDS (PAREADO, §9.3 2.4).
+
+### 10.3 Classificação D-05 por timer (RN 623/2024 art. 12 — texto-base checksumado)
+
+| Timer | Valor | Classe art. 12 / D-05 | Racional |
+|---|---|---|---|
+| `C3_EV_Expirou` | PT48H → **PT168H** | **art. 12, II, "a" — demais casos: até 5 dias úteis** | Contexto = espera da resposta a solicitação de autorização de cobertura. Ambiguidade registrada (o corpus não tipa urgência/PAC): urgência = resposta imediata (art. 12, I — não deve aguardar este timer); PAC/internação eletiva = até 10 dias úteis (art. 12, II, "b"). Aplicada a classe **mais restritiva** expressível como espera (5 úteis): a classe geral nunca espera além do prazo legal; expiração antecipada em caso PAC conduz a renegociação/escalação, não à perda do direito. Art. 12, § 1º: prazo inferior da RN 566/2022 prevalece. PT168H = teto conservador que nunca expira antes do 5º dia útil (feriados = critério da ponte de runtime) |
+| `C3_B_SLA_Parecer` | PT48H (mantido) | **não é prazo do art. 12** — SLA operacional interno (parecer humano sobre negativa) | 48h corridas ≤ 5 dias úteis: dispara estritamente antes do prazo regulatório de resposta. D4 registra a referência cruzada como histórica |
+| `C3_B_SLA_Renegociar` | PT24H (mantido) | **não é prazo do art. 12** — cadência interna pós-resposta (oferta de alternativa) | Ritmo de lembrete do corpus |
+| `C2_B_PrazoMax` | `${prazoMaximoDecisao}` → null-safe + âncora **PT168H** | **não é prazo do art. 12** — o prazo vincula o CLIENTE (decisão de compra), não a operadora | PD-02 permanece PENDENTE; âncora é guarda nula (não política ratificada), a substituir pela regra competente na ponte de runtime |
+| `C4_B_PrazoMax` | idem C2_B_PrazoMax | **não é prazo do art. 12** — confirmação de slot pelo cliente | Idem |
+| `C2_B_Lembrete` | R/PT24H (mantido) | **cadência**, não prazo | — |
+| `C4_B_Lembrete` | R/PT24H (mantido) | **cadência**, não prazo | — |
+
+Fonte da citação: `docs/compliance/legal/textos-base/RN-623-2024.md` (DOU 19/12/2024, Seção 1, p. 285; revogação da RN 395/2016 no art. 28; vigor 1º/7/2025) — merge `reg/rn623-repin` `33ffcc42`. A anotação histórica RN 395 em `C3_EV_Expirou` foi **preservada como histórico** (D3 mantém o bloco original intocado).
+
+### 10.4 Gates e evidência (nesta data)
+
+- **Gate 1 XSD**: PASS 4/4 · **Gate 2 Auditoria**: PASS (0 achados não-Info; CA_1 mantém só as 3 notas Info de dependência de deploy) · **Gate 3 Contrato**: 1 linha FAIL adjudicada (IA-07 — ver 10.2) · **Gate 4 bpmnlint**: 0 errors (CA_1: 0 problems; as 2 warnings de CA_0 são pré-existentes e fora deste pacote) · **Gate 5 bpmn-js**: PASS 4/4 (0 warnings).
+- **Dupla validação** (incidência ElementTree + reachability lxml/BFS, seeds = starts + boundaries): retenção **574 = 574 ids, 0 removidos, 0 renomeados, 0 duplicados**; incidência 0; 0 órfãos (o container `CP_ES_Ajuda` é eventSubProcess — ativado pelo start interno, asserção explícita de alcance do start interno) e 0 black holes; **DI: 0 delta** (1 plano com id `BPMNPlane_CA_COMPRA` antes = depois; cobertura 139 shapes / 121 edges completas; sobreposições entre shapes de nós de fluxo = **0 antes e 0 depois**; 22 pares boundary-over-host whitelistados por `attachedToRef`).
+- **Engine**: nenhum probe novo nesta sessão (Docker daemon indisponível). A forma JUEL do null-safe (`${var != null ? var : "literal"}`) é idêntica à **probe-provada na engine CIB Seven 2.2.0** no pacote do CA_0 (#932/`3b07bfbb`); `PT168H` é a mesma família ISO-8601 dos literais PT48H/PT24H já parseados pelo corpus. Evidence statement: gates 4–5 executados com Node v22.23.0 + Chromium em cache (ms-playwright chromium-1248).
+
+### 10.5 Residuais e limites
+
+- O valor PT168H de `C3_EV_Expirou` é a forma BPMN conservadora do prazo legal (5 dias úteis); a contagem útil/feriados e a homologação operacional continuam na ponte de runtime — PD-01 segue aberta quanto à ratificação.
+- `C2_B_Recusa`: a nota de cobertura documenta o contrato; o **messageFlow** do diagrama continua candidato NÃO ordenado neste pacote (família IA-02 — decidir quando a casa do canal existir).
+- `${prazoMaximoDecisao}`: PD-02 permanece PENDENTE; as âncoras PT168H são guarda nula.
+- Nenhum nome de empresa/pessoa nos `.bpmn` (regra do corpus mantida); nomes de eventos/mensagens inalterados (correlação por NOME preservada — 0 renomes).
