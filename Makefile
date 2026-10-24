@@ -1,10 +1,11 @@
 .PHONY: setup lint type test test-integration evals validate-artifacts validate-signoff \
-        check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence check-qa-isolada \
+        check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence check-qa-isolada check-fronteira-agentes \
         verify-amh-contract-pin \
         check-alert-runbook-urls \
         check-revisao-das-reguas \
         check-plans-counts \
         check-doc-symbol-citations \
+        check-compliance-doc-citations \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
@@ -104,6 +105,19 @@ check-doc-symbol-citations: ## R-089: path::symbol / ImportFrom quotado / path:l
 	# exatas (1 tool-wiring + 4 inbound + 2 cross-repo) continuam finitas e auto-verificadas.
 	.venv/bin/python scripts/ci/check_doc_symbol_citations.py
 
+check-compliance-doc-citations: ## GOV-0.8 (D-31a): citacoes em docs/compliance/**.md resolvem na arvore + espelho GAP-REGISTER.yaml confere com a custodia
+	# A classe derrotada (GOV-0.8/D-31a, dono 2026-10-23): docs/Tarefas_Pendentes.md citava
+	# docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml — caminho em arvore gitignored
+	# ausente do checkout, a "citacao pendente". Escopo estreito e deliberado (precedente R-089):
+	# so docs/compliance/ (a casa dos espelhos rastreados) — alargar e decisao separada. Diferenca
+	# deliberada do R-089: AQUI nao ha isencao para caminho ausente sob arvore gitignored; apontar
+	# para arvore ignorada/ausente e exatamente a citacao pendente que a cerca mata. Segunda
+	# verificacao: integridade do espelho docs/compliance/GAP-REGISTER.yaml — recuo do bloco
+	# registro_custodiado revertido, sha256 recomputado contra fonte_sha256 e mapa por linha
+	# (gap id -> linhas da fonte) reextraido; divergencia = espelho deixou de ser copia fiel.
+	# Stdlib-only, sem git history; corpus vazio e espelho ausente/em modo nao-verificavel falham.
+	.venv/bin/python scripts/ci/check_compliance_doc_citations.py
+
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
 	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)
 	# e o UNICO chokepoint de start de processo sancionado (emit-before-effect + idempotencia por
@@ -132,6 +146,12 @@ check-qa-isolada: ## Simulador de beneficiario: nenhum codigo de producao import
 	# maezo.qa ou string `maezo.qa...` fora de docstring (importlib) reprovam. O QA troca as bordas
 	# do receptor (Meta -> captura, ESC -> interceptado); em producao isso seria um caminho que finge.
 	.venv/bin/python scripts/ci/check_qa_isolada.py
+
+check-fronteira-agentes: ## ADR-0067: catraca da fronteira plataforma x agentes (nenhuma dependencia nova para dentro de um agente; a baseline so' encolhe)
+	# AST-scan de src/maezo (fora de qa/): plataforma importando maezo.agents.<id>, ou agente importando
+	# outro agente, reprova se nao estiver em scripts/ci/fronteira_agentes_baseline.txt; linha da baseline
+	# que ja' nao existe no codigo tambem reprova. Inventario: `--relatorio`.
+	.venv/bin/python scripts/ci/check_fronteira_agentes.py
 
 verify-amh-contract-pin: ## ADR-0037 XRD-04 (MZO-010/XRG-3): pin imutavel do contrato AMH intacto, completo e nao-regressivo
 	# XRD-04 verbatim: "Digest divergente, schema ausente, topico errado ou versao rebaixada falham

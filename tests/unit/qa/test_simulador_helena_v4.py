@@ -92,7 +92,10 @@ def test_os_textos_fixos_da_v4_passam_nos_passos_do_roteiro() -> None:
         frase_cobertura=RESPOSTA_COBERTURA_ESPECIFICA,
     )
     assert certo("3-especialista-pergunta-de-cobertura-da-consulta", 0, endocrino) == []
-    assert certo("4-cobertura-de-exame-nao-e-especialista", 0, RESPOSTA_COBERTURA_ESPECIFICA) == []
+    # Cobertura fora (decisao do dono de 23/10/2026, DL-0154): a pergunta de cobertura recebe so' o aviso.
+    from maezo.agents.helena.habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
+
+    assert certo("4-cobertura-de-exame-nao-e-especialista", 0, TEXTO_COBERTURA_FORA) == []
 
     view = ElegibilidadeView(
         portable_subject_ref="amh:psr:v1:1b2f3a4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",

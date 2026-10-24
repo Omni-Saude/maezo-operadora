@@ -21,6 +21,12 @@ sinonimos:
 - trauma na cabeca
 - trauma na cabeça
 - traumatismo craniano
+- caiu de cabeça
+- caiu de cabeca
+- bateu a testa
+- bateu a cabecinha
+- cabeçada
+- cabecada
 texto: Sem sinais de alarme, observe a pessoa nas próximas horas. Se tiver dúvida, marque consulta com clínico geral ou pediatra. Se aparecer algum sinal de alarme, procure um pronto-socorro na hora ou ligue 192 (SAMU).
 tipo_texto: proprio
 fontes:
@@ -33,8 +39,8 @@ fontes:
   licenca: texto próprio da operadora
   coletado_em: *id001
 perguntas_alerta:
-- Depois da batida, teve vômito, desmaio, convulsão ou sangramento pelo nariz ou pelo ouvido?
-- Está muito sonolento ou confuso, ou é um bebê com menos de 1 ano?
+- Depois da batida, teve vômito, desmaio ou apagou, convulsão, ou saiu sangue ou líquido pelo nariz ou pelo ouvido?
+- Está muito sonolento, confuso ou com o comportamento diferente do normal, ou é um bebê com menos de 1 ano?
 sinais_alarme:
 - vomito
 - vômito
@@ -50,7 +56,50 @@ sinais_alarme:
 - muito sonolento
 - confuso
 - confusa
+- vomitando
+- vomitar
+- vomitado
+- vomitaram
+- golfou
+- desmaiado
+- desmaiada
+- apagou
+- desacordado
+- desacordada
+- perdeu a consciencia
+- perdeu a consciência
+- perdeu os sentidos
+- convulsionou
+- convulsionando
+- convulsões
+- convulsoes
+- ataque epilético
+- tremendo todo
+- sonolento
+- sonolenta
+- sonolência
+- sonolencia
+- dormindo muito
+- muito mole
+- molinho
+- molinha
+- liquido pelo nariz
+- líquido pelo nariz
+- liquido pelo ouvido
+- líquido pelo ouvido
+- saindo sangue
+- sangrando pelo nariz
+- sangrando pelo ouvido
+- comportamento diferente
+- comportamento estranho
+- agindo estranho
+- não reconhece
+- nao reconhece
+- chorando sem parar
 populacao: todos
+combinacoes:
+- [bateu, bater, bati, batida, batidas, pancada, pancadas, caiu, cai, caí, caindo, queda, tombo, levou, bateram]
+- [cabeca, cabeça, cabecinha, testa, nuca, cranio, crânio]
 revisao:
   status: rascunho_dono_aprovado_dev
   autor: Claude (assistente de IA)

@@ -1,0 +1,77 @@
+name: agentes-pacote
+
+# ---------------------------------------------------------------------------
+# Pacotes de comportamento dos agentes (ADR-0067 fase 3). Mudou `spec/agents/<agente>/pacote/**`:
+#   * em pull_request: monta e VALIDA o pacote com o validador do proprio agente (nada e' escrito);
+#   * na main: publica o pacote imutavel e move o ponteiro do DEV. O receptor usa a versao nova em ate'
+#     60 s — sem build, sem deploy e sem a suite do Maezo.
+# A escrita usa a role OIDC `*-github-agentes` (pacotes-dos-agentes.tf), que so' aceita a main e so'
+# escreve pacotes e o ponteiro do dev. Sem a variavel AWS_AGENTES_ROLE_ARN o job de publicacao para.
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "spec/agents/*/pacote/**"
+      - "src/maezo/agents/*/pacote.py"
+      - "scripts/agentes/publicar_pacote.py"
+      - ".github/workflows/agentes-pacote.yml"
+  pull_request:
+    paths:
+      - "spec/agents/*/pacote/**"
+      - "src/maezo/agents/*/pacote.py"
+      - "scripts/agentes/publicar_pacote.py"
+      - ".github/workflows/agentes-pacote.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MAEZO_CI_PYTHON_VERSION: "3.12"
+  MAEZO_CI_UV_VERSION: "0.11.26"
+  AWS_REGION: sa-east-1
+
+concurrency:
+  group: agentes-pacote-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pacote:
+    name: pacote (${{ matrix.agente }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        agente: [helena]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+      - name: Monta e valida o pacote (o validador do proprio agente)
+        run: uv run --locked python scripts/agentes/publicar_pacote.py --agente "${{ matrix.agente }}" --versao "${{ github.sha }}" --seco
+      - name: Credenciais AWS (OIDC, so' na main)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.AWS_AGENTES_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_AGENTES_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Publica e aponta o dev
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.AWS_AGENTES_ROLE_ARN != ''
+        env:
+          PACOTES_URI: ${{ vars.AWS_AGENTES_PACOTES_URI }}
+        run: uv run --locked python scripts/agentes/publicar_pacote.py --agente "${{ matrix.agente }}" --versao "${{ github.sha }}" --ambiente dev --uri "$PACOTES_URI"

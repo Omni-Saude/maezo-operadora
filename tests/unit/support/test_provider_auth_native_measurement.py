@@ -12,24 +12,103 @@ from tests.support import provider_auth_native_runtime as runtime
 
 def test_snapshot_mapping_uses_unique_real_full_xid_and_allows_unassigned():
     full = str(2**32 + 17)
-    assert measurement.full_xid("17", [full]) == full
-    assert measurement.full_xid(None, [full]) is None
+    assert measurement.full_xid("17", [full], witness=full) == (
+        full,
+        measurement.XID_SOURCE_IN_PROGRESS,
+    )
+    assert measurement.full_xid(None, [full], witness=None) == (
+        None,
+        measurement.XID_SOURCE_IN_PROGRESS,
+    )
+
+
+def test_committed_clog_path_admits_zero_candidates_with_same_statement_verdict():
+    full = "761"
+    # Live committed verdict from the checkpoint's own statement, with the lagging
+    # pg_stat_activity projection still showing the xid32 (pre-clear lag).
+    assert measurement.full_xid("761", [], witness=full, live_status="committed") == (
+        full,
+        measurement.XID_SOURCE_CLOG_COMMITTED,
+    )
+    # The projection already cleared between the row and the snapshot: null xid32
+    # is non-contradictory on the committed path, never a waive.
+    assert measurement.full_xid(None, [], witness=full, live_status="committed") == (
+        full,
+        measurement.XID_SOURCE_CLOG_COMMITTED,
+    )
+    # Offline re-derivation of a stored zero-candidate capture (pair verdicts and
+    # provenance revalidation): the live guard is the only way such a capture exists.
+    assert measurement.full_xid("761", [], witness=full) == (
+        full,
+        measurement.XID_SOURCE_CLOG_COMMITTED,
+    )
+
+
+@pytest.mark.parametrize(
+    "status,reason",
+    [
+        ("aborted", "aborted"),
+        ("in progress", "non-decisive"),
+        ("inprogress", "non-decisive"),
+        ("subcommitted", "subcommitted"),
+        (None, "horizon"),
+        ("committed ", "unknown"),
+        ("COMMITTED", "unknown"),
+    ],
+)
+def test_only_exact_committed_clog_literal_admits(status, reason):
+    with pytest.raises(runtime.NativeObservationError, match=reason):
+        measurement.full_xid("761", [], witness="761", live_status=status)
+
+
+@pytest.mark.parametrize(
+    "xid32,active,witness,live_status,reason",
+    [
+        ("9", [], "761", "committed", "differs from witness epoch"),
+        (None, ["761"], "761", "in progress", "cleared backend xid32"),
+        ("761", ["761", str(2**32 + 761)], "761", None, "ambiguous"),
+        ("761", [str(2**32 + 761)], "761", None, "differs from witness epoch"),
+        ("762", ["761"], "761", "committed", "differs from witness epoch"),
+        ("761", [], None, "committed", "unassigned witness"),
+        ("bogus", [], "761", "committed", "backend xid32 refused"),
+        ("761", [], "9" * 20, "committed", "witness full XID refused"),
+    ],
+)
+def test_discriminant_refusals_cover_every_non_admissible_state(xid32, active, witness, live_status, reason):
+    with pytest.raises(runtime.NativeObservationError, match=reason):
+        measurement.full_xid(xid32, active, witness=witness, live_status=live_status)
 
 
 @pytest.mark.parametrize(
     "xid,active",
     [
-        ("17", []),
-        ("17", ["18"]),
-        ("17", ["17", str(2**32 + 17)]),
         ("17", ["17", "17"]),
         ("17", [str(2**64)]),
         (True, ["17"]),
     ],
 )
-def test_snapshot_missing_ambiguous_or_unbounded_xid_is_unknown(xid, active):
+def test_snapshot_ambiguous_unbounded_or_typed_xid_is_unknown(xid, active):
     with pytest.raises(runtime.NativeObservationError):
-        measurement.full_xid(xid, active)
+        measurement.full_xid(xid, active, witness="17")
+
+
+def test_session_derivation_preserves_witness_equality_on_both_decisive_paths():
+    capture = {
+        "backend_pid": "81",
+        "backend_start": "2026-10-22T15:11:15.942000Z",
+        "transaction_started_at": "2026-10-22T15:11:15.942219Z",
+        "backend_ssl": True,
+        "backend_tls_version": "TLSv1.3",
+        "backend_xid32": "761",
+        "active_full_xids": [],
+    }
+    witness = "761"
+    live = measurement.session(capture, witness=witness, live_status="committed")
+    offline = measurement.session(capture, witness=witness)
+    assert live == offline
+    assert live["transaction_id_if_assigned"] == witness
+    in_progress = dict(capture, active_full_xids=["761"])
+    assert measurement.session(in_progress, witness=witness)["transaction_id_if_assigned"] == witness
 
 
 @pytest.mark.parametrize(

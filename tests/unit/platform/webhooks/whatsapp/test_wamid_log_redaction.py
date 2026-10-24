@@ -34,6 +34,7 @@ import pytest
 import structlog
 from fastapi import FastAPI
 
+from maezo.agents.helena import graph as helena_graph_module
 from maezo.gateway.pseudonymizer import KEYED_PSEUDONYM_PREFIX, Pseudonymizer
 from maezo.platform.webhooks.whatsapp import dispatch as dispatch_module
 from maezo.platform.webhooks.whatsapp.app import create_app
@@ -184,7 +185,7 @@ async def test_dispatch_turn_started_telemetry_carries_the_pseudonym_never_the_r
         async def ainvoke(self, _state: Any, _config: Any) -> Any:
             raise RuntimeError("turno explodiu depois do log de inicio")
 
-    monkeypatch.setattr(dispatch_module, "build", lambda _config: _ExplodingGraph())
+    monkeypatch.setattr(helena_graph_module, "build", lambda _config: _ExplodingGraph())
     dispatcher = _dispatcher()
 
     with (
@@ -471,15 +472,15 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
     modules = _package_modules()
     assert [path.name for path in modules] == [
         "__init__.py",
-        # `acesso.py`, `acesso_cadastro.py`, `acesso_ponte.py`, `acesso_store.py` (DL-0083): revisados ao
+        # `acesso.py`, `acesso_ponte.py`, `acesso_store.py` (DL-0083): revisados ao
         # entrar nesta lista. NENHUM recebe wamid. `acesso.py` recebe o TEXTO da mensagem (que pode ser CPF ou
         # nascimento) e o numero cru, mas so' para hash/validacao em memoria: os logs dele carregam o
         # `conversation_id` keyed, tokens de estado/motivo/decisao e contadores — nunca texto, CPF,
         # nascimento,
-        # hash, telefone nem referencia. `acesso_cadastro.py` e `acesso_ponte.py` nao tem chamada de logger;
+        # hash, telefone nem referencia. `acesso_ponte.py` nao tem chamada de logger (o antigo
+        # `acesso_cadastro.py` foi para `agents/helena/cadastro.py`, ADR-0067);
         # `acesso_store.py` tambem nao (so' SQL parametrizado). Varridos abaixo como os demais.
         "acesso.py",
-        "acesso_cadastro.py",
         # `acesso_limite_cpf.py` (D-04, DL-0109): revisado ao entrar nesta lista. Nao recebe wamid nem
         # texto; so' a chave derivada do hash, contagens e carimbos, e SQL parametrizado. Sem logger.
         "acesso_limite_cpf.py",

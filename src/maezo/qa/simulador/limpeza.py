@@ -29,8 +29,8 @@ from typing import Any
 
 import structlog
 
+from maezo.domain.conversa.caso_clinico import chave_do_escalonamento
 from maezo.gateway.audit_postgres import normalize_dsn, schema_for_tenant
-from maezo.runtime.caso_clinico import chave_do_escalonamento
 
 logger = structlog.get_logger(__name__)
 

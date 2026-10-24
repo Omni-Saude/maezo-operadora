@@ -1,0 +1,19 @@
+{
+  "schema": "commercial.java-fixture-original-recheck.v1",
+  "verdict": "REQUEST_CHANGES",
+  "scope": "first third-party fixture lifecycle repair only",
+  "verified_before_and_after": {
+    "RuntimeDefinitionObservationTest.java": "8f91c1436352780084cddd677d70376c1f9c51b21ec07f5fe3cdc9adce10ce80",
+    "MAEZO-C6-JAVA-FIXTURE-REPAIR.md": "f07fa675b560754238c0fe11e1e06104ee95786cf71fc29c71db3aa1c9c562fa",
+    "MAEZO-C6-JAVA-FIXTURE-REPAIR-MANIFEST.json": "6a7d008608c50cea4628eb4f72c693fdc89ed4c82c4f244d7553d2e54e0a0865"
+  },
+  "findings": [{"id": "JFIX-R1", "severity": "medium", "path": "src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/RuntimeDefinitionObservationTest.java", "line": 283, "issue": "unbounded worker.join in cleanup executes outside existing census assertTimeout", "required": "finite monotonic cleanup budget, visible failure if worker remains live, no concurrent release of live-owned channels; deterministic stalled-worker negative"}],
+  "successful_return_ownership_path": "source review supports join-before-close and interrupted unpublished-channel release",
+  "local_report_hashes_independently_verified_at_verdict": false,
+  "author_reported": {"new_lifecycle_pass": 1, "old_cleanup_mutation_fail": 1, "original": {"tests": 59, "pass": 41, "fail": 2, "error": 15, "skip": 1}, "repaired": {"tests": 60, "pass": 42, "fail": 2, "error": 15, "skip": 1}, "changed_original_named_outcomes": []},
+  "linux_proc_qualification": "NOT_RUN_HOST_UNSUPPORTED",
+  "original_ci_causal_link": "NOT_PROVEN",
+  "whole_java_acceptance": "PENDING_ROOT_EXACT_HEAD_CI",
+  "reviewer_tests": "NOT_RUN",
+  "next_gate": "bounded-cleanup successor freeze and original reviewer recheck"
+}

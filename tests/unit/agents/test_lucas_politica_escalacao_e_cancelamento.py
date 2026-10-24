@@ -32,7 +32,7 @@ from maezo.agents.lucas.graph import (
     ref_de_resposta,
 )
 from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
-from maezo.runtime.cobranca_intencao import confirmacao_valida, decidir_confirmacao, pede_negociacao
+from maezo.domain.conversa.cobranca_intencao import confirmacao_valida, decidir_confirmacao, pede_negociacao
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.evals.lucas.programa import DmnDraftLocal
 from tests.support.audit_fakes import FakeStartAuditSink

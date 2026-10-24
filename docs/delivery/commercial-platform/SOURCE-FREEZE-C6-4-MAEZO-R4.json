@@ -1,0 +1,302 @@
+{
+  "schema": "omni-commercial-maezo-source-freeze.v1",
+  "freeze": "C6-4-MAEZO-R4-SCANNER",
+  "owner": "ROOT",
+  "checkpoint_head": "6a7c0d9bb093a438d27f0fd7dfdb253c81d41722",
+  "contract_sha256": "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea",
+  "requirements_denominator": 35,
+  "prior_mandatory_subchecks_preserved": 122,
+  "additional_original_plan_checks": 8,
+  "source_paths": [
+    {
+      "path": ".gitleaks.toml",
+      "sha256": "601506f34a808d47c1ae39c5d87f39e10942ad4e76e9ae6d5e00cc8bbb8c72dc",
+      "bytes": 16730
+    },
+    {
+      "path": ".python-version",
+      "sha256": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d",
+      "bytes": 5
+    },
+    {
+      "path": "config/integrations/amh/commercial-c6-4.source.lock.json",
+      "sha256": "e969e5ff32532f30ae3d4bae60bd26cb08ad6093b19e946ba379cdbae7764228",
+      "bytes": 1626
+    },
+    {
+      "path": "config/integrations/amh/contracts.lock.json",
+      "sha256": "098ff7b5077792ee5bc8126cf01fec6b9de89bd3f78d5bc0f63f8b5f73f6e55a",
+      "bytes": 36285
+    },
+    {
+      "path": "docs/processes/contracts/SP-OP-ESCALATION-001.md",
+      "sha256": "8751b834f36ca1f215f2f53b1b3927b24cd8d1de87a8a48ba54f91a95420c37c",
+      "bytes": 33874
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "45411aed92135c82299656bc345c1f216cb57d488817cb91ebebd374c58bbefe",
+      "bytes": 16328
+    },
+    {
+      "path": "scripts/ci/check_effect_chokepoint_fence.py",
+      "sha256": "f75b3cd814fa1f00ac79f85854849e66b6908b75091fe33813878526390b80b0",
+      "bytes": 77039
+    },
+    {
+      "path": "scripts/dev/export_portal_openapi.py",
+      "sha256": "e96b49c9bad4050f8cca14cffe649744536e65d4514f5e606c76379d4c2b8d36",
+      "bytes": 2508
+    },
+    {
+      "path": "scripts/dev/run_engine_integration.py",
+      "sha256": "5b27e471bdf85443457564634f79cafb7fc28f9294214687e9bd909b44c88281",
+      "bytes": 93583
+    },
+    {
+      "path": "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn",
+      "sha256": "e3574b8553f990aa8c4e488826e92eca92b2b0494b9968bdda3b52acfa482a86",
+      "bytes": 81581
+    },
+    {
+      "path": "spec/processes/dmn/escalation_routing.dmn",
+      "sha256": "8becf511ea2bea2a19dc6e0b09781d94b8e6e498b81f966f173149ca936dbea1",
+      "bytes": 5512
+    },
+    {
+      "path": "src/maezo/adapters/amh/commercial.py",
+      "sha256": "6f048f638ae08b4b43b74edecf84c526ee431a1a16a1600097069494ea380ca0",
+      "bytes": 35550
+    },
+    {
+      "path": "src/maezo/adapters/amh/commercial_http.py",
+      "sha256": "b151ccd4947f89a3e0b263727a21782b1bbce12f0c7889430cc688de3bbaa943",
+      "bytes": 14479
+    },
+    {
+      "path": "src/maezo/gateway/commercial.py",
+      "sha256": "952bd672ec3f411897970cd5804549b231df3e8dabd050e8a86848ae9fa10877",
+      "bytes": 22795
+    },
+    {
+      "path": "src/maezo/gateway/commercial_admission.py",
+      "sha256": "09b1aee43f5042f8d6635630c0fc5eaa4c64210579dd315e8638b93c28badd13",
+      "bytes": 9490
+    },
+    {
+      "path": "src/maezo/portal/api/app.py",
+      "sha256": "91b07a706ecc9401746281415ecb007923ba2725dcf21f5f6142394f3f8a0e59",
+      "bytes": 20662
+    },
+    {
+      "path": "src/maezo/portal/api/commercial.py",
+      "sha256": "6cf6daae32a7626d9a2c0568a7e99d3e8173b3162fed122b1990dd500cc9c6fc",
+      "bytes": 6664
+    },
+    {
+      "path": "src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/RuntimeDefinitionObservationTest.java",
+      "sha256": "70124860fff71b68c7e69bef926b616ee79d6857745b0f83b86326f3917307b3",
+      "bytes": 37074
+    },
+    {
+      "path": "src/maezo/portal/web/openapi.json",
+      "sha256": "7bb79a200fd23d336c2e69b8cb0fbfbc4bacc0d8ee2a74f3cebd27bcb3076007",
+      "bytes": 321630
+    },
+    {
+      "path": "src/maezo/portal/web/package-lock.json",
+      "sha256": "6494fe65234b32e1cbf0c94055d185db335eb0c474acb079f3b0ed875e3fce39",
+      "bytes": 82364
+    },
+    {
+      "path": "src/maezo/portal/web/package.json",
+      "sha256": "2d207c35ea748bc7afc2099963023eca549c3073a03152e37091c5a435c26436",
+      "bytes": 1589
+    },
+    {
+      "path": "src/maezo/portal/web/phi-openapi.json",
+      "sha256": "a611b6c699ee46c77b010b12371f1e740eebc036e5e94d9ceb217bf93e9b5cf8",
+      "bytes": 15602
+    },
+    {
+      "path": "src/maezo/portal/web/src/App.test.tsx",
+      "sha256": "d4ef473b81699558210df90488eb8c2b6c115a2376bd5081651777f8da9698ca",
+      "bytes": 27863
+    },
+    {
+      "path": "src/maezo/portal/web/src/App.tsx",
+      "sha256": "9ec73770b0fcce826b9637b630ffac0372094063efeb7620962ff77058861b7c",
+      "bytes": 10384
+    },
+    {
+      "path": "src/maezo/portal/web/src/generated/api.ts",
+      "sha256": "908f12de21e0a88a42a1c418a5ce3fc460e01dc6d378fd1322940608ddf9d31f",
+      "bytes": 219653
+    },
+    {
+      "path": "src/maezo/portal/web/src/generated/phiApi.ts",
+      "sha256": "3ed3eb6b4b3214c03facbc96833561006f88cbbb05654f8fdbbfc071aeb2d856",
+      "bytes": 15613
+    },
+    {
+      "path": "src/maezo/ports/commercial.py",
+      "sha256": "01e9db9618eb90389710ccff99389a63ccdfb465224e9cbd604a2af852ed8d9f",
+      "bytes": 16525
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/PROVENANCE-C5.json",
+      "sha256": "08ca80bb974c8568db7c74e33a2bb49eadb2b17ce14076cf44c262a90cfb5c6f",
+      "bytes": 952
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/PROVENANCE-C6-1.json",
+      "sha256": "c89b6cf938e8abb8a7e9ffa21edfc5ee3ca3843173bea7c2f745db4f40ac6d52",
+      "bytes": 1053
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/PROVENANCE-C6-2.json",
+      "sha256": "29dd947d77c27a5be4e6794d758d20e550d4023f3da257dacd80106198a0d743",
+      "bytes": 1026
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/PROVENANCE-C6-3.json",
+      "sha256": "69540b39192515adb48508ebd59b9dcf484e39dfd18d2ebc6f9ad4eb1031ba13",
+      "bytes": 1026
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/PROVENANCE-C6-4.json",
+      "sha256": "227737840da47183ce72bb5113b7a821f252a77f276f04ba57cb998b928fa4f2",
+      "bytes": 1026
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/PROVENANCE.json",
+      "sha256": "04b2425c841e54eaabb3303137ce37fa10bc59b09d02f71bf2b2223504bcba08",
+      "bytes": 952
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/README.md",
+      "sha256": "0829fdbea63a4c6f5230a1ab17bcc277483b6d60ca3e9db5073ec0a49a91d4c1",
+      "bytes": 502
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/contract-c4.json",
+      "sha256": "10e5ae42a1344ea4a886c1d50223536c58cc79c0564b5ef6def9a42dd3bccaab",
+      "bytes": 134265
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/contract-c5.json",
+      "sha256": "6aef2e1ec987834179db1acbd1ff2be32f5c406ca73622af5f905ec5b992d1e6",
+      "bytes": 148990
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/contract-c6-1.json",
+      "sha256": "fe02aa3c347a03f5a38797b17a2a3450b7dd111d105b2d14e155209a002e4685",
+      "bytes": 310550
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/contract-c6-2.json",
+      "sha256": "19a88be247a71c6bea617ae7287a03d3ac210dba96a5c0a52507f981a10db799",
+      "bytes": 312316
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/contract-c6-3.json",
+      "sha256": "02b7f28df14b1e1b658e097b504f39d6e36dc715999929485d9006907fed400f",
+      "bytes": 317594
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/contract-c6-4.json",
+      "sha256": "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea",
+      "bytes": 320163
+    },
+    {
+      "path": "tests/unit/adapters/amh/test_adapter_purity.py",
+      "sha256": "e28b5c9f39c4d2d1ccb849dfa4093b51e024df90d90f17657bad9c3bd0401d41",
+      "bytes": 24398
+    },
+    {
+      "path": "tests/unit/dev/test_engine_integration_runner.py",
+      "sha256": "20c25346a0167b56d98ef61030d2ae83d46bd48b31cd39eb9db875d8d9f8ae1b",
+      "bytes": 29378
+    },
+    {
+      "path": "tests/unit/portal/test_openapi_export.py",
+      "sha256": "40aec0203adee4f97da833590bcec1dde45545ea1c34baa00e9e1b57aeba322c",
+      "bytes": 5054
+    },
+    {
+      "path": "tests/unit/portal/test_portal_web_bundle.py",
+      "sha256": "9476fdc32e271218112304527f29923919b7f1ab75243f3e2b8c14905ddc6f55",
+      "bytes": 6751
+    },
+    {
+      "path": "tests/unit/ports/test_ports_purity.py",
+      "sha256": "374df0206e77abb40ff574d79e3080c420863059b764f674f8c5a05fe745e876",
+      "bytes": 25591
+    },
+    {
+      "path": "tests/unit/test_commercial_api.py",
+      "sha256": "1889eb24fcd531b5afaabf626df8ea9b9a820ab4cdd35f1afc7f1c112c482187",
+      "bytes": 1839
+    },
+    {
+      "path": "tests/unit/test_commercial_c5.py",
+      "sha256": "3205fa83eebd924b8c51ef3ed8ea1edd95c9558ce4cbf8c55549e2c661771cbb",
+      "bytes": 17380
+    },
+    {
+      "path": "tests/unit/test_commercial_c6.py",
+      "sha256": "878dec53b9ab16b31cc2871ad186a6fc0cf30f23f4ff7b2aa117587e7c911c58",
+      "bytes": 53492
+    },
+    {
+      "path": "tests/unit/test_commercial_ci_transport_repair.py",
+      "sha256": "f5c596136bf384dceb050bd687ad7d4aaacbbc93a7de21287c40effe3d2f39f3",
+      "bytes": 9172
+    },
+    {
+      "path": "tests/unit/test_commercial_disclosure.py",
+      "sha256": "1cd51237c4fff58eb04be2d7bdfc6f346c0fdfca6231b7097aaff9424fa3432d",
+      "bytes": 4942
+    },
+    {
+      "path": "tests/unit/test_commercial_gateway.py",
+      "sha256": "1eb4f9bdf3e4d1f8a6e33f2c72e4c1a81b008216023bf4140eb6bdd5c77a3466",
+      "bytes": 16396
+    },
+    {
+      "path": "tests/unit/test_commercial_http.py",
+      "sha256": "1d0d1e2bac80c3d2dc8153a1d4cc675fa3f5fe01e0b01ef808e79433cc6d782a",
+      "bytes": 18628
+    },
+    {
+      "path": "tests/unit/test_commercial_prebody_deadline_repair.py",
+      "sha256": "7aa7b11ec4c3ff9dc2dea98354b5be9fb64da0c7b5a0f78f1a91d6d2bc9818eb",
+      "bytes": 8649
+    },
+    {
+      "path": "tests/unit/test_commercial_recovery.py",
+      "sha256": "69336cb6c4abc8321989675e6ad3179647673d239765909c199fab98d6ac2a43",
+      "bytes": 1425
+    },
+    {
+      "path": "uv.lock",
+      "sha256": "1fd1e0d35318c05c15d5f65e43e3467111e2b6b6c04f134aa1313d165f1303a9",
+      "bytes": 548887
+    }
+  ],
+  "predecessor": {
+    "path": "docs/delivery/commercial-platform/SOURCE-FREEZE-C6-4-MAEZO-R3.json",
+    "sha256": "1f82ba54b8af19720761caa56e7ed11bdf9b0e5906163984802be9e4d26d6128"
+  },
+  "scope": "Prior54 source/dependency/pin paths unchanged. Only added scanner source: five legacy generic-only targetRules harden prefilters and one exact path/key/public-value/line classifier; defaults and historical reports preserved. All REAL source gates remain absent by default.",
+  "real_source_acceptance": "NOT_RUN",
+  "production": "NO_GO",
+  "scanner_scope": {
+    "whole_current_native_exit": 1,
+    "previous_ambient_findings": 13,
+    "newly_visible_preexisting_form_selector": 1,
+    "new_delta_findings": 0,
+    "no_global_clean_claim": true,
+    "original_report_sha256_unchanged": "3194a26656ddb104963d2ba704b3e1c3dd1be76b028081bdb89dda684815bb33"
+  }
+}

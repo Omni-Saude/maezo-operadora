@@ -79,8 +79,15 @@ resource "aws_ecs_task_definition" "agent_resume" {
       { name = "MAEZO_INFERENCE_PROVIDER", value = local.agentes.helena.provider },
       { name = "MAEZO_INFERENCE_PHI_ZONE_REQUIRED", value = tostring(local.agentes.helena.phi_zone_required) },
       { name = "MAEZO_PHI_ENDPOINT_URL", value = var.phi_endpoint_url },
+      # Excecao regional do dev autorizada pelo DPO (excecao-regional-phi.tf); vazio = sa-east-1.
+      { name = "MAEZO_PHI_EXCECAO_REGIONAL", value = var.phi_excecao_regional },
       { name = "MAEZO_PHI_VENDOR_DPA_REF", value = var.phi_vendor_dpa_ref },
       { name = "MAEZO_INFERENCE_MODEL", value = local.agentes.helena.provider == "bedrock_br" || local.agentes.helena.provider == "br_resident" ? var.phi_model_id : "" },
+      # Protecoes de TODA chamada a zona PHI (inferencia-alarmes.tf): prazo REAL (tempo de leitura do cliente), teto
+      # de tokens de saida e pool proprio de threads.
+      { name = "MAEZO_INFERENCE_TIMEOUT_S", value = tostring(var.inferencia_prazo_s) },
+      { name = "MAEZO_INFERENCE_MAX_TOKENS", value = tostring(var.inferencia_max_tokens) },
+      { name = "MAEZO_INFERENCE_DEDICATED_WORKERS", value = tostring(var.inferencia_workers) },
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "WHATSAPP_WEBHOOK_MEMORIA_CLINICA", value = var.helena_memoria_clinica ? "true" : "false" },

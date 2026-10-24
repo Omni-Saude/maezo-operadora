@@ -3,6 +3,7 @@ package br.com.maezo.workload;
 import br.com.maezo.human.Jcs;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.*;
+import java.io.IOException;
 import java.nio.file.*;
 import java.security.cert.*;
 import java.time.Instant;
@@ -110,12 +111,12 @@ public final class BoundaryPolicy {
       return ceiling;
     }catch(ArithmeticException e){throw Refused.unavailable();}
   }
-  /** Only the three own installed artifacts use a binary budget; all other readers stay 1MiB. */
+  /** Pinned files at or under the 1MiB JSON budget use read(); larger pinned binaries use the deadline-guarded binary reader. */
   static byte[] readFile(Map<String,Object> file,Path root,long originalDeadline) {
     Path path=Path.of(Json.string(file,"path"));String hash=Json.token(file,"sha256");
-    if(root==null || !Set.of(root.resolve("lib/maezo-human-command.jar"),root.resolve("lib/provider-auth-test-support.jar"),
-        root.resolve("webapps/engine-rest/WEB-INF/lib/maezo-rest-spi.jar")).contains(path))return read(path,hash);
-    if(!root.equals(actualInstalledRoot()))throw Refused.unavailable();
+    try { if(Files.size(path)<=Json.LIMIT)return read(path,hash); }
+    catch(IOException sizeUnavailable){throw Refused.unavailable();}
+    if(root==null || !root.equals(actualInstalledRoot()))throw Refused.unavailable();
     return readOwnBinary(path,hash,originalDeadline);
   }
   private static final String[] FD_ATTRIBUTES={"dev","ino","mode","uid","nlink","size","lastModifiedTime"};

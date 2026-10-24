@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from maezo.runtime.cobranca_lista import (
+from maezo.domain.conversa.cobranca_lista import (
     CHAVES_DA_LISTA,
     QUANTIDADE_MAXIMA,
     QUANTIDADE_PADRAO,

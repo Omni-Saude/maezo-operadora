@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "status": "READ_ONLY_ORIGINAL_DIAGNOSTICIAN_RECHECK_PASS_EXACT_HEAD_CI_PENDING",
+  "scope": "Bounded startup fixture repair only; no full-PR, runtime or production approval.",
+  "baseline_head_supplied_by_ROOT": "ddb7116223067b32c123afcd24f3cb5a0bdd3c27",
+  "frozen_files": [
+    {
+      "path": "tests/unit/dev/test_engine_integration_runner.py",
+      "sha256": "20c25346a0167b56d98ef61030d2ae83d46bd48b31cd39eb9db875d8d9f8ae1b"
+    },
+    {
+      "path": "scripts/dev/run_engine_integration.py",
+      "sha256": "5b27e471bdf85443457564634f79cafb7fc28f9294214687e9bd909b44c88281"
+    },
+    {
+      "path": "docs/delivery/commercial-platform/MAEZO-C6-LOCK-STARTUP-FIXTURE-REPAIR.md",
+      "sha256": "e5565e792e199df75175c2afd997d8f3904b936030f33a5d0014ee4ce47b7839"
+    },
+    {
+      "path": "docs/delivery/commercial-platform/MAEZO-C6-LOCK-STARTUP-FIXTURE-REPAIR-MANIFEST.json",
+      "sha256": "b3f2c186dd9a6cd7c7e6bb6d34b4775e64a621d9f5a48bc104fb8c7d3c991378"
+    }
+  ],
+  "independent_checks": {
+    "all_four_requested_hashes_match": true,
+    "production_runner_identical_to_original_diagnosis": true,
+    "outside_target_function_byte_identical": true,
+    "original_function_reconstructed_by_removing_only_two_readiness_additions": true,
+    "original_assertions": 8,
+    "final_assertions": 12,
+    "denominator_preserved": 18,
+    "readiness": [
+      "initial owner PID anchored to Popen owner.pid",
+      "initial token retained and compared on every barrier read",
+      "owner.poll() is None on every barrier iteration",
+      "monotonic 10 second bound with explicit failure",
+      "checkpoint subprocess_running",
+      "pending_pgids exactly [child_pid]",
+      "subprocess_quiescent exactly False",
+      "original_owner is raw bytes from same read decoded by readiness predicate"
+    ],
+    "existing_assertions": "All eight original assertion statements and surrounding original CLI, interrupt and cleanup code remain byte-identical after removing only new readiness code.",
+    "findings": [],
+    "diagnosis": "Original CI transition was authorized startup state publication, not periodic heartbeat. Product ownership and cleanup guards unchanged."
+  },
+  "private_evidence": {
+    "path_relative_to_handoff_parent": "repair-preimages.local/c6-ci-lock-startup-fixture-r1/",
+    "resolution_base": "docs/delivery/commercial-platform/",
+    "receipt_file": "CUSTODY-MANIFEST.json",
+    "receipt_sha256": "d40a9cd0b077f62ed1a2263ebac5325b731c47567363b82519f0bc160f6b4149",
+    "content_manifest_sha256": "f5ec3362543e9173596930126e68735a953b77b010c457129e0cefc9a680c075",
+    "canonical_manifest_independently_recomputed": true,
+    "declared_content_files": 46,
+    "receipt_additional_files": 1,
+    "all_declared_content_hashes_match": true,
+    "declared_files_and_receipt_mode": "0600",
+    "inspected_declared_directories_mode": "0700",
+    "controlled_runner_sha256": "c5e95105f2333d8ca8f19694aaaf991071aa241e633a9ba15fd683904aad17ef",
+    "controlled_runner_only_delta": "time.sleep(1.0) insertion after Popen and before _record_pending, in private copy only",
+    "harness_review": "Real runner CLI and real child remain. Wrapper waits for matching owner identity and subprocess_running before calling original _run contender. Before uses original test preimage; after uses frozen final test.",
+    "recorded_controlled_result": {
+      "old": "ASSERTION_FAILURE at original full byte equality",
+      "new": "PASS",
+      "old_contender_entry": "subprocess_spawning",
+      "new_contender_entry": "subprocess_running",
+      "owned_children_gone_asserted_by_harness": true
+    },
+    "after_events_verified": {
+      "contender": [
+        "lock_busy"
+      ],
+      "owner": [
+        "lock_acquired",
+        "child_started",
+        "interrupted",
+        "cleanup_permitted",
+        "lock_released"
+      ]
+    },
+    "local_real_cli_output": "1 passed in 0.21s",
+    "evidence_limit": "Historical author execution evidence read and hash-qualified; reviewer did not rerun tests or inspect live processes."
+  },
+  "custody": {
+    "original_CI_RED": "Preserved; run39851012097/job120076853860 remains original RED 1 FAIL/17 PASS.",
+    "original_diagnosis": "Preserved unchanged; no correction of original RED evidence.",
+    "initial_path_probe": "The custody path is relative to handoff parent, not checkout root. It was resolved and fully verified; no missing-custody finding."
+  },
+  "qualification": {
+    "reviewer_execution": "NOT_RUN by ROOT instruction",
+    "local_full_18": "NOT_RUN by ROOT narrowed lane; no skip or denominator reduction authorized",
+    "exact_final_HEAD_CI_full_18": "REQUIRED_PENDING_ROOT",
+    "engine_integration": "NOT_ESTABLISHED",
+    "source_acceptance": "NOT_ESTABLISHED",
+    "human_acceptance": "NOT_ESTABLISHED",
+    "operation": "NOT_ESTABLISHED",
+    "production": "NOT_ESTABLISHED"
+  },
+  "next_gate": "ROOT integrates final candidate and obtains exact final HEAD CI for all18 cases with actual steps/logs/skips. Source or evidence changes invalidate affected recheck."
+}

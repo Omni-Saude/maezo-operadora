@@ -56,6 +56,7 @@ from types import ModuleType
 from typing import Any, Final
 
 import pytest
+from tests.support.fontes_do_grafo import arquivos_de_grafo, rotulo
 
 from maezo.runtime.dependency_failures import (
     DECLARED_INFERENCE_FAILURES,
@@ -97,7 +98,10 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: e o Lucas manda ao beneficiario o texto fixo `TEXTO_CANCELAMENTO_FALHA_AO_REGISTRAR`, pelo mesmo
 #: `self._whatsapp` e com a mesma forma de `send_escalation_ack` (`PROGRAMMING_ERRORS` re-levanta; o resto
 #: vira `mensagem_enviada=False`). Sitio NOVO e legitimo, nao um predicado que mudou.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 37
+#: 21/10/2026: 38 — `HelenaGraph._roteador_decidir` (ADR-0066/DL-0134, F1): o roteador de habilidades em
+#: SOMBRA chama o modelo numa tarefa paralela; `PROGRAMMING_ERRORS` re-levanta, prazo e falha do provedor
+#: viram o campo `falha` do log `helena_roteador_sombra` (a resposta nao muda). Sitio NOVO e legitimo.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 38
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:
@@ -121,6 +125,13 @@ _SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 37
 #:      ambiente mal configurado — pior para o beneficiario e para a escalacao ja' aberta. Ficam
 #:      largos, e a afirmacao 3 desta cerca garante que o bug propaga mesmo assim.
 BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
+    # -- ADR-0067 fase 3: o pacote de comportamento do agente -----------------------------
+    "src/maezo/runtime/pacote_do_agente.py::CarregadorDePacote::atual": (
+        1,
+        "releitura do pacote do agente no S3 a cada TTL: PROGRAMMING_ERRORS re-levanta; rede (o ClientError "
+        "do S3 nao e' OSError), hash ou validacao do agente mantem o ULTIMO PACOTE BOM e vao ao log "
+        "`pacote_do_agente_nao_carregado` — trocar por EXTERNAL_DEPENDENCY_FAILURES derrubaria o turno",
+    ),
     # -- (a) conta-e-re-levanta -----------------------------------------------------------
     "src/maezo/agents/lucas/bateria.py::executar_caso": (
         1,
@@ -480,7 +491,10 @@ def _exige_clausula_de_guarda(node: ast.Try, modulo: ModuleType) -> bool:
 
 
 def _modulo_do_grafo(graph_path: Path) -> ModuleType:
-    return importlib.import_module(f"maezo.agents.{graph_path.parent.name}.graph")
+    # O modulo do PROPRIO arquivo (o `graph.py` ou um modulo dividido por habilidade, ADR-0067 §5): os nomes
+    # do `except` resolvem nos globals de quem os escreveu.
+    rel = graph_path.relative_to(_REPO_ROOT / "src").with_suffix("")
+    return importlib.import_module(".".join(rel.parts))
 
 
 def _sitios_que_exigem_guarda(graph_path: Path) -> list[tuple[str, ast.Try]]:
@@ -497,8 +511,9 @@ def _sitios_que_exigem_guarda(graph_path: Path) -> list[tuple[str, ast.Try]]:
 
 @pytest.mark.parametrize(
     "graph_path",
-    sorted((_REPO_ROOT / "src/maezo/agents").glob("*/graph.py")),
-    ids=lambda p: p.parent.name,
+    # ADR-0067 §5: o grafo dividido por habilidade (Helena) continua inteiro sob a cerca.
+    arquivos_de_grafo(_REPO_ROOT / "src/maezo/agents"),
+    ids=lambda p: rotulo(_REPO_ROOT / "src/maezo/agents", p),
 )
 def test_todo_try_de_graph_py_re_levanta_erro_de_programacao(graph_path: Path) -> None:
     """Em `graph.py`, todo `try` que absorve falha de dependencia re-levanta o BUG primeiro.
@@ -530,7 +545,7 @@ def test_a_afirmacao_3_cobre_os_sitios_de_fronteira_esperados() -> None:
     """
     medidos = {
         rotulo
-        for graph_path in sorted((_REPO_ROOT / "src/maezo/agents").glob("*/graph.py"))
+        for graph_path in arquivos_de_grafo(_REPO_ROOT / "src/maezo/agents")
         for rotulo, _ in _sitios_que_exigem_guarda(graph_path)
     }
     assert len(medidos) == _SITIOS_COM_GUARDA_EXIGIDA, (

@@ -49,7 +49,7 @@
 # placeholder awaiting cleanup, it is the honest recorded state of the three open gates.
 #
 # CODEOWNERS-LISTED (not gated): covered by `/spec/policies/autonomy/` AND by an explicit
-# last-match line for this file in `.github/CODEOWNERS` (@rodrigotaquino @Omni-Saude/security).
+# last-match line for this file in `.github/CODEOWNERS` (@rodaquino-OMNI @Omni-Saude/security-team).
 # Server-side enforcement is NOT currently active on `main` (branch protection 404, rulesets
 # empty), so the listing REQUESTS a security reviewer without being able to REQUIRE one — the
 # owner finding is already recorded in evidence-ledger row `mzo-000` (restoration is the owner's
@@ -369,6 +369,33 @@ acoes:
       ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
       seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
 
+  # DL-0150 (2026-10-20): classe DECLARADA, NÃO APROVADA. O único efeito é a telemetria de sombra dos
+  # dois tópicos de aviso do SP-OP-ESCALATION-001 deixar de ser `ACAO_NAO_MAPEADA` e passar a nomear
+  # esta classe (ainda WOULD_DENY, `MANIFESTO_NAO_RATIFICADO`). `operadora.events.publish` NÃO é
+  # mapeado aqui: aparece em 17 BPMNs com cargas de natureza diferente e pede classe própria.
+  notificacao_interna_equipe:
+    enforcement: shadow
+    descricao: >-
+      Aviso INTERNO à equipe de atendimento ou ao supervisor (escalonamento humano e alerta de SLA do
+      SP-OP-ESCALATION-001). Publica em `operadora.notifications.internal`, o barramento interno da
+      plataforma; não sai da plataforma e não toca o beneficiário — é por isso que não é
+      `comunicacao_beneficiario`. Degrau C1; recusa enforçada = incidente fail-closed (retries=0), e a
+      falha de publicação segue no fallback que o BPMN já modela (`ERR_ESC_NOTIFY_FAILED`).
+    superficies:
+      - referencia: "src/maezo/tools/workers/escalation.py:541"
+        detalhe: "make_notify_team_handler — topic operadora.escalation.notify_team (raw handler,
+          ST_NotificarTime)"
+        choked: true
+      - referencia: "src/maezo/tools/workers/escalation.py:720"
+        detalhe: "make_notify_supervisor_handler — topic operadora.escalation.notify_supervisor (raw
+          handler, ST_NotificarSupervisor e ST_NotificarFallback)"
+        choked: true
+    dominios_exigidos: [medica, ans, seguranca]
+    aprovacoes:
+      medica:    { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      ans:       { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+      seguranca: { aprovado: false, aprovador: PENDENTE, data: PENDENTE, evidencia_ref: PENDENTE }
+
   inicio_processo_regulatorio:
     enforcement: shadow
     descricao: >-
@@ -672,7 +699,8 @@ acoes:
 # DELIBERADAMENTE INCOMPLETO. Só estão mapeados os tópicos cujo efeito externo é inequívoco a
 # partir do próprio worker (os `superficies[].choked: true` acima). Os ~80 tópicos restantes de
 # `spec/processes/bpmn/**` — cálculo, triagem, leitura de fatos, notificações internas de SLA —
-# NÃO estão mapeados, e classificá-los é decisão humana, não inferência de agente.
+# NÃO estão mapeados, e classificá-los é decisão humana, não inferência de agente. (Exceção datada:
+# os dois avisos internos de escalonamento, DL-0150, sob classe própria e igualmente não aprovada.)
 #
 # CONSEQUÊNCIA SOB `modo: enforcing`: um tópico NÃO mapeado é DENY, com o motivo
 # `ACAO_NAO_MAPEADA` (ADR-0037 XRD-09: "ação/política desconhecida ... negam"). Isto é
@@ -710,6 +738,10 @@ mapeamento_topicos:
   operadora.programa.proactive_contact: comunicacao_beneficiario
   operadora.lgpd.send_response: comunicacao_beneficiario
   operadora.lgpd.request_additional_proof: comunicacao_beneficiario
+
+  # DL-0150: avisos internos do SP-OP-ESCALATION-001. `operadora.events.publish` segue SEM mapa.
+  operadora.escalation.notify_team: notificacao_interna_equipe
+  operadora.escalation.notify_supervisor: notificacao_interna_equipe
 
   operadora.contas.handoff_pagamento: inicio_processo_regulatorio
   operadora.contas.start_fraude: inicio_processo_regulatorio

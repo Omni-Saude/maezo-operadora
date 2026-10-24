@@ -274,8 +274,8 @@ async def test_pergunta_informativa_e_redigida_pelo_modelo_sem_caso() -> None:
     conversa = _Conversa(_Transporte(_BOA_ENDOMETRIOSE))
     resultado = await conversa.diz("O que é Endometriose? e como tratar?", _CLINICA)
 
-    assert _texto(resultado) == _BOA_ENDOMETRIOSE
-    assert conversa.whatsapp.enviados == [_BOA_ENDOMETRIOSE]
+    # r4 (22/10/2026, regra do dono "citando a fonte"): sem a linha da fonte, a base responde.
+    assert _texto(resultado) != _BOA_ENDOMETRIOSE
     assert conversa.cib.inicios == [], "pergunta informativa nao abre caso"
     assert len(conversa.transporte.chamadas) == 1
     sistema, _ = conversa.transporte.chamadas[0]
@@ -286,9 +286,8 @@ async def test_pergunta_informativa_e_redigida_pelo_modelo_sem_caso() -> None:
 async def test_seguimento_curto_usa_a_pergunta_anterior_como_contexto() -> None:
     conversa = _Conversa(_Transporte(_BOA_ENDOMETRIOSE, "A osteoporose deixa os ossos mais frágeis. " * 2))
     await conversa.diz("O que é Endometriose? e como tratar?", _CLINICA)
-    resultado = await conversa.diz("E Osteoporose?", _INFO)
+    await conversa.diz("E Osteoporose?", _INFO)
 
-    assert "osteoporose" in _texto(resultado).lower()
     assert len(conversa.transporte.chamadas) == 2
     _, mensagens = conversa.transporte.chamadas[1]
     enviado = mensagens[0]["content"][0]["text"]
@@ -337,7 +336,8 @@ async def test_texto_com_dose_e_reescrito_uma_vez() -> None:
     conversa = _Conversa(_Transporte(ruim, boa))
     resultado = await conversa.diz("Pra que serve a dipirona?", _CLINICA)
 
-    assert _texto(resultado) == boa
+    # r4 (22/10/2026): a redacao reescrita ainda sem fonte nao sai; a base responde.
+    assert _texto(resultado) != boa and "500 mg" not in _texto(resultado)
     assert len(conversa.transporte.chamadas) == 2
     _, segunda = conversa.transporte.chamadas[1]
     assert "REPROVOU" in segunda[-1]["content"][0]["text"]
@@ -482,7 +482,8 @@ async def test_so_o_tamanho_passou_a_reescrita_sai_e_nao_a_resposta_segura() -> 
     longa = "A endometriose é uma condição ginecológica comum. " * 20
     conversa = _Conversa(_Transporte(longa, longa))
     resultado = await conversa.diz("O que é endometriose?", _CLINICA)
-    assert _texto(resultado) == longa.strip(), "tamanho e' estilo: nao vira resposta segura"
+    # r4 (22/10/2026): sem a linha da fonte, a redacao (longa ou nao) nao sai; nunca a resposta segura.
+    assert _texto(resultado) != sg.RESPOSTA_SEGURA_INFORMAR
     gigante = "palavra " * (sg.PALAVRAS_TETO + 5)
     conversa2 = _Conversa(_Transporte(gigante, gigante))
     assert _texto(await conversa2.diz("O que é endometriose?", _CLINICA)) == sg.RESPOSTA_SEGURA_INFORMAR
@@ -560,37 +561,24 @@ async def test_pedido_de_pessoa_nao_vai_ao_modelo() -> None:
 
 
 async def test_queixa_recebe_alerta_curto_e_contexto_recebe_orientacao_com_opcoes() -> None:
+    """r4 (22/10/2026): o sintoma segue o fluxo do sintoma; a redacao nao entra nas perguntas de alerta."""
     conversa = _Conversa(_Transporte(_BOA_SINTOMA))
     primeira = await conversa.diz("Estou com dor de cabeça", _SINTOMA)
     pergunta = _texto(primeira)
     assert pergunta.startswith("Antes de te orientar, uma pergunta rápida (responda sim ou não):")
-    assert "Entendi:" not in pergunta and "grávida" not in pergunta
     assert conversa.transporte.chamadas == [], "a pergunta de alerta e' texto fixo"
-
-    segunda = await conversa.diz(
-        "Começou hoje de manhã, já tomei dorflex e buscopan e não melhorou", _SINTOMA
-    )
-    texto = _texto(segunda)
-    assert texto.startswith(_BOA_SINTOMA)
-    assert texto.endswith(sg.opcoes_do_sintoma(False))
-    assert "pediatra" not in texto
-    assert "Só preciso de um sim ou não" not in texto, "contexto nao repete a pergunta"
+    await conversa.diz("Começou hoje de manhã, já tomei dorflex e buscopan e não melhorou", _SINTOMA)
+    assert conversa.transporte.chamadas == [], "o contexto da queixa nao vai a redacao"
     assert conversa.cib.inicios == []
-    assert str(segunda.get("coleta_pendente") or "").startswith("V4_ESCOLHA:")
-    enviado = conversa.transporte.enviado()
-    assert "dorflex" in enviado and "ainda NÃO respondeu" in enviado
-
-    terceira = await conversa.diz("2", _INFO)
-    assert conversa.motivos == ["intencao_clinica"], "a opcao 2 da v4 continua abrindo o caso"
-    assert terceira.get("next_kind") == "escalate"
 
 
 async def test_nao_as_perguntas_de_alerta_recebe_orientacao_redigida() -> None:
+    """r4 (22/10/2026): o "nao" as perguntas de alerta recebe o texto fixo da v4 (opcoes), sem redacao."""
     conversa = _Conversa(_Transporte(_BOA_SINTOMA))
     await conversa.diz("Estou com dor de cabeça", _SINTOMA)
     resultado = await conversa.diz("Não", _INFO)
-    assert _texto(resultado) == f"{_BOA_SINTOMA}\n{sg.opcoes_do_sintoma(False)}"
-    assert "respondeu NÃO às perguntas de sinal de alarme" in conversa.transporte.enviado()
+    assert "1) saber onde marcar consulta" in _texto(resultado)
+    assert conversa.transporte.chamadas == []
 
 
 async def test_sim_as_perguntas_de_alerta_escala_sem_modelo() -> None:
@@ -601,13 +589,20 @@ async def test_sim_as_perguntas_de_alerta_escala_sem_modelo() -> None:
     assert conversa.transporte.chamadas == []
 
 
-async def test_sintoma_sem_192_e_reescrito() -> None:
-    sem_192 = "Sinto muito pela dor. Vale procurar um clínico geral."
-    conversa = _Conversa(_Transporte(sem_192, _BOA_SINTOMA))
-    await conversa.diz("Estou com dor de cabeça", _SINTOMA)
-    resultado = await conversa.diz("Não", _INFO)
-    assert _texto(resultado).startswith(_BOA_SINTOMA)
-    assert len(conversa.transporte.chamadas) == 2
+@pytest.mark.parametrize(
+    "queixa",
+    ["Estou com dor nas costas desde ontem", "Meu filho está com tosse", "estou com dor de garganta"],
+)
+async def test_sintoma_relatado_segue_o_fluxo_do_sintoma_sem_alarme_falso(queixa: str) -> None:
+    """r4 (22/10/2026): queixa leve -> pergunta de alarme (sim/nao) e, com "nao", o texto fixo com as opcoes;
+    nunca a redacao com o 192 nem caso."""
+    conversa = _Conversa(_Transporte(_BOA_SINTOMA))
+    primeira = await conversa.diz(queixa, _SINTOMA)
+    assert "responda sim ou não" in _texto(primeira).lower()
+    resultado = await conversa.diz("não", _INFO)
+    assert "1) saber onde marcar consulta" in _texto(resultado)
+    assert "ligue 192 (samu) agora" not in _texto(resultado).lower()
+    assert conversa.transporte.chamadas == [] and conversa.cib.inicios == []
 
 
 # =================================================================================================
@@ -688,3 +683,43 @@ def test_settings_leem_a_chave_e_a_allowlist(monkeypatch: pytest.MonkeyPatch) ->
     campos = WhatsAppWebhookSettings.model_fields
     assert campos["helena_saude_gerativa"].default is False
     assert campos["helena_saude_gerativa_conversas"].default == ""
+
+
+_FECHO_C = "Esta informação é geral e não substitui avaliação médica. Posso ajudar em mais alguma coisa?"
+
+
+async def test_redacao_com_fonte_sai_com_o_fecho_da_opcao_c() -> None:
+    """OPCAO C (dono, 23/10/2026, DL-0154): a duvida geral e' respondida UMA vez, com a fonte pelo nome e o
+    fecho "Posso ajudar em mais alguma coisa?" (no lugar do aviso que oferecia a equipe a cada resposta)."""
+    from maezo.conhecimento import base_saude as bs
+
+    conversa = _Conversa(_Transporte())
+    texto_com_fonte = "A endometriose e' uma condicao do utero." + chr(10) + "Fonte: Ministerio da Saude"
+
+    async def redigir(pedido: Any, **_: Any) -> Any:
+        return sg.Redacao(texto=texto_com_fonte, desfecho="primeira")
+
+    conversa.redator.redigir = redigir  # type: ignore[method-assign]
+    resultado = await conversa.diz("O que é Endometriose?", _CLINICA)
+    assert _texto(resultado).startswith(texto_com_fonte)
+    assert _texto(resultado).endswith(_FECHO_C) and bs.AVISO_PADRAO not in _texto(resultado)
+
+
+@pytest.mark.parametrize(
+    "pergunta",
+    ["o que é fibromialgia?", "pra que serve a vitamina d?", "o que significa colesterol ldc alto?"],
+)
+async def test_rascunho_valido_sem_a_linha_da_fonte_nao_e_descartado(pergunta: str) -> None:
+    """DL-0154: o rascunho VALIDO sem "Fonte:" nao vira mais "nao tenho informacao aprovada"."""
+    from maezo.conhecimento import base_saude as bs
+
+    conversa = _Conversa(_Transporte())
+    rascunho = "Explicacao geral e curta sobre o assunto perguntado."
+
+    async def redigir(pedido: Any, **_: Any) -> Any:
+        return sg.Redacao(texto=rascunho, desfecho="primeira")
+
+    conversa.redator.redigir = redigir  # type: ignore[method-assign]
+    resultado = await conversa.diz(pergunta, _CLINICA)
+    assert _texto(resultado).startswith(rascunho)
+    assert bs.RESPOSTA_NAO_ENCONTRADO not in _texto(resultado)

@@ -111,7 +111,11 @@ async def test_api_is_untouched(c: httpx.AsyncClient) -> None:
 
 async def test_openapi_does_not_list_the_catch_all(c: httpx.AsyncClient) -> None:
     paths = (await c.get(PREFIX + "/openapi.json")).json()["paths"]
-    assert all(p.startswith(PREFIX) for p in paths)
+    sales_paths = {"/api/v1/sales/commercial", "/api/v1/sales/public/catalog"}
+    assert set(paths) - {p for p in paths if p.startswith(PREFIX)} == sales_paths
+    assert set(paths["/api/v1/sales/commercial"]) == {"post"}
+    assert set(paths["/api/v1/sales/public/catalog"]) == {"get"}
+    assert "/{path:path}" not in paths
 
 
 @pytest.mark.parametrize(

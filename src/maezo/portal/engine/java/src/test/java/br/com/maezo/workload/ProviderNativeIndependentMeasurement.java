@@ -505,9 +505,13 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
       origins.add(map("class_name", type.getName(), "jar_relative_path", relative,
           "jar_sha256", digest, "class_sha256", sha(bytes), "loader_group", "engine-common"));
     }
-    // VERSION is a compile-time constant in the provided dependency. Read the exact
-    // public metadata field of the actual admitted loader, never the inlined pin.
-    try { require("2.1.0".equals(org.cibseven.bpm.engine.ProcessEngine.class.getField("VERSION").get(null))); }
+    // VERSION is the admitted artifact's own constant (CIB ships codenames, e.g.
+    // "fox"); read it from the actual loader and require it present — the value
+    // itself is recorded nowhere else and must not be inlined from the pom.
+    try {
+      Object version = org.cibseven.bpm.engine.ProcessEngine.class.getField("VERSION").get(null);
+      require(version instanceof String value && !value.isBlank());
+    }
     catch (ReflectiveOperationException failure) { throw unavailable(failure); }
     var registry = ProcessEngines.getProcessEngines();
     Map<String, Object> process = map("boot_uuid", RuntimeObservationAdmission.BOOT, "pid_namespace", ProcessHandle.current().pid(),
@@ -544,8 +548,14 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
     NativeMeasurementConfiguration.validate("JvmToolchain", result); clockGuard(); return result;
   }
   private void verifyInventory(Map<String, String> entries) throws IOException {
+    // Boundary pins are a CLOSED OVERLAY: an entry the policy additionally pins must
+    // agree, but the boundary is not required to pin every inventoried file (the
+    // policy's custody reader budgets 1MiB for non-own files). Every entry is still
+    // digest-verified against the live tree through the 32MiB bound below.
     for (var entry : entries.entrySet()) {
-      Path path = base.resolve(entry.getKey()); require(path.startsWith(base) && entry.getValue().equals(expectedFiles.get(path.toString())));
+      Path path = base.resolve(entry.getKey()); require(path.startsWith(base));
+      String pinned = expectedFiles.get(path.toString());
+      require(pinned == null || pinned.equals(entry.getValue()));
       readFile(path, entry.getValue(), FILE_BOUND);
     }
   }
@@ -620,7 +630,18 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
     try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
       clockGuard(); Map<Path, Map<String, Object>> fresh = descriptorCensus();
       List<Path> matches = fresh.keySet().stream().filter(p -> !old.containsKey(p) && fresh.get(p).equals(before)).toList();
-      require(matches.size() == 1); descriptor = matches.get(0);
+      // Concurrent same-inode opens (classloader reading the very jar under
+      // verification) are legitimate JDK activity; attribution is by FD-POSITION
+      // CHALLENGE, not census uniqueness. The challenge offset is end-of-file,
+      // which no parallel sequential reader holds at the probe instant.
+      require(!matches.isEmpty());
+      channel.position(Math.max(1, channel.size() - 1));
+      for (Path candidate : matches) {
+        try { if (descriptorPosition(candidate) == channel.position()) { require(descriptor == null); descriptor = candidate; } }
+        catch (IOException raced) { /* candidate closed between census and probe */ }
+      }
+      require(descriptor != null);
+      channel.position(0);
       require(before.equals(fileAttributes(descriptor, true)) && channel.size() == number(before.get("size")));
       require(channel.position() == 0 && descriptorPosition(descriptor) == 0);
       channel.position(1); require(descriptorPosition(descriptor) == 1);

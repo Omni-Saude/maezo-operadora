@@ -1,0 +1,111 @@
+{
+  "schema": "maezo-c6-ci-third-repair.v1",
+  "baseline": "13846c85900f29fa671ea9d29e9b8432b3c6cf1a",
+  "ci_failure": "39837960315",
+  "classification": "THIRD_REPAIR_FOR_INDEPENDENT_RECHECK_NOT_SELF_APPROVAL",
+  "files": [
+    {
+      "path": "src/maezo/adapters/amh/commercial_http.py",
+      "sha256": "b151ccd4947f89a3e0b263727a21782b1bbce12f0c7889430cc688de3bbaa943",
+      "bytes": 14479
+    },
+    {
+      "path": "tests/unit/test_commercial_ci_transport_repair.py",
+      "sha256": "f5c596136bf384dceb050bd687ad7d4aaacbbc93a7de21287c40effe3d2f39f3",
+      "bytes": 9172
+    },
+    {
+      "path": "tests/unit/adapters/amh/test_adapter_purity.py",
+      "sha256": "e28b5c9f39c4d2d1ccb849dfa4093b51e024df90d90f17657bad9c3bd0401d41",
+      "bytes": 24398
+    },
+    {
+      "path": "tests/unit/ports/test_ports_purity.py",
+      "sha256": "374df0206e77abb40ff574d79e3080c420863059b764f674f8c5a05fe745e876",
+      "bytes": 25591
+    },
+    {
+      "path": "tests/unit/portal/test_openapi_export.py",
+      "sha256": "40aec0203adee4f97da833590bcec1dde45545ea1c34baa00e9e1b57aeba322c",
+      "bytes": 5054
+    },
+    {
+      "path": "tests/unit/portal/test_portal_web_bundle.py",
+      "sha256": "9476fdc32e271218112304527f29923919b7f1ab75243f3e2b8c14905ddc6f55",
+      "bytes": 6751
+    },
+    {
+      "path": "src/maezo/portal/web/openapi.json",
+      "sha256": "7bb79a200fd23d336c2e69b8cb0fbfbc4bacc0d8ee2a74f3cebd27bcb3076007",
+      "bytes": 321630
+    },
+    {
+      "path": "src/maezo/portal/web/src/generated/api.ts",
+      "sha256": "908f12de21e0a88a42a1c418a5ce3fc460e01dc6d378fd1322940608ddf9d31f",
+      "bytes": 219653
+    }
+  ],
+  "dependencies_unchanged_from_baseline": [
+    {
+      "path": "src/maezo/adapters/amh/commercial.py",
+      "sha256": "6f048f638ae08b4b43b74edecf84c526ee431a1a16a1600097069494ea380ca0",
+      "bytes": 35550
+    },
+    {
+      "path": "src/maezo/ports/commercial.py",
+      "sha256": "01e9db9618eb90389710ccff99389a63ccdfb465224e9cbd604a2af852ed8d9f",
+      "bytes": 16525
+    },
+    {
+      "path": "src/maezo/gateway/commercial.py",
+      "sha256": "952bd672ec3f411897970cd5804549b231df3e8dabd050e8a86848ae9fa10877",
+      "bytes": 22795
+    },
+    {
+      "path": "src/maezo/gateway/commercial_admission.py",
+      "sha256": "09b1aee43f5042f8d6635630c0fc5eaa4c64210579dd315e8638b93c28badd13",
+      "bytes": 9490
+    },
+    {
+      "path": "src/maezo/portal/api/commercial.py",
+      "sha256": "6cf6daae32a7626d9a2c0568a7e99d3e8173b3162fed122b1990dd500cc9c6fc",
+      "bytes": 6664
+    },
+    {
+      "path": "src/maezo/portal/api/app.py",
+      "sha256": "91b07a706ecc9401746281415ecb007923ba2725dcf21f5f6142394f3f8a0e59",
+      "bytes": 20662
+    },
+    {
+      "path": "scripts/ci/check_effect_chokepoint_fence.py",
+      "sha256": "f75b3cd814fa1f00ac79f85854849e66b6908b75091fe33813878526390b80b0",
+      "bytes": 77039
+    },
+    {
+      "path": "scripts/dev/export_portal_openapi.py",
+      "sha256": "e96b49c9bad4050f8cca14cffe649744536e65d4514f5e606c76379d4c2b8d36",
+      "bytes": 2508
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/contract-c6-4.json",
+      "sha256": "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea",
+      "bytes": 320163
+    },
+    {
+      "path": "tests/candidate_artifacts/commercial/PROVENANCE-C6-4.json",
+      "sha256": "227737840da47183ce72bb5113b7a821f252a77f276f04ba57cb998b928fa4f2",
+      "bytes": 1026
+    },
+    {
+      "path": "src/maezo/portal/web/phi-openapi.json",
+      "sha256": "a611b6c699ee46c77b010b12371f1e740eebc036e5e94d9ceb217bf93e9b5cf8",
+      "bytes": 15602
+    },
+    {
+      "path": "src/maezo/portal/web/src/generated/phiApi.ts",
+      "sha256": "3ed3eb6b4b3214c03facbc96833561006f88cbbb05654f8fdbbfc071aeb2d856",
+      "bytes": 15613
+    }
+  ],
+  "payload_manifest_sha256": "f08af170abecf15793fde97f8c001ae65c2fe2bff8b475bfc1d8ae3654854e7d"
+}

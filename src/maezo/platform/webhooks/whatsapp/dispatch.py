@@ -84,6 +84,7 @@ exists) — see `agent_resume.RecipientResolver`.
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -92,18 +93,17 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
 
-from maezo.agents.helena.graph import (
-    NOME_OPERADORA_PADRAO,
-    RESPOSTA_PLANO_POR_CANAIS,
-    HelenaGraph,
-    HelenaState,
-    WhatsAppSender,
-    build,
-    eh_pedido_explicito_de_pessoa,
-    memoria_de_conversa_neutra,
-    new_helena_resume_state,
-    new_helena_state,
+from maezo.agents import carregar_agente_de_entrada
+from maezo.contratos.conversa import (
+    INTENT_COBRANCA,
+    RESPONSE_KIND_HANDOFF,
+    AgenteDeEntrada,
+    turno_sem_preparo,
 )
+from maezo.contratos.conversa import RemetenteDoTurno as WhatsAppSender
+from maezo.contratos.conversa_remota import AgenteRemotoIndisponivelError
+from maezo.contratos.identidade_beneficiario import NOME_OPERADORA_PADRAO
+from maezo.domain.conversa.terceiro_no_texto import com_aviso_se_for_de_outra_pessoa
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.recipient_custody import RecipientSealer
 from maezo.gateway.seams import SeamContext
@@ -117,7 +117,6 @@ from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
-from maezo.runtime.terceiro_no_texto import com_aviso_se_for_de_outra_pessoa
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import DmnTransport
@@ -127,8 +126,8 @@ from .limite import LimitadorDeVolume, Veredito
 from .security import hash_phone, log_safe_message_id
 
 if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
-    from maezo.agents.helena.consultas_plano import FonteDeFatosDoPlano
     from maezo.agents.lucas.administrative.runtime import AdministrativeJourneyRuntime, RuntimeTurnStimulus
+    from maezo.contratos.fatos_do_plano import FonteDeFatosDoPlano
     from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyDispatchOutcome
     from maezo.gateway.capabilities.models import CapabilityRefusalReason
 
@@ -140,6 +139,10 @@ if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
     from .roteamento import ContextoDoTurno, ConversaRouter, PedidoDeHandoff
 
 logger = structlog.get_logger(__name__)
+
+#: ADR-0067 fase 4b: a URL interna do servico do agente de entrada. Definida, o turno roda la' (porta remota);
+#: ausente, em processo, como sempre.
+ENV_AGENTE_DE_ENTRADA_URL: Final[str] = "MAEZO_AGENTE_DE_ENTRADA_URL"
 
 
 #: O `error` do turno em que o Lucas caiu depois da passagem (review do #589). O sufixo e' so' o
@@ -157,7 +160,8 @@ ERRO_LUCAS_FALHOU: Final[str] = "lucas turno falhou"
 #: wiring and its tests, never before.
 #: DL-0087 (10/10/2026): tom humanizado, mesma promessa (so' texto; nada de humano/transcricao).
 NON_TEXT_ACK_TEXT: Final[str] = (
-    "Por aqui eu só consigo ler mensagens de texto. Pode me escrever o que precisa, por favor?"
+    "Por aqui eu consigo ler só mensagens de texto. Pode me escrever o que precisa? "
+    "Se preferir falar com uma pessoa da nossa equipe, é só escrever: falar com uma pessoa."
 )
 
 #: A resposta de quem bateu no teto de volume (Frente 7.1). CONSTANTE e sem modelo no meio: o
@@ -173,6 +177,15 @@ NON_TEXT_ACK_TEXT: Final[str] = (
 LIMITE_EXCEDIDO_TEXT: Final[str] = (
     "Recebi muitas mensagens suas em pouco tempo e não consegui responder esta agora. "
     "Espere um minutinho e envie de novo, por favor. Se for uma emergência, ligue agora para o "
+    "192 (SAMU) ou vá ao pronto-socorro mais próximo."
+)
+
+#: ADR-0067 fase 4b: o turno roda no servico do agente e ele nao respondeu (fora do ar, prazo, protocolo). A
+#: pessoa nao pode ficar sem resposta: texto FIXO, sem modelo, pela mesma costura cercada do turno, no tom do
+#: `LIMITE_EXCEDIDO_TEXT` e com o mesmo caminho de emergencia (192/SAMU).
+AGENTE_INDISPONIVEL_TEXT: Final[str] = (
+    "Desculpe, estou com uma instabilidade e não consegui responder agora. "
+    "Tente de novo em alguns minutos, por favor. Se for uma emergência, ligue agora para o "
     "192 (SAMU) ou vá ao pronto-socorro mais próximo."
 )
 
@@ -331,17 +344,17 @@ def _handoff_com_mes_do_texto(texto: str, handoff: Mapping[str, Any]) -> Mapping
     """Rodada 3 do simulador (13/10/2026): "A mensalidade de julho foi paga?" e "Novembro ta' lancado?"
     chegavam ao Lucas sem mes (o classify so' extrai com o ano) ou com o ano errado. Sem mes no handoff e
     sem pedido de lista, UM mes nomeado no texto vira a competencia — o ano pela regra unica de
-    `runtime/competencia.py` (pistas de "lancado"/"vence"/"ultima" -> o que vem). Uma pergunta de
+    `domain/conversa/competencia.py` (pistas de "lancado"/"vence"/"ultima" -> o que vem). Uma pergunta de
     confirmacao ("essa e' a ultima?") num assunto "outro" e' consulta de valores."""
-    from maezo.runtime.cobranca_foco import (
+    from maezo.domain.conversa.cobranca_foco import (
         FOCO_COMO_PAGAR,
         FOCO_EXTRATO,
         FOCO_JA_PAGUEI,
         FOCO_PAGAMENTO_AO_PRESTADOR,
         FOCO_ULTIMA,
     )
-    from maezo.runtime.cobranca_reclamacao import decidir_reclamacao
-    from maezo.runtime.competencia import (
+    from maezo.domain.conversa.cobranca_reclamacao import decidir_reclamacao
+    from maezo.domain.conversa.competencia import (
         hoje_em_brasilia,
         mes_relativo_do_texto,
         mes_unico_do_texto,
@@ -393,7 +406,7 @@ def _handoff_com_intencao(
       cancelamento. Se o Lucas estava nesse assunto (`assunto_anterior == "cancelamento"`) a mensagem
       afirmativa volta ao Lucas como `cancelamento` + `cobranca_confirmacao` ("confirma"/"nega"); a validade
       (pergunta pendente) e' conferida no grafo pela referencia do ultimo texto enviado."""
-    from maezo.runtime.cobranca_intencao import decidir_confirmacao, pede_negociacao
+    from maezo.domain.conversa.cobranca_intencao import decidir_confirmacao, pede_negociacao
 
     ajustado = dict(handoff)
     if pede_negociacao(texto):
@@ -479,6 +492,20 @@ class HelenaDispatcher:
     #: base curada, faz perguntas de alerta na dor sem alarme e encerra o caso P2/P3 a pedido, com
     #: confirmacao.
     helena_base_saude_enabled: bool = False
+    #: ROTEADOR DE HABILIDADES (ADR-0066/DL-0134, settings `helena_roteador` / `MAEZO_HELENA_ROTEADOR`).
+    #: `desligado` (default) = a Helena de antes byte a byte; `sombra` so' registra a decisao do roteador.
+    helena_roteador: str = "desligado"
+    #: ADR-0066: o provedor PROPRIO do roteador (prazo e teto curtos, pool proprio); `None` = o da conversa.
+    roteador_inference: Any = None
+    roteador_concorrencia: int = 4
+    #: ADR-0067 fase 3: `fabrica(modelo=, prazo_s=, max_tokens=, concorrencia=)` de provedores de inferencia
+    #: DEDICADOS, ja' pela costura do gateway. O agente a usa quando o pacote de comportamento dele escolhe o
+    #: modelo do roteador; `None` (testes) = so' o `roteador_inference` acima.
+    fabrica_de_inferencia: Callable[..., Any] | None = None
+    #: F2 (DL-0136): as conversas em que o roteador ativo decide (vazio = ninguem).
+    helena_roteador_conversas: frozenset[str] = frozenset()
+    # DL-0140 (dono, 22/10/2026): o modo da cobertura (`simples` | `consulta`).
+    cobertura_modo: str = "simples"
     #: SAUDE GERATIVA (ADR-0065/DL-0119, settings `helena_saude_gerativa` +
     #: `helena_saude_gerativa_conversas`).
     #: `None` (default) = desligada, a Helena de antes byte a byte. A raiz de composicao so' passa o redator
@@ -533,12 +560,62 @@ class HelenaDispatcher:
 
     administrative_runtime: AdministrativeJourneyRuntime | None = None
     administrative_binding: JourneyBinding | None = None
+    #: O AGENTE DE ENTRADA do numero unico (ADR-0062), pelo id (ADR-0067). O despachante nao importa o
+    #: agente: o framework resolve a implementacao de `AgenteDeEntrada` na construcao (falha fechada aqui,
+    #: nunca no meio de um turno).
+    agente_de_entrada_id: str = "helena"
+    _entrada: AgenteDeEntrada = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        # ADR-0067 fase 4b: com `MAEZO_AGENTE_DE_ENTRADA_URL` o turno do agente roda no servico PROPRIO dele
+        # (`python -m maezo.platform.agente_remoto`), pela mesma porta. Sem a variavel, o de sempre (em
+        # processo), byte a byte. Falha FECHADA aqui, na construcao: URL sem `PHI_HMAC_KEY` (sem chave de
+        # assinatura) levanta, e o receptor recusa servir.
+        url = os.environ.get(ENV_AGENTE_DE_ENTRADA_URL, "").strip()
+        if url:
+            from maezo.platform.agente_remoto.cliente import AgenteDeEntradaRemoto
+
+            self._entrada = AgenteDeEntradaRemoto.do_ambiente(url, self.agente_de_entrada_id)
+            logger.warning(
+                "agente_de_entrada_remoto", tenant_id=self.tenant_id, agent_id=self.agente_de_entrada_id
+            )
+            return
+        self._entrada = carregar_agente_de_entrada(self.agente_de_entrada_id)
+
+    @property
+    def agente_de_entrada(self) -> AgenteDeEntrada:
+        """O agente de entrada resolvido (em processo ou remoto). O app do receptor o le' para montar a rota
+        interna de envio do turno remoto (`maezo.platform.agente_remoto.rota_de_envio`)."""
+        return self._entrada
+
+    def _dependencias_do_agente(
+        self, sender: WhatsAppSender | None, *, roteador_lucas_enabled: bool
+    ) -> dict[str, Any]:
+        """As dependencias e chaves com que os NOS do agente rodam fora do grafo compilado (escalonamentos).
+
+        As mesmas que `_compile_turn_graph` passa ao grafo, no subconjunto que o construtor do agente aceita.
+        """
+        return {
+            "inference": self.inference,
+            "dmn": self.dmn,
+            "cibseven": self.cibseven,
+            "audit_sink": self.audit_sink,
+            "whatsapp": sender,
+            "agent_version": self._entrada.agent_version,
+            "memoria_clinica_enabled": self.memoria_clinica_enabled,
+            "roteador_lucas_enabled": roteador_lucas_enabled,
+            "historico_enabled": self.historico_enabled,
+            "triagem_v2_enabled": self.triagem_v2_enabled,
+            "helena_v4_enabled": self.helena_v4_enabled,
+            "helena_carteirinha_completa_enabled": self.helena_carteirinha_completa_enabled,
+            "helena_dependentes_nome_enabled": self.helena_dependentes_nome_enabled,
+            "helena_base_saude_enabled": self.helena_base_saude_enabled,
+        }
 
     async def accept_administrative_turn(
         self, stimulus: RuntimeTurnStimulus
     ) -> JourneyDispatchOutcome | CapabilityRefusalReason:
         """Trusted typed entry; canonical values never invoke caller copy/serialization hooks."""
-        from typing import cast
 
         from pydantic import BaseModel
 
@@ -829,20 +906,29 @@ class HelenaDispatcher:
             "aviso_suprimido": False,
         }
 
-    def _compile_turn_graph(self, sender: WhatsAppSender) -> tuple[Any, Any]:
+    def _compile_turn_graph(
+        self, sender: WhatsAppSender | None, *, roteador_lucas_enabled: bool | None = None
+    ) -> tuple[Any, Any]:
         """Build + compile Helena's graph for ONE turn. Returns `(compiled, thread_saver)`.
 
         Shared by `dispatch` and `resume` so the two entry doors can never drift in which
         dependencies, agent version or memory flag the graph is built with.
+
+        `roteador_lucas_enabled` (ADR-0067 fase 4b): `None` = o deste despachante. O servico do agente remoto
+        (`maezo.platform.agente_remoto.servidor`) compoe as dependencias como o receptor e chega aqui com o
+        valor que o RECEPTOR mandou, porque o Lucas e o roteador so' existem do lado dele.
         """
-        graph = build(
+        roteamento_completo = (
+            self._roteamento_completo if roteador_lucas_enabled is None else roteador_lucas_enabled
+        )
+        graph = self._entrada.construir_grafo(
             {
                 "inference": self.inference,
                 "dmn": self.dmn,
                 "cibseven": self.cibseven,
                 "whatsapp": sender,
                 "audit_sink": self.audit_sink,
-                "agent_version": "helena@v0",
+                "agent_version": self._entrada.agent_version,
                 # MEMORIA CLINICA (Frente 2.1). Passada EXPLICITAMENTE em vez de deixada no default
                 # do `build`: o despachante e' quem sabe se ha' checkpointer, e uma memoria ligada
                 # sem estado duravel nao e' um erro, mas tambem nao lembra nada — deixar a decisao
@@ -851,7 +937,7 @@ class HelenaDispatcher:
                 "memoria_clinica_enabled": self.memoria_clinica_enabled,
                 # NUMERO UNICO (onda e): `classify-v6` + a passagem ao Lucas so' com o roteamento
                 # completo. Desligado, a chave vai `False` e o grafo e' o de antes no a no'.
-                "roteador_lucas_enabled": self._roteamento_completo,
+                "roteador_lucas_enabled": roteamento_completo,
                 # DL-0078: so' o NOME de exibicao da operadora; os textos de identidade so' saem com o
                 # desfecho que `dispatch` entrega no estado (flag desligada = nenhum texto).
                 "identidade_nome_operadora": self.identidade_nome_operadora,
@@ -868,6 +954,15 @@ class HelenaDispatcher:
                 "helena_dependentes_nome_enabled": self.helena_dependentes_nome_enabled,
                 # DL-0118: a base de conhecimento de saude (ADR-0064), so' com a flag.
                 "helena_base_saude_enabled": self.helena_base_saude_enabled,
+                # DL-0134: o roteador de habilidades (ADR-0066), so com a chave; desligado = grafo de antes.
+                "helena_roteador": self.helena_roteador,
+                "roteador_inference": self.roteador_inference,
+                # ADR-0067 fase 3: o pacote do agente escolhe modelo/orcamento do roteador por esta fabrica.
+                "fabrica_de_inferencia": self.fabrica_de_inferencia,
+                "roteador_concorrencia": self.roteador_concorrencia,
+                "helena_roteador_conversas": self.helena_roteador_conversas,
+                # DL-0140: o modo da cobertura (`simples` nunca consulta procedimento).
+                "cobertura_modo": self.cobertura_modo,
                 # DL-0119: a saude gerativa (ADR-0065), so' com a chave; `None` = desligada (grafo de antes).
                 "saude_gerativa": self.saude_gerativa,
                 # DL de 07/10/2026: a fonte de fatos do plano; `None` = desligada (grafo de antes).
@@ -919,7 +1014,7 @@ class HelenaDispatcher:
         )
         compiled, saver = self._compile_turn_graph(sender)
         thread_config = checkpoint_thread_config(conversation_id) if saver is not None else None
-        initial_state: HelenaState = new_helena_resume_state(
+        initial_state = self._entrada.estado_de_retomada(
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
             canal="whatsapp",
@@ -937,7 +1032,7 @@ class HelenaDispatcher:
             # Same counter as `dispatch` (ALERTS-WITHOUT-METRICS-a): a resume turn is a Helena turn.
             from maezo.platform.observability import record_agent_error
 
-            record_agent_error(agent="helena", error_type=classify_agent_error_type(exc))
+            record_agent_error(agent=self._entrada.agent_id, error_type=classify_agent_error_type(exc))
             raise
         logger.info(
             "helena_resume_turn_completed",
@@ -1050,7 +1145,7 @@ class HelenaDispatcher:
         if not getattr(atual, "values", None):
             return
         # `respond` -> END: o checkpoint gravado nao deixa no' pendente; o proximo turno recomeca em START.
-        await compiled.aupdate_state(config, memoria_de_conversa_neutra(), as_node="respond")
+        await compiled.aupdate_state(config, self._entrada.memoria_neutra(), as_node="respond")
         logger.info(
             "acesso_memoria_da_conversa_apagada", tenant_id=self.tenant_id, conversation_id=conversation_id
         )
@@ -1067,22 +1162,7 @@ class HelenaDispatcher:
         texto
         da pessoa. Levanta se o processo nao abriu: o turno falha e a reentrega tenta de novo, em vez de
         prometer um atendente que ninguem acionou."""
-        helena = HelenaGraph(
-            inference=self.inference,
-            dmn=self.dmn,
-            cibseven=self.cibseven,
-            audit_sink=self.audit_sink,
-            whatsapp=sender,
-            agent_version="helena@v0",
-            memoria_clinica_enabled=self.memoria_clinica_enabled,
-            roteador_lucas_enabled=self._roteamento_completo,
-            historico_enabled=self.historico_enabled,
-            triagem_v2_enabled=self.triagem_v2_enabled,
-            helena_v4_enabled=self.helena_v4_enabled,
-            helena_carteirinha_completa_enabled=self.helena_carteirinha_completa_enabled,
-            helena_dependentes_nome_enabled=self.helena_dependentes_nome_enabled,
-            helena_base_saude_enabled=self.helena_base_saude_enabled,
-        )
+        dependencias = self._dependencias_do_agente(sender, roteador_lucas_enabled=self._roteamento_completo)
         estado: dict[str, Any] = {
             "tenant_id": self.tenant_id,
             "conversation_id": conversation_id,
@@ -1090,10 +1170,7 @@ class HelenaDispatcher:
             "canal": "whatsapp",
             "message_body": "",
         }
-        if motivo == "revogacao_consentimento_pendente":
-            resultado = await helena.escalar_revogacao_pendente(cast(HelenaState, estado))
-        else:
-            resultado = await helena.escalar_identidade_nao_verificada(cast(HelenaState, estado))
+        resultado = await self._entrada.escalar_identidade(dependencias, estado, motivo=motivo)
         if resultado.get("escalation_started") is not True:
             logger.error(
                 "acesso_escalonamento_nao_aberto", tenant_id=self.tenant_id, conversation_id=conversation_id
@@ -1125,38 +1202,26 @@ class HelenaDispatcher:
         idade
         exata nunca entram. `None` = nao e' pergunta de cadastro: o fluxo de sempre.
         """
-        from .acesso_cadastro import resposta_de_cadastro, tipo_de_pergunta
-
-        tipo = tipo_de_pergunta(message.text)
-        if tipo is None:
-            return None
-        from .acesso_cadastro import TIPO_CARENCIA, TIPO_PLANO_DETALHE
-
-        if self.consultas_plano is not None and tipo in (TIPO_PLANO_DETALHE, TIPO_CARENCIA):
-            # RODADA 3: com os fatos do plano ligados (TINA), tipo de plano, cobertura e carencia sao
-            # respondidos pela consulta da Helena, com segmentacao e carencias do cadastro.
-            return None
         assert self.acesso is not None
-        if self.acesso.sinal_de_emergencia(message.text):
-            return None
-        from .acesso_cadastro import TIPO_IDENTIDADE_E_PLANO, TIPO_NOME, TIPO_PLANO_DETALHE, TIPO_QUEM_SOU_EU
+        identidade = self.identidade
 
-        # Tipos respondidos sem o perfil da AMH (RODADA 2).
-        sem_perfil = frozenset({TIPO_QUEM_SOU_EU, TIPO_NOME, TIPO_IDENTIDADE_E_PLANO, TIPO_PLANO_DETALHE})
-
-        identidade: dict[str, Any] | None = None
-        if tipo not in sem_perfil and self.identidade is not None:
-            resolvida = await self.identidade.resolver_com_desfecho(
+        async def _identidade_do_perfil() -> dict[str, Any] | None:
+            assert identidade is not None
+            resolvida = await identidade.resolver_com_desfecho(
                 message.from_number, conversation_id=conversation_id, pseudo_id=beneficiario_pseudo_id
             )
-            identidade = resolvida.identidade
-        texto = resposta_de_cadastro(tipo, identidade, fonte_ligada=self.identidade is not None)
-        if self.consultas_plano is not None and texto == RESPOSTA_PLANO_POR_CANAIS:
-            # RODADA 8: com os fatos do plano (TINA) ligados e a pessoa verificada, "ainda nao estao
-            # disponiveis por este chat" nunca sai: o fato ausente do perfil segue para o grafo, que consulta.
-            # A comparacao vem ANTES do aviso de terceiro (revisao do #785): com o aviso colado, o texto
-            # deixava de ser igual e o "nao estao disponiveis" saia ao beneficiario.
+            return resolvida.identidade
+
+        resposta = await self._entrada.resposta_de_cadastro(
+            message.text,
+            consultas_ligadas=self.consultas_plano is not None,
+            fonte_ligada=identidade is not None,
+            sinal_de_emergencia=self.acesso.sinal_de_emergencia,
+            resolver_identidade=_identidade_do_perfil if identidade is not None else None,
+        )
+        if resposta is None:
             return None
+        tipo, texto = resposta.tipo, resposta.texto
         # D-01 (red team): quem fala de outra pessoa recebe o aviso de que so' o PROPRIO cadastro e' mostrado.
         texto = com_aviso_se_for_de_outra_pessoa(message.text, texto)
         await sender.send(phone_hash, texto)
@@ -1165,7 +1230,7 @@ class HelenaDispatcher:
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
             tipo=tipo,
-            com_dados=identidade is not None,
+            com_dados=resposta.com_dados,
         )
         return {
             "conversation_id": conversation_id,
@@ -1271,7 +1336,7 @@ class HelenaDispatcher:
             # NUMERO UNICO (onda e): as entradas do roteador, todas TIPADAS e sem texto. Quem estava
             # com a conversa decide so' se a frase de passagem sai; os sinais lexicos so' puxam para
             # a Helena ou para uma pessoa (§2.3); `message_ref` amarra o handoff a ESTA mensagem.
-            initial_state: HelenaState = new_helena_state(
+            initial_state = self._entrada.estado_inicial(
                 tenant_id=self.tenant_id,
                 conversation_id=conversation_id,
                 canal="whatsapp",
@@ -1288,7 +1353,7 @@ class HelenaDispatcher:
                 identidade_desfecho=identidade_desfecho,
             )
         else:
-            initial_state = new_helena_state(
+            initial_state = self._entrada.estado_inicial(
                 tenant_id=self.tenant_id,
                 conversation_id=conversation_id,
                 canal="whatsapp",
@@ -1321,7 +1386,16 @@ class HelenaDispatcher:
                     "handoff": {**atalho_recuo["handoff"], "message_ref": message_pseudonym},
                 }
             else:
-                result = await compiled.ainvoke(initial_state, thread_config)
+                # Esperar e juntar (Helena, etapa 9): o agente prepara o turno (espera e junta as mensagens
+                # picotadas) e o conclui; quem roda o grafo, com a contagem de falhas, continua sendo AQUI.
+                turno_do_agente = getattr(self._entrada, "turno_juntado", None) or turno_sem_preparo
+                async with turno_do_agente(initial_state, thread_config, compiled) as turno:
+                    if turno.juntado is not None:
+                        result = turno.juntado
+                    else:
+                        initial_state, thread_config = dict(turno.estado), turno.config
+                        result = await compiled.ainvoke(initial_state, thread_config)
+                        result = turno.concluir(result)
         except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a. This receiver is the SECOND turn-execution seam in the
             # repo — it compiles and invokes Helena's graph directly rather than through
@@ -1333,13 +1407,32 @@ class HelenaDispatcher:
             # (`agent_version="helena@v0"` above), so the `agent` label is the literal id.
             from maezo.platform.observability import record_agent_error
 
-            record_agent_error(agent="helena", error_type=classify_agent_error_type(exc))
+            record_agent_error(agent=self._entrada.agent_id, error_type=classify_agent_error_type(exc))
+            if isinstance(exc, AgenteRemotoIndisponivelError):
+                # ADR-0067 fase 4b: o servico do agente nao respondeu. A pessoa recebe o texto fixo de
+                # indisponibilidade (a metrica acima ja' contou a falha); a reentrega da Meta nao resolveria.
+                return await self._responder_agente_indisponivel(
+                    sender, phone_hash=phone_hash, conversation_id=conversation_id
+                )
             raise
+        if result.get("juntada") is True:
+            # Esperar e juntar (Helena, etapa 9 do Plano de ajustes v2): esta mensagem foi juntada a uma mais
+            # nova, ou a resposta foi refeita por ela. Nada saiu neste turno e o turno da mais nova responde
+            # (e passa ao Lucas, se for o caso) com todas.
+            logger.info(
+                "helena_dispatch_turn_juntado",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                refeita=result.get("refeita") is True,
+            )
+            return dict(result)
         # GAP 11.2: the turn completed (whatever the outcome) — `respond()`, Helena's one terminal
         # node, always attempts exactly one WhatsApp send by this point. Observed AFTER `ainvoke`
         # returns, never in the `except` branch above: an `ainvoke` that raised means no reply was
         # even attempted, so there is nothing honest to time.
-        record_agent_first_response(agent_id="helena", seconds=time.monotonic() - turn_started_at)
+        record_agent_first_response(
+            agent_id=self._entrada.agent_id, seconds=time.monotonic() - turn_started_at
+        )
         logger.info(
             "helena_dispatch_turn_completed",
             tenant_id=self.tenant_id,
@@ -1420,11 +1513,31 @@ class HelenaDispatcher:
                     if isinstance(exc, PROGRAMMING_ERRORS):
                         raise
                     return dict(escalado)
+                retomada = result.get("texto_de_retomada")
+                if not lucas_escalou and not lucas_start_falhou and isinstance(retomada, str) and retomada:
+                    # Assuntos abertos (Helena, etapa 9): depois da resposta do Lucas, a Helena pergunta UMA
+                    # vez sobre o assunto que ficou para tras ("Sobre o assunto de saude, ficou...?").
+                    try:
+                        await sender.send(phone_hash, retomada)
+                    except Exception as exc:  # o turno ja' respondeu: so' o log
+                        logger.warning(
+                            "helena_retomada_nao_enviada",
+                            tenant_id=self.tenant_id,
+                            conversation_id=conversation_id,
+                            error_type=type(exc).__name__,
+                        )
+                if not lucas_escalou and not lucas_start_falhou:
+                    # ADR-0067 fase 4b: com o agente remoto, `eh_pedido_explicito_de_pessoa` (sincrono) le'
+                    # cache; o booleano e' obtido AQUI, de forma assincrona (o atalho do recuo nao passa pelo
+                    # `ainvoke`, que o traria). Em processo o agente nao tem o metodo e nada acontece.
+                    antecipar = getattr(self._entrada, "antecipar_pedido_de_pessoa", None)
+                    if antecipar is not None:
+                        await antecipar(message.text)
                 if (
                     not lucas_escalou
                     # DL-0144: start falho do Lucas nao abre outro caso aqui (nenhum envio novo).
                     and not lucas_start_falhou
-                    and eh_pedido_explicito_de_pessoa(message.text)
+                    and self._entrada.eh_pedido_explicito_de_pessoa(message.text)
                     # RODADA 6: com caso ja' aberto o Lucas ja' reconhece o pedido; o aviso da Helena
                     # ("seu atendimento ja' esta' aberto") so' duplicava a resposta (4 turnos seguidos).
                     and not await self._caso_aberto_na_conversa(conversation_id)
@@ -1471,6 +1584,35 @@ class HelenaDispatcher:
             )
         return dict(result)
 
+    async def _responder_agente_indisponivel(
+        self, sender: WhatsAppSender, *, phone_hash: str, conversation_id: str
+    ) -> dict[str, Any]:
+        """O texto fixo de indisponibilidade do agente remoto, pelo remetente cercado do turno. Log sem PHI.
+        Se nem o envio sair, o turno falha (a reentrega da Meta tenta de novo)."""
+        try:
+            await sender.send(phone_hash, AGENTE_INDISPONIVEL_TEXT)
+        except Exception:
+            logger.error(
+                "agente_remoto_indisponivel_resposta_nao_enviada",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                agent_id=self._entrada.agent_id,
+            )
+            raise
+        logger.error(
+            "agente_remoto_indisponivel_respondido",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            agent_id=self._entrada.agent_id,
+        )
+        return {
+            "conversation_id": conversation_id,
+            "response_text": AGENTE_INDISPONIVEL_TEXT,
+            "response_kind": "inform",
+            "error": "agente_remoto_indisponivel",
+            "agente_indisponivel": True,
+        }
+
     async def _atalho_de_recuo(
         self, texto: str, conversation_id: str, sinais: SinaisLexicos | None
     ) -> dict[str, Any] | None:
@@ -1489,7 +1631,7 @@ class HelenaDispatcher:
         ligada = getattr(lucas, "cancelamento_pf_v1", False) is True
         if lucas is None or not ligada or not self._roteamento_completo:
             return None
-        from maezo.runtime.cobranca_intencao import (
+        from maezo.domain.conversa.cobranca_intencao import (
             e_confirmacao_pura_do_cancelamento,
             e_recuo_do_cancelamento,
         )
@@ -1514,8 +1656,7 @@ class HelenaDispatcher:
             TEXTO_CONFIRMA_CANCELAMENTO
         ):
             return None
-        from maezo.agents.helena.graph import INTENT_COBRANCA, RESPONSE_KIND_HANDOFF
-        from maezo.runtime.cobranca_foco import FOCO_GERAL
+        from maezo.domain.conversa.cobranca_foco import FOCO_GERAL
 
         logger.info(
             "lucas_recuo_do_cancelamento" if confirmacao == "nega" else "lucas_confirmacao_do_cancelamento",
@@ -1560,7 +1701,7 @@ class HelenaDispatcher:
         reaproveita o ASSUNTO (so' os informativos) e o MES daquela resposta; o mes que a mensagem
         trouxer vence o lembrado. Sem esclarecimento, sem contexto ou com falha de leitura: o handoff
         da Helena, intacto (o caminho de sempre)."""
-        from maezo.runtime.cobranca_esclarecimento import (
+        from maezo.domain.conversa.cobranca_esclarecimento import (
             SUBTIPOS_QUE_NAO_SE_SOBRESCREVEM,
             SUBTIPOS_REAPROVEITAVEIS,
             e_pergunta_de_esclarecimento,
@@ -1592,7 +1733,7 @@ class HelenaDispatcher:
             ajustado["competencia"] = competencia_anterior
         # Rodada 3 (13/10/2026): "de qual ano?" repetia o texto anterior, identico. O foco proprio pede a
         # resposta CURTA, com o ano ("E' julho de 2026: paga em 18/08.").
-        from maezo.runtime.cobranca_foco import FOCO_ESCLARECIMENTO
+        from maezo.domain.conversa.cobranca_foco import FOCO_ESCLARECIMENTO
 
         ajustado["cobranca_foco"] = FOCO_ESCLARECIMENTO
         logger.info(
@@ -1687,14 +1828,15 @@ class HelenaDispatcher:
         self, texto: str, conversation_id: str, handoff: Mapping[str, Any]
     ) -> Mapping[str, Any]:
         """PEDIDO DE LISTA (teste real do dono, 12/10/2026): "as ultimas tres mensalidades pagas" recebeu um
-        mes so'. Quando o texto pede varios meses (`runtime/cobranca_lista.py`), o handoff ganha a chave
+        mes so'. Quando o texto pede varios meses (`domain/conversa/cobranca_lista.py`), o handoff ganha a
+        chave
         opcional `cobranca_lista` (numeros e `AAAA-MM`, nunca texto). Uma confirmacao de pagamento em lista
         ("ja paguei as ultimas tres?") e' uma consulta de valores; um "outro" em lista (a insistencia "mas
         eu te perguntei das ultimas tres") reaproveita o assunto informativo da resposta anterior do Lucas.
         Sem pedido de lista: o handoff intacto."""
-        from maezo.runtime.cobranca_esclarecimento import SUBTIPOS_REAPROVEITAVEIS
-        from maezo.runtime.cobranca_lista import decidir_lista_da_cobranca
-        from maezo.runtime.competencia import hoje_em_brasilia
+        from maezo.domain.conversa.cobranca_esclarecimento import SUBTIPOS_REAPROVEITAVEIS
+        from maezo.domain.conversa.cobranca_lista import decidir_lista_da_cobranca
+        from maezo.domain.conversa.competencia import hoje_em_brasilia
 
         lista = decidir_lista_da_cobranca(texto, hoje_em_brasilia(datetime.now(UTC)))
         if lista is None:
@@ -1764,7 +1906,7 @@ class HelenaDispatcher:
     async def _caso_aberto_na_conversa(self, conversation_id: str) -> bool:
         """Ha' um SP-OP-ESCALATION-001 vivo na chave desta conversa? Falha de leitura = `False` (o start
         idempotente reaproveita o caso de qualquer jeito, so' com o aviso a mais)."""
-        from maezo.runtime.caso_clinico import chave_do_escalonamento
+        from maezo.domain.conversa.caso_clinico import chave_do_escalonamento
 
         try:
             ativa = await self.cibseven.find_active_instance(
@@ -1798,22 +1940,7 @@ class HelenaDispatcher:
             conversation_id=conversation_id,
             idempotency_key_for=self._outbound_key_factory(f"{espaco_da_chave}:{message.message_id}"),
         )
-        helena = HelenaGraph(
-            inference=self.inference,
-            dmn=self.dmn,
-            cibseven=self.cibseven,
-            audit_sink=self.audit_sink,
-            whatsapp=sender,
-            agent_version="helena@v0",
-            memoria_clinica_enabled=self.memoria_clinica_enabled,
-            roteador_lucas_enabled=True,
-            historico_enabled=self.historico_enabled,
-            triagem_v2_enabled=self.triagem_v2_enabled,
-            helena_v4_enabled=self.helena_v4_enabled,
-            helena_carteirinha_completa_enabled=self.helena_carteirinha_completa_enabled,
-            helena_dependentes_nome_enabled=self.helena_dependentes_nome_enabled,
-            helena_base_saude_enabled=self.helena_base_saude_enabled,
-        )
+        dependencias = self._dependencias_do_agente(sender, roteador_lucas_enabled=True)
         estado: dict[str, Any] = {
             **resultado_helena,
             "next_kind": "escalate",
@@ -1825,9 +1952,7 @@ class HelenaDispatcher:
             "response_text": None,
             "desfecho": "",
         }
-        estado.update(await helena.escalate(cast(HelenaState, estado)))
-        estado.update(await helena.respond(cast(HelenaState, estado)))
-        return estado
+        return await self._entrada.escalar_e_responder(dependencias, estado)
 
     def _pre_rotear(self, texto: str, conversation_id: str) -> SinaisLexicos | None:
         """Os lexicos de §2.3, antes de qualquer LLM. Em sombra so' vao para o log, e so' como

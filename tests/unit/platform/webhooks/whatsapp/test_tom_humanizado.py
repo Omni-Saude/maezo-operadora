@@ -13,11 +13,11 @@ import unicodedata
 
 import pytest
 
+from maezo.agents.helena import cadastro as cad
 from maezo.agents.helena import consultas_plano as cp
 from maezo.agents.helena import graph as g
 from maezo.agents.helena import prompts as hp
 from maezo.platform.webhooks.whatsapp import acesso as ac
-from maezo.platform.webhooks.whatsapp import acesso_cadastro as cad
 from maezo.platform.webhooks.whatsapp import dispatch as dp
 
 _PREFIXOS = ("RESPOSTA_", "FRASE_", "TEXTO_", "MENSAGEM_")
@@ -82,7 +82,7 @@ COM_EMOJI_PERMITIDO = frozenset(
     {
         "acesso.verificado",
         "acesso.verificado_apresentacao",
-        "acesso_cadastro.RESPOSTA_QUEM_SOU_EU",
+        "cadastro.RESPOSTA_QUEM_SOU_EU",
         "graph.RESPOSTA_SAUDACAO_CURTA",
         "graph.RESPOSTA_DESPEDIDA",
     }

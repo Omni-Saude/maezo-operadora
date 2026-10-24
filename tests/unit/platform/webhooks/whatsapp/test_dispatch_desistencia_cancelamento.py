@@ -17,10 +17,13 @@ from typing import Any
 import pytest
 
 from maezo.agents.lucas.graph import TEXTO_CONFIRMA_CANCELAMENTO, ref_de_resposta
+from maezo.domain.conversa.cobranca_intencao import (
+    e_confirmacao_pura_do_cancelamento,
+    e_recuo_do_cancelamento,
+)
 from maezo.platform.webhooks.whatsapp.dispatch import HelenaDispatcher
 from maezo.platform.webhooks.whatsapp.pre_roteamento import SinaisLexicos
 from maezo.platform.webhooks.whatsapp.roteamento import ContextoDoTurno, MemoriaDoLucas
-from maezo.runtime.cobranca_intencao import e_confirmacao_pura_do_cancelamento, e_recuo_do_cancelamento
 
 _CONVERSA = "wa:amh:hk1_desistencia"
 
