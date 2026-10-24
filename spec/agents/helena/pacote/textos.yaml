@@ -14,3 +14,28 @@ textos:
   cobertura_fora: >-
     Por aqui eu não trato de cobertura. Você consegue essa informação pelo aplicativo Austa Clínicas,
     pelo portal do plano ou pela central de atendimento do plano.
+
+  # --- Sintoma (DL-0154). Regra da ambiguidade: aval do medico responsavel recomendado antes de producao.
+  # A resposta sem clareza a pergunta de alerta: de novo, UMA vez, com outras palavras ({sinais} = o resumo).
+  sintoma_repergunta: >-
+    Só para eu ter certeza: neste momento, existe algum destes sinais: {sinais}? Pode responder só sim ou não.
+  # Continuou sem clareza: a oferta da equipe de saude, sem 192 e sem caso (o caso so' com "sim").
+  sintoma_oferta_equipe: >-
+    Não consegui entender bem a sua resposta. Para não arriscar, posso passar o seu caso para a nossa equipe
+    de saúde avaliar com você. Quer? Responda sim ou não.
+  sintoma_oferta_recusada: >-
+    Tudo bem. Se o sintoma mudar ou piorar, é só me chamar.
+  # Seguimento sobre o mesmo sintoma depois de fechar (texto do dono).
+  sintoma_avaliar_causa: >-
+    Quem pode avaliar a causa é o médico. Quer que eu te mostre onde marcar a consulta ou prefere falar com
+    a equipe de saúde?
+  # Alarme ja' tratado (192/CVV ja' saiu) e sem sinal novo: nunca o "ligue 192" de novo (texto do dono).
+  caso_mantido_para_a_equipe: >-
+    Entendi. Mantive o seu caso para a equipe de saúde confirmar com você.
+
+  # --- Saude na OPCAO C (DL-0154): a duvida geral respondida uma vez, e o medico/equipe na insistencia.
+  saude_fecho_da_duvida: >-
+    Esta informação é geral e não substitui avaliação médica. Posso ajudar em mais alguma coisa?
+  saude_oferta_medico: >-
+    Para ir além disso, quem pode te orientar é o médico. Quer que eu te mostre onde marcar a consulta ou
+    prefere falar com a equipe de saúde?

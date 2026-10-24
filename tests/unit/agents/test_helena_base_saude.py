@@ -262,7 +262,8 @@ async def test_pra_que_serve_dipirona_responde_da_base_sem_caso_com_fonte_e_link
     assert dipirona.texto in texto
     assert "Texto da operadora com base em Bula do paciente (ANVISA)." in texto
     assert "Para ler mais: https://consultas.anvisa.gov.br/" in texto
-    assert texto.endswith(b.AVISO_PADRAO)
+    # OPCAO C (DL-0154): respondida uma vez, com o fecho "Posso ajudar em mais alguma coisa?".
+    assert texto.endswith("Posso ajudar em mais alguma coisa?") and b.AVISO_PADRAO not in texto
     assert not re.search(r"\b\d+ ?mg\b|\bdose\b|\btome\b", texto.lower())
     assert conversa.cib.inicios == [], "pergunta informativa nao abre caso"
     assert resultado["response_kind"] == "inform"
@@ -399,8 +400,9 @@ async def test_muita_dor_de_cabeca_recebe_as_perguntas_do_arquivo_e_nao_abre_cas
     resposta = await conversa.diz("Não", _INFO)
     final = _texto(resposta)
     sin = conversa.base.get("sin-dor-de-cabeca")
-    assert sin is not None and sin.texto in final
-    assert "1) saber onde marcar consulta pelo plano" in final
+    # DL-0154: o "nao" leva ao caminho ou a equipe e FECHA — sem o texto de orientacao do arquivo.
+    assert sin is not None and sin.texto not in final
+    assert "1) saber onde marcar consulta com clínico geral pelo plano" in final
     assert "2) falar com a nossa equipe de saúde" in final
     assert "ligue 192" in final
     assert conversa.cib.inicios == []

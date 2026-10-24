@@ -265,6 +265,7 @@ from .consultas_plano import (
 from .habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
 from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from .habilidades.conversa import leitura_curta as _lc
+from .habilidades.sintoma.textos import CHAVE_CASO_MANTIDO, CHAVE_REPERGUNTA, TEXTO_CASO_MANTIDO
 from .helena_v4 import (
     ALERTAS,
     ETAPA_ALERTA,
@@ -279,6 +280,7 @@ from .helena_v4 import (
     fatos_da_carteirinha,
     ler_pendente,
     pede_carteirinha,
+    resposta_ao_alerta,
     resumo_do_caso,
     texto_da_carteirinha,
     texto_da_pergunta_de_alerta,
@@ -324,6 +326,7 @@ from .triagem_v2 import (
     TRIAGEM_V2_DMN_KEY,
     linha_da_ficha,
     pergunta_da_ficha,
+    relata_sintoma,
 )
 
 logger = structlog.get_logger(__name__)
@@ -1366,11 +1369,52 @@ def _pergunta_sobre_caso_aberto(texto: str) -> str | None:
     return None
 
 
+#: Os textos do 192/CVV de um alarme ja' TRATADO nesta conversa (o caso urgente abriu e o aviso saiu).
+_TEXTOS_DE_ALARME_TRATADO: tuple[str, ...] = (
+    "Ligue 192 (SAMU) agora ou vá ao pronto-socorro.",
+    "Ligue agora para o 192 (SAMU)",
+    "Sinto muito que você esteja passando por isso. Você pode conversar agora com o CVV",
+)
+
+
+def _alarme_ja_tratado(estado: Mapping[str, Any]) -> bool:
+    """O 192/CVV de um alarme JA' saiu nesta conversa (o historico curto guarda as falas da Helena)?"""
+    return any(_sem_prefixo(f).startswith(_TEXTOS_DE_ALARME_TRATADO) for f in _falas_da_helena(estado))
+
+
+def _sinal_novo_de_alarme(estado: Mapping[str, Any]) -> bool:
+    """TRAVA "SEM SEGUNDO 192" (decisao do dono de 23/10/2026, DL-0154): a mensagem traz um sinal de alarme
+    CLARO que a pessoa ainda NAO tinha dito nesta conversa? Deterministico: o trecho do lexico forte
+    (afirmado, nunca negado) ou a categoria do alarme deterministico que nao aparecem nas falas anteriores
+    da pessoa."""
+    texto = str(estado.get("message_body") or "")
+    anteriores = " ".join(_falas_do_beneficiario(estado))
+    antes = _texto_dos_sinais(anteriores)
+    if _sinal_forte_de_emergencia(texto) and any(
+        m.group(0) not in antes for m in _SINAL_FORTE_DE_EMERGENCIA.finditer(_texto_dos_sinais(texto))
+    ):
+        return True
+    categoria = alarme_no_relato(_plano(texto))
+    return categoria is not None and categoria != alarme_no_relato(_plano(anteriores))
+
+
 def _texto_de_caso_aberto(estado: Mapping[str, Any]) -> str | None:
     """O aviso de caso aberto deste turno (RODADA 2), pelo MOTIVO e pelo que a pessoa disse. `None` = o
-    aviso generico (`RESPOSTA_HANDOFF_JA_ABERTO`), que quem chama escreve por extenso."""
+    aviso generico (`RESPOSTA_HANDOFF_JA_ABERTO`), que quem chama escreve por extenso.
+
+    DL-0154 (trava "sem segundo 192"): com o alarme JA' tratado e sem sinal NOVO claro, o 192 nao sai de novo
+    — o pedido de pessoa e as perguntas do caso continuam respondidos; o resto recebe "mantive o seu caso"."""
     motivo = estado.get("escalation_motivo")
     texto = str(estado.get("message_body") or "")
+    if _alarme_ja_tratado(estado) and not _sinal_novo_de_alarme(estado):
+        if _pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto):
+            return RESPOSTA_CASO_ABERTO_PEDIDO_DE_PESSOA
+        pergunta_do_caso = _pergunta_sobre_caso_aberto(texto)
+        if pergunta_do_caso == PERGUNTA_CASO_PRAZO:
+            return RESPOSTA_CASO_ABERTO_PRAZO
+        if pergunta_do_caso == PERGUNTA_CASO_SUPERVISOR:
+            return RESPOSTA_CASO_ABERTO_SUPERVISOR
+        return TEXTO_CASO_MANTIDO
     if motivo in MOTIVOS_DE_ALERTA_CLINICO or _mensagem_de_saude(estado):
         if (
             motivo in MOTIVOS_DE_ALERTA_CLINICO
@@ -5491,6 +5535,18 @@ class HelenaGraph:
             decidido = self._v4_seguimento(state, update, pend_v4, texto_clinico)
             if decidido is not None:
                 return decidido
+        # DL-0154 (o modelo conduz; a tabela so' protege): a resposta a pergunta/oferta pendente do sintoma,
+        # sem sinal de alarme na propria mensagem, e' decidida aqui — antes de re-triar com o codigo do
+        # historico.
+        decidido_pend = self._v4_conduzir_pendencia(state, update, pend_v4, texto_clinico)
+        if decidido_pend is not None:
+            return decidido_pend
+        oferta_c = self._saude_resposta_a_oferta(state, update, texto_clinico)
+        if oferta_c is not None:
+            return oferta_c
+        mantido = self._caso_mantido_se_alarme_ja_tratado(state, update, texto_clinico)
+        if mantido is not None:
+            return mantido
         ja_triado = bool(extraction.get("sintoma_codigo"))
         # RODADA DO DONO (18/10/2026), so' na allowlist: DUVIDA EDUCATIVA ("os sintomas de problemas cardiacos
         # em
@@ -5537,6 +5593,8 @@ class HelenaGraph:
             logger.warning(
                 "helena_alerta_com_caso_aberto", node="classify", caso_aberto=caso_aberto, intent=intent
             )
+            # (Com o alarme ja' tratado e sem sinal NOVO, `_caso_mantido_se_alarme_ja_tratado` ja' respondeu;
+            # aqui chega o sinal novo — o 192 sai de novo.)
             update["next_kind"] = "escalate"
             update["escalation_motivo"] = "red_flag_clinico"
             update["escalation_severidade"] = "grave"
@@ -5891,7 +5949,7 @@ class HelenaGraph:
         pend_encerrar = self._base_saude and state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
         if pend_encerrar:
             update["coleta_pendente"] = None
-        if str(state.get("coleta_pendente") or "").startswith(("BS_COBERTURA", "COB2:")):
+        if str(state.get("coleta_pendente") or "").startswith(("BS_COBERTURA", "COB2:", "SAUDE_OFERTA")):
             # COBERTURA FORA (DL-0154): uma pergunta pendente da cobertura de antes (estado gravado antes da
             # retirada) nunca sobrevive ao turno.
             update["coleta_pendente"] = None
@@ -6144,6 +6202,40 @@ class HelenaGraph:
             update.update({"coleta_pendente": None, "coleta_contexto": "", "coleta_rodadas": 0})
         return update
 
+    def _caso_mantido_se_alarme_ja_tratado(
+        self, state: HelenaState, update: dict[str, Any], texto: str
+    ) -> dict[str, Any] | None:
+        """TRAVA "SEM SEGUNDO 192" (DL-0154): o 192/CVV de um alarme ja' saiu nesta conversa e o caso clinico
+        esta' aberto; a mensagem nao traz sinal NOVO claro. Quem diz que foi engano, comenta o 192 ("pq eu
+        ligaria pro SAMU?") ou continua falando do mesmo sintoma ("mas eu nao to sentindo nada disso") recebe
+        "mantive o seu caso para a equipe de saude confirmar com voce" — nunca o "ligue 192" de novo.
+        Pedido de pessoa, cobranca, plano e cancelamento seguem o caminho de sempre (sempre ouvidos)."""
+        if not _alarme_ja_tratado(state) or _caso_aberto_no_historico(state) != CASO_ABERTO_CLINICO:
+            return None
+        if _sinal_novo_de_alarme(state) or self._v4_pede_pessoa(state, texto):
+            return None
+        plano = _plano(texto)
+        if (
+            _pergunta_do_plano(texto)
+            or _pergunta_de_cobertura_ampla(texto)
+            or _pergunta_de_navegacao(texto)
+            or not plano
+        ):
+            # A pergunta de onde ir ("preciso ir no medico?") e as do plano continuam respondidas.
+            return None
+        sobre_o_alarme = (
+            _sinal_forte_de_emergencia(texto)
+            or _sinal_fraco_de_emergencia(texto)
+            or _NEGACAO_DE_URGENCIA.search(plano) is not None
+            or relata_sintoma(plano)
+            or resposta_ao_alerta(plano) is not None
+            or state.get("sinal_saude_lexico") is True
+        )
+        if not sobre_o_alarme:
+            return None
+        logger.info("helena_alarme_ja_tratado_sem_sinal_novo", node="classify")
+        return self._base_texto_fixo(update, self._textos[CHAVE_CASO_MANTIDO])
+
     async def _decidir_sem_modelo(self, state: HelenaState) -> dict[str, Any] | None:
         texto = str(state.get("message_body") or "")
         plano = _plano(texto)
@@ -6220,6 +6312,9 @@ class HelenaGraph:
     _v4_abrir_caso = _sintoma._v4_abrir_caso
 
     _v4_seguimento = _sintoma._v4_seguimento
+    _v4_seguimento_do_sintoma = _sintoma._v4_seguimento_do_sintoma
+    _v4_resposta_a_oferta = _sintoma._v4_resposta_a_oferta
+    _v4_conduzir_pendencia = _sintoma._v4_conduzir_pendencia
 
     _v4_sintoma_leve = _sintoma._v4_sintoma_leve
 
@@ -6282,6 +6377,7 @@ class HelenaGraph:
     _populacao_do_resumo = staticmethod(_saude._populacao_do_resumo)
 
     _gerativa_informar = _saude._gerativa_informar
+    _saude_resposta_a_oferta = _saude._saude_resposta_a_oferta
 
     _gerativa_no_alerta = _saude._gerativa_no_alerta
 
@@ -6475,7 +6571,13 @@ class HelenaGraph:
             # HELENA V4 (DL-0115): as perguntas de ALERTA do tipo de queixa sao TEXTO FIXO, sem modelo, e
             # passam pelas mesmas cercas; recusada (nao deveria: o teste fixa as constantes), cai na
             # pergunta generica.
-            if self._gerativa_para(state):
+            if lida_v4.repetida:
+                # DL-0154 (regra da ambiguidade): a pergunta de novo, UMA vez, COM OUTRAS PALAVRAS.
+                alerta_r = self._base_alerta_do_grupo(lida_v4.grupo) or ALERTAS.get(
+                    lida_v4.grupo, ALERTAS[GRUPO_GERAL]
+                )
+                fixa_v4 = self._textos[CHAVE_REPERGUNTA].format(sinais=alerta_r.sinais)
+            elif self._gerativa_para(state):
                 # SAUDE GERATIVA (ADR-0065), so' na allowlist: as MESMAS perguntas, sem o eco truncado do
                 # relato, sem a de gravidez fora de contexto e no maximo duas (teste do dono de 17/10/2026).
                 alerta_g = self._base_alerta_do_grupo(lida_v4.grupo) or ALERTAS.get(
@@ -6637,8 +6739,11 @@ class HelenaGraph:
         if state.get("response_text") == RESPOSTA_PECA_REENVIO:
             # RODADA 6: o classificador falhou neste turno (ver `classify`); o texto ja' vem pronto.
             return {"response_text": RESPOSTA_PECA_REENVIO, "response_kind": "inform"}
-        if str(state.get("response_text") or "").startswith(self._textos[CHAVE_TEXTO_COBERTURA_FORA]):
-            # COBERTURA FORA (dono, 23/10/2026, DL-0154): o aviso fixo que `classify` deixou, sem modelo.
+        if (
+            str(state.get("response_text") or "").startswith(self._textos[CHAVE_TEXTO_COBERTURA_FORA])
+            or state.get("response_text") in self._textos.valores()
+        ):
+            # DL-0154: o aviso da cobertura e os textos fixos do pacote que `classify` deixou, sem modelo.
             return {"response_text": str(state.get("response_text")), "response_kind": "inform"}
         if self._e_texto_do_roteador(state.get("response_text")):
             # F2 (ADR-0066): o texto FIXO que o roteador ativo deixou pronto (cortesia, pergunta "X ou Y?").
@@ -7727,7 +7832,12 @@ class HelenaGraph:
         # DL-0131 (decisao do dono): na allowlist, sem o "Entendi."/"Certo." de enfeite na frente de um texto
         # repetido — so' as redacoes alternativas de verdade (`_VARIANTES`).
         varia = (
-            _sem_repetir_sem_enfeite(state, text) if self._gerativa_para(state) else _sem_repetir(state, text)
+            # DL-0154: os textos fixos do pacote saem como o dono escreveu (sem tirar nem por "Entendi.").
+            text
+            if text in self._textos.valores()
+            else _sem_repetir_sem_enfeite(state, text)
+            if self._gerativa_para(state)
+            else _sem_repetir(state, text)
         )
         if self._gerativa_para(state):
             # SAUDE GERATIVA (ADR-0065), so' na allowlist: "Entendi. Entendi: ..." (o prefixo de variacao
@@ -8072,6 +8182,17 @@ class HelenaGraph:
             # caso clinico; prazo/supervisor/urgencia respondidos; 192 so' em contexto de saude). A
             # repeticao e' tratada em `respond` (`_sem_repetir`).
             enviar = _texto_de_caso_aberto(state) or RESPOSTA_HANDOFF_JA_ABERTO
+            if enviar == TEXTO_CASO_MANTIDO:
+                # DL-0154 (sem segundo 192): o texto do pacote, sem o rascunho atras.
+                enviar = self._textos[CHAVE_CASO_MANTIDO]
+                return enviar, self._registrar_troca(
+                    state,
+                    grupo=RECUSA_ESCALONAMENTO_JA_ABERTO,
+                    response_kind=response_kind,
+                    start_desfecho=start_desfecho,
+                    texto=enviar,
+                    padrao=None,
+                )
             if enviar in _VARIANTES[RESPOSTA_CASO_ABERTO_EMERGENCIA]:
                 logger.warning(
                     "helena_alerta_com_caso_aberto",
@@ -8915,6 +9036,17 @@ class HelenaGraph:
             decisao.habilidade if decisao.habilidade != "duvida" else (decisao.provavel or "conversa")
         )
         mantem = bool(antes) and decisao.responde_a_pendencia and not duvida_antes
+        if (
+            antes
+            and not duvida_antes
+            and self._roteador_contrato.dona_da_pendencia(antes) == "sintoma"
+            and habilidade in ("saude", "sintoma")
+        ):
+            # DL-0154: com o sintoma EM CURSO (pergunta de alerta, opcoes ou oferta pendentes), a fala de
+            # saude continua o MESMO assunto ("eu dormi de mau jeito"): a pendencia fica e o sintoma decide
+            # (antes, a pendencia caia e a pergunta de alerta recomecava).
+            mantem = True
+            habilidade = "sintoma"
         if (
             antes
             and not mantem

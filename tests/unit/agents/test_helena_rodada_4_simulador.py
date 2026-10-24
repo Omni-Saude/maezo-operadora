@@ -158,9 +158,8 @@ async def test_segunda_insistencia_muda_a_redacao() -> None:
         )
     )
 
-    # Ja' disse a segunda redacao: a terceira varia de novo (`_sem_repetir`), sem repetir igual.
-    assert whatsapp.enviados[0] != RESPOSTA_COBERTURA_ESPECIFICA_2
-    assert RESPOSTA_COBERTURA_ESPECIFICA_2 in whatsapp.enviados[0]
+    # DL-0154: a cobertura e' sempre o MESMO aviso curto do dono (texto do pacote, sem enfeite de variacao).
+    assert whatsapp.enviados[0] == RESPOSTA_COBERTURA_ESPECIFICA_2
 
 
 # =================================================================================================

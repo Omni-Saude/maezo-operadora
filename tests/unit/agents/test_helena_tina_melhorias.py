@@ -60,11 +60,11 @@ async def test_a_jornada_entra_no_fim_da_resposta_redigida() -> None:
     resultado = await conversa.diz(
         "Quais exames de sangue avaliam meu metabolismo? Como faço pelo plano?", _CLINICA
     )
-    # r4 (22/10/2026): a redacao sem a linha da fonte nao sai (a base responde); o prompt da jornada continua.
+    # DL-0154: o rascunho valido sem a linha da fonte SAI (antes era descartado); o prompt da jornada segue.
     assert conversa.motivos == []
     prompt = conversa.transporte.chamadas[-1][1][0]["content"][0]["text"]
     assert "o sistema acrescenta, no fim, o passo de como usar o plano" in prompt
-    assert not _texto(resultado).startswith(_RESPOSTA)
+    assert _texto(resultado).startswith(_RESPOSTA)
 
 
 async def test_a_jornada_entra_no_fim_da_resposta_redigida_com_fonte() -> None:
@@ -79,8 +79,10 @@ async def test_a_jornada_entra_no_fim_da_resposta_redigida_com_fonte() -> None:
         "Quais exames de sangue avaliam meu metabolismo? Como faço pelo plano?", _CLINICA
     )
     texto = _texto(resultado)
-    assert texto.startswith(com_fonte) and b.AVISO_PADRAO in texto
-    assert texto.endswith(j.TEXTOS[j.JORNADA_EXAME])
+    assert texto.startswith(com_fonte) and b.AVISO_PADRAO not in texto
+    # OPCAO C (DL-0154): a jornada do plano e, por ultimo, o fecho "Posso ajudar em mais alguma coisa?".
+    assert j.TEXTOS[j.JORNADA_EXAME] in texto
+    assert texto.endswith("Posso ajudar em mais alguma coisa?")
 
 
 def test_isso_e_normal_mais_direto_no_prompt_e_a_checagem_continua() -> None:

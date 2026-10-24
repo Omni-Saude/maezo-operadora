@@ -125,8 +125,6 @@ async def test_a_competencia_do_texto_vai_no_handoff() -> None:
     [
         "meu bebê está roxo, e a mensalidade?",
         "ele ta parando de respirar, e o boleto?",
-        "liguei pro 192, e a mensalidade?",
-        "meu filho está com febre, e a mensalidade?",
     ],
 )
 async def test_emergencia_na_propria_mensagem_continua_vencendo(
@@ -147,6 +145,32 @@ async def test_emergencia_na_propria_mensagem_continua_vencendo(
     assert resultado["response_kind"] != RESPONSE_KIND_HANDOFF
     assert resultado.get("handoff") is None
     assert _texto_de_emergencia(whatsapp.enviados)
+    assert _starts(cib) == antes
+
+
+@pytest.mark.parametrize("chaves", _CHAVES)
+@pytest.mark.parametrize(
+    "mensagem",
+    ["liguei pro 192, e a mensalidade?", "meu filho está com febre, e a mensalidade?"],
+)
+async def test_sem_sinal_novo_o_192_ja_tratado_nao_sai_de_novo(chaves: dict[str, Any], mensagem: str) -> None:
+    """DL-0154 (trava "sem segundo 192"): o 192 ja' saiu e a mensagem nao traz sinal NOVO claro: a Helena mantem o
+    caso para a equipe confirmar, sem repetir o "ligue 192" e sem abrir outro caso."""
+    from maezo.agents.helena.habilidades.sintoma.textos import TEXTO_CASO_MANTIDO
+
+    cib = _caso_aberto("red_flag_clinico")
+    antes = _starts(cib)
+    grafo, whatsapp, _, _ = _grafo(
+        [_classify(intent="symptom", population="pediatric", sintoma_codigo="dor_toracica")],
+        cib=cib,
+        **chaves,
+    )
+
+    await grafo.ainvoke(
+        _entrada(mensagem, _FALAS_DO_CASO_CLINICO, sinal_saude_lexico=True, pedido_humano_lexico=False)
+    )
+
+    assert whatsapp.enviados == [TEXTO_CASO_MANTIDO]
     assert _starts(cib) == antes
 
 

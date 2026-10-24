@@ -78,7 +78,8 @@ async def test_negar_os_sinais_da_pergunta_de_alerta_nao_da_192_nem_abre_caso(re
 @pytest.mark.parametrize(
     "fala",
     [
-        "Minha bebê de 8 meses caiu do trocador de cabeça",
+        # (O bebe COM MENOS DE 1 ANO dito -> 192 na hora: lista de alarmes reais do dono, DL-0154 —
+        # `test_helena_saude_seguranca.py`.)
         "O menino levou uma pancada forte na testa no parquinho",
         "minha filha tomou um tombo e bateu a nuca no chão",
         "meu neném caiu da cama e bateu a cabecinha",

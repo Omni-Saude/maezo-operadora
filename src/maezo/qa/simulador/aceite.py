@@ -1053,8 +1053,9 @@ HELENA_V4: tuple[Segmento, ...] = (
                 primeira_frase_deve="^entendi: dor nas costas desde ontem",
                 deve=(
                     "nao avalio sintomas, mas te ajudo com o caminho",
-                    r"1\) saber onde marcar consulta pelo plano",
-                    r"clinico geral ou pediatra: ate 7 dias uteis pela ans",
+                    r"1\) saber onde marcar consulta com (?:clinico geral|pediatra) pelo plano",
+                    # DL-0154: o profissional pela idade (nunca "ou pediatra" para adulto).
+                    r"ate 7 dias uteis pela ans",
                     r"2\) falar com a nossa equipe de saude",
                     "se piorar, procure um pronto-atendimento",
                     "ligue 192",
@@ -1233,7 +1234,7 @@ HELENA_BASE_SAUDE: tuple[Segmento, ...] = (
                 "Não",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=(
-                    r"1\) saber onde marcar consulta pelo plano",
+                    r"1\) saber onde marcar consulta com (?:clinico geral|pediatra) pelo plano",
                     r"2\) falar com a nossa equipe de saude",
                     "ligue 192",
                 ),
@@ -1328,21 +1329,19 @@ HELENA_SAUDE_GERATIVA: tuple[Segmento, ...] = (
                 deve=("responda sim ou nao",),
                 nao_deve=("entendi: ", "gravida", _ENCAMINHOU),
             ),
-            _gerativa(
+            # DL-0154 (dono, 23/10/2026): a Helena nao orienta o sintoma; o contexto sem sim/nao e' resposta
+            # SEM CLAREZA a pergunta de alerta: de novo, UMA vez, com outras palavras (sem 192 por isso).
+            _p(
                 "Começou hoje de manhã, eu já tomei dorflex e buscopan e não melhorou",
-                "192",
-                r"(medic|clinico)",
-                r"(remedio|dorflex|buscopan|usou|melhor)",
-                r"1\) saber onde marcar consulta pelo plano",
-                r"2\) falar com a nossa equipe de saude",
-                nao_deve=("pediatra", "so preciso de um sim ou nao", r"\bpode (usar|tomar)\b"),
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("so para eu ter certeza", "sim ou nao"),
+                nao_deve=("pediatra", r"pode (usar|tomar)", "ligue 192", _ENCAMINHOU),
             ),
         ),
         resolveu=(
             "a queixa recebeu UMA pergunta de alerta curta (sem eco truncado, sem pergunta de gravidez); o "
-            "contexto ('ja tomei dorflex e buscopan e nao melhorou') foi usado, sem repetir a pergunta: "
-            "orientacao para ser avaliado, os sinais que pedem 192 e as opcoes 1/2 (clinico geral, sem "
-            "pediatra)"
+            "contexto sem sim/nao ('ja tomei dorflex e buscopan e nao melhorou') recebeu a pergunta de novo, "
+            "uma vez, com outras palavras — sem orientar o sintoma (DL-0154)"
         ),
     ),
     Segmento(
@@ -1459,7 +1458,9 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
         "1-pergunta-pessoal-depois-das-opcoes",
         (
             _p("Estou com dor de cabeça", escalacao=ESCALACAO_NENHUMA, deve=("responda sim ou nao",)),
-            _gerativa("Não", "192", r"1\) saber onde marcar consulta pelo plano"),
+            _gerativa(
+                "Não", "192", r"1\) saber onde marcar consulta com (?:clinico geral|pediatra) pelo plano"
+            ),
             _gerativa(
                 "Tenho SOP, é a mesma coisa que cisto?",
                 r"(ovario|hormon)",
