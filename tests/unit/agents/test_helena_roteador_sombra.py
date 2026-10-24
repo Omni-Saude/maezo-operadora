@@ -12,11 +12,13 @@ from structlog.testing import capture_logs
 
 from maezo.agents.helena import roteador as rt
 from maezo.agents.helena import roteador_contrato as rc
+from maezo.agents.helena import roteador_v7 as rv7
 from maezo.agents.helena.graph import PROMPT_VERSIONS, HelenaGraph
 from maezo.runtime.prompt_format import render_untrusted_block
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_rodada_3_simulador import _classify, _entrada, _Fonte, _WhatsApp
 
 _CONTRATO = rc.carregar()
@@ -26,67 +28,63 @@ def _json(**campos: Any) -> str:
     return json.dumps(campos)
 
 
-# --- leitura da decisao -----
-def test_decisao_com_chaves_curtas_do_v3() -> None:
-    d = rt.ler_decisao('{"h":"sintoma","c":"media","p":true}')
-    assert d == rt.DecisaoDoRoteador("sintoma", "media", None, True)
-    duvida = rt.ler_decisao('{"h":"duvida","a":"cobertura","b":"cobranca","c":"baixa","p":false}')
-    assert duvida is not None and duvida.habilidade == "duvida"
+# --- leitura da decisao (contrato v7, etapa 7) -----
+def test_decisao_v7_no_vocabulario_interno() -> None:
+    v7, ruins = rv7.ler_decisao(decisao_v7("sintoma", responde=True, sim_nao="sim"))
+    assert v7 is not None and ruins == []
+    d = rt.decisao_do_v7(v7, "sim_nao", "sintoma")
+    assert d.habilidade == "sintoma" and d.responde_a_pendencia and d.v7 is v7
+    cobertura, _ = rv7.ler_decisao(decisao_v7("cobertura"))
+    assert cobertura is not None and rt.decisao_do_v7(cobertura, None, None).habilidade == "cobertura"
 
 
-def test_decisao_valida() -> None:
-    d = rt.ler_decisao(
-        _json(habilidade="cobertura", confianca="alta", alternativa="plano", responde_a_pendencia=True)
-    )
-    assert d == rt.DecisaoDoRoteador("cobertura", "alta", "plano", True)
-    assert not d.pergunta_na_duvida
-
-
-def test_decisao_em_bloco_de_codigo() -> None:
-    d = rt.ler_decisao("```json\n" + _json(habilidade="sintoma", confianca="media") + "\n```")
-    assert d is not None and d.habilidade == "sintoma" and d.alternativa is None
-
-
-def test_duvida_leva_as_duas_opcoes() -> None:
-    d = rt.ler_decisao(_json(habilidade="duvida", habilidade_provavel="cobertura", alternativa="cobranca"))
-    assert d is not None and d.pergunta_na_duvida and d.alternativa == "cobranca"
+def test_dois_pedidos_que_precisam_de_pergunta_viram_a_duvida() -> None:
+    v7, _ = rv7.ler_decisao(decisao_v7("duvida", habilidade_provavel="plano", alternativa="cobranca"))
+    assert v7 is not None
+    d = rt.decisao_do_v7(v7, None, None)
+    assert d.pergunta_na_duvida and d.opcoes_da_duvida() == ("plano", "cobranca")
 
 
 @pytest.mark.parametrize(
     "bruto",
     [
         "não sei",
-        _json(habilidade="reembolso", confianca="alta"),
-        _json(habilidade="cobertura", confianca="certeza"),
-        _json(habilidade="duvida", habilidade_provavel="inventada"),
+        decisao_v7("conversa").replace('"conversa"', '"reembolso"', 1),
+        decisao_v7("conversa").replace('"uncertain"', '"certeza"', 1),
+        decisao_v7("conversa").replace('"nao_se_aplica"', '"talvez"', 1),
     ],
 )
 def test_decisao_invalida_nunca_e_adivinhada(bruto: str) -> None:
-    assert rt.ler_decisao(bruto) is None
+    decisao, ruins = rv7.ler_decisao(bruto)
+    assert decisao is None and ruins
 
 
 # --- prompt -----
 def test_prompt_traz_todas_as_habilidades_a_pendencia_e_os_blocos_nao_confiaveis() -> None:
-    prompt = rt.montar_prompt(
-        _CONTRATO,
-        bloco_historico=render_untrusted_block("historico_conversa", "pessoa: cobre ressonância?"),
-        bloco_mensagem=render_untrusted_block("message_body", "pra minha filha"),
-        pendente=rt.PendenteDoRoteador("cobertura", "COB2:QUEM"),
+    prompt = rv7.montar_prompt(
+        instrucoes=rv7.INSTRUCOES_PADRAO,
+        bloco_conversa=render_untrusted_block("historico_conversa", "pessoa: to com dor nas costas"),
+        bloco_mensagens=render_untrusted_block("message_body", "pode ser"),
+        tipo_pendente="sim_nao",
+        texto_pendente="Neste momento, existe algum destes sinais?",
+        fatos={"identificado": True, "alarme_ja_tratado": False, "caso_aberto": "nenhum"},
     )
-    for h in rc.HABILIDADES:
-        assert f"{h}: " in prompt
-    assert "PENDENTE: habilidade dona: cobertura; código: COB2:QUEM" in prompt and "ULTIMAS:" in prompt
-    assert prompt.count("historico_conversa") >= 1 and "pra minha filha" in prompt
+    for h in rv7.SKILLS:
+        assert f"- {h}:" in prompt
+    assert 'PENDENTE: (tipo sim_nao) "Neste momento, existe algum destes sinais?"' in prompt
+    assert prompt.count("historico_conversa") >= 1 and "pode ser" in prompt
 
 
 def test_prompt_sem_historico_e_sem_pendencia() -> None:
-    prompt = rt.montar_prompt(
-        _CONTRATO,
-        bloco_historico="",
-        bloco_mensagem=render_untrusted_block("message_body", "oi"),
-        pendente=None,
+    prompt = rv7.montar_prompt(
+        instrucoes=rv7.INSTRUCOES_PADRAO,
+        bloco_conversa="",
+        bloco_mensagens=render_untrusted_block("message_body", "oi"),
+        tipo_pendente=None,
+        texto_pendente=None,
+        fatos={},
     )
-    assert "PENDENTE: nenhuma" in prompt and "ULTIMAS:" not in prompt
+    assert "PENDENTE: nenhuma" in prompt and "(vazia)" in prompt
 
 
 # --- travas -----
@@ -198,7 +196,7 @@ def _grafo(modo: str, modelo: Any) -> tuple[Any, _WhatsApp]:
 async def _turno(
     modo: str, mensagem: str, classificacao: str
 ) -> tuple[dict[str, Any], _WhatsApp, Any, list[Any]]:
-    modelo = _ModeloComRoteador([classificacao], _json(habilidade="conversa", confianca="alta"))
+    modelo = _ModeloComRoteador([classificacao], decisao_v7("conversa"))
     grafo, whatsapp = _grafo(modo, modelo)
     with capture_logs() as logs:
         resultado = await grafo.ainvoke(_entrada(mensagem))
@@ -237,10 +235,8 @@ async def test_roteador_que_falha_so_vira_campo_no_log() -> None:
 
 # --- orcamento (21/10/2026) -----
 async def test_roteador_usa_o_provedor_proprio_quando_ha() -> None:
-    conversa = _ModeloComRoteador(
-        [_classify(intent="greeting")], _json(habilidade="conversa", confianca="alta")
-    )
-    proprio = _ModeloComRoteador([], _json(habilidade="conversa", confianca="alta"))
+    conversa = _ModeloComRoteador([_classify(intent="greeting")], decisao_v7("conversa"))
+    proprio = _ModeloComRoteador([], decisao_v7("conversa"))
     whatsapp = _WhatsApp()
     grafo = (
         HelenaGraph(

@@ -600,6 +600,11 @@ _AFIRMATIVAS_INICIAIS: Final[frozenset[str]] = frozenset(
 _MAX_PALAVRAS_DA_RESPOSTA: Final[int] = 14
 
 
+def e_agravamento(plano: str) -> bool:
+    """Agravamento ou incapacidade ("nao consigo respirar", "piorou"): sempre "sim" a pergunta de alerta."""
+    return bool(_AGRAVANTE.search(plano))
+
+
 def resposta_ao_alerta(plano: str) -> str | None:
     """`LEITURA_NAO` / `LEITURA_SIM` / `None` (SEM CLAREZA) sobre a mensagem normalizada.
 
@@ -741,6 +746,7 @@ __all__ = [
     "ALERTAS",
     "ECO_GENERICO",
     "TEXTO_DA_REPERGUNTA",
+    "e_agravamento",
     "ETAPA_ALERTA",
     "ETAPA_CASO_EQUIPE",
     "ETAPA_CASO_PEDIU_PESSOA",

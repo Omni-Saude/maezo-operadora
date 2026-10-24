@@ -7,7 +7,7 @@
 # confere a forma, a ordem das travas e o dono de cada pendência.
 #
 # Exemplos: frases GENÉRICAS escritas para o contrato (nenhuma do teste do dono nem do avaliador).
-versao: roteador-v1
+versao: roteador-v7
 chave:
   variavel: MAEZO_HELENA_ROTEADOR
   valores: [desligado, sombra, ativo]
@@ -16,12 +16,12 @@ chave:
 modelo:
   id: glm-5
   zona: phi_regional_sa_east_1
-  prazo_s: 3
+  prazo_s: 6
   falha: resposta_segura_padrao   # falha ou prazo do modelo: a resposta segura padrão; as travas continuam
 
 entrada:
   mensagens:
-    maximo: 4                 # as últimas mensagens da conversa (da pessoa e da Helena), mais antiga primeiro
+    maximo: 12                # as últimas mensagens da conversa (da pessoa e da Helena), mais antiga primeiro
     papeis: [pessoa, helena]
     mascaramento: nomes_de_dependente_por_marcador   # o histórico já guarda o marcador, nunca o nome
   pendente:

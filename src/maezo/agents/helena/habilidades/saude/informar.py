@@ -15,6 +15,7 @@ import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.consultas_plano import INTENT_CONSULTA_PLANO
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 from maezo.agents.helena.habilidades.saude.textos import CHAVE_FECHO, CHAVE_OFERTA_MEDICO
@@ -593,6 +594,10 @@ def _insiste_no_mesmo_assunto(
     falas = _falas_da_helena(state)
     if not falas or not falas[-1].rstrip().endswith(self._textos[CHAVE_FECHO]):
         return False
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is not None:
+        # Contrato v7: o MESMO assunto e' o que o modelo le' como continuacao da duvida geral.
+        return v7.continuacao and v7.tipo == "duvida_geral"
     pessoa = self._falas_da_pessoa(state)
     if not pessoa:
         return False

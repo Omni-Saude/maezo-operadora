@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.alarme_deterministico import alarme_no_relato
 from maezo.agents.helena.consultas_plano import (
     INTENT_CONSULTA_PLANO,
@@ -46,6 +47,7 @@ from maezo.agents.helena.helena_v4 import (
     AlertaDoGrupo,
     Pendente,
     codigo_pendente,
+    e_agravamento,
     eco_do_relato,
     escolha_da_resposta,
     especialidade_pedida,
@@ -662,7 +664,7 @@ def _v4_seguimento(
         return None
     if pend.etapa != ETAPA_ALERTA or self._v4_pede_pessoa(state, texto):
         return None
-    resposta = resposta_ao_alerta(plano)
+    resposta = _leitura_do_alerta(plano)
     if resposta == LEITURA_NAO:
         logger.info("helena_v4_alerta", node="classify", resposta="nao")
         update["intent"] = "information"
@@ -885,7 +887,29 @@ def _base_dor_sem_alarme(
     return True
 
 
+def _leitura_do_alerta(plano: str) -> str | None:
+    """A resposta a pergunta de alerta: com o roteador v7 no turno, a leitura do MODELO no contexto ("sim",
+    "nao" ou sem clareza); sem ele, o leitor deterministico. O agravamento ("nao consigo respirar",
+    "piorou") e' "sim" nos dois (lado seguro do sinal); a tabela de alarme ja' rodou antes."""
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is None:
+        return resposta_ao_alerta(plano)
+    if e_agravamento(plano):
+        return LEITURA_SIM
+    return {"sim": LEITURA_SIM, "nao": LEITURA_NAO}.get(v7.sim_nao)
+
+
 def _escolha_marcar_ou_equipe(plano: str) -> str | None:
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is not None:
+        # Contrato v7: a opcao (ou a recusa) lida pelo modelo no contexto, no lugar das palavras.
+        if v7.opcao in ("1", "2"):
+            return v7.opcao
+        if v7.recusa_equipe or v7.sim_nao == "nao":
+            return "nao"
+        if v7.skill == "atendimento_humano" and not v7.recusa_equipe:
+            return "2"
+        return None
     """A escolha entre "onde marcar" e "a equipe" dita com outras palavras ("me mostra onde marcar", "prefiro
     a equipe", "nao precisa"), alem do numero/rotulo de `escolha_da_resposta`. Le' a RESPOSTA a pergunta da
     propria Helena (validacao da pendencia), nunca decide o assunto. Na etapa 7 o roteador v7 le' a escolha
@@ -912,6 +936,10 @@ def _v4_seguimento_do_sintoma(self: HelenaGraph, state: Mapping[str, Any], texto
     devolve `False` e a mensagem segue pela tabela, como sempre."""
     plano = _plano(texto)
     if not plano:
+        return False
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is not None and not (v7.skill == "saude" and v7.continuacao and not v7.sinais_atuais()):
+        # Contrato v7: so' o MESMO assunto de saude, sem sinal novo, e' seguimento do sintoma.
         return False
     if (
         _sinal_forte_de_emergencia(texto)
@@ -953,7 +981,11 @@ def _v4_resposta_a_oferta(
     o caminho de sempre."""
     plano = _plano(texto)
     relato = str(state.get("coleta_contexto") or "")
+    v7 = _rv7.LEITURA_DO_TURNO.get()
     leitura = _lc.ler_resposta(texto)
+    if v7 is not None:
+        # Contrato v7: o "sim" ("pode ser", "pode passar pra equipe sim") e a recusa lidos no contexto.
+        leitura = "nao" if v7.recusa_equipe else {"sim": "sim", "nao": "nao"}.get(v7.sim_nao)
     if leitura == "sim" or (leitura is None and _escolha_marcar_ou_equipe(plano) == "2"):
         logger.info("helena_v4_oferta", node="classify", resposta="sim")
         return self._v4_abrir_caso(
@@ -993,7 +1025,11 @@ def _v4_conduzir_pendencia(
         )
     ):
         return None
-    leitura = resposta_ao_alerta(plano) if pend.etapa == ETAPA_ALERTA else None
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is not None and v7.sim_nao == "nao_se_aplica" and v7.opcao == "nenhuma" and not v7.continuacao:
+        # O modelo leu OUTRO assunto: a pendencia do sintoma nao sequestra a mensagem.
+        return None
+    leitura = _leitura_do_alerta(plano) if pend.etapa == ETAPA_ALERTA else None
     if leitura == LEITURA_SIM:
         # O "sim" a pergunta de alerta segue a v4 de sempre (abre o caso urgente com 192).
         return None
