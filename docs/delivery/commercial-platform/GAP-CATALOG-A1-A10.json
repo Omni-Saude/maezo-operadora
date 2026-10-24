@@ -38,7 +38,7 @@
       "admission_layer": "src/server/admission/sales.ts:5-7 retorna blocked/qualification_required (bloqueio constante; nao le arquivo algum)"
     },
     "maezo_runtime_authority": {
-      "process_keys_unique_in_src": 27,
+      "process_keys_unique_in_src": 19,
       "allowlist": "src/maezo/gateway/effect_pep.py:174-192 (KNOWN_PROCESS_KEYS, 15 keys)",
       "deploy_contract": "src/maezo/platform/deploy/engine_deploy.py"
     },
