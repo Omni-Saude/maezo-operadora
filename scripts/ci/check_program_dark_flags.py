@@ -210,7 +210,11 @@ def checar_deploy_sem_mencao(raiz: Path = REPO_ROOT) -> list[str]:
 # ---------------------------------------------------------------------------------------
 # Cerca 5 — as constantes das pontes continuam valendo os nomes pinados.
 # ---------------------------------------------------------------------------------------
-def checar_flags_das_pontes(raiz: Path = REPO_ROOT) -> list[str]:  # noqa: ARG001 (assinatura uniforme)
+def checar_flags_das_pontes(raiz: Path = REPO_ROOT) -> list[str]:
+    # `raiz` nao e' lido (a cerca importa o modulo real) e existe so' para as tres cercas
+    # terem a MESMA assinatura `(raiz)` — `executar` as agrega sem saber quais leem arvore.
+    # ARG001 nao esta no select do ruff deste repo; nenhum noqa inerte aqui (test_noqa_hygiene).
+    del raiz
     achados: list[str] = []
     try:
         modulo = importlib.import_module(MODULO_PONTES)
