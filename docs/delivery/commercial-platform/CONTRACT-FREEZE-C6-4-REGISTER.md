@@ -56,6 +56,8 @@ Todos os SHA-256 abaixo foram recomputados neste worktree (checkout limpo de `ma
 
 **Nota de divergência (nada oculto):** os cinco freezes `SOURCE-FREEZE-C6-4*.json` foram registrados em checkpoints **pré-#907**. Em main `3c619d91`, exatamente **dois consumidores evoluíram no merge #907**: `src/maezo/adapters/amh/commercial_http.py` (pré-#907 `dd62500e1a77dd7f93647f237f454e4c031394fbf10b533c0d71bd3032032416` → hoje `b151ccd4…`) e `src/maezo/gateway/commercial.py` (pré-#907 `5ddcbe8ddc29438e0f51d02a9d6e74d67044b44701ee912b701f8c289f487c28` → hoje `952bd672…`). O SHA-256 do contrato e os dois pins (`commercial-c6-4.source.lock.json`, `contracts.lock.json`) permanecem **idênticos** aos registrados — a divergência é só nos consumidores, não no contrato.
 
+**Nota de divergência R2 (BRDG-3.3, PR #959 — nada oculto):** em `main` pós-#959, `src/maezo/gateway/commercial_admission.py` evoluiu (SHA-256 `09b1aee43f5042f8d6635630c0fc5eaa4c64210579dd315e8638b93c28badd13` → `4b4c39b8457e156ddfae27e85c8eb798a27d64079c5f03bcb2f799332b48edca`) para o mecanismo da admissão A1 (`compose_public_catalog_gateway` passa a exigir `source_admission` registrada). O SHA-256 do contrato e os demais 12 arquivos da seção 3 permanecem identes aos registrados; `runtime_admission` permanece UNBOUND; o pin espelhado `PORTAL-MIRROR-PIN-C6-4.json` permanece o snapshot válido de `3c619d91` (o `contract_pin` `d1d796b8…` não muda) e não é reemitido por este pacote.
+
 ## 4. Linhagem dos freezes anteriores
 
 | Arquivo | SHA-256 | Rótulo do freeze | `checkpoint_head` |
