@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
+from maezo.agents.helena.helena_v4 import ler_pendente, resumo_do_caso
 from maezo.agents.helena.prompts import SYSTEM_PROMPT_VERSION
 from maezo.domain.conversa.caso_clinico import (
     MOTIVOS_DE_ALERTA_CLINICO,
@@ -340,6 +341,13 @@ async def _caso_aberto_e_clinico(self: HelenaGraph, business_key: str) -> bool:
     return await self._motivo_do_caso_aberto(business_key) in MOTIVOS_DE_ALERTA_CLINICO
 
 
+#: O resumo FIXO do caso de alarme grave (sem modelo, sem texto da pessoa): o 192 nao espera o resumo.
+RESUMO_DO_ALARME_GRAVE = (
+    "Alerta de saude: a pessoa relatou sinal de alarme nesta conversa e foi orientada a ligar 192 (SAMU) "
+    "ou ir ao pronto-socorro. Veja a conversa no historico do caso."
+)
+
+
 async def _start_escalation(
     self: HelenaGraph,
     state: HelenaState,
@@ -378,6 +386,21 @@ async def _start_escalation(
     # entao o
     # modelo nao e' chamado. E' o caso do bloqueio do acesso do beneficiario, em que a mensagem pode ser
     # um CPF e NUNCA pode chegar a um prompt.
+    if resumo_fixo is None and severidade == "grave" and motivo in ("red_flag_clinico", "risco_psicossocial"):
+        # Rodada de 24/10/2026: no alarme grave o 192 sai SEM esperar o resumo do modelo (ate' 8 s a mais);
+        # o resumo e' fixo e o atendente le' a conversa no caso.
+        # O resumo da Helena v4 (relato e respostas ao alerta), quando ha', continua: fixo e sem modelo.
+        pend_resumo = ler_pendente(state.get("coleta_pendente")) if self._v4 else None
+        resumo_v4 = (
+            resumo_do_caso(
+                state.get("coleta_pendente"),
+                state.get("coleta_contexto"),
+                alerta=self._base_alerta_do_grupo(pend_resumo.grupo) if pend_resumo is not None else None,
+            )
+            if self._v4
+            else None
+        )
+        resumo_fixo = resumo_v4 or RESUMO_DO_ALARME_GRAVE
     resumo = redact_free_text(
         resumo_fixo if resumo_fixo is not None else await self._resumo_contexto(state, motivo)
     )
