@@ -1256,17 +1256,25 @@ HELENA_BASE_SAUDE: tuple[Segmento, ...] = (
         "10-pede-pessoa-recusa-e-encerra",
         (
             _p("Quero falar com uma pessoa", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
-            # DL-0131 (roteador ativo / allowlist): a recusa ENCERRA direto o caso P2/P3, sem a confirmacao.
+            # DL-0131: so' NA allowlist a recusa encerra direto. Este roteiro roda FORA dela (faixa padrao do
+            # simulador): a recusa pede a confirmacao e o caso continua ativo ate' o "Sim".
             _p(
                 "Não quero falar com ninguém",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("responda sim para encerrar",),
+                nao_deve=("pronto, encerrei o seu atendimento",),
+            ),
+            _p(
+                "Sim",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=("pronto, encerrei o seu atendimento",),
                 caso_encerrado=True,
             ),
         ),
         resolveu=(
-            "o pedido de pessoa abriu o caso; a recusa ENCERROU o caso no motor (a instancia nao esta mais "
-            "ativa) e a pessoa ouviu 'Pronto, encerrei o seu atendimento'"
+            "o pedido de pessoa abriu o caso; fora da allowlist a recusa pediu a confirmacao (DL-0131) e o "
+            "'Sim' ENCERROU o caso no motor (a instancia nao esta mais ativa), com 'Pronto, encerrei o seu "
+            "atendimento'"
         ),
     ),
     Segmento(
@@ -1298,6 +1306,8 @@ _RESPOSTA_SEGURA = r"nao consigo (te responder isso|avaliar o seu resultado) .{0
 #: geral e nao substitui avaliacao medica. Posso ajudar em mais alguma coisa?") e nao denuncia mais o texto
 #: fixo da base. O que o denuncia continua sendo o "nao tenho informacao aprovada".
 _TEXTO_DA_BASE = rf"({_SEM_INFORMACAO})"
+#: O credito do texto PROPRIO da base curada (`conhecimento/base_saude.py`); a rota gerativa usa "Fonte: ".
+_CREDITO_DA_BASE = "texto da operadora com base em "
 _NAO_GERATIVA_RUIM = (_SEM_DOSE, _SEM_CONDUTA, _ENCAMINHOU, _RESPOSTA_SEGURA, _TEXTO_DA_BASE)
 
 
@@ -1427,16 +1437,19 @@ HELENA_SAUDE_GERATIVA: tuple[Segmento, ...] = (
     Segmento(
         "10-fora-da-allowlist-nada-muda",
         (
+            # A base curada passou a ter a endometriose (texto proprio da operadora): fora da allowlist a
+            # resposta e' esse texto, com o credito da BASE ("Texto da operadora com base em ..."); a redacao
+            # do modelo credita com "Fonte: ..." e nunca chega aqui.
             _p(
                 "O que é endometriose?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(_TEXTO_DA_BASE,),
-                nao_deve=(_SEM_DOSE, _ENCAMINHOU),
+                deve=("endometriose", _CREDITO_DA_BASE),
+                nao_deve=(_SEM_DOSE, _ENCAMINHOU, _RESPOSTA_SEGURA),
             ),
         ),
         resolveu=(
-            "FORA da allowlist a Helena e' a de antes: a pergunta de saude recebeu o texto fixo da base (ou "
-            "'nao tenho informacao aprovada'), nunca a redacao do modelo"
+            "FORA da allowlist a Helena e' a de antes: a pergunta de saude recebeu o texto fixo da base "
+            "(credito 'Texto da operadora com base em'), nunca a redacao do modelo"
         ),
     ),
 )
