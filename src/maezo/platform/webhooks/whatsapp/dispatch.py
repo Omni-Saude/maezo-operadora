@@ -160,7 +160,8 @@ ERRO_LUCAS_FALHOU: Final[str] = "lucas turno falhou"
 #: wiring and its tests, never before.
 #: DL-0087 (10/10/2026): tom humanizado, mesma promessa (so' texto; nada de humano/transcricao).
 NON_TEXT_ACK_TEXT: Final[str] = (
-    "Por aqui eu só consigo ler mensagens de texto. Pode me escrever o que precisa, por favor?"
+    "Por aqui eu consigo ler só mensagens de texto. Pode me escrever o que precisa? "
+    "Se preferir falar com uma pessoa da nossa equipe, é só escrever: falar com uma pessoa."
 )
 
 #: A resposta de quem bateu no teto de volume (Frente 7.1). CONSTANTE e sem modelo no meio: o

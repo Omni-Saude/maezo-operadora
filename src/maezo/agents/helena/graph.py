@@ -231,6 +231,7 @@ from maezo.tools.workers.dmn_transport import (
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
 from . import roteador_v7 as _rv7
+from . import travas_saida as _travas_saida
 from .alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
 from .consultas_plano import (
     ADENDO_CLASSIFY_CONSULTAS,
@@ -7038,6 +7039,8 @@ class HelenaGraph:
             return {**saida, **self._historico_do_turno(state, None)}
         # DL-0078: o aviso de identidade de PRIMEIRO CONTATO, como mensagem SEPARADA e ANTES da resposta
         # do turno — nunca no lugar dela. Ver `_aviso_de_identidade` (quando sai, quando e' adiado).
+        # TRAVA `sem_link` (etapa 10): nenhum link sai, venha de onde vier; a fonte fica pelo nome.
+        text = _travas_saida.sem_links(text)
         aviso_enviado, aviso_na_resposta = await self._aviso_de_identidade(state, text)
         enviada = False
         try:

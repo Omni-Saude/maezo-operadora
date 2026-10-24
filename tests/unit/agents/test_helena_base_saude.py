@@ -252,7 +252,7 @@ def _texto(resultado: dict[str, Any]) -> str:
 # =================================================================================================
 
 
-async def test_pra_que_serve_dipirona_responde_da_base_sem_caso_com_fonte_e_link_sem_dose() -> None:
+async def test_pra_que_serve_dipirona_responde_da_base_sem_caso_com_fonte_sem_link_sem_dose() -> None:
     conversa = _Conversa()
     resultado = await conversa.diz("Pra que serve dipirona?", _CLINICA)
 
@@ -261,7 +261,8 @@ async def test_pra_que_serve_dipirona_responde_da_base_sem_caso_com_fonte_e_link
     assert dipirona is not None
     assert dipirona.texto in texto
     assert "Texto da operadora com base em Bula do paciente (ANVISA)." in texto
-    assert "Para ler mais: https://consultas.anvisa.gov.br/" in texto
+    # Sem link (etapa 10): a fonte vai pelo NOME, nunca o endereco.
+    assert "http" not in texto and "anvisa.gov.br" not in texto
     # OPCAO C (DL-0154): respondida uma vez, com o fecho "Posso ajudar em mais alguma coisa?".
     assert texto.endswith("Posso ajudar em mais alguma coisa?") and b.AVISO_PADRAO not in texto
     assert not re.search(r"\b\d+ ?mg\b|\bdose\b|\btome\b", texto.lower())
