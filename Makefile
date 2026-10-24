@@ -14,7 +14,8 @@
         check-phi-scrub-prereqs \
         release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint \
-        check-helm-entrypoints check-chart-env-reconciliation
+        check-helm-entrypoints check-chart-env-reconciliation \
+        check-program-dark-flags
 
 LOCALSTACK_COMPOSE := deploy/terraform/localstack/docker-compose.localstack.yml
 TF_SMOKE_ENV       := deploy/terraform/envs/staging-sa-east-1
@@ -372,3 +373,14 @@ check-chart-env-reconciliation: ## DU-02/R-002: toda env declarada no chart/TF (
 	# Kafka em service-kafka.tf, o Spring datasource do CIB Seven em statefulset-cibseven.yaml) — ver
 	# scripts/ci/check_chart_env_reconciliation.py para o desenho + a lista exata.
 	.venv/bin/python scripts/ci/check_chart_env_reconciliation.py
+
+check-program-dark-flags: ## W5 CLNT 5.1: as 5 flags dark do programa seguem default-OFF no codigo e sem mencao nenhuma em deploy/** (flags provadamente OFF — a ROLL flipa)
+	# As tres flags de `PortalSettings` (lgpd_dsr_channel, staff_documents_panel,
+	# staff_operations_panel — #955/#960/#963) tem de continuar literalmente `False` sob o
+	# `env_prefix="MAEZO_PORTAL_"`, e as constantes de env das duas pontes de erasure
+	# (#965) têm de continuar valendo os nomes pinados. QUALQUER mencao a qualquer um dos 5
+	# nomes de env em `deploy/**` reprova: a docstring shipped de cada flag declara "nenhum
+	# `deploy/**` pode liga-la neste programa" — esta cerca mecaniza essa sentenca. Ver
+	# scripts/ci/check_program_dark_flags.py (desenho + escopo) e
+	# tests/unit/ci/test_check_program_dark_flags.py (provas negativas).
+	.venv/bin/python scripts/ci/check_program_dark_flags.py

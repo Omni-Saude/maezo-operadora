@@ -988,6 +988,19 @@ jobs:
       - name: D7 catalogue expected-fail expiry gate (owner override, 2026-09-12)
         run: make check-d7-xfail-expiry
 
+      # W5 CLNT 5.1 (criterio de aceitacao "flags provadamente OFF"): as 5 flags dark do
+      # Programa de Completude — `PortalSettings.lgpd_dsr_channel` (#955),
+      # `staff_documents_panel` (#960), `staff_operations_panel` (#963) e as duas pontes de
+      # erasure (#965) — seguem com default literal `False` no codigo (sob o
+      # `env_prefix="MAEZO_PORTAL_"` e com as constantes de env das pontes valendo os nomes
+      # pinados) e ZERO mencao a qualquer um dos 5 nomes de env em `deploy/**`, que e' a
+      # sentenca shipped de cada docstring ("nenhum `deploy/**` pode liga-la neste
+      # programa"). Fail-closed: arquivo ilegivel, deploy ausente/vazio e constante renomeada
+      # sao REPROVACAO, nao silencio. Flipar e ato da onda ROLL — a cerca nao decide quando.
+      # Belt-and-suspenders com tests/unit/ci/test_check_program_dark_flags.py.
+      - name: Program dark-flags provably OFF gate (W5 CLNT 5.1)
+        run: make check-program-dark-flags
+
       - name: Upload strict-xfail census
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
