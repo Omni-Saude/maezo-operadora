@@ -32,7 +32,16 @@ Custo do silêncio, em uma linha cada: (A) toda autorização continua indo a an
 
 Consequências que o portão já impõe hoje (fatos, não opinião):
 
-- Com todas as fontes não ratificadas **e** o teto financeiro L2 em 0 (decisão D-07 aberta — `auth-criteria-ratification.yaml:37-45`), **nada se auto-aprova**: todo pedido vai a análise humana (`auth-criteria-ratification.yaml:56-62`).
+- Com as três fontes de critério não ratificadas (tecnico/regulatorio/contratual saem `false`
+  com `*_FONTE_NAO_RATIFICADA` — `auth-criteria-ratification.yaml:56-62`), **nada se
+  auto-aprova**: todo pedido vai a análise humana. O teto financeiro NÃO é cadeado hoje:
+  `spec/policies/autonomy/tenants-amh.yaml` fixa `authorization_approval.max_value_brl: 500`
+  (D-07 FECHADA em 25/08/2026 para esta classe; o 0 com D-07 aberta é de
+  `reembolso_auto_approval`), e o critério financeiro já passa sozinho até esse teto — o gate é
+  conjuntivo, logo a não-ratificação das fontes é hoje O ÚNICO cadeado
+  (`docs/sme-dispatch/medico-auditor/auth-criteria-ratification-dossier.yaml:39-43`, pinado por
+  `tests/unit/docs/test_sme_dispatch_dossiers.py::test_the_stated_ceiling_matches_the_live_tenant_policy`;
+  o comentário "valor 0 / D-07 aberta" em `auth-criteria-ratification.yaml:37-45` está STALE).
 - A tabela continua sendo AVALIADA e o que ELA teria decidido fica gravado em `auto_criteria_shadow` (variável delimitada, sem PHI) — é a sua **evidência de sombra**: você ratifica contra desfecho real, não contra regra abstrata (`auth-criteria-ratification.yaml:21-24`; `auth.py:416`, `:971`).
 - Ratificar é **mudança de DADOS**: `ratificado: true` (booleano literal) + `revisor` não vazio + `ratificado_em` "YYYY-MM-DD", por fonte. Qualquer coisa faltando/malformada ⇒ NÃO ratificado, fail-closed (`auth-criteria-ratification.yaml:26-35`; `_entry_is_ratified` em `auth_criteria.py:217-240`). O loader nunca assume ratificação por omissão e qualquer erro de carga do manifesto vira "nada ratificado" (`auth-criteria-ratification.yaml:32-35`).
 - Pinado em runtime por `tests/unit/sec/test_auto_approval_criteria_fence.py` e `tests/unit/tools/workers/test_auth_auto_criteria.py`.
@@ -50,7 +59,7 @@ Consequências que o portão já impõe hoje (fatos, não opinião):
 
 Três notas de leitura antes de decidir:
 
-1. **O critério FINANCEIRO não está nesta lista de propósito**: sua fonte não é DMN, é a matriz de autonomia (`spec/policies/autonomy/L0-core.yaml` + `tenants-amh.yaml`, `authorization_approval.max_value_brl`) via `CeilingResolver`; valor atual 0 com D-07 aberta (`auth-criteria-ratification.yaml:37-45`). Ratificar as 6 fontes acima não altera o teto.
+1. **O critério FINANCEIRO não está nesta lista de propósito**: sua fonte não é DMN, é a matriz de autonomia (`spec/policies/autonomy/L0-core.yaml` + `tenants-amh.yaml`, `authorization_approval.max_value_brl`) via `CeilingResolver`; o comentário do manifesto que diz "valor atual 0 / D-07 aberta" está STALE — o valor VIVO do tenant AMH é 500 com D-07 FECHADA em 25/08/2026 para `authorization_approval` (`spec/policies/autonomy/tenants-amh.yaml`; o 0/D-07-aberta vale para `reembolso_auto_approval`). Ratificar as 6 fontes acima não altera o teto.
 2. **Bloqueio prévio à ratificação do contratual**: a seção executável `criterios_nao_cobertos:` (`auth-criteria-ratification.yaml:203-208`) declara `rede_credenciada` (fato contratual sem fonte de credenciamento legível por máquina no repositório) e SUPRIME a ratificação de `auth_criteria_contratual` mesmo que os três campos estejam preenchidos — o loader lê `bloqueia_ratificacao_de` e devolve `CONTRATUAL_FONTE_NAO_RATIFICADA` + log `auth_criteria_ratification_suppressed` (`auth-criteria-ratification.yaml:155-171`; `auth.py` — pinado em `tests/unit/tools/workers/test_auth_auto_criteria.py`). A resolução é mudança de DADOS no mesmo arquivo: popular a fonte e remover a entrada no mesmo commit.
 3. **Roteamento DUT deliberadamente incompleto**: `mapeamento_dut_criteria` só declara as duas correspondências inequívocas (`auth-criteria-ratification.yaml:141-143`); um `dut_ref` com `requer_dut=true` sem entrada resolve FECHADO (`TECNICO_PROCEDIMENTO_NAO_MAPEADO`). As DUTs pendentes de SME estão listadas em `auth-criteria-ratification.yaml:135-139` (DUT-TERAPIA-OCUPACIONAL-001, DUT-FONOAUDIOLOGIA-001, DUT-PSICOTERAPIA-001, DUT-ONCOLOGIA-QUIMIO-001, DUT-ONCOLOGIA-RT-001, DUT-CINTILOGRAFIA-OSSEA-001, DUT-OPME-*, DUT-ALTA-COMPLEXIDADE-ANALISE-HUMANA) — completar o mapa é parte da mesma janela e também é mudança de DADOS.
 
