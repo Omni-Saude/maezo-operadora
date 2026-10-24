@@ -6,19 +6,33 @@ name: N2 lane (ROOT manual)
 # Never on push/PR. Budget: ~30-40 min per dispatch.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/n2-lane.yml"
   workflow_dispatch:
     inputs:
       scope:
         description: "Lane scope file name inside lane-harness.tar.gz/lane/"
         required: false
         default: "N2-LANE-SCOPE-v16.json"
+      release:
+        description: "ROOT-curated release tag carrying images/lane-harness/lane-extra"
+        required: false
+        default: "n2-lane-v23"
 
 permissions:
   contents: read
 
 jobs:
   lane:
-    runs-on: ubuntu-latest
+    env:
+      # inputs.* exist only on workflow_dispatch; the fallback keeps the pinned
+      # v16 lane reproducible and defaults new dispatches to the v23 harness.
+      N2_RELEASE: ${{ inputs.release || 'n2-lane-v23' }}
+    # arm64: the sealed parent + collector images were built on an arm64 host;
+    # emulation on amd64 breaks exec/docker-cp. Native arm runner matches.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -31,24 +45,53 @@ jobs:
           python-version: "3.12"
 
       - name: Install lane python deps
-        run: pip install "cryptography>=42" asyncpg jsonschema h11 httpx
+        run: |
+          pip install -e .
 
       - name: Download lane inputs (draft release)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download n2-lane-v16 --repo "$GITHUB_REPOSITORY" \
+          gh release download "$N2_RELEASE" --repo "$GITHUB_REPOSITORY" \
             --pattern 'images.tar.gz' --pattern 'lane-harness.tar.gz' --dir /tmp
+          # hosted runners default to the containerd image store, whose docker-cp
+          # from created containers fails with "page not found" — disable it first
+          sudo tee /etc/docker/daemon.json >/dev/null <<'DJ'
+          {"features": {"containerd": false, "containerd-snapshotter": false}}
+          DJ
+          sudo systemctl restart docker
+          docker info --format 'containerd={{.DriverStatus}}'
           docker load < /tmp/images.tar.gz
+          docker pull postgres:16
+          docker pull maven:3.9-eclipse-temurin-17@sha256:1ed5d1f54416b706707b4f3238f63a20bb06aab27c6d240090a2bb9ad895ed45
           mkdir -p /tmp/lane-x && tar xzf /tmp/lane-harness.tar.gz -C /tmp/lane-x
           ls -la /tmp/lane-x/lane
+          # repro probe for the docker-cp-from-created-container failure
+          docker version --format 'client={{.Client.Version}} server={{.Server.Version}}'
+          docker info --format 'driver={{.Driver}} status={{.DriverStatus}}'
+          docker create --name cp-probe maezo-provider-vertical-e0-parent:n2fix-r14 true
+          docker cp cp-probe:/camunda/BUILDING.txt /tmp/cp-probe-out.txt 2>&1 | head -3
+          ls -la /tmp/cp-probe-out.txt 2>/dev/null || echo "CP-PROBE FAILED"
+          docker rm -f cp-probe >/dev/null 2>&1 || true
 
       - name: Point the harness at this checkout
+        env:
+          N2_SCOPE: ${{ inputs.scope }}
         run: |
           LANE_DIR=/tmp/lane-x/lane
           echo "LANE_DIR=$LANE_DIR" >> "$GITHUB_ENV"
           sed -i "s|WORKTREE = Path(\"/Users/familia/code/maezo-operadora/.claude/worktrees/provider-implementation\")|WORKTREE = Path(\"$GITHUB_WORKSPACE\")|" "$LANE_DIR/runner.py"
           grep -n "^WORKTREE" "$LANE_DIR/runner.py"
+          # save/load across storage drivers re-identifies the image (config digest
+          # changes) — @sha256 refs cannot survive the transport. Swap to the loaded
+          # tags; the CONTENT binding stays with the lane's own runtime sha pins
+          # (native_jar/support/instrument digests verified inside the container).
+          sed -i 's|maezo-provider-vertical-e0-parent@sha256:10ed013a2b6fe0d75eb8e302ff53450429a1842f545782539b8e230ae29cd652|maezo-provider-vertical-e0-parent:n2fix-r14|g; s|maezo-n2-collector@sha256:b6bfdf16a9500a962051a95e33ffb79070a74b18e9c9084a7872136654bca62c|maezo-n2-collector:v1|g' "$LANE_DIR/${N2_SCOPE:-N2-LANE-SCOPE-v16.json}"
+          mkdir -p "$GITHUB_WORKSPACE/docs/audits/PROVIDER-IMPL-2026-10/20261005T024404Z/evidence/root-successor-20261006/p3-rebuild/n2"
+          gh release download "$N2_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern 'lane-extra.tar.gz' --dir /tmp
+          tar xzf /tmp/lane-extra.tar.gz -C /tmp
+          cp -R /tmp/lane-extra/p3-rebuild "$GITHUB_WORKSPACE/docs/audits/PROVIDER-IMPL-2026-10/20261005T024404Z/evidence/root-successor-20261006/"
+          cp -R /tmp/lane-extra/root-vertical-e0-20261006 "$GITHUB_WORKSPACE/docs/audits/PROVIDER-IMPL-2026-10/20261005T024404Z/evidence/"
 
       - name: Run the N2 lane
         env:
@@ -67,8 +110,10 @@ jobs:
           name: n2-lane-evidence
           path: |
             /tmp/lane-stdout.log
-            ${{ env.LANE_DIR }}/../**/result*.json
-            ${{ github.workspace }}/**/p3-rebuild/n2/result.json
-            ${{ github.workspace }}/**/p3-rebuild/n2/measurement-*/
+            /tmp/lane-x/**/result*.json
+            ${{ github.workspace }}/docs/audits/**/p3-rebuild/n2/result.json
+            ${{ github.workspace }}/docs/audits/**/p3-rebuild/n2/measurement-*/
+            ${{ github.workspace }}/docs/audits/**/p3-rebuild/n2/workspace-*/collector-salvage/**
+            ${{ github.workspace }}/docs/audits/**/p3-rebuild/n2/workspace-*/acquisition-record.json
           if-no-files-found: warn
           retention-days: 7
