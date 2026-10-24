@@ -2,7 +2,8 @@
 
 Ate' 23/10/2026 o grafo de cada agente era UM arquivo (`agents/<id>/graph.py`) e as cercas varriam
 `agents/*/graph.py`. Desde a divisao da Helena por habilidade (ADR-0067 §5; Plano de ajustes da Helena v2,
-etapa 6), os metodos do grafo dela moram tambem em `travas_entrada.py`, `travas_saida.py`, `grafo.py` e
+etapa 6), os metodos do grafo dela moram tambem em `roteador.py`, `travas_entrada.py`, `travas_saida.py`,
+`grafo.py` e
 `habilidades/**`. Uma cerca que continuasse so' no `graph.py` ficaria VAZIA para o codigo
 movido — exatamente o modo de falha que as cercas existem para impedir. Esta e' a lista unica.
 """
@@ -12,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 #: Alem do `graph.py`, os modulos de grafo de um agente dividido por habilidade (ADR-0067 §5).
-_MODULOS_DIVIDIDOS: tuple[str, ...] = ("grafo.py", "travas_entrada.py", "travas_saida.py")
+_MODULOS_DIVIDIDOS: tuple[str, ...] = ("grafo.py", "roteador.py", "travas_entrada.py", "travas_saida.py")
 
 
 def arquivos_de_grafo(raiz_agentes: Path) -> list[Path]:

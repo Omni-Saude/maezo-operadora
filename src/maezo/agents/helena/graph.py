@@ -144,7 +144,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import time
 from collections.abc import Callable, Hashable, Mapping
 from contextvars import ContextVar
 from datetime import UTC, date, datetime
@@ -312,7 +311,6 @@ from .prompts import (
     response_prompt,
     sintoma_em_palavras,
 )
-from .roteador import ROTEADOR_PROMPT_VERSION
 from .textos import TextosDaHelena
 from .triagem_v2 import (
     COLETA_MAX_RODADAS_TRIAGEM_V2,
@@ -4593,7 +4591,14 @@ PREFIXO_RELATO_NAO_VERIFICADO: str = "Relato do beneficiário (não verificado):
 # dos helpers de modulo que ele usa, para o import circular ser seguro).
 # ADR-0067 §5: os metodos desta habilidade moram em `travas_entrada` (importado AQUI, depois
 # dos helpers de modulo que ele usa, para o import circular ser seguro).
+# ADR-0067 §5: os metodos desta habilidade moram em `roteador` (importado AQUI, depois
+# dos helpers de modulo que ele usa, para o import circular ser seguro).
+from . import roteador as _roteador  # noqa: E402
 from . import travas_entrada as _travas_entrada  # noqa: E402
+
+# ADR-0067 §5: os metodos desta habilidade moram em `habilidades.conversa.fluxo` (importado AQUI, depois
+# dos helpers de modulo que ele usa, para o import circular ser seguro).
+from .habilidades.conversa import fluxo as _conversa  # noqa: E402
 
 # ADR-0067 §5: os metodos desta habilidade moram em `habilidades.saude.informar` (importado AQUI, depois
 # dos helpers de modulo que ele usa, para o import circular ser seguro).
@@ -6182,12 +6187,7 @@ class HelenaGraph:
         texto = _com_emergencia_se_preciso(state, self._textos[CHAVE_TEXTO_COBERTURA_FORA])
         return self._base_texto_fixo(self._update_sem_modelo(state), texto)
 
-    def _reclamacao_sem_pedido(self, state: Mapping[str, Any], texto: str) -> bool:
-        """DL-0131, so' na allowlist: a mensagem e' irritacao/reclamacao/"nao entendi" SEM pedido explicito
-        de pessoa ("quero falar com um atendente", "me passa para a equipe")."""
-        if not self._gerativa_para(state) or not _lc.e_reclamacao(texto):
-            return False
-        return not _QUERO_UMA_PESSOA.search(_plano(texto))
+    _reclamacao_sem_pedido = _conversa._reclamacao_sem_pedido
 
     @staticmethod
     def _update_sem_modelo(state: Mapping[str, Any], populacao: str = "none") -> dict[str, Any]:
@@ -6899,62 +6899,9 @@ class HelenaGraph:
             }
         return {"response_text": text, "response_kind": "inform"}
 
-    def _resposta_fixa_de_conversa(self, estado: Mapping[str, Any]) -> str | None:
-        """DL-0088: o texto fixo de um turno `inform` sem relato clinico, ou `None` (o caminho de antes).
+    _resposta_fixa_de_conversa = _conversa._resposta_fixa_de_conversa
 
-        So' vale sem sintoma e sem risco (o `inform` com sintoma tem texto proprio). A recusa de falar
-        com a equipe vem antes da duvida, porque a mesma mensagem pode trazer as duas ("voce nao pode
-        me tirar a duvida? nao quero falar com nenhuma equipe") e a recusa e' o que a pessoa precisa
-        ouvir reconhecido. A pergunta "o que voce sabe de mim?" so' tem texto fixo com o roteador
-        ligado: e' ele que torna verdade o "e' so' me perguntar por aqui" sobre mensalidade.
-        """
-        if estado.get("sintoma_codigo") or estado.get("psychosocial_risk") is True:
-            return None
-        intent = estado.get("intent")
-        texto = str(estado.get("message_body") or "")
-        if intent in ("information", "outside_channel", "greeting") and _pergunta_de_dependentes(texto):
-            return RESPOSTA_DEPENDENTES
-        if intent in _INTENTS_QUE_VIRAM_COBRANCA:
-            # RODADA 3: encerramento (inclusive ironico) e pedido do telefone da central. Com sinal de saude
-            # ("ok obrigado, mas estou com sangramento") nunca e' despedida.
-            if _e_encerramento(texto) and not _mensagem_de_saude(estado):
-                return (
-                    RESPOSTA_DESPEDIDA_CASO_ABERTO
-                    if _caso_aberto_afirmavel(estado) is not None
-                    else RESPOSTA_DESPEDIDA
-                )
-            if _pede_telefone(texto):
-                return RESPOSTA_TELEFONE_DA_CENTRAL
-            if _pergunta_de_navegacao(texto):
-                # Navegacao vence a pergunta do plano ("vou na UBS? qual lugar cobre?").
-                return self._texto_de_navegacao(estado)
-        if intent in ("information", "greeting"):
-            conversa = _conversa_sem_relato_clinico(texto)
-            if conversa == CONVERSA_RECUSA_DE_EQUIPE:
-                return RESPOSTA_RECUSA_DE_EQUIPE
-            if conversa == CONVERSA_DUVIDA_DE_SAUDE:
-                return RESPOSTA_DUVIDA_DE_SAUDE
-        if intent in _INTENTS_QUE_VIRAM_COBRANCA:
-            # RODADA 2: plano/cobertura com a fonte desligada e pergunta de canal, em texto fixo.
-            if self._consultas is None and _pergunta_do_plano(texto):
-                return _texto_plano_indisponivel(estado)
-            if _pergunta_de_canal(texto) and not _pergunta_de_cobranca(texto):
-                return RESPOSTA_CANAIS_DO_PLANO
-        if (
-            self._roteador_lucas_enabled
-            and intent in _INTENTS_QUE_VIRAM_COBRANCA
-            and _pergunta_sobre_o_que_sabe(texto)
-        ):
-            return RESPOSTA_O_QUE_SEI_DE_VOCE
-        return None
-
-    @staticmethod
-    def _texto_de_navegacao(estado: Mapping[str, Any]) -> str:
-        """RODADA 3: as opcoes de cuidado (rede do plano, UBS, pronto-atendimento, 192), com o caso de saude
-        mencionado quando ele esta' aberto."""
-        if _caso_aberto_afirmavel(estado) == CASO_ABERTO_CLINICO:
-            return RESPOSTA_NAVEGACAO_CASO_ABERTO
-        return RESPOSTA_NAVEGACAO
+    _texto_de_navegacao = staticmethod(_conversa._texto_de_navegacao)
 
     def _consulta_recusada(self, estado: Mapping[str, Any]) -> str | None:
         """Precondicao DETERMINISTICA da rota `consultar_plano` (as duas camadas, como `inform`)."""
@@ -8889,273 +8836,27 @@ class HelenaGraph:
     # turno termina (no `respond`), comparada com a decisao da Helena atual. Nada do que acontece aqui muda o
     # estado devolvido pelos nos: falha do roteador e' so' um campo `falha` no log.
 
-    def _roteador_chave(self, state: Mapping[str, Any]) -> tuple[str, str]:
-        return (str(state.get("conversation_id") or ""), str(state.get("message_ref") or ""))
+    _roteador_chave = _roteador._roteador_chave
 
     _roteador_alarme = _travas_entrada._roteador_alarme
 
-    async def _roteador_decidir(self, state: Mapping[str, Any], pendente: Any) -> tuple[Any, str | None, int]:
-        from maezo.agents.helena import roteador as _rt
+    _roteador_decidir = _roteador._roteador_decidir
 
-        contrato = self._roteador_contrato
-        historico = state.get("historico_conversa") if self._historico_enabled else None
-        prompt = _rt.montar_prompt(
-            contrato,
-            bloco_historico=(
-                render_untrusted_block(
-                    "historico_conversa",
-                    historico_em_texto(_rt.ultimas(historico, contrato.maximo_de_mensagens)),
-                )
-                if historico
-                else ""
-            ),
-            bloco_mensagem=render_untrusted_block("message_body", str(state.get("message_body") or "")),
-            pendente=pendente,
-        )
-        if self._roteador_em_curso >= self._roteador_limite:
-            # Limite de concorrencia cheio: o turno segue sem o roteador (nunca fila, nunca espera).
-            return None, _rt.FALHA_OCUPADO, 0
-        self._roteador_em_curso += 1
-        inicio = time.monotonic()
-        try:
-            # O prazo REAL e' o tempo de leitura do provedor proprio (a thread volta nele); este `wait_for` e'
-            # so'
-            # a rede de seguranca, um pouco acima.
-            bruto = await asyncio.wait_for(
-                self._roteador_llm.generate(
-                    prompt,
-                    phi=True,
-                    agent_id="helena",
-                    tenant_id=str(state.get("tenant_id") or ""),
-                    task_kind="task_default",
-                ),
-                timeout=contrato.prazo_s + 1.0,
-            )
-        except PROGRAMMING_ERRORS:
-            raise
-        except TimeoutError:
-            return None, _rt.FALHA_PRAZO, int((time.monotonic() - inicio) * 1000)
-        except EXTERNAL_DEPENDENCY_FAILURES:
-            ms_falha = int((time.monotonic() - inicio) * 1000)
-            return (
-                None,
-                (_rt.FALHA_PRAZO if ms_falha >= contrato.prazo_s * 1000 else _rt.FALHA_MODELO),
-                ms_falha,
-            )
-        finally:
-            self._roteador_em_curso -= 1
-        ms = int((time.monotonic() - inicio) * 1000)
-        decisao = _rt.ler_decisao(bruto)
-        return decisao, (None if decisao is not None else _rt.FALHA_JSON), ms
+    _roteador_entrada = _roteador._roteador_entrada
 
-    def _roteador_entrada(self, state: Mapping[str, Any]) -> tuple[str | None, Any, str | None]:
-        """A pendencia de antes, a pendencia para o roteador e a trava de entrada deterministica."""
-        from maezo.agents.helena import roteador as _rt
+    _roteador_guardar = _roteador._roteador_guardar
 
-        antes = str(state.get("coleta_pendente") or "") or None
-        pendente = _rt.pendente_do_estado(antes, self._roteador_contrato.dona_da_pendencia)
-        trava = _rt.trava_de_entrada(
-            str(state.get("message_body") or ""),
-            alarme=lambda t: self._roteador_alarme(t, antes, self._falas_da_pessoa(state)),
-            risco=lambda t: _sg.tem_risco(_plano(t)),
-        )
-        return antes, pendente, trava
+    _classify_com_sombra = _roteador._classify_com_sombra
 
-    def _roteador_guardar(
-        self, state: Mapping[str, Any], registro: tuple[Any, Any, str | None, str | None]
-    ) -> None:
-        if len(self._roteador_em_voo) >= 256:
-            velha = next(iter(self._roteador_em_voo))
-            self._roteador_em_voo.pop(velha)[0].cancel()
-        self._roteador_em_voo[self._roteador_chave(state)] = registro
+    _classify_com_roteador = _roteador._classify_com_roteador
 
-    async def _classify_com_sombra(self, state: HelenaState) -> dict[str, Any]:
-        # So' codigo deterministico aqui (sem dependencia injetada): a chamada ao modelo roda na tarefa
-        # paralela, cuja falha vira o campo `falha` do log.
-        antes, pendente, trava = self._roteador_entrada(state)
-        tarefa = asyncio.ensure_future(self._roteador_decidir(dict(state), pendente))
-        self._roteador_guardar(state, (tarefa, pendente, trava, antes))
-        return await self.classify(state)
+    _classify_ativo = _roteador._classify_ativo
 
-    async def _classify_com_roteador(self, state: HelenaState) -> dict[str, Any]:
-        """F2: `ativo` decide pelo roteador SO' nas conversas da allowlist dele (e da saude gerativa);
-        fora dela, sombra."""
-        conversa = state.get("conversation_id")
-        if (
-            self._roteador_modo == "ativo"
-            and isinstance(conversa, str)
-            and conversa in self._roteador_conversas
-            and self._gerativa_para(state)
-        ):
-            return await self._classify_ativo(state)
-        return await self._classify_com_sombra(state)
+    _e_texto_do_roteador = _roteador._e_texto_do_roteador
 
-    async def _classify_ativo(self, state: HelenaState) -> dict[str, Any]:
-        """F2 (ADR-0066): travas de entrada -> roteador -> UMA habilidade.
+    _sem_pendencia_velha = staticmethod(_roteador._sem_pendencia_velha)
 
-        - Trava (alarme, risco, dados pessoais) ou roteador sem decisao: o caminho de sempre, com
-          o estado INTEIRO (as portas de seguranca de hoje rodam como sempre).
-        - A pergunta pendente so' vale quando o roteador diz que a mensagem RESPONDE a ela; senao ela e'
-          descartada antes da habilidade (a pendencia nunca sequestra a mensagem).
-        - "X ou Y?" na duvida; cortesia sem pendencia = resposta curta; cobertura = o aviso unico; as
-          demais habilidades usam o codigo de hoje com a decisao do roteador valendo sobre as regras de
-          cobertura (`_HABILIDADE_DO_TURNO`).
-        """
-        from maezo.agents.helena import roteador as _rt
-
-        if state.get("error") or self._seguimento_com_o_lucas(state) is not None:
-            # Falha do proprio turno (`receive`) ou conversa em seguimento com o Lucas: o caminho de sempre.
-            return await self.classify(state)
-        antes, pendente, trava = self._roteador_entrada(state)
-        decisao, falha, ms = await self._roteador_decidir(dict(state), pendente)
-        feita: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
-        feita.set_result((decisao, falha, ms))
-        self._roteador_guardar(state, (feita, pendente, trava, antes))
-        duvida_antes = bool(antes and antes.startswith(_rt.PREFIXO_DUVIDA))
-        if trava is not None or decisao is None:
-            logger.info(
-                "helena_roteador_caminho_de_sempre", motivo="trava" if trava else (falha or "sem_decisao")
-            )
-            st_sempre: HelenaState = state
-            if duvida_antes:
-                st_sempre = cast(HelenaState, {**dict(state), "coleta_pendente": None, "coleta_contexto": ""})
-            resultado_sempre = self._sem_pendencia_velha(await self.classify(st_sempre), duvida_antes)
-            return {**resultado_sempre, "habilidade_roteador": None}
-        texto = str(state.get("message_body") or "")
-        opcoes = decisao.opcoes_da_duvida()
-        if opcoes is not None:
-            x, y = opcoes
-            pergunta = self._roteador_contrato.texto_da_duvida.format(
-                x=self._roteador_contrato.habilidade(x).titulo, y=self._roteador_contrato.habilidade(y).titulo
-            )
-            logger.info("helena_roteador_duvida", x=x, y=y)
-            return self._base_texto_fixo(
-                self._update_sem_modelo(state), pergunta, pendente=f"{_rt.PREFIXO_DUVIDA}{x}:{y}"
-            )
-        habilidade = (
-            decisao.habilidade if decisao.habilidade != "duvida" else (decisao.provavel or "conversa")
-        )
-        mantem = bool(antes) and decisao.responde_a_pendencia and not duvida_antes
-        if (
-            antes
-            and not duvida_antes
-            and self._roteador_contrato.dona_da_pendencia(antes) == "sintoma"
-            and habilidade in ("saude", "sintoma")
-        ):
-            # DL-0154: com o sintoma EM CURSO (pergunta de alerta, opcoes ou oferta pendentes), a fala de
-            # saude continua o MESMO assunto ("eu dormi de mau jeito"): a pendencia fica e o sintoma decide
-            # (antes, a pendencia caia e a pergunta de alerta recomecava).
-            mantem = True
-            habilidade = "sintoma"
-        if (
-            antes
-            and not mantem
-            and not duvida_antes
-            and habilidade in ("conversa", "equipe")
-            and _lc.e_reclamacao(texto)
-            and not (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto))
-        ):
-            # Reclamacao sobre a resposta anterior ("ue, como assim?", "voce falou outra coisa") pertence a
-            # quem fez a pergunta pendente: a pendencia fica e a habilidade dona trata (desculpa curta e de
-            # novo).
-            mantem = True
-            habilidade = self._roteador_contrato.dona_da_pendencia(antes) or habilidade
-        dona = self._roteador_contrato.dona_da_pendencia(antes) if antes and not duvida_antes else None
-        if (
-            dona is not None
-            and (mantem or _lc.ler_resposta(texto) is not None)
-            and not (_pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto))
-        ):
-            # Contrato (ADR-0066): a resposta a pergunta pendente e' da habilidade DONA dela. Roteiro de
-            # 22/10/2026: "nao" a oferta da equipe da cobertura foi para `equipe` (p=true) e "deixa pra la'"
-            # para `conversa`; a resposta curta (o leitor que ja' existe, `ler_resposta`) fica com a dona.
-            mantem = True
-            habilidade = dona
-        st: HelenaState = (
-            state
-            if mantem or not antes
-            else cast(HelenaState, {**dict(state), "coleta_pendente": None, "coleta_contexto": ""})
-        )
-        logger.info(
-            "helena_roteador_decidiu",
-            habilidade=habilidade,
-            confianca=decisao.confianca,
-            pendencia_mantida=mantem,
-            ms=ms,
-        )
-        if habilidade == "cobertura":
-            # COBERTURA FORA (dono, 23/10/2026, DL-0154): o aviso unico, sem consulta e sem oferta da equipe.
-            return {**self._texto_da_cobertura_fora(state), "habilidade_roteador": habilidade}
-        if habilidade == "conversa" and not mantem and (_lc.e_cortesia(texto) or _lc.e_cumprimento(texto)):
-            cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
-            return {**cortesia, "habilidade_roteador": habilidade}
-        marca = _HABILIDADE_DO_TURNO.set(habilidade)
-        try:
-            resultado = await self.classify(st)
-        finally:
-            _HABILIDADE_DO_TURNO.reset(marca)
-        return {
-            **self._sem_pendencia_velha(resultado, bool(antes) and not mantem),
-            "habilidade_roteador": habilidade,
-        }
-
-    def _e_texto_do_roteador(self, texto: object) -> bool:
-        if self._roteador_modo != "ativo" or not isinstance(texto, str) or self._roteador_contrato is None:
-            return False
-        inicio_da_duvida = self._roteador_contrato.texto_da_duvida.split("{x}")[0]
-        return texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO, _lc.TEXTO_SAUDACAO) or texto.startswith(
-            inicio_da_duvida
-        )
-
-    @staticmethod
-    def _sem_pendencia_velha(update: dict[str, Any], descartou: bool) -> dict[str, Any]:
-        """A pendencia descartada pelo roteador nao pode sobreviver no estado (o grafo mescla o update)."""
-        if descartou and "coleta_pendente" not in update:
-            update = {**update, "coleta_pendente": None, "coleta_contexto": ""}
-        return update
-
-    async def _respond_com_sombra(self, state: HelenaState) -> dict[str, Any]:
-        saida = await self.respond(state)
-        em_voo = self._roteador_em_voo.pop(self._roteador_chave(state), None)
-        if em_voo is None:
-            return saida
-        from maezo.agents.helena import roteador as _rt
-
-        tarefa, pendente, trava, antes = em_voo
-        final = {**dict(state), **saida}
-        atual = _rt.habilidades_da_helena_atual(
-            final, pendente_antes=antes, dona_da_pendencia=self._roteador_contrato.dona_da_pendencia
-        )
-        conversa = _rt.rotulo_da_conversa(str(state.get("conversation_id") or ""))
-
-        def registrar(feita: Any) -> None:
-            if feita.cancelled():
-                decisao, falha, ms = None, "cancelado", 0
-            elif feita.exception() is not None:
-                decisao, falha, ms = None, type(feita.exception()).__name__, 0
-            else:
-                decisao, falha, ms = feita.result()
-            c = _rt.campos_do_log(
-                decisao, falha=falha, trava=trava, atual=atual, pendente=pendente, ms=ms, conversa=conversa
-            )
-            # Campos EXPLICITOS (a varredura de chaves do log ve cada nome; nenhum `**mapping`).
-            logger.info(
-                "helena_roteador_sombra",
-                habilidade=c["habilidade"],
-                confianca=c["confianca"],
-                alternativa=c["alternativa"],
-                responde_a_pendencia=c["responde_a_pendencia"],
-                trava=c["trava"],
-                atual=c["atual"],
-                concorda=c["concorda"],
-                pendencia=c["pendencia"],
-                falha=c["falha"],
-                ms=c["ms"],
-                conversa=c["conversa"],
-            )
-
-        tarefa.add_done_callback(registrar)
-        return saida
+    _respond_com_sombra = _roteador._respond_com_sombra
 
     # -- Graph assembly -----------------------------------------------------------------------
 
@@ -9321,5 +9022,5 @@ PROMPT_VERSIONS: dict[str, str] = {
     "classify_consultas": CLASSIFY_CONSULTAS_ADENDO_VERSION,
     "consulta_plano": CONSULTA_PLANO_PROMPT_VERSION,
     # ADR-0066/DL-0134: o prompt do roteador de habilidades, usado SO' com `MAEZO_HELENA_ROTEADOR` ligado.
-    "roteador": ROTEADOR_PROMPT_VERSION,
+    "roteador": _roteador.ROTEADOR_PROMPT_VERSION,
 }
