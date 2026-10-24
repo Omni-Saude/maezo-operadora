@@ -804,7 +804,11 @@ _ABERTURA_RESULTADO: Final[str] = "Posso te passar a informação geral sobre"
 
 def linha_de_credito(assunto: Assunto) -> str:
     fonte = fonte_creditada(assunto)
-    if fonte is None:
+    if fonte is None or assunto.categoria == CATEGORIA_SINTOMA:
+        # Etapa 10 (dono, 23/10/2026): o texto de um SINTOMA e' a orientacao da operadora (onde marcar,
+        # quando procurar urgencia). As fontes do arquivo sao das condicoes de ALARME (Infarto, AVC,
+        # Tuberculose) e ficam como procedencia: credita-las ("com base em Infarto" na dor nas costas)
+        # dizia o que o texto nao e'.
         return "Texto da operadora."
     if assunto.tipo_texto == TIPO_CITACAO_LITERAL:
         return f"Fonte: {_nome_no_credito(fonte)}."
@@ -812,14 +816,13 @@ def linha_de_credito(assunto: Assunto) -> str:
 
 
 def _bloco(assunto: Assunto) -> list[str]:
-    partes = [assunto.texto, linha_de_credito(assunto)]
-    if assunto.link_leitura:
-        partes.append(f"Para ler mais: {assunto.link_leitura}")
-    return partes
+    # Sem link (dono, 18/10/2026; Plano de ajustes v2, etapa 10): a fonte vai pelo NOME na linha de credito;
+    # `link_leitura` continua no arquivo (procedencia), mas nunca sai na resposta.
+    return [assunto.texto, linha_de_credito(assunto)]
 
 
 def resposta_informativa(assunto: Assunto) -> str:
-    """(i) Pergunta informativa: texto + credito + link + aviso."""
+    """(i) Pergunta informativa: texto + credito (a fonte pelo nome) + aviso."""
     return "\n".join([*_bloco(assunto), AVISO_PADRAO])
 
 
@@ -830,17 +833,19 @@ def resposta_de_resultado_pessoal(assunto: Assunto) -> str:
     )
 
 
-def texto_final_do_sintoma_com_orientacao(eco: str, assunto: Assunto) -> str:
+def texto_final_do_sintoma_com_orientacao(eco: str, assunto: Assunto, populacao: str = "adult") -> str:
     """(iv) O "nao" as perguntas de alerta de um sintoma da base: o texto de orientacao do arquivo (SEM
-    alarme), o credito e as mesmas opcoes 1/2 da Helena v4 (palavra por palavra) com o 192."""
+    alarme), o credito e as mesmas opcoes 1/2 da Helena v4 com o 192. O profissional vai pela IDADE
+    (etapa 10): pediatra so' para crianca; adulto, clinico geral (nunca "pediatra" para adulto)."""
+    profissional = "pediatra" if populacao == "pediatric" else "clínico geral"
     return "\n".join(
         [
             f"Entendi: {eco}.",
             assunto.texto,
             linha_de_credito(assunto),
             "Eu não avalio sintomas, mas te ajudo com o caminho. "
-            "Você prefere: 1) saber onde marcar consulta pelo plano (clínico geral ou pediatra: "
-            "até 7 dias úteis pela ANS); ou 2) falar com a nossa equipe de saúde? "
+            f"Você prefere: 1) saber onde marcar consulta com {profissional} pelo plano "
+            "(até 7 dias úteis pela ANS); ou 2) falar com a nossa equipe de saúde? "
             "Se piorar, procure um pronto-atendimento; se for grave, ligue 192.",
         ]
     )

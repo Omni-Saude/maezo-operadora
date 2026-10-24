@@ -19,11 +19,7 @@ fontes:
 - nome: Tabela de sinais de alarme do adulto (spec/processes/dmn/triage_redflag_adult.dmn) e planilha Catálogo de Necessidades, aba 3
   url: https://github.com/Omni-Saude/maezo-operadora/blob/main/spec/processes/dmn/triage_redflag_adult.dmn
   licenca: texto próprio da operadora
-  coletado_em: &id001 2026-10-17
-- nome: Saúde de A a Z — Infarto (Ministério da Saúde)
-  url: https://www.gov.br/saude/pt-br/assuntos/saude-de-a-a-z/i/infarto
-  licenca: texto próprio da operadora
-  coletado_em: *id001
+  coletado_em: 2026-10-17
 perguntas_alerta:
 - A dor é muito forte, a pior que você já sentiu?
 - Junto com a dor, você sente dor ou aperto no peito, ou falta de ar?

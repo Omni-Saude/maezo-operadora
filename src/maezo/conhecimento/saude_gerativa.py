@@ -410,7 +410,9 @@ def apoio_do_assunto(assunto: bs.Assunto) -> Apoio | None:
     if fonte is None:
         return None
     nome = fonte.nome.rstrip(". ")
-    bloco = f"Assunto: {assunto.titulo}\nTrecho: {assunto.texto}\nFonte: {nome}\nLink: {fonte.url}"
+    bloco = f"Assunto: {assunto.titulo}\nTrecho: {assunto.texto}\nFonte: {nome}"
+    # Sem link (etapa 10 do Plano de ajustes v2): o APOIO leva so' o NOME da fonte; a URL fica no Apoio
+    # (procedencia), nunca no prompt nem na resposta.
     return Apoio(assunto.id, assunto.titulo, assunto.categoria, bloco, nome, fonte.url)
 
 
@@ -462,7 +464,8 @@ Rol. Quem responde cobertura é a consulta ao plano, não você.
 pela pessoa, ver agenda ou disponibilidade).
 - Nunca diga que um médico, a equipe ou um profissional "vai avaliar", "vai atender" ou "vai retornar": diga \
 que vale levar o resultado (ou a dúvida) ao médico.
-- Não invente links, telefones nem fontes.
+- Nunca escreva links nem endereços de site (nem gov.br): a fonte vai só pelo nome. Não invente telefones \
+nem fontes.
 - Pressão alta relatada pela pessoa nunca é "erro de medição": não sugira medir de novo; oriente procurar \
 avaliação médica e, com sinal de alarme, o 192.
 - Responda só com o texto para a pessoa: nunca comente a reescrita, as regras ou as palavras proibidas.
@@ -479,7 +482,7 @@ forte): oriente "ligue 192 (SAMU) ou vá ao pronto-socorro".
 APOIO
 - Se vier um bloco APOIO com trecho de fonte oficial, use-o para não errar e termine com uma linha \
 "Fonte: <nome>", com o nome exatamente como veio. Se o APOIO não for sobre o assunto da pergunta, \
-ignore-o e não cite fonte. Sem bloco APOIO com fonte, não escreva "Fonte:" nem links.
+ignore-o e não cite fonte. Sem bloco APOIO com fonte, não escreva "Fonte:".
 """
 PROMPT_VERSAO: Final[str] = f"{VERSAO}-" + hashlib.sha256(PROMPT_SISTEMA.encode("utf-8")).hexdigest()[:10]
 
@@ -904,10 +907,9 @@ def verificar(
     if "**" in texto or re.search(r"(?m)^\s*#", texto):
         achados.append(Violacao("markdown"))
     apoio = pedido.apoio
-    permitidas = {apoio.fonte_url} if apoio is not None and apoio.fonte_url else set()
     for url in _URL.findall(texto):
-        if url.rstrip(".,;)") not in permitidas:
-            achados.append(Violacao("link_nao_fornecido", url))
+        # Etapa 10: nenhum link, nem o da fonte (a fonte vai pelo nome).
+        achados.append(Violacao("link_nao_fornecido", url))
     citou = _LINHA_FONTE.search(texto)
     if citou:
         nome = citou.group(1).strip().rstrip(".")
@@ -950,7 +952,7 @@ _INSTRUCAO: Final[Mapping[str, str]] = {
     "sintoma_sem_192": "diga, em uma frase, que se aparecer um sinal de alarme do APOIO deve ligar 192",
     "longa_demais": f"encurte para no maximo {PALAVRAS_PEDIDAS} palavras",
     "markdown": "tire o markdown (** e #)",
-    "link_nao_fornecido": "tire o link: so' vale o link do APOIO",
+    "link_nao_fornecido": "tire o link: a fonte vai so' pelo nome",
     "fonte_sem_apoio": "tire a linha 'Fonte:' (nao houve fonte de apoio)",
     "fonte_com_nome_errado": "a linha 'Fonte:' tem de trazer o nome exatamente como veio no APOIO",
     "resposta_vazia": "escreva a resposta",

@@ -390,13 +390,14 @@ def test_classificacao_pelo_modelo_so_aceita_id_da_lista_fechada() -> None:
 
 
 # --- as respostas ---------------------------------------------------------------------------------
-def test_resposta_informativa_tem_texto_credito_link_e_aviso() -> None:
+def test_resposta_informativa_tem_texto_credito_e_aviso_sem_link() -> None:
     dipirona = _base().get("med-dipirona")
     assert dipirona is not None
     resposta = b.resposta_informativa(dipirona)
     assert dipirona.texto in resposta
     assert "Texto da operadora com base em Bula do paciente (ANVISA)." in resposta
-    assert "Para ler mais: https://consultas.anvisa.gov.br/#/bulario/" in resposta
+    # Sem link (etapa 10): `link_leitura` fica no arquivo, nunca na resposta.
+    assert "http" not in resposta and "Para ler mais" not in resposta
     assert resposta.endswith(b.AVISO_PADRAO)
     psa = _base().get("exa-psa")
     assert psa is not None
