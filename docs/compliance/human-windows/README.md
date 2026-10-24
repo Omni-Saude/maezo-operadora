@@ -20,4 +20,4 @@
 
 - Esta árvore não edita `src/**`, `spec/**`, PLANS.md, COORDINATION.md, BPMN/DMN, nem nenhum artefato de autor.
 - Pacotes jurídicos D-03/D-04/REG-1.13 NÃO estão aqui: já existem em `docs/compliance/legal/` (PR #935).
-- O bundle de auditoria `docs/audits/JOURNEYS-COMPLETENESS-2026-10/` é gitignored e editado concorrentemente; onde o pacote cita o bundle, o trecho relevante está transcrito verbatim no corpo do pacote.
+- O bundle de auditoria do programa (JOURNEYS-COMPLETENESS-2026-10, sob `docs/audits/...`, gitignored — elisão declarada) é editado concorrentemente; onde um pacote cita o bundle, o trecho relevante está transcrito verbatim no corpo do pacote, e a citação de fonte viva usa caminho rastreado (`docs/Tarefas_Pendentes.md`, `docs/review-queue.md`, `docs/plans/maezo-completion-program.md`).
