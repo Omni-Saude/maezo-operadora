@@ -48,10 +48,180 @@ jobs:
   # Os shards sao uma PARTICAO de `tests/` (completa e disjunta), e ha' um teste que prova isso
   # contra a colecao em serie: `tests/unit/ci/test_global_integration_ci.py`.
   # ---------------------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # TRILHAS (ADR-0067 fase 4): o PR que so' toca um AGENTE nao passa pela suite do Maezo.
+  # `scripts/ci/trilha.py` classifica o diff: conteudo (`spec/agents/<id>/pacote/**`), logica
+  # (`src/maezo/agents/<id>/**` + os testes do agente) ou PLATAFORMA (todo o resto, inclusive
+  # `maezo.contratos`, o framework de agentes e o proprio CI). Na duvida, plataforma.
+  #   * plataforma -> a suite inteira, como sempre (`unit` -> `quality` -> integracao...);
+  #   * agente     -> `agentes (trilha)`: lint/tipo do agente, os testes que o importam e as cercas;
+  #   * conteudo   -> so' o pacote (`agentes-pacote.yml`).
+  # O check obrigatorio `lint / type / unit` e' o `portao`, que roda SEMPRE e reprova se a
+  # classificacao falhou ou se a trilha escolhida nao terminou verde: uma trilha quebrada nunca vira
+  # "tudo pulado = verde".
+  # ---------------------------------------------------------------------------
+  trilha:
+    name: trilha (plataforma x agente)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      plataforma: ${{ steps.classificar.outputs.plataforma }}
+      agentes: ${{ steps.classificar.outputs.agentes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Classifica o diff
+        id: classificar
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          case "${EVENT_NAME}" in
+            pull_request) git diff --name-only "origin/${BASE_REF}...HEAD" > "$RUNNER_TEMP/diff.txt" ;;
+            push) git diff --name-only HEAD~1 HEAD > "$RUNNER_TEMP/diff.txt" ;;
+            *) : > "$RUNNER_TEMP/diff.txt" ;;  # schedule/dispatch: diff vazio = plataforma
+          esac
+          python3 scripts/ci/trilha.py < "$RUNNER_TEMP/diff.txt" > "$RUNNER_TEMP/trilha.json"
+          cat "$RUNNER_TEMP/trilha.json"
+          python3 - "$RUNNER_TEMP/trilha.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          t = json.load(open(sys.argv[1]))
+          print("plataforma=" + ("true" if t["plataforma"] else "false"))
+          print("agentes=" + json.dumps(t["agentes"]))
+          PY
+          {
+            echo "## trilha"
+            echo ""
+            echo '```json'
+            cat "$RUNNER_TEMP/trilha.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  agentes:
+    name: agentes (trilha) (${{ matrix.agente }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'false' && needs.trilha.outputs.agentes != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        agente: ${{ fromJSON(needs.trilha.outputs.agentes) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Qualify canonical uv storage for immutable historical tools
+        run: |
+          echo "MAEZO_CI_UV_CACHE_DIR=$HOME/.cache/uv" >> "$GITHUB_ENV"
+          echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ env.MAEZO_CI_UV_CACHE_DIR }}
+          cache-suffix: offline-fixture-${{ hashFiles('.github/workflows/ci.yml', 'scripts/ci/prepare_offline_fixture_cache.py', 'scripts/dev/run_engine_integration.py') }}
+          cache-dependency-glob: "uv.lock"
+
+      - name: Verify uv defaults and populate the qualified interpreter
+        run: |
+          test "$(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR uv cache dir)" = "$MAEZO_CI_UV_CACHE_DIR"
+          test "$(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR uv python dir)" = "$MAEZO_CI_UV_PYTHON_INSTALL_DIR"
+          uv python install "$MAEZO_CI_PYTHON_VERSION"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev --cache-dir "$RUNNER_TEMP/maezo-project-build-cache"
+
+      - name: Prepare default offline fixture cache
+        run: |
+          set -e
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I \
+            scripts/ci/prepare_offline_fixture_cache.py --root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/offline-fixture-cache-proof"
+
+      - name: Lint e tipo do agente
+        env:
+          AGENTE: ${{ matrix.agente }}
+        run: |
+          set -e
+          .venv/bin/python -m ruff check "src/maezo/agents/${AGENTE}" tests/unit/agents
+          .venv/bin/python -m ruff format --check "src/maezo/agents/${AGENTE}"
+          .venv/bin/python -m mypy "src/maezo/agents/${AGENTE}"
+
+      - name: Cercas da fronteira (o agente continua so' no SDK e atras da porta)
+        run: |
+          set -e
+          .venv/bin/python scripts/ci/check_fronteira_agentes.py
+          make check-qa-isolada effect-chokepoint-fence
+          .venv/bin/python scripts/ci/check_roteador_lucas.py
+
+      - name: Testes que importam o agente (unit + contrato)
+        env:
+          AGENTE: ${{ matrix.agente }}
+        run: |
+          set -e
+          .venv/bin/python scripts/ci/trilha.py --testes-do-agente "${AGENTE}" > "$RUNNER_TEMP/testes.txt"
+          echo "$(wc -l < "$RUNNER_TEMP/testes.txt") arquivos de teste do agente ${AGENTE}"
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest \
+            $(cat "$RUNNER_TEMP/testes.txt") -q -m "not integration" -n auto -p no:cacheprovider
+
+  portao:
+    name: lint / type / unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [trilha, quality, agentes]
+    if: always()
+    steps:
+      - name: A trilha escolhida terminou verde?
+        env:
+          TRILHA: ${{ needs.trilha.result }}
+          PLATAFORMA: ${{ needs.trilha.outputs.plataforma }}
+          QUALIDADE: ${{ needs.quality.result }}
+          AGENTES: ${{ needs.agentes.result }}
+        run: |
+          set -e
+          echo "trilha=${TRILHA} plataforma=${PLATAFORMA} quality=${QUALIDADE} agentes=${AGENTES}"
+          if [ "${TRILHA}" != "success" ]; then
+            echo "::error::a classificacao da trilha falhou (${TRILHA}) — sem ela nada e' verde"; exit 1
+          fi
+          if [ "${PLATAFORMA}" = "true" ]; then
+            [ "${QUALIDADE}" = "success" ] || { echo "::error::trilha PLATAFORMA: lint / type / unit (plataforma) = ${QUALIDADE}"; exit 1; }
+          else
+            [ "${QUALIDADE}" = "skipped" ] || { echo "::error::trilha de agente com a suite da plataforma em ${QUALIDADE}"; exit 1; }
+            case "${AGENTES}" in
+              success|skipped) ;;  # skipped = PR so' de conteudo (pacote), validado por agentes-pacote.yml
+              *) echo "::error::trilha de AGENTE: agentes (trilha) = ${AGENTES}"; exit 1 ;;
+            esac
+          fi
+          echo "## lint / type / unit: trilha $([ "${PLATAFORMA}" = "true" ] && echo plataforma || echo agente) verde" >> "$GITHUB_STEP_SUMMARY"
+
   unit:
     name: unit (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -251,7 +421,8 @@ jobs:
   # O check OBRIGATORIO da branch protection continua sendo este nome. Ele so' fica verde depois
   # de TODOS os shards, e e' aqui que lint, mypy e o portao de cobertura combinado acontecem.
   quality:
-    name: lint / type / unit
+    # O check obrigatorio `lint / type / unit` e' o `portao` (acima); este e' o da trilha plataforma.
+    name: lint / type / unit (plataforma)
     runs-on: ubuntu-latest
     needs: [unit]
     timeout-minutes: 30
@@ -409,6 +580,8 @@ jobs:
   portal-web:
     name: portal-web
     runs-on: ubuntu-latest
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
     defaults:
       run:
         working-directory: src/maezo/portal/web
@@ -712,6 +885,12 @@ jobs:
       # pode importar maezo.qa; so' o sentido inverso existe.
       - name: QA isolada (nenhum import de maezo.qa na producao)
         run: make check-qa-isolada
+
+      # ADR-0067: a plataforma fala com o agente so' pelo contrato (maezo.contratos) e um agente nao
+      # importa outro. Catraca: a divida inventariada em scripts/ci/fronteira_agentes_baseline.txt
+      # so' encolhe; dependencia nova para dentro de um agente reprova.
+      - name: Fronteira plataforma x agentes (catraca ADR-0067)
+        run: make check-fronteira-agentes
 
       # MZO-010 / XRG-3: the AMH contract is AMH-owned; this repo holds only the immutable pin
       # (config/integrations/amh/contracts.lock.json) plus the AMH-published, digest-gated fixture
@@ -1032,6 +1211,8 @@ jobs:
   validate-terraform:
     name: terraform validate
     runs-on: ubuntu-latest
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1105,6 +1286,8 @@ jobs:
   java-plugin:
     name: plugin humano Java (mvn verify)
     runs-on: ubuntu-latest
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
     services:
       postgres:
         # postgres:17 (indice multi-arch resolvido em 23/09/2026 no Docker Hub).
@@ -1160,6 +1343,8 @@ jobs:
   validate-helm:
     name: helm lint + egress NetworkPolicy CI
     runs-on: ubuntu-latest
+    needs: [trilha]
+    if: needs.trilha.outputs.plataforma == 'true'  # ADR-0067: so' na trilha plataforma
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1758,12 +1943,14 @@ jobs:
     name: integration tests (real engine)
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [integration]
+    needs: [trilha, integration]
     if: always()
     steps:
       - name: Union-green dos shards da lane de motor real
         env:
           RESULTADO: ${{ needs.integration.result }}
+          PLATAFORMA: ${{ needs.trilha.outputs.plataforma }}
+          TRILHA: ${{ needs.trilha.result }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -e
@@ -1773,7 +1960,10 @@ jobs:
               echo "## integration tests (real engine): ${RESULTADO}" >> "$GITHUB_STEP_SUMMARY"
               ;;
             skipped)
-              if [ "${EVENT_NAME}" = "push" ]; then
+              if [ "${TRILHA}" = "success" ] && [ "${PLATAFORMA}" = "false" ]; then
+                echo "::notice::trilha de AGENTE (ADR-0067): a lane de motor real e' da plataforma; o portao confere a do agente."
+                echo "## integration tests (real engine): NOT APPLICABLE (trilha de agente)" >> "$GITHUB_STEP_SUMMARY"
+              elif [ "${EVENT_NAME}" = "push" ]; then
                 # 22/09/2026 (dedup de faturamento): os shards nao sao disparados por `push` na
                 # main — a lane acabou de rodar no `pull_request` do PR que mergeou (merge
                 # byte-checked) e o canary da main vive no `schedule` noturno, que roda a lane

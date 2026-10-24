@@ -35,7 +35,20 @@ phi_zone_provider  = "bedrock_br"
 // o default de `variables.tf` continua o Mistral. ROLLBACK: apagar esta linha (ou repor
 // "mistral.mistral-large-3-675b-instruct"), PR, merge e apply direcionado -- ver
 // `docs/runbooks/phi-inference-ops.md`, secao "Trocar ou voltar o modelo da zona PHI".
+// TEMPORARIO (DL-0117, adendo de 21/10/2026; decisao do dono): de volta ao Mistral Large 3 -- GLM-5 regional com
+// InternalServerException/timeouts em 21/10/2026 (ate' um prompt trivial passou de 120 s); voltar ao
+// "zai.glm-5" quando normalizar (mesmo runbook, os QUATRO papeis da `task_bedrock` juntos).
+// TEMPORARIO 2 (DL-0117, segundo adendo de 22/10/2026): o Mistral Large 3 regional tambem passou a nao responder
+// (ReadTimeout de 60 s ate' num prompt trivial, sem carga nossa); `google.gemma-3-27b-it` (sa-east-1) respondeu em
+// ~1,6 s ao prompt real do classificador (9/10 intencoes certas) e 50/50 no roteador. Voltar ao Mistral ou ao
+// GLM-5 quando normalizarem (mesmo runbook, os QUATRO papeis juntos).
 phi_model_id = "zai.glm-5"
+
+// EXCECAO REGIONAL (DPO, 21/10/2026; DL-0117 adendo 3): nenhum modelo de Sao Paulo passou no classificador e o GLM-5
+// de sa-east-1 continua fora; GLM-5 em us-east-1 (30/30 intencoes, 30/30 risco psicossocial, p90 2,08 s). VOLTAR: as
+// quatro linhas abaixo de volta (vazio / sa-east-1 / modelo regional) quando a AWS normalizar sa-east-1.
+phi_excecao_regional = "excecao_us_east_1_autorizada_dpo_2026-10-21"
+phi_endpoint_url     = "https://bedrock-runtime.us-east-1.amazonaws.com"
 
 // Sincronizacao automatica do egresso Cognito (portal-egresso-cognito-sync.tf): LIGADA em 18/10/2026 por
 // decisao do dono, depois da 6a rotacao que derrubou o login (#829). Lambda + schedule (5 min) + alarme;
@@ -104,3 +117,11 @@ engine_native = {
   staff_case_issuer        = true
   assignment_trust         = true
 }
+
+// ADR-0067 fase 3 (23/10/2026): pacotes de comportamento dos agentes fora da imagem (pacotes-dos-agentes.tf).
+pacotes_dos_agentes = true
+
+// ADR-0067 secao 6, fase 4b (agente-remoto.tf): agent-helena executa o turno (`maezo.platform.agente_remoto`,
+// porta 8000) e o receptor o chama por HTTP interno (simulador em processo). Exige `agents_image_digest` com o modulo.
+// ROLLBACK: `false` aqui, PR e apply.
+helena_agente_remoto = true

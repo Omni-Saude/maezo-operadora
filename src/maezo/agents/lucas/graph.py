@@ -153,8 +153,7 @@ from maezo.agents.lucas.fonte_v4 import (
     SEGUNDA_VIA_SEM_CODIGO,
 )
 from maezo.agents.lucas.politica_atraso import LimiaresDeAtraso
-from maezo.platform.observability import record_resposta_recusada
-from maezo.runtime.cobranca_foco import (
+from maezo.domain.conversa.cobranca_foco import (
     FOCO_COMO_PAGAR,
     FOCO_CONSEQUENCIA_DO_ATRASO,
     FOCO_ESCLARECIMENTO,
@@ -166,8 +165,9 @@ from maezo.runtime.cobranca_foco import (
     FOCO_ULTIMA,
     foco_valido,
 )
-from maezo.runtime.cobranca_lista import PedidoDeLista, lista_do_handoff
-from maezo.runtime.cobranca_reclamacao import reclamacao_valida
+from maezo.domain.conversa.cobranca_lista import PedidoDeLista, lista_do_handoff
+from maezo.domain.conversa.cobranca_reclamacao import reclamacao_valida
+from maezo.platform.observability import record_resposta_recusada
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -421,11 +421,11 @@ class LucasState(TypedDict, total=False):
     tipo_solicitacao: str  # boleto | 2a_via | vencimento | status_pagamento | consulta_valores
     numero_boleto: str
     competencia: str  # YYYY-MM
-    #: DL-0087 (10/10/2026): o campo perguntado numa `consulta_valores` (`runtime/cobranca_foco.py`),
+    #: DL-0087 (10/10/2026): o campo perguntado numa `consulta_valores` (`domain/conversa/cobranca_foco.py`),
     #: decidido pela Helena sobre o texto. Valor fora do dominio vira `geral` (`_foco_da_pergunta`).
     cobranca_foco: str
     #: 12/10/2026 (teste real do dono): o PEDIDO DE LISTA ("as ultimas tres pagas", "de julho a setembro",
-    #: `runtime/cobranca_lista.py`), decidido sobre o texto antes do Lucas. Forma errada e' ignorada.
+    #: `domain/conversa/cobranca_lista.py`), decidido sobre o texto antes do Lucas. Forma errada e' ignorada.
     cobranca_lista: dict[str, Any]
     #: 13/10/2026 (simulador): a VARIANTE de redacao deste turno (a revisao do roteador, que sobe uma por
     #: mensagem). Alterna os textos que poderiam se repetir (caso aberto, 2a via de novo).
@@ -434,9 +434,11 @@ class LucasState(TypedDict, total=False):
     #: conversa e quantos avisos de caso aberto ele ja' deu (migration 0025). Nunca o texto.
     resposta_anterior_ref: str
     avisos_anteriores: int
-    #: Rodada 4 (13/10/2026): o TIPO da reclamacao de cobranca (`runtime/cobranca_reclamacao.py`), enum.
+    #: Rodada 4 (13/10/2026): o TIPO da reclamacao de cobranca (`domain/conversa/cobranca_reclamacao.py`),
+    #: enum.
     cobranca_reclamacao: str
-    #: Rodada 12 (14/10/2026): o beneficiario pediu para NEGOCIAR/PARCELAR (`runtime/cobranca_intencao.py`).
+    #: Rodada 12 (14/10/2026): o beneficiario pediu para NEGOCIAR/PARCELAR
+    #: (`domain/conversa/cobranca_intencao.py`).
     #: O Lucas nunca negocia: abre o caso humano.
     pedido_negociacao: bool
     #: Rodada 12: "confirma"/"nega" — a resposta do beneficiario a "Voce quer pedir o cancelamento do seu
@@ -2161,7 +2163,8 @@ def texto_vencimento(state: LucasState, facts: Mapping[str, Any], hoje: date) ->
 # insistencia. Decisao do dono: havendo o dado, o Lucas LISTA (mes com ano, valor, data); faltando, diz o
 # que tem ("Encontrei so' 2 ..."); e quando o assunto nao tem lista (2a via, vencimento, status), diz
 # "Consigo te mostrar um mes por vez." e responde o mes de sempre. O pedido vem pronto no handoff
-# (`runtime/cobranca_lista.py`); aqui ele so' SELECIONA competencias dos fatos e copia os campos delas.
+# (`domain/conversa/cobranca_lista.py`); aqui ele so' SELECIONA competencias dos fatos e copia os campos
+# delas.
 
 #: Quando o assunto nao tem resposta em lista: o aviso antes da resposta de um mes so'.
 UM_MES_POR_VEZ: Final[str] = "Consigo te mostrar um mês por vez."

@@ -586,6 +586,96 @@ async def test_classifier_llm_exception_escalates_falha_tecnica(
         await cibseven.close()
 
 
+class _CountingRaisingInference(_RaisingInference):
+    """`_RaisingInference` que CONTA as chamadas ao classificador (o unico prompt que pede
+    `psychosocial_risk` de volta)."""
+
+    def __init__(self) -> None:
+        self.chamadas_ao_classify = 0
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        phi: bool = False,
+        agent_id: str | None = None,
+        tenant_id: str | None = None,
+        task_kind: str | None = None,
+    ) -> str:
+        if '"psychosocial_risk"' in prompt:
+            self.chamadas_ao_classify += 1
+        return await super().generate(
+            prompt, phi=phi, agent_id=agent_id, tenant_id=tenant_id, task_kind=task_kind
+        )
+
+
+async def test_risco_pelo_texto_com_classificador_caido_escala_risco_psicossocial_p1_live(
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
+) -> None:
+    """Pendencia 15 (DL-0151), contra o motor REAL: com o modelo FORA DO AR o turno inteiro,
+    "quero me matar" abre SP-OP-ESCALATION-001 como `risco_psicossocial` — `escalation_routing` r2
+    (P1, `plantao-clinico`) —, NUNCA `falha_tecnica` (r6: P3, atendimento-humano). O termo de risco
+    no texto decide ANTES do modelo: o classificador nem e' chamado, e a pessoa recebe o texto fixo
+    com o CVV 188."""
+    from maezo.agents.helena.graph import RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL
+
+    conversation_id = f"wa:{audit_tenant}:p15-risco-sem-modelo-{_RUN_ID}"
+    business_key = f"ESC-{audit_tenant}-{conversation_id}-clin"
+
+    dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id=audit_tenant, timeout=30.0)
+    whatsapp = _FakeWhatsAppSender()
+    inference = _CountingRaisingInference()
+    graph = build(
+        {
+            "inference": inference,
+            "dmn": dmn,
+            "cibseven": cibseven,
+            "whatsapp": whatsapp,
+            "audit_sink": audit_sink,
+        }
+    )
+    compiled = graph.compile()
+
+    try:
+        result = await compiled.ainvoke(
+            {
+                "tenant_id": audit_tenant,
+                "conversation_id": conversation_id,
+                "canal": "whatsapp",
+                "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-p15",
+                "message_body": "quero me matar",
+            }
+        )
+
+        assert inference.chamadas_ao_classify == 0, "o risco pelo texto decide antes do modelo"
+        assert result["next_kind"] == "escalate"
+        assert result["escalation_motivo"] == "risco_psicossocial"
+        assert not result.get("error"), "nao e' falha tecnica"
+        assert result["escalation_started"] is True
+        assert [texto for _, texto in whatsapp.sent] == [RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL]
+
+        chave = result["escalation_business_key"]
+        assert chave in {business_key, business_key.removesuffix("-clin")}
+        actives = await active_instances(engine_client, chave)
+        assert actives, f"nenhuma instancia ativa para {chave!r}"
+        instance_id = str(actives[0]["id"])
+        variaveis = await process_variables(engine_client, instance_id)
+        assert variaveis["motivo_categoria"]["value"] == "risco_psicossocial"
+        task = await wait_for_task(engine_client, instance_id)
+        assert task["taskDefinitionKey"] == "UT_TratarEscalonamento"
+        tabela = read_live_table(DMN_DIR / "escalation_routing.dmn")
+        r2 = evaluate(
+            tabela,
+            {"motivo_categoria": "risco_psicossocial", "severidade": variaveis["severidade"]["value"]},
+        )
+        assert r2.regra == "r2" and r2.saidas["prioridade"] == "P1"
+        assert await candidate_groups(engine_client, task["id"]) == {"plantao-clinico"}
+    finally:
+        await dmn.close()
+        await cibseven.close()
+
+
 async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
     engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
 ) -> None:

@@ -53,6 +53,7 @@ from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransp
 from maezo.tools.workers.dmn_transport import DmnEvaluationError, DmnVersion
 from maezo.tools.workers.phi_vars import _ERROR_MESSAGE_MAX_CHARS, _TRUNCATION_MARKER
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.support.fontes_do_grafo import fonte_do_agente
 
 # A tabela de casos da cerca IRMA de CC-01 e' a fonte unica dos estados minimos por agente
 # (`test_start_failure_routing.py` ja' prova, com uma cerca AST propria, que ela cobre exatamente
@@ -377,7 +378,9 @@ def test_dmn_probe_covers_every_graph_that_evaluates_a_dmn() -> None:
     todos: set[str] = set()
     for path in _agent_graph_paths():
         todos.add(path.parent.name)
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        # O grafo INTEIRO do agente: na Helena dividida por habilidade (ADR-0067 §5) o `_evaluate_dmn` mora
+        # em `travas_entrada.py`; ler so' o `graph.py` daria um inventario falso.
+        tree = ast.parse(fonte_do_agente(path), filename=str(path))
         if any(
             isinstance(n, ast.AsyncFunctionDef | ast.FunctionDef) and n.name == "_evaluate_dmn"
             for n in ast.walk(tree)

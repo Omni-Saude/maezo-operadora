@@ -90,8 +90,38 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+// O App so' ouve `visibilitychange` depois que o efeito passivo do estado autenticado roda. Quando a
+// sessao resolve FORA de um `act` (fetch mockado ja' resolvido), o React agenda esse efeito no
+// Scheduler: o DOM autenticado ja' aparece (o `findBy*` resolve) e o listener ainda nao existe. Um
+// evento disparado nessa janela e' perdido e o App fica autenticado (flaky no CI, sob carga). Quem
+// dispara a revalidacao visivel espera antes o listener REAL do App estar registrado.
+let visibilityListeners = 0;
+
+async function showDocument() {
+  await waitFor(() => expect(visibilityListeners).toBe(1));
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
+}
+
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn());
+  visibilityListeners = 0;
+  const add = document.addEventListener.bind(document);
+  const remove = document.removeEventListener.bind(document);
+  vi.spyOn(document, "addEventListener").mockImplementation(
+    (type, listener, options) => {
+      add(type, listener, options);
+      if (type === "visibilitychange") visibilityListeners += 1;
+    },
+  );
+  vi.spyOn(document, "removeEventListener").mockImplementation(
+    (type, listener, options) => {
+      remove(type, listener, options);
+      if (type === "visibilitychange") visibilityListeners -= 1;
+    },
+  );
 });
 
 afterEach(() => {
@@ -299,10 +329,7 @@ it("invalida a sessão quando a revalidação visível recebe 401", async () => 
   expect(
     await screen.findByRole("heading", { name: "Área de colaboradores" }),
   ).toBeInTheDocument();
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    value: "visible",
-  });
+  await showDocument();
   fireEvent(document, new Event("visibilitychange"));
   expect(
     await screen.findByRole("heading", { name: "Sua sessão não está ativa" }),
@@ -320,10 +347,7 @@ it("remove o workspace antes de aplicar uma mudança de audiência", async () =>
   expect(
     screen.getByRole("region", { name: "Filas de colaboradores" }),
   ).toBeInTheDocument();
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    value: "visible",
-  });
+  await showDocument();
   fireEvent(document, new Event("visibilitychange"));
   expect(
     screen.queryByRole("region", { name: "Filas de colaboradores" }),
@@ -368,10 +392,7 @@ it("substitui o serviço externo e descarta a consulta antiga após revalidar a 
   const oldSignal = oldCaseCall?.[1]?.signal;
   expect(oldSignal).toBeInstanceOf(AbortSignal);
 
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    value: "visible",
-  });
+  await showDocument();
   fireEvent(document, new Event("visibilitychange"));
   expect(
     await screen.findByRole("heading", { name: "Área do prestador" }),
@@ -481,10 +502,7 @@ it("alcança caixa e histórico do caso e aborta ambas as leituras na revalidaç
     /csrf-secret|opaque-principal|beneficiary/,
   );
 
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    value: "visible",
-  });
+  await showDocument();
   fireEvent(document, new Event("visibilitychange"));
   expect(
     await screen.findByRole("heading", { name: "Área do prestador" }),
@@ -661,10 +679,7 @@ it("ignora resposta GET antiga que chega depois de uma invalidação 401", async
   expect(
     await screen.findByRole("heading", { name: "Área de colaboradores" }),
   ).toBeInTheDocument();
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    value: "visible",
-  });
+  await showDocument();
   act(() => {
     document.dispatchEvent(new Event("visibilitychange"));
     document.dispatchEvent(new Event("visibilitychange"));
@@ -782,22 +797,27 @@ it("orienta o foco no logout confirmado e no retry após falha", async () => {
 });
 
 it("revalidação automática anuncia o estado sem focar o destino", async () => {
+  const initial = deferred<Response>();
   const revalidated = deferred<Response>();
   vi.mocked(fetch)
-    .mockResolvedValueOnce(jsonResponse(session()))
+    .mockReturnValueOnce(initial.promise)
     .mockReturnValueOnce(revalidated.promise);
   render(<App />);
+  await act(async () => {
+    initial.resolve(jsonResponse(session()));
+  });
   const logout = await screen.findByRole("button", {
     name: "Sair com segurança",
   });
+  expect(visibilityListeners).toBe(1);
+  expect(fetch).toHaveBeenCalledTimes(1);
   logout.focus();
   Object.defineProperty(document, "visibilityState", {
     configurable: true,
     value: "visible",
   });
   fireEvent(document, new Event("visibilitychange"));
-  // O estado "revalidando" entra num re-render assincrono depois do evento; getBy sincrono corria
-  // na frente dele (flaky no CI).
+  expect(fetch).toHaveBeenCalledTimes(2);
   const loading = await screen.findByRole("heading", {
     name: "Revalidando sua sessão",
   });

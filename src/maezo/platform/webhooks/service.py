@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import signal
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -248,6 +249,7 @@ def _build_dispatcher(
         inference=InferenceProvider(model_tiers=_helena_model_tiers()),
     )
     seam_context = build_agent_seam_context(tenant=settings.tenant_id, agent_id="helena")
+    roteador_inference = _inferencia_do_roteador(settings, seam_context)
     # Gap `WEBHOOK-WAMID-DEDUP` (owner decisions R-071/R-072/R-073): the durable dedup registry
     # over the repurposed `driver_idempotency` table. Built HERE, in the one place that already
     # owns the mandatory DSN and the keyed pseudonymizer, so BOTH legs of the guard — the inbound
@@ -354,6 +356,15 @@ def _build_dispatcher(
         helena_dependentes_nome_enabled=settings.helena_dependentes_nome,
         # BASE DE SAUDE (DL-0118, ADR-0064): `MAEZO_HELENA_BASE_SAUDE`, default `false` (so' dev).
         helena_base_saude_enabled=settings.helena_base_saude,
+        # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134): `MAEZO_HELENA_ROTEADOR`, default `desligado` (so' dev).
+        helena_roteador=settings.helena_roteador,
+        roteador_inference=roteador_inference,
+        # ADR-0067 fase 3: o pacote de comportamento da Helena escolhe o modelo do roteador por aqui.
+        fabrica_de_inferencia=functools.partial(_inferencia_dedicada, seam_context),
+        roteador_concorrencia=settings.helena_roteador_concorrencia,
+        helena_roteador_conversas=_conversas_do_roteador(settings.helena_roteador_conversas),
+        # COBERTURA (DL-0140): `MAEZO_HELENA_COBERTURA_MODO`, default `simples`.
+        cobertura_modo=settings.helena_cobertura_modo,
         # SAUDE GERATIVA (DL-0119, ADR-0065): `MAEZO_HELENA_SAUDE_GERATIVA` + allowlist, default `false` (so'
         # dev).
         saude_gerativa=_saude_gerativa(settings),
@@ -955,7 +966,7 @@ async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
     )
 
 
-async def _aquecer_catalogo(dispatcher: Any) -> None:
+async def aquecer_catalogo(dispatcher: Any) -> None:
     """Carrega o catalogo de procedimentos (rota TINA v1.14) e agenda o indice (DL-0128). Nunca levanta."""
     busca = getattr(getattr(dispatcher, "saude_gerativa", None), "catalogo", None)
     leitor = getattr(getattr(dispatcher, "consultas_plano", None), "consultar_catalogo_procedimentos", None)
@@ -970,12 +981,17 @@ async def _aquecer_catalogo(dispatcher: Any) -> None:
         logger.warning("catalogo_procedimentos_aquecimento_falhou", error_type=type(exc).__name__)
 
 
-async def _bring_up_dependencies(state: WebhookState) -> None:
+async def _bring_up_dependencies(state: WebhookState, *, so_o_agente: bool = False) -> None:
     """STEP A: bounded, non-fatal. Pure dispatcher CONSTRUCTION (no I/O) followed by the ONE
     bounded bring-up I/O this receiver now performs — the durable checkpointer's connect+setup()
     (T4b), bounded by `dep_connect_timeout_s`. Any failure leaves `state.dispatcher` `None` —
     `/webhook` degrades to the explicit 501 for a message needing dispatch (never a fabricated
-    dispatch, never a silently-stateless prod dispatch)."""
+    dispatch, never a silently-stateless prod dispatch).
+
+    `so_o_agente` (ADR-0067 fase 4b): a MESMA composicao, para o servico do agente de entrada remoto
+    (`maezo.platform.agente_remoto`) — as dependencias do grafo e dos nos (costuras cercadas, consultas do
+    plano, saude gerativa, checkpointer) sem o que so' o receptor usa: a ponte do acesso, o Lucas e o acesso.
+    """
     try:
         state.dispatcher, state.cibseven_transport = _build_dispatcher(state.settings)
         logger.info("webhook_dispatcher_ready", tenant=state.settings.tenant_id)
@@ -1008,7 +1024,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         return
     logger.info("webhook_effect_seams_gated", tenant=state.settings.tenant_id, detail=detail)
 
-    if state.settings.acesso_beneficiario:
+    if state.settings.acesso_beneficiario and not so_o_agente:
         # DL-0083: a ponte com os agentes existe ANTES de o Lucas e a identidade serem construidos, para que
         # os dois resolvam pela referencia verificada e nunca pelo telefone.
         from .whatsapp.acesso_ponte import RefsVerificadas
@@ -1018,7 +1034,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
     # NUMERO UNICO, onda (d): o turno do Lucas, so' com o roteador ligado, sob a MESMA assercao de
     # boot. Ligado e quebrado = recusa servir (o mesmo formato de um lexico invalido).
     try:
-        state.lucas_turno = _build_lucas_turno(state.settings, state.dispatcher)
+        state.lucas_turno = None if so_o_agente else _build_lucas_turno(state.settings, state.dispatcher)
     except Exception as exc:  # isolated: liveness/readiness must stay up.
         state.dispatcher = None
         state.dispatcher_error = f"lucas turn build failed — refusing to serve: {type(exc).__name__}: {exc}"
@@ -1069,7 +1085,7 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
     # DL-0083: o acesso do beneficiario. Ligado e quebrado (contrato nao pinado, chave ausente...) = recusa
     # servir.
     try:
-        state.acesso = _build_acesso(state.settings, state.dispatcher)
+        state.acesso = None if so_o_agente else _build_acesso(state.settings, state.dispatcher)
     except Exception as exc:  # isolated: liveness/readiness must stay up.
         state.dispatcher = None
         state.dispatcher_error = f"access build failed — refusing to serve: {type(exc).__name__}: {exc}"
@@ -1100,6 +1116,18 @@ async def build_live_dispatcher(settings: WhatsAppWebhookSettings) -> WebhookSta
     # STEP A: bring up dispatch dependencies — pure construction + the ONE bounded I/O (the T4b
     # durable checkpointer connect+setup, `dep_connect_timeout_s`-bounded; module docstring).
     await _bring_up_dependencies(state)
+    return state
+
+
+async def build_agent_dependencies(settings: WhatsAppWebhookSettings) -> WebhookState:
+    """As dependencias do turno do agente de entrada, para o SERVICO dele (ADR-0067 fase 4b).
+
+    A mesma composicao do receptor (`_bring_up_dependencies`, nunca uma copia), sem a ponte do acesso, o
+    Lucas e o acesso, que so' o receptor usa. O `dispatcher` devolvido e' so' o PORTADOR dessas dependencias:
+    o servico do agente nao despacha mensagem nenhuma por ele. Nunca levanta (como `build_live_dispatcher`).
+    """
+    state = WebhookState(settings=settings)
+    await _bring_up_dependencies(state, so_o_agente=True)
     return state
 
 
@@ -1149,9 +1177,7 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     # PLANO no boot (uns 4 minutos), para a primeira pergunta de cobertura ja' achar o nome oficial.
     catalogo_task: asyncio.Task[None] | None = None
     if state.dispatcher is not None:
-        catalogo_task = asyncio.create_task(
-            _aquecer_catalogo(state.dispatcher), name="catalogo-procedimentos"
-        )
+        catalogo_task = asyncio.create_task(aquecer_catalogo(state.dispatcher), name="catalogo-procedimentos")
 
     logger.info("webhook_receiver_running")
     await shutdown.wait()
@@ -1191,6 +1217,12 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
         with contextlib.suppress(Exception):
             await dedup.aclose()
 
+    # ADR-0067 fase 4b: o cliente HTTP do agente de entrada remoto (so' com MAEZO_AGENTE_DE_ENTRADA_URL).
+    fechar_agente = getattr(getattr(state.dispatcher, "agente_de_entrada", None), "aclose", None)
+    if fechar_agente is not None:
+        with contextlib.suppress(Exception):
+            await fechar_agente()
+
     logger.info("webhook_receiver_stopped", tenant=settings.tenant_id)
 
 
@@ -1221,3 +1253,55 @@ def _attach_administrative_runtime(
     state.dispatcher.administrative_runtime = runtime
     state.dispatcher.administrative_binding = binding.model_copy(deep=True)
     return runtime
+
+
+def _inferencia_do_roteador(settings: Any, seam_context: Any) -> Any:
+    """ADR-0066 (21/10/2026): o provedor PROPRIO do roteador de habilidades, so' com a chave ligada e so'
+    na zona PHI regional (`bedrock_br`): mesmo adaptador e mesmas garantias, com prazo REAL curto (tempo de
+    leitura do cliente), teto de saida pequeno, sem retentativa e pool de threads proprio. Fora disso, `None`
+    (o grafo usa o provedor da conversa, como na F1). Passa pela mesma porta (`build_inference_seam`)."""
+    if settings.helena_roteador == "desligado":
+        return None
+    return _inferencia_dedicada(
+        seam_context,
+        modelo=settings.helena_roteador_modelo,
+        prazo_s=settings.helena_roteador_prazo_s,
+        max_tokens=settings.helena_roteador_max_tokens,
+        concorrencia=settings.helena_roteador_concorrencia,
+    )
+
+
+def _inferencia_dedicada(
+    seam_context: Any, *, modelo: str, prazo_s: float, max_tokens: int, concorrencia: int
+) -> Any:
+    """Um provedor de inferencia DEDICADO na zona PHI regional (`bedrock_br`): prazo real curto, teto de
+    saida, sem retentativa e pool proprio, pela mesma costura do gateway. Fora do `bedrock_br`, `None`.
+
+    E' tambem a `fabrica_de_inferencia` do despachante (ADR-0067 fase 3): o pacote de comportamento do agente
+    escolhe modelo e orcamento por ela, sem a plataforma mudar."""
+    from maezo.gateway.tool_registry import build_inference_seam
+    from maezo.runtime.inference import InferenceProvider
+    from maezo.runtime.inference.settings import InferenceSettings
+
+    base = InferenceSettings()
+    if base.provider != "bedrock_br":
+        return None
+    curta = base.model_copy(
+        update={
+            "model": modelo.strip() or base.model,
+            "timeout_s": prazo_s,
+            "max_tokens": max_tokens,
+            "max_retries": 0,
+            "dedicated_workers": concorrencia,
+        }
+    )
+    return build_inference_seam(
+        seam=seam_context, inner=InferenceProvider(curta, model_tiers=_helena_model_tiers())
+    )
+
+
+def _conversas_do_roteador(bruto: str) -> frozenset[str]:
+    """F2 (ADR-0066, DL-0136): a allowlist do roteador ativo, no formato (ids keyed) da saude gerativa."""
+    from maezo.conhecimento.saude_gerativa import conversas_autorizadas
+
+    return conversas_autorizadas(bruto)

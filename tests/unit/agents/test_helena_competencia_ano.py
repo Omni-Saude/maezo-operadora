@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from maezo.agents.helena.graph import HelenaGraph, new_helena_state
-from maezo.runtime.competencia import hoje_em_brasilia, resolver_ano_da_competencia
+from maezo.domain.conversa.competencia import hoje_em_brasilia, resolver_ano_da_competencia
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink

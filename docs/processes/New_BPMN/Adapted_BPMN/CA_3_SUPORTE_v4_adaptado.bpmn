@@ -717,6 +717,7 @@
     </bpmn:endEvent>
     <bpmn:boundaryEvent id="S3_B_SLARecovery" name="SLA 2h estourado" cancelActivity="false" attachedToRef="S3_T_Recovery">
       <bpmn:documentation>Origem: M2_Boundary_SLARecovery</bpmn:documentation>
+      <bpmn:documentation>W2 CORP-2.2: default explícito deste modelo — PT2H, SLA/urgência operacional do atendimento (não é prazo regulatório; as classes de prazo da RN 623/2024 art. 12 não se aplicam a este timer). Alinhado ao contrato do host: 'Service recovery humano em até 2h'. Ratificação da equipe pendente.</bpmn:documentation>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_22</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT2H</bpmn:timeDuration>
@@ -724,6 +725,7 @@
     </bpmn:boundaryEvent>
     <bpmn:boundaryEvent id="S3_B_D1" name="D-1 do prazo" cancelActivity="false" attachedToRef="S3_T_Cumprir">
       <bpmn:documentation>Origem: AH_Boundary_PrazoProtocolo</bpmn:documentation>
+      <bpmn:documentation>W2 CORP-2.2: contrato do valor — prazoAlertaProtocolo é produzido pelo formulário de S3_T_Protocolo ('Produz protocoloId, prazoRetorno, prazoAlertaProtocolo (D-1)') antes da entrada nesta espera; sem fallback de data: ausência da variável = falha visível na avaliação do timer (fail-fast), nunca prazo presumido. Timer de urgência (D-1), não prazo regulatório RN 623/2024 art. 12.</bpmn:documentation>
       <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_19</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${prazoAlertaProtocolo}</bpmn:timeDate>
@@ -821,11 +823,12 @@
       <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_05</bpmn:outgoing>
       <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_06</bpmn:outgoing>
     </bpmn:exclusiveGateway>
-    <bpmn:task id="S4_T_Ouvidoria" name="Encaminhar à ouvidoria/ANS com retorno">
+    <bpmn:userTask id="S4_T_Ouvidoria" name="Encaminhar à ouvidoria/ANS com retorno">
       <bpmn:documentation>⚠️ LACUNA LA-05 [SEM ORIGEM]: ouvidoria citada como destino nas fontes, sem processo. Tarefa abstrata mantida para a visão E2E. | Origem: M2_End_NaoRecuperado, AH_T_CumprirProtocolo</bpmn:documentation>
+      <bpmn:documentation>W2 CORP (IA-09): tipagem userTask — intenção documentada no GUIA: ação humana da lane 'Resolução e encaminhamento' (verbo 'encaminhar'). A devolutiva v4 mantinha tarefa abstrata; W2 resolve o achado tipando SEM inventar binding de executor/alçada/formulário — LA-05 e A-01 permanecem em aberto.</bpmn:documentation>
       <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_06</bpmn:incoming>
       <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_07</bpmn:outgoing>
-    </bpmn:task>
+    </bpmn:userTask>
     <bpmn:exclusiveGateway id="S4_GW_MergeAprender" name="">
       <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_03</bpmn:incoming>
       <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_07</bpmn:incoming>
@@ -862,6 +865,7 @@
     </bpmn:endEvent>
     <bpmn:boundaryEvent id="S4_B_Silencio" name="24h sem reação" attachedToRef="S4_T_Confirmar">
       <bpmn:documentation>⚠️ PD-03 / I-07 [PENDENTE]. | Origem: M3_Boundary_SemConfirmacao</bpmn:documentation>
+      <bpmn:documentation>W2 CORP-2.2: default explícito deste modelo — PT24H, SLA/urgência operacional de confirmação (não é prazo regulatório; as classes de prazo da RN 623/2024 art. 12 não se aplicam a este timer). Convenção 24h do corpus (mesmo valor dos SLAs de escalação de S3). PD-03/I-07 permanece pendente de ratificação.</bpmn:documentation>
       <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_08</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT24H</bpmn:timeDuration>

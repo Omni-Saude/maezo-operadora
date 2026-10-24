@@ -172,7 +172,8 @@ resource "aws_ecs_task_definition" "agente" {
   cpu                      = tostring(var.agent_cpu)
   memory                   = tostring(var.agent_memory)
   execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  # Runtime remoto (agente-remoto.tf): role PROPRIA e minima (Bedrock, pacotes, ECS Exec; sem custodia).
+  task_role_arn = local.agente_remoto_em[each.key] ? aws_iam_role.agente_remoto_task[0].arn : aws_iam_role.task.arn
 
   runtime_platform {
     cpu_architecture        = "X86_64"
@@ -189,11 +190,13 @@ resource "aws_ecs_task_definition" "agente" {
     image     = "${aws_ecr_repository.app.repository_url}@${var.agents_image_digest}"
     essential = true
 
-    command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.runtime.agent_runtime"]
+    # Com `helena_agente_remoto` a helena executa o turno (agente-remoto.tf); os demais seguem o daemon.
+    command = local.agente_remoto_em[each.key] ? local.agente_remoto_comando : ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.runtime.agent_runtime"]
 
     portMappings = [{ containerPort = 8000, protocol = "tcp" }]
 
-    environment = concat(local.db_env, [
+    # Runtime remoto: o contrato do receptor (agente-remoto.tf), nao o bloco abaixo.
+    environment = local.agente_remoto_em[each.key] ? local.agente_remoto_environment : concat(local.db_env, [
       { name = "DSN_SCHEME", value = "postgresql+asyncpg" },
       { name = "TENANT_ID", value = var.tenant_id },
       { name = "AGENT_ID", value = each.key },
@@ -266,8 +269,15 @@ resource "aws_ecs_task_definition" "agente" {
       # explicito: `supported_model_versions` e' vazio de proposito, ja que a repo nao
       # sanciona nenhum id para a zona de saude. Escolher e' ato registrado.
       { name = "MAEZO_PHI_ENDPOINT_URL", value = var.phi_endpoint_url },
+      # Excecao regional do dev autorizada pelo DPO (excecao-regional-phi.tf); vazio = sa-east-1.
+      { name = "MAEZO_PHI_EXCECAO_REGIONAL", value = var.phi_excecao_regional },
       { name = "MAEZO_PHI_VENDOR_DPA_REF", value = var.phi_vendor_dpa_ref },
       { name = "MAEZO_INFERENCE_MODEL", value = each.value.provider == "bedrock_br" || each.value.provider == "br_resident" ? var.phi_model_id : "" },
+      # Protecoes de TODA chamada a zona PHI (inferencia-alarmes.tf): prazo REAL (tempo de leitura do cliente), teto
+      # de tokens de saida e pool proprio de threads.
+      { name = "MAEZO_INFERENCE_TIMEOUT_S", value = tostring(var.inferencia_prazo_s) },
+      { name = "MAEZO_INFERENCE_MAX_TOKENS", value = tostring(var.inferencia_max_tokens) },
+      { name = "MAEZO_INFERENCE_DEDICATED_WORKERS", value = tostring(var.inferencia_workers) },
       # A chave viaja para o container SO' quando ligada. Assim ela aparece — ou nao —
       # no diff da task definition, e "quem ligou isso?" tem resposta no historico.
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },
@@ -276,7 +286,7 @@ resource "aws_ecs_task_definition" "agente" {
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ])
 
-    secrets = concat(local.db_secrets_maezo, [
+    secrets = local.agente_remoto_em[each.key] ? local.agente_remoto_secrets : concat(local.db_secrets_maezo, [
       # Sem esta, o Pseudonymizer falha FECHADO em producao (ADR-0035) — nunca cai
       # para pseudonimo reversivel.
       { name = "PHI_HMAC_KEY", valueFrom = "${aws_secretsmanager_secret.phi_hmac_key.arn}:key::" },

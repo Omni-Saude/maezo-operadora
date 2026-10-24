@@ -389,6 +389,51 @@ class WhatsAppWebhookSettings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("MAEZO_HELENA_BASE_SAUDE", "helena_base_saude"),
     )
+    # ROTEADOR DE HABILIDADES (ADR-0066, DL-0134, dono, 21/10/2026, so' dev): `desligado` (padrao)
+    # e' a Helena de antes byte a byte; `sombra` (F1) roda o roteador e as travas em paralelo e so' registra a
+    # decisao no log, sem mudar resposta; `ativo` (F2, so' na allowlist) ainda vale como `sombra`.
+    helena_roteador: Literal["desligado", "sombra", "ativo"] = Field(
+        default="desligado",
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR", "helena_roteador"),
+    )
+    # ORCAMENTO DO ROTEADOR (ADR-0066, 21/10/2026): o modelo (vazio = o da zona PHI), o prazo REAL da chamada
+    # (o
+    # tempo de leitura do cliente: a thread volta no prazo) e o teto de tokens de saida. Pool e concorrencia
+    # proprios (`helena_roteador_concorrencia`): com o limite cheio, o turno segue sem o roteador.
+    helena_roteador_modelo: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_MODELO", "helena_roteador_modelo"),
+    )
+    helena_roteador_prazo_s: float = Field(
+        default=3.0,
+        ge=0.5,
+        le=10.0,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_PRAZO_S", "helena_roteador_prazo_s"),
+    )
+    helena_roteador_max_tokens: int = Field(
+        default=256,
+        ge=16,
+        le=1024,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_MAX_TOKENS", "helena_roteador_max_tokens"),
+    )
+    helena_roteador_concorrencia: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_CONCORRENCIA", "helena_roteador_concorrencia"),
+    )
+    # F2 (ADR-0066, DL-0136): as conversas em que o roteador ATIVO decide (ids keyed por virgula; tambem
+    # precisam estar na allowlist da saude gerativa). Vazia = ninguem. Na F2 so' as conversas do simulador.
+    helena_roteador_conversas: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAEZO_HELENA_ROTEADOR_CONVERSAS", "helena_roteador_conversas"),
+    )
+    # COBERTURA (decisao do dono de 22/10/2026, DL-0140): `simples` (padrao) nunca consulta catalogo/AMH por
+    # procedimento: explica o geral e oferece a equipe; `consulta` = a consulta automatica (atras da chave).
+    helena_cobertura_modo: Literal["simples", "consulta"] = Field(
+        default="simples",
+        validation_alias=AliasChoices("MAEZO_HELENA_COBERTURA_MODO", "helena_cobertura_modo"),
+    )
     # SAUDE GERATIVA (ADR-0065, DL-0119, 17/10/2026): o Claude Haiku 5.5 REDIGE a resposta a perguntas
     # informativas de saude (com checagem antes de enviar), pela ROTA PROPRIA
     # `experimento_global_autorizado_dpo_2026-10-17` (perfil GLOBAL do Bedrock: PODE SAIR DO BRASIL). O dono

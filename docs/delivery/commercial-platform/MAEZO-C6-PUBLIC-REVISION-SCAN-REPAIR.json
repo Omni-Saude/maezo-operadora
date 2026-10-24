@@ -1,0 +1,172 @@
+{
+  "status": "AUTHOR_REPAIR_COMPLETE_INDEPENDENT_RECHECK_PENDING",
+  "head": "6a7c0d9bb093a438d27f0fd7dfdb253c81d41722",
+  "scope": [
+    ".gitleaks.toml",
+    "this additive handoff pair",
+    "ignored private evidence"
+  ],
+  "original_ci": {
+    "run": 39867833818,
+    "job": 120134412477,
+    "conclusion": "RED_PRESERVED"
+  },
+  "scanner": {
+    "version": "8.30.1",
+    "binary_digest": "f414bc2fb952be6c9072b75cb411e3368614ef4b16d48dbd9ad238034afd2302",
+    "invocation": "cwd=private current-tree snapshot; gitleaks dir . --config .gitleaks.toml --redact=100",
+    "history_scanned": false
+  },
+  "source_records": [
+    {
+      "path": ".gitleaks.toml",
+      "file_digest": "601506f34a808d47c1ae39c5d87f39e10942ad4e76e9ae6d5e00cc8bbb8c72dc"
+    },
+    {
+      "path": "docs/delivery/commercial-platform/reviews/maezo-c6-exact-ci-prequalification.json",
+      "file_digest": "3194a26656ddb104963d2ba704b3e1c3dd1be76b028081bdb89dda684815bb33"
+    }
+  ],
+  "original_configuration_digest": "7ff40d8d114d030bb6606db10ef0955711c895c3739cbf5450eb80b4e4908a09",
+  "configuration_delta": {
+    "legacy_entries_zero_based": [
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "legacy_change_only": "targetRules = [generic-api-key]",
+    "first_three_and_default_rules_unchanged": true,
+    "all_other_old_fields_and_bytes_restorable": true,
+    "new_classifier_count": 1,
+    "rule": "generic-api-key",
+    "condition": "AND",
+    "target": "line",
+    "exact_report_path": true,
+    "exact_field": "main_seam_namespace_only.api_compare",
+    "exact_public_revision_literal": true,
+    "source_line": 110,
+    "four_leading_spaces_and_trailing_comma_required": true,
+    "optional_one_preceding_lf_and_line_ending_whitespace": true,
+    "public_revision_digest": "2ced2e5200878da9da43576f9fad04afd9f0629c749516f0c95979910f4545d0"
+  },
+  "baseline_timeline": {
+    "original_full_snapshot": 14,
+    "prior_ambient_outside_owned_delta": 13,
+    "initial_hardened_failed_predicate": 15,
+    "newly_visible_legacy_fixture": 1,
+    "final_retained_ambient": 14,
+    "authorized_public_report_match_removed": 1,
+    "unexpected_new_findings": 0,
+    "global_clean_claim": false
+  },
+  "retained_baseline": [
+    {
+      "rule": "generic-api-key",
+      "path": "deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars",
+      "line": 93
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars",
+      "line": 114
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json",
+      "line": 11
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json",
+      "line": 12
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json",
+      "line": 23
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json",
+      "line": 126
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json",
+      "line": 162
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json",
+      "line": 164
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "src/maezo/gateway/document_requests/composition.py",
+      "line": 267
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "src/maezo/gateway/human/auth_transport.py",
+      "line": 65
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "src/maezo/gateway/human/credentials.py",
+      "line": 72
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "src/maezo/gateway/human/read_credentials.py",
+      "line": 108
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "src/maezo/gateway/staff_cases/publisher.py",
+      "line": 48
+    },
+    {
+      "rule": "generic-api-key",
+      "path": "tests/unit/gateway/human/test_receipt_recording_metadata.py",
+      "line": 42
+    }
+  ],
+  "controls": {
+    "old_configuration_suppresses_identical_legacy_generic_and_vendor_probes": true,
+    "outside_old_allowlist_both_detected": true,
+    "final_legacy_and_outside_placements_detected": 16,
+    "final_public_negative_mutations_detected": 6,
+    "documented_business_examples_still_classified_at_three_legacy_paths": true,
+    "vendor_probes_next_to_business_examples_detected": 3,
+    "business_example_outside_allowed_path_detected": true,
+    "matrix_cases": 10,
+    "matrix_digest": "a96247efa612d8d646ff29eb0ae7224db2514185d1d01b23acd63f860d7b3856",
+    "restored_baseline": 14
+  },
+  "custody": {
+    "private_namespace": "repair-preimages.local/maezo-c6-public-revision-scan-repair-r1",
+    "directories_mode": "0700",
+    "files_mode": "0600",
+    "owner": "ROOT",
+    "original_report_and_failed_predecessors_preserved": true,
+    "original_tree_files": 3592,
+    "original_tree_input_bytes": 58408725,
+    "input_bytes_are_not_native_examined_bytes": true
+  },
+  "remaining_gates": [
+    "original architecture reviewer and independent gatekeeper",
+    "ROOT exact successor freeze and staged preflight",
+    "ROOT commit and exact-head CI"
+  ],
+  "external_source_and_operational_acceptance": "NOT_GRANTED",
+  "publication_snapshot_native_readback": {
+    "retained_ambient_findings": 14,
+    "unexpected_new_findings": 0,
+    "original_report_match_removed": true,
+    "own_handoff_pair_included": true,
+    "planned_review_documents_included": 5,
+    "global_clean_claim": false
+  }
+}

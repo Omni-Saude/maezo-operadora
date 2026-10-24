@@ -26,6 +26,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 
 from maezo.agents.helena import graph as graph_module
+from maezo.agents.helena import graph as helena_graph_module
 from maezo.agents.helena.graph import (
     MEMORIA_CLINICA_JANELA_HORAS,
     RESPOSTA_SINTOMA_SEM_ALERTA,
@@ -463,7 +464,7 @@ def test_despachante_passa_o_historico_e_liga_a_coleta_junto(
         capturado.update(cfg)
         return _Grafo()
 
-    monkeypatch.setattr(dispatch_module, "build", _build)
+    monkeypatch.setattr(helena_graph_module, "build", _build)
     nada = cast(Any, None)
     despachante = dispatch_module.HelenaDispatcher(
         tenant_id="amh",

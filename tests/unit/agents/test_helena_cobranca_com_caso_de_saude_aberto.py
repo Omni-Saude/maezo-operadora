@@ -19,7 +19,7 @@ from maezo.agents.helena.graph import (
     RESPOSTA_ESCALONAMENTO_URGENTE,
     HelenaGraph,
 )
-from maezo.runtime.cobranca_esclarecimento import e_mensagem_curta_sem_ruido_de_cobranca
+from maezo.domain.conversa.cobranca_esclarecimento import e_mensagem_curta_sem_ruido_de_cobranca
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 from tests.unit.agents.test_helena_rodada_2_simulador import (
@@ -219,7 +219,7 @@ async def test_caso_administrativo_aberto_nao_aciona_a_regra() -> None:
 @pytest.mark.parametrize(
     "mensagem",
     [
-        "o plano cobre a consulta do bebê?",  # pista de plano
+        "o bebê já está no meu plano?",  # pista de plano (a cobertura saiu: DL-0154)
         "meu filho está com dor, e a mensalidade?",  # pessoa/saude
         "quero cancelar o plano, e a mensalidade?",  # cancelamento + plano
         "o boleto está errado, fui cobrado duas vezes",  # discordancia: contestacao e' do modelo

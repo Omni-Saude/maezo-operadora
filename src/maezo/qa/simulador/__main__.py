@@ -67,6 +67,21 @@ SAIDA_PREPARO = 2
 SAIDA_MOTOR_SUJO = 3
 
 
+def _telefones_da_linha(valor: str) -> tuple[int, ...] | None:
+    """`--telefones`: "790", "790,791" ou "790-792" -> os numeros (faixa do simulador); vazio -> `None`."""
+    numeros: list[int] = []
+    for parte in (valor or "").split(","):
+        parte = parte.strip()
+        if not parte:
+            continue
+        if "-" in parte:
+            inicio, fim = (int(x) for x in parte.split("-", 1))
+            numeros.extend(range(inicio, fim + 1))
+        else:
+            numeros.append(int(parte))
+    return tuple(numeros) or None
+
+
 def construir_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m maezo.qa.simulador", description=__doc__)
     p.add_argument("--conversas", type=int, default=10)
@@ -83,6 +98,9 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--taxa-falha-tecnica-max", type=float, default=0.05)
     p.add_argument("--sem-juiz", action="store_true")
     p.add_argument("--roteiro", choices=sorted(aceite.ROTEIROS), default=None, metavar="NOME")
+    # Roteiros em PARALELO (22/10/2026): cada roteiro nos SEUS telefones ("790", "790,791" ou "790-792"),
+    # usados em rodizio pelos segmentos (a conversa e' limpa no fim de cada segmento). Vazio = o de sempre.
+    p.add_argument("--telefones", default="", metavar="LISTA")
     return p
 
 
@@ -303,7 +321,9 @@ async def _executar_roteiro(args: argparse.Namespace, armazenamento: Armazenamen
             config=ConfigDoCondutor(concorrencia=1, intervalo_min_s=args.intervalo_min_s),
         )
         # ADR-0065: um roteiro com telefones PROPRIOS (a allowlist da saude gerativa) nao usa a faixa comum.
-        proprios = aceite.TELEFONES_DO_ROTEIRO.get(args.roteiro)
+        proprios = _telefones_da_linha(args.telefones) or aceite.TELEFONES_DO_ROTEIRO.get(args.roteiro)
+        if proprios is not None and args.telefones:
+            proprios = tuple(proprios[i % len(proprios)] for i in range(len(roteiro)))
         if proprios is not None and len(proprios) < len(roteiro):
             raise RuntimeError("simulador: o roteiro tem mais segmentos que telefones proprios")
         planos = [

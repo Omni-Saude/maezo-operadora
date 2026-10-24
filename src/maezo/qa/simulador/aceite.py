@@ -496,7 +496,9 @@ DONO_V1: tuple[Segmento, ...] = (
             ),
             _p(
                 "Meu plano cobre parto?",
-                deve=("obstetr", "(central|aplicativo|portal|pessoa da equipe)"),
+                # Modo simples (decisao do dono de 22/10/2026, DL-0140): a oferta da equipe no lugar
+                # da segmentacao e dos canais (ajuste pela decisao do dono, nao para fazer passar).
+                deve=(r"(a equipe confirma para voce|quer que eu encaminhe)",),
                 nao_deve=("(esta coberto|cobre sim|cobertura garantida|com certeza)",),
             ),
             _p(
@@ -978,7 +980,7 @@ HELENA_V4: tuple[Segmento, ...] = (
                     "consulta com endocrinologista",
                     r"14 dias uteis",
                     "(aplicativo|portal|central)",
-                    "nao consigo confirmar cobertura",
+                    "nao trato de cobertura",  # DL-0154 (dono, 23/10/2026): o aviso da cobertura
                 ),
                 nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _ENCAMINHOU),
             ),
@@ -995,7 +997,8 @@ HELENA_V4: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre ressonância?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("(central|aplicativo|portal|pessoa da equipe)",),
+                # Cobertura fora (decisao do dono de 23/10/2026, DL-0154): so' o aviso com os canais.
+                deve=(r"nao trato de cobertura",),
                 nao_deve=(_COBERTURA_PROMETIDA, r"14 dias uteis", "consulta de especialista"),
             ),
         ),
@@ -1252,22 +1255,17 @@ HELENA_BASE_SAUDE: tuple[Segmento, ...] = (
         "10-pede-pessoa-recusa-e-encerra",
         (
             _p("Quero falar com uma pessoa", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
+            # DL-0131 (roteador ativo / allowlist): a recusa ENCERRA direto o caso P2/P3, sem a confirmacao.
             _p(
                 "Não quero falar com ninguém",
-                escalacao=ESCALACAO_NENHUMA,
-                deve=("quer que eu encerre o seu atendimento", "responda sim para encerrar"),
-            ),
-            _p(
-                "SIM",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=("pronto, encerrei o seu atendimento",),
                 caso_encerrado=True,
             ),
         ),
         resolveu=(
-            "o pedido de pessoa abriu o caso; a recusa recebeu a pergunta de confirmacao; o SIM ENCERROU o "
-            "caso no motor (a instancia nao esta mais ativa) e a pessoa ouviu 'Pronto, encerrei o seu "
-            "atendimento'"
+            "o pedido de pessoa abriu o caso; a recusa ENCERROU o caso no motor (a instancia nao esta mais "
+            "ativa) e a pessoa ouviu 'Pronto, encerrei o seu atendimento'"
         ),
     ),
     Segmento(
@@ -1448,7 +1446,11 @@ HELENA_SAUDE_GERATIVA: tuple[Segmento, ...] = (
 # qualidade da resposta (cistite com o assunto certo, vasectomia pelo Rol x segmentacao).
 _AVISO_DA_COBERTURA = "cobertura final depende de carencia, autorizacao e indicacao medica"
 #: DL-0126: a resposta de cobertura (fatos do plano + aviso) ou a pergunta "para quem e'?" (com dependentes).
-_COBERTURA_OU_PARA_QUEM = rf"({_AVISO_DA_COBERTURA}|antes de eu consultar.{{0,3}}e para quem)"
+#: MODO SIMPLES da cobertura (decisao do dono de 22/10/2026, DL-0140): a Helena nao consulta a cobertura de
+#: um procedimento; explica o geral e oferece a equipe. Os roteiros de cobertura medem ISSO desde entao (o
+#: ajuste veio da decisao do dono, nao para fazer algo passar).
+_OFERTA_SIMPLES = r"(a equipe confirma para voce|quer que eu encaminhe)"
+_COBERTURA_OU_PARA_QUEM = _OFERTA_SIMPLES
 #: DL-0126: a cobertura nunca vira cobranca nem passagem ao Lucas.
 _NAO_E_COBRANCA = ("mensalidade", "boleto", r"\blucas\b", "assistente financeiro", _ENCAMINHOU)
 
@@ -1523,12 +1525,7 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre vasectomia?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(
-                    "vasectomia",
-                    r"(rol da ans|nao encontrei|mais de um procedimento)",
-                    _AVISO_DA_COBERTURA,
-                    r"para voce \(titular\)",
-                ),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=("e so me pedir", _ENCAMINHOU, r"\bnao cobre\b", r"dependente \d", r"e para quem"),
             ),
         ),
@@ -1669,10 +1666,7 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
             _p(
                 "Mamografia",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(
-                    r"(mamografia|para quem|nao encontrei|mais de um)",
-                    r"(cobertura final depende de carencia|antes de eu consultar|ja te passei o que consta)",
-                ),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=_NAO_E_COBRANCA,
             ),
         ),
@@ -1711,7 +1705,7 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
             _p(
                 "E vasectomia?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(vasectomia|para quem|nao encontrei|mais de um)", _COBERTURA_OU_PARA_QUEM),
+                deve=(_COBERTURA_OU_PARA_QUEM,),
                 nao_deve=(*_NAO_E_COBRANCA, r"\btem cobertura\b", r"\bo plano cobre\b"),
             ),
         ),
@@ -1732,15 +1726,12 @@ _TEXTO_ANTIGO_DE_COBERTURA = (
     r"me diga o nome exato",
     r"\bnao cobre\.?$",
     _ENCAMINHOU,
+    # Modo simples (DL-0140): nunca "consta"/"nao consta no Rol" nem as perguntas da consulta.
+    r"consta no rol",
+    r"como esta escrito no pedido medico",
+    r"tem varios tipos no cadastro",
 )
-_SITUACAO_OU_OPCOES = (
-    r"(consta no rol|consta no cadastro|consta, com criterios|consta para o seu plano|nao faz parte da "
-    r"segmentacao"
-    r"|nao consta no rol|encontrei mais de um procedimento parecido|como esta escrito no pedido medico"
-    r"|nao consegui consultar o cadastro agora|antes de eu consultar.{0,3}e para quem"
-    # DL-0129: so' a categoria ("ultrassom") -> pergunta qual e'; escolha de confianca media -> confirmacao.
-    r"|tem varios tipos no cadastro|voce quer saber sobre)"
-)
+_SITUACAO_OU_OPCOES = _OFERTA_SIMPLES
 
 HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
     Segmento(
@@ -1773,13 +1764,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre o procedimento qwxzk para mim?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(como esta escrito no pedido medico|encontrei mais de um)",),
-                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
-            ),
-            _p(
-                "zzkqwy vbnmx",
-                escalacao=ESCALACAO_NENHUMA,
-                deve=(r"quer que eu passe para a nossa equipe",),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
             _p(
@@ -1789,9 +1774,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
                 nao_deve=(_ENCAMINHOU,),
             ),
         ),
-        resolveu=(
-            "duas tentativas sem localizar: parou de perguntar e ofereceu a equipe; com 'nao', sem caso"
-        ),
+        resolveu="o procedimento recebeu o geral e a oferta da equipe (modo simples); com 'nao', sem caso",
     ),
     Segmento(
         "4-remedio-tem-regra-propria",
@@ -1860,18 +1843,12 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre o procedimento qwxzk para mim?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(como esta escrito no pedido medico|encontrei mais de um|tem varios tipos)",),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
-            ),
-            _p(
-                "não sei o nome direito",
-                escalacao=ESCALACAO_NENHUMA,
-                deve=(r"quer que eu passe para a nossa equipe",),
-                nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"nao localizei .sei"),
             ),
             _p("quero sim", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
         ),
-        resolveu="'nao sei o nome' nao virou busca: ofereceu a equipe, e o 'quero sim' abriu o caso",
+        resolveu="o procedimento recebeu a oferta da equipe (modo simples) e o 'quero sim' abriu o caso",
     ),
     Segmento(
         "10-deixa-pra-la-encerra",
@@ -1879,7 +1856,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre o procedimento qwxzk para mim?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(como esta escrito no pedido medico|encontrei mais de um|tem varios tipos)",),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
             _p(
@@ -1911,7 +1888,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
 # sequestra pergunta nova,
 # irritacao sem caso, recusa que encerra, e as perguntas de alerta da batida na cabeca.
 _PEDE_A_LISTA = r"quais exames ou procedimentos"
-_NAO_LOCALIZOU_OU_CONSTA = r"(consta|nao localizei|nao faz parte da segmentacao|nao consegui consultar)"
+_NAO_LOCALIZOU_OU_CONSTA = _OFERTA_SIMPLES
 
 HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
     Segmento(
@@ -1920,14 +1897,14 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "Preciso saber se meu plano cobre alguns exames e procedimentos.",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(_PEDE_A_LISTA,),
-                nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"segmentacao do seu plano", r"e para quem"),
+                deve=(r"(me diga o nome|segmentacao|a equipe confirma)",),
+                nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"e para quem"),
             ),
             _p(
                 "HEMOGRAMA\nTSH\nUltrassom de abdome total\nRaio x de tórax\nEletroencefalograma\nUreia\n"
                 "Creatinina",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"1\) ", r"7\) |nao localizei", _NAO_LOCALIZOU_OU_CONSTA),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"e para quem"),
             ),
         ),
@@ -1939,7 +1916,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre ressonância da coluna lombar?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"para voce \(titular\)", r"se for para um dependente"),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"e para quem"),
             ),
             _p(
@@ -1957,7 +1934,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre o procedimento qwxzk?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(como esta escrito no pedido medico|tem varios tipos|nao localizei)",),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
             _p(
@@ -2014,7 +1991,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
                 "creatinina, ácido úrico, sódio, potássio, cálcio, magnésio, ferritina, vitamina B12, "
                 "ferro sérico, urocultura?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"respondi os 15 primeiros", _NAO_LOCALIZOU_OU_CONSTA),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
         ),
@@ -2087,24 +2064,6 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
         resolveu="a cortesia depois da resposta recebeu resposta curta, sem busca de procedimento",
     ),
     Segmento(
-        "11-faltou-algum-confere-a-lista",
-        (
-            _p(
-                "Vocês cobrem ultrassom de tireoide e dosagem de vitamina D?",
-                escalacao=ESCALACAO_NENHUMA,
-                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
-                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
-            ),
-            _p(
-                "ficou faltando algum?",
-                escalacao=ESCALACAO_NENHUMA,
-                deve=(r"respondi os 2 itens",),
-                nao_deve=(_PEDE_A_LISTA, r"nao localizei"),
-            ),
-        ),
-        resolveu="'ficou faltando algum?' conferiu a lista anterior, sem busca nova",
-    ),
-    Segmento(
         "12-para-quem-dito-depois-da-resposta",
         (
             _p(
@@ -2116,7 +2075,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "na verdade é pra minha mãe",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"quem esta no seu plano",),
+                deve=(r"(quem esta no seu plano|a equipe confirma)",),
                 nao_deve=(_PEDE_A_LISTA, r"ja te passei"),
             ),
         ),
@@ -2128,7 +2087,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre o procedimento zqrvt?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(como esta escrito no pedido medico|tem varios tipos|nao localizei)",),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
             _p(
@@ -2185,11 +2144,74 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
                 "Cobre: exame preventivo do colo do útero, raio x dos seios da face, densitometria óssea, "
                 "mamografia",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"4\) ", _NAO_LOCALIZOU_OU_CONSTA),
+                deve=(_OFERTA_SIMPLES,),
                 nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, _PEDE_A_LISTA),
             ),
         ),
         resolveu="cada item da lista foi procurado (o lote nao perdeu item que sozinho e' achado)",
+    ),
+    # F2 do roteador de habilidades (ADR-0066, DL-0136): o assunto muda DEPOIS de uma resposta de cobertura.
+    Segmento(
+        "18-mensalidade-depois-da-cobertura",
+        (
+            _p(
+                "Meu plano cobre ressonância do joelho?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "agora outra coisa: quanto veio a minha mensalidade deste mês?",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(
+                    _PEDE_A_LISTA,
+                    r"nao localizei",
+                    r"como esta escrito no pedido medico",
+                    r"consta no rol",
+                ),
+            ),
+        ),
+        resolveu="a pergunta de mensalidade depois da cobertura saiu da cobertura",
+    ),
+    Segmento(
+        "19-duvida-de-saude-depois-da-cobertura",
+        (
+            _p(
+                "O convênio cobre ultrassom de tireoide?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "e esse exame serve pra quê?",
+                escalacao=ESCALACAO_NENHUMA,
+                nao_deve=(
+                    _PEDE_A_LISTA,
+                    r"nao localizei",
+                    r"como esta escrito no pedido medico",
+                    _ENCAMINHOU,
+                ),
+            ),
+        ),
+        resolveu="a duvida de saude sobre o exame foi respondida como duvida, nao como nova busca",
+    ),
+    Segmento(
+        "20-carencia-depois-da-cobertura",
+        (
+            _p(
+                "Vocês cobrem tomografia de abdome?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),
+                nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
+            ),
+            _p(
+                "beleza. e eu ainda estou em carência de alguma coisa?",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=(r"carencia",),
+                nao_deve=(_PEDE_A_LISTA, r"como esta escrito no pedido medico"),
+            ),
+        ),
+        resolveu="a pergunta de carencia depois da cobertura foi para os dados do plano",
     ),
 )
 
@@ -2204,7 +2226,7 @@ TELEFONES_DO_ROTEIRO: dict[str, tuple[int, ...]] = {
     ),
     "helena_cobertura_assistida": (791, 792, 793, 794, 795, 796, 797, 798, 790, 791, 792),
     "helena_conversa_cobertura": (
-        *(793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 794, 795, 796, 797, 798, 790, 791),
+        *(793, 794, 795, 796, 797, 798, 790, 791, 792, 793, 795, 796, 797, 798, 790, 791, 792, 793, 794),
     ),
 }
 

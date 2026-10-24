@@ -1260,7 +1260,9 @@ _QUOTED_MANIFEST_CITATIONS: tuple[tuple[str, str, str], ...] = (
     # Same designed outcome.
     # Re-derived 2026-09-25 (GAP-XHITL-4): the `read_historic_variables` surface (+6) and the
     # wrapped surface-count line (+1) moved the unmapped-topics passage by +7. Same outcome.
-    ("gateway/effect_classes.py", "672-675", "decisão humana, não inferência de agente"),
+    # Re-derived 2026-10-20 (DL-0150): the `notificacao_interna_equipe` class block moved the
+    # unmapped-topics passage by +27 (672-675 -> 699-702). Same designed outcome.
+    ("gateway/effect_classes.py", "699-702", "decisão humana, não inferência de agente"),
     ("gateway/effect_classes.py", "175-177", "no class was invented to round out a taxonomy"),
 )
 

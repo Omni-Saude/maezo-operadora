@@ -24,7 +24,6 @@ from typing import Any
 
 import pytest
 
-from maezo.agents.helena import cobertura_rol as cr
 from maezo.agents.helena.graph import (
     RESPOSTA_CASO_ENCERRADO,
     RESPOSTA_CONFIRMA_ENCERRAMENTO,
@@ -34,7 +33,7 @@ from maezo.agents.helena.graph import (
 from maezo.conhecimento import base_saude as b
 from maezo.conhecimento import busca_semantica as bsem
 from maezo.conhecimento import saude_gerativa as sg
-from maezo.runtime.cobranca_intencao import e_confirmacao_pura_do_cancelamento
+from maezo.domain.conversa.cobranca_intencao import e_confirmacao_pura_do_cancelamento
 from tests.unit.agents.test_helena_saude_gerativa import (
     _CLINICA,
     _DONO,
@@ -73,7 +72,8 @@ async def test_pergunta_pessoal_depois_das_opcoes_vai_a_redacao_sem_caso() -> No
     conversa.modelo.respostas.clear()
     sop = await conversa.diz("tenho SOP, é a mesma coisa que cisto?", _CLINICA)
     assert conversa.motivos == [], "nenhum caso (antes: intencao_clinica P2 na enfermagem)"
-    assert _texto(sop).startswith(_RESPOSTA_SOP)
+    # r4 (22/10/2026): sem a linha da fonte a redacao nao sai; a base responde (sem caso).
+    assert not _texto(sop).startswith(_RESPOSTA_SOP)
     ultimo = conversa.transporte.chamadas[-1][1][0]["content"][0]["text"]
     assert "Pergunta geral de saúde." in ultimo
     assert "oferecendo mostrar como marcar" in ultimo, "duvida sobre a propria condicao: a oferta faz sentido"
@@ -85,7 +85,8 @@ async def test_diagnostico_da_pessoa_sem_intencao_clinica_tambem_vai_a_redacao()
         "fui diagnosticada com mioma, é perigoso?", _classify(intent="symptom", population="adult")
     )
     assert conversa.motivos == []
-    assert _texto(resultado).startswith(_RESPOSTA_SOP)
+    # r4 (22/10/2026): sem a linha da fonte a redacao nao sai; a base responde (sem caso).
+    assert not _texto(resultado).startswith(_RESPOSTA_SOP)
     assert "responda sim ou não" not in _texto(resultado).lower(), "nao e' queixa: sem perguntas de alerta"
 
 
@@ -174,7 +175,8 @@ async def test_nao_e_dois_a_oferta_pendente_sem_o_classificador() -> None:
     await conversa.diz("Estou com dor de cabeça", _SINTOMA)
     nao = await conversa.diz("não", _RISCO)
     assert conversa.modelo.respostas == [_RISCO], "o 'nao' as perguntas de alerta nao chamou o classificador"
-    assert _texto(nao).endswith(sg.opcoes_do_sintoma(False))
+    # r4 (22/10/2026): depois das perguntas de alerta, o texto fixo da v4 (com as opcoes 1/2).
+    assert "1) saber onde marcar consulta" in _texto(nao)
     dois = await conversa.diz("2", _RISCO)
     assert conversa.motivos == ["intencao_clinica"]
     assert dois.get("escalation_motivo") == "intencao_clinica"
@@ -408,101 +410,6 @@ def test_pergunta_pessoal_de_saude() -> None:
     assert not sg.pergunta_pessoal_de_saude(n("tenho direito a reembolso?"), "?", assunto_de_saude=True)
 
 
-# =================================================================================================
-# FASE 3.5 — cobertura pelo Rol x segmentacao (decisao D1)
-# =================================================================================================
-
-
-@dataclass(frozen=True)
-class _Car:
-    cumprida: bool | None
-    dias: int | None = 0
-    termina_em: str | None = None
-
-
-@dataclass(frozen=True)
-class _Item:
-    descricao: str
-    situacao: str
-    tem_diretriz: bool = False
-    rol_edicao: str | None = "ROL DE PROCEDIMENTOS 2021 - RN Nº 465/2021"
-    carencias: tuple[_Car, ...] = ()
-
-
-@dataclass(frozen=True)
-class _Cob:
-    itens: tuple[_Item, ...]
-    segmentacao: str | None = "Ambulatorial + Hospitalar com Obstetrícia"
-    truncada: bool = False
-
-
-def test_vasectomia_consta_no_rol_com_o_aviso() -> None:
-    texto = cr.texto_da_cobertura(
-        _Cob((_Item("Vasectomia unilateral", "coberto_rol", tem_diretriz=True, carencias=(_Car(True),)),))
-    )
-    assert "Vasectomia unilateral: consta no Rol da ANS (RN nº 465/2021)" in texto
-    assert "Ambulatorial + Hospitalar com Obstetrícia" in texto
-    assert "diretriz de utilização" in texto
-    assert texto.endswith(cr.AVISO_DA_COBERTURA)
-    assert "é só me pedir" not in texto
-
-
-def test_cobertura_sem_item_generica_e_carencia() -> None:
-    assert cr.texto_da_cobertura(_Cob(())) == cr.RESPOSTA_SEM_ITEM
-    assert cr.texto_da_cobertura(_Cob((_Item("A", "coberto_rol"),), truncada=True)) == cr.RESPOSTA_GENERICA
-    com_carencia = cr.texto_da_cobertura(
-        _Cob((_Item("Parto", "coberto_rol", carencias=(_Car(False, 300, "2027-01-10"),)),))
-    )
-    assert "Há carência em andamento até 10/01/2027." in com_carencia
-    nunca = cr.texto_da_cobertura(_Cob((_Item("X", "fora_do_rol"),)))
-    assert "não cobre" not in nunca and "não consegui confirmar" in nunca
-
-
-def test_termo_da_mensagem() -> None:
-    assert cr.termo_da_mensagem("O plano cobre vasectomia?") == "vasectomia"
-    assert cr.termo_da_mensagem("A laqueadura consta no Rol da ANS?") == "laqueadura"
-    assert cr.termo_da_mensagem("Qual o meu plano?") is None
-
-
-class _ConsultasComCobertura:
-    def __init__(self, view: Any) -> None:
-        self.view = view
-        self.termos: list[str] = []
-
-    async def consultar(self, ref: str, subtipo: str) -> Any:
-        return None
-
-    async def consultar_cobertura(self, ref: str, procedimento: str) -> Any:
-        self.termos.append(procedimento)
-        return self.view
-
-
-async def test_o_grafo_responde_a_cobertura_so_na_allowlist() -> None:
-    from maezo.agents.helena.graph import HelenaGraph
-
-    conversa = _Conversa()
-    fonte = _ConsultasComCobertura(_Cob((_Item("Vasectomia unilateral", "coberto_rol", tem_diretriz=True),)))
-    grafo = HelenaGraph(
-        inference=conversa.modelo,  # type: ignore[arg-type]
-        dmn=None,  # type: ignore[arg-type]
-        cibseven=conversa.cib,
-        audit_sink=None,  # type: ignore[arg-type]
-        whatsapp=conversa.whatsapp,
-        consultas_plano=fonte,  # type: ignore[arg-type]
-        helena_v4_enabled=True,
-        helena_base_saude_enabled=True,
-        base_saude=conversa.base,
-        saude_gerativa=conversa.redator,
-    )
-    estado: Any = {"conversation_id": _DONO, "message_body": "Meu plano cobre vasectomia?"}
-    resposta = await grafo._cobertura_do_procedimento(estado, "amh:psr:v1:x")
-    assert resposta is not None and "consta no Rol da ANS" in resposta["response_text"]
-    assert fonte.termos == ["vasectomia"]
-    assert "ROL DE PROCEDIMENTOS 2021 - RN Nº 465/2021" in resposta["consulta_literais"]
-    fora: Any = {"conversation_id": _OUTRA, "message_body": "Meu plano cobre vasectomia?"}
-    assert await grafo._cobertura_do_procedimento(fora, "amh:psr:v1:x") is None
-
-
 async def test_sem_indice_pronto_a_busca_nao_espera_e_monta_em_segundo_plano() -> None:
     import asyncio
 
@@ -565,7 +472,8 @@ async def test_pergunta_nova_com_alerta_pendente_sai_do_alerta() -> None:
     await conversa.diz("Estou com dor de cabeça", _SINTOMA)
     resultado = await conversa.diz(_B, _CLINICA)
     assert conversa.motivos == []
-    assert _texto(resultado).startswith(_RESPOSTA_SOP)
+    # r4 (22/10/2026): sem a linha da fonte a redacao nao sai; a base responde (sem caso).
+    assert not _texto(resultado).startswith(_RESPOSTA_SOP)
 
 
 async def test_com_caso_aberto_a_duvida_educativa_nao_vira_p1() -> None:
@@ -623,7 +531,7 @@ def test_unidade_de_exame_sozinha_nao_e_quantidade_de_remedio() -> None:
 
 
 def test_faixa_etaria_em_pergunta_de_saude_nao_e_cadastro() -> None:
-    from maezo.platform.webhooks.whatsapp import acesso_cadastro as acad
+    from maezo.agents.helena import cadastro as acad
 
     assert (
         acad.tipo_de_pergunta(
@@ -632,16 +540,6 @@ def test_faixa_etaria_em_pergunta_de_saude_nao_e_cadastro() -> None:
         is None
     )
     assert acad.tipo_de_pergunta("Qual a minha faixa etária no cadastro?") == acad.TIPO_FAIXA
-
-
-def test_o_que_a_segmentacao_abrange_so_na_pergunta_geral() -> None:
-    from maezo.agents.helena.graph import RESPOSTA_COBERTURA_ESPECIFICA, _texto_de_cobertura
-
-    fatos = {"vinculos": [{"segmentacao": "Ambulatorial + Hospitalar com Obstetrícia"}]}
-    geral = _texto_de_cobertura(fatos, geral=True)
-    assert "consultas, exames e terapias" in geral and "internações e cirurgias" in geral and "parto" in geral
-    assert "carência, autorização e indicação médica" in geral and RESPOSTA_COBERTURA_ESPECIFICA in geral
-    assert "consultas, exames" not in _texto_de_cobertura(fatos)
 
 
 async def test_cancelamento_tem_frase_de_passagem_propria() -> None:

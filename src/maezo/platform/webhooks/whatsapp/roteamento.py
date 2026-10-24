@@ -43,8 +43,8 @@ from typing import Any, Final, Literal, Protocol, get_args
 import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
 import structlog
 
+from maezo.domain.conversa.competencia import competencia_valida
 from maezo.gateway.audit_postgres import normalize_dsn, schema_for_tenant
-from maezo.runtime.competencia import competencia_valida
 
 from .pre_roteamento import PreRoteamento, SinaisLexicos
 
@@ -562,7 +562,8 @@ class ConversaRouter:
         self, conversation_id: str
     ) -> tuple[CobrancaSubtipo | None, str | None] | None:
         """O ASSUNTO e o MES da ultima resposta do Lucas (`lucas_cobranca_subtipo`, `lucas_competencia`),
-        para uma pergunta de esclarecimento (`runtime/cobranca_esclarecimento.py`). `None` quando o Lucas
+        para uma pergunta de esclarecimento (`domain/conversa/cobranca_esclarecimento.py`). `None` quando o
+        Lucas
         nao esta' com a conversa (linha ausente, vencida ou da Helena). So' LEITURA."""
         atual = await self._store.ler(conversation_id)
         if atual is None or atual.expira_em < self._relogio() or atual.agente_ativo != "lucas":

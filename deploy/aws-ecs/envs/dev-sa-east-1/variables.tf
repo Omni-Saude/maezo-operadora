@@ -862,6 +862,64 @@ variable "helena_base_saude" {
   nullable    = false
 }
 
+variable "helena_cobertura_modo" {
+  description = <<-EOT
+    Modo da cobertura da Helena (decisao do dono de 22/10/2026, DL-0140): `MAEZO_HELENA_COBERTURA_MODO`.
+    `simples` (default) = nunca consulta catalogo/AMH por procedimento; explica o geral (Rol x segmentacao,
+    carencia, autorizacao e indicacao medica) e oferece a equipe, que confirma (caso so' com "sim").
+    `consulta` = a consulta automatica por procedimento (o codigo continua, atras da chave).
+  EOT
+  type        = string
+  default     = "simples"
+  nullable    = false
+  validation {
+    condition     = contains(["simples", "consulta"], var.helena_cobertura_modo)
+    error_message = "helena_cobertura_modo: simples ou consulta."
+  }
+}
+
+variable "helena_roteador" {
+  description = <<-EOT
+    Roteador de habilidades da Helena (ADR-0066, DL-0134, 21/10/2026): `MAEZO_HELENA_ROTEADOR`.
+    `desligado` (default) = a Helena de antes, byte a byte. `sombra` (F1) roda o roteador (GLM-5 regional) e as
+    travas de entrada EM PARALELO e so' registra a decisao no log `helena_roteador_sombra`, sem mudar resposta,
+    estado, caso ou envio. `ativo` (F2, so' na allowlist) ainda vale como `sombra`. SO' EM DEV.
+  EOT
+  type        = string
+  default     = "desligado"
+  nullable    = false
+  validation {
+    condition     = contains(["desligado", "sombra", "ativo"], var.helena_roteador)
+    error_message = "helena_roteador: desligado, sombra ou ativo."
+  }
+}
+
+variable "helena_roteador_modelo" {
+  description = <<-EOT
+    Modelo PROPRIO do roteador de habilidades da Helena (ADR-0066, DL-0137): `MAEZO_HELENA_ROTEADOR_MODELO`. Modelo de
+    base REGIONAL de sa-east-1 (zona PHI). Vazio = o mesmo da zona PHI (`phi_model_id`). Fixado explicitamente para o
+    roteador nao mudar de modelo quando a zona PHI mudar. A permissao vem de `roteador-modelo.tf` (os quatro papeis).
+  EOT
+  type        = string
+  default     = ""
+  nullable    = false
+  validation {
+    condition     = var.helena_roteador_modelo == "" || can(regex("^[a-z0-9-]+\\.[a-z0-9.:-]+$", var.helena_roteador_modelo))
+    error_message = "helena_roteador_modelo: um id de modelo de base (ex.: mistral.mistral-large-3-675b-instruct) ou vazio."
+  }
+}
+
+variable "helena_roteador_conversas" {
+  description = <<-EOT
+    F2 do roteador de habilidades (ADR-0066, DL-0136): as conversas (ids keyed `wa:amh:hk1_...`) em que o roteador
+    ATIVO decide. Precisam estar tambem em `helena_saude_gerativa_conversas`. Vira `MAEZO_HELENA_ROTEADOR_CONVERSAS`.
+    Vazia = ninguem. Na F2 so' as conversas do simulador; a lista de teste das pessoas entra so' na F4, com o OK do dono.
+  EOT
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
 variable "helena_saude_gerativa" {
   description = <<-EOT
     SAUDE GERATIVA da Helena (ADR-0065, DL-0119, 17/10/2026): `MAEZO_HELENA_SAUDE_GERATIVA`. Default `false` =

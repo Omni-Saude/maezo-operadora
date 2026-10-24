@@ -48,8 +48,11 @@ from typing import Any
 
 import pytest
 
+from tests.support.fontes_do_grafo import arquivos_de_grafo
+
 _RAIZ = Path(__file__).resolve().parents[3]
-_GRAFOS = sorted((_RAIZ / "src" / "maezo" / "agents").glob("*/graph.py"))
+#: ADR-0067 §5: o grafo dividido por habilidade (Helena) continua inteiro sob a cerca.
+_GRAFOS = arquivos_de_grafo(_RAIZ / "src" / "maezo" / "agents")
 
 #: Os dois nomes de campo sob os quais um dicionario de fatos ja' viajou cru para um prompt.
 #: `fatos_agregados` e' o do andre (agregados k-anon) — mesma forma, mesmo defeito.
