@@ -765,6 +765,14 @@ jobs:
       - name: Validate BPMN / DMN / policies / agent definitions
         run: make validate-artifacts
 
+      # Incidente 17/10/2026 (SP-OP-ESCALATION-001 v3, casos P1 fora de todas as filas do portal): o
+      # deploy-processes implanta os bytes do BPMN como estao, e o portal so le tarefas da versao que a
+      # admissao Q2 viva nomeia. Reprova o BPMN de processo com fila no portal cujos bytes nao estao no
+      # espelho `deploy/aws-ecs/envs/dev-sa-east-1/portal-admissao.json` (admitidos ou declarados em
+      # `aguardando_admissao`, com o motivo). Ver scripts/ci/check_portal_admissao.py.
+      - name: BPMN com fila no portal x admissao Q2 viva (portal-admissao.json)
+        run: uv run python scripts/ci/check_portal_admissao.py
+
       # ADR-0030 §2 boundary-proof gate: every WorkerBpmnError a worker raises must be a
       # consumption-covered spec-declared boundary code on its external task (b1/b2); an
       # uncatalogued/unproven raise fails the build. Dead-model (clause c) is warn-only during the
@@ -789,6 +797,19 @@ jobs:
       # 2 cross-repo. No Git history is required (covered by the shallow-clone focal test).
       - name: ADR doc-symbol-citation gate (R-089)
         run: make check-doc-symbol-citations
+
+      # GOV-0.8 (D-31a, dono 2026-10-23): docs/compliance/ e a casa dos espelhos rastreados —
+      # toda citacao de caminho em *.md ali tem que resolver na arvore. O defeito que motivou:
+      # docs/Tarefas_Pendentes.md citava docs/audits/.../GAP-REGISTER.yaml (arvore gitignored
+      # ausente do checkout — "citacao pendente"); a fonte so sobreviveu no tar de custodia e o
+      # espelho rastreado docs/compliance/GAP-REGISTER.yaml e a copia fiel declarada por D-31a.
+      # A cerca re-verifica o espelho contra a custodia: recuo do bloco registro_custodiado
+      # revertido, sha256 recomputado contra fonte_sha256 e o mapa por linha (gap id -> linhas
+      # da fonte) reextraido do bloco. Stdlib-only, sem git history, sem engine — o custo e'
+      # milissegundos de proposito (orcamento Actions). Escopo estreito e deliberado (precedente
+      # R-089): NAO varre outras arvores de docs; alargar e decisao separada do dono.
+      - name: Compliance doc-citation + espelho GAP-REGISTER gate (GOV-0.8/D-31a)
+        run: make check-compliance-doc-citations
 
       # F2 (r5/tooling-fences REVISE round): neither ledger range-scoped gate was wired into ANY CI
       # job before this — both existed only as local `make` targets a human or agent had to

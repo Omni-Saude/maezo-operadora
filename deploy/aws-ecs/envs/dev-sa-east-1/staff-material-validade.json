@@ -1,9 +1,9 @@
 {
   "schema": "maezo-staff-material-validity.v1",
-  "valid_until": "2026-10-30T13:03:34Z",
-  "renovado_em": "2026-10-16T13:04:34Z",
-  "designation_revision": "4",
-  "admission_revision": "7",
+  "valid_until": "2026-11-06T20:51:05Z",
+  "renovado_em": "2026-10-23T20:52:05Z",
+  "designation_revision": "5",
+  "admission_revision": "8",
   "aviso_dias": 3,
   "runbook": "docs/runbooks/material-staff-na-aws.md"
 }
