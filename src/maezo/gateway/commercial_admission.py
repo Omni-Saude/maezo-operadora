@@ -24,6 +24,7 @@ from maezo.adapters.amh.commercial_http import (
 )
 from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
 from maezo.gateway.commercial_catalog_admission import CatalogSourceAdmission
+from maezo.gateway.commercial_sales_admission import SalesSessionAdmission
 from maezo.ports.commercial import (
     CommercialCommand,
     CommercialDeliveryOrigins,
@@ -126,13 +127,17 @@ def compose_commercial_gateway(
     caller: SalesCallerVerifier | None = None,
     scope_authority: SalesScopeAuthority | None = None,
     source_authority: AmhCommercialAuthority | None = None,
+    sales_admission: SalesSessionAdmission | None = None,
     timeout_seconds: float = 5.0,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> CommercialGateway:
-    """Server deployment factory, closed unless all verified authority ports exist.
+    """Actual fixed POST caller composition; missing authority or admission keeps it unbound.
 
-    Schema bytes are exact source-owned candidate bytes; a hash never establishes
-    live publication. No process-global mutation or environment activation exists.
+    Authority ports alone never bind the Sales session: binding additionally requires
+    the registered A2 admission (`commercial_sales_admission`), sha-pinned to the frozen
+    contract these schema bytes must be. Schema bytes are exact source-owned candidate
+    bytes; a hash never establishes live publication. No process-global mutation or
+    environment activation exists.
     """
     wire = CommercialWire(
         schema_bytes,
@@ -140,8 +145,16 @@ def compose_commercial_gateway(
         issuer_document_origins=issuer_document_origins,
         delivery_origins=delivery_origins,
     )
-    if caller is None or scope_authority is None or source_authority is None or amh_origin is None:
+    if (
+        caller is None
+        or scope_authority is None
+        or source_authority is None
+        or amh_origin is None
+        or sales_admission is None
+    ):
         return CommercialGateway(codec=wire, timeout_seconds=timeout_seconds)
+    if sales_admission.contract_sha256 != wire.schema_digest:
+        raise ValueError("commercial_sales_admission_invalid")
     executor = HttpCommercialExecutor(
         origin=amh_origin, authority=source_authority, timeout_seconds=timeout_seconds, transport=transport
     )

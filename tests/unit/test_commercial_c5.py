@@ -432,6 +432,7 @@ async def test_public_composition_factory_forwards_independent_current_issuer_po
         caller=test_commercial_http.UnitCaller(),
         scope_authority=scope_authority,
         source_authority=source_authority,
+        sales_admission=test_commercial_http.sales_session_admission(),
         issuer_document_origins=issuer if issuer_bound else None,
         # This PSP origin cannot admit an issuer document when its own port is absent.
         hosted_origins={"stripe": frozenset({"https://issuer.invalid"})},

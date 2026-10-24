@@ -45,6 +45,7 @@ from tests.unit.test_commercial_http import (
     UnitScope,
     UnitSourceAuthority,
     hosted_case,
+    sales_session_admission,
     unavailable_capabilities,
     wire_command,
     wire_result,
@@ -415,6 +416,7 @@ async def test_private_journey_uses_current_linkage_and_exact_postsource_authori
         source_authority=source,
         amh_origin="https://amh.invalid",
         delivery_origins=DeliveryOrigins(),
+        sales_admission=sales_session_admission(),
         transport=httpx.MockTransport(transport),
     )
     app = FastAPI()
@@ -965,6 +967,7 @@ async def test_actual_work_list_http_composition_requires_staff_result_authority
         scope_authority=authority,
         source_authority=source,
         amh_origin="https://amh.invalid",
+        sales_admission=sales_session_admission(),
         transport=httpx.MockTransport(transport),
     )
     trusted = await gateway.admission.transport("Bearer SYN-SALES-CREDENTIAL", "SYN-SALES-CONNECTION")
@@ -1224,6 +1227,7 @@ async def test_c6_3_new_continuation_facts_require_current_exact_result_authorit
         source_authority=source,
         amh_origin="https://amh.invalid",
         delivery_origins=DeliveryOrigins(),
+        sales_admission=sales_session_admission(),
         transport=httpx.MockTransport(transport),
     )
     trusted = await gateway.admission.transport("Bearer SYN-SALES-CREDENTIAL", "SYN-SALES-CONNECTION")
@@ -1392,6 +1396,7 @@ async def test_c6_4_fresh_formal_choices_need_exact_current_owner_source_proof(s
         scope_authority=authority,
         source_authority=source,
         amh_origin="https://amh.invalid",
+        sales_admission=sales_session_admission(),
         transport=httpx.MockTransport(transport),
     )
     trusted = await gateway.admission.transport("Bearer SYN-SALES-CREDENTIAL", "SYN-SALES-CONNECTION")
