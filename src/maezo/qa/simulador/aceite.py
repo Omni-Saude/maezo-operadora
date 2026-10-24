@@ -446,6 +446,8 @@ def _p(texto: str, **kw: Any) -> Passo:
 
 
 _NAO_TENHO = "nao tenho outra informa"
+#: DL-0154 (dono, 23/10/2026): o aviso unico da cobertura ("Por aqui eu nao trato de cobertura...").
+_AVISO_COBERTURA_FORA = r"nao trato de cobertura"
 
 #: A pergunta de ano e' DETERMINISTICA (DL-0095): o par roda 3 vezes no segmento 1 e as 3 respostas
 #: restatam o mes com o ano.
@@ -498,7 +500,8 @@ DONO_V1: tuple[Segmento, ...] = (
                 "Meu plano cobre parto?",
                 # Modo simples (decisao do dono de 22/10/2026, DL-0140): a oferta da equipe no lugar
                 # da segmentacao e dos canais (ajuste pela decisao do dono, nao para fazer passar).
-                deve=(r"(a equipe confirma para voce|quer que eu encaminhe)",),
+                # DL-0154 (dono, 23/10/2026): a cobertura saiu da Helena — o aviso com os canais.
+                deve=(_AVISO_COBERTURA_FORA,),
                 nao_deve=("(esta coberto|cobre sim|cobertura garantida|com certeza)",),
             ),
             _p(
@@ -1448,7 +1451,10 @@ _AVISO_DA_COBERTURA = "cobertura final depende de carencia, autorizacao e indica
 #: MODO SIMPLES da cobertura (decisao do dono de 22/10/2026, DL-0140): a Helena nao consulta a cobertura de
 #: um procedimento; explica o geral e oferece a equipe. Os roteiros de cobertura medem ISSO desde entao (o
 #: ajuste veio da decisao do dono, nao para fazer algo passar).
-_OFERTA_SIMPLES = r"(a equipe confirma para voce|quer que eu encaminhe)"
+#: DL-0154 (dono, 23/10/2026): a COBERTURA SAIU da Helena — toda pergunta de cobertura recebe so' o aviso
+#: com os canais da empresa (sem consulta e sem oferta da equipe). Os segmentos de cobertura medem ISSO
+#: desde entao (ajuste pela decisao do dono, nao para fazer passar).
+_OFERTA_SIMPLES = r"nao trato de cobertura"
 _COBERTURA_OU_PARA_QUEM = _OFERTA_SIMPLES
 #: DL-0126: a cobertura nunca vira cobranca nem passagem ao Lucas.
 _NAO_E_COBRANCA = ("mensalidade", "boleto", r"\blucas\b", "assistente financeiro", _ENCAMINHOU)
@@ -1771,7 +1777,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "não",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(tudo bem|pedido medico)",),
+                deve=(),  # DL-0154: sem oferta, o 'nao' nao responde a nada
                 nao_deve=(_ENCAMINHOU,),
             ),
         ),
@@ -1783,7 +1789,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "O plano cobre insulina?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"remedio tem regra propria",),
+                deve=(_OFERTA_SIMPLES,),  # DL-0154
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
         ),
@@ -1795,7 +1801,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre aplicação de botox só por estética?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(9\.656|finalidade so estetica|regra propria)",),
+                deve=(_OFERTA_SIMPLES,),  # DL-0154
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
         ),
@@ -1807,7 +1813,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre fisioterapia para a minha mãe?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(so para quem esta no seu plano|nao encontrei essa pessoa)",),
+                deve=(_OFERTA_SIMPLES,),  # DL-0154
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
         ),
@@ -1819,7 +1825,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "É urgente: meu plano cobre tomografia do crânio para mim?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(urgencia ou emergencia|192)", _SITUACAO_OU_OPCOES),
+                deve=(_SITUACAO_OU_OPCOES,),  # DL-0154: o aviso (o 192 so' com sinal de saude)
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
         ),
@@ -1847,7 +1853,8 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
                 deve=(_OFERTA_SIMPLES,),
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
-            _p("quero sim", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
+            # DL-0154: sem oferta da equipe, o "quero sim" so' abre caso se o modelo ler pedido de pessoa.
+            _p("quero sim"),
         ),
         resolveu="o procedimento recebeu a oferta da equipe (modo simples) e o 'quero sim' abriu o caso",
     ),
@@ -1863,7 +1870,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "deixa pra lá",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"tudo bem",),
+                deve=(),  # DL-0154: sem oferta pendente
                 nao_deve=(r"nao localizei", r"como esta escrito no pedido medico", _ENCAMINHOU),
             ),
         ),
@@ -1898,7 +1905,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "Preciso saber se meu plano cobre alguns exames e procedimentos.",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(me diga o nome|segmentacao|a equipe confirma)",),
+                deve=(_OFERTA_SIMPLES,),  # DL-0154
                 nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"e para quem"),
             ),
             _p(
@@ -1959,7 +1966,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "Ué, como assim? Você acabou de verificar e falou outra coisa com a equipe",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"desculpe",),
+                deve=(),  # DL-0154: sem pendencia da cobertura, nada a desculpar
                 nao_deve=(_ENCAMINHOU, r"encaminhamos seu caso"),
             ),
         ),
@@ -2076,7 +2083,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "na verdade é pra minha mãe",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(quem esta no seu plano|a equipe confirma)",),
+                deve=(r"(nao trato de cobertura|quem esta no seu plano)",),  # DL-0154
                 nao_deve=(_PEDE_A_LISTA, r"ja te passei"),
             ),
         ),
@@ -2120,7 +2127,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "O plano cobre ultrassom de mama, omeprazol e preenchimento labial?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"omeprazol", r"preenchimento", _NAO_LOCALIZOU_OU_CONSTA),
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),  # DL-0154: o aviso, sem item a item
                 nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, _PEDE_A_LISTA),
             ),
         ),
@@ -2132,7 +2139,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "A clínica disse que o convênio cobre, mas vocês recusaram a minha guia",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(autorizacao|equipe)",),
+                deve=(r"(autorizacao|equipe|nao trato de cobertura)",),  # DL-0154
                 nao_deve=(_PEDE_A_LISTA, _ENCAMINHOU),
             ),
         ),
