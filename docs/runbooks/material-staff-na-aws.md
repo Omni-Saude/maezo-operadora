@@ -322,6 +322,8 @@ raiz ja aprovada), passos 6 a 9. Cada `gerar` remonta do que esta **vivo**, enta
   `catalog-designate`); com `MATERIAL_CATALOGO` o `gerar` tambem troca `admitted_catalog_digest` do `job/config.json`.
   `scripts/ops/staff_material_cancel_catalogo.py` monta o catalogo e as entradas `human` do CANCEL-001 (valide offline com
   `review_admission` antes). O id e o digest do BPMN saem de `GET /process-definition` e do `.../deployment/{id}/resources/{id}/data`.
+  Para uma versao nova do SP-OP-ESCALATION-001 (DL-0145), `scripts/ops/staff_material_escalation_catalogo.py` faz o mesmo
+  OFFLINE (sem ler segredo; `ensaio` antes do deploy) e o checklist do corte e `escalonamento-repin-dueDate.md`.
 - **Janela observada:** `staff-rows` 13:37:36Z, apply do motor 13:38:32Z, motor de pe 13:45Z (boot ~135 s) e portal 13:46Z; o job
   T1.5 voltou a publicar 13:56Z (depois de trocar a imagem das tasks staff-ops). Em torno de 8 min de motor fora e ~18 min de
   fila sem refresh.
