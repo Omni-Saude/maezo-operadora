@@ -23,6 +23,7 @@ from maezo.adapters.amh.commercial_http import (
     HttpPublicCatalogSource,
 )
 from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
+from maezo.gateway.commercial_acceptance_admission import A3_ADMITTED_COMMANDS, AcceptanceRecordAdmission
 from maezo.gateway.commercial_catalog_admission import CatalogSourceAdmission
 from maezo.gateway.commercial_sales_admission import SalesSessionAdmission
 from maezo.ports.commercial import (
@@ -117,6 +118,30 @@ class AuthenticatedSalesAdmission(SalesAdmission):
         return await self._authority.current(scope, phase=phase, command=command)
 
 
+class AcceptanceUnadmittedSalesAdmission(AuthenticatedSalesAdmission):
+    """A2-bound session whose acceptance/enrollment effect dimension is not admitted.
+
+    The A3 record (`commercial_acceptance_admission`) is the only registered key the
+    `acceptance.record` effect binds through; while it is absent this admission refuses
+    that command with the composition's shipped fail-closed refusal — before any source
+    step, so no OP03/OP04 effect can execute. It subclasses the A2 session admission
+    because the route's pre-body session admission must keep its exact type; every other
+    command and phase delegates unchanged, so an A2-bound gateway without A3 behaves
+    identically to the shipped state outside the acceptance surface.
+    """
+
+    async def current(
+        self,
+        scope: CommercialScope,
+        *,
+        phase: Literal["before_body", "before_source", "before_effect", "before_disclosure"],
+        command: CommercialCommand | None = None,
+    ) -> CommercialScope:
+        if command is not None and command.command in A3_ADMITTED_COMMANDS:
+            raise CommercialRefusalError("unavailable", "binding_unqualified")
+        return await super().current(scope, phase=phase, command=command)
+
+
 def compose_commercial_gateway(
     *,
     schema_bytes: bytes,
@@ -128,6 +153,7 @@ def compose_commercial_gateway(
     scope_authority: SalesScopeAuthority | None = None,
     source_authority: AmhCommercialAuthority | None = None,
     sales_admission: SalesSessionAdmission | None = None,
+    acceptance_admission: AcceptanceRecordAdmission | None = None,
     timeout_seconds: float = 5.0,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> CommercialGateway:
@@ -135,9 +161,12 @@ def compose_commercial_gateway(
 
     Authority ports alone never bind the Sales session: binding additionally requires
     the registered A2 admission (`commercial_sales_admission`), sha-pinned to the frozen
-    contract these schema bytes must be. Schema bytes are exact source-owned candidate
-    bytes; a hash never establishes live publication. No process-global mutation or
-    environment activation exists.
+    contract these schema bytes must be. The acceptance/enrollment effect dimension is
+    its own admission: without the registered A3 record (`commercial_acceptance_admission`,
+    equally sha-pinned) a bound session still refuses `acceptance.record` with the shipped
+    fail-closed refusal before any source step — the A2 record never opens an effect.
+    Schema bytes are exact source-owned candidate bytes; a hash never establishes live
+    publication. No process-global mutation or environment activation exists.
     """
     wire = CommercialWire(
         schema_bytes,
@@ -155,12 +184,19 @@ def compose_commercial_gateway(
         return CommercialGateway(codec=wire, timeout_seconds=timeout_seconds)
     if sales_admission.contract_sha256 != wire.schema_digest:
         raise ValueError("commercial_sales_admission_invalid")
+    if acceptance_admission is not None and acceptance_admission.contract_sha256 != wire.schema_digest:
+        raise ValueError("commercial_acceptance_admission_invalid")
     executor = HttpCommercialExecutor(
         origin=amh_origin, authority=source_authority, timeout_seconds=timeout_seconds, transport=transport
     )
+    admission: AuthenticatedSalesAdmission = AuthenticatedSalesAdmission(
+        caller=caller, authority=scope_authority
+    )
+    if acceptance_admission is None:
+        admission = AcceptanceUnadmittedSalesAdmission(caller=caller, authority=scope_authority)
     return CommercialGateway(
         codec=wire,
-        admission=AuthenticatedSalesAdmission(caller=caller, authority=scope_authority),
+        admission=admission,
         source=AmhCommercialAdapter(wire=wire, executor=executor),
         timeout_seconds=timeout_seconds,
     )
