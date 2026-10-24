@@ -37,6 +37,9 @@ EXPECTED_PATHS = {
     "/api/v1/portal/commands/{command_id}/receipt",
     "/api/v1/portal/document-uploads/{upload_ref}/complete",
     "/api/v1/portal/documents/{document_ref}/content",
+    # W5 CLNT 5.2: the titular DSR channel ships DOCUMENTED and DARK — the route always
+    # publishes in the schema; the `lgpd_dsr_channel` flag (OFF) decides whether it ANSWERS.
+    "/api/v1/portal/dsr",
     "/api/v1/portal/intake-recovery",
     "/api/v1/portal/intake-recovery/commands/{command_id}",
     "/api/v1/portal/intakes/auth",
