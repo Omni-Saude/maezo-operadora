@@ -229,6 +229,36 @@ def test_capabilities_outside_the_three_profiles_are_refused(declared: str) -> N
         config(capabilities=declared)
 
 
+@pytest.mark.parametrize(
+    ("flag", "projected"),
+    [
+        (False, []),
+        (True, ["staff_documents_panel"]),
+    ],
+)
+async def test_session_projects_the_documents_shadow_signal_exactly(
+    flag: bool, projected: list[str]
+) -> None:
+    """W5 CLNT 5.5: the staff documents panel signal is deployment-owned and closed.
+
+    OFF — the shipped, dark state — projects an empty tuple, so the browser keeps the stub
+    exactly as it ships. The signal names a surface only; the document routes keep refusing
+    on their own published authority.
+    """
+    store = LocalTestIdentityStore("test-tenant")
+    store.memberships[(ISSUER, SUBJECT)] = membership()
+    idp = SignedTestIdP()
+    oidc = httpx.AsyncClient(transport=httpx.MockTransport(idp.handle))
+    app = create_app(config(staff_documents_panel=flag), store=store, oidc_client=oidc)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=ORIGIN) as client:
+        harness = Harness(client, store, idp, app)
+        assert (await harness.login()).status_code == 303
+        data = (await client.get(PREFIX + "/session")).json()
+    await oidc.aclose()
+    assert data["flags"] == projected
+    assert data["capabilities"] == ["identity"]
+
+
 async def test_real_pkce_cookie_session_projection_and_logout(h: Harness) -> None:
     login = await h.client.get(PREFIX + "/auth/login")
     cookie = login.headers["set-cookie"]
@@ -252,6 +282,7 @@ async def test_real_pkce_cookie_session_projection_and_logout(h: Harness) -> Non
         "expires_at",
         "csrf_token",
         "capabilities",
+        "flags",
     }
     assert data["capabilities"] == ["identity"]
     assert data["principal_ref"] == "human-internal-1"

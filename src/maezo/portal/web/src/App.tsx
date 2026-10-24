@@ -183,6 +183,7 @@ export function App() {
         {state.session.audience === "staff" ? (
           <StaffPortalExperience
             capabilities={state.session.capabilities}
+            flags={state.session.flags}
             expiresAt={state.session.expires_at}
             csrfToken={state.session.csrf_token}
             sessionBinding={[

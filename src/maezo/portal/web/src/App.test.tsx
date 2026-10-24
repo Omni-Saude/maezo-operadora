@@ -30,6 +30,7 @@ function session(audience: Audience = "staff", expiresAt?: string) {
     expires_at: expiresAt ?? new Date(Date.now() + 60_000).toISOString(),
     csrf_token: "csrf-secret",
     capabilities: ["identity", "staff_cases", "human"],
+    flags: [],
   } as const;
 }
 
@@ -310,7 +311,9 @@ it.each([
   { ...session(), schema_version: 2 },
   { ...session(), audience: "admin" },
   { ...session(), campo_desconhecido: "não aceito" },
-])("falha fechada para schema ou público inesperado %#", async (payload) => {
+  { ...session(), flags: ["sinal_fora_do_contrato"] },
+  { ...session(), flags: ["staff_documents_panel", "staff_documents_panel"] },
+])("falha fechada para schema, sinal ou público inesperado %#", async (payload) => {
   vi.mocked(fetch).mockResolvedValue(jsonResponse(payload));
   render(<App />);
   expect(

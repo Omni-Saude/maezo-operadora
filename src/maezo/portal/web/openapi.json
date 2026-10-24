@@ -6822,6 +6822,15 @@
             "title": "Expires At",
             "type": "string"
           },
+          "flags": {
+            "default": [],
+            "items": {
+              "const": "staff_documents_panel",
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
           "principal_ref": {
             "title": "Principal Ref",
             "type": "string"
