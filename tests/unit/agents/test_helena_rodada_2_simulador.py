@@ -190,11 +190,6 @@ async def test_primeira_mensagem_de_emergencia_escala_com_192() -> None:
     ("mensagem", "falas", "esperado"),
     [
         (
-            "JA TA LIGANDO PRO 192 MAS E O PLANO DE VC QUE TEM Q MANDAR AMBULANCIA",
-            [RESPOSTA_ESCALONAMENTO_URGENTE],
-            RESPOSTA_CASO_ABERTO_EMERGENCIA,
-        ),
-        (
             "ELE TA ROXO JA E NAO FALA MAIS NADA",
             [RESPOSTA_ESCALONAMENTO_URGENTE, RESPOSTA_CASO_ABERTO_EMERGENCIA],
             RESPOSTA_CASO_ABERTO_EMERGENCIA_2,
@@ -228,6 +223,29 @@ async def test_piora_com_caso_clinico_aberto_recebe_emergencia_primeiro(
     assert "outras dúvidas" not in enviado
     assert enviado not in falas, "nunca o mesmo texto de antes"
     assert _starts(cib) == antes, "o caso aberto e' reaproveitado, nenhum outro e' aberto"
+
+
+@pytest.mark.parametrize(
+    "mensagem",
+    [
+        "JA TA LIGANDO PRO 192 MAS E O PLANO DE VC QUE TEM Q MANDAR AMBULANCIA",
+        "pq eu ligaria pro samu? foi pouquinho",
+        "ja to no carro indo pro pronto socorro",
+    ],
+)
+async def test_sem_sinal_novo_o_192_ja_tratado_nao_sai_de_novo(mensagem: str) -> None:
+    """DL-0154 (trava "sem segundo 192"): com o alarme ja' tratado e sem sinal NOVO claro, a Helena nao repete
+    o "ligue 192": mantem o caso para a equipe confirmar. O caso aberto e' reaproveitado; nenhum outro."""
+    from maezo.agents.helena.habilidades.sintoma.textos import TEXTO_CASO_MANTIDO
+
+    cib = _caso_aberto("red_flag_clinico")
+    antes = _starts(cib)
+    grafo, whatsapp, _ = _grafo([_classify(intent="information")], cib=cib)
+
+    await grafo.ainvoke(_entrada(mensagem, [RESPOSTA_ESCALONAMENTO_URGENTE]))
+
+    assert whatsapp.enviados == [TEXTO_CASO_MANTIDO]
+    assert _starts(cib) == antes
 
 
 async def test_piora_com_sintoma_extraido_e_caso_aberto_tambem_e_emergencia_primeiro() -> None:

@@ -685,8 +685,12 @@ def test_settings_leem_a_chave_e_a_allowlist(monkeypatch: pytest.MonkeyPatch) ->
     assert campos["helena_saude_gerativa_conversas"].default == ""
 
 
-async def test_redacao_com_fonte_sai_com_o_aviso_padrao() -> None:
-    """r4 (22/10/2026): a redacao informativa so' sai com a linha da fonte (nome) e o aviso padrao."""
+_FECHO_C = "Esta informação é geral e não substitui avaliação médica. Posso ajudar em mais alguma coisa?"
+
+
+async def test_redacao_com_fonte_sai_com_o_fecho_da_opcao_c() -> None:
+    """OPCAO C (dono, 23/10/2026, DL-0154): a duvida geral e' respondida UMA vez, com a fonte pelo nome e o
+    fecho "Posso ajudar em mais alguma coisa?" (no lugar do aviso que oferecia a equipe a cada resposta)."""
     from maezo.conhecimento import base_saude as bs
 
     conversa = _Conversa(_Transporte())
@@ -698,4 +702,24 @@ async def test_redacao_com_fonte_sai_com_o_aviso_padrao() -> None:
     conversa.redator.redigir = redigir  # type: ignore[method-assign]
     resultado = await conversa.diz("O que é Endometriose?", _CLINICA)
     assert _texto(resultado).startswith(texto_com_fonte)
-    assert bs.AVISO_PADRAO in _texto(resultado)
+    assert _texto(resultado).endswith(_FECHO_C) and bs.AVISO_PADRAO not in _texto(resultado)
+
+
+@pytest.mark.parametrize(
+    "pergunta",
+    ["o que é fibromialgia?", "pra que serve a vitamina d?", "o que significa colesterol ldc alto?"],
+)
+async def test_rascunho_valido_sem_a_linha_da_fonte_nao_e_descartado(pergunta: str) -> None:
+    """DL-0154: o rascunho VALIDO sem "Fonte:" nao vira mais "nao tenho informacao aprovada"."""
+    from maezo.conhecimento import base_saude as bs
+
+    conversa = _Conversa(_Transporte())
+    rascunho = "Explicacao geral e curta sobre o assunto perguntado."
+
+    async def redigir(pedido: Any, **_: Any) -> Any:
+        return sg.Redacao(texto=rascunho, desfecho="primeira")
+
+    conversa.redator.redigir = redigir  # type: ignore[method-assign]
+    resultado = await conversa.diz(pergunta, _CLINICA)
+    assert _texto(resultado).startswith(rascunho)
+    assert bs.RESPOSTA_NAO_ENCONTRADO not in _texto(resultado)

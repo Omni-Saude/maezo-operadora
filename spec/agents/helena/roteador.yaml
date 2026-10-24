@@ -116,9 +116,10 @@ habilidades:
       - "pra que serve o exame de ferritina?"
       - "qual médico cuida de tireoide?"
       - "quais vacinas um adulto deve tomar?"
-    pendencias: []
+    # OPCAO C (DL-0154): a oferta "onde marcar ou a equipe de saude" depois da insistencia no mesmo assunto.
+    pendencias: ["SAUDE_OFERTA"]
     processo: null
-    modulos_atuais: [conhecimento/base_saude.py, conhecimento/saude_gerativa.py]
+    modulos_atuais: [habilidades/saude, conhecimento/base_saude.py, conhecimento/saude_gerativa.py]
   - id: sintoma
     titulo: um sintoma ou queixa
     resumo: 'alguem sente algo agora (dor, febre, queda, batida, piora) ou responde as perguntas de alerta de um sintoma'
@@ -134,7 +135,7 @@ habilidades:
       - "não, ele está comendo normal"
     pendencias: ["V4_", "PERGUNTAR_FICHA_"]
     processo: SP-OP-ESCALATION-001
-    modulos_atuais: [helena_v4.py, triagem_v2.py, alarme_deterministico.py]
+    modulos_atuais: [habilidades/sintoma, helena_v4.py, triagem_v2.py, alarme_deterministico.py, travas_entrada.py]
   - id: equipe
     titulo: falar com uma pessoa da equipe
     resumo: 'pede explicitamente uma pessoa ou atendente; responde a oferta da equipe; nao quer mais o atendimento aberto'
