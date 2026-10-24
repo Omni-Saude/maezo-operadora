@@ -236,9 +236,7 @@ def test_capabilities_outside_the_three_profiles_are_refused(declared: str) -> N
         (True, ["staff_documents_panel"]),
     ],
 )
-async def test_session_projects_the_documents_shadow_signal_exactly(
-    flag: bool, projected: list[str]
-) -> None:
+async def test_session_projects_the_documents_shadow_signal_exactly(flag: bool, projected: list[str]) -> None:
     """W5 CLNT 5.5: the staff documents panel signal is deployment-owned and closed.
 
     OFF — the shipped, dark state — projects an empty tuple, so the browser keeps the stub
