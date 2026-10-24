@@ -166,7 +166,7 @@
       "candidate_matrix_ids": ["OP07", "OP08", "OP09", "OP10", "OP11", "HTTP-04..HTTP-12"],
       "contract_exposes": [
         "contract-c6-4.json:283 support.handoff",
-        "contract-c6-4.json:247-276 work.list/claim/assign/handoff/reconcile",
+        "contract-c6-4.json:241-276 work.list/claim/assign/handoff/reconcile",
         "contract-c6-4.json:11067-11069 x-workflow (vendors/customers have no work commands)",
         "contract-c6-4.json:11115 x-customer-journey.support"
       ],
