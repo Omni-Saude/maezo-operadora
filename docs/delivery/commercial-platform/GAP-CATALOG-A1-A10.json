@@ -1,0 +1,390 @@
+{
+  "schema": "omni-commercial-gap-catalog.v1",
+  "catalog_id": "GAP-CATALOG-A1-A10",
+  "citable_version": "C6-4-frozen@3c619d91",
+  "generated_utc_date": "2026-10-24",
+  "generated_by": "package-engineer BRDG-3.3 (agente), por decisao D-16 do dono (docs/plans/maezo-completion-program.md, Secao Decisoes)",
+  "repository": "Omni-Saude/maezo-operadora",
+  "base_head": "7f6c2576",
+  "package_class": "DOCS_ONLY_MAP_NO_RUNTIME_ADMISSION",
+  "declaration": "Este catalogo nao admite nada. runtime_admission permanece UNBOUND; o admission layer do portal permanece bloqueado; nenhum flag, rota, scope, endpoint, capability ou provider de fonte foi criado ou habilitado por este pacote.",
+  "frozen_contract": {
+    "contract_id": "omni-commercial.proposed.v1",
+    "revision": "C6-4",
+    "sha256": "d1d796b8fd4546bd8d684baa9dd58c4536c3745dc2dce748909f69384eebd1ea",
+    "bytes": 320163,
+    "commands": 42,
+    "local_mirror_path": "tests/candidate_artifacts/commercial/contract-c6-4.json",
+    "sha256_recomputed_at_catalog": true,
+    "lineage_sha256_verified": "13/13 arquivos da secao 3 de CONTRACT-FREEZE-C6-4-REGISTER.md recomputados e batendo no base_head 7f6c2576"
+  },
+  "authorities_consumed": {
+    "freeze_register": "docs/delivery/commercial-platform/CONTRACT-FREEZE-C6-4-REGISTER.{md,json}",
+    "portal_mirror_pin": {
+      "path": "docs/delivery/commercial-platform/portal-mirror/PORTAL-MIRROR-PIN-C6-4.json",
+      "sha256": "bcfe88f918a90a91efeaa250b25a0f92dc311500dcea9293f6af0f6a6db25f67"
+    },
+    "portal_pin_copy": {
+      "repository": "Omni-Saude/omni_sales_platform",
+      "path": "docs/delivery/commercial-platform/PORTAL-MIRROR-PIN-C6-4.json",
+      "sha256": "bcfe88f918a90a91efeaa250b25a0f92dc311500dcea9293f6af0f6a6db25f67",
+      "sha256_matches_mirror": true,
+      "note": "copia verificada byte a byte; commit/PR no portal e ato do dono; arquivo ainda untracked no working tree do portal"
+    },
+    "portal_state_observed": {
+      "repository": "Omni-Saude/omni_sales_platform",
+      "head": "917c1cbd1a8384ccf6a6b9acaefad029a608c487",
+      "admissions_index": "docs/delivery/admissions/A-INDEX.json (schema omni-sales-admissions-index.v1; 10 dossies status pending)",
+      "admission_layer": "src/server/admission/sales.ts:5-7 retorna blocked/qualification_required (bloqueio constante; nao le arquivo algum)"
+    },
+    "maezo_runtime_authority": {
+      "process_keys_unique_in_src": 27,
+      "allowlist": "src/maezo/gateway/effect_pep.py:174-192 (KNOWN_PROCESS_KEYS, 15 keys)",
+      "deploy_contract": "src/maezo/platform/deploy/engine_deploy.py"
+    },
+    "interface_matrix": "omni_sales_platform/docs/compatibility/maezo-interface-matrix-p1-successor.json (51 interfaces + 8 lacunas; PLANNING_ONLY_UNQUALIFIED; nenhuma linha movida)"
+  },
+  "admissions": [
+    {
+      "a_id": "A1",
+      "title": "CR-F2 catalogo (P6.1)",
+      "dossier": "omni_sales_platform/docs/delivery/admissions/A1-CR-F2-CATALOGO.md",
+      "a_index_entry": "A-INDEX.json:38-52",
+      "status": "pending",
+      "unlocks": "P6.1",
+      "owners": ["produto", "comercial", "legal"],
+      "gap_id": "GAP-CATALOG",
+      "nr_ids": ["NR-01", "NR-02", "NR-03", "NR-04"],
+      "candidate_matrix_ids": ["OP02"],
+      "contract_exposes": [
+        "contract-c6-4.json:49 catalog.get (scope interop/sales.catalog.read)",
+        "contract-c6-4.json:11020-11030 x-public-catalog (GET /api/v1/sales/public/catalog transport maezo; query_or_body_allowed false)",
+        "contract-c6-4.json:11122 x-public-price",
+        "contract-c6-4.json:11215-11222 x-journey-formal-entry (plan_choices; status PROPOSED_NOT_ADMITTED)"
+      ],
+      "maezo_today_verdict": "PARTIAL",
+      "maezo_today_evidence": [
+        "src/maezo/portal/api/commercial.py:110-159 rota publica fail-closed (503 source_unavailable sem AuthenticatedPublicCatalogAdmission)",
+        "src/maezo/gateway/commercial_admission.py:207-231 compose_public_catalog_gateway unbound por default",
+        "src/maezo/portal/api/app.py:234,342-343 default None na factory de producao",
+        "docs/delivery/commercial-platform/MAEZO-C6-4-DELTA.md:13 codec C6-4 com 231 UNIT zero-skips",
+        "docs/design/v21-capabilities/source-readiness.json:191,198 CR-F2 COMMERCIAL_AUTHORITY_ABSENT_FROM_PIN; published_for_new_scope false"
+      ],
+      "gap": "Fonte de catalogo admitida (objeto publicavel CR-F2). Portal-side: ausencia de loader fail-closed do pin (portal constant-blocked sem loader; portal-mirror/README.md:13).",
+      "admission_mechanism": "Registro A1-ADMISSION-RECORD.json admitted liga a fonte; loader fail-closed do pin valida sha d1d796b8 em toda leitura; sem registro a rota segue 503 e o portal segue constant-blocked",
+      "planned_negative_test": "Sem A1 admitida: GET /api/v1/sales/public/catalog com composicao default retorna 503 source_unavailable e nunca le a copia TEST; loader de pin com sha divergente recusa e o portal permanece blocked/qualification_required; journey.get sem admissao retorna plan_choices []."
+    },
+    {
+      "a_id": "A2",
+      "title": "CR-F1 auth Sales (P6.2 sessao)",
+      "dossier": "omni_sales_platform/docs/delivery/admissions/A2-CR-F1-AUTH-SALES.md",
+      "a_index_entry": "A-INDEX.json:53-66",
+      "status": "pending",
+      "unlocks": "P6.2 (sessao)",
+      "owners": ["identity", "channel", "security", "DPO"],
+      "gap_id": "GAP-SALES-AUTH",
+      "nr_ids": ["NR-01", "NR-05", "NR-10"],
+      "candidate_matrix_ids": ["OP01"],
+      "contract_exposes": [
+        "contract-c6-4.json:18 sales_admission NOT_ESTABLISHED",
+        "contract-c6-4.json:340 x-server-only-evidence",
+        "contract-c6-4.json:14-25 x-status completo"
+      ],
+      "maezo_today_verdict": "PARTIAL",
+      "maezo_today_evidence": [
+        "src/maezo/gateway/commercial_admission.py:69-115 AuthenticatedSalesAdmission (Bearer + x-commercial-connection verificados antes do body)",
+        "src/maezo/gateway/commercial_admission.py:46-66 portas abstratas SalesCallerVerifier/SalesScopeAuthority",
+        "src/maezo/gateway/commercial_admission.py:142-143 factory devolve gateway unbound sem autoridades",
+        "src/maezo/portal/api/commercial.py:50-52 503 binding_unqualified sem gateway admitido",
+        "grep 2026-10-24: 0 implementacoes concretas de SalesCallerVerifier/SalesScopeAuthority fora do proprio modulo"
+      ],
+      "gap": "Provedor concreto de identidade/sessao; readiness CR-F1 = PARTIAL_IMPLEMENTED_LIVE_UNVERIFIED (source-readiness.json:121,128).",
+      "admission_mechanism": "Provedor ligado somente com registro A2-ADMISSION-RECORD.json admitted; composicao unbound segue o chokepoint fail-closed",
+      "planned_negative_test": "Sem A2 admitida: chamada sem headers ou parciais => 403 denied/admission_required antes de 1 byte de body; nenhuma composicao instala verifier concreto (teste de factory unbound); loader de pin sem registro A2 mantem getSalesAdmission() bloqueado."
+    },
+    {
+      "a_id": "A3",
+      "title": "CR-F3 aceite/matrícula (P6.2 efeitos)",
+      "dossier": "omni_sales_platform/docs/delivery/admissions/A3-CR-F3-ACEITE-MATRICULA.md",
+      "a_index_entry": "A-INDEX.json:67-80",
+      "status": "pending",
+      "unlocks": "P6.2 (efeitos)",
+      "owners": ["cliente", "issuer"],
+      "gap_id": "GAP-ACCEPTANCE-ENROLLMENT",
+      "nr_ids": ["NR-05", "NR-06"],
+      "candidate_matrix_ids": ["OP03", "OP04", "HTTP-13", "HTTP-14"],
+      "candidate_matrix_ids_note": "OP03/OP04 sao vocabulario da matriz de 51 interfaces (contratos v21), NAO comandos do C6-4",
+      "contract_exposes": [
+        "contract-c6-4.json:187 acceptance.record (scope interop/sales.contract)",
+        "contract-c6-4.json:11107-11121 x-customer-journey",
+        "contract-c6-4.json grep: 0 comandos de enrollment no C6-4"
+      ],
+      "maezo_today_verdict": "PARTIAL",
+      "maezo_today_evidence": [
+        "docs/delivery/commercial-platform/MAEZO-C6-3-DELTA.md:13-22 checks de quote/linkage/aceite/receipt com autoridade de resultado pos-IO",
+        "docs/delivery/commercial-platform/MAEZO-C6-4-DELTA.md:13 231 UNIT zero-skips",
+        "docs/design/v21-capabilities/source-readiness.json:259,267 CR-F3 BUSINESS_WRITES_ABSENT_FROM_PIN"
+      ],
+      "gap": "Runtime de issuer + wire OP03/OP04 publicados + idempotencia/clock/custodia demonstrados (dossie A3).",
+      "admission_mechanism": "Registro A3-ADMISSION-RECORD.json admitted; portal-side loader fail-closed; vendor channel toma PURPOSE_DENIED no binding (vendor_journey/binding.py:149-153)",
+      "planned_negative_test": "accepted sem receipt da fonte => recusa (assercao de regressao dos checks C6-3); sem A3 admitida nenhum efeito OP03/OP04 executa (composicao unbound); duplo-clique/back/reload sem idempotency_key => acceptance.uncertain reconcile-only."
+    },
+    {
+      "a_id": "A4",
+      "title": "GAP-COVERAGE cobertura vigente (P6.3)",
+      "dossier": "omni_sales_platform/docs/delivery/admissions/A4-GAP-COVERAGE-COBERTURA.md",
+      "a_index_entry": "A-INDEX.json:81-94",
+      "status": "pending",
+      "unlocks": "P6.3",
+      "owners": ["steward AMH", "direito"],
+      "gap_id": "GAP-COVERAGE",
+      "nr_ids": ["NR-06"],
+      "candidate_matrix_ids": [],
+      "contract_exposes": [
+        "contract-c6-4.json:454 invariante acceptance/issuance/enrollment/coverage independentes",
+        "contract-c6-4.json:8622-8663 CustomerCoverageRead (shape nominal; sem comando de cobertura entre os 42)"
+      ],
+      "maezo_today_verdict": "ABSENT",
+      "maezo_today_evidence": [
+        "src/maezo/adapters/amh/subject_context.py:346 ClinicalContextPort.get_subject_coverage read-only (proibido virar projecao comercial pelo dossie A4)",
+        "docs/design/v21-capabilities/source-readiness.json:329,337 CR-F4 READ_ONLY_COVERAGE_PRESENT;ENROLLMENT_AGENDA_ABSENT_FROM_PIN"
+      ],
+      "gap": "Fonte de vigencia propria (issuer != fonte de cobertura) com coverage_generation_ref e invariante issued != coverage_active",
+      "admission_mechanism": "Nova fonte servida + registro A4-ADMISSION-RECORD.json (steward AMH + direito); loader fail-closed portal-side",
+      "planned_negative_test": "Derivar active de OP04/pagamento/clique/leitura clinica => recusa tipada (invariante never issued->active); sem A4 admitida leitura comercial retorna unknown com unknown_reason allowlisted; stale/revogada => unknown."
+    },
+    {
+      "a_id": "A5",
+      "title": "CR-F5/F6 suporte (P6.4 suporte)",
+      "dossier": "omni_sales_platform/docs/delivery/admissions/A5-CR-F5-SUPORTE.md",
+      "a_index_entry": "A-INDEX.json:95-108",
+      "status": "pending",
+      "unlocks": "P6.4 (suporte)",
+      "owners": ["case owner", "channel owner", "human owners"],
+      "gap_id": "GAP-SUPPORT",
+      "nr_ids": ["NR-07"],
+      "candidate_matrix_ids": ["OP07", "OP08", "OP09", "OP10", "OP11", "HTTP-04..HTTP-12"],
+      "contract_exposes": [
+        "contract-c6-4.json:283 support.handoff",
+        "contract-c6-4.json:247-276 work.list/claim/assign/handoff/reconcile",
+        "contract-c6-4.json:11067-11069 x-workflow (vendors/customers have no work commands)",
+        "contract-c6-4.json:11115 x-customer-journey.support"
+      ],
+      "maezo_today_verdict": "PARTIAL",
+      "maezo_today_evidence": [
+        "support.handoff e work.* existem como comandos do codec (validacao de payload/scope; sem executor)",
+        "src/maezo/gateway/effect_pep.py:174-192 SP-OP-ESCALATION-001 allowlisted (escalonamento humano vivo)",
+        "docs/design/v21-capabilities/source-readiness.json:398,407,471,479 CR-F5 FOUNDATION_PRESENT;BROKER_CONSUMER_ABSENT_FROM_AMH_ADAPTER_PACKAGE / CR-F6 ENVELOPE_PRESENT;NEW_DOMAIN_SEMANTICS_UNVERIFIED"
+      ],
+      "gap": "Membros de DeclaredCaseKind/DeclaredCaseStatus/audiencia/papel publicados + ACK humano + canal vivo + wait clocks (enums vazios hoje: nenhuma instancia construivel)",
+      "admission_mechanism": "Publicacao na origem + registro A5-ADMISSION-RECORD.json; loader fail-closed portal-side",
+      "planned_negative_test": "Sem A5 admitida nenhum membro de enum existe (nenhuma instancia de caso construivel); support.handoff com topic_ref nao publicado => unavailable; confirmacao de resolucao via OP03 => recusa (sempre OP07); portal nunca computa prazo/SLA."
+    },
+    {
+      "a_id": "A6",
+      "title": "GP11 nao-contato (P6.4 honra / NR-08)",
+      "dossier": "omni_sales_platform/docs/delivery/admissions/A6-GP11-NAO-CONTATO.md",
+      "a_index_entry": "A-INDEX.json:109-122",
+      "status": "pending",
+      "unlocks": "P6.4 (honra), NR-08",
+      "owners": ["owner (origem)", "DPO (origem)"],
+      "gap_id": "GAP-NO-CONTACT",
+      "nr_ids": ["NR-08"],
+      "candidate_matrix_ids": [],
+      "contract_exposes": [
+        "contract-c6-4.json: OP20 suppression.record NAO integra o denominador (0 comandos de supressao nos 42)"
+      ],
+      "maezo_today_verdict": "PARTIAL",
+      "maezo_today_evidence": [
+        "src/maezo/gateway/vendor_suppression.py:1-40 camada 3 GP11 (k-anon k=100, taxonomia C1-C6, SLA 15du com t_deadline no nascimento)",
+        "src/maezo/gateway/vendor_suppression.py:187,227,272 DEADLINE_UNCOMPUTABLE fail-closed antes de I/O",
+        "src/maezo/gateway/vendor_suppression.py:39 rota REGISTRO_HONRADO sempre explicita da DMN engine-side",
+        "src/maezo/tools/workers/suppression.py:238-266 handlers externos com seams ausentes => recusa loud todo tick",
+        "src/maezo/platform/migrations/versions/0021_vendor_suppression_records.py (migracao 0021 presente)",
+        "spec/processes/bpmn/SP-OP-SUPP-001_Direitos_de_Nao_Contato.bpmn (BPMN presente)",
+        "src/maezo/runtime/worker_runtime/service.py:326-336 composicao runtime NAO passa o seam suppression_store",
+        "src/maezo/gateway/effect_pep.py:174-192 SP-OP-SUPP-001 fora da allowlist KNOWN_PROCESS_KEYS (15 keys)",
+        "docs/processes/contracts/SP-OP-SUPP-001.md:3 processo DRAFT v1.0.0, requires human review before any deploy"
+      ],
+      "gap": "Cadeia Track B: PR-2 da origem + store/transport servidos no wiring + contrassinatura DPO + operacao de lista honrada (dossie A6)",
+      "admission_mechanism": "Admissao owner+DPO com registro A6-ADMISSION-RECORD.json; ate la runtime recusa (seam ausente) e o PEP recusa qualquer EffectCall nomeando a key",
+      "planned_negative_test": "registered != honored: honored sem evento .honored_in_list + sourceReceiptRef + listPlanRevision => recusa; store ausente/sem forma => recusa tipada loud todo tick; start_process_idempotent/EffectCall com SP-OP-SUPP-001 fora da allowlist => recusa; registro sem deadline => DEADLINE_UNCOMPUTABLE."
+    },
+    {
+      "a_id": "A7",
+      "title": "GAP-PORTABILITY portabilidade (NR-11)",
+      "dossier": "omni_sales_platform/docs/delivery/admissions/A7-GAP-PORTABILITY-PORTABILIDADE.md",
+      "a_index_entry": "A-INDEX.json:123-136",
+      "status": "pending",
+      "unlocks": "NR-11 (decisao)",
+      "owners": ["produto", "legal"],
+      "gap_id": "GAP-PORTABILITY",
+      "nr_ids": ["NR-11"],
+      "candidate_matrix_ids": [],
+      "contract_exposes": ["contract-c6-4.json grep -i portab => 0 hits (nenhuma secao x-*)"],
+      "maezo_today_verdict": "ABSENT",
+      "maezo_today_evidence": [
+        "src/maezo/tools/workers/lgpd.py:198 portabilidade DSR LGPD (colisao de nome; nao e substrato comercial de portabilidade de carencias)"
+      ],
+      "gap": "Forma 1 (fonte propria com case kind CR-F5) ou Forma 2 (teto orientation_only registrado); zero substrato comercial hoje",
+      "admission_mechanism": "Decisao produto/legal + registro A7-ADMISSION-RECORD.json; loader fail-closed portal-side",
+      "planned_negative_test": "Sem A7: nenhuma superficie exibe compatibilidade/prazo (so orientacao com pendencia explicita); campos compatibilityVerdict/eligible/remainingWaitingDays/cancellationRequested/requestSubmitted/protocolRef rejeitados por clausula not do schema; nenhum cancelamento do plano de origem (REG-006)."
+    },
+    {
+      "a_id": "A8",
+      "title": "GAP-ATTRIBUTION-COMMISSION comissao (stub NR-09)",
+      "dossier": "omni_sales_platform/docs/delivery/admissions/A8-GAP-ATTRIBUTION-COMISSAO.md",
+      "a_index_entry": "A-INDEX.json:137-150",
+      "status": "pending",
+      "unlocks": "stub NR-09 (decisao)",
+      "owners": ["comercial", "legal", "DPO"],
+      "gap_id": "GAP-ATTRIBUTION-COMMISSION",
+      "nr_ids": ["NR-09"],
+      "candidate_matrix_ids": ["NOTICE-VENDOR"],
+      "contract_exposes": [
+        "contract-c6-4.json grep -i commission|attribution => 0 hits",
+        "contract-c6-4.json:14-25 x-status human_acts/tasy_write_homologation NOT_ESTABLISHED"
+      ],
+      "maezo_today_verdict": "ABSENT",
+      "maezo_today_evidence": [
+        "grep src/ 2026-10-24: 0 hits de commission em src/",
+        "OP17 commission.settle / OP19 value_transfer.register candidate_not_live (GP5-GP10; fora do denominador 51)"
+      ],
+      "gap": "Politica/base/attribution/fato gerador ratificados (Forma 1) ou fora-de-escopo explicito (Forma 2); nenhum calculo maezo/portal hoje",
+      "admission_mechanism": "Registro A8-ADMISSION-RECORD.json (comercial/legal/DPO); nenhum calculo; loader fail-closed portal-side",
+      "planned_negative_test": "Sem A8 admitida nenhuma superficie calcula/exibe comissao, score, payout, ranking patrocinado ou comparacao de concorrentes (ausencia que nao e flag); stub commission-policy.proposed.v1 permanece sem valores."
+    },
+    {
+      "a_id": "A9",
+      "title": "NR-10 lifecycle/analytics (metricas/eventos)",
+      "dossier": "omni_sales_platform/docs/delivery/admissions/A9-NR10-LIFECYCLE-ANALYTICS.md",
+      "a_index_entry": "A-INDEX.json:151-164",
+      "status": "pending",
+      "unlocks": "metricas/eventos (decisao)",
+      "owners": ["DPO"],
+      "gap_id": "GAP-SALES-AUTH (dim. NR-10)",
+      "nr_ids": ["NR-10"],
+      "candidate_matrix_ids": [],
+      "contract_exposes": [
+        "contract-c6-4.json:446 analytics apenas como proibicao",
+        "contract-c6-4.json:11016 analytics apenas como proibicao"
+      ],
+      "maezo_today_verdict": "ABSENT",
+      "maezo_today_evidence": [
+        "src/maezo/platform/observability.py e src/maezo/runtime/turn_telemetry.py observabilidade interna (nao e o contrato NR-10 do canal Sales)",
+        "src/maezo/portal/contracts/models.py:108 egresso de analytics proibido sem deriva humana/DPO"
+      ],
+      "gap": "Contrato finalidade/base/schema/retention/erasure/owners/consent/dedupe com mecanismo qualificado; decisao DPO",
+      "admission_mechanism": "Registro A9-ADMISSION-RECORD.json (DPO); ate la UNMEASURED e estado, nao toggle",
+      "planned_negative_test": "Sem A9 admitida nenhum evento de analytics e emitido por nenhum incremento; browser nunca emite accepted/enrolled/coverage_active autoritativos; nenhum payload pessoal em URL/DOM/storage/logs; opt-out nao quebra suporte/contratacao."
+    },
+    {
+      "a_id": "A10",
+      "title": "Vendor membership/canal (P6.5)",
+      "dossier": "omni_sales_platform/docs/delivery/admissions/A10-VENDOR-MEMBERSHIP.md",
+      "a_index_entry": "A-INDEX.json:165-179",
+      "status": "pending",
+      "unlocks": "P6.5",
+      "owners": ["engenharia origem", "comercial"],
+      "gap_id": "GAP-SALES-AUTH (dim. NR-09)",
+      "nr_ids": ["NR-09"],
+      "candidate_matrix_ids": ["JR4", "OP13", "OP15", "NOTICE-VENDOR", "HTTP-35", "HTTP-36"],
+      "contract_exposes": [
+        "contract-c6-4.json:7148,7637,7911,8390,10167,10606 valores de enum vendor_channel",
+        "contract-c6-4.json:8467 valor de enum vendor_seat_refused",
+        "contract-c6-4.json:11069 x-workflow vendors/customers have no work commands"
+      ],
+      "maezo_today_verdict": "PARTIAL",
+      "maezo_today_evidence": [
+        "src/maezo/gateway/capabilities/vendor_journey/binding.py:63 VENDOR_OPERATIONS = {access.resolve, offer.compose, external_wait.settle}",
+        "src/maezo/gateway/capabilities/vendor_journey/binding.py:81-96 VendorJourneyConfig default-off por construcao",
+        "src/maezo/gateway/capabilities/vendor_journey/binding.py:149-153 PURPOSE_DENIED fora da allowlist",
+        "src/maezo/gateway/capabilities/vendor_journey/projection.py:1 projecao OP15 read-only",
+        "src/maezo/tools/workers/vendor_admin.py ato administrativo OP13",
+        "src/maezo/platform/migrations/versions/0019_vendor_channel_authority.py e 0020_vendor_channel_submissions.py",
+        "src/maezo/portal/api/app.py:335-338 rota de submissao vendor DOCUMENTED but unbound"
+      ],
+      "gap": "Grants Portal por OP publicados (Track B) + membership publicada (nao pending) + canal active na unica fonte acreditada + capability vendor projetada pelo deployment (dossie A10)",
+      "admission_mechanism": "Admissao engenharia-origem+comercial com registro A10-ADMISSION-RECORD.json; JR4 permanece guard default-off ate bind qualificado",
+      "planned_negative_test": "Sem A10 admitida VendorJourneyConfig.enabled=False => JR4 ausente da superficie; canal vendor tentando OP03/OP04 => PURPOSE_DENIED no binding antes do driver; membership pending/revogada => AUTHORITY_UNPROVEN; store ausente => SOURCE_UNAVAILABLE (UNKNOWN, nunca zero); deployment sem capability vendor => rota 403/503 (assercao em app.py:335-338)."
+    }
+  ],
+  "admissions_count": 10,
+  "sum_check": {
+    "PRESENT": 0,
+    "PARTIAL": 6,
+    "ABSENT": 4,
+    "total": 10,
+    "verified": true
+  },
+  "divergences": [
+    "1. Vocabulario OP (matriz de 51 interfaces, contratos v21) difere dos 42 comandos do C6-4: OP02 offer.compose / OP04 enrollment.request / OP05 reservation.command / OP06 fulfillment.observe nao existem como comandos do C6-4 (que tem offer.quote, contract.issue, party.submit/link, acceptance.record); a regra mapping: at_admission (A-INDEX.json:35) impede ler linha OP como comando.",
+    "2. O indice A1-A10 vive so no portal (docs/delivery/admissions/ nao existe em main maezo); este catalogo e o espelho rastreado maezo-side.",
+    "3. Leituras do dossie A6 re-verificadas verdadeiras no tip atual: nenhum callsite runtime passa suppression_store (worker_runtime/service.py:326-336); SP-OP-SUPP-001 fora da allowlist (effect_pep.py:174-192); processo DRAFT (docs/processes/contracts/SP-OP-SUPP-001.md:3); migracao 0021 presente.",
+    "4. Copia do pin no portal verificada byte a byte (sha bcfe88f9 identico dos dois lados), porem o arquivo segue untracked no working tree do portal; commit/PR la e ato do dono.",
+    "5. Os 3 public GETs do register = os 3 transports do x-public-catalog (contract-c6-4.json:11021-11025), coerente com os 42 comandos.",
+    "6. Nenhuma linha da matriz moveu: 51 interfaces + 8 lacunas, PLANNING_ONLY_UNQUALIFIED, 51/51 NOT_RUN."
+  ],
+  "planned_package_order": [
+    {
+      "order": 1,
+      "package": "A1",
+      "why": "fila oficial (A-INDEX.json:44); substrato maezo mais adiantado (rota + codec + 231 UNIT); destrava P6.1"
+    },
+    {
+      "order": 2,
+      "package": "A2",
+      "why": "sessao e porta de todo efeito (P6.2 abre com A2); camada tipada so falta o provedor"
+    },
+    {
+      "order": 3,
+      "package": "A3",
+      "why": "dossie A3: completa P6.2 quando combinada a A2; efeitos exigem sessao"
+    },
+    {
+      "order": 4,
+      "package": "A4",
+      "why": "mesma NR-06 que A3 (timeline OP04 vs fato cobertura); invariante issued != coverage_active pressupoe issuer qualificado"
+    },
+    {
+      "order": 5,
+      "package": "A5",
+      "why": "P6.4 suporte; consumo portal HTTP-04..12 exige sessao (A2) e catalogo explicativo (A1)"
+    },
+    {
+      "order": 6,
+      "package": "A6",
+      "why": "P6.4 honra (agrupa com A5); dependencia humana forte (contrassinatura DPO) + wiring de store; pode atrasar sem bloquear 1-5"
+    },
+    {
+      "order": 7,
+      "package": "A7",
+      "why": "decisao fonte-ou-teto; Forma 1 depende do case kind da cadeia CR-F5 (A5)"
+    },
+    {
+      "order": 8,
+      "package": "A8",
+      "why": "atribuicao pressupoe canal (A10); antes de A10 evita re-trabalho de escopo de canal"
+    },
+    {
+      "order": 9,
+      "package": "A9",
+      "why": "gate transversal de medicao (dossie A9 §Identidade); depois dos incrementos de integracao e ANTES de qualquer P8 medir"
+    },
+    {
+      "order": 10,
+      "package": "A10",
+      "why": "fecha a fila; consumo vendor de OP01/OP02/OP08 depende das admissoes A2/A1/A5 (dossie A10 §Identidade)"
+    }
+  ],
+  "rules": [
+    "Uma admissao por PR (D-16), cada um com o teste negativo correspondente como assercao de regressao.",
+    "Nenhum pacote cria preparacao de codigo que simule a admissao (anti-padrao v3 9.1; ADMISSIONS-README.md:23).",
+    "Loader fail-closed do pin (portal-side) valida o sha do contrato d1d796b8 em toda leitura.",
+    "Nenhum agente preenche campos de decisao; registros A<n>-ADMISSION-RECORD.json existem somente pelo ato externo verificavel do owner (ADR-0007)."
+  ],
+  "replay_commands": [
+    "shasum -a 256 tests/candidate_artifacts/commercial/contract-c6-4.json",
+    "shasum -a 256 docs/delivery/commercial-platform/portal-mirror/PORTAL-MIRROR-PIN-C6-4.json"
+  ]
+}
