@@ -731,9 +731,10 @@
     <bpmn:boundaryEvent id="C2_B_PrazoMax" name="Prazo máximo de decisão" attachedToRef="C2_T_Aceite">
       <bpmn:documentation>⚠️ PD-02 [PENDENTE]: limite de espera/lembretes a definir pela Process Owner. | Origem: [SEM ORIGEM] — ARQ-01 FR-01</bpmn:documentation>
       <bpmn:documentation>Guard-rail de contratação: decisão de contratar é do cliente/humano; a automação prepara a decisão, nunca decide.</bpmn:documentation>
+      <bpmn:documentation>Contrato de default explícito (CORP-2.2 · IA-05/F-E03 · W2 CORP, D-30 opção ii): se prazoMaximoDecisao vier nula do chamador (CP_CA_C2, camunda:in), o boundary usa a âncora conservadora PT168H (7 dias corridos — teto do ritmo de lembretes R/PT24H do próprio processo) em vez de interromper a instância na avaliação do timer; variável realmente ausente continua falhando como antes (PropertyNotFoundException), sem silêncio e sem espera sem teto. A âncora NÃO é política ratificada: PD-02 permanece PENDENTE e a posição "sem duração presumida" vale para o valor de regra do chamador; a âncora é guarda nula a substituir pela política competente na ponte de runtime.</bpmn:documentation>
       <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_07</bpmn:outgoing>
       <bpmn:timerEventDefinition>
-        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${prazoMaximoDecisao}</bpmn:timeDuration>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${prazoMaximoDecisao != null ? prazoMaximoDecisao : "PT168H"}</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:boundaryEvent id="C2_B_Lembrete" name="24h sem resposta" cancelActivity="false" attachedToRef="C2_T_Aceite">
@@ -747,6 +748,7 @@
     <bpmn:boundaryEvent id="C2_B_Recusa" name="Cliente recusou" attachedToRef="C2_T_Aceite">
       <bpmn:documentation>Origem: M2_Boundary_Cancelamento</bpmn:documentation>
       <bpmn:documentation>Guard-rail de contratação: decisão de contratar é do cliente/humano; a automação prepara a decisão, nunca decide.</bpmn:documentation>
+      <bpmn:documentation>Contrato de cobertura (W2 CORP · D-30 opção ii): o emissor é o CLIENTE — a recusa da proposta parte da ação do cliente no canal de engajamento (Participant_Cliente), fora do conjunto modelado por desenho: não há thrower de Message_CA_RecusaProposta no XML nem messageFlow para este boundary. Entrega em runtime por correlação: o serviço do canal publica a mensagem CA_RecusaProposta correlacionada à instância (businessKey/journeyId); sem correlação o boundary não dispara e o caso encerra pelo prazo (C2_B_PrazoMax → C2_End_SemResposta). Pareamento captura↔emissor adjudicado como contrato de ingresso (família F-E02/IA-02).</bpmn:documentation>
       <bpmn:outgoing>F_CA_COMPRA_C2_DecidirContratar_04</bpmn:outgoing>
       <bpmn:messageEventDefinition messageRef="Message_CA_RecusaProposta" />
     </bpmn:boundaryEvent>
@@ -935,10 +937,11 @@
     </bpmn:intermediateCatchEvent>
     <bpmn:intermediateCatchEvent id="C3_EV_Expirou" name="Prazo de resposta expirado">
       <bpmn:documentation>⚠️ PD-01 / I-01: a origem rotula 72h e configura PT48H; valor mantido como proposta sem homologação. A referência histórica à RN 395/2016 não comprova aplicabilidade vigente nem alinhamento deste timer; distinguir prazo de resposta e realização e verificar a regra competente antes de uso operacional. | Origem: M2_EV_Expirou</bpmn:documentation>
+      <bpmn:documentation>Re-ancoragem regulatória (REG-1.2 · D-05 · F-E04): RN 395/2016 revogada pela RN 623/2024 art. 28 (vigor 1º/7/2025) — a referência histórica acima permanece como registro, não como fundamento. Classe aplicada ao contexto deste elemento (espera da resposta a solicitação de autorização de cobertura assistencial): RN 623/2024 art. 12, II, "a" — demais casos, até 5 dias úteis a partir da data da solicitação. Timer PT48H → PT168H: 5 dias úteis expressos em horas corridas, teto conservador que nunca expira antes do 5º dia útil; calendário útil e feriados são critério da ponte de runtime. Urgência/emergência (art. 12, I) = resposta imediata — caso de urgência não deve aguardar este timer. PAC/internação eletiva (art. 12, II, "b") = até 10 dias úteis. Ambiguidade registrada: o corpus não tipa o procedimento; aplicada a classe MAIS RESTRITIVA expressível como espera (5 dias úteis) — a classe geral nunca espera além do prazo legal, e a expiração antecipada de um caso PAC/internação eletiva conduz a renegociação/escalação (C3_GW_MergeReneg → C3_T_Renegociar), não à perda do direito. Art. 12, § 1º: se o prazo de garantia de atendimento da RN 566/2022 for inferior, prevalece o da RN 566/2022. Fonte: DOU 19/12/2024, Seção 1, p. 285 — https://www.in.gov.br/web/dou/-/resolucao-normativa-ans-n-623-de-17-de-dezembro-de-2024-602962514 (texto-base checksumado em docs/compliance/legal/textos-base/RN-623-2024.md, acesso 2026-10-24).</bpmn:documentation>
       <bpmn:incoming>F_CA_COMPRA_C3_HabilitarDireito_18</bpmn:incoming>
       <bpmn:outgoing>F_CA_COMPRA_C3_HabilitarDireito_27</bpmn:outgoing>
       <bpmn:timerEventDefinition>
-        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT48H</bpmn:timeDuration>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT168H</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:intermediateCatchEvent>
     <bpmn:exclusiveGateway id="C3_GW_Pendencia" name="Pendência resolvida e tentativas &#60; 3?" default="F_CA_COMPRA_C3_HabilitarDireito_22">
@@ -963,6 +966,7 @@
     <bpmn:boundaryEvent id="C3_B_SLA_Parecer" name="SLA 48h sem parecer" cancelActivity="false" attachedToRef="C3_T_Parecer">
       <bpmn:documentation>Qualificação de revisão (VA-10): PT48H permanece proposta operacional não homologada. Não equivale a dois dias úteis nem se presume prazo universal da RN 424/2017; verificar etapa, regra e aplicabilidade antes de uso operacional. Nenhuma obrigação ou duração nova é criada nesta devolutiva.</bpmn:documentation>
       <bpmn:documentation>SLA proposto — confirmar com a equipe (valor ausente das fontes): 48h, mesmo prazo do catch de autorização (C3_EV_Expirou, PT48H). RN 424/2017: prazo contratual/regulatório a confirmar.</bpmn:documentation>
+      <bpmn:documentation>Coerência pós-re-ancoragem (REG-1.2 · D-05): a referência acima ao "mesmo prazo do catch de autorização (C3_EV_Expirou, PT48H)" fica HISTÓRICA — C3_EV_Expirou passou a 5 dias úteis (PT168H) por RN 623/2024 art. 12, II, "a". Este SLA interno de 48h corridas (parecer humano sobre negativa) não é prazo do art. 12, permanece PT48H e agora dispara estritamente antes do prazo regulatório de resposta; valor segue sem homologação.</bpmn:documentation>
       <bpmn:outgoing>F_CA_COMPRA_C3_HabilitarDireito_33</bpmn:outgoing>
       <bpmn:timerEventDefinition>
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT48H</bpmn:timeDuration>
@@ -1128,6 +1132,7 @@
     <bpmn:boundaryEvent id="C4_B_SemSlot" name="Sem slot equivalente" attachedToRef="C4_T_Reagendar">
       <bpmn:documentation>RT-04 [PROPOSTO]. O rebooking automático não encontra slot equivalente (prestador, prazo ou local). Na origem a tarefa não tinha caminho de falha e o cliente ficaria sem o cuidado e sem aviso. autoRebookingService lança BpmnError SEM_SLOT_EQUIVALENTE.</bpmn:documentation>
       <bpmn:documentation>Contrato do erro (externo ao fluxo): o serviço de reagendamento automático (autoRebookingService) lança BpmnError com código SEM_SLOT_EQUIVALENTE quando não há slot equivalente; errorCode declarado nas definições. Produção por serviço externo — teste de erro pendente pela equipe antes de implantar.</bpmn:documentation>
+      <bpmn:documentation>Contrato de pareamento adjudicado (F-E10 · IA-07 · W2 CORP, D-30 opção ii): o emissor do erro é o delegate ${autoRebookingService} do host C4_T_Reagendar em runtime — por desenho não existe emissor deste errorCode no XML e nenhum thrower sintético foi criado. Cadeia provada por grafo: C4_GW_Motivo → C4_T_Reagendar (host, lança BpmnError SEM_SLOT_EQUIVALENTE) → C4_B_SemSlot (captura Error_CA_SemSlotEquivalente) → F_CA_COMPRA_C4_ManterDireito_10 → C4_End_SemSlot (resultadoManutencao = SEM_SLOT) → CP_GW_Manutencao → CP_End_Recovery → MF_CP_15 (T-10 ao suporte). O achado de pareamento do validador estrutural é falso-positivo adjudicado como documentation-action; teste de erro do delegate continua pendente pela equipe antes de uso operacional.</bpmn:documentation>
       <bpmn:outgoing>F_CA_COMPRA_C4_ManterDireito_10</bpmn:outgoing>
       <bpmn:errorEventDefinition errorRef="Error_CA_SemSlotEquivalente" />
     </bpmn:boundaryEvent>
@@ -1145,9 +1150,10 @@
     </bpmn:boundaryEvent>
     <bpmn:boundaryEvent id="C4_B_PrazoMax" name="Prazo máximo de confirmação" attachedToRef="C4_T_Confirmar">
       <bpmn:documentation>⚠️ PD-02 [PENDENTE]. | Origem: [SEM ORIGEM] — ARQ-01 FR-01</bpmn:documentation>
+      <bpmn:documentation>Contrato de default explícito (CORP-2.2 · IA-05/F-E03 · W2 CORP, D-30 opção ii): se prazoMaximoDecisao vier nula do chamador (CP_CA_C4, camunda:in), o boundary usa a âncora conservadora PT168H (7 dias corridos — teto do ritmo de lembretes R/PT24H deste processo) em vez de interromper a instância na avaliação do timer; variável realmente ausente continua falhando como antes (PropertyNotFoundException). A âncora NÃO é política ratificada: PD-02 permanece PENDENTE; guarda nula a substituir pela política competente na ponte de runtime.</bpmn:documentation>
       <bpmn:outgoing>F_CA_COMPRA_C4_ManterDireito_09</bpmn:outgoing>
       <bpmn:timerEventDefinition>
-        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${prazoMaximoDecisao}</bpmn:timeDuration>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${prazoMaximoDecisao != null ? prazoMaximoDecisao : "PT168H"}</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
     <bpmn:intermediateThrowEvent id="C4_EV_Lembrete" name="Lembrar cliente do novo slot">
