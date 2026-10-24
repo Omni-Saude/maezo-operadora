@@ -66,6 +66,11 @@ def _mapa_da_fonte(source: str) -> dict[str, str]:
     return mapa
 
 
+def _chave(nome: str) -> str:
+    """Espelha a regra de quoting do gerador: chave iniciada por digito vai quoted."""
+    return f"'{nome}'" if nome[0].isdigit() else nome
+
+
 def _mirror_text(
     source: str = _FONTE_MINIMA,
     *,
@@ -75,7 +80,7 @@ def _mirror_text(
 ) -> str:
     sha_resolved = sha if sha is not None else _sha(source)
     mapa_resolved = mapa if mapa is not None else _mapa_da_fonte(source)
-    mapa_rows = "\n".join(f"    {nome}: '{intervalo}'" for nome, intervalo in mapa_resolved.items())
+    mapa_rows = "\n".join(f"    {_chave(nome)}: '{intervalo}'" for nome, intervalo in mapa_resolved.items())
     envelope = (
         "espelho:\n"
         "  estado: teste\n"
@@ -301,6 +306,35 @@ def test_verify_mirror_isolado(tmp_path: Path) -> None:
     assert stats["mapa_ids"] == 2
 
 
+def test_gap_id_quoted_no_bloco_e_coberto_pelo_mapa() -> None:
+    """F-1 (gate cego Tier-2, PR #931): ids YAML-quoted no bloco custodiado — `- id: '9.1'`,
+    15 ocorrências reais na fonte pinada (9.x/10.x/11.x, quoted porque iniciam por dígito) —
+    têm que entrar no mapa por linha. Positivo: extrator cobre quoted e não-quoted.
+    Negativo: mapa que OMITE o id quoted é achado da cerca (a classe do defeito F-1)."""
+    fonte_quoted = (
+        "meta:\n"
+        "gaps:\n"
+        "- id: AF-01\n"
+        "  title: plano\n"
+        "- id: '9.1'\n"
+        "  title: quoted\n"
+        "work_packages:\n"
+        "- id: WP-X\n"
+        "  gaps:\n"
+        "  - AF-01\n"
+    )
+    espelho = _mirror_text(source=fonte_quoted)
+    assert "    '9.1': '5-6'" in espelho  # chave quoted, como no espelho embarcado
+    achados, stats = verify_mirror(espelho)
+    assert achados == []
+    assert stats["verificados"] == 2  # AF-01 (não-quoted) + 9.1 (quoted)
+    assert stats["mapa_ids"] == 2
+
+    mapa_sem_quoted = {"AF-01": _mapa_da_fonte(fonte_quoted)["AF-01"]}
+    achados_omissao, _ = verify_mirror(_mirror_text(source=fonte_quoted, mapa=mapa_sem_quoted))
+    assert any("não declara o gap 9.1" in achado for achado in achados_omissao)
+
+
 # ── 3. árvore real (prova de regressão do espelho embarcado) ────────────────────
 
 
@@ -317,4 +351,4 @@ def test_arvore_real_passa_nao_vacuo() -> None:
     resumo = next(linha for linha in saida if "citações verificadas" in linha)
     assert "0 inexistentes" in resumo
     mapa_resumo = next(linha for linha in saida if "linhas de mapa conferidas" in linha)
-    assert "/254" in mapa_resumo
+    assert "/269" in mapa_resumo

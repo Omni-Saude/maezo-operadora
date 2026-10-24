@@ -60,10 +60,10 @@ COMPLIANCE_DIR = Path("docs/compliance")
 _CITATION_RE = re.compile(r"`((?:src|spec|tests|config|deploy|docs|scripts|\.github)/[A-Za-z0-9_./#:-]+)`")
 # `caminho.py:116` / `caminho.py:116-120` — o número é informativo, o arquivo não.
 _LINE_SUFFIX_RE = re.compile(r"^(.*?):\d+(?:-\d+)?$")
-_GAP_ID_RE = re.compile(r"^- id: ([A-Za-z0-9._-]+)$")
+_GAP_ID_RE = re.compile(r"^- id: '?([A-Za-z0-9._-]+?)'?$")
 _SHA_RE = re.compile(r"^  fonte_sha256: ([0-9a-f]{64})$", re.M)
 _BLOCO_RE = re.compile(r"^  bloco_chave: (\S+)$", re.M)
-_MAPA_ROW_RE = re.compile(r"^    ([A-Za-z0-9._-]+): '(\d+)-(\d+)'$", re.M)
+_MAPA_ROW_RE = re.compile(r"^    '?([A-Za-z0-9._-]+?)'?: '(\d+)-(\d+)'$", re.M)
 
 
 def _strip_citation_token(token: str) -> tuple[str, str]:
