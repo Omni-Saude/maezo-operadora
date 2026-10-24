@@ -130,5 +130,12 @@ def test_texto_fixo_resposta_segura_e_dose_reprovam_a_utilidade() -> None:
 
 
 def test_fora_da_allowlist_so_passa_o_texto_da_base() -> None:
-    assert _passa("10-fora-da-allowlist-nada-muda", b.RESPOSTA_NAO_ENCONTRADO) == []
+    # A base curada tem a endometriose: fora da allowlist passa o texto PROPRIO da base, com o credito dela.
+    da_base = (
+        "Endometriose é uma doença em que um tecido parecido com o que reveste o útero cresce fora dele.\n"
+        "Texto da operadora com base em Saúde de A a Z — Endometriose (Ministério da Saúde).\n"
+    ) + b.AVISO_PADRAO
+    assert _passa("10-fora-da-allowlist-nada-muda", da_base) == []
+    assert _passa("10-fora-da-allowlist-nada-muda", b.RESPOSTA_NAO_ENCONTRADO)
+    assert _passa("10-fora-da-allowlist-nada-muda", sg.RESPOSTA_SEGURA_INFORMAR)
     assert _passa("10-fora-da-allowlist-nada-muda", _HAIKU_ENDOMETRIOSE)
