@@ -31,7 +31,7 @@ class ResolvedHumanSession:
         self,
         capabilities: tuple[Literal["identity", "staff_cases", "human", "vendor"], ...],
         *,
-        flags: tuple[Literal["staff_documents_panel"], ...] = (),
+        flags: tuple[Literal["staff_documents_panel", "staff_operations_panel"], ...] = (),
     ) -> SessionDTO:
         return SessionDTO(
             capabilities=capabilities,

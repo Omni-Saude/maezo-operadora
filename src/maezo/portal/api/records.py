@@ -90,5 +90,6 @@ class SessionDTO(PrivateRecord):
     capabilities: tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]
     #: Closed set of shadow-panel signals this deployment turns on (`PortalSettings`), empty in
     #: the shipped state. The browser uses it only to choose stub versus panel — like
-    #: `capabilities`, it grants nothing: every route still refuses on its own.
-    flags: tuple[Literal["staff_documents_panel"], ...] = ()
+    #: `capabilities`, it grants nothing: every route still refuses on its own. Canonical
+    #: order; the browser validator refuses anything out of order or duplicated.
+    flags: tuple[Literal["staff_documents_panel", "staff_operations_panel"], ...] = ()

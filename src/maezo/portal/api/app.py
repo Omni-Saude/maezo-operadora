@@ -448,11 +448,15 @@ def create_app(
             'tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]',
             tuple(config.capabilities.split(",")),
         )
-        # Same deployment-owned projection as `capabilities` above: the shadow-panel signal
-        # names a surface only and grants nothing. Empty is the shipped, dark state.
+        # Same deployment-owned projection as `capabilities` above: the shadow-panel signals
+        # name surfaces only and grant nothing. Empty is the shipped, dark state; the tuple
+        # order is the literal's canonical order (documents, operations).
         flags = cast(
-            'tuple[Literal["staff_documents_panel"], ...]',
-            ("staff_documents_panel",) if config.staff_documents_panel else (),
+            'tuple[Literal["staff_documents_panel", "staff_operations_panel"], ...]',
+            (
+                *(("staff_documents_panel",) if config.staff_documents_panel else ()),
+                *(("staff_operations_panel",) if config.staff_operations_panel else ()),
+            ),
         )
         return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities, flags=flags)
 

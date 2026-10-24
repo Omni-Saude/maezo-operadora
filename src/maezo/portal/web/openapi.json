@@ -6825,7 +6825,10 @@
           "flags": {
             "default": [],
             "items": {
-              "const": "staff_documents_panel",
+              "enum": [
+                "staff_documents_panel",
+                "staff_operations_panel"
+              ],
               "type": "string"
             },
             "title": "Flags",
