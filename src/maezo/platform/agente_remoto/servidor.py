@@ -32,7 +32,7 @@ import structlog
 from fastapi import FastAPI, Request, Response
 
 from maezo.contratos import conversa_remota as fio
-from maezo.contratos.conversa import AgenteDeEntrada
+from maezo.contratos.conversa import AgenteDeEntrada, turno_sem_preparo
 from maezo.platform.health import CheckResult, create_health_app
 from maezo.runtime.checkpoint import checkpoint_thread_config
 
@@ -135,7 +135,14 @@ class ServicoDoAgente:
         bruto = pedido.get("estado")
         estado = self._materializar(bruto)
         try:
-            resultado = await compiled.ainvoke(estado, self._config_de_thread(pedido.get("config")))
+            # Esperar e juntar (Helena, etapa 9): o agente prepara e conclui o turno; o grafo roda AQUI.
+            turno_do_agente = getattr(self.entrada, "turno_juntado", None) or turno_sem_preparo
+            async with turno_do_agente(
+                estado, self._config_de_thread(pedido.get("config")), compiled
+            ) as turno:
+                resultado = turno.juntado or turno.concluir(
+                    await compiled.ainvoke(turno.estado, turno.config)
+                )
         except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a: este e' agora o sitio que EXECUTA o turno do agente remoto; a falha
             # conta em `maezo_agent_errors_total` aqui (o receptor ve' so' a falha externa) e sobe nua.

@@ -45,8 +45,9 @@ _BOOLEANAS: Final[dict[str, tuple[str, ...]]] = {
 _MODOS_COBERTURA: Final[frozenset[str]] = frozenset({"simples", "consulta"})
 _MODOS_ROTEADOR: Final[frozenset[str]] = frozenset({"desligado", "sombra", "ativo"})
 _CHAVES: Final[frozenset[str]] = frozenset(
-    {"formato", *_BOOLEANAS, "cobertura_modo", "identidade_nome_operadora", "roteador"}
+    {"formato", *_BOOLEANAS, "cobertura_modo", "identidade_nome_operadora", "roteador", "juntar_mensagens"}
 )
+_CHAVES_JUNTAR: Final[frozenset[str]] = frozenset({"espera_s", "conversas"})
 _CHAVES_ROTEADOR: Final[frozenset[str]] = frozenset(
     {"modo", "modelo", "prazo_s", "max_tokens", "concorrencia", "conversas"}
 )
@@ -80,6 +81,9 @@ def configuracao(pacote: PacoteDoAgente) -> dict[str, Any]:
     roteador = dados.get("roteador")
     if roteador is not None:
         erros += _erros_do_roteador(roteador)
+    juntar = dados.get("juntar_mensagens")
+    if juntar is not None:
+        erros += _erros_do_juntar(juntar)
     if erros:
         raise PacoteInvalidoError(f"{ARQUIVO_CONFIGURACAO}: " + "; ".join(erros))
     return dados
@@ -108,6 +112,28 @@ def _erros_do_roteador(roteador: object) -> list[str]:
         isinstance(c, str) and c.startswith("wa:") and ":hk1_" in c for c in conversas
     ):
         erros.append("roteador.conversas: lista de ids keyed (wa:<tenant>:hk1_...)")
+    return erros
+
+
+def _conversas_keyed(conversas: object) -> bool:
+    return isinstance(conversas, list) and all(
+        isinstance(c, str) and c.startswith("wa:") and ":hk1_" in c for c in conversas
+    )
+
+
+def _erros_do_juntar(juntar: object) -> list[str]:
+    """Etapa 9 (esperar e juntar): `espera_s` de 0.5 a 15 s e a lista de conversas (ids keyed)."""
+    if not isinstance(juntar, dict):
+        return ["juntar_mensagens tem de ser um mapeamento"]
+    erros: list[str] = []
+    desconhecidas = sorted(set(juntar) - _CHAVES_JUNTAR)
+    if desconhecidas:
+        erros.append(f"juntar_mensagens: chaves desconhecidas {desconhecidas}")
+    espera = juntar.get("espera_s", 4.0)
+    if not isinstance(espera, int | float) or isinstance(espera, bool) or not 0.5 <= espera <= 15:
+        erros.append("juntar_mensagens.espera_s entre 0.5 e 15")
+    if not _conversas_keyed(juntar.get("conversas", [])):
+        erros.append("juntar_mensagens.conversas: lista de ids keyed (wa:<tenant>:hk1_...)")
     return erros
 
 
@@ -174,6 +200,15 @@ class PacoteDaHelena:
             return None
         pacote = self._carregador.atual()
         return configuracao(pacote) if pacote is not None else None
+
+    def juntar_mensagens(self) -> tuple[float, frozenset[str]] | None:
+        """Etapa 9: a espera e as conversas do esperar-e-juntar, ou `None` (sem pacote, sem a chave ou sem
+        conversa: nada muda)."""
+        dados = self.configuracao_ativa()
+        juntar = dados.get("juntar_mensagens") if dados is not None else None
+        if not isinstance(juntar, dict) or not juntar.get("conversas"):
+            return None
+        return float(juntar.get("espera_s", 4.0)), frozenset(juntar["conversas"])
 
     def instrucoes_do_roteador(self) -> str | None:
         if self._carregador is None:
