@@ -602,6 +602,33 @@ class PublicSource(AmhPublicCatalogAuthority):
         self.phases.append(phase)
 
 
+def catalog_admission():
+    """Valid A1 record for the bound-path rigs; the shipped repo has no record file."""
+    from maezo.gateway.commercial_catalog_admission import A1_CONTRACT_SHA256, parse_catalog_source_admission
+
+    record = {
+        "schema": "omni-commercial-admission-record.v1",
+        "admission_id": "A1",
+        "decision": "admitted",
+        "owners": ["produto", "comercial", "legal"],
+        "decided_at": "2026-10-24T00:00:00+00:00",
+        "valid_until": "2099-01-01T00:00:00+00:00",
+        "unlocks": "P6.1",
+        "admitted_commands": ["catalog.get"],
+        "contract_pin": {
+            "contract_id": "omni-commercial.proposed.v1",
+            "revision": "C6-4",
+            "sha256": A1_CONTRACT_SHA256,
+        },
+        "evidence": {
+            "object_url": "https://amh.invalid/admissions/a1-object.json",
+            "object_sha256": "a" * 64,
+            "origin_git_sha": "b" * 40,
+        },
+    }
+    return parse_catalog_source_admission(json.dumps(record).encode(), now=datetime.now(UTC))
+
+
 def public_rig(schema_bytes, body=None, status=200):
     scope_authority = PublicScope()
     source = PublicSource(CommercialWire(schema_bytes))
@@ -617,6 +644,7 @@ def public_rig(schema_bytes, body=None, status=200):
         caller=UnitCaller(),
         scope_authority=scope_authority,
         source_authority=source,
+        source_admission=catalog_admission(),
         transport=httpx.MockTransport(transport),
     )
     app = FastAPI()

@@ -23,6 +23,7 @@ from maezo.adapters.amh.commercial_http import (
     HttpPublicCatalogSource,
 )
 from maezo.gateway.commercial import CommercialGateway, PublicCatalogGateway
+from maezo.gateway.commercial_catalog_admission import CatalogSourceAdmission
 from maezo.ports.commercial import (
     CommercialCommand,
     CommercialDeliveryOrigins,
@@ -211,13 +212,28 @@ def compose_public_catalog_gateway(
     caller: SalesCallerVerifier | None = None,
     scope_authority: PublicCatalogScopeAuthority | None = None,
     source_authority: AmhPublicCatalogAuthority | None = None,
+    source_admission: CatalogSourceAdmission | None = None,
     timeout_seconds: float = 5.0,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> PublicCatalogGateway:
-    """Actual fixed GET caller composition; missing authority keeps it unbound."""
+    """Actual fixed GET caller composition; missing authority or admission keeps it unbound.
+
+    Authority ports alone never bind the public source: binding additionally requires
+    the registered A1 admission (`commercial_catalog_admission`), sha-pinned to the frozen
+    contract these schema bytes must be. No process-global mutation or environment
+    activation exists.
+    """
     wire = CommercialWire(schema_bytes)
-    if caller is None or scope_authority is None or source_authority is None or amh_origin is None:
+    if (
+        caller is None
+        or scope_authority is None
+        or source_authority is None
+        or amh_origin is None
+        or source_admission is None
+    ):
         return PublicCatalogGateway(codec=wire, timeout_seconds=timeout_seconds)
+    if source_admission.contract_sha256 != wire.schema_digest:
+        raise ValueError("commercial_catalog_admission_invalid")
     return PublicCatalogGateway(
         codec=wire,
         admission=AuthenticatedPublicCatalogAdmission(caller=caller, authority=scope_authority),
