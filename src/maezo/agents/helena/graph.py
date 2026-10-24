@@ -4641,6 +4641,8 @@ class HelenaGraph:
         roteador_inference: InferenceProvider | None = None,
         roteador_concorrencia: int = 4,
         helena_roteador_conversas: frozenset[str] = frozenset(),
+        roteador_instrucoes: str | None = None,
+        roteador_prazo_s: float | None = None,
         textos: Mapping[str, str] | None = None,
     ) -> None:
         self._llm = inference
@@ -4662,12 +4664,20 @@ class HelenaGraph:
         self._roteador_llm = roteador_inference if roteador_inference is not None else inference
         self._roteador_limite = max(1, int(roteador_concorrencia))
         self._roteador_em_curso = 0
+        # CONTRATO v7 (Plano de ajustes v2, etapa 7): as instrucoes do roteador vem do pacote de comportamento
+        # (`roteador.yaml` do pacote) quando ha'; senao, o padrao validado na sonda (`roteador_v7`).
+        from maezo.agents.helena import roteador_v7 as _rv7
+
+        self._roteador_instrucoes = (roteador_instrucoes or "").strip() or _rv7.INSTRUCOES_PADRAO
+        self._roteador_prazo_s = 6.0
         if helena_roteador in ("sombra", "ativo"):
             from maezo.agents.helena import roteador_contrato as _rc
 
             try:
                 self._roteador_contrato = _rc.carregar()
                 self._roteador_modo = helena_roteador
+                # O prazo: o do pacote (o mesmo do provedor proprio), senao o do contrato.
+                self._roteador_prazo_s = float(roteador_prazo_s or self._roteador_contrato.prazo_s or 6.0)
             except (_rc.ContratoInvalidoError, OSError, ValueError) as exc:
                 logger.error("helena_roteador_contrato_invalido", erro=type(exc).__name__)
         # VINCULO ATIVO E CARTEIRINHA COMPLETA (dono, 17/10/2026, `MAEZO_HELENA_CARTEIRINHA_COMPLETA`):
@@ -8839,6 +8849,8 @@ class HelenaGraph:
     _roteador_chave = _roteador._roteador_chave
 
     _roteador_alarme = _travas_entrada._roteador_alarme
+    _sinal_do_modelo_na_tabela = _travas_entrada._sinal_do_modelo_na_tabela
+    _sinal_do_modelo_e_novo = _travas_entrada._sinal_do_modelo_e_novo
 
     _roteador_decidir = _roteador._roteador_decidir
 
@@ -8996,6 +9008,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         else None,
         roteador_concorrencia=int(cfg.get("roteador_concorrencia") or 4),
         helena_roteador_conversas=frozenset(cfg.get("helena_roteador_conversas") or ()),
+        roteador_instrucoes=str(cfg.get("roteador_instrucoes") or "") or None,
+        roteador_prazo_s=float(cfg["roteador_prazo_s"]) if cfg.get("roteador_prazo_s") else None,
         # TEXTOS DO PACOTE (ADR-0067 §4): os textos fixos que o pacote de comportamento trouxer.
         # (`cobertura_modo` e `catalogo_procedimentos` da composicao: ignorados, a cobertura saiu, DL-0154.)
         textos=cfg.get("textos_do_pacote") if isinstance(cfg.get("textos_do_pacote"), Mapping) else None,
