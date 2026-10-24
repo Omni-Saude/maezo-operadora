@@ -25,7 +25,7 @@ here.
 | 5 | SP-OP-CANCEL-001 | DRAFT (v0.2.0) | JU, REG, DPO, PO | owner action — due 2026-09-19 | none | 0 | no |
 | 6 | SP-OP-CONTAS-001 | DRAFT (v0.1.0) | MA, JU, REG, FIN, PO | owner action — due 2026-09-19 | none | 0 | no |
 | 7 | SP-OP-CRED-001 | DRAFT (v0.1.0) | MA (secondary), JU, REG, PO | owner action — due 2026-09-19 | none | 0 | no |
-| 8 | SP-OP-ESCALATION-001 | **FINAL (v1.0.0)** | MA, REG, PO (retro-verification) | owner action — due 2026-09-19 | none | 0 | **NO — see flag below** |
+| 8 | SP-OP-ESCALATION-001 | **FINAL (v1.1.0)** | MA, REG, PO (retro-verification) | owner action — due 2026-09-19; pacote pronto 2026-10-20 (planilha + modelo de signoff, ver flag) | none | 0 | **NO — see flag below** |
 | 9 | SP-OP-FRAUDE-001 | DRAFT (v0.1.0) | MA (secondary), JU, REG, DPO, PO | owner action — due 2026-09-19 | none | 0 | no |
 | 10 | SP-OP-INADIMPLENCIA-001 | DRAFT (v0.2.0) | JU, REG, FIN, PO | owner action — due 2026-09-19 | none | 0 | no |
 | 11 | SP-OP-LGPD-DSR-001 | DRAFT (v0.1.0) | DPO, JU, PO | owner action — due 2026-09-19 | none | 0 | no |
@@ -40,7 +40,7 @@ here.
 **FINAL contract, zero signoff files on record.** `docs/processes/contracts/signoffs/` does not
 exist as a directory (verified: `ls docs/processes/contracts/signoffs/` → no such file or
 directory, HEAD `e1c0b34`) — so no contract in this repo has a signoff file yet, but
-SP-OP-ESCALATION-001 is the only one that is already **FINAL (v1.0.0)** without one. Per the
+SP-OP-ESCALATION-001 is the only one that is already **FINAL (v1.1.0)** without one (FINAL since v1.0.0; v1.1.0 = DL-0118/ADR-0064 amendment, 17/10/2026). Per the
 no-self-certification rule (constraint 1 of this task and README §"Signoff artifact spec"), this
 cannot be waved through retroactively by an agent. It **requires retro-verification**: a human
 pass that (a) confirms the SLA values the contract itself marks DRAFT despite the FINAL status
@@ -50,6 +50,12 @@ and (b) then produces the missing signoff file(s) — by médico-auditor and reg
 roles assigned in this dispatch (see `medico-auditor/PACKAGE.md` and `regulatorio/PACKAGE.md`).
 Until that happens, treat the SLA values in production as unverified even though the contract
 text reads FINAL.
+
+**Review package (2026-10-20).** Spreadsheet `Revisao_Clinica_Helena_Escalonamento_2026-10-20.xlsx`
+(generated from the DMN tables and the code by `scripts/sme/revisao_clinica.py`; verdict columns
+empty), the draft v1.2.0 amendment `medico-auditor/EMENDA-v1.2.0-caso-paralelo.md` and the signoff
+template `medico-auditor/SIGNOFF-MODELO-SP-OP-ESCALATION-001.yaml` (3-step instruction inside). The
+reviewers only confirm/correct and sign; no agent fills in a name, date or verdict.
 
 ## Notes on the "roles assigned" column
 
