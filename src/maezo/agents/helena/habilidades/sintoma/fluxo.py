@@ -20,9 +20,6 @@ from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.alarme_deterministico import alarme_no_relato
 from maezo.agents.helena.consultas_plano import (
     INTENT_CONSULTA_PLANO,
-    fatos_da_consulta,
-    literais_dos_fatos,
-    segmentacao_dos_fatos,
 )
 from maezo.agents.helena.habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
@@ -775,44 +772,21 @@ async def _v4_especialista(
     ):
         return None
     nome, basica = achado
-    segmentacao, literais = await self._v4_segmentacao(state)
-    logger.info(
-        "helena_v4_especialista", node="classify", basica=basica, com_segmentacao=literais is not None
-    )
+    # DL-0154 (etapa 8): sem o "paragrafo de segmentacao" do cadastro — quem pede especialista quer saber
+    # onde marcar e o prazo, nao o tipo do plano (a cobertura saiu da Helena).
+    logger.info("helena_v4_especialista", node="classify", basica=basica)
     update["intent"] = "information"
     update["sintoma_codigo"] = None
     update.pop("consulta_subtipo", None)
     update["response_text"] = texto_do_especialista(
         nome,
         basica=basica,
-        segmentacao=segmentacao,
+        segmentacao=None,
         frase_cobertura=(
             self._textos[CHAVE_TEXTO_COBERTURA_FORA] if _pergunta_de_cobertura_ampla(texto) else None
         ),
     )
-    if literais is not None:
-        update["consulta_literais"] = literais
-        update["resposta_com_dados_do_plano"] = True
     return _rota_informativa(update)
-
-
-async def _v4_segmentacao(self: HelenaGraph, state: HelenaState) -> tuple[str | None, tuple[str, ...] | None]:
-    """A segmentacao REGISTRADA no cadastro (e os literais do cadastro, para as cercas) quando a fonte do
-    plano esta' ligada, a pessoa e' a verificada e o cadastro a traz; senao `(None, None)` e o texto sai
-    sem ela."""
-    ref = self._ref_verificada(state)
-    if ref is None:
-        return None, None
-    fatos = fatos_da_consulta(
-        "elegibilidade",
-        await self._ler_consulta(ref, "elegibilidade"),
-        so_ativos=self._carteirinha_completa,
-        hoje=self._hoje_dos_vinculos(),
-    )
-    segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
-    if fatos is None or segmentacao is None:
-        return None, None
-    return segmentacao, literais_dos_fatos(fatos)
 
 
 def _base_assunto_do_grupo(self: HelenaGraph, grupo: str) -> _bs.Assunto | None:

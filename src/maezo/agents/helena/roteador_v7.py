@@ -241,6 +241,15 @@ _PARA_INTERNA: Final[Mapping[str, str]] = {
 LEITURA_DO_TURNO: ContextVar[DecisaoV7 | None] = ContextVar("helena_leitura_v7_do_turno", default=None)
 
 
+def pede_pessoa_no_contexto() -> bool:
+    """O modelo leu, NESTE turno, pedido de pessoa ou "sim" a uma oferta da equipe ("pode passar pra equipe
+    sim, mas rapido")? Recusa nunca conta. Fora do roteador ativo: `False` (valem os leitores de sempre)."""
+    v7 = LEITURA_DO_TURNO.get()
+    if v7 is None or v7.recusa_equipe:
+        return False
+    return v7.sim_nao == "sim" or v7.opcao in ("1", "2") or v7.skill == "atendimento_humano"
+
+
 def tipo_da_pendente(codigo: str | None) -> str | None:
     """O TIPO da pergunta pendente pelo codigo dela (vocabulario fechado das habilidades), ou `None`."""
     c = str(codigo or "")
@@ -380,6 +389,7 @@ def aviso_de_reenvio(ruins: Sequence[str]) -> str:
 __all__ = [
     "INSTRUCOES_PADRAO",
     "LEITURA_DO_TURNO",
+    "pede_pessoa_no_contexto",
     "PROMPT_VERSION",
     "SKILLS",
     "TOPICOS",
