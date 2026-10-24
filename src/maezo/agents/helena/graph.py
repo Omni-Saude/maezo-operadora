@@ -1499,7 +1499,7 @@ ERRO_CONSULTA_RECUSADA: str = "consulta recusada"
 #: O `next_kind` (e o nome da aresta) da consulta do plano. So' existe com as consultas ligadas.
 NEXT_KIND_CONSULTA_PLANO: str = "consulta_plano"
 #: Teto do tempo que a consulta a AMH soma ao turno (cada leitura ja' e' limitada pelo port).
-CONSULTA_PRAZO_S: float = 6.0
+CONSULTA_PRAZO_S: float = 10.0  # dependentes = 2 consultas Athena
 #: DL-0131: os nomes dos dependentes lidos ficam em memoria por 2 h (nunca em estado ou log).
 NOMES_EM_MEMORIA_S: float = 7200.0
 #: DL-0130: a CPT vigente lida por titular fica em memoria por 5 min (o limite por sujeito da rota e'

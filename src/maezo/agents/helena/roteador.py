@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, cast
 
 from maezo.agents.helena import roteador_v7 as _rv7
+from maezo.agents.helena.alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
 from maezo.agents.helena.habilidades.conversa import assuntos as _assuntos
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 from maezo.agents.helena.historico import historico_em_texto
@@ -414,7 +415,24 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
         # Falha do proprio turno (`receive`) ou conversa em seguimento com o Lucas: o caminho de sempre.
         return await self.classify(state)
     antes, pendente, trava = self._roteador_entrada(state)
-    decisao, falha, ms = await self._roteador_decidir(dict(state), pendente)
+    falha: str | None
+    if trava is not None:
+        # Rodada de 24/10/2026: com trava (alarme, risco, dados pessoais) a TABELA responde primeiro: o turno
+        # nao espera o modelo do roteador (era ate' 4 s a mais antes do 192).
+        decisao, falha, ms = None, "trava", 0
+        alarme = alarme_no_relato(_plano(str(state.get("message_body") or "")))
+        if trava == _rt.TRAVA_ALARME and alarme is not None:
+            # Alarme da tabela deterministica: o escalonamento SEM esperar nem o classificador.
+            logger.warning("helena_alarme_deterministico", node="classify", categoria=alarme, sem_modelo=True)
+            update = self._update_sem_modelo(state, POPULACAO_DO_ALARME.get(alarme, "adult"))
+            self._expirar_pendencias_do_turno(state, update)
+            update["intent"] = "symptom"
+            update["next_kind"] = "escalate"
+            update["escalation_motivo"] = "red_flag_clinico"
+            update["escalation_severidade"] = "grave"
+            return {**update, "habilidade_roteador": None}
+    else:
+        decisao, falha, ms = await self._roteador_decidir(dict(state), pendente)
     feita: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
     feita.set_result((decisao, falha, ms))
     self._roteador_guardar(state, (feita, pendente, trava, antes))

@@ -47,5 +47,5 @@ roteador:
 # refaz a resposta com tudo. Sinal claro de emergencia nao espera. Ligado so' depois de o agent-helena e o
 # receptor com a etapa 9a estarem no dev (24/10/2026). Fora da lista (ou sem esta chave): nada muda.
 juntar_mensagens:
-  espera_s: 4.0
+  espera_s: 2.5               # rodada de 24/10/2026: 4 s pesava demais no turno
   conversas: *conversas_do_teste

@@ -142,7 +142,8 @@ async def test_p1_clinico_recebe_o_texto_urgente_qualquer_que_seja_o_rascunho(ra
     assert resultado["escalation_motivo"] == "red_flag_clinico"
     assert resultado["response_text"] == RESPOSTA_ESCALONAMENTO_URGENTE
     assert whatsapp.enviados == [RESPOSTA_ESCALONAMENTO_URGENTE]
-    assert len(gravador.prompts) == 2, "classify + resumo do atendente; o aviso a pessoa nao chama o modelo"
+    # Rodada de 24/10/2026: no alarme grave o resumo do atendente e' FIXO (o 192 nao espera o modelo).
+    assert len(gravador.prompts) == 1, "so' o classify; nem o resumo nem o aviso a pessoa chamam o modelo"
     texto = resultado["response_text"].lower()
     for proibido in _PROIBIDO_NA_RESPOSTA:
         assert proibido not in texto, proibido
