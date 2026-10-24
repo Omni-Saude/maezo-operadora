@@ -724,8 +724,15 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
       require(size > 0 && size <= bound && pinned.channel().size() == size);
       // (a) The pinned descriptor still exists with the pinned custody attributes.
       require(pinned.file().equals(fileAttributes(pinned.descriptor(), true)));
-      // (b)+(c) Path->inode continuity and unchanged parents, re-read from the path.
-      require(pinned.file().equals(fileAttributes(path)) && pinned.parent().equals(fileAttributes(path.getParent())));
+      // (b) Path->inode continuity and unchanged custody attributes, from the path.
+      require(pinned.file().equals(fileAttributes(path)));
+      // (c) Parent continuity on the structural custody facts (a directory's mtime
+      // legitimately moves when a sibling is created or removed); the per-read
+      // ancestor walk below still re-checks mode/owner of the whole chain.
+      var parentNow = fileAttributes(path.getParent());
+      require(parentNow.get("dev").equals(pinned.parent().get("dev")) && parentNow.get("ino").equals(pinned.parent().get("ino"))
+          && (number(parentNow.get("uid")) == 0 || number(parentNow.get("uid")) == jvmUid)
+          && (number(parentNow.get("mode")) & 0170000) == 0040000 && (number(parentNow.get("mode")) & 0022) == 0);
       checkParents(path.getParent(), jvmUid, tick);
       // (d) Position coupling of this very channel to this very descriptor number.
       require(descriptorPosition(pinned.descriptor()) == pinned.channel().position());
@@ -741,7 +748,7 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
       require(bytes.length == size && pinned.channel().size() == bytes.length
           && pinned.channel().position() == descriptorPosition(pinned.descriptor())
           && pinned.file().equals(fileAttributes(pinned.descriptor(), true))
-          && pinned.file().equals(fileAttributes(path)) && pinned.parent().equals(fileAttributes(path.getParent()))
+          && pinned.file().equals(fileAttributes(path)) && parentNow.equals(fileAttributes(path.getParent()))
           && sha(bytes).equals(expected));
       tick.run();
       return bytes;

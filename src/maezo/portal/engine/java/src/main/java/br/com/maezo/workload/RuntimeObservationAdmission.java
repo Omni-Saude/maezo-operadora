@@ -190,9 +190,15 @@ final class RuntimeObservationAdmission {
       require(size>0 && size<=bound && possession.channel.size()==size);
       // (a) The pinned descriptor still exists with the pinned custody attributes.
       require(possession.file.equals(fdAttributes(possession.descriptor)));
-      // (b)+(c) Path->inode continuity and unchanged parents, re-read from the path.
-      require(possession.file.equals(Files.readAttributes(path,FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS))
-          && possession.parent.equals(Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS)));
+      // (b) Path->inode continuity and unchanged custody attributes, re-read from the path.
+      require(possession.file.equals(Files.readAttributes(path,FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS)));
+      // (c) Parent continuity on the structural custody facts: a directory's mtime
+      // legitimately moves when a sibling is created or removed; the custody facts of a
+      // parent are its type, its absence of write bits, its owner and its identity.
+      var parentNow=Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS);
+      require(parentNow.get("dev").equals(possession.parent.get("dev")) && parentNow.get("ino").equals(possession.parent.get("ino"))
+          && ((Number)parentNow.get("mode")).intValue()==0040700
+          && ((Number)parentNow.get("uid")).longValue()==((Number)possession.parent.get("uid")).longValue());
       // (d) Position coupling of this very channel to this very descriptor number.
       require(descriptorPosition(possession.descriptor)==possession.channel.position());
       possession.channel.position(0);require(descriptorPosition(possession.descriptor)==0);
@@ -207,7 +213,7 @@ final class RuntimeObservationAdmission {
           && possession.file.equals(fdAttributes(possession.descriptor))
           && descriptorPosition(possession.descriptor)==possession.channel.position()
           && possession.file.equals(Files.readAttributes(path,FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS))
-          && possession.parent.equals(Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS))
+          && parentNow.equals(Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS))
           && Jcs.digest(raw).equals(expected));
       if(owned!=null)owned.timeOnly();
       return raw;

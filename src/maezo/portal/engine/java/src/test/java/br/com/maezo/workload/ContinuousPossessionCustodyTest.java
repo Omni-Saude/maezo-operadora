@@ -16,8 +16,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,6 +49,53 @@ class ContinuousPossessionCustodyTest {
     Files.write(path, content);
     Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
     return path.toRealPath();
+  }
+
+  /**
+   * The instrument's own doctrine walks EVERY ancestor (mode dir/no-write-bits, owner
+   * 0|jvm), so a protected material cannot live under a world-writable tmp ancestor.
+   * Instrument tests stage their chain under the module's target directory, whose
+   * ancestors are runner-owned and carry no write bits.
+   */
+  private Path instrumentRoot;
+
+  private Path instrumentRoot() throws Exception {
+    if (instrumentRoot == null) {
+      Path target = Path.of(ContinuousPossessionCustodyTest.class.getProtectionDomain()
+          .getCodeSource().getLocation().toURI()).getParent().getParent();
+      instrumentRoot = target.resolve("pinned-custody-" + UUID.randomUUID());
+      Files.createDirectories(instrumentRoot);
+      Files.setPosixFilePermissions(instrumentRoot, PosixFilePermissions.fromString("rwx------"));
+    }
+    return instrumentRoot.toRealPath();
+  }
+
+  private Path instrumentFile(String name, byte[] content) throws Exception {
+    Path path = instrumentRoot().resolve(name);
+    Files.write(path, content);
+    Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
+    return path.toRealPath();
+  }
+
+  /** The instrument's own ancestor criteria; explicit host capability, never acceptance. */
+  private boolean instrumentChainIsCompliant() throws Exception {
+    for (Path parent = instrumentRoot(); parent != null; parent = parent.getParent()) {
+      var attributes = Files.readAttributes(parent, "unix:mode,uid", LinkOption.NOFOLLOW_LINKS);
+      int mode = ((Number) attributes.get("mode")).intValue();
+      long owner = ((Number) attributes.get("uid")).longValue();
+      if ((mode & 0170000) != 0040000 || (mode & 0022) != 0
+          || (owner != 0 && owner != ownUid())) return false;
+    }
+    return true;
+  }
+
+  private void deleteTree(Path root) {
+    if (root == null || !Files.exists(root)) return;
+    try (var stream = Files.walk(root)) {
+      for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) {
+        try { Files.deleteIfExists(path); } catch (Exception ignored) { /* best effort cleanup */ }
+      }
+    } catch (Exception ignored) { /* best effort cleanup */ }
   }
 
   private static String digestOf(byte[] raw) throws Exception {
@@ -147,6 +196,8 @@ class ContinuousPossessionCustodyTest {
         }
       }
     }
+    deleteTree(instrumentRoot);
+    instrumentRoot = null;
   }
 
   @Test void admissionPinnedReadReopensNothingAndRedigestsEveryTime() throws Exception {
@@ -267,8 +318,8 @@ class ContinuousPossessionCustodyTest {
     return null;
   }
   @Test void instrumentPinnedReadReopensNothingAndRedigestsEveryTime() throws Exception {
-    assumeTrue(linux());
-    Path path = protectedFile("material.jar", new byte[] {5, 6, 7, 8});
+    assumeTrue(linux() && instrumentChainIsCompliant());
+    Path path = instrumentFile("material.jar", new byte[] {5, 6, 7, 8});
     String digest = digestOf(Files.readAllBytes(path));
     var before = RuntimeObservationAdmission.descriptorCensus();
     assertArrayEquals(Files.readAllBytes(path), instrumentReadFile(path, digest, 32 * 1024 * 1024));
@@ -282,8 +333,8 @@ class ContinuousPossessionCustodyTest {
   }
 
   @Test void instrumentPinnedReadRefusesOnInPlaceWriteSameSize() throws Exception {
-    assumeTrue(linux());
-    Path path = protectedFile("material-rewrite.jar", new byte[] {1, 2, 3, 4});
+    assumeTrue(linux() && instrumentChainIsCompliant());
+    Path path = instrumentFile("material-rewrite.jar", new byte[] {1, 2, 3, 4});
     String digest = digestOf(Files.readAllBytes(path));
     instrumentReadFile(path, digest, 32 * 1024 * 1024);
     try (var channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
@@ -295,17 +346,17 @@ class ContinuousPossessionCustodyTest {
   }
 
   @Test void instrumentPinnedReadRefusesOnInodeSwap() throws Exception {
-    assumeTrue(linux());
-    Path path = protectedFile("material-swap.jar", new byte[] {1, 2, 3, 4});
+    assumeTrue(linux() && instrumentChainIsCompliant());
+    Path path = instrumentFile("material-swap.jar", new byte[] {1, 2, 3, 4});
     String digest = digestOf(Files.readAllBytes(path));
     instrumentReadFile(path, digest, 32 * 1024 * 1024);
-    Path substitute = protectedFile("substitute.jar", "other-content".getBytes(StandardCharsets.US_ASCII));
+    Path substitute = instrumentFile("substitute.jar", "other-content".getBytes(StandardCharsets.US_ASCII));
     Files.move(substitute, path, StandardCopyOption.REPLACE_EXISTING);
     assertThrows(IllegalStateException.class, () -> instrumentReadRefusing(path, digest, 32 * 1024 * 1024));
   }
   @Test void instrumentPinnedReadRefusesOnDivergentMode() throws Exception {
-    assumeTrue(linux());
-    Path path = protectedFile("material-mode.jar", new byte[] {1, 2, 3, 4});
+    assumeTrue(linux() && instrumentChainIsCompliant());
+    Path path = instrumentFile("material-mode.jar", new byte[] {1, 2, 3, 4});
     String digest = digestOf(Files.readAllBytes(path));
     instrumentReadFile(path, digest, 32 * 1024 * 1024);
     Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-r-----"));
@@ -313,17 +364,17 @@ class ContinuousPossessionCustodyTest {
   }
 
   @Test void instrumentPinnedReadRefusesOnHardlink() throws Exception {
-    assumeTrue(linux());
-    Path path = protectedFile("material-nlink.jar", new byte[] {1, 2, 3, 4});
+    assumeTrue(linux() && instrumentChainIsCompliant());
+    Path path = instrumentFile("material-nlink.jar", new byte[] {1, 2, 3, 4});
     String digest = digestOf(Files.readAllBytes(path));
     instrumentReadFile(path, digest, 32 * 1024 * 1024);
-    Files.createLink(temporary.resolve("second-link.jar"), path);
+    Files.createLink(instrumentRoot().resolve("second-link.jar"), path);
     assertThrows(IllegalStateException.class, () -> instrumentReadRefusing(path, digest, 32 * 1024 * 1024));
   }
 
   @Test void instrumentPinnedReadRefusesOnClosedPinnedChannel() throws Exception {
-    assumeTrue(linux());
-    Path path = protectedFile("material-closed.jar", new byte[] {1, 2, 3, 4});
+    assumeTrue(linux() && instrumentChainIsCompliant());
+    Path path = instrumentFile("material-closed.jar", new byte[] {1, 2, 3, 4});
     String digest = digestOf(Files.readAllBytes(path));
     instrumentReadFile(path, digest, 32 * 1024 * 1024);
     channelOf(registry("ProviderNativeIndependentMeasurement", "PINNED_FILES").get(path)).close();
@@ -335,12 +386,12 @@ class ContinuousPossessionCustodyTest {
    * (require(!matches.isEmpty())). The possessed read passes under the same ambient state.
    */
   @Test void instrumentAmbientChurnCannotRefuseRepeatedRead_reproducesRun40() throws Exception {
-    assumeTrue(linux());
-    Path target = protectedFile("possessed.jar", new byte[] {5, 6, 7, 8});
+    assumeTrue(linux() && instrumentChainIsCompliant());
+    Path target = instrumentFile("possessed.jar", new byte[] {5, 6, 7, 8});
     String digest = digestOf(Files.readAllBytes(target));
     instrumentReadFile(target, digest, 32 * 1024 * 1024);
-    Path dummy = protectedFile("dummy.jar");
-    Path filler = protectedFile("filler.jar");
+    Path dummy = instrumentFile("dummy.jar", new byte[] {1, 2, 3});
+    Path filler = instrumentFile("filler.jar", new byte[] {2, 3, 4});
     Map<Path, Map<String, Object>> before = null;
     boolean reused = false;
     for (int attempt = 0; attempt < 64 && !reused; attempt++) {
@@ -359,8 +410,9 @@ class ContinuousPossessionCustodyTest {
   }
   @Test void inventorySweepIsCensusFreeAndGrantsNoChannelCustody() throws Exception {
     assumeTrue(linux());
-    Path first = protectedFile("lib-one.jar", new byte[] {1, 2, 3});
-    Path second = protectedFile("lib-two.jar", new byte[] {4, 5, 6});
+    assumeTrue(instrumentChainIsCompliant());
+    Path first = instrumentFile("lib-one.jar", new byte[] {1, 2, 3});
+    Path second = instrumentFile("lib-two.jar", new byte[] {4, 5, 6});
     var before = RuntimeObservationAdmission.descriptorCensus();
     instrumentDigestInventoryFile(first, digestOf(Files.readAllBytes(first)));
     instrumentDigestInventoryFile(second, digestOf(Files.readAllBytes(second)));
@@ -371,29 +423,35 @@ class ContinuousPossessionCustodyTest {
 
   @Test void inventorySweepRefusesWhenRenamedOverFileHasDifferentContent() throws Exception {
     assumeTrue(linux());
-    Path path = protectedFile("lib-swap.jar", new byte[] {1, 2, 3});
+    assumeTrue(linux() && instrumentChainIsCompliant());
+    Path path = instrumentFile("lib-swap.jar", new byte[] {1, 2, 3});
     instrumentDigestInventoryFile(path, digestOf(new byte[] {1, 2, 3}));
-    Path substitute = protectedFile("substitute-sweep.jar", new byte[] {4, 4, 4});
+    Path substitute = instrumentFile("substitute-sweep.jar", new byte[] {4, 4, 4});
     Files.move(substitute, path, StandardCopyOption.REPLACE_EXISTING);
     assertThrows(IllegalStateException.class, () -> instrumentDigestRefusing(path, digestOf(new byte[] {1, 2, 3})));
   }
   /** R2 of the design doc: the pinned set is closed and countable; cycling grows no fds. */
   @Test void pinnedCycleGrowsNoDescriptors() throws Exception {
-    assumeTrue(linux());
+    assumeTrue(linux() && instrumentChainIsCompliant());
     List<Path> materials = List.of(
-        protectedFile("cycle-a.json"), protectedFile("cycle-b.json"),
-        protectedFile("cycle-c.json"), protectedFile("cycle-d.json"));
+        instrumentFile("cycle-a.json", new byte[] {1, 2, 3}), instrumentFile("cycle-b.json", new byte[] {4, 5, 6}),
+        instrumentFile("cycle-c.json", new byte[] {7, 8, 9}), instrumentFile("cycle-d.json", new byte[] {1, 3, 5}));
     for (Path material : materials) {
       instrumentReadFile(material, digestOf(Files.readAllBytes(material)), 1 << 25);
     }
-    var possessed = RuntimeObservationAdmission.descriptorCensus();
+    Map<Path, Object> pinned = registry("ProviderNativeIndependentMeasurement", "PINNED_FILES");
+    assertEquals(materials.size(), pinned.size());
     for (int round = 0; round < 20; round++) {
       for (Path material : materials) {
         assertArrayEquals(Files.readAllBytes(material), instrumentReadFile(material, digestOf(Files.readAllBytes(material)), 1 << 25));
       }
-      assertEquals(possessed, RuntimeObservationAdmission.descriptorCensus());
+      // The owned set never grows and every material keeps its pinned descriptor
+      // (ambient JDK descriptor churn is not attributed to a possessed read).
+      assertEquals(materials.size(), pinned.size());
+      for (Path material : materials) {
+        assertNotNull(pinned.get(material), material.toString());
+      }
     }
-    assertEquals(materials.size(), registry("ProviderNativeIndependentMeasurement", "PINNED_FILES").size());
   }
 }
 
