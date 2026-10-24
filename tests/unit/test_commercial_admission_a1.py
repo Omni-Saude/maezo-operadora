@@ -231,19 +231,19 @@ def test_refused_and_deferred_owner_decisions_never_bind(decision):
 
 
 @pytest.mark.parametrize(
-    "changes",
+    "changes,expected",
     [
-        {"admitted_commands": ["catalog.get", "offer.quote"]},
-        {"admitted_commands": ["acceptance.record"]},
-        {"admitted_commands": []},
-        {"unlocks": "P6.2"},
-        {"admission_id": "A2"},
+        ({"admitted_commands": ["catalog.get", "offer.quote"]}, "admission_scope_invalid"),
+        ({"admitted_commands": ["acceptance.record"]}, "admission_scope_invalid"),
+        ({"admitted_commands": []}, "admission_scope_invalid"),
+        ({"unlocks": "P6.2"}, "admission_record_invalid"),
+        ({"admission_id": "A2"}, "admission_record_invalid"),
     ],
 )
-def test_scope_beyond_catalog_get_is_refused(changes):
+def test_scope_beyond_catalog_get_is_refused(changes, expected):
     with pytest.raises(CatalogSourceAdmissionError) as err:
         parse_catalog_source_admission(a1_record(**changes), now=datetime.now(UTC))
-    assert err.value.reason_code in {"admission_scope_invalid", "admission_record_invalid"}
+    assert err.value.reason_code == expected
 
 
 def test_expired_record_does_not_bind():

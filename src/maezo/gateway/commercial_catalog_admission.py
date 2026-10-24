@@ -8,14 +8,16 @@ that was missing for A1 was the authority side: nothing in `src/` could say WHO 
 decide that the commercial catalog source is bound at all (`source-readiness.json`
 CR-F2 = `COMMERCIAL_AUTHORITY_ABSENT_FROM_PIN`, `published_for_new_scope: false`).
 
-That decision is an owner act (roles produto/comercial/legal, dossier `A1-CR-F2-CATALOGO.md`
-of the portal shelf), archived as an admission record and consumed here — never a code
+That decision is an owner act (roles produto/comercial/legal, admission A1 of
+`docs/delivery/commercial-platform/GAP-CATALOG-A1-A10.md`, the tracked maezo-side
+mirror of the pending owner dossier), archived as an admission record and consumed
+here — never a code
 change, feature flag, environment variable or process global, and never a
 "prepared" source that simulates the admission (v3 §9.1).
 
-The record field set is transcribed, not invented: `ADMISSIONS-README.md` of the portal shelf
-(registro = objeto + URL + SHA256 + timestamp UTC + identidade do owner + decisão +
-escopo + expiração) and the dossier §"Evidência a anexar". The machine-checkable
+The record field set is transcribed, not invented: objeto + URL + SHA256 + timestamp UTC +
+identidade do owner + decisão + escopo + expiração (`GAP-CATALOG-A1-A10.md`, seção A1 e §5,
+que transcrevem as regras do shelf do portal). The machine-checkable
 admitted scope is exactly the contract command `catalog.get` (the single fixed
 transport `GET /api/v1/sales/public/catalog`); the record must cite the frozen C6-4
 contract pin below — a divergent sha is a loud refusal, because a successor contract
