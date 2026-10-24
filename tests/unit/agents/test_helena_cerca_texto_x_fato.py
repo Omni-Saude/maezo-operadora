@@ -670,11 +670,14 @@ def test_o_except_do_start_nomeia_exatamente_cibseven_error() -> None:
     excecao: se o worker recusa, o start SUCEDEU.
     """
     import ast
-    import inspect
+    from pathlib import Path
 
     from maezo.agents.helena import graph as helena_graph
+    from tests.support.fontes_do_grafo import fonte_do_agente
 
-    arvore = ast.parse(inspect.getsource(helena_graph))
+    # O grafo INTEIRO da Helena: desde a divisao por habilidade (ADR-0067 §5) o start mora em
+    # `habilidades/atendimento_humano/escalar.py`; ler so' o `graph.py` deixaria esta cerca vazia.
+    arvore = ast.parse(fonte_do_agente(Path(helena_graph.__file__)))
     handlers: list[list[str]] = []
     for no in ast.walk(arvore):
         if not isinstance(no, ast.Try):
