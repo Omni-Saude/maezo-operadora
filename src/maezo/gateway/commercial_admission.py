@@ -152,18 +152,21 @@ class CoverageGatedCodec(CommercialCodec):
 
     The frozen contract carries the nominal coverage projection inside the journey
     snapshot (`CustomerJourneySnapshot.coverage`, shape `CustomerCoverageRead`) — a READ,
-    never a command. Without the registered A4 record (`commercial_coverage_admission`)
-    a source-asserted coverage fact (`coverageState` `active`/`revoked`) does not cross
-    the disclosure boundary: this gate refuses it with the shipped `purpose_denied`
-    refusal before any byte of it is disclosed, and the gateway's post-dispatch custody
-    discipline answers `uncertain/reconciliation_required` — the read executed at the
-    source, the unadmitted fact is never disclosed, and nothing is re-dispatched. The
-    snapshot's other dimensions (acceptance/contract/enrollment/documents/support) and
-    every `unknown` coverage rendering stay exactly as shipped. The gate only ever keys
-    on the source's own coverage arm: issued/accepted/paid facts in the same snapshot
-    never upgrade it, and no coverage fact is synthesized, upgraded or written — the
-    structural `issued ≠ coverage_active` custody (contract :454, dossier A4). With the
-    registered A4 record the gate is inert and the source-owned fact passes unchanged.
+    never a command — and the SAME arm inside the recovery envelope
+    (`RecoveredCustomerJourneySnapshot`, the `operation.get` original_result for
+    `original_command == "journey.get"`). Without the registered A4 record
+    (`commercial_coverage_admission`) a source-asserted coverage fact (`coverageState`
+    `active`/`revoked`) does not cross the disclosure boundary on EITHER carrier: this
+    gate refuses it with the shipped `purpose_denied` refusal before any byte of it is
+    disclosed, and the gateway's post-dispatch custody discipline answers
+    `uncertain/reconciliation_required` — the read executed at the source, the unadmitted
+    fact is never disclosed, and nothing is re-dispatched. The snapshot's other
+    dimensions (acceptance/contract/enrollment/documents/support) and every `unknown`
+    coverage rendering stay exactly as shipped. The gate only ever keys on the source's
+    own coverage arm: issued/accepted/paid facts in the same snapshot never upgrade it,
+    and no coverage fact is synthesized, upgraded or written — the structural
+    `issued ≠ coverage_active` custody (contract :454, dossier A4). With the registered
+    A4 record the gate is inert and the source-owned fact passes unchanged.
     """
 
     def __init__(self, inner: CommercialCodec, *, gated: bool) -> None:
@@ -187,12 +190,21 @@ class CoverageGatedCodec(CommercialCodec):
 
     def parse_result(self, body: bytes, command: CommercialCommand) -> OperationalResult:
         result = self._inner.parse_result(body, command)
-        if self._gated and command.command == "journey.get" and result.status == "succeeded":
-            value = json.loads(result.wire_bytes)
-            if any(
-                journey["coverage"]["coverageState"] != "unknown" for journey in value["data"]["journeys"]
-            ):
-                raise CommercialRefusalError("denied", "purpose_denied")
+        if not self._gated or result.status != "succeeded":
+            return result
+        value = json.loads(result.wire_bytes)
+        if command.command == "journey.get":
+            journeys = value["data"]["journeys"]
+        elif (
+            command.command == "operation.get"
+            and value["data"].get("original_command") == "journey.get"
+            and value["data"].get("original_result") is not None
+        ):
+            journeys = value["data"]["original_result"]["data"]["journeys"]
+        else:
+            return result
+        if any(journey["coverage"]["coverageState"] != "unknown" for journey in journeys):
+            raise CommercialRefusalError("denied", "purpose_denied")
         return result
 
 

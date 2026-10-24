@@ -43,7 +43,7 @@ from fastapi import FastAPI
 import maezo.adapters.amh.commercial as wire_module
 import maezo.gateway.commercial_admission as admission_module
 import maezo.gateway.commercial_coverage_admission as coverage_module
-from maezo.adapters.amh.commercial import CommercialWire
+from maezo.adapters.amh.commercial import CommercialWire, _strip_replay_actions
 from maezo.gateway.commercial_acceptance_admission import (
     A3_CONTRACT_SHA256,
     AcceptanceRecordAdmissionError,
@@ -87,9 +87,11 @@ from tests.unit.test_commercial_c6 import (
     continuation_contract,
     continuation_journey,
     encode,
+    envelope,
     journey,
     journey_request,
     outcome,
+    recovery,
 )
 from tests.unit.test_commercial_http import (
     UnitCaller,
@@ -246,6 +248,22 @@ async def post_command(app, command, **headers):
 
 async def post_journey(app):
     return await post_command(app, journey_request())
+
+
+def recovered_payload(state, reason=None):
+    """Source wire for `operation.get` recovering a journey snapshot (`RecoveredCustomer...`)."""
+    return encode(
+        outcome(
+            recovery(
+                "journey.get",
+                _strip_replay_actions(snapshot_result(journey_with_coverage(state, reason))),
+            )
+        )
+    )
+
+
+def operation_request(codec):
+    return codec.parse_command(encode(envelope("operation.get", {"target_command_ref": "SYN-ORIGINAL"})))
 
 
 def test_frozen_contract_pin_lineage(schema_bytes):
@@ -466,6 +484,74 @@ def test_gate_never_touches_non_journey_results_or_unknown_renderings(schema_byt
         json.loads(unknown.wire_bytes)["data"]["journeys"][0]["coverage"]["unknownReason"]
         == "source_unavailable"
     )
+
+
+def test_gate_covers_the_recovery_arm_with_the_exact_reason_code(schema_bytes):
+    # The `operation.get` recovery envelope carries the SAME coverage arm
+    # (`RecoveredCustomerJourneySnapshot`): a recovered source-asserted fact is refused
+    # with the exact `denied/purpose_denied` — the dossier's negative (iv) is "QUALQUER
+    # caminho" of disclosure, and the recovery path is one.
+    codec = CoverageGatedCodec(CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins()), gated=True)
+    for state in ("active", "revoked"):
+        with pytest.raises(CommercialRefusalError) as err:
+            codec.parse_result(recovered_payload(state), operation_request(codec))
+        assert err.value.status == "denied" and err.value.reason_code == "purpose_denied"
+
+
+def test_recovered_unknown_rendering_stays_byte_exact(schema_bytes):
+    # A recovered `unknown` rendering is disclosed exactly as the source sent it — the
+    # gate never rewrites, replaces or synthesizes a coverage fact.
+    codec = CoverageGatedCodec(CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins()), gated=True)
+    parsed = codec.parse_result(recovered_payload("unknown", "source_unavailable"), operation_request(codec))
+    disclosed = json.loads(parsed.wire_bytes)["data"]["original_result"]["data"]["journeys"][0]["coverage"]
+    assert disclosed == coverage_arm("unknown", "source_unavailable")
+
+
+def test_recovery_of_other_commands_is_untouched_by_the_gate(schema_bytes):
+    # A recovery whose original command is not the journey read is unchanged: the gated
+    # codec parses it identically to the plain wire.
+    codec = CoverageGatedCodec(CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins()), gated=True)
+    reference = CommercialWire(schema_bytes, delivery_origins=DeliveryOrigins())
+    command = operation_request(codec)
+    payload = encode(outcome(recovery("operator.get", _strip_replay_actions(wire_result()["data"]))))
+    assert codec.parse_result(payload, command) == reference.parse_result(payload, command)
+
+
+@pytest.mark.asyncio
+async def test_gateway_refuses_the_recovered_coverage_fact_before_disclosure(schema_bytes):
+    # The wire keeps the shipped custody family: the recovery POST dispatches exactly once
+    # (the read executed at the source), the recovered `active` fact is never disclosed,
+    # and nothing is re-dispatched.
+    calls = []
+    request_data = recovery(
+        "journey.get", _strip_replay_actions(snapshot_result(journey_with_coverage("active")))
+    )
+
+    def transport(request):
+        calls.append(request)
+        command = json.loads(request.content)["command"]
+        body = outcome(request_data) if command == "operation.get" else wire_result()
+        return httpx.Response(200, json=body)
+
+    scope_authority = JourneyScopeAuthority()
+    app = FastAPI()
+    app.state.commercial_gateway = compose_commercial_gateway(
+        schema_bytes=schema_bytes,
+        amh_origin=AMH_ORIGIN,
+        caller=UnitCaller(),
+        scope_authority=scope_authority,
+        source_authority=CurrentResultSource(scope_authority.scope),
+        delivery_origins=DeliveryOrigins(),
+        sales_admission=a2_admission(),
+        transport=httpx.MockTransport(transport),
+    )
+    app.include_router(commercial_router)
+    refused = await post_command(app, envelope("operation.get", {"target_command_ref": "SYN-ORIGINAL"}))
+    assert refused.status_code == 202
+    body = refused.json()
+    assert body["status"] == "uncertain" and body["reason_code"] == "reconciliation_required"
+    assert body["data"] is None
+    assert len(calls) == 1  # one dispatch: the recovery read itself, never a replay
 
 
 def test_no_coverage_write_exists_in_the_frozen_contract(schema_bytes):
