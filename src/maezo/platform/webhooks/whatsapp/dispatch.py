@@ -1512,6 +1512,19 @@ class HelenaDispatcher:
                     if isinstance(exc, PROGRAMMING_ERRORS):
                         raise
                     return dict(escalado)
+                retomada = result.get("texto_de_retomada")
+                if not lucas_escalou and not lucas_start_falhou and isinstance(retomada, str) and retomada:
+                    # Assuntos abertos (Helena, etapa 9): depois da resposta do Lucas, a Helena pergunta UMA
+                    # vez sobre o assunto que ficou para tras ("Sobre o assunto de saude, ficou...?").
+                    try:
+                        await sender.send(phone_hash, retomada)
+                    except Exception as exc:  # noqa: BLE001 — o turno ja' respondeu; so' o log
+                        logger.warning(
+                            "helena_retomada_nao_enviada",
+                            tenant_id=self.tenant_id,
+                            conversation_id=conversation_id,
+                            error_type=type(exc).__name__,
+                        )
                 if not lucas_escalou and not lucas_start_falhou:
                     # ADR-0067 fase 4b: com o agente remoto, `eh_pedido_explicito_de_pessoa` (sincrono) le'
                     # cache; o booleano e' obtido AQUI, de forma assincrona (o atalho do recuo nao passa pelo

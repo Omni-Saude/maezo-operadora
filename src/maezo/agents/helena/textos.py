@@ -21,6 +21,7 @@ from typing import Final
 
 from .habilidades.cobertura_fora import CHAVE_TEXTO as _CHAVE_COBERTURA
 from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
+from .habilidades.conversa.assuntos import PADRAO as _PADRAO_ASSUNTOS
 from .habilidades.saude.textos import PADRAO as _PADRAO_SAUDE
 from .habilidades.sintoma.textos import PADRAO as _PADRAO_SINTOMA
 
@@ -34,6 +35,7 @@ PADRAO: Final[Mapping[str, str]] = {
     _CHAVE_COBERTURA: TEXTO_COBERTURA_FORA,
     **_PADRAO_SINTOMA,
     **_PADRAO_SAUDE,
+    **_PADRAO_ASSUNTOS,
 }
 
 #: Link em qualquer forma: esquema, `www.` ou dominio com TLD comum (gov.br, anvisa.gov.br, site.com).
