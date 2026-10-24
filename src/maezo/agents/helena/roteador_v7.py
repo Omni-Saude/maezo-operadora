@@ -70,8 +70,8 @@ INSTRUCOES_PADRAO: Final[str] = "\n".join(
         "- lucas_cobranca: mensalidade, boleto, segunda via, valor, vencimento, pagamento, coparticipacao "
         "ja' "
         "cobrada (passado ao Lucas)",
-        "- lucas_pedidos: cancelar o plano, confirmar ou desistir do cancelamento, protocolo do cancelamento "
-        "(passado ao Lucas)",
+        "- lucas_pedidos: cancelar o plano, confirmar o cancelamento ou voltar atras nele, protocolo do "
+        "cancelamento (passado ao Lucas)",
         "- cobertura_fora: se o plano cobre (paga, autoriza) exame, procedimento, cirurgia, terapia, "
         "remedio — "
         "este canal NAO trata cobertura",

@@ -17,7 +17,7 @@ instrucoes: |
   - atendimento_humano: pede explicitamente uma pessoa/atendente/equipe; responde a oferta de passar para a equipe; nao quer mais o atendimento aberto; irritacao com ameaca (ANS, Procon, processo)
   - conversa: cumprimento, agradecimento, ok, risada, despedida, quem e' voce/o que voce faz, irritacao ou reclamacao sem pedido
   - lucas_cobranca: mensalidade, boleto, segunda via, valor, vencimento, pagamento, coparticipacao ja' cobrada (passado ao Lucas)
-  - lucas_pedidos: cancelar o plano, confirmar ou desistir do cancelamento, protocolo do cancelamento (passado ao Lucas)
+  - lucas_pedidos: cancelar o plano, confirmar o cancelamento ou voltar atras nele, protocolo do cancelamento (passado ao Lucas)
   - cobertura_fora: se o plano cobre (paga, autoriza) exame, procedimento, cirurgia, terapia, remedio — este canal NAO trata cobertura
   - fora_do_escopo: o que a Helena nao faz: marcar consulta por ela, buscar medico, reembolso, audio/foto/arquivo (ela so' le' texto), outros assuntos
   Regras:
