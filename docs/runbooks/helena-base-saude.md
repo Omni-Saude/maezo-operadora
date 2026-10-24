@@ -43,6 +43,9 @@ alerta). Criança, gestante e saúde mental não mudam. A DMN não muda.
 2. **Antes de ligar:** deploy-processes do `SP-OP-ESCALATION-001` v1.1.0 (a mensagem
    `msg.escalation.withdrawn`), como no runbook `dmn-bpmn-deployment.md`. Sem isso, o encerramento a pedido
    falha honestamente ("Não consegui encerrar o seu atendimento agora...") e o caso continua aberto.
+   **No mesmo corte, repinar a admissão do portal** para a versão nova (`material-staff-na-aws.md`, passo 5, "Versão
+   nova de processo já admitido"): sem isso os casos novos ficam fora de TODAS as filas do portal (17/10/2026: a v3
+   subiu por este passo e os casos P1 de 22/10 ficaram invisíveis até o repin de 23/10).
 3. Apply direcionado (com as tags de imagem de sempre):
 
    ```
