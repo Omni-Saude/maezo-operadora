@@ -41,6 +41,14 @@ MISSING IDENTITY BRIDGES (why subject references do not imply a countable relati
   Alembic chain are `fhir_patient_id`. No mapping exists (`lgpd.py:293-294`).
 - `thread_id` -> `fhir_patient_id`. The working layer is keyed by `thread_id`, not by
   patient (`src/maezo/platform/erasure.py:196-206`).
+
+W5 CLNT 5.4 ships the flag-gated DARK substrate for exactly these two crossings
+(`src/maezo/platform/identity_bridges.py`: one default-OFF flag per bridge, a
+caller-provisioned mapping source, and the ratified plan as the required DPO decision).
+That substrate changes NOTHING in this module's reports: with the flags OFF — every
+deployment of this program — no bridge is reachable, no source is bound and no production
+caller exists, so a dry-run given a `titular_pseudo_id` still reports
+`NOT_COUNTED_IDENTITY_BRIDGE_ABSENT` per layer below.
 - DSR/FHIR reference -> portal principal. ADR-0049 D4/D6 authenticates human actors;
   issuer/subject/principal_ref and reviewed subject_bindings are not a contracted
   per-titular erasure bridge. None of the nine portal relations carries a count probe.
@@ -1213,8 +1221,9 @@ def assert_dry_run_only(mode: ErasureRunMode, plan: ErasurePlan | None) -> None:
         f"mode={mode.value} requested with a ratified plan present, and it is STILL refused: "
         "no execution mechanism exists (ErasureManager.erase() raises "
         "ErasureNotImplementedError; the titular_pseudo_id->fhir_patient_id and "
-        "thread_id->fhir_patient_id bridges do not exist). Ratification is a governance act, "
-        "never a trigger",
+        "thread_id->fhir_patient_id bridges remain unreachable — the flag-gated substrate is "
+        "DARK: per-bridge flags OFF, no bound mapping source, no production caller). "
+        "Ratification is a governance act, never a trigger",
     )
 
 
