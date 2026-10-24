@@ -1518,7 +1518,7 @@ class HelenaDispatcher:
                     # vez sobre o assunto que ficou para tras ("Sobre o assunto de saude, ficou...?").
                     try:
                         await sender.send(phone_hash, retomada)
-                    except Exception as exc:  # noqa: BLE001 — o turno ja' respondeu; so' o log
+                    except Exception as exc:  # o turno ja' respondeu: so' o log
                         logger.warning(
                             "helena_retomada_nao_enviada",
                             tenant_id=self.tenant_id,
