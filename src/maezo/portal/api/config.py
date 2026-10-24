@@ -50,6 +50,15 @@ class PortalSettings(BaseSettings):
     #: publicada no schema mesmo desligada (o leitor do contrato vê o canal antes de decidir
     #: habilitá-lo). Nenhum `deploy/**` pode ligá-la neste programa.
     lgpd_dsr_channel: bool = False
+    #: W5 CLNT 5.5 (`docs/plans/w5-admin-disposition.md` §3.5). Painel staff READ-ONLY da área
+    #: `documents` (documentos e pedidos de documento do caso), sobre as rotas GET já montadas de
+    #: `documents.py` — nenhuma rota nova, nenhum byte novo fora do plano PHI. DARK: OFF por
+    #: padrão — o programa é shadow e virar esta chave é ato da onda ROLL, com janela de
+    #: evidência e revisor nomeados. OFF projeta a sessão sem o sinal, e o portal mantém o stub
+    #: exato de hoje: zero mudança de superfície visível. A autorização de leitura continua
+    #: inteira no plano publicado (`auth.document_context.read`); o sinal não concede nada.
+    #: Nenhum `deploy/**` pode ligá-la neste programa.
+    staff_documents_panel: bool = False
     #: The deployed capability profile, the same `MAEZO_PORTAL_CAPABILITIES` the production
     #: bootstrap reads. Projected on the session so the browser can tell "this area is not
     #: enabled here" from a real 503. It grants nothing: every route still refuses on its own.

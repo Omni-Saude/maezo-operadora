@@ -3041,6 +3041,11 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+            /**
+             * Flags
+             * @default []
+             */
+            flags: "staff_documents_panel"[];
             /** Principal Ref */
             principal_ref: string;
             /** Roles */

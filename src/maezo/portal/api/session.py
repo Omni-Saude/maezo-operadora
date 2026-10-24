@@ -28,10 +28,14 @@ class ResolvedHumanSession:
     membership: MembershipRecord
 
     def projection(
-        self, capabilities: tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]
+        self,
+        capabilities: tuple[Literal["identity", "staff_cases", "human", "vendor"], ...],
+        *,
+        flags: tuple[Literal["staff_documents_panel"], ...] = (),
     ) -> SessionDTO:
         return SessionDTO(
             capabilities=capabilities,
+            flags=flags,
             principal_ref=self.principal.principal_ref,
             audience=self.membership.audience,
             roles=tuple(sorted({r for m in self.membership.memberships for r in m.roles})),

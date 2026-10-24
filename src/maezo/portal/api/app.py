@@ -448,7 +448,13 @@ def create_app(
             'tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]',
             tuple(config.capabilities.split(",")),
         )
-        return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities)
+        # Same deployment-owned projection as `capabilities` above: the shadow-panel signal
+        # names a surface only and grants nothing. Empty is the shipped, dark state.
+        flags = cast(
+            'tuple[Literal["staff_documents_panel"], ...]',
+            ("staff_documents_panel",) if config.staff_documents_panel else (),
+        )
+        return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities, flags=flags)
 
     # Config-only, never derived from the request: ends the Cognito Hosted UI session too.
     idp_logout_url = f"{config.cognito_origin}/logout?" + urlencode(
