@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, cast
 
 from maezo.agents.helena import roteador_v7 as _rv7
+from maezo.agents.helena.habilidades.conversa import assuntos as _assuntos
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 from maezo.agents.helena.historico import historico_em_texto
 from maezo.agents.helena.roteador_contrato import (
@@ -431,9 +432,48 @@ async def _classify_ativo(self: HelenaGraph, state: HelenaState) -> dict[str, An
     # por ela, no lugar dos leitores de palavra).
     marca_v7 = _rv7.LEITURA_DO_TURNO.set(decisao.v7)
     try:
-        return await _classify_ativo_decidido(self, state, decisao, antes, ms)
+        resultado = await _classify_ativo_decidido(self, state, decisao, antes, ms)
     finally:
         _rv7.LEITURA_DO_TURNO.reset(marca_v7)
+    return _com_assuntos_abertos(self, state, decisao.v7, resultado)
+
+
+def _com_assuntos_abertos(
+    self: HelenaGraph, state: HelenaState, v7: _rv7.DecisaoV7, resultado: dict[str, Any]
+) -> dict[str, Any]:
+    """Etapa 9 (assuntos abertos): a lista do turno a partir dos `topic_events`, e a retomada UMA vez por
+    assunto — depois da passagem ao Lucas (o despachante manda depois da resposta dele) ou no lugar da
+    cortesia curta ("ok, obrigado" depois de um aviso)."""
+    lista = _assuntos.depois_do_turno(_assuntos.validos(state.get("assuntos_abertos")), v7)
+    saida = dict(resultado)
+    modelo = self._textos[_assuntos.CHAVE_RETOMADA]
+    if v7.skill.startswith("lucas_") and (
+        isinstance(resultado.get("handoff"), Mapping) or resultado.get("intent") == "cobranca"
+    ):
+        topico = _assuntos.a_retomar(lista, exceto=v7.skill)
+        if topico is not None:
+            saida["texto_de_retomada"] = _assuntos.texto_de_retomada(modelo, topico)
+            lista = _assuntos.marcar_retomado(lista, topico)
+    elif (
+        resultado.get("habilidade_roteador") == "conversa"
+        and v7.tipo == "nenhum"
+        and not v7.pedidos
+        and not resultado.get("escalation_motivo")
+        and not resultado.get("coleta_pendente")
+        and _lc.e_cortesia(str(state.get("message_body") or ""))
+    ):
+        topico = _assuntos.a_retomar(lista, exceto=None)
+        if topico is not None:
+            logger.info("helena_assunto_retomado", topico=topico)
+            saida = {
+                **self._base_texto_fixo(
+                    self._update_sem_modelo(state), _assuntos.texto_de_retomada(modelo, topico)
+                ),
+                "habilidade_roteador": "conversa",
+            }
+            lista = _assuntos.marcar_retomado(lista, topico)
+    saida["assuntos_abertos"] = lista or None
+    return saida
 
 
 async def _classify_ativo_decidido(
@@ -617,8 +657,14 @@ def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
     if self._roteador_modo != "ativo" or not isinstance(texto, str) or self._roteador_contrato is None:
         return False
     inicio_da_duvida = self._roteador_contrato.texto_da_duvida.split("{x}")[0]
-    return texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO, _lc.TEXTO_SAUDACAO) or texto.startswith(
-        inicio_da_duvida
+    retomadas = {
+        _assuntos.texto_de_retomada(self._textos[_assuntos.CHAVE_RETOMADA], t)
+        for t in _assuntos.NOMES_DOS_ASSUNTOS
+    }
+    return (
+        texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO, _lc.TEXTO_SAUDACAO)
+        or texto in retomadas
+        or texto.startswith(inicio_da_duvida)
     )
 
 

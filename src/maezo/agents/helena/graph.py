@@ -245,6 +245,7 @@ from .consultas_plano import (
 )
 from .habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
 from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
+from .habilidades.conversa import assuntos as _assuntos
 from .habilidades.sintoma.textos import CHAVE_CASO_MANTIDO, CHAVE_REPERGUNTA, TEXTO_CASO_MANTIDO
 from .helena_v4 import (
     ALERTAS,
@@ -1827,6 +1828,11 @@ class HelenaState(TypedDict, total=False):
     #: (`_conferir_caso_aberto`), e so' quando o historico curto traz indicio de caso. Os textos que
     #: AFIRMAM caso aberto leem este campo; o historico continua indicio para seguranca e rota.
     caso_aberto_confirmado: str | None
+    #: ETAPA 9 (assuntos abertos): `[{t: topico, r: retomado}]` dos `topic_events` do roteador v7. Memoria
+    #: de conversa, validada em `receive` e preservada so' dentro da janela do historico curto.
+    assuntos_abertos: list[dict[str, Any]] | None
+    #: ETAPA 9: "Sobre X, ficou alguma duvida?" para o despachante mandar DEPOIS da resposta do Lucas.
+    texto_de_retomada: str | None
 
     # Turn output.
     response_text: str
@@ -1956,6 +1962,8 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "aviso_identidade_dado": False,
     # DL-0080: memoria de conversa com portao proprio (a flag do historico) — ver `receive`.
     "historico_conversa": None,
+    "assuntos_abertos": None,
+    "texto_de_retomada": None,
     # DL-0144: na duvida, nenhum caso afirmado. So' `receive` o preenche, depois de ler o motor.
     "caso_aberto_confirmado": None,
     "response_text": None,
@@ -2138,6 +2146,8 @@ _HELENA_MEMORIA_DE_CONVERSA: frozenset[str] = frozenset(
         "aviso_identidade_dado",
         # DL-0080: preservado SO' com `historico_enabled` e dentro da janela (`historico_valido`).
         "historico_conversa",
+        # Etapa 9: preservado na mesma janela do historico.
+        "assuntos_abertos",
     }
 )
 
@@ -4842,6 +4852,9 @@ class HelenaGraph:
                 ultima_mensagem_em=state.get("ultima_mensagem_em"),
                 agora=agora,
             )
+            if reset["historico_conversa"] is not None:
+                # Etapa 9: os assuntos abertos valem na janela do historico, validados aqui (na fronteira).
+                reset["assuntos_abertos"] = _assuntos.validos(state.get("assuntos_abertos")) or None
         reset["ultima_mensagem_em"] = agora.isoformat()
         # DL-0078: o aviso de identidade e' uma vez por CONVERSA, sem validade (ao contrario do cartao):
         # so' `True` literal atravessa, e so' `respond` o acende depois de um envio bem-sucedido.
@@ -7499,6 +7512,8 @@ class HelenaGraph:
                 ultima_mensagem_em=state.get("ultima_mensagem_em"),
                 agora=datetime.now(UTC),
             )
+            if reset["historico_conversa"] is not None:
+                reset["assuntos_abertos"] = _assuntos.validos(state.get("assuntos_abertos")) or None
         if self._memoria_clinica_enabled and "memoria_clinica" in state:
             reset["memoria_clinica"] = _memoria_clinica_valida(
                 state["memoria_clinica"], agora=datetime.now(UTC)
