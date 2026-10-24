@@ -230,6 +230,7 @@ from maezo.tools.workers.dmn_transport import (
 )
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
+from . import roteador_v7 as _rv7
 from .alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
 from .consultas_plano import (
     ADENDO_CLASSIFY_CONSULTAS,
@@ -3326,7 +3327,7 @@ _SUBTIPO_POR_TERMO: tuple[tuple[re.Pattern[str], str], ...] = (
 #: Pergunta sobre o PLANO (tipo, cobertura, carencia, rede). RODADA 3: segmentacao e acomodacao por
 #: extenso ("o plano e' hospitalar ou ambulatorial?", "enfermaria ou apartamento?").
 _PERGUNTA_DO_PLANO = re.compile(
-    r"\b(?:cobre|cobrem|cobertura|coberto|coberta|carencias?|rede credenciada|que plano (?:eu )?tenho"
+    r"\b(?:cobre|cobrem|cobertura|coberto|coberta|carencias?|que plano (?:eu )?tenho"
     r"|qual (?:e )?(?:o )?(?:meu|seu) plano|tipo (?:de|do) (?:meu )?plano|meu plano (?:cobre|inclui|tem|e)"
     r"|hospitalar|ambulatorial|segmentacao|acomodacao|enfermaria|apartamento|obstetric\w*)\b"
     # FASE 3.5 (decisao D1 do dono, 18/10/2026): "a vasectomia consta no Rol da ANS?" tambem e' do plano.
@@ -4652,8 +4653,6 @@ class HelenaGraph:
         self._roteador_em_curso = 0
         # CONTRATO v7 (Plano de ajustes v2, etapa 7): as instrucoes do roteador vem do pacote de comportamento
         # (`roteador.yaml` do pacote) quando ha'; senao, o padrao validado na sonda (`roteador_v7`).
-        from maezo.agents.helena import roteador_v7 as _rv7
-
         self._roteador_instrucoes = (roteador_instrucoes or "").strip() or _rv7.INSTRUCOES_PADRAO
         self._roteador_prazo_s = 6.0
         if helena_roteador in ("sombra", "ativo"):
@@ -5674,7 +5673,9 @@ class HelenaGraph:
         # ironico), pedido do telefone da central, pergunta de navegacao ("vou na UBS ou espero?") e o
         # `human_request` do modelo sem pedido EXPLICITO de pessoa no texto (personas o_que_sabe, idoso,
         # cpf_errado). O pedido explicito continua vencendo tudo isto.
-        sem_pedido_explicito = not _pedido_explicito_de_pessoa(texto_do_turno)
+        sem_pedido_explicito = not (
+            _pedido_explicito_de_pessoa(texto_do_turno) or _rv7.pede_pessoa_no_contexto()
+        )
         conversa_respondida = (
             self._regra_vale("conversa", "equipe")
             and not extraction.get("sintoma_codigo")
@@ -5909,14 +5910,23 @@ class HelenaGraph:
         permitidas, padrao = _INTENTS_DA_HABILIDADE[roteada]
         if intent in permitidas:
             return intent
+        texto = str(state.get("message_body") or "")
         if (padrao == INTENT_CONSULTA_PLANO and self._consultas is None) or (
             padrao == INTENT_COBRANCA and not self._roteador_lucas_enabled
         ):
             return intent
+        if (
+            padrao == INTENT_CONSULTA_PLANO
+            and intent == "information"
+            and not extraction.get("consulta_subtipo")
+            and _subtipo_da_consulta(texto) == "elegibilidade"
+        ):
+            # DL-0154 (etapa 8): orientacao do plano ("como peco reembolso?") fica orientacao; so' carencia
+            # e carteirinha ditas viram consulta (antes, o cadastro inteiro no lugar da resposta).
+            return intent
         logger.info(
             "helena_habilidade_fecha_intencao", node="classify", habilidade=roteada, intent_do_modelo=intent
         )
-        texto = str(state.get("message_body") or "")
         update["intent"] = padrao
         # O subtipo fechado vai TAMBEM para a extracao: o `classify` preenche os campos da consulta/cobranca
         # de novo, a partir dela, logo depois (r4: o subtipo saia nulo e o Lucas recusava o turno).
@@ -6272,7 +6282,7 @@ class HelenaGraph:
             return None
         pendente = state.get("coleta_pendente")
         if self._base_saude and pendente == PENDENTE_ENCERRAR_CASO:
-            if not (_RESPOSTA_SIM.match(plano) or _RESPOSTA_NAO.match(plano)):
+            if _escalar._sim_ou_nao_ao_encerramento(plano) is None:
                 return None
             logger.info("helena_escolha_sem_modelo", node="classify", oferta="encerrar_caso")
             return await self._base_confirmacao_de_encerramento(state, self._update_sem_modelo(state), texto)
@@ -6315,8 +6325,6 @@ class HelenaGraph:
     _v4_sintoma_leve = _sintoma._v4_sintoma_leve
 
     _v4_especialista = _sintoma._v4_especialista
-
-    _v4_segmentacao = _sintoma._v4_segmentacao
 
     # -- BASE DE CONHECIMENTO DE SAUDE (ADR-0064, DL-0118, `MAEZO_HELENA_BASE_SAUDE`) ---------------------
     #

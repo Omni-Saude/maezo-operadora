@@ -519,8 +519,12 @@ def resposta_deterministica(
     *,
     completos: frozenset[str] = frozenset(),
     so_ativos: bool = False,
+    todas_as_autorizacoes: bool = True,
 ) -> str:
     """A resposta montada SO' com os fatos. E' o caminho quando o modelo falha ou a cerca recusa.
+
+    `todas_as_autorizacoes=False` (DL-0154, etapa 8): so' a solicitacao MAIS RECENTE, com a contagem das
+    outras (a lista inteira so' quando a pessoa pede).
 
     Chave `MAEZO_HELENA_CARTEIRINHA_COMPLETA`: `so_ativos=True` (os fatos ja' so' com os vinculos ativos)
     sem vinculo = `RESPOSTA_SEM_VINCULO_ATIVO`; `completos` = as MASCARAS cujo numero completo este turno
@@ -592,7 +596,15 @@ def resposta_deterministica(
             return f"No seu cadastro não consta nenhuma carência{quando}. {_FECHO}"
         corpo = "constam estas carências:\n" + "\n".join(linhas)
     elif subtipo == "autorizacao":
-        for r in fatos.get("requisicoes") or []:
+        requisicoes = list(fatos.get("requisicoes") or [])
+        if not todas_as_autorizacoes and len(requisicoes) > 1:
+            # A mais recente pela data do pedido (sem data, a ordem da fonte, que ja' vem da mais recente).
+            requisicoes.sort(key=lambda r: str(r.get("solicitada_em") or ""), reverse=True)
+            outras = len(requisicoes) - 1
+            requisicoes = requisicoes[:1]
+        else:
+            outras = 0
+        for r in requisicoes:
             linha = _linha(
                 (
                     ("solicitação", str(r["solicitacao"]) if r.get("solicitacao") is not None else None),
@@ -605,11 +617,19 @@ def resposta_deterministica(
             )
             if linha:
                 linhas.append(f"- {linha}")
-        corpo = (
-            "estas são as solicitações de autorização mais recentes:\n" + "\n".join(linhas)
-            if linhas
-            else "não consta nenhuma solicitação de autorização."
-        )
+        if linhas and outras:
+            plural = "1 solicitação" if outras == 1 else f"{outras} solicitações"
+            corpo = (
+                "esta é a solicitação de autorização mais recente:\n"
+                + "\n".join(linhas)
+                + f"\nNo cadastro há mais {plural}; se quiser, me peça a lista."
+            )
+        else:
+            corpo = (
+                "estas são as solicitações de autorização mais recentes:\n" + "\n".join(linhas)
+                if linhas
+                else "não consta nenhuma solicitação de autorização."
+            )
     else:
         return RESPOSTA_CONSULTA_SEM_IDENTIDADE
     return f"{abertura}, {corpo}\n{_FECHO}"
@@ -1010,6 +1030,28 @@ def motivo_de_recusa_da_consulta(texto: str, fatos: Mapping[str, Any]) -> str | 
 _PALAVRA_DO_CADASTRO: Final[re.Pattern[str]] = re.compile(r"[a-z]{5,}")
 
 
+#: A pergunta e' o TIPO do plano (segmentacao/acomodacao). So' entao o rascunho tem de trazer os dois dados;
+#: "meu plano esta' ativo?" respondido certo pelo modelo nao vira o cadastro inteiro (DL-0154, etapa 8).
+_PERGUNTA_DO_TIPO_DO_PLANO: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:tipo (?:de|do) (?:meu )?plano|que plano (?:eu )?tenho|qual (?:e )?(?:o )?meu plano"
+    r"|segmentacao|acomodacao|hospitalar|ambulatorial|enfermaria|apartamento|obstetric\w*)\b"
+)
+
+
+def pergunta_do_tipo_do_plano(mensagem: object) -> bool:
+    return isinstance(mensagem, str) and bool(
+        _PERGUNTA_DO_TIPO_DO_PLANO.search(_sem_acento(mensagem).lower())
+    )
+
+
+#: Pede TODAS as solicitacoes de autorizacao ("quais sao as outras", "me manda a lista").
+_PEDE_TODAS: Final[re.Pattern[str]] = re.compile(r"\b(?:todas|outras|lista|listar|historico)\b")
+
+
+def pede_todas_as_autorizacoes(mensagem: object) -> bool:
+    return isinstance(mensagem, str) and bool(_PEDE_TODAS.search(_sem_acento(mensagem).lower()))
+
+
 def motivo_de_omissao_da_elegibilidade(texto: str, fatos: Mapping[str, Any]) -> str | None:
     """`"omite_segmentacao"` / `"omite_acomodacao"` quando o rascunho do modelo DEIXA DE FORA um dado que o
     cadastro tem, ou `None`. PURA. So' para o subtipo `elegibilidade`.
@@ -1091,6 +1133,8 @@ __all__ = [
     "literais_dos_fatos",
     "marcador_da_carteirinha",
     "motivo_de_omissao_da_elegibilidade",
+    "pede_todas_as_autorizacoes",
+    "pergunta_do_tipo_do_plano",
     "motivo_de_recusa_da_consulta",
     "resposta_deterministica",
     "numeros_por_mascara",

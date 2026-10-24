@@ -35,6 +35,8 @@ from maezo.agents.helena.consultas_plano import (
     literais_dos_fatos,
     motivo_de_omissao_da_elegibilidade,
     motivo_de_recusa_da_consulta,
+    pede_todas_as_autorizacoes,
+    pergunta_do_tipo_do_plano,
     resposta_deterministica,
     sem_marcador_de_carteirinha,
     sem_marcador_de_dependente,
@@ -207,15 +209,25 @@ async def _consultar_plano_sem_acolhimento(self: HelenaGraph, state: HelenaState
     ):
         texto = await self._redigir_consulta(state, subtipo, fatos)
         recusa = motivo_de_recusa_da_consulta(texto, fatos) if isinstance(texto, str) else "sem_rascunho"
-        if recusa is None and subtipo == "elegibilidade" and isinstance(texto, str):
-            # Rascunho sem a segmentacao/acomodacao que o cadastro tem: volta ao texto deterministico.
+        if (
+            recusa is None
+            and subtipo == "elegibilidade"
+            and isinstance(texto, str)
+            and pergunta_do_tipo_do_plano(mensagem_do_turno)
+        ):
+            # Pergunta do TIPO do plano com rascunho sem a segmentacao/acomodacao que o cadastro tem: volta ao
+            # texto deterministico. Outra pergunta do plano fica com o rascunho certo (DL-0154, etapa 8).
             recusa = motivo_de_omissao_da_elegibilidade(texto, fatos)
     else:
         # Autorizacao e carencia (revisao do #690): SEMPRE a resposta deterministica, sem modelo.
         recusa = "subtipo_deterministico"
     if recusa is not None or not isinstance(texto, str):
         texto = resposta_deterministica(
-            subtipo, fatos, completos=numeros.mascaras, so_ativos=self._carteirinha_completa
+            subtipo,
+            fatos,
+            completos=numeros.mascaras,
+            so_ativos=self._carteirinha_completa,
+            todas_as_autorizacoes=pede_todas_as_autorizacoes(mensagem_do_turno),
         )
     else:
         # RODADA 4: sem frase de pagamento (papel do Lucas) nem "nao consta" sobre cobertura.
@@ -407,7 +419,12 @@ async def _plano_na_passagem(self: HelenaGraph, state: HelenaState) -> tuple[str
     )
     if fatos is None:
         return (RESPOSTA_PLANO_FALHA_NA_PASSAGEM, {})
-    texto = resposta_deterministica(subtipo, fatos, so_ativos=self._carteirinha_completa)
+    texto = resposta_deterministica(
+        subtipo,
+        fatos,
+        so_ativos=self._carteirinha_completa,
+        todas_as_autorizacoes=pede_todas_as_autorizacoes(mensagem),
+    )
     return (
         texto,
         {"consulta_literais": literais_dos_fatos(fatos), "resposta_com_dados_do_plano": True},

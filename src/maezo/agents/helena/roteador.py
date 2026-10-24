@@ -607,7 +607,7 @@ async def _recusa_da_equipe(self: HelenaGraph, state: HelenaState) -> dict[str, 
     if graves:
         return self._base_texto_fixo(update, RESPOSTA_CASO_GRAVE_NAO_ENCERRA)
     if abertos:
-        encerrado = await self._base_confirmacao_de_encerramento(state, update, "sim")
+        encerrado = await self._base_confirmacao_de_encerramento(state, update, "sim", leitura="sim")
         if encerrado is not None:
             return encerrado
     return self._base_texto_fixo(update, _lc.TEXTO_COMBINADO)

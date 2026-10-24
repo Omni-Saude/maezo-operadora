@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 from maezo.agents.helena.prompts import SYSTEM_PROMPT_VERSION
 from maezo.domain.conversa.caso_clinico import (
@@ -60,14 +61,31 @@ async def _casos_abertos_da_conversa(self: HelenaGraph, state: Mapping[str, Any]
     return abertos
 
 
+def _sim_ou_nao_ao_encerramento(plano: str) -> str | None:
+    """ "sim"/"nao" a "Quer que eu encerre o seu atendimento?": com o roteador v7 no turno, a leitura do
+    MODELO no contexto ("pode encerrar, ja' resolvi" = sim); sem ele, as respostas curtas de sempre."""
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is not None:
+        return v7.sim_nao if v7.sim_nao in ("sim", "nao") else None
+    if _RESPOSTA_NAO.match(plano):
+        return "nao"
+    return "sim" if _RESPOSTA_SIM.match(plano) else None
+
+
 async def _base_confirmacao_de_encerramento(
-    self: HelenaGraph, state: HelenaState, update: dict[str, Any], texto: str
+    self: HelenaGraph,
+    state: HelenaState,
+    update: dict[str, Any],
+    texto: str,
+    *,
+    leitura: str | None = None,
 ) -> dict[str, Any] | None:
     """A resposta a "Quer que eu encerre o seu atendimento com a equipe? Responda SIM para encerrar."
 
     "sim" -> encerra cada caso VIVO da conversa (a chave da conversa e a `-clin`) que NAO seja grave; se
     algum for grave, ele fica e a pessoa ouve o texto do caso grave com 192. "nao" -> o caso continua.
-    Qualquer outra coisa (inclusive conteudo clinico ou sinal de emergencia) -> `None`: o de sempre."""
+    Qualquer outra coisa (inclusive conteudo clinico ou sinal de emergencia) -> `None`: o de sempre.
+    `leitura` ja' decidida por quem chama (a recusa da equipe lida pelo roteador = "sim")."""
     plano = _plano(texto)
     if (
         _conteudo_clinico(texto)
@@ -76,10 +94,11 @@ async def _base_confirmacao_de_encerramento(
         or _sinal_fraco_de_emergencia(texto)
     ):
         return None
-    if _RESPOSTA_NAO.match(plano):
+    resposta = leitura or _sim_ou_nao_ao_encerramento(plano)
+    if resposta == "nao":
         logger.info("helena_base_saude_encerramento", node="classify", resposta="nao")
         return self._base_texto_fixo(update, RESPOSTA_ENCERRAMENTO_MANTIDO)
-    if not _RESPOSTA_SIM.match(plano):
+    if resposta != "sim":
         return None
     encerrados, graves, falhas = 0, 0, 0
     for chave in self._chaves_da_conversa(state):
@@ -268,10 +287,15 @@ async def _trava_caso_sem_pedido(
         return None
     texto = str(state.get("message_body") or "")
     plano = _plano(texto)
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if _rv7.pede_pessoa_no_contexto():
+        # Contrato v7 (etapa 8): o "sim" a uma oferta e o pedido de pessoa lidos no CONTEXTO ("pode passar
+        # pra equipe sim, mas rapido"); a recusa nunca abre caso.
+        return None
     if (
         _pedido_explicito_com_verbo(texto)
         or _pedido_explicito_de_pessoa(texto)
-        or _SIM_A_OFERTA.search(plano)
+        or (v7 is None and _SIM_A_OFERTA.search(plano))
         # Avaliacao r4 de 22/10/2026: o polegar sozinho a uma oferta e' "sim" no contexto.
         or _lc.so_emoji_de_acordo(texto)
         or _ESCOLHA_DE_OPCAO.match(plano.strip())

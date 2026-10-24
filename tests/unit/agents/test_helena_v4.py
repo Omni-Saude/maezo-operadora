@@ -698,16 +698,15 @@ async def test_especialista_recebe_onde_marcar_prazo_e_oferta_sem_caso(
         assert conversa.whatsapp.enviados == [texto]
 
 
-async def test_especialista_usa_a_segmentacao_do_cadastro_quando_ha_identidade() -> None:
+async def test_especialista_sem_o_paragrafo_de_segmentacao_mesmo_com_identidade() -> None:
+    """DL-0154 (etapa 8): quem pede especialista ouve onde marcar e o prazo, nunca o tipo do plano."""
     fonte = _Fonte()
     conversa = _Conversa(fonte=fonte, com_identidade=True)
     resultado = await conversa.diz("Preciso consultar com um cardiologista")
 
-    assert (
-        "No cadastro, seu plano consta com segmentação Ambulatorial + Hospitalar."
-        in resultado["response_text"]
-    )
-    assert fonte.chamadas == [(_REF, "elegibilidade")]
+    assert "segmentação" not in resultado["response_text"]
+    assert "aplicativo Austa Clínicas" in resultado["response_text"]
+    assert fonte.chamadas == []
     assert conversa.cib.inicios == []
 
 
