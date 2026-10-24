@@ -572,3 +572,28 @@ Páginas primárias verificadas em 04/10/2026, com versões/datas e limites em `
 A edição posterior de Compras foi preservada e revalidada. Foram mantidas a serialização do Modeler 5.49.0 e as melhorias manuais de layout. O refinamento local corrigiu o cruzamento de `MF_CP_06` e preservou a responsabilidade original do Consultor comercial para `C1_GW_Proposta` e `C1_End_SemProposta`, mantendo a regra e os scores deste guia. Não houve alteração de condições, timers, listeners, mapeamentos, IDs ou nomes.
 
 SHA-256 final de Compras: `067cf607ddb0c6647598d1b52d1237f2e1eafbbfc944aedcfbdddf91bcf12cb9`. Dois gates independentes de delta aprovaram estes bytes (366 verificações semânticas e 16 visuais). O bundle inicial `e73cbc80…` e os pareceres REVISE anteriores permanecem como evidência histórica; a versão final é ligada ao recibo de encerramento em `session-close/`. Esta nota não declara execução em engine, binding de executor ou homologação da equipe. A equipe autora não participou; a responsabilidade original foi a escolha conservadora de fidelidade da revisão.
+
+## 9. Onda W2 CORP (2026-10-23) — notas de precisão adotadas + registro da onda de reparos 2.1–2.6
+
+Esta seção é do programa de completude (W2 CORP, `docs/plans/maezo-completion-program.md` §W2). Adota as **2 notas de precisão** que o COMPARISON v3↔v4 (`docs/audits/JOURNEYS-COMPLETENESS-2026-10/COMPARISON-V3-V4.md` §2, condição 3) mandou incorporar quando este documento fosse revisado, e registra o antes/depois da onda de reparos já merged em main @ `5a8ba09e`. **Nenhum `.bpmn` foi editado nesta seção** — só documentação. A onda de reparos do corpus está fechada; qualquer mudança nova de `.bpmn` é programa à parte (D-02), com CA_1 sempre via broker (D-30).
+
+### 9.1 Nota de precisão A — F-02 superestimado no ledger histórico (adotada)
+
+O ledger histórico §7.1 registra, para `CA_0#H3_EV_AlertaDS`, a operação "documentar | **+ documentation** de consumo externo do sinal" (F-02). Contra os bytes v3 fixados, essa linha **superestima**: a documentation de consumo externo **já existia no v3** (v3 linha 499 = v4 linha 543, mesmo texto) — o que é novo no v4 é apenas a **anotação** (`TextAnnotation_AlertaDSExterno` + `Association_AlertaDSExterno` + shapes/edges de DI). Fonte: INVENTORY-A-V4, cross-check do F-02 ("CONFIRMED with one imprecision"). Registro retificado: a adaptação v3→v4-recebido NÃO acrescentou documentation neste elemento; acrescentou anotação de consumo externo.
+
+### 9.2 Nota de precisão B — sobreposições inter-plano: contagem estrita = 11, não 9 (adotada)
+
+A seção 5 e a A-06 falavam em "nove interseções inter-plano" no CA_2. A contagem **estrita por plano é 11** — 2 dos pares vivem entre os 2 planos de subprocesso de evento que não tinham `id`; enquanto os planos não tinham ids, a conflação era inevitável para o bpmn-js e produzia 9. A geometria era idêntica; o método de contagem é que difere. **Antes/depois da onda 2.3:** as 11 sobreposições do CA_2 foram **zeradas** (#933/`5a8ba09e`), e os 2 planos sem `id` foram nomeados — o corpus inteiro está hoje com **8/8 planos DI com `id`** (CA_0 2 · CA_1 1 · CA_2 4 · CA_3 1; 0 sem id, re-verificado por script nesta data — ver `MAPA-ELEMENTOS-V4.md` §7/§8.3). A imprecisão 9≠11 é hoje 100% histórica: com ids nos planos, contagem estrita e leitura visual coincidem.
+
+### 9.3 Registro da onda CORP-2.1–2.6 (merged, com shas em main @ `5a8ba09e`)
+
+| Item da onda (plano §W2) | PR (squash em main) | Efeito verificado nesta data | Antes → depois |
+|---|---|---|---|
+| 2.1 catches mortos IA-02/03/04, incl. regressão v4 (`UT_ES_CancelamentoPrestador` sem messageFlow) | #933 `5a8ba09e` | messageFlow restaurado ao container do prestador; messageFlows do CA_2 9→10 | 9 → **10** |
+| 2.2 produtores/defaults dos 8 timers/7 vars (IA-05) | #930 `179a970a` (CA_3) · #932 `3b07bfbb` (CA_0) · #933 (CA_2) | defaults explícitos nos timers de SLA do CA_3 (#930); produtores documentados no CA_0/CA_2 | IA-05 tratada |
+| 2.3 planos DI (2 sem id + 11 sobreposições) | #933 | planos nomeados + sobreposições zeradas | 2 sem id → **0 sem id** (corpus); 11 → **0** |
+| 2.4 catcher do sinal `Signal_CA_AlertaDS` + nota `SEM_SLOT_EQUIVALENTE` | #932 `3b07bfbb` | novo processo `Process_CA_DS_Monitoramento` (plano DI nomeado `BPMNPlane_CA_DS_Monitoramento`); start `DS_Start_AlertaDS` consome o sinal; Gate-3 set-level do sinal **PAREADO** | sinal sem captor → **PAREADO** (THROW `H3_EV_AlertaDS` → CATCH `DS_Start_AlertaDS`) |
+| 2.5 as 2 notas de precisão do COMPARISON §2 condição 3 | este PR (documentação) | §9.1/§9.2 desta seção | pendência → **adotadas** |
+| 2.6 pinar o fix F-E01 como asserção de regressão | #933 `5a8ba09e` | `tests/processes/test_ca2_v4_regression_f_e01.py` (193 linhas) na árvore | fix sem asserção → **pinado** |
+
+Shas dos 4 arquivos em main @ `5a8ba09e` (recomputados nesta data): CA_0 `a01b1a3e2e9ec6b6ad2e4625bd9b8740e88fd9346890075dc8e8a07cf2f0a14e` · CA_1 `067cf607ddb0c6647598d1b52d1237f2e1eafbbfc944aedcfbdddf91bcf12cb9` · CA_2 `a2f2ddde119ec1841864c7c1952dec4e5082999fcb809ff140b82b3a0b4f0ce3` · CA_3 `f9db45745e8634deb0dc9b668df9408017de30da82fcff9f8f33f5304e7aa390`. CA_1 **intocado** desde o encerramento (cerca D-30).
