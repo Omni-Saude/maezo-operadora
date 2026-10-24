@@ -221,6 +221,24 @@ class HistoricVariableReadingTransport(Protocol):
     ) -> HistoricProcessVariables | None: ...
 
 
+@runtime_checkable
+class UserTaskAssigneeReadingTransport(Protocol):
+    """Um `CibSevenTransport` que tambem le QUEM assumiu uma User Task ativa (pendencia 40, DL-0152).
+
+    Protocolo SEPARADO pela mesma razao de `HistoryQueryingTransport`: todo implementador e dublê
+    existente continua tipando, e quem precisa da leitura sonda com `isinstance` — e, sem ela, segue
+    o lado seguro (o worker de escalonamento ALERTA o supervisor).
+
+    `read_user_task_assignee` devolve o `assignee` da User Task ATIVA `task_definition_key` da
+    instancia, ou `None` quando nao ha task ativa com essa chave ou ela nao foi assumida. Qualquer
+    falha de leitura LEVANTA `CibSevenError`: uma leitura que nao se completou nunca e' "assumida".
+    """
+
+    async def read_user_task_assignee(
+        self, process_instance_id: str, task_definition_key: str
+    ) -> str | None: ...
+
+
 #: The engine's HISTORIC state tokens for an instance that has ENDED (CIB Seven / Camunda
 #: `/history/process-instance` `state`). Anything else — `ACTIVE`, `SUSPENDED`, a token this
 #: module has never seen, or no token at all — is NOT proof that the instance ended.
@@ -583,6 +601,40 @@ class CibSevenHttpTransport:
             variables=variables,
         )
 
+    async def read_user_task_assignee(self, process_instance_id: str, task_definition_key: str) -> str | None:
+        """`UserTaskAssigneeReadingTransport`: `GET /task` da instancia filtrado pela chave da task.
+
+        Uma leitura, nenhuma escrita. So' o campo `assignee` e' lido (nenhuma variavel de processo
+        atravessa a rede). Resposta que nao e' uma lista de objetos levanta `CibSevenError`.
+        """
+        try:
+            resp = await self._client.get(
+                "/task",
+                params={"processInstanceId": process_instance_id, "taskDefinitionKey": task_definition_key},
+            )
+            resp.raise_for_status()
+            items = resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise CibSevenError(
+                f"CIB Seven task query failed [{exc.response.status_code}] for process instance "
+                f"`{process_instance_id}`"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise CibSevenError(
+                f"CIB Seven unreachable querying tasks of `{process_instance_id}`: {type(exc).__name__}"
+            ) from exc
+        except ValueError as exc:
+            raise CibSevenError(f"CIB Seven task query of `{process_instance_id}` returned non-JSON") from exc
+        if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+            raise CibSevenError(
+                f"CIB Seven task query of `{process_instance_id}` returned an unexpected shape"
+            )
+        for item in items:
+            assignee = item.get("assignee")
+            if isinstance(assignee, str) and assignee.strip():
+                return assignee
+        return None
+
     async def start_process_instance(
         self,
         process_key: str,
@@ -752,6 +804,18 @@ class FakeCibSevenTransport:
         #: GAP-XHITL-4: o historico de variaveis por INSTANCIA (`read_historic_variables`), separado
         #: de `_variables` (que e' por business key e alimenta `get_process_status`).
         self._historic_variables: dict[str, HistoricProcessVariables] = {}
+        #: Pendencia 40: `(instance_id, task_definition_key) -> assignee` (`read_user_task_assignee`).
+        self._assignees: dict[tuple[str, str], str | None] = {}
+
+    def seed_user_task_assignee(
+        self, process_instance_id: str, task_definition_key: str, assignee: str | None
+    ) -> None:
+        """Pre-carrega quem assumiu a User Task ativa (`None` = task ativa sem dono)."""
+        self._assignees[(process_instance_id, task_definition_key)] = assignee
+
+    async def read_user_task_assignee(self, process_instance_id: str, task_definition_key: str) -> str | None:
+        """Dublê de `CibSevenHttpTransport.read_user_task_assignee`."""
+        return self._assignees.get((process_instance_id, task_definition_key))
 
     def seed_historic_variables(self, historic: HistoricProcessVariables) -> None:
         """Pre-carrega o que o historico do motor devolveria para `historic.instance_id`."""
