@@ -790,6 +790,19 @@ jobs:
       - name: ADR doc-symbol-citation gate (R-089)
         run: make check-doc-symbol-citations
 
+      # GOV-0.8 (D-31a, dono 2026-10-23): docs/compliance/ e a casa dos espelhos rastreados —
+      # toda citacao de caminho em *.md ali tem que resolver na arvore. O defeito que motivou:
+      # docs/Tarefas_Pendentes.md citava docs/audits/.../GAP-REGISTER.yaml (arvore gitignored
+      # ausente do checkout — "citacao pendente"); a fonte so sobreviveu no tar de custodia e o
+      # espelho rastreado docs/compliance/GAP-REGISTER.yaml e a copia fiel declarada por D-31a.
+      # A cerca re-verifica o espelho contra a custodia: recuo do bloco registro_custodiado
+      # revertido, sha256 recomputado contra fonte_sha256 e o mapa por linha (gap id -> linhas
+      # da fonte) reextraido do bloco. Stdlib-only, sem git history, sem engine — o custo e'
+      # milissegundos de proposito (orcamento Actions). Escopo estreito e deliberado (precedente
+      # R-089): NAO varre outras arvores de docs; alargar e decisao separada do dono.
+      - name: Compliance doc-citation + espelho GAP-REGISTER gate (GOV-0.8/D-31a)
+        run: make check-compliance-doc-citations
+
       # F2 (r5/tooling-fences REVISE round): neither ledger range-scoped gate was wired into ANY CI
       # job before this — both existed only as local `make` targets a human or agent had to
       # remember to type. Wired here (not into `evidence-ledger.yml`'s `evidence-ledger-check` job,
