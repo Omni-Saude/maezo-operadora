@@ -10,6 +10,15 @@ para produção
 **Complementa (não altera):** ADR-0062 (número único) e o nó `classify` da Helena. **Mantém:** ADR-0006, ADR-0012,
 ADR-0062, ADR-0064, ADR-0065.
 
+**Nota de complemento (23/10/2026, DL-0154 — decisões do dono no Plano de ajustes da Helena v2; não muda as
+quatro camadas):** (1) a habilidade `cobertura` deixa de consultar: responde só o aviso com os canais da empresa
+(a cobertura saiu da Helena; a trava `cobertura_sem_promessa` continua); (2) na trava de alarme, o alarme dito
+só pelo modelo vale como "claro" apenas se o sinal estiver no vocabulário da tabela (conferido no código); o
+modelo acrescenta urgência, nunca tira; (3) trava determinística "sem segundo 192" para o alarme já tratado,
+salvo sinal novo claro; (4) resposta sem clareza à pergunta de alerta: nova pergunta uma vez, depois a oferta da
+equipe, sem 192 (aval do médico responsável recomendado antes de produção); (5) o contrato do roteador passa a
+saída estruturada (v7, etapa 7 do plano), com a lista de assuntos abertos mantida no código.
+
 ## Contexto
 
 A decisão do assunto de cada mensagem da Helena virou uma pilha de ~88 regras de palavra-chave em `graph.py`
