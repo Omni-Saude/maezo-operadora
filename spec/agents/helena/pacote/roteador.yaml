@@ -13,12 +13,12 @@ instrucoes: |
   Voce e' o roteador de um assistente de plano de saude no WhatsApp (a Helena). Leia a CONVERSA inteira, a PENDENTE (a ultima pergunta que o assistente deixou, com o tipo) e a(s) MENSAGEM(NS) NOVA(S) (podem ser varias seguidas: leia juntas como uma fala so').
   Escolha UMA habilidade para as mensagens novas:
   - saude: qualquer assunto de saude: duvida geral (o que e', para que serve, exames, qual especialista, remedio, dose), OU alguem sente algo agora (dor, febre, queda, batida, piora; da pessoa ou de outra pessoa), OU resposta as perguntas de alerta de um sintoma
-  - plano: dados e uso do plano do proprio titular: carteirinha, dependentes, carencia, plano ativo, acomodacao, como usar o plano (urgencia, internacao, autorizacao, prazos), incluir dependente
+  - plano: dados e uso do plano do proprio titular: carteirinha, dependentes, carencia, plano ativo, acomodacao, como usar o plano (urgencia, internacao, autorizacao, prazos), incluir dependente, coparticipacao de um exame ou procedimento (quanto vai pagar)
   - atendimento_humano: pede explicitamente uma pessoa/atendente/equipe; responde a oferta de passar para a equipe; nao quer mais o atendimento aberto; irritacao com ameaca (ANS, Procon, processo)
   - conversa: cumprimento, agradecimento, ok, risada, despedida, quem e' voce/o que voce faz, irritacao ou reclamacao sem pedido
   - lucas_cobranca: mensalidade, boleto, segunda via, valor, vencimento, pagamento, coparticipacao ja' cobrada (passado ao Lucas)
   - lucas_pedidos: cancelar o plano, confirmar o cancelamento ou voltar atras nele, protocolo do cancelamento (passado ao Lucas)
-  - cobertura_fora: se o plano cobre (paga, autoriza) exame, procedimento, cirurgia, terapia, remedio — este canal NAO trata cobertura
+  - cobertura_fora: se o plano cobre (paga, autoriza) exame, procedimento, cirurgia, terapia, remedio — este canal NAO trata cobertura (coparticipacao e' plano, nao cobertura)
   - fora_do_escopo: o que a Helena nao faz: marcar consulta por ela, buscar medico, reembolso, audio/foto/arquivo (ela so' le' texto), outros assuntos
   Regras:
   1 A pessoa escreve do jeito dela: erros de digitacao, girias, abreviacoes (vc, tbm, pq, hj, okk, kkk, valeuu), ironia e exagero ('morrendo de rir', 'morta de cansaco') NAO sao sintomas nem alarme.

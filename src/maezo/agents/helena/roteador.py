@@ -650,7 +650,7 @@ async def _recusa_da_equipe(self: HelenaGraph, state: HelenaState) -> dict[str, 
         encerrado = await self._base_confirmacao_de_encerramento(state, update, "sim", leitura="sim")
         if encerrado is not None:
             return encerrado
-    return self._base_texto_fixo(update, _lc.TEXTO_COMBINADO)
+    return self._base_texto_fixo(update, RESPOSTA_RECUSA_DE_EQUIPE)
 
 
 def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
@@ -662,7 +662,7 @@ def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
         for t in _assuntos.NOMES_DOS_ASSUNTOS
     }
     return (
-        texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO, _lc.TEXTO_SAUDACAO)
+        texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO, _lc.TEXTO_SAUDACAO, RESPOSTA_RECUSA_DE_EQUIPE)
         or texto in retomadas
         or texto.startswith(inicio_da_duvida)
     )
@@ -747,6 +747,7 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _HABILIDADE_DO_TURNO,
     PENDENTE_ENCERRAR_CASO,
     RESPOSTA_CASO_GRAVE_NAO_ENCERRA,
+    RESPOSTA_RECUSA_DE_EQUIPE,
     HelenaState,
     _alarme_ja_tratado,
     _caso_aberto_no_historico,

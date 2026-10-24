@@ -60,7 +60,8 @@ INSTRUCOES_PADRAO: Final[str] = "\n".join(
         "outra pessoa), "
         "OU resposta as perguntas de alerta de um sintoma",
         "- plano: dados e uso do plano do proprio titular: carteirinha, dependentes, carencia, plano ativo, "
-        "acomodacao, como usar o plano (urgencia, internacao, autorizacao, prazos), incluir dependente",
+        "acomodacao, como usar o plano (urgencia, internacao, autorizacao, prazos), incluir dependente, "
+        "coparticipacao de um exame ou procedimento (quanto vai pagar)",
         "- atendimento_humano: pede explicitamente uma pessoa/atendente/equipe; responde a oferta de "
         "passar para a "
         "equipe; nao quer mais o atendimento aberto; irritacao com ameaca (ANS, Procon, processo)",
@@ -74,7 +75,7 @@ INSTRUCOES_PADRAO: Final[str] = "\n".join(
         "cancelamento (passado ao Lucas)",
         "- cobertura_fora: se o plano cobre (paga, autoriza) exame, procedimento, cirurgia, terapia, "
         "remedio — "
-        "este canal NAO trata cobertura",
+        "este canal NAO trata cobertura (coparticipacao e' plano, nao cobertura)",
         "- fora_do_escopo: o que a Helena nao faz: marcar consulta por ela, buscar medico, reembolso, "
         "audio/foto/"
         "arquivo (ela so' le' texto), outros assuntos",

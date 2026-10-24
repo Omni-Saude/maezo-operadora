@@ -211,8 +211,7 @@ from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_untrusted_block
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
 
-# O transporte do motor entra no grafo da Helena SO' por aqui (cerca SC-06 de fan-in do transporte): os
-# modulos de habilidade (`habilidades/atendimento_humano/escalar.py`) usam estes nomes pelo graph.
+# Transporte do motor SO' por aqui (fan-in SC-06): `habilidades/atendimento_humano/escalar.py` usa pelo graph.
 from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance as AgentDecisionProvenance
 from maezo.tools.mcp_cibseven.transport import (
     AuditStartSink,
@@ -256,6 +255,7 @@ from .helena_v4 import (
     GRUPO_GERAL,
     PREFIXO_PENDENTE,
     Pendente,
+    e_agravamento,
     e_texto_da_v4,
     escolha_da_resposta,
     especialidade_pedida,
@@ -1276,7 +1276,7 @@ _SINAL_FORTE_DE_EMERGENCIA = re.compile(
     r"|(?:nao|parando de|parou de|sem) (?:consegue |consigo |esta |ta )?respirar"
     r"|dificuldade (?:pra|para|de) respirar|rox[oa]s?|desmai\w*|desacordad\w*"
     r"|inconscien\w*|convuls\w*|sangramento|sangrando|infart\w*|derrame|overdose|envenen\w*"
-    r"|nao (?:fala|responde|acorda|reage) mais|suicid\w*|me matar|quero morrer)"
+    r"|nao (?:fala|responde|acorda|reage) mais|suicid\w*|me matar|quero morrer|sem ar)"
 )
 _SINAL_FRACO_DE_EMERGENCIA = re.compile(r"\b(?:ambulancia|samu|192|socorro|emergencia|pronto socorro)\b")
 
@@ -1362,16 +1362,16 @@ def _alarme_ja_tratado(estado: Mapping[str, Any]) -> bool:
 
 
 def _sinal_novo_de_alarme(estado: Mapping[str, Any]) -> bool:
-    """TRAVA "SEM SEGUNDO 192" (decisao do dono de 23/10/2026, DL-0154): a mensagem traz um sinal de alarme
-    CLARO que a pessoa ainda NAO tinha dito nesta conversa? Deterministico: o trecho do lexico forte
-    (afirmado, nunca negado) ou a categoria do alarme deterministico que nao aparecem nas falas anteriores
-    da pessoa."""
+    """TRAVA "SEM SEGUNDO 192" (DL-0154): sinal CLARO ainda NAO dito na conversa (lexico forte afirmado,
+    categoria nova do alarme deterministico) ou agravamento ("piorou, esta' sem ar") e' urgencia nova."""
     texto = str(estado.get("message_body") or "")
     anteriores = " ".join(_falas_do_beneficiario(estado))
     antes = _texto_dos_sinais(anteriores)
     if _sinal_forte_de_emergencia(texto) and any(
         m.group(0) not in antes for m in _SINAL_FORTE_DE_EMERGENCIA.finditer(_texto_dos_sinais(texto))
     ):
+        return True
+    if e_agravamento(_plano(texto)):
         return True
     categoria = alarme_no_relato(_plano(texto))
     return categoria is not None and categoria != alarme_no_relato(_plano(anteriores))
@@ -6232,13 +6232,12 @@ class HelenaGraph:
     def _caso_mantido_se_alarme_ja_tratado(
         self, state: HelenaState, update: dict[str, Any], texto: str
     ) -> dict[str, Any] | None:
-        """TRAVA "SEM SEGUNDO 192" (DL-0154): o 192/CVV de um alarme ja' saiu nesta conversa e o caso clinico
-        esta' aberto; a mensagem nao traz sinal NOVO claro. Quem diz que foi engano, comenta o 192 ("pq eu
-        ligaria pro SAMU?") ou continua falando do mesmo sintoma ("mas eu nao to sentindo nada disso") recebe
-        "mantive o seu caso para a equipe de saude confirmar com voce" — nunca o "ligue 192" de novo.
-        Pedido de pessoa, cobranca, plano e cancelamento seguem o caminho de sempre (sempre ouvidos)."""
+        """TRAVA "SEM SEGUNDO 192" (DL-0154): 192 dado e caso clinico aberto, sem sinal NOVO -> "mantive o seu
+        caso"; PIOROU -> 192 de novo. Pedido de pessoa, cobranca, plano e cancelamento sempre ouvidos."""
         if not _alarme_ja_tratado(state) or _caso_aberto_no_historico(state) != CASO_ABERTO_CLINICO:
             return None
+        if (piorou := self._urgencia_que_piorou(update, texto)) is not None:
+            return piorou
         if _sinal_novo_de_alarme(state) or self._v4_pede_pessoa(state, texto):
             return None
         plano = _plano(texto)
@@ -8013,6 +8012,7 @@ class HelenaGraph:
     _roteador_alarme = _travas_entrada._roteador_alarme
     _sinal_do_modelo_na_tabela = _travas_entrada._sinal_do_modelo_na_tabela
     _sinal_do_modelo_e_novo = _travas_entrada._sinal_do_modelo_e_novo
+    _urgencia_que_piorou = _travas_entrada._urgencia_que_piorou
 
     _roteador_decidir = _roteador._roteador_decidir
 
