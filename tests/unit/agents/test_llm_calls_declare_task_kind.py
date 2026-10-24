@@ -44,6 +44,7 @@ from pathlib import Path
 import pytest
 
 from maezo.runtime.inference import MODEL_TASK_KINDS
+from tests.support.fontes_do_grafo import arquivos_de_grafo
 
 #: `MODEL_TASK_KINDS` inclui `"batch"` no runtime (ADR-0009 §2), mas nenhum sitio de grafo pode
 #: DECLARAR `task_kind="batch"` ate' o dono ratificar o ADR-0044 (mapeamento de tiers por
@@ -56,7 +57,8 @@ _TASK_KINDS_PERMITIDOS_NOS_GRAFOS = MODEL_TASK_KINDS - {"batch"}
 _RAIZ = Path(__file__).resolve().parents[3]
 _ARQUIVOS_AGENTES = sorted(
     {
-        *(_RAIZ / "src" / "maezo" / "agents").glob("*/graph.py"),
+        # ADR-0067 §5: o grafo dividido por habilidade (Helena) continua inteiro sob a cerca.
+        *arquivos_de_grafo(_RAIZ / "src" / "maezo" / "agents"),
         *(_RAIZ / "src" / "maezo" / "agents").glob("*/delegation.py"),
         *(_RAIZ / "src" / "maezo" / "agents").glob("*/adapters.py"),
     }
