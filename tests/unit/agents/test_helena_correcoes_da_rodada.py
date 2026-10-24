@@ -49,3 +49,17 @@ async def test_recusa_com_caso_de_pessoa_aberto_encerra() -> None:
     await conversa.fala("quero falar com alguém", decisao_v7("equipe"), _PESSOA)
     fim = await conversa.fala("não, deixa, desisto", decisao_v7("conversa", recusa=True))
     assert "encerr" in _texto(fim).lower(), "a recusa tentou encerrar o caso P2/P3"
+
+
+@pytest.mark.parametrize(
+    "alarme", ["a bolsa estourou", "vomitei sangue agora", "minha garganta está fechando"]
+)
+async def test_alarme_da_tabela_nao_espera_o_roteador_nem_o_classificador(alarme: str) -> None:
+    from maezo.agents.helena.habilidades.atendimento_humano.escalar import RESUMO_DO_ALARME_GRAVE
+
+    conversa = _ConversaAtiva()
+    resposta = await conversa.diz(alarme, _INFO)
+    assert "192" in _texto(resposta)
+    assert conversa.modelo.chamadas_do_roteador == 0  # type: ignore[attr-defined]
+    assert conversa.modelo.respostas == [_INFO], "o classificador nao foi chamado"  # type: ignore[attr-defined]
+    assert conversa.cib.inicios[0]["resumo_contexto"] == RESUMO_DO_ALARME_GRAVE

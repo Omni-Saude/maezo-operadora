@@ -944,7 +944,9 @@ async def test_escalate_declares_task_kind_reasoning_and_sends_the_fixed_text() 
     )
     result = await graph.escalate(state)
 
-    assert inference.task_kinds == ["reasoning"]
+    # Rodada de 24/10/2026: no alarme GRAVE o resumo e' fixo (o 192 nao espera o modelo); fora dele o
+    # `_resumo_contexto` continua `reasoning` (cerca `test_llm_calls_declare_task_kind`).
+    assert inference.task_kinds == []
     assert result["response_text"] == RESPOSTA_ESCALONAMENTO_URGENTE
 
 
