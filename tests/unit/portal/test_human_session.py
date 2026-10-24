@@ -230,24 +230,33 @@ def test_capabilities_outside_the_three_profiles_are_refused(declared: str) -> N
 
 
 @pytest.mark.parametrize(
-    ("flag", "projected"),
+    ("documents", "operations", "projected"),
     [
-        (False, []),
-        (True, ["staff_documents_panel"]),
+        (False, False, []),
+        (True, False, ["staff_documents_panel"]),
+        (False, True, ["staff_operations_panel"]),
+        (True, True, ["staff_documents_panel", "staff_operations_panel"]),
     ],
 )
-async def test_session_projects_the_documents_shadow_signal_exactly(flag: bool, projected: list[str]) -> None:
-    """W5 CLNT 5.5: the staff documents panel signal is deployment-owned and closed.
+async def test_session_projects_the_shadow_signals_exactly(
+    documents: bool, operations: bool, projected: list[str]
+) -> None:
+    """W5 CLNT 5.5: the staff panel signals are deployment-owned and closed.
 
-    OFF — the shipped, dark state — projects an empty tuple, so the browser keeps the stub
-    exactly as it ships. The signal names a surface only; the document routes keep refusing
-    on their own published authority.
+    OFF — the shipped, dark state — projects an empty tuple, so the browser keeps every stub
+    exactly as it ships. A signal names a surface only; the routes behind each panel keep
+    refusing on their own published authority. Both on: the projection follows the literal's
+    canonical order regardless of the settings declaration order.
     """
     store = LocalTestIdentityStore("test-tenant")
     store.memberships[(ISSUER, SUBJECT)] = membership()
     idp = SignedTestIdP()
     oidc = httpx.AsyncClient(transport=httpx.MockTransport(idp.handle))
-    app = create_app(config(staff_documents_panel=flag), store=store, oidc_client=oidc)
+    app = create_app(
+        config(staff_documents_panel=documents, staff_operations_panel=operations),
+        store=store,
+        oidc_client=oidc,
+    )
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=ORIGIN) as client:
         harness = Harness(client, store, idp, app)
         assert (await harness.login()).status_code == 303

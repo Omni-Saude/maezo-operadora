@@ -3045,7 +3045,7 @@ export interface components {
              * Flags
              * @default []
              */
-            flags: "staff_documents_panel"[];
+            flags: ("staff_documents_panel" | "staff_operations_panel")[];
             /** Principal Ref */
             principal_ref: string;
             /** Roles */

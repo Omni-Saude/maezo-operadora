@@ -34,8 +34,11 @@ const canonicalCapabilities: readonly PortalCapability[] = [
 ];
 
 // Same closed discipline as capabilities: canonical order, no duplicates, nothing outside
-// the single shadow-panel literal. An unknown signal can only ever refuse to render.
-const canonicalFlags: readonly PortalSessionFlag[] = ["staff_documents_panel"];
+// the shadow-panel literals. An unknown signal can only ever refuse to render.
+const canonicalFlags: readonly PortalSessionFlag[] = [
+  "staff_documents_panel",
+  "staff_operations_panel",
+];
 
 function isCanonicalList<T extends string>(value: unknown, canonical: readonly T[]): value is T[] {
   if (!Array.isArray(value)) return false;

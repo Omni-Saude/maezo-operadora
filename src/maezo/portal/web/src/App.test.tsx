@@ -313,6 +313,8 @@ it.each([
   { ...session(), campo_desconhecido: "não aceito" },
   { ...session(), flags: ["sinal_fora_do_contrato"] },
   { ...session(), flags: ["staff_documents_panel", "staff_documents_panel"] },
+  { ...session(), flags: ["staff_operations_panel", "staff_operations_panel"] },
+  { ...session(), flags: ["staff_operations_panel", "staff_documents_panel"] },
 ])("falha fechada para schema, sinal ou público inesperado %#", async (payload) => {
   vi.mocked(fetch).mockResolvedValue(jsonResponse(payload));
   render(<App />);

@@ -59,6 +59,16 @@ class PortalSettings(BaseSettings):
     #: inteira no plano publicado (`auth.document_context.read`); o sinal não concede nada.
     #: Nenhum `deploy/**` pode ligá-la neste programa.
     staff_documents_panel: bool = False
+    #: W5 CLNT 5.5 (`docs/plans/w5-admin-disposition.md` §3.6). Painel staff READ-ONLY da área
+    #: `operations` (recibos de comandos por tarefa e dependências do contexto da tarefa), sobre
+    #: rotas GET já montadas — `decisions.py` (contexto de assignment governado e recibo público
+    #: do comando) e `tasks.py` (contexto de escalonamento). Nenhuma rota nova, nenhum comando:
+    #: a tela não carrega corpo, CSRF nem método que não GET. DARK: OFF por padrão — o programa é
+    #: shadow e virar esta chave é ato da onda ROLL, com janela de evidência e revisor nomeados.
+    #: OFF projeta a sessão sem o sinal, e o portal mantém o stub exato de hoje: zero mudança de
+    #: superfície visível. A autorização de leitura continua inteira no plano publicado; o sinal
+    #: não concede nada. Nenhum `deploy/**` pode ligá-la neste programa.
+    staff_operations_panel: bool = False
     #: The deployed capability profile, the same `MAEZO_PORTAL_CAPABILITIES` the production
     #: bootstrap reads. Projected on the session so the browser can tell "this area is not
     #: enabled here" from a real 503. It grants nothing: every route still refuses on its own.
