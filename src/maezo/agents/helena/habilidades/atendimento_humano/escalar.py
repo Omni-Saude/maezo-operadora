@@ -25,13 +25,6 @@ from maezo.domain.conversa.caso_clinico import (
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import start_unavailable_error
 from maezo.runtime.start_outcome import notify_start_failure as emit_start_failure_notice
-from maezo.tools.mcp_cibseven.transport import (
-    AgentDecisionProvenance,
-    CibSevenError,
-    ProcessInstance,
-    correlate_message_audited,
-    start_process_idempotent,
-)
 from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 
 if TYPE_CHECKING:
@@ -616,8 +609,11 @@ from maezo.agents.helena.graph import (  # noqa: E402
     START_DESFECHO_FALHOU,
     START_DESFECHO_JA_ATIVO,
     START_DESFECHO_NOVO,
+    AgentDecisionProvenance,
+    CibSevenError,
     HelenaState,
     MotivoCategoria,
+    ProcessInstance,
     ResponseKind,
     RespostaRecusadaError,
     Severidade,
@@ -636,5 +632,7 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _texto_de_escalonamento,
     _texto_de_handoff,
     caso_grave_para_encerrar,
+    correlate_message_audited,
     logger,
+    start_process_idempotent,
 )

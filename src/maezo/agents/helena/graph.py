@@ -210,12 +210,21 @@ from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROG
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.prompt_format import render_untrusted_block
 from maezo.runtime.turn_telemetry import emit_turn_desfecho
+
+# O transporte do motor entra no grafo da Helena SO' por aqui (cerca SC-06 de fan-in do transporte): os
+# modulos de habilidade (`habilidades/atendimento_humano/escalar.py`) usam estes nomes pelo graph.
+from maezo.tools.mcp_cibseven.transport import AgentDecisionProvenance as AgentDecisionProvenance
 from maezo.tools.mcp_cibseven.transport import (
     AuditStartSink,
-    CibSevenError,
     CibSevenTransport,
     StartOutcome,
 )
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError as CibSevenError,
+)
+from maezo.tools.mcp_cibseven.transport import ProcessInstance as ProcessInstance
+from maezo.tools.mcp_cibseven.transport import correlate_message_audited as correlate_message_audited
+from maezo.tools.mcp_cibseven.transport import start_process_idempotent as start_process_idempotent
 from maezo.tools.workers.dmn_transport import (
     DmnTransport,
 )
