@@ -29,8 +29,10 @@ from typing import TYPE_CHECKING, Any, Final, cast
 from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
 from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTOS_FIXOS as TEXTOS_FIXOS_DA_OFERTA
+from maezo.agents.helena.habilidades.conversa import app as _app
 from maezo.agents.helena.habilidades.conversa import assuntos as _assuntos
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
+from maezo.agents.helena.habilidades.conversa import reexplicar as _rx
 from maezo.agents.helena.historico import historico_em_texto
 from maezo.agents.helena.roteador_contrato import (
     DUVIDA,
@@ -521,6 +523,10 @@ async def _classify_ativo_decidido(
         # Avaliacao r5 (25/10/2026): o "sim" a oferta da equipe abre o caso (antes, a habilidade `equipe`
         # fechava a intencao do classificador em `information` e nada abria); o "nao" recebe a recusa curta.
         return {**oferta, "habilidade_roteador": "equipe"}
+    if alarme is None and not antes:
+        fixo = await _texto_fixo_de_conversa(self, state, texto)
+        if fixo is not None:
+            return fixo
     opcoes = decisao.opcoes_da_duvida()
     if opcoes is not None:
         x, y = opcoes
@@ -624,6 +630,30 @@ async def _classify_ativo_decidido(
     }
 
 
+async def _texto_fixo_de_conversa(self: HelenaGraph, state: HelenaState, texto: str) -> dict[str, Any] | None:
+    """Teste do dono (25/10/2026), sem pergunta pendente e sem alarme, qualquer que seja a habilidade do
+    roteador: "nao entendi" reexplica a ULTIMA resposta (`reexplicar.py`) e "onde baixo o aplicativo?" recebe
+    o texto do pacote (sem link). `None` = o caminho de sempre."""
+    if _pedido_explicito_com_verbo(texto) or _pedido_explicito_de_pessoa(texto):
+        return None
+    if _app.pergunta_onde_baixar_o_app(texto):
+        logger.info("helena_texto_do_app", node="classify")
+        texto_app = self._textos[_app.CHAVE_APP_ONDE_BAIXAR]
+        return {
+            **self._base_texto_fixo(self._update_sem_modelo(state), texto_app),
+            "habilidade_roteador": "conversa",
+        }
+    if not _rx.pede_reexplicacao(texto):
+        return None
+    reexplicado = await _rx.reexplicar(self, state)
+    if reexplicado is None:
+        return None
+    tipo = reexplicado.pop("tipo", None)
+    logger.info("helena_reexplicacao", node="classify", tipo=tipo)
+    saida = self._base_texto_fixo(self._update_sem_modelo(state), str(reexplicado.pop("response_text")))
+    return {**saida, **reexplicado, "habilidade_roteador": "conversa"}
+
+
 def _alarme_do_modelo(self: HelenaGraph, state: HelenaState, v7: _rv7.DecisaoV7) -> str | None:
     """ "claro" (192 na hora), "incerto" (pergunta de alerta) ou `None` (sem sinal que conte).
 
@@ -700,6 +730,7 @@ def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
         texto in (_lc.TEXTO_DE_NADA, _lc.TEXTO_COMBINADO, _lc.TEXTO_SAUDACAO, RESPOSTA_RECUSA_DE_EQUIPE)
         or texto in retomadas
         or texto.startswith(inicio_da_duvida)
+        or _rx.e_reexplicacao(texto)
     )
 
 
