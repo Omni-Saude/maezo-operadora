@@ -212,6 +212,12 @@
 > `docs/audits/maezo-deep-audit/remediation/` no checkout principal do dono, porque `docs/audits/` é
 > gitignored por decisão do próprio dono — não são caminhos deste repo, sem link.
 >
+> **Atualização 2026-10-23 (GOV-0.8 / decisão D-31a):** o GAP-REGISTER.yaml tem agora espelho
+> rastreado em `docs/compliance/GAP-REGISTER.yaml` — cópia fiel, linha a linha, do snapshot
+> custodiado (sha256 verificada a cada CI pela cerca `check-compliance-doc-citations`); as citações
+> abaixo que apontavam para o caminho local-only foram re-apontadas para o espelho. Os demais
+> artefatos (OWNER-DECISIONS, EXECUTION-PLAN, HANDOFF.yaml) permanecem local-only/custodiados.
+>
 > **Atualização 2026-09-04 (rodada 2 do fechamento de gaps — 10 PRs mergeados;
 > `main`@`df28608`).** Lineage completa desde `43722b9`:
 > - **#299** docs de fecho da rodada 1 → `96d7d0d`.
@@ -945,7 +951,7 @@ A = 86 · B = 189 · C = 12 (total 287).
 **SEM-WP** (3)
 
 - [ ] R-053 — PR em .github/CODEOWNERS acrescentando `/deploy/ @rodaquino-OMNI @Omni-Saude/security-team`, mergeado sob a regra Sec.8… — SEM-WP — `.github/CODEOWNERS`
-- [ ] R-079 — Atualizar summary.by_merge_gate em GAP-REGISTER.yaml e a nota de §4 na proxima passagem de planejamento; nenhuma mudanc… — SEM-WP — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`, `docs/audits/maezo-deep-audit/remediation/EXECUTION-PLAN.md`
+- [ ] R-079 — Atualizar summary.by_merge_gate em GAP-REGISTER.yaml e a nota de §4 na proxima passagem de planejamento; nenhuma mudanc… — SEM-WP — `docs/compliance/GAP-REGISTER.yaml`, `docs/audits/maezo-deep-audit/remediation/EXECUTION-PLAN.md`
 - [ ] R-228 — Agente implementa o gate que falha se qualquer publicação de agregado populacional aparecer no processo e registra o fe… — SEM-WP — `docs/sme-dispatch/dpo/PACKAGE.md`, `docs/processes/contracts/SP-OP-PROGRAMA-001.md`, `spec/processes/dmn/programa_routing.dmn`
 
 **WP-ADR-0030-COMPLETION** (3)
@@ -972,7 +978,7 @@ A = 86 · B = 189 · C = 12 (total 287).
 **WP-ANS-CRON-COMPETENCIA** (2)
 
 - [ ] R-091 — Registrar o reconhecimento na revisão do PR de ANS-CRON e anotar no evidence-ledger a citação de pyproject.toml:43 e da… — WP-ANS-CRON-COMPETENCIA — `pyproject.toml`, `uv.lock`
-- [ ] R-112 — Nota de escopo no contrato `docs/processes/contracts/SP-OP-ANS-CRON-001.md` e mudanca do campo `status` da linha do reg… — WP-ANS-CRON-COMPETENCIA — `docs/processes/contracts/SP-OP-ANS-CRON-001.md`, `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-112 — Nota de escopo no contrato `docs/processes/contracts/SP-OP-ANS-CRON-001.md` e mudanca do campo `status` da linha do reg… — WP-ANS-CRON-COMPETENCIA — `docs/processes/contracts/SP-OP-ANS-CRON-001.md`, `docs/compliance/GAP-REGISTER.yaml`
 
 **WP-BUILD-HYGIENE** (1)
 
@@ -1021,14 +1027,14 @@ A = 86 · B = 189 · C = 12 (total 287).
 
 **WP-EVALS** (2)
 
-- [ ] R-094 — Manter `merge_gate: autonomous` nas 2 linhas de `GAP-REGISTER.yaml`; nenhum PR novo de decisao, apenas aprovacao de mer… — WP-EVALS — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-094 — Manter `merge_gate: autonomous` nas 2 linhas de `GAP-REGISTER.yaml`; nenhum PR novo de decisao, apenas aprovacao de mer… — WP-EVALS — `docs/compliance/GAP-REGISTER.yaml`
 - [ ] R-196 — Provisionar a chave de API e o orcamento da lane noturna e wire-la aos 3 casos CLAREZA usando `score_live` (`tests/eval… — WP-EVALS — `tests/evals/README.md`, `.github/workflows/ (lane noturna)`, `chave de API do provedor LLM (segredo)`
 
 **WP-FATOS-FABRICADOS** (3)
 
 - [ ] R-093 — PR `fix/inad-notified-event-resemantica` trocando o `event_topic` de `ST_PublishInadimplenciaNotified` (BPMN :153) para… — WP-FATOS-FABRICADOS — `spec/processes/bpmn/SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn`, `docs/processes/contracts/SP-OP-INADIMPLENCIA-001.md`
-- [ ] R-104 — Registrar a escolha de canal na linha `SLA-ALERTS-CHANNEL-WIRING` do registro e abrir `WP-ALERTA-SLA-CANAL` com a regra… — WP-FATOS-FABRICADOS — `src/maezo/platform/integrations/notifications_bridge.py`, `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
-- [ ] R-105 — Registrar a confirmacao em `GAP-REGISTER.yaml` (os 7 ids sem decisao pendente) e anotar `D-21` como a autorizacao de me… — WP-FATOS-FABRICADOS — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-104 — Registrar a escolha de canal na linha `SLA-ALERTS-CHANNEL-WIRING` do registro e abrir `WP-ALERTA-SLA-CANAL` com a regra… — WP-FATOS-FABRICADOS — `src/maezo/platform/integrations/notifications_bridge.py`, `docs/compliance/GAP-REGISTER.yaml`
+- [ ] R-105 — Registrar a confirmacao em `GAP-REGISTER.yaml` (os 7 ids sem decisao pendente) e anotar `D-21` como a autorizacao de me… — WP-FATOS-FABRICADOS — `docs/compliance/GAP-REGISTER.yaml`
 
 **WP-G4-INFRA** (5)
 
@@ -1040,13 +1046,13 @@ A = 86 · B = 189 · C = 12 (total 287).
 
 **WP-GOVERNANCA-DPO** (3)
 
-- [ ] R-010 — Agente marca AF-13 como ENTREGUE no registro de gaps citando src/maezo/platform/observability.py:79-84 e os três call s… — WP-GOVERNANCA-DPO — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-010 — Agente marca AF-13 como ENTREGUE no registro de gaps citando src/maezo/platform/observability.py:79-84 e os três call s… — WP-GOVERNANCA-DPO — `docs/compliance/GAP-REGISTER.yaml`
 - [ ] R-103 — Abrir o PR fix/lgpd-retire-publish-completed-orphan-topic apagando o worker e sua entrada em src/maezo/tools/workers/lg… — WP-GOVERNANCA-DPO — `src/maezo/tools/workers/lgpd.py`, `tests/unit/tools/workers/test_lgpd_erasure.py`, `docs/compliance/lgpd-topic-reconciliation.md`
 - [ ] R-106 — Anotar os CronJobs de `deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml` com `maezo.io/expected-fail-until` (m… — WP-GOVERNANCA-DPO — `deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml`, `PLANS.md`
 
 **WP-IDEMPOTENCIA** (1)
 
-- [ ] R-197 — Linha em `docs/review-queue.md` registrando a aceitacao do residuo e dependencia explicita de XRD-10/MZO-060 no campo `… — WP-IDEMPOTENCIA — `docs/review-queue.md`, `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-197 — Linha em `docs/review-queue.md` registrando a aceitacao do residuo e dependencia explicita de XRD-10/MZO-060 no campo `… — WP-IDEMPOTENCIA — `docs/review-queue.md`, `docs/compliance/GAP-REGISTER.yaml`
 
 **WP-LEDGER-HASH-CI** (2)
 
@@ -1065,7 +1071,7 @@ A = 86 · B = 189 · C = 12 (total 287).
 - [ ] R-056 — PR `feat/obs-kube-state-metrics-scrape`: job_name kube-state-metrics em deploy/observability/prometheus.yml + values do… — WP-OBSERVABILITY-WIRING — `deploy/observability/prometheus.yml`, `deploy/observability/alert-rules.yml`, `deploy/helm/maezo-tenant/values.yaml`
 - [ ] R-057 — PR `fix/tf-obs-alert-rules-ext` tocando deploy/terraform/modules/observability/main.tf:55 e :60 e variables.tf:49; nenh… — WP-OBSERVABILITY-WIRING — `deploy/terraform/modules/observability/main.tf`, `deploy/terraform/modules/observability/variables.tf`
 - [ ] R-063 — No PR de ALERTS-WITHOUT-METRICS-a: labelnames=['agent','error_type'] em src/maezo/runtime/metrics.py:65 e :70 e as expr… — WP-OBSERVABILITY-WIRING — `src/maezo/runtime/metrics.py`, `deploy/observability/alert-rules.yml`
-- [ ] R-069 — Sem PR proprio: registrar a confirmacao como nota na linha ALERTS-WITHOUT-METRICS-b do registro e no comentario de depl… — WP-OBSERVABILITY-WIRING — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`, `deploy/observability/alert-rules.yml`
+- [ ] R-069 — Sem PR proprio: registrar a confirmacao como nota na linha ALERTS-WITHOUT-METRICS-b do registro e no comentario de depl… — WP-OBSERVABILITY-WIRING — `docs/compliance/GAP-REGISTER.yaml`, `deploy/observability/alert-rules.yml`
 
 **WP-PERSP-CONTAS-RECURSO** (4)
 
@@ -1089,11 +1095,11 @@ A = 86 · B = 189 · C = 12 (total 287).
 
 **WP-SEC-GITLEAKS-ALLOWLIST** (1)
 
-- [ ] R-102 — Manter `merge_gate: autonomous` nas 8 linhas de `GAP-REGISTER.yaml` e aplicar `gh run view <id> --json jobs` antes de m… — WP-SEC-GITLEAKS-ALLOWLIST — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-102 — Manter `merge_gate: autonomous` nas 8 linhas de `GAP-REGISTER.yaml` e aplicar `gh run view <id> --json jobs` antes de m… — WP-SEC-GITLEAKS-ALLOWLIST — `docs/compliance/GAP-REGISTER.yaml`
 
 **WP-SECURITY-SMALL** (3)
 
-- [ ] R-042 — Abrir o PR fix/osv-threshold-high: security.yml:571 vira HIGH, entradas com reason em .github/osv-allowlist.json para o… — WP-SECURITY-SMALL — `.github/workflows/security.yml`, `.github/osv-allowlist.json`, `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-042 — Abrir o PR fix/osv-threshold-high: security.yml:571 vira HIGH, entradas com reason em .github/osv-allowlist.json para o… — WP-SECURITY-SMALL — `.github/workflows/security.yml`, `.github/osv-allowlist.json`, `docs/compliance/GAP-REGISTER.yaml`
 - [ ] R-061 — PR unico `feat/helm-whatsapp-phone-number-id`: chave whatsapp.phoneNumberId em values.yaml + env WHATSAPP_PHONE_NUMBER_… — WP-SECURITY-SMALL — `deploy/helm/maezo-tenant/values.yaml`, `deploy/helm/maezo-tenant/templates/deployment-webhook-receiver.yaml`
 - [ ] R-200 — Habilitar o entitlement GHAS na org GitHub (ato do dono) e abrir o PR de limpeza das branches remotas mergeadas; regist… — WP-SECURITY-SMALL — `docs/Tarefas_Pendentes.md`, `entitlement GHAS (configuracao da org GitHub)`
 
@@ -1106,7 +1112,7 @@ A = 86 · B = 189 · C = 12 (total 287).
 
 - [ ] R-081 — PR `feat/fernando-delegation-wire`: chamada a delegate_arrears_followup em src/maezo/tools/workers/inadimplencia.py:452… — WP-SUPERFICIE-HUMANA-EXEC — `src/maezo/tools/workers/inadimplencia.py`, `src/maezo/runtime/agent_runtime/a2a_composition.py`, `src/maezo/agents/fernando/graph.py`
 - [ ] R-082 — Registrar em `docs/review-queue.md` que Lucas fica fora do escopo A2A ate uma jornada nomear o consumidor, sem tocar `s… — WP-SUPERFICIE-HUMANA-EXEC — `docs/review-queue.md`
-- [ ] R-092 — Manter `merge_gate: autonomous` nas 8 linhas de `GAP-REGISTER.yaml` e aplicar a disciplina D-10 (`gh run view <id> --js… — WP-SUPERFICIE-HUMANA-EXEC — `docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml`
+- [ ] R-092 — Manter `merge_gate: autonomous` nas 8 linhas de `GAP-REGISTER.yaml` e aplicar a disciplina D-10 (`gh run view <id> --js… — WP-SUPERFICIE-HUMANA-EXEC — `docs/compliance/GAP-REGISTER.yaml`
 
 **WP-WEBHOOK-DEDUP** (2)
 

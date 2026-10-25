@@ -368,12 +368,19 @@ def test_o_eco_tem_no_maximo_doze_palavras() -> None:
         ("sim", v4.LEITURA_SIM),
         ("sim tenho falta de ar", v4.LEITURA_SIM),
         ("tenho sim", v4.LEITURA_SIM),
-        # Lado seguro: duvida, meio-termo, agravamento e incapacidade valem como "sim".
-        ("nao sei", v4.LEITURA_SIM),
-        ("um pouco", v4.LEITURA_SIM),
-        ("talvez", v4.LEITURA_SIM),
+        # Agravamento e incapacidade valem como "sim" (lado seguro do SINAL).
         ("nao consigo respirar", v4.LEITURA_SIM),
         ("nao e nao piorou", v4.LEITURA_SIM),
+        # DL-0154 (dono, 23/10/2026): duvida e meio-termo sao SEM CLAREZA (nunca mais "sim" -> 192).
+        ("nao sei", None),
+        ("um pouco", None),
+        ("talvez", None),
+        ("pode ser", None),
+        ("sera que e isso", None),
+        # A negativa dita no meio da frase e' "nao".
+        ("eu ja disse que nao", v4.LEITURA_NAO),
+        ("acho que nao", v4.LEITURA_NAO),
+        ("nao e so mau jeito mesmo", v4.LEITURA_NAO),
         # Nao deu para entender.
         ("hmm", None),
         ("nao mas agora ele esta com febre", None),
@@ -505,13 +512,17 @@ def test_todo_texto_da_v4_passa_nas_cercas_de_saida_e_na_regua_de_clareza(texto:
     assert not re.search(r"\bcns\b|cartao nacional", _sem_acento(texto)), "nunca CNS"
 
 
-def test_o_texto_final_e_o_do_dono_palavra_por_palavra() -> None:
+def test_o_texto_final_e_o_do_dono_com_o_profissional_pela_idade() -> None:
+    """DL-0154: o caminho (consulta com o prazo da ANS) ou a equipe; adulto: clinico geral, crianca: pediatra
+    (nunca "clinico geral ou pediatra" para um adulto); nenhuma orientacao do sintoma."""
     assert v4.texto_final_do_sintoma("dor nas costas desde ontem") == (
         "Entendi: dor nas costas desde ontem. Eu não avalio sintomas, mas te ajudo com o caminho. "
-        "Você prefere: 1) saber onde marcar consulta pelo plano (clínico geral ou pediatra: até 7 dias úteis "
+        "Você prefere: 1) saber onde marcar consulta com clínico geral pelo plano (até 7 dias úteis "
         "pela ANS); ou 2) falar com a nossa equipe de saúde? "
         "Se piorar, procure um pronto-atendimento; se for grave, ligue 192."
     )
+    crianca = v4.texto_final_do_sintoma("tosse", v4.POPULACAO_CRIANCA)
+    assert "consulta com pediatra pelo plano" in crianca and "clínico geral" not in crianca
 
 
 def test_o_texto_do_especialista_e_o_da_coluna_hoje_sem_prometer_nada() -> None:
@@ -687,16 +698,15 @@ async def test_especialista_recebe_onde_marcar_prazo_e_oferta_sem_caso(
         assert conversa.whatsapp.enviados == [texto]
 
 
-async def test_especialista_usa_a_segmentacao_do_cadastro_quando_ha_identidade() -> None:
+async def test_especialista_sem_o_paragrafo_de_segmentacao_mesmo_com_identidade() -> None:
+    """DL-0154 (etapa 8): quem pede especialista ouve onde marcar e o prazo, nunca o tipo do plano."""
     fonte = _Fonte()
     conversa = _Conversa(fonte=fonte, com_identidade=True)
     resultado = await conversa.diz("Preciso consultar com um cardiologista")
 
-    assert (
-        "No cadastro, seu plano consta com segmentação Ambulatorial + Hospitalar."
-        in resultado["response_text"]
-    )
-    assert fonte.chamadas == [(_REF, "elegibilidade")]
+    assert "segmentação" not in resultado["response_text"]
+    assert "aplicativo Austa Clínicas" in resultado["response_text"]
+    assert fonte.chamadas == []
     assert conversa.cib.inicios == []
 
 
@@ -886,7 +896,7 @@ async def test_dor_nas_costas_com_nao_recebe_a_resposta_exata_do_dono_e_a_opcao_
     assert final["response_text"] == v4.texto_final_do_sintoma("dor nas costas desde ontem")
     assert final["response_text"].startswith("Entendi: dor nas costas desde ontem. Eu não avalio sintomas")
     for trecho in (
-        "1) saber onde marcar consulta pelo plano (clínico geral ou pediatra: até 7 dias úteis pela ANS)",
+        "1) saber onde marcar consulta com clínico geral pelo plano (até 7 dias úteis pela ANS)",
         "2) falar com a nossa equipe de saúde?",
         "Se piorar, procure um pronto-atendimento; se for grave, ligue 192.",
     ):
@@ -900,7 +910,8 @@ async def test_dor_nas_costas_com_nao_recebe_a_resposta_exata_do_dono_e_a_opcao_
     assert "clínico geral" in um["response_text"]
     assert not re.search(r"pode ser|virose|infec|tome ", _sem_acento(um["response_text"]))
     assert conversa.cib.inicios == []
-    assert conversa.memoria["coleta_pendente"] is None and conversa.memoria["coleta_contexto"] == ""
+    # DL-0154: o sintoma fica lembrado por UM turno (a fala seguinte sobre ele nao reinicia o alerta).
+    assert conversa.memoria["coleta_pendente"] == "V4_ESCOLHA:GERAL:adult"
 
 
 async def test_a_opcao_2_abre_o_caso_com_resumo_legivel_so_do_relato_desta_queixa() -> None:
@@ -941,10 +952,8 @@ async def test_resposta_sim_a_pergunta_de_alerta_escala_com_o_192() -> None:
     assert "respondeu sim" in resumo and "dor nas costas desde ontem" in resumo
 
 
-@pytest.mark.parametrize(
-    "resposta", ["Não sei", "Um pouco", "não consigo respirar direito", "Nao, mas piorou"]
-)
-async def test_duvida_ou_agravamento_na_resposta_escala_do_lado_seguro(resposta: str) -> None:
+@pytest.mark.parametrize("resposta", ["não consigo respirar direito", "Nao, mas piorou", "piorou muito"])
+async def test_agravamento_na_resposta_escala_do_lado_seguro(resposta: str) -> None:
     conversa = _Conversa()
     await conversa.diz("Estou com dor nas costas desde ontem", _SINTOMA_ADULTO)
     resultado = await conversa.diz(resposta)
@@ -962,13 +971,21 @@ async def test_resposta_que_nao_se_entende_pergunta_de_novo_uma_vez_e_depois_abr
     )
     segunda = await conversa.diz("hmm")
 
+    # DL-0154: a pergunta de novo, UMA vez, COM OUTRAS PALAVRAS (os sinais em resumo).
     assert segunda["next_kind"] == "collect"
-    assert segunda["response_text"].startswith("Só para eu entender: a dor de cabeça começou de repente")
+    assert segunda["response_text"].startswith("Só para eu ter certeza: neste momento, existe algum destes")
+    assert "dor de cabeça de início súbito e muito forte" in segunda["response_text"]
     assert conversa.cib.inicios == []
 
+    # Continuou sem clareza: a OFERTA da equipe, sem 192 e SEM caso (o caso so' com "sim").
     terceira = await conversa.diz("sei lá")
-    assert terceira["escalation_motivo"] == "intencao_clinica"
-    assert "não ficou claro" in conversa.cib.inicios[0]["resumo_contexto"]
+    assert conversa.cib.inicios == [] and "192" not in terceira["response_text"]
+    assert terceira["response_text"].startswith("Não consegui entender bem a sua resposta.")
+    assert conversa.memoria["coleta_pendente"].startswith("V4_OFERTA:")
+
+    quarta = await conversa.diz("pode ser, sim")
+    assert quarta["escalation_motivo"] == "intencao_clinica" and quarta["escalation_severidade"] == "moderada"
+    assert "192" not in quarta["response_text"].split("emergência")[0]
 
 
 async def test_outro_assunto_no_meio_da_pergunta_segue_o_caminho_de_sempre_e_limpa_a_pergunta() -> None:
@@ -1270,10 +1287,13 @@ async def test_com_as_duas_chaves_ligadas_a_v4_manda_e_a_tabela_da_v2_nao_e_cons
     conversa = _Conversa(v4=True, v2=True)
     await conversa.diz("Estou com dor nas costas desde ontem", _SINTOMA_ADULTO)
     await conversa.diz("Não")
-    await conversa.diz("Posso tomar dipirona?", _classify(intent="clinical_question"))
+    resposta = await conversa.diz("Posso tomar dipirona?", _classify(intent="clinical_question"))
 
     assert TRIAGEM_V2_DMN_KEY not in conversa.dmn.chaves()
-    assert conversa.motivos == ["intencao_clinica"], "a pergunta clinica volta a escalar como antes da v2"
+    # DL-0154: depois de fechar o sintoma, a pergunta sobre ele (remedio) recebe "quem avalia e' o medico"
+    # com as opcoes — sem caso aberto sem pedido e sem orientar.
+    assert conversa.motivos == []
+    assert resposta["response_text"].startswith("Quem pode avaliar a causa é o médico.")
 
 
 _AMOSTRA = [

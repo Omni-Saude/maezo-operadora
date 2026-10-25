@@ -675,9 +675,11 @@ async def test_acknowledge_non_text_sends_exactly_one_fixed_reply_to_the_verifie
     assert client.sent == [(_ACK_RAW_NUMBER, NON_TEXT_ACK_TEXT)]
     # The text is PINNED here, not merely compared to itself: a reply that starts promising a
     # human/Libras/transcription must break this test, because none of those is wired (owner
-    # decisions 9.6/10.2 are OPEN — see the constant's own comment).
+    # decisions 9.6/10.2 are OPEN — see the constant's own comment). DL-0154 (etapa 10, dono 23/10/2026):
+    # the only offer is the EXISTING text path to a person ("falar com uma pessoa"), never transcription.
     assert NON_TEXT_ACK_TEXT == (
-        "Por aqui eu só consigo ler mensagens de texto. Pode me escrever o que precisa, por favor?"
+        "Por aqui eu consigo ler só mensagens de texto. Pode me escrever o que precisa? "
+        "Se preferir falar com uma pessoa da nossa equipe, é só escrever: falar com uma pessoa."
     )
     assert audit_sink.calls == []  # no process start was audited => none happened (T-C2 fence)
 

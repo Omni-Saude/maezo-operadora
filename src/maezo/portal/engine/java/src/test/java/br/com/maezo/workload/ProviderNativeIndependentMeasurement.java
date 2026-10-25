@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import jdk.net.ExtendedSocketOptions;
 import jdk.net.UnixDomainPrincipal;
 import org.cibseven.bpm.engine.ProcessEngines;
@@ -74,6 +75,11 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
       + "c.relkind::text,c.relrowsecurity,c.relforcerowsecurity,c.relacl::text "
       + "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='cibseven' "
       + "AND c.relname IN ('act_re_procdef','act_re_deployment','act_ge_bytearray') ORDER BY n.nspname,c.relname";
+  /** The pinned hot set: opened once in the constructor, re-verified by every later read. */
+  private static final Map<String, String> PINNED_MATERIALS = new TreeMap<>(Map.of(
+      "descriptor_sha256", "conf/bpm-platform.xml", "native_jar_sha256", "lib/maezo-human-command.jar",
+      "support_jar_sha256", "lib/provider-auth-test-support.jar",
+      "rest_spi_jar_sha256", "webapps/engine-rest/WEB-INF/lib/maezo-rest-spi.jar"));
 
   private enum State { READY, OPEN, HOLD_READY, RELEASED, ENTRY_SEALED, COMMIT_SEALED,
     STAGE_CLOSED, PRIMARY_TERMINAL, PRIMARY_CLOSED, PRIMARY_SEALED, DELIVERED, UNKNOWN }
@@ -156,9 +162,15 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
           && config.maximumTotalFrames() == 65 && config.maximumEndpoints() == 18
           && config.maximumStageSequence() == 8 && config.maximumFrameBytes() == 32768
           && config.maximumTotalBytes() == 2097152);
+      // Custody by continuous possession (DESIGN-OPTION-REFUSAL-61-62-v1 §2.1 step 1):
+      // the hot set is opened ONCE here, before HELLO, with the full pinning ritual;
+      // origin()/toolchain()/installation() only re-verify these same descriptors.
+      for (var material : PINNED_MATERIALS.entrySet())
+        readFile(base.resolve(material.getValue()), Codec.string(admission, material.getKey()), FILE_BOUND);
       origin(); toolchain();
       clockGuard();
     } catch (IOException | RuntimeException failure) {
+      closePinnedFiles();
       throw unavailable(failure);
     }
   }
@@ -314,6 +326,7 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
       guard(); socketGuard(outcomeChannel, outcomeIdentity); outcomeChannel.close();
       guard(); require(!outcomeChannel.isOpen() && outcomeIdentity.equals(socketIdentity(config.outcomeSocketPath())));
       selector.close(); require(!selector.isOpen()); guard(); state = State.DELIVERED;
+      closePinnedFiles();
       // The immutable historical primary seal makes no claim about the remote delivery tail.
     } catch (IOException | RuntimeException | Error failure) { throw fail(failure); }
   }
@@ -327,7 +340,15 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
 
   private FinalOutcome sealedPrimaryOutcome() { require(state == State.PRIMARY_SEALED && finalOutcome != null); return finalOutcome; }
   private void closeResources() {
-    closeAll(List.of(new Close(primary), new Close(outcomeChannel), new Close(selector)));
+    List<java.io.Closeable> resources = new ArrayList<>(List.of(new Close(primary), new Close(outcomeChannel), new Close(selector)));
+    for (PinnedFile pinned : PINNED_FILES.values()) resources.add(new Close(pinned.channel()));
+    closeAll(resources);
+    PINNED_FILES.clear();
+  }
+  /** Terminal fd hygiene after the sealed delivery; a pinned close cannot unseal the outcome. */
+  private static void closePinnedFiles() {
+    for (PinnedFile pinned : PINNED_FILES.values()) try { pinned.channel().close(); } catch (IOException ignored) { }
+    PINNED_FILES.clear();
   }
   private static void closeAll(List<java.io.Closeable> resources) {
     Throwable failed = null;
@@ -465,9 +486,7 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
   private Map<String, Object> installation() throws IOException {
     guard();
     Map<String, Object> pins = new TreeMap<>();
-    Map<String, String> names = Map.of("descriptor_sha256", "conf/bpm-platform.xml", "native_jar_sha256", "lib/maezo-human-command.jar",
-        "support_jar_sha256", "lib/provider-auth-test-support.jar", "rest_spi_jar_sha256", "webapps/engine-rest/WEB-INF/lib/maezo-rest-spi.jar");
-    for (var pair : names.entrySet()) {
+    for (var pair : PINNED_MATERIALS.entrySet()) {
       Path path = base.resolve(pair.getValue()); String expected = Codec.string(admission, pair.getKey());
       require(expected.equals(expectedFiles.get(path.toString())));
       pins.put(pair.getKey(), sha(readFile(path, expected, FILE_BOUND)));
@@ -551,12 +570,15 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
     // Boundary pins are a CLOSED OVERLAY: an entry the policy additionally pins must
     // agree, but the boundary is not required to pin every inventoried file (the
     // policy's custody reader budgets 1MiB for non-own files). Every entry is still
-    // digest-verified against the live tree through the 32MiB bound below.
+    // digest-verified against the live tree through the 32MiB bound below. The sweep
+    // is census-free (DESIGN-OPTION-REFUSAL-61-62-v1 §2.1 step 3): the 13+N_vendor
+    // inventoried files per installation() never enter the descriptor-census path and
+    // never gain channel custody.
     for (var entry : entries.entrySet()) {
       Path path = base.resolve(entry.getKey()); require(path.startsWith(base));
-      String pinned = expectedFiles.get(path.toString());
-      require(pinned == null || pinned.equals(entry.getValue()));
-      readFile(path, entry.getValue(), FILE_BOUND);
+      String overlay = expectedFiles.get(path.toString());
+      require(overlay == null || overlay.equals(entry.getValue()));
+      digestInventoryFile(path, entry.getValue(), config.jvmUid(), this::clockGuard);
     }
   }
   private static Map<String, String> inventory(byte[] raw) {
@@ -617,25 +639,51 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
     require(bytes.length >= 8 && ByteBuffer.wrap(bytes).getInt() == 0xcafebabe); return Short.toUnsignedInt(ByteBuffer.wrap(bytes, 6, 2).getShort());
   }
 
-  /** Own descriptor acquisition: before/after inode custody plus two position challenges. */
+  /** Own descriptor acquisition by continuous possession; see readFile(Path,String,int,long,Runnable). */
   private byte[] readFile(Path path, String expected, int bound) throws IOException {
-    clockGuard(); require(expected != null && expected.matches("[a-f0-9]{64}") && bound > 0 && bound <= FILE_BOUND);
-    canonicalFile(path); Map<String, Object> before = fileAttributes(path), parent = fileAttributes(path.getParent());
+    return readFile(path, expected, bound, config.jvmUid(), this::clockGuard);
+  }
+  /**
+   * Custody by continuous possession (DESIGN-OPTION-REFUSAL-61-62-v1 §2.1). A material is
+   * opened exactly once with the full pinned ritual — canonical path, attribute custody,
+   * parents, NOFOLLOW open, census-diff attribution by fd-position challenge, digest equal
+   * to the pin — and the channel stays open. Every later read re-verifies the SAME
+   * descriptor (attributes, path->inode continuity, unchanged parents, position coupling,
+   * bounded re-read, re-digest) and neither reopens nor censuses /proc/self/fd, so the
+   * census-diff window that refused lane runs 38/40 no longer exists on the repeated-read
+   * path. The registry is process-wide like BOOT: one measured JVM session per process.
+   */
+  private static final Map<Path, PinnedFile> PINNED_FILES = new ConcurrentHashMap<>();
+  private record PinnedFile(FileChannel channel, Path descriptor, Map<String, Object> file, Map<String, Object> parent) {}
+  private static byte[] readFile(Path path, String expected, int bound, long jvmUid, Runnable tick) throws IOException {
+    tick.run(); require(expected != null && expected.matches("[a-f0-9]{64}") && bound > 0 && bound <= FILE_BOUND);
+    canonicalFile(path);
+    PinnedFile pinned = PINNED_FILES.get(path);
+    return pinned == null ? openPinnedFile(path, expected, bound, jvmUid, tick) : reverifyPinnedFile(pinned, path, expected, bound, jvmUid, tick);
+  }
+  /** Pin-time ritual: the full prior census-diff read, keeping the descriptor open. */
+  private static byte[] openPinnedFile(Path path, String expected, int bound, long jvmUid, Runnable tick) throws IOException {
+    tick.run(); Map<String, Object> before = fileAttributes(path), parent = fileAttributes(path.getParent());
     long mode = number(before.get("mode")), owner = number(before.get("uid"));
     require((mode & 0170000) == 0100000 && (mode & 0022) == 0 && (mode & 0111) == 0
-        && (owner == 0 || owner == config.jvmUid()) && number(before.get("nlink")) == 1
+        && (owner == 0 || owner == jvmUid) && number(before.get("nlink")) == 1
         && number(before.get("size")) > 0 && number(before.get("size")) <= bound);
-    checkParents(path.getParent());
-    Map<Path, Map<String, Object>> old = descriptorCensus(); Path descriptor = null; byte[] bytes;
-    try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
-      clockGuard(); Map<Path, Map<String, Object>> fresh = descriptorCensus();
+    checkParents(path.getParent(), jvmUid, tick);
+    Map<Path, Map<String, Object>> old = descriptorCensus(tick);
+    FileChannel channel = FileChannel.open(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
+    PinnedFile pinned = null;
+    try {
+      tick.run(); Map<Path, Map<String, Object>> fresh = descriptorCensus(tick);
       List<Path> matches = fresh.keySet().stream().filter(p -> !old.containsKey(p) && fresh.get(p).equals(before)).toList();
-      // Concurrent same-inode opens (classloader reading the very jar under
-      // verification) are legitimate JDK activity; attribution is by FD-POSITION
-      // CHALLENGE, not census uniqueness. The challenge offset is end-of-file,
-      // which no parallel sequential reader holds at the probe instant.
+      // Pin-time attribution keeps the prior doctrine verbatim: concurrent same-inode
+      // opens (classloader reading the very jar under verification) are legitimate JDK
+      // activity; attribution is by FD-POSITION CHALLENGE, not census uniqueness. The
+      // challenge offset is end-of-file, which no parallel sequential reader holds at
+      // the probe instant. Below this attribution neither it nor the census it needs
+      // run again on the repeated-read path.
       require(!matches.isEmpty());
       channel.position(Math.max(1, channel.size() - 1));
+      Path descriptor = null;
       for (Path candidate : matches) {
         try { if (descriptorPosition(candidate) == channel.position()) { require(descriptor == null); descriptor = candidate; } }
         catch (IOException raced) { /* candidate closed between census and probe */ }
@@ -647,37 +695,117 @@ public final class ProviderNativeIndependentMeasurement implements NativeMeasure
       channel.position(1); require(descriptorPosition(descriptor) == 1);
       channel.position(0); require(descriptorPosition(descriptor) == 0);
       ByteBuffer buffer = ByteBuffer.allocate((int) number(before.get("size")) + 1);
-      while (buffer.hasRemaining()) { clockGuard(); int n = channel.read(buffer); clockGuard(); if (n == -1) break; }
-      bytes = Arrays.copyOf(buffer.array(), buffer.position());
+      while (buffer.hasRemaining()) { tick.run(); int n = channel.read(buffer); tick.run(); if (n == -1) break; }
+      byte[] bytes = Arrays.copyOf(buffer.array(), buffer.position());
       require(bytes.length == number(before.get("size")) && channel.size() == bytes.length
           && channel.position() == descriptorPosition(descriptor) && before.equals(fileAttributes(descriptor, true))
           && before.equals(fileAttributes(path)) && parent.equals(fileAttributes(path.getParent())) && sha(bytes).equals(expected));
-      clockGuard();
+      tick.run();
+      pinned = new PinnedFile(channel, descriptor, before, parent);
+      PinnedFile prior = PINNED_FILES.putIfAbsent(path, pinned);
+      if (prior != null) { pinned = null; channel.close(); return reverifyPinnedFile(prior, path, expected, bound, jvmUid, tick); }
+      // Continuous possession: the descriptor is deliberately not closed, so the prior
+      // post-close claim ("the closed descriptor must stay closed and the path must not
+      // move while the read returns") has no window left to guard. A closed or diverging
+      // pinned file refuses in reverifyPinnedFile; nothing degrades to accept-with-warning.
+      return bytes;
     }
-    clockGuard(); require(descriptor != null && !Files.exists(descriptor)
-        && before.equals(fileAttributes(path)) && parent.equals(fileAttributes(path.getParent())));
-    return bytes;
+    catch (IOException | RuntimeException failure) {
+      if (pinned == null) try { channel.close(); } catch (IOException ignored) { }
+      throw failure;
+    }
   }
-  private Map<Path, Map<String, Object>> descriptorCensus() throws IOException {
-    clockGuard(); Map<Path, Map<String, Object>> result = new TreeMap<>();
+  /** Continuous-possession read: same descriptor, re-digest, no open and no census. */
+  private static byte[] reverifyPinnedFile(PinnedFile pinned, Path path, String expected, int bound, long jvmUid, Runnable tick) throws IOException {
+    tick.run();
+    synchronized (pinned) {
+      require(pinned.channel().isOpen());
+      long size = number(pinned.file().get("size"));
+      require(size > 0 && size <= bound && pinned.channel().size() == size);
+      // (a) The pinned descriptor still exists with the pinned custody attributes.
+      require(pinned.file().equals(fileAttributes(pinned.descriptor(), true)));
+      // (b) Path->inode continuity and unchanged custody attributes, from the path.
+      require(pinned.file().equals(fileAttributes(path)));
+      // (c) Parent continuity on the structural custody facts (a directory's mtime
+      // legitimately moves when a sibling is created or removed); the per-read
+      // ancestor walk below still re-checks mode/owner of the whole chain.
+      var parentNow = fileAttributes(path.getParent());
+      require(parentNow.get("dev").equals(pinned.parent().get("dev")) && parentNow.get("ino").equals(pinned.parent().get("ino"))
+          && (number(parentNow.get("uid")) == 0 || number(parentNow.get("uid")) == jvmUid)
+          && (number(parentNow.get("mode")) & 0170000) == 0040000 && (number(parentNow.get("mode")) & 0022) == 0);
+      checkParents(path.getParent(), jvmUid, tick);
+      // (d) Position coupling of this very channel to this very descriptor number.
+      require(descriptorPosition(pinned.descriptor()) == pinned.channel().position());
+      pinned.channel().position(0); require(descriptorPosition(pinned.descriptor()) == 0);
+      pinned.channel().position(1); require(descriptorPosition(pinned.descriptor()) == 1);
+      pinned.channel().position(0); require(descriptorPosition(pinned.descriptor()) == 0);
+      pinned.channel().position(size - 1); require(descriptorPosition(pinned.descriptor()) == size - 1);
+      pinned.channel().position(0); require(descriptorPosition(pinned.descriptor()) == 0);
+      // (e) Bounded re-read and re-digest through the same descriptor.
+      ByteBuffer buffer = ByteBuffer.allocate((int) size + 1);
+      while (buffer.hasRemaining()) { tick.run(); int n = pinned.channel().read(buffer); tick.run(); if (n == -1) break; }
+      byte[] bytes = Arrays.copyOf(buffer.array(), buffer.position());
+      require(bytes.length == size && pinned.channel().size() == bytes.length
+          && pinned.channel().position() == descriptorPosition(pinned.descriptor())
+          && pinned.file().equals(fileAttributes(pinned.descriptor(), true))
+          && pinned.file().equals(fileAttributes(path)) && parentNow.equals(fileAttributes(path.getParent()))
+          && sha(bytes).equals(expected));
+      tick.run();
+      return bytes;
+    }
+  }
+  /**
+   * Census-free re-digest of one inventoried file, in the doctrine the engine already
+   * practises (RuntimeDefinitionObservation.binaryDigest): attributes before, bounded
+   * stream, attributes after, digest. DESIGN-OPTION-REFUSAL-61-62-v1 §2.1 step 3 keeps
+   * the 13+N_vendor-entry sweep out of the census path without dropping the per-file
+   * re-digest, and grants it no channel custody.
+   */
+  private static void digestInventoryFile(Path path, String expected, long jvmUid, Runnable tick) throws IOException {
+    tick.run(); require(expected != null && expected.matches("[a-f0-9]{64}"));
+    canonicalFile(path);
+    Map<String, Object> before = fileAttributes(path), parent = fileAttributes(path.getParent());
+    long mode = number(before.get("mode")), owner = number(before.get("uid")), size = number(before.get("size"));
+    require((mode & 0170000) == 0100000 && (mode & 0022) == 0 && (mode & 0111) == 0
+        && (owner == 0 || owner == jvmUid) && number(before.get("nlink")) == 1 && size > 0 && size <= FILE_BOUND);
+    checkParents(path.getParent(), jvmUid, tick);
+    byte[] raw;
+    try (var stream = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS)) { raw = stream.readNBytes((int) size + 1); }
+    tick.run();
+    require(raw.length == size && before.equals(fileAttributes(path)) && parent.equals(fileAttributes(path.getParent()))
+        && sha(raw).equals(expected));
+    tick.run();
+  }
+  private static void checkParents(Path path, long jvmUid, Runnable tick) throws IOException {
+    for (Path parent = path; parent != null; parent = parent.getParent()) {
+      tick.run(); var attributes = fileAttributes(parent);
+      require((number(attributes.get("mode")) & 0170000) == 0040000
+          && (number(attributes.get("mode")) & 0022) == 0
+          && (number(attributes.get("uid")) == 0 || number(attributes.get("uid")) == jvmUid));
+    }
+  }
+  private static Map<Path, Map<String, Object>> descriptorCensus(Runnable tick) throws IOException {
+    tick.run(); Map<Path, Map<String, Object>> result = new TreeMap<>();
     try (DirectoryStream<Path> stream = Files.newDirectoryStream(FD_ROOT)) {
       for (Path path : stream) {
-        clockGuard(); require(path.getFileName().toString().matches("[0-9]+") && result.size() < 4096);
+        tick.run(); require(path.getFileName().toString().matches("[0-9]+") && result.size() < 4096);
         try {
           var attributes = fileAttributes(path, true);
           // The census's own DirectoryStream FD must never be mistaken for a
           // newly opened regular material when the kernel reuses its number.
+          // Pin-time only since DESIGN-OPTION-REFUSAL-61-62-v1 §2.1: repeated
+          // reads never census at all.
           if ((number(attributes.get("mode")) & 0170000) == 0100000) result.put(path, attributes);
         }
         catch (java.nio.file.NoSuchFileException vanished) { /* enumeration FD can close itself; never a qualifying candidate */ }
       }
     }
-    clockGuard(); return result;
+    tick.run(); return result;
   }
-  private long descriptorPosition(Path descriptor) throws IOException {
+  private static long descriptorPosition(Path descriptor) throws IOException {
     require(descriptor.getParent().equals(FD_ROOT) && descriptor.getFileName().toString().matches("[0-9]+"));
     Path info = Path.of("/proc/self/fdinfo", descriptor.getFileName().toString());
-    clockGuard(); String raw = Files.readString(info, StandardCharsets.US_ASCII); clockGuard(); require(raw.length() <= 4096);
+    String raw = Files.readString(info, StandardCharsets.US_ASCII); require(raw.length() <= 4096);
     var match = java.util.regex.Pattern.compile("(?m)^pos:\\s*([0-9]+)$").matcher(raw); require(match.find());
     long result = Long.parseLong(match.group(1)); require(!match.find()); return result;
   }

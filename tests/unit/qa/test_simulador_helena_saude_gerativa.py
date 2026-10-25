@@ -102,7 +102,12 @@ def test_os_telefones_9_na_allowlist_e_o_ultimo_fora() -> None:
 def test_respostas_reais_do_haiku_passam_nos_passos_de_utilidade() -> None:
     assert _passa("1-endometriose-e-osteoporose", _HAIKU_ENDOMETRIOSE) == []
     assert _passa("1-endometriose-e-osteoporose", _HAIKU_OSTEOPOROSE, 1) == []
-    assert _passa("2-dor-de-cabeca-ja-usou-remedio", _HAIKU_DOR_DE_CABECA, 1) == []
+    # DL-0154: o passo 2 deixou de ser redigido (a Helena nao orienta o sintoma): e' a pergunta de novo.
+    from maezo.agents.helena.helena_v4 import ALERTAS, GRUPO_CABECA, TEXTO_DA_REPERGUNTA
+
+    repergunta = TEXTO_DA_REPERGUNTA.format(sinais=ALERTAS[GRUPO_CABECA].sinais)
+    assert _passa("2-dor-de-cabeca-ja-usou-remedio", repergunta, 1) == []
+    assert _passa("2-dor-de-cabeca-ja-usou-remedio", _HAIKU_DOR_DE_CABECA, 1) != []
     assert _passa("3-infeccao-urinaria", _HAIKU_CISTITE) == []
     assert _passa("4-o-que-e-sinal-de-alarme", _HAIKU_SINAL_DE_ALARME) == []
     assert _passa("5-dipirona", _HAIKU_DIPIRONA) == []
@@ -125,5 +130,12 @@ def test_texto_fixo_resposta_segura_e_dose_reprovam_a_utilidade() -> None:
 
 
 def test_fora_da_allowlist_so_passa_o_texto_da_base() -> None:
-    assert _passa("10-fora-da-allowlist-nada-muda", b.RESPOSTA_NAO_ENCONTRADO) == []
+    # A base curada tem a endometriose: fora da allowlist passa o texto PROPRIO da base, com o credito dela.
+    da_base = (
+        "Endometriose é uma doença em que um tecido parecido com o que reveste o útero cresce fora dele.\n"
+        "Texto da operadora com base em Saúde de A a Z — Endometriose (Ministério da Saúde).\n"
+    ) + b.AVISO_PADRAO
+    assert _passa("10-fora-da-allowlist-nada-muda", da_base) == []
+    assert _passa("10-fora-da-allowlist-nada-muda", b.RESPOSTA_NAO_ENCONTRADO)
+    assert _passa("10-fora-da-allowlist-nada-muda", sg.RESPOSTA_SEGURA_INFORMAR)
     assert _passa("10-fora-da-allowlist-nada-muda", _HAIKU_ENDOMETRIOSE)

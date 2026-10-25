@@ -103,6 +103,22 @@ final class RuntimeObservationAdmission {
   static byte[] readProtected(Path path,String expected,int bound) {return readProtected(path,expected,bound,null);}
   private static final Path FD_ROOT=Path.of("/proc/self/fd");
   private static final String FD_ATTRIBUTES="unix:mode,uid,nlink,ino,dev,size,lastModifiedTime";
+  /**
+   * Custody by continuous possession (DESIGN-OPTION-REFUSAL-61-62-v1 §2.1). A protected
+   * file is opened exactly once per process with the full census-diff ritual and the
+   * channel is kept open; every later read re-verifies the SAME descriptor — custody
+   * attributes, path->inode continuity, unchanged parents, position coupling, bounded
+   * re-read and re-digest — and neither reopens nor censuses /proc/self/fd, so the
+   * census-diff window that refused lane runs 38/40 does not exist on the repeated-read
+   * path. The registry is process-wide like BOOT: one measured JVM per process.
+   */
+  private static final Map<Path,Possession> POSSESSIONS=new HashMap<>();
+  private static final class Possession {
+    final FileChannel channel;final Path descriptor;final Map<String,Object> file,parent;
+    Possession(FileChannel channel,Path descriptor,Map<String,Object> file,Map<String,Object> parent) {
+      this.channel=channel;this.descriptor=descriptor;this.file=file;this.parent=parent;
+    }
+  }
   private static byte[] readProtected(Path path,String expected,int bound,RuntimeObservationAdmission owned) {
     if(owned!=null)owned.timeOnly();
     try {
@@ -110,48 +126,105 @@ final class RuntimeObservationAdmission {
           && expected!=null && expected.matches("[0-9a-f]{64}"));
       require(path.isAbsolute() && path.equals(path.normalize()) && path.equals(path.toRealPath()));
       for(Path parent=path.getParent();parent!=null;parent=parent.getParent())require(!Files.isSymbolicLink(parent));
-      var parentBefore=Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS);
-      var before=Files.readAttributes(path,FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS);
-      long uid=((Number)before.get("uid")).longValue();
-      long ownUid=((Number)Files.getAttribute(Path.of("/proc/self"),"unix:uid")).longValue();
-      long parentUid=((Number)parentBefore.get("uid")).longValue();
-      require(parentUid==0 || parentUid==ownUid);
-      require(((Number)parentBefore.get("mode")).intValue()==0040700
-          && ((Number)before.get("mode")).intValue()==0100600
-          && (uid==0 || uid==ownUid) && ((Number)before.get("nlink")).longValue()==1
-          && ((Number)before.get("size")).longValue()>0 && ((Number)before.get("size")).longValue()<=bound);
-      var censusBefore=descriptorCensus();if(owned!=null)owned.timeOnly();
-      byte[] raw;Path descriptor;
-      try(var channel=FileChannel.open(path,StandardOpenOption.READ,LinkOption.NOFOLLOW_LINKS)) {
-        if(owned!=null)owned.timeOnly();
-        descriptor=openedDescriptor(censusBefore,descriptorCensus());
-        verifyOpenedDescriptor(channel,descriptor,before);
-        require(parentBefore.equals(Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS)));
-        ByteBuffer buf=ByteBuffer.allocate(bound+1);
-        while(buf.hasRemaining()) {
-          if(owned!=null)owned.timeOnly();int n=channel.read(buf);if(owned!=null)owned.timeOnly();if(n==-1)break;
-        }
-        raw=Arrays.copyOf(buf.array(),buf.position());
-        require(channel.size()==raw.length && raw.length==((Number)before.get("size")).longValue()
-            && raw.length>0 && raw.length<=bound && before.equals(fdAttributes(descriptor))
-            && descriptorPosition(descriptor)==channel.position()
-            && before.equals(Files.readAttributes(path,FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS))
-            && Jcs.digest(raw).equals(expected));
-        if(owned!=null)owned.timeOnly();
-      }
-      if(owned!=null)owned.timeOnly();
-      // An immediately recycled descriptor is ambiguous and cannot earn a custody success.
-      require(!Files.exists(descriptor) && before.equals(Files.readAttributes(path,FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS))
-          && parentBefore.equals(Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS)));
-      return raw;
+      Possession possession;
+      synchronized(POSSESSIONS) {possession=POSSESSIONS.get(path);}
+      if(possession!=null)return reverifyPossession(possession,path,expected,bound,owned);
+      return openPossession(path,expected,bound,owned);
     } catch(IOException|IllegalArgumentException|UnsupportedOperationException e) {throw Refused.unavailable();}
     finally {if(owned!=null)owned.timeOnly();}
+  }
+  /** Pin-time ritual: the full prior census-diff read, keeping the descriptor open. */
+  private static byte[] openPossession(Path path,String expected,int bound,RuntimeObservationAdmission owned)throws IOException {
+    if(owned!=null)owned.timeOnly();
+    var parentBefore=Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS);
+    var before=Files.readAttributes(path,FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS);
+    long uid=((Number)before.get("uid")).longValue();
+    long ownUid=((Number)Files.getAttribute(Path.of("/proc/self"),"unix:uid")).longValue();
+    long parentUid=((Number)parentBefore.get("uid")).longValue();
+    require(parentUid==0 || parentUid==ownUid);
+    require(((Number)parentBefore.get("mode")).intValue()==0040700
+        && ((Number)before.get("mode")).intValue()==0100600
+        && (uid==0 || uid==ownUid) && ((Number)before.get("nlink")).longValue()==1
+        && ((Number)before.get("size")).longValue()>0 && ((Number)before.get("size")).longValue()<=bound);
+    var censusBefore=descriptorCensus();if(owned!=null)owned.timeOnly();
+    FileChannel channel=FileChannel.open(path,StandardOpenOption.READ,LinkOption.NOFOLLOW_LINKS);
+    Possession possession=null;
+    try {
+      if(owned!=null)owned.timeOnly();
+      Path descriptor=openedDescriptor(censusBefore,descriptorCensus());
+      verifyOpenedDescriptor(channel,descriptor,before);
+      require(parentBefore.equals(Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS)));
+      ByteBuffer buf=ByteBuffer.allocate(bound+1);
+      while(buf.hasRemaining()) {
+        if(owned!=null)owned.timeOnly();int n=channel.read(buf);if(owned!=null)owned.timeOnly();if(n==-1)break;
+      }
+      byte[] raw=Arrays.copyOf(buf.array(),buf.position());
+      require(channel.size()==raw.length && raw.length==((Number)before.get("size")).longValue()
+          && raw.length>0 && raw.length<=bound && before.equals(fdAttributes(descriptor))
+          && descriptorPosition(descriptor)==channel.position()
+          && before.equals(Files.readAttributes(path,FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS))
+          && Jcs.digest(raw).equals(expected));
+      if(owned!=null)owned.timeOnly();
+      possession=new Possession(channel,descriptor,before,parentBefore);
+      Possession prior;
+      synchronized(POSSESSIONS) {prior=POSSESSIONS.putIfAbsent(path,possession);}
+      if(prior!=null) {possession=null;channel.close();return reverifyPossession(prior,path,expected,bound,owned);}
+      // The channel is deliberately not closed: possession is continuous. The prior
+      // doctrine that died with the close is kept verbatim for history — "An immediately
+      // recycled descriptor is ambiguous and cannot earn a custody success." (the former
+      // post-close require). A closed or diverging possession refuses in
+      // reverifyPossession; nothing degrades to accept-with-warning.
+      return raw;
+    } catch(IOException|RuntimeException failure) {
+      if(possession==null)try {channel.close();}catch(IOException ignored) {}
+      throw failure;
+    }
+  }
+  /** Continuous-possession read: same descriptor, re-digest, no open and no census. */
+  private static byte[] reverifyPossession(Possession possession,Path path,String expected,int bound,
+      RuntimeObservationAdmission owned)throws IOException {
+    if(owned!=null)owned.timeOnly();
+    synchronized(possession) {
+      require(possession.channel.isOpen());
+      long size=((Number)possession.file.get("size")).longValue();
+      require(size>0 && size<=bound && possession.channel.size()==size);
+      // (a) The pinned descriptor still exists with the pinned custody attributes.
+      require(possession.file.equals(fdAttributes(possession.descriptor)));
+      // (b) Path->inode continuity and unchanged custody attributes, re-read from the path.
+      require(possession.file.equals(Files.readAttributes(path,FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS)));
+      // (c) Parent continuity on the structural custody facts: a directory's mtime
+      // legitimately moves when a sibling is created or removed; the custody facts of a
+      // parent are its type, its absence of write bits, its owner and its identity.
+      var parentNow=Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS);
+      require(parentNow.get("dev").equals(possession.parent.get("dev")) && parentNow.get("ino").equals(possession.parent.get("ino"))
+          && ((Number)parentNow.get("mode")).intValue()==0040700
+          && ((Number)parentNow.get("uid")).longValue()==((Number)possession.parent.get("uid")).longValue());
+      // (d) Position coupling of this very channel to this very descriptor number.
+      require(descriptorPosition(possession.descriptor)==possession.channel.position());
+      possession.channel.position(0);require(descriptorPosition(possession.descriptor)==0);
+      verifyOpenedDescriptor(possession.channel,possession.descriptor,possession.file);
+      // (e) Bounded re-read and re-digest through the same descriptor.
+      ByteBuffer buf=ByteBuffer.allocate(bound+1);
+      while(buf.hasRemaining()) {
+        if(owned!=null)owned.timeOnly();int n=possession.channel.read(buf);if(owned!=null)owned.timeOnly();if(n==-1)break;
+      }
+      byte[] raw=Arrays.copyOf(buf.array(),buf.position());
+      require(possession.channel.size()==raw.length && raw.length==size && raw.length>0 && raw.length<=bound
+          && possession.file.equals(fdAttributes(possession.descriptor))
+          && descriptorPosition(possession.descriptor)==possession.channel.position()
+          && possession.file.equals(Files.readAttributes(path,FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS))
+          && parentNow.equals(Files.readAttributes(path.getParent(),FD_ATTRIBUTES,LinkOption.NOFOLLOW_LINKS))
+          && Jcs.digest(raw).equals(expected));
+      if(owned!=null)owned.timeOnly();
+      return raw;
+    }
   }
   static Map<String,Object> fdAttributes(Path descriptor)throws IOException {
     require(descriptor.getParent().equals(FD_ROOT) && descriptor.getFileName().toString().matches("[0-9]+"));
     return Files.readAttributes(descriptor,FD_ATTRIBUTES);
   }
-  /** Full kernel census, including foreign descriptors: exactly the FDs extant at their read. */
+  /** Full kernel census, including foreign descriptors: exactly the FDs extant at their read.
+   * Runs only at pin time since DESIGN-OPTION-REFUSAL-61-62-v1 §2.1; repeated reads never census. */
   static Map<Path,Map<String,Object>> descriptorCensus()throws IOException {
     require(Files.isDirectory(FD_ROOT));
     var attributes=new HashMap<Path,Map<String,Object>>();
@@ -177,6 +250,12 @@ final class RuntimeObservationAdmission {
     return attributes;
   }
   static Path openedDescriptor(Map<Path,Map<String,Object>> before,Map<Path,Map<String,Object>> after) {
+    // Historical doctrine, retained verbatim and superseded on the repeated-read path by
+    // DESIGN-OPTION-REFUSAL-61-62-v1 §2.1 (continuous possession): "Descriptors that only
+    // closed between the two censuses are legitimate concurrent JDK activity and are not
+    // attributable; survivors keep exact identity so a reused number with a different
+    // inode still refuses." This attribution now runs only at pin time, once per protected
+    // file per process; every later read re-verifies the pinned descriptor census-free.
     // Descriptors that only closed between the two censuses are legitimate concurrent
     // JDK activity and are not attributable; survivors keep exact identity so a reused
     // number with a different inode still refuses.

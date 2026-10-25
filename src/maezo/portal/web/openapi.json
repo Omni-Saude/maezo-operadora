@@ -3222,6 +3222,89 @@
         "title": "DocumentSummary",
         "type": "object"
       },
+      "DsrReceipt": {
+        "additionalProperties": false,
+        "description": "Stage receipt: received and staged for the engine start. NEVER a DSR outcome.",
+        "properties": {
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "request_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Request Ref",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "status": {
+            "const": "received",
+            "default": "received",
+            "title": "Status",
+            "type": "string"
+          },
+          "tipo_requisicao": {
+            "enum": [
+              "confirmacao_acesso",
+              "correcao",
+              "eliminacao",
+              "portabilidade",
+              "info_compartilhamento",
+              "revogacao_consentimento"
+            ],
+            "title": "Tipo Requisicao",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_ref",
+          "tipo_requisicao",
+          "received_at"
+        ],
+        "title": "DsrReceipt",
+        "type": "object"
+      },
+      "DsrSubmission": {
+        "additionalProperties": false,
+        "description": "What the authenticated titular may ask for. Nothing else is an input on this surface.",
+        "properties": {
+          "detalhes_requisicao": {
+            "minLength": 1,
+            "title": "Detalhes Requisicao",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "tipo_requisicao": {
+            "enum": [
+              "confirmacao_acesso",
+              "correcao",
+              "eliminacao",
+              "portabilidade",
+              "info_compartilhamento",
+              "revogacao_consentimento"
+            ],
+            "title": "Tipo Requisicao",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo_requisicao",
+          "detalhes_requisicao"
+        ],
+        "title": "DsrSubmission",
+        "type": "object"
+      },
       "EscalationDecisionInputs": {
         "additionalProperties": false,
         "properties": {
@@ -5228,6 +5311,26 @@
         "title": "PortalDecisionError",
         "type": "object"
       },
+      "PortalDsrError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "authentication_unavailable",
+              "operation_forbidden",
+              "dependency_unavailable"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PortalDsrError",
+        "type": "object"
+      },
       "PortalIntakeError": {
         "additionalProperties": false,
         "properties": {
@@ -6718,6 +6821,18 @@
             "format": "date-time",
             "title": "Expires At",
             "type": "string"
+          },
+          "flags": {
+            "default": [],
+            "items": {
+              "enum": [
+                "staff_documents_panel",
+                "staff_operations_panel"
+              ],
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
           },
           "principal_ref": {
             "title": "Principal Ref",
@@ -9100,6 +9215,84 @@
           }
         },
         "summary": "Download"
+      }
+    },
+    "/api/v1/portal/dsr": {
+      "post": {
+        "operationId": "submit_dsr_api_v1_portal_dsr_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DsrSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DsrReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDsrError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDsrError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDsrError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDsrError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Submit Dsr"
       }
     },
     "/api/v1/portal/intake-recovery": {

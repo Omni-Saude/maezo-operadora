@@ -94,7 +94,12 @@ from typing import TYPE_CHECKING, Any, Final, cast
 import structlog
 
 from maezo.agents import carregar_agente_de_entrada
-from maezo.contratos.conversa import INTENT_COBRANCA, RESPONSE_KIND_HANDOFF, AgenteDeEntrada
+from maezo.contratos.conversa import (
+    INTENT_COBRANCA,
+    RESPONSE_KIND_HANDOFF,
+    AgenteDeEntrada,
+    turno_sem_preparo,
+)
 from maezo.contratos.conversa import RemetenteDoTurno as WhatsAppSender
 from maezo.contratos.conversa_remota import AgenteRemotoIndisponivelError
 from maezo.contratos.identidade_beneficiario import NOME_OPERADORA_PADRAO
@@ -155,7 +160,8 @@ ERRO_LUCAS_FALHOU: Final[str] = "lucas turno falhou"
 #: wiring and its tests, never before.
 #: DL-0087 (10/10/2026): tom humanizado, mesma promessa (so' texto; nada de humano/transcricao).
 NON_TEXT_ACK_TEXT: Final[str] = (
-    "Por aqui eu só consigo ler mensagens de texto. Pode me escrever o que precisa, por favor?"
+    "Por aqui eu consigo ler só mensagens de texto. Pode me escrever o que precisa? "
+    "Se preferir falar com uma pessoa da nossa equipe, é só escrever: falar com uma pessoa."
 )
 
 #: A resposta de quem bateu no teto de volume (Frente 7.1). CONSTANTE e sem modelo no meio: o
@@ -1380,7 +1386,16 @@ class HelenaDispatcher:
                     "handoff": {**atalho_recuo["handoff"], "message_ref": message_pseudonym},
                 }
             else:
-                result = await compiled.ainvoke(initial_state, thread_config)
+                # Esperar e juntar (Helena, etapa 9): o agente prepara o turno (espera e junta as mensagens
+                # picotadas) e o conclui; quem roda o grafo, com a contagem de falhas, continua sendo AQUI.
+                turno_do_agente = getattr(self._entrada, "turno_juntado", None) or turno_sem_preparo
+                async with turno_do_agente(initial_state, thread_config, compiled) as turno:
+                    if turno.juntado is not None:
+                        result = turno.juntado
+                    else:
+                        initial_state, thread_config = dict(turno.estado), turno.config
+                        result = await compiled.ainvoke(initial_state, thread_config)
+                        result = turno.concluir(result)
         except Exception as exc:
             # ALERTS-WITHOUT-METRICS-a. This receiver is the SECOND turn-execution seam in the
             # repo — it compiles and invokes Helena's graph directly rather than through
@@ -1400,6 +1415,17 @@ class HelenaDispatcher:
                     sender, phone_hash=phone_hash, conversation_id=conversation_id
                 )
             raise
+        if result.get("juntada") is True:
+            # Esperar e juntar (Helena, etapa 9 do Plano de ajustes v2): esta mensagem foi juntada a uma mais
+            # nova, ou a resposta foi refeita por ela. Nada saiu neste turno e o turno da mais nova responde
+            # (e passa ao Lucas, se for o caso) com todas.
+            logger.info(
+                "helena_dispatch_turn_juntado",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                refeita=result.get("refeita") is True,
+            )
+            return dict(result)
         # GAP 11.2: the turn completed (whatever the outcome) — `respond()`, Helena's one terminal
         # node, always attempts exactly one WhatsApp send by this point. Observed AFTER `ainvoke`
         # returns, never in the `except` branch above: an `ainvoke` that raised means no reply was
@@ -1487,6 +1513,19 @@ class HelenaDispatcher:
                     if isinstance(exc, PROGRAMMING_ERRORS):
                         raise
                     return dict(escalado)
+                retomada = result.get("texto_de_retomada")
+                if not lucas_escalou and not lucas_start_falhou and isinstance(retomada, str) and retomada:
+                    # Assuntos abertos (Helena, etapa 9): depois da resposta do Lucas, a Helena pergunta UMA
+                    # vez sobre o assunto que ficou para tras ("Sobre o assunto de saude, ficou...?").
+                    try:
+                        await sender.send(phone_hash, retomada)
+                    except Exception as exc:  # o turno ja' respondeu: so' o log
+                        logger.warning(
+                            "helena_retomada_nao_enviada",
+                            tenant_id=self.tenant_id,
+                            conversation_id=conversation_id,
+                            error_type=type(exc).__name__,
+                        )
                 if not lucas_escalou and not lucas_start_falhou:
                     # ADR-0067 fase 4b: com o agente remoto, `eh_pedido_explicito_de_pessoa` (sincrono) le'
                     # cache; o booleano e' obtido AQUI, de forma assincrona (o atalho do recuo nao passa pelo

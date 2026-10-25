@@ -16,16 +16,26 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from maezo.agents.helena.consultas_plano import fatos_da_consulta, literais_dos_fatos, segmentacao_dos_fatos
+from maezo.agents.helena import roteador_v7 as _rv7
+from maezo.agents.helena.alarme_deterministico import alarme_no_relato
+from maezo.agents.helena.consultas_plano import (
+    INTENT_CONSULTA_PLANO,
+)
 from maezo.agents.helena.habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
+from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
+from maezo.agents.helena.habilidades.sintoma.textos import (
+    CHAVE_AVALIAR_CAUSA,
+    CHAVE_OFERTA_EQUIPE,
+    CHAVE_OFERTA_RECUSADA,
+)
 from maezo.agents.helena.helena_v4 import (
     ALERTAS,
     ECO_GENERICO,
     ETAPA_ALERTA,
     ETAPA_CASO_EQUIPE,
-    ETAPA_CASO_SEM_RESPOSTA,
     ETAPA_CASO_SIM,
     ETAPA_ESCOLHA,
+    ETAPA_OFERTA,
     GRUPO_GERAL,
     LEITURA_NAO,
     LEITURA_SIM,
@@ -34,11 +44,13 @@ from maezo.agents.helena.helena_v4 import (
     AlertaDoGrupo,
     Pendente,
     codigo_pendente,
+    e_agravamento,
     eco_do_relato,
     escolha_da_resposta,
     especialidade_pedida,
     grupo_do_sintoma,
     ler_pendente,
+    pede_carteirinha,
     populacao_da_v4,
     relato_cru,
     resposta_ao_alerta,
@@ -80,6 +92,7 @@ from maezo.agents.helena.triagem_v2 import (
     texto_de_orientacao,
 )
 from maezo.conhecimento import base_saude as _bs
+from maezo.conhecimento import saude_gerativa as _sg
 from maezo.contratos.conversa import INTENT_COBRANCA
 from maezo.domain.comunicacao.cerca_de_saida import motivo_de_canal_nao_confirmado, motivo_de_recusa
 from maezo.runtime.error_text import dmn_unavailable_error
@@ -598,41 +611,64 @@ def _v4_abrir_caso(
 def _v4_seguimento(
     self: HelenaGraph, state: HelenaState, update: dict[str, Any], pend: Pendente, texto: str
 ) -> dict[str, Any] | None:
-    """A resposta da pessoa ao que a v4 perguntou (ALERTA) ou ofereceu (ESCOLHA) no turno anterior.
+    """A resposta da pessoa ao que a v4 perguntou (ALERTA) ou ofereceu (ESCOLHA, OFERTA) no turno anterior.
 
-    ESCOLHA: "1" -> como marcar pelo plano, sem diagnostico; "2" -> abre o caso com o resumo pronto.
-    ALERTA: "nao" -> a resposta final do dono; "sim" (ou duvida) -> alerta clinico, P1; nao deu para
-    entender -> pergunta UMA vez de novo e, se continuar sem resposta, abre o caso por precaucao.
+    ESCOLHA: "1" (ou "onde marcar") -> como marcar pelo plano, sem diagnostico; "2" (ou "a equipe") -> abre o
+    caso com o resumo pronto; "nao" -> fecha sem caso; outra fala sobre o mesmo sintoma ("dormi de mau jeito,
+    sera' que e' isso?") -> quem avalia a causa e' o medico, com as mesmas opcoes (DL-0154: a Helena nunca
+    explica causa nem orienta o sintoma).
+    ALERTA: "nao" -> o caminho (consulta pelo plano, prazo da ANS) ou a equipe, e fecha; "sim" -> alerta
+    clinico, P1; SEM CLAREZA (DL-0154) -> pergunta UMA vez de novo, com outras palavras; continuou sem
+    clareza -> OFERTA da equipe de saude, sem 192 e sem caso.
+    OFERTA: "sim" -> caso com a equipe de saude; "nao" -> fecha sem caso.
     Pedido de pessoa, outro assunto e tudo o que nao e' resposta -> `None` (o caminho de sempre)."""
     plano = _plano(texto)
     relato = str(state.get("coleta_contexto") or "")
+    if pend.etapa == ETAPA_OFERTA:
+        return self._v4_resposta_a_oferta(state, update, pend, texto)
     if pend.etapa == ETAPA_ESCOLHA:
-        escolha = escolha_da_resposta(plano)
+        escolha = _escolha_marcar_ou_equipe(plano)
+        # DL-0154: depois do caminho (ou do "nao, obrigado") o sintoma continua FECHADO mas lembrado por um
+        # turno: a fala seguinte sobre ele ("eu dormi de mau jeito") recebe "quem avalia e' o medico", nunca a
+        # pergunta de alerta de novo. A pendencia vale so' para o turno seguinte (expira como sempre).
+        fechado = {
+            "coleta_pendente": codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao),
+            "coleta_contexto": relato,
+        }
         if escolha == "1":
             logger.info("helena_v4_escolha", node="classify", opcao="1")
             update["intent"] = "information"
             update["sintoma_codigo"] = None
             update["response_text"] = texto_da_opcao_1(pend.populacao)
-            return _rota_informativa(update)
+            return _rota_informativa(update) | fechado
         if escolha == "2":
             logger.info("helena_v4_escolha", node="classify", opcao="2")
             return self._v4_abrir_caso(
                 update, pend, relato, ETAPA_CASO_EQUIPE, motivo="intencao_clinica", severidade="moderada"
             )
+        if escolha == "nao":
+            logger.info("helena_v4_escolha", node="classify", opcao="nao")
+            return self._base_texto_fixo(update, self._textos[CHAVE_OFERTA_RECUSADA]) | fechado
+        if self._v4_seguimento_do_sintoma(state, texto):
+            # DL-0154: depois de FECHAR, a conversa sobre o mesmo sintoma nunca reinicia a pergunta de alerta
+            # nem vira explicacao de causa: quem avalia e' o medico; as mesmas opcoes continuam valendo.
+            logger.info("helena_v4_seguimento_depois_de_fechar", node="classify")
+            return self._base_texto_fixo(
+                update,
+                self._textos[CHAVE_AVALIAR_CAUSA],
+                pendente=codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao),
+            ) | {"coleta_contexto": relato}
         return None
     if pend.etapa != ETAPA_ALERTA or self._v4_pede_pessoa(state, texto):
         return None
-    resposta = resposta_ao_alerta(plano)
+    resposta = _leitura_do_alerta(plano)
     if resposta == LEITURA_NAO:
         logger.info("helena_v4_alerta", node="classify", resposta="nao")
         update["intent"] = "information"
         update["sintoma_codigo"] = None
-        assunto_sin = self._base_assunto_do_grupo(pend.grupo)
-        update["response_text"] = (
-            _bs.texto_final_do_sintoma_com_orientacao(self._v4_eco(relato), assunto_sin)
-            if assunto_sin is not None
-            else texto_final_do_sintoma(self._v4_eco(relato))
-        )
+        # DL-0154: o caminho ou a equipe, e FECHA — sem o texto de orientacao do arquivo `sin-*` (a Helena
+        # nunca orienta o sintoma); o profissional pela idade (adulto: clinico geral; crianca: pediatra).
+        update["response_text"] = texto_final_do_sintoma(self._v4_eco(relato), pend.populacao)
         update["coleta_pendente"] = codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao)
         update["coleta_contexto"] = relato
         return _rota_informativa(update)
@@ -643,18 +679,20 @@ def _v4_seguimento(
         )
     # Nao deu para entender. So' insiste se a mensagem parece uma resposta (curta ou ainda falando do
     # sintoma); outro assunto segue o caminho de sempre.
-    parece_resposta = relata_sintoma(plano) or len(plano.split()) <= 4
+    parece_resposta = (
+        relata_sintoma(plano) or len(plano.split()) <= 4 or self._v4_seguimento_do_sintoma(state, texto)
+    )
     if not parece_resposta:
         return None
     if pend.repetida:
-        return self._v4_abrir_caso(
+        # DL-0154 (regra da ambiguidade; aval do medico responsavel recomendado antes de producao): duas
+        # respostas sem clareza -> a OFERTA da equipe de saude, SEM 192 e SEM caso (o caso so' com "sim").
+        logger.info("helena_v4_alerta", node="classify", resposta="oferta_da_equipe")
+        return self._base_texto_fixo(
             update,
-            pend,
-            relato,
-            ETAPA_CASO_SEM_RESPOSTA,
-            motivo="intencao_clinica",
-            severidade="moderada",
-        )
+            self._textos[CHAVE_OFERTA_EQUIPE],
+            pendente=codigo_pendente(ETAPA_OFERTA, pend.grupo, pend.populacao),
+        ) | {"coleta_contexto": relato}
     codigo = codigo_pendente(ETAPA_ALERTA, pend.grupo, pend.populacao, repetida=True)
     logger.info("helena_v4_alerta", node="classify", resposta="repete")
     update.update(
@@ -734,44 +772,21 @@ async def _v4_especialista(
     ):
         return None
     nome, basica = achado
-    segmentacao, literais = await self._v4_segmentacao(state)
-    logger.info(
-        "helena_v4_especialista", node="classify", basica=basica, com_segmentacao=literais is not None
-    )
+    # DL-0154 (etapa 8): sem o "paragrafo de segmentacao" do cadastro — quem pede especialista quer saber
+    # onde marcar e o prazo, nao o tipo do plano (a cobertura saiu da Helena).
+    logger.info("helena_v4_especialista", node="classify", basica=basica)
     update["intent"] = "information"
     update["sintoma_codigo"] = None
     update.pop("consulta_subtipo", None)
     update["response_text"] = texto_do_especialista(
         nome,
         basica=basica,
-        segmentacao=segmentacao,
+        segmentacao=None,
         frase_cobertura=(
             self._textos[CHAVE_TEXTO_COBERTURA_FORA] if _pergunta_de_cobertura_ampla(texto) else None
         ),
     )
-    if literais is not None:
-        update["consulta_literais"] = literais
-        update["resposta_com_dados_do_plano"] = True
     return _rota_informativa(update)
-
-
-async def _v4_segmentacao(self: HelenaGraph, state: HelenaState) -> tuple[str | None, tuple[str, ...] | None]:
-    """A segmentacao REGISTRADA no cadastro (e os literais do cadastro, para as cercas) quando a fonte do
-    plano esta' ligada, a pessoa e' a verificada e o cadastro a traz; senao `(None, None)` e o texto sai
-    sem ela."""
-    ref = self._ref_verificada(state)
-    if ref is None:
-        return None, None
-    fatos = fatos_da_consulta(
-        "elegibilidade",
-        await self._ler_consulta(ref, "elegibilidade"),
-        so_ativos=self._carteirinha_completa,
-        hoje=self._hoje_dos_vinculos(),
-    )
-    segmentacao = segmentacao_dos_fatos(fatos) if fatos else None
-    if fatos is None or segmentacao is None:
-        return None, None
-    return segmentacao, literais_dos_fatos(fatos)
 
 
 def _base_assunto_do_grupo(self: HelenaGraph, grupo: str) -> _bs.Assunto | None:
@@ -846,6 +861,159 @@ def _base_dor_sem_alarme(
     return True
 
 
+def _leitura_do_alerta(plano: str) -> str | None:
+    """A resposta a pergunta de alerta: com o roteador v7 no turno, a leitura do MODELO no contexto ("sim",
+    "nao" ou sem clareza); sem ele, o leitor deterministico. O agravamento ("nao consigo respirar",
+    "piorou") e' "sim" nos dois (lado seguro do sinal); a tabela de alarme ja' rodou antes."""
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is None:
+        return resposta_ao_alerta(plano)
+    if e_agravamento(plano):
+        return LEITURA_SIM
+    return {"sim": LEITURA_SIM, "nao": LEITURA_NAO}.get(v7.sim_nao)
+
+
+def _escolha_marcar_ou_equipe(plano: str) -> str | None:
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is not None:
+        # Contrato v7: a opcao (ou a recusa) lida pelo modelo no contexto, no lugar das palavras.
+        if v7.opcao in ("1", "2"):
+            return v7.opcao
+        if v7.recusa_equipe or v7.sim_nao == "nao":
+            return "nao"
+        if v7.skill == "atendimento_humano" and not v7.recusa_equipe:
+            return "2"
+        return None
+    """A escolha entre "onde marcar" e "a equipe" dita com outras palavras ("me mostra onde marcar", "prefiro
+    a equipe", "nao precisa"), alem do numero/rotulo de `escolha_da_resposta`. Le' a RESPOSTA a pergunta da
+    propria Helena (validacao da pendencia), nunca decide o assunto. Na etapa 7 o roteador v7 le' a escolha
+    no contexto."""
+    escolha = escolha_da_resposta(plano)
+    if escolha is not None:
+        return escolha
+    palavras = set(plano.split())
+    if len(palavras) <= 10:
+        if palavras & {"equipe", "atendente", "pessoa", "enfermeira", "enfermagem"}:
+            return "2"
+        if palavras & {"marcar", "agendar", "mostra", "mostre", "consulta", "onde"}:
+            return "1"
+    if _lc.ler_resposta(plano) in ("nao", "encerrar") or resposta_ao_alerta(plano) == LEITURA_NAO:
+        return "nao"
+    return None
+
+
+def _v4_seguimento_do_sintoma(self: HelenaGraph, state: Mapping[str, Any], texto: str) -> bool:
+    """A mensagem CONTINUA a conversa sobre o sintoma em curso ("eu dormi de mau jeito", "sera' que e' isso?",
+    "e o que pode ser?") — e nao traz sinal de alarme, pedido de pessoa, cobranca nem pergunta do plano?
+
+    Seguranca: qualquer sinal de alarme (lexico de emergencia, termo de alarme da base, alarme deterministico)
+    devolve `False` e a mensagem segue pela tabela, como sempre."""
+    plano = _plano(texto)
+    if not plano:
+        return False
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is not None and not (v7.skill == "saude" and v7.continuacao and not v7.sinais_atuais()):
+        # Contrato v7: so' o MESMO assunto de saude, sem sinal novo, e' seguimento do sintoma.
+        return False
+    if (
+        _sinal_forte_de_emergencia(texto)
+        or _sinal_fraco_de_emergencia(texto)
+        or alarme_no_relato(plano) is not None
+        or (self._base_saude and _bs.alarme_no_texto(self._base_hoje(), texto))
+    ):
+        return False
+    if (
+        self._v4_pede_pessoa(state, texto)
+        or _pergunta_do_plano(texto)
+        or _pergunta_de_cobertura_ampla(texto)
+        or _pergunta_de_cobranca(texto)
+        or especialidade_pedida(plano) is not None
+        or pede_carteirinha(plano)
+        or _lc.e_cortesia(texto)
+        or _e_despedida(texto)
+    ):
+        return False
+    if self._base_saude:
+        # Uma pergunta sobre OUTRO assunto de saude da base ("tenho SOP, e' a mesma coisa que cisto?") nao e'
+        # seguimento do sintoma: e' respondida uma vez, como qualquer duvida geral (OPCAO C).
+        achado = _sg.assunto_confiavel(self._base_hoje(), texto)
+        em_curso = ler_pendente(state.get("coleta_pendente"))
+        if achado is not None and (em_curso is None or achado.id != em_curso.grupo):
+            return False
+        if _sg.e_duvida_educativa(plano) or _sg.pergunta_pessoal_de_saude(
+            plano, texto, assunto_de_saude=True
+        ):
+            return False
+    return relata_sintoma(plano) or "?" in texto or len(plano.split()) <= 8
+
+
+def _v4_resposta_a_oferta(
+    self: HelenaGraph, state: HelenaState, update: dict[str, Any], pend: Pendente, texto: str
+) -> dict[str, Any] | None:
+    """A resposta a OFERTA da equipe de saude feita depois de duas respostas sem clareza (DL-0154): "sim" abre
+    o caso com a equipe de saude (`intencao_clinica`, moderada — sem 192); "nao" fecha sem caso; o resto segue
+    o caminho de sempre."""
+    plano = _plano(texto)
+    relato = str(state.get("coleta_contexto") or "")
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    leitura = _lc.ler_resposta(texto)
+    if v7 is not None:
+        # Contrato v7: o "sim" ("pode ser", "pode passar pra equipe sim") e a recusa lidos no contexto.
+        leitura = "nao" if v7.recusa_equipe else {"sim": "sim", "nao": "nao"}.get(v7.sim_nao)
+    if leitura == "sim" or (leitura is None and _escolha_marcar_ou_equipe(plano) == "2"):
+        logger.info("helena_v4_oferta", node="classify", resposta="sim")
+        return self._v4_abrir_caso(
+            update, pend, relato, ETAPA_CASO_EQUIPE, motivo="intencao_clinica", severidade="moderada"
+        )
+    if leitura in ("nao", "encerrar"):
+        logger.info("helena_v4_oferta", node="classify", resposta="nao")
+        return self._base_texto_fixo(update, self._textos[CHAVE_OFERTA_RECUSADA])
+    return None
+
+
+#: As intencoes do classificador que dizem OUTRO assunto no meio do sintoma em curso.
+_INTENCOES_DE_OUTRO_ASSUNTO: frozenset[str] = frozenset(
+    {INTENT_CONSULTA_PLANO, INTENT_COBRANCA, "human_request", "scheduling", "outside_channel"}
+)
+
+
+def _v4_conduzir_pendencia(
+    self: HelenaGraph, state: HelenaState, update: dict[str, Any], pend: Pendente | None, texto: str
+) -> dict[str, Any] | None:
+    """DL-0154 (o modelo conduz; a tabela so' protege): a RESPOSTA a pergunta/oferta pendente do sintoma e'
+    decidida ANTES da tabela de red flag do turno — a tabela ja' rodou para a queixa quando ela foi contada, e
+    re-triar a resposta com o codigo do historico era o que reabria P1/192 por engano ("acho que e' so' mau
+    jeito"). Qualquer sinal de alarme NA PROPRIA mensagem devolve `None`: a tabela decide, como sempre."""
+    if not self._v4 or pend is None or pend.etapa not in (ETAPA_ALERTA, ETAPA_ESCOLHA, ETAPA_OFERTA):
+        return None
+    plano = _plano(texto)
+    if (
+        _sinal_forte_de_emergencia(texto)
+        or _sinal_fraco_de_emergencia(texto)
+        or alarme_no_relato(plano) is not None
+        or (self._base_saude and _bs.alarme_no_texto(self._base_hoje(), texto))
+        or (
+            self._base_saude
+            and pend.grupo.startswith("sin-")
+            and _bs.alarme_do_assunto(self._base_hoje(), pend.grupo, texto)
+        )
+    ):
+        return None
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is not None and v7.sim_nao == "nao_se_aplica" and v7.opcao == "nenhuma" and not v7.continuacao:
+        # O modelo leu OUTRO assunto: a pendencia do sintoma nao sequestra a mensagem.
+        return None
+    leitura = _leitura_do_alerta(plano) if pend.etapa == ETAPA_ALERTA else None
+    if leitura == LEITURA_SIM:
+        # O "sim" a pergunta de alerta segue a v4 de sempre (abre o caso urgente com 192).
+        return None
+    if leitura is None and update.get("intent") in _INTENCOES_DE_OUTRO_ASSUNTO:
+        # O classificador leu OUTRO assunto (plano, cobranca, pedido de pessoa, agendamento): o caminho de
+        # sempre decide (a pendencia do sintoma nao sequestra a mensagem).
+        return None
+    return self._v4_seguimento(state, update, pend, texto)
+
+
 # Os nomes de modulo do graph.py que estes corpos usam (no FIM: import circular seguro, ver o docstring).
 from maezo.agents.helena.graph import (  # noqa: E402
     _DMN_BY_POPULATION,
@@ -868,6 +1036,7 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _ameaca_regulatoria,
     _conteudo_clinico,
     _contexto_de_recem_nascido,
+    _e_despedida,
     _entrada_de_suficiencia,
     _falas_da_helena,
     _pedido_explicito_com_verbo,
@@ -875,6 +1044,7 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _pergunta_de_cobertura_ampla,
     _pergunta_de_cobranca,
     _pergunta_de_navegacao,
+    _pergunta_do_plano,
     _plano,
     _rodadas_de_coleta,
     _rota_de_cobranca,

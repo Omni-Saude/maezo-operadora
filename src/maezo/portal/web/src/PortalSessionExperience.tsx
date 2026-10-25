@@ -10,13 +10,17 @@ import {
   type StaffArea,
 } from "./PortalNavigation";
 import type { PortalAudience } from "./caseExperienceModels";
-import type { PortalCapability } from "./sessionClient";
+import type { PortalCapability, PortalSessionFlag } from "./sessionClient";
 import {
   createCaseExperienceService,
   type AuthorizationIntakeFormProvider,
 } from "./caseExperienceServiceFactory";
 import { createCaseCommunicationsClient } from "./caseCommunicationsClient";
 import { createStaffCaseClient } from "./staffCaseClient";
+import { StaffDocumentsPanel } from "./StaffDocumentsPanel";
+import { createStaffDocumentsClient } from "./staffDocumentsClient";
+import { StaffOperationsPanel } from "./StaffOperationsPanel";
+import { createStaffOperationsClient } from "./staffOperationsClient";
 
 function formatExpiry(expiresAt: string) {
   return new Intl.DateTimeFormat("pt-BR", {
@@ -80,6 +84,9 @@ const areaCapability: Partial<Record<StaffArea, PortalCapability>> = {
   "team-queues": "human",
   cases: "staff_cases",
   documents: "staff_cases",
+  // The operations panel reads the SAME human plane the queues read (task basis, command
+  // receipt, escalation context), so it rides `human` like the queue areas do.
+  operations: "human",
 };
 
 const areaTitle: Record<StaffArea, string> = {
@@ -114,6 +121,7 @@ function readStaffRoute(): StaffRoute {
 
 export function StaffPortalExperience({
   capabilities,
+  flags,
   expiresAt,
   csrfToken,
   sessionBinding,
@@ -121,6 +129,8 @@ export function StaffPortalExperience({
   onSessionUnavailable,
 }: {
   capabilities: readonly PortalCapability[];
+  /** Shadow-panel signals this deployment turned on; empty keeps every stub as shipped. */
+  flags: readonly PortalSessionFlag[];
   expiresAt: string;
   csrfToken: string;
   sessionBinding: string;
@@ -154,6 +164,8 @@ export function StaffPortalExperience({
     [navigate],
   );
   const staffCaseClient = useMemo(() => createStaffCaseClient(), [sessionBinding]);
+  const staffDocumentsClient = useMemo(() => createStaffDocumentsClient(), [sessionBinding]);
+  const staffOperationsClient = useMemo(() => createStaffOperationsClient(), [sessionBinding]);
 
   let content: React.ReactNode;
   if (notEnabled.has(activeArea)) {
@@ -191,18 +203,40 @@ export function StaffPortalExperience({
       />
     );
   } else if (activeArea === "documents") {
-    content = <UnavailableArea title="Documentos">A consulta e o envio de documentos ainda não estão disponíveis nesta versão do portal.</UnavailableArea>;
+    // W5 CLNT 5.5: the read-only panel renders only when this deployment turned the shadow
+    // signal on; OFF keeps the shipped stub so the visible surface does not move. The
+    // `staff_cases` capability is still required independently — the `notEnabled` branch
+    // above answers for a session without it.
+    content = flags.includes("staff_documents_panel")
+      ? (
+        <StaffDocumentsPanel
+          client={staffDocumentsClient}
+          onSessionUnavailable={onSessionUnavailable}
+        />
+      )
+      : <UnavailableArea title="Documentos">A consulta e o envio de documentos ainda não estão disponíveis nesta versão do portal.</UnavailableArea>;
   } else if (activeArea === "operations") {
-    content = (
-      <section className="portal-guidance" aria-labelledby="operations-heading">
-        <p className="eyebrow">Operações disponíveis</p>
-        <h2 id="operations-heading">Comandos por tarefa</h2>
-        <p>
-          Abra uma tarefa em Meu trabalho ou Filas da equipe para consultar as operações permitidas
-          e acompanhar o protocolo até o recibo.
-        </p>
-      </section>
-    );
+    // W5 CLNT 5.5: the read-only panel renders only when this deployment turned the shadow
+    // signal on; OFF keeps the shipped stub so the visible surface does not move. The `human`
+    // capability is still required independently — the `notEnabled` branch above answers for
+    // a session without it.
+    content = flags.includes("staff_operations_panel")
+      ? (
+          <StaffOperationsPanel
+            client={staffOperationsClient}
+            onSessionUnavailable={onSessionUnavailable}
+          />
+        )
+      : (
+          <section className="portal-guidance" aria-labelledby="operations-heading">
+            <p className="eyebrow">Operações disponíveis</p>
+            <h2 id="operations-heading">Comandos por tarefa</h2>
+            <p>
+              Abra uma tarefa em Meu trabalho ou Filas da equipe para consultar as operações
+              permitidas e acompanhar o protocolo até o recibo.
+            </p>
+          </section>
+        );
   } else {
     content = <UnavailableArea title="Administração">Nenhuma função administrativa está disponível para esta sessão.</UnavailableArea>;
   }

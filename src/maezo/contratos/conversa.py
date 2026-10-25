@@ -14,7 +14,8 @@ a fase seguinte do ADR-0067; a porta muda junto, nos dois lados.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
@@ -23,6 +24,28 @@ from typing import Any, Final, Protocol
 INTENT_COBRANCA: Final[str] = "cobranca"
 #: `response_kind` do turno que passou a conversa ao Lucas.
 RESPONSE_KIND_HANDOFF: Final[str] = "handoff"
+
+
+@dataclass
+class TurnoSemPreparo:
+    """O turno como chega: sem espera, sem juntar mensagens e sem trocar o checkpoint."""
+
+    estado: Mapping[str, Any]
+    config: Any
+    juntado: dict[str, Any] | None = None
+
+    def concluir(self, resultado: Any) -> Any:
+        return resultado
+
+
+@asynccontextmanager
+async def turno_sem_preparo(
+    estado: Mapping[str, Any], config: Any, _compilado: Any
+) -> AsyncIterator[TurnoSemPreparo]:
+    """O contexto do turno quando o agente nao prepara nada (`turno_juntado` opcional do agente, ADR-0067):
+    a costura roda o grafo com `turno.estado`/`turno.config` e devolve `turno.concluir(resultado)`; se o
+    agente disser `turno.juntado`, a costura nao roda o grafo e devolve esse resultado."""
+    yield TurnoSemPreparo(estado, config)
 
 
 class RemetenteDoTurno(Protocol):

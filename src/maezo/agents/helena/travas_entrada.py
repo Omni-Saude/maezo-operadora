@@ -12,11 +12,12 @@ do graph NO FIM.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from maezo.agents.helena.alarme_deterministico import alarme_no_relato
-from maezo.agents.helena.helena_v4 import ler_pendente
+from maezo.agents.helena.helena_v4 import e_agravamento, ler_pendente
 from maezo.conhecimento import base_saude as _bs
 from maezo.conhecimento import saude_gerativa as _sg
 from maezo.runtime.error_text import dmn_unavailable_error
@@ -179,6 +180,75 @@ def _roteador_alarme(
     if falas_anteriores and _bs.alarme_dos_citados_antes(self._base, falas_anteriores, texto):
         return True
     return _bs.alarme_no_texto(self._base, texto)
+
+
+# --- O alarme DITO SO' PELO MODELO (contrato v7; decisao do dono de 23/10/2026, DL-0154) ---------------
+#: O VOCABULARIO DA TABELA de alarme (os sinais das tabelas `triage_redflag_*`, da aba "3 Sinais de alarme"
+#: e dos arquivos `sin-*`): o sinal que o modelo diz so' vale como "claro" se estiver aqui (ou nos lexicos de
+#: sempre). "Vomito" sozinho NAO esta' (so' com sangue); febre de adulto sozinha tambem nao.
+_VOCABULARIO_DA_TABELA: re.Pattern[str] = re.compile(
+    r"\b(?:dor|aperto|pressao|queimacao) no peito\b|\bfalta de ar\b|\bdificuldade (?:para|pra|de) respirar\b"
+    r"|\bnao (?:consegue|consigo) respirar\b|\bdesmai\w*|\bdesacordad\w*|\bconvuls\w*"
+    r"|\b(?:vomit\w*|tosse|tossindo|escarr\w*)\b.{0,12}\bsangue\b|\bsangue no vomito\b"
+    r"|\bsangramento (?:forte|intenso|muito|grande)\b|\bhemorragia\b"
+    r"|\b(?:fraqueza|formigamento|dormencia|paralisi\w*)\b.{0,20}\b(?:lado|braco|perna|rosto)\b"
+    r"|\b(?:face|rosto|boca)\b.{0,8}\b(?:caid[oa]|torta)\b|\bfala (?:enrolada|arrastada)\b|\bconfus\w*"
+    r"|\b(?:molinh[oa]|sem reagir|nao reage|nao acorda|prostrad[oa])\b"
+    r"|\bfebre\b.{0,30}\b(?:bebe|recem nascid\w*|\d+ (?:dias?|semanas?|mes(?:es)?)|idos[oa]|\d{2,3} anos)\b"
+    r"|\b(?:bateu|batida|pancada|caiu)\b.{0,25}\bcabeca\b.{0,25}\b(?:bebe|nenem|recem nascid\w*|\d+ "
+    r"mes(?:es)?)\b"
+    r"|\b(?:bebe|nenem|recem nascid\w*|\d+ "
+    r"mes(?:es)?)\b.{0,25}\b(?:bateu|batida|pancada|caiu)\b.{0,25}\bcabeca\b"
+    r"|\bbolsa\b.{0,10}\b(?:rompeu|rompida|estourou|estourada)\b|\bsangr\w*\b.{0,25}\b(?:gravid\w*|gestac\w*)\b"
+    r"|\b(?:inchac\w*|inchad\w*|inchando)\b.{0,20}\b(?:garganta|lingua|boca|rosto|labios?)\b"
+    r"|\b(?:garganta|lingua|boca)\b.{0,15}\b(?:inchad\w*|inchando|fechando)\b"
+    r"|\bpior dor de cabeca\b|\bdor de cabeca (?:subita|muito forte|explosiva)\b|\bpior (?:dor )?da "
+    r"(?:minha )?vida\b"
+    r"|\b(?:vontade de morrer|me matar|se matar|acabar com tudo|me machucar|se machucar|tirar a (?:minha "
+    r")?vida)\b"
+)
+
+
+def _sinal_do_modelo_na_tabela(self: HelenaGraph, sinal: str) -> bool:
+    """O sinal que o MODELO disse esta' no vocabulario da tabela de alarme? So' entao ele vale como "claro"
+    (192 na hora); senao, a pergunta de alerta. O modelo pode ACRESCENTAR urgencia, nunca tirar: a tabela e
+    os lexicos de sempre rodam antes, sobre a mensagem."""
+    plano = _plano(sinal)
+    if not plano:
+        return False
+    return bool(
+        _VOCABULARIO_DA_TABELA.search(plano)
+        or alarme_no_relato(plano) is not None
+        or _sinal_forte_de_emergencia(sinal)
+        or _sg.tem_risco(plano)
+        or (self._base_saude and _bs.alarme_no_texto(self._base_hoje(), sinal))
+    )
+
+
+def _radicais(texto: str) -> set[str]:
+    return {p[:5] for p in _plano(texto).split() if len(p) > 3}
+
+
+def _sinal_do_modelo_e_novo(self: HelenaGraph, state: HelenaState, sinais: Sequence[str]) -> bool:
+    """TRAVA "SEM SEGUNDO 192" para o sinal do modelo: algum sinal tem palavras que a pessoa ainda NAO
+    tinha dito nesta conversa (pelos radicais)? O alarme ja' tratado, repetido ou comentado, nao e' novo.
+    """
+    falas = self._falas_da_pessoa(state)
+    antes = set().union(*(_radicais(f) for f in falas)) if falas else set()
+    return any(not (_radicais(s) & antes) for s in sinais)
+
+
+def _urgencia_que_piorou(self: HelenaGraph, update: dict[str, Any], texto: str) -> dict[str, Any] | None:
+    """Rodada de 24/10/2026: depois do 192, "piorou" / "nao consigo respirar" e' urgencia NOVA (nunca
+    "mantive o seu caso"): o mesmo escalonamento do alarme (`red_flag_clinico` grave, 192 no texto)."""
+    if not e_agravamento(_plano(texto)):
+        return None
+    logger.warning("helena_urgencia_piorou_depois_do_alarme", node="classify")
+    update.update(
+        {"intent": "symptom", "next_kind": "escalate", "escalation_motivo": "red_flag_clinico"}
+        | {"escalation_severidade": "grave"}
+    )
+    return update
 
 
 # Os nomes de modulo do graph.py que estes corpos usam (no FIM: import circular seguro, ver o docstring).

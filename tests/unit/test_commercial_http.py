@@ -25,6 +25,15 @@ from maezo.gateway.commercial_admission import (
     VerifiedSalesConnection,
     compose_commercial_gateway,
 )
+from maezo.gateway.commercial_sales_admission import (
+    A2_CONTRACT_SHA256,
+    parse_sales_session_admission,
+)
+from maezo.gateway.commercial_support_admission import (
+    A5_ADMITTED_COMMANDS,
+    A5_CONTRACT_SHA256,
+    parse_support_handoff_admission,
+)
 from maezo.portal.api.commercial import COMMERCIAL_PATH, commercial_command
 from maezo.ports.commercial import (
     CommercialPreparation,
@@ -232,6 +241,61 @@ def make_request(
     )
 
 
+def sales_session_admission():
+    """Valid A2 record for the bound-path rigs; the shipped repo has no record file."""
+    record = {
+        "schema": "omni-commercial-admission-record.v1",
+        "admission_id": "A2",
+        "decision": "admitted",
+        "owners": ["identity", "channel", "security", "DPO"],
+        "decided_at": "2026-10-24T00:00:00+00:00",
+        "valid_until": "2099-01-01T00:00:00+00:00",
+        "unlocks": "P6.2 (sessão)",
+        "admitted_scope": "POST /api/v1/sales/commercial",
+        "contract_pin": {
+            "contract_id": "omni-commercial.proposed.v1",
+            "revision": "C6-4",
+            "sha256": A2_CONTRACT_SHA256,
+        },
+        "evidence": {
+            "object_url": "https://amh.invalid/admissions/a2-object.json",
+            "object_sha256": "c" * 64,
+            "origin_git_sha": "d" * 40,
+        },
+    }
+    return parse_sales_session_admission(json.dumps(record).encode(), now=datetime.now(UTC))
+
+
+def support_handoff_admission():
+    """Valid A5 record for bound-path rigs that exercise the support/work commands.
+
+    Without it the composition keeps that dimension closed (the shipped A5 gate), which
+    is the state every non-support rig also runs under. The shipped repo has no record
+    file.
+    """
+    record = {
+        "schema": "omni-commercial-admission-record.v1",
+        "admission_id": "A5",
+        "decision": "admitted",
+        "owners": ["case owner", "channel owner"],
+        "decided_at": "2026-10-24T00:00:00+00:00",
+        "valid_until": "2099-01-01T00:00:00+00:00",
+        "unlocks": "P6.4 (suporte)",
+        "admitted_commands": sorted(A5_ADMITTED_COMMANDS),
+        "contract_pin": {
+            "contract_id": "omni-commercial.proposed.v1",
+            "revision": "C6-4",
+            "sha256": A5_CONTRACT_SHA256,
+        },
+        "evidence": {
+            "object_url": "https://amh.invalid/admissions/a5-object.json",
+            "object_sha256": "a" * 64,
+            "origin_git_sha": "b" * 40,
+        },
+    }
+    return parse_support_handoff_admission(json.dumps(record).encode(), now=datetime.now(UTC))
+
+
 def composition(schema_bytes, handler):
     admission = UnitScope()
     authority = UnitSourceAuthority(admission.scope)
@@ -241,6 +305,7 @@ def composition(schema_bytes, handler):
         caller=UnitCaller(),
         scope_authority=admission,
         source_authority=authority,
+        sales_admission=sales_session_admission(),
         transport=httpx.MockTransport(handler),
     )
     return gateway, admission, authority

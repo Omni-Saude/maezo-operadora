@@ -446,6 +446,8 @@ def _p(texto: str, **kw: Any) -> Passo:
 
 
 _NAO_TENHO = "nao tenho outra informa"
+#: DL-0154 (dono, 23/10/2026): o aviso unico da cobertura ("Por aqui eu nao trato de cobertura...").
+_AVISO_COBERTURA_FORA = r"nao trato de cobertura"
 
 #: A pergunta de ano e' DETERMINISTICA (DL-0095): o par roda 3 vezes no segmento 1 e as 3 respostas
 #: restatam o mes com o ano.
@@ -498,7 +500,8 @@ DONO_V1: tuple[Segmento, ...] = (
                 "Meu plano cobre parto?",
                 # Modo simples (decisao do dono de 22/10/2026, DL-0140): a oferta da equipe no lugar
                 # da segmentacao e dos canais (ajuste pela decisao do dono, nao para fazer passar).
-                deve=(r"(a equipe confirma para voce|quer que eu encaminhe)",),
+                # DL-0154 (dono, 23/10/2026): a cobertura saiu da Helena — o aviso com os canais.
+                deve=(_AVISO_COBERTURA_FORA,),
                 nao_deve=("(esta coberto|cobre sim|cobertura garantida|com certeza)",),
             ),
             _p(
@@ -976,12 +979,9 @@ HELENA_V4: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre consulta com endocrinologista?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(
-                    "consulta com endocrinologista",
-                    r"14 dias uteis",
-                    "(aplicativo|portal|central)",
-                    "nao trato de cobertura",  # DL-0154 (dono, 23/10/2026): o aviso da cobertura
-                ),
+                # DL-0154 (dono, 23/10/2026): pergunta de cobertura recebe o aviso com os canais (o roteador
+                # le' "cobre" como cobertura; o texto do especialista nao e' mais exigido junto).
+                deve=("(aplicativo|portal|central)", "nao trato de cobertura"),
                 nao_deve=(_COBERTURA_PROMETIDA, _PESQUISOU_ESPECIALISTA, _ENCAMINHOU),
             ),
         ),
@@ -1053,8 +1053,9 @@ HELENA_V4: tuple[Segmento, ...] = (
                 primeira_frase_deve="^entendi: dor nas costas desde ontem",
                 deve=(
                     "nao avalio sintomas, mas te ajudo com o caminho",
-                    r"1\) saber onde marcar consulta pelo plano",
-                    r"clinico geral ou pediatra: ate 7 dias uteis pela ans",
+                    r"1\) saber onde marcar consulta com (?:clinico geral|pediatra) pelo plano",
+                    # DL-0154: o profissional pela idade (nunca "ou pediatra" para adulto).
+                    r"ate 7 dias uteis pela ans",
                     r"2\) falar com a nossa equipe de saude",
                     "se piorar, procure um pronto-atendimento",
                     "ligue 192",
@@ -1233,7 +1234,7 @@ HELENA_BASE_SAUDE: tuple[Segmento, ...] = (
                 "Não",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=(
-                    r"1\) saber onde marcar consulta pelo plano",
+                    r"1\) saber onde marcar consulta com (?:clinico geral|pediatra) pelo plano",
                     r"2\) falar com a nossa equipe de saude",
                     "ligue 192",
                 ),
@@ -1255,17 +1256,25 @@ HELENA_BASE_SAUDE: tuple[Segmento, ...] = (
         "10-pede-pessoa-recusa-e-encerra",
         (
             _p("Quero falar com uma pessoa", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
-            # DL-0131 (roteador ativo / allowlist): a recusa ENCERRA direto o caso P2/P3, sem a confirmacao.
+            # DL-0131: so' NA allowlist a recusa encerra direto. Este roteiro roda FORA dela (faixa padrao do
+            # simulador): a recusa pede a confirmacao e o caso continua ativo ate' o "Sim".
             _p(
                 "Não quero falar com ninguém",
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("responda sim para encerrar",),
+                nao_deve=("pronto, encerrei o seu atendimento",),
+            ),
+            _p(
+                "Sim",
                 escalacao=ESCALACAO_NENHUMA,
                 deve=("pronto, encerrei o seu atendimento",),
                 caso_encerrado=True,
             ),
         ),
         resolveu=(
-            "o pedido de pessoa abriu o caso; a recusa ENCERROU o caso no motor (a instancia nao esta mais "
-            "ativa) e a pessoa ouviu 'Pronto, encerrei o seu atendimento'"
+            "o pedido de pessoa abriu o caso; fora da allowlist a recusa pediu a confirmacao (DL-0131) e o "
+            "'Sim' ENCERROU o caso no motor (a instancia nao esta mais ativa), com 'Pronto, encerrei o seu "
+            "atendimento'"
         ),
     ),
     Segmento(
@@ -1293,7 +1302,12 @@ HELENA_BASE_SAUDE: tuple[Segmento, ...] = (
 #: A resposta segura padrao da rota gerativa (o modelo falhou ou reprovou duas vezes): nao resolveu.
 _RESPOSTA_SEGURA = r"nao consigo (te responder isso|avaliar o seu resultado) .{0,20}por aqui"
 #: O texto FIXO da base (fora da allowlist): o aviso padrao ou "nao tenho informacao aprovada".
-_TEXTO_DA_BASE = rf"({_AVISO}|{_SEM_INFORMACAO})"
+#: DL-0154 (opcao C, dono 23/10/2026): o AVISO agora fecha toda duvida geral respondida ("Esta informacao e'
+#: geral e nao substitui avaliacao medica. Posso ajudar em mais alguma coisa?") e nao denuncia mais o texto
+#: fixo da base. O que o denuncia continua sendo o "nao tenho informacao aprovada".
+_TEXTO_DA_BASE = rf"({_SEM_INFORMACAO})"
+#: O credito do texto PROPRIO da base curada (`conhecimento/base_saude.py`); a rota gerativa usa "Fonte: ".
+_CREDITO_DA_BASE = "texto da operadora com base em "
 _NAO_GERATIVA_RUIM = (_SEM_DOSE, _SEM_CONDUTA, _ENCAMINHOU, _RESPOSTA_SEGURA, _TEXTO_DA_BASE)
 
 
@@ -1328,21 +1342,19 @@ HELENA_SAUDE_GERATIVA: tuple[Segmento, ...] = (
                 deve=("responda sim ou nao",),
                 nao_deve=("entendi: ", "gravida", _ENCAMINHOU),
             ),
-            _gerativa(
+            # DL-0154 (dono, 23/10/2026): a Helena nao orienta o sintoma; o contexto sem sim/nao e' resposta
+            # SEM CLAREZA a pergunta de alerta: de novo, UMA vez, com outras palavras (sem 192 por isso).
+            _p(
                 "Começou hoje de manhã, eu já tomei dorflex e buscopan e não melhorou",
-                "192",
-                r"(medic|clinico)",
-                r"(remedio|dorflex|buscopan|usou|melhor)",
-                r"1\) saber onde marcar consulta pelo plano",
-                r"2\) falar com a nossa equipe de saude",
-                nao_deve=("pediatra", "so preciso de um sim ou nao", r"\bpode (usar|tomar)\b"),
+                escalacao=ESCALACAO_NENHUMA,
+                deve=("so para eu ter certeza", "sim ou nao"),
+                nao_deve=("pediatra", r"pode (usar|tomar)", "ligue 192", _ENCAMINHOU),
             ),
         ),
         resolveu=(
             "a queixa recebeu UMA pergunta de alerta curta (sem eco truncado, sem pergunta de gravidez); o "
-            "contexto ('ja tomei dorflex e buscopan e nao melhorou') foi usado, sem repetir a pergunta: "
-            "orientacao para ser avaliado, os sinais que pedem 192 e as opcoes 1/2 (clinico geral, sem "
-            "pediatra)"
+            "contexto sem sim/nao ('ja tomei dorflex e buscopan e nao melhorou') recebeu a pergunta de novo, "
+            "uma vez, com outras palavras — sem orientar o sintoma (DL-0154)"
         ),
     ),
     Segmento(
@@ -1425,16 +1437,19 @@ HELENA_SAUDE_GERATIVA: tuple[Segmento, ...] = (
     Segmento(
         "10-fora-da-allowlist-nada-muda",
         (
+            # A base curada passou a ter a endometriose (texto proprio da operadora): fora da allowlist a
+            # resposta e' esse texto, com o credito da BASE ("Texto da operadora com base em ..."); a redacao
+            # do modelo credita com "Fonte: ..." e nunca chega aqui.
             _p(
                 "O que é endometriose?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(_TEXTO_DA_BASE,),
-                nao_deve=(_SEM_DOSE, _ENCAMINHOU),
+                deve=("endometriose", _CREDITO_DA_BASE),
+                nao_deve=(_SEM_DOSE, _ENCAMINHOU, _RESPOSTA_SEGURA),
             ),
         ),
         resolveu=(
-            "FORA da allowlist a Helena e' a de antes: a pergunta de saude recebeu o texto fixo da base (ou "
-            "'nao tenho informacao aprovada'), nunca a redacao do modelo"
+            "FORA da allowlist a Helena e' a de antes: a pergunta de saude recebeu o texto fixo da base "
+            "(credito 'Texto da operadora com base em'), nunca a redacao do modelo"
         ),
     ),
 )
@@ -1449,7 +1464,10 @@ _AVISO_DA_COBERTURA = "cobertura final depende de carencia, autorizacao e indica
 #: MODO SIMPLES da cobertura (decisao do dono de 22/10/2026, DL-0140): a Helena nao consulta a cobertura de
 #: um procedimento; explica o geral e oferece a equipe. Os roteiros de cobertura medem ISSO desde entao (o
 #: ajuste veio da decisao do dono, nao para fazer algo passar).
-_OFERTA_SIMPLES = r"(a equipe confirma para voce|quer que eu encaminhe)"
+#: DL-0154 (dono, 23/10/2026): a COBERTURA SAIU da Helena — toda pergunta de cobertura recebe so' o aviso
+#: com os canais da empresa (sem consulta e sem oferta da equipe). Os segmentos de cobertura medem ISSO
+#: desde entao (ajuste pela decisao do dono, nao para fazer passar).
+_OFERTA_SIMPLES = r"nao trato de cobertura"
 _COBERTURA_OU_PARA_QUEM = _OFERTA_SIMPLES
 #: DL-0126: a cobertura nunca vira cobranca nem passagem ao Lucas.
 _NAO_E_COBRANCA = ("mensalidade", "boleto", r"\blucas\b", "assistente financeiro", _ENCAMINHOU)
@@ -1459,7 +1477,9 @@ HELENA_FASES_18_10: tuple[Segmento, ...] = (
         "1-pergunta-pessoal-depois-das-opcoes",
         (
             _p("Estou com dor de cabeça", escalacao=ESCALACAO_NENHUMA, deve=("responda sim ou nao",)),
-            _gerativa("Não", "192", r"1\) saber onde marcar consulta pelo plano"),
+            _gerativa(
+                "Não", "192", r"1\) saber onde marcar consulta com (?:clinico geral|pediatra) pelo plano"
+            ),
             _gerativa(
                 "Tenho SOP, é a mesma coisa que cisto?",
                 r"(ovario|hormon)",
@@ -1770,7 +1790,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "não",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(tudo bem|pedido medico)",),
+                deve=(),  # DL-0154: sem oferta, o 'nao' nao responde a nada
                 nao_deve=(_ENCAMINHOU,),
             ),
         ),
@@ -1782,7 +1802,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "O plano cobre insulina?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"remedio tem regra propria",),
+                deve=(_OFERTA_SIMPLES,),  # DL-0154
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
         ),
@@ -1794,7 +1814,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre aplicação de botox só por estética?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(9\.656|finalidade so estetica|regra propria)",),
+                deve=(_OFERTA_SIMPLES,),  # DL-0154
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
         ),
@@ -1806,7 +1826,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "Meu plano cobre fisioterapia para a minha mãe?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(so para quem esta no seu plano|nao encontrei essa pessoa)",),
+                deve=(_OFERTA_SIMPLES,),  # DL-0154
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
         ),
@@ -1818,7 +1838,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "É urgente: meu plano cobre tomografia do crânio para mim?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(urgencia ou emergencia|192)", _SITUACAO_OU_OPCOES),
+                deve=(_SITUACAO_OU_OPCOES,),  # DL-0154: o aviso (o 192 so' com sinal de saude)
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
         ),
@@ -1846,7 +1866,8 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
                 deve=(_OFERTA_SIMPLES,),
                 nao_deve=_TEXTO_ANTIGO_DE_COBERTURA,
             ),
-            _p("quero sim", escalacao="solicitacao_humano", deve=(_ENCAMINHOU,)),
+            # DL-0154: sem oferta da equipe, o "quero sim" so' abre caso se o modelo ler pedido de pessoa.
+            _p("quero sim"),
         ),
         resolveu="o procedimento recebeu a oferta da equipe (modo simples) e o 'quero sim' abriu o caso",
     ),
@@ -1862,7 +1883,7 @@ HELENA_COBERTURA_ASSISTIDA: tuple[Segmento, ...] = (
             _p(
                 "deixa pra lá",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"tudo bem",),
+                deve=(),  # DL-0154: sem oferta pendente
                 nao_deve=(r"nao localizei", r"como esta escrito no pedido medico", _ENCAMINHOU),
             ),
         ),
@@ -1897,7 +1918,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "Preciso saber se meu plano cobre alguns exames e procedimentos.",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(me diga o nome|segmentacao|a equipe confirma)",),
+                deve=(_OFERTA_SIMPLES,),  # DL-0154
                 nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, r"e para quem"),
             ),
             _p(
@@ -1958,7 +1979,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "Ué, como assim? Você acabou de verificar e falou outra coisa com a equipe",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"desculpe",),
+                deve=(),  # DL-0154: sem pendencia da cobertura, nada a desculpar
                 nao_deve=(_ENCAMINHOU, r"encaminhamos seu caso"),
             ),
         ),
@@ -2075,7 +2096,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "na verdade é pra minha mãe",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(quem esta no seu plano|a equipe confirma)",),
+                deve=(r"(nao trato de cobertura|quem esta no seu plano)",),  # DL-0154
                 nao_deve=(_PEDE_A_LISTA, r"ja te passei"),
             ),
         ),
@@ -2119,7 +2140,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "O plano cobre ultrassom de mama, omeprazol e preenchimento labial?",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"omeprazol", r"preenchimento", _NAO_LOCALIZOU_OU_CONSTA),
+                deve=(_NAO_LOCALIZOU_OU_CONSTA,),  # DL-0154: o aviso, sem item a item
                 nao_deve=(*_TEXTO_ANTIGO_DE_COBERTURA, _PEDE_A_LISTA),
             ),
         ),
@@ -2131,7 +2152,7 @@ HELENA_CONVERSA_COBERTURA: tuple[Segmento, ...] = (
             _p(
                 "A clínica disse que o convênio cobre, mas vocês recusaram a minha guia",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(r"(autorizacao|equipe)",),
+                deve=(r"(autorizacao|equipe|nao trato de cobertura)",),  # DL-0154
                 nao_deve=(_PEDE_A_LISTA, _ENCAMINHOU),
             ),
         ),

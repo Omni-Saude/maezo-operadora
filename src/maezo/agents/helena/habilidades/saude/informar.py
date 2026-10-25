@@ -15,8 +15,10 @@ import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.consultas_plano import INTENT_CONSULTA_PLANO
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
+from maezo.agents.helena.habilidades.saude.textos import CHAVE_FECHO, CHAVE_OFERTA_MEDICO
 from maezo.agents.helena.helena_v4 import (
     ALERTAS,
     ETAPA_ALERTA,
@@ -24,6 +26,7 @@ from maezo.agents.helena.helena_v4 import (
     GRUPO_GERAL,
     LEITURA_NAO,
     LEITURA_SIM,
+    POPULACAO_ADULTO,
     POPULACAO_CRIANCA,
     Pendente,
     codigo_pendente,
@@ -31,6 +34,7 @@ from maezo.agents.helena.helena_v4 import (
     especialidade_pedida,
     populacao_da_v4,
     resposta_ao_alerta,
+    texto_da_opcao_1,
 )
 from maezo.agents.helena.triagem_v2 import relata_sintoma
 from maezo.conhecimento import base_saude as _bs
@@ -219,7 +223,10 @@ async def _base_antes_dos_gatilhos(
     logger.info("helena_base_saude_responde", node="classify", assunto=assunto.id, pessoal=pessoal)
     return self._base_texto_fixo(
         update,
-        _bs.resposta_de_resultado_pessoal(assunto) if pessoal else _bs.resposta_informativa(assunto),
+        _bs.resposta_de_resultado_pessoal(assunto)
+        if pessoal
+        # OPCAO C (DL-0154): respondida uma vez, com o fecho "Posso ajudar em mais alguma coisa?".
+        else _com_o_fecho_da_duvida(_bs.resposta_informativa(assunto), self._textos[CHAVE_FECHO]),
     )
 
 
@@ -445,6 +452,13 @@ async def _gerativa_informar(
         # As mensagens anteriores que falam de crianca nao entram numa pergunta nova de adulto.
         anteriores = tuple(a for a in anteriores if populacao_da_v4("none", _plano(a)) != POPULACAO_CRIANCA)
     apoio = await self._apoio_da_pergunta(state, base, texto, crianca=crianca)
+    if _insiste_no_mesmo_assunto(self, state, base, apoio, plano):
+        # OPCAO C (dono, 23/10/2026, DL-0154): a duvida geral e' respondida UMA vez; quem insiste no MESMO
+        # assunto recebe o medico ou a equipe de saude (nunca uma segunda explicacao).
+        logger.info("helena_saude_insistencia_no_mesmo_assunto", node="classify")
+        return self._base_texto_fixo(
+            update, self._textos[CHAVE_OFERTA_MEDICO], pendente=PENDENTE_SAUDE_OFERTA
+        )
     anteriores, assunto_anterior = self._contexto_do_mesmo_assunto(state, base, anteriores, apoio, plano)
     # TINA (18/10/2026): no maximo UM passo da jornada do plano (texto fixo da operadora, acrescentado no
     # fim).
@@ -467,17 +481,21 @@ async def _gerativa_informar(
     redacao = await self._gerativa.redigir(pedido, cercas=self._cercas_da_helena)
     if redacao is None:
         return None
-    if redacao.desfecho not in ("padrao", "falha") and "Fonte:" not in redacao.texto:
-        # Regra do dono (r4, "citando a fonte", a fonte so' pelo nome): sem a linha da fonte, a
-        # redacao nao sai; o turno segue o caminho da base (texto aprovado com o credito e o aviso).
-        logger.info("helena_saude_gerativa_sem_fonte", node="classify", modo=modo)
-        return None
     texto_final = redacao.texto
-    if redacao.desfecho not in ("padrao", "falha") and "não substitui avaliação médica" not in texto_final:
-        texto_final = f"{texto_final}\n{_bs.AVISO_PADRAO}"
+    if redacao.desfecho not in ("padrao", "falha") and "Fonte:" not in texto_final:
+        # DL-0154 (o modelo conduz): o rascunho VALIDO sem a linha da fonte nao e' mais descartado (era o que
+        # trocava a resposta por "nao tenho informacao aprovada"). Com apoio da base, a fonte entra PELO NOME
+        # (nunca link); sem apoio, a resposta sai sem a linha.
+        logger.info(
+            "helena_saude_gerativa_sem_fonte", node="classify", modo=modo, com_apoio=apoio is not None
+        )
+        if apoio is not None and apoio.fonte_nome:
+            texto_final = f"{texto_final.rstrip()}\nFonte: {apoio.fonte_nome}."
     if jornada is not None and redacao.desfecho not in ("padrao", "falha"):
         texto_final = f"{texto_final}\n{_jornadas.TEXTOS[jornada]}"
         logger.info("helena_jornada_do_plano", node="classify", jornada=jornada)
+    if redacao.desfecho not in ("padrao", "falha"):
+        texto_final = _com_o_fecho_da_duvida(texto_final, self._textos[CHAVE_FECHO])
     self._guardar_gerativa(state, texto_final)
     logger.info("helena_saude_gerativa_responde", node="classify", modo=modo, desfecho=redacao.desfecho)
     return self._base_texto_fixo(update, texto_final)
@@ -552,6 +570,80 @@ async def _gerativa_no_alerta(
     update["coleta_pendente"] = codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao)
     update["coleta_contexto"] = relato
     return _rota_informativa(update)
+
+
+#: A pergunta pendente da OPCAO C ("quer que eu te mostre onde marcar a consulta ou prefere a equipe?").
+PENDENTE_SAUDE_OFERTA = "SAUDE_OFERTA"
+
+
+def _com_o_fecho_da_duvida(texto: str, fecho: str) -> str:
+    """OPCAO C (DL-0154): a resposta da duvida geral termina no fecho do dono ("... nao substitui avaliacao
+    medica. Posso ajudar em mais alguma coisa?") no lugar do aviso que oferecia a equipe a cada resposta."""
+    corpo = texto.replace(_bs.AVISO_PADRAO, "").rstrip()
+    if corpo.endswith(fecho):
+        return corpo
+    return f"{corpo}\n{fecho}"
+
+
+def _insiste_no_mesmo_assunto(
+    self: HelenaGraph, state: Mapping[str, Any], base: _bs.BaseSaude, apoio: _sg.Apoio | None, plano: str
+) -> bool:
+    """A Helena acabou de responder uma duvida geral (a ultima fala dela termina no fecho da OPCAO C) e a
+    pessoa continua no MESMO assunto: o mesmo assunto da base, ou um seguimento sem assunto novo ("e como
+    trata?"). Uma pergunta DIFERENTE ("e osteoporose?") e' respondida uma vez, como a primeira."""
+    falas = _falas_da_helena(state)
+    if not falas or not falas[-1].rstrip().endswith(self._textos[CHAVE_FECHO]):
+        return False
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is not None:
+        # Contrato v7: o MESMO assunto e' o que o modelo le' como continuacao da duvida geral.
+        return v7.continuacao and v7.tipo == "duvida_geral"
+    pessoa = self._falas_da_pessoa(state)
+    if not pessoa:
+        return False
+    anterior = _sg.assunto_confiavel(base, pessoa[-1])
+    if apoio is not None:
+        return anterior is not None and apoio.assunto_id == anterior.id
+    # Sem assunto novo achado: so' o pedido de tratamento ("e como trata?") ou a pergunta curta que se refere
+    # ao assunto anterior ("isso e' grave?", "e ele tem cura?") continuam o MESMO assunto.
+    return _sg.pede_tratamento(plano) or (
+        len(plano.split()) <= 6 and _REFERE_AO_ANTERIOR.search(plano) is not None
+    )
+
+
+#: A pergunta que se refere ao assunto da resposta anterior ("isso", "ele", "ela", "disso"), sem assunto novo.
+_REFERE_AO_ANTERIOR = re.compile(r"\b(?:isso|isto|disso|nisso|ele|ela|dele|dela|essa doenca|esse problema)\b")
+
+
+def _saude_resposta_a_oferta(
+    self: HelenaGraph, state: HelenaState, update: dict[str, Any], texto: str
+) -> dict[str, Any] | None:
+    """A resposta a oferta da OPCAO C: "onde marcar" -> o caminho da consulta; "a equipe" -> caso com a equipe
+    de saude (`intencao_clinica`, so' com a escolha da pessoa); "nao" -> fecha. O resto: `None`."""
+    if state.get("coleta_pendente") != PENDENTE_SAUDE_OFERTA:
+        return None
+    from maezo.agents.helena.habilidades.sintoma.fluxo import _escolha_marcar_ou_equipe
+
+    escolha = _escolha_marcar_ou_equipe(_plano(texto))
+    if escolha == "1":
+        logger.info("helena_saude_oferta", node="classify", opcao="1")
+        return self._base_texto_fixo(update, texto_da_opcao_1(POPULACAO_ADULTO))
+    if escolha == "2":
+        logger.info("helena_saude_oferta", node="classify", opcao="2")
+        update.update(
+            {
+                "intent": "human_request",
+                "next_kind": "escalate",
+                "escalation_motivo": "intencao_clinica",
+                "escalation_severidade": "moderada",
+                "coleta_pendente": None,
+            }
+        )
+        return update
+    if escolha == "nao":
+        logger.info("helena_saude_oferta", node="classify", opcao="nao")
+        return self._base_texto_fixo(update, _lc.TEXTO_COMBINADO)
+    return None
 
 
 # Os nomes de modulo do graph.py que estes corpos usam (no FIM: import circular seguro, ver o docstring).

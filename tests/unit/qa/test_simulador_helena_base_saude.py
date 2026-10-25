@@ -16,6 +16,7 @@ import pytest
 from maezo.agents.helena.graph import (
     NOME_DA_MENSAGEM_DE_ENCERRAMENTO_A_PEDIDO,
     RESPOSTA_CASO_ENCERRADO,
+    RESPOSTA_CONFIRMA_ENCERRAMENTO,
 )
 from maezo.conhecimento import base_saude as b
 from maezo.gateway.effect_pep import DecisionContext
@@ -51,8 +52,8 @@ def test_o_roteiro_existe_e_todo_padrao_compila() -> None:
     ):
         assert cenario in textos, cenario
     [encerra] = [p for s in ac.HELENA_BASE_SAUDE for p in s.passos if p.caso_encerrado]
-    # DL-0131 (roteador ativo / allowlist): a recusa encerra direto, sem a confirmacao.
-    assert encerra.texto == "Não quero falar com ninguém"
+    # DL-0131: o roteiro roda FORA da allowlist; a recusa pede a confirmacao e o "Sim" encerra.
+    assert encerra.texto == "Sim"
 
 
 def _passo(nome: str, indice: int = 0) -> ac.Passo:
@@ -93,12 +94,10 @@ def test_as_respostas_certas_da_base_passam_e_as_erradas_reprovam() -> None:
 
 
 def test_a_confirmacao_e_o_encerramento_passam_nos_passos() -> None:
-    assert (
-        ac.avaliar_passo(
-            _passo("10-pede-pessoa-recusa-e-encerra", 1), [("helena", RESPOSTA_CASO_ENCERRADO)], [], None
-        )
-        == []
-    )
+    recusa, sim = _passo("10-pede-pessoa-recusa-e-encerra", 1), _passo("10-pede-pessoa-recusa-e-encerra", 2)
+    assert ac.avaliar_passo(recusa, [("helena", RESPOSTA_CONFIRMA_ENCERRAMENTO)], [], None) == []
+    assert ac.avaliar_passo(recusa, [("helena", RESPOSTA_CASO_ENCERRADO)], [], None), "sem confirmar: reprova"
+    assert ac.avaliar_passo(sim, [("helena", RESPOSTA_CASO_ENCERRADO)], [], None) == []
 
 
 def _seam() -> SeamContext:
@@ -131,7 +130,7 @@ async def test_o_motor_simulado_encerra_a_instancia_e_registra_no_turno() -> Non
 
 
 async def test_o_passo_caso_encerrado_reprova_sem_encerramento_e_o_inverso() -> None:
-    passo = _passo("10-pede-pessoa-recusa-e-encerra", 1)
+    passo = _passo("10-pede-pessoa-recusa-e-encerra", 2)
 
     async def sem_encerrar(texto: str) -> Turno:
         t = Turno(1, "persona", texto, "outro")

@@ -159,9 +159,11 @@ _CAMPOS_ESTRUTURADOS_POR_AGENTE: dict[str, frozenset[str]] = {
             "schema_valid",
         }
     ),
-    #: helena so' tem UM campo de entrada que alcanca prompt (`message_body`) e ele e' o proprio
-    #: texto cru do WhatsApp — nada estruturado para permitir.
-    "helena": frozenset(),
+    #: helena: o texto livre (`message_body`) e' sempre demarcado. `tenant_id` (identificador opaco do
+    #: tenant, formato fechado) so' aparece no fecho do sitio do ROTEADOR v7 porque a UMA re-pergunta
+    #: (etapa 7, DL-0154) cita os NOMES dos campos invalidos da resposta do modelo, e essa resposta vem da
+    #: chamada que leva `tenant_id=` como argumento — ele nunca entra no texto do prompt.
+    "helena": frozenset({"tenant_id"}),
     #: lucas: desde 09/10/2026 so' `_build_message` monta prompt. `ciclos_sem_conciliacao`, `cnab_ref`,
     #: `contesta_cobranca`, `intencao` e `pedido_cancelamento` sairam com o prompt do dossie (a narrativa
     #: virou texto fixo dos fatos, `texto_dossie`).

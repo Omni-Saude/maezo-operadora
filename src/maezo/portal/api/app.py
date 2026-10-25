@@ -45,6 +45,12 @@ from maezo.portal.api.decisions import (
     is_decision_request,
 )
 from maezo.portal.api.documents import DocumentServiceFactory, document_router
+from maezo.portal.api.dsr import (
+    DsrServiceFactory,
+    dsr_error,
+    dsr_router,
+    is_dsr_request,
+)
 from maezo.portal.api.intake_recovery import (
     IntakeRecoveryFactory,
     intake_recovery_router,
@@ -231,6 +237,7 @@ def create_app(
     document_service_factory: DocumentServiceFactory | None = None,
     communication_service_factory: CommunicationServiceFactory | None = None,
     vendor_submission_service_factory: VendorSubmissionServiceFactory | None = None,
+    dsr_service_factory: DsrServiceFactory | None = None,
     commercial_gateway: CommercialGateway | None = None,
     public_catalog_gateway: PublicCatalogGateway | None = None,
     web_root: Path | None = None,
@@ -337,6 +344,11 @@ def create_app(
     # refuses (403 capability / 503 unbound slot) until the vendor plane is adopted.
     app.state.vendor_submission_service_factory = vendor_submission_service_factory
     app.include_router(vendor_router)
+    # W5 CLNT 5.2: the titular DSR channel ships DOCUMENTED and DARK — `lgpd_dsr_channel` is
+    # OFF and no default factory exists, so the route refuses (403 flag / 503 unbound slot)
+    # before any effect until the ROLL wave binds an audited engine start.
+    app.state.dsr_service_factory = dsr_service_factory
+    app.include_router(dsr_router)
     # Commercial sources remain unbound by default. Admission precedes body intake.
     app.state.commercial_gateway = commercial_gateway
     app.state.public_catalog_gateway = public_catalog_gateway
@@ -376,6 +388,8 @@ def create_app(
                 or is_intake_recovery_request(request)
             ):
                 return intake_error("invalid_request")
+            if is_dsr_request(request):
+                return dsr_error("invalid_request")
             if is_decision_request(request):
                 return decision_error("invalid_request")
             # Completion first: its path lives under the read prefix, so `is_task_read` also
@@ -397,6 +411,8 @@ def create_app(
             or is_intake_recovery_request(request)
         ):
             return intake_error("invalid_request")
+        if is_dsr_request(request):
+            return dsr_error("invalid_request")
         if is_decision_request(request):
             return decision_error("invalid_decision")
         # 422 with this route's own schema: a body whose `resultado` is absent or outside the
@@ -432,7 +448,17 @@ def create_app(
             'tuple[Literal["identity", "staff_cases", "human", "vendor"], ...]',
             tuple(config.capabilities.split(",")),
         )
-        return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities)
+        # Same deployment-owned projection as `capabilities` above: the shadow-panel signals
+        # name surfaces only and grant nothing. Empty is the shipped, dark state; the tuple
+        # order is the literal's canonical order (documents, operations).
+        flags = cast(
+            'tuple[Literal["staff_documents_panel", "staff_operations_panel"], ...]',
+            (
+                *(("staff_documents_panel",) if config.staff_documents_panel else ()),
+                *(("staff_operations_panel",) if config.staff_operations_panel else ()),
+            ),
+        )
+        return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities, flags=flags)
 
     # Config-only, never derived from the request: ends the Cognito Hosted UI session too.
     idp_logout_url = f"{config.cognito_origin}/logout?" + urlencode(

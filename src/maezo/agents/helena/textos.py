@@ -21,14 +21,21 @@ from typing import Final
 
 from .habilidades.cobertura_fora import CHAVE_TEXTO as _CHAVE_COBERTURA
 from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
+from .habilidades.conversa.assuntos import PADRAO as _PADRAO_ASSUNTOS
+from .habilidades.saude.textos import PADRAO as _PADRAO_SAUDE
+from .habilidades.sintoma.textos import PADRAO as _PADRAO_SINTOMA
 
 ARQUIVO_TEXTOS: Final[str] = "textos.yaml"
 FORMATO_TEXTOS: Final[str] = "helena-textos-v1"
 _TAMANHO_MAXIMO: Final[int] = 1200
 
-#: Chave -> texto padrao (o aprovado). Texto novo no pacote entra AQUI primeiro (com o padrao e o teste).
+#: Chave -> texto padrao (o aprovado). Texto novo no pacote entra AQUI primeiro (com o padrao e o teste); cada
+#: habilidade declara os seus (`habilidades/<nome>/textos.py`).
 PADRAO: Final[Mapping[str, str]] = {
     _CHAVE_COBERTURA: TEXTO_COBERTURA_FORA,
+    **_PADRAO_SINTOMA,
+    **_PADRAO_SAUDE,
+    **_PADRAO_ASSUNTOS,
 }
 
 #: Link em qualquer forma: esquema, `www.` ou dominio com TLD comum (gov.br, anvisa.gov.br, site.com).
@@ -76,6 +83,10 @@ class TextosDaHelena:
 
     def __getitem__(self, chave: str) -> str:
         return self._do_pacote.get(chave) or PADRAO[chave]
+
+    def valores(self) -> frozenset[str]:
+        """Todos os textos em vigor (o `inform` envia sem modelo o texto fixo que `classify` deixou)."""
+        return frozenset(self[chave] for chave in PADRAO)
 
 
 __all__ = [

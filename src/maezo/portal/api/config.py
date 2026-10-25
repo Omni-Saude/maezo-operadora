@@ -43,6 +43,32 @@ class PortalSettings(BaseSettings):
     #: and credentials are mutually exclusive in the browser, and an echoed Origin would make
     #: any site a caller.
     cors_origins: str = ""
+    #: W5 CLNT 5.2 (`docs/plans/maezo-completion-program.md`). Canal HTTP de DSR do titular
+    #: (`POST /api/v1/portal/dsr` -> SP-OP-LGPD-DSR-001). DARK: OFF por padrão — o programa é
+    #: shadow e virar esta chave é ato da onda ROLL, com janela de evidência e revisor nomeado
+    #: próprios. OFF responde 403 `operation_forbidden` antes de qualquer efeito; a rota segue
+    #: publicada no schema mesmo desligada (o leitor do contrato vê o canal antes de decidir
+    #: habilitá-lo). Nenhum `deploy/**` pode ligá-la neste programa.
+    lgpd_dsr_channel: bool = False
+    #: W5 CLNT 5.5 (`docs/plans/w5-admin-disposition.md` §3.5). Painel staff READ-ONLY da área
+    #: `documents` (documentos e pedidos de documento do caso), sobre as rotas GET já montadas de
+    #: `documents.py` — nenhuma rota nova, nenhum byte novo fora do plano PHI. DARK: OFF por
+    #: padrão — o programa é shadow e virar esta chave é ato da onda ROLL, com janela de
+    #: evidência e revisor nomeados. OFF projeta a sessão sem o sinal, e o portal mantém o stub
+    #: exato de hoje: zero mudança de superfície visível. A autorização de leitura continua
+    #: inteira no plano publicado (`auth.document_context.read`); o sinal não concede nada.
+    #: Nenhum `deploy/**` pode ligá-la neste programa.
+    staff_documents_panel: bool = False
+    #: W5 CLNT 5.5 (`docs/plans/w5-admin-disposition.md` §3.6). Painel staff READ-ONLY da área
+    #: `operations` (recibos de comandos por tarefa e dependências do contexto da tarefa), sobre
+    #: rotas GET já montadas — `decisions.py` (contexto de assignment governado e recibo público
+    #: do comando) e `tasks.py` (contexto de escalonamento). Nenhuma rota nova, nenhum comando:
+    #: a tela não carrega corpo, CSRF nem método que não GET. DARK: OFF por padrão — o programa é
+    #: shadow e virar esta chave é ato da onda ROLL, com janela de evidência e revisor nomeados.
+    #: OFF projeta a sessão sem o sinal, e o portal mantém o stub exato de hoje: zero mudança de
+    #: superfície visível. A autorização de leitura continua inteira no plano publicado; o sinal
+    #: não concede nada. Nenhum `deploy/**` pode ligá-la neste programa.
+    staff_operations_panel: bool = False
     #: The deployed capability profile, the same `MAEZO_PORTAL_CAPABILITIES` the production
     #: bootstrap reads. Projected on the session so the browser can tell "this area is not
     #: enabled here" from a real 503. It grants nothing: every route still refuses on its own.

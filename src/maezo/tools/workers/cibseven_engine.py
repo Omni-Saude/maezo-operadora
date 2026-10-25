@@ -41,6 +41,7 @@ from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     CibSevenHttpTransport,
     HistoryQueryingTransport,
+    UserTaskAssigneeReadingTransport,
     require_engine_tenant_token,
 )
 
@@ -121,6 +122,20 @@ class FreshClientCibSevenTransport:
                     "`find_any_instance` — cannot answer the engine-history question"
                 )
             return await inner.find_any_instance(business_key, process_key=process_key)
+        finally:
+            await inner.close()
+
+    async def read_user_task_assignee(self, process_instance_id: str, task_definition_key: str) -> str | None:
+        """`UserTaskAssigneeReadingTransport` delegation (pendencia 40, DL-0152): quem assumiu a User
+        Task ativa. Inner sem a capacidade LEVANTA `CibSevenError` — o worker de escalonamento le isso
+        como leitura que falhou e ALERTA (lado seguro)."""
+        inner = self._new_transport()
+        try:
+            if not isinstance(inner, UserTaskAssigneeReadingTransport):
+                raise CibSevenError(
+                    f"inner transport {type(inner).__name__!r} does not implement `read_user_task_assignee`"
+                )
+            return await inner.read_user_task_assignee(process_instance_id, task_definition_key)
         finally:
             await inner.close()
 

@@ -3,7 +3,6 @@ só vale quando a mensagem responde a ela. A cobertura saiu da Helena (DL-0154):
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,6 +16,7 @@ from maezo.conhecimento import saude_gerativa as sg
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.support.roteador_v7_fake import decisao_v7
 from tests.unit.agents.test_helena_rodada_3_simulador import (
     _CONVERSA,
     _classify,
@@ -27,10 +27,9 @@ from tests.unit.agents.test_helena_rodada_3_simulador import (
 from tests.unit.agents.test_helena_saude_gerativa import _Conversa, _Transporte
 
 
-def _decisao(habilidade: str, *, confianca: str = "alta", responde: bool = False, **extra: Any) -> str:
-    return json.dumps(
-        {"habilidade": habilidade, "confianca": confianca, "responde_a_pendencia": responde, **extra}
-    )
+def _decisao(habilidade: str, *, responde: bool = False, **extra: Any) -> str:
+    """A decisao no vocabulario interno, escrita no contrato v7 (`tests/support/roteador_v7_fake.py`)."""
+    return decisao_v7(habilidade, responde=responde, **extra)
 
 
 class _Modelo:

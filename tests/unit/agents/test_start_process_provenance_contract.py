@@ -25,6 +25,7 @@ from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, ProcessIns
 from maezo.tools.workers.dmn_transport import DmnVersion
 from maezo.tools.workers.phi_vars import REDACTED_PHI
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.support.fontes_do_grafo import fonte_do_agente
 
 
 class _FakeInference:
@@ -231,7 +232,9 @@ _AGENT_IDS = [c[0] for c in _CASES]
 @pytest.mark.parametrize("agent_id", _AGENT_IDS)
 def test_every_start_call_passes_the_fence_args(agent_id: str) -> None:
     """Every `start_process_idempotent(...)` in the agent graph passes `audit_sink=` + `provenance=`."""
-    src = Path(importlib.import_module(f"maezo.agents.{agent_id}.graph").__file__).read_text()
+    # O grafo INTEIRO do agente: na Helena dividida por habilidade (ADR-0067 §5) o start mora em
+    # `habilidades/atendimento_humano/escalar.py`; ler so' o `graph.py` deixaria a cerca vazia.
+    src = fonte_do_agente(Path(importlib.import_module(f"maezo.agents.{agent_id}.graph").__file__))
     tree = ast.parse(src)
     calls = [
         n

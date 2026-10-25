@@ -5,6 +5,7 @@
         check-revisao-das-reguas \
         check-plans-counts \
         check-doc-symbol-citations \
+        check-compliance-doc-citations \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
@@ -13,7 +14,8 @@
         check-phi-scrub-prereqs \
         release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint \
-        check-helm-entrypoints check-chart-env-reconciliation
+        check-helm-entrypoints check-chart-env-reconciliation \
+        check-program-dark-flags
 
 LOCALSTACK_COMPOSE := deploy/terraform/localstack/docker-compose.localstack.yml
 TF_SMOKE_ENV       := deploy/terraform/envs/staging-sa-east-1
@@ -103,6 +105,19 @@ check-doc-symbol-citations: ## R-089: path::symbol / ImportFrom quotado / path:l
 	# aparecem em contagens/razoes separadas. Corpus vazio/sem citacao elegivel falha. As 7 excecoes
 	# exatas (1 tool-wiring + 4 inbound + 2 cross-repo) continuam finitas e auto-verificadas.
 	.venv/bin/python scripts/ci/check_doc_symbol_citations.py
+
+check-compliance-doc-citations: ## GOV-0.8 (D-31a): citacoes em docs/compliance/**.md resolvem na arvore + espelho GAP-REGISTER.yaml confere com a custodia
+	# A classe derrotada (GOV-0.8/D-31a, dono 2026-10-23): docs/Tarefas_Pendentes.md citava
+	# docs/audits/maezo-deep-audit/remediation/GAP-REGISTER.yaml — caminho em arvore gitignored
+	# ausente do checkout, a "citacao pendente". Escopo estreito e deliberado (precedente R-089):
+	# so docs/compliance/ (a casa dos espelhos rastreados) — alargar e decisao separada. Diferenca
+	# deliberada do R-089: AQUI nao ha isencao para caminho ausente sob arvore gitignored; apontar
+	# para arvore ignorada/ausente e exatamente a citacao pendente que a cerca mata. Segunda
+	# verificacao: integridade do espelho docs/compliance/GAP-REGISTER.yaml — recuo do bloco
+	# registro_custodiado revertido, sha256 recomputado contra fonte_sha256 e mapa por linha
+	# (gap id -> linhas da fonte) reextraido; divergencia = espelho deixou de ser copia fiel.
+	# Stdlib-only, sem git history; corpus vazio e espelho ausente/em modo nao-verificavel falham.
+	.venv/bin/python scripts/ci/check_compliance_doc_citations.py
 
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
 	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)
@@ -358,3 +373,14 @@ check-chart-env-reconciliation: ## DU-02/R-002: toda env declarada no chart/TF (
 	# Kafka em service-kafka.tf, o Spring datasource do CIB Seven em statefulset-cibseven.yaml) — ver
 	# scripts/ci/check_chart_env_reconciliation.py para o desenho + a lista exata.
 	.venv/bin/python scripts/ci/check_chart_env_reconciliation.py
+
+check-program-dark-flags: ## W5 CLNT 5.1: as 5 flags dark do programa seguem default-OFF no codigo e sem mencao nenhuma em deploy/** (flags provadamente OFF — a ROLL flipa)
+	# As tres flags de `PortalSettings` (lgpd_dsr_channel, staff_documents_panel,
+	# staff_operations_panel — #955/#960/#963) tem de continuar literalmente `False` sob o
+	# `env_prefix="MAEZO_PORTAL_"`, e as constantes de env das duas pontes de erasure
+	# (#965) têm de continuar valendo os nomes pinados. QUALQUER mencao a qualquer um dos 5
+	# nomes de env em `deploy/**` reprova: a docstring shipped de cada flag declara "nenhum
+	# `deploy/**` pode liga-la neste programa" — esta cerca mecaniza essa sentenca. Ver
+	# scripts/ci/check_program_dark_flags.py (desenho + escopo) e
+	# tests/unit/ci/test_check_program_dark_flags.py (provas negativas).
+	.venv/bin/python scripts/ci/check_program_dark_flags.py

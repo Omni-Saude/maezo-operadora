@@ -260,6 +260,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/dsr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Dsr */
+        post: operations["submit_dsr_api_v1_portal_dsr_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/intake-recovery": {
         parameters: {
             query?: never;
@@ -1735,6 +1752,54 @@ export interface components {
             /** Document Type Ref */
             document_type_ref: string;
         };
+        /**
+         * DsrReceipt
+         * @description Stage receipt: received and staged for the engine start. NEVER a DSR outcome.
+         */
+        DsrReceipt: {
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /** Request Ref */
+            request_ref: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Status
+             * @default received
+             * @constant
+             */
+            status: "received";
+            /**
+             * Tipo Requisicao
+             * @enum {string}
+             */
+            tipo_requisicao: "confirmacao_acesso" | "correcao" | "eliminacao" | "portabilidade" | "info_compartilhamento" | "revogacao_consentimento";
+        };
+        /**
+         * DsrSubmission
+         * @description What the authenticated titular may ask for. Nothing else is an input on this surface.
+         */
+        DsrSubmission: {
+            /** Detalhes Requisicao */
+            detalhes_requisicao: string;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * Tipo Requisicao
+             * @enum {string}
+             */
+            tipo_requisicao: "confirmacao_acesso" | "correcao" | "eliminacao" | "portabilidade" | "info_compartilhamento" | "revogacao_consentimento";
+        };
         /** EscalationDecisionInputs */
         EscalationDecisionInputs: {
             /**
@@ -2487,6 +2552,14 @@ export interface components {
              */
             schema_version: "portal-decision-error.v1";
         };
+        /** PortalDsrError */
+        PortalDsrError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "dependency_unavailable";
+        };
         /** PortalIntakeError */
         PortalIntakeError: {
             /**
@@ -2968,6 +3041,11 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+            /**
+             * Flags
+             * @default []
+             */
+            flags: ("staff_documents_panel" | "staff_operations_panel")[];
             /** Principal Ref */
             principal_ref: string;
             /** Roles */
@@ -4464,6 +4542,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    submit_dsr_api_v1_portal_dsr_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DsrSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DsrReceipt"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDsrError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDsrError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDsrError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDsrError"];
                 };
             };
         };

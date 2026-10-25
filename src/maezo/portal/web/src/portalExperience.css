@@ -280,6 +280,16 @@
 .staff-panel-stack > .portal-area-panel { min-width: 0; }
 .staff-cases { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
 .staff-cases > .compact-action { justify-self: start; }
+/* Documentos do colaborador: consulta read-only por caso (W5 CLNT 5.5). */
+.staff-documents { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
+.document-type-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.2rem; }
+/* Operações do colaborador: consulta read-only por tarefa (W5 CLNT 5.5). */
+.staff-operations { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
+.dependency-detail { margin: 0; display: grid; gap: 0.4rem; }
+.dependency-detail > div { display: grid; grid-template-columns: minmax(9rem, max-content) 1fr; gap: 0.5rem; }
+.dependency-detail dt { font-weight: 600; }
+.dependency-detail dd { margin: 0; overflow-wrap: anywhere; }
+.dependency-summary { border-left: 0.2rem solid currentcolor; margin: 0; padding-left: 0.75rem; white-space: pre-wrap; }
 .case-queue-heading,
 .case-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .case-queue-heading h2 { margin-bottom: 0.35rem; }

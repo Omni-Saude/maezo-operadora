@@ -234,3 +234,9 @@ fcf005aea606ba25d58f797696f19dc65123eb10:deploy/aws-ecs/envs/dev-sa-east-1/dev-v
 fcf005aea606ba25d58f797696f19dc65123eb10:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:88
 839c7c67a97240ce2656bb68de34eb0e73f5b799:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:70
 839c7c67a97240ce2656bb68de34eb0e73f5b799:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:91
+# Renovacao/repin de 23/10/2026 (escalonamento v3): mesmo caso, VersionId pinado no commit da branch. O squash em main
+# gera outro SHA: acrescente as linhas do SHA do squash depois do merge (como o #812).
+f259b33ac1263d5e778f508b7ce8f9a43bc5afe5:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:93
+f259b33ac1263d5e778f508b7ce8f9a43bc5afe5:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:114
+93d808eebf8bae3221f978873997bd5ee5d1ec04:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:93
+93d808eebf8bae3221f978873997bd5ee5d1ec04:deploy/aws-ecs/envs/dev-sa-east-1/dev-vivo.auto.tfvars:generic-api-key:114
