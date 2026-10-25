@@ -55,6 +55,14 @@ _LOTE_COHERE: Final[int] = 90
 _CARACTERES_DO_TEXTO: Final[int] = 240
 _TEMPO_DE_ESPERA_APOS_FALHA_S: Final[float] = 300.0
 _PARALELO_TITAN: Final[int] = 8
+#: Tentativas de CADA chamada ao modelo (25/10/2026). O cliente fica parado entre um uso e outro; passado o
+#: tempo ocioso do NAT (~350 s), a conexao guardada no pool ja' caiu e a PRIMEIRA chamada falha (conexao
+#: fechada / prazo de leitura). Antes, uma falha dessas derrubava o indice inteiro (os ~300 assuntos) e a
+#: busca ficava 5 min sem significado. Agora a chamada e' repetida (em conexao nova) antes de falhar.
+TENTATIVAS_POR_CHAMADA: Final[int] = 3
+_ESPERAS_ENTRE_TENTATIVAS_S: Final[tuple[float, ...]] = (0.2, 0.6)
+#: As tentativas do PROPRIO cliente (botocore, modo `standard`: conexao fechada, prazo, limite de cota).
+TENTATIVAS_DO_CLIENTE: Final[int] = 3
 
 
 class TransporteDeEmbeddings(Protocol):
@@ -69,14 +77,25 @@ class FalhaDeEmbeddingsError(RuntimeError):
 
 
 class TransporteBedrockRegional:
-    """InvokeModel no modelo de embeddings REGIONAL (sa-east-1), sem repeticao. `client` injetavel."""
+    """InvokeModel no modelo de embeddings REGIONAL (sa-east-1). `client` injetavel.
+
+    Cada chamada tem ate' `TENTATIVAS_POR_CHAMADA` tentativas (alem das do proprio cliente). O MESMO
+    transporte serve a busca da base de saude e o catalogo de procedimentos; o catalogo continua com as
+    tentativas por lote dele (`_lote_com_tentativas`) por cima destas, e a consulta continua com o prazo
+    curto de quem chama (`asyncio.wait_for`)."""
 
     def __init__(
-        self, *, modelo: str = MODELO_COHERE_MULTILINGUE, client: Any = None, prazo_s: float = 10.0
+        self,
+        *,
+        modelo: str = MODELO_COHERE_MULTILINGUE,
+        client: Any = None,
+        prazo_s: float = 10.0,
+        dormir: Callable[[float], None] = time.sleep,
     ) -> None:
         if modelo not in MODELOS_ADMITIDOS:
             raise ValueError(f"busca semantica: modelo {modelo!r} fora da lista regional admitida")
         self.modelo = modelo
+        self._dormir = dormir
         if client is not None:
             self._client = client
         else:
@@ -87,7 +106,9 @@ class TransporteBedrockRegional:
                 "bedrock-runtime",
                 region_name=REGIAO,
                 config=Config(
-                    read_timeout=prazo_s, connect_timeout=3.0, retries={"max_attempts": 1, "mode": "standard"}
+                    read_timeout=prazo_s,
+                    connect_timeout=3.0,
+                    retries={"max_attempts": TENTATIVAS_DO_CLIENTE, "mode": "standard"},
                 ),
             )
 
@@ -102,13 +123,35 @@ class TransporteBedrockRegional:
         resposta: dict[str, Any] = json.loads(corpo_resp)
         return resposta
 
+    def _invocar_com_tentativas(self, corpo: dict[str, Any]) -> dict[str, Any]:
+        """`_invocar` com ate' `TENTATIVAS_POR_CHAMADA` tentativas: a conexao derrubada pelo tempo ocioso so'
+        falha a primeira chamada. Erro de programacao nunca e' repetido; a ultima falha sobe como veio."""
+        for tentativa in range(TENTATIVAS_POR_CHAMADA):
+            try:
+                return self._invocar(corpo)
+            except PROGRAMMING_ERRORS:
+                raise
+            except Exception as exc:
+                if tentativa == TENTATIVAS_POR_CHAMADA - 1:
+                    raise
+                # So' a CLASSE do erro: a mensagem do SDK pode trazer o texto enviado.
+                logger.info(
+                    "busca_semantica_chamada_repetida",
+                    modelo=self.modelo,
+                    tentativa=tentativa + 1,
+                    causa=type(exc).__name__,
+                )
+                esperas = _ESPERAS_ENTRE_TENTATIVAS_S
+                self._dormir(esperas[min(tentativa, len(esperas) - 1)])
+        raise AssertionError("inalcancavel")  # pragma: no cover
+
     def _vetores_sync(self, textos: Sequence[str], consulta: bool) -> list[list[float]]:
         saida: list[list[float]] = []
         if self.modelo == MODELO_COHERE_MULTILINGUE:
             tipo = "search_query" if consulta else "search_document"
             for i in range(0, len(textos), _LOTE_COHERE):
                 lote = [t[:2000] for t in textos[i : i + _LOTE_COHERE]]
-                resp = self._invocar({"texts": lote, "input_type": tipo, "truncate": "END"})
+                resp = self._invocar_com_tentativas({"texts": lote, "input_type": tipo, "truncate": "END"})
                 saida.extend([float(x) for x in v] for v in resp.get("embeddings") or [])
         else:
             # Titan: um texto por chamada; o indice (~300 assuntos) vai em paralelo (medido em dev em
@@ -117,7 +160,8 @@ class TransporteBedrockRegional:
             from concurrent.futures import ThreadPoolExecutor
 
             def _um(t: str) -> list[float]:
-                resp = self._invocar({"inputText": t[:8000], "dimensions": 512, "normalize": True})
+                corpo = {"inputText": t[:8000], "dimensions": 512, "normalize": True}
+                resp = self._invocar_com_tentativas(corpo)
                 return [float(x) for x in resp.get("embedding") or []]
 
             if len(textos) == 1:
@@ -138,6 +182,13 @@ class TransporteBedrockRegional:
             raise
         except Exception as exc:  # nenhum erro do SDK escapa (so' a classe, nunca a mensagem)
             raise FalhaDeEmbeddingsError(f"servico:{type(exc).__name__}") from exc
+
+
+def causa_da_falha(exc: BaseException) -> str | None:
+    """A CLASSE do erro de origem embrulhado em `FalhaDeEmbeddingsError` (nunca a mensagem). Sem isto o log
+    dizia so' `FalhaDeEmbeddingsError` e a causa (conexao fechada, prazo, cota) se perdia."""
+    causa = exc.__cause__
+    return type(causa).__name__ if causa is not None else None
 
 
 def _normalizado(v: Sequence[float]) -> list[float]:
@@ -218,6 +269,7 @@ class BuscaSemantica:
                     "helena_busca_semantica_indice_falhou",
                     modelo=self.transporte.modelo,
                     falha=type(exc).__name__,
+                    causa=causa_da_falha(exc),
                     assuntos=len(ids),
                 )
                 return False
@@ -259,7 +311,10 @@ class BuscaSemantica:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES as exc:
             logger.warning(
-                "helena_busca_semantica_falhou", modelo=self.transporte.modelo, falha=type(exc).__name__
+                "helena_busca_semantica_falhou",
+                modelo=self.transporte.modelo,
+                falha=type(exc).__name__,
+                causa=causa_da_falha(exc),
             )
             return None
         q = _normalizado(vetor[0])
@@ -301,11 +356,14 @@ __all__ = [
     "MODELOS_ADMITIDOS",
     "MODELO_COHERE_MULTILINGUE",
     "MODELO_TITAN_V2",
+    "TENTATIVAS_DO_CLIENTE",
+    "TENTATIVAS_POR_CHAMADA",
     "Achado",
     "BuscaSemantica",
     "FalhaDeEmbeddingsError",
     "TransporteBedrockRegional",
     "TransporteDeEmbeddings",
+    "causa_da_falha",
     "documento_do_assunto",
     "impressao_da_base",
 ]

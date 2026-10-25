@@ -6992,6 +6992,8 @@ class HelenaGraph:
             logger.info("helena_texto_variado", node="respond", response_kind=state.get("response_kind"))
             text = varia
             saida["response_text"] = text
+        # TRAVAS DE SAIDA (etapa 10 e 25/10/2026): sem link, sem contagem vazada, sem convite a mandar midia.
+        text = _travas_saida.na_saida(text)
         if not text.strip():
             # HEL-07: NADA e' enviado. Uma mensagem em branco no WhatsApp nao informa e ainda
             # parece um sistema quebrado; e a constante de handoff (`RESPOSTA_HANDOFF_RECUSADA`,
@@ -7018,8 +7020,6 @@ class HelenaGraph:
             return {**saida, **self._historico_do_turno(state, None)}
         # DL-0078: o aviso de identidade de PRIMEIRO CONTATO, como mensagem SEPARADA e ANTES da resposta
         # do turno — nunca no lugar dela. Ver `_aviso_de_identidade` (quando sai, quando e' adiado).
-        # TRAVA `sem_link` (etapa 10): nenhum link sai, venha de onde vier; a fonte fica pelo nome.
-        text = _travas_saida.sem_links(text)
         aviso_enviado, aviso_na_resposta = await self._aviso_de_identidade(state, text)
         enviada = False
         try:
@@ -7189,7 +7189,7 @@ class HelenaGraph:
             )
             return False, False
         try:
-            await self._whatsapp.send(_to_hash_from_state(state), aviso)
+            await self._whatsapp.send(_to_hash_from_state(state), _travas_saida.na_saida(aviso))
         except PROGRAMMING_ERRORS:
             raise
         except Exception as exc:
@@ -7555,7 +7555,7 @@ class HelenaGraph:
         desfecho = DESFECHO_RETOMADA_ENVIADA if erro is None else DESFECHO_RETOMADA_RECUSADA
 
         try:
-            await self._whatsapp.send(_to_hash_from_state(state), texto)
+            await self._whatsapp.send(_to_hash_from_state(state), _travas_saida.na_saida(texto))
         except PROGRAMMING_ERRORS:
             raise
         # ESTREITO (nao `except Exception`): so' falha de DEPENDENCIA vira `RetomadaEnvioFalhouError`.

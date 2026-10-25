@@ -31,7 +31,7 @@ PROMPTS_PINADOS: dict[str, tuple[str, str]] = {
     "classify": ("classify-v5.4", "b589bb42bba9f5e1f07815164f238a75ab8b11b3eeadda6199da345ccdd1bd46"),
     # DL-0088 (12/10/2026): nunca dizer que nao ve dado nenhum da pessoa.
     # DL-0090 (13/10/2026): `caso_aberto` no contexto; oferta de pessoa na forma aprovada.
-    "response": ("response-v14", "f61f0676d365d0e9ea05021af1dcfca256e6ba9e2c56df19601914a73c892bd3"),
+    "response": ("response-v15", "54635b3d4fe49c6b8e350233b35d0f44b407aeb910cb8fe65f3a3863cef92955"),
     # DL-0086 (08/10/2026): subtipo `consulta_valores`.
     "classify_roteador": (
         "classify-v7.1",
