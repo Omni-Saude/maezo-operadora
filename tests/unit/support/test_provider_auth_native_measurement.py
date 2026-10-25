@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -275,7 +276,10 @@ def test_unit_outcome_queue_with_actual_primary_remote_close_is_deferred(tmp_pat
 
 
 # ---------------------------------------------------------------------------
-# REFUSAL-63 (v25): the ONE decisive T3 read at the COMMITTING straddle corner.
+# REFUSAL-63 (v25 + ADENDO 2 deferral): the ONE decisive T3 read at the
+# COMMITTING straddle corner, deferred by the unconditional bounded
+# _T3_DEFERRED_SECONDS wait so the verdict is terminal (commit horizon measured
+# at emit+35.4/36.3/37.2 ms; the immediate v25 read lost that race by <2 ms).
 # ---------------------------------------------------------------------------
 
 _OBSERVED_AT = datetime(2026, 10, 25, 1, 53, 27, 128000, tzinfo=UTC)
@@ -454,6 +458,28 @@ def _query_sequence(connection: _CheckpointConnection) -> list:
     return [(kind, query) for kind, query, _ in connection.queries]
 
 
+def _spy_sleep(monkeypatch: pytest.MonkeyPatch, connection: _CheckpointConnection, *, delegate: bool) -> list:
+    """Interpose a spy on the module's only wait (asyncio.sleep).
+
+    Every call is recorded as (delay, queries-so-far) AND journalled into the
+    connection query log, so the ordering contract — the T3' wait strictly
+    between the T2 snapshot and the single straddle read, and nowhere else — is
+    provable from one sequence. delegate=True also awaits the real sleep so the
+    wall-clock deferral itself stays under test.
+    """
+    real = asyncio.sleep
+    waited: list = []
+
+    async def spy(delay: Any, *args: Any, **kwargs: Any) -> None:
+        waited.append((delay, len(connection.queries)))
+        connection.queries.append(("sleep", delay, ()))
+        if delegate:
+            await real(delay)
+
+    monkeypatch.setattr(measurement.asyncio, "sleep", spy)
+    return waited
+
+
 def test_in_gap_straddle_t3_committed_admits_with_distinct_t3_sub_source(monkeypatch):
     connection = _CheckpointConnection(
         checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="in progress"),
@@ -462,6 +488,8 @@ def test_in_gap_straddle_t3_committed_admits_with_distinct_t3_sub_source(monkeyp
     )
     observed = []
     _spy_session(monkeypatch, observed)
+    waited = _spy_sleep(monkeypatch, connection, delegate=True)
+    started = time.monotonic()
     capture = _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
     # Banked capture document stays byte-stable (no T3 field) and pins this source.
     assert set(capture) == set(_CAPTURE_SCHEMA_KEYS)
@@ -475,26 +503,34 @@ def test_in_gap_straddle_t3_committed_admits_with_distinct_t3_sub_source(monkeyp
     )
     assert measurement.session(capture, witness="761")["transaction_id_if_assigned"] == "761"
     # Exactly ONE decisive read, strictly AFTER the snapshot: no retry, no poll.
+    # The single T3' wait is interposed exactly there (ADENDO 2): after the four
+    # preceding statements, before the one straddle statement, never elsewhere.
     assert _query_sequence(connection) == [
         ("execute", "SELECT pg_catalog.pg_stat_clear_snapshot()"),
         ("fetchrow", measurement._VISIBILITY_SQL),
         ("fetchrow", measurement._CHECKPOINT_SQL),
         ("fetchrow", measurement._SNAPSHOT_SQL),
+        ("sleep", measurement._T3_DEFERRED_SECONDS),
         ("fetchval", measurement._STRADDLE_SQL),
     ]
     assert connection.queries[-1][2] == (761,)
     assert connection.checkpoint_txid_param == 761
+    # One real, bounded, protocol-derived wait of exactly Δ — awaited, not a
+    # synchronous stub, and it is the whole added cost of the corner.
+    assert waited == [(measurement._T3_DEFERRED_SECONDS, 4)]
+    assert time.monotonic() - started >= measurement._T3_DEFERRED_SECONDS
 
 
 @pytest.mark.parametrize(
     "straddle", ["in progress", "inprogress", "aborted", "subcommitted", None, "unknown"]
 )
-def test_in_gap_straddle_t3_other_verdicts_keep_exact_refusal(straddle):
+def test_in_gap_straddle_t3_other_verdicts_keep_exact_refusal(straddle, monkeypatch):
     connection = _CheckpointConnection(
         checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="in progress"),
         xip=[],
         straddle=straddle,
     )
+    waited = _spy_sleep(monkeypatch, connection, delegate=False)
     with pytest.raises(runtime.NativeObservationError) as refused:
         _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
     assert str(refused.value) == _IN_GAP_REFUSAL
@@ -502,6 +538,57 @@ def test_in_gap_straddle_t3_other_verdicts_keep_exact_refusal(straddle):
     assert _query_sequence(connection)[-1] == ("fetchval", measurement._STRADDLE_SQL)
     assert connection.queries[-1][2] == (761,)
     assert sum(1 for kind, _, _ in connection.queries if kind == "fetchval") == 1
+    # The deferral is UNCONDITIONAL at the corner: it never inspects a verdict
+    # before or after, so a non-committed T3' still waited the same Δ once
+    # (agendamento incondicional limitado — never a retry/poll loop).
+    assert waited == [(measurement._T3_DEFERRED_SECONDS, 4)]
+
+
+def test_t3_deferred_wait_never_runs_outside_the_straddle_corner(monkeypatch):
+    """ADENDO 2 scope: the wait exists ONLY on the in-gap corner.
+
+    Legacy xip-present, legacy committed-in-T1 and the ENTRY checkpoint all
+    reach acquire_pg_checkpoint without the corner, so asyncio.sleep must never
+    be called — the deferral adds zero latency to every non-straddle path.
+    """
+    corners = [
+        (
+            "legacy-xip-present",
+            _CheckpointConnection(
+                checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="in progress"),
+                xip=["761"],
+            ),
+            "COMMITTING",
+            "761",
+        ),
+        (
+            "legacy-committed-in-T1",
+            _CheckpointConnection(
+                checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="committed"),
+                xip=[],
+            ),
+            "COMMITTING",
+            "761",
+        ),
+        (
+            "entry-unassigned",
+            _CheckpointConnection(
+                checkpoint_row=_checkpoint_row(backend_xid32=None, witness_status=None),
+                xip=[],
+            ),
+            "ENTRY",
+            None,
+        ),
+    ]
+    for name, connection, endpoint, witness_txid in corners:
+        waited = _spy_sleep(monkeypatch, connection, delegate=False)
+        observed = []
+        _spy_session(monkeypatch, observed)
+        capture = _acquire(connection, _hold(endpoint=endpoint, witness_txid=witness_txid))
+        assert name and waited == [], name
+        assert not [entry for entry in connection.queries if entry[0] == "sleep"], name
+        assert not [entry for entry in connection.queries if entry[0] == "fetchval"], name
+        assert capture["backend_xid32"] == witness_txid, name
 
 
 def test_legacy_xip_present_path_admits_without_executing_t3(monkeypatch):
