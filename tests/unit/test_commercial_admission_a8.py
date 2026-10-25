@@ -542,12 +542,14 @@ def test_src_tree_keeps_zero_commission_vocabulary_beyond_this_loader() -> None:
 
 def test_src_tree_attribution_vocabulary_is_exactly_the_name_adjacent_non_commission_set() -> None:
     # The ONLY "attribution"/"atribuição" occurrences in `src/` python are five
-    # pre-existing NON-commission substrates plus this loader: ADR-0007 decision
-    # attribution (contas), error-layer attribution (effect_pep), declared-capability
-    # governance attribution (a2a_composition) and the OP14 channel attribute
-    # `attribution_basis_ref` (vendor projection — the A10 NR-09 canal dimension). None
-    # of them is a rate, base, generating fact or payout; the pin makes any new
-    # occurrence a conscious, gate-visible act.
+    # pre-existing NON-commission substrates plus the A8 loader and the A10 loader:
+    # ADR-0007 decision attribution (contas), error-layer attribution (effect_pep),
+    # declared-capability governance attribution (a2a_composition) and the OP14 channel
+    # attribute `attribution_basis_ref` (vendor projection — the A10 NR-09 canal
+    # dimension), whose stub transcription carries the portal stub's `attributionPolicy`/
+    # `attributionBasisRef` field names (R12 disclosure — mold of the R11 numeral fix in
+    # this same file). None of them is a rate, base, generating fact or payout; the pin
+    # makes any new occurrence a conscious, gate-visible act.
     root = Path(__file__).resolve().parents[2] / "src" / "maezo"
     allowed = {
         (root / "tools" / "workers" / "contas.py").resolve(),
@@ -556,6 +558,7 @@ def test_src_tree_attribution_vocabulary_is_exactly_the_name_adjacent_non_commis
         (root / "gateway" / "capabilities" / "vendor_journey" / "projection.py").resolve(),
         (root / "portal" / "api" / "app.py").resolve(),
         (root / "gateway" / "commercial_commission_admission.py").resolve(),
+        (root / "gateway" / "commercial_vendor_admission.py").resolve(),
     }
     found: dict[Path, list[int]] = {}
     for path in root.rglob("*.py"):
