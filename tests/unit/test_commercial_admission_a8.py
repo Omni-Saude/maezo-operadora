@@ -541,7 +541,7 @@ def test_src_tree_keeps_zero_commission_vocabulary_beyond_this_loader() -> None:
 
 
 def test_src_tree_attribution_vocabulary_is_exactly_the_name_adjacent_non_commission_set() -> None:
-    # The ONLY "attribution"/"atribuição" occurrences in `src/` python are four
+    # The ONLY "attribution"/"atribuição" occurrences in `src/` python are five
     # pre-existing NON-commission substrates plus this loader: ADR-0007 decision
     # attribution (contas), error-layer attribution (effect_pep), declared-capability
     # governance attribution (a2a_composition) and the OP14 channel attribute
