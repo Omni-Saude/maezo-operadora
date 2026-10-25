@@ -46,6 +46,7 @@ from tests.unit.test_commercial_http import (
     UnitSourceAuthority,
     hosted_case,
     sales_session_admission,
+    support_handoff_admission,
     unavailable_capabilities,
     wire_command,
     wire_result,
@@ -968,6 +969,10 @@ async def test_actual_work_list_http_composition_requires_staff_result_authority
         source_authority=source,
         amh_origin="https://amh.invalid",
         sales_admission=sales_session_admission(),
+        # A5 (BRDG-3.3): the support/work dimension is its own admission — this rig
+        # exercises the staff result-authority lane, so it carries the registered A5
+        # record; without it the composition refuses `work.list` before any source step.
+        support_admission=support_handoff_admission(),
         transport=httpx.MockTransport(transport),
     )
     trusted = await gateway.admission.transport("Bearer SYN-SALES-CREDENTIAL", "SYN-SALES-CONNECTION")
