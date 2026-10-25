@@ -866,6 +866,28 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         subject_column=None,
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="comissao_rascunho",
+        tabela="commission_adjustment_policies",
+        migracao="0029_commission_adjustment_policies.py::upgrade (commission_adjustment_policies)",
+        identificacao=(
+            "tenant + policy_ref (`cap-` + 128 bits aleatorios do servidor); the row holds only the DRAFT "
+            "STRUCTURE of a commission adjustment (dimension, symbolic target id, adjustment kind, NULLABLE "
+            "value slots, vigencia windows, declared precedence, optimistic revision) and the audit stamps "
+            "(principal_ref of the internal staff editor + timestamps) - no titular data: no CPF, no birth "
+            "date, no name, no phone, no text. `dimensao_ref` is an opaque internal identifier of a "
+            "product/channel/broker (closed charset) and reaches neither `conversation_id` nor the DSR "
+            "reference (`beneficiario_pseudo_id`); the editor principal_ref identifies an internal "
+            "operator, never the data subject (D-36). The row can hold no state other than `DRAFT` "
+            "(table CHECK); the surface is DARK and empty by default"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=42,
+        subject_column=None,
+        # No probe: the surface is DARK (flag OFF) and the table is empty by default — a
+        # count would be a fabricated zero until the owner act flips it.
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)

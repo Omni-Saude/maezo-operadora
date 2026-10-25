@@ -879,3 +879,21 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: "PENDENTE-RATIFICACAO-DPO: legitimo interesse na seguranca do acesso aos dados de saude (LGPD art. 7o, IX, e art. 46), prevencao de tentativa de acesso indevido por adivinhacao de data de nascimento; sem decisao ratificada"
     retencao: "PENDENTE-RATIFICACAO-DPO: 12 horas desde a primeira falha da janela (a janela de 6 h e mais uma), apagada pelo varredor do acesso (decisao do dono ja implementada)"
+  - camada: comissao_rascunho
+    tabela: commission_adjustment_policies
+    migracao: "0029_commission_adjustment_policies.py::upgrade (commission_adjustment_policies)"
+    identificacao: "tenant + policy_ref (`cap-` + 128 bits aleatorios do servidor); the row holds only the DRAFT STRUCTURE of a commission adjustment (dimension, symbolic target id, adjustment kind, NULLABLE value slots, vigencia windows, declared precedence, optimistic revision) and the audit stamps (principal_ref of the internal staff editor + timestamps) - no titular data: no CPF, no birth date, no name, no phone, no text. `dimensao_ref` is an opaque internal identifier of a product/channel/broker (closed charset) and reaches neither `conversation_id` nor the DSR reference (`beneficiario_pseudo_id`); the editor principal_ref identifies an internal operator, never the data subject (D-36)"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 42
+    tensao: null
+    notas: >-
+      D-36 (superficie INTERNA de estruturas de ajuste de comissao, decisao do dono de 25/10/2026): rascunhos
+      DRAFT only — todo slot de valor e' anulavel (dados entram no FUTURO), nada calcula, publica ou liquida,
+      e o banco so' aceita status `DRAFT` por CHECK (ativacao exige a ratificacao A8 Forma 1 pelos tres papeis
+      comercial+legal+DPO e chega como MIGRACAO sucessora). A superficie e' DARK (flag
+      `staff_commission_policies` OFF) e a tabela nasce vazia; sem varredor enquanto isso. Sem CPF, nascimento,
+      nome, telefone ou texto. Segue marcada PENDENTE porque este artefato e' o DRAFT do DPO e so' a
+      ratificacao dele o torna o plano formal.
+    decisao_dpo: PENDENTE
+    base_legal: "PENDENTE-RATIFICACAO-DPO: execucao de contrato prospectiva (estruturas de ajuste comercial interno), sem decisao ratificada e sem dado de titular na relacao"
+    retencao: "PENDENTE-RATIFICACAO-DPO: sem prazo ratificado; superficie DARK e tabela vazia por padrao — prazo passa a existir no ato de habilitacao do dono, com revisao do DPO"
