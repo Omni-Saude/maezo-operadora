@@ -567,10 +567,12 @@ async def test_nao_mantem_o_caso_e_falha_do_motor_diz_a_verdade() -> None:
     assert _texto(resultado) == graph_module.RESPOSTA_ENCERRAMENTO_FALHOU
 
 
-async def test_recusa_sem_caso_aberto_e_a_resposta_de_antes() -> None:
+async def test_recusa_sem_caso_aberto_e_so_reconhecida() -> None:
+    # Avaliacao r5 (25/10/2026): sem oferta e sem caso, a recusa e' so' reconhecida (nunca o paragrafo longo).
     conversa = _Conversa()
     resultado = await conversa.diz("Não quero falar com ninguém", _INFO)
-    assert _texto(resultado) == RESPOSTA_RECUSA_DE_EQUIPE
+    assert _texto(resultado) == "Combinado! Se precisar, é só chamar."
+    assert _texto(resultado) != RESPOSTA_RECUSA_DE_EQUIPE
     assert conversa.memoria.get("coleta_pendente") is None
 
 

@@ -243,6 +243,8 @@ from .consultas_plano import (
     NomesDoTurno,
     texto_para_cerca,
 )
+from .habilidades.atendimento_humano.textos import PENDENTE_OFERTA_EQUIPE
+from .habilidades.atendimento_humano.textos import RESPOSTA_RECUSA_DE_EQUIPE as RESPOSTA_RECUSA_DE_EQUIPE
 from .habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
 from .habilidades.cobertura_fora import TEXTO_COBERTURA_FORA
 from .habilidades.conversa import assuntos as _assuntos
@@ -3130,16 +3132,8 @@ RESPOSTA_DUVIDA_DE_SAUDE: str = (
     "de saúde. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro mais "
     "próximo."
 )
-#: DL-0088: a resposta a quem NAO quer falar com a equipe. O caso que ja' existe continua (a frase e'
-#: condicional porque este turno nao consulta o motor), nenhuma decisao foi tomada (forma unica do
-#: guia) e a Helena segue ajudando. Nada aqui abre ou fecha processo.
-RESPOSTA_RECUSA_DE_EQUIPE: str = (
-    "Tudo bem, respeito sua escolha. Se você já tem um atendimento aberto com a nossa equipe, ele "
-    "continua lá, sem pressa. Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada. "
-    "Eu não dou orientação clínica nem diagnóstico, mas posso ajudar com o plano, os canais e onde "
-    "buscar atendimento. Se for uma emergência, ligue agora para o 192 (SAMU) ou vá ao pronto-socorro "
-    "mais próximo."
-)
+#: A recusa da equipe (`RESPOSTA_RECUSA_DE_EQUIPE`, curta) mora em `habilidades.atendimento_humano.textos`
+#: desde a avaliacao r5 de 25/10/2026: so' com oferta pendente (`oferta.texto_da_recusa`).
 
 
 # --- ENCERRAR O CASO A PEDIDO DA PESSOA (ADR-0064, so' com `MAEZO_HELENA_BASE_SAUDE`) ----------------------
@@ -4596,6 +4590,7 @@ from . import travas_entrada as _travas_entrada  # noqa: E402
 # ADR-0067 §5: os metodos desta habilidade moram em `habilidades.atendimento_humano.escalar` (importado
 # AQUI, depois dos helpers de modulo que ele usa, para o import circular ser seguro).
 from .habilidades.atendimento_humano import escalar as _escalar  # noqa: E402
+from .habilidades.atendimento_humano import oferta as _oferta  # noqa: E402
 
 # ADR-0067 §5: os metodos desta habilidade moram em `habilidades.conversa.fluxo` (importado AQUI, depois
 # dos helpers de modulo que ele usa, para o import circular ser seguro).
@@ -5981,9 +5976,9 @@ class HelenaGraph:
         pend_encerrar = self._base_saude and state.get("coleta_pendente") == PENDENTE_ENCERRAR_CASO
         if pend_encerrar:
             update["coleta_pendente"] = None
-        if str(state.get("coleta_pendente") or "").startswith(("BS_COBERTURA", "COB2:", "SAUDE_OFERTA")):
-            # COBERTURA FORA (DL-0154): uma pergunta pendente da cobertura de antes (estado gravado antes da
-            # retirada) nunca sobrevive ao turno.
+        velhas = ("BS_COBERTURA", "COB2:", "SAUDE_OFERTA", PENDENTE_OFERTA_EQUIPE)
+        if str(state.get("coleta_pendente") or "").startswith(velhas):
+            # COBERTURA FORA (DL-0154) e a oferta da equipe (r5, 25/10): a pendencia vale so' um turno.
             update["coleta_pendente"] = None
             update["coleta_contexto"] = ""
         return pend_v4, pend_encerrar
@@ -6267,6 +6262,8 @@ class HelenaGraph:
         plano = _plano(texto)
         if not plano or _sg.tem_risco(plano) or state.get("sinal_saude_lexico") is True:
             return None
+        if (oferta := _oferta.responder(self, state)) is not None:
+            return oferta  # avaliacao r5 (25/10): o "sim"/"nao" a oferta da equipe, decidido no codigo
         if _conversa_sem_relato_clinico(texto) == CONVERSA_RECUSA_DE_EQUIPE:
             update = self._update_sem_modelo(state)
             abertos = await self._casos_abertos_da_conversa(state) if self._base_saude else []
@@ -6293,8 +6290,10 @@ class HelenaGraph:
                 return self._base_texto_fixo(
                     update, RESPOSTA_CONFIRMA_ENCERRAMENTO, pendente=PENDENTE_ENCERRAR_CASO
                 )
-            logger.info("helena_recusa_de_equipe_sem_modelo", node="classify", caso_aberto=False)
-            return _rota_informativa(update)
+            # Avaliacao r5 (25/10): recusa curta so' com oferta ou caso aberto; sem nada, o reconhecimento.
+            caso = bool(await self._motivo_do_caso_aberto(_business_key(state)))
+            logger.info("helena_recusa_de_equipe_sem_modelo", node="classify", caso_aberto=caso)
+            return self._base_texto_fixo(update, _oferta.texto_da_recusa(state, caso_aberto=caso))
         cobertura = self._cobertura_fora(state, plano, texto)
         if cobertura is not None:
             return cobertura
@@ -6967,31 +6966,12 @@ class HelenaGraph:
             saida = {}
             text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
             saida.update(cerca)
-            if _helena_em_loop(state, text):
-                # DL-0147 (gatilho de loop da ficha -> `falha_tecnica`): em vez da mesma resposta mais uma
-                # vez, o MESMO start idempotente de todo escalonamento, com o texto fixo de handoff que ele
-                # ja' escolhe pelo motivo. Nenhum texto novo ao beneficiario; o modelo nao decide nada aqui.
-                logger.warning(
-                    "helena_repeticao_escalada",
-                    node="respond",
-                    response_kind=state.get("response_kind"),
-                    repeticoes=_repeticoes_seguidas(state, text),
-                )
-                escalado = await self._start_escalation(
-                    state,
-                    motivo="falha_tecnica",
-                    severidade=None,
-                    response_kind="escalate",
-                    error=ERRO_HELENA_EM_REPETICAO,
-                )
-                state = cast(HelenaState, {**state, **escalado})
-                saida = dict(escalado)
-                if state.get("start_failed") is True:
-                    saida.update(self._start_failure_outcome(state))
-                    text = RESPOSTA_FALHA_TECNICA_START
-                else:
-                    text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
-                    saida.update(cerca)
+            if _helena_em_loop(state, text) and not text.startswith(self._textos[CHAVE_TEXTO_COBERTURA_FORA]):
+                # DL-0147 revisto na avaliacao r5 (25/10/2026): a mesma resposta pela N+1-esima vez OFERECE a
+                # equipe (pendencia de sim/nao) e o caso so' abre com o "sim" da pessoa; nunca `falha_tecnica`
+                # sozinho. O aviso fixo da cobertura (DL-0154, sem oferta da equipe) nunca vira loop.
+                text, oferta = _oferta.oferta_por_repeticao(state)
+                saida.update(oferta)
         # RODADA 2: nunca o mesmo texto longo duas vezes seguidas (ver `_sem_repetir`).
         # DL-0131 (decisao do dono): na allowlist, sem o "Entendi."/"Certo." de enfeite na frente de um texto
         # repetido — so' as redacoes alternativas de verdade (`_VARIANTES`).
