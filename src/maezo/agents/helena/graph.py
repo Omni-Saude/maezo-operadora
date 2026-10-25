@@ -5564,12 +5564,9 @@ class HelenaGraph:
         if mantido is not None:
             return mantido
         ja_triado = bool(extraction.get("sintoma_codigo"))
-        # RODADA DO DONO (18/10/2026), so' na allowlist: DUVIDA EDUCATIVA ("os sintomas de problemas cardiacos
-        # em
-        # mulheres podem ser diferentes? o que devo observar alem da dor no peito?") nao e' quadro atual. A
-        # tabela
-        # de alarme roda SEMPRE, mas so' ESCALA com quadro atual; a duvida vai a redacao. Com sinal grave
-        # explicito e presente ("estou com dor no peito e falta de ar") e' quadro: escala (o lado seguro).
+        # RODADA DO DONO (18/10/2026), so' na allowlist: DUVIDA EDUCATIVA ("sintomas cardiacos em mulheres
+        # podem ser diferentes?") nao e' quadro atual. A tabela de alarme roda SEMPRE, mas so' ESCALA com
+        # quadro atual; a duvida vai a redacao. Sinal grave explicito e presente e' quadro: escala.
         duvida_educativa = self._gerativa_para(state) and _sg.e_duvida_educativa(_plano(texto_clinico))
         triou = ja_triado and await self._triar_red_flag(extraction, update)
         if triou and duvida_educativa and update.get("escalation_motivo") == "red_flag_clinico":
@@ -6235,6 +6232,9 @@ class HelenaGraph:
             return piorou
         if _sinal_novo_de_alarme(state) or self._v4_pede_pessoa(state, texto):
             return None
+        v7 = _rv7.LEITURA_DO_TURNO.get()
+        if v7 is not None and not v7.sinais_atuais() and v7.skill not in ("saude", "atendimento_humano"):
+            return None  # Avaliacao r5 (25/10/2026): plano, cobertura, conversa e Lucas sao respondidos.
         plano = _plano(texto)
         if (
             _pergunta_do_plano(texto)

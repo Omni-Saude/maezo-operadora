@@ -1040,17 +1040,20 @@ HELENA_V4: tuple[Segmento, ...] = (
             _p(
                 "Estou com dor nas costas desde ontem",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=(
-                    "entendi: dor nas costas desde ontem",
-                    "(dor no peito|falta de ar)",
-                    "responda sim ou nao",
+                # Teste do dono de 25/10/2026 (item 5): sem o eco literal da frase da pessoa.
+                deve=("(dor no peito|falta de ar)", "(responda sim ou nao|responda so sim ou nao)"),
+                nao_deve=(
+                    _ENCAMINHOU,
+                    _SEM_CONDUTA,
+                    r"(7|14) dias uteis",
+                    "o que voce esta sentindo",
+                    "entendi: ",
                 ),
-                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, r"(7|14) dias uteis", "o que voce esta sentindo"),
             ),
             _p(
                 "Não",
                 escalacao=ESCALACAO_NENHUMA,
-                primeira_frase_deve="^entendi: dor nas costas desde ontem",
+                primeira_frase_deve=r"^entendi\b",
                 deve=(
                     "nao avalio sintomas, mas te ajudo com o caminho",
                     r"1\) saber onde marcar consulta com (?:clinico geral|pediatra) pelo plano",
@@ -1060,7 +1063,7 @@ HELENA_V4: tuple[Segmento, ...] = (
                     "se piorar, procure um pronto-atendimento",
                     "ligue 192",
                 ),
-                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, "entendi: "),
             ),
             _p(
                 "1",
@@ -1070,8 +1073,8 @@ HELENA_V4: tuple[Segmento, ...] = (
             ),
         ),
         resolveu=(
-            "o sintoma leve recebeu SO' a pergunta de alerta, depois do 'nao' a resposta com o que a pessoa "
-            "disse ('dor nas costas desde ontem') e as opcoes 1/2 do dono com 192, e a opcao 1 mostrou como "
+            "o sintoma leve recebeu SO' a pergunta de alerta, depois do 'nao' a resposta (sem o eco literal "
+            "do que a pessoa disse) e as opcoes 1/2 do dono com 192, e a opcao 1 mostrou como "
             "marcar pelo plano (aplicativo/portal/central, 7 dias uteis) sem diagnostico e sem abrir caso"
         ),
     ),
@@ -1081,15 +1084,15 @@ HELENA_V4: tuple[Segmento, ...] = (
             _p(
                 "Meu filho está com tosse",
                 escalacao=ESCALACAO_NENHUMA,
-                deve=("entendi: seu filho esta com tosse", "(respirar|sonolent)", "responda sim ou nao"),
-                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, r"(7|14) dias uteis"),
+                deve=("(respirar|sonolent)", "(responda sim ou nao|responda so sim ou nao)"),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, r"(7|14) dias uteis", "entendi: "),
             ),
             _p(
                 "Não",
                 escalacao=ESCALACAO_NENHUMA,
-                primeira_frase_deve="^entendi: seu filho esta com tosse",
+                primeira_frase_deve=r"^entendi\b",
                 deve=(r"1\) saber onde marcar", r"2\) falar com a nossa equipe de saude", "ligue 192"),
-                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA),
+                nao_deve=(_ENCAMINHOU, _SEM_CONDUTA, "entendi: "),
             ),
             _p(
                 "2",

@@ -464,8 +464,11 @@ def texto_da_pergunta_de_alerta(
     perguntas = " ".join(escolhido.perguntas)
     if repetida:
         return modelo_da_repergunta.format(sinais=escolhido.sinais)
+    # Teste do dono de 25/10/2026 (item 5): sem o ECO literal da frase da pessoa ("Entendi: eu sofri uma
+    # queda...", na primeira pessoa dela). `eco` fica na assinatura so' por compatibilidade.
+    del eco
     return (
-        f"Entendi: {eco}. Antes de te mostrar o caminho, preciso de uma informação rápida. "
+        "Entendi. Antes de te mostrar o caminho, preciso de uma informação rápida. "
         f"{perguntas} {_PEDIDO_DE_RESPOSTA}"
     )
 
@@ -478,8 +481,9 @@ def texto_final_do_sintoma(eco: str, populacao: str = POPULACAO_ADULTO) -> str:
     ou a equipe, e FECHA — sem orientar o sintoma nem explicar causa; o profissional vem pela idade (adulto:
     clinico geral; crianca: pediatra), nunca "clinico geral ou pediatra" para um adulto."""
     profissional = "pediatra" if populacao == POPULACAO_CRIANCA else "clínico geral"
+    del eco  # teste do dono de 25/10/2026 (item 5): sem o eco literal do relato
     return (
-        f"Entendi: {eco}. Eu não avalio sintomas, mas te ajudo com o caminho. "
+        "Entendi. Eu não avalio sintomas, mas te ajudo com o caminho. "
         f"Você prefere: 1) saber onde marcar consulta com {profissional} pelo plano "
         "(até 7 dias úteis pela ANS); ou 2) falar com a nossa equipe de saúde? "
         "Se piorar, procure um pronto-atendimento; se for grave, ligue 192."
@@ -487,16 +491,25 @@ def texto_final_do_sintoma(eco: str, populacao: str = POPULACAO_ADULTO) -> str:
 
 
 _ABERTURA_FINAL: Final[re.Pattern[str]] = re.compile(
-    r"^Entendi: [^.]{1,200}\. Eu não avalio sintomas, mas te ajudo com o caminho\. Você prefere: 1\) "
+    r"^Entendi(?:: [^.]{1,200})?\. Eu não avalio sintomas, mas te ajudo com o caminho\. Você prefere: 1\) "
 )
 
 
-def texto_da_opcao_1(populacao: str) -> str:
+#: Teste do dono de 25/10/2026 (item 2): a pessoa reclama da repeticao ("eu ja' tinha te respondido que nao"):
+#: o pedido de desculpa e o caminho, sem oferecer de novo as mesmas opcoes.
+DESCULPA_DA_REPETICAO: Final[str] = "Desculpe, você já tinha me respondido."
+
+
+def texto_da_opcao_1(populacao: str, *, desculpa: bool = False) -> str:
     """Opcao 1: como marcar consulta pelo plano, SEM diagnostico — o T05 da triagem v2 (ja' conferido contra
-    as cercas): adulto -> clinico geral; crianca -> pediatra."""
-    if populacao == POPULACAO_CRIANCA:
-        return RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA
-    return RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO
+    as cercas): adulto -> clinico geral; crianca -> pediatra. `desculpa`: com o pedido de desculpa pela
+    repeticao antes (texto fixo tambem)."""
+    texto = (
+        RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA
+        if populacao == POPULACAO_CRIANCA
+        else RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO
+    )
+    return f"{DESCULPA_DA_REPETICAO} {texto}" if desculpa else texto
 
 
 # --- O codigo de "onde a conversa parou" (vai em `coleta_pendente`) ---------------------------------
@@ -726,7 +739,12 @@ def resumo_do_caso(pendente: object, relato: object, *, alerta: AlertaDoGrupo | 
 # --- Os textos fixos que `inform` deixa passar ------------------------------------------------------
 #: Os textos FIXOS (sem parte variavel) que a v4 deixa prontos para `inform`.
 TEXTOS_FIXOS_V4: Final[frozenset[str]] = frozenset(
-    {RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO, RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA}
+    {
+        RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO,
+        RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA,
+        f"{DESCULPA_DA_REPETICAO} {RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO}",
+        f"{DESCULPA_DA_REPETICAO} {RESPOSTA_TRIAGEM_ORIENTAR_CAMINHO_CRIANCA}",
+    }
 )
 
 
@@ -744,6 +762,7 @@ def e_texto_da_v4(texto: object) -> bool:
 
 __all__ = [
     "ALERTAS",
+    "DESCULPA_DA_REPETICAO",
     "ECO_GENERICO",
     "TEXTO_DA_REPERGUNTA",
     "e_agravamento",
