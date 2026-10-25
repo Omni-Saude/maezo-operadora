@@ -37,6 +37,12 @@ EXPECTED_PATHS = {
     "/api/v1/portal/cases/{case_ref}/document-uploads",
     "/api/v1/portal/cases/{case_ref}/documents",
     "/api/v1/portal/cases/{case_ref}/history",
+    # D-36 (dono, 2026-10-25): the internal commission ADJUSTMENT-STRUCTURE draft surface
+    # ships DOCUMENTED and DARK — the routes always publish in the schema; the
+    # `staff_commission_policies` flag (OFF) decides whether they ANSWER. DRAFT CRUD only:
+    # no calculation/activation/liquidation path exists to publish.
+    "/api/v1/portal/commission-adjustments",
+    "/api/v1/portal/commission-adjustments/{policy_ref}",
     "/api/v1/portal/commands/{command_id}",
     "/api/v1/portal/commands/{command_id}/receipt",
     "/api/v1/portal/document-uploads/{upload_ref}/complete",

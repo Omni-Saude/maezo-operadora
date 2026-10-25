@@ -3,14 +3,15 @@
 Cinco camadas, no molde de `test_check_portal_direct_completion.py`/`test_check_helm_entrypoints.py`:
 
 1. **Arvore real verde** — `executar()` na arvore rastreada NAO acha nada, e o verde nao e'
-   vacuo: os 3 campos existem, o prefixo bate, o `deploy/**` tem arquivos e as constantes
+   vacuo: os 4 campos registrados existem, o prefixo bate, o `deploy/**` tem arquivos e as
+   constantes
    das pontes valem os pinos.
 2. **Mutacao do default** (prova de mutacao, sintetica): `lgpd_dsr_channel = True` deixa a
    cerca VERMELHA nomeando o campo — o padrao das non-negotiables da casa (prova de
    mutacao, nao so' verde).
 3. **Cerco cego** — campo removido, classe removida, `env_prefix` trocado e modulo das
    pontes com constante renomeada: cada um reprova NOMEANDO, nunca silencio.
-4. **Deploy** — qualquer mencao a qualquer um dos 5 nomes de env em `deploy/**` (.tf, .yaml,
+4. **Deploy** — qualquer mencao a qualquer um dos 6 nomes de env em `deploy/**` (.tf, .yaml,
    ate .md) reprova, com arquivo:linha; e `deploy/` vazio/ausente reprova (varrer nao e' prova).
 5. **Pinos de nome** — os nomes de env pinnados na cerca derivam de `env_prefix` + campo
    real (portal) e das constantes de modulo (pontes); drift em qualquer um dos dois lados
@@ -45,13 +46,15 @@ def test_cerca_verde_na_arvore_real() -> None:
 
 
 def test_verde_nao_e_vacuo_campos_prefixo_e_deploy_existem() -> None:
-    # Os 3 campos estao la, exatamente uma vez, com default literal False — se algum
+    # Os 4 campos registrados estao la, exatamente uma vez, com default literal False — se
+    # algum
     # sumir/renamear SEM tocar a cerca, o teste acima fica vermelho; este fixa a CONTAGEM.
     texto = _CONFIG_REAL.read_text(encoding="utf-8")
     for _relativo, classe, campo, _esperado in (
         (CONFIG_PORTAL, "PortalSettings", "lgpd_dsr_channel", False),
         (CONFIG_PORTAL, "PortalSettings", "staff_documents_panel", False),
         (CONFIG_PORTAL, "PortalSettings", "staff_operations_panel", False),
+        (CONFIG_PORTAL, "PortalSettings", "staff_commission_policies", False),
     ):
         declaracoes = [linha for linha in texto.splitlines() if linha.strip().startswith(f"{campo}: bool = ")]
         assert len(declaracoes) == 1, f"{classe}.{campo} declarado {len(declaracoes)}x"
@@ -61,11 +64,12 @@ def test_verde_nao_e_vacuo_campos_prefixo_e_deploy_existem() -> None:
     assert any((_REPO_ROOT / "deploy").rglob("*")), "deploy vazio — a cerca estaria varrendo nada"
 
 
-def test_os_cinco_nomes_de_env_pinados_sao_os_do_programa() -> None:
+def test_os_nomes_de_env_pinados_sao_os_registrados_na_cerca() -> None:
     assert ENV_FLAGS_PROGRAMA == (
         "MAEZO_PORTAL_LGPD_DSR_CHANNEL",
         "MAEZO_PORTAL_STAFF_DOCUMENTS_PANEL",
         "MAEZO_PORTAL_STAFF_OPERATIONS_PANEL",
+        "MAEZO_PORTAL_STAFF_COMMISSION_POLICIES",
         "MAEZO_ERASURE_BRIDGE_TITULAR_ENABLED",
         "MAEZO_ERASURE_BRIDGE_THREAD_ENABLED",
     )

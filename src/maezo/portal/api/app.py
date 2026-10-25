@@ -38,6 +38,12 @@ from maezo.portal.api.commercial import (
     is_public_catalog_request,
     public_catalog_error,
 )
+from maezo.portal.api.commission_policies import (
+    CommissionPolicyServiceFactory,
+    commission_policy_error,
+    commission_policy_router,
+    is_commission_policy_request,
+)
 from maezo.portal.api.communications import (
     CommunicationServiceFactory,
     communication_router,
@@ -245,6 +251,7 @@ def create_app(
     vendor_submission_service_factory: VendorSubmissionServiceFactory | None = None,
     dsr_service_factory: DsrServiceFactory | None = None,
     admin_read_service_factory: AdminReadServiceFactory | None = None,
+    commission_policy_service_factory: CommissionPolicyServiceFactory | None = None,
     commercial_gateway: CommercialGateway | None = None,
     public_catalog_gateway: PublicCatalogGateway | None = None,
     web_root: Path | None = None,
@@ -364,6 +371,13 @@ def create_app(
     # (the only writer) stand.
     app.state.admin_read_service_factory = admin_read_service_factory
     app.include_router(admin_read_router)
+    # D-36 (dono, 2026-10-25): the internal commission ADJUSTMENT-STRUCTURE surface ships
+    # DOCUMENTED and DARK — `staff_commission_policies` is OFF, no default factory exists and
+    # the router carries DRAFT CRUD only (no calculation/activation/liquidation endpoint
+    # exists by construction), so the routes refuse (403 flag / 503 unbound slot) before any
+    # effect. Flipping is the owner's future act, after the A8 Forma 1 ratification.
+    app.state.commission_policy_service_factory = commission_policy_service_factory
+    app.include_router(commission_policy_router)
     # Commercial sources remain unbound by default. Admission precedes body intake.
     app.state.commercial_gateway = commercial_gateway
     app.state.public_catalog_gateway = public_catalog_gateway
@@ -407,6 +421,8 @@ def create_app(
                 return dsr_error("invalid_request")
             if is_admin_read_request(request):
                 return admin_read_error("invalid_request")
+            if is_commission_policy_request(request):
+                return commission_policy_error("invalid_request")
             if is_decision_request(request):
                 return decision_error("invalid_request")
             # Completion first: its path lives under the read prefix, so `is_task_read` also
@@ -432,6 +448,8 @@ def create_app(
             return dsr_error("invalid_request")
         if is_admin_read_request(request):
             return admin_read_error("invalid_request")
+        if is_commission_policy_request(request):
+            return commission_policy_error("invalid_request")
         if is_decision_request(request):
             return decision_error("invalid_decision")
         # 422 with this route's own schema: a body whose `resultado` is absent or outside the
