@@ -50,6 +50,7 @@ from maezo.agents.helena.graph import (
     _validate_extraction,
     new_helena_state,
 )
+from maezo.agents.helena.habilidades.atendimento_humano.textos import RESPOSTA_RECUSA_COM_CASO
 from maezo.agents.helena.prompts import (
     menciona_encaminhamento,
     motivo_de_canal_nao_confirmado,
@@ -325,9 +326,9 @@ async def test_msg3b_recusa_da_equipe_e_respeitada_e_nao_repete_o_aviso_de_caso_
     resultado = await _turno(grafo, _entrada(MSG_3B))
 
     assert resultado["response_kind"] == "inform"
-    assert whatsapp.enviados == [RESPOSTA_RECUSA_DE_EQUIPE]
+    # Avaliacao r5 (25/10/2026): com o caso aberto, a frase curta do caso (nada se encerra, nada repete).
+    assert whatsapp.enviados == [RESPOSTA_RECUSA_COM_CASO]
     assert RESPOSTA_HANDOFF_JA_ABERTO not in whatsapp.enviados[0]
-    assert "Fique tranquilo: nenhuma decisão sobre o seu plano foi tomada." in whatsapp.enviados[0]
     assert _starts(cib) == antes
 
 
@@ -339,7 +340,7 @@ async def test_recusa_com_a_palavra_atendente_nao_vira_pedido_de_pessoa_pelo_lex
     )
 
     assert resultado.get("escalation_motivo") is None
-    assert whatsapp.enviados == [RESPOSTA_RECUSA_DE_EQUIPE]
+    assert whatsapp.enviados == ["Combinado! Se precisar, é só chamar."]
     assert _starts(cib) == 0
 
 

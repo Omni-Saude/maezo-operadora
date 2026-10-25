@@ -329,8 +329,10 @@ escalation:
       # "loop" deste gatilho (e da regra `r6` de escalation_routing.dmn, "Falha tecnica do agente
       # (loop, tool down)") e' a Helena prestes a mandar, pela N+1-esima vez SEGUIDA, a MESMA resposta
       # (>= 60 caracteres, comparada sem o prefixo de variacao) que ja' saiu nas N falas anteriores dela
-      # no historico curto. Escala `falha_tecnica`, severidade `null` (HEL-04), pelo mesmo start
-      # idempotente e com o mesmo texto fixo de handoff; nunca com caso ja' aberto na conversa.
+      # no historico curto. REVISTO na avaliacao r5 (25/10/2026): o loop NAO abre caso sozinho; a Helena
+      # OFERECE a equipe (pendencia `EQ_OFERTA`) e o caso so' abre com o "sim" da pessoa
+      # (`solicitacao_humano`). O aviso fixo da cobertura (DL-0154) nunca conta como loop; nunca com caso
+      # ja' aberto na conversa.
       # A pessoa repetindo a pergunta NAO conta aqui (e' o "frustracao 2x" de AGJ-HELENA-TRIAGE,
       # `solicitacao_humano`, outro gatilho). O parametro mora em `escalation.loop` logo abaixo (cada
       # entrada de `triggers` e' um mapeamento de UMA chave, cerca de tests/evals/test_trigger_coverage.py).

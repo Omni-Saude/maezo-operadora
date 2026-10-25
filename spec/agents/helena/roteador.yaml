@@ -150,7 +150,7 @@ habilidades:
       - "quero falar com um atendente"
       - "não precisa mais, já resolvi"
       - "pode passar pra equipe sim"
-    pendencias: ["BS_ENCERRAR_CASO"]
+    pendencias: ["BS_ENCERRAR_CASO", "EQ_OFERTA"]  # EQ_OFERTA: a oferta da equipe (avaliacao r5, 25/10/2026)
     processo: SP-OP-ESCALATION-001
     modulos_atuais: [graph.py (escalate), delegation.py]
   - id: pedidos

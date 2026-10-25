@@ -52,7 +52,8 @@ def _resposta_fixa_de_conversa(self: HelenaGraph, estado: Mapping[str, Any]) -> 
     if intent in ("information", "greeting"):
         conversa = _conversa_sem_relato_clinico(texto)
         if conversa == CONVERSA_RECUSA_DE_EQUIPE:
-            return RESPOSTA_RECUSA_DE_EQUIPE
+            # Avaliacao r5 (25/10/2026): a recusa curta so' com oferta pendente (ou caso aberto).
+            return _oferta.texto_da_recusa(estado)
         if conversa == CONVERSA_DUVIDA_DE_SAUDE:
             return RESPOSTA_DUVIDA_DE_SAUDE
     if intent in _INTENTS_QUE_VIRAM_COBRANCA:
@@ -101,7 +102,6 @@ from maezo.agents.helena.graph import (  # noqa: E402
     RESPOSTA_NAVEGACAO,
     RESPOSTA_NAVEGACAO_CASO_ABERTO,
     RESPOSTA_O_QUE_SEI_DE_VOCE,
-    RESPOSTA_RECUSA_DE_EQUIPE,
     RESPOSTA_TELEFONE_DA_CENTRAL,
     _caso_aberto_afirmavel,
     _conversa_sem_relato_clinico,
@@ -117,3 +117,4 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _plano,
     _texto_plano_indisponivel,
 )
+from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402

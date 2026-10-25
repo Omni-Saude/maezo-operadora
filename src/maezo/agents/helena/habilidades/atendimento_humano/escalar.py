@@ -302,6 +302,8 @@ async def _trava_caso_sem_pedido(
         or _ESCOLHA_DE_OPCAO.match(plano.strip())
         or _CITA_UMA_PESSOA.search(plano)
         or _ameaca_regulatoria(texto)
+        # Avaliacao r5 (25/10/2026): o "sim" ("quero", "pode passar") a uma oferta da equipe da conversa.
+        or _oferta.sim_a_oferta_pendente(state)
     ):
         return None
     if await self._motivo_do_caso_aberto(_business_key(state)):
@@ -683,3 +685,4 @@ from maezo.agents.helena.graph import (  # noqa: E402
     logger,
     start_process_idempotent,
 )
+from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402

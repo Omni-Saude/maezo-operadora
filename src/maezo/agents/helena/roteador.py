@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.alarme_deterministico import POPULACAO_DO_ALARME, alarme_no_relato
+from maezo.agents.helena.habilidades.atendimento_humano.textos import TEXTOS_FIXOS as TEXTOS_FIXOS_DA_OFERTA
 from maezo.agents.helena.habilidades.conversa import assuntos as _assuntos
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 from maezo.agents.helena.historico import historico_em_texto
@@ -516,6 +517,10 @@ async def _classify_ativo_decidido(
     if alarme == "claro":
         return {**await _escalar_alarme_do_modelo(self, state, v7), "habilidade_roteador": "sintoma"}
     texto = str(state.get("message_body") or "")
+    if (oferta := _oferta.responder(self, state)) is not None:
+        # Avaliacao r5 (25/10/2026): o "sim" a oferta da equipe abre o caso (antes, a habilidade `equipe`
+        # fechava a intencao do classificador em `information` e nada abria); o "nao" recebe a recusa curta.
+        return {**oferta, "habilidade_roteador": "equipe"}
     opcoes = decisao.opcoes_da_duvida()
     if opcoes is not None:
         x, y = opcoes
@@ -587,6 +592,11 @@ async def _classify_ativo_decidido(
         pendencia_mantida=mantem,
         ms=ms,
     )
+    if habilidade == "cobertura" and _lc.ler_resposta(texto) in ("nao", "encerrar"):
+        # Avaliacao r5 (25/10/2026): "esquece, nao precisa mais" depois do aviso da cobertura ia para a
+        # cobertura e repetia o aviso (e o loop abria caso). A recusa curta do assunto so' e' reconhecida.
+        cortesia = self._base_texto_fixo(self._update_sem_modelo(state), _lc.resposta_de_cortesia(texto))
+        return {**cortesia, "habilidade_roteador": "conversa"}
     if habilidade == "cobertura":
         # COBERTURA FORA (dono, 23/10/2026, DL-0154): o aviso unico, sem consulta e sem oferta da equipe.
         return {**self._texto_da_cobertura_fora(state), "habilidade_roteador": habilidade}
@@ -668,10 +678,17 @@ async def _recusa_da_equipe(self: HelenaGraph, state: HelenaState) -> dict[str, 
         encerrado = await self._base_confirmacao_de_encerramento(state, update, "sim", leitura="sim")
         if encerrado is not None:
             return encerrado
-    return self._base_texto_fixo(update, RESPOSTA_RECUSA_DE_EQUIPE)
+    # Avaliacao r5 (25/10/2026): a recusa curta so' com oferta pendente; sem oferta nem caso, so' o
+    # reconhecimento (antes, o paragrafo longo da recusa saia fora de contexto).
+    texto = _oferta.texto_da_recusa(state, caso_aberto=bool(abertos))
+    update.update({"coleta_pendente": None, "coleta_contexto": ""})
+    return self._base_texto_fixo(update, texto)
 
 
 def _e_texto_do_roteador(self: HelenaGraph, texto: object) -> bool:
+    if isinstance(texto, str) and texto in TEXTOS_FIXOS_DA_OFERTA:
+        # A oferta da equipe e a recusa dela (avaliacao r5): texto fixo, com ou sem o roteador ativo.
+        return True
     if self._roteador_modo != "ativo" or not isinstance(texto, str) or self._roteador_contrato is None:
         return False
     inicio_da_duvida = self._roteador_contrato.texto_da_duvida.split("{x}")[0]
@@ -776,3 +793,4 @@ from maezo.agents.helena.graph import (  # noqa: E402
     caso_grave_para_encerrar,
     logger,
 )
+from maezo.agents.helena.habilidades.atendimento_humano import oferta as _oferta  # noqa: E402

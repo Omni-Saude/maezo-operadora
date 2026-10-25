@@ -258,7 +258,7 @@ def tipo_da_pendente(codigo: str | None) -> str | None:
         return None
     if c.startswith(("V4_ESCOLHA:", "SAUDE_OFERTA", "ROT_DUVIDA:")):
         return "opcoes"
-    if c.startswith(("V4_ALERTA:", "V4_OFERTA:", "BS_ENCERRAR_CASO")):
+    if c.startswith(("V4_ALERTA:", "V4_OFERTA:", "BS_ENCERRAR_CASO", "EQ_OFERTA")):
         return "sim_nao"
     if c.startswith("PERGUNTAR_FICHA_"):
         return "aberta"
