@@ -536,8 +536,10 @@ def test_src_tree_keeps_zero_commission_vocabulary_beyond_this_loader() -> None:
         (root / "gateway" / "commercial_commission_admission.py").resolve(),
         # D-36: the DARK internal adjustment-STRUCTURE drafts (migration 0029, the flag in
         # the portal settings, the closed contracts, the draft-only route/service and its
-        # tenant-scoped store) plus the BFF wiring that mounts them unbound.
+        # tenant-scoped store) plus the BFF wiring that mounts them unbound and the
+        # LGPD erasure enumeration of the draft table (name only — structure, no values).
         (root / "platform" / "migrations" / "versions" / "0029_commission_adjustment_policies.py").resolve(),
+        (root / "platform" / "lifecycle" / "erasure_plan.py").resolve(),
         (root / "portal" / "api" / "config.py").resolve(),
         (root / "portal" / "contracts" / "commission_policies.py").resolve(),
         (root / "portal" / "api" / "commission_policies.py").resolve(),
