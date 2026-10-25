@@ -82,6 +82,13 @@ _SNAPSHOT_SQL = (
     "SELECT ARRAY(SELECT y::text FROM pg_catalog.pg_snapshot_xip("
     "pg_catalog.pg_current_snapshot()) y) AS active_full_xids"
 )
+# v25 REFUSAL-63 third decisive read (T3): the commit may land INSIDE the
+# checkpoint's own two-statement observation window — T1 already read the
+# witness 'in progress' while the fresh T2 snapshot no longer lists it. This
+# re-reads the SAME commit-log verdict exactly once, after the snapshot, on the
+# same connection inside the same read-only transaction: one statement, never a
+# retry, never a wait, never a poll.
+_STRADDLE_SQL = "SELECT pg_catalog.txid_status($1::bigint) AS witness_xact_status"
 
 
 def sha(raw: bytes) -> str:
@@ -226,8 +233,25 @@ def installed_measurement_origin(
 #   epoch mismatch, or a backend_xid32 contradiction. Only the exact committed
 #   literal admits the clog path — never 'inprogress'/'in progress',
 #   'subcommitted' or NULL.
+# v25 (REFUSAL-63 straddle): the commit may land INSIDE the checkpoint's own
+#   window — T1 (the row statement) reads the in-progress literal while the
+#   fresh T2 snapshot no longer lists the witness. From the T1 verdict alone
+#   that state stays non-decisive and refused. At THAT exact corner only,
+#   acquire_pg_checkpoint performs ONE further decisive read (T3) of the same
+#   commit-log verdict AFTER the snapshot, on the same connection inside the
+#   same single read-only observation — never retried, never waited, never
+#   polled. The exact committed literal admits through the T3 sub-source below;
+#   EVERY other T3 outcome is discarded and the T1 verdict keeps its exact
+#   refusal. Like the T1 verdict, the T3 value never enters the capture
+#   document; only the admitted source distinguishes it.
 XID_SOURCE_IN_PROGRESS = "pg_snapshot_xip-in-progress"
 XID_SOURCE_CLOG_COMMITTED = "pg_xact_clog-committed"
+# v25 REFUSAL-63 sub-source: a zero-candidate capture admitted by the T3
+# decisive read banks a DISTINCT source — the admission came from the verdict
+# read after the snapshot, not from the T1 statement and not from the xip.
+# Same terminal committed-clog evidence, different observation instant; banked
+# evidence must distinguish the two admission instants.
+XID_SOURCE_CLOG_COMMITTED_T3 = "pg_xact_clog-committed-t3-straddle"
 # Sentinel: full_xid called WITHOUT a live txid_status verdict is an offline
 # re-derivation of a stored capture (pair verdict checks and provenance
 # revalidation read artifacts, not the database). Zero-candidate captures can
@@ -235,6 +259,11 @@ XID_SOURCE_CLOG_COMMITTED = "pg_xact_clog-committed"
 # non-decisive states refuse before any artifact is written) and the clog is
 # terminal, so the committed verdict is a stable property of such a capture.
 _LIVE_STATUS_UNSET = object()
+# v25 sentinel: acquire_pg_checkpoint passes _T3_COMMITTED only when the ONE
+# decisive post-snapshot read (T3) returned the exact committed literal in the
+# straddle corner. Like _LIVE_STATUS_UNSET it is unreachable from server data
+# (txid_status yields only text or NULL), so no captured verdict can forge it.
+_T3_COMMITTED = object()
 
 
 def full_xid(
@@ -280,6 +309,8 @@ def full_xid(
         raise runtime.NativeObservationError("Actual backend xid32 differs from witness epoch")
     if live_status is _LIVE_STATUS_UNSET:
         return witness, XID_SOURCE_CLOG_COMMITTED
+    if live_status is _T3_COMMITTED:
+        return witness, XID_SOURCE_CLOG_COMMITTED_T3
     if live_status == "committed":
         return witness, XID_SOURCE_CLOG_COMMITTED
     if live_status == "aborted":
@@ -305,6 +336,27 @@ def session(
         **{k: capture[k] for k in SESSION_KEYS if k != "transaction_id_if_assigned"},
         "transaction_id_if_assigned": mapping,
     }
+
+
+def _witness_in_gap(active: Any, witness_txid: Any, live_status: Any) -> bool:
+    """Exact REFUSAL-63 straddle corner, and nothing else: an assigned witness,
+    a T1 verdict that is the in-progress literal, and a fresh T2 snapshot with
+    NO congruent candidate. Only this corner executes the single T3 read — the
+    xip-present and committed-in-T1 paths stay untouched. Any shape deviation
+    returns False so full_xid() keeps its own authoritative discriminating
+    refusal; the gate decides whether T3 runs, it never widens admission.
+    """
+    if live_status not in ("in progress", "inprogress") or witness_txid is None:
+        return False
+    if type(active) is not list or len(active) > 4096:
+        return False
+    try:
+        if len(set(active)) != len(active):
+            return False
+        witness = int(witness_txid) % 2**32
+        return all(type(value) is str and int(value) % 2**32 != witness for value in active)
+    except (TypeError, ValueError):
+        return False
 
 
 async def acquire_pg_checkpoint(
@@ -363,6 +415,20 @@ async def acquire_pg_checkpoint(
             row = dict(row)
             witness_status = row["witness_xact_status"]
             row["active_full_xids"] = list(snapshot_row["active_full_xids"])
+            # v25 REFUSAL-63: at the exact straddle corner only (T1 in progress,
+            # fresh snapshot without the assigned witness) ONE decisive re-read
+            # of the commit-log verdict runs AFTER the snapshot — same
+            # connection, same read-only transaction, no retry/wait/poll. The
+            # exact 'committed' literal admits via the T3 sub-source; every
+            # other outcome is discarded and the T1 verdict keeps its exact
+            # refusal inside full_xid().
+            if _witness_in_gap(row["active_full_xids"], witness_txid, witness_status):
+                straddle_status = await connection.fetchval(
+                    _STRADDLE_SQL, int(witness_txid), timeout=remaining(guard)
+                )
+                guard.check()
+                if straddle_status == "committed":
+                    witness_status = _T3_COMMITTED
             capture = dict(
                 schema="provider-native-root-pg-checkpoint-capture.v1",
                 source="root-independent-pg-stat-snapshot-and-ssl-query",
