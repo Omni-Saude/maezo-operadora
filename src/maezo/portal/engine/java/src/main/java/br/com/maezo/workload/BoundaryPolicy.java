@@ -135,6 +135,31 @@ public final class BoundaryPolicy {
     }
     return matches;
   }
+  /**
+   * Custody by continuous possession (DESIGN-OPTION-REFUSAL-61-62-v1 §2.1). A large own
+   * binary is opened exactly once per process with the full dev+ino discovery ritual and
+   * the channel stays open; every later read re-verifies the SAME descriptor — custody
+   * attributes, path->inode continuity, unchanged parent, fdinfo position coupling,
+   * bounded re-read, digest — and neither reopens nor enumerates /proc/self/fd.
+   */
+  private static final Map<Path,Ownership> OWNERSHIP=new HashMap<>();
+  private static final class Ownership {
+    final java.nio.channels.FileChannel channel;final Path descriptor;final Map<String,Object> file,parent;
+    Ownership(java.nio.channels.FileChannel channel,Path descriptor,Map<String,Object> file,Map<String,Object> parent) {
+      this.channel=channel;this.descriptor=descriptor;this.file=file;this.parent=parent;
+    }
+  }
+  private static long descriptorPosition(Path descriptor)throws IOException {
+    Path info=Path.of("/proc/self/fdinfo",descriptor.getFileName().toString());
+    try(var reader=java.nio.file.Files.newBufferedReader(info,java.nio.charset.StandardCharsets.US_ASCII)) {
+      String line;Long position=null;int count=0;
+      while((line=reader.readLine())!=null) {
+        if(++count>32 || line.length()>256)throw Refused.unavailable();
+        if(line.startsWith("pos:")) {if(position!=null)throw Refused.unavailable();position=Long.valueOf(line.substring(4).trim());}
+      }
+      if(position==null || position<0)throw Refused.unavailable();return position;
+    }
+  }
   private static byte[] readOwnBinary(Path path,String hash,long deadline) {
     long started=System.currentTimeMillis(),nano=System.nanoTime();long remaining=deadline-started;
     if(remaining<=0 || remaining>Long.MAX_VALUE/1000000L)throw Refused.unavailable();
@@ -143,35 +168,90 @@ public final class BoundaryPolicy {
       clock.current();
       if(!path.isAbsolute() || !path.equals(path.toRealPath()) || !hash.matches("[a-f0-9]{64}"))throw Refused.unavailable();
       for(Path ancestor=path;ancestor!=null;ancestor=ancestor.getParent())if(Files.isSymbolicLink(ancestor))throw Refused.unavailable();
-      var before=Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS);
-      long owner=((Number)before.get("uid")).longValue();long own=((Number)Files.getAttribute(Path.of(System.getProperty("user.home")),"unix:uid")).longValue();
-      long size=((Number)before.get("size")).longValue();int mode=((Number)before.get("mode")).intValue();
-      if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS) || (mode&0022)!=0 || (owner!=0 && owner!=own)
-          || ((Number)before.get("nlink")).longValue()!=1 || size<=0 || size>33_554_432L)throw Refused.unavailable();
-      var previous=matchingDescriptors(before);clock.current();
-      byte[] bytes;
-      try(var channel=java.nio.channels.FileChannel.open(path,StandardOpenOption.READ,LinkOption.NOFOLLOW_LINKS)) {
-        var matching=matchingDescriptors(before);matching.removeAll(previous);
-        if(matching.size()!=1)throw Refused.unavailable();Path descriptor=matching.iterator().next();
-        var opened=fdAttributes(descriptor);
-        if(!before.equals(opened) || channel.size()!=size || !channel.isOpen())throw Refused.unavailable();
-        clock.current();var output=new ByteArrayOutputStream((int)size);
-        var digest=java.security.MessageDigest.getInstance("SHA-256");var buffer=java.nio.ByteBuffer.allocate(65536);long count=0;
-        while(true) {
-          clock.current();int read=channel.read(buffer);clock.current();
-          if(read==-1)break;count+=read;if(count>size)throw Refused.unavailable();
-          digest.update(buffer.array(),0,read);output.write(buffer.array(),0,read);buffer.clear();
-        }
-        if(count!=size || channel.size()!=size || !channel.isOpen() || !opened.equals(fdAttributes(descriptor))
-            || !before.equals(Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS))
-            || !hash.equals(java.util.HexFormat.of().formatHex(digest.digest())))throw Refused.unavailable();
-        bytes=output.toByteArray();clock.current();
-      }
-      clock.current();
-      if(!before.equals(Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS)))throw Refused.unavailable();
-      return bytes;
+      Ownership owned;
+      synchronized(OWNERSHIP) {owned=OWNERSHIP.get(path);}
+      if(owned!=null)return reverifyOwned(owned,path,hash,clock);
+      return ownOwnership(path,hash,clock);
     }catch(Exception e){throw Refused.unavailable();}
     finally{clock.current();}
+  }
+  /** Pin-time ritual: the full prior dev+ino discovery read, keeping the descriptor open. */
+  private static byte[] ownOwnership(Path path,String hash,BinaryClock clock)throws Exception {
+    var before=Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS);
+    long owner=((Number)before.get("uid")).longValue();long own=((Number)Files.getAttribute(Path.of(System.getProperty("user.home")),"unix:uid")).longValue();
+    long size=((Number)before.get("size")).longValue();int mode=((Number)before.get("mode")).intValue();
+    if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS) || (mode&0022)!=0 || (owner!=0 && owner!=own)
+        || ((Number)before.get("nlink")).longValue()!=1 || size<=0 || size>33_554_432L)throw Refused.unavailable();
+    var parent=Files.readAttributes(path.getParent(),"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS);
+    var previous=matchingDescriptors(before);clock.current();
+    java.nio.channels.FileChannel channel=java.nio.channels.FileChannel.open(path,StandardOpenOption.READ,LinkOption.NOFOLLOW_LINKS);
+    Ownership ownership=null;
+    try {
+      var matching=matchingDescriptors(before);matching.removeAll(previous);
+      if(matching.size()!=1)throw Refused.unavailable();Path descriptor=matching.iterator().next();
+      var opened=fdAttributes(descriptor);
+      if(!before.equals(opened) || channel.size()!=size || !channel.isOpen())throw Refused.unavailable();
+      clock.current();var output=new ByteArrayOutputStream((int)size);
+      var digest=java.security.MessageDigest.getInstance("SHA-256");var buffer=java.nio.ByteBuffer.allocate(65536);long count=0;
+      while(true) {
+        clock.current();int read=channel.read(buffer);clock.current();
+        if(read==-1)break;count+=read;if(count>size)throw Refused.unavailable();
+        digest.update(buffer.array(),0,read);output.write(buffer.array(),0,read);buffer.clear();
+      }
+      if(count!=size || channel.size()!=size || !channel.isOpen() || !opened.equals(fdAttributes(descriptor))
+          || !before.equals(Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS))
+          || !hash.equals(java.util.HexFormat.of().formatHex(digest.digest())))throw Refused.unavailable();
+      byte[] bytes=output.toByteArray();clock.current();
+      ownership=new Ownership(channel,descriptor,before,parent);
+      Ownership prior;
+      synchronized(OWNERSHIP) {prior=OWNERSHIP.putIfAbsent(path,ownership);}
+      if(prior!=null) {ownership=null;channel.close();return reverifyOwned(prior,path,hash,clock);}
+      // Continuous possession: the descriptor is deliberately not closed, so the prior
+      // post-close re-check of the path (which used to guard the window between read and
+      // close) has no window left to guard. A closed or diverging ownership refuses in
+      // reverifyOwned; nothing degrades to accept-with-warning.
+      return bytes;
+    }
+    catch(Exception failure) {
+      if(ownership==null)try {channel.close();}catch(IOException ignored) {}
+      throw failure;
+    }
+  }
+  /** Continuous-possession read: same descriptor, re-digest, no open and no enumeration. */
+  private static byte[] reverifyOwned(Ownership ownership,Path path,String hash,BinaryClock clock)throws Exception {
+    clock.current();
+    synchronized(ownership) {
+      if(!ownership.channel.isOpen())throw Refused.unavailable();
+      long size=((Number)ownership.file.get("size")).longValue();
+      if(size<=0 || ownership.channel.size()!=size)throw Refused.unavailable();
+      // (a) Pinned descriptor custody attributes; (b)+(c) path->inode continuity and parent.
+      if(!ownership.file.equals(fdAttributes(ownership.descriptor))
+          || !ownership.file.equals(Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS))
+          || !ownership.parent.equals(Files.readAttributes(path.getParent(),"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS)))throw Refused.unavailable();
+      // (d) Position coupling of this channel to this descriptor number (0 -> EOF -> 0).
+      if(descriptorPosition(ownership.descriptor)!=ownership.channel.position())throw Refused.unavailable();
+      ownership.channel.position(0);
+      if(descriptorPosition(ownership.descriptor)!=0)throw Refused.unavailable();
+      ownership.channel.position(size);
+      if(descriptorPosition(ownership.descriptor)!=size)throw Refused.unavailable();
+      ownership.channel.position(0);
+      if(descriptorPosition(ownership.descriptor)!=0)throw Refused.unavailable();
+      // (e) Bounded re-read and re-digest through the same descriptor.
+      clock.current();var output=new ByteArrayOutputStream((int)size);
+      var digest=java.security.MessageDigest.getInstance("SHA-256");var buffer=java.nio.ByteBuffer.allocate(65536);long count=0;
+      while(true) {
+        clock.current();int read=ownership.channel.read(buffer);clock.current();
+        if(read==-1)break;count+=read;if(count>size)throw Refused.unavailable();
+        digest.update(buffer.array(),0,read);output.write(buffer.array(),0,read);buffer.clear();
+      }
+      if(count!=size || ownership.channel.size()!=size || !ownership.channel.isOpen()
+          || !ownership.file.equals(fdAttributes(ownership.descriptor))
+          || descriptorPosition(ownership.descriptor)!=ownership.channel.position()
+          || !ownership.file.equals(Files.readAttributes(path,"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS))
+          || !ownership.parent.equals(Files.readAttributes(path.getParent(),"unix:"+String.join(",",FD_ATTRIBUTES),LinkOption.NOFOLLOW_LINKS))
+          || !hash.equals(java.util.HexFormat.of().formatHex(digest.digest())))throw Refused.unavailable();
+      clock.current();return output.toByteArray();
+    }
   }
   private static final class BinaryClock {
     private final long wall,nano,budget,deadline;private long lastWall,lastNano;

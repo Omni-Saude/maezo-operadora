@@ -51,6 +51,7 @@ MEASUREMENT_CLASSES = frozenset(
                 "Codec",
                 "FinalOutcome",
                 "Measurement",
+                "PinnedFile",
                 "SocketIdentity",
                 "Stage",
                 "State",
