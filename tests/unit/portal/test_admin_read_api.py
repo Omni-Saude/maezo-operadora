@@ -390,3 +390,45 @@ def test_contract_error_codes_are_closed() -> None:
     for bad in ("dependency_unavailable", "resource_unavailable", ""):
         with pytest.raises(ValidationError):
             TypeAdapter(PortalAdminReadError).validate_python({"code": bad})
+
+
+# ------------------------------------------------------- cerca da flag dark (D-40), in-package
+
+
+def test_admin_panel_flag_is_dark_in_the_real_tree() -> None:
+    """The D-40 panel flag is DARK exactly where it is declared — package-side perimeter.
+
+    `check_program_dark_flags.py` is the program-wide CI fence (CODEOWNERS-gated, extended
+    by the owner separately); THIS fence pins the same discipline for the new flag in the
+    unit lane: declared exactly once, default literal `False`, under the pinned env prefix
+    that gives `MAEZO_PORTAL_STAFF_ADMIN_PANEL` its meaning. A default that is not the
+    literal False would open the surface in every deployment that does NOT declare it.
+    """
+    config_source = (ROOT / "src/maezo/portal/api/config.py").read_text(encoding="utf-8")
+    declarations = [
+        line.strip()
+        for line in config_source.splitlines()
+        if line.strip().startswith("staff_admin_panel: bool = ")
+    ]
+    assert len(declarations) == 1, declarations
+    assert declarations[0].endswith("= False"), declarations[0]
+    assert PortalSettings.model_config.get("env_prefix") == "MAEZO_PORTAL_"
+    field = PortalSettings.model_fields["staff_admin_panel"]
+    assert field.default is False
+
+
+def test_admin_panel_env_name_is_never_mentioned_in_deploy() -> None:
+    """No `deploy/**` may name the flag (not even commented): flipping is a ROLL-wave act."""
+    deploy = ROOT / "deploy"
+    files = [path for path in sorted(deploy.rglob("*")) if path.is_file()]
+    assert files, "deploy ausente — varrer nada não é prova de flag OFF"
+    problems: list[str] = []
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="strict")
+        except (UnicodeDecodeError, OSError):
+            problems.append(f"{path.relative_to(ROOT)}: ilegível como UTF-8 — recusado por precaução")
+            continue
+        if "MAEZO_PORTAL_STAFF_ADMIN_PANEL" in text:
+            problems.append(f"{path.relative_to(ROOT)}: menção à flag dark em deploy")
+    assert problems == []
