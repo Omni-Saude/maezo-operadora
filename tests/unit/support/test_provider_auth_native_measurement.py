@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
+import asyncpg
 import pytest
 from tests.support import provider_auth_native_measurement as measurement
 from tests.support import provider_auth_native_runtime as runtime
@@ -269,3 +272,283 @@ def test_unit_outcome_queue_with_actual_primary_remote_close_is_deferred(tmp_pat
     finally:
         for owned in (primary, producer, listener, client):
             owned.close()
+
+
+# ---------------------------------------------------------------------------
+# REFUSAL-63 (v25): the ONE decisive T3 read at the COMMITTING straddle corner.
+# ---------------------------------------------------------------------------
+
+_OBSERVED_AT = datetime(2026, 10, 25, 1, 53, 27, 128000, tzinfo=UTC)
+_UNIT_STRADDLE_UNSET = object()
+_IN_GAP_REFUSAL = "Actual witness clog in progress without xip candidacy (non-decisive, never waived)"
+# Today's exact capture key set: the T3 verdict and its sub-source must never
+# leak into the byte-stable document (schema fixture pins additionalProperties).
+_CAPTURE_SCHEMA_KEYS = (
+    "active_full_xids",
+    "backend_pid",
+    "backend_ssl",
+    "backend_start",
+    "backend_tls_version",
+    "backend_xid32",
+    "client_address",
+    "client_port",
+    "collector_pid_namespace",
+    "collector_uid",
+    "database_name",
+    "database_oid",
+    "endpoint",
+    "hold_raw_sha256",
+    "observer_session_user",
+    "phase",
+    "query_schema",
+    "query_source_sha256",
+    "root_observed_at",
+    "schema",
+    "server_stage_execution_uuid",
+    "server_version",
+    "session_login",
+    "source",
+    "stage_sequence",
+    "stats_visibility_qualified",
+    "system_identifier",
+    "track_activities_observed_on",
+    "transaction_started_at",
+)
+
+
+class _UnitTransaction:
+    async def __aenter__(self) -> Any:
+        return self
+
+    async def __aexit__(self, *exception: Any) -> bool:
+        return False
+
+
+class _CheckpointConnection(asyncpg.Connection):
+    """Inert asyncpg.Connection stand-in routed by exact module SQL identity."""
+
+    __slots__ = ("_straddle", "_witness_row", "_xip", "checkpoint_txid_param", "queries")
+
+    def __init__(self, *, checkpoint_row: dict, xip: list, straddle: Any = _UNIT_STRADDLE_UNSET):
+        self._aborted = True  # base __del__ reads it; no transport is mocked here
+        self._witness_row = checkpoint_row
+        self._xip = list(xip)
+        self._straddle = straddle
+        self.queries = []
+        self.checkpoint_txid_param = "never-queried"
+
+    def is_in_transaction(self) -> bool:
+        return False
+
+    def transaction(self, isolation: Any = None, readonly: bool = False) -> _UnitTransaction:
+        return _UnitTransaction()
+
+    async def execute(self, query: str, *args: Any, **timeout: Any) -> str:
+        self.queries.append(("execute", query, args))
+        return "SELECT 1"
+
+    async def fetchrow(self, query: str, *args: Any, **timeout: Any) -> Any:
+        self.queries.append(("fetchrow", query, args))
+        if query is measurement._VISIBILITY_SQL:
+            return dict(
+                observer_session_user="root_observer",
+                server_version="16.15",
+                track_activities="on",
+                visible=True,
+            )
+        if query is measurement._CHECKPOINT_SQL:
+            self.checkpoint_txid_param = args[1]
+            return dict(self._witness_row)
+        if query is measurement._SNAPSHOT_SQL:
+            return dict(active_full_xids=list(self._xip))
+        raise AssertionError(f"unit connection: unexpected fetchrow {query[:48]!r}")
+
+    async def fetchval(self, query: str, *args: Any, **timeout: Any) -> Any:
+        self.queries.append(("fetchval", query, args))
+        if query is not measurement._STRADDLE_SQL or self._straddle is _UNIT_STRADDLE_UNSET:
+            raise AssertionError("unit connection: unexpected fetchval (T3 must not run)")
+        return self._straddle
+
+
+def _checkpoint_row(*, backend_xid32: Any, witness_status: Any) -> dict:
+    return dict(
+        observed_at=_OBSERVED_AT,
+        database_name="maezo_n2",
+        database_oid="16384",
+        system_identifier="7398612345678901",
+        backend_pid="81",
+        backend_start=_OBSERVED_AT,
+        transaction_started_at=_OBSERVED_AT,
+        backend_xid32=backend_xid32,
+        session_login="maezo_jvm",
+        client_address="127.0.0.1/32",
+        client_port=49152,
+        backend_ssl=True,
+        backend_tls_version="TLSv1.3",
+        witness_xact_status=witness_status,
+    )
+
+
+def _hold(*, endpoint: str, witness_txid: Any) -> dict:
+    return dict(
+        stage_sequence=0,
+        server_stage_execution_uuid="unit-stage-execution-uuid",
+        endpoint=endpoint,
+        measurement=dict(
+            session_transaction=dict(
+                backend_pid="81",
+                backend_start=runtime.clock(_OBSERVED_AT),
+                transaction_started_at=runtime.clock(_OBSERVED_AT),
+                transaction_id_if_assigned=witness_txid,
+                backend_ssl=True,
+                backend_tls_version="TLSv1.3",
+            ),
+            stable_database_projection=dict(
+                database_name="maezo_n2",
+                database_oid="16384",
+                system_identifier="7398612345678901",
+                session_user="maezo_jvm",
+            ),
+        ),
+    )
+
+
+def _capture_schema() -> dict:
+    return {
+        "$defs": {
+            "RootPgRawCapture": dict(
+                type="object",
+                properties={key: {} for key in _CAPTURE_SCHEMA_KEYS},
+                required=list(_CAPTURE_SCHEMA_KEYS),
+                additionalProperties=False,
+            )
+        }
+    }
+
+
+def _spy_session(monkeypatch: pytest.MonkeyPatch, observed: list) -> None:
+    real = measurement.session
+
+    def spy(capture, *, witness, live_status=measurement._LIVE_STATUS_UNSET):
+        observed.append(live_status)
+        return real(capture, witness=witness, live_status=live_status)
+
+    monkeypatch.setattr(measurement, "session", spy)
+
+
+def _acquire(connection: _CheckpointConnection, hold: dict) -> dict:
+    guard = runtime._ObservationWaitGuard.start(datetime.now(UTC) + timedelta(seconds=30))
+    return asyncio.run(
+        measurement.acquire_pg_checkpoint(
+            connection,
+            hold=hold,
+            hold_raw=b"{}",
+            phase="ROOT_SECOND",
+            guard=guard,
+            schema=_capture_schema(),
+        )
+    )
+
+
+def _query_sequence(connection: _CheckpointConnection) -> list:
+    return [(kind, query) for kind, query, _ in connection.queries]
+
+
+def test_in_gap_straddle_t3_committed_admits_with_distinct_t3_sub_source(monkeypatch):
+    connection = _CheckpointConnection(
+        checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="in progress"),
+        xip=[],
+        straddle="committed",
+    )
+    observed = []
+    _spy_session(monkeypatch, observed)
+    capture = _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
+    # Banked capture document stays byte-stable (no T3 field) and pins this source.
+    assert set(capture) == set(_CAPTURE_SCHEMA_KEYS)
+    assert capture["active_full_xids"] == []
+    assert capture["query_source_sha256"] == measurement.source_sha()
+    # The admission was decided by the T3 verdict and banks the DISTINCT sub-source.
+    assert observed == [measurement._T3_COMMITTED]
+    assert measurement.full_xid("761", [], witness="761", live_status=measurement._T3_COMMITTED) == (
+        "761",
+        measurement.XID_SOURCE_CLOG_COMMITTED_T3,
+    )
+    assert measurement.session(capture, witness="761")["transaction_id_if_assigned"] == "761"
+    # Exactly ONE decisive read, strictly AFTER the snapshot: no retry, no poll.
+    assert _query_sequence(connection) == [
+        ("execute", "SELECT pg_catalog.pg_stat_clear_snapshot()"),
+        ("fetchrow", measurement._VISIBILITY_SQL),
+        ("fetchrow", measurement._CHECKPOINT_SQL),
+        ("fetchrow", measurement._SNAPSHOT_SQL),
+        ("fetchval", measurement._STRADDLE_SQL),
+    ]
+    assert connection.queries[-1][2] == (761,)
+    assert connection.checkpoint_txid_param == 761
+
+
+@pytest.mark.parametrize(
+    "straddle", ["in progress", "inprogress", "aborted", "subcommitted", None, "unknown"]
+)
+def test_in_gap_straddle_t3_other_verdicts_keep_exact_refusal(straddle):
+    connection = _CheckpointConnection(
+        checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="in progress"),
+        xip=[],
+        straddle=straddle,
+    )
+    with pytest.raises(runtime.NativeObservationError) as refused:
+        _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
+    assert str(refused.value) == _IN_GAP_REFUSAL
+    # T3 ran exactly once; every non-committed outcome is discarded unadmitted.
+    assert _query_sequence(connection)[-1] == ("fetchval", measurement._STRADDLE_SQL)
+    assert connection.queries[-1][2] == (761,)
+    assert sum(1 for kind, _, _ in connection.queries if kind == "fetchval") == 1
+
+
+def test_legacy_xip_present_path_admits_without_executing_t3(monkeypatch):
+    connection = _CheckpointConnection(
+        checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="in progress"),
+        xip=["761"],
+    )
+    observed = []
+    _spy_session(monkeypatch, observed)
+    capture = _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
+    # The xip match decides; the T1 verdict is passed through but never admits by
+    # itself, and no T3 read exists on this path.
+    assert observed == ["in progress"]
+    assert not [entry for entry in connection.queries if entry[0] == "fetchval"]
+    assert measurement.session(capture, witness="761")["transaction_id_if_assigned"] == "761"
+    assert measurement.full_xid("761", ["761"], witness="761", live_status="in progress") == (
+        "761",
+        measurement.XID_SOURCE_IN_PROGRESS,
+    )
+
+
+def test_legacy_committed_in_t1_admits_without_executing_t3(monkeypatch):
+    connection = _CheckpointConnection(
+        checkpoint_row=_checkpoint_row(backend_xid32="761", witness_status="committed"),
+        xip=[],
+    )
+    observed = []
+    _spy_session(monkeypatch, observed)
+    capture = _acquire(connection, _hold(endpoint="COMMITTING", witness_txid="761"))
+    # v23 committed-in-T1 admission: same statement verdict, T3 never executes.
+    assert observed == ["committed"]
+    assert not [entry for entry in connection.queries if entry[0] == "fetchval"]
+    assert measurement.session(capture, witness="761")["transaction_id_if_assigned"] == "761"
+
+
+def test_entry_checkpoint_never_executes_t3(monkeypatch):
+    connection = _CheckpointConnection(
+        checkpoint_row=_checkpoint_row(backend_xid32=None, witness_status=None),
+        xip=[],
+    )
+    observed = []
+    _spy_session(monkeypatch, observed)
+    capture = _acquire(connection, _hold(endpoint="ENTRY", witness_txid=None))
+    # ENTRY witnesses carry no assigned xid and no in-progress verdict, so the
+    # straddle corner is structurally unreachable and T3 must never execute.
+    assert observed == [None]
+    assert not [entry for entry in connection.queries if entry[0] == "fetchval"]
+    assert connection.checkpoint_txid_param is None
+    assert capture["backend_xid32"] is None
+    assert measurement.session(capture, witness=None)["transaction_id_if_assigned"] is None
