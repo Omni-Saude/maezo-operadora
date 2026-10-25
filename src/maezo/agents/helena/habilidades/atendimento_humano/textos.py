@@ -37,17 +37,33 @@ RESPOSTA_RECUSA_COM_CASO: Final[str] = (
     "Tudo bem. Se você já tem um atendimento aberto com a nossa equipe, ele continua lá, sem pressa."
 )
 
+#: DL-0088 (complemento, 25/10/2026): quando a oferta recusada era da equipe de SAUDE (oferta de saude
+#: pendente ou assunto de sintoma/saude na conversa), a recusa curta guarda a linha de seguranca do 192.
+LINHA_192_DA_RECUSA: Final[str] = "Se piorar ou for grave, ligue 192."
+RESPOSTA_RECUSA_DE_EQUIPE_SAUDE: Final[str] = f"{RESPOSTA_RECUSA_DE_EQUIPE} {LINHA_192_DA_RECUSA}"
+RESPOSTA_RECUSA_COM_CASO_SAUDE: Final[str] = f"{RESPOSTA_RECUSA_COM_CASO} {LINHA_192_DA_RECUSA}"
+
 #: Os textos acima que `classify` deixa prontos: saem como estao, sem modelo
 #: (`roteador._e_texto_do_roteador`).
 TEXTOS_FIXOS: Final[frozenset[str]] = frozenset(
-    {TEXTO_OFERTA_POR_REPETICAO, TEXTO_CONFIRMA_PASSAR, RESPOSTA_RECUSA_DE_EQUIPE, RESPOSTA_RECUSA_COM_CASO}
+    {
+        TEXTO_OFERTA_POR_REPETICAO,
+        TEXTO_CONFIRMA_PASSAR,
+        RESPOSTA_RECUSA_DE_EQUIPE,
+        RESPOSTA_RECUSA_COM_CASO,
+        RESPOSTA_RECUSA_DE_EQUIPE_SAUDE,
+        RESPOSTA_RECUSA_COM_CASO_SAUDE,
+    }
 )
 
 __all__ = [
     "TEXTOS_FIXOS",
     "PENDENTE_OFERTA_EQUIPE",
+    "LINHA_192_DA_RECUSA",
     "RESPOSTA_RECUSA_COM_CASO",
+    "RESPOSTA_RECUSA_COM_CASO_SAUDE",
     "RESPOSTA_RECUSA_DE_EQUIPE",
+    "RESPOSTA_RECUSA_DE_EQUIPE_SAUDE",
     "TEXTO_CONFIRMA_PASSAR",
     "TEXTO_OFERTA_POR_REPETICAO",
 ]

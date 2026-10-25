@@ -28,7 +28,9 @@ from maezo.agents.helena import roteador_v7 as _rv7
 from maezo.agents.helena.habilidades.atendimento_humano.textos import (
     PENDENTE_OFERTA_EQUIPE,
     RESPOSTA_RECUSA_COM_CASO,
+    RESPOSTA_RECUSA_COM_CASO_SAUDE,
     RESPOSTA_RECUSA_DE_EQUIPE,
+    RESPOSTA_RECUSA_DE_EQUIPE_SAUDE,
     TEXTO_CONFIRMA_PASSAR,
     TEXTO_OFERTA_POR_REPETICAO,
 )
@@ -93,6 +95,37 @@ def sim_a_oferta_pendente(state: Mapping[str, Any]) -> bool:
     return oferta_pendente(state) and resposta_a_oferta(str(state.get("message_body") or "")) == "sim"
 
 
+#: As perguntas pendentes que sao da SAUDE (sintoma em curso, oferta da saude, ficha clinica).
+_PENDENTES_DE_SAUDE: Final[tuple[str, ...]] = ("V4_", "SAUDE_OFERTA", "PERGUNTAR_FICHA_")
+
+
+def contexto_de_saude(state: Mapping[str, Any]) -> bool:
+    """DL-0088 (complemento, 25/10/2026): a oferta recusada era da equipe de SAUDE? Pergunta pendente da
+    saude, a ultima fala da Helena falando da "equipe de saude", caso clinico aberto, memoria clinica em
+    triagem, ou sintoma/saude na mensagem do turno ou nas mensagens anteriores da pessoa."""
+    if str(state.get("coleta_pendente") or "").startswith(_PENDENTES_DE_SAUDE):
+        return True
+    falas = _falas_da_helena(state)
+    if falas and "equipe de saude" in _lc.normalizar(falas[-1]):
+        return True
+    if CASO_ABERTO_CLINICO in (_caso_aberto_no_historico(state), _caso_aberto_afirmavel(state)):
+        return True
+    if _memoria_em_triagem(state.get("memoria_clinica")) or _mensagem_de_saude(state):
+        return True
+    historico = state.get("historico_conversa")
+    falas_da_pessoa = [
+        str(e.get("texto") or "")
+        for e in (historico if isinstance(historico, list) else [])
+        if isinstance(e, Mapping) and e.get("papel") == "beneficiario"
+    ]
+    return any(_conteudo_clinico(f) for f in falas_da_pessoa)
+
+
+def recusa_curta(state: Mapping[str, Any]) -> str:
+    """A recusa curta da oferta; com a linha do 192 so' quando a oferta era da equipe de saude."""
+    return RESPOSTA_RECUSA_DE_EQUIPE_SAUDE if contexto_de_saude(state) else RESPOSTA_RECUSA_DE_EQUIPE
+
+
 def texto_da_recusa(state: Mapping[str, Any], *, caso_aberto: bool = False) -> str:
     """A resposta a "nao quero a equipe": com caso aberto, a frase curta do caso (nada se encerra aqui); com
     oferta pendente, a recusa curta; sem oferta e sem caso, so' o reconhecimento curto."""
@@ -101,9 +134,9 @@ def texto_da_recusa(state: Mapping[str, Any], *, caso_aberto: bool = False) -> s
         or _caso_aberto_afirmavel(state) is not None
         or _caso_aberto_no_historico(state) is not None
     ):
-        return RESPOSTA_RECUSA_COM_CASO
+        return RESPOSTA_RECUSA_COM_CASO_SAUDE if contexto_de_saude(state) else RESPOSTA_RECUSA_COM_CASO
     if oferta_pendente(state):
-        return RESPOSTA_RECUSA_DE_EQUIPE
+        return recusa_curta(state)
     return _lc.resposta_de_cortesia(str(state.get("message_body") or ""))
 
 
@@ -151,7 +184,7 @@ def responder(self: HelenaGraph, state: Mapping[str, Any]) -> dict[str, Any] | N
             logger.info("helena_oferta_de_equipe_recusada", node="classify")
             update = self._update_sem_modelo(state)
             update.update({"coleta_pendente": None, "coleta_contexto": ""})
-            return self._base_texto_fixo(update, RESPOSTA_RECUSA_DE_EQUIPE)
+            return self._base_texto_fixo(update, recusa_curta(state))
         return None
     v7 = _rv7.LEITURA_DO_TURNO.get()
     if (
@@ -174,11 +207,15 @@ def responder(self: HelenaGraph, state: Mapping[str, Any]) -> dict[str, Any] | N
 # Os nomes de modulo do graph.py que estes corpos usam (no FIM: import circular seguro, ver o docstring).
 from maezo.agents.helena.graph import (  # noqa: E402
     _SIM_A_OFERTA,
+    CASO_ABERTO_CLINICO,
     CONVERSA_RECUSA_DE_EQUIPE,
     _caso_aberto_afirmavel,
     _caso_aberto_no_historico,
+    _conteudo_clinico,
     _conversa_sem_relato_clinico,
     _falas_da_helena,
+    _memoria_em_triagem,
+    _mensagem_de_saude,
     _plano,
     _sem_prefixo,
     logger,
