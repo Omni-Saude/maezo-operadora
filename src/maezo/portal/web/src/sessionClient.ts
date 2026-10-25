@@ -31,6 +31,9 @@ const canonicalCapabilities: readonly PortalCapability[] = [
   "staff_cases",
   "human",
   "vendor",
+  // D-40: the administrative READ capability. No default profile projects it; a session can
+  // only carry it when the deployment deliberately named the fifth profile string.
+  "staff_admin_read",
 ];
 
 // Same closed discipline as capabilities: canonical order, no duplicates, nothing outside
@@ -38,6 +41,7 @@ const canonicalCapabilities: readonly PortalCapability[] = [
 const canonicalFlags: readonly PortalSessionFlag[] = [
   "staff_documents_panel",
   "staff_operations_panel",
+  "staff_admin_panel",
 ];
 
 function isCanonicalList<T extends string>(value: unknown, canonical: readonly T[]): value is T[] {
@@ -51,8 +55,9 @@ function isCanonicalList<T extends string>(value: unknown, canonical: readonly T
   });
 }
 
-// Canonical order, no duplicates, nothing outside the four literals. `vendor` is type-level
-// only here: no deployment config can produce it yet (default-off), so no session carries it.
+// Canonical order, no duplicates, nothing outside the five literals. `vendor` and
+// `staff_admin_read` are type-level only here: no default deployment config can produce them
+// (default-off), so no ordinary session carries either.
 function isCapabilityList(value: unknown): value is PortalCapability[] {
   return isCanonicalList(value, canonicalCapabilities);
 }

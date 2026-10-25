@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/portal/administration/memberships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Admin Vinculos */
+        get: operations["read_admin_vinculos_api_v1_portal_administration_memberships_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/auth/callback": {
         parameters: {
             query?: never;
@@ -2508,6 +2525,14 @@ export interface components {
             /** Workload Ref */
             workload_ref: string;
         };
+        /** PortalAdminReadError */
+        PortalAdminReadError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "authentication_unavailable" | "operation_forbidden" | "admin_read_unavailable";
+        };
         /** PortalCompletionError */
         PortalCompletionError: {
             /**
@@ -3033,7 +3058,7 @@ export interface components {
              */
             audience: "staff" | "beneficiary" | "provider" | "vendor";
             /** Capabilities */
-            capabilities: ("identity" | "staff_cases" | "human" | "vendor")[];
+            capabilities: ("identity" | "staff_cases" | "human" | "vendor" | "staff_admin_read")[];
             /** Csrf Token */
             csrf_token: string;
             /**
@@ -3045,7 +3070,7 @@ export interface components {
              * Flags
              * @default []
              */
-            flags: ("staff_documents_panel" | "staff_operations_panel")[];
+            flags: ("staff_documents_panel" | "staff_operations_panel" | "staff_admin_panel")[];
             /** Principal Ref */
             principal_ref: string;
             /** Roles */
@@ -3056,6 +3081,78 @@ export interface components {
              * @constant
              */
             schema_version: 1;
+        };
+        /**
+         * StaffAdminBinding
+         * @description One server-verified resource relationship of the reviewed record (opaque reference).
+         */
+        StaffAdminBinding: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "beneficiary" | "provider" | "vendor";
+            /** Resource Ref */
+            resource_ref: string;
+        };
+        /**
+         * StaffAdminMembership
+         * @description One governed permission block of the reviewed record, exactly as reviewed.
+         */
+        StaffAdminMembership: {
+            /** Groups */
+            groups: string[];
+            /** Membership Ref */
+            membership_ref: string;
+            /** Roles */
+            roles: string[];
+        };
+        /**
+         * StaffAdminVinculo
+         * @description The reviewed vínculo of one staff principal, with its review facts. Read-only.
+         */
+        StaffAdminVinculo: {
+            /** Membership Revision */
+            membership_revision: number;
+            /** Memberships */
+            memberships: components["schemas"]["StaffAdminMembership"][];
+            /** Principal Ref */
+            principal_ref: string;
+            /**
+             * Reviewed Until
+             * Format: date-time
+             */
+            reviewed_until: string;
+            /** Revoked */
+            revoked: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "expired" | "revoked";
+            /** Subject Bindings */
+            subject_bindings: components["schemas"]["StaffAdminBinding"][];
+        };
+        /**
+         * StaffAdminVinculos
+         * @description The whole read-only roster answer: every reviewed staff vínculo of this tenant.
+         */
+        StaffAdminVinculos: {
+            /** Count */
+            count: number;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Vinculos */
+            vinculos: components["schemas"]["StaffAdminVinculo"][];
         };
         /**
          * StaffDetail
@@ -3377,6 +3474,62 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    read_admin_vinculos_api_v1_portal_administration_memberships_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffAdminVinculos"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAdminReadError"];
+                };
+            };
+        };
+    };
     callback_api_v1_portal_auth_callback_get: {
         parameters: {
             query?: never;

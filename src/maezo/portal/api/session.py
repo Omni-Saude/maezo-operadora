@@ -29,9 +29,11 @@ class ResolvedHumanSession:
 
     def projection(
         self,
-        capabilities: tuple[Literal["identity", "staff_cases", "human", "vendor"], ...],
+        capabilities: tuple[Literal["identity", "staff_cases", "human", "vendor", "staff_admin_read"], ...],
         *,
-        flags: tuple[Literal["staff_documents_panel", "staff_operations_panel"], ...] = (),
+        flags: tuple[
+            Literal["staff_documents_panel", "staff_operations_panel", "staff_admin_panel"], ...
+        ] = (),
     ) -> SessionDTO:
         return SessionDTO(
             capabilities=capabilities,

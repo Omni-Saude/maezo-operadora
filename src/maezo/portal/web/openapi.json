@@ -5197,6 +5197,26 @@
         "title": "PendingDecisionAdmission",
         "type": "object"
       },
+      "PortalAdminReadError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "authentication_unavailable",
+              "operation_forbidden",
+              "admin_read_unavailable"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PortalAdminReadError",
+        "type": "object"
+      },
       "PortalCompletionError": {
         "additionalProperties": false,
         "properties": {
@@ -6806,7 +6826,8 @@
                 "identity",
                 "staff_cases",
                 "human",
-                "vendor"
+                "vendor",
+                "staff_admin_read"
               ],
               "type": "string"
             },
@@ -6827,7 +6848,8 @@
             "items": {
               "enum": [
                 "staff_documents_panel",
-                "staff_operations_panel"
+                "staff_operations_panel",
+                "staff_admin_panel"
               ],
               "type": "string"
             },
@@ -6861,6 +6883,171 @@
           "capabilities"
         ],
         "title": "SessionDTO",
+        "type": "object"
+      },
+      "StaffAdminBinding": {
+        "additionalProperties": false,
+        "description": "One server-verified resource relationship of the reviewed record (opaque reference).",
+        "properties": {
+          "kind": {
+            "enum": [
+              "beneficiary",
+              "provider",
+              "vendor"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "resource_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Resource Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "resource_ref"
+        ],
+        "title": "StaffAdminBinding",
+        "type": "object"
+      },
+      "StaffAdminMembership": {
+        "additionalProperties": false,
+        "description": "One governed permission block of the reviewed record, exactly as reviewed.",
+        "properties": {
+          "groups": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "membership_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Membership Ref",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "membership_ref",
+          "roles",
+          "groups"
+        ],
+        "title": "StaffAdminMembership",
+        "type": "object"
+      },
+      "StaffAdminVinculo": {
+        "additionalProperties": false,
+        "description": "The reviewed vínculo of one staff principal, with its review facts. Read-only.",
+        "properties": {
+          "membership_revision": {
+            "minimum": 0.0,
+            "title": "Membership Revision",
+            "type": "integer"
+          },
+          "memberships": {
+            "items": {
+              "$ref": "#/components/schemas/StaffAdminMembership"
+            },
+            "title": "Memberships",
+            "type": "array"
+          },
+          "principal_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Principal Ref",
+            "type": "string"
+          },
+          "reviewed_until": {
+            "format": "date-time",
+            "title": "Reviewed Until",
+            "type": "string"
+          },
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "expired",
+              "revoked"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "subject_bindings": {
+            "items": {
+              "$ref": "#/components/schemas/StaffAdminBinding"
+            },
+            "title": "Subject Bindings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "principal_ref",
+          "membership_revision",
+          "memberships",
+          "subject_bindings",
+          "reviewed_until",
+          "revoked",
+          "state"
+        ],
+        "title": "StaffAdminVinculo",
+        "type": "object"
+      },
+      "StaffAdminVinculos": {
+        "additionalProperties": false,
+        "description": "The whole read-only roster answer: every reviewed staff vínculo of this tenant.",
+        "properties": {
+          "count": {
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "vinculos": {
+            "items": {
+              "$ref": "#/components/schemas/StaffAdminVinculo"
+            },
+            "title": "Vinculos",
+            "type": "array"
+          }
+        },
+        "required": [
+          "generated_at",
+          "count",
+          "vinculos"
+        ],
+        "title": "StaffAdminVinculos",
         "type": "object"
       },
       "StaffDetail": {
@@ -7767,6 +7954,64 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/portal/administration/memberships": {
+      "get": {
+        "operationId": "read_admin_vinculos_api_v1_portal_administration_memberships_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffAdminVinculos"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalAdminReadError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalAdminReadError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalAdminReadError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalAdminReadError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Admin Vinculos"
+      }
+    },
     "/api/v1/portal/auth/callback": {
       "get": {
         "operationId": "callback_api_v1_portal_auth_callback_get",

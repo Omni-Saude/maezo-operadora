@@ -7,7 +7,7 @@ import { App } from "./App";
 // Only the fetch boundary is replaced: the real session client, navigation and
 // area clients run against wire-shaped bodies.
 
-type Capability = "identity" | "staff_cases" | "human";
+type Capability = "identity" | "staff_cases" | "human" | "staff_admin_read";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -160,12 +160,12 @@ it("marks areas this environment has not enabled and never calls their API", asy
   render(<App />);
 
   const tabs = await screen.findByRole("tablist", { name: "Áreas de trabalho" });
-  for (const name of ["Meu trabalho", "Filas da equipe", "Casos", "Documentos"]) {
+  for (const name of ["Meu trabalho", "Filas da equipe", "Casos", "Documentos", "Administração"]) {
     expect(within(tabs).getByRole("tab", { name: new RegExp(`^${name}\s*Em breve`) })).toBeInTheDocument();
   }
   expect(within(tabs).getByRole("tab", { name: /^Visão geral/ })).not.toHaveTextContent("Em breve");
 
-  for (const name of ["Meu trabalho", "Filas da equipe", "Casos", "Documentos"]) {
+  for (const name of ["Meu trabalho", "Filas da equipe", "Casos", "Documentos", "Administração"]) {
     await user.click(within(tabs).getByRole("tab", { name: new RegExp(`^${name}`) }));
     const panel = screen.getByRole("tabpanel");
     expect(panel).toHaveTextContent("Esta área ainda não está habilitada neste ambiente.");
@@ -176,7 +176,9 @@ it("marks areas this environment has not enabled and never calls their API", asy
 });
 
 it("keeps a real 503 as a temporary failure when the capability is enabled", async () => {
-  const fetcher = serve(["identity", "staff_cases", "human"]);
+  // D-40: with `staff_admin_read` named too, NO staff area carries the "Em breve" marker —
+  // administration is a gated area exactly like the others now.
+  const fetcher = serve(["identity", "staff_cases", "human", "staff_admin_read"]);
   const user = userEvent.setup();
   render(<App />);
 
@@ -364,5 +366,112 @@ it("não renderiza o painel de operações com o sinal ligado quando a capabilit
   const panel = screen.getByRole("tabpanel");
   expect(panel).toHaveTextContent("Esta área ainda não está habilitada neste ambiente.");
   expect(panel).not.toHaveTextContent("Operações da tarefa");
+  expect(areaRequests(fetcher)).toEqual([]);
+});
+
+// --- D-40: área Administration — roster read-only de vínculos, atrás de flag + capability.
+
+// Sem `human`: as filas não montam na visão geral e a prova fica só sobre o gate e o painel.
+function serveAdmin(capabilities: Capability[], flags: readonly string[]) {
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/v1/portal/session") {
+      return json({
+        schema_version: 1,
+        principal_ref: "opaque-principal",
+        audience: "staff",
+        roles: ["authorized-role"],
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        csrf_token: "csrf-secret",
+        capabilities,
+        flags: [...flags],
+      });
+    }
+    if (path === "/api/v1/portal/administration/memberships") {
+      return json({
+        schema_version: 1,
+        generated_at: new Date(Date.now() + 1_000).toISOString(),
+        count: 1,
+        vinculos: [
+          {
+            principal_ref: "opaque-principal",
+            membership_revision: 3,
+            memberships: [{ membership_ref: "review-1", roles: ["staff"], groups: ["medico-auditor"] }],
+            subject_bindings: [],
+            reviewed_until: new Date(Date.now() + 86_400_000).toISOString(),
+            revoked: false,
+            state: "active",
+          },
+        ],
+      });
+    }
+    return json({ code: "admin_read_unavailable" }, 503);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  return fetcher;
+}
+
+it("mantém o stub enviado na área Administração enquanto o sinal shadow está desligado", async () => {
+  // `staff_admin_read` presente (a capability não é a dúvida aqui; o sinal é): sem o sinal,
+  // a área mantém o stub exato de hoje e nenhuma leitura de vínculos sai do navegador.
+  const fetcher = serveAdmin(["identity", "staff_admin_read"], []);
+  const user = userEvent.setup();
+  render(<App />);
+
+  const tabs = await screen.findByRole("tablist", { name: "Áreas de trabalho" });
+  expect(within(tabs).getByRole("tab", { name: /^Administração/ })).not.toHaveTextContent("Em breve");
+  await user.click(within(tabs).getByRole("tab", { name: /^Administração/ }));
+  const panel = screen.getByRole("tabpanel");
+  expect(
+    within(panel).getByText("Nenhuma função administrativa está disponível para esta sessão."),
+  ).toBeInTheDocument();
+  expect(panel).not.toHaveTextContent("Vínculos e permissões governados");
+  expect(areaRequests(fetcher)).toEqual([]);
+});
+
+it("renderiza o painel read-only de administração quando o ambiente liga o sinal shadow", async () => {
+  const fetcher = serveAdmin(["identity", "staff_admin_read"], ["staff_admin_panel"]);
+  const user = userEvent.setup();
+  render(<App />);
+
+  const tabs = await screen.findByRole("tablist", { name: "Áreas de trabalho" });
+  expect(within(tabs).getByRole("tab", { name: /^Administração/ })).not.toHaveTextContent("Em breve");
+  await user.click(within(tabs).getByRole("tab", { name: /^Administração/ }));
+  const panel = screen.getByRole("tabpanel");
+  expect(
+    await within(panel).findByRole("heading", { name: "Vínculos e permissões governados" }),
+  ).toBeInTheDocument();
+  expect(panel).not.toHaveTextContent("Nenhuma função administrativa está disponível");
+  // Nada é consultado sem o gesto do colaborador.
+  expect(areaRequests(fetcher)).toEqual([]);
+
+  await user.click(within(panel).getByRole("button", { name: "Consultar vínculos" }));
+  expect(areaRequests(fetcher)).toEqual(["/api/v1/portal/administration/memberships"]);
+  const [path, options] = fetcher.mock.calls.find(([input]) => String(input).includes("administration"))!;
+  expect(path).toBe("/api/v1/portal/administration/memberships");
+  expect(options).toMatchObject({ method: "GET", redirect: "error" });
+  expect(JSON.stringify(options)).not.toMatch(/"body"|csrf/i);
+  expect(await within(panel).findByText("opaque-principal")).toBeInTheDocument();
+  expect(
+    within(panel).getByText(
+      "Somente leitura. Nenhuma alteração de vínculo é enviada por esta tela; a administração de vínculos continua na conexão administrativa própria, fora do portal.",
+    ),
+  ).toBeInTheDocument();
+  expect(
+    within(panel).queryByRole("button", { name: /conceder|revogar|renovar|revisar|criar|salvar|editar|excluir/i }),
+  ).toBeNull();
+});
+
+it("não renderiza o painel de administração com o sinal ligado quando a capability falta", async () => {
+  const fetcher = serveAdmin(["identity"], ["staff_admin_panel"]);
+  const user = userEvent.setup();
+  render(<App />);
+
+  const tabs = await screen.findByRole("tablist", { name: "Áreas de trabalho" });
+  expect(within(tabs).getByRole("tab", { name: /^Administração\s*Em breve/ })).toBeInTheDocument();
+  await user.click(within(tabs).getByRole("tab", { name: /^Administração/ }));
+  const panel = screen.getByRole("tabpanel");
+  expect(panel).toHaveTextContent("Esta área ainda não está habilitada neste ambiente.");
+  expect(panel).not.toHaveTextContent("Vínculos e permissões governados");
   expect(areaRequests(fetcher)).toEqual([]);
 });
