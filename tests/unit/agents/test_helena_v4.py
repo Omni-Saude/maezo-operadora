@@ -516,7 +516,7 @@ def test_o_texto_final_e_o_do_dono_com_o_profissional_pela_idade() -> None:
     """DL-0154: o caminho (consulta com o prazo da ANS) ou a equipe; adulto: clinico geral, crianca: pediatra
     (nunca "clinico geral ou pediatra" para um adulto); nenhuma orientacao do sintoma."""
     assert v4.texto_final_do_sintoma("dor nas costas desde ontem") == (
-        "Entendi: dor nas costas desde ontem. Eu não avalio sintomas, mas te ajudo com o caminho. "
+        "Entendi. Eu não avalio sintomas, mas te ajudo com o caminho. "
         "Você prefere: 1) saber onde marcar consulta com clínico geral pelo plano (até 7 dias úteis "
         "pela ANS); ou 2) falar com a nossa equipe de saúde? "
         "Se piorar, procure um pronto-atendimento; se for grave, ligue 192."
@@ -877,7 +877,7 @@ async def test_dor_nas_costas_so_recebe_pergunta_de_alerta_e_usa_o_que_a_pessoa_
 
     texto = resultado["response_text"]
     assert resultado["next_kind"] == "collect" and resultado["response_kind"] == "collect"
-    assert texto.startswith("Entendi: dor nas costas desde ontem.")
+    assert texto.startswith("Entendi. ") and "dor nas costas desde ontem" not in texto
     assert "dor no peito, falta de ar, desmaio, boca torta ou fraqueza de um lado do corpo?" in texto
     assert texto.endswith("Responda sim ou não.")
     # So' alerta: nenhuma ficha (local/intensidade/inicio), nenhum caminho, nenhum prazo.
@@ -894,7 +894,7 @@ async def test_dor_nas_costas_com_nao_recebe_a_resposta_exata_do_dono_e_a_opcao_
     final = await conversa.diz("Não")
 
     assert final["response_text"] == v4.texto_final_do_sintoma("dor nas costas desde ontem")
-    assert final["response_text"].startswith("Entendi: dor nas costas desde ontem. Eu não avalio sintomas")
+    assert final["response_text"].startswith("Entendi. Eu não avalio sintomas")
     for trecho in (
         "1) saber onde marcar consulta com clínico geral pelo plano (até 7 dias úteis pela ANS)",
         "2) falar com a nossa equipe de saúde?",
@@ -1016,7 +1016,7 @@ async def test_filho_com_tosse_usa_as_perguntas_da_crianca_e_o_resumo_diz_que_e_
     conversa = _Conversa()
     primeira = await conversa.diz("Meu filho está com tosse", _SINTOMA_CRIANCA)
 
-    assert primeira["response_text"].startswith("Entendi: seu filho está com tosse.")
+    assert primeira["response_text"].startswith("Entendi. ")
     assert (
         "dificuldade para respirar, muito mole ou sonolento(a), ou teve convulsão?"
         in primeira["response_text"]
@@ -1025,7 +1025,7 @@ async def test_filho_com_tosse_usa_as_perguntas_da_crianca_e_o_resumo_diz_que_e_
     assert conversa.memoria["coleta_pendente"] == "V4_ALERTA:CRIANCA:pediatric"
 
     final = await conversa.diz("Não")
-    assert final["response_text"].startswith("Entendi: seu filho está com tosse. Eu não avalio sintomas")
+    assert final["response_text"].startswith("Entendi. Eu não avalio sintomas")
 
     um = await conversa.diz("1")
     assert (

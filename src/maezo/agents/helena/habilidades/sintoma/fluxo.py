@@ -23,8 +23,10 @@ from maezo.agents.helena.consultas_plano import (
 )
 from maezo.agents.helena.habilidades.cobertura_fora import CHAVE_TEXTO as CHAVE_TEXTO_COBERTURA_FORA
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
+from maezo.agents.helena.habilidades.sintoma import ja_respondido as _jr
 from maezo.agents.helena.habilidades.sintoma.textos import (
     CHAVE_AVALIAR_CAUSA,
+    CHAVE_CASO_MANTIDO,
     CHAVE_OFERTA_EQUIPE,
     CHAVE_OFERTA_RECUSADA,
 )
@@ -662,6 +664,21 @@ def _v4_seguimento(
     if pend.etapa != ETAPA_ALERTA or self._v4_pede_pessoa(state, texto):
         return None
     resposta = _leitura_do_alerta(plano)
+    if (
+        resposta == LEITURA_NAO
+        and _jr.opcoes_ja_enviadas(_falas_da_helena(state))
+        and _jr.reclama_da_repeticao(texto)
+    ):
+        # Teste do dono de 25/10/2026 (item 2): "ja' tinha te respondido que nao sobre isso" -> a desculpa e
+        # o caminho (onde marcar e o prazo da ANS), sem o eco e sem oferecer de novo as mesmas opcoes 1/2.
+        logger.info("helena_v4_alerta", node="classify", resposta="nao_repetido")
+        update["intent"] = "information"
+        update["sintoma_codigo"] = None
+        update["response_text"] = texto_da_opcao_1(pend.populacao, desculpa=True)
+        return _rota_informativa(update) | {
+            "coleta_pendente": codigo_pendente(ETAPA_ESCOLHA, pend.grupo, pend.populacao),
+            "coleta_contexto": relato,
+        }
     if resposta == LEITURA_NAO:
         logger.info("helena_v4_alerta", node="classify", resposta="nao")
         update["intent"] = "information"
@@ -732,6 +749,9 @@ def _v4_sintoma_leve(self: HelenaGraph, state: HelenaState, update: dict[str, An
             anterior = ler_pendente(state.get("coleta_pendente"))
             if anterior is not None and anterior.grupo.startswith("sin-"):
                 grupo = anterior.grupo
+    sem_repetir = _v4_sem_repetir_alerta(self, state, update, grupo, populacao, texto)
+    if sem_repetir is not None:
+        return sem_repetir
     codigo = codigo_pendente(ETAPA_ALERTA, grupo, populacao)
     logger.info("helena_v4_sintoma_leve", node="classify", grupo=grupo, populacao=populacao)
     update.update(
@@ -746,6 +766,118 @@ def _v4_sintoma_leve(self: HelenaGraph, state: HelenaState, update: dict[str, An
         }
     )
     return update
+
+
+def _v4_sem_repetir_alerta(
+    self: HelenaGraph,
+    state: HelenaState,
+    update: dict[str, Any],
+    grupo: str,
+    populacao: str,
+    texto: str,
+) -> dict[str, Any] | None:
+    """A pergunta de alerta NAO se repete para a mesma queixa (teste do dono de 25/10/2026, itens 1, 8 e 12;
+    DL-0154). Roda DEPOIS da tabela de alarme do turno (sem bandeira): sinal de alarme na mensagem nunca chega
+    aqui. `None` = a pergunta de alerta sai como sempre (queixa nova, outra pessoa, nada respondido antes).
+
+    - 192 ja' dado e caso clinico aberto (item 12: "ela ta' chorando mas parece bem" depois da batida na
+      cabeca do bebe): "mantive o seu caso", nunca um conjunto de perguntas de outro assunto.
+    - Pergunta de alerta PENDENTE para o mesmo grupo (item 8: o caminho de sempre, sem a leitura do roteador,
+      leu a resposta como queixa nova): a pergunta UMA vez com outras palavras e, depois, a oferta da equipe.
+    - Alerta ja' respondido ("nao") nesta conversa, mesma pessoa: a pergunta de agendamento ("ja' posso
+      procurar um medico?") recebe o caminho (onde marcar e o prazo da ANS); a mesma queixa, "quem avalia e' o
+      medico" com as opcoes que ja' valiam."""
+    if (
+        _alarme_ja_tratado(state)
+        and _caso_aberto_no_historico(state) == CASO_ABERTO_CLINICO
+        and not _sinal_novo_de_alarme(state)
+    ):
+        logger.info("helena_v4_alerta_nao_repete", node="classify", motivo="alarme_ja_tratado")
+        return self._base_texto_fixo(update, self._textos[CHAVE_CASO_MANTIDO])
+    relato = str(state.get("coleta_contexto") or "")
+    pend = ler_pendente(state.get("coleta_pendente"))
+    if (
+        pend is not None
+        and pend.etapa == ETAPA_ALERTA
+        and pend.grupo == grupo
+        and pend.populacao == populacao
+    ):
+        logger.info("helena_v4_alerta_nao_repete", node="classify", motivo="alerta_pendente")
+        if pend.repetida:
+            return self._base_texto_fixo(
+                update,
+                self._textos[CHAVE_OFERTA_EQUIPE],
+                pendente=codigo_pendente(ETAPA_OFERTA, grupo, populacao),
+            ) | {"coleta_contexto": relato}
+        codigo = codigo_pendente(ETAPA_ALERTA, grupo, populacao, repetida=True)
+        update.update(
+            {
+                "coleta_veredito": COLETA_VEREDITO_PERGUNTAR_MAIS,
+                "coleta_pergunta": codigo,
+                "coleta_pendente": codigo,
+                "coleta_contexto": relato or relato_cru(texto),
+                "coleta_rodadas": 2,
+                "next_kind": "collect",
+            }
+        )
+        return update
+    falas = _falas_da_helena(state)
+    if not _jr.alerta_ja_respondido(falas):
+        return None
+    antes = _jr.populacao_do_alerta_respondido(falas, crianca=POPULACAO_CRIANCA, adulto=POPULACAO_ADULTO)
+    if antes != populacao:
+        # Outra pessoa (crianca x adulto): queixa nova, a pergunta de alerta dela.
+        return None
+    fechado = {
+        "coleta_pendente": codigo_pendente(ETAPA_ESCOLHA, grupo, populacao),
+        "coleta_contexto": relato or relato_cru(texto),
+    }
+    if _jr.pergunta_de_agendamento(texto) or _pergunta_de_navegacao(texto):
+        logger.info("helena_v4_alerta_nao_repete", node="classify", motivo="agendamento")
+        update["intent"] = "information"
+        update["sintoma_codigo"] = None
+        update["response_text"] = texto_da_opcao_1(populacao)
+        return _rota_informativa(update) | fechado
+    if _v4_queixa_nova(self, state, texto, grupo, populacao):
+        return None
+    logger.info("helena_v4_alerta_nao_repete", node="classify", motivo="mesma_queixa")
+    return self._base_texto_fixo(
+        update, self._textos[CHAVE_AVALIAR_CAUSA], pendente=fechado["coleta_pendente"]
+    ) | {"coleta_contexto": fechado["coleta_contexto"]}
+
+
+def _grupo_da_fala(self: HelenaGraph, fala: str, populacao: str) -> str:
+    """O grupo (arquivo `sin-*` da base ou grupo da v4) de UMA fala da pessoa."""
+    if self._base_saude:
+        assunto = self._base_sintoma_do_texto(fala, populacao)
+        if assunto is not None:
+            return assunto.id
+    return grupo_do_sintoma(populacao, _plano(fala))
+
+
+def _v4_queixa_nova(
+    self: HelenaGraph, state: Mapping[str, Any], texto: str, grupo: str, populacao: str
+) -> bool:
+    """A mensagem traz uma queixa NOVA (outro assunto de sintoma que a pessoa ainda nao tinha contado)?
+
+    Mesma queixa: o roteador leu continuacao do assunto; a mensagem nao relata sintoma; o grupo e' o geral
+    (nenhum assunto proprio reconhecido); ou o grupo (ou um sinonimo do arquivo `sin-*`) ja' apareceu numa
+    fala anterior da pessoa ("cai da escada e estou com dor nas costas" ... "a dor nas costas continua")."""
+    v7 = _rv7.LEITURA_DO_TURNO.get()
+    if v7 is not None and v7.continuacao:
+        return False
+    plano = _plano(texto)
+    if not relata_sintoma(plano) or grupo == GRUPO_GERAL:
+        return False
+    anteriores = list(self._falas_da_pessoa(state))
+    if any(_grupo_da_fala(self, fala, populacao) == grupo for fala in anteriores):
+        return False
+    assunto = self._base_assunto_do_grupo(grupo)
+    if assunto is not None:
+        sinonimos = [_plano(s) for s in (assunto.sinonimos or ()) if s]
+        if any(s and s in _plano(fala) for fala in anteriores for s in sinonimos):
+            return False
+    return True
 
 
 async def _v4_especialista(
@@ -808,13 +940,28 @@ def _base_alerta_do_grupo(self: HelenaGraph, grupo: str) -> AlertaDoGrupo | None
     return AlertaDoGrupo(tuple(assunto.perguntas_alerta or ()), ", ".join(assunto.sinais_alarme or ()))
 
 
+#: (assunto geral, assunto especifico): citados juntos, vale o especifico, NESTA ordem — a dor depois de
+#: uma queda recebe as perguntas da queda; a queda com batida na cabeca, as da batida.
+_PRECEDENCIA_DO_SINTOMA: tuple[tuple[str, str], ...] = (
+    ("sin-dor-nas-costas", "sin-queda"),
+    ("sin-dor-nas-articulacoes", "sin-queda"),
+    ("sin-queda", "sin-batida-na-cabeca"),
+)
+
+
 def _base_sintoma_do_texto(self: HelenaGraph, texto: str, populacao: str) -> _bs.Assunto | None:
     """O arquivo `sin-*` da queixa, so' quando a busca e' DETERMINISTICA (sem modelo) e a populacao do
     arquivo cobre a da conversa."""
     busca = _bs.buscar(self._base_hoje(), texto, categorias=(_bs.CATEGORIA_SINTOMA,))
-    if busca.achado is None:
+    achado = busca.achado
+    citados = {a.id for a in _bs.sintomas_citados(self._base_hoje(), texto)}
+    for geral, especifico in _PRECEDENCIA_DO_SINTOMA:
+        # Teste do dono de 25/10/2026 (item 7): a queda COM batida na cabeca recebe as perguntas da batida.
+        if especifico in citados and (achado == geral or (achado is None and geral in busca.candidatos)):
+            achado = especifico
+    if achado is None:
         return None
-    assunto = self._base_hoje().get(busca.achado)
+    assunto = self._base_hoje().get(achado)
     if assunto is None:
         return None
     compativel = {POPULACAO_ADULTO: ("adulto", "todos"), POPULACAO_CRIANCA: ("crianca", "todos")}
@@ -1020,6 +1167,7 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _DOR_NO_RELATO,
     _FALAS_DA_OFERTA_RECENTE,
     _RECUSA_DE_PESSOA,
+    CASO_ABERTO_CLINICO,
     COLETA_MAX_RODADAS,
     COLETA_VEREDITO_ESCALAR,
     COLETA_VEREDITO_SUFICIENTE,
@@ -1033,7 +1181,9 @@ from maezo.agents.helena.graph import (  # noqa: E402
     SUBTIPO_COBRANCA_PADRAO,
     SUFFICIENCY_DMN_KEY,
     HelenaState,
+    _alarme_ja_tratado,
     _ameaca_regulatoria,
+    _caso_aberto_no_historico,
     _conteudo_clinico,
     _contexto_de_recem_nascido,
     _e_despedida,
@@ -1053,6 +1203,7 @@ from maezo.agents.helena.graph import (  # noqa: E402
     _severidade_de_intensidade,
     _sinal_forte_de_emergencia,
     _sinal_fraco_de_emergencia,
+    _sinal_novo_de_alarme,
     _subtipo_pelo_texto,
     logger,
 )

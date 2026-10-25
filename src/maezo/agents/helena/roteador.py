@@ -339,20 +339,31 @@ async def _roteador_decidir(
     except PROGRAMMING_ERRORS:
         raise
     except TimeoutError:
+        logger.info("helena_roteador_falhou", falha=_rt.FALHA_PRAZO, causa="TimeoutError")
         return None, _rt.FALHA_PRAZO, int((time.monotonic() - inicio) * 1000)
-    except EXTERNAL_DEPENDENCY_FAILURES:
+    except EXTERNAL_DEPENDENCY_FAILURES as exc:
         ms_falha = int((time.monotonic() - inicio) * 1000)
-        return (
-            None,
-            (_rt.FALHA_PRAZO if ms_falha >= prazo_s * 1000 else _rt.FALHA_MODELO),
-            ms_falha,
-        )
+        # Rodada de 25/10/2026 (item 8): as 4 falhas "modelo" do dia eram PRAZO de leitura do provedor
+        # (ReadTimeoutError a ~5-6 s, antes do prazo cheio): o tipo do erro decide, nao so' o tempo.
+        causa = type(exc).__name__
+        prazo = ms_falha >= prazo_s * 1000 or _e_erro_de_prazo(causa)
+        falha_externa = _rt.FALHA_PRAZO if prazo else _rt.FALHA_MODELO
+        logger.info("helena_roteador_falhou", falha=falha_externa, causa=causa, ms=ms_falha)
+        return None, falha_externa, ms_falha
     finally:
         self._roteador_em_curso -= 1
     ms = int((time.monotonic() - inicio) * 1000)
     if v7 is None:
+        # So' os NOMES dos campos invalidos (nunca o texto do modelo): JSON ilegivel x campo fora do enum.
+        logger.info("helena_roteador_falhou", falha=_rt.FALHA_JSON, campos=sorted(set(ruins))[:6], ms=ms)
         return None, _rt.FALHA_JSON, ms
     return _rt.decisao_do_v7(v7, tipo_pendente, contrato.dona_da_pendencia(codigo)), None, ms
+
+
+def _e_erro_de_prazo(nome_da_classe: str) -> bool:
+    """O erro do provedor e' de PRAZO (ReadTimeoutError, ConnectTimeoutError, ReadTimeout...), pelo NOME da
+    classe (so' o token de classe sai do `except`, nunca o texto do erro)."""
+    return "timeout" in nome_da_classe.lower()
 
 
 def _roteador_entrada(self: HelenaGraph, state: Mapping[str, Any]) -> tuple[str | None, Any, str | None]:

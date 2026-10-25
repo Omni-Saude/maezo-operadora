@@ -113,7 +113,10 @@ class Revisao(_Modelo):
     status: Literal["rascunho_dono_aprovado_dev", "rascunho_pendente_revisao_medica"]
     autor: str = Field(min_length=2, max_length=80)
     aprovado_por: Literal[
-        "dono (17/10/2026, dev)", "dono (18/10/2026, fase 5, dev)", "dono (20/10/2026, DL-0132, dev)"
+        "dono (17/10/2026, dev)",
+        "dono (18/10/2026, fase 5, dev)",
+        "dono (20/10/2026, DL-0132, dev)",
+        "dono (25/10/2026, teste do dono, dev)",
     ]
     revisao_medica: Literal["pendente", "aprovada"]
     revisar_ate: date
@@ -838,9 +841,10 @@ def texto_final_do_sintoma_com_orientacao(eco: str, assunto: Assunto, populacao:
     alarme), o credito e as mesmas opcoes 1/2 da Helena v4 com o 192. O profissional vai pela IDADE
     (etapa 10): pediatra so' para crianca; adulto, clinico geral (nunca "pediatra" para adulto)."""
     profissional = "pediatra" if populacao == "pediatric" else "clínico geral"
+    del eco  # teste do dono de 25/10/2026 (item 5): sem o eco literal do relato
     return "\n".join(
         [
-            f"Entendi: {eco}.",
+            "Entendi.",
             assunto.texto,
             linha_de_credito(assunto),
             "Eu não avalio sintomas, mas te ajudo com o caminho. "
