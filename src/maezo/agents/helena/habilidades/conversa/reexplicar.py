@@ -35,7 +35,7 @@ from maezo.agents.helena.historico import (
 from maezo.domain.conversa.competencia import hoje_em_brasilia
 
 if TYPE_CHECKING:
-    from maezo.agents.helena.graph import HelenaGraph
+    from maezo.agents.helena.graph import HelenaGraph, HelenaState
 
 PREFIXO: Final[str] = "Em outras palavras: "
 #: A reexplicacao tambem nao ficou clara: sem terceira tentativa, a oferta de uma pessoa (sem caso sozinha).
@@ -173,7 +173,7 @@ def resumo_simples(resposta: str) -> str | None:
     return f"{PREFIXO}{resumo}"
 
 
-async def reexplicar(self: HelenaGraph, state: Mapping[str, Any]) -> dict[str, Any] | None:
+async def reexplicar(self: HelenaGraph, state: HelenaState) -> dict[str, Any] | None:
     """O update do turno com a reexplicacao da ULTIMA resposta, ou `None` (sem resposta anterior: o caminho de
     sempre)."""
     pergunta, ultima = ultima_troca(state.get("historico_conversa"))
