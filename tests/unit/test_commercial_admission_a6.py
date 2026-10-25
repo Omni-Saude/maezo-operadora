@@ -602,6 +602,24 @@ def test_honrado_with_complete_evidence_passes_the_guard_into_io() -> None:
     assert reason is SuppressionRefusalReason.SOURCE_UNAVAILABLE
 
 
+def test_honrado_with_a_non_model_evidence_object_refuses_before_any_io() -> None:
+    store = PostgresSuppressionStore(_NoIoEngine())  # type: ignore[arg-type]
+    # FAIL-1 (blind Tier-2 gate): `is not None` alone was defeatable by duck-typed evidence
+    # (dict/`object()`/bare string) that crossed into I/O and would mark the record honored
+    # without a valid receipt/revision. The shape guard is the refusal itself — only a REAL
+    # `HonoredListEvidence` instance passes.
+    reason = _refuse_reason(
+        lambda: store.set_status(
+            "t-1",
+            suppression_ref_of("subj-1", "chan-A"),
+            "honrado",
+            "baixa na lista",
+            honored_evidence={"route": "QUALQUER"},  # type: ignore[arg-type]
+        )
+    )
+    assert reason is SuppressionRefusalReason.CONTRACT_MISMATCH
+
+
 def test_evidence_on_a_non_honrado_transition_is_contract_drift() -> None:
     store = PostgresSuppressionStore(_NoIoEngine())  # type: ignore[arg-type]
     reason = _refuse_reason(

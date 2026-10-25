@@ -833,6 +833,15 @@ class PostgresSuppressionStore:
                 require(honored_evidence is not None, SuppressionRefusalReason.CONTRACT_MISMATCH)
             else:
                 require(honored_evidence is None, SuppressionRefusalReason.CONTRACT_MISMATCH)
+            # A guarda de FORMA é a própria recusa (gate cego Tier-2, FAIL-1): `is not None`
+            # sozinho é derrotável por evidência duck-typed (dict/object/str) que atravessaria
+            # para o I/O e viraria o registro honrado sem receipt/revisão válidos. Posição-única
+            # (`type(...) is not` — molde `SuppressionEgressTelemetry.record_attempt`): só uma
+            # instância REAL do modelo fechado passa (subclasses não bastam).
+            require(
+                honored_evidence is None or type(honored_evidence) is HonoredListEvidence,
+                SuppressionRefusalReason.CONTRACT_MISMATCH,
+            )
             async with self._engine.begin() as db:
                 result = await db.execute(
                     _STATUS_SQL,
