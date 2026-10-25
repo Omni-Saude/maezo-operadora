@@ -67,6 +67,7 @@ __all__ = [
     "EgressLine",
     "EscalationClock",
     "FieldClass",
+    "HonoredListEvidence",
     "K_ANON_FLOOR",
     "PhiEgressViolationClass",
     "PostgresSuppressionStore",
@@ -378,6 +379,26 @@ class SuppressionKey(NamedTuple):
     contact_channel: OpaqueRef
 
 
+class HonoredListEvidence(_Closed):
+    """Evidência da OPERAÇÃO DE LISTA HONRADA (dossiê A6 §"Objeto publicável", item 4).
+
+    `registered ≠ honored` é INVARIANTE ESTRUTURAL: a transição para `honrado` só existe
+    COM a prova da operação de lista — a rota EXPLÍCITA da DMN engine-side
+    (`REGISTRO_HONRADO`; nunca honra por omissão), o receipt da fonte
+    (`sourceReceiptRef`) e a revisão do plano de lista (`listPlanRevision`). Nenhuma
+    supressão "vira honrada" por status interno, clique, SLA estourado ou decisão de
+    roteamento humana sozinha (a `SuppressionEncarregadoDecisionInputs` HONRAR é ato do
+    encarregado sobre o CASO, não a prova da lista). Os campos são OPACOS e minimizados
+    (`OpaqueRef` — sem whitespace, sem conteúdo de pessoa); a prova DURÁVEL da honra segue
+    sendo o evento `agents.events.vendor.suppression.honored_in_list` publicado pelo
+    processo (contrato SP-OP-001) — nenhuma coluna nova é criada aqui.
+    """
+
+    route: Literal["REGISTRO_HONRADO"]
+    source_receipt_ref: OpaqueRef
+    list_plan_revision: OpaqueRef
+
+
 class SuppressionStore(Protocol):
     """Fonte de supressão — o seam `suppression_store` do worker (molde vendor_admin).
 
@@ -402,9 +423,20 @@ class SuppressionStore(Protocol):
         ...
 
     async def set_status(
-        self, tenant: str, suppression_ref: Sha256Digest, status: Literal["honrado", "escalado"], motivo: str
+        self,
+        tenant: str,
+        suppression_ref: Sha256Digest,
+        status: Literal["honrado", "escalado"],
+        motivo: str,
+        *,
+        honored_evidence: HonoredListEvidence | None = None,
     ) -> SuppressionRecord:
-        """Transição fechada de status do relógio; registro inexistente = recusa tipada."""
+        """Transição fechada de status do relógio; registro inexistente = recusa tipada.
+
+        `status == "honrado"` EXIGE `honored_evidence` (dossiê A6: `registered ≠ honored` —
+        recusa `CONTRACT_MISMATCH` antes de qualquer I/O); `escalado` com evidência é
+        recusa (a evidência só existe na transição de honra).
+        """
         ...
 
 
@@ -782,10 +814,25 @@ class PostgresSuppressionStore:
             raise SuppressionError(SuppressionRefusalReason.SOURCE_UNAVAILABLE) from None
 
     async def set_status(
-        self, tenant: str, suppression_ref: Sha256Digest, status: Literal["honrado", "escalado"], motivo: str
+        self,
+        tenant: str,
+        suppression_ref: Sha256Digest,
+        status: Literal["honrado", "escalado"],
+        motivo: str,
+        *,
+        honored_evidence: HonoredListEvidence | None = None,
     ) -> SuppressionRecord:
         try:
             require(bool(motivo.strip()), SuppressionRefusalReason.CONTRACT_MISMATCH)
+            # `registered ≠ honored` (dossiê A6 §"Objeto publicável" item 4, anti-padrão v3
+            # §9.1): honrado sem a prova da operação de lista é recusa ANTES de qualquer
+            # I/O — o status nunca é grade de escrever. A forma da evidência é validada
+            # pelo modelo fechado `HonoredListEvidence` (rota explícita + receipt +
+            # revisão de plano); evidência em transição não-honrada é drift de contrato.
+            if status == "honrado":
+                require(honored_evidence is not None, SuppressionRefusalReason.CONTRACT_MISMATCH)
+            else:
+                require(honored_evidence is None, SuppressionRefusalReason.CONTRACT_MISMATCH)
             async with self._engine.begin() as db:
                 result = await db.execute(
                     _STATUS_SQL,
