@@ -19,8 +19,12 @@ import pytest
 
 from maezo.agents.helena.habilidades.atendimento_humano import oferta as of
 from maezo.agents.helena.habilidades.atendimento_humano.textos import (
+    LINHA_192_DA_RECUSA,
     PENDENTE_OFERTA_EQUIPE,
+    RESPOSTA_RECUSA_COM_CASO,
+    RESPOSTA_RECUSA_COM_CASO_SAUDE,
     RESPOSTA_RECUSA_DE_EQUIPE,
+    RESPOSTA_RECUSA_DE_EQUIPE_SAUDE,
     TEXTO_CONFIRMA_PASSAR,
     TEXTO_OFERTA_POR_REPETICAO,
 )
@@ -169,3 +173,71 @@ async def test_tres_perguntas_de_cobertura_seguidas_nunca_abrem_caso() -> None:
         resposta = await conversa.fala(pergunta, decisao_v7("cobertura"))
         assert _texto(resposta) == TEXTO_COBERTURA_FORA
     assert conversa.motivos == []
+
+
+# =================================================================================================
+# 5. DL-0088 (complemento, 25/10/2026) — a recusa da equipe de SAUDE guarda a linha do 192
+# =================================================================================================
+
+
+def _com_a_pessoa(*mensagens: str, ultima_da_helena: str, pendente: str | None = None) -> dict[str, Any]:
+    historico: list[dict[str, str]] = []
+    for mensagem in mensagens:
+        historico.append({"papel": "beneficiario", "texto": mensagem, "em": "2026-10-25T12:00:00+00:00"})
+        historico.append({"papel": "helena", "texto": "Certo.", "em": "2026-10-25T12:00:00+00:00"})
+    historico.append({"papel": "helena", "texto": ultima_da_helena, "em": "2026-10-25T12:00:00+00:00"})
+    return {"historico_conversa": historico, "coleta_pendente": pendente, "message_body": "não precisa"}
+
+
+@pytest.mark.parametrize(
+    "relato",
+    [
+        "estou com dor de cabeça forte desde ontem",
+        "minha filha está com febre",
+        "tô sentindo tontura e enjoo",
+    ],
+)
+def test_recusa_da_oferta_com_assunto_de_saude_traz_a_linha_do_192(relato: str) -> None:
+    estado = _com_a_pessoa(relato, ultima_da_helena=TEXTO_OFERTA_POR_REPETICAO)
+    assert of.texto_da_recusa(estado) == RESPOSTA_RECUSA_DE_EQUIPE_SAUDE
+    assert of.texto_da_recusa(estado).endswith(LINHA_192_DA_RECUSA)
+
+
+@pytest.mark.parametrize(
+    "oferta_de_saude",
+    [
+        "Posso passar o seu caso para a nossa equipe de saúde avaliar com você.",
+        "Para não arriscar, a nossa equipe de saúde pode falar com você.",
+        "Se quiser, a equipe de saúde fala com você. Se quiser falar com uma pessoa da equipe, "
+        "é só me pedir.",
+    ],
+)
+def test_oferta_da_equipe_de_saude_traz_a_linha_do_192_mesmo_sem_relato(oferta_de_saude: str) -> None:
+    estado = _com_a_pessoa("oi", ultima_da_helena=oferta_de_saude, pendente=PENDENTE_OFERTA_EQUIPE)
+    assert of.texto_da_recusa(estado) == RESPOSTA_RECUSA_DE_EQUIPE_SAUDE
+
+
+@pytest.mark.parametrize(
+    "assunto",
+    ["quero a segunda via do boleto", "o plano cobre fisioterapia?", "qual é o número da minha carteirinha?"],
+)
+def test_recusa_de_oferta_nao_clinica_nao_fala_em_192(assunto: str) -> None:
+    """Controle negativo: plano, cobranca, cobertura e equipe geral nunca levam o 192 (DL-0089)."""
+    estado = _com_a_pessoa(assunto, ultima_da_helena=TEXTO_OFERTA_POR_REPETICAO)
+    texto = of.texto_da_recusa(estado)
+    assert texto == RESPOSTA_RECUSA_DE_EQUIPE
+    assert "192" not in texto
+
+
+def test_caso_clinico_aberto_traz_a_linha_do_192_e_o_administrativo_nao() -> None:
+    base = _com_a_pessoa("oi", ultima_da_helena="Certo.")
+    assert of.texto_da_recusa({**base, "caso_aberto_confirmado": "clinico"}) == RESPOSTA_RECUSA_COM_CASO_SAUDE
+    assert (
+        of.texto_da_recusa({**base, "caso_aberto_confirmado": "administrativo"}) == RESPOSTA_RECUSA_COM_CASO
+    )
+
+
+def test_sem_oferta_e_sem_caso_o_reconhecimento_nao_ganha_192_nem_com_saude() -> None:
+    """Sem oferta recusada nao ha' recusa curta: so' o reconhecimento de sempre."""
+    estado = _com_a_pessoa("estou com dor de cabeça forte desde ontem", ultima_da_helena="Certo.")
+    assert of.texto_da_recusa(estado) == _lc.TEXTO_COMBINADO
