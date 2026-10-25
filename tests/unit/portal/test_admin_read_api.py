@@ -39,7 +39,8 @@ ISSUER = "https://cognito-idp.sa-east-1.amazonaws.com/sa-east-1_TestPool"
 ORIGIN = "https://portal.example.test"
 SESSION_COOKIE = "__Host-maezo-session"
 ADMIN_PROFILE = "identity,staff_cases,human,staff_admin_read"
-pytestmark = pytest.mark.asyncio
+# `asyncio_mode = "auto"` collects the async tests/fixtures; NO module-wide asyncio mark —
+# it would leak onto the synchronous fence tests at the footer as PytestWarnings.
 
 _NOW = datetime.now(UTC)
 
@@ -418,9 +419,16 @@ def test_admin_panel_flag_is_dark_in_the_real_tree() -> None:
 
 
 def test_admin_panel_env_name_is_never_mentioned_in_deploy() -> None:
-    """No `deploy/**` may name the flag (not even commented): flipping is a ROLL-wave act."""
+    """No `deploy/**` may name the flag (not even commented): flipping is a ROLL-wave act.
+
+    `__pycache__` artifacts are BYTES the test SESSION itself writes under `deploy/` when
+    another test imports a deploy lambda first (xdist order is not ours to choose): they are
+    never deployment declarations, and scanning them would make this fence auto-reprove on
+    session order — excluded explicitly, never softening the UTF-8 fail-closed posture for
+    real deployment files.
+    """
     deploy = ROOT / "deploy"
-    files = [path for path in sorted(deploy.rglob("*")) if path.is_file()]
+    files = [path for path in sorted(deploy.rglob("*")) if path.is_file() and "__pycache__" not in path.parts]
     assert files, "deploy ausente — varrer nada não é prova de flag OFF"
     problems: list[str] = []
     for path in files:
