@@ -39,3 +39,7 @@ textos:
   saude_oferta_medico: >-
     Para ir além disso, quem pode te orientar é o médico. Quer que eu te mostre onde marcar a consulta ou
     prefere falar com a equipe de saúde?
+
+  # --- Conversa (teste do dono, 25/10/2026): onde baixar o aplicativo, SEM link (a fonte vai so' pelo nome).
+  app_onde_baixar: >-
+    Procure por 'Austa Clínicas' na loja de aplicativos do seu celular (Google Play ou App Store).

@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from maezo.agents.helena.habilidades.conversa import app as _app
 from maezo.agents.helena.habilidades.conversa import leitura_curta as _lc
 
 if TYPE_CHECKING:
@@ -44,6 +45,9 @@ def _resposta_fixa_de_conversa(self: HelenaGraph, estado: Mapping[str, Any]) -> 
                 if _caso_aberto_afirmavel(estado) is not None
                 else RESPOSTA_DESPEDIDA
             )
+        if _app.pergunta_onde_baixar_o_app(texto):
+            # Teste do dono (25/10/2026): onde baixar o aplicativo, sem link (o texto do pacote).
+            return self._textos[_app.CHAVE_APP_ONDE_BAIXAR]
         if _pede_telefone(texto):
             return RESPOSTA_TELEFONE_DA_CENTRAL
         if _pergunta_de_navegacao(texto):
