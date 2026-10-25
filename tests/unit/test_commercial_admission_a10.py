@@ -749,9 +749,8 @@ def test_the_vendor_submission_route_comment_stays_byte_intact() -> None:
     # the DSR import block; text byte-identical, disclosed in R12). No assertion pins a
     # line NUMBER, only the literal.
     app_source = (
-        (Path(__file__).resolve().parents[2] / "src" / "maezo" / "portal" / "api" / "app.py")
-        .read_text(errors="replace")
-    )
+        Path(__file__).resolve().parents[2] / "src" / "maezo" / "portal" / "api" / "app.py"
+    ).read_text(errors="replace")
     assert "the vendor submission route ships DOCUMENTED but unbound" in app_source
     comment = "deployment projects the `vendor` capability and no default factory exists, so the route"
     assert comment in app_source
@@ -1046,8 +1045,10 @@ def test_a_stray_dossier_named_field_refuses_without_family_marker(field: str, v
     # marker — a successor schema binds it, never a re-declared field.
     with pytest.raises(VendorProjectionPayloadError) as exc:
         refuse_vendor_projection_payload({"vendorRef": "unit-vendor", field: value})
-    expected = "vendor_commercial_progress_fabricated" if field == "commercialProgress" else (
-        "vendor_attribution_policy_fabricated"
+    expected = (
+        "vendor_commercial_progress_fabricated"
+        if field == "commercialProgress"
+        else ("vendor_attribution_policy_fabricated")
     )
     assert exc.value.reason_code == expected
 
