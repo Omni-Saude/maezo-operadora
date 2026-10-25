@@ -187,7 +187,10 @@ class CoverageGatedCodec(CommercialCodec):
     snapshot (`CustomerJourneySnapshot.coverage`, shape `CustomerCoverageRead`) — a READ,
     never a command — and the SAME arm inside the recovery envelope
     (`RecoveredCustomerJourneySnapshot`, the `operation.get` original_result for
-    `original_command == "journey.get"`). Without the registered A4 record
+    `original_command == "journey.get"`, keyed only when that original result
+    `succeeded`: a recovery whose original result did not succeed carries `data: null` —
+    no coverage arm exists in it — and passes byte-exact, never an error or a refusal).
+    Without the registered A4 record
     (`commercial_coverage_admission`) a source-asserted coverage fact (`coverageState`
     `active`/`revoked`) does not cross the disclosure boundary on EITHER carrier: this
     gate refuses it with the shipped `purpose_denied` refusal before any byte of it is
@@ -231,7 +234,8 @@ class CoverageGatedCodec(CommercialCodec):
         elif (
             command.command == "operation.get"
             and value["data"].get("original_command") == "journey.get"
-            and value["data"].get("original_result") is not None
+            and isinstance(value["data"].get("original_result"), dict)
+            and value["data"]["original_result"].get("status") == "succeeded"
         ):
             journeys = value["data"]["original_result"]["data"]["journeys"]
         else:
@@ -249,7 +253,10 @@ class SupportGatedCodec(CommercialCodec):
     `vocabularyRef`) on three disclosure carriers: the journey snapshot's `support` arm
     (`journey.get`), the SAME arm inside the recovery envelope (`operation.get` with
     `original_command == "journey.get"`), and the `case_read` arm of a recovered
-    `support.handoff` original result. The published case vocabulary those fields name
+    `support.handoff` original result (both recovery carriers keyed only when the
+    recovered original result `succeeded`: a failed original carries `data: null` — no
+    case arm exists in it — and passes byte-exact, never an error or a refusal). The
+    published case vocabulary those fields name
     does not exist (CR-F5 `BROKER_CONSUMER_ABSENT_FROM_AMH_ADAPTER_PACKAGE`; the dossier's
     `DeclaredCaseKind`/`DeclaredCaseStatus` members are empty until publication), and the
     contract only allows a case resolution to be displayed "under its current published
@@ -296,7 +303,11 @@ class SupportGatedCodec(CommercialCodec):
         value = json.loads(result.wire_bytes)
         if command.command == "journey.get":
             arms = self._snapshot_case_arms(value)
-        elif command.command == "operation.get" and value["data"].get("original_result") is not None:
+        elif (
+            command.command == "operation.get"
+            and isinstance(value["data"].get("original_result"), dict)
+            and value["data"]["original_result"].get("status") == "succeeded"
+        ):
             original = value["data"]["original_result"]
             original_command = value["data"].get("original_command")
             if original_command == "journey.get":
